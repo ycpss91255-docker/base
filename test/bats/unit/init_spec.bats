@@ -729,6 +729,45 @@ EOF
   assert_line "Dockerfile"
 }
 
+# A version-bound migration may write anything -- it exists for the next base
+# change, which is by definition not on any list written today. The record is
+# what makes a write ours to commit: it is populated at the moment of the
+# write, the only time the condition that decided it is still known
+# (ADR-00000006, 2026-09-05). Until base#1097 the record was read only as a
+# FILTER over two closed lists, so a path on neither was recorded and then
+# dropped, and the migration's output stayed untracked behind a run that
+# reported success.
+
+# why: A migration that writes and records its output still had that output
+# left out of the commit the released driver makes -- base#1036's defect, for
+# any path the published list does not already name. A version-bound
+# migration's output never is on that list, because the list is written
+# before the migration exists
+@test "the resync: stages a path a migration wrote and recorded that no list names (base#1097)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  printf 'migrated\n' > "${TMP_REPO}/migration-output"
+  _init_record_write "migration-output"
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "migration-output"
+}
+
+# why: Recording is what makes a path the run's output, so an unrecorded file
+# stays out however new it is. Otherwise the arm above is satisfied by a
+# sweep over whatever the user happened to leave in the tree -- the thing
+# ADR-00000006 forbids, and the reason the record exists at all
+@test "the resync: leaves an unrecorded file a migration wrote unstaged (base#1097)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  printf 'mine\n' > "${TMP_REPO}/migration-output"
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "migration-output"
+}
+
 # why: A user's half-finished edit is not the resync's to commit, which is
 # what a `git add -A` sweep would make it
 @test "the resync: leaves a file no migration touched unstaged (#1036)" {
@@ -1748,6 +1787,66 @@ _stage_missing_template_conf() {
   assert_failure
   assert [ -f "${TMP_REPO}/.env" ]
   [ "$(cat "${TMP_REPO}/.env")" = "IMAGE_NAME=hand-written" ]
+  _init_rollback_cleanup
+}
+
+# Turn TMP_REPO into a git repo tracking <paths>, so the index half of the
+# snapshot has something to record. A `dir/` argument is tracked through a
+# placeholder inside it; a leading slash is stripped, because the canonical
+# .gitignore entries carry one and the path under the repo does not.
+_git_init_tmp_repo() {
+  git -C "${TMP_REPO}" init -q -b main
+  git -C "${TMP_REPO}" config user.email t@t
+  git -C "${TMP_REPO}" config user.name t
+  local _p _rel
+  for _p in "$@"; do
+    _rel="${_p#/}"
+    case "${_rel}" in
+      */) mkdir -p "${TMP_REPO}/${_rel}"; : > "${TMP_REPO}/${_rel}placeholder" ;;
+      *)  : > "${TMP_REPO}/${_rel}" ;;
+    esac
+    git -C "${TMP_REPO}" add -f -- "${_rel}"
+  done
+  git -C "${TMP_REPO}" commit -q -m "init"
+}
+
+# why: The rollback index snapshot carried the same swallowed fatal as the
+# untrack sweep it protects (#1119): `git ls-files -s -z -- "${entry%/}"`
+# appending under `2>/dev/null || true`. ls-files exits 0 even when a
+# pathspec matches nothing, so a non-zero status is git refusing the
+# pathspec, and discarding it recorded an EMPTY snapshot of the index the
+# resync is about to stage deletions into. An aborted run would then put
+# nothing back.
+@test "_init_snapshot_index: reports a git ls-files failure instead of recording nothing (#1119)" {
+  _source_init
+  _git_init_tmp_repo compose.yaml
+  _init_snapshot
+  # A corrupt index is a real `git ls-files` fatal that needs no privileges:
+  # rev-parse still answers, so the function gets past its no-repo guard.
+  printf 'not an index' > "${TMP_REPO}/.git/index"
+
+  run _init_snapshot_index
+  assert_failure
+  assert_output --partial "fatal:"
+  assert_output --partial "git ls-files"
+  _init_rollback_cleanup
+}
+
+# why: The snapshot and the untrack sweep must translate a canonical entry
+# into a pathspec the SAME way (#1119); they were two copies of
+# `${entry%/}`, and a snapshot that skips what the sweep removes cannot put
+# it back. Now that a refused pathspec is a hard failure, a repo tracking
+# the anchored entry is the case that catches this call site going back to
+# its own translation.
+@test "_init_snapshot_index: a repo tracking the anchored canonical entry still snapshots (#1119)" {
+  _source_init
+  _git_init_tmp_repo compose.yaml /deploy/
+  _init_snapshot
+
+  run _init_snapshot_index
+  assert_success
+  run cat "${_INIT_ROLLBACK_DIR}/index"
+  assert_output --partial "compose.yaml"
   _init_rollback_cleanup
 }
 

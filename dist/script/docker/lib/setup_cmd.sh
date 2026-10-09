@@ -309,7 +309,7 @@ _setup_set() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] set [%s] %s = %s\n' "${_section}" "${_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
+    printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 
   # Diagnostics, not chatter: --quiet drops the receipt, never a warning
@@ -736,7 +736,7 @@ _setup_add() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
+    printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 
   # Same diagnostics as `set` -- `add network.port` is the other way in,
@@ -906,7 +906,7 @@ _setup_remove() {
   if [[ "${_quiet}" -eq 0 ]]; then
     printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
+    printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 
   _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
@@ -1012,7 +1012,7 @@ _setup_reset() {
   if [[ "${_quiet}" -eq 0 ]]; then
     _log_info setup conf_reset "display=$(_setup_msg reset "done")"
     printf '[setup] file: %s\n' "${_conf}"
-    printf "[setup] next: run 'just build' (auto-applies) or './setup.sh apply' to regenerate .env / .env.generated / compose.yaml\n"
+    printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
 }
 

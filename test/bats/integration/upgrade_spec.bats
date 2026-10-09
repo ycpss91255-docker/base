@@ -98,6 +98,14 @@ _seed_template_remote() {
 #   --prefix=.base ... v0.9.5 --squash`: a committed README, a
 #   main.yaml with @v0.9.5 references ready to be bumped, and .base/ as
 #   a proper subtree.
+#
+#   The main.yaml calls EVERY reusable worker base ships, and the list is
+#   derived from `.github/workflows/` rather than written out here. A fixture
+#   carrying only the workers Step 4 happened to name cannot tell "the
+#   rewrite covered everything" from "the rewrite covered the two it was
+#   told about", which is how a consumer sat 21 minors behind on
+#   publish-worker. DOWN_WORKERS carries the derived list to the arms below
+#   so they assert over the same population.
 _seed_downstream_repo() {
   mkdir -p "${DOWN_DIR}/.github/workflows"
   git -C "${DOWN_DIR}" init -q -b main
@@ -105,13 +113,29 @@ _seed_downstream_repo() {
   git -C "${DOWN_DIR}" config user.name t
 
   echo "DOWNSTREAM" > "${DOWN_DIR}/README.md"
-  cat > "${DOWN_DIR}/.github/workflows/main.yaml" <<'YAML'
-jobs:
-  build:
-    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.9.5
-  release:
-    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.5
-YAML
+
+  # shellcheck disable=SC1091
+  source /source/dist/script/base/upstream.sh
+  DOWN_WORKERS=()
+  local _wf
+  for _wf in /source/.github/workflows/*.yaml /source/.github/workflows/*.yml; do
+    [[ -f "${_wf}" ]] || continue
+    grep -qE '^[[:space:]]*workflow_call:' "${_wf}" || continue
+    DOWN_WORKERS+=("$(basename "${_wf}")")
+  done
+  (( ${#DOWN_WORKERS[@]} > 0 )) \
+    || fail "no workflow under .github/workflows/ declares workflow_call, so this fixture would call no worker at all"
+
+  {
+    printf 'jobs:\n'
+    local _n=0
+    for _wf in "${DOWN_WORKERS[@]}"; do
+      _n=$(( _n + 1 ))
+      printf '  call-%s:\n    uses: %s/.github/workflows/%s@v0.9.5\n' \
+        "${_n}" "${BASE_UPSTREAM_SLUG}" "${_wf}"
+    done
+  } > "${DOWN_DIR}/.github/workflows/main.yaml"
+
   git -C "${DOWN_DIR}" add -A
   git -C "${DOWN_DIR}" commit -q -m "initial downstream"
 
@@ -133,11 +157,55 @@ YAML
   [ "$(cat .base/.version)" = "v0.9.7" ]
   # New file from v0.9.7 arrived under the subtree prefix
   [ -f ".base/script/docker/new_script.sh" ]
-  # main.yaml @tag references bumped to v0.9.7
-  grep -Fq "build-worker.yaml@v0.9.7" .github/workflows/main.yaml
-  grep -Fq "release-worker.yaml@v0.9.7" .github/workflows/main.yaml
+  # EVERY shipped worker's @tag reference bumped to v0.9.7 -- the population
+  # is the one _seed_downstream_repo derived, so a worker added to base later
+  # is asserted over here without this arm being edited.
+  local _worker
+  local -a _stale=()
+  for _worker in "${DOWN_WORKERS[@]}"; do
+    grep -Fq "/${_worker}@v0.9.7" .github/workflows/main.yaml \
+      || _stale+=("${_worker}")
+  done
+  (( ${#_stale[@]} == 0 )) \
+    || fail "the upgrade left these shipped workers' @ref at v0.9.5: ${_stale[*]}"
   # README.md and other downstream content untouched
   [ "$(cat README.md)" = "DOWNSTREAM" ]
+}
+
+# why: The commit message used to assert a general rule, and it was false on
+# exactly the repos whose unnamed worker ref it had just left behind (#1112)
+@test "upgrade.sh v0.9.7: the upgrade commit names the refs it actually rewrote (#1112)" {
+  cd "${DOWN_DIR}"
+  (( ${#DOWN_WORKERS[@]} >= 2 )) \
+    || skip "base ships one reusable worker; this arm needs two to tell a rewritten ref from an untouched one"
+
+  # One worker is ALREADY at the target, so the run has both kinds of ref in
+  # front of it. The old message said "workflow @tag updated to <ver>"
+  # whatever happened, so it could not tell the two apart -- which is how it
+  # claimed credit for a ref no sed had ever touched.
+  local _current="${DOWN_WORKERS[0]}"
+  sed -i "s|/${_current}@v0.9.5|/${_current}@v0.9.7|" .github/workflows/main.yaml
+  git add .github/workflows/main.yaml
+  git commit -q -m "pin ${_current} at the target already"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+
+  # The claim is read off the one line that makes it. Membership is tested
+  # space-delimited rather than as a substring: `build-worker.yaml` is a
+  # substring of `multi-distro-build-worker.yaml`, and a substring test would
+  # read the second as a mention of the first.
+  local _claim _worker
+  _claim="$(git log -1 --format=%B | grep -m1 '^- main\.yaml:')" \
+    || fail "the upgrade commit says nothing about main.yaml: $(git log -1 --format=%B)"
+  _claim=" ${_claim} "
+
+  for _worker in "${DOWN_WORKERS[@]:1}"; do
+    [[ "${_claim}" == *" ${_worker} "* ]] \
+      || fail "the upgrade commit does not name ${_worker}, whose @ref it rewrote:${_claim}"
+  done
+  [[ "${_claim}" != *" ${_current} "* ]] \
+    || fail "the upgrade commit claims it rewrote ${_current}, which was already at the target:${_claim}"
 }
 
 # ── Step 5: declarative Dockerfile/entrypoint migrations ───────
@@ -659,4 +727,118 @@ STUB
   assert_output --partial "template source"
   # Pre-flight aborted before subtree pull ran: version untouched.
   [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A local edit to a path upstream did not touch
+# ════════════════════════════════════════════════════════════════════
+#
+# `git subtree pull --squash` raises a conflict only where BOTH sides
+# changed the same path. For a path base shipped identically across the
+# interval the merge sees a change on the local side and none upstream, so
+# it keeps the local version with no conflict and no message -- and the
+# upgrade's own output is then indistinguishable from one that landed a
+# byte-exact tree. A byte-exact census of every vendored tree in the org
+# found exactly one such edit, which had ridden through an upgrade
+# untouched; what the census could not find was any run, check or output
+# that would have reported it.
+#
+# The subject of the first arm is DERIVED from the fixture's two tags
+# rather than written down here. A named path stops being "shipped
+# identically across the interval" the moment the fixture changes that
+# file, and the arm would then quietly pass by exercising the conflict path
+# it exists to avoid.
+
+# _path_unchanged_between_tags
+#   Print one subtree-relative *.sh path whose blob the fixture ships
+#   identically at BOTH tags. `comm -23` over the sorted path list and the
+#   sorted changed-path list is the whole derivation. Restricted to *.sh so
+#   the edit below can be a trailing comment, which every shell file in the
+#   fixture tolerates -- these arms are about what the upgrade REPORTS, not
+#   about breaking the tree it reports on.
+_path_unchanged_between_tags() {
+  local _all="${BATS_TEST_TMPDIR}/tag_paths.txt"
+  local _changed="${BATS_TEST_TMPDIR}/tag_changed.txt"
+  git -C "${TMPL_WORK}" ls-tree -r --name-only v0.9.5 | sort > "${_all}"
+  git -C "${TMPL_WORK}" diff-tree -r --name-only v0.9.5 v0.9.7 | sort > "${_changed}"
+  comm -23 "${_all}" "${_changed}" | grep -E '\.sh$' | head -n 1
+}
+
+# why: A squashed subtree pull reports a hand edit only where upstream
+# touched the same path, so an edit to a path base shipped identically
+# across the interval rides through the upgrade with no conflict and no
+# message; the one real instance in the org sat in a vendored tree across
+# seven releases and an upgrade before a byte-exact census found it, and
+# silence is what invariant 2 exists to forbid
+@test "upgrade.sh names a vendored edit on a path upstream did not touch (#1092)" {
+  cd "${DOWN_DIR}"
+
+  local _subject
+  _subject="$(_path_unchanged_between_tags)"
+  [ -n "${_subject}" ] \
+    || fail "the fixture ships no *.sh path identically at both tags, so this arm cannot pose the case it names"
+
+  printf '# an edit the consumer made inside the vendored tree\n' >> ".base/${_subject}"
+  git add ".base/${_subject}"
+  git commit -q -m "local edit inside the vendored tree"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "${_subject}"
+
+  # The direction base chose: the consumer's edit is KEPT and reported, not
+  # silently replaced by upstream's copy. Losing it is the other failure,
+  # and this is the half a report-only fix must not drift into.
+  grep -Fq '# an edit the consumer made inside the vendored tree' ".base/${_subject}"
+}
+
+# why: The edited-path case and the extra-file case reach the report by
+# different sides of the tree comparison, and a check built only on the
+# first reads a file the consumer added into the vendored tree as upstream's
+# own; that is the shape the census counted separately as only-in-consumer
+@test "upgrade.sh names a file the consumer added inside the vendored tree (#1092)" {
+  cd "${DOWN_DIR}"
+
+  local _extra="dist/script/base/consumer_added.sh"
+  # Absence upstream is asserted, not assumed: a fixture that grew this
+  # path would turn the arm into a test of the ordinary payload compare.
+  refute git -C "${TMPL_WORK}" cat-file -e "v0.9.5:${_extra}"
+  refute git -C "${TMPL_WORK}" cat-file -e "v0.9.7:${_extra}"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > ".base/${_extra}"
+  git add ".base/${_extra}"
+  git commit -q -m "add a repo-local file inside the vendored tree"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "${_extra}"
+  [ -f ".base/${_extra}" ]
+}
+
+# why: The negative control for the two arms above. A report that fires on
+# every upgrade names nothing, and the census that motivated this check
+# reported zero partial upgrades across 2217 files -- so a clean pull has to
+# stay quiet, and this is the arm that fails if the comparison picks up the
+# resync's own work rather than the consumer's
+@test "upgrade.sh reports no vendored drift when the pull lands byte-exact (#1092)" {
+  cd "${DOWN_DIR}"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  refute_output --partial "do not match what base shipped"
+  # And it was actually checked. "nothing to report" and "could not look" are
+  # the same silence from the terminal, which is the whole complaint.
+  refute_output --partial "could not be checked"
+
+  # And the tree really is byte-exact, so "quiet" is not quiet-because-blind.
+  # The upstream commit is read off git-subtree's own recorded metadata, the
+  # same source the check under test reads, so the two cannot disagree about
+  # which release the tree is being held to.
+  local _split
+  _split="$(git log --format=%B -5 | sed -n 's/^git-subtree-split: //p' | head -n 1)"
+  [ -n "${_split}" ]
+  assert_equal "$(git rev-parse "${_split}^{tree}")" "$(git rev-parse 'HEAD:.base')"
 }

@@ -144,6 +144,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `hadolint` | Dockerfile static analysis | `hadolint` (`--lint --hadolint`, in the test-tools image) | `code_changed` |
 | `issueref` | no transient `#NNN` in code comments (ADR-00000013) | `lint-static` (one group) | ungated |
 | `adr-numbering` | `doc/adr/` duplicate-free + well-formed | `lint-static` (one group) | ungated |
+| `adr-structure` | every ADR carries each required part exactly once at column 0 -- `> Serves:`, Context, Decision, Consequences, Alternatives, Status | `lint-static` (one group) | ungated |
 | `stale-setup-conf` | no legacy `config/docker/setup.conf` under `dist/` | `lint-static` (one group) | ungated |
 | `readme-sync` | localized READMEs still match `README.md` | `lint-static` (one group) | ungated |
 | `doc-counts` | the figures / catalog rows below | `doc-counts` (`--doc-counts-only`) | ungated |
@@ -153,13 +154,24 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static` (one group) | ungated |
 | `errexit-bang` | no `!` statement outside the LAST statement of any `*.bats` body in the repo, and none handing its verdict on via a `;`, an async `&` or an `\|\| true` anywhere in it, continuation lines included. An `\|\|` with a live right operand still exempts the statement -- `! A \|\| return 1` fails its test from any position -- unless a RIGHT operand -- one after such an operator, never the leading `!` that made the statement a candidate -- is itself `!`-inverted: bash exempts THAT from errexit too, so `! A \|\| ! B` aborts nothing and is judged by position and by `;` like any other statement. It is the list's FINAL operand that decides whether it can abort, and the whole class is declined rather than only the inert half, so a live chain (`! A \|\| ! B \|\| return 1`, which DOES abort from a non-final position) is reported alongside it: telling them apart needs the chain evaluated, not read, and that over-report costs one allow region. The judgement is made on the FOLDED statement: physical lines are joined while the text is INCOMPLETE -- a `\` continuation, a quote or a `(` still open, or a `\|` / `\|\|` / `&&` / `\|&` still waiting for its right operand -- and the scan then runs once from the first character, so a separator inside a `( ... )` is the argument's wherever the `(` and its `)` sit. The `\` join is a SPLICE, matching bash: `! grep -q A\` over `#b f; true` is the one word `A#b` and a live `; true`, while `! grep -q A \` over the same text is a comment. The fold answers where a statement STARTS as well as where it ends: a `!` line read in as an operator's right operand -- `echo a \|\|` over `! grep -q A f; true` -- is judged from the line the `!` opens on, over the span that begins there, so the `\|\|` in front of it stays the `echo`'s rather than being read as the `!`'s own hand-off. A statement still unfinished where its body closes is REPORTED when that span is a `!` one, or when an unterminated quote or `(` folded a line opening with `!` into it; otherwise it is unreadable but provably hid nothing this rule judges, which is stated in the driver rather than claimed away. Every row that judges a `!` line is silenced by the allow region; the two that report the FILE instead -- a body left open at EOF, an unbalanced allow marker -- are deliberately not, because the mechanism they are about must not be able to silence them. What is NOT modelled is listed in the driver header with the direction each errs in: `$'...'`, backticks, a heredoc's fixture text and a `!` that ends a compound command ending the body (#991) all OVER-report, which is the refusing direction. The ones that MISS are a `}` at column 0 inside a heredoc, a CRLF file (#990), and the `{ }` half of that same compound-command entry (#991): a brace group carries the `!` exemption out of itself, so a one-line `{ ! cmd; }` away from the body's last statement is inert in bash and unreported, because the scan needs `!` as the statement's first token and there it is `{`. Those two are not every miss the lint has, and the list does not claim to be: the `\|\|` narrowings the driver states separately miss as well -- an always-zero GROUP (`\|\| { true; }`, `\|\| ( true )`) and an operand outside the closed set of always-zero builtins that cannot fail in practice (`\|\| echo x`) are inert and go unreported, and a `;` behind either is swallowed with them (#992). A list whose FINAL operand cannot fail is inert in EVERY position, so position cannot catch it either -- `! A && ! B \|\| echo x` as a body's last statement is such a case, and a spec PINS it as a known miss so it cannot change shape unnoticed; that spec is inverted when #992 lands. The population is derived by walking the tree, not listed: `test/bats/` and the shipped `dist/test/bats/smoke/` both count | `lint-static` (one group) | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static` (one group) | ungated |
-| `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
+| `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static` (one group) | ungated |
+| `self-hosted-guard` | a job that can land on the org's self-hosted runner is guarded to same-repository events (ADR-00000026) | `lint-static` (one group) | ungated |
+| `tool-provenance` | no CI job runs a tool this repo pins unless the job also obtains that pin | `lint-static` (one group) | ungated |
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block, and every `### <category>` heading one of the seven in `script/release/changelog_categories.sh` | `lint-static` (one group) | ungated |
+| `changelog-layout` | the split changelog stays addressable: `doc/changelog/CHANGELOG.md`'s index is re-derived from the per-series files and must match byte for byte | `lint-static` (one group) | ungated |
+| `pin-coverage` | every third-party version this repo names is declared to the upstream-release watch, so nothing is pinned with nothing watching it | `lint-static` (one group) | ungated |
+| `action-ref-agreement` | every call site of the same GitHub Action agrees on one ref | `lint-static` (one group) | ungated |
+| `generated-workflow-actions` | a workflow `init.sh` / `upgrade.sh` writes into a consumer keeps its action refs in lockstep with this repo's own | `lint-static` (one group) | ungated |
+| `just-provenance` | every site that obtains the `just` runner names the one pinned version | `lint-static` (one group) | ungated |
+| `catalog-description` | every `@test` says why its case matters, in the `# why:` marker the catalogues render | `lint-static` (one group) | ungated |
+| `spec-repo-root` | a spec's `REPO_ROOT` is a fixture, never the live checkout | `lint-static` (one group) | ungated |
+| `test-name-backtick` | a `@test` name is a literal -- a backtick in one is executed by bats at collection time | `lint-static` (one group) | ungated |
 
 `lint-static` is a matrix of GROUPS, not of lints (base#1071): each entry is a
 position (`1/4` ... `4/4`) and `test.sh --lint-group N/T` computes which lints
 fall in it from `_LINT_TOOLS`, so a lint added to that table joins a group with
-no workflow edit and no row here to keep true. The trade is the checks list: a
+no workflow edit -- and the row here is kept true by a guard rather than by
+somebody remembering (see below). The trade is the checks list: a
 red check names a group, and the group's own output names every lint that
 failed in it, because the phase enumerates rather than stopping at the first
 (#1059). `test.sh --lint-group-members N/T` answers which group holds a lint.
@@ -174,10 +186,232 @@ reads by name.
 
 Adding a lint to `_LINT_TOOLS` without giving it a CI job fails the
 completeness guard in `test/bats/unit/self_test_yaml_spec.bats`. That guard,
-not this table, is what keeps the list honest -- four lints shipped local-only
+not this table, is what keeps the LIST honest -- four lints shipped local-only
 before it existed, and `home-literal` / `bash-source-guard` /
 `early-close-reader` each joined the matrix in the same change that introduced
 them.
+
+The same spec holds this TABLE to it, which is how the table stopped being
+hand-maintained prose: one guard compares the row set against `_LINT_TOOLS` in
+both directions, another requires every CI job name cited above to be a job
+`self-test.yaml` declares. The table drifted to 15 of 26 rows over one release
+cycle, and carried a `lint-static (i18n-orphan)` row pointing at a check that
+has not existed since the matrix became a partition of groups. Only the
+"Enforces" column is authored: it is prose a person writes, not a figure.
+
+### One lint is deliberately not in that table
+
+`log-event-registry` asks whether every event id a `*.sh` under `dist/` or
+`script/` emits through `_log_*` is carried by
+`dist/script/docker/lib/log-events.txt`. `_log_*` is STRICT: `lib/log.sh`
+refuses an unregistered body and prints its own refusal INSTEAD of the message,
+so the operator reads the registry's complaint rather than the diagnostic, at
+the moment something had already gone wrong. Both sides are derived from the
+tree -- the registry's own path out of the `_LOG_EVENTS_FILE` assignment that
+resolves to a file that exists, the emitted ids from every `_log_*` literal body
+plus the first argument of each call to a forwarding wrapper, itself derived
+rather than named -- and eight refusals cover the ways the scan could report a
+clean tree having read nothing.
+
+It is not in `_LINT_TOOLS`, so `--lint` and CI do not run it. That is about its
+READER, not its rule: the reader is a hand-written shell word splitter, and
+forty-one consecutive review rounds each found a reproduced parser defect --
+twenty-five of them false positives on valid shell. Round thirty-four came back
+clean and the seven rounds after it found sixteen more, so a clean round is not
+evidence the reader is finished. In the table every one of those false positives
+would have blocked a PR whose logging was correct. The driver header carries the full argument and the one condition for
+promotion: a release cycle clean against a moving tree.
+
+Run it with `./script/test/test.sh --log-event-registry-only` (host-direct, no
+compose) or `just test lint --log-event-registry` (in-container). It is in
+`_UNTABLED_LINT_ENTRY_POINTS` in `test/bats/unit/ci_spec.bats` with that reason,
+which is what keeps base#1113's completeness guard honest rather than silent:
+a lint in neither the table nor the stated exemptions fails that guard.
+
+## Breaking the behaviour on purpose: `just test mutation-probe`
+
+```bash
+just test mutation-probe --subject script/test/drivers/thing.sh \
+  --mutate 'sed -i "/^_run_thing() {/a   return 0" script/test/drivers/thing.sh'
+```
+
+A green suite says every assertion ran. It does not say any of them would
+notice a **wrong answer**, and those two statements are further apart than
+they look. The v0.43 retrospective audited the cycle by REMOVING each PR's
+production change and re-running its tests -- which finds a test that does not
+notice absence, and cannot find a test that notices absence and would miss a
+wrong answer. A guard that only greps for a string still turns red when the
+file carrying that string is deleted, so under a revert it scores identically
+to a behavioural guard. Four assertion groups shipped in that blind spot, and
+ten more PRs' tests failed on revert only with `command not found` or
+`No such file`.
+
+So the probe puts the production code back and breaks its **behaviour** in
+place. A test that survives that was never pinning the behaviour; a test that
+fails names itself as the one that was, which is the line to quote when
+saying what a change is covered by.
+
+**Measured on the tree that shipped this recipe.** Deleting
+`dist/script/docker/wrapper/build.sh` -- the subject of
+`reclaim_wiring_spec.bats`'s "the verbs that BEGIN a flow do not reclaim" --
+leaves that spec at 32 ok / 0 not ok, because the assertion is a refutation
+and a refutation over a file that is not there is satisfied by its absence.
+The same mutation at tier scope is 4667 ok / 109 not ok, with the witnesses in
+`build_sh_spec.bats`.
+
+**How much ran decides what a green may be called, and that is the whole
+reason this is a recipe rather than a habit.** The audit's follow-up
+(base#1108) asked the question per file: revert the production change, re-run
+THE ONE SPEC THAT PR EDITED, call the change untested if that spec is green.
+Six changes were named on that basis. Measured afterwards, five of the six had
+a failing witness in a **sibling** spec from the same PR, one was a genuine
+gap, and one did not reproduce at all -- so the defect in the five was the
+coverage accounting, not the coverage. A spec that stays green under a
+mutation has answered about itself; only a tier-wide run can say the suite
+does not pin a behaviour. The probe therefore reports:
+
+| | a red | a green |
+|---|---|---|
+| tier scope (default) | `PINNED`, naming every witness | `NOT PINNED` -- the finding |
+| `--spec <path>` | `PINNED`; a red needs no scope | `INCONCLUSIVE`, never `NOT PINNED` |
+
+Run the whole tier, then ask which spec should have been the one to notice.
+
+**It runs the scope twice, and that is the price of an attributable red.** The
+first run is the chosen scope **unmutated**: without it the probe cannot say
+anything *turned* red, and on a checkout that already has a failing test -- the
+normal state of a tree reached mid-change -- every mutation would report
+`PINNED` and name that pre-existing failure as its witness. A baseline that is
+not clean is **refused** rather than subtracted, because the method presumes the
+suite was green before the behaviour was broken, and a subtraction would let the
+probe report over failures nobody has explained.
+
+**It cannot leave the tree mutated.** Every declared `--subject` is recorded
+(bytes and mode) before anything is touched and restored from that record --
+not from git, which cannot see an uncommitted edit you are in the middle of.
+The restoration is then **verified** against the record, and a failure is
+loud, names the file, keeps the record directory and exits refused; an
+`INT` / `TERM` stops the runner, restores, and exits **without reporting
+anything** -- a measurement over a suite killed partway cannot be told apart
+from a finished one's -- and an `EXIT` trap covers the rest. The tree is also
+compared before and after the mutation: a fingerprint -- content, type, mode
+and link target -- for **every tracked path** plus everything git reports as
+untracked or ignored. The dirty set alone is not enough, and neither is a
+status code: a file that was already dirty stays ` M` through a second edit,
+`chmod 600` on a clean tracked file moves nothing git records, and an ignored
+file is invisible to `git status` by definition -- which matters because the
+files this repo ignores include the generated config the suite under
+measurement reads. An ignore pattern naming a *directory*, as `coverage/` and
+`log/` do, is reported by git as that directory, so its contents are enumerated
+and the directory entry itself dropped -- git prints the directory while the
+rule stands and the individual files once it goes, and a snapshot keeping both
+spellings refused a mutation of `.gitignore` over a directory nobody touched.
+The cost, stated: a directory's own mode is not watched. The root must be the
+**top** of its work tree, because git's two listings answer relative to
+different places otherwise and a declared subject comes back as an undeclared
+edit. A mutation command that edited a path it did not declare is
+refused there, before a multi-minute suite carries that edit past the point
+anyone is watching. Nothing outside the checkout is covered, and no snapshot of
+a checkout could be: a mutation command is arbitrary shell.
+
+The restore removes the destination before writing, which is not tidiness:
+`cp` writes *through* a destination symlink, so a mutation that replaced the
+subject with a link would have the restore overwrite that link's target -- an
+undeclared file destroyed by the step whose only job is to put things back. The
+same applies one directory up, so every ancestor is checked to be a real
+directory -- both when a subject is **declared**, because a subject reached
+through a link could otherwise be mutated and then not restored, and again
+before the restore writes. The checkout **root** is checked by device and
+inode rather than by its path, because swapping it (`mv tree tree-saved;
+ln -s outside tree`) is precisely the move that keeps the path.
+
+A mutation may not **stage or commit** what it writes. The working tree is not
+the whole state a checkout carries: `git add` leaves the mutation in the index
+after the bytes are back, where the next commit ships it, and `git commit` has
+shipped it already. What git records -- the index entries and HEAD, hashed as
+themselves rather than as a difference from a HEAD the mutation can move -- is
+compared before the suite runs and again as part of the restoration verdict.
+It is refused, not undone: the probe does not rewrite an index or a history it
+did not write, so it restores the files, names `git restore --staged` and exits
+refused.
+
+A background process a mutation or a suite spawned cannot outlive it either.
+Waiting for a child's shell does not wait for what that shell backgrounded, so
+the probe reaps the whole process group the moment the leader is reaped -- at
+the fork site, where the pid is one it reaped microseconds ago rather than a
+number the kernel may since have handed to someone else.
+
+Two inputs are refused before anything is touched. A **symlink** subject: an
+in-place editor replaces a link with a regular file, and a restore that put the
+bytes back would leave a file where a link was and call it restored, so the
+refusal names the target instead -- which is where the behaviour lives anyway.
+And every inherited `BATS_*` selector is **cleared** from the runner's
+environment, because `--bats-only` with an exported `BATS_FILE` or
+`BATS_FILTER` runs a subset while the verdict would still say `scope=tier`:
+the prefix is the rule, so a sixth selector is covered the day it is added.
+
+**Five measurements it refuses to report as verdicts**, because each one's
+number is the number a sound suite prints too: a mutation that left every
+subject byte-identical (the green is the baseline, so the sed expression
+matched nothing), a run that executed no tests at all (a broken runner, not a
+finding about the tests), a run that reported some passes and then died (the
+same hole with a plausible number on it -- the runner's exit status is what
+tells them apart), a green that executed **fewer** assertions than the baseline
+(the mutation removed the assertions instead of being observed by them, which
+is what deleting a dispatch from a driver does), and the narrow green above. A
+**skip** is not an execution: bats reports one as `ok N name # skip ...`, and
+counting it would let a mutation erase the evidence against itself and still
+look measured. A **red** is held to none of these: something observed the wrong
+answer, and that stands however much else ran.
+
+An interrupt stops the current child's whole process group and waits for it,
+under a bounded grace period before escalating to `KILL` -- a child that
+ignores `TERM` would otherwise leave the probe waiting forever with the tree
+still mutated, which is worse than either a stuck suite or a mutated tree
+alone. The **mutation** is such a child too, and for the same reason: bash
+defers a trap until the foreground command finishes, so a mutation that hangs
+after editing the subject would hold the handler off indefinitely.
+
+Signalling a process group does not reach a **container**, though, and the
+suite runs in one: `docker compose run` starts a container that belongs to the
+daemon and keeps the checkout bind-mounted, so it could overwrite the restored
+files afterwards. Before restoring, the probe therefore waits until no container
+of this checkout's compose project is running -- the project name from the single
+producer that mints it, the containers from the label compose stamps. A daemon it
+cannot ask counts as **held**: "I could not find out" and "nothing is running"
+are not the same answer. (`test.sh --await-project` was tried first and is the
+wrong primitive, which is worth knowing because it reads like the right one: its
+blocker list skips a `running` container on purpose, because its question is
+whether a *previous* run has let go of the network.) The restore happens either
+way, because a tree left mutated is the worse of the two, and the probe then
+exits refused saying a container was still holding the checkout.
+
+The restoration traps stay armed across all of that -- the stop, the wait and the
+restore -- and come off only once the outcome is known, because the wait can take
+half a minute and a ctrl-c inside it used to kill the probe with the subjects
+still mutated. A signal during the wait does not restart it: that is the operator
+saying stop, and the restore is what they are waiting for.
+
+**The mutation is yours, because only you know what the behaviour is.** Five
+shapes earned their place during the audit: `return 0` at the top of a driver
+(the cheapest, and the one validated twice); deleting a step from a workflow;
+renaming a function away from its callers; inverting a branch; and a
+behaviour-**preserving** refactor, which is the one the others cannot replace.
+Every destructive mutation turns a text-matching guard red, so all four make a
+grep look behavioural. A refactor that preserves behaviour must leave the
+suite GREEN, and a red there means the test is pinned to the text. Three greps
+audited on base#1117 were anti-correlated exactly that way: green through a
+total inversion of the branch, green with the subject removed entirely, and
+red on a behaviour-preserving refactor.
+
+The verdict is published only after the tree is proven back, and never
+instead of a restoration failure: that failure is the more important news, and
+a verdict printed above it reads as the answer.
+
+Exit status: 0 `PINNED`, 1 `NOT PINNED`, 2 `INCONCLUSIVE`, 3 refused. The
+recipe is wired into no gate and no CI job: it is an on-demand loop like
+`just test coverage-path`, and whether running it is required before a change
+lands is a policy question this recipe does not answer.
 
 ## Maintaining these docs
 

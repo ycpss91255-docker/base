@@ -49,8 +49,9 @@
 #                                  # ShellCheck + unit). Used by the
 #                                  # bats-integration job in self-test.yaml
 #                                  #
-#   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
-#                             # (full suite; local `just test coverage`)
+#   ./test.sh --coverage        # Run the full Bats suite under Kcov. The
+#                             # lint phase is SKIPPED on every coverage
+#                             # path (local `just test coverage`)
 #   ./test.sh --coverage-local [--jobs N]
 #                             # Full suite under kcov as N parallel kcov
 #                             # processes (default nproc), merged into one
@@ -58,7 +59,7 @@
 #                             # single fat runner where the CI shard matrix
 #                             # does not help
 #   ./test.sh --coverage-shard N/T  # Run kcov over coverage shard N of T
-#                                  # (skip ShellCheck). Used by the coverage
+#                                  # (no lint phase). Used by the coverage
 #                                  # matrix in self-test.yaml. Codecov
 #                                  # merges the per-shard uploads.
 #   ./test.sh --coverage-path PATH  # Run ONE spec under kcov (instrumented
@@ -149,6 +150,10 @@ source "${SCRIPT_DIR}/drivers/just_provenance.sh"
 source "${SCRIPT_DIR}/drivers/catalog_description.sh"
 # shellcheck source=script/test/drivers/spec_repo_root.sh
 source "${SCRIPT_DIR}/drivers/spec_repo_root.sh"
+# shellcheck source=script/test/drivers/test_name_backtick.sh
+source "${SCRIPT_DIR}/drivers/test_name_backtick.sh"
+# shellcheck source=script/test/drivers/log_event_registry.sh
+source "${SCRIPT_DIR}/drivers/log_event_registry.sh"
 # shellcheck source=script/test/drivers/toml_fixture.sh
 source "${SCRIPT_DIR}/drivers/toml_fixture.sh"
 # shellcheck source=script/test/drivers/shell_metrics.sh
@@ -195,6 +200,7 @@ readonly _LINT_TOOLS=(
   just-provenance
   catalog-description
   spec-repo-root
+  test-name-backtick
   toml-fixture
 )
 
@@ -471,6 +477,8 @@ _run_lint_tool() {
     just-provenance)  _run_just_provenance ;;
     catalog-description) _run_catalog_description ;;
     spec-repo-root)   _run_spec_repo_root ;;
+    test-name-backtick) _run_test_name_backtick ;;
+    log-event-registry) _run_log_event_registry ;;
     toml-fixture)     _run_toml_fixture ;;
     # The three implementation-standard metric lints and their combined
     # report (base#994 phase 2). Dispatchable here -- this is the one
@@ -797,6 +805,29 @@ Options:
                           matrix's critical path -- base#1075 measured one
                           at 331s of a 501s shard -- duplicating the
                           lint-static job that already asserts the tree)
+  --test-name-backtick    With --lint: run only the @test name backtick
+                          lint (no `@test` name in any *.bats file carries
+                          an unescaped backtick -- bats eval's a name when
+                          it REGISTERS the test, so a live backtick there
+                          is command substitution it runs once per
+                          registration with no test selected, and the name
+                          it then reports is the substitution's output
+                          rather than the name in the source. Write the
+                          code span in single quotes inside the name, as
+                          178 names here already do)
+  --log-event-registry    With --lint: run only the log event registry
+                          lint (every event id a *.sh under dist/ or
+                          script/ emits through _log_* -- directly, or as
+                          the first argument of a function that forwards
+                          it into the body slot -- is carried by
+                          log-events.txt. _log_* is STRICT, so an
+                          unregistered body prints the registry's refusal
+                          INSTEAD of the message. Both sides are derived
+                          from the tree: no roster, no exemption list.
+                          NOT in _LINT_TOOLS: a bare --lint does NOT run
+                          it and no CI job does -- it is dispatchable
+                          only. The driver header says why and names the
+                          one condition for promoting it)
   --toml-fixture          With --lint: run only the TOML fixture body
                           gate (every fixture body a spec writes to a
                           `*.toml` path parses as TOML; a body the bridge
@@ -918,6 +949,22 @@ Options:
                           local run and CI) cannot change what runs.
                           Rejected with --coverage / --coverage-shard /
                           --bats-path (#887)
+  --coverage-union-check FILE
+                          Check the MERGED per-shard run manifest FILE
+                          (`<seconds> <basename>`, the file
+                          `coverage_gate.sh --merge-timings` writes from
+                          every coverage shard's coverage/timings.tsv)
+                          against the inventory of what a full coverage
+                          run covers, and exit non-zero NAMING every spec
+                          that ran in no shard. Answers on this host and
+                          stops: no compose, no test-tools image. The
+                          matrix's slices are a partition of the suite
+                          only while every shard partitioned by the same
+                          weights, and a spec that ran nowhere cannot
+                          turn the coverage gate red by itself -- with a
+                          ratio for a floor, dropping a well-covered spec
+                          can push the reported rate UP. What the
+                          coverage-gate job runs after the merge
   --test-tools-image      Print the local test-tools tag this checkout
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools together with
@@ -933,6 +980,23 @@ Options:
                           drive compose themselves (`just test system` /
                           `just test smoke`); the ordinary dispatch asks on
                           its own
+  --changelog-entry-fix   Fold every repeated '### <category>' heading in
+                          doc/changelog's '## [Unreleased]' into that
+                          category's first occurrence, rewrite the file and
+                          exit. A REPAIR, not a lint: it writes and never
+                          validates, so CI goes on refusing the duplicate
+                          exactly as it does now. The series files carry
+                          `merge=union` (.gitattributes), so two branches
+                          whose category blocks landed at different anchors
+                          both survive with nothing for a reviewer to
+                          resolve, and this is the deterministic repair of
+                          that. Each category is emitted once in the order
+                          script/release/changelog_categories.sh declares,
+                          entry text byte-for-byte and in file order; a
+                          section with no repeated heading is NOT rewritten,
+                          which is what makes folding twice a no-op.
+                          Released sections are never touched. What
+                          `just test changelog-fix` runs
   --clean-coverage        Remove this checkout's coverage/ reports and
                           exit. The removal is done by a container over
                           the same bind mount that wrote them, because the
@@ -966,7 +1030,7 @@ is inert outside a git checkout (a released tarball).
 Examples:
   ./test.sh                       # Fast: ShellCheck + Hadolint + Bats (no kcov)
   just test      # Same as above
-  ./test.sh --coverage            # Full: ShellCheck + Hadolint + Bats + Kcov
+  ./test.sh --coverage            # Full Bats suite under Kcov; no lint phase
   just test coverage  # Same as above
   just test lint      # All linters (ShellCheck + Hadolint)
   just test lint --shellcheck     # ShellCheck only
@@ -981,6 +1045,8 @@ Examples:
   just test lint --just-provenance # just provenance pin lint only
   just test lint --catalog-description # test description marker lint only
   just test lint --spec-repo-root # spec repo-root lint only
+  just test lint --test-name-backtick # @test name backtick lint only
+  just test lint --log-event-registry # log event registry lint only
   just test lint --toml-fixture   # TOML fixture body gate only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
@@ -995,12 +1061,15 @@ Examples:
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --tool-provenance-only # Direct CI tool provenance lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
+  ./test.sh --changelog-entry-fix  # Fold a repeated [Unreleased] category heading
   ./test.sh --pin-coverage-only   # Direct tool-pin coverage lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
   ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
   ./test.sh --catalog-description-only # Direct test description marker lint, no compose
   ./test.sh --spec-repo-root-only # Direct spec repo-root lint, no compose
+  ./test.sh --test-name-backtick-only # Direct @test name backtick lint, no compose
+  ./test.sh --log-event-registry-only # Direct log event registry lint, no compose
   ./test.sh --toml-fixture-only   # Direct TOML fixture body gate, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
@@ -1279,6 +1348,79 @@ _measured_coverage_scope() {
     <(printf '%s\n' "${_inventory}") <(printf '%s\n' "${_measured}") \
     | grep -c . || true)"
   printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
+}
+
+# _coverage_union_gap <manifest> [root] -- print, one per line, the specs
+# the inventory names and <manifest> does NOT.
+#
+# <manifest> is the UNION of the coverage matrix's per-shard run manifests:
+# the file `coverage_gate.sh --merge-timings` writes from every shard's
+# coverage/timings.tsv, which is also the weights file the NEXT partition
+# reads. Same key space as _measured_coverage_scope above (`<seconds>
+# <basename>`), asked a different question -- that one reports how much of
+# the suite ONE run measured, this one names what the matrix as a whole
+# left out.
+#
+# WHY THE MATRIX CAN LEAVE A SPEC OUT. Greedy-LPT partitions the pool PER
+# WEIGHT SOURCE: each shard computes the whole partition and keeps its own
+# slice, so the slices are a partition of the suite only if every shard
+# weighed the specs identically. Shards that read different weights each
+# hold a slice of a DIFFERENT partition, and their union is neither
+# exhaustive nor disjoint. Nothing else in the matrix can tell: a slice of
+# either partition is non-empty, so _shard_unit_files' empty-shard guard
+# stays quiet; the merge keys on basename, so a spec two shards both ran
+# reads as one entry; and the only trace left by a spec that ran NOWHERE is
+# the absence of its entry, which is what this prints.
+#
+# Empty output means every spec a full run covers was reported by some
+# shard. Returns 1, printing nothing, when there is nothing to compare --
+# an unreadable manifest, a manifest naming no spec, or an inventory that
+# enumerated nothing would each make a gap of zero mean nothing.
+_coverage_union_gap() {
+  local _manifest="${1:?BUG: _coverage_union_gap expects a manifest path}"
+  local _root="${2:-${REPO_ROOT}}"
+  [[ -s "${_manifest}" ]] || return 1
+  local _inventory _measured
+  _inventory="$(_coverage_spec_inventory "${_root}")" || return 1
+  [[ -n "${_inventory}" ]] || return 1
+  _measured="$(awk '($2 != "") { print $2 }' "${_manifest}" \
+    | LC_ALL=C sort -u)"
+  [[ -n "${_measured}" ]] || return 1
+  LC_ALL=C comm -23 \
+    <(printf '%s\n' "${_inventory}") <(printf '%s\n' "${_measured}")
+}
+
+# _gate_coverage_union <manifest> [root] -- the coverage matrix's partition
+# invariant, read back off the evidence instead of assumed.
+#
+# ADR-00000008 merges the shard reports on the strength of every slice
+# running exactly once, guaranteed by an exhaustive and disjoint partition,
+# and until base#1114 nothing downstream re-derived that. It has to be
+# re-derived because the consequences of its being false are invisible in
+# the direction that matters: a spec that ran in no shard cannot turn the
+# PRIMARY unit gate red, and because the floor is a ratio, dropping a
+# well-covered spec can push the reported rate UP.
+#
+# The coverage-gate job already holds the evidence -- it downloads every
+# shard's timings and merges them -- so this costs a comparison and no new
+# plumbing. Prints the union size and returns 0 when the manifest names
+# every spec in the inventory; _die's, NAMING the absent specs, when it
+# does not.
+_gate_coverage_union() {
+  local _manifest="${1:?BUG: _gate_coverage_union expects a manifest path}"
+  local _root="${2:-${REPO_ROOT}}"
+  local _gap _total _absent
+  if ! _gap="$(_coverage_union_gap "${_manifest}" "${_root}")"; then
+    _die ci_coverage_union_unevidenced \
+      "no shard-union evidence to check: ${_manifest} names no spec, or ${_root} enumerates no coverage pool. A gap of zero measured over no evidence is not a partition, so this refuses rather than reporting one."
+  fi
+  _total="$(_coverage_spec_inventory "${_root}" | grep -c .)"
+  if [[ -n "${_gap}" ]]; then
+    _absent="$(printf '%s\n' "${_gap}" | tr '\n' ' ')"
+    _die ci_coverage_union_incomplete \
+      "$(printf '%s' "${_gap}" | grep -c .) spec(s) of ${_total} ran in NO coverage shard, so the matrix did not cover the suite it reported a rate for: ${_absent}-- the slices are a partition only when every shard partitioned by the SAME weights, and a shard that read a different test/bats/.shard-weights (a re-run against a newer cache entry, or a per-shard lookup) keeps its slice of a different partition. The merged rate and the floor verdict above it are measured over the specs that DID run."
+  fi
+  printf 'coverage shard union: %s/%s specs, exhaustive\n' "${_total}" "${_total}"
 }
 
 # _stamp_coverage_head [root] -- record, next to the reports, the sha they
@@ -2413,6 +2555,10 @@ main() {
   # `--await-project`. Recorded rather than answered on the spot: see the
   # dispatch below the flag-combination guards.
   local name_query="" repair=""
+  # Neither a query nor a repair: a CHECK over a file the caller names.
+  # Recorded rather than answered on the spot, for the same reason the
+  # queries are -- see the dispatch below the flag-combination guards.
+  local union_check=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2421,6 +2567,7 @@ main() {
       --lint) lint=1; shift ;;
       --await-project) name_query="await-project"; shift ;;
       --clean-coverage) repair="clean-coverage"; shift ;;
+      --changelog-entry-fix) repair="changelog-entry-fix"; shift ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
@@ -2446,6 +2593,8 @@ main() {
       --just-provenance) lint_tool="just-provenance"; shift ;;
       --catalog-description) lint_tool="catalog-description"; shift ;;
       --spec-repo-root) lint_tool="spec-repo-root"; shift ;;
+      --test-name-backtick) lint_tool="test-name-backtick"; shift ;;
+      --log-event-registry) lint_tool="log-event-registry"; shift ;;
       --toml-fixture) lint_tool="toml-fixture"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
@@ -2471,6 +2620,8 @@ main() {
       --just-provenance-only) host_lint="just-provenance"; shift ;;
       --catalog-description-only) host_lint="catalog-description"; shift ;;
       --spec-repo-root-only) host_lint="spec-repo-root"; shift ;;
+      --test-name-backtick-only) host_lint="test-name-backtick"; shift ;;
+      --log-event-registry-only) host_lint="log-event-registry"; shift ;;
       --toml-fixture-only) host_lint="toml-fixture"; shift ;;
       --nesting-depth-only) host_lint="nesting-depth"; shift ;;
       --function-length-only) host_lint="function-length"; shift ;;
@@ -2490,6 +2641,7 @@ main() {
       --coverage-local) mode="coverage"; coverage_local=1; shift ;;
       --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
+      --coverage-union-check) union_check="${2:?--coverage-union-check expects <manifest-file>}"; shift 2 ;;
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
       --compose-project-name) name_query="compose-project-name"; shift ;;
@@ -2554,7 +2706,20 @@ main() {
   if [[ -n "${repair}" ]]; then
     case "${repair}" in
       clean-coverage) _clean_coverage "${REPO_ROOT}"; exit $? ;;
+      changelog-entry-fix) _run_changelog_entry_fix; exit $? ;;
     esac
+  fi
+
+  # A CHECK over a file, not a query and not a run: it reads the merged
+  # per-shard manifest the coverage-gate job just built and refuses when
+  # the matrix did not cover the suite. Deferred to here for the reason
+  # above it -- a mid-loop exit would take the verdict before the guards
+  # had run and before the rest of the command line had been read, so a
+  # misspelt flag after it would never be reported. `return`, not `exit`:
+  # it mints nothing for the EXIT handler to sweep.
+  if [[ -n "${union_check}" ]]; then
+    _gate_coverage_union "${union_check}"
+    return 0
   fi
 
   # The host-direct lint primitives (`--shellcheck-only`,
@@ -2753,8 +2918,9 @@ main() {
       fi
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
       # routes here with LINT_ONLY=1; run the requested linter(s) and skip
-      # bats entirely. LINT_TOOL empty = all linters (shellcheck +
-      # hadolint), matching bare `just test lint`. The test-tools image
+      # bats entirely. LINT_TOOL empty = every entry of the _LINT_TOOLS
+      # table, matching bare `just test lint`; naming one narrows to it.
+      # The test-tools image
       # already ships every tool (bats / shellcheck / hadolint / kcov), so
       # nothing is installed at runtime on any path.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then

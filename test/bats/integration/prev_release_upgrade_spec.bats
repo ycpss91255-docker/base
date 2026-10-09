@@ -45,6 +45,92 @@ setup() {
   CUR_BARE="${BATS_TEST_TMPDIR}/current.git"
   OLD_BARE="${BATS_TEST_TMPDIR}/released.git"
   CONSUMER="${BATS_TEST_TMPDIR}/consumer"
+
+  # Declarations collected by _register_interval_migration, emptied per
+  # test so one arm's registry cannot leak into the next.
+  _INTERVAL_MIGRATIONS=()
+}
+
+# ── Version-bound migrations ────────────────────────────────────────────────
+#
+# A migration bound to the release it lands in can only be observed through
+# a real upgrade: what decides whether it runs is the pair (the version the
+# consumer came FROM, the version it is now ON), and the from half exists
+# only as the first parent of the subtree-pull merge the released driver
+# makes. Calling the runner directly would supply that pair by hand, which
+# is the one part of the mechanism nothing else can check.
+#
+# So the arms below declare migrations in the tree that gets PUBLISHED as
+# the next release, and read off the consumer whether each one ran. The
+# declaration is the third synthetic byte in this fixture, beside the two
+# `.version` rewrites, and it is the only way to get a migration bound to a
+# version inside the interval under test -- a real one would have to be
+# re-pointed at a synthetic version anyway.
+
+# Where a declared migration records that it ran, repo-root-relative. One
+# line per run, so "did not run", "ran once" and "ran twice" are all
+# readable off the same artifact.
+_PROBE=".interval-migration-probe"
+
+# _register_interval_migration <version> <marker>
+#   Declare a migration landing in <version> for the next release.
+#   Collected rather than written: the tree to write into does not exist
+#   until _seed_current_remote copies it, and the declaration has to be in
+#   place before its first commit so BOTH synthetic releases carry it -- a
+#   release never drops the migrations it shipped with.
+_register_interval_migration() {
+  local _version="${1:?BUG: _register_interval_migration expects a version}"
+  local _marker="${2:?BUG: _register_interval_migration expects a marker}"
+  _INTERVAL_MIGRATIONS+=("${_version} ${_marker}")
+}
+
+# _declare_interval_migrations <tree>
+#   Append every registered declaration to <tree>'s own migration registry.
+#   Fails loudly when the tree ships no registry to append to: that is the
+#   red these arms were written against, and a silent return would turn them
+#   into tests of nothing.
+_declare_interval_migrations() {
+  local _tree="${1:?BUG: _declare_interval_migrations expects a tree}"
+  (( ${#_INTERVAL_MIGRATIONS[@]} > 0 )) || return 0
+
+  local _lib="${_tree}/dist/script/docker/lib/version_migrate.sh"
+  [[ -f "${_lib}" ]] \
+    || fail "the tree being published carries no dist/script/docker/lib/version_migrate.sh -- nothing declares a version-bound migration"
+
+  local _entry _version _marker
+  for _entry in "${_INTERVAL_MIGRATIONS[@]}"; do
+    _version="${_entry%% *}"
+    _marker="${_entry#* }"
+    # The apply takes the repo root, so the probe lands in the consumer
+    # being upgraded wherever init.sh was invoked from. It APPENDS, so a
+    # migration that ran twice is distinguishable from one that ran once --
+    # the distinction the repeat arms below are made of.
+    # The record call is what a real migration has to make for its output to
+    # reach the caller's commit, so the fixture makes it: the probe is then
+    # also the answer to "did the resync stage what the migration wrote".
+    # Guarded, because the unit spec sources this registry without init.sh.
+    cat >> "${_lib}" <<EOF
+_VERSION_MIGRATIONS+=("${_version} ${_marker}")
+_vmigrate_${_marker}_apply() {
+  printf '%s\n' "${_marker}" >> "\${1}/${_PROBE}"
+  if declare -F _init_record_write >/dev/null 2>&1; then
+    _init_record_write "${_PROBE}"
+  fi
+}
+EOF
+  done
+}
+
+# _probe_runs <marker>
+#   How many times <marker>'s migration ran in the consumer.
+_probe_runs() {
+  local _marker="${1:?BUG: _probe_runs expects a marker}"
+  local _file="${CONSUMER}/${_PROBE}"
+  if [[ ! -f "${_file}" ]]; then
+    printf '0'
+    return 0
+  fi
+  awk -v m="${_marker}" '$0 == m { n++ } END { printf "%d", n + 0 }' "${_file}"
 }
 
 # ── Fixture helpers ─────────────────────────────────────────────────────────
@@ -106,6 +192,9 @@ _seed_current_remote() {
     --exclude=./coverage \
     --exclude=./log
   printf '%s\n' "${NEXT_VER}" > "${_work}/.version"
+  # Before the first commit, so both synthetic releases carry the registry
+  # the arms declared into.
+  _declare_interval_migrations "${_work}"
 
   _git_init_repo "${_work}"
   git -C "${_work}" add -A
@@ -859,4 +948,178 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 
 @test "the previous released upgrade.sh drives the current tree to a working consumer (N-1)" {
   _assert_release_can_upgrade "$(_release_tag 2)"
+}
+
+# ── The version interval an upgrade crosses ─────────────────────────────────
+
+# _assert_interval_selection <tag>
+#   Three migrations are declared in the release the consumer upgrades INTO:
+#   one landing at a version it was already past, one landing inside the
+#   interval the upgrade crosses, one landing beyond it. Exactly the middle
+#   one may run.
+#
+#   The two it must NOT run are what makes the arm say something. A runner
+#   that ignores the interval and applies everything it has satisfies "the
+#   migration ran" just as well, and so does one that applies the newest
+#   declaration unconditionally -- the shape every incident this mechanism
+#   replaces actually had.
+_assert_interval_selection() {
+  local _tag="${1:?BUG: _assert_interval_selection expects a tag}"
+
+  _register_interval_migration v0.0.1 below_the_interval
+  _register_interval_migration v98.0.0 inside_the_interval
+  _register_interval_migration v99.9.9 above_the_interval
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  run _probe_runs inside_the_interval
+  assert_output "1"
+  run _probe_runs below_the_interval
+  assert_output "0"
+  run _probe_runs above_the_interval
+  assert_output "0"
+
+  # And what the migration wrote is in the commit the released driver just
+  # made. The resync is the only run that can stage it (ADR-00000006,
+  # 2026-09-04), and a migration's output is on no list written before the
+  # migration existed -- so the record it made is the whole of what put it
+  # there.
+  run git -C "${CONSUMER}" ls-files --error-unmatch -- "${_PROBE}"
+  assert_success
+}
+
+# _assert_interval_migration_not_repeated <tag>
+#   One migration, landing inside the first upgrade's interval, and then the
+#   two things that happen to a consumer afterwards: they run `just base
+#   init` (the standalone resync, no pull and no interval), and they take the
+#   next release (a new interval, which this migration's version is below).
+#   Neither may run it a second time.
+#
+#   Both are the hazard this mechanism carries and nothing else here can
+#   see. The standalone resync is the path `just base init` and a
+#   re-established subtree both take, where there is no upgrade to read a
+#   from-version out of at all; the second upgrade is the one a consumer
+#   reaches a release later, with the migration's version now behind them.
+_assert_interval_migration_not_repeated() {
+  local _tag="${1:?BUG: _assert_interval_migration_not_repeated expects a tag}"
+
+  _register_interval_migration v98.0.0 once_only
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+  run _probe_runs once_only
+  assert_output "1"
+
+  # What the upgrade's own closing instructions tell the user to do.
+  # --allow-empty is load-bearing: this commit is what moves HEAD off the
+  # subtree-pull merge, and the standalone arm below asks precisely what
+  # happens when there is no such merge to read.
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q --allow-empty -m "chore: commit the resync"
+  run git -C "${CONSUMER}" rev-list --parents -n 1 HEAD
+  assert_success
+  # "<head> <parent>" -- two fields, so HEAD is no longer a merge.
+  [ "$(printf '%s' "${output}" | wc -w)" -eq 2 ]
+
+  # `just base init` on that tree: a resync with no version interval. Named
+  # at the path the UPGRADED tree ships it at -- the pull has already
+  # replaced the vendored copy, so this is the current init.sh, which is the
+  # one the runner lives in.
+  run ./.base/dist/script/base/init.sh
+  assert_success
+  run _probe_runs once_only
+  assert_output "1"
+
+  # And the next release, whose interval this migration's version is below.
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q --allow-empty -m "chore: commit the standalone resync"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER_2}"
+  assert_success
+  [ "$(cat "${CONSUMER}/.base/.version")" = "${NEXT_VER_2}" ]
+  run _probe_runs once_only
+  assert_output "1"
+}
+
+# why: The interval is the whole mechanism, and the oldest supported driver
+# is the population it exists for -- its vendored copy knows nothing about
+# any migration, so the only code that can select one is the init.sh the
+# pull just landed. Measured on the unfixed tree the arm cannot even seed:
+# nothing in the published release declares a version-bound migration
+@test "a released upgrade.sh runs the migration the version interval covers, and only that one (base#1097)" {
+  _assert_interval_selection "$(_release_tag 2)"
+}
+
+# why: Running once is half the contract. Base cannot stop the consumer
+# re-running `just base init`, and it cannot stop them taking the next
+# release; both re-enter the same runner, and a mechanism that applied
+# everything it had on either would re-run work already done -- the
+# double-apply the declared-interval shape exists to make impossible
+@test "neither a standalone resync nor the next release re-runs a migration the interval already covered (base#1097)" {
+  _assert_interval_migration_not_repeated "$(_release_tag 1)"
+}
+
+# _assert_interval_can_be_named_by_hand <tag>
+#   The recovery path, driven the way a consumer would have to drive it. The
+#   released driver commits at its own Step 4, so an interval whose migrations
+#   were skipped -- a migration that failed, a from-version that could not be
+#   read -- is already gone from HEAD by the time the user reads the warning
+#   about it. Naming the pair by hand is the only second chance there is, and
+#   it has to work through `init.sh` rather than through the runner, because
+#   `just base init` is what the warning tells the user to run.
+_assert_interval_can_be_named_by_hand() {
+  local _tag="${1:?BUG: _assert_interval_can_be_named_by_hand expects a tag}"
+
+  _register_interval_migration v98.0.0 owed
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+  run _probe_runs owed
+  assert_output "1"
+
+  # Put the consumer where the released driver's Step 4 leaves them: the
+  # interval is no longer readable off HEAD.
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q --allow-empty -m "chore: commit the resync"
+  run ./.base/dist/script/base/init.sh
+  assert_success
+  run _probe_runs owed
+  assert_output "1"
+
+  # The second chance: the operator names the pair the history no longer has.
+  run env BASE_MIGRATION_FROM="${_tag}" ./.base/dist/script/base/init.sh
+  assert_success
+  run _probe_runs owed
+  assert_output "2"
+}
+
+# why: Every warning this runner emits leaves a consumer owed work, and until
+# the interval can be named by hand none of them could be acted on: the
+# released driver commits at Step 4, so the merge the interval was read from
+# is gone before the user has seen the message. The arm drives the recovery
+# through `just base init`, which is what the message tells them to run, on a
+# tree where the automatic path has already correctly declined
+@test "an interval the history can no longer supply can be named by hand and re-run (base#1097)" {
+  _assert_interval_can_be_named_by_hand "$(_release_tag 2)"
 }

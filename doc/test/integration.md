@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **181 tests**.
+Integration specs under `test/bats/integration/`: **191 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -27,7 +27,7 @@ stage -- is test/bats/unit/apk_mirror_spec.bats'.
 
 | Test | Description |
 |------|-------------|
-| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
+| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere -- and the refutation is preceded by the bare `build.args` declaration that keeps it from being satisfied by a service that forwards the arg in no state at all. |
 | `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
 ### test/bats/integration/ci_preflight_contract_spec.bats (6)
@@ -315,7 +315,7 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (10)
+### test/bats/integration/prev_release_upgrade_spec.bats (13)
 
 | Test | Description |
 |------|-------------|
@@ -329,6 +329,9 @@ costs this repo nothing.
 | `a re-established subtree leaves the consumer running on its own configuration (#1086)` | The arms above ask through a released driver, so they stop being able to see #1086 the moment the compatibility window no longer reaches back past the relocation (base#1084); this one drives init.sh directly, and it is the only coverage the re-establish path -- which never runs upgrade.sh at all -- has |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
+| `a released upgrade.sh runs the migration the version interval covers, and only that one (base#1097)` | The interval is the whole mechanism, and the oldest supported driver is the population it exists for -- its vendored copy knows nothing about any migration, so the only code that can select one is the init.sh the pull just landed. Measured on the unfixed tree the arm cannot even seed: nothing in the published release declares a version-bound migration |
+| `neither a standalone resync nor the next release re-runs a migration the interval already covered (base#1097)` | Running once is half the contract. Base cannot stop the consumer re-running `just base init`, and it cannot stop them taking the next release; both re-enter the same runner, and a mechanism that applied everything it had on either would re-run work already done -- the double-apply the declared-interval shape exists to make impossible |
+| `an interval the history can no longer supply can be named by hand and re-run (base#1097)` | Every warning this runner emits leaves a consumer owed work, and until the interval can be named by hand none of them could be acted on: the released driver commits at Step 4, so the merge the interval was read from is gone before the user has seen the message. The arm drives the recovery through `just base init`, which is what the message tells them to run, on a tree where the automatic path has already correctly declined |
 
 ### test/bats/integration/release_archive_contract_spec.bats (11)
 
@@ -383,7 +386,35 @@ not evidence that the version is right.
 |------|-------------|
 | `test-tools image: every pinned tool answers with the declared version (#1012)` | It iterates the roster rather than a list of tools, so a pin declared tomorrow is asserted tomorrow -- and a probe that cannot run at all is reported rather than read as agreement. |
 
-### test/bats/integration/upgrade_spec.bats (20)
+### test/bats/integration/test_tools_toml_bridge_spec.bats (3)
+
+The suite runs INSIDE the test-tools image, so `/usr/local/bin/toml-bridge`
+on this filesystem is the copy every downstream repo inherits through the
+test-tools-stage pattern. What stood for that seam was a grep for the `COPY
+--from=` line in the Dockerfile, and a grep cannot tell a parser from a
+file: the final stage installed no interpreter, so the bundled bridge
+answered `env: 'python3': No such file or directory` on four published tags
+while the grep stayed green and the ADR went on saying the capability was
+there.
+
+So these cases RUN it and read what it printed. An exit status alone would
+not have separated the two states either: the shebang's failure and a parse
+are both "the process ended", and only the parsed output says which one
+happened. The last case drives the bridge to a non-zero exit on purpose, so
+a probe that could not fail cannot be mistaken for one that passed.
+
+DELIBERATELY FAIL-CLOSED, for the reason its pin sibling states
+(test/bats/integration/test_tools_pins_spec.bats): an image that cannot run
+the parser it ships is exactly the drift this exists to report, and a skip
+would restore the silence.
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: the bundled toml-bridge parses TOML from stdin to JSON (#1222)` | The JSON contract is what the shim's non-KV mode returns to its callers, and the expectation is a worked example rather than a second parse of the same input -- a bridge that echoed its stdin, or one whose interpreter was missing, answers neither. |
+| `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
+| `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
+
+### test/bats/integration/upgrade_spec.bats (24)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -402,6 +433,7 @@ run.
 | Test | Description |
 |------|-------------|
 | `upgrade.sh v0.9.7: bumps .base/.version, pulls new content, updates main.yaml` | - |
+| `upgrade.sh v0.9.7: the upgrade commit names the refs it actually rewrote (#1112)` | The commit message used to assert a general rule, and it was false on exactly the repos whose unnamed worker ref it had just left behind (#1112) |
 | `upgrade.sh Step 5 announces the migration pass (#567)` | Step 5 runs the declarative migration dispatcher |
 | `upgrade.sh heals a legacy wrapper-COPY Dockerfile via the migration list (#567 m1)` | End-to-end wrapper-copy heal + staged into the upgrade commit |
 | `upgrade.sh nounset-guards a sibling entrypoint ROS source (#567 m8 / #579)` | End-to-end entrypoint nounset guard around the ROS setup.bash source |
@@ -421,6 +453,9 @@ run.
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
+| `upgrade.sh names a vendored edit on a path upstream did not touch (#1092)` | A squashed subtree pull reports a hand edit only where upstream touched the same path, so an edit to a path base shipped identically across the interval rides through the upgrade with no conflict and no message; the one real instance in the org sat in a vendored tree across seven releases and an upgrade before a byte-exact census found it, and silence is what invariant 2 exists to forbid |
+| `upgrade.sh names a file the consumer added inside the vendored tree (#1092)` | The edited-path case and the extra-file case reach the report by different sides of the tree comparison, and a check built only on the first reads a file the consumer added into the vendored tree as upstream's own; that is the shape the census counted separately as only-in-consumer |
+| `upgrade.sh reports no vendored drift when the pull lands byte-exact (#1092)` | The negative control for the two arms above. A report that fires on every upgrade names nothing, and the census that motivated this check reported zero partial upgrades across 2217 files -- so a clean pull has to stay quiet, and this is the arm that fails if the comparison picks up the resync's own work rather than the consumer's |
 
 ### test/bats/integration/verify_tag_on_main_spec.bats (6)
 

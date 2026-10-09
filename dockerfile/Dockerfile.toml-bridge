@@ -8,9 +8,15 @@
 #   docker build -t toml-bridge:local -f dockerfile/Dockerfile.toml-bridge .
 #   printf '[gui]\nmode = "wayland"\n' | docker run --rm -i toml-bridge:local
 #
-# The image is also consumed by Dockerfile.test-tools via COPY --from,
-# so downstream repos inherit the parser through the test-tools-stage
-# pattern without building toml-bridge themselves.
+# Dockerfile.test-tools carries the same parser so downstream repos
+# inherit it through the test-tools-stage pattern without building this
+# image, but it does NOT consume this one: it COPYs toml_bridge.py out of
+# the build context and installs alpine's python3 to run it under. It
+# used to say `COPY --from` here, and that described the file rather than
+# the capability -- the final stage had no interpreter at all. The two
+# differ only in the runtime: this image pins Python 3.13 and vendors
+# tomli so the bridge also works on the 3.6-3.10 hosts the backport
+# exists for.
 
 # tool-pin: toml-bridge-python dockerhub library/python pattern=^3\.13\.[0-9]+-alpine3\.22$
 ARG PYTHON_VERSION=3.13.13-alpine3.22

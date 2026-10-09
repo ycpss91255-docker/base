@@ -1,3 +1,11 @@
+# shellcheck shell=bash
+#
+# A sourced bashrc.d drop-in: no shebang, by design (~/.bashrc sources
+# it), so ShellCheck cannot infer the dialect and refuses the file with
+# SC2148. The directive states it instead of excusing the file from the
+# pass -- the lint of every shipped *.sh is one find over dist/, and a
+# file carried by an exemption is a file whose next edit is unchecked.
+#
 # Name the host-injected supplementary GIDs so interactive shells stop
 # printing "groups: cannot find name for group ID N".
 #

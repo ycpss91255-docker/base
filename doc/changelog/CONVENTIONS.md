@@ -79,7 +79,18 @@ Inside one release block an entry may not repeat another entry's lead bullet,
 and a `### <category>` heading may not open twice. That pair is what a serial
 merge leaves behind: two branches that both append to `[Unreleased]` do not
 conflict, so git keeps both sides and nothing prompts a human. Either one is
-refused naming BOTH lines; fold the second copy into the first.
+refused naming BOTH lines.
+
+The repeated **heading** you do not fix by hand. `just test changelog-fix`
+folds it: each category emitted once in roster order, every entry's text
+byte-for-byte and in its file order, released sections untouched. A section
+with nothing to fold is not rewritten at all, so running it twice -- or on a
+clean file -- changes nothing. Review the diff and commit it like any other
+edit.
+
+The repeated **entry** it leaves alone, deliberately. Which of two
+near-identical entries survives is a judgement about text, and the lint goes
+on refusing it until you make that call.
 
 Released sections are **never** checked: they are a historical record, and
 rewriting a shipped entry falsifies it. A genuinely exceptional entry opts out

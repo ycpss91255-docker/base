@@ -414,6 +414,37 @@ _init_repo_with_tracked() {
   git -C "${_repo}" commit -q -m "init" || true
 }
 
+# Track one placeholder for EVERY canonical entry, plus a nested copy of
+# every unanchored directory entry. The population is derived from
+# _canonical_gitignore_entries rather than hand-named, so a thirteenth
+# entry joins it the moment it joins the set: the four names this replaced
+# were all entries the sweep happens to get right, which is why three
+# entries it gets wrong sat behind a green "all canonical entries" test.
+_track_every_canonical_entry() {
+  local _repo="$1"
+  git -C "${_repo}" init -q -b main
+  git -C "${_repo}" config user.email t@t
+  git -C "${_repo}" config user.name t
+  local _entry _rel
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] || continue
+    _rel="${_entry#/}"
+    case "${_rel}" in
+      */) mkdir -p "${_repo}/${_rel}"; : > "${_repo}/${_rel}placeholder" ;;
+      *)  : > "${_repo}/${_rel}" ;;
+    esac
+    # No leading slash means an UNANCHORED gitignore pattern, which also
+    # ignores a nested copy. Seed one so the spec can state what the sweep
+    # does with it instead of never meeting the case.
+    if [[ "${_entry}" != /* && "${_rel}" == */ ]]; then
+      mkdir -p "${_repo}/sub/${_rel}"
+      : > "${_repo}/sub/${_rel}placeholder"
+    fi
+  done < <(_canonical_gitignore_entries)
+  git -C "${_repo}" add -A
+  git -C "${_repo}" commit -q -m "init"
+}
+
 # why: 15-repo drift fix
 @test "_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml" {
   _init_repo_with_tracked "${TMP_DIR}" compose.yaml
@@ -468,13 +499,137 @@ _init_repo_with_tracked() {
   assert_success
 }
 
-# why: Multi-entry sweep
+# why: Multi-entry sweep over the WHOLE canonical set (#1119). The title
+# used to name four entries by hand, all of them ones the sweep handles, so
+# it stayed green while three of twelve were handled wrong. The population
+# is now derived from _canonical_gitignore_entries, and the one class the
+# sweep deliberately passes over -- an anchored entry, whose pathspec is the
+# blocked decision -- is asserted as passed over rather than left unvisited.
 @test "_untrack_canonical_in_repo: untracks all canonical entries that match" {
-  _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env .env.bak setup.toml.bak
+  _track_every_canonical_entry "${TMP_DIR}"
   run _untrack_canonical_in_repo "${TMP_DIR}"
   assert_success
-  run git -C "${TMP_DIR}" ls-files compose.yaml .env .env.bak setup.toml.bak
+
+  local _entry _rel _left
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] || continue
+    _rel="${_entry#/}"
+    _left="$(git -C "${TMP_DIR}" ls-files -- "${_rel}")"
+    if [[ "${_entry}" == /* ]]; then
+      # An anchored entry has no pathspec yet, so its tracked copy stays.
+      # Whether base may untrack a consumer's hand-written one during an
+      # unattended resync commit is an open decision; until it is taken,
+      # leaving the file in the index is the recoverable direction.
+      assert [ -n "${_left}" ]
+    else
+      assert [ -z "${_left}" ]
+    fi
+  done < <(_canonical_gitignore_entries)
+}
+
+# why: `log/` and `coverage/` are UNANCHORED gitignore patterns, so they
+# ignore `sub/log/` too, but the pathspec derived from them matches from the
+# repo root only and leaves the nested copy in the index (#1119). Pinned, not
+# fixed: widening the pathspec is the same blocked decision as the anchored
+# entry, and a divergence nothing states is the one that gets re-discovered.
+@test "_untrack_canonical_in_repo: leaves a nested copy of an unanchored entry tracked (#1119)" {
+  _track_every_canonical_entry "${TMP_DIR}"
+  run _untrack_canonical_in_repo "${TMP_DIR}"
+  assert_success
+  run git -C "${TMP_DIR}" ls-files -- sub
+  assert_line "sub/coverage/placeholder"
+  assert_line "sub/log/placeholder"
+}
+
+# why: The translation seam (#1119). A trailing slash marks a directory in
+# a gitignore pattern and means nothing in a pathspec, so it is dropped.
+@test "_canonical_entry_pathspec: a directory entry loses its trailing slash (#1119)" {
+  run _canonical_entry_pathspec "coverage/"
+  assert_success
+  assert_output "coverage"
+}
+
+# why: A leading slash anchors a gitignore pattern at the repo root; handed
+# to git verbatim it is an absolute filesystem path and git refuses it
+# outright (#1119). The translation reports "no pathspec" so the sweeps skip
+# the entry by a stated rule, which is what the swallowed fatal used to do
+# by accident.
+@test "_canonical_entry_pathspec: an anchored entry has no pathspec yet (#1119)" {
+  run _canonical_entry_pathspec "/deploy/"
+  assert_failure
   assert_output ""
+}
+
+# why: The property the whole fix is about (#1119): a gitignore pattern is
+# not a pathspec, so every pathspec this translation DOES hand out has to be
+# one git accepts. Asserted against the real canonical set in a real repo,
+# so a future entry whose shape git refuses fails here and not in a
+# consumer's unattended upgrade.
+@test "_canonical_entry_pathspec: every pathspec it returns is one git accepts (#1119)" {
+  _track_every_canonical_entry "${TMP_DIR}"
+  local _entry _pathspec _checked=0
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] || continue
+    _pathspec="$(_canonical_entry_pathspec "${_entry}")" || continue
+    run git -C "${TMP_DIR}" ls-files -- "${_pathspec}"
+    assert_success
+    _checked=$(( _checked + 1 ))
+  done < <(_canonical_gitignore_entries)
+  # A translation that returns nothing for everything would satisfy the loop
+  # above over an empty population. Eleven of the twelve entries have a
+  # pathspec today; only the anchored one does not.
+  assert_equal "${_checked}" 11
+}
+
+# why: The swallowed fatal (#1119). `git ls-files` prints the tracked paths
+# a pathspec matches and exits 0 even when it matches nothing, so a
+# NON-ZERO status is never "nothing to untrack" -- it is git refusing the
+# pathspec. Routing its stderr to /dev/null and reading only
+# `[[ -n "$(...)" ]]` turned that refusal into an entry skipped with no
+# trace, and a sweep that reported success over it.
+@test "_untrack_canonical_in_repo: reports a git ls-files failure instead of skipping the entry (#1119)" {
+  _init_repo_with_tracked "${TMP_DIR}" compose.yaml
+  # A corrupt index is the cheapest REAL `git ls-files` fatal, and it needs
+  # no privileges: `rev-parse --git-dir` still answers, so the function gets
+  # past its not-a-git-repo guard and then every pathspec exits 128.
+  printf 'not an index' > "${TMP_DIR}/.git/index"
+  run _untrack_canonical_in_repo "${TMP_DIR}"
+  assert_failure
+  # git's own diagnosis has to reach the caller: a surfaced failure the
+  # operator cannot read is the same dead end as a swallowed one.
+  assert_output --partial "fatal:"
+  assert_output --partial "git ls-files"
+}
+
+# why: The second swallow in the same loop (#1119). `git rm --cached` ran
+# under `|| true` with both streams discarded, so an entry ls-files had just
+# reported as tracked could fail to leave the index and the sweep would
+# still return success -- and the resync would then stage a .gitignore
+# claiming the file is ignored while the index still carries it.
+@test "_untrack_canonical_in_repo: reports a git rm failure instead of ignoring it (#1119)" {
+  _init_repo_with_tracked "${TMP_DIR}" compose.yaml
+  local _git
+  _git="$(command -v git)"
+  create_mock_dir
+  # ls-files has to keep working -- the point is a failure that happens
+  # AFTER the entry was found tracked, which no permission or corruption
+  # trick reaches without also breaking the lookup before it.
+  cat > "${MOCK_DIR}/git" <<EOS
+#!/bin/bash
+for _a in "\$@"; do
+  if [[ "\${_a}" == rm ]]; then
+    echo 'fatal: mocked git rm refusal' >&2
+    exit 128
+  fi
+done
+exec ${_git} "\$@"
+EOS
+  chmod +x "${MOCK_DIR}/git"
+  run _untrack_canonical_in_repo "${TMP_DIR}"
+  cleanup_mock_dir
+  assert_failure
+  assert_output --partial "fatal: mocked git rm refusal"
+  assert_output --partial "git rm"
 }
 
 # ════════════════════════════════════════════════════════════════════

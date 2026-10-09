@@ -26,9 +26,12 @@ name: Publish Docker Image
 #   ghcr.io/<org>/<image_name>:v0.1.0-minimal
 #
 # The reused inputs (build_args / context_path / dockerfile_path /
-# build_contexts / platforms / test_tools_version) mirror
-# build-worker.yaml so callers can share matrix definitions across
-# build + publish jobs.
+# build_contexts / platforms) mirror build-worker.yaml so callers can
+# share matrix definitions across build + publish jobs. The tooling image
+# the test stage is built FROM is NOT among them: it is derived from the
+# version-matched base checkout the way build-worker.yaml derives it
+# (#1122), because an input for it is a second source of a value the
+# caller's `@vX.Y.Z` pin already names.
 
 on:
   workflow_call:
@@ -124,17 +127,6 @@ on:
           Optional newline-separated `<name>=<location>` pairs (mirrors
           build-worker.yaml). Forwarded to docker/build-push-action's
           build-contexts.
-      test_tools_version:
-        required: false
-        type: string
-        default: "latest"
-        description: |
-          Tag of `ghcr.io/ycpss91255-docker/test-tools:<tag>`. The
-          downstream Dockerfile reads this as a build-arg even when
-          publishing the devel/runtime stage (the test stage is
-          declared FROM ${TEST_TOOLS_IMAGE} for the lint pass);
-          callers should pin to the template release they upgraded
-          from for reproducibility.
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -222,6 +214,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # base-owned worker logic is fetched at the worker's OWN ref
+      # (github.job_workflow_sha) into a dedicated path so it can never
+      # drift from the worker and never collides with the caller checkout
+      # above. Same version-match pattern build-worker.yaml's resolvers
+      # use (#802).
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
+
+      # #1122 -- WHICH tooling image this build consumes, read from the
+      # version-matched checkout above rather than from an input.
+      #
+      # The published image is built FROM the test stage's tooling image
+      # too (that stage is `FROM ${TEST_TOOLS_IMAGE}` for the lint pass),
+      # and this used to be a `test_tools_version` input defaulting to the
+      # rolling `latest`: a release could be published having linted
+      # against binaries no version names. `.worker-base/.version` is the
+      # release this worker IS, and the tag release-test-tools.yaml
+      # publishes the tooling image under, so the published tag and the
+      # consumed tag are one string from one file.
+      - name: Resolve the tooling image (version-matched)
+        id: testtools
+        run: |
+          set -euo pipefail
+          image="$(bash .worker-base/script/ci/testtools_image.sh)"
+          printf 'image=%s\n' "${image}" >> "${GITHUB_OUTPUT}"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -266,7 +288,7 @@ jobs:
             USER_UID=1000
             USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
-            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Export digest
@@ -274,7 +296,17 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/digests
           digest="${{ steps.push.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          # The file is NAMED by the digest, which is what the manifest
+          # create reads, and it now CARRIES the platform it was built for.
+          # The merge job verifies the image before it lets any tag name it,
+          # and the only way to verify an image is to RUN it -- which a
+          # runner can do for its own architecture and no other. So that job
+          # has to tell which of the downloaded digests it can execute, and
+          # this file is the only place the answer survives:
+          # `merge-multiple: true` flattens the per-arch artifact NAMES away
+          # before the merge job ever sees them.
+          printf '%s\n' '${{ matrix.platform }}' \
+            > "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v7
@@ -285,17 +317,67 @@ jobs:
           retention-days: 1
 
   # ────────────────────────────────────────────────────────────────
-  # Assemble the tagged multi-arch manifest list from the per-arch
-  # digests. Tags are resolved + applied exactly once here (#602), so
-  # the published tag is a true multi-arch image rather than a
-  # last-shard-wins single arch.
+  # Verify the per-arch digests the publish shards pushed, and only then
+  # assemble the tagged multi-arch manifest list that makes them
+  # reachable by name. Tags are resolved + applied exactly once here
+  # (#602), so the published tag is a true multi-arch image rather than
+  # a last-shard-wins single arch.
+  #
+  # THAT ORDER IS THE WHOLE POINT, and it is the one thing here a reader
+  # must not "tidy". This job used to create the manifest and then run a
+  # single `docker buildx imagetools inspect` against the tag it had just
+  # attached. That asks the registry whether a manifest EXISTS under the
+  # name; it never runs the image. Nothing in this job executed the
+  # published artifact at all, so an image that builds, pushes and
+  # assembles correctly but cannot start was published under its tag --
+  # and under `:latest${tag_suffix}` with it, which is what the downstream
+  # `FROM ${registry}/${owner}/<image>` consumers of the unpinned kind
+  # read. There is no `failure()` arm, no rollback and no `imagetools rm`
+  # anywhere in this file to put a moved tag back (#1214).
+  #
+  # The repair is this job's order. A digest-only push is reachable by
+  # content and by nothing else, so the window between "pushed" and
+  # "verified" belongs to no consumer. The tag is what consumers read,
+  # and it is attached last.
   # ────────────────────────────────────────────────────────────────
   merge:
-    needs: publish
-    runs-on: ubuntu-latest
-    # Assembles a manifest list from digests already pushed: registry
-    # calls only, no build.
-    timeout-minutes: 15
+    # `compute-matrix` is needed for its matrix, not for its ordering:
+    # `runs-on` below reads it. `publish` is the real predecessor.
+    needs: [compute-matrix, publish]
+    # DERIVED FROM THE MATRIX, not pinned to a hosted label. This job now
+    # RUNS an image, and a runner can only run its own architecture, so
+    # `ubuntu-latest` silently made the whole worker amd64-only: a caller
+    # passing `platforms: linux/arm64` -- which this worker supports, and
+    # which a multi-arch base image repo uses -- builds and pushes on
+    # `ubuntu-24.04-arm`, and an amd64 merge runner can execute none of the
+    # digests that run produced. The selection step below would refuse, no
+    # tag would be attached, and a configuration that published fine before
+    # the gate existed would stop publishing at all.
+    #
+    # The first matrix entry is the first platform the caller named, and
+    # `compute-matrix` pairs every platform with its own native runner, so
+    # that runner can always execute that entry. The other architectures are
+    # not executed here -- one runner cannot -- but the confirmation step
+    # asserts the published tag carries a manifest for every one of them.
+    # That is the same trade-off release-test-tools.yaml takes.
+    runs-on: >-
+      ${{ fromJSON(needs.compute-matrix.outputs.matrix).include[0].runner }}
+    # Same-repository guard. `runs-on` is a runtime-computed expression, so
+    # this job is self-hosted-eligible by the static rule and must carry it
+    # (see the `publish` job for the full rationale). Operationally inert:
+    # it is the guard `publish` already declares, and this job cannot run
+    # unless `publish` did. It is a JOB-level guard on who may supply the
+    # runner, not a condition on whether to publish -- nothing here lets a
+    # run reach the end having published nothing (#1171).
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    # Registry calls and no build, as before -- plus a pull and a run of
+    # ONE architecture's image, which for a devel-stage publish is the
+    # largest thing this job touches. Only the verified digest is pulled,
+    # never the assembled multi-arch tag, so the footprint is one arch's
+    # layers rather than every arch's.
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -337,6 +419,82 @@ jobs:
           printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
           echo "Computed tags: ${tags}"
 
+      - name: Select the digest to verify
+        id: verify
+        working-directory: /tmp/digests
+        shell: bash
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image_name }}
+        # The smoke step below RUNS the image, and a runner can only run its
+        # own architecture. Each publish shard wrote the platform it built
+        # into its digest file (the publish job's Export digest step), so the
+        # arch is read out of the artifact rather than assumed from
+        # `runs-on:` -- move this job to an arm64 runner and the selection
+        # follows it.
+        #
+        # A digest this runner cannot execute is not skipped, it is a hard
+        # failure: an empty selection would leave the smoke step with nothing
+        # to pull and the manifest create with nothing in front of it, which
+        # is precisely the state the step order here exists to remove. The
+        # read of each file is assigned rather than tested inline, because a
+        # command substitution that FAILS inside `[[ ]]` does not trip
+        # errexit -- an unreadable file would read as "not this arch".
+        run: |
+          set -euo pipefail
+          base="${REGISTRY}/${OWNER}/${IMAGE}"
+          host="linux/$(docker version --format '{{.Server.Arch}}')"
+          ref=''
+          for _d in *; do
+            built="$(cat "${_d}")"
+            if [[ "${built}" == "${host}" ]]; then
+              ref="${base}@sha256:${_d}"
+              break
+            fi
+          done
+          if [[ -z "${ref}" ]]; then
+            echo "::error::none of the digests this run pushed was built" \
+              "for ${host}, so this runner can execute none of them. The" \
+              "publish matrix and this job's runner have diverged; refusing" \
+              "to tag an image nothing verified." >&2
+            exit 1
+          fi
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+          echo "Verifying ${ref} before any tag names it"
+
+      - name: Smoke test the pushed image
+        shell: bash
+        # THE TARGET IS A DIGEST, and no tag exists for this content yet.
+        # That is what makes this step a gate rather than a report: it reads
+        # `steps.verify.outputs.ref`, the digest a shard pushed, and the
+        # manifest create below attaches the tags to those same digests
+        # afterwards.
+        #
+        # WHAT IT ASSERTS, and why it is not a tool probe. This worker
+        # publishes a CALLER's image -- any Dockerfile target stage of any
+        # repo that references it -- so there is no roster of binaries to
+        # check versions against the way the tooling image's own release
+        # does. What every image published here does share is the template's
+        # entry point: `ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]`,
+        # the orchestrator that opens the log tee, sources the repo's
+        # bringup, arms the watchdog and execs the command. Running the image
+        # with a trivially-succeeding command exercises that whole chain, so
+        # this step answers the question the old `imagetools inspect` could
+        # not ask: does the thing start.
+        #
+        # The cost is stated rather than hidden: a bringup that cannot start
+        # without the compose environment fails HERE, before any tag names
+        # the image, rather than in the first consumer that pulls it. That is
+        # the fail-closed direction, and the same one the publish window
+        # already takes.
+        run: |
+          set -euo pipefail
+          image="${{ steps.verify.outputs.ref }}"
+          docker pull "${image}"
+          docker run --rm "${image}" true
+          echo "${image} starts and runs a command"
+
       - name: Create multi-arch manifest
         working-directory: /tmp/digests
         shell: bash
@@ -344,6 +502,11 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
           OWNER: ${{ github.repository_owner }}
           IMAGE: ${{ inputs.image_name }}
+        # LAST, after the smoke step above, and not for tidiness: every tag
+        # this attaches is reachable by name the instant it exists, nothing
+        # in this file can detach one again, and `:latest${tag_suffix}` is
+        # what the unpinned downstream consumers build FROM. The content it
+        # names has already been run.
         run: |
           set -euo pipefail
           base="${REGISTRY}/${OWNER}/${IMAGE}"
@@ -358,14 +521,64 @@ jobs:
           done
           docker buildx imagetools create "${tag_args[@]}" "${src[@]}"
 
-      - name: Verify multi-arch manifest
+      - name: Confirm the published tags name the verified content
+        working-directory: /tmp/digests
         shell: bash
+        # The one thing that cannot be checked before the tags exist: that
+        # they RESOLVE, and resolve to this run's content. The smoke step
+        # above answers "does the image start"; this answers "did the create
+        # attach the tags to it", which is the only failure mode the ordering
+        # leaves on this side of the publish.
+        #
+        # EVERY resolved tag is read, not just the version one. A caller with
+        # `is_latest: true` gets `:latest${tag_suffix}` from the same
+        # `imagetools create`, and that is the tag the unpinned downstream
+        # consumers follow -- so it is the one whose silent staleness would
+        # cost the most.
         env:
-          REGISTRY: ${{ inputs.registry }}
-          OWNER: ${{ github.repository_owner }}
-          IMAGE: ${{ inputs.image_name }}
-          REF: ${{ github.ref_name }}
-          SUFFIX: ${{ inputs.tag_suffix }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+          VERIFIED_REF: ${{ steps.verify.outputs.ref }}
         run: |
           set -euo pipefail
-          docker buildx imagetools inspect "${REGISTRY}/${OWNER}/${IMAGE}:${REF}${SUFFIX}"
+          # The image the smoke step ran, by CONFIG digest -- docker's image
+          # id -- and not by manifest digest. That is not a stylistic choice:
+          # provenance is on by default in docker/build-push-action, so each
+          # shard's `outputs.digest` names an INDEX carrying the platform
+          # image plus its attestation, and `imagetools create` FLATTENS those
+          # indexes into the published one. The shard digests the artifact
+          # files are named by are therefore absent from the published
+          # manifest, and a digest-set comparison would fail every ordinary
+          # publish -- after the tags had moved. The config digest survives
+          # both the flattening and the tag resolution.
+          want="$(docker image inspect --format '{{.Id}}' "${VERIFIED_REF}")"
+          IFS=',' read -ra _tags <<< "${TAGS}"
+          for _t in "${_tags[@]}"; do
+            # The tag resolves, and the manifest under it carries every
+            # platform this run built. The expected platform list is the
+            # digest artifacts' own, so an arch added to the publish matrix
+            # is checked without this step being edited. The shape read is
+            # buildx's own `Platform:  <os>/<arch>` listing.
+            listing="$(docker buildx imagetools inspect "${_t}")"
+            for _d in *; do
+              built="$(cat "${_d}")"
+              if ! grep -qE "Platform:[[:space:]]+${built}[[:space:]]*$" \
+                  <<< "${listing}"; then
+                echo "::error::${_t} carries no manifest for ${built}," \
+                  "which this run built. The tag is not the multi-arch list" \
+                  "this job assembled." >&2
+                exit 1
+              fi
+              echo "${_t} carries a manifest for ${built}"
+            done
+            # And for THIS runner's platform the tag resolves to the very
+            # image the smoke step ran.
+            docker pull "${_t}"
+            got="$(docker image inspect --format '{{.Id}}' "${_t}")"
+            if [[ "${want}" != "${got}" ]]; then
+              echo "::error::${_t} resolves to ${got}, but the image this" \
+                "job verified is ${want}. The tags were attached to content" \
+                "the smoke step never ran." >&2
+              exit 1
+            fi
+            echo "${_t} resolves to the verified image (${got})"
+          done

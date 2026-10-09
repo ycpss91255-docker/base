@@ -63,6 +63,9 @@ _error()  { _log_err upgrade "$*"; exit 1; }
 # the sweep refuses to run without it rather than deleting from /.
 _UPGRADE_PRE_HEAD=""
 _UPGRADE_UNTRACKED_SNAPSHOT=()
+_UPGRADE_DRIFT=()
+_UPGRADE_DRIFT_SPLIT=""
+_UPGRADE_DRIFT_UNVERIFIED=""
 REPO_ROOT="$(pwd -P)"
 EOS
   sed -n '/^_warn_config_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
@@ -80,6 +83,48 @@ EOS
   sed -n '/^_trim_ws() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_unquote_scalar() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_lifecycle_restart_is() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_subtree_split_of() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_subtree_split_sha() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_collect_subtree_local_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_warn_subtree_local_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+}
+
+# _seed_squashed_subtree <dir>
+#   A consumer repo whose `.base/` arrived as a real `git subtree add
+#   --squash`, so the squash commit carries git-subtree's own
+#   `git-subtree-dir:` / `git-subtree-split:` trailers -- the metadata the
+#   drift comparison resolves the upstream tree from. Built with the real
+#   porcelain rather than a hand-written commit message: a fixture that
+#   writes the trailers itself would pass while the real ones moved.
+#
+#   Prints the pre-add HEAD, which is what _collect_subtree_local_drift
+#   takes as the start of the range to search.
+_seed_squashed_subtree() {
+  local _dir="${1:?}"
+  local _up="${_dir}_upstream"
+  mkdir -p "${_up}/dist"
+  git -C "${_up}" init -q -b main
+  git -C "${_up}" config user.email t@t
+  git -C "${_up}" config user.name t
+  printf 'v0.0.1\n' > "${_up}/.version"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${_up}/dist/shipped.sh"
+  git -C "${_up}" add -A
+  git -C "${_up}" commit -q -m upstream
+
+  mkdir -p "${_dir}"
+  git -C "${_dir}" init -q -b main
+  git -C "${_dir}" config user.email t@t
+  git -C "${_dir}" config user.name t
+  printf 'consumer\n' > "${_dir}/README.md"
+  git -C "${_dir}" add -A
+  git -C "${_dir}" commit -q -m seed
+  local _pre
+  _pre="$(git -C "${_dir}" rev-parse HEAD)"
+  # stdout of the add is discarded so the printed sha is the ONLY thing this
+  # helper puts on it; git-subtree is chatty even under -q on some versions,
+  # and a two-line capture makes an unparseable rev range.
+  git -C "${_dir}" subtree add -q --prefix=.base "${_up}" main --squash >/dev/null
+  printf '%s\n' "${_pre}"
 }
 
 # _seed_restart_repo <dir> <vendored_template_restart> <repo_restart_block...>
@@ -848,4 +893,153 @@ EOS
   refute_output --partial "MIGRATION"
   run grep -Fx 'restart = "no"' "${_r}/setup.toml"
   assert_success
+}
+
+# ── Vendored drift against the release that was pulled ──────────────────────
+#
+# The pair under test is _collect_subtree_local_drift (what the comparison
+# finds) and _warn_subtree_local_drift (what the user is told). The upstream
+# side is resolved from git-subtree's own squash trailers, so these arms
+# build the subtree with the real porcelain and let the helper find its own
+# way to the upstream tree.
+
+# why: The silence base#1092 is about -- an edit to a path upstream left
+# alone -- is invisible to the merge, so the only thing that can report it is
+# a tree comparison; this is the arm that proves the comparison finds the
+# edit at all, from the metadata the pull itself recorded
+@test "_collect_subtree_local_drift finds an edit to a vendored path (#1092)" {
+  local _r="${TEMP_DIR}/edited" _pre
+  _pre="$(_seed_squashed_subtree "${_r}")"
+  printf '# consumer edit\n' >> "${_r}/.base/dist/shipped.sh"
+  git -C "${_r}" add -A
+  git -C "${_r}" commit -q -m "edit inside the vendored tree"
+
+  run bash -c "
+    cd '${_r}'
+    source '${HARNESS}'
+    _collect_subtree_local_drift '${_pre}'
+    printf '%s\n' \"\${_UPGRADE_DRIFT[@]}\"
+  "
+  assert_success
+  # The whole entry, not just the path: the status letter is what tells an
+  # edited vendored file from one the consumer added, and the reporter words
+  # those differently.
+  assert_line --regexp '^M[[:space:]]dist/shipped\.sh$'
+}
+
+# why: A clean tree has to produce an EMPTY finding set, because a report
+# that fires on every upgrade names nothing; this arm fails if the
+# comparison ever picks up the subtree prefix itself or the consumer files
+# that live outside it
+@test "_collect_subtree_local_drift finds nothing on a byte-exact vendored tree (#1092)" {
+  local _r="${TEMP_DIR}/clean" _pre
+  _pre="$(_seed_squashed_subtree "${_r}")"
+
+  run bash -c "
+    cd '${_r}'
+    source '${HARNESS}'
+    _collect_subtree_local_drift '${_pre}'
+    printf 'count=%s split=%s\n' \"\${#_UPGRADE_DRIFT[@]}\" \"\${_UPGRADE_DRIFT_SPLIT:+resolved}\"
+  "
+  assert_success
+  # The resolved upstream commit is asserted alongside the zero: a count of
+  # zero is also what a comparison that never found an upstream tree to
+  # compare against reports, and that is the vacuous pass this arm would
+  # otherwise be.
+  assert_output "count=0 split=resolved"
+}
+
+# why: A comparison that cannot find the release to compare against reports
+# the same zero findings as a clean tree, and that is the shape of silence
+# base#1092 is about -- so the reason is recorded rather than the absence
+# being left to read as agreement
+@test "_collect_subtree_local_drift records why it could not compare when the range holds no subtree squash (#1092)" {
+  local _r="${TEMP_DIR}/nosquash"
+  mkdir -p "${_r}"
+  git -C "${_r}" init -q -b main
+  git -C "${_r}" config user.email t@t
+  git -C "${_r}" config user.name t
+  printf 'consumer\n' > "${_r}/README.md"
+  git -C "${_r}" add -A
+  git -C "${_r}" commit -q -m seed
+
+  run bash -c "
+    cd '${_r}'
+    source '${HARNESS}'
+    _collect_subtree_local_drift \"\$(git rev-parse HEAD)\"
+    printf 'count=%s split=%s reason=%s\n' \"\${#_UPGRADE_DRIFT[@]}\" \"\${_UPGRADE_DRIFT_SPLIT}\" \"\${_UPGRADE_DRIFT_UNVERIFIED}\"
+  "
+  assert_success
+  assert_output --regexp '^count=0 split= reason=.+$'
+}
+
+# why: The other way the comparison can fail to run -- the squash names an
+# upstream commit this object store does not hold, so the tree to compare
+# against cannot be resolved. A zero here would be the check reporting a clean
+# tree it never looked at
+@test "_collect_subtree_local_drift records why it could not compare when the recorded upstream commit is absent (#1092)" {
+  local _r="${TEMP_DIR}/noobject" _pre
+  _pre="$(_seed_squashed_subtree "${_r}")"
+
+  # A well-formed sha this repo does not hold is what a pruned or
+  # never-fetched upstream commit looks like from here. Injected by overriding
+  # the resolver, so the case is about what the comparison does with an
+  # unresolvable answer rather than about how it got one.
+  run bash -c "
+    cd '${_r}'
+    source '${HARNESS}'
+    _subtree_split_sha() { printf '%s' 0123456789abcdef0123456789abcdef01234567; }
+    _collect_subtree_local_drift '${_pre}'
+    printf 'count=%s reason=%s\n' \"\${#_UPGRADE_DRIFT[@]}\" \"\${_UPGRADE_DRIFT_UNVERIFIED}\"
+  "
+  assert_success
+  assert_output --regexp '^count=0 reason=.+$'
+}
+
+# why: Recording the reason is only half of it -- the consumer has to be told,
+# because an upgrade that printed nothing is exactly what they saw before this
+# check existed
+@test "_warn_subtree_local_drift says the comparison could not run rather than nothing (#1092)" {
+  run bash -c "
+    source '${HARNESS}'
+    _UPGRADE_DRIFT=()
+    _UPGRADE_DRIFT_UNVERIFIED='no subtree squash in deadbeef..HEAD'
+    _warn_subtree_local_drift
+  " 2>&1
+  assert_success
+  assert_output --partial "could not be checked"
+  assert_output --partial "no subtree squash in deadbeef..HEAD"
+}
+
+# why: Naming the files is the whole requirement -- a count with no paths
+# leaves the consumer exactly where the silence did -- and the path has to be
+# repo-relative, which is what they type at the prompt, not the
+# subtree-relative form the comparison works in
+@test "_warn_subtree_local_drift names each drifted path repo-relative (#1092)" {
+  run bash -c "
+    source '${HARNESS}'
+    _UPGRADE_DRIFT=(\"M\$(printf '\\t')dist/shipped.sh\" \"A\$(printf '\\t')dist/mine.sh\" \"D\$(printf '\\t')dist/gone.sh\")
+    _UPGRADE_DRIFT_SPLIT=0123456789abcdef0123456789abcdef01234567
+    _warn_subtree_local_drift
+  " 2>&1
+  assert_success
+  assert_output --partial "3 path(s) under .base/ do not match what base shipped"
+  assert_output --partial ".base/dist/shipped.sh (differs from upstream)"
+  assert_output --partial ".base/dist/mine.sh (only in this repo)"
+  assert_output --partial ".base/dist/gone.sh (missing from this repo)"
+  assert_output --partial "git diff 0123456789ab HEAD:.base"
+}
+
+# why: Silence on a clean tree is the behaviour every consumer sees on every
+# upgrade, so it is the one the reporter has to get right even though it
+# prints nothing
+@test "_warn_subtree_local_drift says nothing when no drift was recorded (#1092)" {
+  run bash -c "
+    source '${HARNESS}'
+    _UPGRADE_DRIFT=()
+    _UPGRADE_DRIFT_UNVERIFIED=""
+    _warn_subtree_local_drift
+  " 2>&1
+  assert_success
+  assert_output ""
 }

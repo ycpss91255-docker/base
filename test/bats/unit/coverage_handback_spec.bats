@@ -206,27 +206,53 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   assert_output --partial "rm -rf /source/coverage"
 }
 
-# why: the failure this closes is a host rm that cannot unlink root's files
+# The claim is "the host did not do it", and a claim of that shape is
+# satisfied by there being no clean at all -- the defect base#1090 is
+# about. Measured on 1c9ccb2, with `_clean_coverage` renamed away: the
+# `run` died 127 on a missing command, which is a failure; the tree it
+# never touched was still there, which is survival; and this case reported
+# ok 1 of 1. So the survival is read together with two positives -- the
+# clean RAN and delegated to a container, and the failure is its own
+# refusal by event name -- and none of the three can be had by absence.
+
+# why: the failure this closes is a host rm that cannot unlink root's
+# files, read together with the two positives that keep the survival from
+# being satisfied by there being no clean at all
 @test "just test clean: no host-side rm decides the outcome (base#1032)" {
   # A host `rm` is exactly what could not do this job: unlinking a file
   # needs write permission on the DIRECTORY holding it, and that directory
   # belongs to root. A clean that still leaned on one would work on the
   # trees that never needed it and fail on the only tree that did.
   local _dir="${BATS_TEST_TMPDIR}/repo"
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
   mkdir -p "${_dir}/coverage"
   printf 'x\n' > "${_dir}/coverage/timings.tsv"
-  # A container that does nothing. If anything on the host removed the
-  # tree, this passes and the mechanism under test is not the mechanism.
-  mock_cmd "docker" 'exit 0'
+  # A container that does nothing, but is still asked -- the ask is what
+  # the log below reads. If anything on the host removed the tree, this
+  # passes and the mechanism under test is not the mechanism.
+  mock_cmd "docker" 'printf "%s\n" "$*" >> "'"${_log}"'"; exit 0'
 
+  # JSON, so the refusal is anchored on its EVENT NAME rather than on the
+  # wording of the message, as the sibling case below does.
   run bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
+    export LOG_FORMAT=json
     '"${_PINS}"'
     _clean_coverage "'"${_dir}"'"
   '
   assert_failure
   assert [ -e "${_dir}/coverage/timings.tsv" ]
+  # The failure is the clean's own verdict on a tree that is still there,
+  # not a shell that could not find it.
+  assert_output --partial 'ci_coverage_not_reclaimed'
+
+  # And the work was handed to a container. Without this the case is a
+  # statement about a clean that never ran.
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "run --rm"
+  assert_output --partial "rm -rf /source/coverage"
 }
 
 # why: a clean that half-works recreates the stuck state one run later

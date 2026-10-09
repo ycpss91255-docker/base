@@ -139,8 +139,8 @@ a refusal as "do not release".
 | `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
 | `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
 | `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
-| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
-| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit. The clean REPORT is read, not just the exit status: "passes" is also what a lint that compares nothing says, so the counts are what distinguish ignoring the local call from ignoring the tree (base#1090) |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site. The clean REPORT is read, not just the exit status: a lint that compared nothing would also exit 0 over this fixture, so the count is what says the live line was read and the commented one was not (base#1090) |
 | `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
 | `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
 | `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
@@ -154,12 +154,12 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | One plain-runner lint group, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (28)
+### test/bats/unit/adr_doc_claims_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
-| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | - |
-| `doc/adr: the scan is not vacuous -- ADR-00000027 is read and holds blocks (#927)` | - |
+| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | The gate over the live records. Its population is the tree's own `doc/adr/*.md` and it is refused when empty: a scan of no records reports every record clean, which is the shape base#1090 names. The directory is a tracked subject, so its absence is a rename nobody noticed, not a pass |
+| `doc/adr: the scan is not vacuous -- the rules examine claims this tree makes (#927)` | The non-vacuity half, derived. "The checker read something" is not answered by a violation count -- zero violations is also what reading nothing produces -- so the claims the rules EXAMINED are recorded as they are examined, and this case holds that set non-empty. It used to name one ADR by filename, which made the whole non-vacuity claim a property of `00000027-release-cadence-and-fanout-trigger.md` rather than of the tree |
 | `release-worker.yaml is workflow_call-only, so no base tag reaches it (#927)` | - |
 | `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
 | `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
@@ -186,6 +186,10 @@ a refusal as "do not release".
 | `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
+| `adr index: the audit table's row set is the ADR files on disk (base#1121)` | R4 population. The index declares itself the consolidated view of every ADR, and both ADR lints exempt it by filename, so the one file in the registry directory with no gate was the one enumerating the registry -- it sat three rows short |
+| `adr index: the audit rows are in ascending ADR order (base#1121)` | Hand-appending is what produced the 29, 35, 36, 32, 31, 30 tail, and an unsorted table is where a duplicate or a missing row hides |
+| `adr index: each conclusion tally equals what the verdict column says (base#1121)` | R5 tally. The conclusion's counts are derivable from column 2 and were stored instead, which is the P2 violation PRD cites this very file as the example of -- it claimed 18 keep against 21 and 9 elevates-invariant against 10, and filed 00000022 under a verdict its own row contradicts |
+| `adr index: every verdict cell is one the vocabulary table defines (base#1121)` | A verdict cell outside the vocabulary is a word the index defines nowhere, and it would make the tally above pass by never being counted |
 
 ### test/bats/unit/adr_numbering_spec.bats (9)
 
@@ -277,7 +281,7 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 |------|-------------|
 | `APK_MIRROR: declared exactly once, defaulting to the upstream CDN (#1008)` | The upstream host is declared in exactly ONE place, so nothing else has to be kept in agreement with it. A second ARG, or a default spelled elsewhere, is how the two start disagreeing silently -- and the default has to BE the CDN, or a machine that named no mirror gets one. |
 | `APK_MIRROR: the mirror stage's alpine is the pinned ARG, and so is every other (#1008)` | The tree's ONLY tie between a tooling stage's alpine and ARG ALPINE_VERSION, after template_spec's kcov-builder assertion had to give it up (that stage is `FROM alpine-apk` now). Nothing else in the gate catches a divergent one: hadolint refuses `:latest` but not a `FROM alpine:3.20` sitting next to `ARG ALPINE_VERSION=3.21`, which builds green and ships tooling on a release the file does not declare. |
-| `APK_MIRROR: the build path names no alpine mirror of its own (#1008)` | What keeps "declared once" true across FILES. A `${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose.yaml would move the upstream host's declaration into a file the Dockerfile cannot see, so the Dockerfile could no longer change it -- the failure the APT_MIRROR_* pair already has in the emitted downstream compose. |
+| `APK_MIRROR: the build path names no alpine mirror of its own (#1008)` | What keeps "declared once" true across FILES. A `${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose.yaml would move the upstream host's declaration into a file the Dockerfile cannot see, so the Dockerfile could no longer change it -- the failure the APT_MIRROR_* pair already has in the emitted downstream compose. "Once" is a count over a SET of files, so the set is derived from the build and compared by equality: a refutation on compose alone was satisfied by the whole knob being gone, which is the defect base#1090 is about. Measured on 1c9ccb2, with `ARG APK_MIRROR` and its RUN deleted from the Dockerfile and the `build.args` entry deleted from compose: six of the seven cases here went red and this one reported ok, because a file that declares nothing names no mirror either. |
 | `APK_MIRROR: at the default the repositories file is not touched at all (#1008)` | The load-bearing case, and the one a byte comparison cannot make. Dropping the guard leaves a sed that replaces the host with ITSELF -- the exact rule the guard prevents -- and its output is byte-identical, so bytes green-light it. Identity (inode, mtime) is what says the rewrite never ran, and that is what buys reach: a mistake in the rule can then only be reached by a caller who asked for a mirror. |
 | `APK_MIRROR: an override repoints every repository line (#1008)` | EVERY line moves, not just the first. The seed file carries two repositories because that is the shape alpine ships, and a rule that stops after `main` leaves `community` pointing at the host the caller cannot reach -- a build that then dies halfway through, on the mirror that was supposed to have fixed it. |
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
@@ -455,7 +459,7 @@ mentions the `--no-prune` flag.
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
 
-### test/bats/unit/build_sh_spec.bats (63)
+### test/bats/unit/build_sh_spec.bats (61)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a sandbox
 tree mirroring the expected layout (build.sh + `template/` subtree with real
@@ -525,14 +529,12 @@ runs).
 | `build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env` | - |
 | `build.sh passes --network <value> to docker build when BUILD_NETWORK set in .env` | - |
 | `build.sh omits --network when BUILD_NETWORK absent from .env` | - |
-| `build.sh --lang zh-TW prints Chinese usage text` | - |
+| `build.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
 | `build.sh --lang requires a value` | - |
-| `build.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `build.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `build.sh --lang ja prints Japanese usage text` | - |
 | `build.sh --help documents QUIET in every locale (#895)` | - |
-| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `build.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `build.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `build.sh calls real docker build when --dry-run is not set` | - |
 | `build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)` | - |
 | `build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)` | - |
@@ -561,7 +563,7 @@ runs).
 | `build.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)` | - |
 | `build.sh aborts on a failing pre-build hook and skips docker build (#690)` | - |
 
-### test/bats/unit/build_sh_verify_spec.bats (17)
+### test/bats/unit/build_sh_verify_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -578,6 +580,7 @@ runs).
 | `build.sh test: build output with no BuildKit progress lines fails the build` | The mechanism failing is the one thing still worth a non-zero exit |
 | `build.sh test: a step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
 | `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | The parsed progress mode is pinned, not inherited from the caller |
+| `build.sh test: the verification branch builds the stage it was asked for (#1115)` | The verification branch is a SECOND compose dispatch, and the only one a --dry-run case can never reach: the branch is taken only when a real build runs, so every target assertion in build_sh_spec lands on the other arm. Replacing this arm's target with a literal `devel` builds and tags devel, reports on devel's steps, and leaves all 17 cases here green -- the report is derived from the stage name the wrapper was GIVEN, not from the one it handed compose |
 | `build.sh devel: a non-verification target gets no verification report` | Scope: a plain devel build is unchanged |
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
@@ -912,7 +915,7 @@ Pure git + filesystem, no docker.
 | `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
 | `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
 
-### test/bats/unit/changelog_entry_lint_spec.bats (61)
+### test/bats/unit/changelog_entry_lint_spec.bats (86)
 
 | Test | Description |
 |------|-------------|
@@ -977,6 +980,31 @@ Pure git + filesystem, no docker.
 | `_run_changelog_entry: a released section's off-roster heading is never checked (#926)` | The roster governs what is written from now on. A shipped `### Tests` is a fact about what shipped, and a lint that could fail on it would be one nobody can make pass without falsifying the record. |
 | `_run_changelog_entry: FAILS when the documented roster disagrees with the code (#926)` | A roster written in two places drifts one place at a time, and the copy that drifts is the one contributors read. This is what keeps the single definition honest: the prose is a rendering, and a rendering that has stopped agreeing is a wrong answer delivered confidently to the person asking. |
 | `TEST.md's changelog-entry row names all four rules this lint enforces (#956)` | The row is where a reader learns what this lint refuses, and it has already drifted once -- a merge resolved it wholly to the older side and dropped two rules with nothing to notice. Narrow by design: it guards one row and the rules that row must name, not the whole table. |
+| `_run_changelog_entry: the union merge driver produces a duplicate heading the lint REFUSES (#1103)` | The red case, and the reason this whole repair exists: the duplicate is not a shape somebody typed, it is what `merge=union` hands back without conflicting. Built by git so the fixture cannot drift from the driver. |
+| `_run_changelog_entry_fix: the merge-produced duplicate becomes a file the lint ACCEPTS (#1103)` | The whole point. The gate that refused now has a repair, and the proof that the repair is the right one is that the gate accepts its output. |
+| `_run_changelog_entry_fix: every entry line survives byte-for-byte (#1103)` | The load-bearing promise. A normaliser that may reword, re-wrap or drop an entry is one nobody can run unsupervised, and then the chore is still a chore. Compared as a byte stream of every entry LINE -- continuation lines included, so a re-wrap would show -- and as a multiset, because roster order moves whole blocks on purpose. |
+| `_run_changelog_entry_fix: folding twice leaves the file byte-identical (#1103)` | Idempotence in the strong sense, which is what makes it safe to put on a verb somebody presses for another reason: the second run finds nothing to fold and writes nothing, so the file cannot drift by being folded twice. |
+| `_run_changelog_entry_fix: a section with no duplicate is not rewritten at all (#1103)` | The other half of idempotence, and the one that decides whether this can hang off a shared verb: a file nobody broke must not be reformatted by a command somebody ran for a different reason. |
+| `_run_changelog_entry_fix: a folded section is emitted in roster order (#1103)` | The order a folded section is emitted in is the roster's, which is the order script/release/release_notes.sh already assembles a release page in -- so the file and the page it becomes stop differing by one. |
+| `_run_changelog_entry_fix: entries keep their file order within a folded category (#1103)` | Within a category nothing is reordered: the first block's entries, then the second's. Reordering entries is the one thing the issue forbade outright, and the merge's own order is the only order anybody reviewed. |
+| `_run_changelog_entry_fix: folds a duplicate with another category between the two blocks (#1103)` | The duplicate a real merge produces is NOT adjacent -- somebody else's category sits between the two blocks -- so a fold that only collapses neighbours would fix none of the cases this exists for. |
+| `_run_changelog_entry_fix: folds three occurrences of one category into one (#1103)` | Three is not two. A serial queue lands more than two branches, and a fold that pairs occurrences rather than grouping them would leave the third. |
+| `_run_changelog_entry_fix: a duplicate in a RELEASED section is never touched (#1103)` | A released section is a historical record and a duplicate that shipped is a fact about what shipped. Rewriting it falsifies the record, so the released block is the boundary this rewriter must never cross. |
+| `_run_changelog_entry_fix: a heading inside a fenced example is not a second occurrence (#1103)` | Every other scan in this driver treats a fence as inert, and this one has to agree: a '### Fixed' shown inside a ```markdown example is an example, and moving it would edit somebody's code block. |
+| `_run_changelog_entry_fix: a heading inside an allow region is left alone (#1103)` | An allow region is somebody's explicit "this second copy is deliberate". The lint honours it, so the rewriter must too, or the fold silently reverses a decision that was written down. |
+| `_run_changelog_entry_fix: REFUSES on an unbalanced allow marker and writes nothing (#1103)` | The refusal that keeps the rewriter honest. With an unbalanced marker nobody can say which lines are exempt, and a rewriter that guesses at that moves an entry out of a region somebody wrote on purpose. |
+| `_run_changelog_entry_fix: a duplicate ENTRY is not folded, and still fails the lint (#1103)` | The scope line. Which of two near-identical entries survives is a judgement about text, so the fold does not make it -- and the lint has to go on refusing the duplicate entry afterwards, or the repair would have hidden it. |
+| `_run_changelog_entry_fix: the prose above the first heading stays in place (#1103)` | Prose above the first category heading is the section's lead, and an entry under no heading is still somebody's entry. Both are outside the part being regrouped, so both stay exactly where they were. |
+| `_run_changelog_entry_fix: the compare-link block is left below the section (#1103)` | The compare-link block ends the section, and a fold that ran past it would move link definitions into the entry list -- which the entry lint then reports as content no entry measures. |
+| `_run_changelog_entry_fix: a file with no final newline keeps none (#1103)` | A rewriter whose job is the heading level has no business adding a byte at end of file. Caught here because nothing downstream would report it and the next reader could not tell what added it. |
+| `_run_changelog_entry_fix: the runner and the justfile both reach the repair (#1103)` | The repair is only handled if a verb reaches it. Asserted against the runner and the justfile because a function nothing dispatches is a repair nobody can run, however well it folds. |
+| `_run_changelog_entry: a second allow-begin does not expose the lines before it (#1103)` | The refactor that gave the folder the lint's allow map had to be behaviour-preserving, and this is the case it was not: the inline pass set the skip map as it walked, so a second allow-begin left the first region's lines hidden. Measured at 2 suppressed before, 1 after -- a line the lint had stopped measuring with nothing to say so. |
+| `_run_changelog_entry_fix: a nested allow region travels as one piece (#1103)` | What the exposure above cost the rewriter, reproduced: an exempted '### Added' became a block the fold felt free to move, so it reordered lines out of a region and left the outer begin marker dangling over somebody else's entry -- a file the lint then refuses, written by the command run to fix it. The two Fixed blocks around the region ARE a duplicate and do fold; the region has to travel inside the survivor as one piece. |
+| `_run_changelog_entry_fix: two spellings of one heading fold to the canonical one (#1103)` | Two spellings of one heading are one category to the lint, which compares them with whitespace collapsed -- so they are a duplicate, and the survivor has to be written in one spelling or the file keeps a difference nothing reads. |
+| `_run_changelog_entry_fix: REFUSES a section carrying an unterminated fence (#1103)` | Reproduced damage, not a hypothetical: an open fence in the LAST category moves ahead of the others under roster order and swallows their headings and entries as code. Measured 3 entries checked before the fold and 1 after, with the lint reporting clean -- the repair hiding two entries from the gate. |
+| `_run_changelog_entry_fix: REFUSES when the fold would hide an entry from the lint (#1103)` | The general net behind that one refusal. A fold that LOSES an entry leaves the headings perfectly fine, so the heading postcondition cannot see it; what the fold must not change is how many entries the lint can see. Driven by a stub that drops one, because no input reaches this once the fence is refused. |
+| `_run_changelog_entry_fix: a write that did not take is REFUSED, not reported as done (#1103)` | The guard that stops the repair reporting its own success. Driven by neutralising the write, because a write that did not take is the one failure the fold cannot see from the array it assembled -- the file on disk is what the next reader gets, and the next reader is the lint on the next cycle. |
+| `_run_changelog_entry: the refusal names the command that folds the duplicate (#1103)` | The refusal is where somebody meets this problem, so it is the only place the repair can be documented without being remembered. A message that names the defect and not the verb is the chore this issue is about. |
 
 ### test/bats/unit/changelog_index_spec.bats (11)
 
@@ -1118,13 +1146,14 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (171)
+### test/bats/unit/ci_spec.bats (180)
 
 | Test | Description |
 |------|-------------|
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
+| `_run_shellcheck: lints every *.sh the dist/ tree ships (base#1113)` | base#1113 the dist/ half named its find roots, and the tree grew two scripts outside every one of them |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 | `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | 141 reported as tool + command + SIGPIPE |
 | `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | Plain non-zero abort still names the tool |
@@ -1151,7 +1180,7 @@ between them can be asserted at all.
 | `lint groups: every grouped lint lands in exactly one group, at any group count (base#1071)` | The property the whole shape rests on. A grouped CI job is only as trustworthy as "every lint is in exactly one group": a lint in no group runs nowhere and gates nothing while CI stays green, and a lint in two groups pays for itself twice. It is asserted at SEVERAL totals, not at the one the workflow happens to use, because the partition is arithmetic over the table's positions -- a total that divides the table evenly and one that does not are different cases, and the workflow's count is free to change. |
 | `lint groups: a lint added to the table lands in a group with nothing else edited (base#1071)` | The half a test over today's table cannot reach. The roster this replaces was not wrong when it was written -- it was wrong on the day the NEXT driver was added, and the tree at that moment is not the tree this suite reads. So the addition is performed: a driver the table does not carry is appended to a copy of it, and the partition of that copy must place it, with no workflow and no group list edited. A partition that could only place the names it already knew would pass every other test in this file. |
 | `lint groups: every lint excluded from the groups is a lint of the table (base#1071)` | The exclusion list is the one hand-written thing left, so it is held to the only rule that matters: a name is excluded from the groups BECAUSE it has a job of its own. A name in it that the table does not carry excludes nothing and is a typo that reads as a decision -- and the lint it meant to name keeps running in a group, so nothing else notices. |
-| `lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)` | A group spec the dispatcher cannot read must not resolve to an empty group. Every refusal here is a way a CI job could run zero drivers and report success, which is the same green-while-gating-nothing failure the grouping itself is built to avoid -- so the spec is validated rather than trusted, and an index outside its own total is refused with the malformed ones. |
+| `lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)` | A group spec the dispatcher cannot read must not resolve to an empty group. Every refusal here is a way a CI job could run zero drivers and report success, which is the same green-while-gating-nothing failure the grouping itself is built to avoid -- so the spec is validated rather than trusted, an index outside its own total is refused with the malformed ones, and each refusal is framed by the positive that keeps it from being satisfied by the option not existing. |
 | `lint groups: running a group with no lints in it is refused (base#1071)` | The other empty group, and the one arithmetic produces on its own: more groups than there are lints leaves the tail groups with nothing to run. Listing nothing is a fair answer to a question about membership; RUNNING nothing and exiting 0 is a job that gates nothing while its check goes green, so the runner refuses what the lister may print. |
 | `lint groups: a malformed spec is refused for BEING malformed, not for being empty (base#1071)` | A refusal has to name what it refused for, and this one did not. `--lint-group` reads the membership through a process substitution, so a `_die` inside the lister kills the SUBSHELL only: the runner saw an empty list and blamed the empty group, reporting "contains no lint" for a spec that never parsed. The wrong reason is the visible half. The invisible half is worse -- the runner was treating the lister's OUTPUT as its verdict, so a lister that ever printed one member before dying would hand back a truncated group and run it to a green exit. So the runner validates the spec in its OWN shell, and the lister's refusal is a backstop it no longer depends on. |
 | `lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)` | The one shape the digits-only regex accepts and bash arithmetic rejects. `1/08` is a well-formed spec by every rule stated above and an INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw "value too great for base" from the shell itself and then refused for a reason that was not the reason -- a padded index reported as "outside its own total", a padded total as "asks for 08 groups". A spec is read in the base it is written in, and a padded one names the same group as its bare twin. |
@@ -1183,6 +1212,12 @@ between them can be asserted at all.
 | `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
 | `_run_coverage: a full-suite run names every spec file, subfolders included (#952)` | - |
 | `_run_coverage: the full run covers the pools the inventory reads (#952)` | - |
+| `_coverage_union_gap: names the specs no shard ran when the shards disagree about the weights (#1114)` | The load-bearing case, and the observable base#1114 measured on the real tree: two weight sources across shard processes leave specs in NO shard, every slice still non-empty, and this is the only check that can say which specs went unrun. |
+| `_coverage_union_gap: one weight source across every shard leaves no spec behind (#1114)` | The control that makes the case above mean something. Same fixture, same six specs, same partitioner -- one weight source, and the union is the whole pool. Without it, a detector that always reported a gap would pass the case above. |
+| `_coverage_union_gap: a cache miss on every shard is still one source, so still a partition (#1114)` | The @test-count fallback is a weight SOURCE, not the absence of one: shards that ALL miss the cache still partition the pool. Without this case a green gate could be read as "the weights were there" rather than "the weights agreed", and the fix would look like a cache-hit problem instead of a consistency one. |
+| `_coverage_union_gap: refuses rather than reporting an empty gap when there is nothing to compare (#1114)` | No evidence must not read as a clean bill of health. An unreadable manifest, a missing one, and an inventory that enumerated nothing would each make a gap of zero mean nothing -- which is how this gate goes vacuous while still printing a pass. |
+| `main --coverage-union-check: refuses, naming the specs no shard ran (#1114)` | The entry point the coverage-gate job runs. The function answers with data; this turns a gap into a non-zero exit that NAMES the specs, which is the whole of what a red CI job has to tell its reader. |
+| `main --coverage-union-check: accepts a manifest naming every spec in the inventory (#1114)` | The pass direction of the same entry point, over the live inventory. A manifest naming every spec is what a healthy coverage matrix produces, so refusing it would make the gate unshippable -- and it is the half that proves the refusal above is about the gap and not about the flag. |
 | `_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)` | - |
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
@@ -1248,7 +1283,9 @@ between them can be asserted at all.
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
-| `drivers: test.sh sources all per-tool drivers` | #650 dispatcher sources every driver |
+| `drivers: test.sh sources every driver file in drivers/ (base#1113)` | base#1113 three source lines were checked against a directory of twenty-nine driver files |
+| `_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)` | base#1113 a driver never added to the table is in no lint phase and no CI group, and the guards all read the table |
+| `_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)` | base#1113 an exemption array is the one hand-written thing left, so it is held to the rule that each entry excuses something real |
 | `drivers: the bats runners live in drivers/bats.sh, not test.sh` | #650 bats runners moved out |
 | `drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh` | #650 shellcheck moved out |
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |
@@ -1294,7 +1331,7 @@ between them can be asserted at all.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/classify_testtools_spec.bats (5)
+### test/bats/unit/classify_testtools_spec.bats (9)
 
 `testtools_changed` tells every image-consuming job whether to rebuild the
 tooling image from source instead of pulling the rolling `:main`. On a pull
@@ -1316,6 +1353,10 @@ reads the output the step writes.
 | `classify: a push is still code-changed and system-relevant (#1010)` | A non-PR event still runs the full suite. The flag being computable now must not narrow what a push runs. |
 | `classify: an event that cannot be diffed still rebuilds (#1010)` | The fail-safe direction the step's own comment promises and did not take. `workflow_dispatch` has no previous commit to diff against, so the classifier cannot know whether the rolling tag corresponds to this ref -- and it answered `false`, which is the side that USES an image it could not check. The path here is deliberately not the Dockerfile, so a `true` can only come from the default and never from a diff. |
 | `classify: a push with no parent to diff still rebuilds (#1010)` | The other half of the same promise, and the half that already held: a push whose `HEAD^` does not resolve is a diff that cannot be taken, not an answer of "unchanged". Pinned because the fix above rewrites the branch that decides it, and a rewrite that inverted this one would look green against the dispatch case alone. |
+| `classify: a push that changes a file the Dockerfile COPYs rebuilds it (#1171)` | The defect this spec was extended for. The signal named one path, and the tooling image has more inputs than that: a plain build-context COPY bakes a file of the checkout into the image, so editing that file alone leaves a `:main` that no longer describes the tree while the classifier reports the image unchanged. The population is read off the Dockerfile, so the next COPY anyone adds brings its own case with it instead of waiting for someone to remember this list. |
+| `classify: a PR that changes a file the Dockerfile COPYs rebuilds it (#1171)` | The same miss on the arm every pull request takes, which is the expensive one: the PR arm's `false` sends `obtain_test_tools.sh` down its layer-2 path, so the whole suite runs inside the rolling `:main` -- an image built before the edit, and one nothing on the PR path refreshes. |
+| `classify: a PR that changes nothing the image reads still pulls (#1171)` | The guard that keeps the two cases above from being bought by answering `true` to everything. "Anything changed" would rebuild the tooling image on every pull request and throw away the pull path the rolling tag exists for. |
+| `classify: a PR that changes the test-tools Dockerfile rebuilds it (#1171)` | The Dockerfile's own case on the PR arm, pinned alongside the two above so a rewrite that reaches for the derivation cannot drop the one input the signal already had. |
 
 ### test/bats/unit/code_lines_spec.bats (46)
 
@@ -1865,7 +1906,7 @@ root. Both are base#1032.
 | `the refusal that blocks the next run names the repair (base#1032)` | the refusal the operator actually meets is the one that must name the cure |
 | `just test clean: a checkout with no coverage/ succeeds and starts nothing (base#1032)` | the ordinary case -- nothing to clean must not cost a container |
 | `just test clean: the removal is done by the container over the mount (base#1032)` | the whole point -- the reclaim happens where root is, not on the host |
-| `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files |
+| `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files, read together with the two positives that keep the survival from being satisfied by there being no clean at all |
 | `just test clean: a coverage/ still standing afterwards is a loud failure (base#1032)` | a clean that half-works recreates the stuck state one run later |
 | `just test clean: the target the container is given cannot be redirected (base#1032)` | `rm -rf` as root inside a mounted checkout must have no reachable variable |
 | `just test clean: /source is the checkout's mount point in the service it drives (base#1032)` | the literal is only right while /source is where the checkout is mounted |
@@ -2089,7 +2130,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (19)
+### test/bats/unit/derived_figures_lint_spec.bats (80)
 
 | Test | Description |
 |------|-------------|
@@ -2112,6 +2153,67 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
+| `_derived_default_coverage: reads the flag off the _run_via_compose ci calls (base#1121)` | The figure itself. Read it wrong and every rule built on it is wrong in the same direction, silently -- so the derivation is pinned in both states of the code, not just the one the tree is in today |
+| `_derived_default_coverage: REFUSES when the calls disagree (base#1121)` | An ambiguous figure must refuse. Picking a side would hold prose to a guess, which is worse than holding it to nothing |
+| `_derived_test_subcommands: derives the vocabulary from the recipe lines (base#1121)` | The vocabulary decides which examples are ABOUT the default run; a recipe the parser misses turns a narrowed example into a false positive |
+| `_run_derived_figures: FAILS when a bare just test is documented as running kcov (base#1121)` | The defect this figure exists for -- eight annotations on the repo's most-read page claimed a coverage run the dispatch cannot reach |
+| `_run_derived_figures: PASSES when the annotation says the default has no kcov (base#1121)` | The corrected wording has to be expressible. A rule that banned the word would force the docs to drop the one fact a reader wants |
+| `_run_derived_figures: FAILS when the default DOES measure coverage and the annotation omits it (base#1121)` | The rule is the figure, not a ban on a word: flipping the code must flip which prose is wrong, or this is a hardcoded string check wearing a derivation |
+| `_run_derived_figures: a documented subcommand is not the default run (base#1121)` | The load-bearing exclusion. `just test coverage` SHOULD say Kcov, and a rule that flagged it would be reverted within a day |
+| `_run_derived_figures: a flag is not the default run either (base#1121)` | Same exclusion through the other channel the runner is narrowed by, so the dispatcher's own --coverage examples stay legal |
+| `_run_derived_figures: reads the recipe-comment shape too (base#1121)` | The second shape the repo documents commands with. Covering only the fenced-example shape would leave every `just --list` description ungated |
+| `_run_derived_figures: a mention inside running prose is not an annotation (base#1121)` | The anchor, and the reason there is one: the dispatcher's --jobs refusal names kcov and `just test` in one sentence while claiming neither |
+| `_run_derived_figures: FAILS when the bare lint phase is documented as ShellCheck alone (base#1121)` | The second half of the same drift -- the lint phase runs the whole table, and an annotation naming one binary describes a narrowed run |
+| `_run_derived_figures: PASSES when the lint annotation names both binaries (base#1121)` | The corrected wording again, so the rule cannot be satisfied only by deleting the tool names |
+| `_run_derived_figures: a narrowed lint run may name one linter (base#1121)` | `just test lint --shellcheck` legitimately IS ShellCheck only; flagging it would make the rule wrong about the one case it is right about |
+| `_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)` | Without the recipe file the vocabulary is empty and every documented subcommand reads as the default run -- the lint must refuse, not scan |
+| `_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)` | An unparsed table makes the lint-phase rule inert while reporting clean, which is how a guard quietly stops guarding |
+| `_run_derived_figures: a token that is not a recipe is still the default run (base#1121)` | The rule must not be steppable-out-of: adding a word justfile.test does not define dispatches nowhere, so the example still describes the bare run |
+| `_derived_drift_keys: derives the compared set from the read-back patterns (base#1121)` | The set the completeness rule is built on, including the negative half -- a key written but never read back must not come through as compared |
+| `_derived_setup_metadata_keys: derives the written namespace from env_emit (base#1121)` | The candidate set for the soundness rule; empty, and naming an inert key in a section about comparison would go unreported |
+| `_derived_wrapper_drift_subcommand: reads the name out of the wrapper (base#1121)` | The name is read, not stored, so renaming the subcommand moves what the trigger list has to say instead of leaving a stale word behind |
+| `_derived_wrapper_drift_subcommand: REFUSES when the wrapper names two (base#1121)` | Two candidates means the name to document is undecidable, and a guess would pin prose to the wrong one |
+| `_run_derived_figures: FAILS when the drift section omits a compared key (base#1121)` | The defect: the section named three of five, so the trigger a maintainer adding a stage comes looking for was not there |
+| `_run_derived_figures: FAILS when the drift section names a key nothing compares (base#1121)` | The soundness half. An inert key listed among the compared ones is read as compared, which is how the section claimed a timestamp was a trigger |
+| `_run_derived_figures: a key added to the comparison moves the requirement (base#1121)` | Proves the rule follows the code rather than a transcription of it: teaching drift.sh a sixth key makes clean prose the violation |
+| `_run_derived_figures: FAILS when the trigger list omits the drift path (base#1121)` | The section next door listed four triggers and left out the one that fires with nobody typing anything |
+| `_run_derived_figures: the trigger-list rule goes inert when the wrapper stops drift-checking (base#1121)` | The rule must retire itself. If the wrappers stop drift-checking the old claim is true again, and a lint still demanding the bullet is the bug |
+| `_run_derived_figures: FAILS when the drift section is absent (no vacuous pass) (base#1121)` | A renamed heading would otherwise silence both rules at once, over every locale, while reporting clean |
+| `_run_derived_figures: addresses a translated section by its sync id (base#1121)` | The id is how a section is found in a language the driver cannot read; without it the three translations are outside the gate |
+| `_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)` | A fix that lands in one locale is not a fix -- the three translations carried the same three names for as long as the English did |
+| `_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)` | An empty compared set passes the completeness rule over every locale at once, which is the failure mode this spec is most exposed to |
+| `_run_derived_figures: folds a wrapped recipe comment into one annotation (base#1121)` | A recipe doc comment wraps, and a per-line scan inspects only the first line -- the tool list and the negation on the continuation sit outside the guard, which is where the real justfile.test annotation lives |
+| `_run_derived_figures: a negation on the continuation line still counts (base#1121)` | The negation may live on the continuation too, so the fold has to carry it or the corrected wording reads as a bare claim |
+| `_run_derived_figures: a bare comment line detaches the continuation (base#1121)` | Folding must stop somewhere or an unrelated paragraph below an example gets read as part of its claim; a bare comment line is the separator this repo already uses for exactly that |
+| `_run_derived_figures: FAILS on a denied kcov claim when coverage is enabled (base#1121)` | With coverage ENABLED, an annotation that explicitly denies kcov is the contradiction -- reading the negation only in the disabled branch let the corrected wording survive a coverage migration unchanged |
+| `_run_derived_figures: the without-kcov spelling is denied too when coverage is enabled (base#1121)` | The other spelling of the same negation, so the enabled branch is not fixed for one word and broken for the next |
+| `_derived_coverage_skips_lint: reads the guard around the lint phase call (base#1121)` | The predicate behind the coverage-entry rule, in both states of the guard -- read it wrong and the rule either never fires or fires on prose that is correct |
+| `_derived_coverage_skips_lint: REFUSES when no guarded call site exists (base#1121)` | With no call site the question is unanswerable, and a lint that answers it anyway would hold prose to an assumption |
+| `_run_derived_figures: FAILS when a coverage entry is documented as running a linter (base#1121)` | A coverage run sets the one flag the lint phase guard excludes, so an annotation naming a linter there reports checks nothing performed -- the dispatcher's own help had said "ShellCheck + Hadolint + Bats + Kcov" |
+| `_run_derived_figures: the coverage FLAG spelling is the same claim (base#1121)` | The flag spelling reaches the same dispatch, so it must be the same question -- otherwise the rule covers the README and misses the help text |
+| `_run_derived_figures: a coverage annotation that claims no linter is clean (base#1121)` | The corrected wording has to pass, and the rule has to retire itself if the guard ever stops excluding coverage |
+| `_run_derived_figures: an indented example in a comment block is judged (base#1121)` | A worked example in a header block is indented under its own comment marker; an invocation that has to reach the first character of the body would leave every such block folded into the prose line above it and entirely unjudged |
+| `_run_derived_figures: a coverage annotation may name the linters it denies (base#1121)` | An annotation that spells out WHICH checks coverage skips is the most useful one a reader can get, and rejecting it for containing the tool name would push the docs back to saying less than they know |
+| `_run_derived_figures: a negation does not carry past the clause break (base#1121)` | The negation reaches one clause, not the whole annotation -- a tool named after the clause break is a claim again, which is what keeps the allowance from being a way to wave the rule through |
+| `_run_derived_figures: naming the default recipe is still the default run (base#1121)` | `just test default` dispatches to the very recipe bare `just test` dispatches to, so reading the name as a narrowing subcommand exempts the default run from the rule about the default run |
+| `_run_derived_figures: the bare target is derived, not the literal word default (base#1121)` | Which recipe a bare invocation runs is just's rule, not the word "default" -- a file with no `default` recipe hands it to the first one, and the guard has to follow that or it exempts the bare run under another name |
+| `_run_derived_figures: FAILS on a hadolint-only lint annotation too (base#1121)` | The lint phase runs both binaries, so "Hadolint only" is exactly as wrong as "ShellCheck only"; catching one spelling and not the other enforces the invariant in one direction and invites the other |
+| `_run_derived_figures: a lint annotation naming both, one negated, is clean (base#1121)` | A negated mention is not a claim here either, or the rule would refuse an annotation that correctly says which binary a narrowed phase leaves out |
+| `_run_derived_figures: FAILS on a shipped message naming a top-level recipe the consumer entry does not define (base#1118)` | This is the shipped defect: the hint printed the moment a user asks how to apply a config change named a top-level recipe, and the entry justfile registers every action as a namespace, so the instruction answered itself with `error: justfile does not contain recipe` |
+| `_run_derived_figures: PASSES on the namespaced spelling of the same verb (base#1118)` | The namespaced spelling is the one a consumer can type, so a gate that cannot tell it from the broken one would force the prose back to the error |
+| `_run_derived_figures: a literal naming a just OPTION is not a recipe claim (base#1118)` | `just --list` is an option of the runner, not a recipe it dispatches, so reading the first token as a recipe name would report the one hint in the shipped help text that is already correct |
+| `_run_derived_figures: FAILS on a namespace whose module does not define that recipe (base#1118)` | A real namespace with a verb the module never defines fails the same way at the terminal, so stopping at the namespace would let the second half of every two-word instruction go unchecked |
+| `_run_derived_figures: renaming the namespace in the entry makes the old spelling the violation (base#1118)` | Bidirectional, and the proof that the set is read off the entry's `mod?` lines rather than remembered: rename the namespace and the spelling that was correct becomes the violation, with no edit to this driver |
+| `_run_derived_figures: a command named in a source comment is not an instruction (base#1118)` | A comment is maintainer prose about the layering -- the entry's own docstring says "no top-level `just build`" -- while the rule is about what a consumer is TOLD TO TYPE; judging comments would make the file that documents the hazard the first thing to fail |
+| `_run_derived_figures: DIES when the consumer entry justfile is missing rather than failing everything (base#1118)` | With no entry justfile the command set is empty, every instruction looks wrong and the lint would report the whole shipped tree; refusing names the one missing file instead of burying it under its consequences |
+| `_run_derived_figures: FAILS on a BACKTICKED top-level recipe the consumer entry does not define (base#1221)` | The same defect in the other spelling this tree uses for "type this": a backticked `just build` in a shipped message answers itself with `error: justfile does not contain recipe` exactly as the single-quoted one does, and the first scope deliberately could not see it |
+| `_run_derived_figures: PASSES on the backticked namespaced spelling of the same verb (base#1221)` | The repair has to be reachable: a gate that reported the backticked namespaced spelling too would leave no spelling that passes, and the prose would have nowhere to go |
+| `_run_derived_figures: renaming the namespace makes the backticked old spelling the violation (base#1221)` | Bidirectional for the widened spelling as well, and the proof the set is still read off the entry's `mod?` lines: rename the namespace and the backticked spelling that was correct becomes the violation |
+| `_run_derived_figures: a backticked command in a source comment is not an instruction (base#1221)` | Comments stay out of scope in the widened spelling too -- backticks are how this tree writes a command inside maintainer prose, so judging them would report every docstring that explains the namespace layering |
+| `_run_derived_figures: reports BOTH backticked literals on one line (base#1221)` | The live usage text names two undispatchable commands on one line, so a scan that stopped at the first match per line would under-report the very population this widening exists for |
+| `_run_derived_figures: a backticked placeholder shape is not a recipe claim (base#1221)` | A backticked placeholder is a shape the reader substitutes into, not an invocation, and the shipped init.sh warning spells it exactly that way -- so the widened scope must not turn that correct line into a violation |
+| `_run_derived_figures: reads the recipe out of an ESCAPED backtick span (base#1221)` | Inside a double-quoted shell string the shipped code must escape the delimiter, so the live defect is spelled `\`just build\``; reading the escaping backslash as part of the recipe name reports `build\` and loses the namespaced repair the message exists to hand over |
+| `_run_derived_figures: an ESCAPED backtick span naming a dispatchable command is clean (base#1221)` | The false positive the same mis-read causes, and the load-bearing half: an escaped backtick span naming a command the layering DOES dispatch must stay silent, or the widening reports correct shipped prose |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
@@ -2391,7 +2493,7 @@ subshells and assert both the host file content and the inherited stdout
 | `entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)` | mkdir-fail branch (parent is a regular file) |
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 
-### test/bats/unit/entrypoint_spec.bats (10)
+### test/bats/unit/entrypoint_spec.bats (11)
 
 base's container ENTRYPOINT orchestrator, the base-owned half of the
 two-file entrypoint model (ADR-00000032). It ships from `.base/dist/`, lands
@@ -2413,12 +2515,13 @@ the file's bottom guard and are pinned separately.
 | `a non-executable bringup still runs, because it is sourced (#945)` | Nothing in the contract depends on the mode bit, and pinning that is what stops a later "just exec it" simplification from passing its own tests -- the shipped file happens to be COPY'd 0755, so the exec variant would look correct everywhere except a repo that ships its bringup 0644 |
 | `a missing bringup and missing helpers still start the workload cleanly (#945)` | The shape most existing repos are actually in -- the runtime helper COPY is opt-in and a repo need not carry a bringup at all. Asserted with stderr separated and under the orchestrator's own strict mode, because the interesting failures here are a stray diagnostic and a nounset abort, neither of which changes the workload's exit status |
 | `the workload's argv survives verbatim, spaces included (#945)` | The orchestrator sits between docker and CMD, so an unquoted `$@` anywhere in it re-splits the command a user typed. The embedded space is the only argument shape that catches that; a single-word workload passes through every wrong spelling |
-| `executed directly with nothing installed, it still execs the workload (#945)` | The bottom guard driven for real instead of grepped. Every other test here calls the dispatcher with scratch paths, so nothing else exercises the frozen literals or the strict mode the shipped file turns on for itself -- and an image with none of the three installed is the ordinary pre-adoption shape, not a hypothetical |
+| `the workload runs as the orchestrator's own process, not as a child of it (#945, #1115)` | The invariant the file states about itself at entrypoint.sh:50-53 ("this function never returns -- it ends in the workload's exec"), and the one thing nothing here observed. Drop the `exec` and every other case in this file stays green: stdout, argv and exit status are identical under exec and under fork. What differs is the process, so the process is what this asks about. Without exec the workload is a GRANDCHILD of tini, which the emitter defaults on (compose_emit.sh init: true), and tini forwards a stop signal only to its single child -- so `just docker stop` and `docker compose down` tear the container down without the workload ever seeing SIGTERM |
+| `executed directly with nothing installed, the frozen guard runs clean under its own strict mode (#945)` | The bottom guard driven for real instead of grepped. Every other test here calls the dispatcher with scratch paths, so nothing else exercises the frozen literals or the strict mode the shipped file turns on for itself -- and an image with none of the three installed is the ordinary pre-adoption shape, not a hypothetical. It is NOT the exec check its old title claimed: assert_success, the output and an empty stderr all read the same under exec and under fork, so the process replacement is asserted by the case above instead |
 | `executed directly, the orchestrator drives the in-image paths (#945)` | The Dockerfile contract in the one place it is spelled. The test above proves the guard RUNS but passes just as happily on a helper directory the Dockerfile never populates, so the two literals need pinning on their own: change one and the Dockerfile has to change with it |
 | `the orchestrator ships with the executable bit set (#945)` | Its four runtime siblings are 644 because they are sourced; this one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed 644, so nothing in a normal build goes red -- the file is simply not runnable from the subtree, and any consumer path that stops going through that COPY inherits an exit 126 |
 | `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | Joins the two files nothing else joins -- it reads the ENTRYPOINT out of the shipped Dockerfile and requires the shared build-time baseline to name that same path. Without it the half the container actually starts is asserted by nothing, and a dropped runtime-directory COPY stays invisible until a real container fails to come up |
 
-### test/bats/unit/env_emit_spec.bats (30)
+### test/bats/unit/env_emit_spec.bats (31)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_* metadata,
 SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
@@ -2428,6 +2531,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)` | - |
 | `write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)` | - |
 | `write_env creates .env with all required variables and SETUP_* metadata` | - |
+| `write_env writes every key the emitted compose.yaml interpolates with no fallback (#1115)` | Every USER_GID / USER_GROUP assertion in the tree is a CONSUMER carrying its own hand-written fixture (lib_spec writes its own .env, gen_spec asserts the compose text), so expectation and subject never share the producer and the producer was free to stop producing. Deleting both lines from write_env's heredoc left the whole unit and integration tiers green, while a real consumer gets USER_GID="" overriding the Dockerfile's ARG default and `groupadd: invalid group ID ''`, exit 3. The one gate that does catch it is the dual-arch acceptance job, the most expensive in CI |
 | `_scaffold_env_local is idempotent (never overwrites) (#868)` | - |
 | `write_env emits PROJECT_NAME_PENDING only when a rename is deferred (#920)` | - |
 | `_scaffold_env_local creates a comment-only override file naming .env (#868)` | - |
@@ -2573,7 +2677,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
 
-### test/bats/unit/exec_sh_spec.bats (61)
+### test/bats/unit/exec_sh_spec.bats (59)
 
 Unit tests for `exec.sh` argument parsing, the container-running precheck,
 and i18n. Sandbox tree mirrors build_sh_spec.bats; `docker ps` reads from a
@@ -2610,8 +2714,8 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | Test | Description |
 |------|-------------|
 | `exec.sh --help exits 0 and shows usage` | - |
-| `exec.sh --lang zh-TW prints Chinese usage text` | - |
-| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `exec.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `exec.sh --lang ja prints Japanese usage text` | - |
 | `exec.sh --lang requires a value` | - |
 | `exec.sh --target requires a value` | - |
@@ -2634,9 +2738,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `exec.sh -- separator: works after -t TARGET (run.sh parity, #289)` | - |
 | `exec.sh: no -- still works for positional CMD (backward compat, #289)` | - |
 | `exec.sh --help mentions the -- separator (#289)` | - |
-| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `exec.sh -C <dir> redirects FILE_PATH to <dir>` | - |
 | `exec.sh --chdir <dir> long form is equivalent to -C` | - |
 | `exec.sh -C without a value exits 2` | - |
@@ -2732,24 +2834,30 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
 | `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
 
-### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (44)
 
-Structural assertions for `.github/workflows/ghcr-cleanup.yaml`, the weekly
-job that prunes untagged orphan digests from the base-owned `test-tools`
-package on GHCR.
+Structural assertions for this repo's GHCR package-DELETION surface, DERIVED
+from `.github/workflows/` by the deletion operation a workflow performs
+rather than read from a path written here — the same classify-by-operation
+shape `ghcr_publish_surface_spec.bats` uses for publishers. A scheduled job
+against a real registry cannot be exercised from here, so the spec pins the
+SHAPE, on the theory that the ways this goes catastrophically wrong are all
+edits to a workflow:
 
-A scheduled job against a real registry cannot be exercised from here —
-there is no local GHCR, and a real run's only honest test is a real run. So
-the spec pins the workflow's SHAPE instead, on the theory that the ways this
-goes catastrophically wrong are all edits to the file:
+- **The population.** A declared path scoped every assertion here to one
+FILENAME while the hazard belongs to the OPERATION: on 26ce9f9 a second
+workflow carrying the base#813 footgun verbatim left the unit suite at 4552
+ok, 0 not ok (base#1089). The scan now reports every workflow that deletes
+package versions, and REFUSES both an empty population (a gate over nothing
+is no gate) and a second surface (the cases here read one file, and two
+deletion workflows do not serialise against each other).
 
 - **The footgun.** `actions/delete-package-versions` with
 `delete-only-untagged-versions` calls anything the packages API reports as
 untagged a candidate without opening a manifest, so it deletes the per-arch
-children of a LIVE tag and `docker pull` starts 404ing. The spec asserts
-neither the action nor that input appears in the file's code (the header
-comment names both on purpose, to say why they are absent, so the assertions
-run over comment-stripped lines).
+children of a LIVE tag and `docker pull` starts 404ing. The ban is
+repo-wide; comment lines are dropped first, because the workflow's own
+header names both on purpose, to say why they are absent.
 
 - **The safety inputs.** `delete-untagged` is the only delete rule enabled,
 `older-than` keeps a retention window, `exclude-tags` preserves the tags
@@ -2768,8 +2876,30 @@ party can move under a job holding `packages: write`.
 
 | Test | Description |
 |------|-------------|
-| `ghcr-cleanup.yaml: never uses actions/delete-package-versions` | The unsafe action never returns: its untagged filter never opens a manifest |
-| `ghcr-cleanup.yaml: never sets delete-only-untagged-versions` | The specific input that breaks live tags, named separately from the action |
+| `GHCR deletion surface: a workflow calling the footgun action is a surface (#1089)` | The footgun in a workflow this spec never named is the live fail-open base#1089 measured: a declared path left it green |
+| `GHCR deletion surface: the manifest-aware cleanup action is a surface (#1089)` | The action this repo actually uses has to classify as a surface, or the live gate reads an empty population |
+| `GHCR deletion surface: a hand-rolled packages-API DELETE is a surface (#1089)` | A hand-rolled packages-API DELETE deletes just as hard as an action does, and needs no third party to recognise |
+| `GHCR deletion surface: a packages-API DELETE with no leading slash is a surface (#1089)` | `gh api` takes the endpoint with or without a leading slash, and the slashless spelling is the one in GitHub's own examples |
+| `GHCR deletion surface: an expression-valued owner is still the route (#1089)` | An owner written as a GitHub expression is a literal route by the time the step runs, and the owner was never the part that identifies the route |
+| `GHCR deletion surface: a curl --request DELETE is a surface (#1089)` | curl spells the same flag `--request`, and a pattern that enumerates flag names is a roster of the ways somebody might have typed it |
+| `GHCR deletion surface: a quoted DELETE method value is a surface (#1089)` | A quoted verb is the same verb, and the quoting is no more part of the operation than the flag name is |
+| `GHCR deletion surface: a lowercase delete word is not the HTTP verb (#1089)` | The bound on reading the verb rather than the flag: `delete-untagged` is an input name, not an HTTP method |
+| `GHCR deletion surface: an absolute api.github.com DELETE is a surface (#1089)` | A `curl` against the absolute api.github.com URL deletes exactly what a `gh api` relative endpoint deletes, and needs no `gh` on the runner |
+| `GHCR deletion surface: a word ending in users is not the users route (#1089)` | The boundary that keeps the path match honest: a longer word ending in `users` is not the `users` route |
+| `GHCR deletion surface: an --method=DELETE packages call is a surface (#1089)` | `--method=DELETE` is the same flag as `--method DELETE`, and a classifier keyed on the separator is keyed on nothing that matters |
+| `GHCR deletion surface: an -XDELETE packages call is a surface (#1089)` | `-XDELETE` is how the short flag is normally written, value attached with no separator at all |
+| `GHCR deletion surface: a double-quoted action reference is a surface (#1089)` | A quoted `uses:` is an ordinary YAML spelling of the same call, and a classifier that reads one quote style is a classifier with a hole |
+| `GHCR deletion surface: a single-quoted action reference is a surface (#1089)` | The other quote style, pinned on its own so the match cannot quietly accept one and miss the other |
+| `GHCR deletion surface: reading the packages API is not a deletion (#1089)` | The packages path alone is a READ; classifying it as a deletion surface would make listing versions a hazard |
+| `GHCR deletion surface: a comment naming a pruner is not a call to it (#1089)` | The cleanup workflow's header NAMES the footgun to say why it is absent; prose must not read as the operation it describes |
+| `GHCR deletion surface: a workflow that only pulls is not a surface (#1089)` | A consumer contributes no surface, or every workflow naming the package would be gated as a deleter |
+| `GHCR deletion surface: an empty population is refused, never passed (#1089)` | The load-bearing case: deleting the subject must be red, and under a declared path it was 22 green skips |
+| `GHCR deletion surface: a second deletion surface is refused (#1089)` | A second deleter would inherit a gate nobody applied to it, and two of them do not serialise against each other |
+| `GHCR deletion surface: exactly one surface resolves to that file (#1089)` | One surface is what a correct tree looks like, and the verdict has to name it rather than merely accept it |
+| `GHCR deletion surface: the scan walked this repo and found the real one (#1089)` | The non-vacuity case: an empty scan satisfies every refute here, so the population and the subject it resolved to are asserted |
+| `GHCR deletion: no workflow here uses actions/delete-package-versions (#1089)` | The unsafe action never returns: its untagged filter never opens a manifest, and a declared path left the ban scoped to one file |
+| `GHCR deletion: no workflow here sets delete-only-untagged-versions (#1089)` | The specific input that breaks live tags, named separately from the action and banned just as widely |
+| `GHCR deletion: the footgun scan reports the workflow and the line (#1089)` | The repo-wide ban is worth exactly its ability to still see the footgun, and the live tree is clean so only a fixture can show it |
 | `ghcr-cleanup.yaml: uses the manifest-aware dataaxiom/ghcr-cleanup-action` | The action that resolves manifest references is the one in use |
 | `ghcr-cleanup.yaml: pins the cleanup action to an immutable commit SHA` | A moved tag would hand deletion rights over our package to unreviewed code |
 | `ghcr-cleanup.yaml: records the pinned action's version in a trailing comment` | Keeps the SHA readable; the form Dependabot rewrites on bump |
@@ -2830,7 +2960,7 @@ all.
 | `.gitattributes: the generated changelog index merges by union (#926)` | The original scope of the rule, kept rather than assumed: the index is derived and the layout lint re-derives it, so a union duplicate there is reported instead of shipped. |
 | `.gitattributes: CONVENTIONS.md is NOT union-merged (#926)` | The boundary the widened glob nearly crossed. A gitattributes `*` does not cross `/`, so `doc/changelog/*.md` would have covered hand-written prose -- where union merging keeps both copies of a rewritten paragraph in silence, and no gate in this repo reads that file outside its marker block. |
 
-### test/bats/unit/gitignore_spec.bats (47)
+### test/bats/unit/gitignore_spec.bats (53)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -2861,7 +2991,13 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |
 | `_untrack_canonical_in_repo: handles tracked coverage/ directory` | Directory entry |
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
-| `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
+| `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep over the WHOLE canonical set (#1119). The title used to name four entries by hand, all of them ones the sweep handles, so it stayed green while three of twelve were handled wrong. The population is now derived from _canonical_gitignore_entries, and the one class the sweep deliberately passes over -- an anchored entry, whose pathspec is the blocked decision -- is asserted as passed over rather than left unvisited. |
+| `_untrack_canonical_in_repo: leaves a nested copy of an unanchored entry tracked (#1119)` | `log/` and `coverage/` are UNANCHORED gitignore patterns, so they ignore `sub/log/` too, but the pathspec derived from them matches from the repo root only and leaves the nested copy in the index (#1119). Pinned, not fixed: widening the pathspec is the same blocked decision as the anchored entry, and a divergence nothing states is the one that gets re-discovered. |
+| `_canonical_entry_pathspec: a directory entry loses its trailing slash (#1119)` | The translation seam (#1119). A trailing slash marks a directory in a gitignore pattern and means nothing in a pathspec, so it is dropped. |
+| `_canonical_entry_pathspec: an anchored entry has no pathspec yet (#1119)` | A leading slash anchors a gitignore pattern at the repo root; handed to git verbatim it is an absolute filesystem path and git refuses it outright (#1119). The translation reports "no pathspec" so the sweeps skip the entry by a stated rule, which is what the swallowed fatal used to do by accident. |
+| `_canonical_entry_pathspec: every pathspec it returns is one git accepts (#1119)` | The property the whole fix is about (#1119): a gitignore pattern is not a pathspec, so every pathspec this translation DOES hand out has to be one git accepts. Asserted against the real canonical set in a real repo, so a future entry whose shape git refuses fails here and not in a consumer's unattended upgrade. |
+| `_untrack_canonical_in_repo: reports a git ls-files failure instead of skipping the entry (#1119)` | The swallowed fatal (#1119). `git ls-files` prints the tracked paths a pathspec matches and exits 0 even when it matches nothing, so a NON-ZERO status is never "nothing to untrack" -- it is git refusing the pathspec. Routing its stderr to /dev/null and reading only `[[ -n "$(...)" ]]` turned that refusal into an entry skipped with no trace, and a sweep that reported success over it. |
+| `_untrack_canonical_in_repo: reports a git rm failure instead of ignoring it (#1119)` | The second swallow in the same loop (#1119). `git rm --cached` ran under `\|\| true` with both streams discarded, so an entry ls-files had just reported as tracked could fail to leave the index and the sweep would still return success -- and the resync would then stage a .gitignore claiming the file is ignored while the index still carries it. |
 | `_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)` | - |
 | `_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)` | - |
 | `_sync_logging_gitignore skips absolute paths (#402, ex-#328)` | - |
@@ -3068,7 +3204,7 @@ the source INI where it was, writes no target, and says so
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (102)
+### test/bats/unit/init_spec.bats (106)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3120,6 +3256,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
 | `_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)` | - |
 | `the resync: stages the Dockerfile its migrations rewrote (#1036)` | The committing caller is a released script that cannot be changed; the run that rewrites the file is the only one that can stage it |
+| `the resync: stages a path a migration wrote and recorded that no list names (base#1097)` | A migration that writes and records its output still had that output left out of the commit the released driver makes -- base#1036's defect, for any path the published list does not already name. A version-bound migration's output never is on that list, because the list is written before the migration exists |
+| `the resync: leaves an unrecorded file a migration wrote unstaged (base#1097)` | Recording is what makes a path the run's output, so an unrecorded file stays out however new it is. Otherwise the arm above is satisfied by a sweep over whatever the user happened to leave in the tree -- the thing ADR-00000006 forbids, and the reason the record exists at all |
 | `the resync: leaves a file no migration touched unstaged (#1036)` | A user's half-finished edit is not the resync's to commit, which is what a `git add -A` sweep would make it |
 | `the resync: stages the wrappers it installed (#1036)` | The wrappers are output of the same mechanical run as the Dockerfile, so leaving them out of the commit leaves the tree disagreeing with the release the commit claims |
 | `the resync: stages the retired root wrapper it removed (#1036)` | The resync DELETES the pre-relocation root wrappers, and a deletion left out of the commit is the same tree/commit disagreement one direction over |
@@ -3175,6 +3313,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_restore_tree: removes what the resync created (#937)` | - |
 | `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
+| `_init_snapshot_index: reports a git ls-files failure instead of recording nothing (#1119)` | The rollback index snapshot carried the same swallowed fatal as the untrack sweep it protects (#1119): `git ls-files -s -z -- "${entry%/}"` appending under `2>/dev/null \|\| true`. ls-files exits 0 even when a pathspec matches nothing, so a non-zero status is git refusing the pathspec, and discarding it recorded an EMPTY snapshot of the index the resync is about to stage deletions into. An aborted run would then put nothing back. |
+| `_init_snapshot_index: a repo tracking the anchored canonical entry still snapshots (#1119)` | The snapshot and the untrack sweep must translate a canonical entry into a pathspec the SAME way (#1119); they were two copies of `${entry%/}`, and a snapshot that skips what the sweep removes cannot put it back. Now that a refused pathspec is a hard failure, a repo tracking the anchored entry is the case that catches this call site going back to its own translation. |
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
 | `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
 | `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
@@ -3438,6 +3578,172 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
+### test/bats/unit/log_event_registry_lint_spec.bats (111)
+
+The guard over the direction the registry check never covered. lib/log.sh is
+STRICT -- it refuses a body log-events.txt does not carry and prints 'FATAL:
+unregistered log body' INSTEAD of the message -- so an unregistered id is
+not a missing label but the diagnostic being replaced by the registry's own
+complaint, at the moment something had already gone wrong. The tree asserted
+only the other direction, one site at a time: a driver's spec says the id
+ITS driver dies with is registered. That is a per-site habit and not a
+population, so four unregistered ids accumulated unseen (base#1220).
+
+Unit tests for script/test/drivers/log_event_registry.sh -- the "every event
+id a shipped script EMITS is registered" lint.
+
+Two properties drive the case list. FIRST, the emitted set is not just the
+direct '_log_<level> <service> <body>' sites: two of base#1220's four were
+emitted as the first argument of script/test/test.sh's one-line _die, which
+hands that argument to _log_err's body slot. A scan without that hop sees
+thirty-odd lint drivers emit nothing at all, so the forwarding wrapper is
+derived from the tree and the case list pins both the hop and its shadowing
+rule.
+
+SECOND, nothing here is a roster: the registry's own path is read out of the
+_LOG_EVENTS_FILE assignment in the scanned tree, and a resolution that
+points at no file is not a candidate. That existence rule is not a
+convenience -- this driver spells '_LOG_EVENTS_FILE=' in the pattern it
+matches with and is itself in the population, so the naive rule resolved to
+two registries on its first run.
+
+Detection runs against a controlled temp REPO_ROOT, never the live checkout:
+the tree is asserted by the 'lint-static' group that runs this driver, which
+is where a whole-tree scan belongs (base#1075).
+
+THIRD, the reader is a word splitter and not a regex over the raw line, and
+four cases were the reason to begin with. Two are MISSES -- a body wrapped
+onto a continuation line, and a body an operator terminates without a space
+-- and two are FALSE FINDINGS: a call spelled out in a trailing comment, and
+a wrapper name inside a message. The false findings are the half that
+decides whether the gate survives, because an author told to register an id
+no shell will ever log is an author who mutes the lint, and this driver
+spells several such calls in its own header while sitting in the population
+it scans.
+
+The case list grew from there, one reproduced shape at a time, and what it
+adds up to is a small shell word splitter: quoting of all three kinds and
+its own context inside a substitution, redirections and their operands,
+command position carried rather than guessed, folds over continuations, open
+quotes, open substitutions and array initialisers. Nothing here is a general
+shell parser and it does not claim to be -- where the reader cannot resolve
+a body it DECLINES, and where it cannot finish reading a file it REFUSES
+rather than reporting what it managed.
+
+| Test | Description |
+|------|-------------|
+| `_run_log_event_registry: FAILS on a direct _log_ body the registry does not carry` | The plain shape base#1220 found in setup_cmd.sh and toml_bridge.sh. The report has to name the file, the line and the id, because the author is looking for one argument among hundreds of call sites |
+| `_run_log_event_registry: FAILS on an id emitted through a forwarding wrapper` | The load-bearing case. Two of base#1220's four were emitted as the first argument of test.sh's _die, not at a _log_ call site at all, so a scan that read only the direct sites would have reported the lint drivers clean while thirty-odd of them die with ids nothing checks |
+| `_run_log_event_registry: reports EVERY offending site, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has emit sites; base#1220's own tree had thirteen sites over five ids, in four files |
+| `_run_log_event_registry: FAILS on a single-quoted body the registry does not carry` | A body is a literal whether bash reads it through double quotes, single quotes or none, and lib/log.sh compares what the shell hands it -- so `_log_err ci 'missing' ...` is exactly as fatal as the double-quoted spelling. The first unquoting rule stripped only the double quote, which left the single-quoted token starting with a character no id starts with, so the shape was DISCARDED rather than reported and a tree holding it read clean. A reader of that clean line cannot tell a quoting style the scan does not see from a tree that has none of it |
+| `_run_log_event_registry: FAILS on a wrapper call that is not the first word of its line` | A wrapper call is a command, and a command sits wherever bash allows one -- after `then`, after `do`, after `&&`. The wrapper scan walked the line token pair by token pair and, on a pair whose first half was NOT a wrapper, skipped past BOTH halves; `then _die` therefore consumed the `_die` that followed it and the id after that was never looked at. The shipped tree hides the bug because its wrapper calls open their own lines, so only a fixture can hold the rule still: a non-wrapper match now advances past its own name alone, leaving the next token free to be read as the command it is |
+| `_run_log_event_registry: FAILS on a body on a continuation line` | bash reads a backslash-newline as nothing at all, so a call wrapped over two physical lines is one command and its body is as fatal as any other. A per-physical-line scan sees `_log_err conf \` -- service `\`, no body -- and the real id on the line below with no call in front of it, so the site is skipped and the lint says clean. A reader cannot tell that from a tree with no such site, which is the vacuity this driver refuses everywhere else |
+| `_run_log_event_registry: FAILS on a body a shell operator terminates` | An argument ends where the shell says it does, and `;` `&&` `\|` `)` end one without a space. Splitting the line on whitespace alone made `missing;` the body, which is not id-shaped, so the site was DISCARDED rather than reported -- a miss produced by the scan being coarser than the language it reads, and the shape every one-line `then ... ; fi` guard in this tree is written in |
+| `_run_log_event_registry: PASSES a _log_ call in a trailing comment` | The over-reporting half, and the one that decides whether this lint survives. A `#` after code opens a comment exactly as one at column 0 does, so prose that spells a call out to explain it emits nothing -- and this driver, whose own header spells several, is in the population it scans. Only WHOLE-line comments were excluded, so a trailing one was read as code and the author was told to register an id no shell will ever log. A finding that is not a defect is what gets a gate muted |
+| `_run_log_event_registry: PASSES a wrapper name inside a quoted string` | The other over-report. A wrapper name inside a STRING is a word in a message, not a command -- `printf "use _die <id> for failures"` is help text -- and the scan read the token after it as an event id. The fix is the same one tokenising gives the case above: a quote that opens a word makes the whole quoted run ONE argument, so a name buried inside it is never at a command position and never consulted |
+| `_run_log_event_registry: PASSES a logger name used as an argument` | The command-position rule was applied to the wrapper half and not to the direct half, so `printf "%s\n" _log_err conf not_an_event` -- the logger name as an ARGUMENT, three words of text -- was read as a call and its third word reported. Being at a command position is what makes a word a call, and that is true of `_log_err` for exactly the reason it is true of `_die`; one rule applied to one half is a rule that disagrees with itself |
+| `_run_log_event_registry: FAILS on a wrapper call opening a condition` | `if`, `while` and `until` open a command exactly as `then` and `do` do, and a wrapper that dies inside a condition emits its id like any other call. They were missing from the keyword set, so `if _die id; then` recorded no wrapper call at all and the id went unchecked -- the miss shape, in the half where two of base#1220's four were hiding |
+| `_run_log_event_registry: FAILS on a body split across a continuation` | bash removes a backslash-newline and joins what sits on either side with NOTHING between them, so a word may be split across the fold and still be one word. The fold put a space there, which turns `split_` + `missing` into two words and hands the body slot a truncated id -- a scan that can both miss an unregistered id and report a registered one as missing, which is the worst of the two directions at once |
+| `_run_log_event_registry: PASSES a quoted keyword in front of a logger name` | A keyword is a keyword only when the shell reads it as one, and a QUOTED `then` is an ordinary word. Deciding command position by looking back at the previous token and matching its TEXT lost that distinction, because the tokeniser has already removed the quotes -- so `printf "then" _log_err conf x` reported x. Position is now carried forward as the walk goes, and a word that opened with a quote can never be a keyword |
+| `_run_log_event_registry: FAILS on a call behind an assignment prefix` | `VAR=value cmd ...` runs cmd, and the assignment in front of it does not stop being a command position. Reading only the previous token saw a word that was not a keyword and concluded the logger was an argument, so the call was skipped entirely -- an emit site the scan reports nothing about while the shell runs it |
+| `_run_log_event_registry: FAILS on an id through a wrapper whose definition ends in '; }'` | The wrapper-detection half read its definition line by splitting on whitespace, which is the coarseness the emit half had already stopped using. A one-line wrapper closing with `; }` left the semicolon attached to the body slot, so the definition read as NON-forwarding and every one of its call sites went unchecked -- silently, because the seed wrapper still exists and the empty-wrapper refusal therefore does not fire. Both halves read the tree the same way now |
+| `_run_log_event_registry: PASSES a wrapper name inside a multi-line quoted string` | A quote that opens on one line and closes on another holds ONE word across both, and help text spanning several lines is the ordinary way a shipped script spells its usage. Tokenising each physical line on its own lost the open quote at the line end, so an inner line reading like a call was read as one and its next word reported. The quote state is carried across the fold now -- the over-reporting direction again, which is the one that gets a gate muted |
+| `_run_log_event_registry: FAILS on a call under a comment that ends in a backslash` | bash does not continue a COMMENT over a backslash -- the comment ends at the newline and the next line is code. Folding on any trailing backslash glued the real call onto the comment, and the fold then began with a `#`, so the whole logical line was discarded and the emit site vanished. A miss produced by the fold itself, which is the one place a reader has no way to notice: the counts simply come out one lower |
+| `_run_log_event_registry: FAILS on a quoted body split across a continuation` | Inside DOUBLE quotes bash removes a backslash-newline too, so a body may be split across one and still be a single literal id. The fold joined with a space there and kept the backslash, because the zero-character join was only reached when no quote was open -- so the body slot got a word no id matches and the site fell out silently. Two folding rules for one shell rule is one rule too many |
+| `_run_log_event_registry: reads a call behind a redirection and ignores a redirection target` | A REDIRECTION is not a command separator, and its operand is a filename rather than a command. Treating `<` and `>` like `;` broke it both ways at once: a leading `>/dev/null` let the FILENAME take the command position so the logger behind it was never read, and a `> _die` made a filename look like a wrapper call and reported the next word. The operator and its operand are consumed together now, leaving the position where they found it |
+| `_run_log_event_registry: FAILS on a body inside a quoted command substitution` | A command substitution RUNS what is inside it, quoted or not. Unquoted the tokeniser already split on the parentheses and read the call; inside double quotes the whole substitution was absorbed into one word, so `x="$(_log_err conf id)"` emitted a literal id nothing checked. The body here is not the unresolvable kind this driver declines -- it is written out in the source -- so the scan descends into the substitution instead, while ordinary quoted message text stays one inert word |
+| `_run_log_event_registry: PASSES a substitution that is quoted into inertness` | What makes a substitution a substitution is the context it is written in. Inside SINGLE quotes it is four characters of text, and a backslash in front of it inside double quotes is the documented way to show one without running it -- both are how a shipped script spells its own help. Finding the span by searching the finished token could not tell either from the real thing, because the tokeniser had already removed the quoting that decides it. Eligibility is recorded while the quoting is still known, and nothing is re-derived from the text afterwards |
+| `_run_log_event_registry: FAILS on a call after an ANSI-C quoted string` | `$'...'` is a THIRD quoting form, and the one place a backslash escapes an apostrophe. Reading it as an ordinary single-quoted run closed the string at the escaped apostrophe and let the real closing one OPEN a quote that never ends -- so every line after it in the file was folded into one word and every call in them disappeared. One such string in a file silently empties the rest of it, which is the worst miss this scan can have: the counts just come out lower and nothing says why |
+| `_run_log_event_registry: PASSES a word after a descriptor-duplicating redirection` | `2>&1` is one redirection written in three tokens, and the `&` in the middle is not the `&` that backgrounds a command. Resetting the command position on it made the word after an ordinary output redirection look like a command, so `printf "%s" 2>&1 _die x` reported x. Descriptor duplication is consumed whole now, position untouched |
+| `_run_log_event_registry: FAILS on a body behind a redirection in the argument list` | bash removes a redirection BEFORE it hands a command its positional arguments, so `_log_err 2>/dev/null conf id` passes id in the body slot exactly as the unredirected spelling does. Reading the body as the token two along required the words to be adjacent, so the redirection pushed the body out of the slot and the site was counted but never checked. The arguments are resolved after the redirections now, for wrapper calls as well |
+| `_run_log_event_registry: FAILS on a numeric body a space separates from a redirection` | A file descriptor prefix is part of the redirection it touches, and `2>` is one token because the two characters are ADJACENT. A number separated from the operator by a space is an ordinary argument -- so `_log_err conf 123 > /dev/null` passes 123 in the body slot -- and discarding it as a descriptor dropped a fully known unregistered body. The second line keeps the real prefix working, so the fix cannot be a retreat from reading them |
+| `_run_log_event_registry: FAILS on a literal body that is not identifier-shaped` | lib/log.sh compares the body against the registry line for line and imposes no shape on it, so a body with a hyphen in it is refused at runtime like any other unregistered one -- and a hyphen where an underscore belongs is exactly the typo this lint should catch. Requiring the identifier shape before checking membership threw those away silently: the site was COUNTED, so the clean line said it had been read, and nothing had been asked about it. What the scan cannot resolve is a body carrying an expansion, and that is now the only thing it declines |
+| `_run_log_event_registry: FAILS on the second command of a multi-line substitution` | A newline is a command SEPARATOR, and a substitution written over several lines holds several commands. Folding it with a space between the lines merged them, so the second logger became an argument of the first and its body was never read -- a miss the clean line cannot show, because the first command was counted and looked fine |
+| `_run_log_event_registry: PASSES words stored in an array initialiser` | `name=( ... )` STORES words; it runs nothing. Treating every opening parenthesis as a command boundary made the first word inside an array initialiser a command and the next one its event id, so an ordinary array of arguments was reported. An initialiser is recognised by the assignment in front of its parenthesis and skipped to its match |
+| `_run_log_event_registry: PASSES a body whose ANSI-C escape it cannot decode` | `$'...'` decodes escapes, and dropping the backslash is not decoding them: `$'\x6f'` is the letter o, so stripping gave the word `x6f` and the lint reported an id no shell ever emits. The simple escapes are decoded; anything else -- `\x`, `\u`, an octal -- makes the body UNRESOLVED, which is the one thing this scan declines and says so about. Declining is the honest answer here: comparing a wrongly decoded literal against the registry reports a defect that is not one |
+| `_run_log_event_registry: PASSES words stored in a multi-line array initialiser` | An initialiser spread over several lines is still one initialiser. The fold closed the logical line at the first newline, so the skip lost its nesting and the next line was scanned as a command -- the array shape the case above pins, in the spelling every long argument list in this tree actually uses. A logical line is not complete while a parenthesis is open |
+| `_run_log_event_registry: reads inside an unquoted substitution without losing the word around it` | An unquoted substitution belongs to the WORD it sits in, and its closing parenthesis is not a command separator. Exposing it as one put the next argument of an ordinary command at a command position, so `printf "%s" $(printf text) _log_err conf x` reported x. The span is taken whole and scanned on its own now -- the same path the quoted spelling takes, which is what keeps the call INSIDE one findable while the word around it stays an argument |
+| `_run_log_event_registry: FAILS on a body inside a process substitution` | `<(...)` is a PROCESS substitution: it runs a command and hands the reader a path to its output. Reading the `<` as a plain redirection made the command inside it the filename operand, so it was skipped whole and its id never checked -- a miss, in the one construct whose whole point is that a command runs where a filename is expected |
+| `_run_log_event_registry: FAILS on a body in a nested quoted substitution` | Quoting RESTARTS inside a substitution, so a double quote within one is not the close of the quote outside it. The span finder shared one quote state across the boundary, so an inner substitution opened while the outer one was quoted did not count as nesting -- and the first literal `)` in a display string then looked like the end of the whole thing, truncating the command before its body was ever read |
+| `_run_log_event_registry: FAILS on a body in a case arm inside a substitution` | A `case` PATTERN ends with a `)` that closes nothing, and inside a substitution that parenthesis looked like the substitution ending -- so the arm after it, and everything else in the substitution, was never read. `case` arms are where a script decides what went wrong, so they are where its _log_ calls live |
+| `_run_log_event_registry: PASSES the word case used as an argument` | `case` is a keyword only where a command can stand. As an ARGUMENT it is the four letters, and opening a case frame for it left a frame nothing closes -- so the substitution around it never closed either and the eighth refusal fired on a valid file. The construct that keeps a pattern terminator from closing a substitution must not be able to stop one closing at all |
+| `_run_log_event_registry: PASSES a function that overwrites its positional alias` | An alias is only the first argument until something else is assigned to it. A body that takes `${1}` into a local and then OVERWRITES it logs a fixed id and forwards nothing, so declaring it a wrapper turned every ordinary call of the function into a reported id. The alias set is built in order and a reassignment removes the name: where the reader cannot be sure, it declines the wrapper rather than inventing call sites for it |
+| `_run_log_event_registry: FAILS on a wrapper that overwrites its alias AFTER logging` | The same question asked in the other order. A body that logs its alias and only THEN overwrites it does forward -- the call happens first -- and a set collected over the whole definition before any of it was read said the opposite, so a real wrapper was declined and its call sites went unchecked. Alias state is now updated while the commands are walked, so each call sees only the assignments in front of it |
+| `_run_log_event_registry: PASSES a function that shifts before logging its positional` | `shift` moves the positionals, so a `$1` logged after one is not the caller's first argument. Declaring such a function a wrapper reports the wrong argument of every call of it -- and hides the right one. The flag is on the POSITIONALS and not on the definition, which is what keeps the tree's own `_die` working: it captures `${1}` into a local BEFORE shifting, and an alias taken before the shift still forwards |
+| `_run_log_event_registry: PASSES a function that captures its alias after a shift` | The flag has to reach the ALIAS too. A name assigned `${1}` AFTER a shift holds the second argument, so recording it as an alias of the first makes the lint check the wrong argument of every call -- reporting ordinary message text and missing the real event id beside it. An alias captured BEFORE the shift still forwards, which is the tree own `_die` |
+| `_run_log_event_registry: FAILS on a wrapper that sets a shell option before logging` | `set -e` changes shell OPTIONS and leaves the positionals alone, so a wrapper that sets one still forwards its caller first argument. Treating every `set` as a positional change declined such a wrapper and took all of its call sites out of the population -- silently, because another wrapper exists and the empty-wrapper refusal does not fire. Only `set --`, or a `set` whose first argument is not an option, replaces them |
+| `_run_log_event_registry: reads set options and positional replacement apart` | `set` takes OPTIONS AND THEN POSITIONALS, so only reading its first argument answered the wrong question: `set -e -- seed_ok` both sets an option and replaces them, and reading `-e` alone called the function a wrapper forwarding an argument it no longer has. Every argument is walked now, with `-o` and `+o` consuming the one after them -- the second line keeps `set -o pipefail` forwarding, so the fix cannot be a retreat into declining every `set` |
+| `_run_log_event_registry: PASSES a body in locale-translated quoting` | `$"..."` is LOCALE-TRANSLATED quoting: what the shell passes depends on the message catalogue in force, so the body is knowable only under a known locale. The tokeniser kept the dollar and checked `$seed_ok`, reporting a body no shell ever logs. It is declined as unresolved -- which is what the driver says it does with anything it cannot resolve, and the honest answer when the answer depends on the environment |
+| `_run_log_event_registry: PASSES a call whose service argument expands` | An argument BEFORE the body can expand into more than one word, and then the body is not the token the source puts in that slot. `_log_err {conf,x} <word>` emits `x`, so reading <word> as the body checks the wrong thing in both directions at once -- it reports an id the shell never logs, and says nothing about the one it does. Where the cardinality of what precedes the body is uncertain, the call is DECLINED |
+| `_run_log_event_registry: FAILS on a substitution inside locale-translated quoting` | Locale-translated quoting makes its own VALUE unknowable, which is why the body carrying one is declined -- but a substitution written inside it still RUNS, exactly as inside ordinary double quotes. Treating the whole run as inert text lost the call in it, so a wrapper emitting an unregistered id inside one went unseen |
+| `_run_log_event_registry: PASSES a wrapper that replaces its positionals with set --` | `set --` is the spelling that REPLACES the positionals, and the test for an option argument matched it -- a dash followed by a dash. So the one `set` that does change them read as the one kind that does not, and the function was declared a wrapper forwarding an argument it no longer has |
+| `_run_log_event_registry: PASSES a function whose assignment shape is only an argument` | An assignment-SHAPED argument to an ordinary command assigns nothing. `printf "%s" ev="$1"` prints four characters and a value; it does not make `ev` the first argument. Tracking every such word declared a function a wrapper on the strength of text handed to printf. An assignment counts at a command POSITION, where it is a prefix, or as an argument of a builtin that assigns -- `local` and its family |
+| `_run_log_event_registry: PASSES a definition whose logger name is inert` | Wrapper DISCOVERY read the definition with a coarser grammar than the emit scan used, and the two have to agree: an array initialiser stores words and a redirection operand is a filename, so neither is a logger call -- but the discovery walk reset the command position at every operator and read both as one. A function that logs nothing was declared a wrapper, which turns its every ordinary call into a reported id. One grammar, asked by both halves |
+| `_run_log_event_registry: FAILS on an id through a wrapper that logs inside a substitution` | A substitution RUNS, so a definition whose logger call sits inside one forwards just as surely -- and discovery never looked at the spans the tokeniser had captured, so such a wrapper was not found and every call of it went unchecked. Silently, because another wrapper exists and the empty-wrapper refusal therefore does not fire |
+| `_run_log_event_registry: FAILS past a definition written inside a string` | Definition discovery read PHYSICAL lines with no idea of quoting, so a `_die() { ... }` written inside a multi-line STRING counted as a real definition -- and a non-forwarding one, which SHADOWS the wrapper for that whole file and suppressed the genuine calls in it. The shadowing rule exists to stop false findings; read this way it manufactures silent misses instead |
+| `_run_log_event_registry: PASSES a wrapper name inside a parameter expansion` | A PARAMETER EXPANSION carries its replacement text, and that text is not shell to run: in `${x:-; _die id}` the semicolon and the name are characters inside one expansion. Exposing the semicolon as a separator put the name at a command position and reported the word after it |
+| `_run_log_event_registry: FAILS on a substitution a double-quoted expansion runs` | Inside DOUBLE quotes a single quote is an ordinary character, so it does not stop a substitution running -- and the harvester, which looks through a parameter expansion for the substitutions that do execute, skipped the apostrophe-wrapped span as if it were quoted. The quoting context the expansion sits in has to travel with it |
+| `_run_log_event_registry: PASSES a body written as a brace expansion` | An unquoted BRACE EXPANSION is resolved by the shell before the logger sees it: `{seed_ok,other}` becomes two arguments and the body is `seed_ok`. Checking the braced text against the registry reported a body no shell ever logs. It is an expansion like any other, so the honest answer is to DECLINE the body -- which is what the driver says it does with anything it cannot resolve |
+| `_run_log_event_registry: PASSES a backslash-escaped keyword in front of a logger name` | A backslash QUOTES the character after it, so `\time` is the external command and not the shell keyword. The escape was removed without recording that the word had been quoted, so the word read as the keyword, kept the command position open, and made the name behind it a call |
+| `_run_log_event_registry: FAILS on a body behind a timed command flag` | `time` keeps the command position open and `-p` is its own flag, not the command -- so `time -p _log_err ...` runs the logger and the flag was consuming the position instead. The keyword is read as one that opens another command; its optional flag has to be read the same way |
+| `_run_log_event_registry: FAILS on a call after a comment inside a substitution` | A comment ends at the NEXT NEWLINE, and a logical line now holds several of them -- a substitution written over several lines is one logical line. Ending the whole read at the first `#` therefore discarded every command after a comment inside one, not just the rest of that line |
+| `_run_log_event_registry: FAILS on a body inside a backtick substitution` | Backticks are the older spelling of a command substitution and they run the same command. Only the `$( )` form was descended into, so the backtick one emitted a literal id nothing checked. Inside SINGLE quotes a backtick is text, which the second line pins: the span is only taken where the shell would run it |
+| `_run_log_event_registry: PASSES an argument after a multi-line unquoted substitution` | An UNQUOTED substitution spread over several lines is one substitution, and the fold knew only about quotes. Each line finished on its own, so the closing parenthesis arrived as a bare operator and restored the command position -- making the next argument of an ordinary command look like a command. Substitution nesting is carried across the fold now, and only that nesting: counting EVERY parenthesis was tried against the real tree and folded whole files, a glob or a heredoc body holding one that never closes |
+| `_run_log_event_registry: FAILS past a commented parenthesis inside a substitution` | A parenthesis inside a COMMENT closes nothing. The span finder counted it, so a substitution holding a commented `)` ended early and every command after it fell back into the quoted word around it and vanished -- the id is gone from the population and the clean line still counts the call before it, so nothing looks wrong |
+| `_run_log_event_registry: FAILS on a body whose backslash bash would keep` | Inside double quotes bash escapes only five characters, and a backslash in front of anything else is KEPT. Removing it everywhere normalised a body into one the registry carries, so a call that is fatal at runtime read as registered -- the one direction a registry gate must never get wrong, because it reports the tree clean on the exact call it exists to catch |
+| `_run_log_event_registry: FAILS on an id through a parenthesis-free function definition` | `function name { ... }` is a function definition with no parentheses in it, and the definition pattern required them. A wrapper written that way was never discovered, so its call sites went unchecked -- and silently, because another wrapper exists and the empty-wrapper refusal therefore does not fire. The same omission would stop such a definition SHADOWING a name, which is the half that prevents false findings |
+| `_run_log_event_registry: PASSES the definition line of a parenthesis-free wrapper` | The same spelling read from the other side. `function name {` puts the NAME where a command would stand, so a wrapper defining itself that way had its own definition read as a call of itself and the brace after it reported as an event id -- while the logger inside the definition went unread. The case above only exercises a failing invocation and cannot see this; the prologue is consumed before the body is scanned |
+| `_run_log_event_registry: PASSES an arithmetic command naming a wrapper` | `(( ... ))` is the arithmetic COMMAND form, and its contents are an expression: it reads variables and runs nothing. Every opening parenthesis restored the command position, so a variable sharing a name with a wrapper made the operator after it an event id. The expansion form `$((...))` was already handled; this is the half that was not, and it is carried across lines like the conditional |
+| `_run_log_event_registry: PASSES an arithmetic for-loop header naming a wrapper` | `for (( ... ))` is the same arithmetic grammar with a keyword in front, and the keyword consumed the command position so the `((` behind it never opened arithmetic mode. The semicolons inside the header then read as command separators and a variable sharing a name with a wrapper made the operator after it an event id. `((` opens the mode wherever it appears: it is an operator token only where the shell means arithmetic |
+| `_run_log_event_registry: PASSES nested arithmetic naming a wrapper` | Arithmetic nests, and the INNER closing pair ended the expression -- after which the `&&` behind it opened a command position inside what is still an arithmetic expression, and the operator after a variable sharing a wrapper name became an event id. Depth is tracked now, so only the outer pair closes it |
+| `_run_log_event_registry: PASSES nested arithmetic spanning two lines` | The arithmetic state was carried across lines but its NESTING DEPTH was not, so a nested expression spread over two lines had its inner closing pair end the expression -- and the `&&` behind that opened a command position inside arithmetic again. Half a carried state is worse than none: it looks like the multi-line case is handled |
+| `_run_log_event_registry: PASSES a function whose alias is only a command prefix` | An assignment PREFIX changes only the environment of the command it sits in front of -- `ev="$1" true` leaves the shell`s own `ev` alone -- so it is not an alias for anything after it. Keeping it as one declared a function a wrapper on the strength of a value it never holds, and every ordinary call of it had its first argument reported. A standalone assignment persists; a prefix does not, and the two are told apart by whether a command word follows in the same simple command |
+| `_run_log_event_registry: PASSES a prefix assignment behind a redirection` | A REDIRECTION sits between a prefix assignment and the command it belongs to, and the persistence test stopped at the first operator -- so `ev="$1" >/dev/null true` read as a standalone assignment and became an alias. The test skips redirections and their operands before deciding, the same way the argument walk does |
+| `_run_log_event_registry: PASSES a substitution that logs a shifted positional` | The recursion into a substitution started a FRESH forwarding context, so a `shift` before it was forgotten and the `$1` inside read as the caller first argument again. The substitution has to be judged with the positional state in effect where it runs, which means carrying both the shift flag and the alias set into the recursion |
+| `_run_log_event_registry: PASSES a definition whose service argument expands` | The emit scan declines a call whose service argument expands unquoted, because the body is then not the token in that slot -- and wrapper DISCOVERY did not, so `_log_err {ci,seed_ok} "$1"` read as forwarding when the brace expansion puts seed_ok in the body slot instead. The same guard, asked by both halves |
+| `_run_log_event_registry: PASSES a function that unsets its positional alias` | `unset` REMOVES a name, so a body logging it after one is empty -- which log.sh does not check at all. Leaving the name in the alias set declared the function a wrapper and reported the argument of every call |
+| `_run_log_event_registry: PASSES an unquoted tilde body and checks a quoted one` | An unquoted leading `~` is TILDE expansion: the shell replaces it with a home directory, so the body is a fact about the machine and not about the source. Reading `~root` as a literal recommended registering a spelling the call never emits. Declined like the other environment-dependent expansions, and the second line keeps a quoted tilde literal |
+| `_run_log_event_registry: PASSES a shadowing definition whose brace is on the next line` | A definition can put its opening brace on the NEXT line, and discovery required it on the same one -- so such a definition was recorded nowhere and could not SHADOW. A file defining its own `_die` that way then had every call of it read as the other file`s forwarding wrapper, and its ordinary arguments reported as event ids. The name is recorded as a PLAIN definition, which is the refusing direction and agrees with the stated limit that a multi-line definition is not read for forwarding |
+| `_run_log_event_registry: PASSES an unquoted pathname pattern and checks a quoted one` | An unquoted `seed_*` is a PATHNAME pattern: what the logger receives depends on what is on disk, so the body is not knowable from the source. Recording it as the literal `seed_*` demanded the registration of an id no shell ever logs. It is declined like the brace expansion beside it -- and the second line keeps a QUOTED pattern literal, because quoting is what stops the expansion |
+| `_run_log_event_registry: FAILS on a body behind a named descriptor redirection` | A descriptor prefix can be NAMED -- `{fd}>file` asks bash to allocate one and put its number in `fd` -- and only the numeric spelling was recognised, so the brace word took the command position and hid the logger behind it. The same rule, with the same adjacency and quoting conditions, covers both spellings |
+| `_run_log_event_registry: FAILS on a body in a multi-line backtick substitution` | A backtick substitution can span lines like any other, and the fold tracked quotes and `$(` but not backticks -- so each physical line reached the span finder incomplete, no span was found, and the call inside left the population |
+| `_run_log_event_registry: PASSES an empty body, as the logger does` | The lint mirrors lib/log.sh, and log.sh does not check an EMPTY body: _log_dispatch guards its registry test with `[[ -n "${body}" ]]`, so such a call prints its diagnostic and returns zero. This case was asserted the other way round first, on the reasoning that an empty body is fully known and therefore checkable -- which is true, and beside the point: the gate exists because an unregistered body REPLACES the message, and this one does not. Reading the runtime is what settles it, and base#1220 bounds this work against changing it |
+| `_run_log_event_registry: PASSES a logger name behind a function-bypassing prefix` | `command`, `builtin` and `exec` BYPASS shell functions -- that is what they are for -- so none of them can invoke `_log_err`, which is one. Reading them as transparent openers made the name behind them a logger call and reported an id no shell ever logs |
+| `_run_log_event_registry: FAILS on a numeric body quoted part way through` | Quoting that starts PART WAY THROUGH a word still quotes the word. `12""` is the argument `12`, not a file descriptor, so bash passes it in the body slot and log.sh refuses it -- but the record said quoted only when a word OPENED with a quote, so the descriptor rule took it and threw a fatal call away. What is recorded now is where the first quote fell, which the assignment-prefix rule needs too: the name in front of the `=` must be unquoted, the value need not be |
+| `_run_log_event_registry: FAILS on a literal body carrying a tab` | The scan hands its findings to the shell as tab-separated records, and a body can CONTAIN a tab -- `$'\tseed_ok'` decodes to one. Written verbatim it split the record, so the reader took the registered `seed_ok` as the body and called the tree clean on a call log.sh refuses. The id is encoded on the way out and decoded for the membership test; the report shows the encoded form so a finding stays one readable line |
+| `_run_log_event_registry: FAILS after a substitution holding a quote of its own` | QUOTING INSIDE A SUBSTITUTION IS ITS OWN. The fold kept one quote state across the boundary, so a double quote inside a its own single-quoted argument closed the quote OUTSIDE it -- and the fold then never closed, so every line after it stayed in a buffer that is thrown away at the next file. The rest of the file leaves the population with nothing said about it, which is the silent shrink this driver refuses everywhere else |
+| `_run_log_event_registry: DIES when a file ends with a logical line still open` | And when the fold does not close, the lint must SAY SO. A buffer still open at the end of a file is the rest of that file leaving the population, and the run before this one proved it goes unnoticed: the other files satisfy every non-vacuity check and the clean line reads normally. A reader cannot tell a tree with less in it from a scan that stopped reading, so this is refused rather than counted |
+| `_run_log_event_registry: FAILS on a literal body ending in a dollar sign` | A dollar sign is not an expansion when the shell never treats it as one. `'"'"'missing$'"'"'` and `"missing\$"` are fully known literals, and the test for an unresolved body ran on the text AFTER the quoting was removed, where the two are indistinguishable -- so both were dropped. Whether an expansion actually occurred is recorded while it can still be seen |
+| `_run_log_event_registry: FAILS on a literal body whose dollar starts nothing` | A dollar sign only starts an expansion when what follows it introduces one. Marking EVERY one as an expansion declined a trailing dollar -- `"missing$"`, and the unquoted spelling -- which bash keeps literally and log.sh then refuses. The wrong direction twice over: the body is fully known AND unregistered, and the lint said nothing |
+| `_run_log_event_registry: PASSES a wrapper name compared inside a conditional` | Inside `[[ ... ]]` the operators are the CONDITIONAL grammar, not the command grammar: `&&` there joins two tests and opens no command position. Treating it as one made the word after it a command, so an ordinary string comparison naming a wrapper reported its right-hand side as an event id. A substitution inside the expression still runs, and is still descended into |
+| `_run_log_event_registry: PASSES a wrapper name compared inside a multi-line conditional` | A conditional spread over several lines is still one conditional, and the state saying so was local to a line. Worse, the line that OPENS it may hold no name the candidate filter looks for, so the opening `[[` was not even read. The state is carried from line to line, and a line inside a conditional is scanned whether or not it looks interesting |
+| `_run_log_event_registry: PASSES a function whose body only looks like a forward` | A SINGLE-QUOTED `${1}` is the five characters, not the first argument, so a function whose body logs it emits one FIXED id and forwards nothing. Comparing the unquoted text alone could not tell that from the real thing, so the function was declared a wrapper and every ordinary call of it had its first argument reported. A wrongly declared wrapper is the noise that gets a lint muted -- the shadowing rule exists for exactly this -- so forwarding now requires a REAL positional expansion, for the alias as well as for the body slot |
+| `_run_log_event_registry: FAILS after a quoted conditional delimiter` | `[[` opens a conditional only where the shell reads it as one: unquoted, at a command position. A QUOTED one is an argument, and treating it as the opener put the conditional state on and left it on -- suppressing every call for the rest of the file, with the clean line reading normally. The state that fixes a false finding must not be able to create a silent miss |
+| `_run_log_event_registry: PASSES an arithmetic expansion naming a wrapper` | `$((...))` is ARITHMETIC: it reads variables and runs no command. The substitution branch took it for `$( ... )` and scanned its expression as shell, so a variable sharing a name with a wrapper made the operator after it an event id. Arithmetic is an expansion like any other -- the body carrying it is declined -- but nothing inside it is a call |
+| `_run_log_event_registry: FAILS on a body in a substitution inside arithmetic` | Arithmetic reads variables and runs nothing -- except that a command SUBSTITUTION written inside it does run. Declining the whole expansion to keep its identifiers inert threw the nested call away with it, so a literal unregistered body inside one went unseen. The identifiers stay inert; the substitutions in among them are harvested and scanned |
+| `_run_log_event_registry: FAILS on a body behind a noclobber redirection` | `>\|` is ONE redirection operator -- the noclobber override -- and splitting it left a bare pipe, which ends the command. The body after it was never looked at, so a literal unregistered id passed. A pipe that is half of a redirection is not a pipeline |
+| `_run_log_event_registry: FAILS on an id through a wrapper that shifts after its substitution` | A substitution RUNS where it sits, and every span was judged after the whole definition had been walked, with its FINAL positional state. A wrapper that logs its first argument inside a substitution and shifts afterwards therefore read as non-forwarding, and every call of it left the population unchecked -- the miss direction of base#1228 |
+| `_run_log_event_registry: FAILS on a logger name split by quoting` | _candidate reads the RAW line to decide whether tokenising is worth the per-character walk, and it asked for the logger name spelled out in full. Quoting splits a command name the tokeniser would rejoin, so a call written `_log_""err` was never read and its unregistered body left the population -- a MISS, and the filter exists only for speed (base#1228) |
+| `_run_log_event_registry: FAILS on an id through a wrapper holding an escaped brace` | Truncating the definition body at its matching closing brace needs a brace matcher that knows what the shell quotes. _brace_end skipped a backslash escape inside double quotes and not outside them, so a valid wrapper carrying a literal `\}` was cut short at that brace, declined, and every call of it left the population -- a regression the truncation introduced, in the missing direction (base#1228) |
+| `_run_log_event_registry: FAILS on an id through a wrapper holding a brace argument` | A function body closes on a `}` the shell reads as a RESERVED WORD, and it reads it as one only at a command position. Counting every unquoted brace cut the body short at a literal `}` handed to a command, read the wrapper as non-forwarding and took every call of it out of the population -- a regression the body truncation introduced, in the missing direction (base#1228) |
+| `_run_log_event_registry: FAILS on an id through a wrapper whose redirection names a brace` | A redirection OPERAND is a filename, so a `}` written as one is not the brace that closes the body. Reading the position after the operator as a command position cut the body short there, read the wrapper as non-forwarding and took every call of it out of the population -- the third shape a brace matcher over the raw text got wrong, and the reason the walk is asked instead (base#1228) |
+| `_run_log_event_registry: PASSES an id the registry carries` | The boundary of the rule and the whole of the fix base#1220 took: an id the registry carries is a message the operator actually reads, so there is nothing to report |
+| `_run_log_event_registry: PASSES a same-named function a file defines without forwarding` | A name is not global. script/ci/reclaim.sh defines its own _die that prints to stderr and never logs, so 'not a duration: 5x' is a MESSAGE, not an event id. Without the shadowing rule every such argument would be reported unregistered, which is the false finding that gets a lint muted |
+| `_run_log_event_registry: PASSES a body that is not a literal` | The stated blind spot, pinned so it cannot change shape unnoticed. A body this driver would have to run a shell to know is not resolved: exactly one hop -- the forwarding wrapper -- is, and anything further is out of reach rather than quietly guessed at |
+| `_run_log_event_registry: PASSES a _log_ call inside a whole-line comment` | Half the prose in these drivers spells a _log_ call out to explain one, and this driver's own header names four unregistered ids verbatim. A scan that read commented-out code would report its own documentation |
+| `_run_log_event_registry: reads the registry the tree names, not a path of its own` | The registry's path is read out of the tree's own _LOG_EVENTS_FILE assignment rather than written down in the driver, so moving or renaming the registry moves this lint with it instead of emptying it. A literal path here would keep agreeing with itself after lib/log.sh stopped |
+| `_run_log_event_registry: a registered id stays registered under pipefail` | The lint phase runs its drivers under `set -o pipefail`, and the first spelling of the membership test was `printf '%s\n' "${registered[@]}" \| grep -Fxq`. grep -q exits on the match, printf takes SIGPIPE, pipefail promotes that 141 over grep's 0, and a SUCCESSFUL lookup reads as "not registered" -- host-direct, with no pipefail, the same scan called the tree clean while the lint phase reported 29 registered ids as findings. The ids here are seeded so a match lands before the last line, which is what makes the early close happen at all |
+| `_run_log_event_registry: a clean tree passes and the counts print` | The clean line is the audit trail: it says how many emit sites were read, how many came through a wrapper and how many ids the registry carries, so a reader of a green CI log can tell a scan that checked the tree from one that checked nothing |
+| `_run_log_event_registry: PASSES a definition whose alias is assigned after its substitution` | The same end-state judgement errs the other way round. A name assigned the first positional AFTER a substitution was already in the alias set when the span was judged, so a function whose substitution logs a value it does not yet hold read as a forwarding wrapper -- and a wrongly declared wrapper turns every ordinary call of it into a reported id, which is the false-finding direction that gets a lint muted (base#1228) |
+| `_run_log_event_registry: PASSES a definition followed by a logger call on the same line` | Stripping the definition prologue left whatever followed the function on the SAME LINE inside the text read as its body, so a fixed-body function with a logger call after its closing brace read as forwarding. That is the worst false finding this scan has: a wrongly declared wrapper reports every ordinary call of the function and not one site (base#1228) |
+| `_run_log_event_registry: DIES when the walk for *.sh fails` | A walk that died part way through hands the lint a short list, which reads exactly like a tree with less in it. Captured rather than piped, because a status read through `\| sort` belongs to sort |
+| `_run_log_event_registry: DIES when the tree holds no *.sh at all` | An empty population is the shape that goes green by construction: the shipped scripts moved, the lint reads nothing and reports that every id is registered |
+| `_run_log_event_registry: DIES when nothing names a registry that exists` | Without the assignment the registry's location is unknown, and an unknown allowed set accepts everything. It is also the existence half of the rule: this driver spells the assignment in its own matching pattern, so a resolution that points at no file has to be no candidate |
+| `_run_log_event_registry: DIES when two different registries are implied` | Two registries is not two allowed sets to union: picking either would make the other's ids look unregistered, so the lint would report findings that are not defects and hide the ones that are |
+| `_run_log_event_registry: DIES when the registry carries no id` | An empty registry makes EVERY emitted id unregistered at runtime, so reading it as the allowed set is reading nothing. A comment-only file is the shape that matters: the header is still there, so the file looks populated to anything that only checks its size |
+| `_run_log_event_registry: DIES when no _log_ call site is read anywhere` | The blind-detector case, and the one that matters most: 271 direct call sites exist today, so zero means the detector stopped matching -- a renamed helper, a changed argument order -- and a blind detector reports every id registered |
+| `_run_log_event_registry: DIES when nothing forwards its first argument into a body slot` | The wrapper half is where two of base#1220's four hid, and it is the half that can vanish silently: with no forwarding wrapper found the scan shrinks to the direct call sites and the thirty-odd lint drivers' events leave the population without anything saying so |
+
 ### test/bats/unit/log_spec.bats (69)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
@@ -3625,8 +3931,10 @@ Grouped by concern:
 
 - `tag_matrix` description documents required `name` + `build_args` fields
 
-- Passthrough inputs mirror build-worker (build_runtime / test_tools_version
-/ platforms / context_path / dockerfile_path / build_contexts)
+- Passthrough inputs mirror build-worker (build_runtime / platforms /
+context_path / dockerfile_path / build_contexts). The tooling image is NOT
+among them: build-worker derives it from its own version-matched checkout,
+so there is nothing for a dispatcher to forward (closes #1122)
 
 - `resolve-matrix` emits `matrix` output (include-shape)
 
@@ -3661,7 +3969,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: legacy 1D inputs are gone (no pr_distros / tag_distros / distro_input_name / extra_build_args) (#344 BREAKING)` | - |
 | `multi-distro-build-worker.yaml: pr_matrix description mentions required name + build_args fields per entry (#344)` | - |
 | `multi-distro-build-worker.yaml: tag_matrix description mentions required name + build_args fields per entry (#344)` | - |
-| `multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) (#325 B-1)` | - |
+| `multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / platforms / context_path / dockerfile_path / build_contexts) (closes #1122)` | - |
 | `multi-distro-build-worker.yaml: resolve-matrix job emits matrix output (#344 include-shape)` | - |
 | `multi-distro-build-worker.yaml: resolve-matrix branches on github.event_name == pull_request (#344)` | - |
 | `multi-distro-build-worker.yaml: call-build uses local build-worker via ./.github/workflows/build-worker.yaml (#325 B-1)` | - |
@@ -3673,6 +3981,109 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed rollup job exists, depends on call-build, runs even if matrix failed (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
+
+### test/bats/unit/mutation_probe_spec.bats (62)
+
+A green suite says every assertion ran. It does not say any of them would
+have noticed a wrong answer, and the v0.43 retrospective measured how far
+apart those two statements are: a guard that only greps for a string turns
+red when the file carrying that string is deleted, so under a revert it
+scores identically to a behavioural guard. The probe asks the question a
+revert cannot -- put the production code back, break its BEHAVIOUR in place,
+and see what fails.
+
+The subject under test here is the LOOP, not any one mutation: record the
+original, apply the mutation, run, restore, prove the restoration, and
+report a verdict that cannot be read off an empty measurement. Every vacuous
+answer the retrospective hit is refused by name below.
+
+The narrow-scope refusal is base#1108's measured correction and the reason
+this file exists rather than a paragraph of prose. That audit asked "is this
+change covered in the spec the PR edited", and on six changes five of the
+greens it produced had a failing witness in a SIBLING spec from the same PR.
+A spec that stays green under a mutation has answered about itself; it has
+not answered about the suite. So the probe reports INCONCLUSIVE for a narrow
+green instead of NOT PINNED, and only a tier-wide run can say a behaviour is
+unpinned.
+
+Measured on this tree before the loop was built, which is this repo's bar
+for a new rule. Deleting dist/script/docker/wrapper/build.sh -- the subject
+of reclaim_wiring_spec.bats's "the verbs that BEGIN a flow do not reclaim"
+-- leaves that spec at 32 ok / 0 not ok, because a refutation over a file
+that is not there is satisfied by its absence. The same mutation at tier
+scope is 4667 ok / 109 not ok, and the witnesses name build_sh_spec.bats.
+Narrow scope answered "not pinned"; the tier answered "pinned, by
+build_sh_spec".
+
+The fixtures are real git work trees, not scratch directories, because the
+probe's leak check IS git: it compares the tree before and after the
+mutation to catch a mutation command that touched a file it did not declare.
+Faking that comparison would test a control this repo does not ship.
+
+| Test | Description |
+|------|-------------|
+| `_mutation_probe: refuses a root that does not exist` | the probe's first act is to record the originals, and a root it cannot resolve means it recorded nothing -- so every later step would be operating on a tree it never read. Refusing here is what keeps a typo in a path from being reported as a test-suite verdict. |
+| `_mutation_probe: refuses a root that is not a git work tree` | the probe compares the tree before and after the mutation to catch a mutation that touched an undeclared file, and git is what answers that comparison. A root that is not a work tree would silently lose the leak check, which is the one control standing between this tool and a half-mutated checkout. |
+| `_mutation_probe: refuses a run with no subject declared` | with no subject declared there is nothing to record and nothing to restore, so the loop could not put the tree back even if it wanted to. The declaration is also what the leak check measures against. |
+| `_mutation_probe: refuses a subject that does not exist under the root` | a probe of a file that is not there measures nothing, and this is the exact shape the retrospective kept hitting -- a guard whose subject had moved stayed green because the absence satisfied it. Naming the path in the refusal is what tells the author the path moved rather than the test being weak. |
+| `_mutation_probe: refuses a run with no mutation declared` | without a mutation the run is just the suite, and the suite was already green -- reporting that as a probe result would certify every test in the tree as behavioural on no evidence at all. |
+| `_mutation_probe: refuses a mutation that left every subject byte-identical` | THE load-bearing refusal. A mutation command that matched nothing leaves the tree exactly as the suite already passed over, so the green that follows is the baseline and not a measurement -- and read as a verdict it certifies the test as behavioural on the strength of a typo in a sed expression. |
+| `_mutation_probe: refuses a mutation that edited a file that was ALREADY dirty` | the leak check compares the tree before and after, and comparing only git's status CODES misses the commonest real case: a file that was already dirty stays ` M` through a second edit, so the probe would run the suite and leave the undeclared mutation behind with nothing said. An author running this mid-change always has dirty files. |
+| `_mutation_probe: refuses a mutation that edited a file that was ALREADY untracked` | the same hole with the other status code. An untracked file is `??` before and after, so a mutation that rewrites one is invisible to a code-only comparison -- and an untracked file is exactly what a half-built fixture or a scratch script is. |
+| `_mutation_probe: refuses a mutation that touched a file it did not declare` | a mutation that edits a file it did not declare is a mutation the loop cannot undo, because only the declared subjects were recorded. Catching it between the mutation and the run is what keeps the undeclared edit from being carried through a multi-minute suite and then left behind. |
+| `_mutation_probe: restores the declared subject even when it refuses for a leak` | the subject it DID declare still has to come back. A leak refusal that left the declared mutation in place would turn the safest control in the loop into the thing that strands the tree. The marker is the positive the refutation needs: without it this case passes on a probe that never ran at all, which is the defect the whole change is about. |
+| `_mutation_probe: refuses a run that reported no test results at all` | base#1089's rule, applied to a probe instead of a gate: both no-evidence states are refused by name. A run that reported no test results at all has zero reds, and zero reds is the same number a fully behavioural suite would print -- so reading it as NOT PINNED turns a broken runner into a finding about the tests. |
+| `_mutation_probe: refuses a green whose runner did not finish` | the halfway version of the same hole, and the dangerous one, because it arrives with a plausible number. A runner that prints some passes and then dies has zero reds over a population that never finished, so counting results alone reports NOT PINNED about assertions that did not run. |
+| `_mutation_probe: a red runner exit is PINNED, not an unfinished run` | a red is still a red when the runner exits non-zero, because that is how every failing suite exits. A completion check written without this case would refuse the probe's entire reason for existing. |
+| `_mutation_probe: reports PINNED and names the witness when the mutation turns something red` | the answer the probe exists to produce, and the reason the issue asks for the witness in the PR body: a red names WHICH assertion was pinning the behaviour, which is the half a pass/fail verdict throws away. |
+| `_mutation_probe: reports NOT PINNED on a tier-wide run that stays green` | a tier-wide green under a real mutation is the finding -- the behaviour can be wrong and the whole suite still passes. It exits non-zero so the probe can sit in a loop that stops on it. |
+| `_mutation_probe: a narrow green is INCONCLUSIVE, never NOT PINNED` | base#1108's correction, which is the whole reason this file is a mechanism and not a paragraph. Asked per-file, that audit called six changes untested; five of the six had their failing witness in a sibling spec from the same PR. A narrow green is a statement about one spec, so the probe refuses to spell it NOT PINNED. |
+| `_mutation_probe: a narrow RED is still PINNED, because a red needs no scope` | the asymmetry is the point and it is easy to get backwards. A red answers soundly at any scope -- something observed the wrong answer -- while only a green has to be qualified by how much ran. |
+| `_mutation_probe: every verdict states the scope it was measured at` | the scope is what makes a verdict readable a week later, and the retrospective's false positives are exactly the case where nobody recorded how much had run. Printing it on every verdict is what stops the next reader from having to assume. |
+| `_mutation_probe: restores the subject byte-for-byte after a completed run` | the whole reason a probe is safe to recommend. A harness that leaves a half-mutated tree is worse than no harness, so the restoration is proven on the happy path rather than assumed from the absence of a complaint. |
+| `_mutation_probe: restores the subject's mode, not only its bytes` | the mode is part of the file. Restoring the bytes of an executable as a non-executable leaves a tree that reads clean to a diff and is broken to everything that runs it. |
+| `_mutation_probe: restores the subject when the runner dies without finishing` | the failure mode that matters most -- a runner that dies mid-suite is the ordinary case (a ctrl-c, a docker daemon hiccup), and that is exactly when a tree gets stranded. The marker is the positive: a clean tree proves nothing unless the mutation reached it and the runner started, so without it this case passes on a probe that never ran. |
+| `_mutation_probe_verify_restored: fails and names the file when a subject did not come back` | the restoration is only a guarantee if something checks it, and the check has to be able to say no. Asserted directly rather than through the loop, because the loop is built so this never fires -- a control nothing exercises is a control nobody knows works. |
+| `_mutation_probe_verify_restored: passes when the subject is byte-identical to the record` | the other direction of the same control. A verifier that always failed would make the loop refuse every clean run, and a verifier that always passed is the one that strands a tree -- so both answers are pinned. |
+| `_mutation_probe: a signal stops the run instead of reporting a verdict` | a ctrl-c has to STOP the probe, not just tidy up behind it. A handler that restores and then returns lets the loop fall through to its verdict and report a measurement taken over a suite that was killed partway -- which is a number nobody can tell apart from a finished run's. |
+| `_mutation_probe_emergency_restore: puts the recorded subject back from the trap path` | the trap is what covers the paths the explicit restore cannot reach, and a trap handler nothing ever calls is the classic dead control. Driving the payload directly is the only way to see it put a file back. |
+| `just test mutation-probe hands the mutation over as ONE argument` | the defect the review reproduced. A mutation is one argument containing spaces, quotes, a redirection and a semicolon; split by the recipe shell it becomes an unknown-argument refusal at best and an edit made outside the restore loop at worst. |
+| `just test mutation-probe does not execute the mutation's redirection itself` | the other half of the same seam. The redirection inside the mutation must not be performed by the recipe's shell, because a file it wrote is a file the probe never recorded and so can never restore. |
+| `_mutation_probe: refuses a symlink subject and names its target` | a symlink passes the regular-file test, and `cp -p` then records the TARGET's bytes. An in-place editor replaces the link with a regular file, the restore writes the bytes back, verification reports success, and git calls the result `T`. This repo ships such links. |
+| `_mutation_probe: no inherited BATS_ selector reaches the runner on a tier run` | the probe reads a BATS_* selector out of its own environment and hands it to the runner, so `--bats-only` can run one spec while the verdict says scope=tier -- a claim about sibling tests that never ran, which is the exact false positive the scope rule exists to prevent. |
+| `_mutation_probe: publishes NO verdict when the restoration failed` | the verdict used to be printed first and the restore's status then discarded by an unconditional return, so a RED run whose restore had failed reported PINNED and exit 0 with the mutation still in the tree. The restoration failure is the more important news and has to be the only news. The restore is stubbed to fail rather than provoked into failing: the provoked versions all turned out to be uid-dependent or to be caught by an earlier control, and what this case is about is the ORDER, not any one way of breaking a copy. |
+| `_mutation_probe: a mutation that makes the subject a symlink does not clobber its target` | THE central safety guarantee, inverted. `cp` writes THROUGH a destination symlink, so a mutation that replaced the subject with a link had the restore overwrite the link's target -- an undeclared file destroyed by the step whose only job is to put things back. Verification refused afterwards, by which time the data was gone. |
+| `_mutation_probe: refuses to report a verdict when the baseline is already red` | without a baseline the probe cannot say anything TURNED red. On a checkout that already has a failing test -- the normal state of the tree this tool is reached from, mid-change -- every mutation reported PINNED and named that pre-existing failure as its witness. |
+| `_mutation_probe: runs the scope unmutated FIRST, then mutated` | the ordering the baseline depends on. The unmutated run has to come FIRST and the mutated one second; a probe that ran the scope once, or ran it twice over the same tree, would report the same verdict and be wrong for the same reason. |
+| `_mutation_probe: accepts a subject spelled with a leading './'` | `--subject ./subject.sh` is a valid thing to type. It was recorded under that spelling and then refused as an undeclared edit, because git reports the path as `subject.sh` and the comparison is string equality -- so the probe refused the one input it had just accepted. |
+| `_mutation_probe: refuses a subject that walks out of the root` | the other direction of normalisation. A subject outside the root is one the leak check cannot see and the restore has no business writing to, so it is refused by name rather than normalised into something plausible. |
+| `_mutation_probe: refuses a mutation that only changed an already-dirty file's MODE` | git's status does not move for every change that matters. A `chmod +x` on a file that was ALREADY content-dirty leaves both its status code and its content hash where they were, so the undeclared permission change passed the leak check and was left behind. |
+| `_mutation_probe: a signal stops the runner's children too, not just the runner` | a TERM to the runner's pid alone leaves its children running -- and the real runner is test.sh waiting on `docker compose run`, so the container would keep reading a tree the probe is restoring under it. |
+| `_mutation_probe: refuses to restore through a parent that became a symlink` | removing the final component is not enough. A mutation that replaced the subject's PARENT with a symlink had both the remove and the copy resolve through that link, so the restore destroyed a file outside the tree and then reported success -- the safety guarantee inverted one directory higher up. |
+| `_mutation_probe: refuses a mutation that changed a CLEAN tracked file's mode` | git records only the executable bit, so `chmod 600` on a CLEAN tracked file moves neither its status nor its hash. The dirty set is therefore not the population the leak check needs; every tracked path is. |
+| `_mutation_probe: refuses a mutation that edited a gitignored file` | an ignored file is invisible to `git status` by definition, and the files this repo ignores are the generated config the suite under measurement reads -- so a mutation that corrupted one would change what the probe is measuring and be left behind as well. |
+| `_mutation_probe: an interrupt during the BASELINE still stops the runner` | the handler used to be armed AFTER the baseline, and the runner is forked into its own process group -- so an interrupt during the baseline killed the probe and left the suite, a docker compose run in the real case, alive with nobody waiting on it. |
+| `_mutation_probe: refuses a subject reached through a symlinked ancestor` | the mirror image of the restore's ancestor check, and the one outcome this tool must not have. A subject reached through a symlinked parent was ACCEPTED, recorded and mutated -- and then the restore correctly refused to write through that ancestor, leaving the subject mutated. |
+| `_mutation_probe: refuses a mutation that edited a file inside an ignored DIRECTORY` | an ignore pattern naming a DIRECTORY -- which is how this repo ignores `coverage/` and `log/` -- is reported by git as the directory, and a directory's fingerprint is only its mode. So a mutation that rewrote a file inside one was invisible to the leak check and left behind. |
+| `_mutation_probe: refuses a green whose run executed FEWER assertions than the baseline` | a mutation can remove the assertions that would have observed it -- deleting a dispatch from a driver is the obvious case, and probing the test tooling is one of the things this is for. The run then exits 0 with fewer tests and nothing red, which was published as a tier-wide green. |
+| `_mutation_probe: a runner that ignores TERM does not wedge the restore` | a runner that ignores TERM, or hangs in its own shutdown handler, made the post-signal `wait` never return -- so the probe sat there with the tree still mutated, which is worse than either a stuck suite or a mutated tree alone. A `kill -0` poll cannot stand in: an unreaped child is a zombie and still answers it. |
+| `_mutation_probe: a newline in an undeclared file's name does not bypass the leak check` | the changed-path list was newline-delimited while the snapshots it reads are NUL-delimited, so a file named `a.sh<newline>b.sh` was read back as the two paths `a.sh` and `b.sh` -- and when both of those are declared subjects, an undeclared edit reads as two declared ones and the leak check waves it through. |
+| `_mutation_probe: refuses to restore when the ROOT itself was replaced` | the ancestor walk starts BELOW the root, so it could not see the root itself being swapped. `mv tree tree-saved; ln -s outside tree` left every later check passing while every write landed in `outside` -- the restore overwriting unrelated data and reporting success. |
+| `_mutation_probe: an interrupt during a HUNG mutation still restores` | bash defers a trap until the foreground command finishes, so a mutation that hangs after editing the subject held the handler off indefinitely while the subject sat mutated -- and its pid was recorded nowhere, so nothing could stop it either. |
+| `_mutation_probe: a run of nothing but SKIPS is no evidence, not a green` | bats reports a skip as `ok N name # skip <reason>`, so counting it as a pass is how a mutation erases the evidence against itself and still looks measured -- a subject the spec can no longer find turns its cases into skips, and a run of nothing but skips read as 1 ok / 0 not ok slipped past both the no-evidence refusal and the population comparison. |
+| `_mutation_probe: a SKIP does not count towards the executed population` | the partial version of the same erasure, which arrives with a plausible count. Skips have to be excluded from the population comparison as well, or a mutation that skips half the suite reports a tier-wide green. |
+| `_mutation_probe: says so when a container still held the checkout at restore time` | killing the child's process group does not reach a CONTAINER. The suite runs through `docker compose run`, whose container belongs to the daemon, keeps the checkout bind-mounted, and can overwrite the restored files afterwards -- so the restore must not be the last word while the project is still held. |
+| `_mutation_probe_await_daemon: asks nothing when the built-in runner did not run` | the question is only meaningful for the built-in runner. A caller-supplied runner has no compose project, and asking anyway would make every such probe depend on a daemon it never used. |
+| `_mutation_probe: refuses a mutation that STAGED what it wrote` | the working tree is not the whole state a checkout carries. A mutation that stages what it wrote left the mutation in git's index after the bytes had been put back, with the probe reporting a restored tree -- and the next commit would have shipped it. |
+| `_mutation_probe_verify_restored: fails when the INDEX moved even though the bytes match` | the restoration verdict has to be able to say no about the index as well. A verifier that only compared bytes would report a restored tree over an index still carrying the mutation, which is the half that gets committed. |
+| `_mutation_probe_await_daemon: a daemon it cannot ask counts as HELD` | "I could not find out" and "nothing is running" are not the same answer, and only one of them is safe. A daemon that cannot be asked has to count as held, or the probe approves a restore into a checkout it knows nothing about. |
+| `_mutation_probe_await_daemon: a project with nothing running is released` | the other direction, so the check cannot be satisfied by always refusing. A project with nothing running is released, and the restore proceeds. |
+| `_mutation_probe_await_daemon: an unresolvable project name counts as HELD` | a project name the probe cannot resolve is the same class of answer as a daemon it cannot ask -- it has not established that nothing is running. |
+| `_mutation_probe: a signal during the DAEMON WAIT still restores` | the daemon wait can take half a minute, and the traps used to come off BEFORE it. A ctrl-c in that window killed the probe with the subjects still mutated and nothing left to put them back. |
+| `_mutation_probe: refuses a mutation that COMMITTED what it wrote` | `git diff --cached` was the first spelling of "what git records" and it is blind to the case that matters most -- a mutation that COMMITS its edit moves HEAD along with the index, so the difference is empty before and after while the mutation sits in a commit and the probe reports a restored tree. |
+| `_mutation_probe: a background process the mutation spawned cannot outlive it` | waiting for the mutation's shell does not wait for a process that shell put in the BACKGROUND. The probe published a verdict over a restored file that the background process then overwrote two seconds later -- a tree left mutated after the probe said it was not. |
+| `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
+| `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
@@ -3981,8 +4392,8 @@ fallback is present.
 | Test | Description |
 |------|-------------|
 | `prune.sh --help exits 0 and shows usage` | - |
-| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | - |
-| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `prune.sh --lang ja prints Japanese usage text` | - |
 | `prune.sh with no target exits 2 with hint` | - |
 | `prune.sh --until without a value exits non-zero` | - |
@@ -4022,7 +4433,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (12)
+### test/bats/unit/publish_worker_yaml_spec.bats (20)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -4073,8 +4484,16 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: merge login uses the parameterised registry (not hardcoded ghcr.io)` | - |
 | `publish-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 | `publish-worker.yaml: the publish job carries the same-repo guard (#766)` | - |
+| `publish-worker.yaml: the smoke step verifies the digest it is about to tag, not a tag name (#1214)` | A step that verifies a TAG cannot run until the tag exists, so reading one is what kept the only check in this job running after the publish it was supposed to authorise -- and nothing in this file can detach a tag again. It reads the digest a publish shard pushed instead, which exists before any tag names it (#1214). |
+| `publish-worker.yaml: each shard records the platform it built in its digest file (#1214)` | Verification has to RUN the image and a runner can only run its own architecture, so the merge job must tell which downloaded digest it can execute. `merge-multiple: true` flattens the per-arch artifact NAMES away before that job sees them, so the digest FILE is the only place the answer survives -- a `touch`ed empty file leaves the selection with nothing to read and the manifest create with nothing in front of it (#1214). |
+| `publish-worker.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1214)` | The load-bearing case, and the one a structural read cannot make. With provenance on by default each shard's exported digest names an INDEX, and `imagetools create` flattens those into the published one -- so the shard digests the artifact files are named by are absent from the published manifest and a digest-set comparison fails every SUCCESSFUL publish, after the tags have moved. Running the step over that state is what says it compares the constituent manifests instead (#1214). |
+| `publish-worker.yaml: the tag confirmation fails when a tag resolves to content nothing verified (#1214)` | The failure this check exists for and the only one the reordering leaves on this side of the publish: the create attached a tag to content the smoke step never ran. A confirmation that cannot report it is a step that only ever agrees (#1214). |
+| `publish-worker.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1214)` | The other half: a published index that silently lost an arch the matrix built leaves the losing architecture's downstream consumers unable to pull the tag at all, which is the defect the per-shard digest push exists to prevent (#1214). |
+| `publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)` | An arm64-only caller -- `platforms: linux/arm64`, which this worker supports and which a multi-arch base image repo uses -- builds and pushes on `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of the digests that run produced, so the selection refuses, no tag is attached, and a supported configuration stops publishing altogether. The runner has to follow the matrix the caller asked for (#1214). |
+| `publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)` | The structural half above says the runner is derived; this says the derivation lands on a runner that can RUN what the caller asked for. An arm64-only call must put the merge job on the arm64 runner, or the smoke step has nothing it can execute and the publish fails for a configuration that worked before the gate existed (#1214). |
+| `publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. The job's own `if:` is held to the same-repo guard the self-hosted rule requires of its derived runner and to nothing else, so a condition on WHETHER to publish cannot arrive there either. |
 
-### test/bats/unit/readme_file_table_spec.bats (2)
+### test/bats/unit/readme_file_table_spec.bats (4)
 
 The "What's included" table in `README.md` is a file INDEX, so every row
 names a real path -- and nothing checked that (#957). Item 3 of that issue
@@ -4091,6 +4510,8 @@ under the repo root, `dist/` or `script/`.
 |------|-------------|
 | `README file table: every row names a path that exists (#957)` | Every row resolves under one of the three roots; a stale path is reported by name |
 | `README file table: the scan actually finds the rows (#957)` | Floor on the row count, so a renamed heading cannot silence the check above |
+| `README tables: no row block renders as literal pipes (base#1121)` | Every table in the four README files renders AS a table -- a run of rows whose second line is not the delimiter row is a paragraph of literal pipes, which is how twelve rows of the file index stopped being read |
+| `README tables: the scan actually finds tables to check (base#1121)` | Floor on the number of table runs the scan actually walks, so a reformat that leaves no recognisable table cannot silence the guard above |
 
 ### test/bats/unit/readme_sync_spec.bats (33)
 
@@ -4255,11 +4676,11 @@ naming the path and what its absence costs.
 
 "Is this tag a prerelease?" decides whether a GitHub Release is marked
 prerelease (`release-worker.yaml` for downstream repos, `self-test.yaml` for
-base) and whether `release-test-tools.yaml` moves `test-tools:latest` -- the
-image every repo that has not pinned `test_tools_version` builds its lint
-stage from, that input's default being `latest`. Two sites spelled the test
-themselves and the third did not ask, which is how `v0.42.0-rc1` through
-`-rc4` each moved `:latest`.
+base) and whether `release-test-tools.yaml` moves `test-tools:latest`, the
+rolling tag a human pulls -- and, back then, the image every repo that had
+not pinned built its lint stage from. Two sites spelled the test themselves
+and the third did not ask, which is how `v0.42.0-rc1` through `-rc4` each
+moved `:latest`.
 
 `script/ci/release-ref.sh` is the one home for that rule ON A GIT REF;
 `release-worker.yaml` now classifies a VERSION input instead, and
@@ -4290,7 +4711,7 @@ rule with nothing comparing them is the #1012 shape with one fewer copy.
 | `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
 | `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (30)
+### test/bats/unit/release_test_tools_yaml_spec.bats (44)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
@@ -4298,46 +4719,78 @@ ${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has three
 triggers and two tag sets -- the first two triggers each resolve one:
 
 1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
-the tag is not a prerelease. Cuts the release downstream consumers pin via
-`inputs.test_tools_version`, whose default IS `latest`, which is why a
-prerelease tag must leave it alone.
+the tag is not a prerelease. `:<version>` is the one the workers build FROM,
+derived from the base checkout's own `.version` (base#1122); `:latest` is
+the rolling tag a human pulls, which is why a prerelease tag must leave it
+alone.
 
 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
-self-test.yaml's Obtain step to skip from-source rebuilds. The paths filter
-(gotcha 3) restricts it to commits that touched
-`dockerfile/Dockerfile.test-tools` or this workflow.
+self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
+holds back the merges that change nothing the image is built from, and is
+itself held to the set derived from the Dockerfile's own COPY lines.
 
 3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref it
 was dispatched from (main takes the `:main` arm, a `v*` tag takes the tag
 rules). Any other ref is refused, so an unrecognised input publishes nothing
 rather than overwriting `:latest`.
 
-The smoke step uses `steps.tags.outputs.smoke`, so it always pulls the tag
-the current trigger produced rather than statically pulling `:latest` and
-leaving a freshly-pushed `:main` unverified. Four of the cases below RUN the
-resolver rather than reading it: the step's own `run:` body is extracted
-with yq and executed against each ref shape. The text-reading cases above
-them stayed green through four RC tags that each moved `:latest`.
+The merge job's ORDER is pinned here too, over a population read off the
+workflow files themselves -- every file of `.github/workflows/`, every job
+of its `jobs:` mapping, every step of each job's `steps:` list: no step may
+let a registry tag name content that no step of that job has run yet. The
+smoke step -- the only check this image has, since no job of this workflow
+needs self-test.yaml -- used to verify a tag, which cannot exist before the
+manifest create, so it ran after the publish it was supposed to authorise
+and a red verdict left the moved tag standing. It verifies a digest now; the
+tag's own resolution is checked by the step after the create, which is the
+only assertion that needs the tag to exist.
+
+That scan is DIRECTORY-WIDE and not about this file alone, which is why it
+lives under its own divider below rather than among the cases above. A tag
+naming content nothing ran is the same defect whichever workflow publishes
+it, and this one was merely where it was found first: `publish-worker.yaml`
+carried it one file over, with a `merge` job whose only check after the
+manifest create was an `imagetools inspect` asking the registry whether a
+manifest existed (#1214). Each publishing workflow's own shape is pinned by
+its own spec; what is pinned here is the order, over whatever files the
+directory holds.
+
+Four of the cases below RUN the resolver rather than reading it: the step's
+own `run:` body is extracted with yq and executed against each ref shape.
+The text-reading cases above them stayed green through four RC tags that
+each moved `:latest`.
 
 | Test | Description |
 |------|-------------|
 | `release-test-tools.yaml: triggers on tag push v* (existing)` | - |
 | `release-test-tools.yaml: triggers on main push (#317 P2)` | - |
-| `release-test-tools.yaml: main push trigger has paths filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3)` | - |
+| `release-test-tools.yaml: main push trigger carries a paths filter (#317 P2 gotcha-3)` | The main push trigger is filtered at all, which is what keeps every non-doc merge from republishing the same image content under a new manifest digest. WHAT the filter has to contain is asserted against the derivation, in both directions, in the last section of this file -- the two cases there are the ones that fail when a context COPY is added without extending it. |
 | `release-test-tools.yaml: triggers on workflow_dispatch (existing)` | - |
 | `release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver>, and :latest for a finished release` | - |
 | `release-test-tools.yaml: Resolve tags step handles main push -> :main rolling tag (#317 P2)` | - |
 | `release-test-tools.yaml: Resolve tags step emits a smoke output tracking the current trigger's tag (#317 P2)` | - |
 | `release-test-tools.yaml: a release tag publishes :<ver> and moves :latest` | The arm the four text-reading cases above only READ. It is the one ref shape allowed to move the tag every unpinned downstream builds its lint stage from. |
-| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the tag whose default every unpinned downstream inherits, for the length of an RC window. |
+| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the rolling tag, for the length of an RC window, to a release candidate. |
 | `release-test-tools.yaml: a main push publishes the :main rolling tag only` | The rolling tag self-test.yaml pulls to skip a from-source rebuild; it must not reach `:latest` either. |
 | `release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)` | `workflow_dispatch` is unrestricted by ref, so this arm is reachable from any feature branch: resolving it to the production tag made the unrecognised input the most destructive one. |
 | `release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)` | A header describing a branch the code cannot reach is a defect with the same shape as the code one, and it is what a later reader believes over the code. |
 | `release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)` | What keeps the correction from being half made: a case NAME is what the TAP line prints, so a stale one reports the new behaviour under the old description on every green run. |
-| `release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)` | - |
+| `release-test-tools.yaml: smoke step verifies the digest it is about to tag, not a tag name (#1109)` | A step that verifies a TAG cannot run until the tag exists, so reading one here is what forced the only check on this image to run after the publish it was supposed to authorise (#1109). It verifies the digest a build shard pushed instead, which exists before any tag names it. |
+| `release-test-tools.yaml: the tag confirmation reads the trigger's own tag, never a stale one (#317 P2)` | The trigger's own tag still has to be the one checked, which was the property the old smoke target carried: a main push publishes `:main` and must not report on the stale `:latest` from the previous release. It moved to the only step that can hold it, the one that runs after the tag exists. |
+| `release-test-tools.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1109)` | An ordinary publish of this image must PASS the confirmation, and the first version of it could not: each shard pushes an index (provenance is on by default), imagetools create flattens those into the published index, so the shard digests the step compared against were never in it. Every successful release would have reported failure -- after the tags moved. |
+| `release-test-tools.yaml: the tag confirmation fails when the tag resolves to content nothing verified (#1109)` | The property the step exists for: a tag that resolves to content other than what was verified is the one thing the reordering leaves checkable only after the publish, so a confirmation that cannot fail on it checks nothing. |
+| `release-test-tools.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1109)` | The other half of what the published tag has to be: a manifest list covering every arch the matrix built. A tag that lost an arch is the last-shard-wins failure the whole push-by-digest design exists to prevent, and the expected platform list is read from the artifacts, not written here. |
 | `release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)` | One loop over the pins the Dockerfile declares, rather than fourteen hand-written comparisons that leave the next tool unasserted the day it is pinned. |
 | `release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)` | A loop fed by a command that failed simply gets no input and passes, which is fail-open for a step whose whole assertion is that the versions were checked. |
 | `release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)` | That sentence is what a reader follows to the file doing the comparison, and it still named the accessor the step had stopped opening. |
+| `publish ordering: no job of any workflow attaches a registry tag ahead of the step that runs the image (#1214)` | The rolling tag moved first and the only check on the image ran after it, with nothing anywhere in the file that could put it back -- so a red smoke left the moved tag standing, and on the measured v0.42.0 tag the tag moved 5m58s before that commit's tests had any verdict at all (#1109). The population is the workflow DIRECTORY, not the file that defect was found in: `publish-worker.yaml` carried the identical shape one file over and was scanned by nothing, because the walk started at a path (#1214). Jobs and steps are read off each file, so neither the publishing workflow nor the publishing job has to be remembered here. |
+| `publish ordering: the scan read every job of every workflow and found the publishes it ordered (#1214)` | An empty violation list satisfies the case above whether the scan read every job of every workflow and found the ordering right, or read nothing and classified nothing. So the files it walked, the jobs it read in each and the pairs it ordered are asserted, not assumed -- and the ordered count is held at two, because a single verified publish is what the directory looked like while the second one went unchecked. |
+| `publish ordering: a job that attaches a tag with nothing running the image is reported (#1109)` | The live tree cannot exercise this shape -- a publish with no check at all -- and must never be able to, so without a fixture the classifier could stop reporting it and nothing would notice. |
+| `publish ordering: a verified publish is clean, and a job after it is still read (#1109)` | The other half of a usable rule -- the prescribed order has to pass -- plus the property that makes the population derived rather than remembered: the walk does not stop at the first job, so the job somebody adds tomorrow is scanned the day it lands. |
+| `publish ordering: an action handed a tags input attaches a tag, a digest-only push does not (#1109)` | A tag can also be attached by an action handed a tags input, which is the shape this very workflow would take if its build shards ever stopped pushing by digest -- and no run block would mention a tag at all. The digest-only push the shards do today is the negative half: it names nothing, so it is reachable by content alone and needs no check in front of it. |
+| `publish ordering: a tags input on a build that never pushes attaches nothing (#1214)` | A `tags:` input on a build that never pushes names an image in the runner's OWN image store, which no consumer can reach and no registry tag moves for. self-test.yaml builds its run-scoped tooling image exactly that way in five jobs, so a rule reading the tag input without the push reports five non-defects the moment this scan looks at more than one workflow -- and the only way back from that is excluding them by name, which is the roster this scan exists to avoid. |
+| `publish ordering: a multiline tags list and a pushing exporter on a later line still attach (#1214)` | `tags:` and `outputs:` are both ordinarily written as BLOCK scalars -- a tag list has one tag per line, and a build that wants a local export beside its registry push has one exporter per line. A classifier reading only the first line of either value misses `push=true` on any later one, so a tagged pushing step reads as attaching nothing and an unverified publish passes the directory-wide scan with the guard looking straight at it (#1214). |
+| `publish ordering: a workflow the scan cannot read is a BUG, never a clean ordering (#1109)` | A scan that cannot read a workflow must say so, not report it clean: the fail-open direction here is a workflow whose publish ordering nothing checked, passing the live-tree case for the wrong reason. |
 | `release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)` | - |
 | `release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)` | - |
 | `release-test-tools.yaml: build shards run on the matrix runner (#587)` | - |
@@ -4351,6 +4804,8 @@ them stayed green through four RC tags that each moved `:latest`.
 | `release-test-tools.yaml: smoke step COMPARES the reported versions, not just exit 0 (#947)` | Reading two numbers is not comparing them: holding the pin and running `<tool> --version` still passes for an image whose linters are years old, which is exactly the state that shipped |
 | `release-test-tools.yaml: smoke step fails loudly when a pin and a binary disagree (#947)` | A comparison whose mismatch branch only warns is not a gate -- the publish would go out with the wrong linters and a green log |
 | `release-test-tools.yaml: smoke step refuses an unreadable pin rather than passing (#947)` | The failure mode a moved release URL produces: an empty expectation compared against an empty reading agrees with itself, which is the shape of pass the whole step exists to refuse |
+| `release-test-tools.yaml: the push filter covers every input of the tooling image (#1171)` | The reported defect, on the half that compounds the other. The tag a pull request falls back to when the rebuild signal says "unchanged" is a tag nothing refreshed: this trigger named the Dockerfile and this workflow, and the image has more inputs than that, so a merge touching only a file the Dockerfile COPYs out of the build context never started the publisher at all. `paths:` is static YAML GitHub evaluates before any job runs, so it cannot derive the set -- but it can be HELD to it. The expected set is read from the derivation, so the next context COPY anyone adds fails here, on the pull request that adds it, naming the path the filter does not cover. |
+| `release-test-tools.yaml: the push filter does not start on what the image never reads (#1171)` | The direction the filter exists for, and the reason it is a filter at all rather than `'**'` plus a job that decides. Every non-doc merge pushes to main; a filter that matches all of them would burn a multi-arch build per merge -- and, worse, put a run that will NOT publish into the workflow's concurrency group, where GitHub keeps only ONE pending run: a doc-only merge could then evict a queued publish and decline to publish in its place, leaving `:main` without the change it was queued for. So every run this trigger starts has a reason to publish, and the publish is unconditional. |
 
 ### test/bats/unit/release_version_spec.bats (12)
 
@@ -4647,7 +5102,7 @@ certified B, which two of today's four workers sit one line away from.
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/run_sh_spec.bats (70)
+### test/bats/unit/run_sh_spec.bats (68)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the `docker
 compose ... ps` probe reads from a controllable stub file (one running
@@ -4660,25 +5115,24 @@ Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on missing
 `.env` / `setup.conf` / `compose.yaml`, drift-check path, bootstrap staying
 non-interactive (setup.sh, not TUI), defensive guard when setup produces no
 `.env`, `--detach`, devel vs non-devel TARGET routing, already-running
-guard, Wayland xhost path, `--lang` argument validation, fallback
-`_detect_lang` branches, **runtime log-line i18n** (bootstrap +
-already-running error translate in all four languages via the local `_msg()`
-table), **#216/#429 auto-build gate** (image present → silent + no build,
-image absent → auto-delegates to `./build.sh TARGET`, non-devel target
-forwarded, build failure aborts run, per-target image inspect, `--build`
-invokes `./build.sh test` before compose up, `--build` after check-drift),
-and **`-C` / `--chdir` flag** (docker_harness#53: redirect FILE_PATH, short
-+ long form, value-required and directory guards, usage help mention), and
-**`-v` / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
-trace pattern as build.sh, parity across wrappers), and **#386 foreground
-exit auto compose-down** (default-on for devel + one-shot non-devel targets,
-`--no-rm` opts out, `-d` suppresses the trap; the trap fires `down
---remove-orphans` to mirror stop.sh and close the
-worktree-removed-before-stop network leak), and **#448 `--` CMD separator**
-(`--` stops flag parsing so CMD flags like `--target` don't collide;
-positional CMD also stops parsing; usage documents `--`), and **#580
-interactive exit-code normalization** (`_normalize_interactive_rc` maps
-clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths -- devel
+guard, `--lang` argument validation, fallback `_detect_lang` branches,
+**runtime log-line i18n** (bootstrap + already-running error translate in
+all four languages via the local `_msg()` table), **#216/#429 auto-build
+gate** (image present → silent + no build, image absent → auto-delegates to
+`./build.sh TARGET`, non-devel target forwarded, build failure aborts run,
+per-target image inspect, `--build` invokes `./build.sh test` before compose
+up, `--build` after check-drift), and **`-C` / `--chdir` flag**
+(docker_harness#53: redirect FILE_PATH, short + long form, value-required
+and directory guards, usage help mention), and **`-v` / `--verbose` / `-vv`
+/ `--very-verbose` flag** (#311: same export + trace pattern as build.sh,
+parity across wrappers), and **#386 foreground exit auto compose-down**
+(default-on for devel + one-shot non-devel targets, `--no-rm` opts out, `-d`
+suppresses the trap; the trap fires `down --remove-orphans` to mirror
+stop.sh and close the worktree-removed-before-stop network leak), and **#448
+`--` CMD separator** (`--` stops flag parsing so CMD flags like `--target`
+don't collide; positional CMD also stops parsing; usage documents `--`), and
+**#580 interactive exit-code normalization** (`_normalize_interactive_rc`
+maps clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths -- devel
 attached shell and one-shot stage `compose up` -- so a Ctrl-C-cleared line
 carried out on exit isn't a recipe failure, while a genuine non-clean code
 like 127 still propagates and command mode `just run <cmd>` keeps the real
@@ -4710,6 +5164,7 @@ down --remove-orphans` still runs).
 | `run.sh fails with clear error if setup.sh produced no .env` | - |
 | `run.sh --detach routes to 'compose up -d'` | - |
 | `run.sh -d runs the repo-local post/run hook (#537)` | - |
+| `run.sh -d hands compose the requested target, not devel (#1115)` | The detach branch is the one place the wrapper hands compose a target and nothing read it back. The foreground paths are pinned at argv level ("up test"), and the two existing detached cases assert a post-run hook fired and what reached the build.sh stub -- all three stay green when the compose target is replaced by a literal `devel`. The consequence under PRD invariant 8 is not a loud one: `just docker run -d -t runtime` would start devel, swapping baked config for a source bind mount on a running machine with nothing saying so |
 | `run.sh devel target routes to 'compose up -d' + 'compose exec'` | - |
 | `run.sh non-devel target without CMD uses 'compose up' foreground (#458)` | - |
 | `run.sh non-devel target WITH CMD uses 'compose run --rm' (#679)` | - |
@@ -4728,15 +5183,12 @@ down --remove-orphans` still runs).
 | `run.sh: a service running in ANOTHER project does not block this one (#920)` | - |
 | `run.sh: the SAME project's running service still blocks (#920)` | - |
 | `run.sh: a probe still writing cannot make the guard miss a running service (#905)` | - |
-| `run.sh --lang zh-TW prints Chinese usage text` | - |
+| `run.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
 | `run.sh --lang requires a value` | - |
-| `run.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `run.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `run.sh --lang ja prints Japanese usage text` | - |
 | `run.sh --help documents QUIET in every locale (#895)` | - |
-| `run.sh uses xhost +SI:localuser under Wayland session` | - |
-| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `run.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `run.sh --lang zh-TW prints Chinese bootstrap log` | - |
 | `run.sh --lang zh-CN prints Simplified Chinese bootstrap log` | - |
 | `run.sh --lang ja prints Japanese bootstrap log` | - |
@@ -4787,7 +5239,7 @@ the ldd-skip + accumulate-all behaviour (#692).
 | `smoke.sh: documented behaviour -- a .so whose ldd exits non-zero is skipped (#692)` | ldd-fail skip |
 | `smoke.sh: accumulates _exit=1 and reports every bad .so (#692)` | Accumulate-all reporting |
 
-### test/bats/unit/schema_coverage_spec.bats (11)
+### test/bats/unit/schema_coverage_spec.bats (12)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry must
 stay internally consistent and in sync with the `setup.conf` template, so
@@ -4806,6 +5258,7 @@ translation in any locale fails CI.
 | `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)` | i18n-index is complete (#591) |
 | `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
 | `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
+| `every _TUI_MSG_EN key exists in all three translated tables (#591)` | The parity population is _TUI_MSG_EN, the table that DECIDES which messages exist, rather than the schema index which only knows the 31 messages a registered key points at. An English-only key added to the EN table now fails here instead of reporting nothing |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
 | `every shipped setup.toml key is registered or an explicit free-form opt-out (#876)` | - |
 | `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
@@ -4839,8 +5292,8 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate allows empty logging.driver (empty policy = allow)` | empty default |
 | `_schema_validate normalises logging.<svc> to the logging key set (reject)` | - |
 | `_schema_validate normalises logging.<svc> to the logging key set (accept)` | - |
-| `_schema_validate accepts every registered key's valid sample` | union coverage (accept) |
-| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject) |
+| `_schema_validate accepts every registered key's valid sample` | union coverage (accept), with the population DERIVED. The title claims every registered key, and the claim is now checked: the keys the rows reach are held equal to `SCHEMA_VALIDATOR`'s own key set, so a key registered without a sample fails here instead of being covered by a sentence |
+| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject), with the population DERIVED for the same reason the accept table's is: the title claims every registered key, so the keys the rows reach are held equal to the registry's own key set |
 | `_schema_validate rejects embedded-newline values (YAML injection) (#687)` | - |
 | `_schema_validate numeric validators are shape-only, not range-bound (#687)` | - |
 | `_schema_validate allows empty (clear) for every list + clearable scalar key` | clear-key semantics |
@@ -4888,7 +5341,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (119)
+### test/bats/unit/self_test_yaml_spec.bats (129)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5075,14 +5528,18 @@ rolling tag at all, asserted in obtain_test_tools_spec.bats.
 13. **#677 CI double-run restructure (coverage = primary unit gate,
 weight-balanced shards, single `bats-fragile` job)** — after #686 unified
 the coverage job onto the same Alpine test-tools image, the 4-shard
-`bats-unit` matrix and the 4-shard `coverage` matrix ran the SAME ~1991 unit
-specs twice per PR (8 parallel jobs), differing only by `COVERAGE=1`. The
+`bats-unit` matrix and the 4-shard `coverage` matrix ran the WHOLE unit
+suite twice per PR (8 parallel jobs), differing only by `COVERAGE=1`. The
 restructure: (a) the `coverage` matrix stays the PRIMARY unit gate (kcov
 over every non-fragile test; codecov upload + the #615/ADR-00000008 project
 gate untouched); (b) the `bats-unit` matrix is replaced by a SINGLE
-`bats-fragile` job that runs ONLY the kcov-fragile specs the coverage matrix
-skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN mode, so the delta
-is preserved with zero double-run. The fragile set is computed at RUNTIME
+`bats-fragile` job that runs ONLY the spec FILES holding the tests the
+coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN
+mode, so none of those tests goes unrun. Selection is by file (`grep -rl`),
+not by test, so the unguarded tests in a selected file run in both legs;
+that residual is deliberate (plain-mode signal, off the critical path) and
+its size is derived from the selector by the two guards at the end of this
+file rather than restated in prose. The fragile set is computed at RUNTIME
 (`test.sh --bats-fragile` -> `_fragile_unit_files` greps a line-anchored
 skip guard), so a new fragile-skip in a 10th file is picked up
 automatically; (c) `_shard_unit_files` replaces round-robin with greedy
@@ -5090,7 +5547,7 @@ bin-packing by per-spec `@test` count (heaviest-first into the lightest
 shard) so the slowest coverage shard approaches `total/N`. `ci-rollup
 needs:` and `release needs:` swap `bats-unit` -> `bats-fragile`; `coverage`
 joins the `release` chain (it is now the primary unit gate). Every unit test
-still runs SOMEWHERE: non-fragile under coverage/kcov, the fragile files
+still runs SOMEWHERE: non-fragile under coverage/kcov, the selected files
 under `bats-fragile` (plain).
 
 14. **#1009 the gate rosters are DERIVED from the job graph** — every
@@ -5224,7 +5681,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance asserts the runnability contract (#579)` | - |
 | `self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)` | The acceptance job's `.Path` check is a runnability assertion only while the literal it compares against is the one the template's ENTRYPOINT names. Reading BOTH here, rather than remembering one, is what makes a move of the entry point fail in the local gate instead of on the CI-only acceptance matrix that `just test` cannot see |
 | `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | - |
-| ``self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)`` | - |
+| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | - |
 | `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | - |
 | `self-test.yaml: acceptance runs as a native-runner matrix over amd64 + arm64 (#603)` | - |
 | `self-test.yaml: acceptance shards run on the matrix runner (#603)` | - |
@@ -5232,7 +5689,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: system job declares needs on actionlint AND classify (#317)` | - |
 | `self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)` | - |
 | `self-test.yaml: bats-integration job-level if: gates on code_changed (#377)` | - |
-| ``self-test.yaml: no monolithic `test:` job remains after #377 split`` | - |
+| `self-test.yaml: no monolithic 'test:' job remains after #377 split` | - |
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
@@ -5244,14 +5701,20 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
 | `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
+| `self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)` | Five jobs set up a docker-container builder before anything has decided whether one is wanted, and the only step that wants one is skipped on every hot-path run. Measured on one run: nineteen jobs spent 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs whose build step was skipped every time -- the action pulls `moby/buildkit:buildx-stable-1` and starts a container, and the post step then removes a builder nothing touched. base is public, so the unit that matters is not a bill but the roughly twenty concurrent slots ADR-00000017 names as the throughput constraint. The ordering half of this guard is the hazard the fix itself introduces: a condition reading `steps.<id>.outputs` from a step that has not run yet is empty, so the setup is skipped on EVERY run and the consumer it was paired with builds with no builder behind it -- a failure that reads as a cache error rather than as a misplaced step. |
 | `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
 | `self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)` | Keeps the copies from growing back: five inline copies of the loop is how the presence-only blind spot survived, because no single copy looked wrong, and a re-inlined loop is invisible to the probe's own spec |
 | `self-test.yaml: every job that consumes the image obtains it the one way (#697, #1010)` | - |
 | `self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)` | Presence is the dimension the tool roster can express and the version is not, so a `:main` published before a bump carries every required tool AND the wrong runner; the population is derived from the workflow so the sixth probing job cannot land outside the rule |
 | `self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)` | - |
 | `self-test.yaml: classify emits testtools_changed from a full-history diff (#734)` | - |
+| `self-test.yaml: classify reads the tooling image's inputs, it does not restate them (#1171)` | The tooling image's inputs are READ, not restated. The step named one pathspec, the Dockerfile's, and the image has more inputs than that: a stage that COPYs a file out of the build context bakes that file's content in, so a PR editing only it took the pull path and ran the suite inside an image built before the edit. What each path DECIDES is asserted by driving the step in classify_testtools_spec.bats; what this test owns is that the step keeps no second roster of its own -- a pathspec quoted back into it is a list that is correct the day it is written and wrong the next time someone adds a COPY. |
+| `self-test.yaml: classify fails open when it cannot derive those inputs (#1171)` | An unreadable or refused input list must not read as "nothing the tooling image is built from changed", and must not reach `git diff` as an EMPTY pathspec list either -- that compares the whole diff and reports every PR as touching the image. The two failures are silent in opposite directions, so the empty case is answered before the diff and says so. |
 | `self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)` | - |
-| `self-test.yaml: coverage shards restore the shard-weights cache before partitioning (#733)` | - |
+| `self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)` | The producer half of the single-source rule. A partition is a partition of the suite only when every shard weighed the specs the same way, so there is exactly ONE place the weights blob is fetched -- the job every shard already waits on. A second lookup anywhere is a second opportunity for the matrix to read two different blobs. |
+| `self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)` | The lookup being single is worth nothing unless its RESULT is what the shards partition by, so the restored blob leaves compute-shards as a declared job output. Undeclared, the expression below it resolves to the empty string and all twelve shards silently fall back to @test counts. |
+| `self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)` | The load-bearing case of base#1114. Twelve shards each looking the cache up for itself is twelve reads of a key whose newest entry changes on every main push: the exact key cannot hit while the shards run, so every shard fell through to the `shard-weights-` prefix, and a shard re-run after a later merge partitions against a NEWER blob than its siblings used. Each then keeps its slice of a different partition, every slice non-empty, and a spec can land in none of them. |
+| `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. |
 | `self-test.yaml: coverage-gate merges shard timings into the weights file (#733)` | - |
 | `self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)` | - |
 | `self-test.yaml: declares ci-rollup job (#337)` | - |
@@ -5325,8 +5788,12 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: teardown runs on failure too, not just on success (#900)` | - |
 | `self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)` | - |
 | `self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)` | - |
+| `TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)` | TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15 of 26, and nothing re-derived the set, so the sentence the section opens with was false for a whole release cycle |
+| `TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)` | One row named the CI job lint-static (i18n-orphan), which exists in no workflow -- lint-static is a group matrix, so the row sent a reader looking for a check that is not in the list |
+| `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
+| `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (138)
+### test/bats/unit/setup_cmd_spec.bats (139)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -5392,6 +5859,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `add rejects an invalid capability (#560 schema unification)` | - |
 | `set rejects a malformed dotted key (no dot)` | - |
 | `set rejects a newline-bearing value rather than corrupting setup.conf (#688)` | - |
+| `set reports the write failure for a key validation does not intercept` | The only case that reaches `set`'s conf_write_failed branch, and the reason base#1220 found that branch emitting an unregistered id. A FREE-FORM key is the shape that gets there: it is not in the schema registry, so _schema_validate accepts any value and the newline refusal happens at the writer sink instead. The case above names the same defect and cannot see it -- its key is typed, so validation intercepts the value first and that case stays green with the writer's guard deleted. What is asserted here is POSITIVE and not only a refusal: the operator must READ the writer's complaint and `set`'s own diagnostic naming the key. An unregistered body makes lib/log.sh print its 'unregistered log body' refusal in their place, so the refutation beside them is what pins the registry half |
 | `set with no arguments fails clean (no shell error)` | - |
 | `set does NOT regenerate .env (mtime unchanged after set)` | - |
 | `show prints the value of a single key` | - |
@@ -5859,7 +6327,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (33)
+### test/bats/unit/smoke_helper_spec.bats (42)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5900,6 +6368,15 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
+| `entrypoint_is_single_file: the indented exec in base's orchestrator is an exec (#945)` | The exec the two-file model moved into base's half, read off the real file rather than a fixture. It sits indented inside a function, a shape no fixture above has, so a probe narrowed to a column-zero exec passes every one of them and still misreads a real bringup that execs |
+| `entrypoint_is_single_file: the bringup template base seeds is not the retired model (#945)` | The property ADR-00000032 shipped, asked of the file that shipped it: the bringup init.sh seeds does not exec, so the shared baseline must not read a repo on the new model as being on the retired one. Putting exec "${@}" back in that file turns this red |
+| `reproducibility_manifest_state: one half present reads as adopted` | One half present is enough to put every assertion about the record in scope -- including the one about the half that is missing, which is the "adopted and broken" case the spec must not skip past |
+| `reproducibility_manifest_state: the other half present also reads as adopted` | EITHER half, not a named one. A half-written record is the "adopted and broken" case whichever half survived, so the reading must not key on the first path alone -- that would send the other half's loss to the skip the directory check exists to prevent |
+| `reproducibility_manifest_state: the directory without the record is missing, not unported` | The regression the old precondition could not see. The directory the writing instruction creates is in the image and the record is not, so the record was adopted and is gone -- a failure, not a skip |
+| `reproducibility_manifest_state: no directory at all is unported` | The case the skip exists for, and the one that must survive: an image with no footprint of the record never claimed to keep it, and failing there turns a consumer's upgrade into a broken build |
+| `reproducibility_manifest_state: a file at the directory's path is unported` | A FILE where the directory belongs is not the record's directory. `-d` rather than `-e` keeps a path that changed type from reading as the footprint it is not -- the same distinction assert_spec_subject_dir makes |
+| `reproducibility_manifest_state: errors when an argument is missing` | The caller-error case, separated from the honest answers above: a missing argument must say so rather than resolve to a verdict |
+| `reproducibility_manifest_state: errors when the directory arg is missing` | The third argument is as load-bearing as the other two -- it is what separates "adopted and lost" from "never ported" -- so a call that omits it says so rather than defaulting to one of those answers |
 
 ### test/bats/unit/smoke_migrate_spec.bats (17)
 
@@ -6274,7 +6751,7 @@ live `dist/` passes today.
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 
-### test/bats/unit/stop_sh_spec.bats (31)
+### test/bats/unit/stop_sh_spec.bats (29)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown, and
 i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}` so
@@ -6299,8 +6776,8 @@ runs).
 | Test | Description |
 |------|-------------|
 | `stop.sh --help exits 0 and shows usage` | - |
-| `stop.sh --lang zh-TW prints Chinese usage text` | - |
-| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `stop.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `stop.sh --lang ja prints Japanese usage text` | - |
 | `stop.sh --lang requires a value` | - |
 | `stop.sh stops the single project via docker compose down` | - |
@@ -6309,9 +6786,7 @@ runs).
 | `stop.sh -v with no matching containers prints empty-project hint (#345)` | - |
 | `stop.sh without -v does NOT emit the verbose container listing (#345 default)` | - |
 | `stop.sh: an ambient VERBOSE does not reach the flag's behaviour (#895)` | - |
-| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `stop.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `stop.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `stop.sh -C <dir> redirects FILE_PATH to <dir>` | - |
 | `stop.sh --chdir <dir> long form is equivalent to -C` | - |
 | `stop.sh -C without a value exits 2` | - |
@@ -6393,7 +6868,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (170)
+### test/bats/unit/template_spec.bats (168)
 
 | Test | Description |
 |------|-------------|
@@ -6458,7 +6933,6 @@ Unit tests for the repo-local command-group scaffolder
 | `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `dist/script/docker/lib/i18n.sh exists` | - |
-| `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `Dockerfile.test-tools installs just from the PINNED release (#948)` | - |
 | `Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)` | The fail-closed half of compose_host_identity_spec's runtime `docker compose version` skip |
 | `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
@@ -6509,10 +6983,12 @@ Unit tests for the repo-local command-group scaffolder
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
 | `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
 | `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
+| `upgrade.sh rewrites the @ref of every reusable worker base ships (#1112)` | The rewrite's population has to be the workers base ships, not a roster the sed names -- a named roster cannot see the worker it omits (#1112) |
+| `upgrade.sh main.yaml rewrite leaves a third party's worker ref alone (#1112)` | Name-independent must not become owner-independent -- the rewrite rewrites OUR refs, and a stranger's worker is not ours to bump (#1112) |
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
-| `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
+| `build-worker.yaml: derives the tooling image from the version-matched checkout (closes #1122)` | the tooling image is derived from the version-matched checkout, not taken as an input (closes #1122) |
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
-| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs` | - |
+| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from the resolver step` | - |
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default` | version-scoped tag: no bare-tag ARG default (#828) |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
@@ -6533,7 +7009,7 @@ Unit tests for the repo-local command-group scaffolder
 | `_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)` | pins the helper behind that relation against a scratch fixture: `RUN <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must be closed by its delimiter -- live and commented, order enforced inside it, and `<<<` opening nothing |
 | `Dockerfile.example commented runtime-base records its own manifest (#951)` | read from that stage's own window, since the same commented lines appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented |
 | `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | read from DL3008's own rationale block, and it must name the downstream repos the symlinked config reaches whose Dockerfile predates the manifest |
-| `the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)` | the shipped spec asserts a non-empty `base_image_ref` and a `sha256:<hex>`-shaped digest, and its skip fires only when NEITHER manifest file exists |
+| `the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)` | the shipped spec asserts a non-empty `base_image_ref` and a `sha256:<hex>`-shaped digest, and its precondition reads the Dockerfile that decides adoption rather than its own subject's absence |
 | `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
 | `Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)` | - |
 | `Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)` | - |
@@ -6557,9 +7033,6 @@ Unit tests for the repo-local command-group scaffolder
 | `release archive payload declares no derived per-host artifact` | no compose.yaml / setup.toml in the manifest |
 | `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
 | `release archive payload guard is not satisfied by another entry's description` | The `.base/` guard reads the paths column, not a neighbour's prose |
-| `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
-| `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
-| `run.sh contains xhost +local: for X11` | X11 xhost |
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 | `all 7 wrappers call _run_pre_hook with their own name (#440)` | - |
@@ -6596,6 +7069,58 @@ Unit tests for the repo-local command-group scaffolder
 | `main calls chown with correct user and group` | Permissions |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
+### test/bats/unit/test_name_backtick_lint_spec.bats (15)
+
+The guard over the one string in a spec file that bats EVALUATES. base#1200
+measured what a live backtick in a name costs on this tree's two offenders:
+one run of a single 124-test spec emitted 125 copies of each of two shell
+errors, and printed both names with their backticked span replaced by the
+substitution's empty stdout, so the TAP output and the catalogue under
+doc/test/ disagreed about what the suite contains. The noise and the
+divergence are the measured cost; arbitrary command execution at collection
+time, with no test selected, is the mechanism.
+
+Unit tests for script/test/drivers/test_name_backtick.sh -- the "a `@test`
+name is a literal, not a command" lint.
+
+Two properties drive the case list, and both were measured on bats 1.13.0
+rather than assumed. FIRST, the author's quoting does not matter: bats's
+preprocessor strips the quotes the source wrote and its registration site
+supplies its own double quotes around the name before eval'ing it, so a
+single-quoted name is expanded exactly like a double-quoted one -- which is
+why the driver judges the whole @test line and parses no quoting, and why
+single-quoting is not a fix for this defect even though it reads like one.
+
+SECOND, a backslash-escaped backtick is a literal one: the catalogue
+generator unescapes it back to a plain backtick when it renders a row, so
+nothing is executed and this lint reports nothing. It is still not the fix
+base#1200 took, because `--filter` is matched against the name as the SOURCE
+writes it, so the backslashes stay in the one string the filter sees. The
+fix is to drop the backticks and write the code span in single quotes inside
+the name, which 178 of this tree's names already do.
+
+Detection runs against a controlled temp REPO_ROOT, never the live checkout:
+the tree is asserted by the `lint-static` group that runs this driver, which
+is where a whole-tree scan belongs (base#1075).
+
+| Test | Description |
+|------|-------------|
+| `_run_test_name_backtick: FAILS on a live backtick in a name, naming file, line and column` | The exact shape base#1200 found twice. The report has to name the file, the line and the column, because the author is looking for a character inside a long sentence |
+| `_run_test_name_backtick: FAILS on a single-quoted name too, because bats expands it as well` | The load-bearing case for the rule's shape. bats supplies its own quotes around the name, so a single-quoted one is expanded too -- measured, a single-quoted name whose backticks held an echo registered with the echo's output in place of them. A lint that exempted single quotes would bless the one spelling that reads most like the fix |
+| `_run_test_name_backtick: FAILS when an EVEN backslash run leaves the backtick live` | An even-length backslash run leaves the backtick live -- the run escapes itself, not the character after it -- and reading one character back instead of counting the run would call this clean |
+| `_run_test_name_backtick: reports EVERY offending name, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has names; base#1200's own tree had two, in one file |
+| `_run_test_name_backtick: scans the shipped smoke specs under dist/, not only test/bats/` | The population is the whole tree and not test/bats/. The shipped smoke specs under dist/ are vendored into every downstream repo by the .base subtree, so a name executed there is executed in seventeen other checkouts, and a scan rooted at the base-own spec tree would never see it |
+| `_run_test_name_backtick: FAILS on an INDENTED name, which bats registers too` | bats's preprocessor accepts leading blanks before '@test' and registers the test, backticks and all -- measured, an indented name whose backticks held an echo registered as the echo's output. An anchor pinned to column 0 would skip it while bats still ran it, and the non-empty-population check would not notice because the file's other tests satisfy it |
+| `_run_test_name_backtick: reports an indented name inside a heredoc, the accepted over-report` | The over-report this lint accepts, pinned so it cannot change shape unnoticed. An indented '@test' inside a quoted heredoc is fixture TEXT: the preprocessor rewrites it (it is a line filter with no heredoc model) but the enclosing shell never registers it, so nothing is executed there. It is reported anyway, because a scan over text cannot tell that line from a declaration -- and the fixture is often written out and run by an inner bats, where the name IS registered. Over-reporting is the refusing direction; 21 such lines exist in this tree today and none carries a backtick |
+| `_run_test_name_backtick: FAILS on a '@test' line bats's own pattern cannot read` | A '@test' line bats's own pattern cannot read is a line this lint cannot judge, and an unreadable line is a failure rather than a skip -- the same rule the walk failure below follows. Silently skipping it would take the name out of the rule's reach with the gate green |
+| `_run_test_name_backtick: PASSES a backslash-escaped backtick, which bats leaves alone` | The boundary of the rule. An escaped backtick is a literal one, so there is nothing to execute and nothing to report; a lint that flagged it would be refusing a name bats leaves alone, and would read as licence to widen until it refused every backtick |
+| `_run_test_name_backtick: PASSES a backtick that is not on a '@test' line` | Only the NAME is eval'd at registration. A backtick in a body is ordinary shell the test author meant to run, and a lint that flagged it would be unsatisfiable in half the specs here |
+| `_run_test_name_backtick: PASSES a backtick in a comment AFTER the opening brace` | Everything after the opening brace is the BODY, not the name: bats takes its description from the text BEFORE the brace and makes the rest the body's first line, so a backtick in a trailing comment is never eval'd at registration -- measured, such a name registers clean. 26 '@test' lines here carry text after the brace, so judging the whole line would fail the gate on names bats leaves alone |
+| `_run_test_name_backtick: a clean tree passes and the counts print` | The clean line is the audit trail: it says how many names were read and over how many files, so a reader of a green CI log can tell a scan that checked the tree from one that checked nothing |
+| `_run_test_name_backtick: DIES when the walk for spec files fails` | A walk that died part way through hands the lint a short list, which reads exactly like a tree with less in it. The three dies below are the only ways this lint can report clean having read nothing, and each asserts the sentence only ITS die prints |
+| `_run_test_name_backtick: DIES when the tree holds no spec file at all` | An empty population is the shape that goes green by construction: the specs moved, the lint reads nothing and reports a clean tree |
+| `_run_test_name_backtick: DIES when the spec files carry no '@test' line` | The blind-detector case, and the one that matters most: 4848 '@test' lines exist today, so zero means the anchor stopped matching -- a renamed keyword, a changed convention -- and a blind detector reports every name clean |
+
 ### test/bats/unit/test_tools_pins_spec.bats (13)
 
 The release smoke step ran fifteen probes against the image it had just
@@ -6630,6 +7155,56 @@ is the smoke step, which iterates this same roster.
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
 | `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
 
+### test/bats/unit/testtools_image_spec.bats (13)
+
+| Test | Description |
+|------|-------------|
+| `testtools_image: the reference is the published package at the checkout's own release (closes #1122)` | The reference is the published package at the release the checkout names, assembled here rather than by each consumer so the registry path has one home as well as the tag. |
+| `testtools_image: a different release in the checkout consumes a different image (closes #1122)` | The pair that is the whole point: the consumed tag MOVES with the release the worker's checkout is at. Nothing noticed when it did not. |
+| `testtools_image: a prerelease checkout consumes its own prerelease image (closes #1122)` | An RC publishes `:<ver>` and leaves `:latest` where it was, so an RC worker must consume its OWN prerelease image -- the window during which `latest` was a different release entirely. |
+| `testtools_image: surrounding whitespace in the version file is not part of the tag (closes #1122)` | Trailing whitespace is how a version file arrives from an editor; a tag with a newline in it names no image. |
+| `testtools_image: an absent version file is refused, never answered latest (closes #1122)` | The fallback that suggests itself for an unreadable version is `latest`, the one reference this exists to stop a pinned worker consuming. Refusing with nothing on stdout is the only direction that fails where it is used instead of linting against unchosen tools. |
+| `testtools_image: an unreadable version file is refused (closes #1122)` | Present-but-unreadable is the state an existence check passes and a reader then answers with nothing. Here that nothing would reach the version owner as "no version was supplied to release", so the refusal has to come from the readability test and name this file. |
+| `testtools_image: an empty version file is refused, naming the file (closes #1122)` | An empty version reaching the version owner would be reported as "nothing was supplied to release", a message about a release that never names this file. |
+| `testtools_image: content that is not a release version is refused, naming it (closes #1122)` | The published tooling tag IS the git tag, so a value that could not become a tag names no image. The shape rule has one owner and is not re-answered here. |
+| `testtools_image: with no argument it reads the checkout it lives in (closes #1122)` | CI passes no argument and must get the checkout the script lives in -- the base source at the worker's own ref. The expectation is read from the version file by a second reader, so it is the FILE CHOSEN that is under test and not the format. |
+| `testtools_image: no workflow spells a registry-qualified tooling image tag (closes #1122)` | A second spelling of the reference is a second source of it. The population is the workflow tree rather than the three files that carried one, so the fourth site is covered the day it lands. |
+| `testtools_image: no reusable worker declares a test_tools_version input (closes #1122)` | The input is the second source this removed. Declared again -- with any default, `latest` or not -- it is a value a caller can set to something the `@ref` pin does not name, which is the whole defect. |
+| `testtools_image: no shipped script writes a tooling version into a caller's workflow (closes #1122)` | The upgrade is the one place that edits every downstream repo, so a tooling version written into a caller's workflow from there would reintroduce the second source across the whole org at once. |
+| `testtools_image: every TEST_TOOLS_IMAGE a reusable worker passes comes from the derivation (closes #1122)` | The load-bearing positive half. Without it a worker could stop passing the arg at all and both negative scans above would report clean. Every hop is derived: the workers from the tree, the step from the expression the value is, the script from that step's own body. |
+
+### test/bats/unit/testtools_paths_spec.bats (10)
+
+Two CI decisions -- `testtools_changed` in self-test.yaml's classify job,
+and whether a push to main republishes the rolling `:main` tag -- answered
+that question with one quoted literal, the Dockerfile's own path. A stage
+that COPYs a file out of the build context bakes that file's CONTENT into
+the image while the Dockerfile does not move, so a commit touching only that
+file left both decisions answering "unchanged": the PR ran its whole suite
+inside an image built before the edit, and the merge that followed did not
+refresh the tag it had fallen back to.
+
+`script/ci/testtools_paths.sh` answers it by DERIVATION instead, through the
+same code that decides which files the local content-hash tag hashes. The
+cases below are mostly synthetic trees, because the property is about
+Dockerfiles this repo does not have yet: the second context COPY someone
+adds, the glob nobody can resolve, the `--from=` stage path that is not a
+checkout path at all. Two cases read the real Dockerfile, in both
+directions, so the derivation cannot drift away from the tree it is about.
+
+| Test | Description |
+|------|-------------|
+| `testtools paths: every context COPY of the real Dockerfile is an input (#1171)` | The first direction, and the defect itself: a file the real Dockerfile COPYs out of the build context is an input of the image, and the signal has to name it. Read off the Dockerfile independently, so the COPY somebody adds tomorrow brings its own requirement with it instead of waiting for this spec to be edited. |
+| `testtools paths: it emits nothing the real Dockerfile does not read (#1171)` | The opposite direction, and the reason this is a derivation rather than "hash the checkout": a signal that answers "everything is an input" passes every case above, rebuilds the tooling image on every pull request and throws away the pull path the rolling tag exists for. Every path it emits has to be one the Dockerfile actually reads. |
+| `testtools paths: a second context COPY is covered with no list edited (#1171)` | The load-bearing case. The alternative to deriving was a second literal in each filter, which is correct on the day it is written and wrong the next time somebody adds a COPY -- with nothing that notices, which is how this defect existed at all. A SECOND context COPY has to be covered without anything being edited anywhere. |
+| `testtools paths: a directory COPY is emitted as the directory (#1171)` | A COPY of a DIRECTORY is one pathspec covering a subtree that may grow files after this runs. Emitting the directory keeps the signal honest about the file added under it tomorrow; expanding it to today's members would be a list again, one indirection further in. |
+| `testtools paths: a COPY --from= source is not a checkout path (#1171)` | Every other COPY in the real Dockerfile is one of these. A `--from=<stage>` source is a path inside an earlier STAGE, not in the checkout, so emitting it would hand `git diff` a pathspec matching nothing -- and, worse, read as coverage while covering nothing. |
+| `testtools paths: a COPY it cannot resolve refuses, naming the line (#1171)` | A COPY source needing docker's own parser cannot be resolved to a definite set of paths, and a guess is how a file silently leaves the signal. The refusal has to name the line, and it has to leave stdout EMPTY: a partial list is the one answer that looks like an answer, and the consumer would diff against it and report the image unchanged. |
+| `testtools paths: a verb it does not model refuses rather than skips (#1171)` | ADD reads the build context and ONBUILD can defer a COPY into it. Both are verbs this derivation does not model, and passing over either is exactly the silent omission it exists to stop -- so each is a refusal the consumer turns into a rebuild, not a shorter list. |
+| `testtools paths: an absent tooling Dockerfile refuses, printing nothing (#1171)` | A tree with no tooling Dockerfile has no derivable input set, and the empty list is the one thing it must not print: an empty pathspec list handed to `git diff` compares the WHOLE diff, so "there is no tooling Dockerfile" would read as "every path is an input of it". Refusing lets the consumer fail open on purpose instead of by accident. |
+| `testtools paths: an unreadable tooling Dockerfile refuses, not a short list (#1171)` | The same silent partial answer the local tag's derivation was fixed for, in the one input that used to skip the readability rule its own COPY sources are held to. A guard that tests EXISTENCE alone lets an unreadable Dockerfile fall through to a reader that writes to stderr and yields no instruction at all, so the derivation prints the Dockerfile's own path, exits 0, and reports a tooling image with no context inputs. A consumer reading stdout sees a well-formed list, diffs against it, and reports the image unchanged -- which is this issue, reintroduced by the thing fixing it. |
+| `testtools paths: its set is the set the local tag hashes (#1171)` | The criterion the shared derivation exists for: the set CI treats as inputs has to be the set the LOCAL tag hashes. Asserted behaviourally rather than by both calling the same function -- every path the signal emits moves the tag when its bytes change, and a path it does not emit leaves the tag alone. Two rules for one question is how they come to disagree, and the disagreement is a CI run that pulls an image the local derivation would have rebuilt. |
+
 ### test/bats/unit/tmux_conf_spec.bats (12)
 
 | Test | Description |
@@ -6661,7 +7236,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (44)
+### test/bats/unit/toml_bridge_spec.bats (43)
 
 | Test | Description |
 |------|-------------|
@@ -6686,7 +7261,6 @@ is the smoke step, which iterates this same roster.
 | `merge: empty upper layer preserves all lower keys` | an empty override layer (e.g. a local.toml with no sections) must not clobber the baseline -- every key from the lower layer survives |
 | `merge: missing section in upper inherits from lower` | a section defined only in the lower layer must survive untouched -- the upper layer's silence about a section is not a deletion |
 | `merge: _conf_load_layers dispatches to TOML merge for .toml layers` | _conf_load_layers with all-TOML layers must dispatch to the containerised merge so the accessor API reads the merged result |
-| `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
 | `toml-bridge: merge shim scalar key-level merge via --kv` | type-aware merge is the D4 core contract -- scalar keys within a [table] get key-level merge: upper layer overrides only the keys it defines, unmentioned keys inherit from the lower layer |
 | `toml-bridge: merge shim array replace for [[array of tables]]` | [[array of tables]] must be replaced wholesale by the upper layer -- per-element merge of ordered lists is broken (ADR-25 sec.3 rationale) |
 | `toml-bridge: merge shim skips missing files silently` | absent layers must be silently skipped so callers can pass the whole chain unconditionally (matching _conf_load_layers convention) |
@@ -7630,7 +8204,7 @@ overlay; writes no override)
 | `_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)` | - |
 | `_edit_section_deploy writes the canonical gpu_runtime key (#517)` | - |
 
-### test/bats/unit/upgrade_spec.bats (48)
+### test/bats/unit/upgrade_spec.bats (55)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -7705,6 +8279,13 @@ policy is never rewritten).
 | `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a repo setup.toml` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
+| `_collect_subtree_local_drift finds an edit to a vendored path (#1092)` | The silence base#1092 is about -- an edit to a path upstream left alone -- is invisible to the merge, so the only thing that can report it is a tree comparison; this is the arm that proves the comparison finds the edit at all, from the metadata the pull itself recorded |
+| `_collect_subtree_local_drift finds nothing on a byte-exact vendored tree (#1092)` | A clean tree has to produce an EMPTY finding set, because a report that fires on every upgrade names nothing; this arm fails if the comparison ever picks up the subtree prefix itself or the consumer files that live outside it |
+| `_collect_subtree_local_drift records why it could not compare when the range holds no subtree squash (#1092)` | A comparison that cannot find the release to compare against reports the same zero findings as a clean tree, and that is the shape of silence base#1092 is about -- so the reason is recorded rather than the absence being left to read as agreement |
+| `_collect_subtree_local_drift records why it could not compare when the recorded upstream commit is absent (#1092)` | The other way the comparison can fail to run -- the squash names an upstream commit this object store does not hold, so the tree to compare against cannot be resolved. A zero here would be the check reporting a clean tree it never looked at |
+| `_warn_subtree_local_drift says the comparison could not run rather than nothing (#1092)` | Recording the reason is only half of it -- the consumer has to be told, because an upgrade that printed nothing is exactly what they saw before this check existed |
+| `_warn_subtree_local_drift names each drifted path repo-relative (#1092)` | Naming the files is the whole requirement -- a count with no paths leaves the consumer exactly where the silence did -- and the path has to be repo-relative, which is what they type at the prompt, not the subtree-relative form the comparison works in |
+| `_warn_subtree_local_drift says nothing when no drift was recorded (#1092)` | Silence on a clean tree is the behaviour every consumer sees on every upgrade, so it is the one the reporter has to get right even though it prints nothing |
 
 ### test/bats/unit/upstream_spec.bats (9)
 
@@ -7719,6 +8300,41 @@ policy is never rewritten).
 | `check-base-version.sh defaults BASE_REPO to the shared constant (#895)` | - |
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
+
+### test/bats/unit/version_migrate_spec.bats (20)
+
+The version interval an upgrade crossed is what selects a version-bound
+migration, and every way of failing to read that interval ends in the same
+observable place -- no migration ran. The integration arm can only produce
+the clean upgrade; these craft the histories that are not one (bootstrap,
+standalone resync, shallow clone, a vendored tree carrying no version) and
+pin that each reports itself differently, because only some of them mean a
+consumer was silently owed work. Selection order, boundaries, an unusable
+declaration and a failing migration are here for the same reason: a real
+upgrade shows one interval, not the arithmetic.
+
+| Test | Description |
+|------|-------------|
+| `interval_migrations excludes the version arrived from and includes the version arrived at (base#1097)` | The interval is half-open and both ends are a decision. The from-version's migrations ran when the consumer arrived there, so re-running them is the double-apply this shape exists to prevent; the to-version's are the release being installed right now, so dropping them is the whole job not done. A closed or open-at-the-wrong-end interval passes any arm that only checks the middle |
+| `interval_migrations orders by version ascending, not by declaration order (base#1097)` | Declaration order is where an author appends, and version order is what a migration set means -- an entry for an older release must run before one for a newer release even when it was written later. Those agree until the first out-of-order append, which is exactly when nobody is looking |
+| `interval_migrations breaks a same-version tie by declaration order (base#1097)` | Two migrations landing in one release have no version to order them by, so something else has to be the answer and it has to be stable. Declaration order is the only thing an author controls |
+| `interval_migrations treats a release candidate as the release it is a candidate for (base#1097)` | A release candidate of a release carries that release's migrations. Ordering the rc below the release it belongs to would run them on the rc and then again on the release -- harmless only because they are idempotent, and wrong in the log both times |
+| `interval_migrations reports a declaration it cannot select and keeps the rest (base#1097)` | An entry that can never be selected is base's own bug, and the only symptom is a migration that silently never runs. Reporting it on every upgrade rather than on the ones that would have selected it is the difference between finding it here and finding it at a consumer |
+| `interval_migrations reports a declaration whose apply function is missing (base#1097)` | A declared name with no apply behind it is the same silence by a different route -- the selection is correct and nothing happens. It is the shape a rename inside the lib produces |
+| `run_interval_migrations applies what the crossed interval covers and reports the interval (base#1097)` | The clean upgrade through the resolver rather than through a released driver. It is what makes every negative arm below mean something: without it they are all satisfied by a runner that never runs anything |
+| `run_interval_migrations keeps no record, so a second run over the same interval applies again (base#1097)` | There is no ledger of what has run, deliberately, so the second entry into the same interval applies the same migrations again. That IS the contract -- idempotence is the migration's job -- and a reader who assumes otherwise writes a migration that doubles. The arm exists to make the absence of the ledger a stated property rather than an oversight |
+| `run_interval_migrations reports a failing migration, skips the rest, and does not fail the resync (base#1097)` | A failing migration inside an ordered set has two wrong answers. Let it abort and the resync dies at upgrade Step 3, where no released driver up to v0.42.0 arms a rollback -- the pull stays committed and the repo is left half-upgraded. Carry on and the next migration runs over a tree the failed one left half-written |
+| `run_interval_migrations takes the from-version from BASE_MIGRATION_FROM when the history no longer has it (base#1097)` | The retry path, and it is the one codex reproduced as missing. A migration that fails, or an interval that could not be read, leaves work owed -- and the upgrade's own Step 4 commit destroys the merge the interval came from before the user has read the warning. Without a way to name the pair by hand there is no second chance on any release, and the warning is telling them to do something impossible |
+| `run_interval_migrations refuses an unorderable BASE_MIGRATION_FROM rather than deriving one instead (base#1097)` | An override that is wrong must not quietly become something else. A silent fall back to the history would hand the operator a different interval from the one they named, which is worse than refusing: they would believe the owed migrations had run |
+| `run_interval_migrations recovers the entries a failed migration skipped after the upgrade has committed (base#1097)` | codex's reproduction, end to end: a migration fails, the upgrade commits anyway, the cause is fixed, and the entries the failure skipped are still owed. This is the sequence the failure warning has to be able to promise a way out of |
+| `run_interval_migrations runs nothing when HEAD is not a merge (base#1097)` | The standalone resync. `just base init` is a repair command a user runs whenever they like, and on a committed tree HEAD is no merge at all -- so there is no pair to select on and nothing is owed. A runner that read the installed version alone would re-apply every migration ever declared on every invocation |
+| `run_interval_migrations runs nothing outside a git repo (base#1097)` | The documented bootstrap. A repo is set up by hand before `git` is even in the picture, and init.sh is the first thing to run in it -- the path that must not be a warning, because nothing is wrong |
+| `run_interval_migrations runs nothing when the first parent predates the subtree (base#1097)` | `git subtree add --squash` also lands a two-parent merge, so "HEAD is a merge" is not the question -- whether the first parent had the subtree is. A first bootstrap has crossed nothing, and the arm below is the same git shape with the opposite answer |
+| `run_interval_migrations warns, rather than reporting no interval, when the version it came from is missing (base#1097)` | The pair this mechanism's worst failure is made of. A vendored subtree with no version in it is NOT a bootstrap: a version interval was crossed, its migrations were skipped, and the repo looks exactly like the arm above unless the two report differently. Guessing is not available either -- there is no floor version to run everything from without knowing what the repo is |
+| `run_interval_migrations warns when the version it came from cannot be ordered (base#1097)` | The same class through the other door -- a version file that is present and says something nothing can order. A hand-edited `.version`, a merge conflict left in it, a branch name |
+| `run_interval_migrations warns when a shallow history has grafted the first parent away (base#1097)` | A shallow clone is the one case git itself erases: it GRAFTS the parents away, so a subtree-pull merge on the shallow boundary reads back as a root commit and is byte-identical to the standalone-resync arm above. Reading the parent count alone therefore reports "nothing was crossed" about a repo that crossed a release -- the one answer that looks healthy and is wrong. It is also CI's default checkout |
+| `run_interval_migrations warns when the installed version cannot be ordered (base#1097)` | The other half of the pair can be unreadable too, and it is the half the caller supplies. An empty or junk installed version would otherwise compare as 0.0.0 and select nothing at all -- silently, which is the shape every arm here exists to refuse |
+| `run_interval_migrations warns when the version moved backwards (base#1097)` | A re-established subtree or a hand-pinned downgrade moves the version backwards, which makes the interval empty rather than wrong -- but silence there would mean the one case where a migration genuinely cannot help is indistinguishable from a bug in the selection |
 
 ### test/bats/unit/watchdog_spec.bats (18)
 
@@ -7756,7 +8372,7 @@ process-level supervision loops + signal paths live in
 | `watchdog log setup writes a per-start file + stable symlink under watchdog/ (#797, #805)` | - |
 | `watchdog log is stderr-only (no file) when no log dir is configured (#797)` | - |
 
-### test/bats/unit/watchdog_supervision_spec.bats (16)
+### test/bats/unit/watchdog_supervision_spec.bats (20)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and the
@@ -7818,6 +8434,10 @@ guard; it runs plain under `bats-fragile`, ADR-00000008 / #613 / #677).
 
 | Test | Description |
 |------|-------------|
+| `_watchdog_main arms the restart-container monitor when ON_FAIL is unset (#1115)` | The arming the operator actually gets. A consumer who sets only `[lifecycle] watchdog_check` leaves WATCHDOG_ON_FAIL unset, which _watchdog_load_config resolves to restart-container -- so this is the default path, and `: _watchdog_monitor &` left all 34 existing cases in both watchdog specs green. It is not falsifiable from outside either: the INFO line that says "monitoring health" is printed BEFORE the fork, so an operator reads it and gets no supervision |
+| `_watchdog_main arms the restart-container monitor on a malformed ON_FAIL (#1115)` | The same fallback reached the other way. _watchdog_load_config's case statement routes every unrecognised value to restart-container, and a hand-edited setup.conf is the ordinary way to produce one -- so the fallback has to arm, not just resolve to a string |
+| `_watchdog_main arms the restart-container monitor when ON_FAIL names it (#1115)` | The branch stated explicitly rather than reached by fallback. Without it the two cases above would both pass against a dispatcher that ignored ON_FAIL entirely and always took the else arm |
+| `_watchdog_main hands over to the supervisor when ON_FAIL is restart-service (#1115)` | The other arm, and the one the loops' own tests cannot reach: every case below calls _watchdog_supervise or _watchdog_monitor directly, with nothing deciding whether to, so `: _watchdog_supervise "$@"` turned supervision off with all of them still green |
 | `restart-container monitor DEFERS checks during the start period (#797)` | - |
 | `restart-container monitor EXITS the container after consecutive failures (#797)` | - |
 | `_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)` | - |
@@ -7865,18 +8485,22 @@ than by the caller who follows it.
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
 
-### test/bats/unit/workflow_failure_surface_spec.bats (11)
+### test/bats/unit/workflow_failure_surface_spec.bats (12)
 
-Four properties of the workflow tree, each one about what a reader learns
-from a failed run. A cleanup sweep that reddens a build which succeeded, and
-a fork PR whose required check is red with no text distinguishing "we refuse
-to build fork code" from "the build broke", are both failures that carry no
-information -- and a reader who meets enough of them stops reading the ones
-that do. The rollup's silence on a doc-only run is the same defect inverted:
-an undifferentiated GREEN for "everything passed" and for "almost nothing
-ran". The absences are the fourth: nothing serialises the publishes that
-race for one rolling tag, nothing cancels a superseded PR's eight-shard
-matrix, and nothing bounds a hung buildx below GitHub's six-hour default.
+Five properties of the workflow tree, four of them about what a reader
+learns from a failed run and the fifth about what the tree itself records. A
+cleanup sweep that reddens a build which succeeded, and a fork PR whose
+required check is red with no text distinguishing "we refuse to build fork
+code" from "the build broke", are both failures that carry no information --
+and a reader who meets enough of them stops reading the ones that do. The
+rollup's silence on a doc-only run is the same defect inverted: an
+undifferentiated GREEN for "everything passed" and for "almost nothing ran".
+The absences are the fourth: nothing serialises the publishes that race for
+one rolling tag, nothing cancels a superseded PR's eight-shard matrix, and
+nothing bounds a hung buildx below GitHub's six-hour default. The fifth is
+an absence of a different kind: the default token grant of a workflow that
+declares none is a setting on a web page, so the tree carries no record of
+the posture its jobs run under and no diff can change it.
 
 Every population here is DERIVED from the tree -- the workflow list from the
 directory, the reusable workers from `on: workflow_call`, the cleanup steps
@@ -7897,6 +8521,7 @@ before reading an empty result as a clean one.
 | `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |
 | `workflows: no concurrency group cancels a run whose verdict is the record (#1014)` | Cancellation is only free where the cancelled run's verdict no longer matters. On a PR branch a superseded push replaces it; on a main push or a tag the run IS the record, and on the publish path a cancelled `imagetools create` is how a rolling tag loses an arch. So a group may cancel a pull_request and nothing else -- and an `if: always()` aggregator turns whatever it cancels into a red required check. |
 | `workflows: every job that runs steps bounds them (#1014)` | A hung buildx burns GitHub's six-hour default before anyone sees it. The population is every workflow file, not the reusable workers alone: the workers were bounded first because a worker spends the CALLER's minutes, but the jobs that actually run a build here are self-test's eight-shard coverage matrix and its two-arch `acceptance` matrix, both self-hosted-eligible and both unbounded -- so the hazard the rule names lived entirely outside the set the rule scanned. The bound is per job rather than per workflow because that is the only place GitHub accepts one, and the roster is derived from the directory so the ninth workflow cannot land unbounded. |
+| `workflows: every workflow a trigger can start declares its own default permission (#1116)` | The posture is correct and nothing in the tree says so. Both the repo and the org report `default_workflow_permissions: read`, so the fourteen jobs of base's own CI workflow that declare no block of their own are read-only -- held entirely by a checkbox on a settings page, which no diff, no review and no spec can see. Flip it and those jobs get write on contents, packages, actions, issues and pull-requests, on a workflow that checks out fourteen times with a persisted token and then runs the whole suite and scaffolds a repo. The caller-token question is a different one, asked of the reusable workers in reusable_worker_permissions_spec.bats over exactly the complement of this population; this is the repository default, so it is asked here, of the workflows a trigger can start. Five of the six already declare one, so the exception was a house convention nothing enforced. |
 
 ### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
 
@@ -8052,6 +8677,16 @@ Fixtures are written to a scratch directory, never to the checkout: these
 are tests OF the extractor, so they need shapes the real workflows do not
 have. The fixtures' own `@test` headers are indented one space, because the
 doc count generator counts a spec's tests with `grep -c '^@test'`.
+
+Fixture-only is the point, and it means nothing here can fail on the
+`permissions:` blocks that landed with this file. The witness for those is
+reusable_worker_permissions_spec.bats, which applies these same derivations
+to the REAL reusable workers, names every job that declares no grant of its
+own, and asserts a population floor first so a scan over nothing cannot pass
+by saying nothing. Deleting one worker job's block is red there and green
+here, by construction. This file's job is the one that spec cannot do for
+itself: make the derivations fail on a shape a correct tree does not
+contain.
 
 | Test | Description |
 |------|-------------|

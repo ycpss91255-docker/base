@@ -89,8 +89,9 @@ usage() {
                     以下的 scoped reclaim）。--all 是 daemon 全域的大槌，維持原樣。
   --reclaim         = --orphan-projects --tool-tags。scoped 回收器：只刪能「證明」
                     屬於已不存在的 base checkout 的東西，因此不需要先判斷這台機器
-                    上還有什麼在跑。注意只有 --orphan-projects 會在 `just stop` /
-                    `just test` 結束後自動執行；--tool-tags 一律要明確指定。
+                    上還有什麼在跑。注意只有 --orphan-projects 會隨收尾流程
+                    自動跑一次（`just docker stop` 就會跑）；--tool-tags
+                    一律要明確指定。
   --orphan-projects 刪除「所記錄的 checkout 已不存在」的 compose project network
                     與該 checkout 專屬的 build image（`<project>-smoke`；共用的
                     tooling image 沒有這個 label，永遠不會被這裡碰到）。
@@ -155,8 +156,9 @@ EOF
                     以下的 scoped reclaim）。--all 是 daemon 全局的大锤，保持原样。
   --reclaim         = --orphan-projects --tool-tags。scoped 回收器：只删能「证明」
                     属于已不存在的 base checkout 的东西，因此不需要先判断这台机器
-                    上还有什么在跑。注意只有 --orphan-projects 会在 `just stop` /
-                    `just test` 结束后自动执行；--tool-tags 一律要明确指定。
+                    上还有什么在跑。注意只有 --orphan-projects 会随收尾流程
+                    自动跑一次（`just docker stop` 就会跑）；--tool-tags
+                    一律要明确指定。
   --orphan-projects 删除「所记录的 checkout 已不存在」的 compose project network
                     与该 checkout 专属的 build image（`<project>-smoke`；共用的
                     tooling image 没有这个 label，永远不会被这里碰到）。
@@ -223,8 +225,9 @@ EOF
   --reclaim         = --orphan-projects --tool-tags。scoped コレクタ: 既に存在しない
                     base checkout のものだと「証明」できるものだけを削除するため、
                     ホスト上で他に何が動いているかを判断する必要がありません。
-                    自動実行されるのは --orphan-projects だけです（`just stop` /
-                    `just test` の終了時）。--tool-tags は常に明示指定が必要です。
+                    自動実行されるのは --orphan-projects だけで、終了処理が
+                    これを一度実行します（`just docker stop` がその一つ）。
+                    --tool-tags は常に明示指定が必要です。
   --orphan-projects 「記録された checkout がもう存在しない」compose project の
                     network と、その checkout 専用の build image
                     (`<project>-smoke`; 共有される tooling image はこの label を
@@ -308,8 +311,10 @@ Options:
                     it removes only what it can PROVE belongs to a base
                     checkout that no longer exists, so unlike --all it needs
                     no judgement about what else on this host is in flight.
-                    Only --orphan-projects runs automatically (after
-                    `just stop` and `just test`) -- it acts on that proof.
+                    Only --orphan-projects runs automatically, wherever a
+                    teardown performs an --orphan-projects pass of its
+                    own; `just docker stop` performs one. It acts on that
+                    proof.
                     --tool-tags is always explicit: no artifact can name all
                     of a content-shared tag's users, so retiring one rests on
                     a measurement rather than a proof.

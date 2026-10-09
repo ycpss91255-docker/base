@@ -27,10 +27,35 @@
 # sys stage's backslash-continued RUN chain, whose shape is the
 # consumer's own. So a repo that has not yet hand-ported it gets this
 # spec before it gets the manifest, and failing it would turn an upgrade
-# into a broken build over a record the repo never claimed to keep. The
-# skip is narrow: it fires only when NEITHER file is present. A repo that
-# writes one and not the other, or writes an empty record, has adopted
-# the manifest and broken it, and that fails.
+# into a broken build over a record the repo never claimed to keep.
+#
+# WHAT THE SKIP USED TO BE DECIDED BY, and why that was the defect
+# base#1090 is about. It fired whenever NEITHER file was present -- the
+# precondition was the absence of the spec's own subject, so "this repo has
+# not ported the record yet" and "this repo ported the record and has lost
+# it" were one state, and the second one is the live regression. Measured
+# on 1c9ccb2, over a consumer-shaped image that writes both files and whose
+# manifest was then left out: `1..4`, four `ok N # skip`, build exit 0.
+#
+# So the precondition is DERIVED from the artifact that DECIDES the
+# property rather than from the one under assertion -- and the artifact is
+# the IMAGE, which is what this spec can read directly. The two files live
+# in a directory of their own, `/usr/local/share/base`, created by the very
+# instruction that writes them (`mkdir -p <dir> && ... > <env> && ... >
+# <pkgs>`, in the template's sys stage and again in its runtime re-emit) and
+# by nothing else in the shipped tree. So: the directory present with
+# neither file in it is a record that was adopted and LOST, and it fails by
+# name; no directory at all is an image carrying no footprint of the record,
+# and it skips. reproducibility_manifest_state in the shared helper is the
+# one reading, and its header records why the Dockerfile's TEXT is not it.
+#
+# The residual is stated: an edit that removes that whole RUN leaves no
+# footprint and skips. base's own harness is covered from the other side,
+# one tier up -- test/bats/system/smoke_harness_spec.bats builds it and
+# refuses any `# skip` in its output.
+#
+# A repo that writes one file and not the other, or writes an empty record,
+# has adopted the manifest and broken it, and that fails.
 #
 # why: The reproducibility manifest the template's `sys` stage (and
 # `runtime-base`, when the runtime split is enabled) writes:
@@ -39,33 +64,47 @@
 # this file exists for — a manifest written from a stage where
 # `${BASE_IMAGE}` expanded to the empty string, so the file lands with an
 # empty record and every static grep stays green. Skips (rather than fails)
-# when NEITHER file is present: this spec reaches a consumer through
-# `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
+# when the repo has not ported the record yet: this spec reaches a consumer
+# through `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
 # writes the manifest is the consumer's own and hand-edited. The upgrade can
 # rewrite that file — `init.sh` and `upgrade.sh` both run `apply_migrations`
 # — but no migration was written for this record, because it splices into
 # the middle of the sys stage's continued `RUN` chain rather than onto an
-# anchorable whole line, so the port is by hand. A repo that writes one file
-# and not the other, or writes an empty record, has adopted the manifest and
-# broken it, and fails.
+# anchorable whole line, so the port is by hand. What decides that is the
+# IMAGE, not the absence of the files this spec came to read: the record's own
+# directory `/usr/local/share/base` is created by the instruction that writes
+# them, so the directory standing there with neither file in it is a record
+# that was adopted and lost, and it FAILS. A repo that writes one file and not
+# the other, or writes an empty record, has adopted the manifest and broken
+# it, and fails too.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 }
 
-REPRO_ENV="/usr/local/share/base/base-image.env"
-REPRO_PKGS="/usr/local/share/base/packages.txt"
+REPRO_DIR="/usr/local/share/base"
+REPRO_ENV="${REPRO_DIR}/base-image.env"
+REPRO_PKGS="${REPRO_DIR}/packages.txt"
 
-# Skip the calling test when this image predates the manifest revision.
-_skip_unless_manifest_adopted() {
-  if [[ ! -e "${REPRO_ENV}" && ! -e "${REPRO_PKGS}" ]]; then
-    skip "image predates the manifest template revision (run 'just upgrade', then re-apply .base/dist/dockerfile/Dockerfile)"
-  fi
+# Gate the calling test on the manifest's adoption state. Asserts when the
+# record is there, FAILS when the record's own directory is there and the
+# record is not, and skips when the image carries no footprint of it.
+_require_manifest_adopted() {
+  local _state
+  _state="$(reproducibility_manifest_state \
+    "${REPRO_ENV}" "${REPRO_PKGS}" "${REPRO_DIR}")"
+  case "${_state}" in
+    adopted) return 0 ;;
+    missing)
+      fail "${REPRO_DIR} is in this image and holds neither ${REPRO_ENV} nor ${REPRO_PKGS}: that directory is created by the instruction that writes the record, so the record was adopted and has been LOST -- the stage no longer runs, or no longer writes there. This is not the un-ported case; that one skips." ;;
+    *)
+      skip "no ${REPRO_DIR} in this image, so nothing here has ever written the manifest: this repo has not ported the record yet (run 'just upgrade', then re-apply .base/dist/dockerfile/Dockerfile)" ;;
+  esac
 }
 
 # why: Both manifest files land in every `-test` stage
 @test "the reproducibility manifest is complete" {
-  _skip_unless_manifest_adopted
+  _require_manifest_adopted
   assert_file_exists "${REPRO_ENV}"
   assert_file_exists "${REPRO_PKGS}"
 }
@@ -73,7 +112,7 @@ _skip_unless_manifest_adopted() {
 # why: Non-empty `base_image_ref` value plus a `base_image_pin` verdict —
 # the empty-expansion failure
 @test "the manifest names the base image this stage was built from" {
-  _skip_unless_manifest_adopted
+  _require_manifest_adopted
   # Non-empty VALUE, not merely a present key: `base_image_ref=` with
   # nothing after it is what an unscoped ${BASE_IMAGE} produces, and it is
   # indistinguishable from a complete manifest to anything that only
@@ -107,7 +146,7 @@ _skip_unless_manifest_adopted() {
 # and in `base_image_digest` -- the two must agree; stating only the
 # reference half is a blank field, not a contradiction, and passes
 @test "the manifest's digest field does not contradict the reference" {
-  _skip_unless_manifest_adopted
+  _require_manifest_adopted
   # The record can state the digest TWICE: once inside `base_image_ref`
   # when the reference is digest-pinned, once in `base_image_digest`. One
   # image, one base, so where both are stated they are the same value or
@@ -134,7 +173,7 @@ _skip_unless_manifest_adopted() {
 
 # why: `dpkg-query -W` name/version pairs, not a bare name list
 @test "the manifest records package versions, not just package names" {
-  _skip_unless_manifest_adopted
+  _require_manifest_adopted
   # `dpkg-query -W` prints "<name><TAB><version>". A file of bare names --
   # the shape a mis-typed format string produces -- answers "what is
   # installed" but not "which build am I looking at", which is the whole

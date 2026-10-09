@@ -158,14 +158,54 @@ _orchestrate() {
   assert_output "[a][b c]"
 }
 
+# ── the workload replaces the orchestrator, it is not forked ─────────
+
+# why: The invariant the file states about itself at entrypoint.sh:50-53
+# ("this function never returns -- it ends in the workload's exec"), and the
+# one thing nothing here observed. Drop the `exec` and every other case in
+# this file stays green: stdout, argv and exit status are identical under
+# exec and under fork. What differs is the process, so the process is what
+# this asks about. Without exec the workload is a GRANDCHILD of tini, which
+# the emitter defaults on (compose_emit.sh init: true), and tini forwards a
+# stop signal only to its single child -- so `just docker stop` and
+# `docker compose down` tear the container down without the workload ever
+# seeing SIGTERM
+@test "the workload runs as the orchestrator's own process, not as a child of it (#945, #1115)" {
+  # Process replacement read off the pid, with no signals involved: the
+  # bringup is SOURCED into the orchestrator's shell, so the pid it reports
+  # is the orchestrator's own, and the workload is a real program, so the
+  # pid it reports is the process it runs as. exec makes those the same
+  # number. A fork makes the workload a child and they differ by one
+  # process -- which is exactly the shape that breaks signal forwarding.
+  printf 'printf "orchestrator=%%s\n" "$$"\n' > "${BRINGUP}"
+
+  run _orchestrate bash -c 'printf "workload=%s\n" "$$"'
+  assert_success
+  # Both readings have to BE THERE before they can be compared: two empty
+  # strings are equal, so a case that only compared them would pass against
+  # an orchestrator that never ran the bringup or never started the
+  # workload at all.
+  local _orch _work
+  _orch="$(printf '%s\n' "${lines[@]}" | sed -n 's/^orchestrator=//p')"
+  _work="$(printf '%s\n' "${lines[@]}" | sed -n 's/^workload=//p')"
+  [[ "${_orch}" =~ ^[0-9]+$ ]] || fail \
+    "the bringup reported no pid (output: ${output}): the orchestrator did not source it, so there is nothing to compare the workload against"
+  [[ "${_work}" =~ ^[0-9]+$ ]] || fail \
+    "the workload reported no pid (output: ${output}): it never ran, so this case would otherwise compare two absences and pass"
+  assert_equal "${_work}" "${_orch}"
+}
+
 # ── the frozen paths ─────────────────────────────────────────────────
 
 # why: The bottom guard driven for real instead of grepped. Every other
 # test here calls the dispatcher with scratch paths, so nothing else
 # exercises the frozen literals or the strict mode the shipped file turns
 # on for itself -- and an image with none of the three installed is the
-# ordinary pre-adoption shape, not a hypothetical
-@test "executed directly with nothing installed, it still execs the workload (#945)" {
+# ordinary pre-adoption shape, not a hypothetical. It is NOT the exec
+# check its old title claimed: assert_success, the output and an empty
+# stderr all read the same under exec and under fork, so the process
+# replacement is asserted by the case above instead
+@test "executed directly with nothing installed, the frozen guard runs clean under its own strict mode (#945)" {
   # The frozen literals, driven for real rather than grepped: run the
   # shipped file as the container would, in an image that has neither
   # /usr/local/lib/base/ nor /entrypoint.sh. It must reach the exec with

@@ -37,6 +37,8 @@ conf_upsert_mv_failed
 conf_upsert_tmp_failed
 conf_write_mv_failed
 conf_write_tmp_failed
+# `set` / `add` reporting a refusal the writer above already named.
+conf_write_failed
 stage_baseline_collision
 stage_reserved_tag
 stage_invalid_format
@@ -166,6 +168,8 @@ upgrade_version_bumped
 upgrade_version_mismatch
 upgrade_rollback
 upgrade_rollback_failed
+upgrade_subtree_local_drift
+upgrade_subtree_local_drift_detail
 
 # init.sh
 init_started
@@ -190,11 +194,23 @@ ini_to_toml_migration_declined
 smoke_tree_migrated
 smoke_tree_migration_conflict
 
+# version_migrate.sh (migrations bound to the release they land in; emitted
+# under the init service because the resync is the only caller). The window
+# body and the unreadable body are deliberately separate: "there was no
+# interval to cross" and "there was one and it could not be read" are
+# different situations, and only the second is one a consumer must act on.
+interval_migration_window
+interval_migration_applied
+interval_migration_unreadable
+interval_migration_declined
+
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
 gitignore_managed_block_invalid
 gitignore_managed_block_migrated
 gitignore_managed_block_orphans
+gitignore_untrack_ls_files_failed
+gitignore_untrack_rm_failed
 
 # template_guard.sh (init/upgrade self-run guard)
 base_self_run_refused
@@ -216,9 +232,13 @@ ci_coverage_evidence_not_erased
 ci_coverage_local_conflict
 ci_jobs_without_coverage_local
 ci_invalid_coverage_jobs
+ci_invalid_jobs_policy
+ci_no_fragile_files
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
 ci_coverage_merge_failed
+ci_coverage_union_unevidenced
+ci_coverage_union_incomplete
 ci_coverage_clean_absent
 ci_coverage_cleaned
 ci_coverage_not_reclaimed
@@ -231,6 +251,8 @@ ci_readme_sync
 ci_doc_counts
 ci_catalog_description
 ci_spec_repo_root
+ci_test_name_backtick
+ci_log_event_registry
 ci_toml_fixture
 ci_home_literal
 ci_arch_literal
@@ -242,6 +264,7 @@ ci_i18n_orphan
 ci_self_hosted_guard
 ci_tool_provenance
 ci_changelog_entry
+ci_changelog_entry_fix
 ci_changelog_layout
 ci_pin_coverage
 ci_action_ref_agreement
@@ -277,6 +300,9 @@ transcript_dir_create_failed
 transcript_file_unwritable
 transcript_tee_missing
 transcript_env_invalid
+
+# toml_bridge.sh (host-side shim for the containerised TOML parser)
+no_such_file
 
 # compose.sh (project-name resolution)
 project_name_missing_from_env

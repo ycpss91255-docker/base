@@ -6,7 +6,15 @@
 # Seam 1: Dockerfile.toml-bridge structure (tool-pin markers, Python
 #          version, tomli vendoring).
 # Seam 2: toml_bridge.sh bash shim (TOML in -> JSON out via docker run).
-# Seam 3: Dockerfile.test-tools COPY --from=toml-bridge integration.
+#
+# The test-tools seam is NOT here, and its absence is deliberate. It was
+# a grep for the `COPY --from=` line whose description claimed downstream
+# repos inherit a working parser that way, and it stayed green across
+# four published tags while the bundled copy had no interpreter to run
+# under. A grep cannot tell a parser from a file, so the question moved
+# to where its answer can be observed:
+# test/bats/integration/test_tools_toml_bridge_spec.bats runs the image's
+# own copy and reads what it printed.
 #
 # Pure file reads + mocked docker: Unit level (ADR-00000018).
 
@@ -25,7 +33,6 @@ setup() {
   DOCKERFILE="${ROOT}/dockerfile/Dockerfile.toml-bridge"
   BRIDGE_PY="${ROOT}/dockerfile/toml_bridge.py"
   SHIM="${ROOT}/dist/script/docker/lib/toml_bridge.sh"
-  TEST_TOOLS="${ROOT}/dockerfile/Dockerfile.test-tools"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -482,18 +489,6 @@ setup() {
   assert_line --index 1 "network"
 
   cleanup_mock_dir
-}
-
-# ════════════════════════════════════════════════════════════════════
-# Seam 3: test-tools COPY --from integration
-# ════════════════════════════════════════════════════════════════════
-
-# why: downstream repos inherit the parser via test-tools without building toml-bridge
-@test "toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge" {
-  assert_spec_subject "${TEST_TOOLS}" \
-    "the test-tools Dockerfile"
-  run grep 'COPY --from=.*toml-bridge' "${TEST_TOOLS}"
-  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

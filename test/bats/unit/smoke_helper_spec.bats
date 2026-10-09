@@ -209,6 +209,15 @@ teardown() {
 # `-test` image. Driving the same helper against the wrapper at its source
 # path puts the real xhost branch under base's own gate, so a deletion or
 # an inversion goes red here and not only in a consumer's build.
+#
+# These four tests are now base's whole unit-side gate on that branch. The
+# three `template_spec` greps over run.sh and a run_sh_spec test named for
+# the Wayland ACL were deleted (base#1117), measured: inverting the branch
+# left all four of them green and turned tests 20-22 here red; emptying the
+# branch entirely (`grep -c xhost run.sh` == 0) left the run_sh_spec test
+# green and turned 20-23 here red; and a behaviour-preserving hoist of the
+# ACL into a variable kept these green while two of the greps went red, so
+# they were anti-correlated with the property as well as weaker than it.
 # ════════════════════════════════════════════════════════════════════
 
 _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
@@ -348,4 +357,155 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   run entrypoint_is_single_file
   assert_failure
   assert_output --partial "missing path"
+}
+
+# ── the probe against the two halves base actually ships ─────────────
+#
+# The five cases above drive the probe over FIXTURES, which is the only way
+# to write a shape a correct tree does not have. What no fixture can say is
+# whether the probe still answers correctly about the two REAL files the
+# split put it between, and that is the only question the shared baseline
+# ever asks it: once per downstream image, about a file nobody here wrote.
+#
+# Both directions are read, because either one alone is satisfiable by
+# accident. A probe that answered false for everything would pass the
+# refutation below while skipping the orchestrator assertion in every
+# consumer; one that answered true for everything would pass the positive
+# while asserting the retired model everywhere.
+#
+# The positive half is the one the fixtures cannot reach. The orchestrator's
+# exec is INDENTED, inside _base_entrypoint_main, while every fixture above
+# writes its exec at column zero -- so a probe narrowed to a column-zero
+# exec passes all five of them and then reads a real indented exec as "not
+# an exec", which is the direction that costs a consumer a broken build.
+#
+# The shipped bringup is also pinned by template_spec.bats, which asserts
+# the FILE carries no exec with a wider pattern than the probe's. That is a
+# different reading of a different subject: this one is the probe, and the
+# two can disagree without either file noticing.
+
+_SHIPPED_BRINGUP=/source/dist/dockerfile/entrypoint.sh
+_SHIPPED_ORCHESTRATOR=/source/dist/script/docker/runtime/entrypoint.sh
+
+# why: The exec the two-file model moved into base's half, read off the real
+# file rather than a fixture. It sits indented inside a function, a shape no
+# fixture above has, so a probe narrowed to a column-zero exec passes every
+# one of them and still misreads a real bringup that execs
+@test "entrypoint_is_single_file: the indented exec in base's orchestrator is an exec (#945)" {
+  assert_spec_subject "${_SHIPPED_ORCHESTRATOR}" \
+    "base's entry-point orchestrator, the half the two-file model gives the exec to"
+  run entrypoint_is_single_file "${_SHIPPED_ORCHESTRATOR}"
+  assert_success
+}
+
+# why: The property ADR-00000032 shipped, asked of the file that shipped it:
+# the bringup init.sh seeds does not exec, so the shared baseline must not
+# read a repo on the new model as being on the retired one. Putting
+# exec "${@}" back in that file turns this red
+@test "entrypoint_is_single_file: the bringup template base seeds is not the retired model (#945)" {
+  assert_spec_subject "${_SHIPPED_BRINGUP}" \
+    "the bringup template init.sh seeds as a repo's own /entrypoint.sh"
+  run entrypoint_is_single_file "${_SHIPPED_BRINGUP}"
+  assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# reproducibility_manifest_state
+#
+# The adoption question smoke/shared/reproducibility.bats gates on. It used
+# to be answered by the absence of that spec's own subject, which made "this
+# repo has not ported the record yet" and "this repo ported it and has lost
+# it" one state -- so the second one, the live regression, reported four
+# green skips and a zero exit.
+#
+# What answers it now is the record's own DIRECTORY in the image under test,
+# created by the one instruction that writes the two files. The reading in
+# between -- scanning the consumer's Dockerfile for a redirection into one of
+# the paths -- is recorded in the helper's header and was given up for a
+# reason: a shell question answered in awk, and codex review found a false
+# positive in it twice (a redirection inside quoted text, and a write in a
+# stage the image under test does not descend from). Every miss of that kind
+# falls the wrong way, costing an un-ported repo the skip and handing it a
+# broken build. The directory asks nothing about shell and nothing about
+# stages.
+# ════════════════════════════════════════════════════════════════════
+
+# why: One half present is enough to put every assertion about the record in
+# scope -- including the one about the half that is missing, which is the
+# "adopted and broken" case the spec must not skip past
+@test "reproducibility_manifest_state: one half present reads as adopted" {
+  mkdir -p "${TEMP_DIR}/share"
+  : > "${TEMP_DIR}/share/base-image.env"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "adopted"
+}
+
+# why: EITHER half, not a named one. A half-written record is the "adopted
+# and broken" case whichever half survived, so the reading must not key on
+# the first path alone -- that would send the other half's loss to the skip
+# the directory check exists to prevent
+@test "reproducibility_manifest_state: the other half present also reads as adopted" {
+  mkdir -p "${TEMP_DIR}/share"
+  : > "${TEMP_DIR}/share/packages.txt"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "adopted"
+}
+
+# why: The regression the old precondition could not see. The directory the
+# writing instruction creates is in the image and the record is not, so the
+# record was adopted and is gone -- a failure, not a skip
+@test "reproducibility_manifest_state: the directory without the record is missing, not unported" {
+  mkdir -p "${TEMP_DIR}/share"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "missing"
+}
+
+# why: The case the skip exists for, and the one that must survive: an image
+# with no footprint of the record never claimed to keep it, and failing there
+# turns a consumer's upgrade into a broken build
+@test "reproducibility_manifest_state: no directory at all is unported" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "unported"
+}
+
+# why: A FILE where the directory belongs is not the record's directory. `-d`
+# rather than `-e` keeps a path that changed type from reading as the
+# footprint it is not -- the same distinction assert_spec_subject_dir makes
+@test "reproducibility_manifest_state: a file at the directory's path is unported" {
+  : > "${TEMP_DIR}/share"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "unported"
+}
+
+# why: The caller-error case, separated from the honest answers above: a
+# missing argument must say so rather than resolve to a verdict
+@test "reproducibility_manifest_state: errors when an argument is missing" {
+  run reproducibility_manifest_state "${TEMP_DIR}/base-image.env"
+  assert_failure
+  assert_output --partial "missing pkgs path"
+}
+
+# why: The third argument is as load-bearing as the other two -- it is what
+# separates "adopted and lost" from "never ported" -- so a call that omits it
+# says so rather than defaulting to one of those answers
+@test "reproducibility_manifest_state: errors when the directory arg is missing" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt"
+  assert_failure
+  assert_output --partial "missing dir path"
 }

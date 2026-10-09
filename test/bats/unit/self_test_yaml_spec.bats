@@ -215,14 +215,18 @@
 # 13. **#677 CI double-run restructure (coverage = primary unit gate,
 # weight-balanced shards, single `bats-fragile` job)** — after #686 unified
 # the coverage job onto the same Alpine test-tools image, the 4-shard
-# `bats-unit` matrix and the 4-shard `coverage` matrix ran the SAME ~1991
-# unit specs twice per PR (8 parallel jobs), differing only by `COVERAGE=1`.
+# `bats-unit` matrix and the 4-shard `coverage` matrix ran the WHOLE unit
+# suite twice per PR (8 parallel jobs), differing only by `COVERAGE=1`.
 # The restructure: (a) the `coverage` matrix stays the PRIMARY unit gate
 # (kcov over every non-fragile test; codecov upload + the #615/ADR-00000008
 # project gate untouched); (b) the `bats-unit` matrix is replaced by a
-# SINGLE `bats-fragile` job that runs ONLY the kcov-fragile specs the
-# coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN
-# mode, so the delta is preserved with zero double-run. The fragile set is
+# SINGLE `bats-fragile` job that runs ONLY the spec FILES holding the tests
+# the coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in
+# PLAIN mode, so none of those tests goes unrun. Selection is by file
+# (`grep -rl`), not by test, so the unguarded tests in a selected file run
+# in both legs; that residual is deliberate (plain-mode signal, off the
+# critical path) and its size is derived from the selector by the two guards
+# at the end of this file rather than restated in prose. The fragile set is
 # computed at RUNTIME (`test.sh --bats-fragile` -> `_fragile_unit_files`
 # greps a line-anchored skip guard), so a new fragile-skip in a 10th file is
 # picked up automatically; (c) `_shard_unit_files` replaces round-robin with
@@ -231,7 +235,7 @@
 # `ci-rollup needs:` and `release needs:` swap `bats-unit` ->
 # `bats-fragile`; `coverage` joins the `release` chain (it is now the
 # primary unit gate). Every unit test still runs SOMEWHERE: non-fragile
-# under coverage/kcov, the fragile files under `bats-fragile` (plain).
+# under coverage/kcov, the selected files under `bats-fragile` (plain).
 #
 # 14. **#1009 the gate rosters are DERIVED from the job graph** — every
 # assertion above about a `needs:` list named the roster it checked, so the
@@ -557,6 +561,17 @@ _job_comments() {
   # halves are read here rather than one of them remembered: base owns the
   # entry point (ADR-00000032), so moving it has to fail in the local gate
   # instead of on the acceptance matrix, which `just test` cannot see.
+  #
+  # What this is, and is not. It is an AGREEMENT guard between two
+  # documents, so it is red when ONE of them moves -- measured both ways:
+  # editing only this job's literal, and editing only the Dockerfile's
+  # ENTRYPOINT, each fail it. It is green when both move together, which is
+  # what reverting the two-file model looks like, so it is not the witness
+  # for the model CHOICE. That choice -- the ENTRYPOINT is base's
+  # orchestrator under /usr/local/lib/base/, the repo's bringup is COPY'd to
+  # /entrypoint.sh and never named as an entry point -- is pinned by
+  # template_spec.bats, which asserts the retired line absent as well as the
+  # new one present.
   local _wired
   _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \
     /source/dist/dockerfile/Dockerfile | head -n1)"
@@ -581,7 +596,7 @@ _job_comments() {
   assert_output --partial 'just base completions install'
 }
 
-@test "self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)" {
+@test "self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)" {
   # Coverage gap: new.sh is unit-tested in isolation,
   # but the `just template new <name>` RECIPE -- the template module
   # wiring + the consumer symlink chain that resolves it -- is exercised
@@ -667,7 +682,7 @@ _job_comments() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: no monolithic `test:` job remains after #377 split" {
+@test "self-test.yaml: no monolithic 'test:' job remains after #377 split" {
   # a `test` job ran shellcheck + bats sequentially.
   # peeled shellcheck out, splits the rest into bats-unit
   # (matrix) + bats-integration. The old job is fully removed.
@@ -701,6 +716,14 @@ _job_comments() {
 # not name are how the tree ended up running v6 and v7 at once. Which
 # ref they carry is the action-ref-agreement lint's question now, asked
 # over every call site at once.
+#
+# So the ref bump that moved these three off `@v6` has no witness in this
+# file, deliberately, and the deferral names where it does have one:
+# script/test/drivers/action_ref_agreement.sh, run over the real
+# `.github/workflows/` by `just test --lint` and pinned by
+# test/bats/unit/action_ref_agreement_lint_spec.bats. Measured: putting
+# this workflow's five call sites back on the older ref is red in that spec
+# and in that lint, and green across all of this file's tests.
 
 @test "self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)" {
   run yaml_job_lines "${WF}" bats-fragile
@@ -792,6 +815,155 @@ _job_comments() {
   assert_output --partial 'Obtain the run-scoped test-tools image'
   assert_output --partial 'script/ci/obtain_test_tools.sh'
   assert_output --partial '--local-build delegate'
+}
+
+# ── a runner-side builder is created only where its consumer runs ──────
+#
+# Two steps, one decision. `docker/setup-buildx-action` creates a
+# docker-container builder on the runner -- it pulls `moby/buildkit` and
+# starts a container -- and in this workflow the only thing that asks for
+# one is the `docker/build-push-action` step that builds the tooling image
+# with the GHA layer cache. That step is gated: it runs only when the
+# obtain path could not hand the job a usable image. So the setup carries
+# the same gate, and the pairing is DERIVED -- a job is in this scan
+# because it holds both steps, not because a roster here names it. The
+# `acceptance` job sets up a `driver: docker` builder with no
+# build-push-action behind it: its consumer is `./build.sh test` ->
+# `docker compose build`, which runs unconditionally, so the job is outside
+# the population by construction rather than by exemption.
+#
+# ADR-00000033 is the standing tension: this is another per-job copy of one
+# `build_local` decision, and that ADR is about the copies. It is paired
+# with the gate assertions above it for exactly that reason -- two
+# conditions that must agree, on a cold path nobody walks, rot separately
+# unless something reads them together.
+
+# _builder_setup_pairs <file>
+#   `<job>\t<setups>\t<consumers>\t<setup index>\t[<setup if>]\t[<consumer if>]`
+#   for every job of <file> that BOTH sets up a runner-side builder and
+#   carries a step that consumes one. Tab-separated because a condition may
+#   contain any `|`-joined record's separator (`a || b`) and cannot contain
+#   a tab -- and each condition is BRACKETED because a tab is IFS
+#   whitespace, so `read` collapses a run of them and an EMPTY condition
+#   field would silently shift every field after it. The brackets are
+#   stripped where the record is read; a bracket inside the condition
+#   survives, since only one leading and one trailing character go.
+_builder_setup_pairs() {
+    _yaml_eval "${1}" '
+        .jobs | to_entries | .[] | .key as $job
+          | ((.value.steps // []) | to_entries) as $steps
+          | ($steps | map(select((.value.uses // "")
+                | test("docker/setup-buildx-action")))) as $setups
+          | ($steps | map(select((.value.uses // "")
+                | test("docker/build-push-action")))) as $consumers
+          | select(($setups | length) > 0 and ($consumers | length) > 0)
+          | [$job,
+             ($setups | length | tostring),
+             ($consumers | length | tostring),
+             ($setups[0].key | tostring),
+             ("[" + (($setups[0].value.if // "") | tostring) + "]"),
+             ("[" + (($consumers[0].value.if // "") | tostring) + "]")]
+            | @tsv'
+}
+
+# _step_ids <file>
+#   `<job>\t<id>\t<index>` for every step of <file> that declares an `id:`
+#   -- what a condition reading `steps.<id>.outputs.*` has to be placed
+#   against.
+_step_ids() {
+    _yaml_eval "${1}" '
+        .jobs | to_entries | .[] | .key as $job
+          | (.value.steps // []) | to_entries | .[]
+          | select(((.value.id // "") | tostring) != "")
+          | [$job, (.value.id | tostring), (.key | tostring)] | @tsv'
+}
+
+# _normalise_condition <if>
+#   One step condition with the optional `${{ ... }}` wrapper and any
+#   surrounding whitespace removed, so the two legal spellings of one
+#   condition compare equal and the comparison below is about the
+#   condition rather than about how it was typed.
+_normalise_condition() {
+    printf '%s\n' "${1}" \
+        | sed -e 's|^[[:space:]]*\${{[[:space:]]*||' \
+              -e 's|[[:space:]]*}}[[:space:]]*$||' \
+              -e 's|^[[:space:]]*||' -e 's|[[:space:]]*$||'
+}
+
+# _report_one_builder_setup <job> <setup index> <setup if> <consumer if> <ids>
+#   The two ways one job's builder setup can be out of step with the step
+#   that consumes it: a different condition, or the same condition read
+#   before the step that decides it has run. A setup placed ahead of that
+#   step reads an empty output, so it is skipped on every run and its
+#   consumer is left without the builder it was gated with.
+_report_one_builder_setup() {
+    local _job="${1}" _idx="${2}" _setup="${3}" _consumer="${4}" _ids="${5}"
+    local _want _have _id _at
+    _want="$(_normalise_condition "${_setup}")"
+    _have="$(_normalise_condition "${_consumer}")"
+    if [[ "${_want}" != "${_have}" ]]; then
+        printf '%s sets up a runner-side builder on [%s] while the step that consumes it runs on [%s]\n' \
+            "${_job}" "${_setup}" "${_consumer}"
+        return 0
+    fi
+    [[ -n "${_want}" ]] || return 0
+    local -a _reads=()
+    mapfile -t _reads < <(printf '%s\n' "${_want}" \
+        | grep -o 'steps\.[A-Za-z0-9_-]*\.outputs' | cut -d. -f2 | sort -u)
+    for _id in "${_reads[@]}"; do
+        _at="$(printf '%s\n' "${_ids}" | awk -F'\t' -v _j="${_job}" \
+            -v _i="${_id}" '$1 == _j && $2 == _i { print $3 }')"
+        [[ -n "${_at}" ]] || { printf '%s gates its builder setup on the output of a step id %s it carries none of\n' "${_job}" "${_id}" ; continue ; }
+        [[ "${_at}" -lt "${_idx}" ]] || printf '%s sets up its builder at step %s, at or before the step id %s at %s whose output decides whether one is wanted\n' \
+            "${_job}" "${_idx}" "${_id}" "${_at}"
+    done
+}
+
+# _builder_setups_out_of_step_with_their_consumer <file>
+#   One line per disagreement across the derived population.
+_builder_setups_out_of_step_with_their_consumer() {
+    local _file="${1}" _ids _job _ns _nc _idx _setup _consumer _status=0
+    _ids="$(_step_ids "${_file}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf '%s\n' "${_ids}"
+        return 0
+    fi
+    while IFS=$'\t' read -r _job _ns _nc _idx _setup _consumer; do
+        [[ -n "${_job}" ]] || continue
+        case "${_job}" in BUG:*) printf '%s\n' "${_job}" ; continue ;; esac
+        _setup="${_setup#"["}" ; _setup="${_setup%"]"}"
+        _consumer="${_consumer#"["}" ; _consumer="${_consumer%"]"}"
+        if [[ "${_ns}" != 1 || "${_nc}" != 1 ]]; then
+            printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs one with one\n' \
+                "${_job}" "${_ns}" "${_nc}"
+            continue
+        fi
+        _report_one_builder_setup "${_job}" "${_idx}" "${_setup}" "${_consumer}" "${_ids}"
+    done < <(_builder_setup_pairs "${_file}")
+}
+
+# why: Five jobs set up a docker-container builder before anything has
+# decided whether one is wanted, and the only step that wants one is
+# skipped on every hot-path run. Measured on one run: nineteen jobs spent
+# 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs
+# whose build step was skipped every time -- the action pulls
+# `moby/buildkit:buildx-stable-1` and starts a container, and the post step
+# then removes a builder nothing touched. base is public, so the unit that
+# matters is not a bill but the roughly twenty concurrent slots
+# ADR-00000017 names as the throughput constraint. The ordering half of
+# this guard is the hazard the fix itself introduces: a condition reading
+# `steps.<id>.outputs` from a step that has not run yet is empty, so the
+# setup is skipped on EVERY run and the consumer it was paired with builds
+# with no builder behind it -- a failure that reads as a cache error rather
+# than as a misplaced step.
+@test "self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)" {
+  local _n
+  _n="$(_builder_setup_pairs "${WF}" | awk 'NF { _n++ } END { print _n + 0 }')"
+  [[ "${_n}" -ge 5 ]] || fail \
+    "derived ${_n} job(s) that both set up a builder and consume one; expected at least the five that build the tooling image -- the scan below would have read an empty set as a clean one"
+  run _builder_setups_out_of_step_with_their_consumer "${WF}"
+  assert_success
+  assert_output ''
 }
 
 # ── Probe-and-rebuild against a stale / racing :main ────────────
@@ -931,7 +1103,35 @@ _job_comments() {
   run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'testtools_changed:'
-  assert_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+  assert_output --partial 'testtools_paths[@]'
+}
+
+# why: The tooling image's inputs are READ, not restated. The step named one
+# pathspec, the Dockerfile's, and the image has more inputs than that: a
+# stage that COPYs a file out of the build context bakes that file's content
+# in, so a PR editing only it took the pull path and ran the suite inside an
+# image built before the edit. What each path DECIDES is asserted by driving
+# the step in classify_testtools_spec.bats; what this test owns is that the
+# step keeps no second roster of its own -- a pathspec quoted back into it is
+# a list that is correct the day it is written and wrong the next time
+# someone adds a COPY.
+@test "self-test.yaml: classify reads the tooling image's inputs, it does not restate them (#1171)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial 'script/ci/testtools_paths.sh'
+  refute_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+}
+
+# why: An unreadable or refused input list must not read as "nothing the
+# tooling image is built from changed", and must not reach `git diff` as an
+# EMPTY pathspec list either -- that compares the whole diff and reports
+# every PR as touching the image. The two failures are silent in opposite
+# directions, so the empty case is answered before the diff and says so.
+@test "self-test.yaml: classify fails open when it cannot derive those inputs (#1171)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial '"${#testtools_paths[@]}" -eq 0'
+  assert_output --partial 'could not derive the tooling image'
 }
 
 @test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {
@@ -944,16 +1144,62 @@ _job_comments() {
 
 # ── self-maintaining shard-weights cache (time-balanced partition) ──
 
-@test "self-test.yaml: coverage shards restore the shard-weights cache before partitioning (#733)" {
-  # The greedy-LPT partition weights specs by recorded kcov seconds; each
-  # shard restores the cached weights to the in-repo path _spec_weight reads
-  # by default, so every shard computes the identical (exhaustive + disjoint)
-  # partition. A cache miss degrades to the @test-count fallback.
-  run yaml_job_lines "${WF}" coverage
+# why: The producer half of the single-source rule. A partition is a
+# partition of the suite only when every shard weighed the specs the same
+# way, so there is exactly ONE place the weights blob is fetched -- the job
+# every shard already waits on. A second lookup anywhere is a second
+# opportunity for the matrix to read two different blobs.
+@test "self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)" {
+  run yaml_job_lines "${WF}" compute-shards
   assert_success
   assert_output --partial 'actions/cache/restore'
   assert_output --partial 'test/bats/.shard-weights'
   assert_output --partial 'shard-weights-'
+}
+
+# why: The lookup being single is worth nothing unless its RESULT is what
+# the shards partition by, so the restored blob leaves compute-shards as a
+# declared job output. Undeclared, the expression below it resolves to the
+# empty string and all twelve shards silently fall back to @test counts.
+@test "self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)" {
+  run yaml_job_lines "${WF}" compute-shards
+  assert_success
+  assert_output --partial 'weights: ${{ steps.weights.outputs.blob }}'
+}
+
+# why: The load-bearing case of base#1114. Twelve shards each looking the
+# cache up for itself is twelve reads of a key whose newest entry changes
+# on every main push: the exact key cannot hit while the shards run, so
+# every shard fell through to the `shard-weights-` prefix, and a shard
+# re-run after a later merge partitions against a NEWER blob than its
+# siblings used. Each then keeps its slice of a different partition, every
+# slice non-empty, and a spec can land in none of them.
+@test "self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)" {
+  run yaml_job_lines "${WF}" coverage
+  assert_success
+  refute_output --partial 'actions/cache'
+  assert_output --partial 'needs.compute-shards.outputs.weights'
+  assert_output --partial 'test/bats/.shard-weights'
+}
+
+# why: The detector half, and the one that would have caught the defect
+# from the outside: coverage-gate already holds every shard's timings, so
+# it can say whether the twelve slices covered the suite it just published
+# a rate for. It must read the file the merge step wrote, so the order of
+# the two steps is part of the assertion.
+@test "self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)" {
+  run yaml_job_lines "${WF}" coverage-gate
+  assert_success
+  assert_output --partial '--coverage-union-check test/bats/.shard-weights'
+
+  local _merge _check
+  _merge="$(printf '%s\n' "${output}" \
+    | awk '/--merge-timings/ { print NR; exit }')"
+  _check="$(printf '%s\n' "${output}" \
+    | awk '/--coverage-union-check/ { print NR; exit }')"
+  [ -n "${_merge}" ]
+  [ -n "${_check}" ]
+  [ "${_check}" -gt "${_merge}" ]
 }
 
 @test "self-test.yaml: coverage-gate merges shard timings into the weights file (#733)" {
@@ -2218,4 +2464,274 @@ YAML
   assert_success
   [ "${output}" -ge 6 ] \
     || fail "expected the CI-specific stale window on every reclaim step, found ${output}"
+}
+
+# ── doc/test/TEST.md's static-lint table ─────────────────────────────────────
+#
+# TEST.md opens the section with "The just test lint phase runs the tools
+# listed in script/test/test.sh's _LINT_TOOLS table" and then draws that
+# table. It drew 15 of the 26 rows, and gave one of them a CI job name that
+# exists nowhere in self-test.yaml -- lint-static is a GROUP matrix, so
+# `lint-static (i18n-orphan)` was a row pointing at a check a reader would
+# never find in the checks list. The row dates from when the matrix key was
+# still a per-lint `tool:`; the group conversion left it behind.
+#
+# TEST.md is the one file in doc/test/ with no generated block (the doc-count
+# generator's TEST.md pass was removed), so nothing re-derived either half.
+# These two guards do, from the same table this spec already reads for the
+# CI-join completeness check: the row SET is _LINT_TOOLS, and every job name
+# the table cites is a job self-test.yaml actually declares. The "Enforces"
+# column stays authored -- it is prose a person writes, not a figure.
+
+TEST_MD='/source/doc/test/TEST.md'
+
+# Print `<lint><TAB><ci-job>` for each row of the static-lint table. The job
+# is the first code span of the CI-job cell, taken whole: a row naming a job
+# that does not exist is exactly the defect, so the cell is not trimmed down
+# to something that happens to resolve. `\|` inside a cell is an escaped
+# pipe, not a column break (the errexit-bang cell carries several), so it is
+# protected before the split.
+_test_md_lint_rows() {
+  awk '
+    /^\| Lint \| Enforces \| CI job \| Gated\? \|/ { inside = 1; next }
+    inside && !/^\|/ { inside = 0 }
+    !inside { next }
+    /^\|[[:space:]]*:?-/ { next }
+    {
+      line = $0
+      gsub(/\\\|/, "\001", line)
+      split(line, cell, "|")
+      lint = cell[2]
+      job  = cell[4]
+      gsub(/`/, "", lint)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", lint)
+      jobname = ""
+      if (match(job, /`[^`]*`/)) {
+        jobname = substr(job, RSTART + 1, RLENGTH - 2)
+      }
+      if (lint != "") { print lint "\t" jobname }
+    }
+  ' "${TEST_MD}"
+}
+
+# The lint table in test.sh, parsed rather than sourced for the same reason
+# the CI-join guard above parses it.
+_lint_tools_table() {
+  awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "/source/script/test/test.sh"
+}
+
+# why: TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15
+# of 26, and nothing re-derived the set, so the sentence the section opens
+# with was false for a whole release cycle
+@test "TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)" {
+  assert_spec_subject "${TEST_MD}" "the test index whose lint table this spec pins"
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" "the dispatcher whose lint table TEST.md redraws"
+
+  local -a _tools=() _rows=()
+  mapfile -t _tools < <(_lint_tools_table)
+  mapfile -t _rows < <(_test_md_lint_rows)
+  [ "${#_tools[@]}" -ge 13 ] \
+    || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
+  [ "${#_rows[@]}" -ge 13 ] \
+    || fail "TEST.md yielded ${#_rows[@]} table rows; the table did not parse, and the comparison below would be vacuous"
+
+  local -a _listed=()
+  local _row
+  for _row in "${_rows[@]}"; do
+    _listed+=( "${_row%%$'\t'*}" )
+  done
+
+  local _t _missing='' _extra=''
+  for _t in "${_tools[@]}"; do
+    printf '%s\n' "${_listed[@]}" | grep -qx -- "${_t}" \
+      || _missing+=" ${_t}"
+  done
+  for _t in "${_listed[@]}"; do
+    printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
+      || _extra+=" ${_t}"
+  done
+  [[ -z "${_missing}" ]] \
+    || fail "TEST.md's static-lint table is missing a row for:${_missing} -- the section opens by claiming it lists the tools _LINT_TOOLS runs"
+  [[ -z "${_extra}" ]] \
+    || fail "TEST.md's static-lint table has a row for:${_extra} -- not in _LINT_TOOLS, so the lint phase does not run it"
+}
+
+# why: One row named the CI job lint-static (i18n-orphan), which exists in no
+# workflow -- lint-static is a group matrix, so the row sent a reader looking
+# for a check that is not in the list
+@test "TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)" {
+  local -a _jobs=()
+  mapfile -t _jobs < <(yaml_job_names "${WF}")
+  [ "${#_jobs[@]}" -ge 5 ] \
+    || fail "read ${#_jobs[@]} job names out of ${WF}; the check below would be vacuous"
+
+  local -a _rows=()
+  mapfile -t _rows < <(_test_md_lint_rows)
+  [ "${#_rows[@]}" -ge 13 ] \
+    || fail "TEST.md yielded ${#_rows[@]} table rows; the table did not parse"
+
+  local _row _lint _job _bad=''
+  for _row in "${_rows[@]}"; do
+    _lint="${_row%%$'\t'*}"
+    _job="${_row#*$'\t'}"
+    [[ -n "${_job}" ]] \
+      || fail "TEST.md's row for '${_lint}' names no CI job at all"
+    printf '%s\n' "${_jobs[@]}" | grep -qx -- "${_job}" \
+      || _bad+=" ${_lint}=>${_job}"
+  done
+  [[ -z "${_bad}" ]] \
+    || fail "TEST.md cites CI job names that do not exist in ${WF}:${_bad} -- a reader looking for that check in the checks list will not find it"
+}
+
+# ── The bats-fragile job's account of what it preserves ──────────────────────
+#
+# The job's own comment stated the design intent as "this job runs exactly
+# those fragile specs, so the difference is preserved and there is ZERO
+# double execution: every unit test runs somewhere (non-fragile in
+# coverage/kcov, fragile here)". Both halves are claims about TESTS. The
+# mechanism selects whole FILES: drivers/bats.sh greps `-rl` for the kcov-skip
+# guard and hands bats the filenames, and `_COVERAGE_FULL_SUITE_POOLS` puts
+# `test/bats/unit` in the coverage pool with no exclusion for them. So every
+# test in a selected file that carries no guard of its own runs in both legs,
+# and the two jobs share an `if:`, so it happens on every code PR.
+#
+# Measured when this landed: 9 selected files, 377 `@test` declarations in
+# them, 27 carrying the guard -- all 27 inside individual test bodies, none in
+# a `setup_file` -- so 350 ran in both legs, against 4722 `@test`
+# declarations under `test/bats/unit`. The residual overlap is kept on purpose
+# (this is CI's only remaining plain-mode unit signal, and kcov perturbation
+# has been diagnosed here four times), and its cost is ~41s of bats inside a
+# 54s job while the slowest coverage shard ran 534s. What was wrong was only
+# the account of it, mirrored into three authored places plus the generated
+# doc/test/unit.md, each of which the next person sizing the suite reads
+# before they read the driver.
+#
+# The baseline figure in the same comment had rotted the same way: it said
+# "~1991 unit specs" against a tree more than twice that, which is the other
+# thing a reader takes from it. These two guards derive both figures from the
+# driver's own selector instead of letting any site restate them.
+
+BATS_DRIVER='/source/script/test/drivers/bats.sh'
+SELF_SPEC='/source/test/bats/unit/self_test_yaml_spec.bats'
+
+# The driver's own kcov-skip regex, read out of the driver rather than
+# respelled here: a second copy of it is the two-sources-of-truth shape the
+# runtime-computed fragile set was built to avoid.
+_fragile_guard_re() {
+  sed -n "s/^readonly _FRAGILE_GUARD_RE='\(.*\)'\$/\1/p" "${BATS_DRIVER}"
+}
+
+# The spec files bats-fragile selects, by the driver's own rule.
+_fragile_selected_files() {
+  local _re
+  _re="$(_fragile_guard_re)"
+  [[ -n "${_re}" ]] || return 1
+  grep -rlE "${_re}" /source/test/bats/unit | LC_ALL=C sort
+}
+
+# `<tests> <guards>`: `@test` declarations in the selected files, and how many
+# of them carry the kcov-skip guard. The difference is what runs in BOTH legs.
+_fragile_overlap_counts() {
+  local _re _f _tests=0 _guards=0
+  _re="$(_fragile_guard_re)"
+  [[ -n "${_re}" ]] || return 1
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _tests=$(( _tests + $(grep -c '^@test' "${_f}") ))
+    _guards=$(( _guards + $(grep -cE "${_re}" "${_f}") ))
+  done < <(_fragile_selected_files)
+  printf '%s %s\n' "${_tests}" "${_guards}"
+}
+
+# Every authored line that explains the bats-fragile mechanism, from the three
+# places that carry one. doc/test/unit.md is NOT a fourth: it is generated
+# from this file's header and held to it by the doc-count drift gate, so
+# fixing the header fixes it. Derived per site, so a block that grows a
+# paragraph is still covered.
+_fragile_rationale_lines() {
+  _job_comments bats-fragile
+  grep -E '^[[:space:]]*#.*[Ff]ragile' "${BATS_DRIVER}"
+  # This file's header only -- the prose above an individual test is that
+  # test's catalogue entry, not a second account of the mechanism.
+  awk 'index($0, "@test") == 1 { exit } /^#/ && /[Ff]ragile/' "${SELF_SPEC}"
+}
+
+# why: The comment said "ZERO double execution" and "runs exactly those
+# fragile specs", both claims about tests, while the selector hands bats whole
+# files; a reader sizing the suite stops at that sentence
+@test "self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)" {
+  assert_spec_subject "${BATS_DRIVER}" \
+      "the driver whose selector decides what bats-fragile runs"
+  assert_spec_subject "${SELF_SPEC}" "this spec, one of the three rationale sites"
+
+  # The selected files have to be in the coverage pool for an overlap to
+  # exist at all, so that is read from the driver too rather than assumed.
+  run grep -E '^readonly _COVERAGE_FULL_SUITE_POOLS=\(.*test/bats/unit' \
+      "${BATS_DRIVER}"
+  assert_success
+
+  local _counts _tests _guards _overlap
+  _counts="$(_fragile_overlap_counts)" \
+    || fail "could not read _FRAGILE_GUARD_RE out of ${BATS_DRIVER}"
+  _tests="${_counts%% *}"
+  _guards="${_counts##* }"
+  [ "${_tests}" -ge 100 ] \
+    || fail "counted ${_tests} @test declarations in the fragile files; the selector did not resolve and the check below would be vacuous"
+  _overlap=$(( _tests - _guards ))
+
+  local -a _lines=()
+  mapfile -t _lines < <(_fragile_rationale_lines)
+  [ "${#_lines[@]}" -ge 10 ] \
+    || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved and this guard would be vacuous"
+
+  # Only forbidden while the overlap is real: a selector that became a true
+  # partition may say so, and the granularity guard below is what would then
+  # require the rest of the wording to follow.
+  [ "${_overlap}" -gt 0 ] || return 0
+
+  local -a _claims=( 'zero double' 'no double-run' 'no double run' \
+      'without double-run' 'runs exactly those fragile specs' )
+  local _line _claim _bad=''
+  for _line in "${_lines[@]}"; do
+    for _claim in "${_claims[@]}"; do
+      [[ "${_line,,}" == *"${_claim}"* ]] && _bad+="${_line}"$'\n'
+    done
+  done
+  [[ -z "${_bad}" ]] || fail \
+      "a bats-fragile rationale denies a double run that the selector has: ${_guards} of ${_tests} @test declarations in the selected files carry the kcov-skip guard, so ${_overlap} run under kcov in the coverage matrix AND plain here. Offending line(s):
+${_bad}"
+}
+
+# why: The same comment carried "~1991 unit specs" as the suite it compared
+# against, a figure nothing re-derived; the tree held more than twice that
+# when this landed, so the one number a reader could take away was wrong
+@test "self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)" {
+  local -a _lines=()
+  mapfile -t _lines < <(_fragile_rationale_lines)
+  [ "${#_lines[@]}" -ge 10 ] \
+    || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved"
+
+  local _here
+  _here="$(grep -rc '^@test' /source/test/bats/unit --include='*.bats' \
+      | cut -d: -f2 | paste -sd+ - | bc)"
+  [ "${_here}" -ge 1000 ] \
+    || fail "counted ${_here} @test declarations under test/bats/unit; the count did not resolve"
+
+  local _line _bad=''
+  for _line in "${_lines[@]}"; do
+    [[ "${_line}" =~ ~?[0-9]{3,5}[[:space:]]+unit[[:space:]]+spec ]] \
+      && _bad+="${_line}"$'\n'
+  done
+  [[ -z "${_bad}" ]] || fail \
+      "a bats-fragile rationale states the unit-suite size as a literal; it is ${_here} @test declarations today and nothing re-derives the text. Say what the figure is derived from, or drop it. Offending line(s):
+${_bad}"
 }

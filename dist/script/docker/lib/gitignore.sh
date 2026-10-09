@@ -452,6 +452,41 @@ _sync_logging_gitignore() {
   fi
 }
 
+# _canonical_entry_pathspec <entry>
+#   Translate ONE canonical .gitignore entry into the git pathspec that
+#   selects it in the index and print it. Print nothing and return 1 for an
+#   entry that has no settled translation.
+#
+#   A .gitignore pattern and a git pathspec are different languages, and the
+#   two index sweeps below -- the untrack here and the rollback index
+#   snapshot in init.sh -- are the only places they meet. The translation
+#   lives in one function so those two agree by construction; they were two
+#   copies of `${_entry%/}` and therefore two copies of the same mistake.
+#
+#   Translated: a trailing slash marks a directory in a pattern and carries
+#   no meaning in a pathspec, so it is dropped.
+#
+#   NOT translated, deliberately: a LEADING slash anchors the pattern at the
+#   repo root. The pathspec meaning exactly that is `:(top)<rest>`, and
+#   adopting it would start moving a consumer's hand-written directory of
+#   that name out of the index during an unattended resync commit. Whether
+#   base may do that at all is an open decision, so this prints nothing and
+#   the sweeps skip the entry -- the same outcome as before, now by a stated
+#   rule instead of a `git ls-files` fatal nobody could see. Handing git the
+#   pattern verbatim is not a third option: a leading slash makes it an
+#   absolute filesystem path and git refuses it outright.
+#
+#   An entry this refuses is a KNOWN gap the callers skip. A pathspec it
+#   DOES return that git then refuses is a defect here, which is why the
+#   callers no longer hide that status.
+_canonical_entry_pathspec() {
+  local _entry="${1-}"
+  if [[ -z "${_entry}" || "${_entry}" == /* ]]; then
+    return 1
+  fi
+  printf '%s\n' "${_entry%/}"
+}
+
 # _untrack_canonical_in_repo <repo_root>
 #   For each canonical entry that's still git-tracked under <repo_root>,
 #   run `git rm --cached`. Working tree is preserved — the file just
@@ -465,20 +500,49 @@ _sync_logging_gitignore() {
 #   No-op when:
 #     - <repo_root> is not a git repo
 #     - no canonical entry matches a tracked path
+#     - an entry has no pathspec (see _canonical_entry_pathspec)
 #   Idempotent: re-running after the entries are gone is silent.
+#
+#   FAILS, loudly, when git refuses a pathspec this file derived. A pattern
+#   that cannot be translated is skipped by _canonical_entry_pathspec with a
+#   reason, so a refusal reaching git is a defect in the translation and not
+#   an entry to pass over.
 _untrack_canonical_in_repo() {
   local _repo="$1"
   if ! git -C "${_repo}" rev-parse --git-dir >/dev/null 2>&1; then
     return 0
   fi
-  local _entry _path
+  local _entry _path _tracked
   while IFS= read -r _entry; do
     [[ -z "${_entry}" ]] && continue
-    _path="${_entry%/}"
-    # ls-files emits matching tracked paths; empty output means nothing
-    # to untrack. -z guard avoids running `git rm` on empty pathspec.
-    if [[ -n "$(git -C "${_repo}" ls-files -- "${_path}" 2>/dev/null)" ]]; then
-      git -C "${_repo}" rm --cached -r --quiet -- "${_path}" >/dev/null 2>&1 || true
+    # An entry with no settled pathspec is a stated gap, named in full at
+    # _canonical_entry_pathspec, and is passed over here.
+    _path="$(_canonical_entry_pathspec "${_entry}")" || continue
+    # ls-files prints the tracked paths the pathspec matches and exits 0
+    # even when it matches none, so a NON-ZERO status is never "nothing to
+    # untrack" -- it is git refusing the pathspec, which is a defect in the
+    # pattern-to-pathspec translation and not a condition to skip over. Its
+    # stderr is deliberately NOT redirected: git's own diagnosis is the only
+    # thing that says what it would not take.
+    if ! _tracked="$(git -C "${_repo}" ls-files -- "${_path}")"; then
+      _log_err init gitignore_untrack_ls_files_failed \
+        "display=${_repo}: git ls-files refused the pathspec '${_path}' derived from the canonical .gitignore entry '${_entry}'; the untrack sweep stopped instead of skipping the entry silently." \
+        "repo=${_repo}" "entry=${_entry}" "pathspec=${_path}"
+      return 1
+    fi
+    # Empty output means nothing to untrack; the guard also keeps `git rm`
+    # off an empty pathspec.
+    [[ -n "${_tracked}" ]] || continue
+    # ls-files has just reported the pathspec as tracked, so `git rm` not
+    # taking it is a failure with nothing benign behind it. Under the `|| true`
+    # it used to carry, the entry stayed in the index while the sweep
+    # reported success -- and the resync then staged a .gitignore claiming
+    # the file is ignored over an index that still holds it.
+    if ! git -C "${_repo}" rm --cached -r --quiet -- "${_path}" >/dev/null; then
+      _log_err init gitignore_untrack_rm_failed \
+        "display=${_repo}: git rm --cached would not drop '${_path}' from the index although it is tracked there; the untrack sweep stopped instead of reporting success over an entry it did not untrack." \
+        "repo=${_repo}" "entry=${_entry}" "pathspec=${_path}"
+      return 1
     fi
   done < <(_canonical_gitignore_entries)
 }

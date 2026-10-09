@@ -103,6 +103,45 @@ teardown() {
   [ -z "${_missing}" ] || { echo "script/test scripts never linted:${_missing}"; false; }
 }
 
+# why: base#1113 the dist/ half named its find roots, and the tree grew two
+# scripts outside every one of them
+@test "_run_shellcheck: lints every *.sh the dist/ tree ships (base#1113)" {
+  # The script/ half has asked the tree since base#876; the dist/ half kept
+  # a list of roots, and a list of roots cannot say which root is missing.
+  # dist/deploy/cd-guard.sh (downstream CD runs it before a deploy) and
+  # dist/config/shell/bashrc.d/30-name-host-groups.sh (the Dockerfile copies
+  # it into ~/.bashrc.d and every interactive shell sources it) sat outside
+  # all of them: an SC2086 added to both left --shellcheck-only printing
+  # "--- Running ShellCheck ---" and exiting 0, while the same line in
+  # dist/script/docker/lib/hook.sh failed the run. The population is the
+  # shipped tree, so the driver asks the shipped tree.
+  local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
+  mock_cmd "shellcheck" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_shellcheck
+  '
+  assert_success
+  assert [ -f "${_log}" ]
+
+  local -a _shipped=()
+  mapfile -t _shipped < <(find /source/dist -name '*.sh' -type f | sort)
+  # Refuse the no-evidence state. A find that matched nothing makes every
+  # comparison below a comparison against an empty population, so the guard
+  # would report clean having read no files at all.
+  [ "${#_shipped[@]}" -ge 50 ] \
+    || fail "find over dist/ yielded ${#_shipped[@]} scripts; the population did not parse"
+
+  local _f _missing=""
+  for _f in "${_shipped[@]}"; do
+    grep -qF "${_f}" "${_log}" || _missing+=" ${_f}"
+  done
+  [ -z "${_missing}" ] \
+    || fail "shipped dist/ scripts in no ShellCheck pass:${_missing} -- a shipped script no pass names is a script whose next edit is unchecked"
+}
+
 # why: Strict-mode propagation
 @test "_run_shellcheck: exits non-zero when shellcheck fails on any script" {
   # Simulate a lint violation on init.sh specifically.
@@ -861,17 +900,52 @@ _all_group_members() {
   done
 }
 
+# A refusal-only case is satisfied by the feature's ABSENCE, which is the
+# defect base#1090 is about: with the `--lint-group-members` arm deleted
+# from the option parser, every spec below -- good and bad alike -- fell
+# to `Unknown option` and this case still reported `ok 1` of 1, measured
+# on 1c9ccb2. So the refusals are framed by two positives: an in-range
+# spec is ACCEPTED and lists the whole table, and no refusal below is
+# allowed to be the parser's. Together those say the option is present,
+# reads a spec, and refuses only the specs it should.
+
 # why: A group spec the dispatcher cannot read must not resolve to an
 # empty group. Every refusal here is a way a CI job could run zero
 # drivers and report success, which is the same green-while-gating-nothing
 # failure the grouping itself is built to avoid -- so the spec is
-# validated rather than trusted, and an index outside its own total is
-# refused with the malformed ones.
+# validated rather than trusted, an index outside its own total is refused
+# with the malformed ones, and each refusal is framed by the positive that
+# keeps it from being satisfied by the option not existing.
 @test "lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)" {
+  # Present and behaving. The accepted spec and the expected listing are
+  # both derived from the lint tables, so this half moves with them: at
+  # one group the partition IS the table, and one group is also the only
+  # total that is in range whatever the table's size.
+  local -a _expected=()
+  mapfile -t _expected < <(_grouped_lints)
+  [ "${#_expected[@]}" -ge 13 ] \
+    || fail "the lint tables yielded ${#_expected[@]} grouped lints; they did not parse"
+
+  run /source/script/test/test.sh --lint-group-members 1/1
+  assert_success
+  local _listed
+  _listed="$(printf '%s\n' "${_expected[@]}")"
+  [ "${output}" = "${_listed}" ] \
+    || fail "--lint-group-members 1/1 listed '${output}' where the table's ${#_expected[@]} grouped lints are '${_listed}'; an in-range spec has to be ACCEPTED, or the refusals below are satisfied by the option not existing"
+
+  # And the last index of a partition as wide as the table: in range by
+  # derivation rather than by a number written here.
+  run /source/script/test/test.sh --lint-group-members "${#_expected[@]}/${#_expected[@]}"
+  assert_success
+
   local _spec
   for _spec in "" "4" "0/4" "5/4" "1/0" "one/four" "1/4/4" "-1/4"; do
     run /source/script/test/test.sh --lint-group-members "${_spec}"
     assert_failure
+    # The refusal has to be the spec validator's, not the option parser
+    # having never heard of the flag. Both refuse; only one of them means
+    # what this case claims.
+    refute_output --partial "Unknown option"
   done
 }
 
@@ -1849,6 +1923,183 @@ SH
     printf 'run targets:\n%s\nroster:\n%s\n' "${_targets}" "${_pools}"
     false
   fi
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The union of the shard slices is a partition only under ONE weight source
+#
+# Greedy-LPT partitions the pool PER WEIGHT SOURCE. Each coverage shard
+# used to look the weights blob up for itself, so the twelve slices were
+# computed from twelve independent reads, and their union was a partition
+# only if all twelve reads returned the same bytes. Nothing in CI could
+# see otherwise: every slice is non-empty (so the empty-shard guard never
+# fires), the merge keys on basename (so a spec measured twice reads as
+# one entry), and a spec measured NOWHERE leaves no entry at all.
+#
+# _coverage_union_gap is the detector. It compares the MERGED run
+# manifest -- what the shards between them reported running -- against
+# the inventory of what a full run covers, and names the specs no shard
+# reported. The structural half (one lookup, done once in compute-shards)
+# lives in self-test.yaml and is asserted in self_test_yaml_spec.bats.
+# ════════════════════════════════════════════════════════════════════
+
+# _divergent_union_program
+#   Echo the shell program that drives the real partitioner over a
+#   six-spec fixture pool, ONE SHARD PER PROCESS, and merges the slices
+#   into one run manifest the way the coverage-gate job does. SHARD_SOURCES
+#   carries one token per shard: `w` = that shard reads the seconds file,
+#   `-` = that shard finds no weights file and falls back to @test counts.
+#   A mixed value reproduces the independent-lookup divergence; a uniform
+#   one is the single-source control.
+#
+#   A process per shard is the load-bearing detail. Slices evaluated in
+#   ONE shell against ONE weight source agree by construction, which is
+#   why the exhaustive-and-disjoint case above cannot see this at all.
+#
+#   The two sources genuinely disagree on this fixture: every spec carries
+#   one @test, so the fallback weighs them all 1 and greedy fills the bins
+#   in name order (a,b,c then d,e,f), while the seconds file ranks them
+#   10..5 strictly descending so greedy fills the lightest bin instead.
+#   Shard 3 is {c,d} under seconds and {c,f} under counts.
+_divergent_union_program() {
+  cat <<'PROGRAM'
+_root="${BATS_TEST_TMPDIR}/repo"
+mkdir -p "${_root}/test/bats/unit" "${_root}/test/bats/integration"
+for _n in a b c d e f; do
+  printf '@test "%s" { :; }\n' "${_n}" \
+    > "${_root}/test/bats/unit/${_n}_spec.bats"
+done
+_wf="${BATS_TEST_TMPDIR}/seconds.tsv"
+printf '%s\n' "10 a_spec.bats" "9 b_spec.bats" "8 c_spec.bats" \
+              "7 d_spec.bats" "6 e_spec.bats" "5 f_spec.bats" > "${_wf}"
+
+# One shard per PROCESS, each reading the weight source it was handed --
+# the independent per-shard cache lookups, in miniature.
+_i=0
+for _src in ${SHARD_SOURCES}; do
+  _i=$(( _i + 1 ))
+  _use="${BATS_TEST_TMPDIR}/no-such-weights"
+  [[ "${_src}" == w ]] && _use="${_wf}"
+  env REPO_ROOT="${_root}" SHARD_WEIGHTS_FILE="${_use}" bash -c '
+      _die() { echo "DIE: $*"; exit 1; }
+      source /source/script/test/drivers/bats.sh
+      _shard_unit_files "${1}"
+    ' _ "${_i}/3" \
+    | sed 's|.*/|1 |' > "${BATS_TEST_TMPDIR}/timings-${_i}.tsv"
+  printf 'shard %s (%s): %s\n' "${_i}" "${_src}" \
+    "$(tr '\n' ' ' < "${BATS_TEST_TMPDIR}/timings-${_i}.tsv")"
+done
+
+# The coverage-gate job's own merge, over the per-shard manifests.
+bash /source/script/test/drivers/coverage_gate.sh --merge-timings \
+  "${BATS_TEST_TMPDIR}/merged.tsv" "${BATS_TEST_TMPDIR}"/timings-*.tsv
+
+source /source/script/test/test.sh
+echo "GAP:"
+_coverage_union_gap "${BATS_TEST_TMPDIR}/merged.tsv" "${_root}" || true
+echo "END"
+PROGRAM
+}
+
+# why: The load-bearing case, and the observable base#1114 measured on the
+# real tree: two weight sources across shard processes leave specs in NO
+# shard, every slice still non-empty, and this is the only check that can
+# say which specs went unrun.
+@test "_coverage_union_gap: names the specs no shard ran when the shards disagree about the weights (#1114)" {
+  SHARD_SOURCES="w w -" run bash -c "$(_divergent_union_program)"
+  assert_success
+  # Shard 3 read the counts and took {c,f}; shards 1-2 read the seconds
+  # and left d to the shard 3 that only a seconds-weighted partition has.
+  assert_output --partial "GAP:
+d_spec.bats
+END"
+}
+
+# why: The control that makes the case above mean something. Same fixture,
+# same six specs, same partitioner -- one weight source, and the union is
+# the whole pool. Without it, a detector that always reported a gap would
+# pass the case above.
+@test "_coverage_union_gap: one weight source across every shard leaves no spec behind (#1114)" {
+  SHARD_SOURCES="w w w" run bash -c "$(_divergent_union_program)"
+  assert_success
+  assert_output --partial "GAP:
+END"
+}
+
+# why: The @test-count fallback is a weight SOURCE, not the absence of
+# one: shards that ALL miss the cache still partition the pool. Without
+# this case a green gate could be read as "the weights were there" rather
+# than "the weights agreed", and the fix would look like a cache-hit
+# problem instead of a consistency one.
+@test "_coverage_union_gap: a cache miss on every shard is still one source, so still a partition (#1114)" {
+  SHARD_SOURCES="- - -" run bash -c "$(_divergent_union_program)"
+  assert_success
+  assert_output --partial "GAP:
+END"
+}
+
+# why: No evidence must not read as a clean bill of health. An unreadable
+# manifest, a missing one, and an inventory that enumerated nothing would
+# each make a gap of zero mean nothing -- which is how this gate goes
+# vacuous while still printing a pass.
+@test "_coverage_union_gap: refuses rather than reporting an empty gap when there is nothing to compare (#1114)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _root="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${_root}/test/bats/unit"
+    printf "@test \"a\" { :; }\n" > "${_root}/test/bats/unit/a_spec.bats"
+    : > "${BATS_TEST_TMPDIR}/empty.tsv"
+    printf "%s\n" "1 a_spec.bats" > "${BATS_TEST_TMPDIR}/full.tsv"
+    _coverage_union_gap "${BATS_TEST_TMPDIR}/empty.tsv" "${_root}" \
+      && { echo "EMPTY-MANIFEST-ACCEPTED"; exit 1; }
+    _coverage_union_gap "${BATS_TEST_TMPDIR}/missing.tsv" "${_root}" \
+      && { echo "MISSING-MANIFEST-ACCEPTED"; exit 1; }
+    _coverage_union_gap "${BATS_TEST_TMPDIR}/full.tsv" \
+      "${BATS_TEST_TMPDIR}/nowhere" \
+      && { echo "NO-INVENTORY-ACCEPTED"; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
+# why: The entry point the coverage-gate job runs. The function answers
+# with data; this turns a gap into a non-zero exit that NAMES the specs,
+# which is the whole of what a red CI job has to tell its reader.
+@test "main --coverage-union-check: refuses, naming the specs no shard ran (#1114)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _coverage_spec_inventory "${REPO_ROOT}" \
+      | sed "1d" | sed "s/^/1 /" > "${BATS_TEST_TMPDIR}/short.tsv"
+    _coverage_spec_inventory "${REPO_ROOT}" | sed -n "1p"
+  '
+  assert_success
+  local _dropped="${output}"
+  [ -n "${_dropped}" ]
+
+  run bash /source/script/test/test.sh \
+    --coverage-union-check "${BATS_TEST_TMPDIR}/short.tsv"
+  assert_failure
+  assert_output --partial "${_dropped}"
+}
+
+# why: The pass direction of the same entry point, over the live
+# inventory. A manifest naming every spec is what a healthy coverage
+# matrix produces, so refusing it would make the gate unshippable -- and
+# it is the half that proves the refusal above is about the gap and not
+# about the flag.
+@test "main --coverage-union-check: accepts a manifest naming every spec in the inventory (#1114)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _coverage_spec_inventory "${REPO_ROOT}" | sed "s/^/1 /" \
+      > "${BATS_TEST_TMPDIR}/whole.tsv"
+  '
+  assert_success
+
+  run bash /source/script/test/test.sh \
+    --coverage-union-check "${BATS_TEST_TMPDIR}/whole.tsv"
+  assert_success
+  assert_output --partial "exhaustive"
 }
 
 @test "_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)" {
@@ -3206,14 +3457,31 @@ AWK
   assert_output --partial "COVERAGE_PATH=test/bats/unit/ci_spec.bats"
   assert_output --partial "BATS_FILTER=shard"
   assert_output --partial "BATS_ONLY=1"
-  # Never a shard: the mode names its target, it does not partition.
-  refute_output --regexp 'COVERAGE_SHARD=[0-9]'
-  # And never a job count. This mode runs ONE spec; a forwarded
-  # COVERAGE_LOCAL_JOBS is a whole-suite parallel run's selector, and it is
-  # ignored here only because the in-container dispatch happens to read
+  # Never a shard: the mode names its target, it does not partition. And
+  # never a job count: this mode runs ONE spec, while a forwarded
+  # COVERAGE_LOCAL_JOBS is a whole-suite parallel run's selector, ignored
+  # here only because the in-container dispatch happens to read
   # COVERAGE_PATH first. An ignored value carried into the container is the
-  # value that a later reordering turns into a read one -- which is the
-  # argument this dispatch's own comment makes about COVERAGE_SHARD.
+  # value a later reordering turns into a read one.
+  #
+  # Each refutation is paired with the positive that makes it mean
+  # something, because a refutation on its own is satisfied by the
+  # forwarder not carrying the selector AT ALL -- the defect base#1090 is
+  # about. Measured on 1c9ccb2: with both `-e COVERAGE_SHARD=` and
+  # `-e COVERAGE_LOCAL_JOBS=` deleted from `_run_via_compose`'s dispatch,
+  # this case still reported `ok 1` of 1.
+  #
+  # The pairing is also the real contract rather than a prop for the
+  # refutation. The mode CLEARS these selectors; it does not omit them. An
+  # omitted `-e` leaves the container to take the name from the service
+  # definition instead of from the dispatch, so the one place that decides
+  # what this mode runs would no longer be the dispatch -- which is why
+  # `_run_via_compose` forwards each as `-e NAME="${NAME:-}"` and why
+  # coverage_local_spec's roster guard reads that shape off this very
+  # dispatch.
+  assert_output --partial "COVERAGE_SHARD="
+  refute_output --regexp 'COVERAGE_SHARD=[0-9]'
+  assert_output --partial "COVERAGE_LOCAL_JOBS="
   refute_output --regexp 'COVERAGE_LOCAL_JOBS=[0-9]'
 }
 
@@ -3674,7 +3942,151 @@ AWK
 # driver libraries under script/test/drivers/. These guards pin the
 # split so a future refactor can't silently re-inline a tool or drop a
 # `source` line.
+#
+# THE DIRECTORY IS THE POPULATION (base#1113). The guards below used to
+# name three driver files -- shellcheck, hadolint, bats -- against a
+# directory holding twenty-nine, and _LINT_TOOLS' completeness was asked
+# only of _LINT_TOOLS itself: both the lint-static partition and
+# self_test_yaml_spec's CI-join guard shard that same table, so a driver
+# never added to it is in no group, and nothing has anything to say.
+# Measured on 3f20ffe: a drivers/probe_lint.sh defining _run_probe_lint,
+# with _LINT_TOOLS untouched, left `--bats-path
+# test/bats/unit/self_test_yaml_spec.bats --filter lint` at 20/20 and
+# `--bats-path test/bats/unit/ci_spec.bats --filter driver` at 14/14,
+# both exit 0. So the population is read from drivers/, and the
+# hand-written part is reduced to the exemptions below, each of which has
+# to say why.
 # ════════════════════════════════════════════════════════════════════
+
+# Driver files that hold no lint entry point, each with the reason.
+# Anything NOT listed here has every `_run_*` it defines held to
+# _LINT_TOOLS -- that is what makes a new driver file fail these specs
+# instead of quietly running nowhere.
+_NON_LINT_DRIVER_FILES=(
+  # The suite's test tiers: unit / integration / system, the shards, the
+  # fragile set and the coverage legs. main's own option parser
+  # dispatches them as phases; _run_lint_tool never sees them, and
+  # _LINT_TOOLS is the lint phase's table.
+  bats.sh
+  # The coverage-floor gate. A phase, not a lint, and CI runs it as a
+  # standalone CLI (`bash script/test/drivers/coverage_gate.sh
+  # <cobertura>...`) with no dispatcher in the picture.
+  coverage_gate.sh
+)
+
+# Driver files test.sh deliberately does not `source`, each with the
+# reason. Anything NOT listed here must have a source line, so a driver
+# file added without one fails instead of leaving its `_run_*` undefined
+# at dispatch.
+_UNSOURCED_DRIVER_FILES=(
+  # Executed, not sourced: the file's own tail runs _coverage_gate_run
+  # when invoked directly, which is how both CI and the kcov legs call
+  # it. Sourcing it into the dispatcher would buy nothing -- no
+  # _LINT_TOOLS entry and no option arm reach _run_coverage_gate.
+  coverage_gate.sh
+)
+
+# Lint entry points _LINT_TOOLS deliberately does not carry, each with
+# the reason. Anything NOT listed here must be in the table, so a lint
+# driver written and spec'd but never registered fails instead of
+# gating nothing while its own specs stay green.
+#
+# TRANSITIONAL, THE FIRST FOUR. _run_lint_tool dispatches them and the reason
+# they are out of the table is written at that dispatch point:
+# _LINT_TOOLS runs INSIDE the ci container, while these judge by an
+# adoption ceiling read from the git index, and a `git worktree`
+# checkout's .git is a file pointing outside the bind mount. base#994
+# phase 4 gives the lint phase a host-direct leg and folds them in --
+# and the guard below refuses an entry that the table has meanwhile
+# grown, so this array cannot outlive that.
+#
+# PERMANENT, THE FIFTH. changelog-entry-fix is not a lint. It is the REPAIR
+# behind `--changelog-entry-fix`, which WRITES doc/changelog's [Unreleased]
+# section and judges nothing, dispatched through the `repair` seam beside
+# `--clean-coverage` and never through _run_lint_tool. Putting a writer in the
+# table the lint phase loops over would have CI rewriting the tree it is there
+# to check. The scan finds it because it is a `_run_*` in a drivers/ file, and
+# an exemption saying so is the honest answer -- renaming the function to slip
+# past the scan would be the dishonest one.
+# PROVISIONAL, THE SIXTH. log-event-registry is a lint and it is finished:
+# it found all four unregistered ids base#1220 was filed for, two of them
+# through a forwarding wrapper nothing else can see. It is out of the table
+# because of its READER, not its rule. Its first spelling was a regex over
+# the raw line; it is now a shell word splitter, and review found a
+# reproduced parser defect in forty-one consecutive rounds -- twenty-five
+# of them FALSE POSITIVES on valid shell. Round thirty-four came back
+# clean and the seven rounds after it found sixteen more, the last four at
+# once, so a clean round says nothing about the reader being finished. In
+# the table, each of those would
+# have blocked a PR whose logging was correct, and the author's only
+# recourse would have been to read fourteen hundred lines of awk to tell a
+# parser bug from a finding. A gate that does that once gets muted, and a
+# muted gate is worse than none because it still carries the claim that
+# the question is being asked.
+#
+# The reverse direction is cheap by comparison: an id goes unregistered
+# until someone runs the scan, which is exactly the state base#1220
+# describes and which a manual run closes. So it ships dispatchable --
+# `./script/test/test.sh --log-event-registry-only`, `just test lint
+# --log-event-registry` -- and gates nothing.
+#
+# PROMOTION HAS ONE CONDITION: a release cycle clean against a moving
+# tree. Then this entry goes and the name joins _LINT_TOOLS, which the
+# hygiene guard below forces -- it refuses a name that is in both.
+_UNTABLED_LINT_ENTRY_POINTS=(
+  nesting-depth
+  function-length
+  positional-params
+  shell-metrics
+  changelog-entry-fix
+  log-event-registry
+)
+
+# Whether <needle> is one of the remaining arguments.
+_in_set() {
+  local _needle="${1}" _item
+  shift
+  for _item in "$@"; do
+    [[ "${_item}" != "${_needle}" ]] || return 0
+  done
+  return 1
+}
+
+# The driver file names the drivers directory holds, one per line.
+_driver_files() {
+  local _path
+  for _path in /source/script/test/drivers/*.sh; do
+    printf '%s\n' "${_path##*/}"
+  done
+}
+
+# The `_run_<name>` entry points one driver file defines, spelled the way
+# _LINT_TOOLS spells a tool (underscores become dashes).
+#
+# The entry points, not the file names: bats.sh defines ten and
+# shell_metrics.sh four, so "each drivers/<name>.sh defines _run_<name>"
+# is not a rule this tree follows, and a population built on it would
+# miss every lint that shares a file.
+_entry_points_of() {
+  local _def _name
+  while IFS= read -r _def; do
+    _name="${_def#_run_}"
+    _name="${_name%%(*}"
+    printf '%s\n' "${_name//_/-}"
+  done < <(grep -oE '^_run_[a-z0-9_]+\(\) \{' "${1}")
+}
+
+# Every lint entry point the drivers directory defines: the `_run_*` of
+# every driver file not declared non-lint above.
+_lint_entry_points() {
+  local _file
+  while IFS= read -r _file; do
+    if _in_set "${_file}" "${_NON_LINT_DRIVER_FILES[@]}"; then
+      continue
+    fi
+    _entry_points_of "/source/script/test/drivers/${_file}"
+  done < <(_driver_files)
+}
 
 # why: #650 driver files present (incl. hadolint)
 @test "drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist" {
@@ -3685,14 +4097,116 @@ AWK
   assert [ -f /source/script/test/drivers/hadolint.sh ]
 }
 
-# why: #650 dispatcher sources every driver
-@test "drivers: test.sh sources all per-tool drivers" {
-  run grep -F 'source "${SCRIPT_DIR}/drivers/shellcheck.sh"' /source/script/test/test.sh
-  assert_success
-  run grep -F 'source "${SCRIPT_DIR}/drivers/hadolint.sh"' /source/script/test/test.sh
-  assert_success
-  run grep -F 'source "${SCRIPT_DIR}/drivers/bats.sh"' /source/script/test/test.sh
-  assert_success
+# why: base#1113 three source lines were checked against a directory of
+# twenty-nine driver files
+@test "drivers: test.sh sources every driver file in drivers/ (base#1113)" {
+  # This used to grep the shellcheck / hadolint / bats source lines and be
+  # titled "all per-tool drivers". A driver file that arrived with no
+  # source line was named by nothing: its `_run_*` is undefined when the
+  # dispatcher reaches it, and the failure surfaces as a missing command
+  # on the day the lint is supposed to be doing its job.
+  local -a _files=()
+  mapfile -t _files < <(_driver_files)
+  # Refuse the no-evidence state: an unreadable directory would leave the
+  # loop below with nothing to check and this guard reporting clean.
+  [ "${#_files[@]}" -ge 20 ] \
+    || fail "drivers/ yielded ${#_files[@]} files; the population did not parse"
+
+  local _file _missing=""
+  for _file in "${_files[@]}"; do
+    if _in_set "${_file}" "${_UNSOURCED_DRIVER_FILES[@]}"; then
+      continue
+    fi
+    if grep -qF "source \"\${SCRIPT_DIR}/drivers/${_file}\"" \
+        /source/script/test/test.sh; then
+      continue
+    fi
+    _missing+=" ${_file}"
+  done
+  [ -z "${_missing}" ] \
+    || fail "driver file(s) test.sh neither sources nor declares unsourced:${_missing}"
+}
+
+# why: base#1113 a driver never added to the table is in no lint phase and
+# no CI group, and the guards all read the table
+@test "_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)" {
+  local -a _found=() _table=()
+  mapfile -t _found < <(_lint_entry_points | sort -u)
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+
+  # Non-vacuity, both sides. A scan that matched nothing and a table that
+  # did not parse both reduce the comparison below to two empty sets, and
+  # an empty derived population is not a passing gate -- it is the gate
+  # reporting clean having read nothing.
+  [ "${#_found[@]}" -ge 20 ] \
+    || fail "drivers/ yielded ${#_found[@]} lint entry points; the scan did not parse"
+  [ "${#_table[@]}" -ge 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_table[@]} entries; the table did not parse"
+  _in_set shellcheck "${_found[@]}" \
+    || fail "the scan found no 'shellcheck' entry point; it is reading something other than the drivers"
+
+  local _entry _orphan=""
+  for _entry in "${_found[@]}"; do
+    if _in_set "${_entry}" "${_table[@]}"; then
+      continue
+    fi
+    if _in_set "${_entry}" "${_UNTABLED_LINT_ENTRY_POINTS[@]}"; then
+      continue
+    fi
+    _orphan+=" ${_entry}"
+  done
+  [ -z "${_orphan}" ] \
+    || fail "lint entry point(s) in neither _LINT_TOOLS nor the stated exemptions:${_orphan} -- a lint the table does not carry is run by no lint phase and lands in no lint-static group, while its own unit specs stay green"
+}
+
+# why: base#1113 an exemption array is the one hand-written thing left, so
+# it is held to the rule that each entry excuses something real
+@test "_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)" {
+  local -a _found=() _table=() _files=()
+  mapfile -t _found < <(_lint_entry_points | sort -u)
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+  mapfile -t _files < <(_driver_files)
+  [ "${#_found[@]}" -ge 20 ] \
+    || fail "drivers/ yielded ${#_found[@]} lint entry points; the scan did not parse"
+  [ "${#_table[@]}" -ge 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_table[@]} entries; the table did not parse"
+
+  # A name exempted from the table must still BE an entry point -- an
+  # exemption that names nothing excuses an entry point of that name
+  # arriving later, on sight -- and must not meanwhile be in the table,
+  # which is how base#994 phase 4 folding these in forces the array to
+  # shrink with it instead of silently widening the guard.
+  local _entry
+  for _entry in "${_UNTABLED_LINT_ENTRY_POINTS[@]}"; do
+    _in_set "${_entry}" "${_found[@]}" \
+      || fail "'${_entry}' is exempted from _LINT_TOOLS but no lint driver defines its entry point -- the exemption excuses nothing today and anything of that name tomorrow"
+    if _in_set "${_entry}" "${_table[@]}"; then
+      fail "'${_entry}' is in _LINT_TOOLS and still exempted from it -- the table has grown it, so the exemption entry has to go with it"
+    fi
+  done
+
+  # A file-level exemption is the same fail-open one level up if the file
+  # it excuses turns out to hold lints, so each one must exist, must hold
+  # entry points at all, and must hold none the table carries.
+  local _file
+  for _file in "${_NON_LINT_DRIVER_FILES[@]}"; do
+    _in_set "${_file}" "${_files[@]}" \
+      || fail "'${_file}' is declared a non-lint driver file but drivers/ has no such file -- the exemption excuses nothing"
+    local -a _own=()
+    mapfile -t _own < <(_entry_points_of "/source/script/test/drivers/${_file}")
+    [ "${#_own[@]}" -ge 1 ] \
+      || fail "'${_file}' is declared a non-lint driver file but defines no _run_* entry point, so it needs no exemption"
+    for _entry in "${_own[@]}"; do
+      if _in_set "${_entry}" "${_table[@]}"; then
+        fail "'${_file}' is excused as a non-lint driver file yet defines '${_entry}', which _LINT_TOOLS carries -- the file-level exemption is hiding lint entry points"
+      fi
+    done
+  done
+
+  for _file in "${_UNSOURCED_DRIVER_FILES[@]}"; do
+    _in_set "${_file}" "${_files[@]}" \
+      || fail "'${_file}' is declared unsourced by test.sh but drivers/ has no such file -- the exemption excuses nothing"
+  done
 }
 
 # why: #650 bats runners moved out

@@ -4,19 +4,11 @@
 bats_load_library "bats-support"
 bats_load_library "bats-assert"
 
-# bats-mock: for stubbing system commands (id, uname, docker, dpkg-query)
-# Installed via git in compose.yaml
-load "${BATS_LIB_PATH}/bats-mock/stub"
-
-# bash_test_helper (via git subtree):
-#   git subtree add --prefix test/bash_test_helper \
-#       https://github.com/ycpss91255/bash_test_helper main --squash
-_BTH="${BATS_TEST_DIRNAME}/bash_test_helper/src"
-if [[ -f "${_BTH}/test_helper.bash" ]]; then
-    # shellcheck disable=SC1090
-    source "${_BTH}/test_helper.bash"
-fi
-unset _BTH
+# Stubbing is this file's own mock_cmd / create_mock_dir below. bats-mock
+# was loaded here for every spec and called by none, and a
+# bash_test_helper subtree was announced here and never vendored; both are
+# gone. A reader who goes looking for a helper library named in this file
+# now finds one.
 
 # ── Test utilities ────────────────────────────────────────────────────────────
 
@@ -204,6 +196,36 @@ code_grep() {
     else
         printf '' | grep "${@:1:$#-1}"
     fi
+}
+
+# dockerfile_context_copy_srcs <dockerfile>
+#   The build-context sources <dockerfile> COPYs, one per line: the paths
+#   whose CONTENT is baked into the image while the Dockerfile itself does
+#   not move. A `COPY --from=<stage>` source is a path of an earlier stage
+#   rather than of the checkout and is left out.
+#
+#   This exists so a spec about which paths CI treats as inputs of an image
+#   can get its expected set from the DOCKERFILE rather than from the
+#   derivation under test -- an expectation the subject computed is one that
+#   can never disagree with it. Written once here rather than in each spec
+#   for the same reason the derivation itself is: three independent readers
+#   drift into three different questions.
+#
+#   Deliberately naive, and that is the whole contract: it reads the plain
+#   `COPY <src>... <dst>` form and nothing else. A glob, a variable, a line
+#   continuation or the JSON array form is REFUSED by the production
+#   derivation, which is where those shapes are asserted; a caller that
+#   needs a path it can commit a change to must filter this to paths that
+#   exist in the tree.
+dockerfile_context_copy_srcs() {
+    local _df="${1:?BUG: dockerfile_context_copy_srcs expects a dockerfile}"
+    if [[ ! -f "${_df}" || ! -r "${_df}" ]]; then
+        printf 'BUG: dockerfile_context_copy_srcs cannot read %s\n' "${_df}"
+        return 2
+    fi
+    grep -E '^[[:space:]]*COPY[[:space:]]' "${_df}" \
+        | grep -v -- '--from=' \
+        | awk '{ for (i = 2; i < NF; i++) if (substr($i, 1, 2) != "--") print $i }'
 }
 
 # yaml_job_text <file> <job>
@@ -934,6 +956,47 @@ spec_permission_surface_subjects() {
         _arg="${_arg%[\"\']}"
         _spec_path_word "${_code}" "${_arg}"
     done <<< "${_calls}"
+}
+
+# ── the argv a wrapper hands docker compose ───────────────────────────────────
+#
+# A wrapper's --dry-run transcript is not an argv. It also carries the config
+# summary, the planned `docker build` of the tooling image and the prune hint,
+# and the words printed there include the target's own name -- so
+# `assert_output --partial "runtime"` over the whole transcript is satisfied by
+# `[dry-run] docker rmi <old-id-of user/img:runtime if displaced>` while the
+# compose command names a different service entirely. Measured, not
+# hypothetical: pinning build.sh's compose target to a literal `devel` left all
+# five of build_sh_spec's target-selection cases green.
+#
+# assert_compose_verb_target <verb> <service>
+#   The service name the wrapper handed `docker compose <verb>`, read off the
+#   planned (or stubbed) command line rather than off the transcript around it.
+#   Reads `${lines[@]}`, so it follows a `run` -- either of the wrapper under
+#   --dry-run, or of a `cat` over a docker stub's argv log.
+#
+#   The service is compose's LAST argument, which is what makes this immune to
+#   the flags that sit between the verb and it (`build --build-arg
+#   TEST_TOOLS_IMAGE=<tag> <service>`), and the verb is matched on a leading
+#   space so `--build-arg` is not read as the `build` verb. <verb> may itself
+#   carry its flags (`up -d`), since the wrapper prints them as one word run.
+#
+#   Exactly one line may match. A transcript carrying the verb twice has two
+#   answers, and silently taking one of them is how a guard starts asserting
+#   about a command other than the one it names.
+assert_compose_verb_target() {
+    local _verb="${1:?BUG: assert_compose_verb_target expects a compose verb}"
+    local _service="${2:?BUG: assert_compose_verb_target expects a service name}"
+    local _matched _count
+    _matched="$(printf '%s\n' "${lines[@]+"${lines[@]}"}" \
+        | grep -F 'docker compose ' \
+        | grep -E "[[:space:]]${_verb}([[:space:]]|\$)" || true)"
+    [[ -n "${_matched}" ]] || fail \
+        "no 'docker compose ... ${_verb}' command in this output, so nothing here says which service the wrapper handed compose -- the case would otherwise pass on an absence. Output was: ${output}"
+    _count="$(printf '%s\n' "${_matched}" | grep -c . || true)"
+    [[ "${_count}" -eq 1 ]] || fail \
+        "${_count} 'docker compose ... ${_verb}' commands, not 1: the service this reads off would be whichever one sorted last. Matched: ${_matched}"
+    assert_equal "${_matched##* }" "${_service}"
 }
 
 # ── spec subject presence ─────────────────────────────────────────────────────

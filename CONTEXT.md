@@ -384,6 +384,31 @@ retired root names it removed -- so the heal reaches the caller's commit
 whichever release is driving (#1036).
 _Avoid_: upgrade seds, Dockerfile patcher.
 
+**Version interval**:
+The pair (the base version a consumer came FROM, the version it is now ON)
+that one upgrade crossed, read by `init.sh`'s Step-3 resync out of the
+consumer's own history: `from` is `<prefix>/.version` at the subtree-pull
+merge's first parent, `to` is the one on disk. Where there is none -- a
+bootstrap, a standalone `just base init`, a re-established subtree -- nothing
+was crossed and nothing is owed (#1097). `BASE_MIGRATION_FROM` names the
+`from` half by hand, which is the only way to retry an interval whose
+migrations were skipped: every released `upgrade.sh` commits at its Step 4,
+so the merge the interval is read from has stopped being HEAD by the time the
+user reads the warning.
+_Avoid_: upgrade range, version window ("window" is ADR-00000006's word for
+how long a frozen path must survive).
+
+**Version-bound migration**:
+A migration declared as landing in a release rather than detecting its own
+applicability, in `lib/version_migrate.sh`'s ordered registry. The runner
+selects `from < V <= to` over the **version interval**, version ascending,
+so each one stops guessing whether it still applies. No record of what has
+run is kept -- the interval is re-derived every time -- so each migration is
+idempotent. Contrast the **Dockerfile-migration list**, whose entries test
+the tree's shape and so stay available as repairs long after the release that
+needed them (#1097).
+_Avoid_: versioned migration, release migration.
+
 ## Relationships
 
 - A **downstream repo** vendors **base** via the **`.base` subtree

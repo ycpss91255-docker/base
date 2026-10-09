@@ -34,6 +34,10 @@
 #                         invocation -- the synthesised progress log.
 #   DOCKER_PROGRESS_LOG   file the stub records $BUILDKIT_PROGRESS into,
 #                         so the pinned progress mode is assertable.
+#   DOCKER_ARGV_LOG       file the stub records every invocation's argv into,
+#                         prefixed `docker `, so the compose command the
+#                         verification branch dispatches is assertable at argv
+#                         level rather than through the report it prints.
 
 bats_require_minimum_version 1.5.0
 
@@ -77,6 +81,9 @@ EOS
   DOCKER_PROGRESS_LOG="${TEMP_DIR}/progress.log"
   export DOCKER_PROGRESS_LOG
   : > "${DOCKER_PROGRESS_LOG}"
+  DOCKER_ARGV_LOG="${TEMP_DIR}/argv.log"
+  export DOCKER_ARGV_LOG
+  : > "${DOCKER_ARGV_LOG}"
 
   # docker stub. `compose ... build` replays the synthesised progress log
   # and records the progress mode it was handed; `image inspect` fails so
@@ -84,6 +91,9 @@ EOS
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
 set -uo pipefail
+# Recorded for every invocation and prefixed with the command's own name, so
+# a reader of this log sees the same words the --dry-run transcript prints.
+printf 'docker %s\n' "$*" >> "${DOCKER_ARGV_LOG}"
 if [[ "${1:-}" == "image" && "${2:-}" == "inspect" ]]; then
   exit 1
 fi
@@ -407,6 +417,21 @@ EOF
   assert_success
   run cat "${DOCKER_PROGRESS_LOG}"
   assert_output "plain"
+}
+
+# why: The verification branch is a SECOND compose dispatch, and the only one
+# a --dry-run case can never reach: the branch is taken only when a real build
+# runs, so every target assertion in build_sh_spec lands on the other arm.
+# Replacing this arm's target with a literal `devel` builds and tags devel,
+# reports on devel's steps, and leaves all 17 cases here green -- the report
+# is derived from the stage name the wrapper was GIVEN, not from the one it
+# handed compose
+@test "build.sh test: the verification branch builds the stage it was asked for (#1115)" {
+  export DOCKER_BUILD_OUTPUT="${ALL_CACHED}"
+  run bash "${SANDBOX}/build.sh" test
+  assert_success
+  run cat "${DOCKER_ARGV_LOG}"
+  assert_compose_verb_target build test
 }
 
 # ── scope: only verification targets are reported on ─────────────────
