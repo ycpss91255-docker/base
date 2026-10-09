@@ -940,6 +940,84 @@ EOF
   refute_output --partial "c 189:* rwm"
 }
 
+# why: ADR-00000037's table rule is unqualified, and a nested table is a
+#      table, so `[logging.web]` merges key by key across layers like
+#      every other. The merge used a shallow dict update, which replaced
+#      the whole sub-table: a setup.local.toml naming one key of
+#      `[logging.web]` silently dropped every other key the repo set for
+#      that service. An array is still replaced whole, at any depth.
+@test "toml-bridge: --merge merges a nested table key by key" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (--merge recursive table merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  cat > "${lower}" << 'EOF'
+[logging]
+driver = "json-file"
+
+[logging.web]
+driver = "local"
+max_size = "20m"
+max_file = "3"
+EOF
+  cat > "${upper}" << 'EOF'
+[logging.web]
+max_size = "100m"
+EOF
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line "logging.web	max_size	100m"
+  # The keys the upper layer says nothing about survive the sub-table.
+  assert_line "logging.web	driver	local"
+  assert_line "logging.web	max_file	3"
+  # The parent table is untouched by a write to its child.
+  assert_line "logging	driver	json-file"
+}
+
+# why: arrays stay atomic at every depth -- the recursion must not start
+#      merging a nested array element by element. `[[logging.web.sinks]]`
+#      is not a shape the schema has, so `[[build.args]]` one level down
+#      from a table that IS merged is the case that pins it.
+@test "toml-bridge: --merge replaces a nested array whole while merging around it" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (--merge recursive table merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  cat > "${lower}" << 'EOF'
+[build]
+target_arch = "arm64"
+network = "host"
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "APT_MIRROR_UBUNTU"
+value = "tw.archive.ubuntu.com"
+EOF
+  cat > "${upper}" << 'EOF'
+[build]
+network = "bridge"
+
+[[build.args]]
+key = "TZ"
+value = "UTC"
+EOF
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${lower}" "${upper}"
+  assert_success
+  # Table keys merge...
+  assert_line "build	network	bridge"
+  assert_line "build	target_arch	arm64"
+  # ...and the array the upper layer defines replaces the list entirely.
+  assert_line "build	arg_1	TZ=UTC"
+  refute_output --partial "tw.archive.ubuntu.com"
+}
+
 # why: a TOML boolean reaches the shell as the string the shell compares
 #      against, and Python's str(True) is `True`. Every `== true` on the
 #      shell side reads that as false, so the setting arrives inverted and

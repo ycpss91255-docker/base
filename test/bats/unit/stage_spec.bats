@@ -690,10 +690,13 @@ EOF
   [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
 }
 
-# why: A second worktree needs its own stage overrides; if the local layer cannot shadow stage sections, worktrees share one tuning.
-@test "_load_stage_overrides: setup.local.toml replaces a [stage:NAME] section (#893)" {
-  # The local layer overrides ANY section, not a whitelist -- and a stage
-  # section is exactly the shape a second worktree needs to vary.
+# why: A second worktree needs its own stage overrides; if the local layer
+# cannot reach stage sections, worktrees share one tuning. A
+# `[stage:NAME]` section is a TABLE of dotted override keys, so
+# ADR-00000037's key-level rule applies to it like any other: the
+# worktree moves the one key it cares about and keeps the rest, instead
+# of silently dropping every override it did not restate.
+@test "_load_stage_overrides: setup.local.toml merges a [stage:NAME] section key by key (#893)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 ["stage:headless"]
 "gui.mode" = "off"
@@ -705,8 +708,13 @@ EOF
 EOF
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
-  [[ "${#_keys[@]}" -eq 1 ]] || { echo "expected 1 key, got ${_keys[*]}"; return 1; }
-  [[ "${_values[0]}" == "18080:80" ]] || { echo "got: ${_values[0]}"; return 1; }
+  local _i _port="" _gui=""
+  for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
+    [[ "${_keys[_i]}" == "network.port_1" ]] && _port="${_values[_i]}"
+    [[ "${_keys[_i]}" == "gui.mode" ]] && _gui="${_values[_i]}"
+  done
+  [[ "${_port}" == "18080:80" ]] || { echo "got port: ${_port}"; return 1; }
+  [[ "${_gui}" == "off" ]] || { echo "inherited key dropped: ${_keys[*]}"; return 1; }
 }
 
 @test "_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)" {

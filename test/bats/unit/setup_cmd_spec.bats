@@ -523,7 +523,7 @@ EOF
   printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/setup.local.toml"
   run main set --local network.mode host --base-path "${TEMP_DIR}"
   assert_success
-  refute_output --partial "will NOT"
+  refute_output --partial "may have no effect"
 }
 
 @test "add --local appends to the local layer's section (#893)" {

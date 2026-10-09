@@ -114,7 +114,12 @@ CONF
   [[ "${_p}" == *"runtime:compress=false"* ]]
 }
 
-@test "_collect_logging: setup.local.toml replaces the [logging] section (#893)" {
+# why: ADR-00000037's table rule is unqualified and logging is not an
+# exception to it: a per-worktree layer that moves `driver` must not
+# silently discard the `max_size` the repo committed. This case used to
+# assert the opposite -- the blanket section-replace the ADR amended --
+# and it was green, which is how the reader and the ADR drifted apart.
+@test "_collect_logging: setup.local.toml merges the [logging] table key by key (#893)" {
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
@@ -128,7 +133,32 @@ CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
   [[ "${_g}" == *"driver=journald"* ]] || { echo "got: ${_g}"; return 1; }
-  [[ "${_g}" != *"max_size=20m"* ]] || { echo "per-key merge leaked: ${_g}"; return 1; }
+  [[ "${_g}" == *"max_size=20m"* ]] || { echo "inherited key dropped: ${_g}"; return 1; }
+}
+
+# why: a nested table is a table, so the same rule has to reach
+# [logging.<svc>]. A local layer naming one key of a service used to take
+# the whole service with it -- the repo's driver for that one service
+# vanished because the override mentioned max_size.
+@test "_collect_logging: a local [logging.<svc>] key does not drop the rest (ADR-00000037)" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+[logging]
+driver = "json-file"
+
+[logging.web]
+driver = "local"
+max_file = "3"
+CONF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
+[logging.web]
+max_size = "100m"
+CONF
+  local _g="" _p=""
+  _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_p}" == *"web:max_size=100m"* ]] || { echo "got: ${_p}"; return 1; }
+  [[ "${_p}" == *"web:driver=local"* ]] || { echo "sub-table replaced: ${_p}"; return 1; }
+  [[ "${_p}" == *"web:max_file=3"* ]] || { echo "sub-table replaced: ${_p}"; return 1; }
 }
 
 @test "_collect_logging: setup.local.toml supplies a [logging.<svc>] override (#893)" {

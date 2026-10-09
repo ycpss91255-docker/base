@@ -142,15 +142,22 @@ _setup_write_target() {
 #
 # The store-time half of "a write must land where the read path looks".
 # When a write targets the COMMITTED setup.toml and setup.local.toml
-# already defines that section, section-replace makes the write inert on
-# this machine -- so say so, by name.
+# already defines that section, the write may be inert on this machine --
+# so say so, by name.
 #
-# Stated as a certainty, not a possibility: under section-replace there is
-# no case in which the write takes effect here. But it is a WARNING, not a
-# refusal, and that asymmetry is deliberate -- the value is still the
-# committed, shared setting CI and every other checkout use, so refusing
-# would block a legitimate write on the grounds that one machine cannot see
-# its effect.
+# Stated as a possibility, not a certainty. Under ADR-00000037's merge a
+# local table overrides only the keys it names, so a write to a key that
+# layer does not mention DOES take effect here; a local array, which
+# replaces whole, shadows every entry of its list. The granularity
+# available at this call site is the SECTION -- _setup_conf_local_sections
+# answers per section, and the key is not threaded through -- so the
+# warning is section-granular and honest about it rather than precise and
+# wrong. A key-precise warning is a separate change.
+#
+# It is a WARNING, not a refusal, and that asymmetry is deliberate -- the
+# value is still the committed, shared setting CI and every other checkout
+# use, so refusing would block a legitimate write on the grounds that one
+# machine may not see its effect.
 #
 # No-op when the write already targets the local layer, and no-op for a
 # section setup.local.toml does not define.
@@ -170,7 +177,7 @@ _setup_warn_shadowed_write() {
   local _local
   _local="$(_setup_conf_local_path "${_base_path}")"
   _log_warn setup conf_write_shadowed \
-    "display=[setup] [${_section}] is also defined in ${_local}, which REPLACES the whole section. This write will NOT affect anything on this machine. It is still the committed value CI and every other checkout of this repo use -- pass --local to change what runs here instead." \
+    "display=[setup] [${_section}] is also defined in ${_local}, which overrides the keys it names there and replaces whole any list it declares. This write may have no effect on this machine. It is still the committed value CI and every other checkout of this repo use -- pass --local to change what runs here instead." \
     "section=${_section}" "file=${_local}"
   return 0
 }
@@ -1138,7 +1145,7 @@ _setup_apply() {
   # sections -- the same resolver the deploy generator uses, so the field
   # deploy can never drift from apply.
   #
-  # Parse the section-replace-merged conf ONCE into an opaque handle, then
+  # Parse the merged conf ONCE into an opaque handle, then
   # read [build] / [security] / [additional_contexts] from it via the
   # _conf_get_into / _conf_list_sorted accessors -- replacing three
   # per-section _load_setup_conf calls that each re-tokenized the whole conf

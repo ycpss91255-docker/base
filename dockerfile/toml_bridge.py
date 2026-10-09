@@ -134,14 +134,38 @@ def _emit_kv(data):
             _emit_table(section, entries)
 
 
+def _merge_tables(base, layer):
+    """Merge <layer> into <base> in place: key-level, recursive, arrays atomic.
+
+    A key whose value is a table on BOTH sides recurses, because
+    ADR-37's table rule is unqualified and a nested table is a table:
+    `[logging.web]` merges key by key across layers exactly as
+    `[logging]` does. A shallow update instead replaces the sub-table,
+    so a setup.local.toml naming one key of `[logging.web]` dropped
+    every other key the repo set for that service.
+
+    Everything else is assignment, which is what keeps an ARRAY atomic
+    at every depth: the list from the highest layer that defines it
+    wins whole, never element by element. An array has no key to merge
+    on, and index-merging one would offer no way to remove an entry.
+    """
+    for key, value in layer.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _merge_tables(base[key], value)
+        else:
+            base[key] = value
+
+
 def _merge_toml(paths):
     """Merge multiple TOML files with type-aware semantics.
 
     Files are read in increasing-precedence order (baseline first, the
     most local override last).
 
-    Tables (dict): key-level merge -- the upper layer overrides only the
-    keys it defines; unmentioned keys inherit from the lower layer.
+    Tables (dict): key-level merge, at every depth -- the upper layer
+    overrides only the keys it defines; unmentioned keys inherit from the
+    lower layer, and a nested table merges the same way rather than being
+    replaced wholesale.
 
     Arrays of tables (list): replace -- the entire array from the highest
     layer that defines it wins.
@@ -188,7 +212,7 @@ def _merge_toml(paths):
                 for canonical, legacy in _aliases_for(section):
                     if legacy in entries and canonical not in entries:
                         merged[section].pop(canonical, None)
-                merged[section].update(entries)
+                _merge_tables(merged[section], entries)
             else:
                 # Array of tables, or a top-level scalar: replace.
                 merged[section] = entries

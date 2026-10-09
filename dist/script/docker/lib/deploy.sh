@@ -253,7 +253,7 @@ _resolve_deploy_context() {
   local _rdc_base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _rdc_out="${2:?"${FUNCNAME[0]}: missing out assoc"}"
 
-  # Parse the section-replace-merged conf ONCE into an opaque handle, then read
+  # Parse the merged conf ONCE into an opaque handle, then read
   # every scalar/list from it -- replacing the former 10x per-section
   # _load_setup_conf re-parse (each call re-tokenized the whole conf). Same
   # merge precedence (ADR-00000008 follow-up).

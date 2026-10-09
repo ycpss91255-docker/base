@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 #
-# why: Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
-# replace strategy) resolving the per-repo override from the repo-root
+# why: Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf`
+# over the one effective configuration -- tables key-level and recursive,
+# arrays atomic, ADR-00000037) resolving the per-repo override from the repo-root
 # `setup.toml` dotfile (a legacy `config/docker/setup.conf` is no longer
 # read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and
 # the `_rule_basename` image-rule helper. Also guards the shipped `dist/`
@@ -163,6 +164,62 @@ EOF
   assert_equal "${_v[0]}" "force"
 }
 
+# why: ADR-00000037 settles the chain's rule for tables as key-level
+# merge, unqualified, and amends the blanket section-replace it replaced.
+# _load_setup_conf kept its own walk -- highest layer that defines the
+# section supplies all of it -- while _setup_conf_handle went through the
+# bridge merge and was key-level. `show` read one and the emitters read
+# the other, so a repo could be told one configuration and built with
+# another. One effective configuration, queried by both.
+@test "_load_setup_conf merges a section key by key across the layers (ADR-00000037)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[logging]
+driver = "local"
+max_size = "20m"
+EOF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[logging]
+driver = "journald"
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "logging" _k _v
+  local _got=""
+  _get_conf_value _k _v driver "" _got
+  assert_equal "${_got}" "journald"
+  # The key the local layer says nothing about is inherited, not dropped.
+  _get_conf_value _k _v max_size "" _got
+  assert_equal "${_got}" "20m"
+}
+
+# why: the two readers must not be able to disagree. This asserts the
+# agreement itself rather than one reader's answer, so a future change to
+# either path that reintroduces a second precedence rule fails here --
+# which is the failure mode the split had, undetected, until `show` and
+# the emitters were compared by hand.
+@test "_load_setup_conf answers what the merged handle answers (ADR-00000037)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[network]
+mode = "bridge"
+ipc = "private"
+EOF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[network]
+mode = "host"
+EOF
+  local -a _k=() _v=()
+  _load_setup_conf "${TEMP_DIR}" "network" _k _v
+  _setup_conf_handle "${TEMP_DIR}" _AGREE
+  local _key _via_section="" _via_handle=""
+  for _key in mode ipc pid; do
+    _get_conf_value _k _v "${_key}" "<absent>" _via_section
+    _conf_get_into _AGREE network "${_key}" "<absent>" _via_handle
+    assert_equal "${_via_section}" "${_via_handle}"
+  done
+  # And the value itself is the local layer's, so the case is not vacuous.
+  _get_conf_value _k _v mode "" _via_section
+  assert_equal "${_via_section}" "host"
+}
+
 @test "_load_setup_conf ignores a legacy config/docker/setup.conf override" {
   # After the relocation the old nested path is dead: an override left
   # there must NOT win over the template default.
@@ -286,28 +343,50 @@ EOF
   assert_equal "${_v[0]}" "off"
 }
 
-# why: Section-replace semantics are ADR-37 D4; per-key merge here would leak keys from the layer below into the resolved config.
-@test "_load_setup_conf: setup.local.toml replaces a section wholesale, never per-key" {
+# why: the two halves of ADR-00000037's merge rule, in one section, at the
+# reader the emitters go through. A table merges key by key, so a local
+# layer that moves `mode` leaves `ipc` to the layer below instead of
+# blanking it. An array is replaced ATOMICALLY, so the local layer's one
+# port is the whole list: assembling one ordered list out of two layers
+# would leave no way to remove an entry and would ask the author of the
+# upper layer to know the highest index in a layer they cannot see.
+@test "_load_setup_conf: a table merges key by key, an array is replaced whole" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
 mode = "bridge"
 ipc = "private"
-port_1 = "8080:80"
-port_2 = "9090:90"
+
+[[network.ports]]
+host = 8080
+container = 80
+
+[[network.ports]]
+host = 9090
+container = 90
 EOF
   cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [network]
-mode = "bridge"
-port_1 = "18080:80"
+mode = "host"
+
+[[network.ports]]
+host = 18080
+container = 80
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "network" _k _v
-  # Two entries, both the local layer's: no ipc, and no port_2 leaking
-  # back in from the layer underneath to make one list out of two.
-  assert_equal "${#_k[@]}" "2"
-  assert_equal "${_k[0]}" "mode"
-  assert_equal "${_k[1]}" "port_1"
-  assert_equal "${_v[1]}" "18080:80"
+  local _got=""
+  # Table: the key the local layer names is its value...
+  _get_conf_value _k _v mode "<absent>" _got
+  assert_equal "${_got}" "host"
+  # ...and the one it does not name is inherited, not blanked.
+  _get_conf_value _k _v ipc "<absent>" _got
+  assert_equal "${_got}" "private"
+  # Array: the local layer's list, whole. port_2 does not leak back in
+  # from the layer underneath to make one list out of two.
+  _get_conf_value _k _v port_1 "<absent>" _got
+  assert_equal "${_got}" "18080:80"
+  _get_conf_value _k _v port_2 "<absent>" _got
+  assert_equal "${_got}" "<absent>"
 }
 
 # why: A local layer that mentions one section must not blank out every other section in the resolved config.

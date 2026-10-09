@@ -1694,7 +1694,7 @@ on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/conf_logging_spec.bats (9)
+### test/bats/unit/conf_logging_spec.bats (10)
 
 Unit tests for the logging-config collectors (`_parse_logging_svc_sections`
 / `_collect_logging`): per-service `[logging.<svc>]` enumeration in file
@@ -1707,7 +1707,8 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file empty |
 | `_collect_logging reads global [logging] from per-repo setup.conf` | Global logging read |
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-service logging read |
-| `_collect_logging: setup.local.toml replaces the [logging] section (#893)` | - |
+| `_collect_logging: setup.local.toml merges the [logging] table key by key (#893)` | ADR-00000037's table rule is unqualified and logging is not an exception to it: a per-worktree layer that moves `driver` must not silently discard the `max_size` the repo committed. This case used to assert the opposite -- the blanket section-replace the ADR amended -- and it was green, which is how the reader and the ADR drifted apart. |
+| `_collect_logging: a local [logging.<svc>] key does not drop the rest (ADR-00000037)` | a nested table is a table, so the same rule has to reach [logging.<svc>]. A local layer naming one key of a service used to take the whole service with it -- the repo's driver for that one service vanished because the override mentioned max_size. |
 | `_collect_logging: setup.local.toml supplies a [logging.<svc>] override (#893)` | - |
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
@@ -5521,15 +5522,16 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (33)
+### test/bats/unit/setup_conf_spec.bats (35)
 
-Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf` replace
-strategy) resolving the per-repo override from the repo-root `setup.toml`
-dotfile (a legacy `config/docker/setup.conf` is no longer read),
-`_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and the
-`_rule_basename` image-rule helper. Also guards the shipped `dist/` prose
-against pre-relocation path names: the four `setup_tui.sh` usage heredocs
-must advertise `setup.toml`, and no shipped text may still say
+Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
+one effective configuration -- tables key-level and recursive, arrays
+atomic, ADR-00000037) resolving the per-repo override from the repo-root
+`setup.toml` dotfile (a legacy `config/docker/setup.conf` is no longer
+read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and
+the `_rule_basename` image-rule helper. Also guards the shipped `dist/`
+prose against pre-relocation path names: the four `setup_tui.sh` usage
+heredocs must advertise `setup.toml`, and no shipped text may still say
 `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 | Test | Description |
@@ -5544,6 +5546,8 @@ must advertise `setup.toml`, and no shipped text may still say
 | `_compute_conf_hash ignores an ambient SETUP_CONF` | - |
 | `_load_setup_conf uses per-repo setup.toml when section present` | The TOML migration must not break the primary config-load path. |
 | `_load_setup_conf reads the per-repo override from repo-root setup.toml` | The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template. |
+| `_load_setup_conf merges a section key by key across the layers (ADR-00000037)` | ADR-00000037 settles the chain's rule for tables as key-level merge, unqualified, and amends the blanket section-replace it replaced. _load_setup_conf kept its own walk -- highest layer that defines the section supplies all of it -- while _setup_conf_handle went through the bridge merge and was key-level. `show` read one and the emitters read the other, so a repo could be told one configuration and built with another. One effective configuration, queried by both. |
+| `_load_setup_conf answers what the merged handle answers (ADR-00000037)` | the two readers must not be able to disagree. This asserts the agreement itself rather than one reader's answer, so a future change to either path that reintroduces a second precedence rule fails here -- which is the failure mode the split had, undetected, until `show` and the emitters were compared by hand. |
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
 | `setup_tui.sh usage names the repo-root .setup.conf in every language (#842)` | - |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
@@ -5552,7 +5556,7 @@ must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf replace strategy: per-repo section fully replaces template section` | - |
 | `_load_setup_conf: setup.local.toml overrides the per-repo section` | The local layer is the operator's per-worktree override; if it does not win, every worktree shares one config. |
 | `_load_setup_conf: setup.local.toml overrides the template for a section the repo omits` | A repo that skips a section still needs local override to reach through to the template default. |
-| `_load_setup_conf: setup.local.toml replaces a section wholesale, never per-key` | Section-replace semantics are ADR-37 D4; per-key merge here would leak keys from the layer below into the resolved config. |
+| `_load_setup_conf: a table merges key by key, an array is replaced whole` | the two halves of ADR-00000037's merge rule, in one section, at the reader the emitters go through. A table merges key by key, so a local layer that moves `mode` leaves `ipc` to the layer below instead of blanking it. An array is replaced ATOMICALLY, so the local layer's one port is the whole list: assembling one ordered list out of two layers would leave no way to remove an entry and would ask the author of the upper layer to know the highest index in a layer they cannot see. |
 | `_load_setup_conf: sections setup.local.toml omits keep the layer below` | A local layer that mentions one section must not blank out every other section in the resolved config. |
 | `_setup_conf_handle: setup.local.toml wins over the per-repo layer` | _setup_conf_handle is the single entry point the wrappers use; if its layering disagrees with _load_setup_conf, every wrapper reads stale config. |
 | `_compute_conf_hash: editing setup.local.toml is drift` | A local-layer edit that leaves the hash unchanged means the wrapper reuses artifacts built from a different config. |
@@ -6174,7 +6178,7 @@ and asserts one verdict per site.
 | `_parse_stage_sections: ignores plain sections that are not [stage:...]` | - |
 | `_parse_stage_sections: extracts TOML ["stage:NAME"] sections (ADR-37)` | TOML quotes table names that contain a colon, so [stage:foo] in INI becomes ["stage:foo"] in TOML. The regex must match both forms or the emitter silently drops every per-stage override. |
 | `_load_stage_overrides: returns the keys+values under [stage:NAME] (TOML)` | Stage overrides are the per-stage tuning mechanism; failing to load them means every stage gets the same config. |
-| `_load_stage_overrides: setup.local.toml replaces a [stage:NAME] section (#893)` | A second worktree needs its own stage overrides; if the local layer cannot shadow stage sections, worktrees share one tuning. |
+| `_load_stage_overrides: setup.local.toml merges a [stage:NAME] section key by key (#893)` | A second worktree needs its own stage overrides; if the local layer cannot reach stage sections, worktrees share one tuning. A `[stage:NAME]` section is a TABLE of dotted override keys, so ADR-00000037's key-level rule applies to it like any other: the worktree moves the one key it cares about and keeps the rest, instead of silently dropping every override it did not restate. |
 | `_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)` | - |
 | `_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_load_stage_overrides: missing setup.toml → empty arrays` | A repo with no setup.toml at all must not crash the stage-override loader. |
@@ -6657,7 +6661,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (42)
+### test/bats/unit/toml_bridge_spec.bats (44)
 
 | Test | Description |
 |------|-------------|
@@ -6698,6 +6702,8 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: --merge a legacy alias one layer up drops the inherited canonical key` | doc/deprecations.md publishes that `[deploy] runtime` is consumed when `gpu_runtime` is absent, and the shipped template always supplies `gpu_runtime = "auto"`. Deciding "absent" on the MERGED result makes that branch unreachable: the inherited canonical default masks the legacy key a consumer wrote one layer up, so `runtime = "runc"` silently resolved to `auto`. Absence is per LAYER -- the highest layer that spells the setting out decides it. |
 | `toml-bridge: --merge keeps a canonical key the same layer supplies` | `gpu_runtime` wins when both spellings appear in ONE layer (doc/deprecations.md), so the alias rule must not strip a canonical key the layer itself supplied -- only one it merely inherited. |
 | `toml-bridge: --merge --kv numbers devices.bindings and devices.cgroup_rules apart` | `devices` hosts two independently replaceable lists -- host bindings and cgroup rules -- so each gets its own nested array, the shape `security` already uses for cap_add / security_opt. One array at the section meant the two could not be expressed in one document at all. Both still have to arrive on the shell side under the `<prefix>_N` names every ordered-list reader matches, and each has to replace atomically without touching the other. |
+| `toml-bridge: --merge merges a nested table key by key` | ADR-00000037's table rule is unqualified, and a nested table is a table, so `[logging.web]` merges key by key across layers like every other. The merge used a shallow dict update, which replaced the whole sub-table: a setup.local.toml naming one key of `[logging.web]` silently dropped every other key the repo set for that service. An array is still replaced whole, at any depth. |
+| `toml-bridge: --merge replaces a nested array whole while merging around it` | arrays stay atomic at every depth -- the recursion must not start merging a nested array element by element. `[[logging.web.sinks]]` is not a shape the schema has, so `[[build.args]]` one level down from a table that IS merged is the case that pins it. |
 | `toml-bridge: --kv renders a TOML boolean lowercase` | a TOML boolean reaches the shell as the string the shell compares against, and Python's str(True) is `True`. Every `== true` on the shell side reads that as false, so the setting arrives inverted and says nothing about it -- the one failure mode a type-aware bridge exists to prevent. |
 | `toml-bridge: _conf_load_layers fails when the bridge exits non-zero` | a bridge that fails prints nothing and says so with its exit status. Read through a process substitution that status is out of reach, and the caller is handed a handle with nothing in it -- indistinguishable from a config whose every value is the default. That is what turned a totally broken merge into a silent, plausible-looking run, so the status has to reach the caller. |
 | `toml-bridge: --kv flattens a nested table into its own dotted section` | the shell view has no nesting -- a section is one flat name -- and `[logging.web]` is the per-service spelling the template documents and `_conf_toml_header` writes. str()-ing the dict hands the shell `logging<TAB>web<TAB>{'driver': 'local'}`: the section `logging.web` never exists, so `_load_setup_conf <base> logging.web` reads nothing, and the global `[logging]` gains a key whose value is a Python repr. |

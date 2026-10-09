@@ -16,8 +16,7 @@
 #
 #   _collect_logging <base_path> <global_out> <per_svc_out>
 #     Resolve effective [logging] and each per-service [logging.<svc>]
-#     through the setup.toml layer chain (section-replace) into two
-#     newline-joined strings.
+#     through the setup.toml layer chain into two newline-joined strings.
 
 # Guard against double-sourcing -- setup.sh sources us, and so does
 # lib/gitignore.sh in PR-B; the apply pipeline pulls both in.
@@ -66,19 +65,28 @@ _parse_logging_svc_sections() {
 # layout:
 #
 #   global_out   newline-separated KEY=VALUE for the effective global
-#                [logging] section, resolved through the conf chain with
-#                the chain's one rule: the highest layer that defines
-#                [logging] replaces it wholesale, no key-level merge
-#                inside a section.
+#                [logging] table, resolved through the conf chain by the
+#                chain's rule (ADR-00000037): tables merge KEY BY KEY, so
+#                a layer that names `driver` overrides that key and leaves
+#                `max_size` to the layer below. This docstring used to
+#                claim section-replace and the reader used to perform it;
+#                both were the behaviour ADR-00000037 amended, and logging
+#                is not an exception to it.
 #
 #   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
-#                [logging.<svc>] sections, resolved the same way -- each
-#                per-service section is its own section, so a local layer
-#                may add one the repo lacks or replace one it has.
-#                Key-level merge against global_out happens in
-#                `_emit_logging_block` at compose-emit time -- only
-#                keys present in [logging.<svc>] override the
-#                corresponding global key; absent keys fall through.
+#                [logging.<svc>] tables, resolved the same way -- a
+#                nested table is a table, so a local layer naming one key
+#                of a service overrides that key and inherits the rest,
+#                and may introduce a service the repo does not mention.
+#
+# Two DIFFERENT operations, both of which hold. The one above is the FILE
+# OVERLAY: layer over layer, per table, per key. The one below it is the
+# SERVICE OVERRIDE: at compose-emit time `_emit_logging_block` lays the
+# effective [logging.<svc>] over the effective global [logging], so a key
+# the service names wins and a key it omits falls through to the global.
+# Merging the overlay does not perform the override and vice versa; a
+# service that inherits `driver` from the global table is a different fact
+# from a service that inherits it from the layer below.
 #
 # Callable without setup.sh sourced: init.sh / upgrade.sh reach this via
 # _sync_logging_gitignore with no _SETUP_SCRIPT_DIR, in which case the
@@ -93,7 +101,7 @@ _collect_logging() {
   local -a _cl_layers=()
   _setup_conf_layers "${_base}" _cl_layers
 
-  # Global [logging], section-replace across the chain.
+  # Global [logging], merged across the chain key by key.
   local -a _g_keys=() _g_vals=()
   _load_setup_conf "${_base}" "logging" _g_keys _g_vals
   local i
@@ -103,11 +111,11 @@ _collect_logging() {
   done
   (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
 
-  # Per-service [logging.<svc>] sections. The service SET is the union
+  # Per-service [logging.<svc>] tables. The service SET is the union
   # across the chain (a layer may introduce a service the layers below do
-  # not mention); each service's section is then resolved section-replace
-  # like any other, so a local layer that names one service does not
-  # disturb the rest.
+  # not mention); each service's table is then merged key by key like any
+  # other, so a local layer that names one key of one service disturbs
+  # neither the rest of that service nor the other services.
   local -a _svcs=() _layer_svcs=()
   local _layer _svc _known _seen
   for _layer in "${_cl_layers[@]}"; do

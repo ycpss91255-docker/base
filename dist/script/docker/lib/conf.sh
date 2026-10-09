@@ -403,19 +403,33 @@ _conf_list() {
 
 # _conf_load_layers <handle> <file>...
 #
-# Load the section-replace merge of an arbitrary-length layer chain into
-# <handle>. Files are given in INCREASING precedence (baseline first, the
-# most local override last): for each section, the entries come wholesale
-# from the HIGHEST-precedence layer that defines it (>=1 entry); layers
-# below contribute nothing to that section. Sections no layer above defines
-# keep the layer that did. Section order is the order the layers introduced
-# them, lowest layer first.
+# Load the merge of an arbitrary-length layer chain into <handle>. Files
+# are given in INCREASING precedence (baseline first, the most local
+# override last). Section order is the order the layers introduced them,
+# lowest layer first.
 #
-# Section-replace rather than per-key merge is the chain's one rule, and it
-# is structural: eight of the sections are `<prefix>_N` ordered lists, and a
-# per-key merge would assemble one ordered list out of several layers, would
-# offer no way to REMOVE an item, and would require the author of an upper
-# layer to know the highest N used by a layer they cannot see.
+# TOML chain (every existing layer is `.toml`, which is every chain the
+# shipped readers build): the rule is ADR-00000037's, and the merge runs
+# in the bridge where the types are native.
+#
+#   - A TABLE merges key by key, at every depth: the upper layer overrides
+#     only the keys it names, the rest inherit, and a nested table
+#     (`[logging.web]`) merges the same way rather than being replaced.
+#   - An ARRAY is replaced ATOMICALLY: the list from the highest layer
+#     that defines it wins whole. That is what the ordered lists need --
+#     a per-element merge would assemble one list out of several layers,
+#     would offer no way to REMOVE an item, and would require the author
+#     of an upper layer to know the highest index used by a layer they
+#     cannot see. The numbered `<prefix>_N` keys the shell view speaks are
+#     a rendering of those arrays, so they inherit the atomicity.
+#
+# INI chain (the legacy file the frozen TUI writes, and any mixed chain):
+# section-replace, which is what that format's readers have always done --
+# the entries come wholesale from the highest layer that defines the
+# section. ADR-00000037's rule is a rule about TOML tables and arrays, and
+# an INI section is neither; the two formats are never mixed in one
+# shipped chain, so this is a legacy path, not a second answer about
+# setup.toml.
 #
 # Missing files are skipped (an absent layer contributes nothing), so callers
 # pass the whole chain unconditionally.
@@ -426,9 +440,10 @@ _conf_load_layers() {
 
   # ── TOML path: type-aware merge via containerised bridge ──────────
   #
-  # When every existing layer file is TOML, the merge (table key-level,
-  # array-of-tables replace) runs in Python where the type information
-  # is native (dict vs list).  ADR-37 sec. Merge semantics.
+  # When every existing layer file is TOML, the merge (tables key-level
+  # and recursive, arrays replaced atomically) runs in Python where the
+  # type information is native (dict vs list).  ADR-37 sec. Merge
+  # semantics.
   local -a _cll_existing=()
   local _cll_all_toml=1
   local _cll_f
@@ -525,7 +540,7 @@ _conf_load_layers() {
 # _conf_load_merged <template_file> <repo_file> <handle>
 #
 # Two-layer form of _conf_load_layers, kept as the name the explicit
-# template/repo call sites read by. Same section-replace semantics.
+# template/repo call sites read by. Same merge semantics.
 _conf_load_merged() {
   local _tpl="${1:?"${FUNCNAME[0]}: missing template file"}"
   local _repo="${2:?"${FUNCNAME[0]}: missing repo file"}"
