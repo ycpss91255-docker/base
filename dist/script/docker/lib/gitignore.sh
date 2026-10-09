@@ -28,7 +28,13 @@ unset _gitignore_lib_dir
 #   derived: they are the operator's per-worktree config override and
 #   per-machine env override, hand-authored and never regenerated, and they
 #   are here because they must never be committed -- an untracked layer
-#   that got committed would silently become everyone's config. Downstreams
+#   that got committed would silently become everyone's config. Their
+#   `.bak` siblings are here for the same reason and not a weaker one: the
+#   INI-to-TOML migration (ADR-00000037) renames each of those two layers
+#   aside, and the backup carries exactly what the ignored original did,
+#   `environment.env_N` credentials included. Ignoring an original and not
+#   its backup leaves the same secret reachable by `git add .` and ships it
+#   in the Docker build context. Downstreams
 #   pick it up via `just base upgrade` -> ./.base/dist/script/base/
 #   upgrade.sh -> init.sh resync chain.
 _canonical_gitignore_entries() {
@@ -38,10 +44,12 @@ _canonical_gitignore_entries() {
 .env.local.toml
 .env.generated
 .env.bak
+.env.local.bak
 compose.yaml
 .setup.conf.bak
 setup.toml.bak
 .setup.conf.local
+.setup.conf.local.bak
 setup.local.toml
 coverage/
 .Dockerfile.generated

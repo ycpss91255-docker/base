@@ -46,8 +46,8 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 15 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133)" {
-  # Fifteen, not thirteen: the TOML names were ADDED alongside the legacy
+@test "_canonical_gitignore_entries: emits exactly the 17 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133, #1137)" {
+  # Seventeen, not thirteen: the TOML names were ADDED alongside the legacy
   # INI ones, not substituted for them. `.setup.conf.local` is the old
   # per-worktree override layer, which a repo part-way through the format
   # migration still has on disk, and the whole reason the line is canonical
@@ -55,6 +55,14 @@ teardown() {
   # one machine's override silently becomes everyone's config. The
   # retraction mechanism for a line that really is dead is
   # _retired_gitignore_entries, and nothing is in it.
+  #
+  # The two newest lines are the BACKUPS the INI-to-TOML migration leaves
+  # of the two machine-local layers. Every other backup this tree writes is
+  # here (`.env.bak`, `.setup.conf.bak`, `setup.toml.bak`), and these two
+  # carry exactly what their ignored originals carried -- a per-machine
+  # override, `environment.env_N` credentials included. Ignoring the
+  # original and not its backup leaves the same secret reachable by
+  # `git add .` and shipped in the Docker build context.
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
@@ -63,10 +71,12 @@ teardown() {
 .env.local.toml
 .env.generated
 .env.bak
+.env.local.bak
 compose.yaml
 .setup.conf.bak
 setup.toml.bak
 .setup.conf.local
+.setup.conf.local.bak
 setup.local.toml
 coverage/
 .Dockerfile.generated
@@ -275,10 +285,12 @@ EOF
 .env.local.toml
 .env.generated
 .env.bak
+.env.local.bak
 compose.yaml
 .setup.conf.bak
 setup.toml.bak
 .setup.conf.local
+.setup.conf.local.bak
 setup.local.toml
 coverage/
 .Dockerfile.generated

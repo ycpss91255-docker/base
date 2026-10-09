@@ -2975,7 +2975,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 
 | Test | Description |
 |------|-------------|
-| `_canonical_gitignore_entries: emits exactly the 15 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133)` | - |
+| `_canonical_gitignore_entries: emits exactly the 17 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133, #1137)` | - |
 | `_canonical_gitignore_entries: advertises setup.local.toml again (#893)` | - |
 | `no entry is both canonical and retired (#893)` | - |
 | `_retired_gitignore_entries: retires nothing today (#893)` | - |
