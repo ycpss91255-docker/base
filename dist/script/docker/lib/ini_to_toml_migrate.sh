@@ -275,8 +275,12 @@ _ini_to_toml_convert() {
       fi
     done
 
-    # Emit each numbered family DENSE from index 1 up to its highest
-    # POPULATED index, and nothing above that.
+    # ── Numbered families ─────────────────────────────────────────────
+    #
+    # Each family is emitted DENSE from index 1 up to its highest
+    # POPULATED index, and nothing above that; a family this section
+    # OWNS but populates nowhere becomes the writer's `path = []`
+    # declaration instead of blocks.
     #
     # Why dense, and why from 1. A numbered family is addressed by
     # POSITION on both sides: the N-th `[[volumes]]` block IS
@@ -307,110 +311,108 @@ _ini_to_toml_convert() {
     # An emptied slot is emitted field-less, NOT with an empty body: see
     # _ini_to_toml_emit_aot for what rendering the empty value costs.
     #
-    # ── The two inputs a numbered family has no rendering for ──────────
+    # ── What a numbered family has no rendering for ───────────────────
     #
-    # ONE OCCURRENCE PER INDEX, or the conversion declines. Two keys of
-    # one family can reach the same index -- `rule_1` twice, or `rule_01`
-    # beside `rule_1`, which both readers normalise to the same sort key
-    # -- and that input has no faithful conversion, because the two
-    # sides of the family disagree about it. The LIST readers
-    # (`_conf_list_sorted`, `_get_conf_list_sorted`) collect every
-    # non-empty entry, so it is a TWO-entry list; the SELECTOR
-    # `_get_conf_value ... mount_1` reads one value by key. Honouring
-    # the list means two blocks, which moves whichever value is not
-    # first into position 2 -- and for `[volumes]` position 1 IS the
-    # workspace bind, so `mount_1 = /workspace:/work` beside
-    # `mount_01 = /data:/data` would silently make /data the workspace.
-    # Honouring the selector means dropping an entry the list had.
-    # Neither is acceptable from a converter that renames the source
-    # away, so the input is refused and the operator renumbers.
+    # A POPULATED entry's suffix must be the plain decimal spelling of
+    # its own index, or the conversion declines. Index N of the array IS
+    # the key `<prefix>_N`, so a suffix spelled any other way changes
+    # what a LOOKUP of that key answers even when the LIST is unchanged:
+    # a `[volumes]` whose only entry is `mount_01 = /data:/data` has an
+    # EMPTY `mount_1` before conversion -- the workspace opt-out -- and
+    # `/data:/data` at `mount_1` after it, which, existing locally, is
+    # honoured as a deliberately pinned workspace with no warning. The
+    # same check catches the index the arithmetic cannot hold: `10#`
+    # fixes the BASE -- bash reads a zero-padded value as octal and `08`
+    # is not a valid octal literal, which base#1097 lost time to -- but
+    # not the RANGE, and a suffix past 2^63 wraps to 1 and is emitted
+    # ahead of entry 2, where both readers sort it last.
     #
-    # AN INDEX THE ARITHMETIC CAN HOLD, or the conversion declines. `10#`
-    # fixes the base -- bash reads a zero-padded value as octal, and
-    # `08` is not a valid octal literal, so the comparison dies instead
-    # of ordering it (base#1097 lost time to exactly this) -- but it does
-    # not fix the RANGE. A suffix past 2^63 wraps silently:
-    # `rule_18446744073709551617` arrives as index 1 and is emitted ahead
-    # of `rule_2`, where both readers sort it last. The suffix is
-    # therefore checked against its own arithmetic value, with leading
-    # zeros stripped, and a mismatch is refused rather than ordered
-    # wrongly.
+    # ONE POPULATED OCCURRENCE PER INDEX, and it must be the LAST
+    # occurrence of that index, or the conversion declines. The two sides
+    # disagree otherwise: the LIST readers (`_conf_list_sorted`,
+    # `_get_conf_list_sorted`) collect every non-empty entry, so
+    # `port_1` named twice is a two-entry list, while a key lookup
+    # (`_conf_get`) answers the last occurrence alone. Honouring the list
+    # means two blocks, which moves whichever value is not first into
+    # position 2 -- and for `[volumes]` position 1 is the workspace bind.
+    # Honouring the lookup drops an entry the list had. A converter that
+    # renames the source away may do neither.
     #
-    # An array of tables is also 1-based -- `PORT_1` = first published
-    # port is published contract (ADR-00000022) -- so a POPULATED `_0`
-    # key names a slot that cannot exist in the converted file. The INI
-    # list readers DO accept it and sort it first, so emitting it there
-    # would displace every position below it (`mount_1` included) and
-    # dropping it would lose a published port or bind outright. Refused
-    # as well. An EMPTY `_0` carries nothing and names no position, so it
-    # is an opt-out like any other -- and it still REGISTERS its family,
-    # which is what decides whether a cleared list owes a declaration.
-    if (( ${#_num_order[@]} > 0 )); then
-      local -A _itc_val=() _itc_seen=() _itc_max=()
-      local -a _itc_paths=()
-      local _ni _itc_path _itc_suf _itc_n _itc_bare _itc_cur _itc_hi _itc_at
-      for _ni in "${_num_order[@]}"; do
-        _itc_path=""
-        _itc_suf=""
-        _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
-        if [[ -z "${_itc_max[${_itc_path}]+set}" ]]; then
-          _itc_paths+=("${_itc_path}")
-          _itc_max["${_itc_path}"]=0
-        fi
-        _itc_n=$(( 10#${_itc_suf} ))
-        _itc_bare="${_itc_suf#"${_itc_suf%%[!0]*}"}"
-        [[ -n "${_itc_bare}" ]] || _itc_bare=0
-        if [[ "${_itc_bare}" != "${_itc_n}" ]] \
-            || { (( _itc_n < 1 )) && [[ -n "${_vals[_ni]}" ]]; }; then
-          _log_warn init ini_to_toml_index_unrepresentable \
-            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` numbers a list entry the converted file has no slot for -- the TOML array of tables it becomes is 1-based (ADR-00000022) and numbers its blocks in order. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1, consecutively, and re-run \`just base init\`." \
-            "path=${_ini}" \
-            "key=${_s}.${_keys[_ni]}"
-          return 1
-        fi
-        (( _itc_n >= 1 )) || continue
-        _itc_at="${_itc_path}"$'\t'"${_itc_n}"
-        if [[ -n "${_itc_seen[${_itc_at}]+set}" ]]; then
-          _log_warn init ini_to_toml_duplicate_index \
-            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` and \`${_itc_seen[${_itc_at}]}\` are the same entry of one list -- entry ${_itc_n} -- and the list readers count them as two while a lookup of the key reads one. The converted file cannot be both, and for \`[volumes]\` entry 1 is the workspace bind. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Give the two entries different numbers, or delete the one you do not want, and re-run \`just base init\`." \
-            "path=${_ini}" \
-            "key=${_s}.${_keys[_ni]}" \
-            "other=${_itc_seen[${_itc_at}]}"
-          return 1
-        fi
-        _itc_seen["${_itc_at}"]="${_s}.${_keys[_ni]}"
-        _itc_val["${_itc_at}"]="${_vals[_ni]}"
-        # An empty occurrence contributes no entry, which is what both
-        # list readers do with one, so it does not raise the family's
-        # highest populated index.
-        [[ -n "${_vals[_ni]}" ]] || continue
-        _itc_cur="${_itc_max[${_itc_path}]}"
-        if (( _itc_n > _itc_cur )); then
-          _itc_max["${_itc_path}"]="${_itc_n}"
-        fi
-      done
+    # An EMPTY occurrence is never any of these. It carries no value, so
+    # it names no position and both sides agree it contributes nothing:
+    # `port_1 =` twice, or a `rule_<huge> =` no arithmetic can hold, is
+    # an opt-out like any other. It still OWNS its family, which is what
+    # decides whether a cleared list owes a declaration.
+    local -A _itc_val=() _itc_max=() _itc_key=() _itc_late=()
+    local _ni _itc_path _itc_suf _itc_n _itc_bare _itc_cur _itc_at
+    for _ni in ${_num_order[@]+"${_num_order[@]}"}; do
+      _itc_path=""
+      _itc_suf=""
+      _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
+      _itc_at="${_itc_path}"$'\t'"$(( 10#${_itc_suf} ))"
+      if [[ -z "${_vals[_ni]}" ]]; then
+        # An emptied occurrence after a populated one at the same index
+        # is the disagreement above, seen from the other side: the list
+        # keeps the value, the lookup reads the clear.
+        _itc_late["${_itc_at}"]=1
+        continue
+      fi
+      _itc_n=$(( 10#${_itc_suf} ))
+      _itc_bare="${_itc_suf#"${_itc_suf%%[!0]*}"}"
+      [[ -n "${_itc_bare}" ]] || _itc_bare=0
+      if [[ "${_itc_suf}" != "${_itc_n}" ]] || (( _itc_n < 1 )); then
+        _log_warn init ini_to_toml_index_unrepresentable \
+          "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` does not number a list entry the converted file can hold. An entry of a TOML array of tables IS the key \`<name>_N\` with N its plain 1-based position, so a number written any other way -- padded, or past what the arithmetic holds -- would be read back under a different name. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1, consecutively, and re-run \`just base init\`." \
+          "path=${_ini}" \
+          "key=${_s}.${_keys[_ni]}"
+        return 1
+      fi
+      if [[ -n "${_itc_key[${_itc_at}]+set}" || -n "${_itc_late[${_itc_at}]+set}" ]]; then
+        _log_warn init ini_to_toml_duplicate_index \
+          "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` is entry ${_itc_n} of that list a second time. The list readers count two entries there and a lookup of the key reads one value, so the converted file would have to be both -- and for \`[volumes]\` entry 1 is the workspace bind. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Give the entries different numbers, or delete the one you do not want, and re-run \`just base init\`." \
+          "path=${_ini}" \
+          "key=${_s}.${_keys[_ni]}" \
+          "other=${_itc_key[${_itc_at}]-${_s}.${_keys[_ni]}}"
+        return 1
+      fi
+      _itc_key["${_itc_at}"]="${_s}.${_keys[_ni]}"
+      _itc_val["${_itc_at}"]="${_vals[_ni]}"
+      _itc_cur="${_itc_max[${_itc_path}]-0}"
+      if (( _itc_n > _itc_cur )); then
+        _itc_max["${_itc_path}"]="${_itc_n}"
+      fi
+    done
 
-      # Families in path order, which groups each one together -- it
-      # matters for the one section carrying TWO of them (`device_N` and
-      # `cgroup_rule_N` under [devices]); the two number independently,
-      # so grouping is for the reader of the file, not for correctness.
-      while IFS= read -r _itc_path; do
-        [[ -n "${_itc_path}" ]] || continue
-        _itc_hi="${_itc_max[${_itc_path}]}"
-        if (( _itc_hi == 0 )); then
-          # Every slot the INI named is empty, so the family is a list
-          # the operator REPLACED WITH NOTHING -- under the pre-ADR-37
-          # chain `[build]` merged by section-replace (ADR-00000025
-          # sec. 3), so a repo whose only arg slot was empty resolved to
-          # zero build args. Emitting no blocks makes the TOML key
-          # ABSENT, the one state that is not a replacement, and the
-          # key-level merge then inherits the template's whole list.
-          # The writer's own `path = []` declaration is the replacement
-          # with nothing, and _conf_toml_array_decl is the writer's
-          # answer to WHERE it goes: inside the owning table for a
-          # dotted path, and in the root-key region -- the region before
-          # the first table header, the only home TOML gives a root key
-          # -- for a path that has no table.
+    # Every family this section HOSTS, not only the ones it names a key
+    # of. Under the INI chain a section was replaced WHOLE by the highest
+    # layer that put an entry in it (_conf_load_layers picks one owner
+    # per section), so a `.setup.conf.local` naming `[security]` at all
+    # left the layer below with no cap_add entries -- and the TOML merge
+    # is key-level, so a converted file that simply omits the array lets
+    # that list come back. `_conf_toml_aot_section` is the writer's own
+    # answer to which arrays a section has, so there is no second list to
+    # keep in agreement with it.
+    #
+    # Gated on the section OWNING something here. A header with no
+    # entries at all names no owner in the INI chain either -- the
+    # shipped template's empty `[additional_contexts]` is exactly that --
+    # so it must not clear anything.
+    local -a _itc_fams=()
+    local _itc_f
+    if (( ${#_sc_keys[@]} + ${#_num_order[@]} > 0 )) \
+        && _conf_toml_aot_section "${_s}" _itc_fams; then
+      for _itc_f in ${_itc_fams[@]+"${_itc_fams[@]}"}; do
+        _itc_path="${_itc_f#*=}"
+        _itc_cur="${_itc_max[${_itc_path}]-0}"
+        if (( _itc_cur == 0 )); then
+          # A list the operator REPLACED WITH NOTHING. Emitting no blocks
+          # makes the TOML key ABSENT, the one state that is not a
+          # replacement, and the key-level merge then inherits the layer
+          # below. The writer's own `path = []` declaration is the
+          # replacement with nothing, and _conf_toml_array_decl is the
+          # writer's answer to WHERE it goes: inside the owning table for
+          # a dotted path, and in the root-key region -- the only home
+          # TOML gives a root key -- for a path that has no table.
           #
           # A root-level family whose section ALSO carries a scalar key
           # (`[volumes] label = ...`) has no rendering at all: TOML will
@@ -430,12 +432,11 @@ _ini_to_toml_convert() {
           fi
           continue
         fi
-        for (( _itc_n = 1; _itc_n <= _itc_hi; _itc_n++ )); do
+        for (( _itc_n = 1; _itc_n <= _itc_cur; _itc_n++ )); do
           _ini_to_toml_emit_aot "${_itc_path}" \
             "${_itc_val["${_itc_path}"$'\t'"${_itc_n}"]-}" _aot_buf
         done
-      done < <(printf '%s\n' ${_itc_paths[@]+"${_itc_paths[@]}"} \
-                 | LC_ALL=C sort -u)
+      done
     fi
 
     # Emit section header + scalar keys. The header is emitted for a

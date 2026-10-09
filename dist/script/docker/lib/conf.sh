@@ -799,33 +799,51 @@ _conf_toml_aot_slot() {
   local -n _cas_idx="${4:?"${FUNCNAME[0]}: missing index outvar"}"
   _cas_path=""
   _cas_idx=""
-  local _prefix="" _path=""
+  local -a _cas_fams=()
+  _conf_toml_aot_section "${_s}" _cas_fams || return 1
+  local _cas_f
+  for _cas_f in ${_cas_fams[@]+"${_cas_fams[@]}"}; do
+    [[ "${_k}" =~ ^${_cas_f%%=*}_([0-9]+)$ ]] || continue
+    _cas_path="${_cas_f#*=}"
+    _cas_idx="${BASH_REMATCH[1]}"
+    return 0
+  done
+  return 1
+}
+
+# _conf_toml_aot_section <section> <outvar_array>
+#
+# Every numbered family a section HOSTS, as `<prefix>=<path>` pairs:
+# `[security]` answers `cap_add=security.cap_add` and
+# `security_opt=security.security_opt`. Returns 1 for a section with no
+# family at all (`[gui]`, `[logging]`).
+#
+# THE table. _conf_toml_aot_slot is a lookup over it, so the question
+# "which array does this key belong to" and the question "which arrays
+# does this section have" cannot drift apart -- and the second one has a
+# caller: the INI-to-TOML converter asks it to decide which arrays a
+# converted section has EMPTIED. Under the pre-ADR-37 chain a section was
+# replaced whole, so an INI override layer naming `[security]` at all
+# left the layer below with no cap_add entries; the TOML merge is
+# key-level, so that is a `cap_add = []` the converted file has to carry
+# or the list comes back.
+_conf_toml_aot_section() {
+  local _s="${1-}"
+  local -n _ctas_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _ctas_out=()
   case "${_s}" in
-    image)               _prefix=rule;    _path=image.rules ;;
-    build)               _prefix=arg;     _path=build.args ;;
-    network)             _prefix=port;    _path=network.ports ;;
-    volumes)             _prefix=mount;   _path=volumes ;;
-    tmpfs)               _prefix=tmpfs;   _path=tmpfs ;;
-    devices)
-      case "${_k}" in
-        device_*)      _prefix=device;      _path=devices.bindings ;;
-        cgroup_rule_*) _prefix=cgroup_rule; _path=devices.cgroup_rules ;;
-        *) return 1 ;;
-      esac
-      ;;
-    additional_contexts) _prefix=context; _path=additional_contexts ;;
-    security)
-      case "${_k}" in
-        cap_add_*)      _prefix=cap_add;      _path=security.cap_add ;;
-        security_opt_*) _prefix=security_opt; _path=security.security_opt ;;
-        *) return 1 ;;
-      esac
-      ;;
+    image)               _ctas_out=("rule=image.rules") ;;
+    build)               _ctas_out=("arg=build.args") ;;
+    network)             _ctas_out=("port=network.ports") ;;
+    volumes)             _ctas_out=("mount=volumes") ;;
+    tmpfs)               _ctas_out=("tmpfs=tmpfs") ;;
+    devices)             _ctas_out=("device=devices.bindings"
+                                    "cgroup_rule=devices.cgroup_rules") ;;
+    additional_contexts) _ctas_out=("context=additional_contexts") ;;
+    security)            _ctas_out=("cap_add=security.cap_add"
+                                    "security_opt=security.security_opt") ;;
     *) return 1 ;;
   esac
-  [[ "${_k}" =~ ^${_prefix}_([0-9]+)$ ]] || return 1
-  _cas_path="${_path}"
-  _cas_idx="${BASH_REMATCH[1]}"
   return 0
 }
 

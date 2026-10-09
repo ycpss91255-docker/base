@@ -195,7 +195,7 @@ EOF
 rule_2 = @basename
 rule_1 = prefix:docker_
 rule_10 = suffix:_ws
-rule_08 = @parent
+rule_8 = @parent
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
@@ -455,7 +455,7 @@ EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
   assert_output --partial 'MIGRATION DECLINED'
-  assert_output --partial 'network.port_1'
+  assert_output --partial '[network] port_1'
   assert [ -f "${TEMP_DIR}/.setup.conf" ]
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
   run cat "${TEMP_DIR}/.setup.conf"
@@ -480,27 +480,26 @@ EOF
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
 }
 
-# why: The one that reaches past the workspace: `mount_1` and `mount_01`
-# are the same list entry, and a lookup of `mount_1` is what
-# `_reconcile_workspace_path` uses to find the workspace bind. Converting
-# them to two blocks in the readers' sort order puts `/data:/data` at
-# position 1, so `mount_1` stops naming the workspace and starts naming
-# the operator's data directory -- which, existing locally, is honoured
-# as a deliberately pinned workspace with no warning. The equal-lists
-# property alone cannot see this, so it is pinned on its own.
-@test "_migrate_ini_to_toml declines a twin that would take over the workspace slot (base#1148)" {
+# why: The case that reaches the workspace with no duplicate at all. An
+# entry of the array IS the key `<name>_N`, so a padded suffix changes
+# what a LOOKUP of that key answers even though the LIST is unchanged:
+# `[volumes]` whose only entry is `mount_01 = /data:/data` has an EMPTY
+# `mount_1` before conversion -- the published opt-out -- and
+# `/data:/data` at `mount_1` after it. That source exists, so
+# `_reconcile_workspace_path` honours it as a deliberately pinned
+# workspace and warns about nothing. Comparing the two LISTS cannot see
+# this, which is why the suffix spelling is checked rather than inferred.
+@test "_migrate_ini_to_toml declines a padded suffix that would take over a slot (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [volumes]
-mount_1 = /workspace:/work
 mount_01 = /data:/data
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
   assert_output --partial 'MIGRATION DECLINED'
-  assert_output --partial 'workspace bind'
+  assert_output --partial '[volumes] mount_01'
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
   run cat "${TEMP_DIR}/.setup.conf"
-  assert_output --partial '/workspace:/work'
   assert_output --partial '/data:/data'
 }
 
@@ -523,30 +522,83 @@ EOF
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
 }
 
-# why: A zero-padded suffix that is NOT a twin is ordinary. `rule_08`
-# is entry 8, and reading it as octal is what base#1097 lost time to.
-@test "_migrate_ini_to_toml: a lone zero-padded suffix is just its number (base#1148)" {
+# why: An EMPTY occurrence is none of those things. It carries no value,
+# so it names no position and both sides agree it contributes nothing:
+# a `_0` that no 1-based array has a slot for, `port_1 =` twice, and a
+# suffix no arithmetic can hold -- with nothing after the `=`, each is an
+# opt-out like any other. They still OWN the family, which is what
+# decides whether the cleared list owes a declaration.
+@test "_migrate_ini_to_toml: an empty occurrence is never unrenderable (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[build]
-arg_01 = TZ=Asia/Taipei
-arg_2 = LANG=C.UTF-8
+[network]
+mode = host
+port_0 =
+port_1 =
+port_1 =
+port_18446744073709551617 =
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
-  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  run grep -Fx 'ports = []' "${TEMP_DIR}/setup.toml"
   assert_success
-  assert_line 'build	arg_1	TZ=Asia/Taipei'
-  assert_line 'build	arg_2	LANG=C.UTF-8'
+  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml'"
+  assert_success
+  assert_line 'network	mode	host'
+  refute_line --regexp '^network	port_'
 }
 
-# why: An array of tables is 1-based -- `PORT_1` = first published port is
-# published contract (ADR-00000022) -- so a populated `_0` slot has no
-# block to become. The INI list readers DO accept it and sort it first,
-# so emitting it there would displace every position below it (`mount_1`,
-# the workspace bind, included) and dropping it would lose a published
-# port outright. A converter that renames the source away may do neither,
-# so the input is refused: the INI stays exactly where it was and the
-# message says which key to renumber.
+# why: Under the INI chain a section was replaced WHOLE by the highest
+# layer that put an entry in it, so a `.setup.conf.local` naming
+# `[security]` at all left the layer below with NO cap_add entries. The
+# TOML merge is key-level, so a converted local file that simply omits
+# the array lets that list come back -- the operator's narrowing of the
+# container's capabilities undone by the upgrade that converted it. Every
+# family a section OWNS and populates nowhere now gets the writer's
+# `path = []`. Asserted through the real three-layer merge.
+@test "_migrate_ini_to_toml: a section that owned a list and emptied it keeps it empty (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[security]
+privileged = true
+cap_add_1 = SYS_ADMIN
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[security]
+privileged = false
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml' '${TEMP_DIR}/setup.local.toml'"
+  assert_success
+  assert_line 'security	privileged	false'
+  refute_line --regexp '^security	cap_add_'
+}
+
+# why: The gate on that is OWNERSHIP, not the bare header. A section
+# header with no entries names no owner in the INI chain either -- the
+# shipped template's own empty `[additional_contexts]` is exactly that --
+# so it must not clear the layer below.
+@test "_migrate_ini_to_toml: a section header with no entries clears nothing (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[build]
+arg_1 = KEEP=me
+[additional_contexts]
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run grep -c 'additional_contexts = \[\]' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'build	arg_1	KEEP=me'
+}
+
+# why: A POPULATED `_0` is the other half. The INI list readers accept it
+# and sort it FIRST, so it reaches the effective config, and a 1-based
+# array has no slot for it: emitting it at the front would displace every
+# position below it -- `mount_1`, the workspace bind, included -- and
+# dropping it would lose a published port outright. A converter that
+# renames the source away may do neither, so it declines and says which
+# key to renumber.
 @test "_migrate_ini_to_toml refuses a populated zero-indexed slot (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
@@ -563,25 +615,6 @@ EOF
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
   run bash -c "ls -A '${TEMP_DIR}'"
   assert_output ".setup.conf"
-}
-
-# why: An EMPTY `_0` slot carries no value and names no position, so it is
-# not an input with no representation -- it is an opt-out like any other,
-# and the family it belongs to is still a list the operator emptied.
-@test "_migrate_ini_to_toml: an empty zero-indexed slot is an opt-out, not a refusal (base#1148)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[network]
-mode = host
-port_0 =
-EOF
-  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
-  assert_success
-  run grep -Fx 'ports = []' "${TEMP_DIR}/setup.toml"
-  assert_success
-  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml'"
-  assert_success
-  assert_line 'network	mode	host'
-  refute_line --regexp '^network	port_'
 }
 
 # why: A scalar key under one of the three ROOT-level list sections has no
@@ -657,12 +690,12 @@ EOF
 # the same list. Asserted by running `_conf_list_sorted` over the INI and
 # over the conversion of it and comparing, rather than by hand-picking an
 # order -- which is how the zero-padded tie got pinned backwards. The
-# fixture carries a zero-padded suffix and two holes, the shapes that make
-# the two sides disagree.
+# fixture carries two holes and a suffix well above them, the shape that
+# makes the two sides disagree.
 @test "_migrate_ini_to_toml: the converted list is the list the INI reader returned (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
-rule_08 = suffix:_dev
+rule_8 = suffix:_dev
 rule_1 = prefix:app_
 rule_4 = @basename
 EOF
