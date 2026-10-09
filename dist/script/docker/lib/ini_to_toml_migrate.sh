@@ -57,11 +57,21 @@
 #
 # What has no array home stays a quoted scalar under its own table, which
 # is again what the writer does and what the runtime readers look for:
-# `[environment] env_N` and `[security] cap_drop_N`. The direct-key
-# `[environment] KEY = "V"` form the template documents is the D5 / D6
-# destination; until those readers land,
-# `_conf_list_sorted ... environment env_` is what reads the section, so
-# unpacking here would drop the variable.
+# `[environment] env_N`. The direct-key `[environment] KEY = "V"` form
+# the template documents is the D5 / D6 destination; until those readers
+# land, `_conf_list_sorted ... environment env_` is what reads the
+# section, so unpacking here would drop the variable.
+#
+# `[security] cap_drop_N` used to be in that list and is not: carried as
+# a scalar it merged key by key, while the LIST it represents used to be
+# replaced whole with its section -- so a local layer that narrowed the
+# container's capabilities had its drops handed back by the conversion.
+# Its two siblings in the same section, read by the identical
+# `_conf_list_sorted` call, already had array homes, so the missing one
+# was an omission and `security.cap_drop` now exists. `[environment]` is
+# NOT the same case: ADR-00000037 splits it along the service boundary,
+# so where its entries belong is a question the readers above answer,
+# not a slot waiting to be filled.
 
 # Guard against double-sourcing.
 if [[ -n "${_DOCKER_LIB_INI_TO_TOML_MIGRATE_SOURCED:-}" ]]; then
@@ -102,8 +112,8 @@ _ini_to_toml_format_value() {
 #
 # Return 0 when <key> is a numbered key that HAS an array-of-tables home,
 # asked of the shipped writer rather than re-matched here. A numbered key
-# with no array home (`env_N`, `cap_drop_N`) answers 1 and
-# is carried over as a scalar, which is where every reader looks for it.
+# with no array home (`env_N`) answers 1 and is carried over as a scalar,
+# which is where every reader looks for it.
 #
 # The out-variable names are prefixed, like every nameref target in this
 # tree: _conf_toml_aot_slot has locals of its own called `_path` and
@@ -242,14 +252,17 @@ _ini_to_toml_convert() {
     # `<prefix>_<digits>` is read by the list accessors instead, and
     # those are not last-wins: `_conf_list_sorted` collects every
     # non-empty entry, so `[environment] env_1` named twice is a
-    # TWO-variable list. The ones with no array-of-tables home --
-    # `env_N`, `cap_drop_N` -- stay quoted scalars here, which is where
-    # every reader of them looks, so collapsing them would drop a
-    # variable or a dropped capability from a file the parser accepts
-    # and from an INI already renamed to .bak. They are left uncollapsed:
-    # the duplicate then reaches the commit gate as the unrenderable TOML
-    # it is, the conversion is DECLINED, and the operator's two lines are
-    # still there. A decline is recoverable; a silent loss is not. The
+    # TWO-variable list. The one with no array-of-tables home --
+    # `env_N` -- stays a quoted scalar here, which is where every reader
+    # of it looks, so collapsing it would drop a variable from a file the
+    # parser accepts and from an INI already renamed to .bak. So no key
+    # shaped `<prefix>_<digits>` is collapsed, whether it has a home or
+    # not; the two kinds are declined by different gates but neither
+    # loses a line. A homeless one reaches the commit gate as the
+    # unrenderable TOML it is, the conversion is DECLINED, and the
+    # operator's two lines are still there; one with a home is refused
+    # earlier, by the duplicate-index check below, which can say which
+    # key to renumber. A decline is recoverable; a silent loss is not. The
     # price is that such a repo cannot upgrade until the duplicate is
     # resolved by hand, and that is the deliberate trade: see the
     # repeated-scalar-key cases in the spec for the shape that IS

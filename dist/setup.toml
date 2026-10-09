@@ -125,13 +125,19 @@ network_name = ""
 [security]
 privileged = false
 
-# Capabilities: array-of-tables. An overlay defining any
-# [[security.cap_add]] replaces the entire list.
+# Capabilities: three independent array-of-tables lists under this
+# table. Each replaces on its own -- an overlay defining any
+# [[security.cap_add]] replaces the whole cap_add list and leaves the
+# drops and the opts alone, and the same each way round. All three are
+# opt-in, so the template ships none of them.
 # [[security.cap_add]]
 # cap = "SYS_ADMIN"
 #
 # [[security.cap_add]]
 # cap = "NET_ADMIN"
+#
+# [[security.cap_drop]]
+# cap = "NET_RAW"
 #
 # [[security.security_opt]]
 # opt = "seccomp:unconfined"

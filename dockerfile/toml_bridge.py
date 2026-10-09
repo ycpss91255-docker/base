@@ -34,6 +34,7 @@ _ARRAY_SPEC = {
     "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else ""),
     "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else ""),
     "cap_add": ("cap_add", lambda e: _field(e, "cap")),
+    "cap_drop": ("cap_drop", lambda e: _field(e, "cap")),
     "security_opt": ("security_opt", lambda e: _field(e, "opt")),
     "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode"))),
     "tmpfs": ("tmpfs", lambda e: _field(e, "path")),

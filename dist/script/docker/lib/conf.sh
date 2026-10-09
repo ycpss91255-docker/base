@@ -641,18 +641,21 @@ _conf_list_sorted() {
 # untouched lines are copied through verbatim.
 #
 # What has NO array-of-tables home yet stays a quoted scalar under its
-# table (`[environment] env_N`, `cap_drop_N`): the bridge reads a table
-# scalar back under its own name, so those keys round-trip as they are,
-# and moving them is a reader-side change.
+# table (`[environment] env_N`): the bridge reads a table scalar back
+# under its own name, so those keys round-trip as they are, and moving
+# them is a reader-side change. `[environment]` is the last of these --
+# ADR-00000037 splits it along the service boundary and the direct-key
+# readers have not landed, so where its entries go is still open.
 #
 # `[devices]` hosts TWO numbered families, so each gets its own nested
 # array path -- `device_N` -> `[[devices.bindings]]`, `cgroup_rule_N` ->
 # `[[devices.cgroup_rules]]` -- the same shape `[security]` uses for
-# `cap_add_N` and `security_opt_N`. One array at the section could not
-# hold both: `[[devices]]` makes the name an array, and a rule left as a
-# table scalar needed `[devices]`, which TOML refuses in the same
-# document. A conf that binds a device AND allows a major number is
-# ordinary, and `setup.sh set` wrote exactly that unparseable pair.
+# `cap_add_N`, `cap_drop_N` and `security_opt_N`. One array at the
+# section could not hold both: `[[devices]]` makes the name an array,
+# and a rule left as a table scalar needed `[devices]`, which TOML
+# refuses in the same document. A conf that binds a device AND allows a
+# major number is ordinary, and `setup.sh set` wrote exactly that
+# unparseable pair.
 
 # _conf_toml_str <value> <outvar>
 #
@@ -814,9 +817,17 @@ _conf_toml_aot_slot() {
 # _conf_toml_aot_section <section> <outvar_array>
 #
 # Every numbered family a section HOSTS, as `<prefix>=<path>` pairs:
-# `[security]` answers `cap_add=security.cap_add` and
+# `[security]` answers `cap_add=security.cap_add`,
+# `cap_drop=security.cap_drop` and
 # `security_opt=security.security_opt`. Returns 1 for a section with no
 # family at all (`[gui]`, `[logging]`).
+#
+# `cap_drop` is here because its two siblings are. All three are read by
+# the same `_conf_list_sorted _RDC_CONF security "<prefix>_"` call in
+# _resolve_docker_conf, so a family of the three with only two homes was
+# an omission rather than a distinction -- and the one left out is the
+# one whose loss costs security, because a cap_drop carried as a scalar
+# merges key by key and hands back a capability the layer above dropped.
 #
 # THE table. _conf_toml_aot_slot is a lookup over it, so the question
 # "which array does this key belong to" and the question "which arrays
@@ -841,6 +852,7 @@ _conf_toml_aot_section() {
                                     "cgroup_rule=devices.cgroup_rules") ;;
     additional_contexts) _ctas_out=("context=additional_contexts") ;;
     security)            _ctas_out=("cap_add=security.cap_add"
+                                    "cap_drop=security.cap_drop"
                                     "security_opt=security.security_opt") ;;
     *) return 1 ;;
   esac
@@ -861,6 +873,7 @@ _conf_toml_aot_nskey() {
     build.args)            _can_out="build.arg_${_n}" ;;
     network.ports)         _can_out="network.port_${_n}" ;;
     security.cap_add)      _can_out="security.cap_add_${_n}" ;;
+    security.cap_drop)     _can_out="security.cap_drop_${_n}" ;;
     security.security_opt) _can_out="security.security_opt_${_n}" ;;
     volumes)               _can_out="volumes.mount_${_n}" ;;
     tmpfs)                 _can_out="tmpfs.tmpfs_${_n}" ;;
@@ -1004,7 +1017,7 @@ _conf_toml_aot_fields() {
         _caf_out+=$'\n'"container = ${_b}"
       fi
       ;;
-    security.cap_add)
+    security.cap_add|security.cap_drop)
       _conf_toml_str "${_v}" _a
       _caf_out="cap = ${_a}"
       ;;

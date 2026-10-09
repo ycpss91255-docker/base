@@ -573,6 +573,101 @@ EOF
   refute_line --regexp '^security	cap_add_'
 }
 
+# why: The same loss one family over, and the one that costs security.
+# `cap_drop_N` had no `[[array of tables]]` home, so the converter
+# carried it over as a quoted SCALAR -- and a scalar merges key by key
+# while the LIST it represents used to be replaced whole with its
+# section. Under the pre-ADR-37 INI chain a `.setup.conf.local` naming
+# `[security]` at all left the layer below with NO cap_drop entries, so
+# the operator's narrowing resolved to an empty list; carried as scalars
+# the repo layer's drops came back, and a capability the operator removed
+# returning on the upgrade that converted the repo is a security
+# regression. The missing home was an omission, not a decision:
+# `cap_add` and `security_opt` sit in the same `[security]` section, are
+# read by the identical `_conf_list_sorted` call one line over in
+# _resolve_docker_conf, and already had theirs. Asserted through the real
+# merge, because the file alone cannot show inheritance.
+@test "_migrate_ini_to_toml: a narrowed cap_drop list does not come back (base#1235)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[security]
+privileged = true
+cap_drop_1 = NET_RAW
+cap_drop_2 = SYS_ADMIN
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[security]
+privileged = false
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml' '${TEMP_DIR}/setup.local.toml'"
+  assert_success
+  assert_line 'security	privileged	false'
+  refute_line --regexp '^security	cap_drop_'
+}
+
+# why: The control for the two above, and the proof that the two
+# families which ALREADY had array homes were not moved to get the third
+# one its own. A local layer that names no `[security]` owns nothing
+# there, so the INI chain left the repo's whole section standing -- all
+# three lists have to survive the conversion together, each still
+# numbered under the `<prefix>_N` names every ordered-list reader
+# matches. A fix that cleared cap_drop unconditionally, or that moved
+# cap_add out from under its own spelling, passes the regression test
+# above and fails here.
+@test "_migrate_ini_to_toml: a local layer owning no security section leaves all three lists standing (base#1235)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[security]
+privileged = true
+cap_add_1 = SYS_ADMIN
+cap_drop_1 = NET_RAW
+cap_drop_2 = SYS_ADMIN
+security_opt_1 = seccomp:unconfined
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[network]
+mode = bridge
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml' '${TEMP_DIR}/setup.local.toml'"
+  assert_success
+  assert_line 'security	cap_drop_1	NET_RAW'
+  assert_line 'security	cap_drop_2	SYS_ADMIN'
+  assert_line 'security	cap_add_1	SYS_ADMIN'
+  assert_line 'security	security_opt_1	seccomp:unconfined'
+  assert_line 'network	mode	bridge'
+}
+
+# why: The shipped `.setup.conf` is the only realistic consumer config in
+# the repo and the seeded state of every downstream repo, so it is the
+# input the migration will actually be run on most often. Every change to
+# the numbered-key mapping widens what the converter has to render from
+# it -- giving `cap_drop` an array home made `[security]` host three
+# families where it hosted two -- and a template the converter cannot
+# render is a repo that cannot upgrade. Driven end to end: the conversion
+# must succeed AND the result must read back through the bridge as the
+# same configuration, because the commit gate only proves the file
+# parses.
+@test "_migrate_ini_to_toml: the shipped .setup.conf converts and reads back (base#1235)" {
+  assert_spec_subject /source/dist/.setup.conf "the shipped INI template"
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.toml" ]
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  # The scalars the template actually sets, on both sides of the
+  # three-family [security] section the conversion now walks.
+  assert_line 'security	privileged	false'
+  assert_line 'network	mode	host'
+  assert_line 'logging	driver	json-file'
+  # The template commits to no capability list, so the conversion must
+  # invent neither an entry nor a clearing declaration for one.
+  refute_line --regexp '^security	cap_'
+  refute_line --regexp '^security	security_opt_'
+}
+
 # why: The gate on that is OWNERSHIP, not the bare header. A section
 # header with no entries names no owner in the INI chain either -- the
 # shipped template's own empty `[additional_contexts]` is exactly that --
@@ -722,14 +817,13 @@ PROBE
   assert_equal "${_b}" "prefix:app_ @basename suffix:_dev"
 }
 
-# why: `env_N` and `cap_drop_N` have no array-of-tables home, so they are
-# carried over as quoted scalars -- and they are read by
-# `_conf_list_sorted`, which is NOT last-wins. Collapsing a repeated one
-# the way an ordinary scalar is collapsed dropped a variable, or a
-# dropped capability, from a file the parser accepts and from an INI
-# already renamed to .bak. Left uncollapsed, the duplicate reaches the
-# commit gate as the unrenderable TOML it is: the conversion is declined
-# and both lines are still on disk. A decline is recoverable.
+# why: `env_N` has no array-of-tables home, so it is carried over as a
+# quoted scalar -- and it is read by `_conf_list_sorted`, which is NOT
+# last-wins. Collapsing a repeated one the way an ordinary scalar is
+# collapsed dropped a variable from a file the parser accepts and from an
+# INI already renamed to .bak. Left uncollapsed, the duplicate reaches
+# the commit gate as the unrenderable TOML it is: the conversion is
+# declined and both lines are still on disk. A decline is recoverable.
 @test "_migrate_ini_to_toml declines a repeated environment env_N rather than dropping one (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
@@ -746,9 +840,13 @@ EOF
   assert_output --partial 'LOG_LEVEL=debug'
 }
 
-# why: The same shape one section over. `cap_drop_N` is the other
-# numbered key with no array home, and a dropped capability silently
-# restored is a container that keeps a privilege the operator removed.
+# why: The same outcome one section over, now reached by the other gate.
+# `cap_drop_N` has an array home (base#1235 gave it one so a narrowed
+# list stops coming back), so a repeated index is refused by the
+# duplicate-index check rather than by the commit gate -- two keys at one
+# index have no faithful conversion either way. Pinned because the
+# refusal is what keeps a dropped capability from being silently
+# restored, and that must not depend on which gate catches it.
 @test "_migrate_ini_to_toml declines a repeated security cap_drop_N rather than dropping one (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
