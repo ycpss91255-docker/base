@@ -189,6 +189,7 @@ ini_to_toml_migrated
 env_local_to_toml_migrated
 ini_to_toml_migration_declined
 ini_to_toml_index_unrepresentable
+ini_to_toml_duplicate_index
 
 # smoke_migrate.sh (repo-owned smoke tree layout; emitted under the init
 # service because init.sh is the only caller)

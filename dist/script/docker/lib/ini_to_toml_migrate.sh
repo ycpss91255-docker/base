@@ -307,71 +307,83 @@ _ini_to_toml_convert() {
     # An emptied slot is emitted field-less, NOT with an empty body: see
     # _ini_to_toml_emit_aot for what rendering the empty value costs.
     #
-    # A REPEATED index keeps every occurrence. The list readers
-    # (`_conf_list_sorted`, `_get_conf_list_sorted`) collect every
-    # non-empty entry and sort the collection -- neither is last-wins, so
-    # `port_1 = 8080:80` twice is a TWO-port list, and `port_01` beside
-    # `port_1` is two entries with one sort key. Collapsing them to one
-    # would silently drop a published port, with the INI already renamed
-    # to .bak. The occurrences of one index are therefore emitted in the
-    # order those readers put them in, by sorting each family through the
-    # SAME `sort -t: -k1,1n` they use, so the tie-break is theirs and not
-    # a second opinion. That the blocks after a repeat shift up is the
-    # list's own shape: three entries occupy three positions whatever
-    # they were named.
+    # ── The two inputs a numbered family has no rendering for ──────────
     #
-    # `10#` on every arithmetic read of a suffix: bash's default
-    # arithmetic base reads a zero-padded value as octal, and `08` is not
-    # a valid octal literal -- the comparison dies instead of ordering it
-    # (base#1097 lost time to exactly this).
+    # ONE OCCURRENCE PER INDEX, or the conversion declines. Two keys of
+    # one family can reach the same index -- `rule_1` twice, or `rule_01`
+    # beside `rule_1`, which both readers normalise to the same sort key
+    # -- and that input has no faithful conversion, because the two
+    # sides of the family disagree about it. The LIST readers
+    # (`_conf_list_sorted`, `_get_conf_list_sorted`) collect every
+    # non-empty entry, so it is a TWO-entry list; the SELECTOR
+    # `_get_conf_value ... mount_1` reads one value by key. Honouring
+    # the list means two blocks, which moves whichever value is not
+    # first into position 2 -- and for `[volumes]` position 1 IS the
+    # workspace bind, so `mount_1 = /workspace:/work` beside
+    # `mount_01 = /data:/data` would silently make /data the workspace.
+    # Honouring the selector means dropping an entry the list had.
+    # Neither is acceptable from a converter that renames the source
+    # away, so the input is refused and the operator renumbers.
+    #
+    # AN INDEX THE ARITHMETIC CAN HOLD, or the conversion declines. `10#`
+    # fixes the base -- bash reads a zero-padded value as octal, and
+    # `08` is not a valid octal literal, so the comparison dies instead
+    # of ordering it (base#1097 lost time to exactly this) -- but it does
+    # not fix the RANGE. A suffix past 2^63 wraps silently:
+    # `rule_18446744073709551617` arrives as index 1 and is emitted ahead
+    # of `rule_2`, where both readers sort it last. The suffix is
+    # therefore checked against its own arithmetic value, with leading
+    # zeros stripped, and a mismatch is refused rather than ordered
+    # wrongly.
+    #
+    # An array of tables is also 1-based -- `PORT_1` = first published
+    # port is published contract (ADR-00000022) -- so a POPULATED `_0`
+    # key names a slot that cannot exist in the converted file. The INI
+    # list readers DO accept it and sort it first, so emitting it there
+    # would displace every position below it (`mount_1` included) and
+    # dropping it would lose a published port or bind outright. Refused
+    # as well. An EMPTY `_0` carries nothing and names no position, so it
+    # is an opt-out like any other -- and it still REGISTERS its family,
+    # which is what decides whether a cleared list owes a declaration.
     if (( ${#_num_order[@]} > 0 )); then
-      local -A _itc_pairs=() _itc_max=()
+      local -A _itc_val=() _itc_seen=() _itc_max=()
       local -a _itc_paths=()
-      local _ni _itc_path _itc_suf _itc_n _itc_cur _itc_hi _itc_line _itc_v
+      local _ni _itc_path _itc_suf _itc_n _itc_bare _itc_cur _itc_hi _itc_at
       for _ni in "${_num_order[@]}"; do
         _itc_path=""
         _itc_suf=""
         _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
-        _itc_n=$(( 10#${_itc_suf} ))
-        # ANY key of the family registers it, a `_0` and an emptied slot
-        # included: registration is what decides whether a cleared list
-        # owes a declaration, and `[network] port_0 =` on its own is
-        # still an operator who left that list with nothing in it.
         if [[ -z "${_itc_max[${_itc_path}]+set}" ]]; then
           _itc_paths+=("${_itc_path}")
           _itc_max["${_itc_path}"]=0
         fi
-        # An array of tables is 1-based -- `PORT_1` = first published
-        # port is published contract (ADR-00000022) -- so a `_0` key
-        # names a slot that cannot exist in the converted file. The INI
-        # list readers DO accept it and sort it first, so emitting it
-        # there would displace every position below it (`mount_1`, the
-        # workspace bind, included) and dropping it would lose a
-        # published port or bind outright. Neither is acceptable in a
-        # converter that renames the source away, so this is refused:
-        # the operator renumbers from 1 and re-runs, and until then the
-        # INI is exactly where it was. An EMPTY `_0` slot carries
-        # nothing and names no position, so it is simply ignored.
-        if (( _itc_n < 1 )); then
-          [[ -n "${_vals[_ni]}" ]] || continue
+        _itc_n=$(( 10#${_itc_suf} ))
+        _itc_bare="${_itc_suf#"${_itc_suf%%[!0]*}"}"
+        [[ -n "${_itc_bare}" ]] || _itc_bare=0
+        if [[ "${_itc_bare}" != "${_itc_n}" ]] \
+            || { (( _itc_n < 1 )) && [[ -n "${_vals[_ni]}" ]]; }; then
           _log_warn init ini_to_toml_index_unrepresentable \
-            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` numbers a list entry 0, and the TOML array of tables it converts to is 1-based (ADR-00000022), so there is no block for it to become. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1 and re-run \`just base init\`." \
+            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` numbers a list entry the converted file has no slot for -- the TOML array of tables it becomes is 1-based (ADR-00000022) and numbers its blocks in order. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1, consecutively, and re-run \`just base init\`." \
             "path=${_ini}" \
             "key=${_s}.${_keys[_ni]}"
           return 1
         fi
+        (( _itc_n >= 1 )) || continue
+        _itc_at="${_itc_path}"$'\t'"${_itc_n}"
+        if [[ -n "${_itc_seen[${_itc_at}]+set}" ]]; then
+          _log_warn init ini_to_toml_duplicate_index \
+            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` and \`${_itc_seen[${_itc_at}]}\` are the same entry of one list -- entry ${_itc_n} -- and the list readers count them as two while a lookup of the key reads one. The converted file cannot be both, and for \`[volumes]\` entry 1 is the workspace bind. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Give the two entries different numbers, or delete the one you do not want, and re-run \`just base init\`." \
+            "path=${_ini}" \
+            "key=${_s}.${_keys[_ni]}" \
+            "other=${_itc_seen[${_itc_at}]}"
+          return 1
+        fi
+        _itc_seen["${_itc_at}"]="${_s}.${_keys[_ni]}"
+        _itc_val["${_itc_at}"]="${_vals[_ni]}"
         # An empty occurrence contributes no entry, which is what both
-        # list readers do with one.
+        # list readers do with one, so it does not raise the family's
+        # highest populated index.
         [[ -n "${_vals[_ni]}" ]] || continue
-        # The pair carries the RAW suffix, not the normalised index: the
-        # readers sort `<suffix>:<value>` lines and `sort -t: -k1,1n`
-        # breaks a numeric tie by comparing the WHOLE line, so `rule_01`
-        # beside `rule_1` is ordered by the text `01` against `1` and
-        # not by the values. Normalising first made the values the
-        # tie-break and reversed the pair -- which for `[[image.rules]]`
-        # is the image name the repo builds under. `10#` is applied
-        # where the line is grouped instead.
-        _itc_pairs["${_itc_path}"]+="${_itc_suf}:${_vals[_ni]}"$'\n'
         _itc_cur="${_itc_max[${_itc_path}]}"
         if (( _itc_n > _itc_cur )); then
           _itc_max["${_itc_path}"]="${_itc_n}"
@@ -418,27 +430,9 @@ _ini_to_toml_convert() {
           fi
           continue
         fi
-        # Group this family's entries by index, in the readers' own order.
-        # No LC_ALL here, deliberately. This is the one sort whose
-        # answer has to AGREE with the readers', and neither reader
-        # forces a collation -- both inherit the caller's. Pinning C
-        # would order `prefix:Z` against `prefix:a` one way while the
-        # reader of the converted file ordered them the other.
-        local -A _itc_slot=()
-        while IFS= read -r _itc_line; do
-          [[ -n "${_itc_line}" ]] || continue
-          _itc_slot[$(( 10#${_itc_line%%:*} ))]+="${_itc_line#*:}"$'\n'
-        done < <(printf '%s' "${_itc_pairs[${_itc_path}]-}" \
-                   | sort -t: -k1,1n)
         for (( _itc_n = 1; _itc_n <= _itc_hi; _itc_n++ )); do
-          if [[ -z "${_itc_slot[${_itc_n}]+set}" ]]; then
-            _ini_to_toml_emit_aot "${_itc_path}" "" _aot_buf
-            continue
-          fi
-          while IFS= read -r _itc_v; do
-            [[ -n "${_itc_v}" ]] || continue
-            _ini_to_toml_emit_aot "${_itc_path}" "${_itc_v}" _aot_buf
-          done <<< "${_itc_slot[${_itc_n}]}"
+          _ini_to_toml_emit_aot "${_itc_path}" \
+            "${_itc_val["${_itc_path}"$'\t'"${_itc_n}"]-}" _aot_buf
         done
       done < <(printf '%s\n' ${_itc_paths[@]+"${_itc_paths[@]}"} \
                  | LC_ALL=C sort -u)

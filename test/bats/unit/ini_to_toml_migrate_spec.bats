@@ -438,48 +438,103 @@ PROBE
 
 # ── repeated and unrepresentable numbered slots ───────────────────────
 
-# why: Neither list reader is last-wins. `_conf_list_sorted` and
-# `_get_conf_list_sorted` collect EVERY non-empty entry and sort the
-# collection, so an INI naming `port_1` twice is a two-port list -- the
-# second line did not replace the first, it joined it. Collapsing the two
-# into one block drops a published port, and the INI has already been
-# renamed to .bak by then. Three entries occupy three positions whatever
-# they were named, so the block after the repeat shifts up; that is the
-# list's own shape, not a renumbering.
-@test "_migrate_ini_to_toml: a repeated numbered slot keeps every entry (base#1148)" {
+# why: Two keys of one family can reach the same index -- `port_1` twice,
+# or `rule_01` beside `rule_1`, which both readers normalise to the same
+# sort key -- and that input has no faithful conversion. The LIST readers
+# count it as two entries; a lookup of the key reads ONE value. Two
+# blocks moves whichever value is not first into position 2, and for
+# `[volumes]` position 1 is the workspace bind; one block drops an entry
+# the list had. A converter that renames the source away may do neither,
+# so it declines and both lines stay on disk.
+@test "_migrate_ini_to_toml declines two keys that are the same list entry (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
 port_1 = 8080:80
 port_1 = 9090:90
-port_2 = 7070:70
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
-  assert_success
-  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
-  assert_success
-  assert_line 'network	port_1	8080:80'
-  assert_line 'network	port_2	9090:90'
-  assert_line 'network	port_3	7070:70'
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert_output --partial 'network.port_1'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial '8080:80'
+  assert_output --partial '9090:90'
 }
 
-# why: `port_01` and `port_1` are different KEYS with the same sort key:
-# both readers match `^[0-9]+$` on the suffix and sort numerically, so
-# both entries are in the list. Keying the conversion on the numeric
-# value alone made them one slot and lost whichever came first.
-@test "_migrate_ini_to_toml: a zero-padded slot does not swallow its twin (base#1148)" {
+# why: `rule_01` and `rule_1` are different KEYS that both readers
+# normalise to one sort key, so they are the same list entry by two
+# names. Keying only on the numeric value would have let one overwrite
+# the other silently.
+@test "_migrate_ini_to_toml declines a zero-padded twin of an existing entry (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[image]
+rule_01 = suffix:_dev
+rule_1 = prefix:app_
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+}
+
+# why: The one that reaches past the workspace: `mount_1` and `mount_01`
+# are the same list entry, and a lookup of `mount_1` is what
+# `_reconcile_workspace_path` uses to find the workspace bind. Converting
+# them to two blocks in the readers' sort order puts `/data:/data` at
+# position 1, so `mount_1` stops naming the workspace and starts naming
+# the operator's data directory -- which, existing locally, is honoured
+# as a deliberately pinned workspace with no warning. The equal-lists
+# property alone cannot see this, so it is pinned on its own.
+@test "_migrate_ini_to_toml declines a twin that would take over the workspace slot (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[volumes]
+mount_1 = /workspace:/work
+mount_01 = /data:/data
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert_output --partial 'workspace bind'
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial '/workspace:/work'
+  assert_output --partial '/data:/data'
+}
+
+# why: `10#` fixes the BASE, not the range. A suffix past 2^63 wraps
+# silently -- `rule_18446744073709551617` arrives as index 1 -- and is
+# then emitted ahead of `rule_2`, where both readers sort it last. For
+# `[[image.rules]]` that is the image name the repo builds under. The
+# suffix is checked against its own arithmetic value and a mismatch is
+# refused rather than ordered wrongly.
+@test "_migrate_ini_to_toml declines a suffix the arithmetic cannot hold (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[image]
+rule_18446744073709551617 = suffix:_dev
+rule_2 = prefix:app_
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+}
+
+# why: A zero-padded suffix that is NOT a twin is ordinary. `rule_08`
+# is entry 8, and reading it as octal is what base#1097 lost time to.
+@test "_migrate_ini_to_toml: a lone zero-padded suffix is just its number (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [build]
 arg_01 = TZ=Asia/Taipei
-arg_1 = LANG=C.UTF-8
+arg_2 = LANG=C.UTF-8
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
   run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
   assert_success
-  # `arg_01` sorts AHEAD of `arg_1`: the suffixes tie numerically, so
-  # `sort -t: -k1,1n` falls back to the whole line and `01` precedes `1`.
-  # That is the readers' own answer, which is why the raw suffix and not
-  # the normalised index is what the converter sorts on.
   assert_line 'build	arg_1	TZ=Asia/Taipei'
   assert_line 'build	arg_2	LANG=C.UTF-8'
 }
@@ -602,14 +657,14 @@ EOF
 # the same list. Asserted by running `_conf_list_sorted` over the INI and
 # over the conversion of it and comparing, rather than by hand-picking an
 # order -- which is how the zero-padded tie got pinned backwards. The
-# fixture carries a padded suffix tying with its twin and a hole, the two
-# shapes that make the two sides disagree.
+# fixture carries a zero-padded suffix and two holes, the shapes that make
+# the two sides disagree.
 @test "_migrate_ini_to_toml: the converted list is the list the INI reader returned (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
-rule_01 = suffix:_dev
+rule_08 = suffix:_dev
 rule_1 = prefix:app_
-rule_3 = @basename
+rule_4 = @basename
 EOF
   cat > "${TEMP_DIR}/probe.sh" <<PROBE
 $(_src)
@@ -629,10 +684,9 @@ PROBE
   _b="$(printf '%s\n' "${lines[@]}" | sed -n 's/^before=//p')"
   _a="$(printf '%s\n' "${lines[@]}" | sed -n 's/^after=//p')"
   assert_equal "${_a}" "${_b}"
-  # Non-vacuous: three entries survive, and the padded suffix is where
-  # `sort -t: -k1,1n` puts it -- ahead of the twin it ties with, because
-  # a numeric tie falls back to comparing the whole line.
-  assert_equal "${_b}" "suffix:_dev prefix:app_ @basename"
+  # Non-vacuous: three entries survive, in suffix order, across a hole
+  # and a zero-padded suffix.
+  assert_equal "${_b}" "prefix:app_ @basename suffix:_dev"
 }
 
 # why: `env_N` and `cap_drop_N` have no array-of-tables home, so they are
