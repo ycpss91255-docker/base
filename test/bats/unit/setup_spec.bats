@@ -1236,9 +1236,14 @@ EOF
   assert_output --partial "APT_MIRROR_DEBIAN=deb.debian.org"
 }
 
-@test "[build] back-compat: old apt_mirror_* named keys still read" {
-  # Legacy repo setup.conf with the pre-arg_N schema must keep working
-  # so users can upgrade template without rewriting setup.conf first.
+@test "[build] the apt_mirror_* named keys lose to any layer's [[build.args]]" {
+  # The pre-arg_N named keys have NO published compatibility promise --
+  # doc/deprecations.md schedules only `[deploy] runtime`. The lift in
+  # _apply_setup fires only when the whole layer chain supplies no arg_N,
+  # and the shipped template always supplies [[build.args]], so a repo
+  # setup.toml still carrying the named keys is overridden by the
+  # template's values rather than read. This records that, so the next
+  # reader does not take the lift for a contract it is not.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [build]
 apt_mirror_ubuntu = "mirror.example.com"
@@ -1251,8 +1256,9 @@ EOF
     grep '^TZ=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
-  assert_output --partial "APT_MIRROR_UBUNTU=mirror.example.com"
-  assert_output --partial "TZ=Asia/Tokyo"
+  assert_output --partial "APT_MIRROR_UBUNTU=tw.archive.ubuntu.com"
+  assert_output --partial "TZ=Asia/Taipei"
+  refute_output --partial "mirror.example.com"
 }
 
 @test "[build] user-added arg_N propagates to .env" {

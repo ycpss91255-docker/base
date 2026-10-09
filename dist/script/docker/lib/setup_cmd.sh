@@ -1158,11 +1158,19 @@ _setup_apply() {
   local -a _build_args=()
   _conf_list_sorted _APPLY_CONF build "arg_" _build_args
 
-  # Back-compat: repos that still have the old named-key schema
-  # (apt_mirror_ubuntu = …, tz = …) keep working without having to
-  # rewrite setup.toml. We lift those named keys into the arg_N list
-  # at runtime; the TUI saves in the new format the next time the
-  # user hits Save.
+  # The old named-key schema (apt_mirror_ubuntu = …, tz = …) is lifted
+  # into the arg_N list -- but ONLY when no layer of the chain supplies
+  # arg_N at all, which is what the guard below says. The shipped
+  # template always supplies [[build.args]], and an upper layer that
+  # says nothing about the array inherits it, so from `apply` this
+  # branch does not fire: a repo setup.toml still carrying the named
+  # keys gets the template's build args, not its own named values.
+  #
+  # That is deliberately stated as what HAPPENS, not as a promise. These
+  # keys are not on the deprecation schedule -- doc/deprecations.md lists
+  # only `[deploy] runtime`, and only that pair gets the per-layer alias
+  # precedence the merge applies. A repo on the pre-arg_N schema has to
+  # move its values into [[build.args]].
   if (( ${#_build_args[@]} == 0 )); then
     local _bc_v=""
     _conf_get_into _APPLY_CONF build apt_mirror_ubuntu "" _bc_v

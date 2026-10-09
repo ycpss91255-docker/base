@@ -277,6 +277,14 @@ _resolve_deploy_context() {
   # consumed: a conf that sets both has a half-finished migration, and
   # that is exactly the state the user needs told about. _resolve_docker_flags
   # applies the identical rule to a [stage:*] section.
+  #
+  # The "gpu_runtime absent" test below reads the MERGED conf, where the
+  # template's `gpu_runtime = "auto"` would otherwise always be present
+  # and the branch unreachable. What makes it reachable is the merge's own
+  # per-layer alias rule: a layer supplying only `runtime` un-inherits the
+  # canonical key, so absence here means "no layer at or above the one
+  # that spoke supplied the canonical spelling".
+  # doc/deprecations.md sec. Precedence across layers.
   local _gpu_runtime_mode="" _legacy_runtime=""
   _conf_get_into _RDC_CONF deploy gpu_runtime "" _gpu_runtime_mode
   _conf_get_into _RDC_CONF deploy runtime     "" _legacy_runtime

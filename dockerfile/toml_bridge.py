@@ -31,6 +31,31 @@ _ARRAY_SPEC = {
 }
 
 
+# Deprecated key spellings kept working behind a permanent alias (the W3
+# strategy doc/deprecations.md states). Each entry names the tables it
+# applies to and the (canonical, legacy) pair inside them. A name ending
+# in ":" matches any table whose name starts with it, which is how the
+# per-stage `[stage:<name>]` family is spelled; anything else is exact.
+#
+# Removing a deprecation at the next major version means deleting its
+# entry here as well as the reader-side fallback branch -- the removal
+# checklist in doc/deprecations.md names both.
+_LEGACY_ALIASES = (
+    ("deploy", "gpu_runtime", "runtime"),
+    ("stage:", "deploy.gpu_runtime", "deploy.runtime"),
+)
+
+
+def _aliases_for(table):
+    """Yield the (canonical, legacy) pairs that apply inside <table>."""
+    for name, canonical, legacy in _LEGACY_ALIASES:
+        if name.endswith(":"):
+            if table.startswith(name):
+                yield canonical, legacy
+        elif table == name:
+            yield canonical, legacy
+
+
 def _format_value(v):
     """Format a scalar TOML value for KV output."""
     if isinstance(v, bool):
@@ -110,6 +135,11 @@ def _merge_toml(paths):
     Arrays of tables (list): replace -- the entire array from the highest
     layer that defines it wins.
 
+    Deprecated aliases (_LEGACY_ALIASES): a layer supplying only the
+    legacy spelling of a pair un-inherits the canonical one, so absence
+    of the canonical key is decided per layer rather than on the merged
+    result.  doc/deprecations.md sec. Precedence across layers.
+
     A path that does not exist contributes nothing rather than failing:
     callers pass the whole layer chain unconditionally, which is the rule
     conf.sh's _conf_load_layers documents on the other side.
@@ -131,6 +161,22 @@ def _merge_toml(paths):
                 # Table: key-level merge.
                 if section not in merged or not isinstance(merged[section], dict):
                     merged[section] = {}
+                # A deprecated alias is resolved per LAYER, never on the
+                # merged result. A layer that supplies ONLY the legacy
+                # spelling drops the canonical value it would otherwise
+                # have inherited, so the highest layer that spells the
+                # setting out is the layer that decides it. Without this
+                # the template's canonical default (`gpu_runtime = "auto"`,
+                # which it always ships) masks the legacy key a consumer
+                # wrote one layer up: the published "canonical absent ->
+                # consume the legacy value" branch could never fire, and
+                # `runtime = "runc"` resolved silently to `auto`.
+                # A canonical key the layer supplies ITSELF is kept --
+                # canonical wins over legacy within one layer.
+                # doc/deprecations.md sec. Precedence across layers.
+                for canonical, legacy in _aliases_for(section):
+                    if legacy in entries and canonical not in entries:
+                        merged[section].pop(canonical, None)
                 merged[section].update(entries)
             else:
                 # Array of tables, or a top-level scalar: replace.

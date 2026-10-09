@@ -860,6 +860,48 @@ EOF
   assert_line "devices	device_1	/dev/dri"
 }
 
+# why: doc/deprecations.md publishes that `[deploy] runtime` is consumed
+#      when `gpu_runtime` is absent, and the shipped template always
+#      supplies `gpu_runtime = "auto"`. Deciding "absent" on the MERGED
+#      result makes that branch unreachable: the inherited canonical
+#      default masks the legacy key a consumer wrote one layer up, so
+#      `runtime = "runc"` silently resolved to `auto`. Absence is per
+#      LAYER -- the highest layer that spells the setting out decides it.
+@test "toml-bridge: --merge a legacy alias one layer up drops the inherited canonical key" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (--merge deprecated-alias precedence)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[deploy]\ngpu_mode = "auto"\ngpu_runtime = "auto"\n' > "${lower}"
+  printf '[deploy]\nruntime = "runc"\n' > "${upper}"
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line "deploy	runtime	runc"
+  refute_output --partial "gpu_runtime"
+  # Only the aliased pair is unmasked; every other inherited key stays.
+  assert_line "deploy	gpu_mode	auto"
+}
+
+# why: `gpu_runtime` wins when both spellings appear in ONE layer
+#      (doc/deprecations.md), so the alias rule must not strip a canonical
+#      key the layer itself supplied -- only one it merely inherited.
+@test "toml-bridge: --merge keeps a canonical key the same layer supplies" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (--merge deprecated-alias precedence)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[deploy]\ngpu_runtime = "auto"\n' > "${lower}"
+  printf '[deploy]\ngpu_runtime = "nvidia"\nruntime = "off"\n' > "${upper}"
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line "deploy	gpu_runtime	nvidia"
+  assert_line "deploy	runtime	off"
+}
+
 # why: a TOML boolean reaches the shell as the string the shell compares
 #      against, and Python's str(True) is `True`. Every `== true` on the
 #      shell side reads that as false, so the setting arrives inverted and

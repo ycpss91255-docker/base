@@ -5730,7 +5730,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `_msg falls back to English when _LANG is unknown` | - |
 | `[build] template defaults ship TW mirrors via arg_N` | - |
 | `[build] arg_N override replaces TW default when set` | - |
-| `[build] back-compat: old apt_mirror_* named keys still read` | - |
+| `[build] the apt_mirror_* named keys lose to any layer's [[build.args]]` | - |
 | `[build] user-added arg_N propagates to .env` | - |
 | `[build] target_arch = arm64 writes TARGET_ARCH to .env` | - |
 | `[build] target_arch empty omits TARGET_ARCH from .env` | - |
@@ -6655,7 +6655,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (39)
+### test/bats/unit/toml_bridge_spec.bats (41)
 
 | Test | Description |
 |------|-------------|
@@ -6693,6 +6693,8 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: setup.toml has zero numbered-key patterns` | D1 acceptance criterion -- numbered-key patterns (_N =) must be eliminated, replaced by [[array of tables]] |
 | `toml-bridge: _conf_load_layers reads array-produced numbered keys from TOML` | when toml_bridge_merge --kv emits numbered keys from [[array of tables]], _conf_load_layers must populate the accessor arrays so compose_emit.sh sees the same format as from INI numbered keys |
 | `toml-bridge: --merge --kv merges layers into the numbered-key shape` | the merge is the whole contract the shell layer reads -- a table's keys merge key-level while an array of tables is replaced wholesale, and the winner arrives as the numbered keys _conf_list_sorted matches. Asserting that against a mocked answer proves none of it. |
+| `toml-bridge: --merge a legacy alias one layer up drops the inherited canonical key` | doc/deprecations.md publishes that `[deploy] runtime` is consumed when `gpu_runtime` is absent, and the shipped template always supplies `gpu_runtime = "auto"`. Deciding "absent" on the MERGED result makes that branch unreachable: the inherited canonical default masks the legacy key a consumer wrote one layer up, so `runtime = "runc"` silently resolved to `auto`. Absence is per LAYER -- the highest layer that spells the setting out decides it. |
+| `toml-bridge: --merge keeps a canonical key the same layer supplies` | `gpu_runtime` wins when both spellings appear in ONE layer (doc/deprecations.md), so the alias rule must not strip a canonical key the layer itself supplied -- only one it merely inherited. |
 | `toml-bridge: --kv renders a TOML boolean lowercase` | a TOML boolean reaches the shell as the string the shell compares against, and Python's str(True) is `True`. Every `== true` on the shell side reads that as false, so the setting arrives inverted and says nothing about it -- the one failure mode a type-aware bridge exists to prevent. |
 | `toml-bridge: _conf_load_layers fails when the bridge exits non-zero` | a bridge that fails prints nothing and says so with its exit status. Read through a process substitution that status is out of reach, and the caller is handed a handle with nothing in it -- indistinguishable from a config whose every value is the default. That is what turned a totally broken merge into a silent, plausible-looking run, so the status has to reach the caller. |
 | `toml-bridge: --kv flattens a nested table into its own dotted section` | the shell view has no nesting -- a section is one flat name -- and `[logging.web]` is the per-service spelling the template documents and `_conf_toml_header` writes. str()-ing the dict hands the shell `logging<TAB>web<TAB>{'driver': 'local'}`: the section `logging.web` never exists, so `_load_setup_conf <base> logging.web` reads nothing, and the global `[logging]` gains a key whose value is a Python repr. |
