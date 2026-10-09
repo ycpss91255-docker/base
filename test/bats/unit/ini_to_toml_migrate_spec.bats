@@ -781,6 +781,79 @@ EOF
   assert_line 'logging	max_file	3'
 }
 
+# why: The ORDER of the two occurrences decides it. An emptied occurrence
+# AFTER a populated one at the same index is the disagreement from the
+# other side -- the list readers keep the value they collected, a key
+# lookup reads the clear -- so it declines. BEFORE one it is not a
+# disagreement at all: both sides answer the populated value, and one
+# block is the faithful rendering. The first version of this check
+# refused both ways.
+@test "_migrate_ini_to_toml declines a clear that lands on a filled entry (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+port_1 = 8080:80
+port_1 =
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert_output --partial 'clears entry 1'
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial '8080:80'
+}
+
+# why: The other order converts, and so does an emptied occurrence whose
+# suffix is not its own spelling -- it names no entry for anything to
+# collide with, so it must not reach the index check at all.
+@test "_migrate_ini_to_toml: a clear before the value it precedes is no collision (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[tmpfs]
+tmpfs_18446744073709551617 =
+tmpfs_1 =
+tmpfs_1 = /tmp
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run grep -c '^\[\[tmpfs\]\]$' "${TEMP_DIR}/setup.toml"
+  assert_output "1"
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'tmpfs	tmpfs_1	/tmp'
+}
+
+# why: The same two orders on the scalar side, where `env_N` lives. A
+# clear BEFORE the value collapses to the value, which is what both the
+# list reader and a key lookup answer. A clear AFTER one would retract it
+# for the lookup and not for the list reader, so it is left as the
+# duplicate TOML key it is and the gate declines.
+@test "_migrate_ini_to_toml: a cleared env_N slot refilled on the next line collapses (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[environment]
+env_1 =
+env_1 = SIGNALING_SERVER=localhost
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'environment	env_1	SIGNALING_SERVER=localhost'
+}
+
+@test "_migrate_ini_to_toml declines an env_N cleared after it was filled (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[environment]
+env_1 = SIGNALING_SERVER=localhost
+env_1 =
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial 'SIGNALING_SERVER=localhost'
+}
+
 # ── idempotency ────────────────────────────────────────────────────────
 
 # why: A repo that already has setup.toml must not be re-converted

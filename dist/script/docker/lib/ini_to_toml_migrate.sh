@@ -256,22 +256,31 @@ _ini_to_toml_convert() {
     # collapsed.
     local -a _sc_keys=() _sc_vals=()
     local -a _num_order=()
-    local -A _sc_at=()
+    local -A _sc_at=() _sc_ne=()
     local _aot_buf="" _decl_buf=""
 
     for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
       [[ "${_es[_i]}" == "${_s}" ]] || continue
       if _ini_to_toml_is_numbered "${_s}" "${_keys[_i]}"; then
         _num_order+=("${_i}")
-      elif [[ "${_keys[_i]}" =~ ^.+_[0-9]+$ ]]; then
-        _sc_keys+=("${_keys[_i]}")
-        _sc_vals+=("${_vals[_i]}")
-      elif [[ -n "${_sc_at[${_keys[_i]}]+set}" ]]; then
-        _sc_vals["${_sc_at[${_keys[_i]}]}"]="${_vals[_i]}"
-      else
+      elif [[ -z "${_sc_at[${_keys[_i]}]+set}" ]]; then
         _sc_at["${_keys[_i]}"]="${#_sc_keys[@]}"
+        _sc_ne["${_keys[_i]}"]=0
+        [[ -z "${_vals[_i]}" ]] || _sc_ne["${_keys[_i]}"]=1
         _sc_keys+=("${_keys[_i]}")
         _sc_vals+=("${_vals[_i]}")
+      elif [[ "${_keys[_i]}" =~ ^.+_[0-9]+$ ]] \
+          && (( ${_sc_ne[${_keys[_i]}]} > 0 )); then
+        # A LIST key whose earlier occurrence carried a value. Collapsing
+        # would drop an entry: a second occurrence APPENDS to the list,
+        # and an emptied one does not retract the first. Appended as the
+        # duplicate TOML key it is, so the commit gate declines and both
+        # lines stay on disk.
+        _sc_keys+=("${_keys[_i]}")
+        _sc_vals+=("${_vals[_i]}")
+      else
+        _sc_vals["${_sc_at[${_keys[_i]}]}"]="${_vals[_i]}"
+        [[ -z "${_vals[_i]}" ]] || _sc_ne["${_keys[_i]}"]=1
       fi
     done
 
@@ -343,23 +352,35 @@ _ini_to_toml_convert() {
     # `port_1 =` twice, or a `rule_<huge> =` no arithmetic can hold, is
     # an opt-out like any other. It still OWNS its family, which is what
     # decides whether a cleared list owes a declaration.
-    local -A _itc_val=() _itc_max=() _itc_key=() _itc_late=()
-    local _ni _itc_path _itc_suf _itc_n _itc_bare _itc_cur _itc_at
+    local -A _itc_val=() _itc_max=() _itc_key=()
+    local _ni _itc_path _itc_suf _itc_n _itc_cur _itc_at
     for _ni in ${_num_order[@]+"${_num_order[@]}"}; do
       _itc_path=""
       _itc_suf=""
       _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
-      _itc_at="${_itc_path}"$'\t'"$(( 10#${_itc_suf} ))"
+      # The arithmetic is read BEFORE the value, because the index is what
+      # says whether two occurrences are the same entry -- but nothing is
+      # refused on it until a value is in hand.
+      _itc_n=$(( 10#${_itc_suf} ))
+      _itc_at="${_itc_path}"$'\t'"${_itc_n}"
       if [[ -z "${_vals[_ni]}" ]]; then
-        # An emptied occurrence after a populated one at the same index
-        # is the disagreement above, seen from the other side: the list
-        # keeps the value, the lookup reads the clear.
-        _itc_late["${_itc_at}"]=1
+        # An emptied occurrence AFTER a populated one at the same index is
+        # the disagreement from the other side: the list readers keep the
+        # value they already collected, a key lookup reads the clear. An
+        # emptied occurrence BEFORE one is not -- both sides answer the
+        # populated value -- and an emptied occurrence whose suffix is not
+        # its own spelling names no entry to collide with at all.
+        if [[ "${_itc_suf}" == "${_itc_n}" ]] && (( _itc_n >= 1 )) \
+            && [[ -n "${_itc_key[${_itc_at}]+set}" ]]; then
+          _log_warn init ini_to_toml_duplicate_index \
+            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` clears entry ${_itc_n} of that list, which \`${_itc_key[${_itc_at}]}\` already filled. A key lookup reads the clear and the list readers keep the value, so the converted file would have to be both -- and for \`[volumes]\` entry 1 is the workspace bind. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Delete whichever of the two lines you do not want and re-run \`just base init\`." \
+            "path=${_ini}" \
+            "key=${_s}.${_keys[_ni]}" \
+            "other=${_itc_key[${_itc_at}]}"
+          return 1
+        fi
         continue
       fi
-      _itc_n=$(( 10#${_itc_suf} ))
-      _itc_bare="${_itc_suf#"${_itc_suf%%[!0]*}"}"
-      [[ -n "${_itc_bare}" ]] || _itc_bare=0
       if [[ "${_itc_suf}" != "${_itc_n}" ]] || (( _itc_n < 1 )); then
         _log_warn init ini_to_toml_index_unrepresentable \
           "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` does not number a list entry the converted file can hold. An entry of a TOML array of tables IS the key \`<name>_N\` with N its plain 1-based position, so a number written any other way -- padded, or past what the arithmetic holds -- would be read back under a different name. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1, consecutively, and re-run \`just base init\`." \
@@ -367,12 +388,12 @@ _ini_to_toml_convert() {
           "key=${_s}.${_keys[_ni]}"
         return 1
       fi
-      if [[ -n "${_itc_key[${_itc_at}]+set}" || -n "${_itc_late[${_itc_at}]+set}" ]]; then
+      if [[ -n "${_itc_key[${_itc_at}]+set}" ]]; then
         _log_warn init ini_to_toml_duplicate_index \
-          "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` is entry ${_itc_n} of that list a second time. The list readers count two entries there and a lookup of the key reads one value, so the converted file would have to be both -- and for \`[volumes]\` entry 1 is the workspace bind. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Give the entries different numbers, or delete the one you do not want, and re-run \`just base init\`." \
+          "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` is entry ${_itc_n} of that list a second time, after \`${_itc_key[${_itc_at}]}\`. The list readers count two entries there and a key lookup reads one value, so the converted file would have to be both -- and for \`[volumes]\` entry 1 is the workspace bind. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Give the entries different numbers, or delete the one you do not want, and re-run \`just base init\`." \
           "path=${_ini}" \
           "key=${_s}.${_keys[_ni]}" \
-          "other=${_itc_key[${_itc_at}]-${_s}.${_keys[_ni]}}"
+          "other=${_itc_key[${_itc_at}]}"
         return 1
       fi
       _itc_key["${_itc_at}"]="${_s}.${_keys[_ni]}"

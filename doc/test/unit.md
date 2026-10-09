@@ -3139,7 +3139,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (58)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (62)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3187,6 +3187,10 @@ the source INI where it was, writes no target, and says so
 | `_migrate_ini_to_toml declines a repeated environment env_N rather than dropping one (base#1148)` | `env_N` and `cap_drop_N` have no array-of-tables home, so they are carried over as quoted scalars -- and they are read by `_conf_list_sorted`, which is NOT last-wins. Collapsing a repeated one the way an ordinary scalar is collapsed dropped a variable, or a dropped capability, from a file the parser accepts and from an INI already renamed to .bak. Left uncollapsed, the duplicate reaches the commit gate as the unrenderable TOML it is: the conversion is declined and both lines are still on disk. A decline is recoverable. |
 | `_migrate_ini_to_toml declines a repeated security cap_drop_N rather than dropping one (base#1148)` | The same shape one section over. `cap_drop_N` is the other numbered key with no array home, and a dropped capability silently restored is a container that keeps a privilege the operator removed. |
 | `_migrate_ini_to_toml: a numbered key beside a repeated scalar does not block the collapse (base#1148)` | The collapse still applies to a key a SCALAR accessor reads, which is the whole point of it, and a numbered neighbour in the same section must not stop it. `[logging] driver` is collapsed; `env_1` next door would not be. |
+| `_migrate_ini_to_toml declines a clear that lands on a filled entry (base#1148)` | The ORDER of the two occurrences decides it. An emptied occurrence AFTER a populated one at the same index is the disagreement from the other side -- the list readers keep the value they collected, a key lookup reads the clear -- so it declines. BEFORE one it is not a disagreement at all: both sides answer the populated value, and one block is the faithful rendering. The first version of this check refused both ways. |
+| `_migrate_ini_to_toml: a clear before the value it precedes is no collision (base#1148)` | The other order converts, and so does an emptied occurrence whose suffix is not its own spelling -- it names no entry for anything to collide with, so it must not reach the index check at all. |
+| `_migrate_ini_to_toml: a cleared env_N slot refilled on the next line collapses (base#1148)` | The same two orders on the scalar side, where `env_N` lives. A clear BEFORE the value collapses to the value, which is what both the list reader and a key lookup answer. A clear AFTER one would retract it for the lookup and not for the list reader, so it is left as the duplicate TOML key it is and the gate declines. |
+| `_migrate_ini_to_toml declines an env_N cleared after it was filled (base#1148)` | - |
 | `_migrate_ini_to_toml is idempotent when setup.toml exists (#1137)` | A repo that already has setup.toml must not be re-converted |
 | `_migrate_ini_to_toml is idempotent when setup.local.toml exists (#1137)` | A repo that already has setup.local.toml must not be re-converted |
 | `_migrate_ini_to_toml backs up .setup.conf to .setup.conf.bak (#1137)` | The original INI file is renamed to .bak for the user to verify |
