@@ -908,10 +908,28 @@ _init_record_write() {
 #                                  place would hand the consumer two
 #                                  copies of its own configuration and no
 #                                  way to tell which the tooling reads.
+#     _migrate_ini_to_toml         every name its conversions deal in, from
+#                                  _ini_to_toml_migration_paths: each INI
+#                                  source, the `.bak` the rename puts it
+#                                  at, and the TOML target. Not listed
+#                                  here, derived there, because that is
+#                                  where the conversions are declared --
+#                                  a roster of them typed out again in
+#                                  this list is one a new conversion
+#                                  leaves stale, and a rollback that knew
+#                                  only the TARGET removed the converted
+#                                  file while leaving the rename standing,
+#                                  which is a failed run ending with
+#                                  neither file.
 #
 #   The retired root wrappers come from _init_retired_root_paths below,
 #   which is also what _create_symlinks deletes from and what the staging
 #   step commits the deletion of.
+#
+#   Entries may repeat between the sources -- `setup.toml` is both the
+#   relocation's target and a conversion's -- and that is harmless by
+#   construction: the snapshot copies a root and the restore replaces it,
+#   so visiting one twice does the same thing twice.
 _init_protected_paths() {
   cat <<'EOF'
 Dockerfile
@@ -929,6 +947,7 @@ test/smoke
 test/bats/smoke
 EOF
   _init_retired_root_paths
+  _ini_to_toml_migration_paths
 }
 
 # _init_retired_root_paths

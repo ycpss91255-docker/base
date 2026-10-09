@@ -185,7 +185,6 @@ init_rollback_failed
 # ini_to_toml_migrate.sh (INI-to-TOML format migration; emitted under
 # the init service because init.sh is the only caller)
 ini_to_toml_migrated
-ini_to_toml_local_migrated
 env_local_to_toml_migrated
 ini_to_toml_migration_declined
 

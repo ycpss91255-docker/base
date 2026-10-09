@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **191 tests**.
+Integration specs under `test/bats/integration/`: **192 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -258,11 +258,12 @@ the unit `tui_spec`.
 | `existing repo: init never rewrites a main.yaml it did not create (#957)` | Delivery boundary: an existing repo's hand-maintained CI survives init byte-for-byte |
 | `existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)` | The same boundary stated positively: the monitor converges, main.yaml is new-repo-only (#927 / #928) |
 
-### test/bats/integration/init_protected_paths_spec.bats (1)
+### test/bats/integration/init_protected_paths_spec.bats (2)
 
 | Test | Description |
 |------|-------------|
 | `every path the resync touches lies under a protected root (refs #1050)` | The rollback surface is derived from what the resync does, not from a list restated in the spec |
+| `a rollback after a successful INI-to-TOML conversion restores the INI (refs base#1137)` | The other side of the containment pair (base#1137). That pair stopped a FAILED conversion from retiring the INI; this is a conversion that SUCCEEDS and is then rolled back. The migration writes `setup.toml` and renames `.setup.conf` to `.setup.conf.bak`, and the rollback surface named neither the source nor the name it is renamed to -- so the snapshot recorded `setup.toml` as absent and removed it, while the rename was left standing. The repo came out of a failed run carrying no configuration any shipped reader looks at, which is the outcome the containment exists to prevent, reached from the successful direction. |
 
 ### test/bats/integration/init_rollback_spec.bats (5)
 

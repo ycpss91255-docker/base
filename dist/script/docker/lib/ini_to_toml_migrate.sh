@@ -250,22 +250,77 @@ _ini_to_toml_convert() {
   _ini_to_toml_commit "${_ini}" "${_tmp}" "${_toml}"
 }
 
+# ── The conversions this module performs ──────────────────────────────
+
+# _ini_to_toml_conversions
+#
+# One row per conversion _migrate_ini_to_toml performs, as
+# `source<TAB>target`, repo-root-relative.
+#
+# THE table. The converter below walks it instead of spelling each
+# conversion out, and init.sh derives this migration's entries of the
+# rollback surface from it (_init_protected_paths via
+# _ini_to_toml_migration_paths), so a conversion added here is covered by
+# the edit that adds it. The alternative is a second list of "files the
+# rollback should care about", kept in agreement with this one by
+# somebody remembering -- the shape base#1090 and base#1113 spent PRs
+# removing.
+#
+# _migrate_env_local_to_toml's own pair is deliberately NOT a row here.
+# It has no caller in the resync until base#1163 restores one, so the
+# resync cannot touch those names and a rollback has nothing of theirs
+# to put back; the change that restores the caller adds the row.
+_ini_to_toml_conversions() {
+  cat <<'EOF'
+.setup.conf	setup.toml
+.setup.conf.local	setup.local.toml
+EOF
+}
+
+# _ini_to_toml_migration_paths
+#
+# Every repo-root-relative path those conversions can create, rename away
+# or leave behind: each source, the `.bak` the rename puts it at, and the
+# target the conversion writes.
+#
+# This is the ROLLBACK's view of the table above, and it lives here
+# because the table does. A rollback that knows a migration's target but
+# not its source removes the new file -- its snapshot recorded that name
+# as absent -- and leaves the rename standing, so a run that failed ends
+# with neither file: not the converted one and not the configuration it
+# converted. That is strictly worse than either endpoint, and it is the
+# successful-conversion side of the containment base#1137 closed from the
+# failed side.
+_ini_to_toml_migration_paths() {
+  local _src _dst
+  while IFS=$'\t' read -r _src _dst; do
+    [[ -n "${_src}" && -n "${_dst}" ]] || continue
+    printf '%s\n%s.bak\n%s\n' "${_src}" "${_src}" "${_dst}"
+  done < <(_ini_to_toml_conversions)
+}
+
 # ── Migration entry points ────────────────────────────────────────────
 
 # _migrate_ini_to_toml <repo_root>
 #
-# Convert .setup.conf -> setup.toml and .setup.conf.local ->
-# setup.local.toml. Each half is gated independently on
-# [[ -f source && ! -f target ]].
+# Convert every row of _ini_to_toml_conversions whose source is present
+# and whose target is not: .setup.conf -> setup.toml and
+# .setup.conf.local -> setup.local.toml today. Each row is gated
+# independently on [[ -f source && ! -f target ]].
 #
 # The rename of each source is gated a second time, on its conversion
-# having parsed: a half that _ini_to_toml_convert refused has already
-# said so and left both files alone, so there is nothing to retire and
-# nothing to announce. Each half answers for itself -- a repo whose
-# .setup.conf converts and whose .setup.conf.local does not keeps the
-# conversion it got.
+# having parsed: a row that _ini_to_toml_convert refused has already said
+# so and left both files alone, so there is nothing to retire and nothing
+# to announce. Each row answers for itself -- a repo whose .setup.conf
+# converts and whose .setup.conf.local does not keeps the conversion it
+# got.
 #
-# A refusal in either half is then reported to the CALLER as a non-zero
+# ONE announcement body for every row, with the two file names in it,
+# rather than one body per row. The two bodies this replaced said the
+# same thing about two rows of one table, which made the registry a
+# third place a conversion had to be added.
+#
+# A refusal in any row is then reported to the CALLER as a non-zero
 # answer, and that is the half that makes the containment hold. Nothing
 # downstream of the resync knows a migration was declined: `main` goes on
 # to call setup, which seeds a setup.toml from the template defaults, and
@@ -277,33 +332,21 @@ _migrate_ini_to_toml() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _rc=0
 
-  # .setup.conf -> setup.toml
-  local _ini="${_root%/}/.setup.conf"
-  local _toml="${_root%/}/setup.toml"
-  if [[ -f "${_ini}" && ! -f "${_toml}" ]]; then
+  local _src _dst _ini _toml
+  while IFS=$'\t' read -r _src _dst; do
+    [[ -n "${_src}" && -n "${_dst}" ]] || continue
+    _ini="${_root%/}/${_src}"
+    _toml="${_root%/}/${_dst}"
+    [[ -f "${_ini}" && ! -f "${_toml}" ]] || continue
     if _ini_to_toml_convert "${_ini}" "${_toml}"; then
       mv -- "${_ini}" "${_ini}.bak"
       _log_warn init ini_to_toml_migrated \
-        "display=MIGRATION: .setup.conf -> setup.toml. The configuration format has been upgraded from INI to TOML (ADR-00000037). Your settings were converted and the original was backed up to .setup.conf.bak." \
+        "display=MIGRATION: ${_src} -> ${_dst}. The configuration format has been upgraded from INI to TOML (ADR-00000037). Your settings were converted and the original was backed up to ${_src}.bak." \
         "path=${_toml}"
     else
       _rc=1
     fi
-  fi
-
-  # .setup.conf.local -> setup.local.toml
-  local _ini_local="${_root%/}/.setup.conf.local"
-  local _toml_local="${_root%/}/setup.local.toml"
-  if [[ -f "${_ini_local}" && ! -f "${_toml_local}" ]]; then
-    if _ini_to_toml_convert "${_ini_local}" "${_toml_local}"; then
-      mv -- "${_ini_local}" "${_ini_local}.bak"
-      _log_warn init ini_to_toml_local_migrated \
-        "display=MIGRATION: .setup.conf.local -> setup.local.toml. The per-instance override was converted from INI to TOML and the original was backed up to .setup.conf.local.bak." \
-        "path=${_toml_local}"
-    else
-      _rc=1
-    fi
-  fi
+  done < <(_ini_to_toml_conversions)
 
   return "${_rc}"
 }
