@@ -3131,7 +3131,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (35)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (37)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3181,6 +3181,8 @@ the source INI where it was, writes no target, and says so
 | `_migrate_ini_to_toml answers non-zero when it refuses (base#1148)` | a refusal only protects the configuration if the caller hears it. init.sh's resync continues into `_call_setup`, which seeds a setup.toml from the template defaults -- and that seeded file satisfies the `! -f target` gate, so a migration that merely declined quietly would never be attempted again and the surviving INI would stop taking effect. The refusal has to reach the caller as a non-zero answer. |
 | `_migrate_ini_to_toml answers zero when it converts and when it is inert (base#1148)` | the answer has to distinguish a refusal from the two ordinary outcomes, or a caller that stops on non-zero stops on every repo that has nothing to migrate and on every repo that migrated fine. |
 | `_migrate_env_local_to_toml answers non-zero when it refuses (base#1148)` | the flat-env converter has the same caller contract to honour, and base#1163 restores its call site once the .env.toml readers land. |
+| `_migrate_ini_to_toml records both sides of the conversion (base#1148)` | The two halves the upgrade commit needs, recorded where the write happens. `_stage_resync_output` stages every path `_INIT_WROTE` names since base#1097, and nothing else can name this migration's output -- the published lists are written before the migration exists. Un-recorded, a migrated consumer's fresh clone comes up on the template defaults: `setup.toml` untracked and the tracked `.setup.conf` deleted but not staged. The DELETION is asserted as well as the write, because a commit carrying one and not the other leaves the repo with two configurations. |
+| `_migrate_ini_to_toml converts with no record to write to (base#1148)` | The record is a hand-off to init.sh and the lib is also sourced on its own -- by this spec, and by anything converting outside a resync. A bare call to a function that is not there would print a "command not found" into the middle of a migration's own output. |
 
 ### test/bats/unit/init_existing_repo_signals_spec.bats (6)
 

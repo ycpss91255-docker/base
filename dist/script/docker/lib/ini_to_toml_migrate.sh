@@ -299,6 +299,24 @@ _ini_to_toml_migration_paths() {
   done < <(_ini_to_toml_conversions)
 }
 
+# _ini_to_toml_record <repo-relative-path>
+#
+# Record a path this migration wrote, so `_stage_resync_output` puts it in
+# the upgrade commit. init.sh's `_init_record_write` is the only record
+# that step reads, and since base#1097 it stages EVERY recorded path
+# rather than using the record as a filter over two closed lists -- which
+# is the mechanism a migration's output needs, because no list written
+# before the migration existed can name it.
+#
+# A no-op where `_init_record_write` is not defined. The lib is also
+# sourced on its own -- by the unit specs, and by anything driving a
+# conversion outside a resync -- and there is no commit to stage into
+# there.
+_ini_to_toml_record() {
+  declare -F _init_record_write > /dev/null 2>&1 || return 0
+  _init_record_write "${1:?"${FUNCNAME[0]}: missing repo-relative path"}"
+}
+
 # ── Migration entry points ────────────────────────────────────────────
 
 # _migrate_ini_to_toml <repo_root>
@@ -340,6 +358,17 @@ _migrate_ini_to_toml() {
     [[ -f "${_ini}" && ! -f "${_toml}" ]] || continue
     if _ini_to_toml_convert "${_ini}" "${_toml}"; then
       mv -- "${_ini}" "${_ini}.bak"
+      # BOTH sides of the conversion, or the upgrade commit describes a
+      # tree it does not carry: the TOML file this run wrote, and the
+      # tracked INI the rename took away, whose DELETION is as much this
+      # run's output as the write is. Without them a fresh clone of a
+      # migrated consumer gets the template defaults -- `setup.toml`
+      # untracked, `.setup.conf` deleted but not staged -- which is
+      # base#1036 reached through a migration rather than through a
+      # rewrite. `_stage_resync_output` drops the `.bak` on its own: it is
+      # a canonical gitignore entry, so check-ignore reports it.
+      _ini_to_toml_record "${_dst}"
+      _ini_to_toml_record "${_src}"
       _log_warn init ini_to_toml_migrated \
         "display=MIGRATION: ${_src} -> ${_dst}. The configuration format has been upgraded from INI to TOML (ADR-00000037). Your settings were converted and the original was backed up to ${_src}.bak." \
         "path=${_toml}"

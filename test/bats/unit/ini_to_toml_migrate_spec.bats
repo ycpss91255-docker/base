@@ -663,3 +663,46 @@ EOF
   assert_failure
   assert [ -f "${TEMP_DIR}/.env.local" ]
 }
+
+# why: The two halves the upgrade commit needs, recorded where the write
+#      happens. `_stage_resync_output` stages every path `_INIT_WROTE`
+#      names since base#1097, and nothing else can name this migration's
+#      output -- the published lists are written before the migration
+#      exists. Un-recorded, a migrated consumer's fresh clone comes up on
+#      the template defaults: `setup.toml` untracked and the tracked
+#      `.setup.conf` deleted but not staged. The DELETION is asserted as
+#      well as the write, because a commit carrying one and not the other
+#      leaves the repo with two configurations.
+@test "_migrate_ini_to_toml records both sides of the conversion (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  run bash -c "declare -gA _INIT_WROTE=()
+_init_record_write() { _INIT_WROTE[\"\$1\"]=1; }
+$(_src)
+_migrate_ini_to_toml '${TEMP_DIR}'
+printf 'RECORDED %s\n' \"\${!_INIT_WROTE[@]}\" | LC_ALL=C sort"
+  assert_success
+  assert_line "RECORDED .setup.conf"
+  assert_line "RECORDED setup.toml"
+  # The backup is NOT recorded: it is a canonical gitignore entry, so
+  # recording it would only be dropped again at the check-ignore fence.
+  refute_line "RECORDED .setup.conf.bak"
+}
+
+# why: The record is a hand-off to init.sh and the lib is also sourced on
+#      its own -- by this spec, and by anything converting outside a
+#      resync. A bare call to a function that is not there would print a
+#      "command not found" into the middle of a migration's own output.
+@test "_migrate_ini_to_toml converts with no record to write to (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.toml" ]
+  refute_output --partial "command not found"
+  refute_output --partial "_init_record_write"
+}
