@@ -263,33 +263,49 @@ _ini_to_toml_convert() {
 # said so and left both files alone, so there is nothing to retire and
 # nothing to announce. Each half answers for itself -- a repo whose
 # .setup.conf converts and whose .setup.conf.local does not keeps the
-# conversion it got. The function still answers 0 either way: the
-# refusal is a declined migration, the shape _migrate_smoke_tree uses,
-# and init.sh has the rest of the resync to do.
+# conversion it got.
+#
+# A refusal in either half is then reported to the CALLER as a non-zero
+# answer, and that is the half that makes the containment hold. Nothing
+# downstream of the resync knows a migration was declined: `main` goes on
+# to call setup, which seeds a setup.toml from the template defaults, and
+# the seeded file satisfies this function's own `! -f target` gate. The
+# surviving INI would stop taking effect and would never be converted
+# again. Declining quietly, the way _migrate_smoke_tree declines, is only
+# safe because nothing later writes the smoke tree.
 _migrate_ini_to_toml() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
+  local _rc=0
 
   # .setup.conf -> setup.toml
   local _ini="${_root%/}/.setup.conf"
   local _toml="${_root%/}/setup.toml"
-  if [[ -f "${_ini}" && ! -f "${_toml}" ]] \
-     && _ini_to_toml_convert "${_ini}" "${_toml}"; then
-    mv -- "${_ini}" "${_ini}.bak"
-    _log_warn init ini_to_toml_migrated \
-      "display=MIGRATION: .setup.conf -> setup.toml. The configuration format has been upgraded from INI to TOML (ADR-00000037). Your settings were converted and the original was backed up to .setup.conf.bak." \
-      "path=${_toml}"
+  if [[ -f "${_ini}" && ! -f "${_toml}" ]]; then
+    if _ini_to_toml_convert "${_ini}" "${_toml}"; then
+      mv -- "${_ini}" "${_ini}.bak"
+      _log_warn init ini_to_toml_migrated \
+        "display=MIGRATION: .setup.conf -> setup.toml. The configuration format has been upgraded from INI to TOML (ADR-00000037). Your settings were converted and the original was backed up to .setup.conf.bak." \
+        "path=${_toml}"
+    else
+      _rc=1
+    fi
   fi
 
   # .setup.conf.local -> setup.local.toml
   local _ini_local="${_root%/}/.setup.conf.local"
   local _toml_local="${_root%/}/setup.local.toml"
-  if [[ -f "${_ini_local}" && ! -f "${_toml_local}" ]] \
-     && _ini_to_toml_convert "${_ini_local}" "${_toml_local}"; then
-    mv -- "${_ini_local}" "${_ini_local}.bak"
-    _log_warn init ini_to_toml_local_migrated \
-      "display=MIGRATION: .setup.conf.local -> setup.local.toml. The per-instance override was converted from INI to TOML and the original was backed up to .setup.conf.local.bak." \
-      "path=${_toml_local}"
+  if [[ -f "${_ini_local}" && ! -f "${_toml_local}" ]]; then
+    if _ini_to_toml_convert "${_ini_local}" "${_toml_local}"; then
+      mv -- "${_ini_local}" "${_ini_local}.bak"
+      _log_warn init ini_to_toml_local_migrated \
+        "display=MIGRATION: .setup.conf.local -> setup.local.toml. The per-instance override was converted from INI to TOML and the original was backed up to .setup.conf.local.bak." \
+        "path=${_toml_local}"
+    else
+      _rc=1
+    fi
   fi
+
+  return "${_rc}"
 }
 
 # _migrate_env_local_to_toml <repo_root>
@@ -297,7 +313,9 @@ _migrate_ini_to_toml() {
 # Convert .env.local (flat KEY=VALUE) -> .env.local.toml (TOML with
 # [environment] section). Gated on [[ -f .env.local && ! -f
 # .env.local.toml ]], and the rename of the source gated again on the
-# conversion having parsed, for the reason the file header gives.
+# conversion having parsed, for the reason the file header gives. A
+# refusal answers non-zero, like the sibling above: this one has no
+# caller yet, and the caller base#1163 restores needs the same signal.
 _migrate_env_local_to_toml() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _env="${_root%/}/.env.local"
@@ -335,7 +353,7 @@ _migrate_env_local_to_toml() {
   # become .env.local.toml and the source become a .bak.
   local _tmp="${_toml}.$$"
   printf '%s' "${_result}" > "${_tmp}"
-  _ini_to_toml_commit "${_env}" "${_tmp}" "${_toml}" || return 0
+  _ini_to_toml_commit "${_env}" "${_tmp}" "${_toml}" || return 1
   mv -- "${_env}" "${_env}.bak"
   _log_warn init env_local_to_toml_migrated \
     "display=MIGRATION: .env.local -> .env.local.toml. The per-instance env override was converted from flat KEY=VALUE to TOML (ADR-00000037) and the original was backed up to .env.local.bak." \

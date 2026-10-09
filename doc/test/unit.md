@@ -2994,7 +2994,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (32)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (35)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3039,8 +3039,11 @@ the source INI where it was, writes no target, and says so
 | `_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)` | a numbered key with no array home becomes a `[devices]` table while a device binding becomes a `[[devices]]` array of tables, and TOML forbids one name being both. The repo must come out of this with its configuration still on disk and readable, because the refusal is recoverable and the rename is not. |
 | `_migrate_ini_to_toml names the refused input and what the parser objected to (base#1148)` | the refusal has to name the input, or the operator reading a resync log of fifty lines cannot tell which of three files it was about, and the one actionable fact -- that their config is untouched -- is the one they need. |
 | `_migrate_ini_to_toml leaves no temp file behind when it refuses (base#1148)` | a refusal that leaves the half-written TOML behind is the same trap one name over: the idempotency gate is `! -f target`, so a stray temp promoted by a later hand would be read as the configuration, and `git status` in a consumer repo would show a file no .gitignore covers. |
-| `_migrate_ini_to_toml refuses one half without discarding the other (base#1148)` | the two halves are independently gated, so a repo whose committed conf converts and whose local override does not must keep the conversion it earned and keep the override it still has. Refusing both would throw away a good migration; retiring both would be the original bug. |
+| `_migrate_ini_to_toml refuses one half without discarding the other (base#1148)` | the two halves are independently gated, so a repo whose committed conf converts and whose local override does not must keep the conversion it earned and keep the override it still has. Refusing both would throw away a good migration; retiring both would be the original bug. The answer is still the refusal: the caller has to stop either way, because the half that did not convert is the one setup would otherwise seed over. |
 | `_migrate_env_local_to_toml keeps .env.local when the conversion does not parse (base#1148)` | the flat-env converter renames its source too, and it renders every value by wrapping it in double quotes with nothing escaped, so an env value that carries a quote -- a JVM flag, a label argument -- is already unparseable TOML. Whichever way that rendering is fixed, the operator's .env.local must not be the thing that pays for it. |
+| `_migrate_ini_to_toml answers non-zero when it refuses (base#1148)` | a refusal only protects the configuration if the caller hears it. init.sh's resync continues into `_call_setup`, which seeds a setup.toml from the template defaults -- and that seeded file satisfies the `! -f target` gate, so a migration that merely declined quietly would never be attempted again and the surviving INI would stop taking effect. The refusal has to reach the caller as a non-zero answer. |
+| `_migrate_ini_to_toml answers zero when it converts and when it is inert (base#1148)` | the answer has to distinguish a refusal from the two ordinary outcomes, or a caller that stops on non-zero stops on every repo that has nothing to migrate and on every repo that migrated fine. |
+| `_migrate_env_local_to_toml answers non-zero when it refuses (base#1148)` | the flat-env converter has the same caller contract to honour, and base#1163 restores its call site once the .env.toml readers land. |
 
 ### test/bats/unit/init_existing_repo_signals_spec.bats (6)
 
@@ -3064,7 +3067,7 @@ the source INI where it was, writes no target, and says so
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (100)
+### test/bats/unit/init_spec.bats (102)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3175,6 +3178,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
 | `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
 | `_populate_config: the seeded placeholder and ADR-00000030 name the convention identically` | seeded text and the record use one vocabulary |
+| `the resync: stops when the INI-to-TOML migration is declined (base#1148)` | the one case where continuing is worse than stopping: everything after this point in `main` writes the file the refusal declined to write, and the seeded default then locks the migration out for good |
+| `the resync: an INI that converts does not stop it (base#1148)` | the stop is for the refusal only. A repo with no INI at all, and a repo whose INI converts, must resync to the end |
 
 ### test/bats/unit/issueref_lint_spec.bats (20)
 

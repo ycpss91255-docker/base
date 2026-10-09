@@ -1185,7 +1185,17 @@ _init_existing_repo() {
   # which is what ensures the INI file is at the repo root. Gated on the
   # source existing and the target NOT existing, so it is a no-op on a
   # repo that already carries setup.toml.
-  _migrate_ini_to_toml "${REPO_ROOT}"
+  #
+  # A declined conversion stops the resync. Everything after this point
+  # ends in `main` calling setup, which seeds a `setup.toml` from the
+  # template defaults -- and that seeded file satisfies the migration's
+  # own "target does not exist" gate, so the INI the refusal preserved
+  # would stop taking effect and would never be converted on any later
+  # run either. The refusal names the file and what the parser objected
+  # to; the rollback trap armed above puts back what the resync had
+  # already rewritten.
+  _migrate_ini_to_toml "${REPO_ROOT}" \
+    || _error "the INI-to-TOML migration above declined, and the resync stops here rather than letting setup seed a setup.toml from the template defaults over a configuration that is still only INI. Nothing after this point ran. Resolve the file the refusal names, then re-run."
   # The sibling converter `_migrate_env_local_to_toml` is deliberately
   # NOT called here yet (base#1163). It moves the operator's `.env.local`
   # aside to `.env.local.bak` and writes `.env.local.toml` -- but nothing

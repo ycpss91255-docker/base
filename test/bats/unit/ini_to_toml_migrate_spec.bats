@@ -527,7 +527,7 @@ device_1 = /dev/dri:/dev/dri
 cgroup_rule_1 = c 189:* rmw
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
-  assert_success
+  assert_failure
   assert_output --partial 'MIGRATION DECLINED'
   assert_output --partial '.setup.conf'
   assert [ -f "${TEMP_DIR}/.setup.conf" ]
@@ -548,7 +548,7 @@ device_1 = /dev/dri:/dev/dri
 cgroup_rule_1 = c 189:* rmw
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
-  assert_success
+  assert_failure
   assert_output --partial "MIGRATION DECLINED for ${TEMP_DIR}/.setup.conf"
   assert_output --partial 'nothing was written and nothing was renamed'
   assert_output --partial 'Parser said:'
@@ -567,7 +567,7 @@ device_1 = /dev/dri:/dev/dri
 cgroup_rule_1 = c 189:* rmw
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
-  assert_success
+  assert_failure
   run bash -c "ls -A '${TEMP_DIR}'"
   assert_output ".setup.conf"
 }
@@ -576,7 +576,9 @@ EOF
 #      conf converts and whose local override does not must keep the
 #      conversion it earned and keep the override it still has. Refusing
 #      both would throw away a good migration; retiring both would be the
-#      original bug.
+#      original bug. The answer is still the refusal: the caller has to
+#      stop either way, because the half that did not convert is the one
+#      setup would otherwise seed over.
 @test "_migrate_ini_to_toml refuses one half without discarding the other (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
@@ -588,7 +590,7 @@ device_1 = /dev/dri:/dev/dri
 cgroup_rule_1 = c 189:* rmw
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
-  assert_success
+  assert_failure
   assert [ -f "${TEMP_DIR}/setup.toml" ]
   assert [ -f "${TEMP_DIR}/.setup.conf.bak" ]
   assert [ -f "${TEMP_DIR}/.setup.conf.local" ]
@@ -604,10 +606,51 @@ EOF
 @test "_migrate_env_local_to_toml keeps .env.local when the conversion does not parse (base#1148)" {
   printf 'JAVA_OPTS=-Dfoo="bar"\n' > "${TEMP_DIR}/.env.local"
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
-  assert_success
+  assert_failure
   assert_output --partial 'MIGRATION DECLINED'
   assert [ ! -f "${TEMP_DIR}/.env.local.toml" ]
   assert [ ! -f "${TEMP_DIR}/.env.local.bak" ]
   run cat "${TEMP_DIR}/.env.local"
   assert_output 'JAVA_OPTS=-Dfoo="bar"'
+}
+
+# why: a refusal only protects the configuration if the caller hears it.
+#      init.sh's resync continues into `_call_setup`, which seeds a
+#      setup.toml from the template defaults -- and that seeded file
+#      satisfies the `! -f target` gate, so a migration that merely
+#      declined quietly would never be attempted again and the surviving
+#      INI would stop taking effect. The refusal has to reach the caller
+#      as a non-zero answer.
+@test "_migrate_ini_to_toml answers non-zero when it refuses (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[devices]
+device_1 = /dev/dri:/dev/dri
+cgroup_rule_1 = c 189:* rmw
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+}
+
+# why: the answer has to distinguish a refusal from the two ordinary
+#      outcomes, or a caller that stops on non-zero stops on every repo
+#      that has nothing to migrate and on every repo that migrated fine.
+@test "_migrate_ini_to_toml answers zero when it converts and when it is inert (base#1148)" {
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.toml" ]
+}
+
+# why: the flat-env converter has the same caller contract to honour, and
+#      base#1163 restores its call site once the .env.toml readers land.
+@test "_migrate_env_local_to_toml answers non-zero when it refuses (base#1148)" {
+  printf 'JAVA_OPTS=-Dfoo="bar"\n' > "${TEMP_DIR}/.env.local"
+  run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert [ -f "${TEMP_DIR}/.env.local" ]
 }

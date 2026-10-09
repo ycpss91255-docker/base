@@ -1840,3 +1840,60 @@ _stage_missing_template_conf() {
       || { echo "ADR-00000030 does not name: ${_term}"; return 1; }
   done
 }
+
+# ════════════════════════════════════════════════════════════════════
+# the resync stops on a declined INI-to-TOML migration
+# ════════════════════════════════════════════════════════════════════
+#
+# `_migrate_ini_to_toml` refuses to convert an INI file it cannot render
+# as parseable TOML, and leaves the source where it is. That protects the
+# configuration only while nothing downstream writes the target anyway:
+# `main` calls `_call_setup` after the resync, which seeds a `setup.toml`
+# from the template defaults, and the seeded file satisfies the
+# migration's own `! -f target` gate. The operator would then be running
+# on defaults with an INI nothing reads and no further attempt to convert
+# it. The resync therefore stops at the refusal.
+#
+# These arms do not run `_call_setup` -- it shells out to the real
+# setup.sh, as `_resync_and_stage` above records -- so what is asserted
+# here is that the resync does not reach it.
+#
+# Driven in a child shell rather than through `run _init_existing_repo`.
+# The resync arms an EXIT trap that restores the consumer's files and
+# then hands control back to whatever EXIT trap it displaced; in a bats
+# process that is bats' own, so running the aborting path in-process
+# re-enters the harness and the file reports more tests than it has.
+_run_resync_in_child() {
+  run bash -c "source '${TMP_REPO}/.base/dist/script/base/init.sh'; _init_existing_repo"
+}
+
+# why: the one case where continuing is worse than stopping: everything
+#      after this point in `main` writes the file the refusal declined to
+#      write, and the seeded default then locks the migration out for good
+@test "the resync: stops when the INI-to-TOML migration is declined (base#1148)" {
+  : > "${TMP_REPO}/Dockerfile"
+  cat > "${TMP_REPO}/.setup.conf" <<'EOF'
+[devices]
+device_1 = /dev/dri:/dev/dri
+cgroup_rule_1 = c 189:* rmw
+EOF
+  _run_resync_in_child
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ -f "${TMP_REPO}/.setup.conf" ]
+  assert [ ! -f "${TMP_REPO}/setup.toml" ]
+}
+
+# why: the stop is for the refusal only. A repo with no INI at all, and a
+#      repo whose INI converts, must resync to the end
+@test "the resync: an INI that converts does not stop it (base#1148)" {
+  : > "${TMP_REPO}/Dockerfile"
+  cat > "${TMP_REPO}/.setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  _run_resync_in_child
+  assert_success
+  assert [ -f "${TMP_REPO}/setup.toml" ]
+  assert [ -f "${TMP_REPO}/.setup.conf.bak" ]
+}
