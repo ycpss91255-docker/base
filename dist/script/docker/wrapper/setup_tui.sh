@@ -2680,7 +2680,7 @@ _render_advanced_menu() {
 
 # _tui_refuse_frozen
 #
-# Print the "this editor cannot take effect" explanation and exit 2.
+# Print the "this editor cannot take effect" explanation and return 2.
 # Called at every point where this file would otherwise change something:
 # `main`, before it opens a menu or a section editor, and `_do_reset`,
 # whose `rm -f` is destructive on its own.
@@ -2696,9 +2696,13 @@ _render_advanced_menu() {
 # worse than no editor at all. So the editor refuses, and the message
 # names the two surfaces that do take a setting.
 #
-# Exit 2, not 0: 0 is what Cancel returns, and a wrapper has to be able to
-# tell "the user backed out" from "this cannot run". Same status as the
-# missing-backend refusal, for the same reason.
+# Status 2, not 0: 0 is what Cancel returns, and a wrapper has to be able
+# to tell "the user backed out" from "this cannot run". Same status as the
+# missing-backend refusal, for the same reason. It RETURNS rather than
+# exiting, and each caller propagates with `|| exit`/`|| return`, so the
+# control flow is visible where it happens -- an `exit` buried in a
+# helper makes every line after the call unreachable to a reader and to
+# ShellCheck alike (SC2317), and leaves `_do_reset` untestable.
 #
 # This goes away with the rebuild, not before: base#1232 replaces
 # _load_current's one-file read with the effective layer chain and carries
@@ -2706,7 +2710,7 @@ _render_advanced_menu() {
 # lands, delete this function and its two call sites.
 _tui_refuse_frozen() {
   printf '[tui] %s\n' "$(_tui_msg err.frozen)" >&2
-  exit 2
+  return 2
 }
 
 # _do_reset
@@ -2716,7 +2720,7 @@ _tui_refuse_frozen() {
 # detected workspace into mount_1), then clear all TUI session state
 # so the reloaded values are what the user sees on the next menu.
 _do_reset() {
-  _tui_refuse_frozen
+  _tui_refuse_frozen || return "$?"
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
   # Reset deletes the per-repo override (setup.conf). The next apply
   # re-bootstraps it from the template baseline + detected workspace.
@@ -2911,7 +2915,7 @@ main() {
   # refusal sits after argument parsing so `-h` still prints usage, and
   # before the backend probe so the message reaches the terminal as text
   # rather than a dialog box the editor has no business opening.
-  _tui_refuse_frozen
+  _tui_refuse_frozen || exit "$?"
 
   if ! _backend_detect; then
     printf "[tui] %s\n" "$(_tui_msg err.no_backend)" >&2

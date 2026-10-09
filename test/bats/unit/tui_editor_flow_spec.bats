@@ -781,14 +781,12 @@ stub_frozen_guard() {
 # why: reset means "go back to the template". That is three things at once
 # -- drop the per-repo file, re-seed it from the template, and throw away
 # the pending edits -- and leaving any one of them out gives the user a
-# menu that still shows values the file no longer has.
-#
-# The file it drops is `.setup.conf`. ADR-00000037 freezes this editor on
-# the INI pair until the TOML rebuild lands, so that is the name the
-# frozen body writes and removes; a blanket rename moved this assertion to
-# `setup.toml` ahead of the ADR and left it asserting a path the function
-# never touches. What keeps the frozen body from reaching a user is
-# _tui_refuse_frozen, stubbed out here so the body itself stays covered.
+# menu that still shows values the file no longer has. The file it drops
+# is `.setup.conf`: ADR-00000037 freezes this editor on the INI pair until
+# the TOML rebuild lands, so that is the name the frozen body writes and
+# removes, and a blanket rename left this assertion naming a path the
+# function never touches. What keeps the frozen body from reaching a user
+# is _tui_refuse_frozen, stubbed out here so the body stays covered.
 @test "_do_reset: confirmed, it drops the conf, re-applies and clears pending edits" {
   stub_frozen_guard
   stub_apply
@@ -819,7 +817,7 @@ stub_frozen_guard() {
 # the two surfaces that do work.
 @test "main: the TOML-era editor refuses instead of opening a menu" {
   stub_main_deps
-  _tui_refuse_frozen() { printf '[tui] refused\n' >&2; exit 2; }
+  _tui_refuse_frozen() { printf '[tui] refused\n' >&2; return 2; }
   run main
   [ "${status}" -eq 2 ]
   assert_output --partial 'refused'
