@@ -126,6 +126,20 @@ _ini_tokenize() {
 # TOML counterpart of _ini_tokenize. Calls the containerised bridge
 # (toml_bridge_parse --kv) and populates the same four parallel arrays.
 # Drop-in replacement for _ini_tokenize when the source is TOML.
+#
+# A file that is NOT there leaves the arrays empty and answers 0, which is
+# _ini_tokenize's contract too: an absent layer contributes nothing.
+#
+# A file that IS there and could not be parsed answers NON-ZERO with the
+# arrays empty, and the two outcomes must not be read as one. The bridge
+# reports a failure with its exit status and an empty stdout, and the
+# process substitution this used to read through put that status out of
+# reach: the loop read nothing, the handle came back empty, and every
+# value fell back to its default with nothing said -- a total parser
+# failure wearing the shape of a file that says nothing. That is the same
+# trap _conf_load_layers names on its own merge call, and it is why an
+# unprovisionable parser has to be able to stop a run rather than quietly
+# produce the template defaults.
 _toml_tokenize() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
   local -n _tt_sections="${2:?"${FUNCNAME[0]}: missing sections outvar"}"
@@ -139,6 +153,17 @@ _toml_tokenize() {
   _tt_values=()
   [[ -f "${_file}" ]] || return 0
 
+  # Collected first, so the bridge's status is somewhere it can be acted
+  # on. An empty stdout from a SUCCESSFUL parse is still a success: the
+  # herestring's single blank line is dropped by the guard in the loop.
+  local _tt_kv
+  if ! _tt_kv="$(toml_bridge_parse "${_file}" --kv)"; then
+    _log_err conf conf_toml_parse_failed \
+      "display=_toml_tokenize: the TOML parse of ${_file} failed; refusing to report an empty configuration as a loaded one" \
+      "path=${_file}"
+    return 1
+  fi
+
   local _tt_sect _tt_key _tt_val
   local -A _tt_seen=()
   while IFS=$'\t' read -r _tt_sect _tt_key _tt_val; do
@@ -150,7 +175,7 @@ _toml_tokenize() {
     _tt_entry_sects+=("${_tt_sect}")
     _tt_keys+=("${_tt_key}")
     _tt_values+=("${_tt_val}")
-  done < <(toml_bridge_parse "${_file}" --kv)
+  done <<< "${_tt_kv}"
 }
 
 # _load_setup_conf_full <file> <sections_outvar> <keys_outvar> <values_outvar>
@@ -802,15 +827,21 @@ _conf_toml_aot_fields() {
       _caf_out="opt = ${_a}"
       ;;
     volumes)
-      local _rest=""
+      # `_caf_`-prefixed like the function's other locals, and not the bare
+      # `_rest` it was: this file is read by ShellCheck with -x, so a name
+      # a SOURCED library declares as an array is one every scalar use of
+      # that name here is reported for. toml_bridge.sh now pulls in
+      # project_reclaim.sh for the bridge tag's content digest, and that
+      # library has a `local -a _rest`.
+      local _caf_rest=""
       _conf_toml_scalar "${_v%%:*}" _a
       _caf_out="source = ${_a}"
       if [[ "${_v}" == *:* ]]; then
-        _rest="${_v#*:}"
-        _conf_toml_scalar "${_rest%%:*}" _b
+        _caf_rest="${_v#*:}"
+        _conf_toml_scalar "${_caf_rest%%:*}" _b
         _caf_out+=$'\n'"target = ${_b}"
-        if [[ "${_rest}" == *:* ]]; then
-          _conf_toml_scalar "${_rest#*:}" _c
+        if [[ "${_caf_rest}" == *:* ]]; then
+          _conf_toml_scalar "${_caf_rest#*:}" _c
           _caf_out+=$'\n'"mode = ${_c}"
         fi
       fi

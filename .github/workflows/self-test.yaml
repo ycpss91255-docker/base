@@ -1350,6 +1350,14 @@ jobs:
     # The heaviest job here: it scaffolds a consumer repo and builds its
     # image stages, once per arch, on a runner that may be self-hosted.
     timeout-minutes: 120
+    env:
+      # The TOML parser the scaffolded repo reads its configuration
+      # through. The shim provisions this image itself when nothing pins
+      # it, and this job pins it so what it measures is the consumer's
+      # lifecycle rather than a docker build inside it -- the same reason
+      # the tooling image is obtained in a step of its own above. A pinned
+      # value is left alone by the shim.
+      TOML_BRIDGE_IMAGE: toml-bridge:local
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1389,13 +1397,17 @@ jobs:
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline
 
       - name: Build toml-bridge image (TOML config unification)
-        # The wrappers delegate TOML parsing to a containerised bridge
-        # (ADR-37, docker run toml-bridge:local).  Both init.sh and the
-        # wrapper setup-sync path call toml_bridge_merge, so the image must
-        # exist before the scaffolded repo is created.
+        # NOT what makes the e2e repo work any more -- the shim provisions
+        # the bridge itself, under a content-digest tag, before the first
+        # TOML read. Kept, and pinned through the job-level
+        # TOML_BRIDGE_IMAGE above, so this job measures the scaffolded
+        # repo's lifecycle rather than a docker build inside it:
+        # a caller-pinned image is left alone by the shim, which is the
+        # same contract _ensure_test_tools_image honours. The provisioning
+        # path has its own coverage in the unit and integration tiers.
         run: |
           docker build -t toml-bridge:local \
-            -f dockerfile/Dockerfile.toml-bridge .
+            -f dockerfile/Dockerfile.toml-bridge dockerfile
 
       - name: Create temp repo and run init.sh
         run: |

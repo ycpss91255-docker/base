@@ -29,6 +29,15 @@ setup() {
   # these tests specifically verify the containerised fallback.
   export TOML_BRIDGE_FORCE_DOCKER=1
 
+  # And PIN the image, which is what keeps every case below about the
+  # DISPATCH. The shim provisions the bridge itself when nothing pins it
+  # -- a `docker image inspect` and possibly a `docker build` before the
+  # first `docker run` -- and a mock written to answer one `docker run`
+  # would be asked a question it has no answer for. A pinned image is
+  # left alone, exactly as CI pins one; the provisioning itself is the
+  # last seam in this file and unsets this.
+  export TOML_BRIDGE_IMAGE=toml-bridge:local
+
   ROOT=/source
   DOCKERFILE="${ROOT}/dockerfile/Dockerfile.toml-bridge"
   BRIDGE_PY="${ROOT}/dockerfile/toml_bridge.py"
@@ -1145,4 +1154,278 @@ EOF
   refute_line "MOUNT=setup.toml:setup.toml:ro"
 
   cleanup_mock_dir
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 12: provisioning the bridge image (D4a)
+# ════════════════════════════════════════════════════════════════════
+#
+# Nothing in the production init path built `toml-bridge:local`, so on a
+# clean machine TOML configuration could not be read at all -- and the
+# only places the image existed were a self-test workflow step and a
+# developer who had read the Dockerfile's usage comment. These cases are
+# about the shim building it, under a revision-specific name, and about
+# every way of not being able to being a refusal rather than a fallback.
+#
+# Every case here UNSETS the pinned TOML_BRIDGE_IMAGE that setup() exports
+# for the dispatch seams above, because a pinned image is precisely what
+# the provisioning must not touch.
+
+# _seed_bridge_subtree
+#   A vendored subtree carrying the shapes the provisioning reads: the
+#   markers the shim walks up for (`.version` + `dist/`), its own copy of
+#   the lib directory, and the bridge's build inputs under `dockerfile/`.
+#   A COPY and not the live checkout, because the shim resolves everything
+#   from the directory it was SOURCED from -- which is what puts the whole
+#   derivation inside the fixture, prefix included. The prefix here is
+#   `vendored` and not `.base` on purpose: it is the consumer's to name,
+#   and a test that used the conventional name could not tell a walk from
+#   a hardcoded string.
+_seed_bridge_subtree() {
+  SUB="${BATS_TEST_TMPDIR}/consumer/vendored"
+  mkdir -p "${SUB}/dist/script/docker" "${SUB}/dockerfile"
+  cp -a "${ROOT}/dist/script/docker/lib" "${SUB}/dist/script/docker/lib"
+  cp -a "${ROOT}/dockerfile/Dockerfile.toml-bridge" "${SUB}/dockerfile/"
+  cp -a "${ROOT}/dockerfile/toml_bridge.py" "${SUB}/dockerfile/"
+  printf 'v0.0.0-test\n' > "${SUB}/.version"
+  SUB_SHIM="${SUB}/dist/script/docker/lib/toml_bridge.sh"
+  export DOCKER_LOG="${BATS_TEST_TMPDIR}/docker.log"
+  : > "${DOCKER_LOG}"
+}
+
+# why: The identity rule. A floating tag is what the old default was, and
+#      two checkouts at different revisions sharing one name is how a run
+#      ends up reading a parser built from somebody else's tree. The tag
+#      is a content digest, so it is stable across calls and is not
+#      `toml-bridge:local`; base#1169 established the same property for
+#      the tooling tag.
+@test "toml-bridge: the derived image is a content digest, not a floating tag" {
+  _seed_bridge_subtree
+  unset TOML_BRIDGE_IMAGE
+
+  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_success
+  assert_output --regexp '^toml-bridge:[0-9a-f]{12}$'
+  local _first="${output}"
+
+  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_success
+  assert_output "${_first}"
+}
+
+# why: The digest covers the file the Dockerfile COPYs, not only the
+#      Dockerfile. That is the exact miss base#1169 fixed for the tooling
+#      tag: editing a COPYed script left the tag where it was, the build
+#      was skipped as already-present, and the run read the old parser.
+#      Here that would be a configuration read answered by a bridge from
+#      before the edit.
+@test "toml-bridge: the derived image follows the script the Dockerfile COPYs" {
+  _seed_bridge_subtree
+  unset TOML_BRIDGE_IMAGE
+
+  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_success
+  local _before="${output}"
+
+  printf '\n# a revision of the bridge\n' >> "${SUB}/dockerfile/toml_bridge.py"
+  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_success
+  refute_output "${_before}"
+  assert_output --regexp '^toml-bridge:[0-9a-f]{12}$'
+}
+
+# why: The provisioning itself: an absent image is built from the SHIPPED
+#      Dockerfile before the first read, with that Dockerfile's own
+#      directory as the build context -- the context is what makes the
+#      vendored copy buildable at all, since a path reaching up through
+#      the subtree prefix could not be written in the Dockerfile. Then the
+#      read runs against the derived tag, not a literal.
+@test "toml-bridge: an absent image is built from the shipped Dockerfile before the first read" {
+  _seed_bridge_subtree
+  unset TOML_BRIDGE_IMAGE
+
+  local _toml="${BATS_TEST_TMPDIR}/one.toml"
+  printf '[gui]\nmode = "wayland"\n' > "${_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 1 ;;
+       build) exit 0 ;;
+       run)   printf "gui\tmode\twayland\n" ;;
+       *)     exit 1 ;;
+     esac'
+
+  run bash -c "source '${SUB_SHIM}'; toml_bridge_parse '${_toml}' --kv"
+  assert_success
+  assert_line $'gui\tmode\twayland'
+
+  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_success
+  local _image="${output}"
+
+  run cat "${DOCKER_LOG}"
+  assert_line "image inspect ${_image}"
+  assert_line "build -t ${_image} -f ${SUB}/dockerfile/Dockerfile.toml-bridge ${SUB}/dockerfile"
+  assert_line "run --rm -i ${_image} --kv"
+
+  cleanup_mock_dir
+}
+
+# why: An image that is already there is not rebuilt. The tag is keyed to
+#      its inputs, so a tag that exists was built from these inputs, and a
+#      build-at-first-use that rebuilt every read would put a docker build
+#      inside every configuration load.
+@test "toml-bridge: a present image is used without a build" {
+  _seed_bridge_subtree
+  unset TOML_BRIDGE_IMAGE
+
+  local _toml="${BATS_TEST_TMPDIR}/one.toml"
+  printf '[gui]\nmode = "wayland"\n' > "${_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run)   printf "gui\tmode\twayland\n" ;;
+       *)     exit 1 ;;
+     esac'
+
+  run bash -c "source '${SUB_SHIM}'; toml_bridge_parse '${_toml}' --kv"
+  assert_success
+
+  run cat "${DOCKER_LOG}"
+  refute_output --partial "build -t"
+
+  cleanup_mock_dir
+}
+
+# why: A build that fails must stop the read, loudly, naming the builder's
+#      own complaint -- not answer an empty stream. An empty stream is what
+#      the unprovisioned default produced: the handle came back empty and
+#      every value fell back to its template default with nothing said.
+#      And it must NOT exit the caller: the INI-to-TOML migration's commit
+#      gate reads an unavailable bridge as a declined conversion
+#      (base#1137), which a hard exit here would turn into a crash.
+@test "toml-bridge: a failed build refuses the read and does not exit the caller" {
+  _seed_bridge_subtree
+  unset TOML_BRIDGE_IMAGE
+
+  local _toml="${BATS_TEST_TMPDIR}/one.toml"
+  printf '[gui]\nmode = "wayland"\n' > "${_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'case "$1" in
+       image) exit 1 ;;
+       build) echo "no space left on device" >&2; exit 125 ;;
+       *)     exit 1 ;;
+     esac'
+
+  run bash -c "source '${SUB_SHIM}'
+toml_bridge_parse '${_toml}' --kv
+printf 'rc=%s\n' \"\$?\"
+printf 'CALLER-STILL-RUNNING\n'"
+  assert_success
+  assert_output --partial "could not be built"
+  assert_output --partial "${SUB}/dockerfile/Dockerfile.toml-bridge"
+  assert_output --partial "no space left on device"
+  assert_output --partial "rc=1"
+  assert_output --partial "CALLER-STILL-RUNNING"
+  refute_output --partial "mode"
+
+  cleanup_mock_dir
+}
+
+# why: A pinned image is the caller's, and provisioning over it is the
+#      mistake _ensure_test_tools_image declines to make: CI pins a
+#      published or in-run tag through TOML_BRIDGE_IMAGE, and building
+#      something else under that name would replace what it asked for.
+@test "toml-bridge: a pinned image is run as given and never provisioned" {
+  _seed_bridge_subtree
+
+  local _toml="${BATS_TEST_TMPDIR}/one.toml"
+  printf '[gui]\nmode = "wayland"\n' > "${_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     [[ "$1" == run ]] || exit 9
+     printf "gui\tmode\twayland\n"'
+
+  run bash -c "export TOML_BRIDGE_IMAGE=pinned/bridge:v1
+source '${SUB_SHIM}'
+toml_bridge_parse '${_toml}' --kv"
+  assert_success
+  assert_line $'gui\tmode\twayland'
+
+  run cat "${DOCKER_LOG}"
+  assert_line "run --rm -i pinned/bridge:v1 --kv"
+  refute_output --partial "image inspect"
+  refute_output --partial "build -t"
+
+  cleanup_mock_dir
+}
+
+# why: A subtree missing the bridge's Dockerfile cannot be repaired by
+#      guessing a name. The old default guessed `toml-bridge:local`, which
+#      resolves to whatever a sibling checkout last built under it -- so a
+#      configuration read would be answered by an unrelated parser, or by
+#      nothing, with no file named either way.
+@test "toml-bridge: a subtree with no bridge Dockerfile refuses and names the path" {
+  _seed_bridge_subtree
+  unset TOML_BRIDGE_IMAGE
+  rm -f "${SUB}/dockerfile/Dockerfile.toml-bridge"
+
+  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_failure
+  assert_output --partial "${SUB}/dockerfile/Dockerfile.toml-bridge"
+  refute_output --partial "toml-bridge:local"
+}
+
+# why: The caller-visible half of "parser unavailability stops the run".
+#      `_toml_tokenize` read the bridge through a process substitution,
+#      which puts its exit status out of reach: a parse that failed read as
+#      a file with nothing in it, so the handle came back empty and every
+#      value fell back to its default. That is a total parser failure
+#      wearing the shape of a configuration that says nothing, and it is
+#      the same trap `_conf_load_layers` already names on its own merge.
+@test "toml-bridge: _toml_tokenize answers non-zero when the parse fails" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _toml_tokenize parse-failure propagation"
+
+  local _toml="${BATS_TEST_TMPDIR}/broken.toml"
+  printf '[gui]\nmode = "wayland"\n' > "${_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" 'echo "bridge unavailable" >&2; exit 1'
+
+  run bash -c "source '${conf_sh}'
+declare -a s es k v
+_toml_tokenize '${_toml}' s es k v
+printf 'rc=%s\n' \"\$?\""
+  assert_success
+  assert_output --partial "rc=1"
+  assert_output --partial "refusing to report an empty configuration as a loaded one"
+
+  cleanup_mock_dir
+}
+
+# why: An ABSENT file is still "contributes nothing", answered zero. The
+#      refusal above must not swallow the one case the loaders rely on to
+#      pass the whole layer chain unconditionally.
+@test "toml-bridge: _toml_tokenize answers zero for a file that is not there" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _toml_tokenize absent-layer contract"
+
+  run bash -c "source '${conf_sh}'
+declare -a s es k v
+_toml_tokenize '${BATS_TEST_TMPDIR}/nope.toml' s es k v
+printf 'rc=%s count=%s\n' \"\$?\" \"\${#k[@]}\""
+  assert_success
+  assert_output --partial "rc=0 count=0"
 }
