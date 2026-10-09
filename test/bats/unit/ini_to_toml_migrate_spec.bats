@@ -180,6 +180,35 @@ EOF
   assert_output --partial 'container = "80"'
 }
 
+# why: A numbered INI family is an ordered list, and every reader of one
+# sorts it by the numeric suffix (`_conf_list_sorted`) -- so `rule_2`
+# written above `rule_1` is still tried second. An array of tables
+# carries its order in the file instead, and the bridge numbers the
+# blocks as it meets them, so converting in FILE order makes `rule_2`
+# block 1: the rule that used to be tried second is now tried first, and
+# for [[image.rules]] that is the image name the repo builds under. A
+# zero-padded suffix is read with `10#`, or bash reads `08` as an invalid
+# octal literal and the ordering dies instead of happening.
+@test "_migrate_ini_to_toml emits a numbered family in suffix order, not file order (#1137)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[image]
+rule_2 = @basename
+rule_1 = prefix:docker_
+rule_10 = suffix:_ws
+rule_08 = @parent
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "grep -A1 -F '[[image.rules]]' '${TEMP_DIR}/setup.toml' | grep '^rule'"
+  assert_success
+  assert_output - << 'EOF'
+rule = "prefix:docker_"
+rule = "@basename"
+rule = "@parent"
+rule = "suffix:_ws"
+EOF
+}
+
 # why: Device paths look like volume paths; the converter must pick the
 # right AoT key. `[devices]` is also the one section with TWO numbered
 # families, so each has to land in its own nested array -- a binding and a

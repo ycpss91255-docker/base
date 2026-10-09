@@ -3135,7 +3135,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (37)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (38)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3157,6 +3157,7 @@ the source INI where it was, writes no target, and says so
 | `_migrate_ini_to_toml converts volumes mount_N to [[volumes]] (#1137)` | Volume paths contain colons; the converter must not split on them |
 | `_migrate_ini_to_toml converts security cap/opt to [[security.*]] (#1137)` | Two distinct AoT shapes live under one INI section; wrong dispatch conflates them |
 | `_migrate_ini_to_toml converts network port_N to [[network.ports]] (#1137)` | Port mappings split into a host and a container half. Both are string-typed -- the bridge glues them back with `:` and the compose emitter reads the one joined string -- so the converter quotes them whatever the INI digits looked like, the same rule every other array-of-tables field follows. |
+| `_migrate_ini_to_toml emits a numbered family in suffix order, not file order (#1137)` | A numbered INI family is an ordered list, and every reader of one sorts it by the numeric suffix (`_conf_list_sorted`) -- so `rule_2` written above `rule_1` is still tried second. An array of tables carries its order in the file instead, and the bridge numbers the blocks as it meets them, so converting in FILE order makes `rule_2` block 1: the rule that used to be tried second is now tried first, and for [[image.rules]] that is the image name the repo builds under. A zero-padded suffix is read with `10#`, or bash reads `08` as an invalid octal literal and the ordering dies instead of happening. |
 | `_migrate_ini_to_toml converts devices device_N to [[devices.bindings]] (#1137)` | Device paths look like volume paths; the converter must pick the right AoT key. `[devices]` is also the one section with TWO numbered families, so each has to land in its own nested array -- a binding and a rule in the same INI used to convert into one name used as both an array and a table, which TOML refuses and which cost the whole file. |
 | `_migrate_ini_to_toml converts tmpfs tmpfs_N to [[tmpfs]] (#1137)` | tmpfs entries carry size options after a colon; the value must stay whole |
 | `_migrate_ini_to_toml converts additional_contexts context_N to [[additional_contexts]] (#1137)` | Context entries split on = into name/source; wrong split drops the build context path |

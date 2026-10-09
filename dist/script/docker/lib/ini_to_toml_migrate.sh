@@ -207,17 +207,55 @@ _ini_to_toml_convert() {
   for _s in ${_sects[@]+"${_sects[@]}"}; do
     # Separate scalar and numbered keys for this section.
     local -a _sc_keys=() _sc_vals=()
+    local -a _num_order=() _num_rows=()
     local _aot_buf=""
 
     for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
       [[ "${_es[_i]}" == "${_s}" ]] || continue
       if _ini_to_toml_is_numbered "${_s}" "${_keys[_i]}"; then
-        _ini_to_toml_emit_aot "${_s}" "${_keys[_i]}" "${_vals[_i]}" _aot_buf
+        _num_order+=("${_i}")
       else
         _sc_keys+=("${_keys[_i]}")
         _sc_vals+=("${_vals[_i]}")
       fi
     done
+
+    # Emit each numbered family in NUMERIC-SUFFIX order, not file order.
+    #
+    # A numbered family is an ordered list, and every reader of one sorts
+    # it by the suffix (_conf_list_sorted) -- so an INI naming
+    # `rule_2 = @basename` above `rule_1 = prefix:docker_` tries the
+    # prefix rule FIRST. An array of tables carries its order in the file
+    # instead, and the bridge numbers the blocks as it meets them, so
+    # converting in file order makes `rule_2` block 1: the rule that was
+    # tried second is now tried first. For [[image.rules]] that is the
+    # image name the repo builds under. Sorting here is what makes the
+    # converted file agree with every reader of the INI it replaces.
+    #
+    # Sorting by path as well as suffix groups each family together,
+    # which matters for the one section carrying TWO of them
+    # (`device_N` and `cgroup_rule_N` under [devices]); the two number
+    # independently, so grouping is for the reader of the file, not for
+    # correctness.
+    #
+    # `10#` on every arithmetic read of a suffix: bash's default
+    # arithmetic base reads a zero-padded value as octal, and `08` is not
+    # a valid octal literal -- the comparison dies instead of ordering it
+    # (base#1097 lost time to exactly this).
+    if (( ${#_num_order[@]} > 0 )); then
+      local _ni _itc_path _itc_suf
+      for _ni in "${_num_order[@]}"; do
+        _itc_path=""
+        _itc_suf=""
+        _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
+        _num_rows+=("${_itc_path}"$'\t'"$(( 10#${_itc_suf} ))"$'\t'"${_ni}")
+      done
+      while IFS=$'\t' read -r _itc_path _itc_suf _ni; do
+        [[ -n "${_ni}" ]] || continue
+        _ini_to_toml_emit_aot "${_s}" "${_keys[_ni]}" "${_vals[_ni]}" _aot_buf
+      done < <(printf '%s\n' ${_num_rows[@]+"${_num_rows[@]}"} \
+                 | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -k2,2n)
+    fi
 
     # Emit section header + scalar keys.
     if (( ${#_sc_keys[@]} > 0 )); then
