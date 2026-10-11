@@ -713,3 +713,54 @@ EOF
   # `:` that `_conf_list_sorted` does not skip.
   assert_line 'volumes	mount_4	'
 }
+
+# why: TOML has two quote forms for a key, and a hand-edited file uses
+# either: `'mode' = 'host'` is a literal-quoted key and exactly as valid
+# as `"mode"`. `_conf_line_key` stripped only the double quotes, so the
+# key came back as `'mode'`, `setup.sh set network.mode bridge` did not
+# recognise the line it was there to replace, and it appended a SECOND
+# `mode` to the table -- which TOML refuses, so a file that parsed before
+# the write stopped parsing after it while the write reported success.
+# The table HEADER matcher already took both forms; this is that rule one
+# level down. Asserted through the parse, because the symptom is a file
+# the bridge rejects rather than a wrong value.
+@test "_upsert_conf_value: a literal-quoted key is the key it names, not a second one" {
+  cat > "${CONF}" << 'EOF'
+[network]
+'mode' = 'host'
+EOF
+  _upsert_conf_value "${CONF}" network mode bridge
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'network	mode	bridge'
+}
+
+# why: THE BACKSTOP, and the reason it is a parse rather than a fifth
+# pattern. The writers are line-oriented, so a value spanning physical
+# lines had its FIRST line replaced and the rest left standing:
+# `watchdog_check = """` / `pgrep -f my_node` / `"""` became
+# `watchdog_check = "pgrep -f other"` above the orphaned body, and the
+# bridge answered `Expected '=' after a key in a key/value pair`. That is
+# the fourth shape of one class this branch has fixed -- a commented
+# header declared twice, an empty-array declaration beside new blocks, a
+# literal-quoted key appended as a duplicate, this -- and patching the
+# fifth as it is reported leaves the sixth. So the rewrite is now
+# promoted only once the SHIPPED bridge has parsed it, the same gate
+# `_ini_to_toml_commit` puts in front of the converter. A refused write
+# leaves the operator's file byte-for-byte as it was, which is what this
+# asserts: not that the edit succeeds, but that a failure costs nothing.
+@test "_upsert_conf_value: a rewrite the bridge refuses is not promoted, and the file is untouched" {
+  cat > "${CONF}" << 'EOF'
+[lifecycle]
+watchdog_check = """
+pgrep -f my_node
+"""
+EOF
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  run _upsert_conf_value "${CONF}" lifecycle watchdog_check 'pgrep -f other'
+  assert_failure
+  run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+}

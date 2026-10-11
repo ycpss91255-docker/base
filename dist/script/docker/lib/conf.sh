@@ -1124,14 +1124,33 @@ _conf_is_kv_line() {
 #
 # The key a `key = value` line carries, trimmed and with TOML quotes
 # stripped (`"gui.mode" = ...` -> `gui.mode`).
+#
+# BOTH quote forms, because TOML has two and a hand-edited file uses
+# either: `'mode' = 'host'` is a literal-quoted key and exactly as valid
+# as `"mode"`. Stripping only the double quotes left the key as
+# `'mode'`, so `setup.sh set network.mode bridge` did not recognise the
+# line it was there to replace and appended a SECOND `mode` to the table
+# -- which TOML refuses (`Cannot overwrite a value`), so a file that
+# parsed before the write stopped parsing after it, and the write
+# reported success. The table HEADER matcher already took both forms
+# (`_conf_header_name`, pinned by the literal-quoted-header test); this
+# is that rule one level down, and `_setup_remove` reads keys through
+# here too.
+#
+# A MATCHED pair only. Stripped independently, a key half that merely
+# ENDS in a quote loses a character it owns.
 _conf_line_key() {
   local _line="${1-}" _k
   local -n _clk_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
   _k="${_line%%=*}"
   _k="${_k#"${_k%%[![:space:]]*}"}"
   _k="${_k%"${_k##*[![:space:]]}"}"
-  _k="${_k#\"}"
-  _k="${_k%\"}"
+  if (( ${#_k} >= 2 )); then
+    case "${_k}" in
+      \"*\") _k="${_k#\"}"; _k="${_k%\"}" ;;
+      \'*\') _k="${_k#\'}"; _k="${_k%\'}" ;;
+    esac
+  fi
   _clk_out="${_k}"
 }
 
@@ -1595,6 +1614,14 @@ _write_setup_conf() {
     done
   done
 
+  # THE COMMIT GATE, for a TOML destination: the same one
+  # _upsert_conf_value uses, for the same reason. This writer is the TUI's
+  # save path and walks the whole file, so it meets every shape the
+  # per-key writer does.
+  if (( __toml )) && ! _conf_commit_toml "${_dst}" "${_out}"; then
+    return 1
+  fi
+
   # Atomically replace _dst only after the full rewrite succeeded. A
   # failed mv (e.g. _dst on a read-only mount) is surfaced rather than
   # leaving a stray temp file silently behind: remove the orphan temp,
@@ -1663,6 +1690,12 @@ _upsert_conf_value() {
     _conf_upsert_scalar "${_file}" "${_tmp}" "${__toml}" "${_section}" "${_key}" "${_value}"
   fi
 
+  # THE COMMIT GATE, for a TOML destination: promote the rewrite only once
+  # the SHIPPED bridge has parsed it. See _conf_commit_toml.
+  if (( __toml )) && ! _conf_commit_toml "${_file}" "${_tmp}" "${_section}" "${_key}"; then
+    return 1
+  fi
+
   # Atomically replace _file only after the rewrite succeeded. A failed
   # mv (e.g. _file on a read-only mount) removes the orphan temp, logs an
   # actionable error, and bails with the original _file untouched.
@@ -1671,6 +1704,57 @@ _upsert_conf_value() {
     _log_err conf conf_upsert_mv_failed "display=_upsert_conf_value: could not replace ${_file}; original left unchanged" "file=${_file}"
     return 1
   }
+}
+
+# _conf_commit_toml <file> <tmp> [<section>] [<key>]
+#
+# Whether the just-written <tmp> may replace <file>: zero when the SHIPPED
+# bridge parses it, non-zero -- having removed <tmp> and said what the
+# parser objected to -- when it does not. <file> is never touched either
+# way, so a refused write leaves the operator's configuration exactly as
+# it was.
+#
+# WHY A PARSE AND NOT MORE PATTERNS. The writers are LINE-ORIENTED: they
+# walk the file, match a header or a `key = value` line, and copy
+# everything else through. Every shape TOML allows that does not fit that
+# model is a way for a write to report success and leave a file nothing
+# can read, and this branch has now fixed four of them one at a time -- a
+# header with a trailing comment declared twice, an empty-array
+# declaration beside new blocks, a literal-quoted key appended as a
+# duplicate, and a value spanning physical lines whose first line alone
+# was replaced:
+#
+#   watchdog_check = """        ->  watchdog_check = "pgrep -f other"
+#   pgrep -f my_node                pgrep -f my_node
+#   """                             """
+#
+# -- `Expected '=' after a key in a key/value pair`. Patching the fifth
+# shape as it is reported leaves the sixth, and the writers cannot be
+# made into a TOML parser in bash. So the question is asked of the reader
+# that will have to read the file: the same gate, for the same reason,
+# that `_ini_to_toml_commit` puts in front of the converter's output.
+#
+# An unavailable bridge reads as a REFUSAL, not as a pass. A write whose
+# result nothing verified costs the operator a configuration they cannot
+# load; a refusal costs them one re-run.
+_conf_commit_toml() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local _tmp="${2:?"${FUNCNAME[0]}: missing tmp file"}"
+  local _section="${3-}" _key="${4-}"
+
+  local _why=""
+  _why="$(toml_bridge_parse "${_tmp}" 2>&1 >/dev/null)" && return 0
+
+  rm -f -- "${_tmp}"
+  _why="${_why//$'\n'/ }"
+  local _what="${_section:+${_section}}"
+  [[ -n "${_key}" ]] && _what="${_what:+${_what}.}${_key}"
+  _log_err conf conf_write_declined \
+    "display=[conf] WRITE DECLINED for ${_file}${_what:+ (${_what})}: the rewrite produced a file the TOML parser refuses, so nothing was written and ${_file} is unchanged. This happens when the file carries a shape the line-oriented writers cannot edit -- a value spanning several physical lines is the usual one. Parser said: ${_why:-the TOML parser could not be run}. Edit ${_file} by hand instead." \
+    "file=${_file}" \
+    "target=${_what}" \
+    "reason=${_why}"
+  return 1
 }
 
 # _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value>

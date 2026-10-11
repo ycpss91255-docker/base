@@ -38,6 +38,9 @@ conf_upsert_mv_failed
 conf_upsert_tmp_failed
 conf_write_mv_failed
 conf_write_tmp_failed
+# The commit gate in front of both TOML writers: the rewrite did not parse,
+# so nothing was written. See _conf_commit_toml.
+conf_write_declined
 # `set` / `add` reporting a refusal the writer above already named.
 conf_write_failed
 stage_baseline_collision
