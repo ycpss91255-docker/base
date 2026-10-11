@@ -221,8 +221,11 @@ _print_config_summary() {
   _setup_conf_local_sections "${_fp}" _pcs_local
   if (( ${#_pcs_local[@]} > 0 )); then
     local _pcs_list="${_pcs_local[*]}"
+    # Asked for, not spelled: the layer is addressable (ADR-00000036), so
+    # a summary that names the default path would tell the operator the
+    # run read their worktree file while it read the caller's.
     printf "[%s]   local override: %s (overrides in: %s)\n" \
-      "${_tag}" "${_fp}/setup.local.toml" "${_pcs_list// /, }"
+      "${_tag}" "$(_setup_conf_local_path "${_fp}")" "${_pcs_list// /, }"
   fi
   printf "[%s]   .env         : %s\n"   "${_tag}" "${_fp}/.env"
   printf "[%s]   compose.yaml : %s\n"   "${_tag}" "${_fp}/compose.yaml"

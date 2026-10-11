@@ -111,19 +111,164 @@ _setup_conf_layers() {
     # origin symlinks and name dist/ a second time.
     _scl_dist="${_SETUP_SCRIPT_DIR%/*/*/*}"
   fi
+  # The TOP layer is asked for rather than spelled: it is the one layer a
+  # CALLER can address (see _setup_conf_local_path), and a second spelling
+  # of that path here is how an override would reach the merge but not the
+  # drift hash, or the hash but not the refusal deploy is built on.
+  local _scl_local
+  _scl_local="$(_setup_conf_local_path "${_base}")"
+  # An addressed layer that cannot be read is REFUSED here, before the
+  # chain exists, rather than resolved past. An absent layer contributes
+  # nothing by design -- that is what makes the per-worktree default
+  # optional -- so an override naming nothing would quietly produce the
+  # template defaults and the call would report success. That is exactly
+  # the "second, unchecked resolution path that silently wins over the
+  # real one" this header used to rule out by having no address at all.
+  if [[ -n "${_SETUP_CONF_LOCAL:-}" ]]; then
+    _setup_conf_local_check "${_scl_local}" || return 1
+  fi
   [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/setup.toml")
   _scl_out+=(
     "${_base}/setup.toml"
-    "${_base}/setup.local.toml"
+    "${_scl_local}"
   )
 }
 
 # _setup_conf_local_path <base_path>
 #
-# Echo the per-worktree override path. One spelling of the filename for
-# every caller that has to name it in a message.
+# Echo the chain's TOP layer: the per-worktree override at
+# <base>/setup.local.toml, or the file a CALLER named for this invocation.
+# One spelling of that path for every reader, every writer and every
+# caller that has to name it in a message.
+#
+# The address is ADR-00000036's: base's two generate stages are APIs an
+# orchestrator calls N times against ONE repo, and this layer is already
+# the one that overrides ANY section rather than a whitelist
+# (ADR-00000025 sec.1). What it lacked was somewhere to put the Nth call's
+# parameters, so two parameter sets meant two checkouts racing one file.
+#
+# `_SETUP_CONF_LOCAL` carries it. It is an internal, process-scoped
+# variable in the same class as `_SETUP_SCRIPT_DIR` -- set by an entry
+# point that PARSED `--local-conf`, not a user-facing environment knob --
+# and it is not the unchecked lever the chain header above rules out:
+# `_setup_conf_layers` refuses an address it cannot honour, so no value of
+# this variable can resolve to "no layer at all" and hand back the
+# template defaults while reporting success.
 _setup_conf_local_path() {
-  printf '%s/setup.local.toml' "${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  if [[ -n "${_SETUP_CONF_LOCAL:-}" ]]; then
+    printf '%s' "${_SETUP_CONF_LOCAL}"
+    return 0
+  fi
+  printf '%s/setup.local.toml' "${_base}"
+}
+
+# _setup_conf_local_check <path>
+#
+# Refuse a caller-supplied local layer the call cannot honour. Zero when
+# <path> is a readable regular file.
+#
+# Three ways it cannot be honoured, and none of them is loud on its own:
+# an empty address resolves to the repo's own file, a path that is not
+# there resolves to an absent layer (which the chain treats as
+# contributing nothing), and a directory or an unreadable file resolves to
+# a parse of nothing. All three end in a generated set built from the
+# template defaults while the caller is told its parameters were applied.
+# A parameterised API handed something it cannot honour refuses.
+_setup_conf_local_check() {
+  local _p="${1-}"
+  if [[ -z "${_p}" ]]; then
+    _log_err conf conf_local_override_unusable \
+      "display=the local conf layer was addressed with an empty path; refusing to resolve the chain without the layer the caller named" \
+      "path="
+    return 1
+  fi
+  if [[ ! -e "${_p}" ]]; then
+    _log_err conf conf_local_override_unusable \
+      "display=the local conf layer was addressed as ${_p}, which does not exist; refusing to resolve the chain without it rather than emitting the template defaults as if the parameters had been applied" \
+      "path=${_p}"
+    return 1
+  fi
+  if [[ ! -f "${_p}" ]]; then
+    _log_err conf conf_local_override_unusable \
+      "display=the local conf layer was addressed as ${_p}, which is not a regular file; refusing to resolve the chain without it" \
+      "path=${_p}"
+    return 1
+  fi
+  if [[ ! -r "${_p}" ]]; then
+    _log_err conf conf_local_override_unusable \
+      "display=the local conf layer was addressed as ${_p}, which is not readable; refusing to resolve the chain without it" \
+      "path=${_p}"
+    return 1
+  fi
+  return 0
+}
+
+# _setup_conf_chain_snapshot <layers_array> <assoc_outvar>
+# _setup_conf_chain_changed  <layers_array> <assoc_snapshot>
+# _setup_conf_chain_restore  <layers_array> <assoc_snapshot>
+#
+# Photograph a conf chain, ask whether it moved, and put it back.
+#
+# Taken over the WHOLE chain rather than over one file because the
+# property watched here -- "this call did not change the repo's
+# configuration" -- is a property of the chain, and the chain is where new
+# layers appear. The alternative is to enumerate the places an apply can
+# write to the conf, which passes forever the day a third one is added.
+#
+# ABSENCE IS RECORDED, NOT SKIPPED. A file the call CREATES is the
+# first-time bootstrap, which is the commonest way an orchestrator's call
+# writes into the repo; skipping the absent entries would read that as no
+# change at all. `restore` therefore deletes what was absent and rewrites
+# what was present, which is what makes "the repo is not mutated" an
+# outcome rather than a claim.
+#
+# Content is held in memory, not in a scratch copy: these files are small,
+# and a temp directory would have to be cleaned up on every one of the
+# intermediate return paths between the two photographs. The `X` sentinel
+# survives the trailing newline that command substitution strips, so a
+# restored file is byte-exact.
+_setup_conf_chain_snapshot() {
+  local _sccs_name="${1:?"${FUNCNAME[0]}: missing layers array"}"
+  local -n _sccs_layers="${_sccs_name}"
+  local -n _sccs_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _sccs_out=()
+  local _sccs_f
+  for _sccs_f in "${_sccs_layers[@]+"${_sccs_layers[@]}"}"; do
+    if [[ -f "${_sccs_f}" ]]; then
+      _sccs_out["${_sccs_f}"]="present:$(cat -- "${_sccs_f}"; printf 'X')"
+    else
+      _sccs_out["${_sccs_f}"]="absent:"
+    fi
+  done
+}
+
+_setup_conf_chain_changed() {
+  local _sccc_name="${1:?"${FUNCNAME[0]}: missing layers array"}"
+  local -n _sccc_layers="${_sccc_name}"
+  local -n _sccc_pre="${2:?"${FUNCNAME[0]}: missing snapshot"}"
+  local -A _sccc_now=()
+  _setup_conf_chain_snapshot "${_sccc_name}" _sccc_now
+  local _sccc_f
+  for _sccc_f in "${_sccc_layers[@]+"${_sccc_layers[@]}"}"; do
+    [[ "${_sccc_now[${_sccc_f}]-}" == "${_sccc_pre[${_sccc_f}]-}" ]] || return 0
+  done
+  return 1
+}
+
+_setup_conf_chain_restore() {
+  local _sccr_name="${1:?"${FUNCNAME[0]}: missing layers array"}"
+  local -n _sccr_layers="${_sccr_name}"
+  local -n _sccr_pre="${2:?"${FUNCNAME[0]}: missing snapshot"}"
+  local _sccr_f _sccr_v
+  for _sccr_f in "${_sccr_layers[@]+"${_sccr_layers[@]}"}"; do
+    _sccr_v="${_sccr_pre[${_sccr_f}]-}"
+    case "${_sccr_v}" in
+      absent:)  rm -f -- "${_sccr_f}" ;;
+      present:*) _sccr_v="${_sccr_v#present:}"
+                 printf '%s' "${_sccr_v%X}" > "${_sccr_f}" ;;
+    esac
+  done
 }
 
 # _setup_conf_local_sections <base_path> <outarray>
@@ -231,9 +376,14 @@ _setup_conf_local_sections() {
 # queried two ways, is what makes the two agree by construction rather
 # than by a convention nothing checks.
 #
-# The chain's surface is the fixed set of paths _setup_conf_layers names.
-# There is no env var that relocates it: a relocation lever is a second,
-# unchecked resolution path that silently wins over the real one.
+# The chain's surface is the set of paths _setup_conf_layers names, and
+# its TOP layer is addressable (ADR-00000036): a call may name the file it
+# wants read there, which is what lets an orchestrator drive one repo N
+# times. That is not the relocation lever this header used to rule out --
+# the objection to one was that it is a second, UNCHECKED resolution path
+# that silently wins over the real one, and the address is checked: an
+# override that cannot be read refuses the whole resolution rather than
+# leaving the layer out. The lower two layers are not addressable.
 #
 # Non-zero when the merge itself failed, which the handle reports rather
 # than returning an empty configuration as a loaded one.
@@ -283,7 +433,10 @@ _setup_conf_handle() {
   local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
   local _sch_dist="${3:-}"
   local -a _sch_layers=()
-  _setup_conf_layers "${_base}" _sch_layers "${_sch_dist}"
+  # Propagated: a chain that refused to resolve must not be reported as a
+  # loaded configuration, which is the same reason the bridge's parse
+  # failure is propagated rather than read as an empty conf.
+  _setup_conf_layers "${_base}" _sch_layers "${_sch_dist}" || return 1
   _conf_load_layers "${_h}" "${_sch_layers[@]}"
 }
 

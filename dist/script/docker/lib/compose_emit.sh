@@ -631,6 +631,7 @@ _emit_stage_service() {
   # bytes never drift).
   local _name="${_ess_ctx[name]-}"
   local _setup_base="${_ess_ctx[setup_base]-}"
+  local _ctx_dir="${_ess_ctx[ctx_dir]-.}"
   local _additional_contexts_str="${_ess_ctx[additional_contexts]-}"
   local _build_network="${_ess_ctx[build_network]-}"
   local _target_arch="${_ess_ctx[target_arch]-}"
@@ -668,7 +669,7 @@ _emit_stage_service() {
     extends:
       service: devel
     build:
-      context: .
+      context: ${_ctx_dir}
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
@@ -743,7 +744,7 @@ YAML
 
   ${_svc}:
     build:
-      context: .
+      context: ${_ctx_dir}
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
@@ -1044,6 +1045,14 @@ generate_compose_yaml() {
   local _dri_groups_str="${29:-}"
   local _init="${30:-true}"
   local _watchdog_env_str="${31:-}"
+  # The repo root, decoupled from where the file is WRITTEN (ADR-00000036).
+  # Everything this emitter reads off the filesystem -- the Dockerfile the
+  # stage scan parses, the base a relative [logging] local_path resolves
+  # against -- and every repo-relative path it EMITS belongs to the repo,
+  # not to the directory the caller asked for the artifact in. Defaulting
+  # to the output file's own directory is what keeps every existing caller
+  # byte-identical: for them the two ARE the same directory.
+  local _project_root="${32:-}"
 
   # Re-arm the ports-inert latch: one emit, at most one diagnostic, but a
   # second emit in the same process still reports.
@@ -1072,9 +1081,19 @@ generate_compose_yaml() {
   # caller exits non-zero so user fixes the Dockerfile before retry.
   # Per-stage diff (different volumes / GPU / network than devel) is
   # out of scope v1; declare via Dockerfile ARG + conditional RUN.
-  local _dockerfile _setup_base
-  _setup_base="$(dirname -- "${_out}")"
+  local _dockerfile _setup_base _out_dir
+  _out_dir="$(dirname -- "${_out}")"
+  _setup_base="${_project_root:-${_out_dir}}"
   _dockerfile="${_setup_base}/Dockerfile"
+  # `build.context` is resolved by compose against the compose file's own
+  # directory, so the committed artifact's `.` is only correct while the
+  # two directories coincide. When they do not, the context is the repo --
+  # spelled absolutely, because nothing else in the emitted file tells a
+  # reader where the repo was. One variable, so the three service shapes
+  # (devel, a stage with no overrides, a stage with overrides) cannot
+  # answer differently.
+  local _ctx_dir="."
+  [[ "${_setup_base}" != "${_out_dir}" ]] && _ctx_dir="${_setup_base}"
   local -a _emit_stages=()
   local _stage _vrc
   while IFS= read -r _stage; do
@@ -1166,7 +1185,7 @@ YAML
 services:
   devel:
     build:
-      context: .
+      context: ${_ctx_dir}
       dockerfile: Dockerfile
       target: devel
 YAML
@@ -1374,6 +1393,7 @@ YAML
     local -A _stage_ctx=(
       [name]="${_name}"
       [setup_base]="${_setup_base}"
+      [ctx_dir]="${_ctx_dir}"
       [additional_contexts]="${_additional_contexts_str}"
       [build_network]="${_build_network}"
       [target_arch]="${_target_arch}"

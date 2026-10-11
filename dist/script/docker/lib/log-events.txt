@@ -23,6 +23,9 @@ conf_unknown_subcmd
 conf_unknown_arg
 conf_upsert_file_missing
 conf_local_created
+conf_local_override_unusable
+apply_output_unusable
+apply_repo_conf_mutated
 conf_write_shadowed
 conf_toml_merge_failed
 conf_toml_parse_failed

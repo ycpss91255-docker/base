@@ -2462,3 +2462,204 @@ EOF
   run grep -c 'NEW' "${TEMP_DIR}/setup.local.toml"
   assert_output "0"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The devel generate stage as a parameterised API (ADR-00000036, base#1087)
+#
+# `apply` could only write into the repo it read, so a second instance's
+# generation overwrote the first's and two parameter sets meant two
+# checkouts. The two parameters this section pins -- `--local-conf` for the
+# chain's top layer and `--output` for the emitted set -- are what make one
+# repo answer N calls. Every assertion goes through `main apply`, the real
+# entry point, and reads the emitted artifact rather than the source text.
+# ════════════════════════════════════════════════════════════════════
+
+_ppa_repo() {
+  # A minimal repo the real apply can generate from: the shipped template
+  # conf plus a Dockerfile, which is what the stage scan reads.
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  cat > "${TEMP_DIR}/Dockerfile" <<'DF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS runtime
+DF
+}
+
+# why: `--output` is the whole point of the parameterised call: the emitted
+# set lands in the directory the caller names. Asserted on the artifacts in
+# that directory AND on their absence from the repo, because an apply that
+# wrote both places would satisfy a one-sided check while still letting a
+# second call clobber the first.
+@test "apply --output writes the generated set into the caller's directory (base#1087)" {
+  _ppa_repo
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  assert [ -f "${_out}/compose.yaml" ]
+  assert [ -f "${_out}/.env.generated" ]
+  assert [ -f "${_out}/.env" ]
+  assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
+  assert [ ! -f "${TEMP_DIR}/.env.generated" ]
+}
+
+# why: base#1087's acceptance criterion, end to end: two calls differing
+# only in a caller-supplied local layer and an output directory produce two
+# complete sets that differ in the parameterised value, with the repo
+# unmodified. The value is read back out of the EMITTED compose.yaml, so a
+# call that resolved the parameter but emitted the repo's value fails here.
+@test "two apply calls over one repo emit two sets that differ in the parameterised value (base#1087)" {
+  _ppa_repo
+  printf '[network]\nmode = "bridge"\nname = "inst-a"\n' > "${TEMP_DIR}/a.toml"
+  printf '[network]\nmode = "host"\n' > "${TEMP_DIR}/b.toml"
+  local _digest_before
+  _digest_before="$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --output '${TEMP_DIR}/inst-a' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/b.toml' --output '${TEMP_DIR}/inst-b' -q 2>&1
+  "
+  assert_success
+  # NETWORK_MODE is the parameterised value; it reaches the emitted set
+  # through .env.generated, which is what compose interpolates from.
+  run grep -c '^NETWORK_MODE=bridge$' "${TEMP_DIR}/inst-a/.env.generated"
+  assert_success
+  run grep -c '^NETWORK_MODE=host$' "${TEMP_DIR}/inst-b/.env.generated"
+  assert_success
+  # The repo is not mutated by a call.
+  assert_equal "$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)" "${_digest_before}"
+  assert [ ! -f "${TEMP_DIR}/setup.local.toml" ]
+}
+
+# why: generate_compose_yaml derived the repo root from the OUTPUT path
+# (`dirname "${_out}"`), so an output directory alone would make it scan a
+# Dockerfile that is not there and emit no service for any non-baseline
+# stage -- a quietly incomplete artifact, not a failure. The repo's
+# `runtime` stage is the observation.
+@test "apply --output keeps the Dockerfile-derived stage services in the emitted compose (base#1087)" {
+  _ppa_repo
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  run grep -E '^  runtime:' "${_out}/compose.yaml"
+  assert_success
+}
+
+# why: `context: .` resolves against the compose file's own directory, so an
+# emitted set in the caller's directory would build from a directory with no
+# Dockerfile in it. The property is that every build context the emitted
+# file names resolves to a directory that holds the Dockerfile -- derived
+# from the artifact's own `context:` lines, not from a path spelled here.
+@test "apply --output emits build contexts that resolve to the repo (base#1087)" {
+  _ppa_repo
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local -a _ctxs=()
+  while IFS= read -r _c; do _ctxs+=("${_c}"); done < <(
+    sed -n 's/^ *context: *//p' "${_out}/compose.yaml"
+  )
+  (( ${#_ctxs[@]} > 0 )) || fail "the emitted compose names no build context"
+  local _c
+  for _c in "${_ctxs[@]}"; do
+    # Resolved the way compose resolves it: relative to the compose file.
+    [[ "${_c}" == /* ]] || _c="${_out}/${_c}"
+    assert [ -f "${_c}/Dockerfile" ]
+  done
+}
+
+# why: An override naming a file that is not there resolves to an absent
+# layer, which the chain treats as contributing nothing -- so the call would
+# emit the template defaults and report success. A parameterised API handed
+# something it cannot honour must refuse.
+@test "apply --local-conf refuses a path that names no file (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/nope.toml' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "nope.toml"
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: An output directory that cannot be created is the same class: the
+# call cannot be honoured, so it refuses rather than reporting a set it
+# never wrote. A plain file in the way is the reachable spelling.
+@test "apply --output refuses when the named directory cannot be created (base#1087)" {
+  _ppa_repo
+  : > "${TEMP_DIR}/not-a-dir"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/not-a-dir' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "not-a-dir"
+}
+
+# why: "The repo is not mutated by a call" is a property of the whole
+# apply, not of its writers: _reconcile_workspace_path rewrites
+# <repo>/setup.toml on first-time bootstrap and on a stale absolute
+# mount_1. Observed by handing a repo with no setup.toml to an --output
+# call -- the bootstrap case -- and asserting it is refused rather than
+# served by writing into the repo.
+@test "apply --output refuses a call that would write into the repo's conf (base#1087)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+DF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "without --output"
+  # Refused AND put back: the bootstrap had already written the file by
+  # the time the call could tell, so a refusal that only returned 1 would
+  # leave the repo changed anyway.
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: Without --output the apply is exactly what every existing checkout
+# runs, writing into the repo. Pinned beside the parameterised path so a
+# regression there cannot hide behind the new tests.
+@test "apply without --output still writes into the repo root (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' -q 2>&1
+  "
+  assert_success
+  assert [ -f "${TEMP_DIR}/compose.yaml" ]
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
+  # And its build contexts stay the repo-relative `.` every downstream
+  # repo's committed artifact carries.
+  run grep -c '^      context: \.$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+# why: deploy's reproducibility refusal is built on
+# _setup_conf_local_sections, so a caller-supplied layer has to reach it:
+# otherwise the refusal would inspect the operator's absent default file,
+# clear the call, and bake a bundle out of untracked configuration. The
+# refusal naming the CALLER's file is the observation.
+@test "deploy --local-conf routes the reproducibility refusal at the caller's file (base#1087)" {
+  _ppa_repo
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/a.toml"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main deploy --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --stage runtime --dry-run 2>&1
+  "
+  assert_failure
+  assert_output --partial "a.toml"
+}
