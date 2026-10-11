@@ -1511,12 +1511,16 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
   "
-  # A numbered key is a `[[build.args]]` entry; the bridge numbers it
-  # back in file order, and this file had none before, so the entry
-  # written as arg_4 is the array's first.
+  # A numbered key is a `[[build.args]]` entry, and index N of the array
+  # IS the key `arg_N`: this file had no block before, so the positions
+  # below the one named are padded field-less and the value lands at the
+  # index the command asked for. This assertion used to read `arg_1`,
+  # which was the writer handing the entry a name the operator never
+  # typed -- the WS_PATH-hijack shape when the family is `[volumes]`.
   run toml_bridge_parse "${TEMP_DIR}/setup.toml" --kv
   assert_success
-  assert_line 'build	arg_1	ROS2_DISTRO=jazzy'
+  assert_line 'build	arg_4	ROS2_DISTRO=jazzy'
+  refute_line --regexp '^build	arg_1	.'
 }
 
 @test "setup.sh add: prints 3-line confirmation by default" {

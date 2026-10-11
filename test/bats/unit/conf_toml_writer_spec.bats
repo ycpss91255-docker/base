@@ -80,11 +80,53 @@ teardown() {
   assert_success
 }
 
+# why: Index N of the array IS the key `<prefix>_N`, so a write naming an
+# index past the end has to LAND there. Appending one block gave it the
+# next position under a different name, and on the shipped template --
+# whose `[volumes]` holds no block at all -- `setup.sh set volumes.mount_2
+# /data:/data` read back as `mount_1`, the workspace bind.
+# `_reconcile_workspace_path` honours an existing absolute source at
+# `mount_1` as a deliberately pinned workspace, so WS_PATH silently became
+# the operator's data directory. The INI writer had no such failure: it
+# wrote the key `mount_2` and left `mount_1` absent. The positions in
+# between are padded field-less, the same rule and the same spelling the
+# converter's dense emission already uses. Driven on the shipped template,
+# because that no-blocks state is the seeded state of every downstream
+# repo rather than an edge case.
+@test "_upsert_conf_value: a write past the end of an array lands at the index it named" {
+  assert_spec_subject "${TPL}" "the shipped setup.toml template"
+  cp "${TPL}" "${CONF}"
+  _upsert_conf_value "${CONF}" volumes mount_3 '/data:/data'
+
+  # Two field-less blocks stand in front of it, so the value is entry 3.
+  run grep -c '^\[\[volumes\]\]$' "${CONF}"
+  assert_output "3"
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'volumes	mount_3	/data:/data'
+  # The workspace slot is NOT what the write landed in, and it reads back
+  # empty rather than as the bogus `:` no list reader skips.
+  refute_line --regexp '^volumes	mount_1	.'
+  refute_line --regexp '^volumes	mount_2	.'
+
+  # And the next write still addresses the padded slots by name.
+  _upsert_conf_value "${CONF}" volumes mount_2 '/srv:/srv:ro'
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'volumes	mount_2	/srv:/srv:ro'
+  assert_line 'volumes	mount_3	/data:/data'
+  run grep -c '^\[\[volumes\]\]$' "${CONF}"
+  assert_output "3"
+}
+
 # why: The conversion table of the migration: a numbered list key is an
 # `[[array of tables]]` entry, not a `mount_N` scalar. The N-th block IS
 # entry N, so writing an index that exists replaces that block in place
 # and writing the next index appends a block after it; the bridge
-# numbers them back in file order.
+# numbers them back in file order. `build arg_4` on a template whose
+# `[[build.args]]` holds three is the next position, so it needs no
+# padding -- which is what separates it from the test above.
 @test "_upsert_conf_value: numbered keys land as array-of-tables entries that the bridge numbers back" {
   cp "${TPL}" "${CONF}"
   _upsert_conf_value "${CONF}" volumes mount_1 '/a:/b'

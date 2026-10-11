@@ -1746,14 +1746,50 @@ _conf_upsert_scalar() {
   fi
 }
 
+# _conf_toml_aot_pad <dst> <path> <total> <index>
+#
+# Append the FIELD-LESS `[[<path>]]` blocks that have to stand between
+# the <total> blocks the file already holds and the <index>-th one about
+# to be written: positions <total>+1 .. <index>-1, and nothing when
+# <index> is the next position or below.
+#
+# Index N of the array IS the key `<prefix>_N`, so a write that names an
+# index past the end has to LAND there. Appending one block instead gave
+# it position <total>+1 under a different name: on the shipped template,
+# whose `[volumes]` holds no block at all, `setup.sh set volumes.mount_2
+# /data:/data` wrote one block that read back as `mount_1` -- the
+# workspace bind -- and `_reconcile_workspace_path` honours an existing
+# absolute source at `mount_1` as a deliberately pinned workspace, so
+# WS_PATH silently became the operator's data directory. The INI writer
+# had no such failure: it wrote the key `mount_2` and left `mount_1`
+# absent.
+#
+# This is the rule the converter already states for the same reason (see
+# ini_to_toml_migrate.sh's dense-emission header): a hole below the
+# highest populated slot need not be a key at all, and a
+# present-blocks-only rule hands the entry position 1. A field-less block
+# -- a header with no body -- is the spelling for a slot that holds
+# nothing, because every serialiser in the bridge's array spec answers ""
+# for an absent field and the join is over the fields a block HAS.
+# Rendering an empty VALUE instead produces the bogus `":"` / `"="` that
+# `_conf_list_sorted` does not skip.
+_conf_toml_aot_pad() {
+  local _d="${1:?}" _p="${2:?}" _total="${3:?}" _idx="${4:?}"
+  local _i
+  for (( _i = _total + 1; _i < _idx; _i++ )); do
+    printf '[[%s]]\n\n' "${_p}" >> "${_d}"
+  done
+}
+
 # _conf_toml_upsert_aot <src> <dst> <path> <index> <value>
 #
 # The array-of-tables half of _upsert_conf_value: rewrite <src> into
 # <dst> with the <index>-th `[[<path>]]` block carrying <value>. The
 # block's key lines are replaced, its comments and blank lines kept.
-# When the file has fewer blocks than <index>, the new block goes after
-# the last one of that kind -- an array is dense, so it takes the next
-# index -- or at the end of the file when there is none.
+# When the file has fewer blocks than <index>, the positions in between
+# are padded field-less by `_conf_toml_aot_pad` so the value lands at the
+# index named, and the new block goes after the last one of that kind --
+# or at the end of the file when there is none.
 _conf_toml_upsert_aot() {
   local _src="${1:?}" _dst="${2:?}" _path="${3:?}" _index="${4:?}" _value="${5-}"
 
@@ -1775,6 +1811,7 @@ _conf_toml_upsert_aot() {
     if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       if (( __in_block && !__matched && __seen == __total )); then
+        _conf_toml_aot_pad "${_dst}" "${_path}" "${__total}" "${_index}"
         printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_dst}"
         __matched=1
       fi
@@ -1795,6 +1832,7 @@ _conf_toml_upsert_aot() {
       fi
     elif [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       if (( __in_block && !__matched && __seen == __total )); then
+        _conf_toml_aot_pad "${_dst}" "${_path}" "${__total}" "${_index}"
         printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_dst}"
         __matched=1
       fi
@@ -1816,6 +1854,8 @@ _conf_toml_upsert_aot() {
   done < "${_src}"
 
   if (( !__matched )); then
-    printf '\n[[%s]]\n%s\n' "${_path}" "${__fields}" >> "${_dst}"
+    printf '\n' >> "${_dst}"
+    _conf_toml_aot_pad "${_dst}" "${_path}" "${__total}" "${_index}"
+    printf '[[%s]]\n%s\n' "${_path}" "${__fields}" >> "${_dst}"
   fi
 }
