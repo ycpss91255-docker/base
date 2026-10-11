@@ -649,3 +649,206 @@ EOF
   assert_equal "${#_out[@]}" "1"
   assert_equal "${_out[0]}" "/b:/b"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The chain's top layer takes a caller-supplied address (ADR-00000036)
+#
+# base's two generate stages are APIs an orchestrator calls N times
+# against ONE repo. The third layer is already the one that overrides any
+# section (ADR-00000025 sec.1); what it lacked was an address, so two
+# concurrent parameter sets meant two checkouts. `_setup_conf_local_path`
+# is the ONE spelling of that path, so pointing it elsewhere moves the
+# layer for every reader and writer at once rather than for the one that
+# was remembered -- which is why the assertions below go through the real
+# merge and the real drift hash, not through the chain array alone.
+# ════════════════════════════════════════════════════════════════════
+
+# why: The chain's top layer is assembled in _setup_conf_layers, and it
+# spelled `<base>/setup.local.toml` inline rather than asking
+# _setup_conf_local_path. A second spelling of one path is how an override
+# reaches some readers and not others, so the membership assertion here is
+# that the chain's last element IS whatever that resolver answers.
+@test "_setup_conf_layers: the top layer is whatever _setup_conf_local_path resolves (base#1087)" {
+  local -a _l=()
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/caller-a.toml"
+  local _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-a.toml"
+  _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
+  assert_equal "${#_l[@]}" "3"
+  assert_equal "${_l[1]}" "${TEMP_DIR}/setup.toml"
+  assert_equal "${_l[2]}" "${TEMP_DIR}/caller-a.toml"
+  # The default path is GONE from the chain, not merely outranked: an
+  # orchestrator's call must not pick up the operator's own worktree file.
+  local _e
+  for _e in "${_l[@]}"; do
+    [[ "${_e}" != "${TEMP_DIR}/setup.local.toml" ]] || \
+      fail "the default local layer is still in the chain: ${_e}"
+  done
+}
+
+# why: An address nothing reads is not an address. Asserted through the
+# real merge (_setup_conf_handle + _conf_get, the accessors every emitter
+# resolves through) rather than through the path list, so a chain that
+# names the caller's file but merges the repo's would fail here.
+@test "_setup_conf_handle merges the caller-supplied local layer, not the default one (base#1087)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[gpu]
+mode = "off"
+EOF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[gpu]
+mode = "auto"
+EOF
+  cat > "${TEMP_DIR}/caller-a.toml" <<'EOF'
+[gpu]
+mode = "force"
+EOF
+  local _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-a.toml"
+  _setup_conf_handle "${TEMP_DIR}" _H "${TEMP_DIR}/.base/dist"
+  local _got=""
+  _conf_get_into _H gpu mode "" _got
+  assert_equal "${_got}" "force"
+}
+
+# why: Two calls against one repo must be able to hold two parameter sets
+# at once. Observed as two different merge results from two different
+# caller files with the repo untouched between them -- the acceptance
+# criterion base#1087 states, at the resolver.
+@test "two caller-supplied local layers resolve to two configurations over one repo (base#1087)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[gpu]
+mode = "off"
+EOF
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/caller-a.toml"
+  printf '[gpu]\nmode = "auto"\n'  > "${TEMP_DIR}/caller-b.toml"
+  local _a="" _b=""
+  ( _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-a.toml"
+    _setup_conf_handle "${TEMP_DIR}" _HA "${TEMP_DIR}/.base/dist"
+    _conf_get_into _HA gpu mode "" _a; printf '%s\n' "${_a}" ) > "${TEMP_DIR}/a.out"
+  ( _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-b.toml"
+    _setup_conf_handle "${TEMP_DIR}" _HB "${TEMP_DIR}/.base/dist"
+    _conf_get_into _HB gpu mode "" _b; printf '%s\n' "${_b}" ) > "${TEMP_DIR}/b.out"
+  assert_equal "$(cat "${TEMP_DIR}/a.out")" "force"
+  assert_equal "$(cat "${TEMP_DIR}/b.out")" "auto"
+  # The repo's own files are what two concurrent calls must not fight
+  # over, so assert they still say what they said.
+  run cat "${TEMP_DIR}/setup.toml"
+  assert_output --partial 'mode = "off"'
+  assert [ ! -f "${TEMP_DIR}/setup.local.toml" ]
+}
+
+# why: _setup_conf_local_sections is the answer a REFUSAL is built on
+# (_setup_deploy bars a field bundle whose values came from the gitignored
+# layer) and the one the config summary names. Read off the default path
+# while the chain merged a caller's file, it would clear a bundle built
+# from configuration nobody can reproduce.
+@test "_setup_conf_local_sections reports the caller-supplied layer's sections (base#1087)" {
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/setup.local.toml"
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/caller-a.toml"
+  local _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-a.toml"
+  local -a _s=()
+  _setup_conf_local_sections "${TEMP_DIR}" _s
+  assert_equal "${#_s[@]}" "1"
+  assert_equal "${_s[0]}" "network"
+}
+
+# why: Conf drift decides whether build.sh / run.sh reuse the artifacts of
+# a previous generation. A layer that steers resolution but sits outside
+# the hash lets a call reuse another call's compose.yaml, so the override
+# has to reach _compute_conf_hash too -- which it does by construction
+# only while that function derives its population from _setup_conf_layers.
+@test "_compute_conf_hash follows the caller-supplied local layer (base#1087)" {
+  printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/caller-a.toml"
+  printf '[gpu]\nmode = "auto"\n'  > "${TEMP_DIR}/caller-b.toml"
+  local _ha="" _hb=""
+  _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-a.toml" _compute_conf_hash "${TEMP_DIR}" _ha
+  _SETUP_CONF_LOCAL="${TEMP_DIR}/caller-b.toml" _compute_conf_hash "${TEMP_DIR}" _hb
+  [[ -n "${_ha}" ]] || fail "no hash computed for caller A"
+  [[ "${_ha}" != "${_hb}" ]] || \
+    fail "two caller-supplied layers hashed identically: ${_ha}"
+}
+
+# why: A parameterised API handed something it cannot honour must refuse.
+# An override naming a file that is not there would otherwise resolve to
+# an absent layer -- which the chain treats as "contributes nothing" -- and
+# the call would silently emit the template defaults while reporting
+# success. base#1092 / #1097 / #1119 / #1120 / #1223 are the same class.
+@test "_setup_conf_local_check refuses an override that names no file (base#1087)" {
+  run _setup_conf_local_check "${TEMP_DIR}/not-there.toml"
+  assert_failure
+  assert_output --partial "not-there.toml"
+}
+
+# why: A directory at the override path is the other way the layer cannot
+# be read, and it is not caught by an existence test alone.
+@test "_setup_conf_local_check refuses an override that is not a regular file (base#1087)" {
+  mkdir -p "${TEMP_DIR}/a-dir.toml"
+  run _setup_conf_local_check "${TEMP_DIR}/a-dir.toml"
+  assert_failure
+  assert_output --partial "a-dir.toml"
+}
+
+# why: The check has to pass the honourable case, or the refusal above
+# would be satisfied by a function that refuses everything.
+@test "_setup_conf_local_check accepts a readable regular file (base#1087)" {
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/caller-a.toml"
+  run _setup_conf_local_check "${TEMP_DIR}/caller-a.toml"
+  assert_success
+}
+
+# why: With no override set, the chain is exactly what it was. The
+# per-worktree default is the case every existing checkout is in, so it is
+# pinned beside the override rather than left to the tests above.
+@test "_setup_conf_local_path falls back to the per-worktree default (base#1087)" {
+  local _SETUP_CONF_LOCAL=""
+  assert_equal "$(_setup_conf_local_path "${TEMP_DIR}")" "${TEMP_DIR}/setup.local.toml"
+}
+
+# why: The chain's shipped header said there is no env var that relocates
+# it, because such a lever "is a second, unchecked resolution path that
+# silently wins over the real one" -- and the way it wins silently is by
+# naming nothing: an absent layer contributes nothing, so the call would
+# emit the template defaults. ADR-00000036 gives the layer an address, and
+# this is the half that keeps the old objection answered: the resolver
+# REFUSES an address it cannot honour rather than resolving past it.
+@test "_setup_conf_layers refuses an override that names no file, instead of resolving past it (base#1087)" {
+  printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
+  local -a _l=()
+  _SETUP_CONF_LOCAL="${TEMP_DIR}/gone.toml"
+  run _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
+  assert_failure
+  assert_output --partial "gone.toml"
+}
+
+# why: And the readers built on the chain inherit that refusal, or the one
+# that matters -- the merge every emitter resolves through -- would hand
+# back a configuration assembled without the layer the caller named.
+@test "_setup_conf_handle propagates the refusal of an unhonourable override (base#1087)" {
+  printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
+  _SETUP_CONF_LOCAL="${TEMP_DIR}/gone.toml"
+  run _setup_conf_handle "${TEMP_DIR}" _HX "${TEMP_DIR}/.base/dist"
+  assert_failure
+  assert_output --partial "gone.toml"
+}
+
+# why: A chain that moved must be reported as moved, and one that did not
+# must not -- the second half matters as much, because a detector that
+# always fires would make every --output call refuse and the whole
+# parameterised API unusable.
+@test "_setup_conf_chain_changed reports a layer the call created (base#1087)" {
+  local -a _l=("${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.local.toml")
+  local -A _snap=()
+  _setup_conf_chain_snapshot _l _snap
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/setup.toml"
+  run _setup_conf_chain_changed _l _snap
+  assert_success
+}
+
+@test "_setup_conf_chain_changed reports no change over an untouched chain (base#1087)" {
+  printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
+  local -a _l=("${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.local.toml")
+  local -A _snap=()
+  _setup_conf_chain_snapshot _l _snap
+  run _setup_conf_chain_changed _l _snap
+  assert_failure
+}

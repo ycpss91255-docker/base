@@ -2485,3 +2485,755 @@ EOF
   run grep -c 'NEW' "${TEMP_DIR}/setup.local.toml"
   assert_output "0"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The devel generate stage as a parameterised API (ADR-00000036, base#1087)
+#
+# `apply` could only write into the repo it read, so a second instance's
+# generation overwrote the first's and two parameter sets meant two
+# checkouts. The two parameters this section pins -- `--local-conf` for the
+# chain's top layer and `--output` for the emitted set -- are what make one
+# repo answer N calls. Every assertion goes through `main apply`, the real
+# entry point, and reads the emitted artifact rather than the source text.
+# ════════════════════════════════════════════════════════════════════
+
+_ppa_repo() {
+  # A minimal repo the real apply can generate from: the shipped template
+  # conf plus a Dockerfile, which is what the stage scan reads.
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  cat > "${TEMP_DIR}/Dockerfile" <<'DF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS runtime
+DF
+}
+
+# why: `--output` is the whole point of the parameterised call: the emitted
+# set lands in the directory the caller names. Asserted on the artifacts in
+# that directory AND on their absence from the repo, because an apply that
+# wrote both places would satisfy a one-sided check while still letting a
+# second call clobber the first.
+@test "apply --output writes the generated set into the caller's directory (base#1087)" {
+  _ppa_repo
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  assert [ -f "${_out}/compose.yaml" ]
+  assert [ -f "${_out}/.env.generated" ]
+  assert [ -f "${_out}/.env" ]
+  assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
+  assert [ ! -f "${TEMP_DIR}/.env.generated" ]
+}
+
+# why: base#1087's acceptance criterion, end to end: two calls differing
+# only in a caller-supplied local layer and an output directory produce two
+# complete sets that differ in the parameterised value, with the repo
+# unmodified. The value is read back out of the EMITTED compose.yaml, so a
+# call that resolved the parameter but emitted the repo's value fails here.
+@test "two apply calls over one repo emit two sets that differ in the parameterised value (base#1087)" {
+  _ppa_repo
+  printf '[network]\nmode = "bridge"\nname = "inst-a"\n' > "${TEMP_DIR}/a.toml"
+  printf '[network]\nmode = "host"\n' > "${TEMP_DIR}/b.toml"
+  local _digest_before
+  _digest_before="$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --output '${TEMP_DIR}/inst-a' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/b.toml' --output '${TEMP_DIR}/inst-b' -q 2>&1
+  "
+  assert_success
+  # NETWORK_MODE is the parameterised value; it reaches the emitted set
+  # through .env.generated, which is what compose interpolates from.
+  run grep -c '^NETWORK_MODE=bridge$' "${TEMP_DIR}/inst-a/.env.generated"
+  assert_success
+  run grep -c '^NETWORK_MODE=host$' "${TEMP_DIR}/inst-b/.env.generated"
+  assert_success
+  # The repo is not mutated by a call.
+  assert_equal "$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)" "${_digest_before}"
+  assert [ ! -f "${TEMP_DIR}/setup.local.toml" ]
+}
+
+# why: generate_compose_yaml derived the repo root from the OUTPUT path
+# (`dirname "${_out}"`), so an output directory alone would make it scan a
+# Dockerfile that is not there and emit no service for any non-baseline
+# stage -- a quietly incomplete artifact, not a failure. The repo's
+# `runtime` stage is the observation.
+@test "apply --output keeps the Dockerfile-derived stage services in the emitted compose (base#1087)" {
+  _ppa_repo
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  run grep -E '^  runtime:' "${_out}/compose.yaml"
+  assert_success
+}
+
+# why: `context: .` resolves against the compose file's own directory, so an
+# emitted set in the caller's directory would build from a directory with no
+# Dockerfile in it. The property is that every build context the emitted
+# file names resolves to a directory that holds the Dockerfile -- derived
+# from the artifact's own `context:` lines, not from a path spelled here.
+@test "apply --output emits build contexts that resolve to the repo (base#1087)" {
+  _ppa_repo
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local -a _ctxs=()
+  while IFS= read -r _c; do _ctxs+=("${_c}"); done < <(
+    sed -n 's/^ *context: *//p' "${_out}/compose.yaml"
+  )
+  (( ${#_ctxs[@]} > 0 )) || fail "the emitted compose names no build context"
+  local _c
+  for _c in "${_ctxs[@]}"; do
+    # Resolved the way compose resolves it: relative to the compose file.
+    [[ "${_c}" == /* ]] || _c="${_out}/${_c}"
+    assert [ -f "${_c}/Dockerfile" ]
+  done
+}
+
+# why: An override naming a file that is not there resolves to an absent
+# layer, which the chain treats as contributing nothing -- so the call would
+# emit the template defaults and report success. A parameterised API handed
+# something it cannot honour must refuse.
+@test "apply --local-conf refuses a path that names no file (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/nope.toml' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "nope.toml"
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: An output directory that cannot be created is the same class: the
+# call cannot be honoured, so it refuses rather than reporting a set it
+# never wrote. A plain file in the way is the reachable spelling.
+@test "apply --output refuses when the named directory cannot be created (base#1087)" {
+  _ppa_repo
+  : > "${TEMP_DIR}/not-a-dir"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/not-a-dir' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "not-a-dir"
+}
+
+# why: "The repo is not mutated by a call" is a property of the whole
+# apply, not of its writers: _reconcile_workspace_path rewrites
+# <repo>/setup.toml on first-time bootstrap and on a stale absolute
+# mount_1. Observed by handing a repo with no setup.toml to an --output
+# call -- the bootstrap case -- and asserting it is refused rather than
+# served by writing into the repo.
+@test "apply --output refuses a call that would write into the repo's conf (base#1087)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+DF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "without --output"
+  # Refused AND put back: the bootstrap had already written the file by
+  # the time the call could tell, so a refusal that only returned 1 would
+  # leave the repo changed anyway.
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: Without --output the apply is exactly what every existing checkout
+# runs, writing into the repo. Pinned beside the parameterised path so a
+# regression there cannot hide behind the new tests.
+@test "apply without --output still writes into the repo root (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' -q 2>&1
+  "
+  assert_success
+  assert [ -f "${TEMP_DIR}/compose.yaml" ]
+  assert [ -f "${TEMP_DIR}/.env.generated" ]
+  # And its build contexts stay the repo-relative `.` every downstream
+  # repo's committed artifact carries.
+  run grep -c '^      context: \.$' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+# why: deploy's reproducibility refusal is built on
+# _setup_conf_local_sections, so a caller-supplied layer has to reach it:
+# otherwise the refusal would inspect the operator's absent default file,
+# clear the call, and bake a bundle out of untracked configuration. The
+# refusal naming the CALLER's file is the observation.
+@test "deploy --local-conf routes the reproducibility refusal at the caller's file (base#1087)" {
+  _ppa_repo
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/a.toml"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main deploy --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --stage runtime --dry-run 2>&1
+  "
+  assert_failure
+  assert_output --partial "a.toml"
+}
+
+# why: `build.context` was not the only repo-relative path in the emitted
+# file. A `config/<component>/` bind, a relative `[volumes] mount_N` and an
+# `[additional_contexts]` path are all resolved by compose against the
+# compose file's own directory, so a relocated set would mount paths inside
+# the output directory -- which docker CREATES, empty and root-owned,
+# rather than failing. The property is therefore asked of the ARTIFACT:
+# every host path it names resolves to something that exists. Derived from
+# the emitted file's own lines, so a path kind added to the emitter later
+# is covered the day it appears.
+@test "apply --output emits no host path that fails to resolve (base#1087)" {
+  _ppa_repo
+  mkdir -p "${TEMP_DIR}/config/demo" "${TEMP_DIR}/extra" "${TEMP_DIR}/ctxdir"
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "shared"
+source = "./ctxdir"
+EOF
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local -a _paths=()
+  local _l _p
+  while IFS= read -r _l; do
+    _paths+=("${_l}")
+  done < <(
+    # `context: <p>`, the RHS of an `additional_contexts` entry, and the
+    # LHS of every `- <host>:<container>` volume line.
+    sed -n \
+      -e 's/^ *context: *//p' \
+      -e 's/^ *[A-Za-z0-9_][A-Za-z0-9_-]*: *\(\.\{1,2\}\/[^ ]*\)$/\1/p' \
+      -e 's/^ *- \([^:$][^:]*\):\/.*$/\1/p' \
+      "${_out}/compose.yaml"
+  )
+  (( ${#_paths[@]} > 0 )) || fail "the emitted compose names no host path"
+  # Anti-vacuity: the fixture ships a config/<component>/ directory, so
+  # its bind must be one of the paths collected. A run that found only
+  # the build contexts would be a weaker test than it looks.
+  local _saw_component=0
+  for _p in "${_paths[@]}"; do
+    [[ "${_p}" == */config/demo ]] && _saw_component=1
+  done
+  (( _saw_component )) || fail "the config-component bind is not among: ${_paths[*]}"
+  for _p in "${_paths[@]}"; do
+    # Unresolvable by construction: an interpolation is a per-instance
+    # overlay value (ADR-00000022), not a path this file can be read for.
+    [[ "${_p}" == *'${'* ]] && continue
+    [[ "${_p}" == /* ]] || _p="${_out}/${_p}"
+    assert [ -e "${_p}" ]
+  done
+}
+
+# why: A relative --base-path leaves the repo root spelled `.`, which is
+# the one spelling that is WRONG in a relocated file and right in a
+# co-located one -- compose resolves it against the output directory
+# either way. Generation succeeded and the build then could not find the
+# Dockerfile, so the emitted context is canonicalised rather than copied.
+@test "apply --output canonicalises a relative --base-path into the emitted context (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    cd '${TEMP_DIR}' || exit 1
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path . --output ./inst-1 -q 2>&1
+  "
+  assert_success
+  local _ctx
+  _ctx="$(sed -n 's/^ *context: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  assert [ -f "${_ctx}/Dockerfile" ]
+}
+
+# why: --print-resolved returns before any artifact is written, and the
+# repo-preservation check sat after it -- so the one option combination
+# that writes nothing was also the one that left a bootstrapped setup.toml
+# behind. The check belongs where the mutation happens, not where the
+# writes do.
+@test "apply --output --print-resolved preserves the repo it would have bootstrapped (base#1087)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+DF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' --print-resolved 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+}
+
+# why: `--local-conf=` and `--output=` parse to the empty string, and an
+# empty value read as "the option was not given" turns both refusal
+# contracts off from the command line: the chain silently falls back to the
+# repo's own local layer, and the set is written into the repo. An option
+# that was SUPPLIED is validated on its value, not on its emptiness.
+@test "apply refuses an empty --local-conf= value (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf= --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+@test "apply refuses an empty --output= value instead of writing into the repo (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output= -q 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
+}
+
+@test "deploy refuses an empty --local-conf= value (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main deploy --base-path '${TEMP_DIR}' --local-conf= --stage runtime --dry-run 2>&1
+  "
+  assert_failure
+  assert_output --partial "empty path"
+}
+
+# why: A bare relative `additional_contexts` source is a LOCAL path, not a
+# named anything -- the volume classifier's rule (a bare left-hand side is
+# a Docker named volume) does not hold here, so a rebase that only moved
+# `./` and `../` left `shared=ctxdir` and `shared=.` resolving into the
+# output directory. The other half is that a non-local source --
+# `docker-image://`, an `oci-layout://`, a git or http URL, a `target:` /
+# `service:` reference -- must NOT be rebased, or the rebase breaks a
+# context that was never a path.
+@test "apply --output rebases a bare relative additional context and leaves a non-local one (base#1087)" {
+  _ppa_repo
+  mkdir -p "${TEMP_DIR}/ctxdir"
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "bare"
+source = "ctxdir"
+
+[[additional_contexts]]
+name = "dot"
+source = "."
+
+[[additional_contexts]]
+name = "img"
+source = "docker-image://alpine:3.22"
+
+[[additional_contexts]]
+name = "abs"
+source = "/etc"
+EOF
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local _bare _dot _img _abs
+  _bare="$(sed -n 's/^ *bare: *//p' "${_out}/compose.yaml" | head -1)"
+  _dot="$(sed -n 's/^ *dot: *//p' "${_out}/compose.yaml" | head -1)"
+  _img="$(sed -n 's/^ *img: *//p' "${_out}/compose.yaml" | head -1)"
+  _abs="$(sed -n 's/^ *abs: *//p' "${_out}/compose.yaml" | head -1)"
+  assert [ -d "${_bare}" ]
+  assert [ -f "${_dot}/Dockerfile" ]
+  assert_equal "${_img}" "docker-image://alpine:3.22"
+  assert_equal "${_abs}" "/etc"
+}
+
+# why: The relocated paths are emitted into YAML, and an absolute repo
+# path is whatever the operator's directory is called. A `#` in it makes
+# compose read the rest of the line as a comment -- generation succeeds and
+# the build runs against the truncated path -- and a `: ` invalidates the
+# document outright. The co-located `.` is a safe plain scalar and must
+# stay unquoted, so the quoting is decided by the VALUE, not by the flag.
+@test "apply --output quotes a relocated path that YAML would mis-read (base#1087)" {
+  local _repo="${TEMP_DIR}/repo #1"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 '^ *context: ' "${_out}/compose.yaml")"
+  # Quoted, so the `#` is part of the scalar rather than starting a
+  # comment, and the quoted value still names the repo.
+  [[ "${_line}" == *'context: "'* ]] || fail "context not quoted: ${_line}"
+  local _ctx="${_line#*context: \"}"
+  _ctx="${_ctx%\"}"
+  assert [ -f "${_ctx}/Dockerfile" ]
+}
+
+# why: An --output call must not write the conf chain at all. The first cut
+# enforced that by photographing the chain and ROLLING IT BACK on a
+# mismatch, which attributes any concurrent write -- another `setup set`, an
+# operator's edit, an edit to the caller's own local file -- to this call
+# and discards it. The guarantee is therefore that the call does not write,
+# asserted over the whole chain rather than over the one file the
+# reconciliation happens to touch today.
+@test "apply --output leaves every conf layer byte-identical (base#1087)" {
+  _ppa_repo
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/a.toml"
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/setup.local.toml"
+  local -A _before=()
+  local _f
+  for _f in "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.local.toml" "${TEMP_DIR}/a.toml"; do
+    _before["${_f}"]="$(sha256sum "${_f}" | cut -d' ' -f1)"
+  done
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  for _f in "${!_before[@]}"; do
+    assert_equal "$(sha256sum "${_f}" | cut -d' ' -f1)" "${_before[${_f}]}"
+  done
+}
+
+# why: Two ways the relocated emitter can corrupt a source it should have
+# left alone, both reporting a successful generation. An unbraced
+# `$SHARED_CTX` is compose interpolation just as `${...}` is, so rebasing
+# it yields `<repo>/$SHARED_CTX`, which compose expands to
+# `<repo>//tmp/shared`. An scp-style git remote is `user@host:path` for ANY
+# ssh user, so recognising only the literal `git@` turned a valid remote
+# into a local-looking path the build cannot fetch.
+@test "apply --output leaves a compose-interpolated additional context alone (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "unbraced"
+source = "$SHARED_CTX"
+
+[[additional_contexts]]
+name = "remote"
+source = "builder@example.com:org/repo.git"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _u _r
+  _u="$(sed -n 's/^ *unbraced: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  _r="$(sed -n 's/^ *remote: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  assert_equal "${_u}" '$SHARED_CTX'
+  assert_equal "${_r}" "builder@example.com:org/repo.git"
+}
+
+# why: A `$` the FILESYSTEM put in the repo's own directory name is a
+# literal, and compose interpolates the emitted file -- so an unescaped
+# `${MISSING}` expands to nothing and the build targets a directory that
+# is not the repo. YAML quoting does not prevent it: interpolation happens
+# after the parse, so the root has to carry `$$`.
+@test "apply --output escapes a dollar the repo's own name carries (base#1087)" {
+  local _repo="${TEMP_DIR}/repo\${MISSING}"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _ctx
+  _ctx="$(sed -n 's/^ *context: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  # Escaped for compose: `$$` is how a literal dollar survives
+  # interpolation. Unescaped, `${MISSING}` expands to nothing and the
+  # build targets a directory that is not the repo.
+  [[ "${_ctx}" == *'$${MISSING}'* ]] || fail "dollar not escaped: ${_ctx}"
+}
+
+# why: A short-form bind is `host:container[:mode]`, so a relocated root
+# carrying a colon produces `/tmp/repo:one/config/demo:/opt/demo` and
+# compose rejects the whole file with "too many colons" -- and YAML
+# quoting cannot help, because the ambiguity is in the mount grammar, not
+# the document. The co-located artifact has no such problem (`./config/x`
+# carries no root), so relocation is what introduces it and relocation is
+# what refuses: an artifact that cannot be expressed is not emitted and
+# called a success.
+@test "apply --output refuses a repo root that mount syntax cannot express (base#1087)" {
+  local _repo="${TEMP_DIR}/repo:one"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "repo:one"
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: The [logging] local_path bind is assembled by its own helper and
+# was emitted raw, so it was the one host path that bypassed the
+# serialiser every other one goes through -- "the site added later is the
+# one that was missed", here and now rather than later. Raw for the
+# mkdir it performs, serialised for the line it emits.
+@test "apply --output serialises the logging bind built from the repo root (base#1087)" {
+  local _repo="${TEMP_DIR}/repo #1"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  python3 - "${_repo}/setup.toml" <<'PY'
+import sys, re
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace('local_path = ""', 'local_path = "./logs"', 1)
+open(p, "w").write(s)
+PY
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 -E '^ *- .*:/var/log/' "${TEMP_DIR}/inst-1/compose.yaml")"
+  [[ -n "${_line}" ]] || fail "no logging bind emitted"
+  [[ "${_line}" == *'- "'* ]] || fail "logging bind not quoted: ${_line}"
+}
+
+# why: `_conf_load_layers` dispatches on every layer's FILENAME, so a
+# caller-supplied layer whose name does not end in `.toml` -- an
+# orchestrator's mktemp file, say -- silently switches the whole chain to
+# the INI parser: tables stop merging key by key and get replaced whole,
+# array entries are dropped, and quotes stay in scalar values. The address
+# must not be able to change the grammar of the chain it joins, so a name
+# the readers would misparse is refused rather than accepted and reparsed.
+@test "apply --local-conf refuses a name the chain's parser would misread (base#1087)" {
+  _ppa_repo
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/params"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/params' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "params"
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: A [devices] entry carrying mount propagation is emitted as a
+# LONG-FORM bind, by its own emitter, from its own input string -- so it
+# was a third host-path population that the volume rebase did not reach.
+# Its `source:` resolved inside the output directory, mounting the wrong
+# tree or failing at startup, with generation reporting success.
+@test "apply --output rebases a device entry emitted as a bind mount (base#1087)" {
+  _ppa_repo
+  mkdir -p "${TEMP_DIR}/device-tree"
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = "./device-tree:/mnt/devices:rshared"
+EOF
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local _src
+  _src="$(sed -n 's/^ *source: *//p' "${_out}/compose.yaml" | head -1)"
+  [[ -n "${_src}" ]] || fail "no long-form bind emitted for the device entry"
+  assert [ -d "${_src}" ]
+}
+
+# why: A device entry WITHOUT propagation is emitted into the plain
+# `devices:` list, by a different pair of emitters from the long-form bind
+# -- so rebasing it put the repo root into a line that still bypassed the
+# scalar serialiser. With a root carrying ` #`, YAML keeps only the path up
+# to it and the device target is lost, generation reporting success.
+@test "apply --output serialises a plain device binding carrying the root (base#1087)" {
+  local _repo="${TEMP_DIR}/repo #hash"
+  mkdir -p "${_repo}/device"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  cat >> "${_repo}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = "./device:/dev/example"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 -E '^ *- .*:/dev/example' "${TEMP_DIR}/inst-1/compose.yaml")"
+  [[ -n "${_line}" ]] || fail "no plain device entry emitted"
+  [[ "${_line}" == *'- "'* ]] || fail "plain device entry not quoted: ${_line}"
+}
+
+# why: `_classify_volume_lhs` does not list `../` among its bind prefixes,
+# so a parent-relative host path reads as a Docker named volume -- and the
+# rebase consulted that classifier before rebasing. A `../device-tree`
+# bind therefore kept resolving against the output directory even though
+# the rebase helper handles parent-relative paths explicitly. The rebase
+# now decides on the population it actually moves, `./` and `../`, rather
+# than borrowing a verdict answering a different question.
+@test "apply --output rebases a parent-relative bind source (base#1087)" {
+  mkdir -p "${TEMP_DIR}/outer/device-tree"
+  local _repo="${TEMP_DIR}/outer/repo"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  cat >> "${_repo}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = "../device-tree:/mnt/devices:rshared"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _src
+  _src="$(sed -n 's/^ *source: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  [[ -n "${_src}" ]] || fail "no long-form bind emitted"
+  assert [ -d "${_src}" ]
+}
+
+# why: Only interpolation that decides the path's ROOT has to stay
+# untouched. `./contexts/${FLAVOUR}` is an explicitly relative local path
+# with an interpolated leaf, and a blanket "any dollar sign means
+# non-local" left it resolving against the output directory. The explicit
+# relative prefix is read first, and the interpolation is carried through.
+@test "apply --output rebases a relative context with an interpolated leaf (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "flavoured"
+source = "./contexts/${FLAVOUR}"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _v
+  _v="$(sed -n 's/^ *flavoured: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  [[ "${_v}" == "${TEMP_DIR}/contexts/"* ]] || fail "not rebased: ${_v}"
+  [[ "${_v}" == *'${FLAVOUR}'* ]] || fail "interpolation lost: ${_v}"
+}
+
+# why: `.` and `..` are valid bind sources on their own -- the repo root
+# and its parent -- and the rebase matched only a prefix with a following
+# slash, so `.:/mnt/repo:rshared` kept resolving to the output directory.
+# A dot-only source is the spelling most likely to be used for exactly the
+# thing relocation breaks: mounting the repo itself.
+@test "apply --output rebases a dot-only bind source (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = ".:/mnt/repo:rshared"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _src
+  _src="$(sed -n 's/^ *source: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  assert [ -f "${_src}/Dockerfile" ]
+}
+
+# why: A newline in the repo's own directory name is emitted literally
+# into the artifact, which compose then rejects outright, and it also
+# splits the newline-separated lists the rebase feeds -- one entry becomes
+# two, neither of them a mount. Refused with the colon, for the same
+# reason: what cannot be expressed is not written and reported as a
+# generated set.
+@test "apply --output refuses a repo root carrying a line break (base#1087)" {
+  local _repo="${TEMP_DIR}/re"$'\n'"po"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: `contexts/${FLAVOUR}` is a bare relative path whose ROOT is fixed
+# and whose leaf is interpolated, so it is as local as `./contexts/...`.
+# Only an interpolation that decides the root -- a value that STARTS with
+# one -- can be left alone, and a dollar sign anywhere was standing in for
+# that distinction.
+@test "apply --output rebases a bare context with an interpolated component (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "bareflav"
+source = "contexts/${FLAVOUR}"
+
+[[additional_contexts]]
+name = "rooted"
+source = "${CTX_ROOT}/shared"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _b _r
+  _b="$(sed -n 's/^ *bareflav: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  _r="$(sed -n 's/^ *rooted: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  [[ "${_b}" == "${TEMP_DIR}/contexts/"* ]] || fail "not rebased: ${_b}"
+  [[ "${_b}" == *'${FLAVOUR}'* ]] || fail "interpolation lost: ${_b}"
+  # The one that DOES decide its own root stays exactly as configured.
+  assert_equal "${_r}" '${CTX_ROOT}/shared'
+}
+
+# why: Escaping the whole assembled logging mount was a regression on the
+# PLAIN apply too: a `${LOG_INSTANCE}` the operator put in
+# `[logging] local_path` became the literal `$${LOG_INSTANCE}`, so compose
+# stopped substituting it and the logs mounted a directory named after the
+# variable. Only the filesystem-derived prefix is a literal that needs
+# escaping; what the operator configured is an interpolation they meant.
+@test "apply preserves an interpolation configured in [logging] local_path (base#1087)" {
+  _ppa_repo
+  python3 - "${TEMP_DIR}/setup.toml" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace('local_path = ""', 'local_path = "/tmp/${LOG_INSTANCE}"', 1)
+open(p, "w").write(s)
+PY
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 -E '^ *- .*:/var/log/' "${TEMP_DIR}/compose.yaml")"
+  [[ -n "${_line}" ]] || fail "no logging bind emitted"
+  [[ "${_line}" == *'${LOG_INSTANCE}'* ]] || fail "interpolation lost: ${_line}"
+  [[ "${_line}" != *'$${LOG_INSTANCE}'* ]] || fail "interpolation escaped: ${_line}"
+}

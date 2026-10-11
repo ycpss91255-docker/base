@@ -154,7 +154,10 @@ _compute_conf_hash() {
   local _base="${1:?}"
   local -n _cch_out="${2:?}"
   local -a _cch_layers=()
-  _setup_conf_layers "${_base}" _cch_layers
+  # A chain that refused to resolve has no hash to report: a drift signal
+  # computed over a chain missing the layer the caller addressed would
+  # name a configuration this run never used.
+  _setup_conf_layers "${_base}" _cch_layers || return 1
 
   # Use command substitution (not pipe-into-block) so the nameref
   # assignment happens in the function's scope, not a subshell.

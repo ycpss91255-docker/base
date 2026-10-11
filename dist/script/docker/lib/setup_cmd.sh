@@ -1174,10 +1174,27 @@ _setup_reset() {
 # explicit gate.
 #
 # Usage: _setup_apply [-h|--help] [--base-path <path>] [--lang <code>]
+#                     [--local-conf <file>] [--output|-o <dir>]
+#
+# The devel half of ADR-00000036's parameterised generate API. `--output`
+# names the directory the emitted set is written into and `--local-conf`
+# names the file read as the conf chain's top layer, so an orchestrator
+# calls this N times against ONE repo -- each call carrying that
+# instance's parameters, each writing a complete set of its own, and none
+# of them writing into the repo. `deploy` already named its own output
+# directory; this is the stage that could only write where it read.
 # ════════════════════════════════════════════════════════════════════
 _setup_apply() {
   local _base_path=""
   local _quiet=0
+  # Empty means the repo itself, which is every existing checkout. The
+  # companion flags record that the option was SUPPLIED: `--output=` and
+  # `--local-conf=` parse to the empty string, and reading that as "not
+  # given" would turn both refusal contracts off from the command line --
+  # an empty address falling back to the repo's own local layer, and an
+  # empty output directory writing the set into the repo.
+  local _output="" _output_set=0
+  local _local_conf="" _local_conf_set=0
   # per-invocation overrides. Empty means "use setup.toml /
   # SETUP_GUI env / built-in default" per the documented resolution
   # order CLI > env > conf > default.
@@ -1219,12 +1236,43 @@ _setup_apply() {
         _print_resolved=1
         shift
         ;;
+      --output|-o)
+        _output="${2:?"--output requires a value"}"
+        _output_set=1
+        shift 2
+        ;;
+      --output=*)
+        _output="${1#--output=}"
+        _output_set=1
+        shift
+        ;;
+      --local-conf)
+        _local_conf="${2:?"--local-conf requires a value"}"
+        _local_conf_set=1
+        shift 2
+        ;;
+      --local-conf=*)
+        _local_conf="${1#--local-conf=}"
+        _local_conf_set=1
+        shift
+        ;;
       *)
         _log_err setup conf_unknown_arg "display=$(_setup_msg errors unknown_arg): $1" "arg=$1"
         return 1
         ;;
     esac
   done
+
+  # The addressed local layer, checked before anything is detected or
+  # written: an address that cannot be read would otherwise leave the
+  # chain one layer short, and a chain one layer short emits the template
+  # defaults and reports success. Declared `local` so one call's
+  # parameters cannot leak into the next one's.
+  local _SETUP_CONF_LOCAL="${_SETUP_CONF_LOCAL:-}"
+  if (( _local_conf_set )); then
+    _setup_conf_local_check "${_local_conf}" || return 1
+    _SETUP_CONF_LOCAL="${_local_conf}"
+  fi
 
   # Validate --gui value early so the user sees the error before we
   # spend cycles on detections.
@@ -1244,14 +1292,79 @@ _setup_apply() {
 
   _announce_template_default_fallback "${_base_path}"
 
+  # Where the emitted set goes. The repo itself with no --output, which is
+  # every existing checkout and leaves that path byte-identical; otherwise
+  # the directory the caller named, created if it is not there. A path
+  # occupied by something that is not a directory is REFUSED up front: the
+  # writes below would fail one at a time, after the detections and after
+  # part of the set had been emitted, leaving a half-written bundle and a
+  # caller told nothing useful.
+  local _out_dir="${_base_path}"
+  if (( _output_set )); then
+    if [[ -z "${_output}" ]]; then
+      _log_err setup apply_output_unusable \
+        "display=[setup] apply: --output was given an empty path; refusing to fall back to writing the set into the repo" \
+        "path="
+      return 1
+    fi
+    if [[ -e "${_output}" && ! -d "${_output}" ]]; then
+      _log_err setup apply_output_unusable \
+        "display=[setup] apply: --output ${_output} exists and is not a directory; refusing to emit a partial set into it" \
+        "path=${_output}"
+      return 1
+    fi
+    if ! mkdir -p -- "${_output}" 2>/dev/null; then
+      _log_err setup apply_output_unusable \
+        "display=[setup] apply: --output ${_output} could not be created; refusing to report a generated set that was never written" \
+        "path=${_output}"
+      return 1
+    fi
+    _out_dir="$(cd -- "${_output}" && pwd -P)"
+  fi
+
+  # "The repo is not mutated by a call" is a property of the whole apply,
+  # not of its writers: _reconcile_workspace_path rewrites
+  # <repo>/setup.toml on first-time bootstrap and when mount_1 carries an
+  # absolute path that is stale on this machine. Both are right for a
+  # developer's own apply and wrong for an orchestrator's Nth call, which
+  # must not race the other N-1 over one file.
+  #
+  # Two halves, because neither alone is both safe and complete.
+  #
+  # The bootstrap -- no <repo>/setup.toml at all -- is PREVENTED below,
+  # before the reconciliation runs, by requiring the repo's own layer to
+  # exist. That is the case an orchestrator actually hits (a fresh clone
+  # it has not applied yet) and the only one where nothing can be done
+  # after the fact: the file is already there.
+  #
+  # Everything else is DETECTED, by photographing the whole chain rather
+  # than enumerating the two sites that write to it today -- a third one
+  # added later would pass an enumeration forever, the declared-population
+  # failure this tree keeps finding. The population is
+  # _setup_conf_layers', so a new layer is covered the day it exists.
+  #
+  # Detected and refused, NOT rolled back. A rollback attributes every
+  # write in the window to this call, and the window contains other
+  # processes: a concurrent `setup set`, a plain apply, the operator
+  # editing a layer, or an edit to the caller's own local file would all
+  # be silently discarded by restoring the photograph. Refusing leaves the
+  # change in place and says so; discarding someone else's write to
+  # protect the repo from this one is the worse of the two.
+  local -a _ap_chain=()
+  local -A _ap_chain_pre=()
+  if (( _output_set )); then
+    _setup_conf_layers "${_base_path}" _ap_chain || return 1
+    _setup_conf_chain_snapshot _ap_chain _ap_chain_pre
+  fi
+
   # File roles under the one naming rule (the standard name is ours, a
   # suffix marks a local variant): `.env.generated` is the derived
   # interpolation cache, `.env` is the container-env defaults we ship, and
   # `.env.local` is the operator's overrides -- the only one of the three
   # this function never writes after scaffolding it.
-  local _env_file="${_base_path}/.env.generated"
-  local _container_env_file="${_base_path}/.env"
-  local _env_local_file="${_base_path}/.env.local"
+  local _env_file="${_out_dir}/.env.generated"
+  local _container_env_file="${_out_dir}/.env"
+  local _env_local_file="${_out_dir}/.env.local"
 
   # Migrate a layout where .env WAS the cache: if no
   # .env.generated exists yet but .env carries the setup.sh auto-gen
@@ -1427,7 +1540,32 @@ _setup_apply() {
   # The WS_PATH / mount_1 reconciliation state machine. Mutates
   # _vol_k / _vol_v in place (reloaded after any mount_1 rewrite) and
   # resolves ws_path (seeded above from ${WS_PATH:-}).
+  # Prevented, not detected: with no repo layer the reconciliation
+  # bootstraps one from the template, and an --output call must not be the
+  # thing that creates the repo's committed configuration. Checked against
+  # the same `_repo_conf` the reconciliation is handed, so the two cannot
+  # disagree about which file that is.
+  if (( _output_set )) && [[ ! -f "${_repo_conf}" ]]; then
+    _log_err setup apply_repo_conf_unsettled \
+      "display=[setup] apply: there is no ${_repo_conf}, so this call would have to create the repo's committed configuration -- which an --output call must not do. Run 'setup apply' once without --output to settle the repo, then call again." \
+      "path=${_repo_conf}"
+    return 1
+  fi
+
   _reconcile_workspace_path "${_base_path}" "${_repo_conf}" _vol_k _vol_v ws_path
+
+  # The photograph is compared HERE, where the mutation happens, rather
+  # than beside the writes -- `--print-resolved` returns further down and
+  # writes no artifact at all, and so was the one supported combination
+  # that got past a check placed there.
+  if (( _output_set )); then
+    if _setup_conf_chain_changed _ap_chain _ap_chain_pre; then
+      _log_err setup apply_repo_conf_mutated \
+        "display=[setup] apply: the configuration chain under ${_base_path} changed while this call ran, and an --output call must not change it. The change is LEFT IN PLACE rather than reverted -- it may be another process's -- so inspect it: a stale absolute [volumes] mount_1 is migrated to the portable form by any apply, and is warned about by name above. Settle the repo with 'setup apply' and call again." \
+        "path=${_base_path}"
+      return 1
+    fi
+  fi
 
   # shellcheck disable=SC2034  # populated via nameref by _get_conf_list_sorted
   local -a extra_volumes=()
@@ -1642,13 +1780,14 @@ _setup_apply() {
   local _ssh_x11_xauth=""
   if [[ "${gui_enabled_eff}" == "true" ]] && _is_ssh_x11 \
       && (( _no_x11_cookie == 0 )); then
-    _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
+    _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_out_dir}")" || _ssh_x11_xauth=""
     if [[ "${net_mode}" != "host" ]]; then
       _log_warn setup ssh_x11_network_mismatch "display=SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.toml to fix. See base#321." "mode=${net_mode}"
     fi
   fi
 
   # ── Generate artifacts ──
+  #
   write_env "${_env_file}" \
     "${user_name}" "${user_group}" "${user_uid}" "${user_gid}" \
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
@@ -1686,7 +1825,7 @@ _setup_apply() {
   # (no `set -e`) a hard-error return from the stage validator
   # baseline collision / reserved-tag) would otherwise be swallowed
   # and apply would print "updated" with a half-written compose.yaml.
-  generate_compose_yaml "${_base_path}/compose.yaml" "${image_name}" \
+  generate_compose_yaml "${_out_dir}/compose.yaml" "${image_name}" \
     "${gui_enabled_eff}" "${gpu_enabled_eff}" \
     "${gpu_count}" "${gpu_caps}" \
     extra_volumes "${network_name}" \
@@ -1706,6 +1845,7 @@ _setup_apply() {
     "${dri_groups_str}" \
     "${init}" \
     "${watchdog_env_str}" \
+    "${_base_path}" \
     || return $?
 
   # S7: runtime.env retired. Under the A2 model its purpose
@@ -1743,10 +1883,16 @@ _setup_apply() {
 _setup_deploy() {
   local _base_path="" _stage="runtime" _output="" _yes=0 _quiet=0 _dry=0
   local _allow_local=0
+  # ADR-00000036's other half for this stage: deploy already named its own
+  # output directory, so an address for the chain's top layer is all it
+  # was missing.
+  local _local_conf="" _local_conf_set=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)     usage ;;
       --allow-local-override) _allow_local=1; shift ;;
+      --local-conf)  _local_conf="${2:?"--local-conf requires a value"}"; _local_conf_set=1; shift 2 ;;
+      --local-conf=*) _local_conf="${1#--local-conf=}"; _local_conf_set=1; shift ;;
       --base-path)   _base_path="${2:?"--base-path requires a value"}"; shift 2 ;;
       --lang)        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"; _sanitize_lang _LANG "setup"; shift 2 ;;
       --stage)       _stage="${2:?"--stage requires a value"}"; shift 2 ;;
@@ -1762,6 +1908,14 @@ _setup_deploy() {
         ;;
     esac
   done
+
+  # The addressed local layer, checked before the stage is even looked at,
+  # so an address that cannot be read never reaches a preview or a build.
+  local _SETUP_CONF_LOCAL="${_SETUP_CONF_LOCAL:-}"
+  if (( _local_conf_set )); then
+    _setup_conf_local_check "${_local_conf}" || return 1
+    _SETUP_CONF_LOCAL="${_local_conf}"
+  fi
 
   # Stage eligibility, checked the moment the stage is known -- before the
   # repo is even located, so a forbidden stage can never reach a preview, a

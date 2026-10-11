@@ -289,7 +289,7 @@ Subcommands:
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
   deploy [--stage S] [--output D] [--dry-run] [-y|--yes]
-         [--allow-local-override]
+         [--allow-local-override] [--local-conf F]
                 Ships an image to the field. This is
                 NOT the [deploy] section of setup.toml, which configures
                 GPU reservation only and is named after Compose's
@@ -336,6 +336,21 @@ Apply-only options (#338):
                         stays enabled per [gui] mode resolution;
                         $XAUTHORITY stays at the host value the user's
                         SSH session populated. Debug knob for #321.
+  --local-conf FILE     Read FILE as the conf chain's TOP layer instead
+                        of <base-path>/setup.local.toml. The layer's
+                        semantics are unchanged -- it may override any
+                        section, tables merge key by key and arrays are
+                        replaced whole -- only its address moves, which
+                        is what lets an orchestrator drive one repo N
+                        times with N parameter sets and no write into the
+                        repo (ADR-00000036). A FILE that is not a
+                        readable regular file is refused, and so is one
+                        whose name does not end in .toml: the chain's
+                        readers dispatch on the filename, so such a layer
+                        would be parsed as INI and the whole chain with
+                        it. The resolution never silently proceeds one
+                        layer short, or under another grammar.
+                        Honoured by `apply` and `deploy`.
   --print-resolved      Run all detection + resolution logic and
                         print the effective state to stdout as
                         `KEY=VALUE` lines (one per line), then exit
@@ -361,10 +376,22 @@ Host-detection overrides (env vars):
                         GIDs differ from the build host, or to pin them.
                         Empty string means "no /dev/dri groups".
 
+Apply-only options (ADR-00000036):
+  -o, --output DIR      Write the generated set into DIR instead of
+                        <base-path>. The set is complete and
+                        self-contained: .env.generated, .env, .env.local
+                        and a compose.yaml whose build contexts point at
+                        <base-path> rather than at DIR. The repo's own
+                        configuration is not written by such a call -- an
+                        apply that would have to (a first-time bootstrap,
+                        or a stale absolute [volumes] mount_1) is refused
+                        instead, and the plain `apply` settles it.
+
 Outputs (apply only — both derived artifacts, gitignored):
-  <base-path>/.env          Exported variables + SETUP_* drift metadata
-  <base-path>/compose.yaml  Full compose with baseline + conditional
+  <output>/.env             Exported variables + SETUP_* drift metadata
+  <output>/compose.yaml     Full compose with baseline + conditional
                             blocks (GPU / GUI / extra volumes / etc.)
+  (<output> is <base-path> unless --output names another directory)
 
 Source of truth is setup.toml (template default + optional per-repo
 override via section-replace). Edit setup.toml, not the derived files.
