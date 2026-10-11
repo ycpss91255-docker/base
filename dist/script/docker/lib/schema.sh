@@ -88,6 +88,7 @@ declare -gA SCHEMA_VALIDATOR=(
   [devices.device_]=_validate_mount
   [devices.cgroup_rule_]=_validate_cgroup_rule
   [environment.env_]=_validate_env_kv
+  [tmpfs.tmpfs_]=_validate_tmpfs
   [network.port_]=_validate_port_mapping
   [additional_contexts.context_]=_validate_additional_context
   [security.cap_add_]=_validate_capability
@@ -103,10 +104,21 @@ declare -gA SCHEMA_VALIDATOR=(
 #   - setup.sh's _setup_known_section (via _schema_is_section)
 #   - the TUI menu dispatch + CLI subcommand recognition
 # so adding a section here makes it known/dispatchable without editing
-# those call sites. Note some sections (image / gui / tmpfs) carry only
-# free-form keys and so have no SCHEMA_VALIDATOR rows; the list is kept
-# explicit rather than derived from the validator map so those sections
-# are not dropped.
+# those call sites. Every section here now carries at least one
+# SCHEMA_VALIDATOR row, and schema_coverage_spec derives that claim from
+# the two registries rather than restating it, so a section added
+# without a validator is a red test. The list is still kept explicit
+# rather than derived from the validator map, because the ORDER is the
+# template's and the map has none.
+#
+# This comment used to name image / gui / tmpfs as free-form-only
+# sections. It had been stale for a while in two of the three --
+# image.rule_ and gui.mode both have validators -- and base#1095 closed
+# the last one: `tmpfs` validated nothing, so `setup.sh set
+# tmpfs.tmpfs_1` accepted a value carrying a newline and
+# _emit_tmpfs_block wrote it into compose.yaml as several entries. A
+# comment naming one hole as a group of three is what made the last one
+# look accepted rather than left.
 declare -ga SCHEMA_SECTIONS=(
   project image build deploy lifecycle gui network security resources
   environment tmpfs devices volumes additional_contexts logging
@@ -197,6 +209,7 @@ declare -gA SCHEMA_I18N=(
   [devices.device_]=devices.device.prompt
   [devices.cgroup_rule_]=devices.cgroup.prompt
   [environment.env_]=environment.entry.prompt
+  [tmpfs.tmpfs_]=tmpfs.entry.prompt
   [network.port_]=ports.entry.prompt
   [additional_contexts.context_]=additional_contexts.entry.prompt
   [security.cap_add_]=security.cap_add.prompt
@@ -234,9 +247,19 @@ declare -gA SCHEMA_EMPTY=(
 # rather than by any function in this lib -- so the unused-variable
 # warning is expected here and nowhere else in the file.
 # shellcheck disable=SC2034
-declare -gA SCHEMA_FREEFORM=(
-  [tmpfs.tmpfs_]="a tmpfs entry is a mount point with no fixed value set: any path the kernel accepts is valid, and the section note above has always called tmpfs free-form"
-)
+#
+# EMPTY, and that is a statement rather than an omission: every key the
+# shipped template declares resolves to a validator. The last row here
+# read "a tmpfs entry is a mount point with no fixed value set: any path
+# the kernel accepts is valid" -- true about the path's CONTENT and
+# beside the point, because the shape was never free. base#1095 measured
+# what the row bought: `tmpfs_1` carrying a newline was accepted and
+# _emit_tmpfs_block wrote it into compose.yaml as several entries.
+# `volumes.mount_` has exactly the same "any path" latitude and still
+# refuses whitespace, so the row was reclassifying a hole as a policy.
+# A future key with a genuinely open value set belongs here with its
+# reason; none has one today.
+declare -gA SCHEMA_FREEFORM=()
 
 # ════════════════════════════════════════════════════════════════════
 # _schema_is_section <section>
