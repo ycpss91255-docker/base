@@ -563,26 +563,25 @@ ${_probe_err}"
 # pair and exits 1.
 # _wrapper_tui_usable
 #
-# Whether the interactive editor may be dispatched to at all. FALSE while
-# it is frozen, which it is: ADR-00000037's Consequences freeze
-# setup_tui.sh until the TOML migration completes, because its INI-aware
-# `_edit_section_*` functions cannot operate on TOML structure, and
-# `_tui_refuse_frozen` makes every path through it exit 2 after argument
-# parsing.
+# Whether the interactive editor may be dispatched to at all. TRUE again:
+# base#1232 rebuilt setup_tui.sh on the conf layer chain -- it opens on
+# the effective configuration and saves into `<repo>/setup.toml` -- and
+# ADR-00000037's freeze, which held "until the TOML migration completes",
+# is lifted in the same change. `_tui_refuse_frozen` goes with it.
 #
-# Without this, `build.sh --setup` and `run.sh --setup` on a TTY selected
-# the editor, which refused, and the wrapper failed with status 2 BEFORE
-# regenerating and before its main action -- so the one option whose job
-# is "regenerate now" was the one that could not. The non-TTY path was
+# It answered FALSE for the length of that freeze, and had to:
+# `build.sh --setup` and `run.sh --setup` on a TTY selected the editor,
+# which refused, and the wrapper failed with status 2 BEFORE regenerating
+# and before its main action -- so the one option whose job is
+# "regenerate now" was the one that could not. The non-TTY path was
 # unaffected, which is why no CI run noticed.
 #
-# A function and not an inline condition so the decision has a name a
-# spec can ask about: a TTY cannot be faked in the suite, and the thing
-# worth pinning is this answer, not the plumbing around it. The branch
-# comes back with the change that unfreezes the editor -- the same change
-# that removes `_tui_refuse_frozen`.
+# It stays a function rather than collapsing back into the inline
+# condition, so the decision keeps a name a spec can ask about: a TTY
+# cannot be faked in the suite, and the thing worth pinning is this
+# answer, not the plumbing around it.
 _wrapper_tui_usable() {
-  return 1
+  return 0
 }
 
 _wrapper_setup_sync() {

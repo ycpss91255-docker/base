@@ -270,28 +270,42 @@ _load_setup_conf() {
 # one queryable handle for the _conf_get / _conf_list_sorted accessors.
 # This is where the chain's precedence lives; _load_setup_conf is a
 # projection of it and _setup_effective_full is a reshaping of it.
+#
+# The optional third argument is _setup_conf_layers' own: the dist/ dir
+# that holds the template layer, for a caller that reaches the readers
+# without _SETUP_SCRIPT_DIR. setup_tui.sh is one -- it is a sibling of
+# setup.sh in the same wrapper dir and resolves that directory itself --
+# and threading the argument here rather than letting the editor assemble
+# a layer list of its own is what keeps ONE builder of this handle: the
+# chain, its order and the merge answer for every caller from here.
 _setup_conf_handle() {
   local _base="${1:?"${FUNCNAME[0]}: missing base"}"
   local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
+  local _sch_dist="${3:-}"
   local -a _sch_layers=()
-  _setup_conf_layers "${_base}" _sch_layers
+  _setup_conf_layers "${_base}" _sch_layers "${_sch_dist}"
   _conf_load_layers "${_h}" "${_sch_layers[@]}"
 }
 
 # _setup_effective_full <base_path> <sections_outvar> <keys_outvar> <values_outvar>
+#                       [template_dist_dir]
 #
 # The merge-resolved view of the whole chain in the `*_full`
 # array shape (sections list + parallel `<section>.<key>` / value arrays).
 # What `show` / `list` and the store-time diagnostics read, so they report
 # the values the emitters will actually use -- including the ones the local
 # layer supplies.
+#
+# <template_dist_dir> is passed straight to _setup_conf_handle; see its
+# header for the caller that needs it.
 _setup_effective_full() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _sef_sections="${2:?"${FUNCNAME[0]}: missing sections outvar"}"
   local -n _sef_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
   local -n _sef_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
+  local _sef_dist="${5:-}"
 
-  _setup_conf_handle "${_base}" _SEF_CONF
+  _setup_conf_handle "${_base}" _SEF_CONF "${_sef_dist}" || return 1
 
   _sef_sections=()
   _sef_keys=()

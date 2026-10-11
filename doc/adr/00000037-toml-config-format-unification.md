@@ -312,6 +312,31 @@ image, which is the one that has to work on a 3.6--3.10 runtime.
   replacement (possibly by the config-manager Web UI) follows the
   migration.
 
+  **The freeze is LIFTED (#1232, 2026-10-12).** Its own condition is
+  met: the migration landed with #1148 (D1-D8, D10) and #1248, so the
+  readers, the writers and the shipped template are all on
+  `setup.toml`. The editor is rebuilt on the layer chain rather than
+  replaced: `_load_current` reads the effective configuration through
+  `_setup_effective_full`, the save goes to `<repo>/setup.toml`, Reset
+  delegates to `setup.sh reset`, and `_tui_refuse_frozen` -- the
+  interim refusal that kept the frozen editor from printing a save
+  confirmation over a setting with no effect -- is deleted along with
+  `_wrapper_tui_usable`'s FALSE branch.
+
+  **The `_edit_section_*` warning above measured the wrong layer.**
+  The editors never touch file format: they address configuration as
+  `<section>.<key>` strings through `_override_get` / `_override_set`,
+  and the ONE place that meets a file is the read/write pair
+  (`_load_setup_conf_full` / `_write_setup_conf`), which this
+  Decision's own containerised bridge already dispatches on extension
+  -- numbering `[[array of tables]]` blocks back into the `<prefix>_N`
+  names those editors speak. What was genuinely INI-shaped was the
+  editor's model of the config as ONE FILE: `_load_current` read
+  whichever of two paths existed first, so the menus opened on one
+  layer's contents rather than on the merge, and that is what the
+  rebuild replaced. The structural claim stands only for a reader or
+  writer that bypasses the bridge, and nothing in the TUI does.
+
 - Migration path for downstream repos: a one-time converter
   (`setup.conf` -> `setup.toml`, `.env.local` -> `.env.local.toml`)
   runs during the first `init.sh` resync after upgrade, gated on

@@ -6063,7 +6063,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (38)
+### test/bats/unit/setup_conf_spec.bats (39)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6090,7 +6090,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf merges a section key by key across the layers (ADR-00000037)` | ADR-00000037 settles the chain's rule for tables as key-level merge, unqualified, and amends the blanket section-replace it replaced. _load_setup_conf kept its own walk -- highest layer that defines the section supplies all of it -- while _setup_conf_handle went through the bridge merge and was key-level. `show` read one and the emitters read the other, so a repo could be told one configuration and built with another. One effective configuration, queried by both. |
 | `_load_setup_conf answers what the merged handle answers (ADR-00000037)` | the two readers must not be able to disagree. This asserts the agreement itself rather than one reader's answer, so a future change to either path that reintroduces a second precedence rule fails here -- which is the failure mode the split had, undetected, until `show` and the emitters were compared by hand. |
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
-| `setup_tui.sh usage names the repo-root .setup.conf in every language (#842)` | - |
+| `setup_tui.sh usage names the repo-root setup.toml in every language (#842)` | - |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
@@ -6102,6 +6102,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_setup_conf_handle: setup.local.toml wins over the per-repo layer` | _setup_conf_handle is the single entry point the wrappers use; if its layering disagrees with _load_setup_conf, every wrapper reads stale config. |
 | `_compute_conf_hash: editing setup.local.toml is drift` | A local-layer edit that leaves the hash unchanged means the wrapper reuses artifacts built from a different config. |
 | `_setup_effective_full: show/list read the local layer too` | - |
+| `_setup_conf_handle: a caller with no _SETUP_SCRIPT_DIR can pass the template dir` | the template layer's directory comes from _SETUP_SCRIPT_DIR, and a caller that reaches the readers WITHOUT setup.sh has none -- setup_tui.sh is one, a sibling of setup.sh in the same wrapper dir that resolves the directory itself. _setup_conf_layers already took the argument; the handle and the *_full view did not, so such a caller could only get the whole chain by assembling a layer list of its own, which is precisely how the editor and the emitters came to disagree about what is configured (base#1232). Measured on a template-ONLY key, because that is the key a dropped template layer loses and every other assertion would still pass without it. |
 | `_setup_conf_local_sections: names the sections the local layer shadows` | - |
 | `_setup_conf_local_sections: an array declared with no entries is a section the local layer defines` | An array declared with NO entries is a declaration, and the entries alone cannot see it. `args = []` replaces the lower layer's list with nothing (ADR-00000037's zero-entry amendment), so this file DOES change the effective configuration -- the template's three build args resolve to zero through the real merge -- while the bridge emits no `--kv` row for it. Read off the entries alone the answer was "no local sections", and the caller whose answer is a REFUSAL let it through: `_setup_deploy` bars a field bundle from depending on the gitignored local layer, so a bundle built from this clear came from untracked configuration with nothing in its README naming the section. |
 | `_setup_conf_local_sections: a root-level and an annotated empty array both count` | The two spellings the first case does not reach. A family whose path has no dot is declared at the ROOT -- TOML gives a root-level key one home, the region before the first table header -- so there is no `[volumes]` header for the tokenizer to list the section under, and the answer cannot come from the section list at all. And an operator who clears a list is exactly the one who writes down why, so the annotated spelling has to count too: `_conf_toml_empty_array_decl` already matches it for the writers, and reading the bare two characters instead was a defect there once. |
@@ -7428,7 +7429,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 
 | Test | Description |
 |------|-------------|
-| `dist/ has zero .setup.conf references outside migration + TUI + gitignore (#1136)` | no stale `.setup.conf` in dist/ runtime code |
+| `dist/ has zero .setup.conf references outside migration + gitignore (#1136)` | no stale `.setup.conf` in dist/ runtime code |
 
 ### test/bats/unit/toml_fixture_lint_spec.bats (26)
 
@@ -7799,7 +7800,7 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)` | - |
 | `_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set` | - |
 
-### test/bats/unit/tui_editor_flow_spec.bats (82)
+### test/bats/unit/tui_editor_flow_spec.bats (93)
 
 `tui_flow_spec.bats` proves the setup_tui.sh menus DISPATCH -- it spies on
 each section editor and asserts the right one was reached. What those
@@ -7822,13 +7823,20 @@ both assertable.
 Two hazards this spec is written around, both load-bearing:
 
 - `FILE_PATH` is `readonly` and resolves to the sourced tree. Everything
-keyed on it is steered by replacing the function that reads it, or through
-`_TUI_SCRIPT_DIR` / `_TUI_TPL_DIR`, which are plain variables.
+keyed on it is steered through `_TUI_BASE_PATH` / `_TUI_SCRIPT_DIR` /
+`_TUI_TPL_DIR`, which are plain variables -- `stub_chain` points the whole
+conf layer chain at the test's own scratch dirs.
 
 - Nothing here writes under `FILE_PATH`. The suite runs many-way parallel
-over one shared source tree, so `_do_reset`'s `rm -f` is intercepted by a
-shell function (which also makes "reset deletes the per-repo conf"
-assertable) and `main`'s commit is a spy.
+over one shared source tree, so every save and every reset in this file
+lands under `BATS_TEST_TMPDIR`, `setup.sh` is a recorder, and `main`'s
+commit is a spy.
+
+- The config assertions ask the REAL merge (`effective` /
+`effective_family`, over `_setup_conf_handle`), never a grep on file text.
+base#1115 / base#1117 / base#1175 measured what a text gate is worth: three
+greps claiming to pin `xhost` behaviour passed against a `run.sh` with no
+`xhost` in it.
 
 Grouped by concern:
 
@@ -7852,11 +7860,19 @@ non-bridge ports advisory)
 `_edit_stage_deploy`, `_edit_stage_network`, `_edit_stage_volumes`,
 `_edit_stage_environment`)
 
-- `_commit_and_setup` (baseline merged with overrides, removals dropped,
-setup.sh apply re-run against the repo's base path)
+- the conf layer chain (`_load_current` opening on the effective
+configuration, `_tui_local_layer_notice` / `_tui_shadowed_sections` naming
+the per-worktree layer, `_tui_aot_families_touched` derived from the
+array-of-tables table)
 
-- `_do_reset` (declined = untouched; confirmed = conf removed, template
-reloaded, pending edits cleared)
+- `_commit_and_setup` (the saved value is the one the readers resolve, an
+inherited scalar is not pinned down, a touched array is saved whole, a
+declined write is reported rather than reported as saved, setup.sh apply
+re-run against the repo's base path)
+
+- `_do_reset` (declined = untouched; confirmed = `setup.sh reset`
+dispatched, chain reloaded, pending edits cleared, the per-worktree layer
+left alone)
 
 - `main` (subcommand dispatch including the `resources` direct jump and the
 `gpu` alias, unknown argument, `--lang` fallback notice, missing backend,
@@ -7919,15 +7935,25 @@ the shipped tree rather than kept as a roster
 | `_edit_stage_network: ports opens the stage's own port list` | the ports row is a sub-list, not a scalar; its entries have to land as numbered port_N keys inside the stage's network section. |
 | `_edit_stage_scalar: an empty value hands the key back to the top level` | an empty scalar is how a stage gives an override back; it must mark the key removed rather than store an empty string, which is a different compose result. |
 | `_edit_stage_volumes / _edit_stage_environment: each writes under its own section` | volumes and environment are the same list editor with different arguments; each must keep its own section and prefix. |
-| `_commit_and_setup: the edited value reaches the saved conf` | the value the user typed is the whole reason the TUI exists; it has to reach the file on disk, not just the in-memory override array. |
-| `_commit_and_setup: a key the user never touched survives the save` | the TUI edits one key at a time but saves the whole file. A baseline key the user never opened must survive the save, or every edit silently resets the rest of the config. |
-| `_commit_and_setup: re-runs setup.sh apply for the repo it saved` | .env.generated and compose.yaml are derived from setup.conf, so a save that does not re-run apply leaves the container running the previous configuration while the file says otherwise. |
+| `_commit_and_setup: a saved value is the one the readers resolve` | the value the user typed is the whole reason the TUI exists, and "reached a file" is not the claim -- the editor wrote <repo>/.setup.conf for the whole of ADR-00000037's freeze while every reader resolved the setup.toml chain, so a save printed its confirmation over a setting with no effect (base#1232). The assertion is therefore on what the REAL merge answers afterwards, through the same accessor setup.sh and the emitters use, not on a line in a file: a filename is not the property, the effective configuration is. |
+| `_load_current: the baseline is the whole chain merged, not one file` | the menus have to open on the values IN FORCE. _load_current used to take two paths and read whichever existed first, so with a repo layer present the template's keys were invisible and with a per-worktree layer present its values were silently absent from the screen -- an editor whose baseline is one layer cannot show the user what is configured. Three layers, each contributing one key, is the smallest fixture in which reading any single file gives the wrong answer. |
+| `_load_current: a reload drops a key the chain no longer resolves` | a reload has to REPLACE the baseline. _do_reset reloads after dropping this repo's layer, and a merge into the previous map would keep showing keys the chain no longer resolves -- the user reads a value off a menu that nothing will emit. |
+| `_commit_and_setup: an inherited scalar is not pinned into the repo layer` | the baseline is now the EFFECTIVE configuration, so a save that wrote all of it would copy every inherited value down into this repo's committed file and the repo would stop tracking the template. Measured through the merge in BOTH directions, because either half alone passes on a wrong implementation: the key the user changed resolves to the new value, and the key the user never opened still resolves to the template's -- while this repo's own file does not name it. |
+| `_commit_and_setup: touching one array entry saves the whole list` | an array is replaced ATOMICALLY by the highest layer that declares it (ADR-00000037), so a repo layer naming ONE [[volumes]] entry replaces the inherited list with that single mount. A save that wrote only the slot the user touched would therefore delete the rest of the list with no message: adding a third mount to a template's two leaves the repo with the third alone, and slot 1 of [volumes] is the workspace bind. The population is read back through the real merge, so the claim is "the list the readers resolve", not "three blocks are in the file". |
+| `_commit_and_setup: an untouched array keeps inheriting` | the mirror image of the rule above. A scalar section is merged key by key, so writing a key the user did not touch is the defect there -- and an array is replaced whole, so NOT writing a sibling entry is the defect here. One fixture, one save, both answers, because an implementation that gets one right by writing everything or nothing gets the other wrong. |
+| `_commit_and_setup: a cleared mount_1 stays cleared through a save` | the published opt-out is to CLEAR mount_1, not to remove it (README: "clear it to opt out of mounting a workspace"; v0.9 rules that setup.sh does not re-populate it). Clearing is not removing, and the editor's save has to leave the clear exactly as the operator left it -- a save that re-detected or dropped the slot would silently re-mount a workspace the operator opted out of. |
+| `_commit_and_setup: a declined write is reported, not reported as saved` | `_write_setup_conf` DECLINES a save it cannot make faithfully -- `_wsc_refuse_ws_slot_move` is the live case: removing volumes.mount_1 compacts the list, so the next mount would take slot 1, which is the workspace bind by position. It returns non-zero with the destination untouched. The editor runs under `set -e`, so left unchecked that aborted mid-curses with only the writer's log line; and a save that reported success over a file it never wrote is the exact failure base#1232 exists to end. So: non-zero out, the repo layer byte-identical, and NO apply run -- regenerating from a config that did not change is the step that would make the refusal look like a save. |
+| `_commit_and_setup: re-runs setup.sh apply for the repo it saved` | .env.generated and compose.yaml are derived from setup.toml, so a save that does not re-run apply leaves the container running the previous configuration while the file says otherwise. The base path it hands over has to be the repo the editor just wrote, not the tree setup_tui.sh was sourced from. |
 | `_commit_and_setup: reports the path it saved` | the saved path is the one thing the user needs after curses clears the screen; printing it is how they know where the edit went. |
-| `_do_reset: declining the confirmation changes nothing` | reset is destructive, so declining the confirmation has to change nothing at all -- no delete, no apply, no loss of the edits in progress. |
-| `_do_reset: confirmed, it drops the conf, re-applies and clears pending edits` | reset means "go back to the template". That is three things at once -- drop the per-repo file, re-seed it from the template, and throw away the pending edits -- and leaving any one of them out gives the user a menu that still shows values the file no longer has. The file it drops is `.setup.conf`: ADR-00000037 freezes this editor on the INI pair until the TOML rebuild lands, so that is the name the frozen body writes and removes, and a blanket rename left this assertion naming a path the function never touches. What keeps the frozen body from reaching a user is _tui_refuse_frozen, stubbed out here so the body stays covered. |
-| `main: the TOML-era editor refuses instead of opening a menu` | the readers did not wait for the freeze. _setup_conf_layers names only `.toml` layers, so the `.setup.conf` this editor writes is read by nothing: a user picks a value, the editor saves it, prints its save line, and the setting has no effect. A silent no-op behind a success message is worse than a refusal, so main refuses before it opens anything and names the two surfaces that do work. |
-| `_tui_refuse_frozen: every language names setup.toml and the CLI` | the refusal has to carry the two places that DO take a setting, in the user's own language, or it only replaces a silent no-op with a dead end. Every message table has to answer, because a missing key prints the key name. |
-| `_do_reset: refuses in the TOML era instead of dropping the legacy conf` | reset promises "back to template defaults" while the values in force sit in setup.toml, untouched by it -- the same misleading success as a save, with an `rm -f` attached. It refuses on its own rather than only behind main, because the destructive step is here. |
+| `_tui_local_layer_notice: names the per-worktree file and its sections` | the menus show the EFFECTIVE values, that layer included, and a save goes to the COMMITTED one. Without the notice the operator reads a setup.local.toml value off the screen, changes the same section, and sees no difference on this machine -- the shape `_setup_warn_shadowed_write` already warns about at the CLI, which logs and is therefore invisible once curses owns the terminal. The sections are named, not just the fact, because that is what makes it actionable. |
+| `_tui_local_layer_notice: silent when there is no per-worktree layer` | a notice that fires on every launch is a notice nobody reads. No per-worktree layer is the ordinary case and has to stay silent. |
+| `_tui_shadowed_sections: only the touched sections the local layer defines` | the save-time half. A write to a section the per-worktree layer also defines may be inert HERE while still being the committed value for every other checkout, so it is reported rather than refused -- the same asymmetry `_setup_warn_shadowed_write` settles for `setup.sh set`. It names only the sections this session actually touched: re-reading the whole launch notice at the user would bury the one that matters. |
+| `_tui_shadowed_sections: a removal counts as touching the section` | a removal is a write too -- clearing an entry of a list the local layer replaces whole is exactly as inert as setting a key it names, and a check that read the overrides alone reported nothing to warn about. |
+| `_tui_aot_families_touched: derives the families from the array table` | which keys a save has to carry WHOLE is the array question, and the answer has to come off `_conf_toml_aot_section`'s `<prefix>=<path>` table rather than a roster here -- a test naming today's families passes forever while a new one silently loses its siblings on every save (base#1089 / base#1112 / base#1214). So the population is DERIVED: every section the schema has, every family that table gives it, one touched key each, and the family's path has to come back. `[environment]`'s `env_N` is excluded by having no row, which is the state base#1235 leaves open. |
+| `_tui_aot_families_touched: a scalar key touches no family` | a scalar key must NOT drag its section's list into the save -- that is the other half of the rule, and an implementation that answers "every family of the touched section" would pass the derivation above and still rewrite [volumes] every time the user edits a mount's neighbour. |
+| `_do_reset: declining the confirmation changes nothing` | reset is destructive, so declining the confirmation has to change nothing at all -- nothing run, no loss of the edits in progress. |
+| `_do_reset: confirmed, it resets through setup.sh, re-applies and clears edits` | reset means "go back to the template". That is three things at once -- drop this repo's own layer, re-seed it from the template, and throw away the pending edits -- and leaving any one of them out gives the user a menu that still shows values the chain no longer resolves. The drop is delegated to `setup.sh reset`, which IS "replace the repo's setup.toml with the template baseline" and archives the file it replaces; a second `rm -f` here would be a second meaning for Reset. So the assertions are that the subcommand was dispatched, that apply followed it, and that the baseline afterwards is what the REAL merge answers -- the template's value, not the override the user had pending. |
+| `_do_reset: the per-worktree layer survives a reset and still shows` | reset drops THIS REPO's layer and the operator's per-worktree file is not this repo's -- it is gitignored, never touched by tooling, and `setup.sh reset` leaves it alone. So a reset on a machine carrying one does not go "back to template defaults" there, and the menus have to keep showing what is actually in force rather than the template. |
 | `main: a section subcommand jumps straight to that section's editor` | `resources` is a SCHEMA_SECTIONS member, so `_tui_known_subcommand` accepts it and main dispatches straight to `_edit_section_<name>`. That CLI path is the section editor's only caller -- no menu row reaches it -- and this is the test that says so. |
 | `main: the gpu alias opens the deploy editor without the collision notice` | `deploy` is Compose's name for the GPU section and collides with `setup.sh deploy`; `gpu` is the unambiguous spelling of the same editor. The alias has to resolve to the same editor and stay silent about a collision the user has already avoided. |
 | `main: the deploy spelling opens the same editor and says which deploy it is` | the colliding spelling still works, but the user is told which of the two `deploy` commands they just got. Dropping the notice makes the two indistinguishable. |
@@ -7937,6 +7963,7 @@ the shipped tree rather than kept as a roster
 | `main: cancelling the main menu saves nothing` | Cancel at the main menu means discard. Committing anyway would write the partial edits the user just backed out of. |
 | `main: Save & Exit commits and then runs the post hook` | Save & Exit is the only path that writes, and the post-tui hook fires after the write so a repo's hook sees the regenerated compose.yaml. |
 | `main: seeds the per-repo conf with an apply run when none exists` | on a repo that has never been set up there is no setup.toml to load, so the menus would open on an empty config. main seeds it by running apply first; skipping that is how mount_1 detection went missing. |
+| `main: the path it commits to is one of the layers the readers resolve` | the editor's save target has to be a layer the readers actually resolve. For the whole of ADR-00000037's freeze it was not: main wrote `<repo>/.setup.conf` while `_setup_conf_layers` named only `.toml` layers, so a save had no effect at all (base#1232). The chain is DERIVED from `_setup_conf_layers` rather than spelled as a filename here -- the claim is membership of the chain, so a layer that is renamed or relocated keeps this test honest instead of pinning today's name. |
 | `main: -h prints usage and does not open the menu` | -h must print usage rather than open the TUI, and it is the one path a user reaches when they do not know the subcommand names. |
 | `_tui_canonical_section: gpu resolves to deploy, other names are themselves` | `gpu` is an alias, not a section; everything else is its own name. Canonicalising the wrong way round would send `deploy` to a `_edit_section_gpu` that does not exist. |
 | `the TUI's shipped files define no function nothing can reach` | base#1073 found three functions in setup_tui.sh with no caller, and one of them had three specs -- so a test suite is not evidence that production code is reachable. A hand-kept roster of "known dead" would go stale the moment a caller is deleted, so the population is derived from the files and the callers from the shipped tree. Dynamic dispatch is resolved by asking the program which names it can dispatch, not by waving a prefix through, which is how `_edit_section_resources` -- whose only caller is main's `setup_tui.sh resources` direct jump -- stays in while a dead editor does not. The population is every shipped file of the TUI, not setup_tui.sh alone, because the dead code a TUI change leaves behind does not stay in one file. Deleting `_prompt_mount_with_picker` from the wrapper took with it the ONLY two call sites of `_tui_radiolist` in lib/_tui_backend.sh and the only caller of `_assemble_mount_value` in lib/_tui_conf.sh; a guard that reads the wrapper alone reports a clean tree while two primitives ship with nothing to call them. The glob is what makes that derived: a new `_tui_*.sh` joins the population by existing. |
@@ -7972,8 +7999,9 @@ high-value target areas the issue body called out.
 
 Grouped by concern:
 
-- `_load_current` (repo-conf wins; falls back to template; both missing →
-silent return 0)
+- `_load_current` (the repo layer wins on the keys it names and the
+template's other keys come with it; a repo with no committed layer opens on
+the template; both missing -> silent return 0)
 
 - `_render_main_menu` / `_render_advanced_menu` (#178 Save & Exit
 unification, Cancel/Esc returns 1, navigation into section editor)
@@ -8027,8 +8055,8 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 
 | Test | Description |
 |------|-------------|
-| `_load_current: pulls keys from repo conf when present` | - |
-| `_load_current: falls back to template conf when repo conf missing` | - |
+| `_load_current: the repo layer wins and the template's other keys come with it` | these two tests used to pin the OPPOSITE rule -- "read the repo file, else fall back to the template" -- and that one-file read is the defect base#1232 records: the config is an overlay chain, so an editor whose baseline is whichever file exists first shows one layer's contents instead of the values in force. The repo layer must still WIN on the keys it names (that half was always right), and the template's other keys must now come with it rather than disappearing. `bridge` is not the schema default (`host`), so the first assertion can only hold if the repo layer was read; `auto` for gui.mode could not tell "the template was read" from "nothing was read and a default stood in", so the template key carries a non-default value too. |
+| `_load_current: a repo with no committed layer opens on the template` | a repo that has never been set up has no committed layer, and the template's values are what `setup.sh apply` is about to seed it with -- so they are what the menus have to open on. `force` rather than `auto`: `auto` IS the schema default for deploy.gpu_mode, so an assertion on it could not tell "the template was read" from "nothing was read and the default stood in", which is the whole claim here. |
 | `_load_current: returns 0 silently when both files missing` | - |
 | `_render_main_menu: __save returns 0 (Save & Exit path)` | - |
 | `_render_main_menu: empty choice (Cancel) returns 1` | - |
@@ -8733,7 +8761,7 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_wrapper_service_running answers per project, not per host (#920)` | - |
 | `a FAILING service probe is reported, not silently read as not-running (#920)` | - |
 | `a service probe that answers cleanly stays quiet (#920)` | - |
-| `_wrapper_setup_sync: the frozen editor is not a dispatch target (base#1148)` | `build.sh --setup` and `run.sh --setup` on a TTY selected setup_tui.sh, and ADR-00000037's Consequences freeze that editor until the TOML migration completes -- `_tui_refuse_frozen` makes every path through it exit 2 after argument parsing. So the wrapper failed with status 2 BEFORE regenerating and before its main action: the one option whose job is "regenerate now" was the one that could not. The non-TTY path was unaffected, which is why nothing in CI noticed. Two observable facts, because a TTY cannot be faked in this suite and the pair is what makes the dispatch wrong: the shipped editor DOES refuse, and the wrapper's predicate says it may not be dispatched to. Both move together in the change that unfreezes it. |
+| `_wrapper_setup_sync: the rebuilt editor is a dispatch target again (base#1232)` | `build.sh --setup` and `run.sh --setup` on a TTY select setup_tui.sh, and for the length of ADR-00000037's freeze that editor refused on every path after argument parsing -- so the wrapper failed with status 2 BEFORE regenerating and before its main action: the one option whose job is "regenerate now" was the one that could not. The non-TTY path was unaffected, which is why nothing in CI noticed. base#1232 rebuilt the editor on the conf layer chain and lifted the freeze, so both halves move back together: the predicate says the editor MAY be dispatched to, and the shipped editor no longer refuses on the freeze. The second half asserts WHICH refusal, not success: this suite has no TTY and no dialog/whiptail, so the editor still exits 2 -- on the backend probe, which is a different fact and one that proves it got past argument parsing. The status alone would be green either way, which is how a freeze that came back would go unnoticed. And THE PREDICATE IS SOURCED, which the first spelling of this test was not. It ran a bare `run _wrapper_tui_usable` in a shell that had never sourced wrapper.sh, so `run` reported 127 -- command not found -- and `assert_failure` was satisfied by the function's ABSENCE. The gate was green for a reason that had nothing to do with the answer it claimed to pin, and would have stayed green through any change to it in either direction. Every other call in this file goes through `bash -c "source ...; <call>"` for exactly this reason. |
 
 ### test/bats/unit/yaml_permission_surface_spec.bats (36)
 

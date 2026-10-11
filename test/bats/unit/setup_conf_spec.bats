@@ -237,17 +237,16 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Post-relocation path names in user-facing help / comments
 # ════════════════════════════════════════════════════════════════════
-@test "setup_tui.sh usage names the repo-root .setup.conf in every language (#842)" {
+@test "setup_tui.sh usage names the repo-root setup.toml in every language (#842)" {
   # Help that names a path the user cannot find is worse than no help:
-  # all four heredocs must advertise the dotfile the TUI actually edits.
+  # all four heredocs must advertise the file the TUI actually edits.
   #
-  # That dotfile is `.setup.conf`, not `setup.toml`: ADR-00000037 freezes
-  # this editor until the TOML rebuild lands, so its file, its writers and
-  # its help are still the INI pair. A blanket rename moved this assertion
-  # to `setup.toml` ahead of the ADR and made the spec describe an
-  # interface the frozen wrapper does not have. The editor refuses to run
-  # in the TOML era (_tui_refuse_frozen) and THAT message is what points
-  # the user at setup.toml.
+  # That file is `<repo>/setup.toml`. It was `.setup.conf` for the length
+  # of ADR-00000037's freeze -- the editor's file, its writers and its
+  # help were all still the INI pair, and a blanket rename of this
+  # assertion once ran ahead of the ADR and made the spec describe an
+  # interface the frozen wrapper did not have. base#1232 carried the
+  # editor over, so the help and the save target move together here.
   #
   # Driving usage() means SOURCING the wrapper. That used to be
   # kcov-only-fatal and carried a COVERAGE skip here: the wrapper enabled
@@ -265,7 +264,8 @@ EOF
       _LANG='${_lang}' usage
     "
     assert_success
-    assert_output --partial "<repo>/.setup.conf"
+    assert_output --partial "<repo>/setup.toml"
+    refute_output --partial "<repo>/.setup.conf"
     refute_output --partial "<repo>/setup.conf"
   done
 }
@@ -451,6 +451,46 @@ EOF
     [[ "${_k[_i]}" == "gui.mode" ]] && _seen="${_v[_i]}"
   done
   assert_equal "${_seen}" "off"
+}
+
+# why: the template layer's directory comes from _SETUP_SCRIPT_DIR, and a
+# caller that reaches the readers WITHOUT setup.sh has none -- setup_tui.sh
+# is one, a sibling of setup.sh in the same wrapper dir that resolves the
+# directory itself. _setup_conf_layers already took the argument; the
+# handle and the *_full view did not, so such a caller could only get the
+# whole chain by assembling a layer list of its own, which is precisely how
+# the editor and the emitters came to disagree about what is configured
+# (base#1232). Measured on a template-ONLY key, because that is the key a
+# dropped template layer loses and every other assertion would still pass
+# without it.
+@test "_setup_conf_handle: a caller with no _SETUP_SCRIPT_DIR can pass the template dir" {
+  local _tpl="${TEMP_DIR}/dist"
+  mkdir -p "${_tpl}"
+  cat > "${_tpl}/setup.toml" <<'EOF'
+[gui]
+mode = "auto"
+
+[network]
+mode = "host"
+EOF
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[network]
+mode = "bridge"
+EOF
+  local _saved="${_SETUP_SCRIPT_DIR:-}"
+  _SETUP_SCRIPT_DIR=""
+  _setup_conf_handle "${TEMP_DIR}" _TD "${_tpl}"
+  assert_equal "$(_conf_get _TD gui mode "")" "auto"
+  assert_equal "$(_conf_get _TD network mode "")" "bridge"
+  # And the *_full reshaping of the same handle takes it too.
+  local -a _s=() _k=() _v=()
+  _setup_effective_full "${TEMP_DIR}" _s _k _v "${_tpl}"
+  local _i _seen=""
+  for (( _i = 0; _i < ${#_k[@]}; _i++ )); do
+    [[ "${_k[_i]}" == "gui.mode" ]] && _seen="${_v[_i]}"
+  done
+  assert_equal "${_seen}" "auto"
+  _SETUP_SCRIPT_DIR="${_saved}"
 }
 
 @test "_setup_conf_local_sections: names the sections the local layer shadows" {
