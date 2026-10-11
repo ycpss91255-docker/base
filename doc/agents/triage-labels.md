@@ -67,7 +67,7 @@ Three other axes exist, and none of them substitutes for a state label.
 - **`bug` / `documentation` / `enhancement` are the org kind axis.** Exactly one per issue, in parallel with exactly one state label. `/triage`'s two category roles map to `bug` and `enhancement`; `documentation` is the third kind the org uses for docs-only work.
 - **`dependencies` and `github_actions` belong to Dependabot**, which applies them to its own pull requests. They are not triage vocabulary and `/triage` should ignore them.
 
-## Live state: the table matches GitHub; the stock-default cleanup is pending
+## Live state: the table matches GitHub and the stock-default cleanup is done
 
 **Every label in the table above exists on `ycpss91255-docker/base`** with
 the colour and description shown. The tracker was migrated on 2026-09-09.
@@ -77,6 +77,10 @@ Verified against the live set with:
 $ gh label list -R ycpss91255-docker/base
 $ gh issue list -R ycpss91255-docker/base --label needs-triage --state all
 ```
+
+The live set is **thirteen labels and nothing else**: the six state roles in
+the table, the three kind labels, `backlog` and `upstream`, and Dependabot's
+`dependencies` and `github_actions`. Anything outside that list is drift.
 
 What was applied:
 
@@ -90,26 +94,47 @@ roles) and of `ycpss91255-docker/base#1183` (`needs-decision`). Whether
 either issue is closed on the strength of it is the maintainer's call; the
 labels are live regardless.
 
-### Still pending from #1182: the stock defaults
+### Done, from #1182: the stock defaults
 
-The other half of `ycpss91255-docker/base#1182` has not been done. The
-tracker still carries five of GitHub's stock default labels, none of them
+The other half of `ycpss91255-docker/base#1182` has landed. All five of
+GitHub's stock default labels are gone from the tracker, and none of them is
 part of this vocabulary:
 
-- **`duplicate`, `invalid`, `good first issue` and `help wanted`** have never been applied to an issue or a pull request here (checked live with `gh issue list --label "<name>" --state all` and the `gh pr list` equivalent) and are to be deleted outright, re-checking usage immediately before each delete.
-- **`question`** needs an explicit decision, not a blind delete: it is on one closed issue, #765, so deleting it strips the label from that issue.
+- **`duplicate`, `invalid`, `good first issue` and `help wanted`** had never been applied to an issue or a pull request here, and were deleted outright.
+- **`question`** was deleted too. It was on one closed issue, `#765`, which now carries no labels at all -- so the delete did strip it, as the pending note here warned it would, and that was decided rather than stumbled into.
 
-### `question` is not `needs-info`
+Re-derive before trusting this section, with `gh label list` and, per name,
+`gh issue list --label "<name>" --state all` plus the `gh pr list` equivalent.
 
-`ycpss91255-docker/base` still carries `question`, one of GitHub's stock
-default labels, with GitHub's own stock description. It is an **undeleted
-default, not a deliberate `needs-info` synonym**, and it must **not** be
-renamed into `needs-info`: doing so would silently relabel every issue that
-happens to carry the default as "waiting on the reporter", which is a claim
-nobody has made about any of them. `needs-info` was created fresh for exactly
-this reason; the fate of `question` is decided separately.
+### A stock default is never renamed into a state role
 
-While `question` remains, it shares colour `d876e3` with `needs-info`, so the
-two look alike in the sidebar and the name is the only thing telling them
-apart. `needs-info` is a state in this vocabulary; `question` on an issue says
-nothing about who is being waited on.
+`question` shared colour `d876e3` with `needs-info` while it existed, and the
+temptation was to rename it rather than delete it. That would have been
+wrong, and the rule outlives the label: **a stock default is not a deliberate
+synonym for a state in this vocabulary.** Renaming `question` into
+`needs-info` would have silently relabelled every issue that happened to
+carry the default as "waiting on the reporter", which is a claim nobody had
+made about any of them. `needs-info` was created fresh for exactly that
+reason.
+
+The same reasoning applies to any label that reappears looking like an intake
+or waiting state. Delete it, or map its issues onto a state role by hand; do
+not rename it into one.
+
+### `triage` came back once, and how it was closed out
+
+The rename above is an assertion that rots: nothing stops a label named
+`triage` being **recreated**, and one was -- empty description, colour
+`ededed`, carried by two open issues (`#1192` and `#1193`) and by nothing
+else, while this file still said no such label remained. GitHub creates a
+label on demand when one is applied by a name that does not exist, so a
+single `--label triage` is all it takes.
+
+It was closed out in the direction this file already argued for: both issues
+were given `needs-triage`, the canonical intake role, `triage` was removed
+from them, usage was re-checked at zero across issues and pull requests, and
+only then was the label deleted. The relabelling came first precisely so the
+delete stripped nothing -- the same care the `question` delete above needed.
+
+So the assertion stands, but treat it as a thing to re-derive rather than a
+fact on file. `gh label list -R ycpss91255-docker/base` is the check.
