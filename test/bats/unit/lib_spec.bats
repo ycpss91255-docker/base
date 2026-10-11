@@ -1119,3 +1119,40 @@ EOF
   assert_output --partial "找不到 setup.toml"
   assert_output --partial "./build.sh --setup"
 }
+
+# why: base#1177 put a `GPU_CAPABILITIES` array in the lib tree and
+# measured what that costs: `_lib.sh` loads env_emit.sh and
+# config_summary.sh into ONE process alongside every other module, and
+# `.env` carries a variable of that exact name, so the array shadowed the
+# operator's value and `${GPU_CAPABILITIES:--}` read back `gpu` -- the
+# array's first element -- whatever the configuration said. Nothing
+# failed; the summary just printed a different list. The population is
+# DERIVED from the names env_emit.sh actually writes rather than listed
+# here, because a guard naming today's twenty-four passes forever while
+# the next emitted name is taken by a module variable (base#1089 /
+# base#1090 / base#1214). The probe runs with those names cleared from
+# the environment, so what it finds is what the TREE declares.
+@test "no lib module declares a variable the generated .env already names (base#1177)" {
+  local -a _names=()
+  mapfile -t _names < <(grep -oE '^[A-Z][A-Z0-9_]*=' \
+    /source/dist/script/docker/lib/env_emit.sh | sed 's/=$//' | sort -u)
+  # Non-vacuity: a derivation that stopped matching would compare the lib
+  # tree against an empty population and report nothing. A floor, well
+  # under the live count.
+  [ "${#_names[@]}" -ge 10 ] || fail "derived ${#_names[@]} emitted env name(s) from env_emit.sh; the harvest is broken, so the check below is vacuous"
+  local _probe="${BATS_TEST_TMPDIR}/env_shadow_probe.sh"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf 'source %s\n' "${LIB}"
+    printf '%s\n' 'for _n in "$@"; do'
+    printf '%s\n' '  [[ -v "${_n}" ]] && printf "%s declared as: %s\n" "${_n}" "$(declare -p "${_n}" 2>/dev/null)"'
+    printf '%s\n' 'done'
+    printf '%s\n' 'exit 0'
+  } > "${_probe}"
+  local -a _clear=()
+  local _n
+  for _n in "${_names[@]}"; do _clear+=(-u "${_n}"); done
+  run env "${_clear[@]}" bash "${_probe}" "${_names[@]}"
+  assert_success
+  assert_output ""
+}

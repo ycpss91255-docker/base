@@ -552,24 +552,66 @@ _validate_detect_mode() {
   esac
 }
 
+# _VALID_GPU_CAPABILITIES -- the capability names `[deploy] gpu_capabilities`
+# accepts, as data.
+#
+# The NVIDIA container-runtime driver capabilities plus compose's own
+# `gpu` -- an umbrella name compose understands rather than a driver
+# capability. An unknown name makes the container runtime refuse the
+# reservation at `up` time, which is why the key is validated at all.
+#
+# A `case` arm until base#1177, and the reason it is data now is that two
+# places have to agree on this list: the validator below, and the TUI's
+# `[deploy]` capability checklist, which derives its rows from here. They
+# were the same list written twice -- four hand-written rows against nine
+# accepted names -- so a configuration naming any of the other five
+# opened a screen with nothing checked and was rewritten by it. Adding a
+# capability here adds it to both at once, and adding its row label
+# (`deploy.caps.<name>`, in all four locale tables) is part of adding it:
+# `tui_editor_flow_spec` derives the rows and the labels from this array
+# and fails when either falls behind.
+#
+# The leading underscore is load-bearing: `_VALID_GPU_CAPABILITIES` is already
+# taken, as the name of the SHIPPED `.env` variable `env_emit.sh` writes
+# the resolved list to and `config_summary.sh` reads back. `_lib.sh`
+# loads this file (via schema.sh) and config_summary.sh into the same
+# process, so an array under that name shadows the operator's value --
+# measured: `${_VALID_GPU_CAPABILITIES:--}` then reads this array's first
+# element, printing `gpu` whatever the configuration says.
+#
+# Order is the screen's reading order, not a meaning: the four names the
+# shipped default carries stay where the checklist already had them so an
+# operator's muscle memory survives, and the five base#1177 restored
+# follow.
+declare -ga _VALID_GPU_CAPABILITIES=(
+  gpu compute utility graphics all video display compat32 ngx
+)
+
 # _validate_gpu_capabilities <value>
 #
 # [deploy] gpu_capabilities: the space-separated capability list emitted
 # into compose `deploy.resources.reservations.devices[].capabilities`.
-# The names are the NVIDIA container-runtime driver capabilities plus
-# compose's own `gpu`; an unknown name makes the container runtime
-# refuse the reservation at `up` time, so reject it here instead.
+# Accepts the empty string -- "reserve the devices, request no
+# capability" is a configuration an operator can state, and `setup.sh set
+# deploy.gpu_capabilities ""` clears the key.
+#
+# The accepted names are read off _VALID_GPU_CAPABILITIES rather than restated
+# here, so this function and the TUI screen cannot drift (base#1177).
 _validate_gpu_capabilities() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 0
-  local _cap
+  local _cap _known_cap _known
   local -a _caps=()
   read -ra _caps <<< "${_v}"
   for _cap in "${_caps[@]}"; do
-    case "${_cap}" in
-      gpu|all|compute|compat32|graphics|utility|video|display|ngx) ;;
-      *) return 1 ;;
-    esac
+    _known=0
+    for _known_cap in "${_VALID_GPU_CAPABILITIES[@]}"; do
+      if [[ "${_cap}" == "${_known_cap}" ]]; then
+        _known=1
+        break
+      fi
+    done
+    (( _known )) || return 1
   done
   return 0
 }
