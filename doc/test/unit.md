@@ -1146,7 +1146,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (180)
+### test/bats/unit/ci_spec.bats (181)
 
 | Test | Description |
 |------|-------------|
@@ -1286,6 +1286,7 @@ between them can be asserted at all.
 | `drivers: test.sh sources every driver file in drivers/ (base#1113)` | base#1113 three source lines were checked against a directory of twenty-nine driver files |
 | `_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)` | base#1113 a driver never added to the table is in no lint phase and no CI group, and the guards all read the table |
 | `_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)` | base#1113 an exemption array is the one hand-written thing left, so it is held to the rule that each entry excuses something real |
+| `lint flags: every flag the justfile advertises is backed by the tree (base#1226)` | base#1226 shipped the log event registry scan as a MANUAL tool -- dispatchable, in no lint phase and no CI job -- and added `just test lint --log-event-registry` to the justfile's narrowing list, where it sat indistinguishable from the twenty-one flags that DO narrow the bare phase. The list's own closing sentence then generalised over it: "the behaviour matches the bare `lint`", which cannot hold for a tool the bare `lint` never runs. Nothing was red, because the flag dispatches and exits 0 -- the divergence was entirely in the prose, and a comment is where base#1117 and base#1175 both found a claim nothing had to keep. Three rules, each over a set derived from the tree |
 | `drivers: the bats runners live in drivers/bats.sh, not test.sh` | #650 bats runners moved out |
 | `drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh` | #650 shellcheck moved out |
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |

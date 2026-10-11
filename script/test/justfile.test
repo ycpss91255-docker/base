@@ -69,14 +69,22 @@ default:
 # / `just test lint --catalog-description`
 # / `just test lint --spec-repo-root`
 # / `just test lint --test-name-backtick`
-# / `just test lint --log-event-registry`
 # / `just test lint --toml-fixture`
-# (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
-# the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
+# / `just test lint --log-event-registry` -- NOT in _LINT_TOOLS, so this
+#   one does not narrow the phase, it ADDS to it: the bare `lint` does not
+#   run the log event registry scan and no CI job does. base#1226 shipped
+#   it dispatchable and gating nothing; the driver header names the single
+#   condition for promoting it into the table.
+# (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container, so
+# a flag the table carries behaves exactly as it does under the bare
+# `lint`; the GHA lint jobs use the host-only
 # `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and
 # the lint-static matrix), which run the same drivers with no compose.
 # script/test/test.sh's _LINT_TOOLS table is the list of tools this phase
 # runs, and self_test_yaml_spec asserts every entry of it has a CI job.
+# ci_spec's "every flag the justfile advertises is backed by the tree"
+# holds this list to the table and to the dispatcher, so a flag advertised
+# here that nothing answers for is a red test rather than a comment.
 lint *args:
     ./script/test/test.sh --lint {{args}}
 

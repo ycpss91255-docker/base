@@ -4209,6 +4209,106 @@ _lint_entry_points() {
   done
 }
 
+# The narrowing flags the justfile ADVERTISES, one per line: every
+# `just test lint --<flag>` it spells anywhere, with the leading dashes
+# dropped so the name is spelled the way _LINT_TOOLS spells a tool.
+#
+# The advertisement is the whole point of reading it from there: the
+# comment on the `lint` recipe is where an operator learns which flags
+# exist, and it is prose -- nothing else in the tree had to agree with it.
+_advertised_lint_flags() {
+  grep -oE 'just test lint --[a-z0-9-]+' /source/script/test/justfile.test \
+    | sed 's/.*--//' \
+    | sort -u
+}
+
+# The tool names `_run_lint_tool` can dispatch, one per line: its own case
+# labels, read between its definition and the `*)` that dies on an unknown
+# one. Derived from the dispatcher rather than from the table, because
+# those are two different questions and this guard exists because they
+# are.
+_dispatchable_lint_tools() {
+  awk '
+    /^_run_lint_tool\(\) \{/ { inside = 1; next }
+    !inside                  { next }
+    /^    \*\)/              { inside = 0; next }
+    /^    [a-z0-9|-]+\)/ {
+      k = $1
+      sub(/\).*/, "", k)
+      n = split(k, parts, "|")
+      for (i = 1; i <= n; i++) print parts[i]
+    }
+  ' /source/script/test/test.sh | sort -u
+}
+
+# why: base#1226 shipped the log event registry scan as a MANUAL tool --
+# dispatchable, in no lint phase and no CI job -- and added
+# `just test lint --log-event-registry` to the justfile's narrowing list,
+# where it sat indistinguishable from the twenty-one flags that DO narrow
+# the bare phase. The list's own closing sentence then generalised over
+# it: "the behaviour matches the bare `lint`", which cannot hold for a
+# tool the bare `lint` never runs. Nothing was red, because the flag
+# dispatches and exits 0 -- the divergence was entirely in the prose, and
+# a comment is where base#1117 and base#1175 both found a claim nothing
+# had to keep. Three rules, each over a set derived from the tree
+@test "lint flags: every flag the justfile advertises is backed by the tree (base#1226)" {
+  assert_spec_subject /source/script/test/justfile.test \
+      "the recipe comment whose narrowing list this spec derives"
+  local -a _adv=() _table=() _disp=()
+  mapfile -t _adv < <(_advertised_lint_flags)
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+  mapfile -t _disp < <(_dispatchable_lint_tools)
+
+  # Non-vacuity on all three sides: an empty set makes every rule below
+  # pass having compared nothing.
+  [ "${#_adv[@]}" -ge 15 ] \
+    || fail "the justfile advertised ${#_adv[@]} narrowing flags; the comment did not parse"
+  [ "${#_table[@]}" -ge 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_table[@]} entries; the table did not parse"
+  [ "${#_disp[@]}" -ge 20 ] \
+    || fail "_run_lint_tool yielded ${#_disp[@]} case labels; the dispatcher did not parse"
+  _in_set shellcheck "${_adv[@]}" \
+    || fail "the advertised set holds no 'shellcheck'; it is reading something other than the narrowing list"
+
+  # R1 -- backed. An advertised flag is in the table, or is one of the
+  # stated untabled entry points. Advertised and in neither is a flag the
+  # comment offers that nothing in the tree answers for.
+  local _f _unbacked="" _undispatchable="" _unmarked=""
+  for _f in "${_adv[@]}"; do
+    if ! _in_set "${_f}" "${_table[@]}" \
+       && ! _in_set "${_f}" "${_UNTABLED_LINT_ENTRY_POINTS[@]}"; then
+      _unbacked+=" ${_f}"
+    fi
+  done
+  [ -z "${_unbacked}" ] \
+    || fail "the justfile advertises narrowing flag(s) in neither _LINT_TOOLS nor the stated untabled entry points:${_unbacked} -- the comment promises a dispatch nothing in the tree backs"
+
+  # R2 -- dispatchable. Every advertised flag has a `_run_lint_tool` case
+  # label. For a tabled flag the lint phase proves this on every run; for
+  # an untabled one NOTHING else does, which is the direction that would
+  # exit non-zero in front of an operator.
+  for _f in "${_adv[@]}"; do
+    _in_set "${_f}" "${_disp[@]}" || _undispatchable+=" ${_f}"
+  done
+  [ -z "${_undispatchable}" ] \
+    || fail "the justfile advertises narrowing flag(s) _run_lint_tool has no case label for:${_undispatchable} -- the advertised dispatch dies on 'Unknown LINT_TOOL'"
+
+  # R3 -- marked. An advertised flag the table does NOT carry has to name
+  # the table where it is advertised, because the list is read as the
+  # table's contents and the sentence closing it generalises over every
+  # entry. The required token is the array's own name, so a rename moves
+  # the requirement with it rather than stranding a marker.
+  local _line
+  for _f in "${_adv[@]}"; do
+    _in_set "${_f}" "${_table[@]}" && continue
+    _line="$(grep -nE "just test lint --${_f}([^a-z0-9-]|\$)" \
+      /source/script/test/justfile.test | grep -c '_LINT_TOOLS' || true)"
+    [[ "${_line}" != "0" ]] || _unmarked+=" ${_f}"
+  done
+  [ -z "${_unmarked}" ] \
+    || fail "the justfile advertises narrowing flag(s) _LINT_TOOLS does not carry without naming the table on the same line:${_unmarked} -- a reader takes the narrowing list for the table, and the bare 'lint' does not run these"
+}
+
 # why: #650 bats runners moved out
 @test "drivers: the bats runners live in drivers/bats.sh, not test.sh" {
   # Each runner must be defined once (in the driver), and NOT re-inlined
