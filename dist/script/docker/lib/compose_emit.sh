@@ -213,22 +213,68 @@ _emit_device_as_volume() {
   echo "${_indent}      propagation: ${_propagation}"
 }
 
+# _compose_is_repo_relative <path>
+#
+# Zero when <path> is an EXPLICITLY repo-relative host path: `.`, `..`, or
+# anything under `./` or `../`. The bare dots are the whole population
+# this missed first time round, and they are the spelling most likely to
+# be used for the very thing relocation breaks -- mounting the repo
+# itself. One predicate, so the rebase and its guards cannot disagree
+# about what counts.
+#
+# It is also the repo-relative ARM of `_classify_volume_lhs` below, which
+# is why it is declared here, above both readers. The two are not one
+# question -- `/srv/x` is a bind and is not repo-relative -- so they stay
+# two functions; but the half they share has a single definition, which is
+# exactly what base#1257 cost. The classifier used to carry its own
+# narrower copy, listing `./` and neither `../` nor the bare dots, so a
+# `../foo` mount was classified as a Docker named volume and declared in
+# the top-level `volumes:` block while this predicate called the same
+# string a host path.
+_compose_is_repo_relative() {
+  case "${1-}" in
+    .|..|./*|../*) return 0 ;;
+    *)             return 1 ;;
+  esac
+}
+
 # _classify_volume_lhs <mount_string>
 #
 # Classify a `host:container[:mode]` mount by its left-hand side
-# Option A / D-Strict). A LHS that looks like a path -- starts with `/`,
-# `./`, `~/`, or a `${...}` variable reference -- is a bind mount; anything
-# else is a Docker named-volume reference. Echoes `bind` or `named`.
+# (Option A / D-Strict). A LHS that looks like a path is a bind mount;
+# anything else is a Docker named-volume reference. Echoes `bind` or
+# `named`.
+#
+# A path is EITHER explicitly repo-relative -- `_compose_is_repo_relative`
+# is the one answer to that, asked rather than re-spelled here -- OR
+# absolute, OR `~/`, OR a `${...}` variable reference. Only a BARE name is
+# a named volume.
+#
+# The prefix list this used to carry held `/`, `./`, `~/` and `${` and
+# stopped there, so `../foo`, `.` and `..` fell through to `named`: the
+# mount was emitted as a reference to a managed volume and declared at the
+# top level under that literal string, and the host directory the operator
+# asked for was silently replaced by an empty volume. compose accepts all
+# of that without complaint. The design record (doc/changelog/v0.41.md)
+# enumerates the four prefixes and records exactly one DELIBERATE
+# exclusion -- a variable-named volume such as `${VAR}_state`, which
+# stays classified as a bind -- so the three relative spellings were an
+# unenumerated gap, not a decision (base#1257).
 _classify_volume_lhs() {
+  local _lhs="${1%%:*}"
+  if _compose_is_repo_relative "${_lhs}"; then
+    printf 'bind\n'
+    return 0
+  fi
   # The `~/` and `${` globs are single-quoted so they stay literal: an
   # unquoted `~/*` case pattern undergoes tilde expansion (to $HOME/*) and
   # would never match a literal `~/...` LHS; an unquoted `${`-glob is fine
   # but quoting keeps both path-prefix markers consistent and silences
   # SC2016 (the literal `${` is intentional -- a `${VAR}` LHS is a bind path).
   # shellcheck disable=SC2016,SC2088
-  case "${1%%:*}" in
-    /*|./*|'~/'*|'${'*) printf 'bind\n' ;;
-    *)                 printf 'named\n' ;;
+  case "${_lhs}" in
+    /*|'~/'*|'${'*) printf 'bind\n' ;;
+    *)              printf 'named\n' ;;
   esac
 }
 
@@ -299,21 +345,6 @@ _compose_rebase_path() {
     .)    printf '%s' "${_root}" ;;
     ./*)  printf '%s/%s' "${_root}" "${_p#./}" ;;
     *)    printf '%s/%s' "${_root}" "${_p}" ;;
-  esac
-}
-
-# _compose_is_repo_relative <path>
-#
-# Zero when <path> is an EXPLICITLY repo-relative host path: `.`, `..`, or
-# anything under `./` or `../`. The bare dots are the whole population
-# this missed first time round, and they are the spelling most likely to
-# be used for the very thing relocation breaks -- mounting the repo
-# itself. One predicate, so the rebase and its guards cannot disagree
-# about what counts.
-_compose_is_repo_relative() {
-  case "${1-}" in
-    .|..|./*|../*) return 0 ;;
-    *)             return 1 ;;
   esac
 }
 
@@ -393,11 +424,13 @@ _compose_reroot_mount() {
     return 0
   fi
   # Decided on the population this function MOVES -- an explicitly
-  # repo-relative `./` or `../` host path -- rather than borrowed from
-  # `_classify_volume_lhs`, whose bind prefixes do not include `../` and
-  # which is answering a different question (is there a named volume to
-  # declare at the top level?). Asking it here left a `../device-tree`
-  # bind resolving against the output directory.
+  # repo-relative `./` or `../` host path -- rather than on
+  # `_classify_volume_lhs`, which answers a different question (is there a
+  # named volume to declare at the top level?) and whose `bind` verdict
+  # also covers absolute, `~/` and `${VAR}` paths this must leave alone.
+  # Since base#1257 the two agree about the repo-relative half, because
+  # the classifier asks this same predicate; they are still not
+  # interchangeable here.
   if ! _compose_is_repo_relative "${_m%%:*}"; then
     printf '%s' "${_m}"
     return 0
