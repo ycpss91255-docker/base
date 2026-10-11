@@ -682,3 +682,25 @@ _run_service_probe() {
   assert_line "PROBE_UP"
   refute_output --partial "Could not ask compose"
 }
+
+# why: `build.sh --setup` and `run.sh --setup` on a TTY selected
+# setup_tui.sh, and ADR-00000037's Consequences freeze that editor until
+# the TOML migration completes -- `_tui_refuse_frozen` makes every path
+# through it exit 2 after argument parsing. So the wrapper failed with
+# status 2 BEFORE regenerating and before its main action: the one option
+# whose job is "regenerate now" was the one that could not. The non-TTY
+# path was unaffected, which is why nothing in CI noticed. Two observable
+# facts, because a TTY cannot be faked in this suite and the pair is what
+# makes the dispatch wrong: the shipped editor DOES refuse, and the
+# wrapper's predicate says it may not be dispatched to. Both move
+# together in the change that unfreezes it.
+@test "_wrapper_setup_sync: the frozen editor is not a dispatch target (base#1148)" {
+  run _wrapper_tui_usable
+  assert_failure
+
+  # And the editor it would have selected refuses, after parsing args and
+  # before any backend probe, so `-h` still works but nothing else does.
+  run bash /source/dist/script/docker/wrapper/setup_tui.sh --lang en
+  assert_failure
+  assert_equal "${status}" "2"
+}

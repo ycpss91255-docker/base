@@ -485,12 +485,46 @@ _dfm_dir_is_readable() {
 
 # _dfm_conf_declares_redirect <conf_file>
 #   Exit 0 when this layer redirects CONFIG_SRC, 1 when it provably does
-#   not, 2 when the question could not be answered (grep could not read
-#   what it was pointed at). The third status is the point: `grep -q`
-#   exits 2 when it scanned nothing, and a caller that folds 2 into "no
-#   match" turns an unreadable layer into permission to delete.
+#   not, 2 when the question could not be answered. The third status is
+#   the point: a caller that folds it into "no match" turns an unreadable
+#   layer into permission to delete.
+#
+#   A TOML LAYER IS ASKED OF THE READER, NOT OF ITS TEXT. The question is
+#   "does the build receive CONFIG_SRC", and the answer belongs to the
+#   bridge: `[build] args` is the same array whether it is written as
+#   `[[build.args]]` blocks, as an inline `args = [{ key = "CONFIG_SRC",
+#   ... }]`, or spread over several lines, and every one of those reaches
+#   the build identically. A pattern over the text answers for the
+#   spelling it was written against and silently says NO to the rest --
+#   which, for a probe that authorises a DELETE, is the expensive
+#   direction. Two spellings were patched into the regex one review round
+#   apart before this was moved; a third would have followed.
+#
+#   The bridge gives the SAME three answers, per layer, which is what the
+#   header above requires: a row for the family is YES, a successful parse
+#   with no such row is a provable NO, and a parse that did not happen --
+#   unreadable file, no bridge available -- is the unanswered question. A
+#   whole-chain merge would have collapsed the per-layer granularity; one
+#   parse per layer does not.
+#
+#   The regex stays for a NON-TOML layer, which has one spelling and no
+#   reader to ask.
 _dfm_conf_declares_redirect() {
   local _conf="$1" _st=0
+  if [[ "${_conf}" == *.toml ]]; then
+    local _kv=""
+    _kv="$(toml_bridge_parse "${_conf}" --kv 2>/dev/null)" || return 2
+    local _row _s _k _v
+    while IFS= read -r _row; do
+      [[ -n "${_row}" ]] || continue
+      _conf_kv_split "${_row}" _s _k _v
+      [[ "${_s}" == "build" ]] || continue
+      [[ "${_k}" == arg_* ]] || continue
+      [[ "${_v}" == "CONFIG_SRC="* ]] || continue
+      return 0
+    done <<< "${_kv}"
+    return 1
+  fi
   grep -qE "${_DFM_CONF_REDIRECT_RE}" "${_conf}" || _st=$?
   case "${_st}" in
     0) return 0 ;;

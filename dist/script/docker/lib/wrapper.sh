@@ -561,6 +561,30 @@ ${_probe_err}"
 #
 # On a missing .env after setup, emits the no_env / rerun_setup error
 # pair and exits 1.
+# _wrapper_tui_usable
+#
+# Whether the interactive editor may be dispatched to at all. FALSE while
+# it is frozen, which it is: ADR-00000037's Consequences freeze
+# setup_tui.sh until the TOML migration completes, because its INI-aware
+# `_edit_section_*` functions cannot operate on TOML structure, and
+# `_tui_refuse_frozen` makes every path through it exit 2 after argument
+# parsing.
+#
+# Without this, `build.sh --setup` and `run.sh --setup` on a TTY selected
+# the editor, which refused, and the wrapper failed with status 2 BEFORE
+# regenerating and before its main action -- so the one option whose job
+# is "regenerate now" was the one that could not. The non-TTY path was
+# unaffected, which is why no CI run noticed.
+#
+# A function and not an inline condition so the decision has a name a
+# spec can ask about: a TTY cannot be faked in the suite, and the thing
+# worth pinning is this answer, not the plumbing around it. The branch
+# comes back with the change that unfreezes the editor -- the same change
+# that removes `_tui_refuse_frozen`.
+_wrapper_tui_usable() {
+  return 1
+}
+
 _wrapper_setup_sync() {
   local _verb="${1:?_wrapper_setup_sync requires verb}"
   local _file_path="${FILE_PATH:?_wrapper_setup_sync requires FILE_PATH}"
@@ -593,16 +617,16 @@ _wrapper_setup_sync() {
   fi
 
   # _run_interactive: prefer setup_tui.sh on an interactive TTY when the
-  # symlink is executable; otherwise non-interactive setup.sh.
-  # per-invocation overrides (--gui / --no-x11-cookie) accumulate in
-  # SETUP_FORWARD_ARGS and short-circuit through setup.sh apply -- the
-  # TUI Save would persist them to setup.toml, the wrong semantics for a
-  # debug knob.
+  # symlink is executable AND the editor can act at all; otherwise
+  # non-interactive setup.sh. per-invocation overrides (--gui /
+  # --no-x11-cookie) accumulate in SETUP_FORWARD_ARGS and short-circuit
+  # through setup.sh apply -- the TUI Save would persist them to
+  # setup.toml, the wrong semantics for a debug knob.
   _run_interactive() {
     if (( "${#_forward_args[@]}" > 0 )); then
       "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}" \
         "${_forward_args[@]}"
-    elif [[ -t 0 && -t 1 && -x "${_tui}" ]]; then
+    elif [[ -t 0 && -t 1 && -x "${_tui}" ]] && _wrapper_tui_usable; then
       "${_tui}" --lang "${_lang}"
     else
       "${_setup}" apply --base-path "${_file_path}" --lang "${_lang}"

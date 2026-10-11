@@ -8659,7 +8659,7 @@ from `.base/` when present, and the lookup errors clearly when neither
 | `stop.sh --help: sources _lib.sh from .base/ (#282)` | stop resolves lib from subtree |
 | `build.sh: errors clearly when neither .base/ nor sibling _lib.sh exists (#282)` | Missing-lib hard fail |
 
-### test/bats/unit/wrapper_lib_spec.bats (29)
+### test/bats/unit/wrapper_lib_spec.bats (30)
 
 Unit tests for the wrapper-runtime module `lib/wrapper.sh` (#565), which
 hoists the cross-cutting surfaces the 5 docker wrappers (build / run / exec
@@ -8702,6 +8702,7 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_wrapper_service_running answers per project, not per host (#920)` | - |
 | `a FAILING service probe is reported, not silently read as not-running (#920)` | - |
 | `a service probe that answers cleanly stays quiet (#920)` | - |
+| `_wrapper_setup_sync: the frozen editor is not a dispatch target (base#1148)` | `build.sh --setup` and `run.sh --setup` on a TTY selected setup_tui.sh, and ADR-00000037's Consequences freeze that editor until the TOML migration completes -- `_tui_refuse_frozen` makes every path through it exit 2 after argument parsing. So the wrapper failed with status 2 BEFORE regenerating and before its main action: the one option whose job is "regenerate now" was the one that could not. The non-TTY path was unaffected, which is why nothing in CI noticed. Two observable facts, because a TTY cannot be faked in this suite and the pair is what makes the dispatch wrong: the shipped editor DOES refuse, and the wrapper's predicate says it may not be dispatched to. Both move together in the change that unfreezes it. |
 
 ### test/bats/unit/yaml_permission_surface_spec.bats (36)
 

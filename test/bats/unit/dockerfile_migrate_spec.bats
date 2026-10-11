@@ -580,7 +580,9 @@ EOF
   for _conf in \
     '[[build.args]]\nkey = "CONFIG_SRC" # use project dependencies\nvalue = "myconfig"\n' \
     '[[build.args]]\n"key" = "CONFIG_SRC"\nvalue = "myconfig"\n' \
-    '[build]\narg_1 = "CONFIG_SRC=myconfig"\n'
+    '[build]\narg_1 = "CONFIG_SRC=myconfig"\n' \
+    '[build]\nargs = [{ key = "CONFIG_SRC", value = "myconfig" }]\n' \
+    '[build]\nargs = [\n  { key = "TZ", value = "Asia/Taipei" },\n  { key = "CONFIG_SRC", value = "myconfig" },\n]\n'
   do
     printf '%b' "${_conf}" > "${TEMP_DIR}/setup.toml"
     cp "${DF}.orig" "${DF}"
