@@ -795,3 +795,41 @@ EOF
   assert_success
   refute_line --regexp '^volumes	mount_1	.'
 }
+
+# why: The control for the removal case below, and the reason it needed a
+# second gate at all. A SET into an inline table is already caught by the
+# parse gate: the writer opens a `[resources]` table where `resources` is
+# already a key bound to one, which TOML refuses, so the rewrite does not
+# parse and is not promoted. The removal is the one that slips through,
+# because it writes nothing new.
+@test "_upsert_conf_value: a set into an inline table is refused by the parse gate" {
+  printf 'resources = { shm_size = "64m" }\n' > "${CONF}"
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  run _upsert_conf_value "${CONF}" resources shm_size '128m'
+  assert_failure
+  run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+}
+
+# why: A removal that did NOTHING leaves a file the parse gate is happy
+# with -- readable, with the value still in it. The writers edit a key
+# written on its own line, and `resources = { shm_size = "64m" }` is a
+# valid inline table the bridge finds `resources.shm_size` inside: the
+# rewrite copied the line through, parsed clean, and `setup.sh remove
+# resources.shm_size` reported success and exit 0 with the limit still
+# configured. So the gate now asks the reader what the file SAYS, which
+# is the only check that also covers a shape nobody has thought of yet.
+# A numbered-family key is excluded on purpose, and the helper's header
+# says why: removing an array entry COMPACTS the ones after it, so
+# `<prefix>_N` is expected to survive holding the next value, and whether
+# that is right for slot 1 of `[volumes]` is base#1233's open question --
+# not something this gate may settle by refusing.
+@test "_write_setup_conf: a removal the rewrite did not make is refused, and the file is untouched" {
+  printf 'resources = { shm_size = "64m" }\n' > "${CONF}"
+  local -a _k=() _v=()
+  run _write_setup_conf "${CONF}" "${CONF}" _k _v "resources.shm_size"
+  assert_failure
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'resources\tshm_size\t64m'
+}

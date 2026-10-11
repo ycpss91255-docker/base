@@ -162,12 +162,20 @@ shm_size = ""
 # .env is OURS, generated from this file and where the entries below land
 # so the container receives them, and .env.local is YOURS and is never
 # rewritten.
+# TWO SPELLINGS, and only one of them is read today. The numbered form
+# below is what `_resolve_docker_conf` collects
+# (`_conf_list_sorted ... environment env_`), so it is the one that
+# reaches the container. The direct-key form -- `DISPLAY = ""` as a key
+# of this table -- is ADR-37's destination for this section and the
+# readers for it have NOT landed (base#1235's env_N half); writing it
+# here parses, and nothing emits it. Use the numbered form until that
+# changes.
 [environment]
-# DISPLAY = ""
-# NVIDIA_VISIBLE_DEVICES = "all"
-# PULSE_SERVER = ""
-# WAYLAND_DISPLAY = ""
-# XDG_RUNTIME_DIR = ""
+# env_1 = "DISPLAY="
+# env_2 = "NVIDIA_VISIBLE_DEVICES=all"
+# env_3 = "PULSE_SERVER="
+# env_4 = "WAYLAND_DISPLAY="
+# env_5 = "XDG_RUNTIME_DIR="
 
 # ═════════════════════════════════════════════════════════════════════
 # [[tmpfs]] -- RAM-backed mount points

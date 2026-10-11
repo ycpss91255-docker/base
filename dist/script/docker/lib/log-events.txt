@@ -44,6 +44,9 @@ conf_write_declined
 # A numbered-family index with no 1-based slot: the write would land in a
 # different block. See _conf_toml_index_rejected.
 conf_write_index_rejected
+# A removal the line-oriented rewrite did not actually make: the file would
+# parse, with the value still in it. See _conf_toml_removal_applied.
+conf_write_not_applied
 # `set` / `add` reporting a refusal the writer above already named.
 conf_write_failed
 stage_baseline_collision

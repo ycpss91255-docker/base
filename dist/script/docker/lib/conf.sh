@@ -1717,6 +1717,19 @@ _write_setup_conf() {
     return 1
   fi
 
+  # And that the removals this writer can be held to actually happened:
+  # a removal that did nothing leaves a file the parse gate is happy
+  # with. See _conf_toml_removal_applied.
+  local __wsc_why=""
+  if (( __toml )) \
+     && ! _conf_toml_removal_applied "${_out}" "${_removed_keys}" __wsc_why; then
+    rm -f "${_out}"
+    _log_err conf conf_write_not_applied \
+      "display=[conf] WRITE DECLINED for ${_dst}: ${__wsc_why} was to be removed and the rewrite still carries it, so nothing was written and ${_dst} is unchanged. The writers edit a key written on its own line; this one is spelled somewhere they cannot reach -- an inline table is the usual case. Edit ${_dst} by hand instead." \
+      "file=${_dst}" "target=${__wsc_why}"
+    return 1
+  fi
+
   # Atomically replace _dst only after the full rewrite succeeded. A
   # failed mv (e.g. _dst on a read-only mount) is surfaced rather than
   # leaving a stray temp file silently behind: remove the orphan temp,
@@ -1805,6 +1818,56 @@ _upsert_conf_value() {
     _log_err conf conf_upsert_mv_failed "display=_upsert_conf_value: could not replace ${_file}; original left unchanged" "file=${_file}"
     return 1
   }
+}
+
+# _conf_toml_removal_applied <tmp> <removed_keys> <why_outvar>
+#
+# Zero when every `<section>.<key>` in the space-separated <removed_keys>
+# that this writer can be held to is actually GONE from the rewrite in
+# <tmp>; non-zero with <why_outvar> naming the first one still there.
+#
+# WHY THE PARSE GATE IS NOT ENOUGH. `_conf_commit_toml` asks whether the
+# rewrite is readable, and a removal that did nothing leaves a file that
+# reads perfectly -- with the value still in it. The writers are
+# line-oriented, so a key TOML spells somewhere other than on its own
+# line is one they cannot reach: `resources = { shm_size = "64m" }` is a
+# valid inline table, the bridge finds `resources.shm_size` in it, and
+# `setup.sh remove resources.shm_size` copied the line through, parsed
+# clean and reported success with the limit still configured. Asking the
+# reader what the file now SAYS is the only check that covers a shape
+# nobody has thought of yet.
+#
+# A NUMBERED-FAMILY KEY IS EXCLUDED, and deliberately. Removing an entry
+# of an `[[array of tables]]` COMPACTS the ones after it, so
+# `<prefix>_N` is expected to still exist, holding what used to be
+# `<prefix>_N+1`. Whether that is right for slot 1 of `[volumes]` is
+# base#1233, an open maintainer question about how the workspace bind is
+# identified -- so this gate must not answer it by refusing the removal.
+# It checks the keys whose removal has one unambiguous meaning.
+_conf_toml_removal_applied() {
+  local _tmp="${1:?}" _removed="${2-}"
+  local -n _ctra_why="${3:?"${FUNCNAME[0]}: missing why outvar"}"
+  _ctra_why=""
+  [[ -n "${_removed}" ]] || return 0
+
+  local _kv=""
+  _kv="$(toml_bridge_parse "${_tmp}" --kv 2>/dev/null)" || return 0
+
+  local _nskey _sect _key _p _n
+  for _nskey in ${_removed}; do
+    _conf_split_nskey "${_nskey}" _sect _key || continue
+    _conf_toml_aot_slot "${_sect}" "${_key}" _p _n && continue
+    # In-shell, not `printf | grep -q`: a reader that stops reading
+    # strands the writer with SIGPIPE and pipefail turns a SUCCESSFUL
+    # match into the pipeline's 141, which an `if` reads as "not found"
+    # -- the answer inverted rather than lost. The row is matched with
+    # its delimiters either side so a key is never a prefix of another.
+    if [[ $'\n'"${_kv}"$'\n' == *$'\n'"${_sect}"$'\t'"${_key}"$'\t'* ]]; then
+      _ctra_why="${_nskey}"
+      return 1
+    fi
+  done
+  return 0
 }
 
 # _conf_commit_toml <file> <tmp> [<section>] [<key>]

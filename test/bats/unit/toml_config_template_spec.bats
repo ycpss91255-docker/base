@@ -160,6 +160,15 @@ setup() {
 #      a variable is owned by both files, violating the service boundary.
 #      Both sections ship with commented-out examples; the test extracts
 #      those example key names and verifies they are disjoint.
+#      BOTH SPELLINGS are read on the setup.toml side, because that
+#      section has two and which one is live has already moved once. The
+#      direct-key form (`DISPLAY = ""`) is ADR-37's destination and its
+#      readers have not landed, so the template's examples are the
+#      numbered `env_N = "KEY=value"` form that `_resolve_docker_conf`
+#      actually collects (base#1235's env_N half). Reading only one
+#      spelling is what made this test fail its own non-vacuity check
+#      when the examples changed -- an empty key set is not a passing
+#      boundary, it is a boundary nobody looked at.
 @test "boundary: setup.toml and .env.toml have no overlapping env keys" {
   local -a setup_keys=() env_keys=()
   local in_env=0 line
@@ -170,7 +179,10 @@ setup() {
       [[ "${line}" == "[environment]" ]] && in_env=1 || in_env=0
       continue
     fi
-    if (( in_env )) && [[ "${line}" =~ ^#[[:space:]]*([A-Z][A-Z0-9_]*)[[:space:]]*= ]]; then
+    (( in_env )) || continue
+    if [[ "${line}" =~ ^#[[:space:]]*env_[0-9]+[[:space:]]*=[[:space:]]*\"?([A-Z][A-Z0-9_]*)= ]]; then
+      setup_keys+=("${BASH_REMATCH[1]}")
+    elif [[ "${line}" =~ ^#[[:space:]]*([A-Z][A-Z0-9_]*)[[:space:]]*= ]]; then
       setup_keys+=("${BASH_REMATCH[1]}")
     fi
   done < "${SETUP_TOML}"
