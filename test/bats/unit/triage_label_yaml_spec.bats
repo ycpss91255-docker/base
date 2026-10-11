@@ -66,12 +66,34 @@ _label_appliers() {
 # _applied_labels <workflow> -- every label literal the workflow hands to a
 # label-applying call, one per line. Reads the quoted strings out of a
 # `labels: [...]` array and the operands of `--add-label`.
+#
+# Comment LINES go first and the rest is then joined into ONE line. Both
+# halves are load-bearing. A `labels: [...]` array is routinely written
+# across several lines, and reading line by line found neither the opening
+# bracket nor the strings inside it; joining first is what makes the array
+# readable at all. But joining also drags comment prose into the same line
+# as code, so a commented-out example would read as a call -- hence the
+# comment strip before, not after.
+#
+# The operand of `--add-label` is matched with its quotes INTACT and
+# unquoted afterwards. Matching the opening quote and not the closing one
+# produced a span the second pass could not read, so a workflow spelling it
+# `--add-label "triage"` was discovered as an applier and then yielded no
+# labels at all -- which the vocabulary case below would have passed. That
+# is the reason _extraction_ is asserted separately and not inferred from a
+# clean comparison.
 _applied_labels() {
-  local _f="${WF_DIR}/${1}"
-  sed -e 's/^[[:space:]]*#.*$//' "${_f}" \
-    | grep -oE "labels: *\[[^]]*\]|--add-label +[\"']?[A-Za-z][A-Za-z0-9:_-]*" \
-    | grep -oE "[\"'][A-Za-z][A-Za-z0-9:_-]*[\"']|--add-label +[A-Za-z][A-Za-z0-9:_-]*" \
-    | sed -e "s/^--add-label *//" -e "s/^[\"']//" -e "s/[\"']$//"
+  local _f="${WF_DIR}/${1}" _flat
+  _flat="$(grep -vE '^[[:space:]]*#' "${_f}" | tr '\n' ' ')"
+  {
+    printf '%s\n' "${_flat}" \
+      | grep -oE 'labels:[[:space:]]*\[[^]]*\]' \
+      | grep -oE "'[^']+'|\"[^\"]+\"" \
+      | sed -e "s/^['\"]//" -e "s/['\"]\$//"
+    printf '%s\n' "${_flat}" \
+      | grep -oE -- "--add-label[=[:space:]]+('[^']+'|\"[^\"]+\"|[A-Za-z][A-Za-z0-9:_.-]*)" \
+      | sed -e 's/^--add-label[=[:space:]]*//' -e "s/^['\"]//" -e "s/['\"]\$//"
+  } | grep -vE '^[[:space:]]*$'
 }
 
 # why: The population this file's cases read. A declared filename was the
@@ -104,6 +126,52 @@ _applied_labels() {
   assert_line 'wontfix'
   assert_line 'needs-decision'
   [ "${#lines[@]}" -eq 6 ]
+}
+
+# why: The gate's fail-closed half, and the one it was missing. A workflow
+# is discovered by the call it makes and read by a separate pattern, so
+# the two can disagree: discovered, then unreadable, yields an empty
+# label set, and an empty set compares clean against any vocabulary. A
+# workflow spelling the operand `--add-label "triage"` passed exactly
+# that way. Unreadable is a REFUSAL, so the next spelling nobody
+# anticipated fails loudly instead of being waved through
+@test "triage-label: every discovered applier yields at least one label" {
+  local _wf _n _bad=()
+  while read -r _wf; do
+    [[ -n "${_wf}" ]] || continue
+    _n="$(_applied_labels "${_wf}" | grep -c . || true)"
+    (( _n > 0 )) && continue
+    _bad+=( "${_wf}" )
+  done < <(_label_appliers)
+  if (( ${#_bad[@]} > 0 )); then
+    printf 'applies a label the extractor cannot read:\n' >&2
+    printf '  %s\n' "${_bad[@]}" >&2
+  fi
+  [ "${#_bad[@]}" -eq 0 ]
+}
+
+# why: The two spellings the first extractor silently dropped, pinned as
+# data rather than left to the live tree -- neither is in this repo
+# today, so nothing here would fail if the patterns regressed. A quoted
+# operand and a multi-line array are both ordinary YAML, and both read
+# as zero labels, which the vocabulary case passes
+@test "triage-label: a quoted operand and a multi-line array are both read" {
+  local _dir="${BATS_TEST_TMPDIR}/wf"
+  mkdir -p "${_dir}"
+  WF_DIR="${_dir}"
+  printf '%s\n' 'run: gh issue edit 1 --add-label "triage"' > "${_dir}/q.yaml"
+  printf '%s\n' 'run: gh issue edit 1 --add-label triage' > "${_dir}/u.yaml"
+  printf '%s\n' 'labels: [' "  'triage'," '  "other"' ']' > "${_dir}/m.yaml"
+  run _applied_labels q.yaml
+  assert_success
+  assert_line 'triage'
+  run _applied_labels u.yaml
+  assert_success
+  assert_line 'triage'
+  run _applied_labels m.yaml
+  assert_success
+  assert_line 'triage'
+  assert_line 'other'
 }
 
 # why: The defect itself, stated as the invariant it broke. The API CREATES
