@@ -351,6 +351,15 @@ image, which is the one that has to work on a 3.6--3.10 runtime.
 - Amends ADR-00000001: "setup.conf keeps section-replace semantics"
   is refined to type-aware merge semantics for `setup.toml`.
 
+- Amends ADR-00000036 sec. 1 and its ADR-00000025 amendment (added
+  #1258, 2026-10-12): that record spells the chain
+  `<template>/.setup.conf` -> repo `.setup.conf` -> `.setup.conf.local`
+  and calls it "section-replace at each step", which is this list's own
+  subject twice over. It was missing from this list, so no amendment was
+  written back into ADR-36 while ADR-1 and ADR-25 each received three.
+  ADR-36's mechanism -- the top layer takes a caller-supplied path --
+  is untouched; only the filenames and the merge rule are.
+
 - Timing: this migration is internal to the generate API (ADR-36).
   The TOML files are inputs to the same pipeline that currently reads
   `.setup.conf`; generated outputs (`compose.yaml`, `.env`) are
