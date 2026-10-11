@@ -112,6 +112,11 @@ information (dict vs list) is natively available.
 includes a layer that defines it with ZERO entries -- see ADR-00000037's
 zero-entry amendment for why the absent key and the empty array are not
 the same state.
+
+**Amendment (#1235, 2026-10-11):** the key-level half of that rule can
+change what a scalar resolves to wherever section-replace had masked a
+lower layer's value -- see ADR-00000037's masked-scalar amendment for the
+accepted cost and the check an upgrader runs.
 - If the same kind of customization appears in 3+ repos later,
   re-evaluate -- it may graduate into setup.conf.
 - Downstream repos can still write `compose.override.yaml` for

@@ -151,6 +151,52 @@ and the INI-to-TOML converter emitted no blocks at all for a family whose
 only slot was empty and did the same (#1137) -- where the INI chain's
 section-replace had resolved that same config to zero build arguments.
 
+**Amendment (#1235, 2026-10-11): a masked scalar may resolve differently
+after the migration, and that is ACCEPTED.** Key-level merge resolves a
+`[table]` scalar from the highest layer that DEFINES it. Section-replace
+resolved it from the single layer that OWNED the section, so every lower
+layer's value for every other key of that section was masked -- a
+`.setup.conf.local` carrying only `[security] cap_add_1 = NET_ADMIN`
+masked the repo's `[security] privileged = true` and the template's
+`false` with it, leaving the key ABSENT from the resolved chain and
+`_resolve_docker_conf`'s own `false` default to answer it. The converted
+chain answers the repo's `true`. So the migration can move a scalar's
+resolved value wherever a lower layer's value was previously masked, in
+BOTH directions, and it moves it without either file being edited. This
+is not a defect: it is this Decision applied to the scalar sections the
+Context above calls collateral damage of the blanket rule. It is recorded
+here because the cost was stated nowhere, and `privileged` is the case
+that matters -- its direction LOOSENS the container, false before the
+upgrade and true after.
+
+How an upgrader checks their own repo, before and after. `setup.sh list`
+prints the RESOLVED chain as `key = value` lines per section, and it is
+shipped on both sides of this migration: on the version being left it
+reads the INI chain, on this one the TOML chain, so one command answers
+the same question about two different merge rules.
+
+```
+./setup.sh list > /tmp/setup-before.txt   # BEFORE the upgrade
+# upgrade, letting init.sh run the converter
+./setup.sh list > /tmp/setup-after.txt    # after, before the first apply
+diff -u /tmp/setup-before.txt /tmp/setup-after.txt
+```
+
+Every `key = value` line the diff moves is a scalar whose resolved value
+the new merge rule changed; a line that APPEARS is a key the old chain
+had masked out of the resolved view altogether, which is the shape the
+`privileged` case takes. Section headers alone come and go between the
+two versions for unrelated reasons and are not findings. Run it before
+the first `setup.sh apply` on the new version, because `apply` is what
+writes the resolved value into `compose.yaml` and `.env`. The accepted
+answer is pinned by `ini_to_toml_migrate_spec`, which measures both
+chains over this same `[security]` fixture.
+
+The `env_N` half of #1235 is NOT settled by this and stays open:
+`[environment]`'s numbered entries are read as a list, have no
+array-of-tables home, and the Decision above splits that section along
+the service boundary without classifying an arbitrary `KEY=VALUE`.
+
 This resolves ADR-00000025 sec. 3's concern: the numbered-key ordered
 lists that forced section-replace are gone. Scalar sections that were
 collateral damage of the blanket section-replace rule can now be

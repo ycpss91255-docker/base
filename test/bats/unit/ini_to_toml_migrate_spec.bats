@@ -609,6 +609,50 @@ EOF
   refute_line --regexp '^security	cap_drop_'
 }
 
+# why: The property the two tests above assert for the array families does
+# NOT hold for a scalar, and base#1235's amendment to ADR-00000037 accepts
+# that rather than fixing it. Key-level merge resolves a `[table]` scalar
+# from the highest layer that DEFINES it; the pre-ADR-37 INI chain resolved
+# it from the single layer that OWNED the section, so a local layer naming
+# `[security]` at all masked the repo's `privileged = true` AND the
+# template's `false` -- the key was ABSENT from the resolved chain and
+# `_resolve_docker_conf`'s own `false` default answered it. After
+# conversion the repo's `true` is present and wins, so the container comes
+# out WIDER than before the upgrade with no edit to either file. This pins
+# both answers, the INI chain's beside the converted chain's, so neither
+# can move without saying so -- and the asymmetry with the two array tests
+# above is the accepted cost, not a gap in them. Measured through the real
+# three-layer chain, which is the only place inheritance shows.
+@test "_migrate_ini_to_toml: a masked scalar resolves from the repo layer after conversion (base#1235)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[security]
+privileged = true
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[security]
+cap_add_1 = NET_ADMIN
+EOF
+  cat > "${TEMP_DIR}/probe.sh" <<PROBE
+$(_src)
+_conf_load_layers _INI /source/dist/.setup.conf \
+  '${TEMP_DIR}/.setup.conf' '${TEMP_DIR}/.setup.conf.local' || exit 1
+_before="\$(_conf_get _INI security privileged)"
+_migrate_ini_to_toml '${TEMP_DIR}' || exit 1
+_conf_load_layers _TOML /source/dist/setup.toml \
+  '${TEMP_DIR}/setup.toml' '${TEMP_DIR}/setup.local.toml' || exit 1
+_after="\$(_conf_get _TOML security privileged)"
+printf 'before=%s\n' "\${_before}"
+printf 'after=%s\n' "\${_after}"
+PROBE
+  run bash "${TEMP_DIR}/probe.sh"
+  assert_success
+  local _b _a
+  _b="$(printf '%s\n' "${lines[@]}" | sed -n 's/^before=//p')"
+  _a="$(printf '%s\n' "${lines[@]}" | sed -n 's/^after=//p')"
+  assert_equal "${_b}" ""
+  assert_equal "${_a}" "true"
+}
+
 # why: The control for the two above, and the proof that the two
 # families which ALREADY had array homes were not moved to get the third
 # one its own. A local layer that names no `[security]` owns nothing
