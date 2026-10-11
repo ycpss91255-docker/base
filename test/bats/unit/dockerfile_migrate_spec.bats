@@ -551,6 +551,46 @@ EOF
   diff "${DF}.orig" "${DF}"
 }
 
+# why: THE SPELLINGS THE PROBE HAS TO READ, and the direction a miss
+# costs. This guard authorises a DELETE of a working pip install, so a
+# redirect it fails to see is the expensive answer -- and the probe
+# required the quoted `key` value to END the line, so `key = "CONFIG_SRC"
+# # use project dependencies` read as "no redirect". An operator who
+# points CONFIG_SRC somewhere is exactly the one who writes down why, the
+# bridge reads that entry normally, and the deletion went ahead against a
+# requirements.txt the redirected directory does carry. A quoted key
+# (`"key" = ...`) was invisible the same way, and so was the scalar
+# `arg_N = "CONFIG_SRC=..."` a hand-edited or part-converted layer holds.
+# All three are read now; widening a redirect probe can only REFUSE more
+# deletes, which is the safe direction for this one.
+@test "migration 2 (pip-helper): keeps the line when the redirect carries a comment or quotes (#956)" {
+  _seed_requirements "# install python dep"
+  mkdir -p "${TEMP_DIR}/myconfig/pip"
+  printf 'numpy==1.26.4\n' > "${TEMP_DIR}/myconfig/pip/requirements.txt"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG CONFIG_SRC="config"
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+RUN echo done
+EOF
+  cp "${DF}" "${DF}.orig"
+
+  local _conf
+  for _conf in \
+    '[[build.args]]\nkey = "CONFIG_SRC" # use project dependencies\nvalue = "myconfig"\n' \
+    '[[build.args]]\n"key" = "CONFIG_SRC"\nvalue = "myconfig"\n' \
+    '[build]\narg_1 = "CONFIG_SRC=myconfig"\n'
+  do
+    printf '%b' "${_conf}" > "${TEMP_DIR}/setup.toml"
+    cp "${DF}.orig" "${DF}"
+    run bash -c "$(_src); _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
+    assert_success
+    assert_output --partial "kept"
+    diff "${DF}.orig" "${DF}"
+  done
+}
+
 # The redirect can also arrive from the layer NOBODY in the repo wrote: the
 # conf chain is three files, not two (lib/setup_conf.sh's
 # _setup_conf_layers -- template, per-repo, per-worktree), and the build

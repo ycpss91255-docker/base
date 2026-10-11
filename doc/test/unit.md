@@ -2289,7 +2289,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (129)
+### test/bats/unit/dockerfile_migrate_spec.bats (130)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2330,6 +2330,7 @@ force-rewrite).
 | `migration 2 (pip-helper): the standalone check refuses a Dockerfile it cannot READ (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when setup.toml redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the redirect carries a comment or quotes (#956)` | THE SPELLINGS THE PROBE HAS TO READ, and the direction a miss costs. This guard authorises a DELETE of a working pip install, so a redirect it fails to see is the expensive answer -- and the probe required the quoted `key` value to END the line, so `key = "CONFIG_SRC" # use project dependencies` read as "no redirect". An operator who points CONFIG_SRC somewhere is exactly the one who writes down why, the bridge reads that entry normally, and the deletion went ahead against a requirements.txt the redirected directory does carry. A quoted key (`"key" = ...`) was invisible the same way, and so was the scalar `arg_N = "CONFIG_SRC=..."` a hand-edited or part-converted layer holds. All three are read now; widening a redirect probe can only REFUSE more deletes, which is the safe direction for this one. |
 | `migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the conf chain comes back truncated (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when a conf layer cannot be scanned (#956)` | - |

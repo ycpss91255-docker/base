@@ -407,7 +407,23 @@ readonly _DFM_CONFIG_SRC_DEFAULT='config'
 # the caller needs the per-layer three-answer status below (a layer that
 # says no is not a layer that could not be read), which a whole-chain merge
 # collapses into one.
-readonly _DFM_CONF_REDIRECT_RE=$'^[[:space:]]*(arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC=|key[[:space:]]*=[[:space:]]*[\'"]CONFIG_SRC[\'"][[:space:]]*$)'
+#
+# EVERY SPELLING TOML ALLOWS FOR THE SAME ENTRY, because this probe
+# authorises a DELETE and a redirect it fails to see is the expensive
+# answer. Three were missing and each is ordinary:
+#   - a TRAILING COMMENT. The quoted value had to END the line, so
+#     `key = "CONFIG_SRC" # use project dependencies` read as no
+#     redirect -- and an operator who points CONFIG_SRC somewhere is
+#     exactly the one who writes down why. A `#` after the CLOSING quote
+#     is a comment; one inside the quotes is content, which is why the
+#     optional comment sits outside them.
+#   - a QUOTED KEY. `"key" = "CONFIG_SRC"` is the same entry.
+#   - a QUOTED SCALAR in the INI-shaped spelling. A hand-edited or
+#     part-converted layer carries `arg_1 = "CONFIG_SRC=myconfig"`.
+# Widening this pattern can only make the guard refuse MORE deletions,
+# which is the safe direction for it; narrowing it is what cost a working
+# pip install.
+readonly _DFM_CONF_REDIRECT_RE=$'^[[:space:]]*(arg_[0-9]+[[:space:]]*=[[:space:]]*[\'"]?CONFIG_SRC=|[\'"]?key[\'"]?[[:space:]]*=[[:space:]]*[\'"]CONFIG_SRC[\'"][[:space:]]*(#.*)?$)'
 readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
 
 # The floor the conf chain must clear. _setup_conf_layers documents three
