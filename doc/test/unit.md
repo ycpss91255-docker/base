@@ -5861,7 +5861,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (160)
+### test/bats/unit/setup_cmd_spec.bats (162)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6038,6 +6038,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply refuses an empty --output= value instead of writing into the repo (base#1087)` | - |
 | `deploy refuses an empty --local-conf= value (base#1087)` | - |
 | `apply --output rebases a bare relative additional context and leaves a non-local one (base#1087)` | A bare relative `additional_contexts` source is a LOCAL path, not a named anything -- the volume classifier's rule (a bare left-hand side is a Docker named volume) does not hold here, so a rebase that only moved `./` and `../` left `shared=ctxdir` and `shared=.` resolving into the output directory. The other half is that a non-local source -- `docker-image://`, an `oci-layout://`, a git or http URL, a `target:` / `service:` reference -- must NOT be rebased, or the rebase breaks a context that was never a path. |
+| `apply --output quotes a relocated path that YAML would mis-read (base#1087)` | The relocated paths are emitted into YAML, and an absolute repo path is whatever the operator's directory is called. A `#` in it makes compose read the rest of the line as a comment -- generation succeeds and the build runs against the truncated path -- and a `: ` invalidates the document outright. The co-located `.` is a safe plain scalar and must stay unquoted, so the quoting is decided by the VALUE, not by the flag. |
+| `apply --output leaves every conf layer byte-identical (base#1087)` | An --output call must not write the conf chain at all. The first cut enforced that by photographing the chain and ROLLING IT BACK on a mismatch, which attributes any concurrent write -- another `setup set`, an operator's edit, an edit to the caller's own local file -- to this call and discards it. The guarantee is therefore that the call does not write, asserted over the whole chain rather than over the one file the reconciliation happens to touch today. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 
@@ -6079,7 +6081,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (53)
+### test/bats/unit/setup_conf_spec.bats (52)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6143,9 +6145,8 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_setup_conf_local_path falls back to the per-worktree default (base#1087)` | With no override set, the chain is exactly what it was. The per-worktree default is the case every existing checkout is in, so it is pinned beside the override rather than left to the tests above. |
 | `_setup_conf_layers refuses an override that names no file, instead of resolving past it (base#1087)` | The chain's shipped header said there is no env var that relocates it, because such a lever "is a second, unchecked resolution path that silently wins over the real one" -- and the way it wins silently is by naming nothing: an absent layer contributes nothing, so the call would emit the template defaults. ADR-00000036 gives the layer an address, and this is the half that keeps the old objection answered: the resolver REFUSES an address it cannot honour rather than resolving past it. |
 | `_setup_conf_handle propagates the refusal of an unhonourable override (base#1087)` | And the readers built on the chain inherit that refusal, or the one that matters -- the merge every emitter resolves through -- would hand back a configuration assembled without the layer the caller named. |
-| `_setup_conf_chain_restore deletes a layer the call created (base#1087)` | The restore is what turns "the repo is not mutated" from a report into an outcome, and the case that needs it most is the one a content comparison alone cannot undo: a file the call CREATED. Absence has to come back as absence. |
-| `_setup_conf_chain_restore puts an edited layer back byte-exact (base#1087)` | And a layer that was there has to come back byte-exact, trailing newline included -- command substitution strips it, which would make every restore a silent one-byte edit of the repo's committed conf. |
-| `_setup_conf_chain_changed reports no change over an untouched chain (base#1087)` | An unchanged chain must report unchanged, or the refusal above would fire on every --output call and the parameterised API would be unusable -- the "passes by never firing" failure, inverted. |
+| `_setup_conf_chain_changed reports a layer the call created (base#1087)` | A chain that moved must be reported as moved, and one that did not must not -- the second half matters as much, because a detector that always fires would make every --output call refuse and the whole parameterised API unusable. |
+| `_setup_conf_chain_changed reports no change over an untouched chain (base#1087)` | - |
 
 ### test/bats/unit/setup_detect_spec.bats (50)
 

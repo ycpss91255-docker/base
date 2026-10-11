@@ -2835,3 +2835,56 @@ EOF
   assert_equal "${_img}" "docker-image://alpine:3.22"
   assert_equal "${_abs}" "/etc"
 }
+
+# why: The relocated paths are emitted into YAML, and an absolute repo
+# path is whatever the operator's directory is called. A `#` in it makes
+# compose read the rest of the line as a comment -- generation succeeds and
+# the build runs against the truncated path -- and a `: ` invalidates the
+# document outright. The co-located `.` is a safe plain scalar and must
+# stay unquoted, so the quoting is decided by the VALUE, not by the flag.
+@test "apply --output quotes a relocated path that YAML would mis-read (base#1087)" {
+  local _repo="${TEMP_DIR}/repo #1"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 '^ *context: ' "${_out}/compose.yaml")"
+  # Quoted, so the `#` is part of the scalar rather than starting a
+  # comment, and the quoted value still names the repo.
+  [[ "${_line}" == *'context: "'* ]] || fail "context not quoted: ${_line}"
+  local _ctx="${_line#*context: \"}"
+  _ctx="${_ctx%\"}"
+  assert [ -f "${_ctx}/Dockerfile" ]
+}
+
+# why: An --output call must not write the conf chain at all. The first cut
+# enforced that by photographing the chain and ROLLING IT BACK on a
+# mismatch, which attributes any concurrent write -- another `setup set`, an
+# operator's edit, an edit to the caller's own local file -- to this call
+# and discards it. The guarantee is therefore that the call does not write,
+# asserted over the whole chain rather than over the one file the
+# reconciliation happens to touch today.
+@test "apply --output leaves every conf layer byte-identical (base#1087)" {
+  _ppa_repo
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/a.toml"
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/setup.local.toml"
+  local -A _before=()
+  local _f
+  for _f in "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.local.toml" "${TEMP_DIR}/a.toml"; do
+    _before["${_f}"]="$(sha256sum "${_f}" | cut -d' ' -f1)"
+  done
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  for _f in "${!_before[@]}"; do
+    assert_equal "$(sha256sum "${_f}" | cut -d' ' -f1)" "${_before[${_f}]}"
+  done
+}

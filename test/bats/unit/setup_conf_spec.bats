@@ -831,39 +831,19 @@ EOF
   assert_output --partial "gone.toml"
 }
 
-# why: The restore is what turns "the repo is not mutated" from a report
-# into an outcome, and the case that needs it most is the one a content
-# comparison alone cannot undo: a file the call CREATED. Absence has to
-# come back as absence.
-@test "_setup_conf_chain_restore deletes a layer the call created (base#1087)" {
+# why: A chain that moved must be reported as moved, and one that did not
+# must not -- the second half matters as much, because a detector that
+# always fires would make every --output call refuse and the whole
+# parameterised API unusable.
+@test "_setup_conf_chain_changed reports a layer the call created (base#1087)" {
   local -a _l=("${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.local.toml")
   local -A _snap=()
   _setup_conf_chain_snapshot _l _snap
   printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/setup.toml"
   run _setup_conf_chain_changed _l _snap
   assert_success
-  _setup_conf_chain_restore _l _snap
-  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
 }
 
-# why: And a layer that was there has to come back byte-exact, trailing
-# newline included -- command substitution strips it, which would make
-# every restore a silent one-byte edit of the repo's committed conf.
-@test "_setup_conf_chain_restore puts an edited layer back byte-exact (base#1087)" {
-  printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
-  local _want
-  _want="$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)"
-  local -a _l=("${TEMP_DIR}/setup.toml")
-  local -A _snap=()
-  _setup_conf_chain_snapshot _l _snap
-  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/setup.toml"
-  _setup_conf_chain_restore _l _snap
-  assert_equal "$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)" "${_want}"
-}
-
-# why: An unchanged chain must report unchanged, or the refusal above
-# would fire on every --output call and the parameterised API would be
-# unusable -- the "passes by never firing" failure, inverted.
 @test "_setup_conf_chain_changed reports no change over an untouched chain (base#1087)" {
   printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
   local -a _l=("${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.local.toml")

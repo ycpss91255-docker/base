@@ -206,9 +206,8 @@ _setup_conf_local_check() {
 
 # _setup_conf_chain_snapshot <layers_array> <assoc_outvar>
 # _setup_conf_chain_changed  <layers_array> <assoc_snapshot>
-# _setup_conf_chain_restore  <layers_array> <assoc_snapshot>
 #
-# Photograph a conf chain, ask whether it moved, and put it back.
+# Photograph a conf chain and ask whether it moved.
 #
 # Taken over the WHOLE chain rather than over one file because the
 # property watched here -- "this call did not change the repo's
@@ -216,18 +215,20 @@ _setup_conf_local_check() {
 # layers appear. The alternative is to enumerate the places an apply can
 # write to the conf, which passes forever the day a third one is added.
 #
-# ABSENCE IS RECORDED, NOT SKIPPED. A file the call CREATES is the
-# first-time bootstrap, which is the commonest way an orchestrator's call
-# writes into the repo; skipping the absent entries would read that as no
-# change at all. `restore` therefore deletes what was absent and rewrites
-# what was present, which is what makes "the repo is not mutated" an
-# outcome rather than a claim.
+# ABSENCE IS RECORDED, NOT SKIPPED. A file the call CREATES is a change,
+# and skipping the absent entries would read it as no change at all.
+#
+# There is deliberately no `restore`. A rollback attributes every write in
+# the window to the call that took the photograph, and the window contains
+# other processes -- a concurrent `setup set`, a plain apply, an operator's
+# edit -- whose work it would silently discard. The caller's answer to a
+# changed chain is to refuse, not to revert.
 #
 # Content is held in memory, not in a scratch copy: these files are small,
 # and a temp directory would have to be cleaned up on every one of the
 # intermediate return paths between the two photographs. The `X` sentinel
-# survives the trailing newline that command substitution strips, so a
-# restored file is byte-exact.
+# survives the trailing newline that command substitution strips, so two
+# photographs of one byte-identical file compare equal.
 _setup_conf_chain_snapshot() {
   local _sccs_name="${1:?"${FUNCNAME[0]}: missing layers array"}"
   local -n _sccs_layers="${_sccs_name}"
@@ -254,21 +255,6 @@ _setup_conf_chain_changed() {
     [[ "${_sccc_now[${_sccc_f}]-}" == "${_sccc_pre[${_sccc_f}]-}" ]] || return 0
   done
   return 1
-}
-
-_setup_conf_chain_restore() {
-  local _sccr_name="${1:?"${FUNCNAME[0]}: missing layers array"}"
-  local -n _sccr_layers="${_sccr_name}"
-  local -n _sccr_pre="${2:?"${FUNCNAME[0]}: missing snapshot"}"
-  local _sccr_f _sccr_v
-  for _sccr_f in "${_sccr_layers[@]+"${_sccr_layers[@]}"}"; do
-    _sccr_v="${_sccr_pre[${_sccr_f}]-}"
-    case "${_sccr_v}" in
-      absent:)  rm -f -- "${_sccr_f}" ;;
-      present:*) _sccr_v="${_sccr_v#present:}"
-                 printf '%s' "${_sccr_v%X}" > "${_sccr_f}" ;;
-    esac
-  done
 }
 
 # _setup_conf_local_sections <base_path> <outarray>

@@ -168,6 +168,47 @@ _classify_volume_lhs() {
 # `~/` path is the operator's home on whatever host runs it, a `${VAR}`
 # LHS is a per-instance overlay value (ADR-00000022) and not a path this
 # emitter may resolve, and a bare name is a Docker named volume.
+# _compose_yaml_scalar <value>
+#
+# Echo <value> as a YAML scalar: unchanged when it is a valid PLAIN
+# scalar in block context, double-quoted with `\` and `"` escaped when it
+# is not.
+#
+# A relocated path is whatever the operator's directory is called, and the
+# emitted file is YAML. ` #` in it makes the rest of the line a comment,
+# so generation succeeds and the build runs against a truncated path, and
+# `: ` makes the line a mapping and invalidates the document.
+#
+# The predicate is on what YAML actually rejects, not on an allowlist of
+# safe characters, because the values passing through here are mount
+# strings and interpolations: `./config/x:/opt/x` and
+# `${XDG_RUNTIME_DIR:-/run/user/1000}` are plain scalars and must stay
+# spelled exactly as the 17 downstream repos' committed artifacts spell
+# them. So quoting is decided by the VALUE and nothing else -- no flag
+# saying "this emit relocated something" -- which is what makes the
+# co-located output byte-identical by construction rather than by a gate
+# someone has to remember to pass.
+#
+# Unsafe in block context: empty; a `: ` or a tab or a ` #` anywhere; a
+# leading YAML indicator; a leading or trailing space; a trailing colon.
+_compose_yaml_scalar() {
+  local _v="${1-}"
+  local _needs=0
+  case "${_v}" in
+    "")                      _needs=1 ;;
+    *": "*|*" #"*|*$'\t'*)   _needs=1 ;;
+    [-?:,\[\]{}#\&\*\!\|\>\'\"%@\`]*) _needs=1 ;;
+    " "*|*" "|*:)            _needs=1 ;;
+  esac
+  if (( ! _needs )); then
+    printf '%s' "${_v}"
+    return 0
+  fi
+  _v="${_v//\\/\\\\}"
+  _v="${_v//\"/\\\"}"
+  printf '"%s"' "${_v}"
+}
+
 _compose_rebase_path() {
   local _p="${1-}" _root="${2-}"
   case "${_p}" in
@@ -319,7 +360,7 @@ _emit_additional_contexts_block() {
   while IFS= read -r _ac; do
     [[ -z "${_ac}" ]] && continue
     _name="${_ac%%=*}"
-    _path="${_ac#*=}"
+    _path="$(_compose_yaml_scalar "${_ac#*=}")"
     printf '        %s: %s\n' "${_name}" "${_path}"
   done <<< "${_additional_contexts_str}"
 }
@@ -750,6 +791,7 @@ _emit_stage_service() {
   local _name="${_ess_ctx[name]-}"
   local _setup_base="${_ess_ctx[setup_base]-}"
   local _ctx_dir="${_ess_ctx[ctx_dir]-.}"
+  local _ctx_yaml="${_ess_ctx[ctx_yaml]-.}"
   local _reroot="${_ess_ctx[reroot]-}"
   local _additional_contexts_str="${_ess_ctx[additional_contexts]-}"
   local _build_network="${_ess_ctx[build_network]-}"
@@ -788,7 +830,7 @@ _emit_stage_service() {
     extends:
       service: devel
     build:
-      context: ${_ctx_dir}
+      context: ${_ctx_yaml}
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
@@ -866,7 +908,7 @@ YAML
 
   ${_svc}:
     build:
-      context: ${_ctx_dir}
+      context: ${_ctx_yaml}
       dockerfile: Dockerfile
       target: ${_emit_stage}
 YAML
@@ -1078,7 +1120,7 @@ YAML
       local _m
       while IFS= read -r _m; do
         [[ -z "${_m}" ]] && continue
-        echo "      - ${_m}"
+        echo "      - $(_compose_yaml_scalar "${_m}")"
       done <<< "${_eff_volumes}"
     fi
     [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
@@ -1234,6 +1276,8 @@ generate_compose_yaml() {
     _ctx_dir="${_setup_base}"
     _reroot="${_setup_base}"
   fi
+  local _ctx_yaml
+  _ctx_yaml="$(_compose_yaml_scalar "${_ctx_dir}")"
   # Every repo-relative host path in the emitted file is rebased here,
   # once, off the one root -- rather than at each emission site, where a
   # site added later would be the one that was missed.
@@ -1339,7 +1383,7 @@ YAML
 services:
   devel:
     build:
-      context: ${_ctx_dir}
+      context: ${_ctx_yaml}
       dockerfile: Dockerfile
       target: devel
 YAML
@@ -1470,7 +1514,7 @@ YAML
       fi
       local _m
       for _m in "${_gcy_mounts[@]}"; do
-        echo "      - ${_m}"
+        echo "      - $(_compose_yaml_scalar "${_m}")"
       done
       [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
       # device entries with propagation redirect to volumes: long-form
@@ -1548,6 +1592,7 @@ YAML
       [name]="${_name}"
       [setup_base]="${_setup_base}"
       [ctx_dir]="${_ctx_dir}"
+      [ctx_yaml]="${_ctx_yaml}"
       [reroot]="${_reroot}"
       [additional_contexts]="${_additional_contexts_str}"
       [build_network]="${_build_network}"

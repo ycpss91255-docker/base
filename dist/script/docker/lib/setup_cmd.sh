@@ -1296,11 +1296,27 @@ _setup_apply() {
   # developer's own apply and wrong for an orchestrator's Nth call, which
   # must not race the other N-1 over one file.
   #
-  # So the chain is PHOTOGRAPHED rather than those two write sites
-  # enumerated -- a third one added later would pass an enumeration
-  # forever, which is the declared-population failure this tree keeps
-  # finding. The population is _setup_conf_layers', the same chain every
-  # reader resolves through, so a new layer is covered the day it exists.
+  # Two halves, because neither alone is both safe and complete.
+  #
+  # The bootstrap -- no <repo>/setup.toml at all -- is PREVENTED below,
+  # before the reconciliation runs, by requiring the repo's own layer to
+  # exist. That is the case an orchestrator actually hits (a fresh clone
+  # it has not applied yet) and the only one where nothing can be done
+  # after the fact: the file is already there.
+  #
+  # Everything else is DETECTED, by photographing the whole chain rather
+  # than enumerating the two sites that write to it today -- a third one
+  # added later would pass an enumeration forever, the declared-population
+  # failure this tree keeps finding. The population is
+  # _setup_conf_layers', so a new layer is covered the day it exists.
+  #
+  # Detected and refused, NOT rolled back. A rollback attributes every
+  # write in the window to this call, and the window contains other
+  # processes: a concurrent `setup set`, a plain apply, the operator
+  # editing a layer, or an edit to the caller's own local file would all
+  # be silently discarded by restoring the photograph. Refusing leaves the
+  # change in place and says so; discarding someone else's write to
+  # protect the repo from this one is the worse of the two.
   local -a _ap_chain=()
   local -A _ap_chain_pre=()
   if (( _output_set )); then
@@ -1491,20 +1507,28 @@ _setup_apply() {
   # The WS_PATH / mount_1 reconciliation state machine. Mutates
   # _vol_k / _vol_v in place (reloaded after any mount_1 rewrite) and
   # resolves ws_path (seeded above from ${WS_PATH:-}).
+  # Prevented, not detected: with no repo layer the reconciliation
+  # bootstraps one from the template, and an --output call must not be the
+  # thing that creates the repo's committed configuration. Checked against
+  # the same `_repo_conf` the reconciliation is handed, so the two cannot
+  # disagree about which file that is.
+  if (( _output_set )) && [[ ! -f "${_repo_conf}" ]]; then
+    _log_err setup apply_repo_conf_unsettled \
+      "display=[setup] apply: there is no ${_repo_conf}, so this call would have to create the repo's committed configuration -- which an --output call must not do. Run 'setup apply' once without --output to settle the repo, then call again." \
+      "path=${_repo_conf}"
+    return 1
+  fi
+
   _reconcile_workspace_path "${_base_path}" "${_repo_conf}" _vol_k _vol_v ws_path
 
   # The photograph is compared HERE, where the mutation happens, rather
-  # than beside the writes. A call that was asked to write elsewhere and
-  # changed the repo's configuration on the way is put back and refused
-  # before anything else happens -- including before `--print-resolved`,
-  # which returns further down and writes no artifact at all, and so was
-  # the one supported combination that left a bootstrapped setup.toml
-  # behind.
+  # than beside the writes -- `--print-resolved` returns further down and
+  # writes no artifact at all, and so was the one supported combination
+  # that got past a check placed there.
   if (( _output_set )); then
     if _setup_conf_chain_changed _ap_chain _ap_chain_pre; then
-      _setup_conf_chain_restore _ap_chain _ap_chain_pre
       _log_err setup apply_repo_conf_mutated \
-        "display=[setup] apply: this call changed the repo's configuration under ${_base_path}, which an --output call must not do -- a first-time bootstrap with no setup.toml, and a stale absolute [volumes] mount_1, are the two that reach here. Run 'setup apply' once without --output to settle the repo, then call again." \
+        "display=[setup] apply: the configuration chain under ${_base_path} changed while this call ran, and an --output call must not change it. The change is LEFT IN PLACE rather than reverted -- it may be another process's -- so inspect it: a stale absolute [volumes] mount_1 is migrated to the portable form by any apply, and is warned about by name above. Settle the repo with 'setup apply' and call again." \
         "path=${_base_path}"
       return 1
     fi
