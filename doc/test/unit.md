@@ -8317,7 +8317,17 @@ overlay; writes no override)
 | `_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)` | - |
 | `_edit_section_deploy writes the canonical gpu_runtime key (#517)` | - |
 
-### test/bats/unit/upgrade_spec.bats (55)
+### test/bats/unit/upgrade_migration_reachability_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `dist/script/base/upgrade.sh defines no migration (base#1110)` | The rule itself, read off the shipped file. A migration here cannot reach the population it exists for, and returns 0 while not reaching it -- so the file has to carry none at all, and the check has to be against the real file rather than a fixture standing in for it |
+| `dist/script/base/upgrade.sh calls no migration (base#1110)` | The call side is the other half. A migration defined in a lib and merely CALLED from upgrade.sh is just as unreachable, because what makes it unreachable is where the call runs and not where the body is written |
+| `the migration scan is not vacuous: upgrade.sh is found and parsed (base#1110)` | Both arms above pass by finding nothing, which is exactly how a scanner that has gone blind reports a clean tree. This pins that the scanner can see the file at all, and sees a believable amount of it, so a renamed or relocated upgrade.sh fails rather than emptying the rule |
+| `the migration scan reports a migration injected into upgrade.sh (base#1110)` | Driving the rule red by hand, as a test, so it can never pass by never firing. The injected function is added to a copy of the REAL file through the REAL scanner, so this arm fails the moment the detector stops detecting -- which is the failure the two arms above cannot tell from success |
+| `the migration scan reads the 'function name' spelling too (base#1110)` | The `function name {` spelling is the one an author reaching for a way around a name rule would find first, and a scanner that only read `name() {` would report the file clean with a migration sitting in it |
+
+### test/bats/unit/upgrade_spec.bats (49)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -8336,11 +8346,18 @@ the hard-coded marker list with a path-agnostic structural invariant +
 target-version match (catches destructive fast-forward, empty subtree,
 malformed `.version`, and wrong-tag pulls), and the SemVer §11-aware
 `_semver_cmp` + `_check` behavior added for issue #156 (prerelease ahead of
-latest stable must not be reported as "needing downgrade"), and
-`_migrate_lifecycle_restart_default`, which retires the stale devel-scoped
-`[lifecycle] restart = no` the old template seeded into every downstream
-repo (gated on the pre-pull vendored template, so a deliberately chosen
-policy is never rewritten).
+latest stable must not be reported as "needing downgrade").
+
+The `_migrate_lifecycle_restart_default` arms that used to live here are
+gone with the function (base#1110). They were fail-open: the fixture built
+its own driver/template pair with the vendored template saying `restart =
+no`, a pairing no release has ever produced, so four green arms stood over a
+migration that returned 0 without acting on every real consumer. The
+replacement is in version_migrate_spec.bats (the migration, now selected on
+the version interval) and in integration/prev_release_upgrade_spec.bats (the
+same question asked through a genuine released driver, which is what the
+fixture could not do). The structural rule that keeps the shape from coming
+back is in upgrade_migration_reachability_spec.bats.
 
 | Test | Description |
 |------|-------------|
@@ -8386,12 +8403,6 @@ policy is never rewritten).
 | `_get_latest_version: an early-closing reader cannot empty the tag scan (#905)` | - |
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
-| `_migrate_lifecycle_restart_default rewrites the stale template default, loudly` | - |
-| `_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone` | - |
-| `_migrate_lifecycle_restart_default is inert once the vendored template ships the new default` | - |
-| `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
-| `_migrate_lifecycle_restart_default is a no-op without a repo setup.toml` | - |
-| `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
 | `_collect_subtree_local_drift finds an edit to a vendored path (#1092)` | The silence base#1092 is about -- an edit to a path upstream left alone -- is invisible to the merge, so the only thing that can report it is a tree comparison; this is the arm that proves the comparison finds the edit at all, from the metadata the pull itself recorded |
 | `_collect_subtree_local_drift finds nothing on a byte-exact vendored tree (#1092)` | A clean tree has to produce an EMPTY finding set, because a report that fires on every upgrade names nothing; this arm fails if the comparison ever picks up the subtree prefix itself or the consumer files that live outside it |
 | `_collect_subtree_local_drift records why it could not compare when the range holds no subtree squash (#1092)` | A comparison that cannot find the release to compare against reports the same zero findings as a clean tree, and that is the shape of silence base#1092 is about -- so the reason is recorded rather than the absence being left to read as agreement |
@@ -8414,7 +8425,7 @@ policy is never rewritten).
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
-### test/bats/unit/version_migrate_spec.bats (20)
+### test/bats/unit/version_migrate_spec.bats (29)
 
 The version interval an upgrade crossed is what selects a version-bound
 migration, and every way of failing to read that interval ends in the same
@@ -8448,6 +8459,15 @@ upgrade shows one interval, not the arithmetic.
 | `run_interval_migrations warns when a shallow history has grafted the first parent away (base#1097)` | A shallow clone is the one case git itself erases: it GRAFTS the parents away, so a subtree-pull merge on the shallow boundary reads back as a root commit and is byte-identical to the standalone-resync arm above. Reading the parent count alone therefore reports "nothing was crossed" about a repo that crossed a release -- the one answer that looks healthy and is wrong. It is also CI's default checkout |
 | `run_interval_migrations warns when the installed version cannot be ordered (base#1097)` | The other half of the pair can be unreadable too, and it is the half the caller supplies. An empty or junk installed version would otherwise compare as 0.0.0 and select nothing at all -- silently, which is the shape every arm here exists to refuse |
 | `run_interval_migrations warns when the version moved backwards (base#1097)` | A re-established subtree or a hand-pinned downgrade moves the version backwards, which makes the interval empty rather than wrong -- but silence there would mean the one case where a migration genuinely cannot help is indistinguishable from a bug in the selection |
+| `every shipped _VERSION_MIGRATIONS entry is well formed and has its apply function` | Every shipped entry must be selectable at all. The runner reports an unusable declaration only on the upgrades that would have selected it, which is how one stays unreported -- so the whole set is validated here, walked rather than listed, and a new entry is covered the moment it exists |
+| `the shipped set selects lifecycle_restart_default for a repo arriving from before v0.42.0 (base#1110)` | base#1110's whole defect was a migration no consumer could reach, so the one thing its new home has to prove is that a repo arriving from before v0.42.0 selects it -- read off the real shipped set, through the real interval resolver, not a probe standing in for it |
+| `the shipped set does NOT select lifecycle_restart_default for a repo already past v0.42.0 (base#1110)` | The fail-safe is the other half of the predicate and is as easy to lose as the firing half. Past the rescope a `no` cannot be told from a choice, so a repo whose interval STARTS at v0.42.0 must select nothing -- the arm that would go quiet if the version were ever re-pointed |
+| `_vmigrate_lifecycle_restart_default_apply rewrites the stale copied default (base#1110)` | The firing case, and the one no spec could reach before: the repo's own stale value is rewritten with no vendored template read at all |
+| `_vmigrate_lifecycle_restart_default_apply is silent and inert on a second run (base#1110)` | The runner keeps no ledger and re-selects the same interval on a resync re-entered before the pull commits, so a second run that wrote again would be a second log line over an unchanged value -- idempotence is the migration's own job |
+| `_vmigrate_lifecycle_restart_default_apply leaves a chosen policy alone (base#1110)` | A repo that chose something else never had the stale default, and the migration touching it would be rewriting a policy somebody picked |
+| `_vmigrate_lifecycle_restart_default_apply ignores a restart key outside [lifecycle] (base#1110)` | `restart` is a legal key of a `[stage:*]` section too, and a reader that matched the key without its section would rewrite a per-stage value the migration has nothing to say about |
+| `_vmigrate_lifecycle_restart_default_apply reads both string spellings of the same value (base#1110)` | TOML quotes a string value, so a reader comparing the raw text after the `=` compares the SPELLING and not the value -- `"no"` never equals `no`, which is a mistake the function this replaced had to carry its own unquoter to avoid. The read goes through conf.sh's tokenizer instead, so a basic string and a literal string are one value. The bare INI spelling is deliberately NOT in this list: it is not a TOML value, and by the time the interval runner runs, the resync's INI-to-TOML conversion has already quoted the file Written out one spelling per call rather than looped over a variable: the TOML fixture body gate reads these bodies out of this file's own text, so a body assembled from `${_s}` is one it cannot parse and has to be excused from -- and the point of the gate is that a fixture the bridge refuses leaves an EMPTY handle, which is exactly how an arm like this would pass without its fixture ever being read. |
+| `_vmigrate_lifecycle_restart_default_apply is a no-op with no setup.toml (base#1110)` | The resync runs on repos that are not upgrades at all, and a migration that assumed its file existed would abort the resync of a repo that simply has no configuration yet |
 
 ### test/bats/unit/watchdog_spec.bats (18)
 

@@ -61,9 +61,16 @@ _src() {
 #   Write a file declaring one probe migration per pair and echo its path.
 #   Each apply APPENDS its own name to the probe, so order, count and
 #   identity are all readable off one artifact.
+#
+#   The set is CLEARED first, and so is _declare_raw's. The shipped set is no
+#   longer empty and the intervals these arms use are ones a real entry sits
+#   in, so an exact `assert_output` here would be asserting against base's
+#   own release history and would have to be rewritten every time a migration
+#   is declared. The real set has its own arms at the end of this file --
+#   those are the ones that must break when it changes.
 _declarations() {
   local _file="${TEMP_DIR}/declarations.sh"
-  : > "${_file}"
+  printf '_VERSION_MIGRATIONS=()\n' > "${_file}"
   while (( $# > 0 )); do
     cat >> "${_file}" <<EOF
 _VERSION_MIGRATIONS+=("${1} ${2}")
@@ -81,7 +88,7 @@ EOF
 #   is appended to _VERSION_MIGRATIONS verbatim and no apply is written.
 _declare_raw() {
   local _file="${TEMP_DIR}/declarations.sh"
-  : > "${_file}"
+  printf '_VERSION_MIGRATIONS=()\n' > "${_file}"
   local _entry
   for _entry in "$@"; do
     printf '_VERSION_MIGRATIONS+=("%s")\n' "${_entry}" >> "${_file}"
@@ -544,4 +551,168 @@ later"
   assert_output --partial '"reason":"backwards"'
   run _probe
   assert_output ""
+}
+
+# ── The SHIPPED declared set ────────────────────────────────────────────────
+#
+# Everything above clears `_VERSION_MIGRATIONS` and declares probes, because
+# it is about the arithmetic. These arms are about the set this release
+# actually ships: they read it as it stands and must break when it changes,
+# which is the half a probe can never cover.
+#
+# The population is DERIVED -- every entry of the shipped array is walked, no
+# entry is named -- so a migration added without an apply function, or with
+# an unorderable version, is caught by the fact of being declared rather than
+# by anyone remembering to extend a list.
+
+# why: Every shipped entry must be selectable at all. The runner reports an
+# unusable declaration only on the upgrades that would have selected it,
+# which is how one stays unreported -- so the whole set is validated here,
+# walked rather than listed, and a new entry is covered the moment it exists
+@test "every shipped _VERSION_MIGRATIONS entry is well formed and has its apply function" {
+  run bash -c "$(_src)
+    (( \${#_VERSION_MIGRATIONS[@]} > 0 )) \
+      || { echo 'VACUOUS: the shipped set is empty, so this arm checked nothing'; exit 1; }
+    _rc=0
+    for _e in \"\${_VERSION_MIGRATIONS[@]}\"; do
+      _v=\"\${_e%% *}\"; _n=\"\${_e#* }\"
+      [[ -n \"\${_n}\" && \"\${_n}\" != \"\${_e}\" ]] \
+        || { echo \"BAD ENTRY (not '<version> <name>'): \${_e}\"; _rc=1; continue; }
+      _vm_is_semver \"\${_v}\" \
+        || { echo \"BAD VERSION (not orderable): \${_e}\"; _rc=1; }
+      declare -F \"_vmigrate_\${_n}_apply\" >/dev/null 2>&1 \
+        || { echo \"NO APPLY: _vmigrate_\${_n}_apply is not defined for \${_e}\"; _rc=1; }
+    done
+    exit \"\${_rc}\""
+  assert_success
+  refute_output --partial "VACUOUS"
+}
+
+# why: base#1110's whole defect was a migration no consumer could reach, so
+# the one thing its new home has to prove is that a repo arriving from before
+# v0.42.0 selects it -- read off the real shipped set, through the real
+# interval resolver, not a probe standing in for it
+@test "the shipped set selects lifecycle_restart_default for a repo arriving from before v0.42.0 (base#1110)" {
+  run bash -c "$(_src); interval_migrations v0.41.0 v0.43.0"
+  assert_success
+  assert_output --partial "v0.42.0 lifecycle_restart_default"
+}
+
+# why: The fail-safe is the other half of the predicate and is as easy to
+# lose as the firing half. Past the rescope a `no` cannot be told from a
+# choice, so a repo whose interval STARTS at v0.42.0 must select nothing --
+# the arm that would go quiet if the version were ever re-pointed
+@test "the shipped set does NOT select lifecycle_restart_default for a repo already past v0.42.0 (base#1110)" {
+  run bash -c "$(_src); interval_migrations v0.42.0 v0.43.0"
+  assert_success
+  refute_output --partial "lifecycle_restart_default"
+}
+
+# ── _vmigrate_lifecycle_restart_default_apply ───────────────────────────────
+#
+# The rewrite itself. `restart = no` was the pre-v0.42.0 template's literal
+# and `init.sh --gen-conf` copies the whole template, so a repo bootstrapped
+# before the rescope carries it whether or not anyone chose it; left alone it
+# denies a field service its auto-start after a host reboot.
+
+# _restart_repo <dir> <restart_value_line>...
+#   A consumer repo carrying its own setup.toml at the path the resync has
+#   already put it at by the time the interval runner runs. No vendored
+#   template is seeded, deliberately: reading one is what base#1110 was.
+_restart_repo() {
+  local _dir="$1"; shift
+  mkdir -p "${_dir}"
+  printf '%s\n' "$@" > "${_dir}/setup.toml"
+}
+
+# why: The firing case, and the one no spec could reach before: the repo's
+# own stale value is rewritten with no vendored template read at all
+@test "_vmigrate_lifecycle_restart_default_apply rewrites the stale copied default (base#1110)" {
+  _restart_repo "${TEMP_DIR}/stale" '[lifecycle]' 'restart = "no"' 'init = true'
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/stale'"
+  assert_success
+  assert_output --partial '"body":"lifecycle_restart_default_migrated"'
+  run cat "${TEMP_DIR}/stale/setup.toml"
+  assert_output --partial 'restart = "unless-stopped"'
+  # Every other line of the file survives the single-key edit.
+  assert_output --partial 'init = true'
+}
+
+# why: The runner keeps no ledger and re-selects the same interval on a
+# resync re-entered before the pull commits, so a second run that wrote again
+# would be a second log line over an unchanged value -- idempotence is the
+# migration's own job
+@test "_vmigrate_lifecycle_restart_default_apply is silent and inert on a second run (base#1110)" {
+  _restart_repo "${TEMP_DIR}/twice" '[lifecycle]' 'restart = "no"'
+  run bash -c "$(_src)
+    _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/twice' >/dev/null 2>&1
+    _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/twice'"
+  assert_success
+  refute_output --partial "lifecycle_restart_default_migrated"
+  run grep -c 'restart' "${TEMP_DIR}/twice/setup.toml"
+  assert_output "1"
+}
+
+# why: A repo that chose something else never had the stale default, and the
+# migration touching it would be rewriting a policy somebody picked
+@test "_vmigrate_lifecycle_restart_default_apply leaves a chosen policy alone (base#1110)" {
+  _restart_repo "${TEMP_DIR}/chosen" '[lifecycle]' 'restart = "on-failure:5"'
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/chosen'"
+  assert_success
+  refute_output --partial "lifecycle_restart_default_migrated"
+  run cat "${TEMP_DIR}/chosen/setup.toml"
+  assert_output --partial 'restart = "on-failure:5"'
+}
+
+# why: `restart` is a legal key of a `[stage:*]` section too, and a reader
+# that matched the key without its section would rewrite a per-stage value
+# the migration has nothing to say about
+@test "_vmigrate_lifecycle_restart_default_apply ignores a restart key outside [lifecycle] (base#1110)" {
+  _restart_repo "${TEMP_DIR}/othersection" '["stage:runtime"]' 'restart = "no"'
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/othersection'"
+  assert_success
+  refute_output --partial "lifecycle_restart_default_migrated"
+  run cat "${TEMP_DIR}/othersection/setup.toml"
+  assert_output --partial 'restart = "no"'
+}
+
+# why: TOML quotes a string value, so a reader comparing the raw text after
+# the `=` compares the SPELLING and not the value -- `"no"` never equals `no`,
+# which is a mistake the function this replaced had to carry its own unquoter
+# to avoid. The read goes through conf.sh's tokenizer instead, so a basic
+# string and a literal string are one value. The bare INI spelling is
+# deliberately NOT in this list: it is not a TOML value, and by the time the
+# interval runner runs, the resync's INI-to-TOML conversion has already
+# quoted the file
+#   Written out one spelling per call rather than looped over a variable: the
+#   TOML fixture body gate reads these bodies out of this file's own text, so
+#   a body assembled from `${_s}` is one it cannot parse and has to be
+#   excused from -- and the point of the gate is that a fixture the bridge
+#   refuses leaves an EMPTY handle, which is exactly how an arm like this
+#   would pass without its fixture ever being read.
+@test "_vmigrate_lifecycle_restart_default_apply reads both string spellings of the same value (base#1110)" {
+  _restart_repo "${TEMP_DIR}/basic" '[lifecycle]' 'restart = "no"'
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/basic'"
+  assert_success
+  assert_output --partial '"body":"lifecycle_restart_default_migrated"'
+  run cat "${TEMP_DIR}/basic/setup.toml"
+  assert_output --partial 'restart = "unless-stopped"'
+
+  _restart_repo "${TEMP_DIR}/literal" '[lifecycle]' "restart = 'no'"
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/literal'"
+  assert_success
+  assert_output --partial '"body":"lifecycle_restart_default_migrated"'
+  run cat "${TEMP_DIR}/literal/setup.toml"
+  assert_output --partial 'restart = "unless-stopped"'
+}
+
+# why: The resync runs on repos that are not upgrades at all, and a migration
+# that assumed its file existed would abort the resync of a repo that simply
+# has no configuration yet
+@test "_vmigrate_lifecycle_restart_default_apply is a no-op with no setup.toml (base#1110)" {
+  mkdir -p "${TEMP_DIR}/noconf"
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/noconf'"
+  assert_success
+  assert_output ""
+  refute [ -e "${TEMP_DIR}/noconf/setup.toml" ]
 }

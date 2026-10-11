@@ -316,7 +316,7 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (13)
+### test/bats/integration/prev_release_upgrade_spec.bats (15)
 
 | Test | Description |
 |------|-------------|
@@ -333,6 +333,8 @@ costs this repo nothing.
 | `a released upgrade.sh runs the migration the version interval covers, and only that one (base#1097)` | The interval is the whole mechanism, and the oldest supported driver is the population it exists for -- its vendored copy knows nothing about any migration, so the only code that can select one is the init.sh the pull just landed. Measured on the unfixed tree the arm cannot even seed: nothing in the published release declares a version-bound migration |
 | `neither a standalone resync nor the next release re-runs a migration the interval already covered (base#1097)` | Running once is half the contract. Base cannot stop the consumer re-running `just base init`, and it cannot stop them taking the next release; both re-enter the same runner, and a mechanism that applied everything it had on either would re-run work already done -- the double-apply the declared-interval shape exists to make impossible |
 | `an interval the history can no longer supply can be named by hand and re-run (base#1097)` | Every warning this runner emits leaves a consumer owed work, and until the interval can be named by hand none of them could be acted on: the released driver commits at Step 4, so the merge the interval was read from is gone before the user has seen the message. The arm drives the recovery through `just base init`, which is what the message tells them to run, on a tree where the automatic path has already correctly declined |
+| `a released upgrade.sh retires the stale devel-scoped restart default (base#1110)` | The population base#1110's migration exists for is a repo arriving from before the rescope, and the defect was that no such repo could reach it. This is that repo, driven by its own released driver over a real pull, reading the answer out of the file the readers use -- the one arm that was impossible to write while the gate read the tree the pull replaces |
+| `a released upgrade.sh leaves a post-rescope restart = no alone (base#1110)` | The fail-safe is the other half, and it is the half the old gate was built to protect: past the rescope a `no` cannot be told from a choice somebody made, so a repo whose interval STARTS at the rescope must keep the value it arrived with. An arm that only proved the rewrite would pass just as well over a migration that rewrote everybody's |
 
 ### test/bats/integration/release_archive_contract_spec.bats (11)
 
@@ -415,7 +417,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (24)
+### test/bats/integration/upgrade_spec.bats (22)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -445,8 +447,6 @@ run.
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
 | `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
-| `upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default` | - |
-| `upgrade.sh leaves a deliberately configured restart policy alone` | - |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)` | A conflicting pull aborts its own merge instead of leaving a mid-merge tree |
