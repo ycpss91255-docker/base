@@ -152,6 +152,7 @@ _TUI_MSG_EN[per_stage.list.entry_prompt]=$'List entry value\n  - Empty = delete 
 _TUI_MSG_EN[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_EN[per_stage.inherit]="(inherit top-level — clear override)"
 _TUI_MSG_EN[per_stage.inherit_flag]="Inherit top-level entries"
+_TUI_MSG_EN[err.per_stage_invalid]=$'Invalid value -- nothing was stored.\n\nA per-stage override is the SAME setting as the top-level one, so it has\nto pass the same check. Correct the value, or leave the field empty to\ndrop the override and inherit the top-level value.'
 _TUI_MSG_EN[reset.title]="Reset to defaults"
 _TUI_MSG_EN[reset.confirm]=$'Reset ALL settings to template defaults?\n\n  - <repo>/setup.toml is replaced by the template baseline\n    (the file it replaces is archived as setup.toml.bak)\n  - setup.sh re-runs to regenerate from template\n  - Your current customizations will be LOST\n  - <repo>/setup.local.toml is yours and is NOT touched\n\nThis cannot be undone.'
 _TUI_MSG_EN[reset.done]="All settings reset to template defaults."
@@ -398,6 +399,7 @@ _TUI_MSG_ZH_TW[per_stage.list.entry_prompt]=$'List 項目值\n  - 空白 = 刪�
 _TUI_MSG_ZH_TW[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_ZH_TW[per_stage.inherit]="(繼承 top-level — 清除 override)"
 _TUI_MSG_ZH_TW[per_stage.inherit_flag]="繼承 top-level 項目"
+_TUI_MSG_ZH_TW[err.per_stage_invalid]=$'值不合法 —— 未寫入任何內容。\n\n分階段覆寫與 top-level 是「同一個」設定，因此必須通過同樣的\n檢查。請修正該值，或將欄位留空以取消覆寫、改用 top-level 的值。'
 _TUI_MSG_ZH_TW[reset.title]="重置為預設值"
 _TUI_MSG_ZH_TW[reset.confirm]=$'重置所有設定為 template 預設值？\n\n  - 以 template 基線取代 <repo>/setup.toml\n    （被取代的檔案會備份為 setup.toml.bak）\n  - 重跑 setup.sh 從 template 重建\n  - 你目前的客製化會遺失\n  - <repo>/setup.local.toml 屬於你，不會被動到\n\n無法復原。'
 _TUI_MSG_ZH_TW[reset.done]="所有設定已重置為預設值。"
@@ -642,6 +644,7 @@ _TUI_MSG_ZH_CN[per_stage.list.entry_prompt]=$'List 项目值\n  - 空白 = 删�
 _TUI_MSG_ZH_CN[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_ZH_CN[per_stage.inherit]="(继承 top-level — 清除 override)"
 _TUI_MSG_ZH_CN[per_stage.inherit_flag]="继承 top-level 项目"
+_TUI_MSG_ZH_CN[err.per_stage_invalid]=$'值不合法 —— 未写入任何内容。\n\n分阶段覆写与 top-level 是「同一个」设置，因此必须通过同样的\n检查。请修正该值，或将字段留空以取消覆写、改用 top-level 的值。'
 _TUI_MSG_ZH_CN[reset.title]="重置为默认值"
 _TUI_MSG_ZH_CN[reset.confirm]=$'重置所有设定为 template 默认值？\n\n  - 以 template 基线替换 <repo>/setup.toml\n    （被替换的文件会备份为 setup.toml.bak）\n  - 重跑 setup.sh 从 template 重建\n  - 你当前的定制会丢失\n  - <repo>/setup.local.toml 属于你，不会被改动\n\n无法撤销。'
 _TUI_MSG_ZH_CN[reset.done]="所有设定已重置为默认值。"
@@ -881,6 +884,7 @@ _TUI_MSG_JA[per_stage.list.entry_prompt]=$'List 項目の値\n  - 空白 = こ�
 _TUI_MSG_JA[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_JA[per_stage.inherit]="(top-level を継承 — override をクリア)"
 _TUI_MSG_JA[per_stage.inherit_flag]="top-level 項目を継承"
+_TUI_MSG_JA[err.per_stage_invalid]=$'値が不正です —— 何も書き込まれていません。\n\nステージ別の上書きは top-level と「同じ」設定なので、同じ検査を\n通る必要があります。値を修正するか、空欄にして上書きを解除し\ntop-level の値を継承してください。'
 _TUI_MSG_JA[reset.title]="デフォルトにリセット"
 _TUI_MSG_JA[reset.confirm]=$'全ての設定を template のデフォルトにリセット？\n\n  - <repo>/setup.toml を template のベースラインで置き換え\n    （置き換えられたファイルは setup.toml.bak として保存）\n  - setup.sh を再実行して template から再生成\n  - 現在のカスタマイズは失われます\n  - <repo>/setup.local.toml はあなたのもので、変更しません\n\n元に戻せません。'
 _TUI_MSG_JA[reset.done]="全ての設定がデフォルトにリセットされました。"
@@ -2572,19 +2576,48 @@ _edit_per_stage_one() {
 # _edit_stage_scalar <stage> <dotted_key>
 #
 # Generic scalar editor — text input. Empty input clears the override
-# (the stage falls back to inheriting top-level).
+# (the stage falls back to inheriting top-level); any other value is put
+# to `_schema_validate` under the stage's own section and re-prompted,
+# with the typed text preserved, until it passes or the user cancels.
+#
+# This editor made no validation call at all until base#1268, so every
+# per-stage scalar — gpu_mode, gpu_count, gpu_capabilities, runtime,
+# network mode / ipc / network_name, privileged — was stored verbatim and
+# read back by an emitter that had no idea it was unchecked. The TUI is
+# the only writer of these keys (`setup.sh set stage:dev.network.mode`
+# exits 2 on the section name), so there was no second place the check
+# could have been happening instead. The resolution half of the fix is in
+# `_schema_canonical_key`: adding this call without it would have changed
+# nothing, because `stage:<name>.<section>` resolved to no key and the
+# gate returned 0 on its free-form branch.
 _edit_stage_scalar() {
   local _stage="${1}" _dotted="${2}"
   local _nskey="stage:${_stage}.${_dotted}"
+  local _section="stage:${_stage}.${_dotted%.*}"
+  local _key="${_dotted##*.}"
   local _cur _v
   _cur="$(_override_get "${_nskey}" "")"
-  _v="$(_tui_inputbox "stage:${_stage} / ${_dotted}" \
-    "$(_tui_msg per_stage.scalar.prompt)" "${_cur}")" || return 0
-  if [[ -z "${_v}" ]]; then
-    _mark_removed "${_nskey}"
-  else
-    _override_set "${_nskey}" "${_v}"
-  fi
+  while :; do
+    _v="$(_tui_inputbox "stage:${_stage} / ${_dotted}" \
+      "$(_tui_msg per_stage.scalar.prompt)" "${_cur}")" || return 0
+    # Empty input = hand the key back to the top level. That gesture is
+    # the editor's, not the schema's, so it is answered before the gate:
+    # a key whose empty-value policy is `validate` (deploy.gpu_capabilities)
+    # must still be clearable per-stage.
+    if [[ -z "${_v}" ]]; then
+      _mark_removed "${_nskey}"
+      return 0
+    fi
+    if _schema_validate "${_section}" "${_key}" "${_v}"; then
+      _override_set "${_nskey}" "${_v}"
+      return 0
+    fi
+    # Invalid -> report, keep the existing override untouched, and offer
+    # the typed value back for correction (the shape _edit_list_entry
+    # already uses).
+    _tui_msgbox "${_dotted}" "$(_tui_msg err.per_stage_invalid)"
+    _cur="${_v}"
+  done
 }
 
 # _edit_stage_gui <stage>
@@ -2763,11 +2796,11 @@ _edit_stage_list() {
           (( _next++ ))
         done
         _edit_list_entry "${_ns}" "${_prefix}" "${_next}" \
-          "$(_tui_msg per_stage.list.entry_prompt)" || true
+          "$(_tui_msg per_stage.list.entry_prompt)" err.per_stage_invalid || true
         ;;
       "${_prefix}"*)
         _edit_list_entry "${_ns}" "${_prefix}" "${_choice#"${_prefix}"}" \
-          "$(_tui_msg per_stage.list.entry_prompt)" || true
+          "$(_tui_msg per_stage.list.entry_prompt)" err.per_stage_invalid || true
         ;;
     esac
   done

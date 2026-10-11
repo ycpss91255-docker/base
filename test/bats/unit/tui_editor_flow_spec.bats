@@ -736,6 +736,134 @@ checklist_tags() { cut -d'|' -f1 "${_CAPFILE}" | sort -u; }
   is_removed 'stage:extra.deploy.gpu_count'
 }
 
+# ── base#1268: the per-stage editors and the validation gate ─────────
+#
+# `_edit_stage_scalar` made no `_schema_validate` call at all, and the
+# per-stage LIST path made one that could not resolve: `_edit_stage_list`
+# hands `_edit_list_entry` the section as `stage:<name>.<section>`, which
+# `_schema_canonical_key` had no rule for, so the key came back empty and
+# the gate returned 0 on its free-form branch. Adding a call to the scalar
+# editor alone would have changed nothing -- the resolution had to move
+# first, which is why these cases are about the editors and
+# schema_spec.bats's are about the normalisation.
+
+# Every dotted key the per-stage menus route into `_edit_stage_scalar`,
+# DERIVED by driving the editors: the per-stage section editors are read
+# off the live function table, each is opened once to see which rows it
+# renders, then once per row with `_edit_stage_scalar` spied -- so what
+# comes back is the set the editors really reach, and a key added to a
+# stage menu later is covered with no edit here. A written-out list of
+# today's eight is the mistake base#1089 / base#1090 / base#1112 /
+# base#1113 / base#1109 / base#1214 each record.
+#
+# Called through a process substitution so the two spies it installs die
+# with the subshell and the assertions that follow drive the real editors.
+_stage_scalar_keys() {
+  local _seen="${BATS_TEST_TMPDIR}/stage_scalar_seen"
+  : > "${_seen}"
+  # The scalar editor records what it was asked to edit; the list editor
+  # is silenced so a list row cannot wander into an entry prompt.
+  _edit_stage_scalar() { printf '%s\n' "${2}" >> "${_seen}"; }
+  _edit_stage_list()   { return 0; }
+
+  local -a _editors=()
+  mapfile -t _editors < <(declare -F | sed -n 's/^declare -f //p' \
+    | grep -E '^_edit_stage_[a-z_]+$' \
+    | grep -vxE '_edit_stage_scalar|_edit_stage_list' | sort)
+
+  local _ed _tag
+  for _ed in "${_editors[@]+"${_editors[@]}"}"; do
+    : > "${_MFILE}"
+    queue "0|__back"
+    "${_ed}" probe >/dev/null 2>&1 || true
+    local -a _tags=()
+    mapfile -t _tags < <(
+      awk 'NR<=2 {next} /^---$/ {exit} {n++; if (n % 2 == 1) print}' "${_MFILE}")
+    for _tag in "${_tags[@]+"${_tags[@]}"}"; do
+      [[ "${_tag}" == __* ]] && continue
+      queue "0|${_tag}" "0|__back"
+      "${_ed}" probe >/dev/null 2>&1 || true
+    done
+  done
+  sort -u "${_seen}"
+}
+
+# why: base#1268's acceptance criterion, over the derived population
+# rather than over the four keys the report happened to name. Each key is
+# driven through the REAL `_edit_stage_scalar`, so this is a claim about
+# the editor and not about the gate it calls; the probe is first put to
+# the top-level gate, because a value the top level accepts would make
+# every per-stage refusal below vacuous
+@test "_edit_stage_scalar: every per-stage scalar key refuses what the top level refuses (base#1268)" {
+  local -a _keys=()
+  mapfile -t _keys < <(_stage_scalar_keys)
+  # Non-vacuity: an empty derivation would pass a loop over nothing. The
+  # floor is under today's count and is a floor, not a transcription.
+  [ "${#_keys[@]}" -ge 8 ] \
+    || fail "derived ${#_keys[@]} per-stage scalar keys from the editors, so this gate would assert nothing"
+
+  local _dotted _section _key
+  for _dotted in "${_keys[@]}"; do
+    _section="${_dotted%.*}"
+    _key="${_dotted##*.}"
+    if _schema_validate "${_section}" "${_key}" '%%bogus%%'; then
+      fail "the top-level gate ACCEPTS '%%bogus%%' for ${_dotted}, so it is not a probe this case can use"
+    fi
+    queue "0|%%bogus%%" "1|"
+    _edit_stage_scalar probe "${_dotted}"
+    if ovr_get "stage:probe.${_dotted}" >/dev/null; then
+      fail "stage:probe.${_dotted} stored '%%bogus%%', which the top-level gate refuses"
+    fi
+    if is_removed "stage:probe.${_dotted}"; then
+      fail "stage:probe.${_dotted} was CLEARED by a rejected value; a refusal must leave the override alone"
+    fi
+  done
+  warned "$(_tui_msg err.per_stage_invalid)"
+}
+
+# why: base#1268 -- a refusal that drops what the operator typed makes
+# them retype it, which is the behaviour `_edit_list_entry` already avoids
+# and the shape the per-stage editor has to converge on. The second render
+# has to open on the rejected text, and the corrected value has to store
+@test "_edit_stage_scalar: a refused value is handed back for correction, then stored (base#1268)" {
+  local _in="${BATS_TEST_TMPDIR}/stage_inputbox_defaults"
+  : > "${_in}"
+  _tui_inputbox() { printf '%s\n' "${3-}" >> "${_in}"; _tui_pop; }
+  queue "0|bogus" "0|bridge"
+  _edit_stage_scalar extra network.mode
+  [[ "$(ovr_get 'stage:extra.network.mode')" == "bridge" ]]
+  warned "$(_tui_msg err.per_stage_invalid)"
+  run sed -n '2p' "${_in}"
+  assert_output "bogus"
+}
+
+# why: base#1268 -- the other half of the editor's contract, which the
+# refusal must not cost: a value the gate accepts still lands under the
+# stage namespace
+@test "_edit_stage_scalar: an accepted value is still stored (base#1268)" {
+  queue "0|host"
+  _edit_stage_scalar extra network.ipc
+  [[ "$(ovr_get 'stage:extra.network.ipc')" == "host" ]]
+  never_warned
+}
+
+# why: base#1268 -- the per-stage LIST path DID call the validator, and
+# the call could not resolve its section, so it accepted everything. The
+# same entry the top-level mount list refuses has to be refused here, and
+# the error box has to carry text: `_edit_stage_list` passed no error key
+# at all, so a rejection would have opened an EMPTY message box
+@test "_edit_stage_list: an entry the top-level list refuses is refused per-stage (base#1268)" {
+  if _schema_validate volumes mount_1 "noslash"; then
+    fail "the top-level gate accepts 'noslash' as a mount, so this case would assert nothing"
+  fi
+  queue "0|add" "0|noslash" "1|" "0|__back"
+  _edit_stage_volumes extra
+  if ovr_get 'stage:extra.volumes.mount_1' >/dev/null; then
+    fail "a mount the top-level list refuses was stored per-stage"
+  fi
+  warned "$(_tui_msg err.per_stage_invalid)"
+}
+
 # why: volumes and environment are the same list editor with different
 # arguments; each must keep its own section and prefix.
 @test "_edit_stage_volumes / _edit_stage_environment: each writes under its own section" {
@@ -1970,15 +2098,16 @@ EOF
 
 # why: the measured ground for refusing an empty selection rather than
 # storing it, and the reason that refusal is not the editor being stricter
-# than the CLI on a whim. `_validate_gpu_capabilities` accepts the empty
-# string and SCHEMA_EMPTY's default policy is `allow`, so the schema says
-# "none" is sayable -- but the generator takes the capability list as
+# than the CLI on a whim. The generator takes the capability list as
 # `"${6:?}"` and aborts on an empty one, so a configuration saying "none"
 # cannot be regenerated. Asked of the real generator, because this is
 # precisely the kind of claim that goes stale: the day the emitters learn
 # to carry "no capability", this case fails and the screen's refusal can
-# be revisited with it. (It is also a live hole on the `setup.sh set
-# deploy.gpu_capabilities ""` path, which this screen cannot close.)
+# be revisited with it. The CLI half this used to name as a live hole --
+# `setup.sh set deploy.gpu_capabilities ""`, which the screen could not
+# close -- is closed by base#1267: the schema now marks the key
+# `validate` and `_validate_gpu_capabilities` refuses the empty string,
+# so the gate the CLI and the TUI share says no once.
 @test "generate_compose_yaml: an empty capability list is refused, which is why the screen will not save one (base#1177)" {
   # shellcheck disable=SC1091
   source /source/dist/script/docker/lib/_lib.sh
