@@ -105,9 +105,11 @@ setup() {
   _QFILE="${BATS_TEST_TMPDIR}/tui_queue"
   _MFILE="${BATS_TEST_TMPDIR}/tui_menu_rows"
   _BOXFILE="${BATS_TEST_TMPDIR}/tui_msgbox"
+  _CAPFILE="${BATS_TEST_TMPDIR}/tui_checklist_rows"
   : > "${_QFILE}"
   : > "${_MFILE}"
   : > "${_BOXFILE}"
+  : > "${_CAPFILE}"
 
   _tui_pop() {
     local _line
@@ -139,7 +141,7 @@ setup() {
   _tui_clear()  { return 0; }
   export -f _tui_pop _tui_menu _tui_select _tui_inputbox \
             _tui_checklist _tui_yesno _tui_msgbox _tui_clear
-  export _QFILE _MFILE _BOXFILE
+  export _QFILE _MFILE _BOXFILE _CAPFILE
 }
 
 teardown() {
@@ -199,6 +201,72 @@ warned() {
 
 # Did nothing pop a msgbox at all?
 never_warned() { [[ ! -s "${_BOXFILE}" ]]; }
+
+# The checklist primitive, answered the way `dialog --checklist
+# --separate-output` answers OK on a screen the user never touched: every
+# row the editor rendered ON comes back, newline-separated, and nothing
+# else. The queue stub cannot express that -- it hands back a literal, so
+# a test that used it would be writing the answer it then asserts on, and
+# "confirmed without changing anything" is exactly the action base#1177 is
+# about.
+#
+# It also records what the screen was ASKED to render, one
+# `<tag>|<label>|<state>` line per row, so a test can derive the row set
+# and the per-row label instead of naming today's rows (base#1089 /
+# base#1112 / base#1214: a screen or a gate naming today's capabilities
+# passes forever while the set grows).
+checklist_untouched() {
+  _tui_checklist() {
+    shift 2   # title, prompt
+    local _tag _label _state
+    while (( $# >= 3 )); do
+      _tag="${1}"; _label="${2}"; _state="${3}"
+      shift 3
+      printf '%s|%s|%s\n' "${_tag}" "${_label}" "${_state}" >> "${_CAPFILE}"
+      [[ "${_state}" == "ON" ]] && printf '%s\n' "${_tag}"
+    done
+    return 0
+  }
+}
+
+# The checklist answered by a user who unchecked every row and confirmed.
+checklist_cleared() {
+  _tui_checklist() {
+    shift 2
+    local _tag _label _state
+    while (( $# >= 3 )); do
+      _tag="${1}"; _label="${2}"; _state="${3}"
+      shift 3
+      printf '%s|%s|%s\n' "${_tag}" "${_label}" "${_state}" >> "${_CAPFILE}"
+    done
+    return 0
+  }
+}
+
+# The checklist answered by a user who ticked exactly <tags> -- and only
+# the ones the screen ACTUALLY OFFERED, because a row the editor never
+# rendered is not something a user could have ticked. A stub that handed
+# back a tag regardless would let a test claim a capability is selectable
+# against a screen with no row for it.
+checklist_pick() {
+  _CAPS_PICK="$*"
+  export _CAPS_PICK
+  _tui_checklist() {
+    shift 2
+    local _tag _label _state
+    while (( $# >= 3 )); do
+      _tag="${1}"; _label="${2}"; _state="${3}"
+      shift 3
+      printf '%s|%s|%s\n' "${_tag}" "${_label}" "${_state}" >> "${_CAPFILE}"
+      printf '%s\n' "${_CAPS_PICK}" | tr ' ' '\n' | grep -qxF -- "${_tag}" \
+        && printf '%s\n' "${_tag}"
+    done
+    return 0
+  }
+}
+
+# The rows one checklist render was asked to show, tags only, sorted.
+checklist_tags() { cut -d'|' -f1 "${_CAPFILE}" | sort -u; }
 
 # ════════════════════════════════════════════════════════════════════
 # _edit_section_build
@@ -1812,6 +1880,240 @@ unreachable_functions() {
   run ovr_get deploy.gpu_runtime
   [ "${status}" -ne 0 ]
   warned "$(_tui_msg err.invalid_runtime)"
+}
+
+# why: base#1177. The GPU capability screen rendered four rows against a
+# validator that accepts nine, and called `_override_set` on every path
+# that reached it -- so an operator carrying `video display ngx compat32`
+# opened a screen with nothing checked, confirmed it, and the four
+# unchecked rows plus the `[[ -z ]] && _v="gpu"` fallback replaced four
+# capabilities with one. The value is seeded in the TEMPLATE LAYER, not in
+# the repo's own file: base#1249 moved the editor's baseline onto the
+# merged chain, so an inherited capability list now reaches this screen
+# where the pre-#1249 editor only ever saw the one file it opened, and
+# that is the enlarged exposure. The claim is read back through the REAL
+# merge after the save, never off the file's text.
+@test "_edit_section_deploy: an inherited capability list survives confirming the screen (base#1177)" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_TPL}/setup.toml" <<'EOF'
+[deploy]
+gpu_mode = "auto"
+gpu_count = "all"
+gpu_capabilities = "video display ngx compat32"
+gpu_runtime = "auto"
+EOF
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  # The screen really does open on that value, or the rest proves nothing.
+  assert_equal "$(effective deploy gpu_capabilities)" "video display ngx compat32"
+  _detect_mig() { return 1; }
+  checklist_untouched
+  # mode / count / runtime confirmed at the values they inherit; the
+  # capability screen answers itself from the rows it rendered.
+  queue "0|auto" "0|all" "0|auto"
+  _edit_section_deploy
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective deploy gpu_capabilities)" "video display ngx compat32"
+}
+
+# why: base#1177, the per-worktree half. A capability list an operator put
+# in `setup.local.toml` is visible to this screen and the save goes to the
+# COMMITTED layer, so a rewrite there is invisible on this machine (the
+# local layer still shadows it) and is what every other checkout gets.
+# Measured by dropping the local layer after the save and asking the same
+# real merge what the committed layer resolves to.
+@test "_edit_section_deploy: a per-worktree capability list is not rewritten into the committed layer (base#1177)" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[deploy]\ngpu_mode = "auto"\ngpu_count = "all"\ngpu_runtime = "auto"\n' \
+    > "${_CHAIN_TPL}/setup.toml"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  printf '[deploy]\ngpu_capabilities = "all compat32"\n' \
+    > "${_CHAIN_REPO}/setup.local.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  assert_equal "$(effective deploy gpu_capabilities)" "all compat32"
+  _detect_mig() { return 1; }
+  checklist_untouched
+  queue "0|auto" "0|all" "0|auto"
+  _edit_section_deploy
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  rm -f "${_CHAIN_REPO}/setup.local.toml"
+  assert_equal "$(effective deploy gpu_capabilities)" "all compat32"
+}
+
+# why: base#1177's second, independent defect: `[[ -z "${_v}" ]] &&
+# _v="gpu"` is what converted "the screen cannot show your value" into
+# "the screen replaced your value", because an unrepresentable list made
+# every row render off and the empty result was then written back as
+# `gpu`. Whatever an empty selection ought to mean, it is not "gpu", and
+# the operator's list has to still be there afterwards -- which is the
+# claim read back through the real merge.
+@test "_edit_section_deploy: an empty selection never substitutes gpu, and the list stands (base#1177)" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[deploy]\ngpu_mode = "auto"\ngpu_count = "all"\ngpu_capabilities = "compute utility"\ngpu_runtime = "auto"\n' \
+    > "${_CHAIN_TPL}/setup.toml"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _detect_mig() { return 1; }
+  checklist_cleared
+  queue "0|auto" "0|all" "0|auto"
+  _edit_section_deploy
+  warned "$(_tui_msg err.empty_gpu_capabilities)"
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective deploy gpu_capabilities)" "compute utility"
+}
+
+# why: the measured ground for refusing an empty selection rather than
+# storing it, and the reason that refusal is not the editor being stricter
+# than the CLI on a whim. `_validate_gpu_capabilities` accepts the empty
+# string and SCHEMA_EMPTY's default policy is `allow`, so the schema says
+# "none" is sayable -- but the generator takes the capability list as
+# `"${6:?}"` and aborts on an empty one, so a configuration saying "none"
+# cannot be regenerated. Asked of the real generator, because this is
+# precisely the kind of claim that goes stale: the day the emitters learn
+# to carry "no capability", this case fails and the screen's refusal can
+# be revisited with it. (It is also a live hole on the `setup.sh set
+# deploy.gpu_capabilities ""` path, which this screen cannot close.)
+@test "generate_compose_yaml: an empty capability list is refused, which is why the screen will not save one (base#1177)" {
+  # shellcheck disable=SC1091
+  source /source/dist/script/docker/lib/_lib.sh
+  local -a _extras=()
+  # Non-vacuity: the same call with a capability list has to SUCCEED, or
+  # the refusal below could be any of the other thirty arguments.
+  run generate_compose_yaml "${BATS_TEST_TMPDIR}/ok.yaml" img false false \
+    all "gpu compute" _extras
+  assert_success
+  run generate_compose_yaml "${BATS_TEST_TMPDIR}/none.yaml" img false false \
+    all "" _extras
+  assert_failure
+  assert_output --partial "parameter null or not set"
+}
+
+# why: base#1177, the half the preservation of an existing value does not
+# cover: the five names the screen never offered have to be REACHABLE
+# from it, or "preserved" just means an operator can keep a value they
+# can no longer change. The pick stub only returns rows the screen really
+# rendered, so this is a claim about the screen and not about the stub.
+# It also pins the ORDER. The checklist returns its tags in ROW order, so
+# writing that straight back reorders an operator's own list -- `utility
+# gpu` came back as `gpu utility` -- which is a rewrite of a value nobody
+# touched, on the screen whose silent rewriting is this issue. The names
+# that were already there keep the order they had; the one just ticked
+# follows.
+@test "_edit_section_deploy: a restored capability is selectable and the existing order is kept (base#1177)" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[deploy]\ngpu_mode = "auto"\ngpu_count = "all"\ngpu_capabilities = "utility gpu"\ngpu_runtime = "auto"\n' \
+    > "${_CHAIN_TPL}/setup.toml"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _detect_mig() { return 1; }
+  checklist_pick utility gpu video
+  queue "0|auto" "0|all" "0|auto"
+  _edit_section_deploy
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective deploy gpu_capabilities)" "utility gpu video"
+}
+
+# why: base#1177's regression guard, and the reason the screen and the
+# validator drifted in the first place: the row set and the allowlist were
+# the same list written twice. A gate naming today's capabilities passes
+# forever while the next one is added to only one of them (base#1089 /
+# base#1112 / base#1214), so BOTH sides are derived -- the population off
+# the exposed allowlist, the rows off what the screen actually asked the
+# checklist to render -- and compared. The allowlist is tied to the
+# validator in both directions here too, so it cannot become decoration
+# the validator has stopped reading.
+@test "_edit_section_deploy: the capability rows are exactly the set the validator accepts (base#1177)" {
+  stub_chain
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[deploy]\ngpu_mode = "auto"\ngpu_count = "all"\ngpu_runtime = "auto"\n' \
+    > "${_CHAIN_TPL}/setup.toml"
+  _detect_mig() { return 1; }
+  checklist_untouched
+  queue "0|auto" "0|all" "0|auto"
+  _edit_section_deploy
+
+  # Non-vacuity: a FLOOR well under the live population, not a
+  # transcription of it -- a derivation that found nothing would otherwise
+  # compare two empty sets.
+  [ "${#_VALID_GPU_CAPABILITIES[@]}" -ge 5 ]
+
+  # Every declared capability is one the validator takes, so the allowlist
+  # is the validator's own population and not a second roster.
+  local _cap
+  for _cap in "${_VALID_GPU_CAPABILITIES[@]}"; do
+    _validate_gpu_capabilities "${_cap}" \
+      || fail "the allowlist declares '${_cap}' but _validate_gpu_capabilities rejects it"
+  done
+  # ... and the other direction: the validator takes nothing outside it.
+  # Spelled as an `if`, not a `!` line: bash exempts a negated pipeline
+  # from errexit, so mid-body it computes the answer and throws it away.
+  if _validate_gpu_capabilities "not-a-capability"; then
+    fail "_validate_gpu_capabilities accepts a name no allowlist row declares, so the allowlist is not its population"
+  fi
+
+  # The screen's rows ARE that population.
+  run checklist_tags
+  assert_success
+  assert_output "$(printf '%s\n' "${_VALID_GPU_CAPABILITIES[@]}" | sort -u)"
+}
+
+# why: the other half of deriving the rows -- a capability added to the
+# allowlist with no label renders as a blank row in the checklist, and the
+# existing locale gates cannot see it: schema_coverage_spec's parity walk
+# compares the four tables against each other, so a `deploy.caps.<cap>`
+# key missing from ALL FOUR is missing from nothing. The population is the
+# allowlist, so the tenth capability's missing label is red on arrival.
+@test "_edit_section_deploy: every capability row carries a label in all four locales (base#1177)" {
+  [ "${#_VALID_GPU_CAPABILITIES[@]}" -ge 5 ]
+  local _cap _loc _why=""
+  for _cap in "${_VALID_GPU_CAPABILITIES[@]}"; do
+    for _loc in EN ZH_TW ZH_CN JA; do
+      local -n _t="_TUI_MSG_${_loc}"
+      [[ -n "${_t[deploy.caps.${_cap}]:-}" ]] \
+        || _why+="  ${_loc} has no deploy.caps.${_cap}"$'\n'
+      unset -n _t
+    done
+  done
+  [[ -z "${_why}" ]] || fail "capability rows with no label:
+${_why}"
+}
+
+# why: the residual case the derivation cannot cover. A capability list
+# that the VALIDATOR rejects reaches the screen only by hand-editing a
+# TOML layer -- `setup.sh set` and this editor both gate writes through
+# schema.sh -- and the screen still cannot represent it, so confirming it
+# would rewrite it to whatever the checkboxes said. This repo's rule is
+# that a write which cannot do what it says must not report success
+# (d30ffe9f, 14cd90bf, `_wsc_refuse_ws_slot_move`), and this function
+# already applies it to the legacy `runtime` key: SUGGEST, never silently
+# rewrite. So the screen says so and writes nothing, and the value the
+# readers resolve is the one the operator left.
+@test "_edit_section_deploy: a capability list the validator rejects is reported, not rewritten (base#1177)" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[deploy]\ngpu_mode = "auto"\ngpu_count = "all"\ngpu_runtime = "auto"\n' \
+    > "${_CHAIN_TPL}/setup.toml"
+  printf '[deploy]\ngpu_capabilities = "video handwritten-nonsense"\n' \
+    > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _detect_mig() { return 1; }
+  checklist_cleared
+  queue "0|auto" "0|all" "0|auto"
+  _edit_section_deploy
+  warned "$(_tui_msg err.unrepresentable_gpu_capabilities)"
+  # Nothing was rendered, so there was nothing to confirm.
+  [ ! -s "${_CAPFILE}" ]
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective deploy gpu_capabilities)" "video handwritten-nonsense"
 }
 
 # why: `restart:` goes into compose verbatim; a policy docker does not know

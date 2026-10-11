@@ -224,6 +224,11 @@ _TUI_MSG_EN[deploy.caps.gpu]="gpu (basic)"
 _TUI_MSG_EN[deploy.caps.compute]="compute (CUDA compute)"
 _TUI_MSG_EN[deploy.caps.utility]="utility (nvidia-smi, monitoring)"
 _TUI_MSG_EN[deploy.caps.graphics]="graphics (OpenGL, Vulkan)"
+_TUI_MSG_EN[deploy.caps.all]="all (every capability the driver has)"
+_TUI_MSG_EN[deploy.caps.video]="video (NVENC / NVDEC encode, decode)"
+_TUI_MSG_EN[deploy.caps.display]="display (X11 / Wayland output)"
+_TUI_MSG_EN[deploy.caps.compat32]="compat32 (32-bit driver libraries)"
+_TUI_MSG_EN[deploy.caps.ngx]="ngx (NGX: DLSS, image enhancement)"
 _TUI_MSG_EN[deploy.runtime.prompt]="Docker runtime override (Jetson / csv-mode toolkit)"
 _TUI_MSG_EN[deploy.runtime.auto]="auto (emit runtime: nvidia on Jetson — /etc/nv_tegra_release)"
 _TUI_MSG_EN[deploy.runtime.nvidia]="nvidia (force emit on all hosts)"
@@ -283,6 +288,8 @@ _TUI_MSG_EN[err.invalid_tmpfs]="Invalid tmpfs mount (expected <path>[:<option>[,
 _TUI_MSG_EN[err.invalid_cgroup_rule]="Invalid cgroup rule (expected: <c|b|a> <major>:<minor|*> <r|w|m>)"
 _TUI_MSG_EN[err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a positive integer)"
 _TUI_MSG_EN[err.invalid_runtime]="Invalid runtime (expected 'auto', 'nvidia', or 'off')"
+_TUI_MSG_EN[err.unrepresentable_gpu_capabilities]=$'The GPU capability list was LEFT ALONE and this page did not edit it.\n\nYour configuration names a capability the validator does not accept, so\nthis screen has no row for it and confirming the checklist would replace\nyour list with whatever the rows said. Nothing was written.\n\nFix the value in setup.toml (or setup.local.toml) and reopen this page,\nor set it from the command line:\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_EN[err.empty_gpu_capabilities]=$'No capability was selected, so the list was LEFT ALONE.\n\nAn empty capability list is not something the generator can carry: it\nreserves the GPU and requests nothing, and compose.yaml generation\naborts on it. Nothing was written, so your previous list still stands.\n\nTo stop reserving a GPU at all, set GPU mode to `off` on the first\nscreen of this page -- that is the setting that means "no GPU".'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_EN[main.lifecycle]="container restart policy"
 # runtime-env info page (info-only: points at the .env.local overrides)
@@ -463,6 +470,11 @@ _TUI_MSG_ZH_TW[deploy.caps.gpu]="gpu（基本）"
 _TUI_MSG_ZH_TW[deploy.caps.compute]="compute（CUDA 運算）"
 _TUI_MSG_ZH_TW[deploy.caps.utility]="utility（nvidia-smi、監控）"
 _TUI_MSG_ZH_TW[deploy.caps.graphics]="graphics（OpenGL、Vulkan）"
+_TUI_MSG_ZH_TW[deploy.caps.all]="all（驅動的全部功能）"
+_TUI_MSG_ZH_TW[deploy.caps.video]="video（NVENC / NVDEC 編解碼）"
+_TUI_MSG_ZH_TW[deploy.caps.display]="display（X11 / Wayland 輸出）"
+_TUI_MSG_ZH_TW[deploy.caps.compat32]="compat32（32 位元驅動程式庫）"
+_TUI_MSG_ZH_TW[deploy.caps.ngx]="ngx（NGX：DLSS、影像強化）"
 _TUI_MSG_ZH_TW[deploy.runtime.prompt]="Docker runtime 覆寫（Jetson / csv 模式 toolkit）"
 _TUI_MSG_ZH_TW[deploy.runtime.auto]="auto（Jetson 自動輸出 runtime: nvidia — /etc/nv_tegra_release）"
 _TUI_MSG_ZH_TW[deploy.runtime.nvidia]="nvidia（所有主機強制輸出）"
@@ -522,6 +534,8 @@ _TUI_MSG_ZH_TW[err.invalid_tmpfs]="tmpfs 掛載格式錯誤（預期 <path>[:<op
 _TUI_MSG_ZH_TW[err.invalid_cgroup_rule]="Cgroup 規則格式錯誤（預期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_TW[err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或正整數）"
 _TUI_MSG_ZH_TW[err.invalid_runtime]="runtime 值不合法（預期 'auto'、'nvidia' 或 'off'）"
+_TUI_MSG_ZH_TW[err.unrepresentable_gpu_capabilities]=$'GPU 功能清單「未被改動」，本頁沒有編輯它。\n\n你的設定中有一個驗證器不接受的功能名稱，因此本畫面沒有對應的選項；\n若確認這份勾選清單，你的清單會被畫面上的選項取代。目前未寫入任何\n內容。\n\n請修正 setup.toml（或 setup.local.toml）中的值後重新開啟本頁，或改\n用命令列設定：\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_ZH_TW[err.empty_gpu_capabilities]=$'沒有勾選任何功能，因此功能清單「未被改動」。\n\n空的功能清單不是產生器能處理的設定：它會保留 GPU 卻不要求任何功能，\ncompose.yaml 的產生會因此中止。目前未寫入任何內容，你原本的清單仍然\n有效。\n\n若要完全不保留 GPU，請在本頁第一個畫面把 GPU 模式設為 `off` —— 那才\n是代表「不使用 GPU」的設定。'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_TW[main.lifecycle]="容器重啟策略"
 # runtime-env info page (info-only: points at the .env.local overrides)
@@ -700,6 +714,11 @@ _TUI_MSG_ZH_CN[deploy.caps.gpu]="gpu（基本）"
 _TUI_MSG_ZH_CN[deploy.caps.compute]="compute（CUDA 计算）"
 _TUI_MSG_ZH_CN[deploy.caps.utility]="utility（nvidia-smi、监控）"
 _TUI_MSG_ZH_CN[deploy.caps.graphics]="graphics（OpenGL、Vulkan）"
+_TUI_MSG_ZH_CN[deploy.caps.all]="all（驱动的全部功能）"
+_TUI_MSG_ZH_CN[deploy.caps.video]="video（NVENC / NVDEC 编解码）"
+_TUI_MSG_ZH_CN[deploy.caps.display]="display（X11 / Wayland 输出）"
+_TUI_MSG_ZH_CN[deploy.caps.compat32]="compat32（32 位驱动程序库）"
+_TUI_MSG_ZH_CN[deploy.caps.ngx]="ngx（NGX：DLSS、图像增强）"
 _TUI_MSG_ZH_CN[deploy.runtime.prompt]="Docker runtime 覆盖（Jetson / csv 模式 toolkit）"
 _TUI_MSG_ZH_CN[deploy.runtime.auto]="auto（Jetson 自动输出 runtime: nvidia — /etc/nv_tegra_release）"
 _TUI_MSG_ZH_CN[deploy.runtime.nvidia]="nvidia（所有主机强制输出）"
@@ -783,6 +802,8 @@ _TUI_MSG_ZH_CN[err.invalid_log_local_path]=$'local_path 格式错误\n  - 不可
 _TUI_MSG_ZH_CN[err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
+_TUI_MSG_ZH_CN[err.unrepresentable_gpu_capabilities]=$'GPU 功能清单「未被改动」，本页没有编辑它。\n\n你的配置中有一个验证器不接受的功能名称，因此本界面没有对应的选项；\n若确认这份勾选清单，你的清单会被界面上的选项取代。目前未写入任何\n内容。\n\n请修正 setup.toml（或 setup.local.toml）中的值后重新打开本页，或改\n用命令行设置：\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_ZH_CN[err.empty_gpu_capabilities]=$'没有勾选任何功能，因此功能清单「未被改动」。\n\n空的功能清单不是生成器能处理的配置：它会预留 GPU 却不要求任何功能，\ncompose.yaml 的生成会因此中止。目前未写入任何内容，你原本的清单仍然\n有效。\n\n若要完全不预留 GPU，请在本页第一个界面把 GPU 模式设为 `off` —— 那才\n是代表「不使用 GPU」的设置。'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_CN[main.lifecycle]="容器重启策略"
 # runtime-env info page (info-only: points at the .env.local overrides)
@@ -932,6 +953,11 @@ _TUI_MSG_JA[deploy.caps.gpu]="gpu（基本）"
 _TUI_MSG_JA[deploy.caps.compute]="compute（CUDA 計算）"
 _TUI_MSG_JA[deploy.caps.utility]="utility（nvidia-smi、監視）"
 _TUI_MSG_JA[deploy.caps.graphics]="graphics（OpenGL、Vulkan）"
+_TUI_MSG_JA[deploy.caps.all]="all（ドライバの全ケイパビリティ）"
+_TUI_MSG_JA[deploy.caps.video]="video（NVENC / NVDEC エンコード、デコード）"
+_TUI_MSG_JA[deploy.caps.display]="display（X11 / Wayland 出力）"
+_TUI_MSG_JA[deploy.caps.compat32]="compat32（32 ビットドライバライブラリ）"
+_TUI_MSG_JA[deploy.caps.ngx]="ngx（NGX: DLSS、画質向上）"
 _TUI_MSG_JA[deploy.runtime.prompt]="Docker ランタイムオーバーライド（Jetson / csv モード toolkit）"
 _TUI_MSG_JA[deploy.runtime.auto]="auto（Jetson で自動的に runtime: nvidia を出力 — /etc/nv_tegra_release）"
 _TUI_MSG_JA[deploy.runtime.nvidia]="nvidia（全ホストで強制出力）"
@@ -1015,6 +1041,8 @@ _TUI_MSG_JA[err.invalid_log_local_path]=$'local_path が不正\n  - 空または
 _TUI_MSG_JA[err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
 _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
+_TUI_MSG_JA[err.unrepresentable_gpu_capabilities]=$'GPU ケイパビリティ一覧は「変更されていません」。このページは編集\nしませんでした。\n\n設定にバリデータが受け付けないケイパビリティ名が含まれているため、\nこの画面には対応する行がありません。チェックリストを確定すると、\n一覧が画面の行の内容で置き換えられてしまいます。何も書き込んで\nいません。\n\nsetup.toml（または setup.local.toml）の値を修正してこのページを開き\n直すか、コマンドラインから設定してください:\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_JA[err.empty_gpu_capabilities]=$'ケイパビリティが一つも選択されていないため、一覧は「変更されて\nいません」。\n\n空のケイパビリティ一覧はジェネレータが扱える設定ではありません。\nGPU を予約しながら何も要求しない状態になり、compose.yaml の生成が\n中断します。何も書き込んでいないので、以前の一覧がそのまま有効です。\n\nGPU の予約自体をやめる場合は、このページ最初の画面で GPU モードを\n`off` にしてください。それが「GPU を使わない」設定です。'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_JA[main.lifecycle]="コンテナ再起動ポリシー"
 # runtime-env info page (info-only: points at the .env.local overrides)
@@ -1758,6 +1786,42 @@ _edit_section_security() {
   done
 }
 
+# _caps_keep_order <current> <selected>
+#
+# Print <selected> -- the capability names the checklist handed back, in
+# the order it rendered its ROWS -- reordered so the names <current>
+# already carried keep the order IT had, with newly checked names after
+# them.
+#
+# Without this the save rewrites an operator's own ordering of a list the
+# container runtime reads as a set: `video display ngx compat32` comes
+# back as `video display compat32 ngx` because that is the order of the
+# rows. It is a change to a value nobody touched, which is the shape of
+# the defect this screen is being fixed for (base#1177) -- so a name that
+# survives the screen survives it exactly as it was written.
+_caps_keep_order() {
+  local _cur="${1-}" _sel="${2-}"
+  local -a _cur_a=() _sel_a=() _out=()
+  local -A _want=() _taken=()
+  local _c
+  read -ra _cur_a <<< "${_cur}"
+  read -ra _sel_a <<< "${_sel}"
+  for _c in "${_sel_a[@]+"${_sel_a[@]}"}"; do _want["${_c}"]=1; done
+  # The configuration's own order first, for the names still selected.
+  for _c in "${_cur_a[@]+"${_cur_a[@]}"}"; do
+    [[ -n "${_want[${_c}]:-}" && -z "${_taken[${_c}]:-}" ]] || continue
+    _out+=("${_c}")
+    _taken["${_c}"]=1
+  done
+  # Then what the operator just added, in the order the rows offered it.
+  for _c in "${_sel_a[@]+"${_sel_a[@]}"}"; do
+    [[ -z "${_taken[${_c}]:-}" ]] || continue
+    _out+=("${_c}")
+    _taken["${_c}"]=1
+  done
+  printf '%s' "${_out[*]+"${_out[*]}"}"
+}
+
 _edit_section_deploy() {
   local _v _cur
   _cur="$(_override_get "deploy.gpu_mode" "auto")"
@@ -1808,22 +1872,61 @@ _edit_section_deploy() {
     _tui_msgbox "$(_tui_msg deploy.title)" "$(_tui_msg err.invalid_gpu_count)"
   done
 
+  # [deploy] gpu_capabilities. The rows are DERIVED from _VALID_GPU_CAPABILITIES
+  # -- the allowlist `_validate_gpu_capabilities` itself reads -- and not
+  # written out here. Four of the nine accepted names used to be
+  # hand-written rows, and because this screen calls `_override_set` on
+  # every path that reaches it, a configuration carrying any of the other
+  # five rendered with nothing checked and was replaced by what the four
+  # checkboxes said: four capabilities became one, on a screen that
+  # showed the operator nothing to change (base#1177).
   _cur="$(_override_get "deploy.gpu_capabilities" "gpu")"
-  local _on_gpu=off _on_compute=off _on_utility=off _on_graphics=off
-  [[ " ${_cur} " == *" gpu "* ]]      && _on_gpu=ON
-  [[ " ${_cur} " == *" compute "* ]]  && _on_compute=ON
-  [[ " ${_cur} " == *" utility "* ]]  && _on_utility=ON
-  [[ " ${_cur} " == *" graphics "* ]] && _on_graphics=ON
-  _v="$(_tui_checklist "$(_tui_msg deploy.title)" "$(_tui_msg deploy.caps.prompt)" \
-    gpu      "$(_tui_msg deploy.caps.gpu)"      "${_on_gpu}" \
-    compute  "$(_tui_msg deploy.caps.compute)"  "${_on_compute}" \
-    utility  "$(_tui_msg deploy.caps.utility)"  "${_on_utility}" \
-    graphics "$(_tui_msg deploy.caps.graphics)" "${_on_graphics}")" \
-    || return 0
-  # checklist with --separate-output returns newline-separated; flatten to space
-  _v="$(echo "${_v}" | tr '\n' ' ' | sed -e 's/ *$//')"
-  [[ -z "${_v}" ]] && _v="gpu"
-  _override_set "deploy.gpu_capabilities" "${_v}"
+  if _schema_validate deploy gpu_capabilities "${_cur}"; then
+    local _cap
+    local -a _cap_rows=()
+    for _cap in "${_VALID_GPU_CAPABILITIES[@]}"; do
+      _cap_rows+=("${_cap}" "$(_tui_msg "deploy.caps.${_cap}")" \
+        "$([[ " ${_cur} " == *" ${_cap} "* ]] && echo ON || echo off)")
+    done
+    _v="$(_tui_checklist "$(_tui_msg deploy.title)" \
+      "$(_tui_msg deploy.caps.prompt)" "${_cap_rows[@]}")" \
+      || return 0
+    # checklist with --separate-output returns newline-separated; flatten to space
+    _v="$(echo "${_v}" | tr '\n' ' ' | sed -e 's/ *$//')"
+    # Row order is the screen's, not the configuration's; see the helper.
+    _v="$(_caps_keep_order "${_cur}" "${_v}")"
+    if [[ -z "${_v}" ]]; then
+      # An empty selection used to be rewritten to `gpu`, and that
+      # substitution is what turned "this screen cannot show your value"
+      # into "this screen replaced it" (base#1177). It is reported now,
+      # and the operator's list is left as it was.
+      #
+      # Reported rather than stored, although `_validate_gpu_capabilities`
+      # accepts the empty string, because the generator does not: measured,
+      # `generate_compose_yaml` takes the capability list as `"${6:?}"` and
+      # aborts with `parameter null or not set` on an empty one, so a save
+      # of "none" would hand back a configuration `setup.sh apply` then
+      # refuses to regenerate. This editor does not write a value the
+      # emitters cannot carry and call it saved. ("none" being accepted by
+      # the schema and refused by the generator is a hole on the `setup.sh
+      # set deploy.gpu_capabilities ""` path too, and it is not this
+      # screen's to close.)
+      _tui_msgbox "$(_tui_msg deploy.title)" \
+        "$(_tui_msg err.empty_gpu_capabilities)"
+    else
+      _override_set "deploy.gpu_capabilities" "${_v}"
+    fi
+  else
+    # Only reachable by hand-editing a layer of the conf chain: both this
+    # editor and `setup.sh set` gate writes through schema.sh. The rows
+    # cannot represent a name the validator rejects, so confirming the
+    # screen would rewrite the value to whatever the checkboxes said.
+    # Report it and write nothing -- the same posture this page already
+    # takes to the legacy `runtime` key below, and the rule this repo
+    # applies to any write that cannot do what it says.
+    _tui_msgbox "$(_tui_msg deploy.title)" \
+      "$(_tui_msg err.unrepresentable_gpu_capabilities)"
+  fi
 
   # runtime override (Jetson / csv-mode nvidia-container-toolkit).
   # renamed the conf key deploy.runtime -> deploy.gpu_runtime (permanent
