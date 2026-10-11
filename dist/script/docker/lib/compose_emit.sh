@@ -168,6 +168,15 @@ _classify_volume_lhs() {
 # `~/` path is the operator's home on whatever host runs it, a `${VAR}`
 # LHS is a per-instance overlay value (ADR-00000022) and not a path this
 # emitter may resolve, and a bare name is a Docker named volume.
+_compose_rebase_path() {
+  local _p="${1-}" _root="${2-}"
+  case "${_p}" in
+    .)    printf '%s' "${_root}" ;;
+    ./*)  printf '%s/%s' "${_root}" "${_p#./}" ;;
+    *)    printf '%s/%s' "${_root}" "${_p}" ;;
+  esac
+}
+
 _compose_reroot_path() {
   local _p="${1-}" _root="${2-}"
   if [[ -z "${_root}" ]]; then
@@ -175,9 +184,38 @@ _compose_reroot_path() {
     return 0
   fi
   case "${_p}" in
-    ./*)  printf '%s/%s' "${_root}" "${_p#./}" ;;
-    ../*) printf '%s/%s' "${_root}" "${_p}" ;;
-    *)    printf '%s' "${_p}" ;;
+    ./*|../*) _compose_rebase_path "${_p}" "${_root}" ;;
+    *)        printf '%s' "${_p}" ;;
+  esac
+}
+
+# _compose_context_is_local <source>
+#
+# Zero when a `build.additional_contexts` source is a path on this host
+# that a relative spelling would resolve against the compose file.
+#
+# The volume classifier's rule does NOT hold here. A bare left-hand side
+# of a mount is a Docker named volume, but a bare additional-context
+# source is a directory -- `source = "ctxdir"` and `source = "."` are
+# ordinary local contexts -- so a rebase that only moved `./` and `../`
+# left exactly those resolving into the caller's output directory.
+#
+# What is NOT local is the closed set the compose specification defines
+# for this field, recognised by SHAPE rather than listed by name: a
+# `<scheme>://` source (`docker-image://`, `oci-layout://`, `http(s)://`,
+# `git://`, `ssh://`), an scp-style git remote, and a `target:` /
+# `service:` reference to something inside this same file. A `${VAR}` is
+# a per-instance overlay value (ADR-00000022) and not a path this emitter
+# may resolve; an absolute or `~/` path is already unambiguous.
+_compose_context_is_local() {
+  # shellcheck disable=SC2016,SC2088  # literal `${` and `~/` prefixes
+  case "${1-}" in
+    *'${'*)             return 1 ;;
+    /*|'~/'*)           return 1 ;;
+    *://*)              return 1 ;;
+    target:*|service:*) return 1 ;;
+    git@*)              return 1 ;;
+    *)                  return 0 ;;
   esac
 }
 
@@ -196,7 +234,11 @@ _compose_reroot_named() {
     printf '%s' "${_e}"
     return 0
   fi
-  printf '%s=%s' "${_e%%=*}" "$(_compose_reroot_path "${_e#*=}" "${_root}")"
+  local _src="${_e#*=}"
+  if _compose_context_is_local "${_src}"; then
+    _src="$(_compose_rebase_path "${_src}" "${_root}")"
+  fi
+  printf '%s=%s' "${_e%%=*}" "${_src}"
 }
 
 # _compose_reroot_lines <newline_separated> <root> <mount|named>

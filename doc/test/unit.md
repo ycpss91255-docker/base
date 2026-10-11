@@ -5861,7 +5861,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (159)
+### test/bats/unit/setup_cmd_spec.bats (160)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6037,6 +6037,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply refuses an empty --local-conf= value (base#1087)` | `--local-conf=` and `--output=` parse to the empty string, and an empty value read as "the option was not given" turns both refusal contracts off from the command line: the chain silently falls back to the repo's own local layer, and the set is written into the repo. An option that was SUPPLIED is validated on its value, not on its emptiness. |
 | `apply refuses an empty --output= value instead of writing into the repo (base#1087)` | - |
 | `deploy refuses an empty --local-conf= value (base#1087)` | - |
+| `apply --output rebases a bare relative additional context and leaves a non-local one (base#1087)` | A bare relative `additional_contexts` source is a LOCAL path, not a named anything -- the volume classifier's rule (a bare left-hand side is a Docker named volume) does not hold here, so a rebase that only moved `./` and `../` left `shared=ctxdir` and `shared=.` resolving into the output directory. The other half is that a non-local source -- `docker-image://`, an `oci-layout://`, a git or http URL, a `target:` / `service:` reference -- must NOT be rebased, or the rebase breaks a context that was never a path. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 

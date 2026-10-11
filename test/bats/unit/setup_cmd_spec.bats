@@ -2679,7 +2679,8 @@ DF
   cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
 
 [[additional_contexts]]
-context = "shared=./ctxdir"
+name = "shared"
+source = "./ctxdir"
 EOF
   local _out="${TEMP_DIR}/inst-1"
   run bash -c "
@@ -2701,6 +2702,14 @@ EOF
       "${_out}/compose.yaml"
   )
   (( ${#_paths[@]} > 0 )) || fail "the emitted compose names no host path"
+  # Anti-vacuity: the fixture ships a config/<component>/ directory, so
+  # its bind must be one of the paths collected. A run that found only
+  # the build contexts would be a weaker test than it looks.
+  local _saw_component=0
+  for _p in "${_paths[@]}"; do
+    [[ "${_p}" == */config/demo ]] && _saw_component=1
+  done
+  (( _saw_component )) || fail "the config-component bind is not among: ${_paths[*]}"
   for _p in "${_paths[@]}"; do
     # Unresolvable by construction: an interpolation is a per-instance
     # overlay value (ADR-00000022), not a path this file can be read for.
@@ -2779,4 +2788,50 @@ DF
   "
   assert_failure
   assert_output --partial "empty path"
+}
+
+# why: A bare relative `additional_contexts` source is a LOCAL path, not a
+# named anything -- the volume classifier's rule (a bare left-hand side is
+# a Docker named volume) does not hold here, so a rebase that only moved
+# `./` and `../` left `shared=ctxdir` and `shared=.` resolving into the
+# output directory. The other half is that a non-local source --
+# `docker-image://`, an `oci-layout://`, a git or http URL, a `target:` /
+# `service:` reference -- must NOT be rebased, or the rebase breaks a
+# context that was never a path.
+@test "apply --output rebases a bare relative additional context and leaves a non-local one (base#1087)" {
+  _ppa_repo
+  mkdir -p "${TEMP_DIR}/ctxdir"
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "bare"
+source = "ctxdir"
+
+[[additional_contexts]]
+name = "dot"
+source = "."
+
+[[additional_contexts]]
+name = "img"
+source = "docker-image://alpine:3.22"
+
+[[additional_contexts]]
+name = "abs"
+source = "/etc"
+EOF
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local _bare _dot _img _abs
+  _bare="$(sed -n 's/^ *bare: *//p' "${_out}/compose.yaml" | head -1)"
+  _dot="$(sed -n 's/^ *dot: *//p' "${_out}/compose.yaml" | head -1)"
+  _img="$(sed -n 's/^ *img: *//p' "${_out}/compose.yaml" | head -1)"
+  _abs="$(sed -n 's/^ *abs: *//p' "${_out}/compose.yaml" | head -1)"
+  assert [ -d "${_bare}" ]
+  assert [ -f "${_dot}/Dockerfile" ]
+  assert_equal "${_img}" "docker-image://alpine:3.22"
+  assert_equal "${_abs}" "/etc"
 }
