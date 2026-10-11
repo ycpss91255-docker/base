@@ -37,7 +37,7 @@ _ARRAY_SPEC = {
     "cap_drop": ("cap_drop", lambda e: _field(e, "cap")),
     "security_opt": ("security_opt", lambda e: _field(e, "opt")),
     "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode"))),
-    "tmpfs": ("tmpfs", lambda e: _field(e, "path")),
+    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e)),
     # `devices` is a namespace of two independently replaceable lists,
     # not one list: host bindings under `[[devices.bindings]]` and cgroup
     # rules under `[[devices.cgroup_rules]]`. Both number into the
@@ -84,6 +84,35 @@ def _format_value(v):
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
+
+
+def _tmpfs_mount(elem):
+    """One `[[tmpfs]]` entry as the single string the shell view reads.
+
+    The INI contract this family migrated from was ONE string,
+    `tmpfs_N = /path[:size=N]`, and that is still what consumes it:
+    `_emit_tmpfs_block` writes each entry straight into compose's
+    `tmpfs:` list. The template documents the TOML entry as two fields --
+    `path = "/tmp"` with `size = "64m"` under it -- and reading only
+    `path` dropped the size, so an operator who followed the template got
+    Docker's default limit instead of the 64 MB they asked for, with
+    nothing said.
+
+    Both spellings answer the same string, which is the property that
+    matters: a converted repo carries `path = "/tmp:size=64m"` because
+    the converter had one INI string to render, and the template teaches
+    the two-field form.
+
+    An ABSENT size is no suffix at all, not a bare separator -- the trap
+    the one-sided array entry was fixed for (base#1234). An EMPTY one is
+    treated the same: `size = ""` is not a limit, and `/tmp:size=` is not
+    an option compose accepts.
+    """
+    path = _field(elem, "path")
+    size = _field(elem, "size")
+    if not path or not size:
+        return path
+    return f"{path}:size={size}"
 
 
 def _field(elem, name):

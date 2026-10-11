@@ -7296,7 +7296,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (57)
+### test/bats/unit/toml_bridge_spec.bats (58)
 
 | Test | Description |
 |------|-------------|
@@ -7357,6 +7357,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: a tab in a key or a section name is refused` | - |
 | `toml-bridge: a tab inside a VALUE is carried, not refused` | The control, and the line the rule is drawn on. The value is the LAST field, so `read` hands it the rest of the line intact -- a tab there survives, measured. Refusing it would reject a file the transport carries correctly, which is the opposite failure. |
 | `toml-bridge: a value's leading and trailing tabs survive both readers` | A tab inside a VALUE is deliberately carried by the transport -- the value is the last field, so the row holds it intact, and `_check_transportable` draws its line there rather than refusing a file the stream carries correctly. The READER then undid it: `IFS=$'\t' read -r a b c` strips a tab from the ends of a field and collapses runs of it, because a tab is IFS whitespace. Measured: `[environment] env_1 = "TOKEN=abc<TAB>"` loaded as `TOKEN=abc` and `"<TAB>LEAD=x"` as `LEAD=x`, silently changing a container value the writer had preserved. Both readers split at the first two tabs now and keep the rest byte for byte -- the single-file tokenizer and the merged-chain one, which is why this asserts through each. |
+| `toml-bridge: a tmpfs entry's size reaches the shell view` | The template DOCUMENTS a two-field tmpfs entry -- `path = "/tmp"` with `size = "64m"` under it -- and the serializer read only `path`, so the size never reached `_emit_tmpfs_block` or compose and the operator silently got Docker's default limit instead of the 64 MB they asked for. The INI contract the migration came from was one string, `tmpfs_N = /path[:size=N]`, and that is still what the compose emitter consumes, so the two fields are joined into it. Both spellings have to answer the same, because a converted repo carries the one-string form and the template teaches the two-field one. |
 
 ### test/bats/unit/toml_config_template_spec.bats (20)
 
@@ -7611,7 +7612,7 @@ does NOT match
 | `transcript.lnav-format.json: every declared sample line matches the pattern (#609)` | - |
 | `log.lnav-format.json (JSON) still coexists unchanged (#609)` | - |
 
-### test/bats/unit/transcript_spec.bats (34)
+### test/bats/unit/transcript_spec.bats (36)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -7675,6 +7676,8 @@ call begin + detach
 | `_transcript_resolve_traceid: generates a 32-hex id when TRACEPARENT absent (#606)` | - |
 | `_transcript_enabled: true by default when no setup.conf (#606)` | - |
 | `_transcript_enabled: false when wrapper_transcript = false (#606)` | - |
+| `_transcript_enabled: an annotated or quoted opt-out is still an opt-out (base#1148)` | An operator who turns a setting off is exactly the one who writes down why, and a comment after the value is part of a VALID TOML line. The reader is a deliberate source-time grep -- it may not reach the containerised bridge, because that would put docker in front of every wrapper invocation -- and it returned the whole right-hand side, so `wrapper_transcript = false # disable capture` read as `false # disable capture`, matched neither `false` nor `true`, and left recording ON against an explicit opt-out. The quoted spellings of the key and of the value are the same question: TOML allows them and the grep saw neither. |
+| `_transcript_conf: an annotated integer reads back as the integer (base#1148)` | The same trailing comment on the INTEGER keys, which feed a numeric comparison rather than a string one -- an unparsed `20 # two weeks` is not a count, and the retention sweep reads it. |
 | `_transcript_enabled: WRAPPER_TRANSCRIPT=false env wins over conf=true (#622)` | - |
 | `_transcript_enabled: WRAPPER_TRANSCRIPT=true env wins over conf=false (#622)` | - |
 | `_transcript_enabled: a non-boolean WRAPPER_TRANSCRIPT is refused, not ignored (#895)` | - |

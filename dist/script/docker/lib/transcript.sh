@@ -140,13 +140,42 @@ _transcript_is_capture_verb() {
 #   falling back to <default> when the file or key is absent. Minimal
 #   grep (the wrapper_transcript* keys are unique within setup.toml) so
 #   the source-time path stays dependency-light and failure-safe.
+#
+#   A GREP, AND IT HAS TO BE. This runs at SOURCE time in every wrapper,
+#   before anything has decided whether a container may be started, so it
+#   cannot reach the containerised bridge: that would put a `docker run`
+#   in front of `build.sh`, `run.sh` and `exec.sh` merely to learn
+#   whether to open a log file, and would make the transcript fail
+#   whenever docker does. What it CAN do is read the line the way TOML
+#   writes it, which is what this was not doing.
+#
+#   Three spellings it now handles, each valid TOML and each previously
+#   wrong:
+#     - a TRAILING COMMENT. An operator who turns capture off is exactly
+#       the one who writes down why, and `wrapper_transcript = false #
+#       disable capture` came back as `false # disable capture`, which
+#       matches neither `false` nor `true` -- so the explicit opt-out
+#       left recording ON. The cut is made at the first `#` only for an
+#       UNQUOTED value; inside a quoted one a `#` is content.
+#     - a QUOTED VALUE. `"false"` is the string, not the boolean, but it
+#       is what a hand-edit or an older writer produces, and the quotes
+#       are not part of the value.
+#     - a QUOTED KEY. `"wrapper_transcript" = false` is the same key, and
+#       the pattern did not match it at all, so the default stood.
+#
+#   NOT a TOML parser, and it does not pretend to be: it reads a scalar
+#   written on one line, which is every spelling of these three keys that
+#   `_conf_fmt_kv` emits and the template documents. A multiline value
+#   here would read as its first line -- and `[logging]` carries no key
+#   that could have one.
 _transcript_conf() {
   local _key="${1:?}" _default="${2:-}"
   local _conf
   _conf="$(_transcript_repo_root)/setup.toml"
   [[ -f "${_conf}" ]] || { printf '%s' "${_default}"; return 0; }
   local _line
-  _line="$(grep -E "^[[:space:]]*${_key}[[:space:]]*=" "${_conf}" 2>/dev/null | tail -n1)"
+  _line="$(grep -E "^[[:space:]]*(\"${_key}\"|'${_key}'|${_key})[[:space:]]*=" \
+    "${_conf}" 2>/dev/null | tail -n1)"
   if [[ -z "${_line}" ]]; then
     printf '%s' "${_default}"
     return 0
@@ -155,6 +184,22 @@ _transcript_conf() {
   # trim surrounding whitespace
   _val="${_val#"${_val%%[![:space:]]*}"}"
   _val="${_val%"${_val##*[![:space:]]}"}"
+  # A quoted value owns everything between its quotes, `#` included; an
+  # unquoted one ends at the first `#`.
+  case "${_val}" in
+    \"*\")
+      _val="${_val#\"}"
+      _val="${_val%%\"*}"
+      ;;
+    \'*\')
+      _val="${_val#\'}"
+      _val="${_val%%\'*}"
+      ;;
+    *)
+      _val="${_val%%\#*}"
+      _val="${_val%"${_val##*[![:space:]]}"}"
+      ;;
+  esac
   printf '%s' "${_val}"
 }
 

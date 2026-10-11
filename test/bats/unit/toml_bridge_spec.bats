@@ -1560,3 +1560,29 @@ _bridge_kv() {
   assert_success
   assert_output --partial "[TOKEN=abc	][	LEAD=x]"
 }
+
+# why: The template DOCUMENTS a two-field tmpfs entry -- `path = "/tmp"`
+# with `size = "64m"` under it -- and the serializer read only `path`, so
+# the size never reached `_emit_tmpfs_block` or compose and the operator
+# silently got Docker's default limit instead of the 64 MB they asked
+# for. The INI contract the migration came from was one string,
+# `tmpfs_N = /path[:size=N]`, and that is still what the compose emitter
+# consumes, so the two fields are joined into it. Both spellings have to
+# answer the same, because a converted repo carries the one-string form
+# and the template teaches the two-field one.
+@test "toml-bridge: a tmpfs entry's size reaches the shell view" {
+  local _f="${BATS_TEST_TMPDIR}/tmpfs.toml"
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = "64m"\n\n[[tmpfs]]\npath = "/run"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_success
+  assert_line $'tmpfs\ttmpfs_1\t/tmp:size=64m'
+  # No size declared is still just the path -- not a bare separator, the
+  # trap the one-sided array entry was fixed for.
+  assert_line $'tmpfs\ttmpfs_2\t/run'
+
+  # The one-string spelling a converted repo carries answers the same.
+  printf '[[tmpfs]]\npath = "/tmp:size=64m"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_success
+  assert_line $'tmpfs\ttmpfs_1\t/tmp:size=64m'
+}

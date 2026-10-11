@@ -163,6 +163,44 @@ teardown() { rm -rf "${TMP_DIR}"; }
   assert_failure
 }
 
+# why: An operator who turns a setting off is exactly the one who writes
+# down why, and a comment after the value is part of a VALID TOML line.
+# The reader is a deliberate source-time grep -- it may not reach the
+# containerised bridge, because that would put docker in front of every
+# wrapper invocation -- and it returned the whole right-hand side, so
+# `wrapper_transcript = false # disable capture` read as
+# `false # disable capture`, matched neither `false` nor `true`, and left
+# recording ON against an explicit opt-out. The quoted spellings of the
+# key and of the value are the same question: TOML allows them and the
+# grep saw neither.
+@test "_transcript_enabled: an annotated or quoted opt-out is still an opt-out (base#1148)" {
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = false # disable capture\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  printf '[logging]\n"wrapper_transcript" = false\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  # And the control: an annotated TRUE still reads true, so the fix is
+  # not "anything with a comment is off".
+  printf '[logging]\nwrapper_transcript = true  # keep capturing\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_success
+}
+
+# why: The same trailing comment on the INTEGER keys, which feed a
+# numeric comparison rather than a string one -- an unparsed
+# `20 # two weeks` is not a count, and the retention sweep reads it.
+@test "_transcript_conf: an annotated integer reads back as the integer (base#1148)" {
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript_keep = 5 # five runs\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_conf wrapper_transcript_keep 20
+  assert_success
+  assert_output "5"
+}
+
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=false env wins over conf=true (#622)" {
   mkdir -p "${TMP_DIR}"
   printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/setup.toml"
