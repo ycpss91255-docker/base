@@ -5861,7 +5861,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (153)
+### test/bats/unit/setup_cmd_spec.bats (159)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6031,6 +6031,12 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply --output refuses a call that would write into the repo's conf (base#1087)` | "The repo is not mutated by a call" is a property of the whole apply, not of its writers: _reconcile_workspace_path rewrites <repo>/setup.toml on first-time bootstrap and on a stale absolute mount_1. Observed by handing a repo with no setup.toml to an --output call -- the bootstrap case -- and asserting it is refused rather than served by writing into the repo. |
 | `apply without --output still writes into the repo root (base#1087)` | Without --output the apply is exactly what every existing checkout runs, writing into the repo. Pinned beside the parameterised path so a regression there cannot hide behind the new tests. |
 | `deploy --local-conf routes the reproducibility refusal at the caller's file (base#1087)` | deploy's reproducibility refusal is built on _setup_conf_local_sections, so a caller-supplied layer has to reach it: otherwise the refusal would inspect the operator's absent default file, clear the call, and bake a bundle out of untracked configuration. The refusal naming the CALLER's file is the observation. |
+| `apply --output emits no host path that fails to resolve (base#1087)` | `build.context` was not the only repo-relative path in the emitted file. A `config/<component>/` bind, a relative `[volumes] mount_N` and an `[additional_contexts]` path are all resolved by compose against the compose file's own directory, so a relocated set would mount paths inside the output directory -- which docker CREATES, empty and root-owned, rather than failing. The property is therefore asked of the ARTIFACT: every host path it names resolves to something that exists. Derived from the emitted file's own lines, so a path kind added to the emitter later is covered the day it appears. |
+| `apply --output canonicalises a relative --base-path into the emitted context (base#1087)` | A relative --base-path leaves the repo root spelled `.`, which is the one spelling that is WRONG in a relocated file and right in a co-located one -- compose resolves it against the output directory either way. Generation succeeded and the build then could not find the Dockerfile, so the emitted context is canonicalised rather than copied. |
+| `apply --output --print-resolved preserves the repo it would have bootstrapped (base#1087)` | --print-resolved returns before any artifact is written, and the repo-preservation check sat after it -- so the one option combination that writes nothing was also the one that left a bootstrapped setup.toml behind. The check belongs where the mutation happens, not where the writes do. |
+| `apply refuses an empty --local-conf= value (base#1087)` | `--local-conf=` and `--output=` parse to the empty string, and an empty value read as "the option was not given" turns both refusal contracts off from the command line: the chain silently falls back to the repo's own local layer, and the set is written into the repo. An option that was SUPPLIED is validated on its value, not on its emptiness. |
+| `apply refuses an empty --output= value instead of writing into the repo (base#1087)` | - |
+| `deploy refuses an empty --local-conf= value (base#1087)` | - |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 

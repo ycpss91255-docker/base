@@ -2663,3 +2663,120 @@ DF
   assert_failure
   assert_output --partial "a.toml"
 }
+
+# why: `build.context` was not the only repo-relative path in the emitted
+# file. A `config/<component>/` bind, a relative `[volumes] mount_N` and an
+# `[additional_contexts]` path are all resolved by compose against the
+# compose file's own directory, so a relocated set would mount paths inside
+# the output directory -- which docker CREATES, empty and root-owned,
+# rather than failing. The property is therefore asked of the ARTIFACT:
+# every host path it names resolves to something that exists. Derived from
+# the emitted file's own lines, so a path kind added to the emitter later
+# is covered the day it appears.
+@test "apply --output emits no host path that fails to resolve (base#1087)" {
+  _ppa_repo
+  mkdir -p "${TEMP_DIR}/config/demo" "${TEMP_DIR}/extra" "${TEMP_DIR}/ctxdir"
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+context = "shared=./ctxdir"
+EOF
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local -a _paths=()
+  local _l _p
+  while IFS= read -r _l; do
+    _paths+=("${_l}")
+  done < <(
+    # `context: <p>`, the RHS of an `additional_contexts` entry, and the
+    # LHS of every `- <host>:<container>` volume line.
+    sed -n \
+      -e 's/^ *context: *//p' \
+      -e 's/^ *[A-Za-z0-9_][A-Za-z0-9_-]*: *\(\.\{1,2\}\/[^ ]*\)$/\1/p' \
+      -e 's/^ *- \([^:$][^:]*\):\/.*$/\1/p' \
+      "${_out}/compose.yaml"
+  )
+  (( ${#_paths[@]} > 0 )) || fail "the emitted compose names no host path"
+  for _p in "${_paths[@]}"; do
+    # Unresolvable by construction: an interpolation is a per-instance
+    # overlay value (ADR-00000022), not a path this file can be read for.
+    [[ "${_p}" == *'${'* ]] && continue
+    [[ "${_p}" == /* ]] || _p="${_out}/${_p}"
+    assert [ -e "${_p}" ]
+  done
+}
+
+# why: A relative --base-path leaves the repo root spelled `.`, which is
+# the one spelling that is WRONG in a relocated file and right in a
+# co-located one -- compose resolves it against the output directory
+# either way. Generation succeeded and the build then could not find the
+# Dockerfile, so the emitted context is canonicalised rather than copied.
+@test "apply --output canonicalises a relative --base-path into the emitted context (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    cd '${TEMP_DIR}' || exit 1
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path . --output ./inst-1 -q 2>&1
+  "
+  assert_success
+  local _ctx
+  _ctx="$(sed -n 's/^ *context: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  assert [ -f "${_ctx}/Dockerfile" ]
+}
+
+# why: --print-resolved returns before any artifact is written, and the
+# repo-preservation check sat after it -- so the one option combination
+# that writes nothing was also the one that left a bootstrapped setup.toml
+# behind. The check belongs where the mutation happens, not where the
+# writes do.
+@test "apply --output --print-resolved preserves the repo it would have bootstrapped (base#1087)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DF'
+FROM ubuntu:24.04 AS sys
+FROM sys AS devel
+DF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' --print-resolved 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+}
+
+# why: `--local-conf=` and `--output=` parse to the empty string, and an
+# empty value read as "the option was not given" turns both refusal
+# contracts off from the command line: the chain silently falls back to the
+# repo's own local layer, and the set is written into the repo. An option
+# that was SUPPLIED is validated on its value, not on its emptiness.
+@test "apply refuses an empty --local-conf= value (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf= --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+@test "apply refuses an empty --output= value instead of writing into the repo (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output= -q 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
+}
+
+@test "deploy refuses an empty --local-conf= value (base#1087)" {
+  _ppa_repo
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main deploy --base-path '${TEMP_DIR}' --local-conf= --stage runtime --dry-run 2>&1
+  "
+  assert_failure
+  assert_output --partial "empty path"
+}

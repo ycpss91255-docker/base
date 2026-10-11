@@ -1154,9 +1154,14 @@ _setup_reset() {
 _setup_apply() {
   local _base_path=""
   local _quiet=0
-  # Empty means the repo itself, which is every existing checkout.
-  local _output=""
-  local _local_conf=""
+  # Empty means the repo itself, which is every existing checkout. The
+  # companion flags record that the option was SUPPLIED: `--output=` and
+  # `--local-conf=` parse to the empty string, and reading that as "not
+  # given" would turn both refusal contracts off from the command line --
+  # an empty address falling back to the repo's own local layer, and an
+  # empty output directory writing the set into the repo.
+  local _output="" _output_set=0
+  local _local_conf="" _local_conf_set=0
   # per-invocation overrides. Empty means "use setup.toml /
   # SETUP_GUI env / built-in default" per the documented resolution
   # order CLI > env > conf > default.
@@ -1200,18 +1205,22 @@ _setup_apply() {
         ;;
       --output|-o)
         _output="${2:?"--output requires a value"}"
+        _output_set=1
         shift 2
         ;;
       --output=*)
         _output="${1#--output=}"
+        _output_set=1
         shift
         ;;
       --local-conf)
         _local_conf="${2:?"--local-conf requires a value"}"
+        _local_conf_set=1
         shift 2
         ;;
       --local-conf=*)
         _local_conf="${1#--local-conf=}"
+        _local_conf_set=1
         shift
         ;;
       *)
@@ -1227,7 +1236,7 @@ _setup_apply() {
   # defaults and reports success. Declared `local` so one call's
   # parameters cannot leak into the next one's.
   local _SETUP_CONF_LOCAL="${_SETUP_CONF_LOCAL:-}"
-  if [[ -n "${_local_conf}" ]]; then
+  if (( _local_conf_set )); then
     _setup_conf_local_check "${_local_conf}" || return 1
     _SETUP_CONF_LOCAL="${_local_conf}"
   fi
@@ -1258,7 +1267,13 @@ _setup_apply() {
   # part of the set had been emitted, leaving a half-written bundle and a
   # caller told nothing useful.
   local _out_dir="${_base_path}"
-  if [[ -n "${_output}" ]]; then
+  if (( _output_set )); then
+    if [[ -z "${_output}" ]]; then
+      _log_err setup apply_output_unusable \
+        "display=[setup] apply: --output was given an empty path; refusing to fall back to writing the set into the repo" \
+        "path="
+      return 1
+    fi
     if [[ -e "${_output}" && ! -d "${_output}" ]]; then
       _log_err setup apply_output_unusable \
         "display=[setup] apply: --output ${_output} exists and is not a directory; refusing to emit a partial set into it" \
@@ -1288,7 +1303,7 @@ _setup_apply() {
   # reader resolves through, so a new layer is covered the day it exists.
   local -a _ap_chain=()
   local -A _ap_chain_pre=()
-  if [[ -n "${_output}" ]]; then
+  if (( _output_set )); then
     _setup_conf_layers "${_base_path}" _ap_chain || return 1
     _setup_conf_chain_snapshot _ap_chain _ap_chain_pre
   fi
@@ -1477,6 +1492,23 @@ _setup_apply() {
   # _vol_k / _vol_v in place (reloaded after any mount_1 rewrite) and
   # resolves ws_path (seeded above from ${WS_PATH:-}).
   _reconcile_workspace_path "${_base_path}" "${_repo_conf}" _vol_k _vol_v ws_path
+
+  # The photograph is compared HERE, where the mutation happens, rather
+  # than beside the writes. A call that was asked to write elsewhere and
+  # changed the repo's configuration on the way is put back and refused
+  # before anything else happens -- including before `--print-resolved`,
+  # which returns further down and writes no artifact at all, and so was
+  # the one supported combination that left a bootstrapped setup.toml
+  # behind.
+  if (( _output_set )); then
+    if _setup_conf_chain_changed _ap_chain _ap_chain_pre; then
+      _setup_conf_chain_restore _ap_chain _ap_chain_pre
+      _log_err setup apply_repo_conf_mutated \
+        "display=[setup] apply: this call changed the repo's configuration under ${_base_path}, which an --output call must not do -- a first-time bootstrap with no setup.toml, and a stale absolute [volumes] mount_1, are the two that reach here. Run 'setup apply' once without --output to settle the repo, then call again." \
+        "path=${_base_path}"
+      return 1
+    fi
+  fi
 
   # shellcheck disable=SC2034  # populated via nameref by _get_conf_list_sorted
   local -a extra_volumes=()
@@ -1699,21 +1731,6 @@ _setup_apply() {
 
   # ── Generate artifacts ──
   #
-  # The photograph is compared first. A call that was asked to write
-  # elsewhere and changed the repo's configuration on the way is put back
-  # and refused here, before a single artifact is emitted, rather than
-  # handed back as a success that moved the ground under the other N-1
-  # calls.
-  if [[ -n "${_output}" ]]; then
-    if _setup_conf_chain_changed _ap_chain _ap_chain_pre; then
-      _setup_conf_chain_restore _ap_chain _ap_chain_pre
-      _log_err setup apply_repo_conf_mutated \
-        "display=[setup] apply: this call changed the repo's configuration under ${_base_path}, which an --output call must not do -- a first-time bootstrap with no setup.toml, and a stale absolute [volumes] mount_1, are the two that reach here. Run 'setup apply' once without --output to settle the repo, then call again." \
-        "path=${_base_path}"
-      return 1
-    fi
-  fi
-
   write_env "${_env_file}" \
     "${user_name}" "${user_group}" "${user_uid}" "${user_gid}" \
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
@@ -1812,13 +1829,13 @@ _setup_deploy() {
   # ADR-00000036's other half for this stage: deploy already named its own
   # output directory, so an address for the chain's top layer is all it
   # was missing.
-  local _local_conf=""
+  local _local_conf="" _local_conf_set=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)     usage ;;
       --allow-local-override) _allow_local=1; shift ;;
-      --local-conf)  _local_conf="${2:?"--local-conf requires a value"}"; shift 2 ;;
-      --local-conf=*) _local_conf="${1#--local-conf=}"; shift ;;
+      --local-conf)  _local_conf="${2:?"--local-conf requires a value"}"; _local_conf_set=1; shift 2 ;;
+      --local-conf=*) _local_conf="${1#--local-conf=}"; _local_conf_set=1; shift ;;
       --base-path)   _base_path="${2:?"--base-path requires a value"}"; shift 2 ;;
       --lang)        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"; _sanitize_lang _LANG "setup"; shift 2 ;;
       --stage)       _stage="${2:?"--stage requires a value"}"; shift 2 ;;
@@ -1838,7 +1855,7 @@ _setup_deploy() {
   # The addressed local layer, checked before the stage is even looked at,
   # so an address that cannot be read never reaches a preview or a build.
   local _SETUP_CONF_LOCAL="${_SETUP_CONF_LOCAL:-}"
-  if [[ -n "${_local_conf}" ]]; then
+  if (( _local_conf_set )); then
     _setup_conf_local_check "${_local_conf}" || return 1
     _SETUP_CONF_LOCAL="${_local_conf}"
   fi

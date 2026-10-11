@@ -148,6 +148,82 @@ _classify_volume_lhs() {
   esac
 }
 
+# _compose_reroot_path <path> <root>
+# _compose_reroot_mount <mount_string> <root>
+# _compose_reroot_named <name=path> <root>
+#
+# Rebase a REPO-RELATIVE host path onto <root>. Echo it unchanged when
+# <root> is empty, which is the co-located case -- the committed artifact
+# every downstream repo carries, byte-for-byte.
+#
+# compose resolves a relative host path against the compose file's own
+# directory, so `./config/demo` is correct exactly while the file sits in
+# the repo. A relocated set that kept it would not fail: docker CREATES a
+# missing bind source, empty and root-owned, inside the caller's output
+# directory, and the container would come up with the repo's shipped
+# configuration silently absent. Rebasing is what makes the emitted set
+# self-contained rather than merely relocated (ADR-00000036).
+#
+# Only `./` and `../` move. An absolute path is already unambiguous, a
+# `~/` path is the operator's home on whatever host runs it, a `${VAR}`
+# LHS is a per-instance overlay value (ADR-00000022) and not a path this
+# emitter may resolve, and a bare name is a Docker named volume.
+_compose_reroot_path() {
+  local _p="${1-}" _root="${2-}"
+  if [[ -z "${_root}" ]]; then
+    printf '%s' "${_p}"
+    return 0
+  fi
+  case "${_p}" in
+    ./*)  printf '%s/%s' "${_root}" "${_p#./}" ;;
+    ../*) printf '%s/%s' "${_root}" "${_p}" ;;
+    *)    printf '%s' "${_p}" ;;
+  esac
+}
+
+_compose_reroot_mount() {
+  local _m="${1-}" _root="${2-}"
+  if [[ -z "${_root}" ]] || [[ "$(_classify_volume_lhs "${_m}")" != bind ]]; then
+    printf '%s' "${_m}"
+    return 0
+  fi
+  printf '%s%s' "$(_compose_reroot_path "${_m%%:*}" "${_root}")" ":${_m#*:}"
+}
+
+_compose_reroot_named() {
+  local _e="${1-}" _root="${2-}"
+  if [[ -z "${_root}" ]] || [[ "${_e}" != *=* ]]; then
+    printf '%s' "${_e}"
+    return 0
+  fi
+  printf '%s=%s' "${_e%%=*}" "$(_compose_reroot_path "${_e#*=}" "${_root}")"
+}
+
+# _compose_reroot_lines <newline_separated> <root> <mount|named>
+#
+# Rebase every entry of a newline-separated list, preserving order and
+# blank-line handling. One pass over the list, so a caller cannot rebase
+# some entries and emit others raw.
+_compose_reroot_lines() {
+  local _str="${1-}" _root="${2-}" _kind="${3:-mount}"
+  if [[ -z "${_root}" ]] || [[ -z "${_str}" ]]; then
+    printf '%s' "${_str}"
+    return 0
+  fi
+  local _crl_line _crl_out="" _crl_first=1
+  while IFS= read -r _crl_line; do
+    [[ -z "${_crl_line}" ]] && continue
+    if [[ "${_kind}" == named ]]; then
+      _crl_line="$(_compose_reroot_named "${_crl_line}" "${_root}")"
+    else
+      _crl_line="$(_compose_reroot_mount "${_crl_line}" "${_root}")"
+    fi
+    if (( _crl_first )); then _crl_out="${_crl_line}"; _crl_first=0
+    else _crl_out+=$'\n'"${_crl_line}"; fi
+  done <<< "${_str}"
+  printf '%s' "${_crl_out}"
+}
+
 # _collect_named_volumes <assoc_array_name> <newline_separated_mounts>
 #
 # Add the named-volume names from <mounts> into the associative array used
@@ -632,6 +708,7 @@ _emit_stage_service() {
   local _name="${_ess_ctx[name]-}"
   local _setup_base="${_ess_ctx[setup_base]-}"
   local _ctx_dir="${_ess_ctx[ctx_dir]-.}"
+  local _reroot="${_ess_ctx[reroot]-}"
   local _additional_contexts_str="${_ess_ctx[additional_contexts]-}"
   local _build_network="${_ess_ctx[build_network]-}"
   local _target_arch="${_ess_ctx[target_arch]-}"
@@ -723,7 +800,10 @@ YAML
   local _eff_pid_mode="${_ess_res[pid_mode]-}"
   local _eff_net_name="${_ess_res[net_name]-}"
   local _eff_privileged="${_ess_res[privileged]-}"
-  local _eff_volumes="${_ess_res[volumes]-}"
+  # Rebased on the way in, for the same reason the devel list is: a stage
+  # that overrides [volumes] carries its own relative entries.
+  local _eff_volumes
+  _eff_volumes="$(_compose_reroot_lines "${_ess_res[volumes]-}" "${_reroot}")"
   local _eff_environment="${_ess_res[environment]-}"
   local _eff_ports="${_ess_res[ports]-}"
   local _eff_cap_add="${_ess_res[cap_add]-}"
@@ -1083,7 +1163,19 @@ generate_compose_yaml() {
   # out of scope v1; declare via Dockerfile ARG + conditional RUN.
   local _dockerfile _setup_base _out_dir
   _out_dir="$(dirname -- "${_out}")"
-  _setup_base="${_project_root:-${_out_dir}}"
+  if [[ -n "${_project_root}" ]]; then
+    # Canonicalised, and only on the relocated path so every existing
+    # caller stays byte-identical. A relative root -- `--base-path .` --
+    # stays `.` otherwise, and `.` is the one spelling that is wrong in a
+    # relocated file and right in a co-located one: compose resolves it
+    # against the output directory either way, so generation would
+    # succeed and the build would then find no Dockerfile.
+    _setup_base="${_project_root}"
+    [[ -d "${_setup_base}" ]] && _setup_base="$(cd -- "${_setup_base}" && pwd -P)"
+    [[ -d "${_out_dir}" ]] && _out_dir="$(cd -- "${_out_dir}" && pwd -P)"
+  else
+    _setup_base="${_out_dir}"
+  fi
   _dockerfile="${_setup_base}/Dockerfile"
   # `build.context` is resolved by compose against the compose file's own
   # directory, so the committed artifact's `.` is only correct while the
@@ -1093,7 +1185,27 @@ generate_compose_yaml() {
   # (devel, a stage with no overrides, a stage with overrides) cannot
   # answer differently.
   local _ctx_dir="."
-  [[ "${_setup_base}" != "${_out_dir}" ]] && _ctx_dir="${_setup_base}"
+  # Empty while the file is written where it is read, which is what keeps
+  # the committed artifact's relative paths exactly as they are.
+  local _reroot=""
+  if [[ "${_setup_base}" != "${_out_dir}" ]]; then
+    _ctx_dir="${_setup_base}"
+    _reroot="${_setup_base}"
+  fi
+  # Every repo-relative host path in the emitted file is rebased here,
+  # once, off the one root -- rather than at each emission site, where a
+  # site added later would be the one that was missed.
+  _additional_contexts_str="$(_compose_reroot_lines "${_additional_contexts_str}" "${_reroot}" named)"
+
+  # The devel service's mounts, rebased. A copy rather than an in-place
+  # rewrite of the caller's array: the nameref is the caller's own list
+  # and this function is not its owner.
+  local -a _gcy_mounts=()
+  local _gcy_m
+  for _gcy_m in "${_gcy_extras[@]+"${_gcy_extras[@]}"}"; do
+    _gcy_mounts+=("$(_compose_reroot_mount "${_gcy_m}" "${_reroot}")")
+  done
+
   local -a _emit_stages=()
   local _stage _vrc
   while IFS= read -r _stage; do
@@ -1305,7 +1417,7 @@ YAML
         if _device_has_propagation "${_chk}"; then _any_prop_device=true; break; fi
       done <<< "${_devices_str}"
     fi
-    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_extras[@]} > 0 )) || [[ -n "${_devel_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
+    if [[ "${_gui}" == "true" ]] || (( ${#_gcy_mounts[@]} > 0 )) || [[ -n "${_devel_llp}" ]] || [[ "${_any_prop_device}" == true ]]; then
       echo "    volumes:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1315,7 +1427,7 @@ YAML
 YAML
       fi
       local _m
-      for _m in "${_gcy_extras[@]}"; do
+      for _m in "${_gcy_mounts[@]}"; do
         echo "      - ${_m}"
       done
       [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
@@ -1376,8 +1488,8 @@ YAML
     # GUI baseline (X11) — those are emitted separately based on
     # effective gui resolution.
     local _top_volumes_str=""
-    if (( ${#_gcy_extras[@]} > 0 )); then
-      _top_volumes_str="$(printf '%s\n' "${_gcy_extras[@]}")"
+    if (( ${#_gcy_mounts[@]} > 0 )); then
+      _top_volumes_str="$(printf '%s\n' "${_gcy_mounts[@]}")"
       _top_volumes_str="${_top_volumes_str%$'\n'}"
     fi
 
@@ -1394,6 +1506,7 @@ YAML
       [name]="${_name}"
       [setup_base]="${_setup_base}"
       [ctx_dir]="${_ctx_dir}"
+      [reroot]="${_reroot}"
       [additional_contexts]="${_additional_contexts_str}"
       [build_network]="${_build_network}"
       [target_arch]="${_target_arch}"
