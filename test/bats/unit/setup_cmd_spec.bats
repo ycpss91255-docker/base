@@ -3036,3 +3036,82 @@ EOF
   [[ -n "${_src}" ]] || fail "no long-form bind emitted for the device entry"
   assert [ -d "${_src}" ]
 }
+
+# why: A device entry WITHOUT propagation is emitted into the plain
+# `devices:` list, by a different pair of emitters from the long-form bind
+# -- so rebasing it put the repo root into a line that still bypassed the
+# scalar serialiser. With a root carrying ` #`, YAML keeps only the path up
+# to it and the device target is lost, generation reporting success.
+@test "apply --output serialises a plain device binding carrying the root (base#1087)" {
+  local _repo="${TEMP_DIR}/repo #hash"
+  mkdir -p "${_repo}/device"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  cat >> "${_repo}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = "./device:/dev/example"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 -E '^ *- .*:/dev/example' "${TEMP_DIR}/inst-1/compose.yaml")"
+  [[ -n "${_line}" ]] || fail "no plain device entry emitted"
+  [[ "${_line}" == *'- "'* ]] || fail "plain device entry not quoted: ${_line}"
+}
+
+# why: `_classify_volume_lhs` does not list `../` among its bind prefixes,
+# so a parent-relative host path reads as a Docker named volume -- and the
+# rebase consulted that classifier before rebasing. A `../device-tree`
+# bind therefore kept resolving against the output directory even though
+# the rebase helper handles parent-relative paths explicitly. The rebase
+# now decides on the population it actually moves, `./` and `../`, rather
+# than borrowing a verdict answering a different question.
+@test "apply --output rebases a parent-relative bind source (base#1087)" {
+  mkdir -p "${TEMP_DIR}/outer/device-tree"
+  local _repo="${TEMP_DIR}/outer/repo"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  cat >> "${_repo}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = "../device-tree:/mnt/devices:rshared"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _src
+  _src="$(sed -n 's/^ *source: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  [[ -n "${_src}" ]] || fail "no long-form bind emitted"
+  assert [ -d "${_src}" ]
+}
+
+# why: Only interpolation that decides the path's ROOT has to stay
+# untouched. `./contexts/${FLAVOUR}` is an explicitly relative local path
+# with an interpolated leaf, and a blanket "any dollar sign means
+# non-local" left it resolving against the output directory. The explicit
+# relative prefix is read first, and the interpolation is carried through.
+@test "apply --output rebases a relative context with an interpolated leaf (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "flavoured"
+source = "./contexts/${FLAVOUR}"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _v
+  _v="$(sed -n 's/^ *flavoured: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  [[ "${_v}" == "${TEMP_DIR}/contexts/"* ]] || fail "not rebased: ${_v}"
+  [[ "${_v}" == *'${FLAVOUR}'* ]] || fail "interpolation lost: ${_v}"
+}

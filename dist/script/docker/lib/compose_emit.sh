@@ -256,6 +256,14 @@ _compose_reroot_path() {
 #   - an absolute or `~/` path, already unambiguous.
 _compose_context_is_local() {
   local _s="${1-}"
+  # An EXPLICIT relative prefix settles it before anything else is asked:
+  # `./contexts/${FLAVOUR}` is a local path whose leaf is interpolated,
+  # and only interpolation that decides the path's ROOT has to be left
+  # alone. A blanket "any dollar sign means non-local" left exactly this
+  # resolving against the output directory.
+  case "${_s}" in
+    ./*|../*) return 0 ;;
+  esac
   # shellcheck disable=SC2016,SC2088  # literal `$` and `~/` are the point
   case "${_s}" in
     *'$'*)              return 1 ;;
@@ -276,10 +284,20 @@ _compose_context_is_local() {
 # touched; a Docker named volume has no host path to rebase.
 _compose_reroot_mount() {
   local _m="${1-}" _root="${2-}"
-  if [[ -z "${_root}" ]] || [[ "$(_classify_volume_lhs "${_m}")" != bind ]]; then
+  if [[ -z "${_root}" ]]; then
     printf '%s' "${_m}"
     return 0
   fi
+  # Decided on the population this function MOVES -- an explicitly
+  # repo-relative `./` or `../` host path -- rather than borrowed from
+  # `_classify_volume_lhs`, whose bind prefixes do not include `../` and
+  # which is answering a different question (is there a named volume to
+  # declare at the top level?). Asking it here left a `../device-tree`
+  # bind resolving against the output directory.
+  case "${_m%%:*}" in
+    ./*|../*) ;;
+    *) printf '%s' "${_m}"; return 0 ;;
+  esac
   printf '%s%s' "$(_compose_reroot_path "${_m%%:*}" "${_root}")" ":${_m#*:}"
 }
 
@@ -1181,7 +1199,7 @@ YAML
         echo "    devices:"
         _has_plain_sd=true
       fi
-      echo "      - ${_sd}"
+      echo "      - $(_compose_yaml_scalar "${_sd}")"
     done <<< "${_devices_str}"
   fi
   # device_cgroup_rules + tmpfs from top-level (shared emitters).
@@ -1597,7 +1615,7 @@ YAML
           echo "    devices:"
           _has_plain=true
         fi
-        echo "      - ${_d}"
+        echo "      - $(_compose_yaml_scalar "${_d}")"
       done <<< "${_devices_str}"
     fi
     # device_cgroup_rules + tmpfs (shared emitters).
