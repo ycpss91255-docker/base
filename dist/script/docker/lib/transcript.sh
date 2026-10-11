@@ -186,12 +186,21 @@ _transcript_conf() {
   _val="${_val%"${_val##*[![:space:]]}"}"
   # A quoted value owns everything between its quotes, `#` included; an
   # unquoted one ends at the first `#`.
+  #
+  # Keyed on the OPENING quote, not on a quote at each end. Requiring the
+  # closing one to end the LINE is what the first spelling of this did,
+  # and `wrapper_transcript = "false" # disable capture` -- a quoted
+  # value and a comment, both valid -- matched neither branch: it fell
+  # through to the unquoted one, which removed the comment and left the
+  # quotes, so the value read `"false"`, matched no boolean, and capture
+  # stayed on against the opt-out. The closing quote is found inside the
+  # line instead.
   case "${_val}" in
-    \"*\")
+    \"*)
       _val="${_val#\"}"
       _val="${_val%%\"*}"
       ;;
-    \'*\')
+    \'*)
       _val="${_val#\'}"
       _val="${_val%%\'*}"
       ;;

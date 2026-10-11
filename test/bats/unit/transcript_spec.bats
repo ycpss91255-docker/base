@@ -183,6 +183,19 @@ teardown() { rm -rf "${TMP_DIR}"; }
   FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 
+  # A quoted value AND a trailing comment together. The first spelling of
+  # this fix matched the quotes only when the closing one ended the line,
+  # so the comment fell through to the unquoted branch, which stripped
+  # the comment and left the quotes: `"false"` matched no boolean and
+  # capture stayed on. Both quote forms.
+  printf '[logging]\nwrapper_transcript = "false" # disable capture\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  printf "[logging]\nwrapper_transcript = 'false'  # disable capture\n" > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
   # And the control: an annotated TRUE still reads true, so the fix is
   # not "anything with a comment is off".
   printf '[logging]\nwrapper_transcript = true  # keep capturing\n' > "${TMP_DIR}/setup.toml"
