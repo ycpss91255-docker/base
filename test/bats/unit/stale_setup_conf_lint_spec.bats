@@ -36,6 +36,15 @@ setup() {
   # shellcheck disable=SC1091
   source /source/script/test/drivers/stale_setup_conf.sh
 
+  # The table's delimiter, named rather than typed. A literal 0x09 in a
+  # spec line is invisible, and losing one is not a loud failure: the row
+  # it delimited stops parsing, the derived population silently SHRINKS by
+  # one, and most of this file stays green over a fixture that no longer
+  # says what it says. That is the declared-population failure this issue
+  # is about, reached through the test rather than the driver, so the
+  # fixture refuses a row it cannot deliver (see _write_table).
+  _TAB=$'\t'
+
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/dist/script/docker/lib" "${SCRATCH}/dist/script/base"
   REPO_ROOT="${SCRATCH}"
@@ -47,8 +56,29 @@ setup() {
   # The fixture tree carries a rename table, because the lint DERIVES the
   # TOML-era half of its stale set from one rather than declaring it. A
   # tree without a table is its own case below, not the default.
-  _write_table ".${_STALE_SETUP_CONF_BASENAME}	setup.toml" \
-    ".${_STALE_SETUP_CONF_BASENAME}.local	setup.local.toml"
+  _write_table ".${_STALE_SETUP_CONF_BASENAME}${_TAB}setup.toml" \
+    ".${_STALE_SETUP_CONF_BASENAME}.local${_TAB}setup.local.toml"
+}
+
+# _assert_tab_delimited <row>... -- fail the test, loudly, on any row that
+# is not exactly `source<TAB>target`.
+#
+# The driver drops a malformed row, by design: it is reading a shipped lib
+# and must not break on one. That is the right behaviour there and the
+# wrong silence here, because a fixture row that quietly stops counting
+# leaves a test asserting over a population it did not set up -- and
+# several of the cases below would still pass, on the refusal the shrunken
+# table triggers rather than on the rule they name.
+_assert_tab_delimited() {
+  local _row
+  for _row in "$@"; do
+    [[ "${_row}" == *"${_TAB}"* ]] \
+      || fail "fixture row is not tab-delimited: ${_row}"
+    [[ "${_row}" != *"${_TAB}"*"${_TAB}"* ]] \
+      || fail "fixture row has more than one tab: ${_row}"
+    [[ "${_row%"${_TAB}"*}" != "" && "${_row#*"${_TAB}"}" != "" ]] \
+      || fail "fixture row has an empty half: ${_row}"
+  done
 }
 
 # _write_table <row>... -- plant a rename table in the fixture tree at the
@@ -61,6 +91,7 @@ setup() {
 # go outside the heredoc so they never become table rows.
 _write_table() {
   local _f="${SCRATCH}/${_STALE_SETUP_CONF_TABLE_REL}"
+  _assert_tab_delimited "$@"
   mkdir -p "$(dirname "${_f}")"
   {
     printf '%s\n' '#!/usr/bin/env bash'
@@ -79,6 +110,7 @@ _write_table() {
 # for the file it derives its population from.
 _write_table_unbracketed() {
   local _f="${SCRATCH}/${_STALE_SETUP_CONF_TABLE_REL}"
+  _assert_tab_delimited "$@"
   mkdir -p "$(dirname "${_f}")"
   {
     printf '%s\n' '#!/usr/bin/env bash'
@@ -257,7 +289,7 @@ _write() {
 # a row this spec invents is guarded, with ITS replacement, by a driver
 # that has never heard of it.
 @test "_run_stale_setup_conf: guards a spelling retired by a row the driver never named (base#1251)" {
-  _write_table ".oldthing.conf	newthing.toml"
+  _write_table ".oldthing.conf${_TAB}newthing.toml"
   _write "dist/script/docker/lib/sample.sh" \
     '_c="${_root}/.oldthing.conf"'
   run _run_stale_setup_conf
@@ -303,7 +335,7 @@ _write() {
 # file-level exclusion by another name, and it would hide a NEW stale read
 # added to the migration lib that owns the table.
 @test "_run_stale_setup_conf: does NOT exempt the rename table's own file implicitly (base#1251)" {
-  _write_table_unbracketed ".${_STALE_SETUP_CONF_BASENAME}	setup.toml"
+  _write_table_unbracketed ".${_STALE_SETUP_CONF_BASENAME}${_TAB}setup.toml"
   run _run_stale_setup_conf
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"${_STALE_SETUP_CONF_TABLE_REL}"* ]]
