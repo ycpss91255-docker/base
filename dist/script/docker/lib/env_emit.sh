@@ -217,8 +217,10 @@ EOF
 #
 # Write `.env`: the container-bound defaults this repo ships. OURS --
 # regenerated from setup.toml on every apply, so a hand edit here is lost
-# by design. The operator's values go in `.env.local.toml`, which compose
-# loads after this file.
+# by design. The operator's values go in `.env.local`, which compose loads
+# after this file -- the file `_emit_env_file_block` names, not the
+# `.env.local.toml` ADR-00000037's output table renders it FROM once the
+# readers land (see _scaffold_env_local's header).
 #
 # What lands here is everything the container is meant to receive as a
 # DEFAULT and that an operator may want to retune without a rebuild:
@@ -327,9 +329,9 @@ write_container_env() {
 # Container env defaults -- OURS. `just setup` rewrites this file from
 # setup.toml, so an edit here is lost on the next apply.
 #
-# To change a value for THIS machine / site, put it in `.env.local.toml`
-# instead: compose loads that file after this one, so its keys win and
-# nothing in the toolchain ever rewrites it.
+# To change a value for THIS machine / site, put it in `.env.local`
+# instead, one KEY=VALUE per line: compose loads that file after this one,
+# so its keys win and nothing in the toolchain ever rewrites it.
 EOF
     if (( ${#_wce_lines[@]} > _cache_count )); then
       printf '\n# ── [environment] env_N (from setup.toml) ──\n'
@@ -361,28 +363,43 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # _scaffold_env_local <path>
 #
-# Create `.env.local.toml` -- the operator's / developer's own overrides --
-# with guidance comments if it does not exist. Idempotent: never overwrites
-# an existing file. The `.local.` infix marks it as the LOCAL variant, the
-# same way `setup.local.toml` does (ADR-00000025 / ADR-00000037), and
-# nothing in the toolchain writes it after this first creation.
+# Create `.env.local` -- the operator's / developer's own overrides -- with
+# guidance comments if it does not exist. Idempotent: never overwrites an
+# existing file. Nothing in the toolchain writes it after this first
+# creation.
 #
 # It is created eagerly (rather than left absent until wanted) because the
 # generated compose names it in `env_file:`, and compose fails the whole
 # `up` when a listed env file is missing.
+#
+# FLAT `KEY=VALUE`, NOT TOML, AND THAT IS NOT A LEFTOVER. This file is the
+# one `_emit_env_file_block` lists in `env_file:`, so compose reads it with
+# its own dotenv parser. ADR-00000037's output table has `.env.local`
+# RENDERED from `.env.local.toml`, and that renderer has not landed --
+# init.sh says so where it declines to call the converter: "nothing reads
+# `.env.local.toml`: compose still loads `.env` plus `.env.local`"
+# (base#1163; the readers are base#1168). The guidance here said
+# `[environment]` with `key = "value"` under it anyway, which is TOML
+# written into the dotenv file. Measured against compose 2.x it does not
+# refuse, it IMPROVISES: a bare `[environment]` line is skipped,
+# `KEY = "42"` arrives as `42` with the quotes eaten, and a second header
+# such as `[stage:headless]` arrives as a variable literally named
+# `[stage`. So the cost is not an error the operator sees; it is junk in
+# the container and an override format nothing in this tree accepts. These
+# instructions turn TOML in the change that lands the readers and moves
+# the `env_file:` list, never before.
 # ════════════════════════════════════════════════════════════════════
 _scaffold_env_local() {
   local _path="${1:?}"
   [[ -e "${_path}" ]] && return 0
   cat > "${_path}" << 'EOF'
 # Your overrides -- yours. No part of the toolchain ever rewrites this
-# TOML file, and it is gitignored, so it never leaves this machine.
+# file, and it is gitignored, so it never leaves this machine.
 #
-# Put key = "value" entries under [environment] here:
+# One KEY=VALUE per line -- compose reads this file as a dotenv file:
 #
-#   [environment]
-#   ROS_DOMAIN_ID = "42"
-#   LOG_LEVEL = "debug"
+#   ROS_DOMAIN_ID=42
+#   LOG_LEVEL=debug
 #
 # compose loads the generated `.env` first and this file second, so a
 # key named in both resolves to the value here.

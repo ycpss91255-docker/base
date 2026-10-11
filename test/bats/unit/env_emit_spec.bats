@@ -212,6 +212,53 @@ EOF
   assert_failure
 }
 
+# why: Both files are GUIDANCE an operator follows, and the only authority
+# on which override file compose actually reads is
+# `_emit_env_file_block` -- the function that writes the `env_file:` list
+# into the generated compose. It lists `.env` and `.env.local`; nothing
+# reads `.env.local.toml`, which init.sh states where it declines to call
+# the converter (base#1163, readers on base#1168). Both files named it
+# anyway, and the scaffold went further and put a TOML `[environment]`
+# table into the dotenv file compose parses -- measured against compose
+# 2.x, that does not refuse, it improvises: the header line is skipped,
+# `KEY = "42"` arrives as `42`, and a second header such as
+# `[stage:headless]` arrives as a variable literally named `[stage`. So an
+# operator following the shipped instructions either edits a file nothing
+# reads or puts junk in the container, with no error either way. The
+# loaded set is DERIVED here, so moving the `env_file:` list moves what
+# the guidance is allowed to say rather than stranding this assertion --
+# which is what the previous `--partial ".env.local"` check did, since
+# `.env.local.toml` satisfies it.
+@test "_scaffold_env_local / write_container_env: the guidance names only files the env_file block loads" {
+  local -a _loaded=()
+  mapfile -t _loaded < <(_emit_env_file_block | sed -n 's/^[[:space:]]*-[[:space:]]*//p')
+  [ "${#_loaded[@]}" -ge 2 ] \
+    || fail "the env_file block yielded ${#_loaded[@]} files; it did not parse"
+  printf '%s\n' "${_loaded[@]}" | grep -qx -- '.env.local' \
+    || fail "the env_file block does not list .env.local; the files below are guidance for something else now"
+
+  _scaffold_env_local "${TEMP_DIR}/.env.local"
+  write_container_env "${TEMP_DIR}/.env" "" ""
+
+  # Every `.env*` path either file mentions must be one compose loads.
+  local _f _named _bad=""
+  for _f in "${TEMP_DIR}/.env.local" "${TEMP_DIR}/.env"; do
+    while IFS= read -r _named; do
+      printf '%s\n' "${_loaded[@]}" | grep -qx -- "${_named}" \
+        || _bad+=" ${_f##*/}:${_named}"
+    done < <(grep -oE '\.env[.a-z]*' "${_f}" | sort -u)
+  done
+  [ -z "${_bad}" ] \
+    || fail "guidance names env file(s) the env_file block does not load:${_bad}"
+
+  # And the override file's example is in the format compose parses: a
+  # TOML table header is not one.
+  run grep -c '\[environment\]' "${TEMP_DIR}/.env.local"
+  assert_output "0"
+  run grep -cE '^#   [A-Z_][A-Z0-9_]*=' "${TEMP_DIR}/.env.local"
+  refute_output "0"
+}
+
 @test "_scaffold_env_local creates a comment-only override file naming .env (#868)" {
   run _scaffold_env_local "${TEMP_DIR}/.env.local"
   assert_success
