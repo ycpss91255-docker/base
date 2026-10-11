@@ -101,8 +101,11 @@ unset _ini_to_toml_migrate_lib_dir
 # made the WHOLE converted file unparseable -- after the INI had been
 # renamed to .bak, so the only copy of the configuration was the broken
 # one. _conf_toml_scalar escapes backslash, double quote and tab, keeps a
-# boolean and an integer bare, and refuses to render a leading-zero
-# number as a bare integer TOML would reject.
+# boolean and a CANONICAL integer bare, and quotes every other text that
+# merely looks numeric -- a leading-zero number TOML would reject, and
+# `-0` / `+1` / `0x10` / `1_000`, which TOML accepts and reads back as 0,
+# 1, 16 and 1000, so a bare render would lose the spelling the operator's
+# INI carried (base#1234).
 _ini_to_toml_format_value() {
   local _fv_out=""
   _conf_toml_scalar "${1-}" _fv_out

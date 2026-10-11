@@ -150,6 +150,67 @@ teardown() {
   assert_line 'image	rule_1	2024'
 }
 
+# why: The same rule one level further IN, on a free-typed TABLE key.
+# `_conf_toml_scalar` may infer a type there, so the question is which
+# text it may infer one FOR -- and the test is canonical, not valid. TOML
+# accepts `-0`, `+1`, `0x10` and `1_000` as integers and reads them as 0,
+# 1, 16 and 1000, so a bare render loses the operator's spelling:
+# `[environment] env_1 = -0` read back `0`, the sign gone from a value
+# someone typed (base#1234). All four are quoted now, and the round trip
+# is what says so -- a grep on the file text would pass on a value the
+# bridge still reduces.
+@test "_upsert_conf_value: a table key that merely looks numeric is quoted and reads back as written" {
+  cp "${TPL}" "${CONF}"
+  _upsert_conf_value "${CONF}" environment env_1 '-0'
+  _upsert_conf_value "${CONF}" environment env_2 '+1'
+  _upsert_conf_value "${CONF}" environment env_3 '0x10'
+  _upsert_conf_value "${CONF}" environment env_4 '1_000'
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'environment	env_1	-0'
+  assert_line 'environment	env_2	+1'
+  assert_line 'environment	env_3	0x10'
+  assert_line 'environment	env_4	1_000'
+}
+
+# why: The control for the rule above, and the half a blanket "quote
+# everything" would break. `init = true` / `max_file = 3` is how the
+# shipped template spells its own keys, and a table key IS free-typed, so
+# the genuine canonical forms have to keep coming back as a boolean and
+# an integer rather than as the strings `"true"` and `"3"`. A negative
+# integer and a plain `0` are canonical too -- only `-0` is not, because
+# only `-0` fails to spell itself back. Driven through the template's own
+# keys, so the fixture cannot drift from what ships.
+@test "_upsert_conf_value: the template's own booleans and canonical integers stay bare" {
+  assert_spec_subject "${TPL}" "the shipped setup.toml template"
+  cp "${TPL}" "${CONF}"
+  _upsert_conf_value "${CONF}" lifecycle init false
+  _upsert_conf_value "${CONF}" security privileged true
+  _upsert_conf_value "${CONF}" logging max_file 3
+  _upsert_conf_value "${CONF}" logging container_log_keep 0
+  _upsert_conf_value "${CONF}" logging container_log_days -14
+
+  run grep -Fx 'init = false' "${CONF}"
+  assert_success
+  run grep -Fx 'privileged = true' "${CONF}"
+  assert_success
+  run grep -Fx 'max_file = 3' "${CONF}"
+  assert_success
+  run grep -Fx 'container_log_keep = 0' "${CONF}"
+  assert_success
+  run grep -Fx 'container_log_days = -14' "${CONF}"
+  assert_success
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'lifecycle	init	false'
+  assert_line 'security	privileged	true'
+  assert_line 'logging	max_file	3'
+  assert_line 'logging	container_log_keep	0'
+  assert_line 'logging	container_log_days	-14'
+}
+
 # why: A per-stage override and a per-service logging override name
 # sections and keys TOML cannot spell bare (`stage:headless`,
 # `gui.mode`). Quoting them is what keeps the section flat on the way

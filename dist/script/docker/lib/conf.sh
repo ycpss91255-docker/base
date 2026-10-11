@@ -686,19 +686,38 @@ _conf_toml_str() {
 # _conf_toml_scalar <value> <outvar>
 #
 # Render a bash string as the TOML scalar the bridge reads back to the
-# same string. Booleans and integers (no leading zeros, TOML refuses
-# them) are bare; everything else goes through _conf_toml_str.
+# same string. `true` / `false` and a CANONICAL TOML integer are bare;
+# everything else goes through _conf_toml_str.
 #
 # For a TABLE key only: the table's keys are free-typed, and `init = true`
 # / `max_file = 3` are how the shipped template spells them. An array
 # field is NOT free-typed -- it takes _conf_toml_str directly.
+#
+# CANONICAL is the test, not VALID, and the two differ. The question this
+# renderer answers is which text the bridge reads back as the SAME text --
+# not which text TOML accepts. TOML accepts `-0`, `+1`, `0x10` and
+# `1_000` as integers and reads them as 0, 1, 16 and 1000, so rendering
+# any of them bare loses the operator's spelling: `[environment] env_1 =
+# -0` came back `0`, the sign gone from a value someone typed
+# (base#1234). Only `0` and a signed or unsigned run of digits with no
+# leading zero spell themselves back, so only those stay bare and the
+# other four forms are quoted -- the same rule the _conf_toml_str header
+# applies to array fields, one level further in, and for the same reason:
+# what a value LOOKS like is not its type.
+#
+# The shipped template spells none of those four bare. Measured against
+# dist/setup.toml: its only bare scalars are the booleans `init`,
+# `privileged`, `compress` and `wrapper_transcript` and the plain
+# integers `max_file`, `container_log_keep`, `container_log_days`,
+# `wrapper_transcript_keep` and `wrapper_transcript_days`. Quoting the
+# four therefore changes no template value's type.
 _conf_toml_scalar() {
   local _v="${1-}"
   local -n _cts_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
   case "${_v}" in
     true|false) _cts_out="${_v}"; return 0 ;;
   esac
-  if [[ "${_v}" =~ ^-?(0|[1-9][0-9]*)$ ]]; then
+  if [[ "${_v}" =~ ^(0|-?[1-9][0-9]*)$ ]]; then
     _cts_out="${_v}"
     return 0
   fi
