@@ -761,6 +761,10 @@ EOF
   assert_failure
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success
-  run toml_bridge_parse "${CONF}" --kv
+  # Still the TOML it was. Asked in JSON mode, not `--kv`: this value
+  # decodes to a string CONTAINING a newline, which the tab-separated
+  # shell view refuses on its own account (see toml_bridge_spec). The
+  # claim here is about the file, not about the stream.
+  run toml_bridge_parse "${CONF}"
   assert_success
 }

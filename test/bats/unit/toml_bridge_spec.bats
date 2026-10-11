@@ -1469,3 +1469,63 @@ printf 'rc=%s count=%s\n' \"\$?\" \"\${#k[@]}\""
   assert_success
   assert_output --partial "rc=0 count=0"
 }
+
+# The REAL parser, not the mocked-docker path the rest of this file
+# forces: these three ask what the shipped bridge emits, so the shim runs
+# the native binary the test-tools image carries.
+_bridge_kv() {
+  TOML_BRIDGE_FORCE_DOCKER="" bash -c "
+    source '${ROOT}/dist/script/docker/lib/toml_bridge.sh'
+    toml_bridge_parse '${1}' --kv" 2>&1
+}
+
+# why: THE KV STREAM IS THE INTERFACE, and it is line- and tab-delimited
+# -- `_toml_tokenize` reads each row with `IFS=$'\t' read -r section key
+# value`. A TOML value may legally contain both delimiters, and the
+# bridge emitted them raw. Measured: `watchdog_check = "echo first\necho
+# second"` produced a row whose value held a real newline, so the shell
+# read `watchdog_check = echo first` and then took `echo second` as a
+# SECTION of its own -- the watchdog running a TRUNCATED command with no
+# parse failure anywhere. A tab inside a quoted key shifted the split the
+# same way: `"a\tb" = "v"` arrived as key `a` with value `b<TAB>v`. The
+# refusal is the answer the writers already give at the other end of the
+# same pipe (`conf_upsert_newline_rejected`), so the two ends agree
+# instead of the stream growing a second decoded dialect every assertion
+# written against it would have to learn.
+@test "toml-bridge: a value the tab-separated view cannot carry is refused, not truncated" {
+  local _f="${BATS_TEST_TMPDIR}/nl.toml"
+  printf '[lifecycle]\nwatchdog_check = "echo first\\necho second"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_failure
+  assert_output --partial "lifecycle.watchdog_check"
+  assert_output --partial "newline"
+  # Nothing of the configuration is emitted: the rows are collected
+  # before any is printed, so a caller never sees a prefix of it.
+  refute_output --partial $'lifecycle\twatchdog_check'
+}
+
+@test "toml-bridge: a tab in a key or a section name is refused" {
+  local _f="${BATS_TEST_TMPDIR}/tabkey.toml"
+  printf '[lifecycle]\n"a\\tb" = "v"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_failure
+  assert_output --partial "key name"
+  assert_output --partial "tab"
+
+  printf '["s\\tt"]\nk = "v"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_failure
+  assert_output --partial "section name"
+}
+
+# why: The control, and the line the rule is drawn on. The value is the
+# LAST field, so `read` hands it the rest of the line intact -- a tab
+# there survives, measured. Refusing it would reject a file the transport
+# carries correctly, which is the opposite failure.
+@test "toml-bridge: a tab inside a VALUE is carried, not refused" {
+  local _f="${BATS_TEST_TMPDIR}/tabval.toml"
+  printf '[lifecycle]\nwatchdog_check = "a\\tb"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_success
+  assert_line $'lifecycle\twatchdog_check\ta\tb'
+}

@@ -147,6 +147,37 @@ _lib_msg() {
   esac
 }
 
+# _summary_dump_section <tag> <section> <keys_arrayvar> <values_arrayvar>
+#
+# The POPULATED keys of one section of the resolved view, as
+# `key = value` lines under a `[<section>]` header -- and nothing at all,
+# header included, when the section has none. Reads the namespaced
+# `<section>.<key>` arrays `_load_setup_conf_full` fills, so a numbered
+# family arrives already numbered back from its `[[array of tables]]`.
+#
+# An empty value means "use the Docker / template default" and is noise
+# in a summary, which is the rule the INI dump this replaces applied to
+# the same lines -- including a cleared list slot.
+#
+# Every local is `_sds_`-prefixed, the outvars handed to
+# `_conf_split_nskey` included: it declares locals of its own, and a
+# nameref pointing at a bare name resolves to the CALLEE's variable.
+_summary_dump_section() {
+  local _tag="${1:?}" _sec="${2:?}"
+  local -n _sds_keys="${3:?}" _sds_vals="${4:?}"
+  local _sds_i _sds_s="" _sds_k="" _sds_printed=0
+  for (( _sds_i = 0; _sds_i < ${#_sds_keys[@]}; _sds_i++ )); do
+    _conf_split_nskey "${_sds_keys[_sds_i]}" _sds_s _sds_k || continue
+    [[ "${_sds_s}" == "${_sec}" ]] || continue
+    [[ -n "${_sds_vals[_sds_i]}" ]] || continue
+    if (( ! _sds_printed )); then
+      printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
+      _sds_printed=1
+    fi
+    printf "[%s]     %s = %s\n" "${_tag}" "${_sds_k}" "${_sds_vals[_sds_i]}"
+  done
+}
+
 # _print_config_summary <tag>
 #
 # Print the resolved runtime config right before the main action
@@ -231,9 +262,29 @@ _print_config_summary() {
       # shellcheck disable=SC2059  # format string is intentional (i18n table owns no %s)
       printf "[%s]   $(_lib_msg conf_empty)\n" "${_tag}"
     else
+      # Read the RESOLVED view, not the file's lines. `_dump_conf_section`
+      # is an INI reader -- it matches an exact `[section]` header and
+      # stops at the next one -- so against a setup.toml every numbered
+      # family disappeared from this summary: an `[[volumes]]` block is
+      # not inside `[volumes]`, and `[build]` ended at the first
+      # `[[build.args]]`. The mounts, the devices, the build args, the
+      # ports and the capability lists -- every array-valued setting the
+      # run actually consumes -- were missing from the one screen a
+      # first-time user reads before a build, while the scalars printed
+      # with their TOML quotes still on. Loaded ONCE: each call is a
+      # bridge invocation, and eleven of them per summary is eleven
+      # `docker run`s.
       local _sec _content _l
+      local -a _pcs_s=() _pcs_k=() _pcs_v=()
+      local _pcs_toml=0
+      [[ "${_conf}" == *.toml ]] && _pcs_toml=1
+      (( _pcs_toml )) && _load_setup_conf_full "${_conf}" _pcs_s _pcs_k _pcs_v
       for _sec in image build deploy gui network security resources \
                   environment tmpfs devices volumes; do
+        if (( _pcs_toml )); then
+          _summary_dump_section "${_tag}" "${_sec}" _pcs_k _pcs_v
+          continue
+        fi
         _content="$(_dump_conf_section "${_conf}" "${_sec}")"
         [[ -z "${_content}" ]] && continue
         printf "[%s]   [%s]\n" "${_tag}" "${_sec}"

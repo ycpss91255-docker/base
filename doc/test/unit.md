@@ -3588,7 +3588,7 @@ the bump rather than moving the coverage number by a plausible margin.
 | `_dump_conf_section returns silent empty for missing file` | Missing file |
 | `_dump_conf_section returns silent empty for unknown section` | Missing section |
 | `_dump_conf_section hides keys with empty values (using default)` | - |
-| `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
+| `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump, over the shape the WRITERS produce. The summary read the file's lines through `_dump_conf_section`, an INI reader that matches an exact `[section]` header and stops at the next one, so against a real setup.toml every numbered family vanished from it: an `[[volumes]]` block is not inside `[volumes]`, and `[build]` ended at the first `[[build.args]]`. The mounts, the build args and the capability lists -- settings the run consumes -- were missing from the one screen a first-time user reads before a build. This passed anyway because the fixture was INI written to a `setup.toml` path, so the test and the code agreed with each other and both disagreed with every file `setup.sh set` writes. |
 | `_print_config_summary names an active setup.local.toml and its sections (#893)` | - |
 | `_print_config_summary says nothing about a setup.local.toml that is absent (#893)` | - |
 | `_print_config_summary prints Variables block mapping setup.conf placeholders to detected values` | Variables block populated |
@@ -7288,7 +7288,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (53)
+### test/bats/unit/toml_bridge_spec.bats (56)
 
 | Test | Description |
 |------|-------------|
@@ -7345,6 +7345,9 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: a subtree with no bridge Dockerfile refuses and names the path` | A subtree missing the bridge's Dockerfile cannot be repaired by guessing a name. The old default guessed `toml-bridge:local`, which resolves to whatever a sibling checkout last built under it -- so a configuration read would be answered by an unrelated parser, or by nothing, with no file named either way. |
 | `toml-bridge: _toml_tokenize answers non-zero when the parse fails` | The caller-visible half of "parser unavailability stops the run". `_toml_tokenize` read the bridge through a process substitution, which puts its exit status out of reach: a parse that failed read as a file with nothing in it, so the handle came back empty and every value fell back to its default. That is a total parser failure wearing the shape of a configuration that says nothing, and it is the same trap `_conf_load_layers` already names on its own merge. |
 | `toml-bridge: _toml_tokenize answers zero for a file that is not there` | An ABSENT file is still "contributes nothing", answered zero. The refusal above must not swallow the one case the loaders rely on to pass the whole layer chain unconditionally. |
+| `toml-bridge: a value the tab-separated view cannot carry is refused, not truncated` | THE KV STREAM IS THE INTERFACE, and it is line- and tab-delimited -- `_toml_tokenize` reads each row with `IFS=$'\t' read -r section key value`. A TOML value may legally contain both delimiters, and the bridge emitted them raw. Measured: `watchdog_check = "echo first\necho second"` produced a row whose value held a real newline, so the shell read `watchdog_check = echo first` and then took `echo second` as a SECTION of its own -- the watchdog running a TRUNCATED command with no parse failure anywhere. A tab inside a quoted key shifted the split the same way: `"a\tb" = "v"` arrived as key `a` with value `b<TAB>v`. The refusal is the answer the writers already give at the other end of the same pipe (`conf_upsert_newline_rejected`), so the two ends agree instead of the stream growing a second decoded dialect every assertion written against it would have to learn. |
+| `toml-bridge: a tab in a key or a section name is refused` | - |
+| `toml-bridge: a tab inside a VALUE is carried, not refused` | The control, and the line the rule is drawn on. The value is the LAST field, so `read` hands it the rest of the line intact -- a tab there survives, measured. Refusing it would reject a file the transport carries correctly, which is the opposite failure. |
 
 ### test/bats/unit/toml_config_template_spec.bats (20)
 

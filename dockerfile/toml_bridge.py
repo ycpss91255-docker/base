@@ -145,17 +145,74 @@ def _joined(elem, sep, names):
     return sep.join(present)
 
 
-def _emit_array(section, key, items):
-    """Emit array of tables as numbered-key KV lines."""
+def _check_transportable(section, key, value):
+    """Refuse a row the tab-separated shell view cannot carry faithfully.
+
+    THE KV STREAM IS THE INTERFACE, and it is line- and tab-delimited:
+    conf.sh's `_toml_tokenize` reads each row with `IFS=$'\t' read -r
+    section key value`. Three characters therefore mean something to the
+    transport, and a TOML value may legally contain all three -- `"echo
+    first\necho second"` is an ordinary basic string, and a quoted key or
+    section name may carry a tab.
+
+    Measured, before this guard existed:
+
+      [lifecycle]
+      watchdog_check = "echo first\necho second"
+
+    emitted a row whose value held a real newline, so the shell read
+    `watchdog_check = echo first` and then took `echo second` as a
+    SECTION of its own. The watchdog ran a truncated command and no
+    parse failed. A tab inside a quoted key shifted the split the same
+    way: `"a\tb" = "v"` arrived as key `a` with value `b<TAB>v`.
+
+    WHY REFUSE RATHER THAN ESCAPE. The writers already refuse a
+    newline-bearing value at the other end of the same pipe
+    (`conf_upsert_newline_rejected`), for the same reason and in the same
+    direction, so refusing here makes the two ends agree instead of
+    giving the format a second, decoded dialect that every reader of the
+    stream -- including every assertion written against it -- would have
+    to learn. Nothing this project writes can produce such a file: the
+    shipped template has none, and both writers escape what they emit.
+    So the only way to meet one is to hand-write it, and a refusal names
+    it. An unreadable configuration is recoverable; a silently truncated
+    watchdog command is not.
+
+    A tab in a VALUE is NOT refused. The value is the last field, so
+    `read` hands it the rest of the line intact -- measured: `"a\tb"`
+    comes back as `a<TAB>b`. Refusing it would reject a file the
+    transport carries correctly.
+
+    Rows are collected before any is printed, so a refusal leaves stdout
+    empty rather than a prefix of the configuration.
+    """
+    for _what, _text in (("section", section), ("key", key)):
+        for _name, _ch in (("tab", "\t"), ("newline", "\n"),
+                           ("carriage return", "\r")):
+            if _ch in str(_text):
+                print(f"toml-bridge: a {_what} name contains a {_name}, "
+                      f"which the tab-separated shell view cannot carry: "
+                      f"{_text!r}", file=sys.stderr)
+                raise SystemExit(1)
+    for _name, _ch in (("newline", "\n"), ("carriage return", "\r")):
+        if _ch in str(value):
+            print(f"toml-bridge: the value of {section}.{key} contains a "
+                  f"{_name}, which the tab-separated shell view cannot "
+                  f"carry: {value!r}", file=sys.stderr)
+            raise SystemExit(1)
+
+
+def _emit_array(section, key, items, out):
+    """Collect an array of tables as numbered-key KV rows."""
     spec = _ARRAY_SPEC.get(key)
     if not spec:
         return
     prefix, serializer = spec
     for i, elem in enumerate(items, 1):
-        print(f"{section}\t{prefix}_{i}\t{serializer(elem)}")
+        out.append((section, f"{prefix}_{i}", serializer(elem)))
 
 
-def _emit_table(section, entries):
+def _emit_table(section, entries, out):
     """Emit one table's keys under <section>, recursing into a sub-table.
 
     The shell view has no nesting: a section is one flat name, and the
@@ -172,11 +229,11 @@ def _emit_table(section, entries):
     """
     for key, value in entries.items():
         if isinstance(value, list):
-            _emit_array(section, key, value)
+            _emit_array(section, key, value, out)
         elif isinstance(value, dict):
-            _emit_table(f"{section}.{key}", value)
+            _emit_table(f"{section}.{key}", value, out)
         else:
-            print(f"{section}\t{key}\t{_format_value(value)}")
+            out.append((section, key, _format_value(value)))
 
 
 def _emit_kv(data):
@@ -198,11 +255,16 @@ def _emit_kv(data):
     A table goes through _emit_table, which flattens a nested one into
     its own dotted section.
     """
+    rows = []
     for section, entries in data.items():
         if isinstance(entries, list):
-            _emit_array(section, section, entries)
+            _emit_array(section, section, entries, rows)
         elif isinstance(entries, dict):
-            _emit_table(section, entries)
+            _emit_table(section, entries, rows)
+    for section, key, value in rows:
+        _check_transportable(section, key, value)
+    for section, key, value in rows:
+        print(f"{section}\t{key}\t{value}")
 
 
 def _merge_tables(base, layer):

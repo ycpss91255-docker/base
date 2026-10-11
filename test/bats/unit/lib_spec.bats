@@ -640,8 +640,9 @@ EOF
 # ── _dump_conf_section / _print_config_summary ─────────────────────────────
 
 _write_sample_conf() {
-  # Minimal setup.conf with comments, blanks, and two sections — used by
-  # the dump tests to verify comment/blank skipping and section boundaries.
+  # Minimal INI .setup.conf with comments, blanks, and three sections --
+  # used by the _dump_conf_section tests, which are about the INI reader,
+  # to verify comment/blank skipping and section boundaries.
   mkdir -p "$(dirname "${1}")"
   cat > "${1}" <<'EOF'
 [image]
@@ -657,6 +658,48 @@ arg_2 = APT_MIRROR_UBUNTU=tw.archive.ubuntu.com
 [volumes]
 # populated at first init
 mount_1 = /home/alice/work:/home/alice/work
+EOF
+}
+
+# The same configuration as a real setup.toml -- the shape the WRITERS
+# produce, which is what the summary has to read.
+#
+# It used to be `_write_sample_conf` for these tests too: INI written to a
+# `setup.toml` path. Every numbered family was a table scalar there, which
+# an INI reader finds and the bridge never sees, so the summary tests and
+# the summary agreed with each other while both disagreed with every file
+# `setup.sh set` writes. toml_fixture_lint could not catch it because the
+# heredoc's destination is a PARAMETER here, not a literal `.toml` path.
+_write_sample_setup_toml() {
+  mkdir -p "$(dirname "${1}")"
+  cat > "${1}" <<'EOF'
+[[image.rules]]
+# rule comment — should be skipped
+rule = "@basename"
+
+[[image.rules]]
+rule = "@default:unknown"
+
+[build]
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "APT_MIRROR_UBUNTU"
+value = "tw.archive.ubuntu.com"
+
+# populated at first init
+[[volumes]]
+source = "/home/alice/work"
+target = "/home/alice/work"
+
+[security]
+privileged = false
+
+[[security.cap_add]]
+cap = "NET_ADMIN"
 EOF
 }
 
@@ -727,10 +770,20 @@ EOF
   assert_output ""
 }
 
-# why: Full config dump
+# why: Full config dump, over the shape the WRITERS produce. The summary
+# read the file's lines through `_dump_conf_section`, an INI reader that
+# matches an exact `[section]` header and stops at the next one, so
+# against a real setup.toml every numbered family vanished from it: an
+# `[[volumes]]` block is not inside `[volumes]`, and `[build]` ended at
+# the first `[[build.args]]`. The mounts, the build args and the
+# capability lists -- settings the run consumes -- were missing from the
+# one screen a first-time user reads before a build. This passed anyway
+# because the fixture was INI written to a `setup.toml` path, so the test
+# and the code agreed with each other and both disagreed with every file
+# `setup.sh set` writes.
 @test "_print_config_summary prints files, identity, all populated sections, resolved" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -762,6 +815,13 @@ EOF
   assert_output --partial "arg_1 = TZ=Asia/Taipei"
   assert_output --partial "[volumes]"
   assert_output --partial "mount_1 = /home/alice/work:/home/alice/work"
+  # The capability list, and a scalar beside it in the same section --
+  # the array families are the half the INI reader lost, and the scalar
+  # is what says the section is not simply being dumped raw (an INI
+  # reader printed `privileged = false` with its TOML quotes on).
+  assert_output --partial "[security]"
+  assert_output --partial "cap_add_1 = NET_ADMIN"
+  assert_output --partial "privileged = false"
   # Resolved
   assert_output --partial "GPU enabled : true"
   assert_output --partial "GUI enabled : true"
@@ -777,7 +837,7 @@ EOF
   # this invocation resolved from.
   local _fp="${BATS_TEST_TMPDIR}/withlocal"
   mkdir -p "${_fp}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   printf '[gui]\nmode = "off"\n[network]\nmode = "bridge"\n' > "${_fp}/setup.local.toml"
   run bash -c "
     source ${LIB}
@@ -794,7 +854,7 @@ EOF
 @test "_print_config_summary says nothing about a setup.local.toml that is absent (#893)" {
   local _fp="${BATS_TEST_TMPDIR}/nolocal"
   mkdir -p "${_fp}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -814,7 +874,7 @@ EOF
   # placeholder to the value at a glance without re-deriving from
   # Identity field labels.
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -840,7 +900,7 @@ EOF
 # why: Variables fallback
 @test "_print_config_summary Variables block falls back to '-' for unset values" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -880,7 +940,7 @@ EOF
 # why: Color migration via _log_plain
 @test "_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     FORCE_COLOR=1 source ${LIB}
     FORCE_COLOR=1
@@ -904,7 +964,7 @@ EOF
 # why: NO_COLOR precedence on summary
 @test "_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     NO_COLOR=1 FORCE_COLOR=1 source ${LIB}
     NO_COLOR=1 FORCE_COLOR=1
@@ -992,7 +1052,7 @@ EOF
 
 @test "_print_config_summary uses zh-TW labels when _LANG=zh-TW" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     _LANG=zh-TW
@@ -1029,7 +1089,7 @@ EOF
 
 @test "_print_config_summary uses ja labels when _LANG=ja" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/setup.toml"
+  _write_sample_setup_toml "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     _LANG=ja
