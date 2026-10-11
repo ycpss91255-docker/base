@@ -8425,7 +8425,7 @@ back is in upgrade_migration_reachability_spec.bats.
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
-### test/bats/unit/version_migrate_spec.bats (29)
+### test/bats/unit/version_migrate_spec.bats (31)
 
 The version interval an upgrade crossed is what selects a version-bound
 migration, and every way of failing to read that interval ends in the same
@@ -8468,6 +8468,8 @@ upgrade shows one interval, not the arithmetic.
 | `_vmigrate_lifecycle_restart_default_apply ignores a restart key outside [lifecycle] (base#1110)` | `restart` is a legal key of a `[stage:*]` section too, and a reader that matched the key without its section would rewrite a per-stage value the migration has nothing to say about |
 | `_vmigrate_lifecycle_restart_default_apply reads both string spellings of the same value (base#1110)` | TOML quotes a string value, so a reader comparing the raw text after the `=` compares the SPELLING and not the value -- `"no"` never equals `no`, which is a mistake the function this replaced had to carry its own unquoter to avoid. The read goes through conf.sh's tokenizer instead, so a basic string and a literal string are one value. The bare INI spelling is deliberately NOT in this list: it is not a TOML value, and by the time the interval runner runs, the resync's INI-to-TOML conversion has already quoted the file Written out one spelling per call rather than looped over a variable: the TOML fixture body gate reads these bodies out of this file's own text, so a body assembled from `${_s}` is one it cannot parse and has to be excused from -- and the point of the gate is that a fixture the bridge refuses leaves an EMPTY handle, which is exactly how an arm like this would pass without its fixture ever being read. |
 | `_vmigrate_lifecycle_restart_default_apply is a no-op with no setup.toml (base#1110)` | The resync runs on repos that are not upgrades at all, and a migration that assumed its file existed would abort the resync of a repo that simply has no configuration yet |
+| `_vmigrate_lifecycle_restart_default_apply fails loudly when the config cannot be parsed (base#1110)` | An unreadable config is not an absent value, and conflating the two is how this migration would report success over a file it never read: the containerised parser answers non-zero with an EMPTY handle, so the value reads back as "", the `== "no"` test fails, and a plain `return 0` would have the runner log `interval_migration_applied` over a `restart = no` still in the file -- withholding the retry guidance that is the only way back once the resync has moved past. Found by codex review on base#1110 and driven red by stubbing the parser's refusal |
+| `run_interval_migrations reports the restart migration's parse failure and skips what follows (base#1110)` | The failure has to reach the RUNNER, not just the apply function. The runner calls every apply in an `\|\|` list, which suspends errexit inside it, so a non-zero return is the only signal there is -- and what the consumer needs is the runner's own MIGRATION FAILED line with the BASE_MIGRATION_FROM recipe in it, plus the later entries skipped rather than run on a repo whose state is unknown |
 
 ### test/bats/unit/watchdog_spec.bats (18)
 

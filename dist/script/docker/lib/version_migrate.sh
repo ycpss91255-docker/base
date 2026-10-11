@@ -445,7 +445,17 @@ _vmigrate_lifecycle_restart_default_apply() {
 
   [[ -f "${_conf}" ]] || return 0
 
-  _conf_load "${_conf}" _VMLRD
+  # A failed load is NOT an absent value. `_conf_load` of a `.toml` goes
+  # through the containerised parser, and when that parser cannot be reached
+  # or refuses the file it answers non-zero with an EMPTY handle -- so the
+  # read below returns "", the `== "no"` test fails, and this function
+  # returns 0 having decided nothing. The runner would then log
+  # `interval_migration_applied` over a `restart = no` still sitting in the
+  # file, and withhold the retry guidance that is the only way back to a
+  # migration the resync has already moved past. Returning non-zero is what
+  # routes it to `MIGRATION FAILED` instead. The runner calls every apply in
+  # an `||` list, so errexit cannot do this for us.
+  _conf_load "${_conf}" _VMLRD || return 1
   local _current=""
   _conf_get_into _VMLRD lifecycle restart "" _current
   [[ "${_current}" == "no" ]] || return 0

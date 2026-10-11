@@ -716,3 +716,61 @@ _restart_repo() {
   assert_output ""
   refute [ -e "${TEMP_DIR}/noconf/setup.toml" ]
 }
+
+# why: An unreadable config is not an absent value, and conflating the two is
+# how this migration would report success over a file it never read: the
+# containerised parser answers non-zero with an EMPTY handle, so the value
+# reads back as "", the `== "no"` test fails, and a plain `return 0` would
+# have the runner log `interval_migration_applied` over a `restart = no`
+# still in the file -- withholding the retry guidance that is the only way
+# back once the resync has moved past. Found by codex review on base#1110
+# and driven red by stubbing the parser's refusal
+@test "_vmigrate_lifecycle_restart_default_apply fails loudly when the config cannot be parsed (base#1110)" {
+  _restart_repo "${TEMP_DIR}/unreadable" '[lifecycle]' 'restart = "no"'
+  run bash -c "$(_src)
+    toml_bridge_parse() { return 1; }
+    _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/unreadable'"
+  assert_failure
+  assert_output --partial '"body":"conf_toml_parse_failed"'
+  # And the file is left exactly as it was, rather than half-decided.
+  run cat "${TEMP_DIR}/unreadable/setup.toml"
+  assert_output --partial 'restart = "no"'
+}
+
+# why: The failure has to reach the RUNNER, not just the apply function. The
+# runner calls every apply in an `||` list, which suspends errexit inside it,
+# so a non-zero return is the only signal there is -- and what the consumer
+# needs is the runner's own MIGRATION FAILED line with the
+# BASE_MIGRATION_FROM recipe in it, plus the later entries skipped rather
+# than run on a repo whose state is unknown
+@test "run_interval_migrations reports the restart migration's parse failure and skips what follows (base#1110)" {
+  _crossing v0.41.0 v0.43.0
+  printf '[lifecycle]\nrestart = "no"\n' > "${REPO}/setup.toml"
+  # One entry ordered AFTER the failing one, so "the rest are skipped" has
+  # something to be true of. Declared on top of the shipped set rather than
+  # replacing it: the failing migration here is the real one.
+  local _decl="${TEMP_DIR}/later.sh"
+  cat > "${_decl}" <<EOS
+_VERSION_MIGRATIONS+=("v0.43.0 after_the_failure")
+_vmigrate_after_the_failure_apply() {
+  printf '%s\\n' after_the_failure >> "\${1}/${PROBE}"
+}
+EOS
+  run bash -c "$(_src); source '${_decl}'
+    toml_bridge_parse() { return 1; }
+    run_interval_migrations '${REPO}' '${PREFIX}' v0.43.0"
+  # The runner never fails the resync, whatever a migration did.
+  assert_success
+  assert_output --partial '"body":"interval_migration_unreadable"'
+  assert_output --partial '"reason":"apply-failed"'
+  assert_output --partial '"migration":"lifecycle_restart_default"'
+  assert_output --partial "BASE_MIGRATION_FROM=v0.41.0"
+  # And nothing was reported as having been applied -- the failing entry
+  # because it failed, the later one because it was skipped. This is the
+  # assertion the defect codex found would have broken: before the load's
+  # status was propagated, the runner logged the restart migration as
+  # applied over a file it had never read.
+  refute_output --partial '"body":"interval_migration_applied"'
+  run _probe
+  assert_output ""
+}
