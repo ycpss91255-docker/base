@@ -3,6 +3,7 @@
 # setup_conf_migrate.sh - the pre-relocation per-repo setup.conf, and the
 # migration off it.
 #
+# stale-path-lint: allow-begin -- this file's whole subject is the pre-relocation path and the repo-root dotfile it moved to; the header has to name both
 # `setup.conf` is `just setup`-managed rather than hand-edited, so the
 # per-repo override left the hand-editable `config/` surface for the
 # repo-root `.setup.conf` dotfile (ADR-00000006, amended 2026-07-15). A
@@ -24,6 +25,7 @@
 # carry the migration -- finds BOTH files, and the old code declined to
 # act on that. The one window the migration could help in is the one it
 # cannot run in (base#1086).
+# stale-path-lint: allow-end
 #
 # `init.sh` is the one piece of CURRENT code such an upgrade executes:
 # every released `upgrade.sh` re-runs the freshly pulled `init.sh` as its
@@ -234,6 +236,7 @@ _setup_conf_merge_blockers() {
   done
 }
 
+# stale-path-lint: allow-begin -- _relocate_legacy_setup_conf and _migrate_legacy_setup_conf: moving a downstream off the old path is what they do, so every git call, log body and path variable below names it. Lines 1-236 stay scanned
 # _relocate_legacy_setup_conf <repo_root> <legacy_path> <new_path>
 #
 # Move the override to the root dotfile and stage the move.
@@ -391,3 +394,4 @@ _migrate_legacy_setup_conf() {
   _relocate_legacy_setup_conf "${_root}" "${_legacy}" "${_new}"
   return 0
 }
+# stale-path-lint: allow-end

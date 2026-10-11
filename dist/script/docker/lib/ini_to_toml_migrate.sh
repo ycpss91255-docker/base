@@ -2,6 +2,7 @@
 #
 # ini_to_toml_migrate.sh - one-time INI-to-TOML migration for downstream repos.
 #
+# stale-path-lint: allow-begin -- the header states the conversion this module performs, which is the retired spellings and their targets
 # Converts the pre-ADR-37 INI config files to their TOML equivalents
 # during the first init.sh resync after a base upgrade:
 #
@@ -23,6 +24,7 @@
 # setup.toml, a .setup.conf.bak that the shipped .gitignore excludes,
 # and an idempotency gate that will never convert again because the
 # target now exists. The log line said the settings "were converted".
+# stale-path-lint: allow-end
 #
 # Each conversion therefore lands on a temp file, hands that temp file
 # to the SHIPPED bridge, and only promotes it to the target once the
@@ -439,6 +441,7 @@ _ini_to_toml_convert() {
       fi
     done
 
+    # stale-path-lint: allow-begin -- the INI section-replace semantics this note explains are the reason the TOML merge needs the whole family
     # Every family this section HOSTS, not only the ones it names a key
     # of. Under the INI chain a section was replaced WHOLE by the highest
     # layer that put an entry in it (_conf_load_layers picks one owner
@@ -448,6 +451,7 @@ _ini_to_toml_convert() {
     # that list come back. `_conf_toml_aot_section` is the writer's own
     # answer to which arrays a section has, so there is no second list to
     # keep in agreement with it.
+    # stale-path-lint: allow-end
     #
     # Gated on the section OWNING something here. A header with no
     # entries at all names no owner in the INI chain either -- the
@@ -557,12 +561,14 @@ _ini_to_toml_convert() {
 # It has no caller in the resync until base#1163 restores one, so the
 # resync cannot touch those names and a rollback has nothing of theirs
 # to put back; the change that restores the caller adds the row.
+# stale-path-lint: allow-begin -- _ini_to_toml_conversions IS the retired-to-current table the stale-path lint derives its population from; its rows are the retired spellings by definition
 _ini_to_toml_conversions() {
   cat <<'EOF'
 .setup.conf	setup.toml
 .setup.conf.local	setup.local.toml
 EOF
 }
+# stale-path-lint: allow-end
 
 # _ini_to_toml_migration_paths
 #
@@ -608,6 +614,7 @@ _ini_to_toml_record() {
 
 # _migrate_ini_to_toml <repo_root>
 #
+# stale-path-lint: allow-begin -- _migrate_ini_to_toml's contract is stated per row of that table, so it names each row's source
 # Convert every row of _ini_to_toml_conversions whose source is present
 # and whose target is not: .setup.conf -> setup.toml and
 # .setup.conf.local -> setup.local.toml today. Each row is gated
@@ -619,6 +626,7 @@ _ini_to_toml_record() {
 # to announce. Each row answers for itself -- a repo whose .setup.conf
 # converts and whose .setup.conf.local does not keeps the conversion it
 # got.
+# stale-path-lint: allow-end
 #
 # ONE announcement body for every row, with the two file names in it,
 # rather than one body per row. The two bodies this replaced said the
@@ -645,6 +653,7 @@ _migrate_ini_to_toml() {
     [[ -f "${_ini}" && ! -f "${_toml}" ]] || continue
     if _ini_to_toml_convert "${_ini}" "${_toml}"; then
       mv -- "${_ini}" "${_ini}.bak"
+      # stale-path-lint: allow-begin -- the staging note names the tracked INI whose deletion is this run's output (base#1036)
       # BOTH sides of the conversion, or the upgrade commit describes a
       # tree it does not carry: the TOML file this run wrote, and the
       # tracked INI the rename took away, whose DELETION is as much this
@@ -654,6 +663,7 @@ _migrate_ini_to_toml() {
       # base#1036 reached through a migration rather than through a
       # rewrite. `_stage_resync_output` drops the `.bak` on its own: it is
       # a canonical gitignore entry, so check-ignore reports it.
+      # stale-path-lint: allow-end
       _ini_to_toml_record "${_dst}"
       _ini_to_toml_record "${_src}"
       _log_warn init ini_to_toml_migrated \

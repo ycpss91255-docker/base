@@ -6851,7 +6851,7 @@ and asserts one verdict per site.
 | `_resolve_docker_flags: the legacy alias warns even when gpu_runtime shadows it (#876)` | - |
 | `_resolve_docker_flags: no legacy alias, no deprecation warning (#876)` | - |
 
-### test/bats/unit/stale_setup_conf_lint_spec.bats (10)
+### test/bats/unit/stale_setup_conf_lint_spec.bats (16)
 
 Unit tests for `script/test/drivers/stale_setup_conf.sh`
 (`_run_stale_setup_conf`, refs #845), the "no stale
@@ -6876,6 +6876,12 @@ live `dist/` passes today.
 | `_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root config (#845)` | `setup.toml` tree clean |
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
+| `_run_stale_setup_conf: FAILS on the repo-root INI dotfile spelling the table retired (base#1251)` | the guard tested ONE substring while the tree's own rename table listed three retired spellings. base#1249 deleted 19 lines naming the repo-root INI dotfile from a shipped wrapper -- exactly the shape this driver's header calls a live defect -- and the lint was green before the PR and green after it. A new lib hardcoding that spelling reads a file nothing writes any more, with no error and, until now, no test. |
+| `_run_stale_setup_conf: names setup.local.toml for the local-override spelling, not setup.toml (base#1251)` | the per-worktree override layer was retired by the same rename and is a separate spelling with a DIFFERENT replacement. Reported as a hit on the shorter spelling it contains, it would have been sent to `setup.toml` -- the wrong file, and the one whose values every worktree shares. Longest source first is what keeps the advice right. |
+| `_run_stale_setup_conf: guards a spelling retired by a row the driver never named (base#1251)` | THE declared-population test (base#1089, base#1090, base#1113, base#1112, base#1109, base#1214). A guard naming today's three spellings would agree with the tree the day it was written and stop agreeing the day a fourth is retired -- which base#1167 is held back to do. So the population is read from `_ini_to_toml_conversions`, and this proves it: a row this spec invents is guarded, with ITS replacement, by a driver that has never heard of it. |
+| `_run_stale_setup_conf: FAILS when the rename table yields no rows (no vacuous pass) (base#1251)` | the derivation is the guard's subject, so losing it has to be loud. A table that cannot be read would narrow the stale set back to the one hand-written pre-relocation spelling and the lint would go green over the very spellings base#1251 is about -- the vacuous pass the scan root guard already refuses, one level up. |
+| `_run_stale_setup_conf: EXEMPTS the INI dotfile spelling inside an allow region (base#1251)` | the widened spellings take the SAME region-delimited opt-out, not a per-file exclusion -- which is what lets the three migration libs name the old paths (that is their job) while a NEW stale reference elsewhere in those same files is still caught. |
+| `_run_stale_setup_conf: does NOT exempt the rename table's own file implicitly (base#1251)` | the lint reads its population from a file inside the tree it scans, whose rows spell out the retired paths -- so that file is a hit like any other, and it opts out by the same bracketed region rather than by the driver special-casing it. An implicit self-exemption would be a file-level exclusion by another name, and it would hide a NEW stale read added to the migration lib that owns the table. |
 
 ### test/bats/unit/stop_sh_spec.bats (29)
 
