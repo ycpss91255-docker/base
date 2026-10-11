@@ -218,16 +218,32 @@ _compose_rebase_path() {
   esac
 }
 
+# _compose_is_repo_relative <path>
+#
+# Zero when <path> is an EXPLICITLY repo-relative host path: `.`, `..`, or
+# anything under `./` or `../`. The bare dots are the whole population
+# this missed first time round, and they are the spelling most likely to
+# be used for the very thing relocation breaks -- mounting the repo
+# itself. One predicate, so the rebase and its guards cannot disagree
+# about what counts.
+_compose_is_repo_relative() {
+  case "${1-}" in
+    .|..|./*|../*) return 0 ;;
+    *)             return 1 ;;
+  esac
+}
+
 _compose_reroot_path() {
   local _p="${1-}" _root="${2-}"
   if [[ -z "${_root}" ]]; then
     printf '%s' "${_p}"
     return 0
   fi
-  case "${_p}" in
-    ./*|../*) _compose_rebase_path "${_p}" "${_root}" ;;
-    *)        printf '%s' "${_p}" ;;
-  esac
+  if _compose_is_repo_relative "${_p}"; then
+    _compose_rebase_path "${_p}" "${_root}"
+  else
+    printf '%s' "${_p}"
+  fi
 }
 
 # _compose_context_is_local <source>
@@ -261,9 +277,7 @@ _compose_context_is_local() {
   # and only interpolation that decides the path's ROOT has to be left
   # alone. A blanket "any dollar sign means non-local" left exactly this
   # resolving against the output directory.
-  case "${_s}" in
-    ./*|../*) return 0 ;;
-  esac
+  _compose_is_repo_relative "${_s}" && return 0
   # shellcheck disable=SC2016,SC2088  # literal `$` and `~/` are the point
   case "${_s}" in
     *'$'*)              return 1 ;;
@@ -294,10 +308,10 @@ _compose_reroot_mount() {
   # which is answering a different question (is there a named volume to
   # declare at the top level?). Asking it here left a `../device-tree`
   # bind resolving against the output directory.
-  case "${_m%%:*}" in
-    ./*|../*) ;;
-    *) printf '%s' "${_m}"; return 0 ;;
-  esac
+  if ! _compose_is_repo_relative "${_m%%:*}"; then
+    printf '%s' "${_m}"
+    return 0
+  fi
   printf '%s%s' "$(_compose_reroot_path "${_m%%:*}" "${_root}")" ":${_m#*:}"
 }
 
@@ -1337,9 +1351,18 @@ generate_compose_yaml() {
     # so relocation is what introduces this and relocation is what
     # refuses -- an artifact that cannot be expressed is not written and
     # called a success.
-    if [[ "${_setup_base}" == *:* ]]; then
+    # Two characters the artifact's own grammars cannot carry in a path
+    # the relocated set has to name. A COLON is the field separator of a
+    # short-form bind, so compose rejects the file with "too many
+    # colons", and quoting cannot help -- the ambiguity is in the mount
+    # grammar, not in the document. A LINE BREAK is emitted literally,
+    # which compose rejects outright, and it also splits the
+    # newline-separated lists the rebase feeds, turning one entry into two
+    # and neither into a mount.
+    if [[ "${_setup_base}" == *:* || "${_setup_base}" == *$'\n'* \
+          || "${_setup_base}" == *$'\r'* ]]; then
       _log_err compose compose_relocated_root_unusable \
-        "display=generate_compose_yaml: the repo root ${_setup_base} contains a colon, and a relocated set has to name it inside short-form bind mounts, where a colon is the field separator. Relocate from a path without one, or generate in place." \
+        "display=generate_compose_yaml: the repo root ${_setup_base} contains a colon or a line break, and a relocated set has to name it inside short-form bind mounts and newline-separated lists, where both are separators. Relocate from a path without them, or generate in place." \
         "path=${_setup_base}"
       return 1
     fi

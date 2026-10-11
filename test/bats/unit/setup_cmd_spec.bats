@@ -3115,3 +3115,44 @@ EOF
   [[ "${_v}" == "${TEMP_DIR}/contexts/"* ]] || fail "not rebased: ${_v}"
   [[ "${_v}" == *'${FLAVOUR}'* ]] || fail "interpolation lost: ${_v}"
 }
+
+# why: `.` and `..` are valid bind sources on their own -- the repo root
+# and its parent -- and the rebase matched only a prefix with a following
+# slash, so `.:/mnt/repo:rshared` kept resolving to the output directory.
+# A dot-only source is the spelling most likely to be used for exactly the
+# thing relocation breaks: mounting the repo itself.
+@test "apply --output rebases a dot-only bind source (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = ".:/mnt/repo:rshared"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _src
+  _src="$(sed -n 's/^ *source: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  assert [ -f "${_src}/Dockerfile" ]
+}
+
+# why: A newline in the repo's own directory name is emitted literally
+# into the artifact, which compose then rejects outright, and it also
+# splits the newline-separated lists the rebase feeds -- one entry becomes
+# two, neither of them a mount. Refused with the colon, for the same
+# reason: what cannot be expressed is not written and reported as a
+# generated set.
+@test "apply --output refuses a repo root carrying a line break (base#1087)" {
+  local _repo="${TEMP_DIR}/re"$'\n'"po"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
