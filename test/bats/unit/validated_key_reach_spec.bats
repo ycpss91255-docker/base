@@ -583,6 +583,46 @@ ipc = "shareable"
   assert_output "1"
 }
 
+# why: base#1094 item 3, the case a global-mode reading gets wrong. A
+# `[stage:<name>]` override can set network.mode = "bridge" while the
+# global mode is host: that stage joins the inherited name, so the
+# top-level declaration has to be there or compose refuses the whole
+# project for referencing an undeclared network. The declaration is
+# therefore driven by what the service blocks EMITTED, not by
+# re-deriving the condition from the global mode -- a second derivation
+# of one question being the family base#1094 belongs to.
+@test "a stage overriding mode to bridge still gets its named network declared (base#1094)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+[network]
+mode = "host"
+network_name = "mynet"
+
+["stage:probe"]
+"network.mode" = "bridge"
+CONF
+  local _out="${TEMP_DIR}/compose.yaml" _extras=()
+  generate_compose_yaml "${_out}" myrepo \
+    false false 0 gpu _extras mynet "" "" "" "" "" host host private >/dev/null 2>&1
+
+  # The stage joined it ...
+  run grep -cF '      - mynet' "${_out}"
+  assert_output "1"
+  # ... so the project declares it.
+  run grep -c '^networks:$' "${_out}"
+  assert_output "1"
+  # ... and devel, which did not join, still has host networking.
+  local _devel_block
+  _devel_block="$(awk '/^  devel:/{f=1;next} /^  [a-z]/{f=0} f' "${_out}")"
+  assert [ -n "$(grep -F 'network_mode:' <<< "${_devel_block}")" ]
+}
+
 # why: base#1094 item 3 -- the issue's words: "Silence is the one option
 # that is not available." The precedence is now stated in the template
 # beside both keys, and warned about when it applies.

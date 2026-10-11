@@ -8459,7 +8459,7 @@ back is in upgrade_migration_reachability_spec.bats.
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
-### test/bats/unit/validated_key_reach_spec.bats (20)
+### test/bats/unit/validated_key_reach_spec.bats (21)
 
 Covers base#1094 -- the keys that validate and then never reach the emitted
 artifact. The DERIVED gate here is the one that matters:
@@ -8490,6 +8490,7 @@ never heard of it.
 | `setting resources.shm_size under a non-host ipc stays quiet (base#1094)` | - |
 | `mode = host beside a network_name keeps host networking in the dev compose (base#1094)` | base#1094 item 3 -- two keys answered one question and the loser was silent. Three of the five emission sites already agreed that mode decides and `network_name` only applies under bridge (the per-stage service emitter, and both branches of the field bundle); the devel service and the top-level `networks:` declaration consulted only `network_name`. So one setup.toml produced bridge networking in development and host networking on the device, with nothing said. The devel service now follows the same rule as its own siblings. |
 | `mode = bridge beside a network_name still joins the named network (base#1094)` | - |
+| `a stage overriding mode to bridge still gets its named network declared (base#1094)` | base#1094 item 3, the case a global-mode reading gets wrong. A `[stage:<name>]` override can set network.mode = "bridge" while the global mode is host: that stage joins the inherited name, so the top-level declaration has to be there or compose refuses the whole project for referencing an undeclared network. The declaration is therefore driven by what the service blocks EMITTED, not by re-deriving the condition from the global mode -- a second derivation of one question being the family base#1094 belongs to. |
 | `a network_name under a non-bridge mode is reported, naming both keys (base#1094)` | base#1094 item 3 -- the issue's words: "Silence is the one option that is not available." The precedence is now stated in the template beside both keys, and warned about when it applies. |
 | `a network_name under mode = bridge is not reported (base#1094)` | - |
 | `setting network.network_name under the shipped host default warns at store time (base#1094)` | - |

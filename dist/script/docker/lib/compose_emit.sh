@@ -137,16 +137,30 @@ _warn_network_name_inert() {
     "display=$(_setup_msg network network_name_inert) (mode=${_mode})" "mode=${_mode}"
 }
 
+# _NETWORK_NAME_JOINED -- set by any service block that emitted a
+# `networks:` membership, read by the top-level `networks:` declaration.
+#
+# The declaration cannot be derived from the GLOBAL network mode, because
+# a `[stage:<name>]` override can set `network.mode = "bridge"` while the
+# global mode is host: that stage joins the inherited name and the
+# project would then reference a network nothing declared, which compose
+# refuses outright. Observing what the service blocks actually emitted is
+# the only reading that cannot disagree with them -- the same shape
+# `_emit_volumes_block` uses for named volumes.
+_NETWORK_NAME_JOINED=0
+
 # _reset_inert_warnings
 #
-# Re-arm every inert-value latch. Called at the top of each top-level
-# emitter. ONE function for the family rather than one call per
-# diagnostic: a new member that forgot its reset would print once per
-# process instead of once per emit, and nothing would say so.
+# Re-arm every inert-value latch, and the network-membership flag.
+# Called at the top of each top-level emitter. ONE function for the
+# family rather than one call per diagnostic: a new member that forgot
+# its reset would print once per process instead of once per emit, and
+# nothing would say so.
 _reset_inert_warnings() {
   _PORTS_INERT_WARNED=0
   _SHM_SIZE_INERT_WARNED=0
   _NETWORK_NAME_INERT_WARNED=0
+  _NETWORK_NAME_JOINED=0
 }
 
 # _pid_mode_emits <mode>
@@ -915,6 +929,7 @@ YAML
   # override mode, fall back to env-var ref (matches devel).
   _warn_network_name_inert "${_eff_net_name}" "${_eff_net_mode}"
   if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
+    _NETWORK_NAME_JOINED=1
     cat <<YAML
     networks:
       - ${_eff_net_name}
@@ -1293,6 +1308,7 @@ YAML
     # networking on the device (base#1094).
     _warn_network_name_inert "${_net_name}" "${_net_mode}"
     if [[ "${_net_mode}" == "bridge" ]] && [[ -n "${_net_name}" ]]; then
+      _NETWORK_NAME_JOINED=1
       cat <<YAML
     networks:
       - ${_net_name}
@@ -1551,11 +1567,15 @@ YAML
     # by devel or a stage. Emitted before networks: (top-level section order).
     # No-op (zero-diff) when only bind mounts are used.
     _emit_volumes_block _named_vols
-    # Declared only when something joins it, which is the same condition
-    # the service blocks use: mode bridge AND a name. A declaration with
-    # no member is a network compose creates and nothing attaches to
+    # Declared when a service block actually joined it, not when the
+    # GLOBAL mode happens to be bridge. A `[stage:<name>]` override can
+    # set network.mode = "bridge" under a global host mode, and that
+    # stage joins the inherited name -- re-deriving the condition from
+    # the global mode here would reference a network nothing declared,
+    # which compose refuses outright. Reading the flag the service
+    # blocks set is the only answer that cannot disagree with them
     # (base#1094).
-    if [[ "${_net_mode}" == "bridge" ]] && [[ -n "${_net_name}" ]]; then
+    if (( _NETWORK_NAME_JOINED )) && [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
 networks:
