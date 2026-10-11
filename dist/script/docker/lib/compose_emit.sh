@@ -122,7 +122,7 @@ _emit_device_as_volume() {
     esac
   done
   echo "${_indent}  - type: bind"
-  echo "${_indent}    source: ${_src}"
+  echo "${_indent}    source: $(_compose_yaml_scalar "${_src}")"
   echo "${_indent}    target: ${_tgt}"
   [[ -n "${_read_only}" ]] && echo "${_indent}    read_only: ${_read_only}"
   echo "${_indent}    bind:"
@@ -1336,6 +1336,10 @@ generate_compose_yaml() {
   # once, off the one root -- rather than at each emission site, where a
   # site added later would be the one that was missed.
   _additional_contexts_str="$(_compose_reroot_lines "${_additional_contexts_str}" "${_reroot}" named)"
+  # [devices] entries carrying mount propagation are emitted as long-form
+  # binds by their own emitter, out of their own input string -- a third
+  # host-path population, and one the volume rebase did not reach.
+  _devices_str="$(_compose_reroot_lines "${_devices_str}" "${_reroot}")"
 
   # The devel service's mounts, rebased. A copy rather than an in-place
   # rewrite of the caller's array: the nameref is the caller's own list

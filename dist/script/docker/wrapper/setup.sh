@@ -331,8 +331,12 @@ Apply-only options (#338):
                         is what lets an orchestrator drive one repo N
                         times with N parameter sets and no write into the
                         repo (ADR-00000036). A FILE that is not a
-                        readable regular file is refused; the resolution
-                        never silently proceeds one layer short.
+                        readable regular file is refused, and so is one
+                        whose name does not end in .toml: the chain's
+                        readers dispatch on the filename, so such a layer
+                        would be parsed as INI and the whole chain with
+                        it. The resolution never silently proceeds one
+                        layer short, or under another grammar.
                         Honoured by `apply` and `deploy`.
   --print-resolved      Run all detection + resolution logic and
                         print the effective state to stdout as

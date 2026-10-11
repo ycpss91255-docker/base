@@ -201,6 +201,19 @@ _setup_conf_local_check() {
       "path=${_p}"
     return 1
   fi
+  # A fourth way, and the quietest: _conf_load_layers dispatches on each
+  # layer's FILENAME, so a readable TOML file under another name -- an
+  # orchestrator's mktemp file -- switches the WHOLE chain to the INI
+  # parser. Tables stop merging key by key and are replaced whole, array
+  # entries are dropped, and quotes stay in the scalar values. Nothing
+  # fails; the configuration is simply a different one. An address must
+  # not be able to change the grammar of the chain it joins.
+  if [[ "${_p}" != *.toml ]]; then
+    _log_err conf conf_local_override_unusable \
+      "display=the local conf layer was addressed as ${_p}, whose name does not end in .toml; the chain's readers dispatch on the filename, so this layer would be parsed as INI and the whole chain with it. Name the file *.toml." \
+      "path=${_p}"
+    return 1
+  fi
   return 0
 }
 

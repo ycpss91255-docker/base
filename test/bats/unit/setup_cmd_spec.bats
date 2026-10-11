@@ -2992,3 +2992,47 @@ PY
   [[ -n "${_line}" ]] || fail "no logging bind emitted"
   [[ "${_line}" == *'- "'* ]] || fail "logging bind not quoted: ${_line}"
 }
+
+# why: `_conf_load_layers` dispatches on every layer's FILENAME, so a
+# caller-supplied layer whose name does not end in `.toml` -- an
+# orchestrator's mktemp file, say -- silently switches the whole chain to
+# the INI parser: tables stop merging key by key and get replaced whole,
+# array entries are dropped, and quotes stay in scalar values. The address
+# must not be able to change the grammar of the chain it joins, so a name
+# the readers would misparse is refused rather than accepted and reparsed.
+@test "apply --local-conf refuses a name the chain's parser would misread (base#1087)" {
+  _ppa_repo
+  printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/params"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/params' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "params"
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: A [devices] entry carrying mount propagation is emitted as a
+# LONG-FORM bind, by its own emitter, from its own input string -- so it
+# was a third host-path population that the volume rebase did not reach.
+# Its `source:` resolved inside the output directory, mounting the wrong
+# tree or failing at startup, with generation reporting success.
+@test "apply --output rebases a device entry emitted as a bind mount (base#1087)" {
+  _ppa_repo
+  mkdir -p "${TEMP_DIR}/device-tree"
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[devices.bindings]]
+path = "./device-tree:/mnt/devices:rshared"
+EOF
+  local _out="${TEMP_DIR}/inst-1"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${_out}' -q 2>&1
+  "
+  assert_success
+  local _src
+  _src="$(sed -n 's/^ *source: *//p' "${_out}/compose.yaml" | head -1)"
+  [[ -n "${_src}" ]] || fail "no long-form bind emitted for the device entry"
+  assert [ -d "${_src}" ]
+}

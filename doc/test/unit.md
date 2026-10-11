@@ -5861,7 +5861,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (166)
+### test/bats/unit/setup_cmd_spec.bats (168)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6044,6 +6044,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply --output escapes a dollar the repo's own name carries (base#1087)` | A `$` the FILESYSTEM put in the repo's own directory name is a literal, and compose interpolates the emitted file -- so an unescaped `${MISSING}` expands to nothing and the build targets a directory that is not the repo. YAML quoting does not prevent it: interpolation happens after the parse, so the root has to carry `$$`. |
 | `apply --output refuses a repo root that mount syntax cannot express (base#1087)` | A short-form bind is `host:container[:mode]`, so a relocated root carrying a colon produces `/tmp/repo:one/config/demo:/opt/demo` and compose rejects the whole file with "too many colons" -- and YAML quoting cannot help, because the ambiguity is in the mount grammar, not the document. The co-located artifact has no such problem (`./config/x` carries no root), so relocation is what introduces it and relocation is what refuses: an artifact that cannot be expressed is not emitted and called a success. |
 | `apply --output serialises the logging bind built from the repo root (base#1087)` | The [logging] local_path bind is assembled by its own helper and was emitted raw, so it was the one host path that bypassed the serialiser every other one goes through -- "the site added later is the one that was missed", here and now rather than later. Raw for the mkdir it performs, serialised for the line it emits. |
+| `apply --local-conf refuses a name the chain's parser would misread (base#1087)` | `_conf_load_layers` dispatches on every layer's FILENAME, so a caller-supplied layer whose name does not end in `.toml` -- an orchestrator's mktemp file, say -- silently switches the whole chain to the INI parser: tables stop merging key by key and get replaced whole, array entries are dropped, and quotes stay in scalar values. The address must not be able to change the grammar of the chain it joins, so a name the readers would misparse is refused rather than accepted and reparsed. |
+| `apply --output rebases a device entry emitted as a bind mount (base#1087)` | A [devices] entry carrying mount propagation is emitted as a LONG-FORM bind, by its own emitter, from its own input string -- so it was a third host-path population that the volume rebase did not reach. Its `source:` resolved inside the output directory, mounting the wrong tree or failing at startup, with generation reporting success. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 
