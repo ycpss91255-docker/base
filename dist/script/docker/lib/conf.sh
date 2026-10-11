@@ -1722,7 +1722,8 @@ _write_setup_conf() {
   # with. See _conf_toml_removal_applied.
   local __wsc_why=""
   if (( __toml )) \
-     && ! _conf_toml_removal_applied "${_out}" "${_removed_keys}" __wsc_why; then
+     && ! _conf_toml_removal_applied "${_out}" "${_removed_keys}" "${_tpl}" \
+          __wsc_why _wsc_keys; then
     rm -f "${_out}"
     _log_err conf conf_write_not_applied \
       "display=[conf] WRITE DECLINED for ${_dst}: ${__wsc_why} was to be removed and the rewrite still carries it, so nothing was written and ${_dst} is unchanged. The writers edit a key written on its own line; this one is spelled somewhere they cannot reach -- an inline table is the usual case. Edit ${_dst} by hand instead." \
@@ -1837,26 +1838,65 @@ _upsert_conf_value() {
 # reader what the file now SAYS is the only check that covers a shape
 # nobody has thought of yet.
 #
-# A NUMBERED-FAMILY KEY IS EXCLUDED, and deliberately. Removing an entry
-# of an `[[array of tables]]` COMPACTS the ones after it, so
-# `<prefix>_N` is expected to still exist, holding what used to be
-# `<prefix>_N+1`. Whether that is right for slot 1 of `[volumes]` is
-# base#1233, an open maintainer question about how the workspace bind is
-# identified -- so this gate must not answer it by refusing the removal.
-# It checks the keys whose removal has one unambiguous meaning.
+# A NUMBERED-FAMILY KEY IS ASKED A DIFFERENT QUESTION, not excused.
+# Removing an entry of an `[[array of tables]]` COMPACTS the ones after
+# it, so `<prefix>_N` is EXPECTED to still exist, holding what used to be
+# `<prefix>_N+1` -- an absence check would fail on a correct removal, and
+# whether compaction is right for slot 1 of `[volumes]` is base#1233's
+# open question, which this gate must not answer by refusing. What is
+# unambiguous either way is that the family got SHORTER. So for those
+# keys the check is on the array's LENGTH, which says nothing about which
+# value lands where.
+#
+# That matters because the first spelling of this excused them
+# unconditionally, and an inline ARRAY is a spelling the line-oriented
+# writer cannot reach any more than an inline table: `args = [{ key =
+# "FOO", value = "bar" }]` exposes `build.arg_1` to the reader, the
+# rewrite left it untouched, and the removal reported success with
+# `FOO=bar` still active.
+#
+# BOUNDED to a family the save does not also WRITE to. With overrides in
+# the same family the resulting length is a function of which indices
+# were written and whether any sat past the end, and an arithmetic this
+# function cannot verify is worse than no check: it would refuse correct
+# TUI saves. `setup.sh remove` passes removals and no overrides, which is
+# the whole of the path this covers; a mixed save still has the parse
+# gate and the scalar absence check.
 _conf_toml_removal_applied() {
-  local _tmp="${1:?}" _removed="${2-}"
-  local -n _ctra_why="${3:?"${FUNCNAME[0]}: missing why outvar"}"
+  local _tmp="${1:?}" _removed="${2-}" _src="${3-}"
+  local -n _ctra_why="${4:?"${FUNCNAME[0]}: missing why outvar"}"
+  local -n _ctra_ov="${5:?"${FUNCNAME[0]}: missing override-keys var"}"
   _ctra_why=""
   [[ -n "${_removed}" ]] || return 0
 
-  local _kv=""
+  local _kv="" _skv=""
   _kv="$(toml_bridge_parse "${_tmp}" --kv 2>/dev/null)" || return 0
 
-  local _nskey _sect _key _p _n
+  local _nskey _sect _key _p _n _ovk _ovs _ovk2 _touched
   for _nskey in ${_removed}; do
     _conf_split_nskey "${_nskey}" _sect _key || continue
-    _conf_toml_aot_slot "${_sect}" "${_key}" _p _n && continue
+    if _conf_toml_aot_slot "${_sect}" "${_key}" _p _n; then
+      # Only when nothing else in this save writes the same family.
+      _touched=0
+      for _ovk in ${_ctra_ov[@]+"${_ctra_ov[@]}"}; do
+        _conf_split_nskey "${_ovk}" _ovs _ovk2 || continue
+        [[ "${_ovs}" == "${_sect}" ]] || continue
+        _conf_toml_aot_slot "${_ovs}" "${_ovk2}" _p _n || continue
+        _touched=1
+        break
+      done
+      (( _touched )) && continue
+      [[ -n "${_src}" && -f "${_src}" ]] || continue
+      _skv="$(toml_bridge_parse "${_src}" --kv 2>/dev/null)" || continue
+      local _before _after
+      _before="$(_conf_kv_family_count "${_skv}" "${_sect}" "${_key%_*}_")"
+      _after="$(_conf_kv_family_count "${_kv}" "${_sect}" "${_key%_*}_")"
+      if (( _after >= _before )); then
+        _ctra_why="${_nskey}"
+        return 1
+      fi
+      continue
+    fi
     # In-shell, not `printf | grep -q`: a reader that stops reading
     # strands the writer with SIGPIPE and pipefail turns a SUCCESSFUL
     # match into the pipeline's 141, which an `if` reads as "not found"
@@ -1868,6 +1908,26 @@ _conf_toml_removal_applied() {
     fi
   done
   return 0
+}
+
+# _conf_kv_family_count <kv-text> <section> <prefix>
+#
+# How many `<section>\t<prefix><digits>\t...` rows <kv-text> holds. Read
+# in-shell, one row at a time over a herestring, for the reason
+# _conf_toml_removal_applied's comment gives: a pipeline into a reader
+# that stops early reports the wrong answer rather than no answer.
+_conf_kv_family_count() {
+  local _kv="${1-}" _sect="${2-}" _prefix="${3-}"
+  local _row _s _k _v _n=0
+  while IFS= read -r _row; do
+    [[ -n "${_row}" ]] || continue
+    _conf_kv_split "${_row}" _s _k _v
+    [[ "${_s}" == "${_sect}" ]] || continue
+    [[ "${_k}" == "${_prefix}"* ]] || continue
+    [[ "${_k#"${_prefix}"}" =~ ^[0-9]+$ ]] || continue
+    _n=$(( _n + 1 ))
+  done <<< "${_kv}"
+  printf '%s' "${_n}"
 }
 
 # _conf_commit_toml <file> <tmp> [<section>] [<key>]

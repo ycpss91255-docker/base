@@ -833,3 +833,48 @@ EOF
   assert_success
   assert_line $'resources\tshm_size\t64m'
 }
+
+# why: The question an array-entry removal can be asked WITHOUT answering
+# base#1233. Compaction means `<prefix>_N` is expected to survive holding
+# the next value, so an absence check would fail on a correct removal --
+# but the family getting SHORTER is unambiguous either way, and says
+# nothing about which value lands where. The first spelling of this gate
+# excused array keys unconditionally, and an inline ARRAY is a spelling
+# the line-oriented writer cannot reach any more than an inline table:
+# `args = [{ key = "FOO", value = "bar" }]` exposes `build.arg_1` to the
+# reader, the rewrite left it untouched, and the removal reported success
+# with `FOO=bar` still active.
+@test "_write_setup_conf: an array removal the rewrite did not make is refused" {
+  printf '[build]\nargs = [{ key = "FOO", value = "bar" }]\n' > "${CONF}"
+  local -a _k=() _v=()
+  run _write_setup_conf "${CONF}" "${CONF}" _k _v "build.arg_1"
+  assert_failure
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'build\targ_1\tFOO=bar'
+}
+
+# why: The control, and the half the length check must not break. A
+# removal the writer CAN make compacts, so `arg_1` survives holding what
+# was `arg_2` -- which is exactly why the check is on the length and not
+# on the key's absence. A gate that refused this would have made
+# `setup.sh remove` unusable on every numbered family.
+@test "_write_setup_conf: a block-spelled array removal compacts and is accepted" {
+  cat > "${CONF}" << 'EOF'
+[build]
+
+[[build.args]]
+key = "FOO"
+value = "bar"
+
+[[build.args]]
+key = "KEEP"
+value = "yes"
+EOF
+  local -a _k=() _v=()
+  _write_setup_conf "${CONF}" "${CONF}" _k _v "build.arg_1"
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'build\targ_1\tKEEP=yes'
+  refute_line --regexp '^build	arg_2	'
+}

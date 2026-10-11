@@ -998,8 +998,18 @@ _setup_remove() {
   _tmp="$(mktemp "${_conf}.XXXXXX")"
   cp "${_conf}" "${_tmp}"
   local -a _empty_k=() _empty_v=()
-  _write_setup_conf "${_conf}" "${_tmp}" \
-    _empty_k _empty_v "${_section}.${_target_key}"
+  # The writer's answer is READ. It was discarded, so a refusal -- the
+  # rewrite did not parse, or the key it was told to remove is still
+  # there -- printed the success lines below anyway, and the operator was
+  # told a removal had happened that had not.
+  if ! _write_setup_conf "${_conf}" "${_tmp}" \
+      _empty_k _empty_v "${_section}.${_target_key}"; then
+    rm -f "${_tmp}"
+    _log_err setup conf_write_failed \
+      "display=$(_setup_msg errors invalid_value): ${_section}.${_target_key} -- the writer declined and named why above; nothing was removed" \
+      "section=${_section}" "key=${_target_key}"
+    return 2
+  fi
   rm -f "${_tmp}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
