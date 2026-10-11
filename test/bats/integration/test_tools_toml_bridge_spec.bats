@@ -77,6 +77,7 @@ setup() {
 @test "test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)" {
   local _toml
   _toml="$(mktemp --suffix=.toml)"
+  # toml-fixture-lint: allow the bridge's refusal of this body IS the assertion
   printf 'invalid = [toml\n' > "${_toml}"
 
   run --separate-stderr "${BUNDLED}" < "${_toml}"

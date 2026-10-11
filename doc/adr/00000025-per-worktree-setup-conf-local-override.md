@@ -115,6 +115,17 @@ whole arrays, while allowing scalar sections (e.g. `[gui]`, `[deploy]`)
 to benefit from key-level override. The INI `.setup.conf` chain retains
 blanket section-replace unchanged.
 
+**Amendment (#1137, 2026-10-10):** "the highest layer that defines it"
+includes a layer that defines it with ZERO entries -- see ADR-00000037's
+zero-entry amendment for why the absent key and the empty array are not
+the same state.
+
+**Amendment (#1235, 2026-10-11):** key-level override for scalar sections
+is also what can change a scalar's resolved value on the migration,
+wherever this ADR's blanket section-replace had masked a lower layer's
+value -- see ADR-00000037's masked-scalar amendment for the accepted cost
+and the check an upgrader runs.
+
 ### 4. `[project] name`, and one resolved project name
 
 `[project]` is a real section of the shipped template with one key,

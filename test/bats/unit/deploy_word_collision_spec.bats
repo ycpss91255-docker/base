@@ -119,5 +119,5 @@ setup() {
 @test "setup.sh --help distinguishes the deploy subcommand from the section (#879)" {
   run bash "${SETUP_SH}" --help
   assert_success
-  assert_output --partial "NOT the [deploy] section of setup.conf"
+  assert_output --partial "NOT the [deploy] section of setup.toml"
 }

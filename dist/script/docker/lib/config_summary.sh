@@ -58,7 +58,7 @@ _summary_print() {
 #
 # Translated: section headings + descriptive labels. Left untranslated
 # (technical terms / identifiers users recognise across locales): file
-# names (setup.conf / .env / compose.yaml), INI section names in [ ],
+# names (setup.toml / .env / compose.yaml), INI section names in [ ],
 # .env variable names (TZ, APT_MIRROR_*, IPC, CAPS), command strings
 # in "Customize" hint.
 _lib_msg() {
@@ -132,19 +132,50 @@ _lib_msg() {
     ja:privileged)           echo "特権" ;;
     *:privileged)            echo "privileged" ;;
     # Hints / errors
-    zh-TW:conf_missing)      echo "(找不到 setup.conf — 執行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
-    zh-CN:conf_missing)      echo "(找不到 setup.conf — 运行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
-    ja:conf_missing)         echo "(setup.conf が見つかりません — ./setup_tui.sh または ./%s.sh --setup を実行してください)" ;;
-    *:conf_missing)          echo "(setup.conf not found — run ./setup_tui.sh or ./%s.sh --setup)" ;;
-    zh-TW:conf_empty)        echo "(setup.conf 沒有 section 覆寫 — 全部使用模板預設值；./setup_tui.sh 或 edit setup.conf)" ;;
-    zh-CN:conf_empty)        echo "(setup.conf 没有 section 覆写 — 全部使用模板默认值；./setup_tui.sh 或 edit setup.conf)" ;;
-    ja:conf_empty)           echo "(setup.conf にセクション上書きがありません — 全てテンプレート既定値を使用；./setup_tui.sh または edit setup.conf)" ;;
-    *:conf_empty)            echo "(setup.conf has no section overrides — using template defaults; run ./setup_tui.sh or edit setup.conf)" ;;
+    zh-TW:conf_missing)      echo "(找不到 setup.toml — 執行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
+    zh-CN:conf_missing)      echo "(找不到 setup.toml — 运行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
+    ja:conf_missing)         echo "(setup.toml が見つかりません — ./setup_tui.sh または ./%s.sh --setup を実行してください)" ;;
+    *:conf_missing)          echo "(setup.toml not found — run ./setup_tui.sh or ./%s.sh --setup)" ;;
+    zh-TW:conf_empty)        echo "(setup.toml 沒有 section 覆寫 — 全部使用模板預設值；./setup_tui.sh 或 edit setup.toml)" ;;
+    zh-CN:conf_empty)        echo "(setup.toml 没有 section 覆写 — 全部使用模板默认值；./setup_tui.sh 或 edit setup.toml)" ;;
+    ja:conf_empty)           echo "(setup.toml にセクション上書きがありません — 全てテンプレート既定値を使用；./setup_tui.sh または edit setup.toml)" ;;
+    *:conf_empty)            echo "(setup.toml has no section overrides — using template defaults; run ./setup_tui.sh or edit setup.toml)" ;;
     zh-TW:customize)         echo "自訂" ;;
     zh-CN:customize)         echo "自定义" ;;
     ja:customize)            echo "カスタマイズ" ;;
     *:customize)             echo "Customize" ;;
   esac
+}
+
+# _summary_dump_section <tag> <section> <keys_arrayvar> <values_arrayvar>
+#
+# The POPULATED keys of one section of the resolved view, as
+# `key = value` lines under a `[<section>]` header -- and nothing at all,
+# header included, when the section has none. Reads the namespaced
+# `<section>.<key>` arrays `_load_setup_conf_full` fills, so a numbered
+# family arrives already numbered back from its `[[array of tables]]`.
+#
+# An empty value means "use the Docker / template default" and is noise
+# in a summary, which is the rule the INI dump this replaces applied to
+# the same lines -- including a cleared list slot.
+#
+# Every local is `_sds_`-prefixed, the outvars handed to
+# `_conf_split_nskey` included: it declares locals of its own, and a
+# nameref pointing at a bare name resolves to the CALLEE's variable.
+_summary_dump_section() {
+  local _tag="${1:?}" _sec="${2:?}"
+  local -n _sds_keys="${3:?}" _sds_vals="${4:?}"
+  local _sds_i _sds_s="" _sds_k="" _sds_printed=0
+  for (( _sds_i = 0; _sds_i < ${#_sds_keys[@]}; _sds_i++ )); do
+    _conf_split_nskey "${_sds_keys[_sds_i]}" _sds_s _sds_k || continue
+    [[ "${_sds_s}" == "${_sec}" ]] || continue
+    [[ -n "${_sds_vals[_sds_i]}" ]] || continue
+    if (( ! _sds_printed )); then
+      printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
+      _sds_printed=1
+    fi
+    printf "[%s]     %s = %s\n" "${_tag}" "${_sds_k}" "${_sds_vals[_sds_i]}"
+  done
 }
 
 # _print_config_summary <tag>
@@ -154,7 +185,7 @@ _lib_msg() {
 # this run will consume — file paths, .env-derived identity/hardware,
 # and the complete [image]/[build]/[deploy]/[gui]/[network]/
 # [security]/[resources]/[environment]/[tmpfs]/[devices]/[volumes]
-# section contents from setup.conf — without having to diff `.env`
+# section contents from setup.toml — without having to diff `.env`
 # or run `docker compose config`.
 #
 # Expects FILE_PATH + standard .env variables already in scope
@@ -168,7 +199,7 @@ _lib_msg() {
 _print_config_summary() {
   local _tag="${1:?_print_config_summary requires a log tag}"
   local _fp="${FILE_PATH:-.}"
-  local _conf="${_fp}/.setup.conf"
+  local _conf="${_fp}/setup.toml"
   local _line="────────────────────────────────────────────────────────────"
   local _img="${DOCKER_HUB_USER:-local}/${IMAGE_NAME:-unknown}"
   # Report what -p will actually be, never a re-derivation of it: the
@@ -179,17 +210,19 @@ _print_config_summary() {
 
   _summary_print "${_tag}" dim  "${_line}"
   _summary_print "${_tag}" bold "$(_lib_msg files)"
-  printf "[%s]   setup.conf   : %s\n"   "${_tag}" "${_conf}"
+  printf "[%s]   setup.toml   : %s\n"   "${_tag}" "${_conf}"
   # A config layer nobody else can see must not be invisible in the run that
   # uses it. Printed only when it actually supplies sections, and it names
-  # WHICH -- under section-replace those are precisely the sections whose
-  # committed values this run is not using.
+  # WHICH -- the sections in which this run is using something other than
+  # the committed values. Section, not key: a local table overrides the
+  # keys it names and a local array replaces its list whole, and the
+  # section is the granularity that covers both honestly.
   local -a _pcs_local=()
   _setup_conf_local_sections "${_fp}" _pcs_local
   if (( ${#_pcs_local[@]} > 0 )); then
     local _pcs_list="${_pcs_local[*]}"
-    printf "[%s]   local override: %s (replaces: %s)\n" \
-      "${_tag}" "${_fp}/.setup.conf.local" "${_pcs_list// /, }"
+    printf "[%s]   local override: %s (overrides in: %s)\n" \
+      "${_tag}" "${_fp}/setup.local.toml" "${_pcs_list// /, }"
   fi
   printf "[%s]   .env         : %s\n"   "${_tag}" "${_fp}/.env"
   printf "[%s]   compose.yaml : %s\n"   "${_tag}" "${_fp}/compose.yaml"
@@ -202,7 +235,7 @@ _print_config_summary() {
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg project)" "${_proj}"
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg workspace)" "${WS_PATH:--}"
 
-  # Variables block: explicit map from setup.conf placeholders to the
+  # Variables block: explicit map from setup.toml placeholders to the
   # detected runtime values. Identity prints the resolved values with
   # i18n labels (e.g. "使用者 : alice"); the [volumes] dump prints raw
   # `${USER_NAME}` / `${WS_PATH}` placeholders. This block bridges the
@@ -215,11 +248,11 @@ _print_config_summary() {
   printf "[%s]   \${USER_GID}  = %s\n"  "${_tag}" "${USER_GID:--}"
   printf "[%s]   \${WS_PATH}   = %s\n"  "${_tag}" "${WS_PATH:--}"
 
-  # setup.conf section-by-section dump. Each section prints only if
+  # setup.toml section-by-section dump. Each section prints only if
   # non-empty to stay readable. Order matches the TUI main menu so
   # the printout and setup_tui.sh layout mirror each other.
   if [[ -f "${_conf}" ]]; then
-    _summary_print "${_tag}" bold "setup.conf"
+    _summary_print "${_tag}" bold "setup.toml"
     # When the file exists but contains no [section] headers (empty file
     # / comments-only / whitespace-only), every section silently falls
     # back to template defaults. Surface a parallel hint to the
@@ -229,9 +262,29 @@ _print_config_summary() {
       # shellcheck disable=SC2059  # format string is intentional (i18n table owns no %s)
       printf "[%s]   $(_lib_msg conf_empty)\n" "${_tag}"
     else
+      # Read the RESOLVED view, not the file's lines. `_dump_conf_section`
+      # is an INI reader -- it matches an exact `[section]` header and
+      # stops at the next one -- so against a setup.toml every numbered
+      # family disappeared from this summary: an `[[volumes]]` block is
+      # not inside `[volumes]`, and `[build]` ended at the first
+      # `[[build.args]]`. The mounts, the devices, the build args, the
+      # ports and the capability lists -- every array-valued setting the
+      # run actually consumes -- were missing from the one screen a
+      # first-time user reads before a build, while the scalars printed
+      # with their TOML quotes still on. Loaded ONCE: each call is a
+      # bridge invocation, and eleven of them per summary is eleven
+      # `docker run`s.
       local _sec _content _l
+      local -a _pcs_s=() _pcs_k=() _pcs_v=()
+      local _pcs_toml=0
+      [[ "${_conf}" == *.toml ]] && _pcs_toml=1
+      (( _pcs_toml )) && _load_setup_conf_full "${_conf}" _pcs_s _pcs_k _pcs_v
       for _sec in image build deploy gui network security resources \
                   environment tmpfs devices volumes; do
+        if (( _pcs_toml )); then
+          _summary_dump_section "${_tag}" "${_sec}" _pcs_k _pcs_v
+          continue
+        fi
         _content="$(_dump_conf_section "${_conf}" "${_sec}")"
         [[ -z "${_content}" ]] && continue
         printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
@@ -245,7 +298,7 @@ _print_config_summary() {
     printf "[%s]   $(_lib_msg conf_missing)\n" "${_tag}" "${_tag}"
   fi
 
-  # Resolved post-merge flags that the user can't infer from setup.conf
+  # Resolved post-merge flags that the user can't infer from setup.toml
   # alone (GPU/GUI depend on host detection in addition to mode=auto).
   _summary_print "${_tag}" bold "$(_lib_msg resolved)"
   printf "[%s]   %s : %s  count=%s  caps=%s\n" "${_tag}" \
@@ -258,7 +311,7 @@ _print_config_summary() {
   printf "[%s]   TZ=%s  apt_ubuntu=%s  apt_debian=%s\n" "${_tag}" \
     "${TZ:--}" "${APT_MIRROR_UBUNTU:--}" "${APT_MIRROR_DEBIAN:--}"
 
-  printf "[%s] %s: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.conf\n" \
+  printf "[%s] %s: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.toml\n" \
     "${_tag}" "$(_lib_msg customize)" "${_tag}"
   _summary_print "${_tag}" dim "${_line}"
 }

@@ -329,7 +329,7 @@ _generate_runtime_dockerfile() {
 # ════════════════════════════════════════════════════════════════════
 # Per-stage overrides
 #
-# `[stage:<name>]` sections in <repo>/.setup.conf override top-level
+# `[stage:<name>]` sections in <repo>/setup.toml override top-level
 # settings on a per-stage basis. Only the v1 allowlist (gui.mode, the
 # whole [deploy] / [network] blocks, security.privileged, [volumes]
 # mounts, [environment] env_*) is honored — anything else is WARN'd
@@ -343,8 +343,9 @@ _generate_runtime_dockerfile() {
 
 # _parse_stage_sections <file> <out_array_var>
 #
-# Scans <file> for `^\[stage:NAME\]$` headers, returns NAME list in
-# file order. Stage names matching `[a-z][a-z0-9_-]*` are collected;
+# Scans <file> for `[stage:NAME]` or `["stage:NAME"]` headers (INI and
+# TOML forms), returns NAME list in file order. Stage names matching
+# `[a-z][a-z0-9_-]*` are collected;
 # malformed names are silently skipped here (caller surfaces them
 # via _validate_stage_name). Empty / missing file → empty output.
 _parse_stage_sections() {
@@ -354,7 +355,7 @@ _parse_stage_sections() {
   [[ -f "${_file}" ]] || return 0
   local _line
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" =~ ^\[stage:([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
+    if [[ "${_line}" =~ ^\[\"?stage:([a-z][a-z0-9_-]*)\"?\][[:space:]]*$ ]]; then
       _pss_out+=("${BASH_REMATCH[1]}")
     fi
   done < "${_file}"
@@ -367,7 +368,7 @@ _parse_stage_sections() {
 # layer that defines `[stage:<stage>]` supplies all of it. In practice the
 # template carries no stage overrides (it does not know which Dockerfile
 # stages exist downstream), so the contest is between the repo's committed
-# override and the per-worktree `.setup.conf.local`. The local layer may
+# override and the per-worktree `setup.local.toml`. The local layer may
 # override ANY section -- a per-stage section is not a special case.
 _load_stage_overrides() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
@@ -462,7 +463,7 @@ _resolve_stage_scalar() {
 #                          trailing newline)
 #
 # Default (inherit unspecified or anything ≠ "false"): top-level entries
-# come first, stage entries appended afterward in setup.conf order.
+# come first, stage entries appended afterward in setup.toml order.
 # Replace mode (inherit=false): only stage entries appear; top-level
 # is dropped. The opt-out lets a stage opt out of inherited mounts
 # entirely (e.g. headless that wants no host-side ssh keys, regardless
@@ -486,7 +487,7 @@ _resolve_stage_list() {
     fi
   done
 
-  # Collect stage's own list entries in setup.conf order. Match only
+  # Collect stage's own list entries in setup.toml order. Match only
   # `<prefix><digits>` so meta-keys like `mount_inherit` (which share
   # the prefix) are not pulled in.
   local -a _stage_entries=()

@@ -361,7 +361,7 @@ _migrate_wrapper_copy_apply() {
 # "config/, always" would narrow the silent package loss rather than close
 # it. CONFIG_SRC is a build ARG: a repo can redeclare it in its own
 # Dockerfile, or set it as a compose build arg via a
-# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf. Either way
+# `[build] arg_N = CONFIG_SRC=...` entry in setup.toml. Either way
 # ${CONFIG_DIR} is overlaid from <repo>/<something-else>, config/ holds
 # nothing the RUN line reads, and reading it anyway would report "not
 # populated" over a real dependency list. So the source directory has to
@@ -392,10 +392,38 @@ readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
 # layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"` overlays onto ${CONFIG_DIR}.
 readonly _DFM_CONFIG_SRC_DEFAULT='config'
 
-# The conf keys that redirect the overlay, as one pattern. A build arg is
-# `arg_N = CONFIG_SRC=<dir>` under [build]; the section is not matched
-# because a key of this shape means nothing outside it.
-readonly _DFM_CONF_REDIRECT_RE='^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC='
+# The conf keys that redirect the overlay, as one pattern, in both
+# spellings of a build arg.
+#
+# TOML is the shipped format: a build arg is an `[[build.args]]` block
+# whose `key` is CONFIG_SRC, and the name is a quoted string there -- the
+# `key = "CONFIG_SRC"` alternative is what makes this probe able to read a
+# real setup.toml at all. The bare `arg_N = CONFIG_SRC=<dir>` under
+# `[build]` is the INI spelling it replaced, kept so a layer written before
+# the conversion still answers. Neither alternative matches a section,
+# because a key of either shape means nothing outside its own.
+#
+# Grepping the layer rather than resolving the conf chain is deliberate:
+# the caller needs the per-layer three-answer status below (a layer that
+# says no is not a layer that could not be read), which a whole-chain merge
+# collapses into one.
+#
+# EVERY SPELLING TOML ALLOWS FOR THE SAME ENTRY, because this probe
+# authorises a DELETE and a redirect it fails to see is the expensive
+# answer. Three were missing and each is ordinary:
+#   - a TRAILING COMMENT. The quoted value had to END the line, so
+#     `key = "CONFIG_SRC" # use project dependencies` read as no
+#     redirect -- and an operator who points CONFIG_SRC somewhere is
+#     exactly the one who writes down why. A `#` after the CLOSING quote
+#     is a comment; one inside the quotes is content, which is why the
+#     optional comment sits outside them.
+#   - a QUOTED KEY. `"key" = "CONFIG_SRC"` is the same entry.
+#   - a QUOTED SCALAR in the INI-shaped spelling. A hand-edited or
+#     part-converted layer carries `arg_1 = "CONFIG_SRC=myconfig"`.
+# Widening this pattern can only make the guard refuse MORE deletions,
+# which is the safe direction for it; narrowing it is what cost a working
+# pip install.
+readonly _DFM_CONF_REDIRECT_RE=$'^[[:space:]]*(arg_[0-9]+[[:space:]]*=[[:space:]]*[\'"]?CONFIG_SRC=|[\'"]?key[\'"]?[[:space:]]*=[[:space:]]*[\'"]CONFIG_SRC[\'"][[:space:]]*(#.*)?$)'
 readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
 
 # The floor the conf chain must clear. _setup_conf_layers documents three
@@ -457,12 +485,46 @@ _dfm_dir_is_readable() {
 
 # _dfm_conf_declares_redirect <conf_file>
 #   Exit 0 when this layer redirects CONFIG_SRC, 1 when it provably does
-#   not, 2 when the question could not be answered (grep could not read
-#   what it was pointed at). The third status is the point: `grep -q`
-#   exits 2 when it scanned nothing, and a caller that folds 2 into "no
-#   match" turns an unreadable layer into permission to delete.
+#   not, 2 when the question could not be answered. The third status is
+#   the point: a caller that folds it into "no match" turns an unreadable
+#   layer into permission to delete.
+#
+#   A TOML LAYER IS ASKED OF THE READER, NOT OF ITS TEXT. The question is
+#   "does the build receive CONFIG_SRC", and the answer belongs to the
+#   bridge: `[build] args` is the same array whether it is written as
+#   `[[build.args]]` blocks, as an inline `args = [{ key = "CONFIG_SRC",
+#   ... }]`, or spread over several lines, and every one of those reaches
+#   the build identically. A pattern over the text answers for the
+#   spelling it was written against and silently says NO to the rest --
+#   which, for a probe that authorises a DELETE, is the expensive
+#   direction. Two spellings were patched into the regex one review round
+#   apart before this was moved; a third would have followed.
+#
+#   The bridge gives the SAME three answers, per layer, which is what the
+#   header above requires: a row for the family is YES, a successful parse
+#   with no such row is a provable NO, and a parse that did not happen --
+#   unreadable file, no bridge available -- is the unanswered question. A
+#   whole-chain merge would have collapsed the per-layer granularity; one
+#   parse per layer does not.
+#
+#   The regex stays for a NON-TOML layer, which has one spelling and no
+#   reader to ask.
 _dfm_conf_declares_redirect() {
   local _conf="$1" _st=0
+  if [[ "${_conf}" == *.toml ]]; then
+    local _kv=""
+    _kv="$(toml_bridge_parse "${_conf}" --kv 2>/dev/null)" || return 2
+    local _row _s _k _v
+    while IFS= read -r _row; do
+      [[ -n "${_row}" ]] || continue
+      _conf_kv_split "${_row}" _s _k _v
+      [[ "${_s}" == "build" ]] || continue
+      [[ "${_k}" == arg_* ]] || continue
+      [[ "${_v}" == "CONFIG_SRC="* ]] || continue
+      return 0
+    done <<< "${_kv}"
+    return 1
+  fi
   grep -qE "${_DFM_CONF_REDIRECT_RE}" "${_conf}" || _st=$?
   case "${_st}" in
     0) return 0 ;;
@@ -477,7 +539,7 @@ _dfm_conf_declares_redirect() {
 #   three ways the answer stops being a provable <repo>/config: something
 #   redirects CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the
 #   Dockerfile itself, or a `[build] arg_N = CONFIG_SRC=...` in ANY layer
-#   of the setup.conf chain, which reaches the build as a compose build
+#   of the setup.toml chain, which reaches the build as a compose build
 #   arg); the default directory is not next to the Dockerfile at all; or
 #   some layer of the chain could not be READ, which is not the same as a
 #   layer that says nothing. A bare `ARG CONFIG_SRC` with no `=` is a
@@ -485,7 +547,7 @@ _dfm_conf_declares_redirect() {
 #
 #   The conf layers are DERIVED from _setup_conf_layers rather than listed
 #   here. The chain is three files, not the two per-repo ones: the lowest
-#   is the template's own .setup.conf inside .base/dist, and the build
+#   is the template's own setup.toml inside .base/dist, and the build
 #   reads all three (setup_cmd.sh -> _setup_conf_handle ->
 #   _setup_conf_layers). A repo that never ran `init.sh --gen-conf` has no
 #   per-repo conf at all and runs on template defaults, so a hand-listed

@@ -306,6 +306,7 @@ _TUI_MSG_EN[err.invalid_log_max_size]=$'Invalid max_size\n  - Expected: <num><un
 _TUI_MSG_EN[err.invalid_log_max_file]=$'Invalid max_file\n  - Expected: positive integer (1, 2, 3, ...)'
 _TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-empty and non-whitespace\n  - Cannot contain embedded newlines'
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
+_TUI_MSG_EN[err.frozen]=$'This editor is frozen and cannot change anything (ADR-00000037).\n\nIt still writes <repo>/.setup.conf, which nothing reads any more: the\nreaders moved to setup.toml, so a save here would print a confirmation\nover a setting with no effect, and Reset would promise template defaults\nwhile the values in force stayed untouched.\n\nChange a setting one of these two ways instead:\n  - edit <repo>/setup.toml (or <repo>/setup.local.toml) by hand\n  - ./setup.sh set <section>.<key> <value>\n\nThe TUI returns when its TOML rebuild lands.'
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
 _TUI_MSG_EN[deploy.ambiguous.title]="Two meanings of 'deploy'"
@@ -539,6 +540,7 @@ _TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<
 _TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
 _TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
+_TUI_MSG_ZH_TW[err.frozen]=$'本編輯器已凍結，無法變更任何設定（ADR-00000037）。\n\n它仍然寫入 <repo>/.setup.conf，但已經沒有任何程式讀取該檔：讀取端\n已改用 setup.toml。在此儲存只會對一個不生效的設定印出成功訊息，\n而「重置」會聲稱回到 template 預設值，實際生效的值卻毫髮無傷。\n\n請改用下列兩種方式之一修改設定：\n  - 直接編輯 <repo>/setup.toml（或 <repo>/setup.local.toml）\n  - ./setup.sh set <section>.<key> <value>\n\n待 TUI 的 TOML 改寫完成後即會恢復。'
 _TUI_MSG_ZH_TW[deploy.ambiguous.title]="「deploy」的兩種意思"
 _TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env / .env.generated / compose.yaml..."
@@ -765,6 +767,7 @@ _TUI_MSG_ZH_CN[lifecycle.restart.n_prompt]="on-failure 最大重试次数（整�
 _TUI_MSG_ZH_CN[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数，或留空为纯 on-failure）"
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
+_TUI_MSG_ZH_CN[err.frozen]=$'本编辑器已冻结，无法变更任何设定（ADR-00000037）。\n\n它仍然写入 <repo>/.setup.conf，但已经没有任何程序读取该文件：读取端\n已改用 setup.toml。在此保存只会对一个不生效的设定打印成功消息，\n而「重置」会声称回到 template 默认值，实际生效的值却毫发无伤。\n\n请改用下列两种方式之一修改设定：\n  - 直接编辑 <repo>/setup.toml（或 <repo>/setup.local.toml）\n  - ./setup.sh set <section>.<key> <value>\n\n待 TUI 的 TOML 改写完成后即会恢复。'
 _TUI_MSG_ZH_CN[deploy.ambiguous.title]="「deploy」的两种意思"
 _TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本编辑器没有歧义的名称是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env / .env.generated / compose.yaml..."
@@ -991,6 +994,7 @@ _TUI_MSG_JA[lifecycle.restart.n_prompt]="on-failure の最大リトライ回数�
 _TUI_MSG_JA[err.invalid_restart]="無効な restart ポリシー（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数、または素の on-failure なら空欄）"
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
+_TUI_MSG_JA[err.frozen]=$'このエディタは凍結されており、設定を変更できません（ADR-00000037）。\n\n書き込み先は今も <repo>/.setup.conf ですが、読み取り側は setup.toml に\n移行済みで、このファイルを読むものはもうありません。ここで保存しても\n効果のない設定に成功メッセージが出るだけで、リセットは template の\nデフォルトに戻すと言いながら実際に有効な値には触れません。\n\n設定の変更は次のいずれかで行ってください:\n  - <repo>/setup.toml（または <repo>/setup.local.toml）を直接編集\n  - ./setup.sh set <section>.<key> <value>\n\nTUI の TOML 書き換えが完了すれば復帰します。'
 _TUI_MSG_JA[deploy.ambiguous.title]="「deploy」の二つの意味"
 _TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  ./setup.sh deploy      (just docker setup deploy)\n\nこのエディタの曖昧でない名前は `gpu` です:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
 _TUI_MSG_JA[saved]="%s に保存しました。.env / .env.generated / compose.yaml を再生成中..."
@@ -2674,6 +2678,41 @@ _render_advanced_menu() {
   done
 }
 
+# _tui_refuse_frozen
+#
+# Print the "this editor cannot take effect" explanation and return 2.
+# Called at every point where this file would otherwise change something:
+# `main`, before it opens a menu or a section editor, and `_do_reset`,
+# whose `rm -f` is destructive on its own.
+#
+# ADR-00000037 freezes setup_tui.sh until its TOML rebuild lands, and the
+# readers did not wait: _setup_conf_layers names `.toml` layers only, so
+# the `.setup.conf` this file writes and reads is read by nothing else.
+# Left running, the editor collects a value, writes it, prints its save
+# line, and the setting has no effect -- and `reset` promises "back to
+# template defaults" while the values actually in force sit in setup.toml,
+# untouched. The freeze postpones the rebuild; it does not license either
+# claim, and a silent no-op behind a success message is the one outcome
+# worse than no editor at all. So the editor refuses, and the message
+# names the two surfaces that do take a setting.
+#
+# Status 2, not 0: 0 is what Cancel returns, and a wrapper has to be able
+# to tell "the user backed out" from "this cannot run". Same status as the
+# missing-backend refusal, for the same reason. It RETURNS rather than
+# exiting, and each caller propagates with `|| exit`/`|| return`, so the
+# control flow is visible where it happens -- an `exit` buried in a
+# helper makes every line after the call unreachable to a reader and to
+# ShellCheck alike (SC2317), and leaves `_do_reset` untestable.
+#
+# This goes away with the rebuild, not before: base#1232 replaces
+# _load_current's one-file read with the effective layer chain and carries
+# every INI path in main / bootstrap / _do_reset over with it. When that
+# lands, delete this function and its two call sites.
+_tui_refuse_frozen() {
+  printf '[tui] %s\n' "$(_tui_msg err.frozen)" >&2
+  return 2
+}
+
 # _do_reset
 #
 # Restore the repo's setup.conf to the template baseline: remove the
@@ -2681,6 +2720,7 @@ _render_advanced_menu() {
 # detected workspace into mount_1), then clear all TUI session state
 # so the reloaded values are what the user sees on the next menu.
 _do_reset() {
+  _tui_refuse_frozen || return "$?"
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
   # Reset deletes the per-repo override (setup.conf). The next apply
   # re-bootstraps it from the template baseline + detected workspace.
@@ -2870,6 +2910,12 @@ main() {
   done
 
   _tui_init_lang
+
+  # Nothing below this line can take effect: see _tui_refuse_frozen. The
+  # refusal sits after argument parsing so `-h` still prints usage, and
+  # before the backend probe so the message reaches the terminal as text
+  # rather than a dialog box the editor has no business opening.
+  _tui_refuse_frozen || exit "$?"
 
   if ! _backend_detect; then
     printf "[tui] %s\n" "$(_tui_msg err.no_backend)" >&2

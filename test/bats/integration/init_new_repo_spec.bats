@@ -76,8 +76,8 @@ teardown() {
   assert_success
 }
 
-# why: setup.conf rules drive IMAGE_NAME
-@test "new repo: .env.example is NOT generated (image name via setup.conf rules)" {
+# why: setup.toml rules drive IMAGE_NAME
+@test "new repo: .env.example is NOT generated (image name via setup.toml rules)" {
   bash .base/dist/script/base/init.sh
   [[ ! -f "${REPO_DIR}/.env.example" ]]
 }
@@ -379,14 +379,14 @@ call-release: contents: write'
   # they want to override a specific template file.
   assert [ -f "${REPO_DIR}/config/.gitkeep" ]
   # Confirm no full-tree seed: shell/, pip/, etc. should NOT be
-  # auto-populated. The tool-managed setup.conf no longer lives under
-  # config/ at all -- it bootstraps to the repo-root .setup.conf
-  # dotfile -- so config/ holds ONLY the .gitkeep placeholder.
+  # auto-populated. The tool-managed setup.toml no longer lives under
+  # config/ at all -- it bootstraps to the repo-root setup.toml
+  # -- so config/ holds ONLY the .gitkeep placeholder.
   run find "${REPO_DIR}/config" -mindepth 1 -maxdepth 1 -not -name '.gitkeep'
   assert_output ""
   # The first-time bootstrap seeds the per-repo override at the repo
-  # root as .setup.conf, outside the hand-editable config/ surface.
-  assert [ -f "${REPO_DIR}/.setup.conf" ]
+  # root as setup.toml, outside the hand-editable config/ surface.
+  assert [ -f "${REPO_DIR}/setup.toml" ]
 }
 
 # why: config preservation
@@ -709,22 +709,22 @@ call-release: contents: write'
 # init.sh --gen-conf
 # ════════════════════════════════════════════════════════════════════
 
-# why: setup.conf gen
-@test "init.sh --gen-conf copies setup.conf to repo root" {
-  # init.sh auto-creates setup.conf via workspace writeback; remove it first
+# why: setup.toml gen
+@test "init.sh --gen-conf copies setup.toml to repo root" {
+  # init.sh auto-creates setup.toml via workspace writeback; remove it first
   # to exercise the --gen-conf copy path directly.
   bash .base/dist/script/base/init.sh
-  rm -f "${REPO_DIR}/.setup.conf"
+  rm -f "${REPO_DIR}/setup.toml"
   bash .base/dist/script/base/init.sh --gen-conf
-  assert [ -f "${REPO_DIR}/.setup.conf" ]
+  assert [ -f "${REPO_DIR}/setup.toml" ]
   # Sanity: copied file contains the full section schema
-  run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/.setup.conf"
+  run grep -E '^\[(image|build|deploy|gui|network|volumes)\]' "${REPO_DIR}/setup.toml"
   assert_success
 }
 
 # why: overwrite safety
-@test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
-  # init.sh auto-creates <repo>/.setup.conf via setup.sh workspace writeback,
+@test "init.sh --gen-conf refuses to overwrite existing setup.toml" {
+  # init.sh auto-creates <repo>/setup.toml via setup.sh workspace writeback,
   # so --gen-conf on a freshly-initialized repo already hits the "exists" guard.
   bash .base/dist/script/base/init.sh
   run bash .base/dist/script/base/init.sh --gen-conf
@@ -771,27 +771,48 @@ call-release: contents: write'
 }
 
 # why: workspace writeback non-empty
-@test "new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)" {
+@test "new repo: setup.toml mount_1 is NOT empty after first init (workspace detected + written)" {
   # Regression: fresh repo previously produced an empty [volumes] mount_1
   # which made the TUI volumes menu appear blank on first open. First-init
   # must write the detected workspace path into mount_1.
+  #
+  # `mount_1` is the SHELL-side name for the first entry of the volumes
+  # list; in a setup.toml that entry is the first `[[volumes]]` block and
+  # its host half is the block's `source` field. A `mount_1 = ...` line
+  # never appears in a TOML destination, so that is what is asserted on.
   bash .base/dist/script/base/init.sh
-  run grep -E '^mount_1 = .+$' "${REPO_DIR}/.setup.conf"
+  run awk '/^\[\[volumes\]\]/ { n++; next } n == 1 && /^source[[:space:]]*=/ { print; exit }' \
+    "${REPO_DIR}/setup.toml"
   assert_success
-  # Must NOT be exactly `mount_1 =` (empty value)
-  run grep -x 'mount_1 =' "${REPO_DIR}/.setup.conf"
-  assert_failure
+  # A written-but-empty source (`source = ""`) is the blank-menu regression.
+  assert_output --regexp '^source = ".+"$'
 }
 
 # why: #201 — bootstrap writes WS_PATH back
-@test "new repo: per-repo setup.conf auto-created on first init (workspace writeback)" {
-  # setup.sh on first run (no <repo>/.setup.conf) copies template + fills
+@test "new repo: per-repo setup.toml auto-created on first init (workspace writeback)" {
+  # setup.sh on first run (no <repo>/setup.toml) copies template + fills
   # [volumes] mount_1 with the detected workspace. Expected behaviour since
-  # setup.conf became the source of truth for WS_PATH.
+  # setup.toml became the source of truth for WS_PATH.
+  #
+  # Asserted through the BRIDGE -- the consumer's own vendored copy of it,
+  # which is what numbers a `[[volumes]]` block back to `mount_1`. "A
+  # `[[volumes]]` block is present" was this test's whole assertion, and a
+  # block carrying `source = ""` satisfies it (measured: `grep -E
+  # '^\[\[volumes\]\]$'` succeeds on such a file while the bridge reports
+  # `volumes<TAB>mount_1<TAB>` empty). It was sound only because the
+  # shipped template keeps every `[[volumes]]` example commented out
+  # (measured: zero uncommented ones); the day one is uncommented the test
+  # goes green for free, with no writeback having run. The sibling above
+  # reddens on an empty source today and is left as it is.
   bash .base/dist/script/base/init.sh
-  assert [ -f "${REPO_DIR}/.setup.conf" ]
-  run grep '^mount_1' "${REPO_DIR}/.setup.conf"
+  assert [ -f "${REPO_DIR}/setup.toml" ]
+  run bash -c "source '${REPO_DIR}/.base/dist/script/docker/lib/conf.sh'; \
+    toml_bridge_parse '${REPO_DIR}/setup.toml' --kv"
   assert_success
+  # The bootstrap writes the PORTABLE form, so the committed file stays
+  # machine-agnostic and .env carries the detected absolute path.
+  # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} intentional
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 # ════════════════════════════════════════════════════════════════════

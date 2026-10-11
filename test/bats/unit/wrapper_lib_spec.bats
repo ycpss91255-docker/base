@@ -64,13 +64,13 @@ teardown() {
 }
 
 @test "_msg errors when category is missing (#565)" {
-  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg"
+  run -127 bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg"
   assert_failure
   assert_output --partial "requires category"
 }
 
 @test "_msg errors when key is missing (#565)" {
-  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg errors"
+  run -127 bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg errors"
   assert_failure
   assert_output --partial "requires key"
 }
@@ -124,7 +124,7 @@ teardown() {
 }
 
 @test "_wrapper_lang_prepass requires a verb argument (#565)" {
-  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _wrapper_lang_prepass"
+  run -127 bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _wrapper_lang_prepass"
   assert_failure
   assert_output --partial "requires verb"
 }
@@ -223,7 +223,7 @@ _run_setup_sync() {
   local R="${TEMP_DIR}/repo2"
   _make_setup_sandbox "${R}"
   # Pre-seed all three artifacts so the only reason setup runs is RUN_SETUP.
-  echo "x" > "${R}/.setup.conf"
+  echo "# x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   RUN_SETUP=true _run_setup_sync "${R}" run
@@ -235,7 +235,7 @@ _run_setup_sync() {
 @test "_wrapper_setup_sync drift-check clean path does NOT re-apply (#565)" {
   local R="${TEMP_DIR}/repo3"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/.setup.conf"
+  echo "# x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   MOCK_DRIFT_RC=0 _run_setup_sync "${R}" build
@@ -248,7 +248,7 @@ _run_setup_sync() {
 @test "_wrapper_setup_sync regenerates on drift (check-drift non-zero) (#565)" {
   local R="${TEMP_DIR}/repo4"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/.setup.conf"
+  echo "# x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   MOCK_DRIFT_RC=1 _run_setup_sync "${R}" run
@@ -312,7 +312,7 @@ EOS
 }
 
 @test "_wrapper_setup_sync requires a verb argument (#565)" {
-  run bash -c "
+  run -127 bash -c "
     source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh
     FILE_PATH='${TEMP_DIR}'
     _wrapper_setup_sync
@@ -327,7 +327,7 @@ EOS
   # _run_interactive branch that reads the array.
   local R="${TEMP_DIR}/repo_noargs"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/.setup.conf"
+  echo "# x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   run bash -c "
@@ -440,7 +440,7 @@ EOS
 _seed_recorded_repo() {
   local _root="$1" _project="$2" _pending="${3-}"
   _make_setup_sandbox "${_root}"
-  echo "x" > "${_root}/.setup.conf"
+  echo "# x" > "${_root}/setup.toml"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
@@ -681,4 +681,26 @@ _run_service_probe() {
   assert_success
   assert_line "PROBE_UP"
   refute_output --partial "Could not ask compose"
+}
+
+# why: `build.sh --setup` and `run.sh --setup` on a TTY selected
+# setup_tui.sh, and ADR-00000037's Consequences freeze that editor until
+# the TOML migration completes -- `_tui_refuse_frozen` makes every path
+# through it exit 2 after argument parsing. So the wrapper failed with
+# status 2 BEFORE regenerating and before its main action: the one option
+# whose job is "regenerate now" was the one that could not. The non-TTY
+# path was unaffected, which is why nothing in CI noticed. Two observable
+# facts, because a TTY cannot be faked in this suite and the pair is what
+# makes the dispatch wrong: the shipped editor DOES refuse, and the
+# wrapper's predicate says it may not be dispatched to. Both move
+# together in the change that unfreezes it.
+@test "_wrapper_setup_sync: the frozen editor is not a dispatch target (base#1148)" {
+  run _wrapper_tui_usable
+  assert_failure
+
+  # And the editor it would have selected refuses, after parsing args and
+  # before any backend probe, so `-h` still works but nothing else does.
+  run bash /source/dist/script/docker/wrapper/setup_tui.sh --lang en
+  assert_failure
+  assert_equal "${status}" "2"
 }

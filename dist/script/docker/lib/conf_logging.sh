@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # conf_logging.sh -- shared parsers for the [logging] / [logging.<svc>]
-# sections of setup.conf.
+# sections of setup.toml.
 #
 # Extracted from script/docker/wrapper/setup.sh during the
 # lifecycle refactor (PR-A). Both setup.sh's compose generator and
@@ -16,8 +16,7 @@
 #
 #   _collect_logging <base_path> <global_out> <per_svc_out>
 #     Resolve effective [logging] and each per-service [logging.<svc>]
-#     through the setup.conf layer chain (section-replace) into two
-#     newline-joined strings.
+#     through the setup.toml layer chain into two newline-joined strings.
 
 # Guard against double-sourcing -- setup.sh sources us, and so does
 # lib/gitignore.sh in PR-B; the apply pipeline pulls both in.
@@ -27,7 +26,7 @@ fi
 _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 
 # Self-source the dependencies (Part A): _collect_logging resolves through
-# the setup.conf layer chain (lib/setup_conf.sh's _setup_conf_layers /
+# the setup.toml layer chain (lib/setup_conf.sh's _setup_conf_layers /
 # _load_setup_conf), which in turn builds on lib/conf.sh's INI primitives.
 # Pull both in directly -- idempotent via their own double-source guards --
 # so _lib.sh load order is not load-bearing and a caller sourcing
@@ -66,19 +65,28 @@ _parse_logging_svc_sections() {
 # layout:
 #
 #   global_out   newline-separated KEY=VALUE for the effective global
-#                [logging] section, resolved through the conf chain with
-#                the chain's one rule: the highest layer that defines
-#                [logging] replaces it wholesale, no key-level merge
-#                inside a section.
+#                [logging] table, resolved through the conf chain by the
+#                chain's rule (ADR-00000037): tables merge KEY BY KEY, so
+#                a layer that names `driver` overrides that key and leaves
+#                `max_size` to the layer below. This docstring used to
+#                claim section-replace and the reader used to perform it;
+#                both were the behaviour ADR-00000037 amended, and logging
+#                is not an exception to it.
 #
 #   per_svc_out  newline-separated "<svc>:KEY=VALUE" rows for any
-#                [logging.<svc>] sections, resolved the same way -- each
-#                per-service section is its own section, so a local layer
-#                may add one the repo lacks or replace one it has.
-#                Key-level merge against global_out happens in
-#                `_emit_logging_block` at compose-emit time -- only
-#                keys present in [logging.<svc>] override the
-#                corresponding global key; absent keys fall through.
+#                [logging.<svc>] tables, resolved the same way -- a
+#                nested table is a table, so a local layer naming one key
+#                of a service overrides that key and inherits the rest,
+#                and may introduce a service the repo does not mention.
+#
+# Two DIFFERENT operations, both of which hold. The one above is the FILE
+# OVERLAY: layer over layer, per table, per key. The one below it is the
+# SERVICE OVERRIDE: at compose-emit time `_emit_logging_block` lays the
+# effective [logging.<svc>] over the effective global [logging], so a key
+# the service names wins and a key it omits falls through to the global.
+# Merging the overlay does not perform the override and vice versa; a
+# service that inherits `driver` from the global table is a different fact
+# from a service that inherits it from the layer below.
 #
 # Callable without setup.sh sourced: init.sh / upgrade.sh reach this via
 # _sync_logging_gitignore with no _SETUP_SCRIPT_DIR, in which case the
@@ -93,7 +101,7 @@ _collect_logging() {
   local -a _cl_layers=()
   _setup_conf_layers "${_base}" _cl_layers
 
-  # Global [logging], section-replace across the chain.
+  # Global [logging], merged across the chain key by key.
   local -a _g_keys=() _g_vals=()
   _load_setup_conf "${_base}" "logging" _g_keys _g_vals
   local i
@@ -103,24 +111,46 @@ _collect_logging() {
   done
   (( ${#_g_lines[@]} > 0 )) && _cl_global="$(printf '%s\n' "${_g_lines[@]}")"
 
-  # Per-service [logging.<svc>] sections. The service SET is the union
+  # Per-service [logging.<svc>] tables. The service SET is the union
   # across the chain (a layer may introduce a service the layers below do
-  # not mention); each service's section is then resolved section-replace
-  # like any other, so a local layer that names one service does not
-  # disturb the rest.
-  local -a _svcs=() _layer_svcs=()
-  local _layer _svc _known _seen
-  for _layer in "${_cl_layers[@]}"; do
-    [[ -f "${_layer}" ]] || continue
-    _layer_svcs=()
-    _parse_logging_svc_sections "${_layer}" _layer_svcs
-    for _svc in "${_layer_svcs[@]+"${_layer_svcs[@]}"}"; do
-      _seen=0
-      for _known in "${_svcs[@]+"${_svcs[@]}"}"; do
-        [[ "${_known}" == "${_svc}" ]] && { _seen=1; break; }
-      done
-      (( _seen )) || _svcs+=("${_svc}")
-    done
+  # not mention); each service's table is then merged key by key like any
+  # other, so a local layer that names one key of one service disturbs
+  # neither the rest of that service nor the other services.
+  # DISCOVERED FROM THE PARSED SECTIONS, not from the physical header
+  # text. `_parse_logging_svc_sections` matches `^\[logging\.<svc>\]$`
+  # exactly, which is one of several ways TOML spells the same table:
+  # `[logging.runtime] # rotation settings` is a valid header the bridge
+  # reads as `logging.runtime`, and so is the inline
+  # `[logging]` / `runtime = { max_size = "100m" }`. Measured, both were
+  # parsed by the bridge and discovered by NOBODY, so `_collect_logging`
+  # returned an empty per-service string and that service's driver,
+  # rotation and host-log settings were dropped out of the generated
+  # compose with nothing said. `_parse_logging_svc_sections` is no longer
+  # on this path at all -- it stays as the direct single-file helper its
+  # own tests cover, and the merged view answers for every format,
+  # because an INI `[logging.runtime]` is a section name there too.
+  #
+  # The merged view is also the UNION this loop was written to build: the
+  # chain's layers are merged key by key and a sub-table is a table, so a
+  # service only the lowest layer mentions is in the merged sections, and
+  # the tokenizer already de-duplicates them in first-appearance order.
+  # One read of the chain rather than one per layer, which matters because
+  # each is a bridge invocation.
+  #
+  # The NAME filter stays what it was. A service name becomes a compose
+  # service and a host log directory, so the charset was never free, and
+  # widening it is not part of fixing which spellings are seen. A deeper
+  # table (`[logging.web.extra]`) is likewise not a service: the remainder
+  # has to be one component.
+  local -a _svcs=()
+  local -a _cl_eff_s=() _cl_eff_k=() _cl_eff_v=()
+  _setup_effective_full "${_base}" _cl_eff_s _cl_eff_k _cl_eff_v
+  local _cl_sect _svc
+  for _cl_sect in "${_cl_eff_s[@]+"${_cl_eff_s[@]}"}"; do
+    [[ "${_cl_sect}" == logging.* ]] || continue
+    _svc="${_cl_sect#logging.}"
+    [[ "${_svc}" =~ ^[a-z][a-z0-9_-]*$ ]] || continue
+    _svcs+=("${_svc}")
   done
 
   local -a _ps_lines=()

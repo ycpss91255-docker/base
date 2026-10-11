@@ -166,6 +166,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `catalog-description` | every `@test` says why its case matters, in the `# why:` marker the catalogues render | `lint-static` (one group) | ungated |
 | `spec-repo-root` | a spec's `REPO_ROOT` is a fixture, never the live checkout | `lint-static` (one group) | ungated |
 | `test-name-backtick` | a `@test` name is a literal -- a backtick in one is executed by bats at collection time | `lint-static` (one group) | ungated |
+| `toml-fixture` | every fixture body a spec writes to a `*.toml` path parses as TOML -- a body the bridge refuses leaves an empty config handle, so a test asserting a schema default passes without its fixture ever being read | `lint-static` (one group) | ungated |
 
 `lint-static` is a matrix of GROUPS, not of lints (base#1071): each entry is a
 position (`1/4` ... `4/4`) and `test.sh --lint-group N/T` computes which lints

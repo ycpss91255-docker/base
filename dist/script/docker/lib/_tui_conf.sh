@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# _tui_conf.sh — Pure-logic helpers for validating setup.conf values and
+# _tui_conf.sh — Pure-logic helpers for validating setup.toml values and
 # assembling mount/GPU fields. Sourced by setup_tui.sh, setup.sh, and
 # bats tests.
 #

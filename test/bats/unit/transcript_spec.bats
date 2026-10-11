@@ -158,21 +158,72 @@ teardown() { rm -rf "${TMP_DIR}"; }
 
 @test "_transcript_enabled: false when wrapper_transcript = false (#606)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 }
 
+# why: An operator who turns a setting off is exactly the one who writes
+# down why, and a comment after the value is part of a VALID TOML line.
+# The reader is a deliberate source-time grep -- it may not reach the
+# containerised bridge, because that would put docker in front of every
+# wrapper invocation -- and it returned the whole right-hand side, so
+# `wrapper_transcript = false # disable capture` read as
+# `false # disable capture`, matched neither `false` nor `true`, and left
+# recording ON against an explicit opt-out. The quoted spellings of the
+# key and of the value are the same question: TOML allows them and the
+# grep saw neither.
+@test "_transcript_enabled: an annotated or quoted opt-out is still an opt-out (base#1148)" {
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript = false # disable capture\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  printf '[logging]\n"wrapper_transcript" = false\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  # A quoted value AND a trailing comment together. The first spelling of
+  # this fix matched the quotes only when the closing one ended the line,
+  # so the comment fell through to the unquoted branch, which stripped
+  # the comment and left the quotes: `"false"` matched no boolean and
+  # capture stayed on. Both quote forms.
+  printf '[logging]\nwrapper_transcript = "false" # disable capture\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  printf "[logging]\nwrapper_transcript = 'false'  # disable capture\n" > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_failure
+
+  # And the control: an annotated TRUE still reads true, so the fix is
+  # not "anything with a comment is off".
+  printf '[logging]\nwrapper_transcript = true  # keep capturing\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_enabled
+  assert_success
+}
+
+# why: The same trailing comment on the INTEGER keys, which feed a
+# numeric comparison rather than a string one -- an unparsed
+# `20 # two weeks` is not a count, and the retention sweep reads it.
+@test "_transcript_conf: an annotated integer reads back as the integer (base#1148)" {
+  mkdir -p "${TMP_DIR}"
+  printf '[logging]\nwrapper_transcript_keep = 5 # five runs\n' > "${TMP_DIR}/setup.toml"
+  FILE_PATH="${TMP_DIR}" run _transcript_conf wrapper_transcript_keep 20
+  assert_success
+  assert_output "5"
+}
+
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=false env wins over conf=true (#622)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT=false FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 }
 
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=true env wins over conf=false (#622)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT=true FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_success
 }
@@ -183,7 +234,7 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # key is the worst outcome: the user believes the environment won and
   # sees no sign that it did not. Refuse the run instead.
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT=flase FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
   assert_output --partial "WRAPPER_TRANSCRIPT"
@@ -194,7 +245,7 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # `WRAPPER_TRANSCRIPT=` is how a caller clears an inherited override, and
   # `env -u` is not always available to it. Empty defers to the conf key.
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT= FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
   refute_output --partial "WRAPPER_TRANSCRIPT"
@@ -249,7 +300,7 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # hand-edited setup.conf cannot drive prune with keep=0 (wipe-all).
   mkdir -p "${TMP_DIR}"
   printf '[logging]\nwrapper_transcript_keep = 0\n' \
-    > "${TMP_DIR}/.setup.conf"
+    > "${TMP_DIR}/setup.toml"
   run bash -c "
     export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}'
     source ${LOG_SH}; source ${TRANSCRIPT_SH}
@@ -391,7 +442,7 @@ _run_transcript_harness() {  # <verb> <extra-env...>
 
 @test "transcript: wrapper_transcript=false is a complete no-op (no file) (#606)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   _run_transcript_harness build
   assert_success
   assert_output --partial "plain stdout line"

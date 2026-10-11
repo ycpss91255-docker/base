@@ -35,7 +35,7 @@ teardown() {
 _write_conf() {
   local _dir="${1}"; shift
   mkdir -p "${_dir}"
-  printf '%s\n' "$@" > "${_dir}/.setup.conf"
+  printf '%s\n' "$@" > "${_dir}/setup.toml"
 }
 
 # The stable English fragment every fire point shares.
@@ -52,7 +52,7 @@ _INERT="publishes ports only under mode = bridge"
 }
 
 @test "set network.port_N under mode = bridge stays quiet (#879)" {
-  _write_conf "${TEMP_DIR}" "[network]" "mode = bridge"
+  _write_conf "${TEMP_DIR}" "[network]" 'mode = "bridge"'
   run bash "${SETUP_SH}" set network.port_1 8080:80 --base-path "${TEMP_DIR}"
   assert_success
   refute_output --partial "${_INERT}"
@@ -65,7 +65,7 @@ _INERT="publishes ports only under mode = bridge"
 }
 
 @test "add network.port under mode = bridge stays quiet (#879)" {
-  _write_conf "${TEMP_DIR}" "[network]" "mode = bridge"
+  _write_conf "${TEMP_DIR}" "[network]" 'mode = "bridge"'
   run bash "${SETUP_SH}" add network.port 8080:80 --base-path "${TEMP_DIR}"
   assert_success
   refute_output --partial "${_INERT}"
@@ -73,14 +73,16 @@ _INERT="publishes ports only under mode = bridge"
 
 @test "set network.mode host with ports already configured warns (#879)" {
   # The symmetric move: the ports were fine until the mode changed under them.
-  _write_conf "${TEMP_DIR}" "[network]" "mode = bridge" "port_1 = 8080:80"
+  _write_conf "${TEMP_DIR}" "[network]" 'mode = "bridge"' \
+    "[[network.ports]]" "host = 8080" "container = 80"
   run bash "${SETUP_SH}" set network.mode host --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "${_INERT}"
 }
 
 @test "set network.mode bridge with ports already configured stays quiet (#879)" {
-  _write_conf "${TEMP_DIR}" "[network]" "mode = host" "port_1 = 8080:80"
+  _write_conf "${TEMP_DIR}" "[network]" 'mode = "host"' \
+    "[[network.ports]]" "host = 8080" "container = 80"
   run bash "${SETUP_SH}" set network.mode bridge --base-path "${TEMP_DIR}"
   assert_success
   refute_output --partial "${_INERT}"
@@ -156,8 +158,9 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "_generate_resolved_compose warns when the field bundle drops ports (#879)" {
-  _write_conf "${TEMP_DIR}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" "[network]" "mode = host" "port_1 = 8080:80"
+  _write_conf "${TEMP_DIR}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' "[network]" 'mode = "host"' \
+    "[[network.ports]]" "host = 8080" "container = 80"
   local _out="${TEMP_DIR}/compose.yaml"
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" run _generate_resolved_compose \
@@ -167,9 +170,10 @@ EOF
 }
 
 @test "_generate_resolved_compose stays quiet when the field bundle emits ports (#879)" {
-  _write_conf "${TEMP_DIR}" "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" "[network]" "mode = bridge" "network_name = appnet" \
-    "port_1 = 8080:80"
+  _write_conf "${TEMP_DIR}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' "[network]" 'mode = "bridge"' \
+    'network_name = "appnet"' \
+    "[[network.ports]]" "host = 8080" "container = 80"
   local _out="${TEMP_DIR}/compose.yaml"
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" run _generate_resolved_compose \

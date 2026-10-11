@@ -13,7 +13,7 @@
 # (sourced lib, uses ${REPO_ROOT}, _log_* / _die, no main).
 #
 # Why: setup.conf is `just setup`-managed, not hand-edited, so it left the
-# hand-editable config/ surface for the repo-root .setup.conf dotfile, and
+# hand-editable config/ surface for the repo-root setup.toml file, and
 # the path constants in lib/setup_conf.sh, lib/resolve.sh and the wrapper /
 # init / upgrade paths moved in lockstep (ADR-00000006 requires that
 # lockstep). A newly added lib that hardcodes the legacy path reads a
@@ -46,7 +46,7 @@
 # means a grep for the stale literal reports only genuine call sites).
 readonly _STALE_SETUP_CONF_BASENAME='setup.conf'
 readonly _STALE_SETUP_CONF_LEGACY="config/docker/${_STALE_SETUP_CONF_BASENAME}"
-readonly _STALE_SETUP_CONF_REPLACEMENT=".${_STALE_SETUP_CONF_BASENAME}"
+readonly _STALE_SETUP_CONF_REPLACEMENT="setup.toml"
 
 # The scanned tree, repo-root-relative. Must exist: a missing root would
 # make the scan pass vacuously.
@@ -119,7 +119,7 @@ _run_stale_setup_conf() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_stale_setup_conf_path \
-      "${_violations} stale '${_STALE_SETUP_CONF_LEGACY}' reference(s) / unbalanced allow marker(s) under dist/. The per-repo override and the template default live at the repo-root '${_STALE_SETUP_CONF_REPLACEMENT}' dotfile; use that path. A legitimate legacy-migration line opts out by bracketing it with '# ${_STALE_SETUP_CONF_ALLOW_BEGIN} -- <why>' / '# ${_STALE_SETUP_CONF_ALLOW_END}'."
+      "${_violations} stale '${_STALE_SETUP_CONF_LEGACY}' reference(s) / unbalanced allow marker(s) under dist/. The per-repo override and the template default live at the repo-root '${_STALE_SETUP_CONF_REPLACEMENT}' file; use that path. A legitimate legacy-migration line opts out by bracketing it with '# ${_STALE_SETUP_CONF_ALLOW_BEGIN} -- <why>' / '# ${_STALE_SETUP_CONF_ALLOW_END}'."
     return 1
   fi
   echo "stale setup.conf path lint: clean"

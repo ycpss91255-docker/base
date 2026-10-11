@@ -46,6 +46,15 @@ FROM devel AS devel-test
 FROM devel AS headless
 EOF
   mkdir -p "${TEMP_DIR}"
+  # Override toml_bridge_parse to use the in-container bridge directly
+  # instead of docker run (the test container has the bridge installed
+  # at /usr/local/bin/toml-bridge via Dockerfile.test-tools).
+  toml_bridge_parse() {
+    local _file="${1:?missing file}"
+    shift
+    [[ -f "${_file}" ]] || { echo "toml_bridge_parse: file not found: ${_file}" >&2; return 1; }
+    /usr/local/bin/toml-bridge "$@" < "${_file}"
+  }
 }
 
 teardown() {
@@ -228,12 +237,12 @@ _every_claim_states_the_exemption() {
 # bridge network (-> network_mode: line + ports honoured), devel ports,
 # and a [stage:headless] with its own ports override.
 _emit_exercised_compose() {
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:headless]
-network.mode = bridge
-network.port_inherit = false
-network.port_1 = 5000:5000
-network.port_2 = 6000:6000
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:headless"]
+"network.mode" = "bridge"
+"network.port_inherit" = "false"
+"network.port_1" = "5000:5000"
+"network.port_2" = "6000:6000"
 CONF
   local _extras=('/home/u/repo:/home/u/repo:rw')
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -441,7 +450,7 @@ CONF
   _emit_exercised_compose
   # devel ports (from the top-level list) and the headless stage's ports
   # (from [stage:headless] override) are all overlay interpolations, with the
-  # setup.conf value preserved as the :- default (single-run behaviour). The
+  # setup.toml value preserved as the :- default (single-run behaviour). The
   # index is 1-based (PORT_1 = first port) to match base's indexed-key
   # convention (port_1 / mount_1 / arg_1).
   run grep -F -- '- "${PORT_1:-8080:80}"' "${COMPOSE_OUT}"

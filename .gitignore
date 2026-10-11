@@ -20,6 +20,11 @@ log/
 # root list, and an old release inside one of those roots would be linted
 # as if it were current source.
 .prev-release/
+# Bytecode CPython writes beside dockerfile/toml_bridge.py whenever the
+# bridge is run from the checkout rather than from its image. Derived,
+# per-interpreter, and no part of what the image copies.
+__pycache__/
+*.pyc
 *.swp
 *.swo
 .DS_Store

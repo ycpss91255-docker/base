@@ -6,7 +6,7 @@
 # into the final enabled state setup.sh writes to .env: _resolve_gpu /
 # _resolve_gui / _resolve_runtime / _resolve_build_network, the detection
 # helpers they consume (_detect_jetson / _detect_dri_groups), and
-# _compute_conf_hash (the setup.conf content hash that drives drift detection).
+# _compute_conf_hash (the setup.toml content hash that drives drift detection).
 #
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). Calls into
 # the conf accessors + _setup_msg + globals in setup.sh; all resolve at
@@ -144,7 +144,7 @@ _resolve_build_network() {
 #
 # sha256 of the effective config: every layer of the conf chain
 # (_setup_conf_layers -- template default, per-repo override, per-worktree
-# .setup.conf.local), in precedence order. Used to detect conf drift in
+# setup.local.toml), in precedence order. Used to detect conf drift in
 # build.sh / run.sh. Drift means "an input to the resolved config changed",
 # which is why EVERY layer that can change the resolved value is hashed: a
 # layer that steers resolution but sits outside the hash would let the

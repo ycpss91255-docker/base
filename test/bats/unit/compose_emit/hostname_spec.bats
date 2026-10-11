@@ -39,6 +39,15 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
+  # Override toml_bridge_parse to use the in-container bridge directly
+  # instead of docker run (the test container has the bridge installed
+  # at /usr/local/bin/toml-bridge via Dockerfile.test-tools).
+  toml_bridge_parse() {
+    local _file="${1:?missing file}"
+    shift
+    [[ -f "${_file}" ]] || { echo "toml_bridge_parse: file not found: ${_file}" >&2; return 1; }
+    /usr/local/bin/toml-bridge "$@" < "${_file}"
+  }
 }
 
 teardown() {
@@ -94,10 +103,10 @@ FROM devel AS devel-test
 FROM devel AS probe
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:probe]
-gui.mode = force
-network.mode = bridge
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:probe"]
+"gui.mode" = "force"
+"network.mode" = "bridge"
 CONF
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -118,10 +127,10 @@ FROM devel AS devel-test
 FROM devel AS probe
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:probe]
-gui.mode = off
-network.mode = bridge
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:probe"]
+"gui.mode" = "off"
+"network.mode" = "bridge"
 CONF
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \

@@ -22,7 +22,7 @@ _DOCKER_LIB_SETUP_CMD_SOURCED=1
 # ════════════════════════════════════════════════════════════════════
 # _setup_known_section <section>
 #
-# Returns 0 when <section> is one of the known setup.conf section
+# Returns 0 when <section> is one of the known setup.toml section
 # names, 1 otherwise. Derives the base section list from the schema
 # registry (SCHEMA_SECTIONS, via _schema_is_section) so adding a section
 # there makes it known here without a parallel edit. The
@@ -110,8 +110,8 @@ _setup_warn_ports_inert() {
 # ════════════════════════════════════════════════════════════════════
 # _setup_write_target <base_path> <local_flag> <outvar>
 #
-# Resolve which file a write verb lands in: <base>/.setup.conf by default,
-# <base>/.setup.conf.local when --local was passed. Bootstraps the file as
+# Resolve which file a write verb lands in: <base>/setup.toml by default,
+# <base>/setup.local.toml when --local was passed. Bootstraps the file as
 # empty when missing -- a write verb records only the user's intent, never a
 # wholesale copy of template defaults. Announces the creation of the local
 # override the first time, because a file that is gitignored and read by
@@ -125,13 +125,13 @@ _setup_write_target() {
   if (( _is_local )); then
     _swt_out="$(_setup_conf_local_path "${_base_path}")"
   else
-    _swt_out="${_base_path}/.setup.conf"
+    _swt_out="${_base_path}/setup.toml"
   fi
   if [[ ! -f "${_swt_out}" ]]; then
     : > "${_swt_out}"
     if (( _is_local )); then
       _log_info setup conf_local_created \
-        "display=[setup] created ${_swt_out} -- the gitignored per-worktree override. Every section it defines REPLACES the committed .setup.conf's, on this machine only; 'setup.sh deploy' refuses to build a field bundle while it exists." \
+        "display=[setup] created ${_swt_out} -- the gitignored per-worktree override. Every section it defines REPLACES the committed setup.toml's, on this machine only; 'setup.sh deploy' refuses to build a field bundle while it exists." \
         "file=${_swt_out}"
     fi
   fi
@@ -141,19 +141,26 @@ _setup_write_target() {
 # _setup_warn_shadowed_write <base_path> <section> <is_local>
 #
 # The store-time half of "a write must land where the read path looks".
-# When a write targets the COMMITTED .setup.conf and .setup.conf.local
-# already defines that section, section-replace makes the write inert on
-# this machine -- so say so, by name.
+# When a write targets the COMMITTED setup.toml and setup.local.toml
+# already defines that section, the write may be inert on this machine --
+# so say so, by name.
 #
-# Stated as a certainty, not a possibility: under section-replace there is
-# no case in which the write takes effect here. But it is a WARNING, not a
-# refusal, and that asymmetry is deliberate -- the value is still the
-# committed, shared setting CI and every other checkout use, so refusing
-# would block a legitimate write on the grounds that one machine cannot see
-# its effect.
+# Stated as a possibility, not a certainty. Under ADR-00000037's merge a
+# local table overrides only the keys it names, so a write to a key that
+# layer does not mention DOES take effect here; a local array, which
+# replaces whole, shadows every entry of its list. The granularity
+# available at this call site is the SECTION -- _setup_conf_local_sections
+# answers per section, and the key is not threaded through -- so the
+# warning is section-granular and honest about it rather than precise and
+# wrong. A key-precise warning is a separate change.
+#
+# It is a WARNING, not a refusal, and that asymmetry is deliberate -- the
+# value is still the committed, shared setting CI and every other checkout
+# use, so refusing would block a legitimate write on the grounds that one
+# machine may not see its effect.
 #
 # No-op when the write already targets the local layer, and no-op for a
-# section .setup.conf.local does not define.
+# section setup.local.toml does not define.
 # ════════════════════════════════════════════════════════════════════
 _setup_warn_shadowed_write() {
   local _base_path="${1-}" _section="${2-}" _is_local="${3:-0}"
@@ -170,7 +177,7 @@ _setup_warn_shadowed_write() {
   local _local
   _local="$(_setup_conf_local_path "${_base_path}")"
   _log_warn setup conf_write_shadowed \
-    "display=[setup] [${_section}] is also defined in ${_local}, which REPLACES the whole section. This write will NOT affect anything on this machine. It is still the committed value CI and every other checkout of this repo use -- pass --local to change what runs here instead." \
+    "display=[setup] [${_section}] is also defined in ${_local}, which overrides the keys it names there and replaces whole any list it declares. This write may have no effect on this machine. It is still the committed value CI and every other checkout of this repo use -- pass --local to change what runs here instead." \
     "section=${_section}" "file=${_local}"
   return 0
 }
@@ -226,7 +233,7 @@ _setup_set() {
         ;;
       --local)
         # Target the gitignored per-worktree override instead of the
-        # committed .setup.conf.
+        # committed setup.toml.
         _is_local=1
         shift
         ;;
@@ -287,8 +294,8 @@ _setup_set() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # Writes target the committed per-repo override (.setup.conf) by
-  # default; --local targets the gitignored .setup.conf.local.
+  # Writes target the committed per-repo override (setup.toml) by
+  # default; --local targets the gitignored setup.local.toml.
   local _conf=""
   _setup_write_target "${_base_path}" "${_is_local}" _conf
 
@@ -345,7 +352,7 @@ _setup_dump_section() {
 # _setup_show
 #
 # Subcommand handler for `setup.sh show <section>[.<key>]`. Reads
-# <base-path>/setup.conf via `_load_setup_conf_full` so output stays
+# <base-path>/setup.toml via `_load_setup_conf_full` so output stays
 # aligned with the TUI's view of the file (preserves on-disk order,
 # strips comments).
 #
@@ -455,7 +462,7 @@ _setup_show() {
 # _setup_list
 #
 # Subcommand handler for `setup.sh list [<section>]`. Without an arg,
-# prints the entire setup.conf (in on-disk order, comments stripped)
+# prints the entire setup.toml (in on-disk order, comments stripped)
 # as INI-style sections separated by blank lines — suitable for piping
 # into other tooling. With a <section> arg, behaves like `show`.
 #
@@ -541,7 +548,7 @@ _setup_list() {
 # Subcommand handler for `setup.sh add <section>.<list> <value>`.
 # Finds the next available numeric suffix N (max-existing + 1, or 1
 # when the section has no entries with that prefix) and writes
-# `<list>_N = <value>` via `_upsert_conf_value`. Bootstraps setup.conf
+# `<list>_N = <value>` via `_upsert_conf_value`. Bootstraps setup.toml
 # from the template default if absent so first-time users can `add`
 # before they ever ran `apply`. Validators fire through
 # `_setup_validate_kv` against the synthesized key, so e.g.
@@ -594,7 +601,7 @@ _setup_add() {
         ;;
       --local)
         # Target the gitignored per-worktree override instead of the
-        # committed .setup.conf.
+        # committed setup.toml.
         _is_local=1
         shift
         ;;
@@ -654,8 +661,8 @@ _setup_add() {
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
-  # Writes target the committed per-repo override (.setup.conf) by
-  # default; --local targets the gitignored .setup.conf.local.
+  # Writes target the committed per-repo override (setup.toml) by
+  # default; --local targets the gitignored setup.local.toml.
   local _conf=""
   _setup_write_target "${_base_path}" "${_is_local}" _conf
 
@@ -665,29 +672,62 @@ _setup_add() {
   # back to max+1 when every populated slot has content. Reads the
   # merged effective view (template ← repo override) so the new index
   # lands past any inherited template slot the user hasn't yet bumped.
+  # The read goes through the format-dispatching reader: on a TOML file
+  # the numbered keys are `[[array of tables]]` blocks the bridge numbers
+  # back, which the INI tokenizer cannot see, and a slot computed from
+  # an empty view is always 1 -- every `add` would overwrite the first
+  # entry instead of appending.
+  # THE EFFECTIVE LIST, and it is a real merge of the layers AT OR BELOW
+  # the write target. The paragraph above always claimed this; the code
+  # under it was an if/elif that took the target file's OWN section
+  # whenever that section had any key at all -- "replace strategy: only
+  # .local entries exist for this section" -- which was true under the
+  # pre-ADR-37 blanket section-replace and is not true now. Measured: a
+  # repo `setup.toml` carrying only `[build] network = "host"` inherits
+  # the template's three build arguments, and `add build.arg FOO=bar`
+  # read the repo section, chose `arg_1`, and wrote an array of ONE --
+  # which array-replace then made the whole effective list. The two
+  # mirrors and the timezone were gone, from a command whose entire job
+  # is to append.
+  #
+  # AT OR BELOW, not the whole chain: materialising a layer ABOVE the
+  # target would copy it down. For a write to the committed `setup.toml`
+  # the baseline is template + repo, so the operator's gitignored
+  # `setup.local.toml` entries are never written into the file everyone
+  # else gets.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
-  _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
-  if (( ${#_local_k[@]} > 0 )); then
-    # Override section present — replace strategy: only .local entries
-    # exist for this section.
-    local _li
-    for (( _li=0; _li<${#_local_k[@]}; _li++ )); do
-      _keys+=("${_section}.${_local_k[_li]}")
-      _vals+=("${_local_v[_li]}")
-    done
-  elif [[ -f "${_tpl_conf}" ]]; then
-    # Fall back to template baseline so max-suffix matches what the
-    # merged view would produce.
-    local -a _tpl_k=() _tpl_v=()
-    _parse_ini_section "${_tpl_conf}" "${_section}" _tpl_k _tpl_v
-    local _ti
-    for (( _ti=0; _ti<${#_tpl_k[@]}; _ti++ )); do
-      _keys+=("${_section}.${_tpl_k[_ti]}")
-      _vals+=("${_tpl_v[_ti]}")
-    done
+  _parse_conf_section "${_conf}" "${_section}" _local_k _local_v
+
+  local -a _sa_layers=() _sa_below=()
+  _setup_conf_layers "${_base_path}" _sa_layers
+  if (( _is_local )); then
+    _sa_below=("${_sa_layers[@]}")
+  else
+    _sa_below=("${_sa_layers[@]:0:${#_sa_layers[@]}-1}")
   fi
+  # A FAILED READ IS NOT AN EMPTY LIST. Taken as one, the slot search
+  # below finds no entry, picks index 1, and the write lands on top of
+  # whatever is already there while reporting success -- an `add` that
+  # overwrites. `_conf_load_layers` has already said what went wrong
+  # (`conf_toml_merge_failed`: it refuses to report an empty
+  # configuration as a loaded one), so this stops BEFORE any write
+  # rather than restating the cause.
+  if ! _conf_load_layers _SETUP_ADD_EFF "${_sa_below[@]}"; then
+    _log_err setup conf_write_failed \
+      "display=$(_setup_msg errors invalid_value): ${_section}.${_list} -- the effective configuration could not be read, so the slot to append at is unknown and nothing was written" \
+      "section=${_section}" "key=${_list}"
+    return 2
+  fi
+  local -n _sa_es=_SETUP_ADD_EFF__es
+  local -n _sa_k=_SETUP_ADD_EFF__keys
+  local -n _sa_v=_SETUP_ADD_EFF__vals
+  local _ei
+  for (( _ei=0; _ei<${#_sa_k[@]}; _ei++ )); do
+    [[ "${_sa_es[_ei]}" == "${_section}" ]] || continue
+    _keys+=("${_section}.${_sa_k[_ei]}")
+    _vals+=("${_sa_v[_ei]}")
+  done
   local _max=0 _empty_idx="" _i _k _suffix
   for (( _i=0; _i<${#_keys[@]}; _i++ )); do
     _k="${_keys[_i]}"
@@ -715,6 +755,54 @@ _setup_add() {
     _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}" "section=${_section}" "key=${_new_key}" "value=${_value}"
     return 2
   fi
+
+  # MATERIALISE WHAT THIS LAYER WOULD OTHERWISE DROP, before appending.
+  # An array is replaced whole by the highest layer that defines it
+  # (ADR-00000037), so the moment this file declares one it owes the
+  # FULL list -- an append that writes only the new entry is a
+  # replacement of everything below. Each inherited entry the target
+  # does not already carry is written first, at the index it holds in the
+  # effective view, so the positions the list readers sort by are the
+  # ones the merge produced.
+  #
+  # An empty effective entry is skipped: it is a cleared slot (the
+  # workspace opt-out is exactly that) and writing it back as a value
+  # would be inventing one. The slot keeps its position either way --
+  # that is what the writer's field-less padding is for.
+  #
+  # EVERY index, not only the ones below the new one. When the new entry
+  # REUSES an empty slot -- which is this function's documented
+  # preference, so a template placeholder gets filled rather than
+  # appended past -- the entries that matter sit AFTER it. A committed
+  # array whose first block is empty and whose second is `KEEP=yes` lost
+  # `KEEP=yes` entirely to `add --local`: the local layer declared an
+  # array of one and replaced the whole inherited list. The loop stops
+  # at `_max`, which is the highest index the effective view holds, and
+  # skips `_new_idx` because that slot is the one being written below.
+  local _mi _mval _mown _mj
+  for (( _mi = 1; _mi <= _max; _mi++ )); do
+    (( _mi == _new_idx )) && continue
+    _mval=""
+    for (( _mj=0; _mj<${#_keys[@]}; _mj++ )); do
+      if [[ "${_keys[_mj]}" == "${_section}.${_list}_${_mi}" ]]; then
+        _mval="${_vals[_mj]}"
+        break
+      fi
+    done
+    [[ -n "${_mval}" ]] || continue
+    _mown=""
+    for (( _mj=0; _mj<${#_local_k[@]}; _mj++ )); do
+      if [[ "${_local_k[_mj]}" == "${_list}_${_mi}" ]]; then
+        _mown="${_local_v[_mj]}"
+        break
+      fi
+    done
+    [[ "${_mown}" == "${_mval}" ]] && continue
+    if ! _upsert_conf_value "${_conf}" "${_section}" "${_list}_${_mi}" "${_mval}"; then
+      _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_list}_${_mi}" "section=${_section}" "key=${_list}_${_mi}"
+      return 2
+    fi
+  done
 
   if ! _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"; then
     _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key}" "section=${_section}" "key=${_new_key}"
@@ -745,9 +833,39 @@ _setup_add() {
 # remove-by-value mode. Removes one entry per invocation; multiple
 # matches keep the rest (call again to peel further). Preserves
 # comments + ordering via `_write_setup_conf`. Does NOT regenerate
-# .env.generated. Does NOT renumber remaining keys (`_load_setup_conf_full`
-# tolerates gaps, and downstream callers treat the prefix list as
-# unordered).
+# .env.generated.
+#
+# RENUMBERING, for a TOML destination: it happens. This paragraph used to
+# say the opposite -- "Does NOT renumber remaining keys
+# (`_load_setup_conf_full` tolerates gaps, and downstream callers treat
+# the prefix list as unordered)" -- and both halves are false here.
+# `_conf_toml_aot_slot` maps `<section>.<prefix>_N` onto the N-th
+# `[[path]]` block, so the array is dense by construction: conf.sh's
+# writer header states that a removed entry COMPACTS the ones after it,
+# and conf_toml_writer_spec's "a TOML rewrite with scalar, array, removed
+# and new-section overrides parses and reads back" pins it -- what the
+# fixture wrote as `mount_2` reads back as `mount_1`. Nor is the prefix
+# list unordered: every reader of one sorts it by the numeric suffix
+# (`_conf_list_sorted`).
+#
+# That matters for exactly one slot, and that one is REFUSED. The
+# workspace bind is slot 1 of `[volumes]` and nothing else marks it, so
+# `remove volumes.mount_1` on a TOML repo would compact whatever was slot
+# 2 into the workspace position -- silently, when its source exists
+# locally, because an absolute path that exists reads as a deliberately
+# pinned workspace. `_write_setup_conf` declines that save before it
+# builds the rewrite (`_wsc_refuse_ws_slot_move`), so the failure branch
+# below reports it and the file is unchanged. It declines ONLY the case
+# that promotes something: removing the one and only mount, or any mount
+# above slot 1, still succeeds. To stop mounting a workspace the operator
+# CLEARS mount_1 -- the published opt-out, which moves no other slot --
+# and the refusal's message says so.
+#
+# base#1233 still carries how the workspace bind should be identified;
+# the refusal contains the edit without answering that.
+#
+# For an INI destination the old paragraph was right: remaining keys keep
+# their suffixes and a gap is tolerated.
 #
 # Usage: _setup_remove <section>.<key>            [--base-path] [--lang]
 #        _setup_remove <section>.<list> <value>   [--base-path] [--lang]
@@ -788,7 +906,7 @@ _setup_remove() {
         ;;
       --local)
         # Target the gitignored per-worktree override instead of the
-        # committed .setup.conf.
+        # committed setup.toml.
         _is_local=1
         shift
         ;;
@@ -836,11 +954,11 @@ _setup_remove() {
   if [[ -z "${_base_path}" ]]; then
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
-  # remove operates on ONE layer: the committed .setup.conf by default,
-  # .setup.conf.local under --local. If that file doesn't exist there is
+  # remove operates on ONE layer: the committed setup.toml by default,
+  # setup.local.toml under --local. If that file doesn't exist there is
   # nothing to remove -- neither the template baseline nor the other layer
   # is a removable input from here.
-  local _conf="${_base_path}/.setup.conf"
+  local _conf="${_base_path}/setup.toml"
   (( _is_local )) && _conf="$(_setup_conf_local_path "${_base_path}")"
   if [[ ! -f "${_conf}" ]]; then
     _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_spec}" "key=${_spec}"
@@ -887,8 +1005,18 @@ _setup_remove() {
   _tmp="$(mktemp "${_conf}.XXXXXX")"
   cp "${_conf}" "${_tmp}"
   local -a _empty_k=() _empty_v=()
-  _write_setup_conf "${_conf}" "${_tmp}" \
-    _empty_k _empty_v "${_section}.${_target_key}"
+  # The writer's answer is READ. It was discarded, so a refusal -- the
+  # rewrite did not parse, or the key it was told to remove is still
+  # there -- printed the success lines below anyway, and the operator was
+  # told a removal had happened that had not.
+  if ! _write_setup_conf "${_conf}" "${_tmp}" \
+      _empty_k _empty_v "${_section}.${_target_key}"; then
+    rm -f "${_tmp}"
+    _log_err setup conf_write_failed \
+      "display=$(_setup_msg errors invalid_value): ${_section}.${_target_key} -- the writer declined and named why above; nothing was removed" \
+      "section=${_section}" "key=${_target_key}"
+    return 2
+  fi
   rm -f "${_tmp}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
@@ -904,8 +1032,8 @@ _setup_remove() {
 # _setup_reset
 #
 # Subcommand handler for `setup.sh reset [--yes]`. Overwrites the
-# repo's setup.conf with the template default, archiving the prior
-# .setup.conf to .setup.conf.bak and the prior .env to .env.bak so the
+# repo's setup.toml with the template default, archiving the prior
+# setup.toml to setup.toml.bak and the prior .env to .env.bak so the
 # user has a one-shot rollback path. Mirrors what `build.sh
 # --reset-conf` does today, but exposes it as a setup.sh subcommand
 # for scripted use.
@@ -958,16 +1086,16 @@ _setup_reset() {
     _base_path="$(cd -- "${_SETUP_SCRIPT_DIR}/../../../../.." && pwd -P)"
   fi
 
-  # reset clears the per-repo override (setup.conf) so the next `apply`
+  # reset clears the per-repo override (setup.toml) so the next `apply`
   # rebuilds .env / .env.generated / compose.yaml purely from the template
   # baseline. The workspace mount_1 is re-detected and re-written via the
   # bootstrap path on the next apply. `.env.local` is the operator's file
   # and is intentionally left untouched by reset.
-  local _conf="${_base_path}/.setup.conf"
+  local _conf="${_base_path}/setup.toml"
   local _env="${_base_path}/.env.generated"
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../setup.toml"
   if [[ ! -f "${_tpl_conf}" ]]; then
-    _log_err setup conf_template_missing "display=template setup.conf not found at ${_tpl_conf}" "path=${_tpl_conf}"
+    _log_err setup conf_template_missing "display=template setup.toml not found at ${_tpl_conf}" "path=${_tpl_conf}"
     return 1
   fi
 
@@ -1008,7 +1136,7 @@ _setup_reset() {
 # _setup_apply
 #
 # Subcommand handler for `setup.sh apply`. Regenerates .env.generated +
-# compose.yaml from setup.conf + system detection. Other subcommands
+# compose.yaml from setup.toml + system detection. Other subcommands
 # (set/add/remove/reset) intentionally do NOT regen — apply is the
 # explicit gate.
 #
@@ -1017,7 +1145,7 @@ _setup_reset() {
 _setup_apply() {
   local _base_path=""
   local _quiet=0
-  # per-invocation overrides. Empty means "use setup.conf /
+  # per-invocation overrides. Empty means "use setup.toml /
   # SETUP_GUI env / built-in default" per the documented resolution
   # order CLI > env > conf > default.
   local _gui_override=""        # --gui=auto|force|off
@@ -1122,7 +1250,7 @@ _setup_apply() {
   detect_gui             gui_detected
   BASE_PATH="${_base_path}" detect_image_name image_name "${_base_path}"
 
-  # ── Load setup.conf sections ──
+  # ── Load setup.toml sections ──
   # Only the sections apply still consumes directly are read here:
   # [build] (build args / target_arch), [volumes] (WS_PATH + extra_volumes),
   # [security] (the propagation guard re-reads privileged), and
@@ -1133,7 +1261,7 @@ _setup_apply() {
   # sections -- the same resolver the deploy generator uses, so the field
   # deploy can never drift from apply.
   #
-  # Parse the section-replace-merged conf ONCE into an opaque handle, then
+  # Parse the merged conf ONCE into an opaque handle, then
   # read [build] / [security] / [additional_contexts] from it via the
   # _conf_get_into / _conf_list_sorted accessors -- replacing three
   # per-section _load_setup_conf calls that each re-tokenized the whole conf
@@ -1153,11 +1281,19 @@ _setup_apply() {
   local -a _build_args=()
   _conf_list_sorted _APPLY_CONF build "arg_" _build_args
 
-  # Back-compat: repos that still have the old named-key schema
-  # (apt_mirror_ubuntu = …, tz = …) keep working without having to
-  # rewrite setup.conf. We lift those named keys into the arg_N list
-  # at runtime; the TUI saves in the new format the next time the
-  # user hits Save.
+  # The old named-key schema (apt_mirror_ubuntu = …, tz = …) is lifted
+  # into the arg_N list -- but ONLY when no layer of the chain supplies
+  # arg_N at all, which is what the guard below says. The shipped
+  # template always supplies [[build.args]], and an upper layer that
+  # says nothing about the array inherits it, so from `apply` this
+  # branch does not fire: a repo setup.toml still carrying the named
+  # keys gets the template's build args, not its own named values.
+  #
+  # That is deliberately stated as what HAPPENS, not as a promise. These
+  # keys are not on the deprecation schedule -- doc/deprecations.md lists
+  # only `[deploy] runtime`, and only that pair gets the per-layer alias
+  # precedence the merge applies. A repo on the pre-arg_N schema has to
+  # move its values into [[build.args]].
   if (( ${#_build_args[@]} == 0 )); then
     local _bc_v=""
     _conf_get_into _APPLY_CONF build apt_mirror_ubuntu "" _bc_v
@@ -1203,7 +1339,7 @@ _setup_apply() {
   # ── Resolve conf-derived docker/build params via the shared layer ──
   # S6b: _resolve_deploy_context is the single conf resolution that
   # both apply and the deploy generator use, so the field deploy never
-  # drifts from what apply produces for the same setup.conf. Its record is
+  # drifts from what apply produces for the same setup.toml. Its record is
   # unpacked into the existing locals below; the --gui / SETUP_GUI override,
   # the detection-dependent enabled booleans, the WS_PATH / mount_1
   # migration, and the device/volume validation stay apply-side.
@@ -1252,9 +1388,9 @@ _setup_apply() {
   #   - empty — user opted out; skip the mount but still detect WS_PATH
   #     so .env remains populated.
   #
-  # First-time bootstrap (no <repo>/.setup.conf) copies the template and
+  # First-time bootstrap (no <repo>/setup.toml) copies the template and
   # writes mount_1 in the portable form.
-  local _repo_conf="${_base_path}/.setup.conf"
+  local _repo_conf="${_base_path}/setup.toml"
   # The WS_PATH / mount_1 reconciliation state machine. Mutates
   # _vol_k / _vol_v in place (reloaded after any mount_1 rewrite) and
   # resolves ws_path (seeded above from ${WS_PATH:-}).
@@ -1269,7 +1405,7 @@ _setup_apply() {
   # (ros1_bridge bridge topics, realsense yaml/udev, isaac's fastdds.xml)
   # is editable on the host with edit + restart, no rebuild. Convention
   # over configuration: a directory's presence is the only switch (no
-  # setup.conf knob). The deploy flow (S6) COPY-bakes the SAME population
+  # setup.toml knob). The deploy flow (S6) COPY-bakes the SAME population
   # into the field image instead (immutable artifact, ADR-00000003) --
   # both halves read _collect_config_components (lib/deploy.sh), which is
   # what makes PRD invariant 8's "opposite means" agree on WHICH config.
@@ -1475,7 +1611,7 @@ _setup_apply() {
       && (( _no_x11_cookie == 0 )); then
     _ssh_x11_xauth="$(_setup_ssh_x11_cookie "${_base_path}")" || _ssh_x11_xauth=""
     if [[ "${net_mode}" != "host" ]]; then
-      _log_warn setup ssh_x11_network_mismatch "display=SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.conf to fix. See base#321." "mode=${net_mode}"
+      _log_warn setup ssh_x11_network_mismatch "display=SSH X11 forwarding detected but [network] mode = ${net_mode}; localhost:${DISPLAY##*:} from inside the container will not reach the host's SSH X11 listener. Set [network] mode = host in setup.toml to fix. See base#321." "mode=${net_mode}"
     fi
   fi
 
@@ -1613,7 +1749,7 @@ _setup_deploy() {
   fi
 
   # PRD invariant: an artifact built for the field must not silently depend
-  # on a config layer that is not under version control. .setup.conf.local
+  # on a config layer that is not under version control. setup.local.toml
   # is gitignored, so a bundle whose values came from it cannot be rebuilt
   # from a clean checkout and nothing in the bundle would say why. Refused
   # by default, BEFORE the preview and before any build side effect, so a

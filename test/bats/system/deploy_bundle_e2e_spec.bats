@@ -106,16 +106,23 @@ setup_file() {
   REPO="${TMP_ROOT}/deploydemo-${_uniq}"
   mkdir -p "${REPO}/config/app_cfg"
 
+  # The env_* values are the quoting torture cases this file exists to drive
+  # all the way into a running container, so each one is a TOML basic string
+  # that parses back to the exact bytes asserted further down:
+  #   env_2  a literal " #" -- inside quotes TOML does not start a comment
+  #   env_3  a literal ${...} -- TOML never interpolates
+  #   env_4  \" and \\ -- the only two escapes needed for a" and \
+  #   env_5  an apostrophe, which a basic string carries unescaped
   printf '%s\n' \
-    "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" \
-    "[environment]" "env_1 = APP_MODE=shipped-default" \
-    "env_2 = APP_NOTE=a #b" \
-    'env_3 = APP_LIT=${NOT_SET_ANYWHERE}' \
-    'env_4 = APP_QB=a"b\c' \
-    "env_5 = APP_APOS=it's fine" \
+    "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[environment]" 'env_1 = "APP_MODE=shipped-default"' \
+    'env_2 = "APP_NOTE=a #b"' \
+    'env_3 = "APP_LIT=${NOT_SET_ANYWHERE}"' \
+    'env_4 = "APP_QB=a\"b\\c"' \
+    "env_5 = \"APP_APOS=it's fine\"" \
     "[lifecycle]" "watchdog_check = true" "watchdog_interval = 30" \
-    > "${REPO}/.setup.conf"
+    > "${REPO}/setup.toml"
 
   cat > "${REPO}/Dockerfile" <<'DOCK'
 FROM alpine:3.20 AS sys

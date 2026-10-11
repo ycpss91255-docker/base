@@ -107,6 +107,16 @@ highest layer that defines it). This applies only to TOML layers; the
 INI `.setup.conf` chain retains section-replace. The TOML merge runs
 in Python inside the containerised bridge (ADR-37), where type
 information (dict vs list) is natively available.
+
+**Amendment (#1137, 2026-10-10):** "the highest layer that defines it"
+includes a layer that defines it with ZERO entries -- see ADR-00000037's
+zero-entry amendment for why the absent key and the empty array are not
+the same state.
+
+**Amendment (#1235, 2026-10-11):** the key-level half of that rule can
+change what a scalar resolves to wherever section-replace had masked a
+lower layer's value -- see ADR-00000037's masked-scalar amendment for the
+accepted cost and the check an upgrader runs.
 - If the same kind of customization appears in 3+ repos later,
   re-evaluate -- it may graduate into setup.conf.
 - Downstream repos can still write `compose.override.yaml` for

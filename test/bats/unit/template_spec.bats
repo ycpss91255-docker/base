@@ -643,7 +643,7 @@ lib/dockerfile_migrate.sh|  _dfm_sed "${_file}" -E 's|^([[:space:]]*)ARG[[:space
 lib/env_emit.sh|USER_NAME=${_user_name}
 lib/setup_cmd.sh|    printf 'USER_NAME=%s\n' "${user_name}"
 lib/setup_detect.sh|  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
-lib/setup_detect.sh|      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
+lib/setup_detect.sh|      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.toml to share." "path=${_mount_1_host}"
 wrapper/run.sh|    xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true
 wrapper/setup_tui.sh|_TUI_MSG_EN[volumes.edit.prompt]=$'Mount spec\n  - Format: <host>:<container>[:ro|rw]\n  - Empty = delete this entry\n  - Example: /data:/home/${USER_NAME}/data:rw'
 wrapper/setup_tui.sh|_TUI_MSG_JA[volumes.edit.prompt]=$'マウント指定\n  - 形式: <host>:<container>[:ro|rw]\n  - 空 = この項目を削除\n  - 例: /data:/home/${USER_NAME}/data:rw'
@@ -2548,15 +2548,15 @@ _df_claim_hits() {
 
 # why: Derived from the note's own `arg_N = KEY=` lines: two paragraphs
 # handing one slot to different keys is silent, because a `[build]` section
-# in `.setup.conf.local` replaces the whole section
+# in `setup.local.toml` replaces the whole section
 @test "the note gives one [build] arg slot per key (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
       "the shipped template Dockerfile this spec pins"
   # The note spells its routes as `arg_N = KEY=value` lines a reader
-  # pastes into `.setup.conf`. Two paragraphs handing the same N to
+  # pastes into `setup.toml`. Two paragraphs handing the same N to
   # different keys is not a typo a reader can absorb: a `[build]` section
-  # written in `.setup.conf.local` REPLACES the section (the note says so
+  # written in `setup.local.toml` REPLACES the section (the note says so
   # itself), so the second paste silently displaces the first. Derived
   # from the note rather than spelled as literals -- a literal pair goes
   # green the moment either paragraph is renumbered.
@@ -2650,12 +2650,12 @@ _df_claim_hits() {
   run grep -F 'BASE_IMAGE=ubuntu@sha256:' <<< "${_note}"
   assert_success
   # ... and the route it names first has to be the one this repo actually
-  # drives builds through. `[build] arg_N` in .setup.conf reaches the
+  # drives builds through. `[build] arg_N` in setup.toml reaches the
   # build via `just setup` + `just build`; a note that offers only
   # `--build-arg` sends a local reader to the one surface the repo's
   # convention refuses, and offering only an `ARG` default edit sends
   # them to a template-owned line a later migration may rewrite.
-  run grep -F '.setup.conf' <<< "${_note}"
+  run grep -F 'setup.toml' <<< "${_note}"
   assert_success
   run grep -F 'just setup' <<< "${_note}"
   assert_success
@@ -2692,9 +2692,12 @@ _df_claim_hits() {
   run grep -F 'BASE_IMAGE_DIGEST' <<< "${_note}"
   assert_success
   # Spelled as the config entry a reader can paste, not as prose about a
-  # config file: the `[build] arg_N` list is the local control surface,
-  # and `arg_4` is the next free slot after the three the template ships.
-  run grep -F 'arg_4 = BASE_IMAGE_DIGEST=sha256:' <<< "${_note}"
+  # config file: the `[[build.args]]` list is the local control surface, and
+  # an array of tables is appended to rather than slotted into, so the
+  # entry is the block itself and not a numbered key.
+  run grep -F 'key = "BASE_IMAGE_DIGEST"' <<< "${_note}"
+  assert_success
+  run grep -F 'value = "sha256:<digest>"' <<< "${_note}"
   assert_success
   # The recipe the note gives for OBTAINING that value has to produce
   # that shape. `docker image inspect --format '{{index .RepoDigests 0}}'`
@@ -2707,10 +2710,11 @@ _df_claim_hits() {
   # next to the storage line it has to agree with.
   run grep -F '${BASE_IMAGE_DIGEST##*@}' <<< "${_note}"
   assert_success
-  # The layering caveat travels with it. `.setup.conf.local` merges
-  # section-REPLACE, so adding one arg there silently drops the
+  # The layering caveat travels with it. An array of tables is REPLACED by
+  # the layer that defines it -- the one merge rule TOML did not make
+  # key-level -- so adding one arg to `setup.local.toml` silently drops the
   # APT_MIRROR_* / TZ args the repo already had.
-  run grep -F 'replaces the whole' <<< "${_note}"
+  run grep -F 'replaces the whole list' <<< "${_note}"
   assert_success
 }
 
@@ -3414,7 +3418,7 @@ FIXTURE
 # release-worker.yaml: archive composition
 # ════════════════════════════════════════════════════════════════════
 
-# why: no compose.yaml / .setup.conf in the manifest
+# why: no compose.yaml / setup.toml in the manifest
 @test "release archive payload declares no derived per-host artifact" {
   # compose.yaml has been gitignored since v0.9.0 (setup.sh-generated
   # derived artifact). An earlier release-worker.yaml listed it as a `cp`
@@ -3423,7 +3427,7 @@ FIXTURE
   # action-gh-release never ran -- the ros1_bridge v1.5.0 release surfaced
   # it. The payload is a declared manifest now, so that is where a derived
   # artifact could creep back in; the same guard applies to the per-host
-  # .setup.conf.
+  # setup.toml.
   local _manifest="/source/script/ci/release/archive.manifest"
   assert_spec_subject "${_manifest}" \
       "the release-archive payload manifest this spec pins"

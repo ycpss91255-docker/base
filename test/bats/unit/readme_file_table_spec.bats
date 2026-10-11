@@ -4,7 +4,7 @@
 # is a file INDEX, so every row names a real path. Nothing checked that.
 #
 # One such row went stale unnoticed: it still called the per-repo runtime
-# config `setup.conf` after the rename to `.setup.conf` and the move
+# config `setup.conf` after the rename to `setup.toml` and the move
 # under `dist/`. The stale-path lint that would normally have caught it
 # (script/test/drivers/stale_setup_conf.sh) scans `dist/**/*.sh` only, so
 # prose in README.md was outside every gate -- the row could be edited back
@@ -12,7 +12,7 @@
 #
 # The rows mix two vantage points on purpose: base-relative paths (the
 # repo's own `dist/`, `script/`, `test/` trees) and CONSUMER-relative ones
-# (`build.sh`, `.setup.conf`, `config/`, `.hadolint.yaml` -- what a
+# (`build.sh`, `setup.toml`, `config/`, `.hadolint.yaml` -- what a
 # downstream repo sees once init.sh has symlinked the wrappers and the
 # shipped `dist/` payload has landed at its root). A row is therefore
 # satisfied if it resolves at the repo root, under `dist/` (the shipped
@@ -22,12 +22,12 @@
 # why: The "What's included" table in `README.md` is a file INDEX, so every
 # row names a real path -- and nothing checked that (#957). Item 3 of that
 # issue was one such row: it still called the per-repo runtime config
-# `setup.conf` long after the rename to `.setup.conf`, and the stale-path
+# `setup.conf` long after the rename to `setup.toml`, and the stale-path
 # lint that would normally catch it
 # (`script/test/drivers/stale_setup_conf.sh`) scans `dist/**/*.sh` only, so
 # the row could be edited back to the old name with the suite green. Rows
 # mix two vantage points on purpose -- base-relative paths and
-# CONSUMER-relative ones (`build.sh`, `.setup.conf`, `config/`, what a
+# CONSUMER-relative ones (`build.sh`, `setup.toml`, `config/`, what a
 # downstream repo sees once init.sh has run) -- so a row counts as resolved
 # under the repo root, `dist/` or `script/`.
 

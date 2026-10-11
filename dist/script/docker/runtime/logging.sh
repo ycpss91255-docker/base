@@ -3,7 +3,7 @@
 #
 # Source this from a repo's `script/entrypoint.sh` so container stdout/
 # stderr is duplicated to the host-side log dir mounted via the
-# [logging] `local_path` setup.conf key. The tee preserves the original
+# [logging] `local_path` setup.toml key. The tee preserves the original
 # stdout stream, so `docker logs <container>` continues to return
 # identical content -- this is "host file is the current run, the daemon
 # json-file driver keeps rolling history" rather than a hijack.
@@ -26,7 +26,7 @@
 #       CONTAINER_LOG_DAYS=<d>                     (age retention, days)
 #     plus a `<host>:/var/log/<repo>` bind mount under `volumes:`.
 #   - CONTAINER_LOG_KEEP / _DAYS come from the [logging] container_log_keep
-#     / container_log_days setup.conf keys (fallback 20 / 14); the helper
+#     / container_log_days setup.toml keys (fallback 20 / 14); the helper
 #     re-validates them and clamps a non-positive value back to the
 #     default, so a hand-edited compose can never wipe every log.
 #   - When local_path is unset, none of these are emitted; this helper

@@ -173,3 +173,59 @@ _uncovered() {
   assert_success
   assert_output ""
 }
+
+# _seed_past_relocation
+#   The same consumer, already past the `config/` -> repo-root relocation:
+#   its own configuration is a TRACKED repo-root `.setup.conf` and there is
+#   no legacy copy left for `_migrate_legacy_setup_conf` to act on. That is
+#   the population the INI-to-TOML conversion is written for, and the one
+#   state in which the conversion's rename is a rename of a file the
+#   snapshot could have copied.
+_seed_past_relocation() {
+  _seed_consumer
+  git -C "${CONSUMER}" rm -q -- config/docker/setup.conf
+  printf '[image]\nrule_1 = string:seeded\n' > "${CONSUMER}/.setup.conf"
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "consumer past the setup.conf relocation"
+}
+
+# why: The other side of the containment pair (base#1137). That pair stopped
+# a FAILED conversion from retiring the INI; this is a conversion that
+# SUCCEEDS and is then rolled back. The migration writes `setup.toml` and
+# renames `.setup.conf` to `.setup.conf.bak`, and the rollback surface named
+# neither the source nor the name it is renamed to -- so the snapshot
+# recorded `setup.toml` as absent and removed it, while the rename was left
+# standing. The repo came out of a failed run carrying no configuration any
+# shipped reader looks at, which is the outcome the containment exists to
+# prevent, reached from the successful direction.
+@test "a rollback after a successful INI-to-TOML conversion restores the INI (refs base#1137)" {
+  _seed_past_relocation
+
+  # A step PAST every migration aborts the run, so the conversion has
+  # landed and been announced before the armed trap fires. Driven in a
+  # child shell on purpose: the resync's EXIT trap hands control back to
+  # whatever trap it displaced, which inside a bats process is bats' own.
+  run bash -c "cd '${CONSUMER}' && source '${INIT}'
+_create_hook_stubs() { exit 7; }
+_init_existing_repo"
+  assert_failure
+
+  # Refutes a vacuous pass: a run whose conversion never happened, or whose
+  # rollback never ran, would satisfy every assertion below.
+  assert_output --partial ".setup.conf -> setup.toml"
+  assert_output --partial "the consumer's files are back as they were"
+
+  # The WHOLE post-rollback state of the three names the conversion deals
+  # in, asserted as one line rather than as three separate `-e` checks, so
+  # a red reading of this case names the tree it was left with instead of
+  # only the first check that tripped. Exactly the source, and nothing
+  # else: neither the file the conversion wrote nor the rename it made to
+  # get there survives a run that was undone.
+  run bash -c "cd '${CONSUMER}' && ls -1a \
+    | grep -E '^([.]setup[.]conf([.]bak)?|setup[.]toml)$' || true"
+  assert_output ".setup.conf"
+
+  # ... and it is the operator's file, not a fresh one.
+  run cat "${CONSUMER}/.setup.conf"
+  assert_output --partial "rule_1 = string:seeded"
+}

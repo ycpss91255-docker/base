@@ -14,7 +14,7 @@
 # `_LOG_IS_TTY` cache: it freezes the run's real TTY-ness before the tee
 # rewraps fd1, so log.sh keeps emitting colour text to the terminal while
 # the file gets a stripped copy -- see ADR-00000007) and after conf.sh
-# (it reads the `[logging] wrapper_transcript*` keys from setup.conf).
+# (it reads the `[logging] wrapper_transcript*` keys from setup.toml).
 #
 # EXIT ownership (decision A): transcript.sh installs the single
 # process EXIT trap and exposes `_atexit <fn>` for wrappers to register
@@ -136,17 +136,46 @@ _transcript_is_capture_verb() {
 }
 
 # _transcript_conf <key> <default>
-#   Read a `[logging] <key> = <value>` scalar from the repo's setup.conf,
+#   Read a `[logging] <key> = <value>` scalar from the repo's setup.toml,
 #   falling back to <default> when the file or key is absent. Minimal
-#   grep (the wrapper_transcript* keys are unique within setup.conf) so
+#   grep (the wrapper_transcript* keys are unique within setup.toml) so
 #   the source-time path stays dependency-light and failure-safe.
+#
+#   A GREP, AND IT HAS TO BE. This runs at SOURCE time in every wrapper,
+#   before anything has decided whether a container may be started, so it
+#   cannot reach the containerised bridge: that would put a `docker run`
+#   in front of `build.sh`, `run.sh` and `exec.sh` merely to learn
+#   whether to open a log file, and would make the transcript fail
+#   whenever docker does. What it CAN do is read the line the way TOML
+#   writes it, which is what this was not doing.
+#
+#   Three spellings it now handles, each valid TOML and each previously
+#   wrong:
+#     - a TRAILING COMMENT. An operator who turns capture off is exactly
+#       the one who writes down why, and `wrapper_transcript = false #
+#       disable capture` came back as `false # disable capture`, which
+#       matches neither `false` nor `true` -- so the explicit opt-out
+#       left recording ON. The cut is made at the first `#` only for an
+#       UNQUOTED value; inside a quoted one a `#` is content.
+#     - a QUOTED VALUE. `"false"` is the string, not the boolean, but it
+#       is what a hand-edit or an older writer produces, and the quotes
+#       are not part of the value.
+#     - a QUOTED KEY. `"wrapper_transcript" = false` is the same key, and
+#       the pattern did not match it at all, so the default stood.
+#
+#   NOT a TOML parser, and it does not pretend to be: it reads a scalar
+#   written on one line, which is every spelling of these three keys that
+#   `_conf_fmt_kv` emits and the template documents. A multiline value
+#   here would read as its first line -- and `[logging]` carries no key
+#   that could have one.
 _transcript_conf() {
   local _key="${1:?}" _default="${2:-}"
   local _conf
-  _conf="$(_transcript_repo_root)/.setup.conf"
+  _conf="$(_transcript_repo_root)/setup.toml"
   [[ -f "${_conf}" ]] || { printf '%s' "${_default}"; return 0; }
   local _line
-  _line="$(grep -E "^[[:space:]]*${_key}[[:space:]]*=" "${_conf}" 2>/dev/null | tail -n1)"
+  _line="$(grep -E "^[[:space:]]*(\"${_key}\"|'${_key}'|${_key})[[:space:]]*=" \
+    "${_conf}" 2>/dev/null | tail -n1)"
   if [[ -z "${_line}" ]]; then
     printf '%s' "${_default}"
     return 0
@@ -155,13 +184,38 @@ _transcript_conf() {
   # trim surrounding whitespace
   _val="${_val#"${_val%%[![:space:]]*}"}"
   _val="${_val%"${_val##*[![:space:]]}"}"
+  # A quoted value owns everything between its quotes, `#` included; an
+  # unquoted one ends at the first `#`.
+  #
+  # Keyed on the OPENING quote, not on a quote at each end. Requiring the
+  # closing one to end the LINE is what the first spelling of this did,
+  # and `wrapper_transcript = "false" # disable capture` -- a quoted
+  # value and a comment, both valid -- matched neither branch: it fell
+  # through to the unquoted one, which removed the comment and left the
+  # quotes, so the value read `"false"`, matched no boolean, and capture
+  # stayed on against the opt-out. The closing quote is found inside the
+  # line instead.
+  case "${_val}" in
+    \"*)
+      _val="${_val#\"}"
+      _val="${_val%%\"*}"
+      ;;
+    \'*)
+      _val="${_val#\'}"
+      _val="${_val%%\'*}"
+      ;;
+    *)
+      _val="${_val%%\#*}"
+      _val="${_val%"${_val##*[![:space:]]}"}"
+      ;;
+  esac
   printf '%s' "${_val}"
 }
 
 # _transcript_enabled
 #   True when the wrapper transcript is not switched off. The WRAPPER_TRANSCRIPT
 #   env var wins when set (true/false) -- it lets CI / the self-test suite
-#   disable transcripts without a setup.conf (so wrapper specs never write a
+#   disable transcripts without a setup.toml (so wrapper specs never write a
 #   log/ tree into the checkout,) and lets a user toggle it ad-hoc without
 #   editing a file that is committed and shared. Empty means unset (the way a
 #   caller clears an inherited value). Otherwise falls back to
@@ -172,7 +226,7 @@ _transcript_conf() {
 #   rather than a quiet fall-through to that key: a typo'd kill switch that
 #   silently leaves capture on is exactly the outcome the override exists to
 #   prevent. The precedence is documented next to the conf key (README
-#   "Wrapper transcripts", dist/.setup.conf [logging]).
+#   "Wrapper transcripts", dist/setup.toml [logging]).
 _transcript_enabled() {
   case "${WRAPPER_TRANSCRIPT:-}" in
     false) return 1 ;;
@@ -394,7 +448,7 @@ _transcript_begin() {
   _TRANSCRIPT_KEEP="$(_transcript_conf wrapper_transcript_keep 20)"
   _TRANSCRIPT_DAYS="$(_transcript_conf wrapper_transcript_days 14)"
   # Positive integers only (>= 1): mirror the validator's ^[1-9][0-9]*$
-  # so a hand-edited setup.conf that the Apply/read path never revalidates
+  # so a hand-edited setup.toml that the Apply/read path never revalidates
   # cannot reach prune with keep=0 (which would wipe every transcript) or
   # days=0 (drop everything by age). Out-of-range -> documented default.
   [[ "${_TRANSCRIPT_KEEP}" =~ ^[1-9][0-9]*$ ]] || _TRANSCRIPT_KEEP=20
