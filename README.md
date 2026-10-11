@@ -144,7 +144,7 @@ flowchart LR
 | `exec.sh` | Exec into running containers |
 | `stop.sh` | Stop and remove containers |
 | `prune.sh` | Prune dangling images / build cache for the repo |
-| `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
+| `setup_tui.sh` | Interactive setup.toml editor (dialog / whiptail front-end) |
 | `dist/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` / `.env.generated` + `compose.yaml` |
 | `dist/script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
 | `dist/script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
@@ -169,7 +169,7 @@ flowchart LR
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
-| `.setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
+| `setup.toml` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `dist/test/bats/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/bats/unit/` | base self-tests, Unit level (bats + kcov) |
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
@@ -343,7 +343,7 @@ of `devel`.
 User flow:
 
 ```dockerfile
-# Add to Dockerfile (no setup.conf change needed)
+# Add to Dockerfile (no setup.toml change needed)
 FROM devel AS headless
 ENTRYPOINT ["/isaac-sim/runheadless.sh"]
 CMD ["-v"]
@@ -386,27 +386,29 @@ Constraints:
   `compose.yaml` on the next invocation. Unrelated `RUN apt-get
   install` edits do **not** trigger drift.
 
-#### Per-stage `setup.conf` overrides (#220)
+#### Per-stage `setup.toml` overrides (#220)
 
 Stages auto-emitted by #215 share devel's runtime config (volumes /
 GPU / network / GUI) by default. When a stage needs different runtime
 settings — e.g. NVIDIA Isaac Sim's `headless` running a WebRTC
 livestream wants `network=bridge` + a port mapping + `gui=off`, while
 `devel` and `gui` keep `network=host` + X11 — add a `[stage:<name>]`
-section to your repo's `setup.conf`:
+table to your repo's `setup.toml`. TOML quotes a table name containing a
+colon, so it is written `["stage:headless"]`, and the dotted override keys
+are quoted too:
 
-```ini
+```toml
 [gui]
-mode = auto
+mode = "auto"
 
 [network]
-mode = host
+mode = "host"
 
-[stage:headless]
-gui.mode = off
-network.mode = bridge
-network.port_1 = 8080:80
-deploy.gpu_capabilities = gpu compute utility graphics video
+["stage:headless"]
+"gui.mode" = "off"
+"network.mode" = "bridge"
+"network.port_1" = "8080:80"
+"deploy.gpu_capabilities" = "gpu compute utility graphics video"
 ```
 
 Use `./setup_tui.sh` for an interactive editor:
@@ -568,17 +570,18 @@ from base's plumbing in a file you have been hand-editing.
 
 Each downstream repo drives its runtime config — GPU reservation, GUI
 env/volumes, network mode, extra volume mounts — through a single
-`setup.conf` INI file. `setup.sh` reads it (plus system detection) and
+`setup.toml` file. `setup.sh` reads it (plus system detection) and
 regenerates `.env`, `.env.generated` and `compose.yaml`; users never
 hand-edit those derived artifacts. `.env.local` is the different file: setup
 scaffolds it once and never rewrites it, and it is where your own values go.
 
-One naming rule covers all of them: **the standard name is ours, a suffix
-marks a local variant.** `Dockerfile`, `compose.yaml`, `.setup.conf` and
-`.env` are generated or shipped and get replaced on update; `.setup.conf.local`
-and `.env.local` are yours and are never touched. `.env.generated` keeps its
-suffix for a different reason -- it feeds compose's `${VAR}` interpolation and
-never enters a container, so the suffix marks a category, not ownership.
+One naming rule covers all of them: **the standard name is ours, a `.local`
+suffix or infix marks a local variant.** `Dockerfile`, `compose.yaml`,
+`setup.toml` and `.env` are generated or shipped and get replaced on update;
+`setup.local.toml` and `.env.local` are yours and are never touched.
+`.env.generated` keeps its suffix for a different reason -- it feeds compose's
+`${VAR}` interpolation and never enters a container, so the suffix marks a
+category, not ownership.
 
 ### One conf, 15 sections
 
@@ -590,7 +593,7 @@ or its count drifts from it.
 ```
 [project]  name — the compose project this checkout runs under (empty =
            derive <DOCKER_HUB_USER>-<IMAGE_NAME>). Set it per WORKTREE in
-           .setup.conf.local to run two checkouts at once
+           setup.local.toml to run two checkouts at once
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu, apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off), gpu_count, gpu_capabilities
@@ -622,38 +625,48 @@ or its count drifts from it.
            [logging.<svc>] for per-service key-level override
 ```
 
-Template default lives at `.base/dist/.setup.conf`; per-repo overrides go
-at the repo-root dotfile `<repo>/.setup.conf` (tool-managed by `just
-setup`, kept out of the hand-editable `config/` surface).
-Section-level **replace** strategy: a section present in a higher layer
-fully replaces the lower layer's section; omitted sections fall through.
+The bracket names above are the section roster, not the file's syntax. A
+scalar section is a TOML `[table]`; a list-shaped one is an
+`[[array of tables]]`, and its N-th block is what `<prefix>_N` addresses --
+`volumes.mount_1` is the first `[[volumes]]` block.
 
-#### Three layers: the third is yours (`.setup.conf.local`)
+Template default lives at `.base/dist/setup.toml`; per-repo overrides go
+at `<repo>/setup.toml` (tool-managed by `just setup`, kept out of the
+hand-editable `config/` surface). Merge is **type-aware**
+([ADR-00000037](doc/adr/00000037-toml-config-format-unification.md)): scalar
+keys inside a `[table]` merge key-level -- the highest layer that defines a
+key wins it, and keys it does not mention inherit from the layer below --
+while an `[[array of tables]]` is replaced whole by the highest layer that
+defines it. Sections no layer mentions fall through.
+
+#### Three layers: the third is yours (`setup.local.toml`)
 
 | Layer | Tracked | Whose it is |
 |---|---|---|
-| `.base/dist/.setup.conf` | shipped in the subtree | base's default |
-| `<repo>/.setup.conf` | committed | the repo's -- what CI and every other checkout use |
-| `<repo>/.setup.conf.local` | **gitignored** | yours, on this machine, in this worktree |
+| `.base/dist/setup.toml` | shipped in the subtree | base's default |
+| `<repo>/setup.toml` | committed | the repo's -- what CI and every other checkout use |
+| `<repo>/setup.local.toml` | **gitignored** | yours, on this machine, in this worktree |
 
-Same grammar, same section-replace rule, at every step. Write the third
+Same grammar, same type-aware merge rule, at every step. Write the third
 one with `--local`:
 
 ```bash
 ./setup.sh set --local project.name myrepo-wt2
 ```
 
-Why the whole section is replaced rather than merged key-by-key: eight of
-the sections above are `<prefix>_N` ordered lists. Overriding `port_2`
-alone would assemble one ordered list out of two layers, you could never
-*remove* an item, and adding one would need the highest `N` from a layer
-you cannot see. Related keys also gate each other (`[network] mode`
-decides whether `port_N` is emitted at all), so a half-override produces
-combinations neither layer wrote.
+Why a list is replaced whole rather than merged entry-by-entry: eight of
+the sections above are ordered lists. Overriding `port_2` alone would
+assemble one ordered list out of two layers, you could never *remove* an
+item, and adding one would need the highest index from a layer you cannot
+see. Related keys also gate each other (`[network] mode` decides whether
+the ports are emitted at all), so a half-override produces combinations
+neither layer wrote. That reasoning is what ADR-00000037 kept as the
+array-replace half of the type-aware rule; the scalar `[table]` keys it
+used to cover are merged key-level instead.
 
 Three things follow, all of them loud rather than silent:
 
-- Writing a section with plain `set` while `.setup.conf.local` defines it
+- Writing a section with plain `set` while `setup.local.toml` defines it
   **warns** and names the section. It is not refused -- the value is still
   the committed one CI and other checkouts use -- but it will not change
   anything on this machine.
@@ -776,8 +789,9 @@ lifecycle.restart = always
 
 **On upgrade:** repos seeded from the old template carry a literal
 `restart = no` that nobody chose (it was the devel-scoped default, copied
-wholesale into every `.setup.conf`). `upgrade.sh` rewrites exactly that
-value to `unless-stopped`, once, and only on the upgrade that crosses the
+wholesale into every `.setup.conf`, the INI file `setup.toml` replaced).
+`upgrade.sh` rewrites exactly that value in `setup.toml` to
+`unless-stopped`, once, and only on the upgrade that crosses the
 rescope -- see [Updating](#updating). If `no` is genuinely what you want,
 set it back afterwards; it is never rewritten again.
 
@@ -870,37 +884,39 @@ feature is on, they are **also** written to a `watchdog.log` under the log
 dir's `watchdog/` subdir (per-start file + stable symlink + retention,
 reusing the same `logrotate.sh` primitives as the container logs).
 
-On first `setup.sh` run (no per-repo setup.conf yet), the template file
-is copied to the repo-root `<repo>/.setup.conf` and the detected
-workspace is written to `[volumes]
-mount_1`. Subsequent runs read `mount_1` as source of truth — clear it
-to opt out of mounting a workspace. Edit via:
+On first `setup.sh` run (no per-repo `setup.toml` yet), the template file
+is copied to `<repo>/setup.toml` and the detected workspace is written to
+the **first `[[volumes]]` block** — the block `volumes.mount_1` addresses,
+because the N-th `[[volumes]]` block *is* `mount_N`. Subsequent runs read
+`mount_1` as source of truth — clear it to opt out of mounting a workspace.
+Edit via:
 
 ```bash
 ./setup_tui.sh                      # interactive dialog/whiptail editor
 ./setup_tui.sh volumes              # jump directly to one section
 ./build.sh --setup            # launches setup_tui.sh under TTY; setup.sh otherwise
-./.base/dist/script/base/init.sh --gen-conf # plain copy of .base/dist/.setup.conf
-                              # to <repo>/.setup.conf
+./.base/dist/script/base/init.sh --gen-conf # plain copy of .base/dist/setup.toml
+                              # to <repo>/setup.toml; refuses if that file
+                              # exists (--force backs it up to setup.toml.bak)
 ```
 
 ### Where each parameter lives (env vs workload)
 
-Not every runtime value belongs in `setup.conf`. The dividing question
+Not every runtime value belongs in `setup.toml`. The dividing question
 (axis A, [ADR-00000003](doc/adr/00000003-env-vs-workload-param-boundary.md))
 is **"does this value change when you switch machines?"** -- if yes it is
-*environment* (machine-bound, stays in `setup.conf`); if it changes per
+*environment* (machine-bound, stays in `setup.toml`); if it changes per
 task it is *workload*. "Does it need a rebuild?" (axis C) breaks grey
 cases. Three channels carry these values, and only the first survives
 into a field deployment that ships just the image:
 
 | Parameter kind | Examples | Where it lives | Dev host | Field |
 |---|---|---|---|---|
-| machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
+| machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.toml` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
 | volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env.local` (hand-authored, gitignored) | `env_file: [.env, .env.local]` -- the generated `.env` carries the `[environment]` defaults, yours override them (later file wins) | the bundle ships both: `.env` lists every default it runs with (incl. `WATCHDOG_*`), `.env.local` is where the operator retunes one without a rebuild |
 | structured app **config** | bridge topic lists, pipeline definitions | `config/<component>/` (#504, #1000) | every component directory bind-mounted at `/opt/app/config/<component>` (edit + restart, no rebuild) | each `COPY`-baked at the same path + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
-`setup.conf`'s `[environment]` section is the *first* kind -- stable,
+`setup.toml`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults. They are written into the generated `.env` and
 baked into the runtime image as `ENV`. Put per-task env vars in `.env.local`
 instead, so a tweak needs only `just docker run` (no `compose.yaml`
@@ -919,14 +935,14 @@ nothing would report it.
 ### Field deployment (`just docker setup deploy`)
 
 `just docker setup deploy` (or the direct `./setup.sh deploy`) builds a
-self-contained field-deploy **folder** from the same `setup.conf` -- the
+self-contained field-deploy **folder** from the same `setup.toml` -- the
 deploy half of the routing model above
 ([ADR-00000023](doc/adr/00000023-config-field-override-and-field-deploy-contract.md),
 amending [ADR-00000003](doc/adr/00000003-env-vs-workload-param-boundary.md);
 [PRD invariant 8](doc/PRD.md)). It targets a *field-oriented* stage (default
 `runtime`; **never** `devel` or a `*-test` stage) and produces a folder
 carrying everything the target host needs -- the host never sees base's
-toolchain, source tree, or `setup.conf`.
+toolchain, source tree, or `setup.toml`.
 
 ```bash
 just docker setup deploy                      # build the runtime bundle (prompts first)
@@ -944,7 +960,7 @@ several field versions on one host never collides). It contains:
 | File | What it is |
 |---|---|
 | `image.tar.xz` | the `xz`-compressed image (`deploy.sh` `docker load`s it) |
-| `compose.yaml` | fully-resolved, self-contained compose -- literal values, **no `${VAR}` interpolation** (except a GUI stage's `${DISPLAY}` host passthrough), no `setup.conf` / `.env` dependency; carries `restart: unless-stopped` |
+| `compose.yaml` | fully-resolved, self-contained compose -- literal values, **no `${VAR}` interpolation** (except a GUI stage's `${DISPLAY}` host passthrough), no `setup.toml` / `.env` dependency; carries `restart: unless-stopped` |
 | `config/` | editable copies of each operator-tunable file (see below) |
 | `deploy.sh` | thin `up` / `down` / `logs` launcher |
 | `README` | field-operator instructions |
@@ -966,7 +982,7 @@ Before building it prints the resolved `compose.yaml` so you can review every
 resolved parameter, then prompts (skip with `-y`; `--dry-run` prints the plan
 without building; a non-interactive shell without `-y` refuses).
 
-**It refuses outright while `<repo>/.setup.conf.local` exists.** That file is
+**It refuses outright while `<repo>/setup.local.toml` exists.** That file is
 gitignored, so a bundle built from it could not be reproduced from a clean
 checkout -- and nothing about the bundle would say why
 ([PRD invariant 8](doc/PRD.md),
@@ -979,7 +995,7 @@ who chose to bypass the gate.
 
 **On the field machine** -- copy the folder over, then drive it with the
 `deploy.sh` launcher (it loads the image and drives `docker compose`; no
-`docker run`, no `setup.conf`, no base toolchain):
+`docker run`, no `setup.toml`, no base toolchain):
 
 ```bash
 cd <repo>-runtime-<version>
@@ -1205,7 +1221,7 @@ survives upgrades.
 compared against the current tree and host, and a `[WARNING]` is printed
 (non-blocking) for every one that changed since last setup:
 
-- `setup.conf` contents (`SETUP_CONF_HASH`)
+- `setup.toml` contents (`SETUP_CONF_HASH`)
 - the Dockerfile stage list (`SETUP_DOCKERFILE_HASH`) — a
   `FROM ... AS <stage>` added or removed
 - GPU detection (`GPU_ENABLED`)
@@ -1249,15 +1265,15 @@ These are first-class operator knobs, not test-only hooks. See
 
 | Subcommand | Use |
 |---|---|
-| `apply` | Regenerate `.env` + `.env.generated` + `compose.yaml` from setup.conf + system detection (never `.env.local`) |
+| `apply` | Regenerate `.env` + `.env.generated` + `compose.yaml` from setup.toml + system detection (never `.env.local`) |
 | `check-drift` | Exit 0 in-sync / 1 drifted (drift descriptions on stderr) |
-| `set <section>.<key> <value>` | Write a single key. `--local` targets the gitignored `.setup.conf.local` instead of the committed `.setup.conf`; without it, writing a section `.setup.conf.local` already defines warns by name |
+| `set <section>.<key> <value>` | Write a single key. `--local` targets the gitignored `setup.local.toml` instead of the committed `setup.toml`; without it, writing a section `setup.local.toml` already defines warns by name |
 | `show <section>[.<key>]` | Read single key or whole section |
 | `list [<section>]` | INI-style dump |
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1`. Takes `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match. Takes `--local` |
-| `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env.generated` → `.env.bak`. Leaves `.env.local` alone |
-| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. Refuses while `.setup.conf.local` exists unless `--allow-local-override` is passed. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
+| `reset [-y\|--yes]` | Restore template default; archives prior `setup.toml` → `setup.toml.bak`, prior `.env.generated` → `.env.bak`. Leaves `.env.local` alone |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. Refuses while `setup.local.toml` exists unless `--allow-local-override` is passed. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env.generated` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
 
@@ -1284,7 +1300,7 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 Open `compose.yaml` anytime to inspect the repo's current effective
 configuration. All three are regenerated on every `just base upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
-hand-edit them; put your overrides in `setup.conf` instead.
+hand-edit them; put your overrides in `setup.toml` instead.
 
 `.env.local` is gitignored too but is **not** derived: it is yours,
 scaffolded once on first apply and never rewritten afterwards. Editing it is
@@ -1298,9 +1314,9 @@ so a key named in both resolves to your value.
 > `.env.bak` only if the file was the old interpolation cache -- otherwise
 > restore them from your own backup.
 
-`.setup.conf.local` is the same shape one layer up: gitignored, yours,
+`setup.local.toml` is the same shape one layer up: gitignored, yours,
 never rewritten by tooling. It is a config *input*, not an artifact -- see
-[Three layers](#three-layers-the-third-is-yours-setupconflocal).
+[Three layers](#three-layers-the-third-is-yours-setuplocaltoml).
 
 ### Per-wrapper hooks (#440)
 
@@ -1410,7 +1426,7 @@ no project concept and `docker compose` owns `-p`.
 
 Two *checkouts* of the same repo are a different question, and base
 does answer that one: give each checkout its own project name with
-`[project] name` in `.setup.conf.local` — see [Running two worktrees
+`[project] name` in `setup.local.toml` — see [Running two worktrees
 at once](#running-two-worktrees-at-once).
 
 Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
@@ -1600,10 +1616,10 @@ git log --oneline <pre-upgrade-sha>..HEAD     # the migration commits by name
 git diff <pre-upgrade-sha>..HEAD -- . ':!.base'   # everything outside .base/
 ```
 
-What upgrade.sh does **not** touch: your `.setup.conf` beyond that one
+What upgrade.sh does **not** touch: your `setup.toml` beyond that one
 `[lifecycle] restart` line, and `<repo>/config/` (bashrc / tmux /
 terminator …) at all — if upstream `.base/dist/config/` or
-`.base/dist/.setup.conf` moved since the last pull, upgrade.sh prints a
+`.base/dist/setup.toml` moved since the last pull, upgrade.sh prints a
 `diff -ruN .base/dist/config config` hint so you can reconcile manually,
 rather than merging for you.
 
@@ -1789,7 +1805,8 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 ├── .dockerignore                       # Canonical ignore set (synced into consumers)
 ├── dist/                         # SHIPPED tooling + content (single source of truth)
 │   ├── .hadolint.yaml                  # Shared Hadolint rules (symlinked into consumers)
-│   ├── .setup.conf                     # Template runtime-config default (seeds <repo>/.setup.conf)
+│   ├── .setup.conf                     # Retired INI template; kept only for the one-time INI-to-TOML migration
+│   ├── setup.toml                      # Template runtime-config default (seeds <repo>/setup.toml)
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # Multi-stage Dockerfile template for new repos
 │   ├── config/                         # Container-internal shell/tool configs (hand-editable)
