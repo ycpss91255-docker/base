@@ -2419,3 +2419,32 @@ EOF
   assert_equal "${#_inline[@]}" "1"
   assert_equal "${_inline[0]}" "build"
 }
+
+# why: A FAILED READ IS NOT AN EMPTY LIST. The effective view is what
+# tells `add` which slot to append at; taken as empty when the read
+# FAILED, the search finds nothing, picks index 1, and the write lands on
+# top of whatever is already there while reporting success -- an `add`
+# that overwrites. The merge fails for a reason the operator can hit: an
+# unparseable layer. `_conf_load_layers` already says what went wrong and
+# refuses to report an empty configuration as a loaded one, so `add`
+# stops before any write instead of inheriting its silence.
+@test "main add refuses when the effective configuration cannot be read (base#1148)" {
+  # The TARGET is valid and the layer BELOW it is not, which is the only
+  # shape that reaches this guard: the commit gate in front of the writer
+  # catches an unparseable target on its own, so a test that broke the
+  # target would be asserting the gate instead of this.
+  # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
+  printf '[build\n' > "${TEMP_DIR}/setup.toml"
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[[build.args]]
+key = "KEEP"
+value = "yes"
+EOF
+  run main add build.arg NEW=value --local --base-path "${TEMP_DIR}"
+  assert_failure
+  # And the entry that was there is still there, byte for byte.
+  run grep -c 'KEEP' "${TEMP_DIR}/setup.local.toml"
+  assert_output "1"
+  run grep -c 'NEW' "${TEMP_DIR}/setup.local.toml"
+  assert_output "0"
+}

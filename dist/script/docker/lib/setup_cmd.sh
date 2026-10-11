@@ -706,17 +706,28 @@ _setup_add() {
   else
     _sa_below=("${_sa_layers[@]:0:${#_sa_layers[@]}-1}")
   fi
-  if _conf_load_layers _SETUP_ADD_EFF "${_sa_below[@]}"; then
-    local -n _sa_es=_SETUP_ADD_EFF__es
-    local -n _sa_k=_SETUP_ADD_EFF__keys
-    local -n _sa_v=_SETUP_ADD_EFF__vals
-    local _ei
-    for (( _ei=0; _ei<${#_sa_k[@]}; _ei++ )); do
-      [[ "${_sa_es[_ei]}" == "${_section}" ]] || continue
-      _keys+=("${_section}.${_sa_k[_ei]}")
-      _vals+=("${_sa_v[_ei]}")
-    done
+  # A FAILED READ IS NOT AN EMPTY LIST. Taken as one, the slot search
+  # below finds no entry, picks index 1, and the write lands on top of
+  # whatever is already there while reporting success -- an `add` that
+  # overwrites. `_conf_load_layers` has already said what went wrong
+  # (`conf_toml_merge_failed`: it refuses to report an empty
+  # configuration as a loaded one), so this stops BEFORE any write
+  # rather than restating the cause.
+  if ! _conf_load_layers _SETUP_ADD_EFF "${_sa_below[@]}"; then
+    _log_err setup conf_write_failed \
+      "display=$(_setup_msg errors invalid_value): ${_section}.${_list} -- the effective configuration could not be read, so the slot to append at is unknown and nothing was written" \
+      "section=${_section}" "key=${_list}"
+    return 2
   fi
+  local -n _sa_es=_SETUP_ADD_EFF__es
+  local -n _sa_k=_SETUP_ADD_EFF__keys
+  local -n _sa_v=_SETUP_ADD_EFF__vals
+  local _ei
+  for (( _ei=0; _ei<${#_sa_k[@]}; _ei++ )); do
+    [[ "${_sa_es[_ei]}" == "${_section}" ]] || continue
+    _keys+=("${_section}.${_sa_k[_ei]}")
+    _vals+=("${_sa_v[_ei]}")
+  done
   local _max=0 _empty_idx="" _i _k _suffix
   for (( _i=0; _i<${#_keys[@]}; _i++ )); do
     _k="${_keys[_i]}"
