@@ -1178,6 +1178,14 @@ function _brace_end(t, i,   L, d, c, sq, st) {
     }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
+    # A backslash quotes the brace behind it OUTSIDE quotes too, and not
+    # only in state 2 above: `${x:-\}}` closes at the second brace, not at
+    # the escaped one. Counting the escaped brace ended the span early and
+    # handed the real one back to the caller walk, where `}` is in the
+    # separator set `_cmd_pos_at` reads -- so the word after it opened a
+    # command position and the scan reported a body no shell produces.
+    # Same arm, same spelling, as `_btick_end` below.
+    if (c == "\\" && i < L) { i += 2; continue }
     if (c == "{") { d++; i++; continue }
     if (c == "}") { d--; if (d == 0) return i; i++; continue }
     i++
