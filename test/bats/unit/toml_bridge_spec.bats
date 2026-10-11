@@ -1586,3 +1586,219 @@ _bridge_kv() {
   assert_success
   assert_line $'tmpfs\ttmpfs_1\t/tmp:size=64m'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 13: one numbered family, one spelling (base#1243)
+# ════════════════════════════════════════════════════════════════════
+#
+# The shell view has ONE NAME PER ENTRY: entry N of an array of tables IS
+# the key `<prefix>_N` there, and a table scalar spelled `<prefix>_N` is
+# that same name again. A file carrying both emits the row twice, and the
+# two readers of the stream then answer two different configurations from
+# one file. Every case below drives the TRACKED bridge script, because the
+# doubling is the parser's output and a mocked `docker` cannot produce it.
+
+# why: The defect as filed. A `[security]` carrying `cap_drop_1` as a
+# table scalar AND a `[[security.cap_drop]]` block emitted
+# `security / cap_drop_1` TWICE, and conf.sh answered `SYS_ADMIN` through
+# `_conf_get` (last occurrence wins, one entry) while
+# `_conf_list_sorted` -- the reader `_resolve_docker_conf` uses for all
+# three `[security]` lists -- answered `NET_RAW SYS_ADMIN` (two). The
+# refusal has to NAME the section, the prefix and the index, because the
+# operator's next move is deleting one of two lines and nothing else in
+# the file says which pair is the collision.
+@test "toml-bridge: --kv refuses a numbered family carried both as a table scalar and as an array block" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (one spelling per numbered family)"
+
+  local _f="${BATS_TEST_TMPDIR}/ambiguous.toml"
+  cat > "${_f}" << 'EOF'
+[security]
+privileged = false
+cap_drop_1 = "NET_RAW"
+
+[[security.cap_drop]]
+cap = "SYS_ADMIN"
+EOF
+
+  run python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_failure
+  assert_output --partial "security.cap_drop_1"
+  assert_output --partial "cap_drop"
+  assert_output --partial "block 1"
+  assert_output --partial "[[security.cap_drop]]"
+  # Nothing of the configuration is emitted: the refusal happens before a
+  # single row is built, so a caller never reads a prefix of it as the
+  # whole thing.
+  refute_output --partial $'security\tprivileged'
+}
+
+# why: `cap_add` has had an array home from the start, so it reproduces
+# the doubling with NOTHING changed by the slice that moved `cap_drop`
+# into one -- which is what makes this a defect of the family rather than
+# of `cap_drop`. A fix that handled `cap_drop` by name would pass the case
+# above and fail here.
+@test "toml-bridge: --kv refuses the double spelling for a family that has always had an array home" {
+  local _f="${BATS_TEST_TMPDIR}/ambiguous_add.toml"
+  cat > "${_f}" << 'EOF'
+[security]
+cap_add_1 = "NET_RAW"
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
+EOF
+
+  run python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_failure
+  assert_output --partial "security.cap_add_1"
+  assert_output --partial "cap_add"
+  assert_output --partial "block 1"
+}
+
+# why: THE DERIVED GATE, and the reason this is not three hand-written
+# cases. The declared-population failure family (base#1089 / base#1090 /
+# base#1113 / base#1112 / base#1109 / base#1214) is a check that names
+# its members: it passes forever while the population it was written
+# against grows past it. So the fixtures here are BUILT from the tree's
+# own answer to which families have an array home -- the
+# `<prefix>=<path>` pairs `_conf_toml_aot_section` returns -- and a
+# family added there is covered by having been added.
+# Two outcomes are admitted, and the path says which: a family whose
+# array lives UNDER A KEY of a table (`security.cap_drop`) can collide,
+# because the table holds scalars beside it, and must be refused BY NAME.
+# A root-level one (`volumes`, `tmpfs`) cannot: `[[volumes]]` makes the
+# name an array and TOML will not also let it be the `[volumes]` table a
+# `mount_1` scalar needs, so TOML itself refuses the file and no row of
+# this check is owed. Accepting either shape is the failure.
+@test "toml-bridge: every family the array-home table names is covered, derived from that table" {
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
+  assert_spec_subject "${_conf_sh}" \
+    "conf.sh _conf_toml_aot_section, the array-home table these fixtures are built from"
+  assert_spec_subject "${_schema_sh}" \
+    "schema.sh SCHEMA_SECTIONS, the section roster the table is asked over"
+  # shellcheck disable=SC1090
+  source "${_conf_sh}"
+  # shellcheck disable=SC1090
+  source "${_schema_sh}"
+
+  local _sect _pair _prefix _path
+  local _f="${BATS_TEST_TMPDIR}/derived.toml"
+  local _named=0 _structural=0
+  local -a _fams=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _prefix="${_pair%%=*}"
+      _path="${_pair#*=}"
+      # The table name, the key prefix and the array path all come from
+      # the family table at run time, so there is no literal body to
+      # read; and the body is DELIBERATELY the ambiguous one -- the
+      # refusal of it is this case's assertion.
+      # toml-fixture-lint: allow the refusal of this body IS the assertion, and its names come from the family table at run time
+      printf '[%s]\n%s_1 = "SCALAR"\n\n[[%s]]\nzz = "BLOCK"\n' \
+        "${_sect}" "${_prefix}" "${_path}" > "${_f}"
+      run python3 "${BRIDGE_PY}" --kv < "${_f}"
+      assert_failure
+      if [[ "${_path}" == *.* ]]; then
+        # A table-hosted array: the collision is reachable, so the
+        # refusal is ours and names the family.
+        assert_output --partial "numbered family '${_prefix}'"
+        _named=$(( _named + 1 ))
+      else
+        # A root-level array: TOML refuses the document itself, and this
+        # check is owed no row for it.
+        refute_output --partial "numbered family"
+        _structural=$(( _structural + 1 ))
+      fi
+    done
+  done
+  # No vacuous pass, and both shapes really occurred: a loop that fell
+  # through every section would leave each of these at zero.
+  (( _named > 0 )) || fail "the family table named no table-hosted array home"
+  (( _structural > 0 )) || fail "the family table named no root-level array home"
+}
+
+# why: The control that stops the refusal being satisfied by refusing
+# more. A family spelled ONE way is an ordinary configuration, and both
+# spellings are: the array one is what the writers and the converter
+# produce, the scalar one is what a family with no array home still uses
+# and what a hand-written file may carry. Each must parse AND number back
+# to the same two keys, or the refusal has eaten a valid file.
+@test "toml-bridge: --kv accepts a family spelled one way, in either spelling" {
+  local _f="${BATS_TEST_TMPDIR}/single.toml"
+  cat > "${_f}" << 'EOF'
+[security]
+privileged = false
+
+[[security.cap_drop]]
+cap = "SYS_ADMIN"
+
+[[security.cap_drop]]
+cap = "NET_RAW"
+EOF
+  run python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_line $'security\tcap_drop_1\tSYS_ADMIN'
+  assert_line $'security\tcap_drop_2\tNET_RAW'
+
+  cat > "${_f}" << 'EOF'
+[security]
+privileged = false
+cap_drop_1 = "SYS_ADMIN"
+cap_drop_2 = "NET_RAW"
+EOF
+  run python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_line $'security\tcap_drop_1\tSYS_ADMIN'
+  assert_line $'security\tcap_drop_2\tNET_RAW'
+}
+
+# why: The other edge of the control. The family test is the one
+# `_conf_list_sorted` applies -- the prefix followed by plain decimal
+# digits and nothing else -- so `cap_drop_policy` is an unrelated key
+# that happens to share a prefix, not a malformed member of the family.
+# A refusal that matched on the prefix alone would reject a file whose
+# two keys never name one entry.
+@test "toml-bridge: --kv keeps a key that merely shares a family's prefix" {
+  local _f="${BATS_TEST_TMPDIR}/prefixed.toml"
+  cat > "${_f}" << 'EOF'
+[security]
+cap_drop_policy = "strict"
+
+[[security.cap_drop]]
+cap = "SYS_ADMIN"
+EOF
+  run python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_line $'security\tcap_drop_policy\tstrict'
+  assert_line $'security\tcap_drop_1\tSYS_ADMIN'
+}
+
+# why: THE MERGE MANUFACTURES THE AMBIGUITY, so the refusal has to be
+# where the merged view is produced and not only where a single file is
+# read. Measured: a lower layer carrying `cap_drop_1 = "NET_RAW"` and an
+# upper one carrying `[[security.cap_drop]]` are each unambiguous alone,
+# and the key-level table merge puts both in `[security]` -- the merged
+# stream doubled `security / cap_drop_1` exactly as the single file did.
+# `_conf_load_layers` reads every configuration through this mode, so a
+# refusal only in the single-file mode would leave the real read path
+# disagreeing with itself.
+@test "toml-bridge: --merge --kv refuses a double spelling the merge itself produced" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[security]\nprivileged = false\ncap_drop_1 = "NET_RAW"\n' > "${_lower}"
+  printf '[[security.cap_drop]]\ncap = "SYS_ADMIN"\n' > "${_upper}"
+
+  # Each layer on its own is an ordinary configuration.
+  run python3 "${BRIDGE_PY}" --kv < "${_lower}"
+  assert_success
+  run python3 "${BRIDGE_PY}" --kv < "${_upper}"
+  assert_success
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${_lower}" "${_upper}"
+  assert_failure
+  assert_output --partial "security.cap_drop_1"
+  assert_output --partial "block 1"
+}

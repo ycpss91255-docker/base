@@ -612,6 +612,17 @@ _conf_load_merged() {
 # skip empty values (opt-out), sort by the numeric suffix, and return the
 # VALUES in that order into <outvar_array>. The opaque-handle equivalent of
 # setup.sh's _get_conf_list_sorted (which reads raw parallel arrays).
+#
+# THE TIE IS NOT FILE ORDER, and that is a parked question, not a settled
+# one. `sort -t: -k1,1n` is not stable, so two entries at the SAME index
+# fall through to the whole-line comparison and resolve in alphabetical
+# order of their VALUES. The TOML side can no longer produce such a pair
+# -- a duplicate key is refused by TOML itself, and a family carried both
+# as a table scalar and as an array block is declined by the shell view
+# -- but `_ini_tokenize` preserves duplicate keys by design and this
+# reader is shared, so a hand-edited INI layer still reaches it.
+# base#1247 carries the decision between stabilising the order, refusing
+# the tie, and leaving it; nothing here may be read as having made it.
 _conf_list_sorted() {
   local _h="${1:?"${FUNCNAME[0]}: missing handle"}"
   local _sec="${2:?"${FUNCNAME[0]}: missing section"}"
@@ -2029,6 +2040,20 @@ _conf_kv_family_count() {
 # that will have to read the file: the same gate, for the same reason,
 # that `_ini_to_toml_commit` puts in front of the converter's output.
 #
+# AND IT IS ASKED IN `--kv`, the mode that reader actually reads in.
+# `_toml_tokenize` loads every configuration through `toml_bridge_parse
+# ... --kv`, and the shell view that mode produces refuses two shapes the
+# plain parse accepts: a value the tab-separated transport cannot carry,
+# and a numbered family carried BOTH as a table scalar and as an array
+# block. Asking in the other mode let the second one through -- measured:
+# `setup.sh set security.cap_drop_1 CHOWN` on a file spelling
+# `cap_drop_1` both ways replaced the array block, left the scalar line,
+# and reported SUCCESS, so the operator who set one capability to drop
+# got two. The gate cannot be held to a file that was ALREADY unreadable
+# before the write, and it is not: a refusal leaves the original exactly
+# as it was and says what the reader objected to, which is the answer
+# `remove`ing a value the rewrite did not remove already gives.
+#
 # An unavailable bridge reads as a REFUSAL, not as a pass. A write whose
 # result nothing verified costs the operator a configuration they cannot
 # load; a refusal costs them one re-run.
@@ -2038,14 +2063,14 @@ _conf_commit_toml() {
   local _section="${3-}" _key="${4-}"
 
   local _why=""
-  _why="$(toml_bridge_parse "${_tmp}" 2>&1 >/dev/null)" && return 0
+  _why="$(toml_bridge_parse "${_tmp}" --kv 2>&1 >/dev/null)" && return 0
 
   rm -f -- "${_tmp}"
   _why="${_why//$'\n'/ }"
   local _what="${_section:+${_section}}"
   [[ -n "${_key}" ]] && _what="${_what:+${_what}.}${_key}"
   _log_err conf conf_write_declined \
-    "display=[conf] WRITE DECLINED for ${_file}${_what:+ (${_what})}: the rewrite produced a file the TOML parser refuses, so nothing was written and ${_file} is unchanged. This happens when the file carries a shape the line-oriented writers cannot edit -- a value spanning several physical lines is the usual one. Parser said: ${_why:-the TOML parser could not be run}. Edit ${_file} by hand instead." \
+    "display=[conf] WRITE DECLINED for ${_file}${_what:+ (${_what})}: the rewrite produced a file the configuration reader refuses, so nothing was written and ${_file} is unchanged. This happens when the file carries a shape the line-oriented writers cannot edit -- a value spanning several physical lines is the usual one -- or when the file already said one thing two ways, which no write can make it stop saying. Reader said: ${_why:-the TOML parser could not be run}. Edit ${_file} by hand instead." \
     "file=${_file}" \
     "target=${_what}" \
     "reason=${_why}"
