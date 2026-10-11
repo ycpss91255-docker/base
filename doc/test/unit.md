@@ -5307,7 +5307,7 @@ the ldd-skip + accumulate-all behaviour (#692).
 | `smoke.sh: documented behaviour -- a .so whose ldd exits non-zero is skipped (#692)` | ldd-fail skip |
 | `smoke.sh: accumulates _exit=1 and reports every bad .so (#692)` | Accumulate-all reporting |
 
-### test/bats/unit/schema_coverage_spec.bats (12)
+### test/bats/unit/schema_coverage_spec.bats (13)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry must
 stay internally consistent and in sync with the `setup.conf` template, so
@@ -5331,6 +5331,7 @@ translation in any locale fails CI.
 | `every shipped setup.toml key is registered or an explicit free-form opt-out (#876)` | - |
 | `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
 | `no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)` | - |
+| `every SCHEMA_SECTIONS section has at least one SCHEMA_VALIDATOR row (base#1095)` | base#1095 -- `tmpfs` was the one SCHEMA_SECTIONS entry with no SCHEMA_VALIDATOR row of any kind, so `setup.sh set tmpfs.tmpfs_1` accepted a value carrying a newline and _emit_tmpfs_block wrote it into compose.yaml as two list items. Deriving the population from SCHEMA_SECTIONS and the evidence from SCHEMA_VALIDATOR's keys is what makes the NEXT unvalidated section a red test rather than the next operator's surprise. |
 
 ### test/bats/unit/schema_spec.bats (30)
 
@@ -5368,7 +5369,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate accepts free-form (unregistered) keys` | default-accept |
 | `SCHEMA_SECTIONS lists every setup.conf section in file order (#561)` | ordered section list (#561) |
 | `_schema_is_section accepts a registered section with typed keys (#561)` | membership accept (#561) |
-| `_schema_is_section accepts a free-form-only section (image) (#561)` | membership accept, no keys (#561) |
+| `_schema_is_section accepts a section whose only key is a list key (image) (#561)` | membership accept, list-key-only section (#561). The title said "free-form-only" until base#1095: image.rule_ has had a validator for a while, and the only genuinely keyless section (tmpfs) now has one too, so the name was describing a state the tree had left. |
 | `_schema_is_section rejects an unknown section (#561)` | membership reject (#561) |
 | `_schema_is_section rejects a per-service logging variant (#561)` | logging.<svc> not a base section (#561) |
 | `_schema_is_section tracks SCHEMA_SECTIONS additions (single source) (#561)` | single source (#561) |
@@ -5861,7 +5862,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (144)
+### test/bats/unit/setup_cmd_spec.bats (145)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -5992,6 +5993,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `[environment] empty section omits environment: block` | - |
 | `[tmpfs] tmpfs_1 = /tmp emits tmpfs: block with the entry` | - |
 | `[tmpfs] tmpfs_1 with size= suffix preserved verbatim` | - |
+| `[tmpfs] a tmpfs_1 carrying a newline is refused before it can reach compose.yaml (base#1095)` | base#1095 -- the whole point of registering a tmpfs validator is the artifact, not the error message: `tmpfs` was the one section that validated nothing, so a value carrying a newline was accepted by `setup.sh set` and _emit_tmpfs_block -- which reads the string with `while IFS= read -r` -- wrote each line as a tmpfs entry of its own. The assertion is therefore in two halves: the write is refused, AND the generated compose.yaml carries no entry it did not already have. Grepping only for the refusal would pass on a tree that refused the write and then emitted the value from a stale layer anyway. |
 | `[tmpfs] empty section omits tmpfs: block` | - |
 | `[devices] device_1 = /dev/video0:/dev/video0 emits devices: block` | - |
 | `[devices] cgroup_rule_1 emits device_cgroup_rules: block` | - |
@@ -8166,7 +8168,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_advanced_menu: tmpfs entry no longer dispatches` | - |
 | `_render_advanced_menu: security still dispatches` | - |
 
-### test/bats/unit/tui_spec.bats (134)
+### test/bats/unit/tui_spec.bats (137)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -8233,6 +8235,9 @@ overlay; writes no override)
 | `_validate_mount rejects invalid propagation mode (#450)` | - |
 | `_validate_mount rejects rw,bogus combo (#450)` | - |
 | `_validate_mount rejects embedded newline (YAML injection) (#687)` | - |
+| `_validate_tmpfs accepts a bare container path and a path with options (base#1095)` | base#1095 -- the two spellings the shipped template teaches (`path = "/tmp"` alone, and `path` + `size` which the bridge joins into `/tmp:size=64m`) are the values a conforming repo actually carries, so a validator that refused either would refuse the template's own example. |
+| `_validate_tmpfs rejects whitespace, which reaches compose as extra entries (base#1095)` | base#1095 -- a newline is the injection this guard exists for: _emit_tmpfs_block reads the value with `while IFS= read -r`, so every line after the first became a tmpfs list item of its own and the operator silently got mounts they never wrote. A leading space is the same defect one character quieter. |
+| `_validate_tmpfs rejects an empty value, a relative path and an empty options list (base#1095)` | base#1095 -- the structural halves. An empty value is the clear that SCHEMA_EMPTY handles above the validator, a relative path is not a mount point docker accepts, and a trailing or doubled colon is an options list with nothing in it -- each one a file compose takes and then fails on, rather than a refusal at `setup.sh set`. |
 | `_validate_restart accepts the four bare policies + on-failure:N (#687)` | - |
 | `_validate_restart rejects on-failure:0 (docker forbids zero retries) (#687)` | - |
 | `_validate_restart rejects leading-zero retry count on-failure:01 (#687)` | - |

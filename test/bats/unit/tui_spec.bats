@@ -177,6 +177,60 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_tmpfs -- the [tmpfs] entry shape (base#1095)
+#
+# `[tmpfs]` was the last SCHEMA_SECTIONS entry with no validator of any
+# kind, so every value fell through _schema_validate's free-form branch
+# and reached _emit_tmpfs_block verbatim. The shape is the one the
+# template documents and the bridge renders: a container path, with the
+# mount options after a single colon.
+# ════════════════════════════════════════════════════════════════════
+
+# why: base#1095 -- the two spellings the shipped template teaches
+# (`path = "/tmp"` alone, and `path` + `size` which the bridge joins into
+# `/tmp:size=64m`) are the values a conforming repo actually carries, so
+# a validator that refused either would refuse the template's own
+# example.
+@test "_validate_tmpfs accepts a bare container path and a path with options (base#1095)" {
+  _validate_tmpfs "/tmp"
+  _validate_tmpfs "/run"
+  _validate_tmpfs "/tmp:size=64m"
+  _validate_tmpfs "/run:size=1g,mode=1777"
+}
+
+# why: base#1095 -- a newline is the injection this guard exists for:
+# _emit_tmpfs_block reads the value with `while IFS= read -r`, so every
+# line after the first became a tmpfs list item of its own and the
+# operator silently got mounts they never wrote. A leading space is the
+# same defect one character quieter.
+@test "_validate_tmpfs rejects whitespace, which reaches compose as extra entries (base#1095)" {
+  run _validate_tmpfs $'/tmp\n      - /evil'
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs " /tmp"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:size=64 m"
+  [ "${status}" -ne 0 ]
+}
+
+# why: base#1095 -- the structural halves. An empty value is the clear
+# that SCHEMA_EMPTY handles above the validator, a relative path is not a
+# mount point docker accepts, and a trailing or doubled colon is an
+# options list with nothing in it -- each one a file compose takes and
+# then fails on, rather than a refusal at `setup.sh set`.
+@test "_validate_tmpfs rejects an empty value, a relative path and an empty options list (base#1095)" {
+  run _validate_tmpfs ""
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "tmp"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:size=64m:mode=1777"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:size=64m,"
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _validate_restart — direct coverage (previously only exercised
 # indirectly via _edit_section_lifecycle happy paths)
 # ════════════════════════════════════════════════════════════════════
