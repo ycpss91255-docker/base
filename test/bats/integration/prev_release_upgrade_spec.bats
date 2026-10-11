@@ -1188,9 +1188,43 @@ _set_consumer_lifecycle_restart() {
     || fail "the seeded ${_conf} carries no 'restart =' line to rewrite, so this arm would assert against the shipped default"
   sed -i -E "s|^([[:space:]]*)restart[[:space:]]*=.*$|\1restart = ${_value}|" \
     "${CONSUMER}/${_conf}"
+  # And it landed. Checked HERE, in the file the release actually seeded,
+  # because the caller cannot: the resync relocates and converts that file,
+  # so before the upgrade there is no `setup.toml` to read the value back
+  # out of, and a caller that tried would be asserting against a path that
+  # does not exist yet rather than against the value it just wrote.
+  grep -qE "^[[:space:]]*restart[[:space:]]*=[[:space:]]*${_value}[[:space:]]*\$" \
+    "${CONSUMER}/${_conf}" \
+    || fail "writing '[lifecycle] restart = ${_value}' into ${_conf} did not take, so this arm would run against the value the release seeded"
   git -C "${CONSUMER}" add -A
   git -C "${CONSUMER}" commit -q -m "chore: the repo's own restart policy" || true
 }
+
+# ── Why these two arms NAME the interval ────────────────────────────────────
+#
+# `BASE_MIGRATION_FROM` rather than the window's own version. The
+# compatibility window is the two newest STABLE releases, resolved from the
+# repo's tags every run (script/test/prepare-prev-release.sh), so which
+# versions these arms get moves on its own. The migration's predicate is
+# `from < v0.42.0 <= to`, and the moment v0.43.0 is tagged the window
+# becomes v0.43.0 / v0.42.0 -- no release in it can supply a pre-rescope
+# arrival any more, and an arm reading the from-version out of the history
+# would start failing over correct production behaviour. That is not a
+# condition a fixed tag escapes either: pinning v0.41.0 here pins a release
+# the window has stopped materialising.
+#
+# So the released DRIVER still comes from the window -- that half is what
+# makes these reachability arms rather than unit tests, and it is the half
+# that has to keep moving -- and the interval is named. The version the
+# consumer came from is supplied by exactly the escape hatch the lib
+# documents for the case where the history cannot supply it, and the stale
+# value is seeded by hand rather than taken from whatever the release
+# happened to ship.
+#
+# Nothing is lost by naming it: that a real released upgrade DERIVES the
+# interval from its own subtree-pull merge is what
+# `_assert_interval_selection` (base#1097) above already drives, through the
+# same released drivers.
 
 # why: The population base#1110's migration exists for is a repo arriving
 # from before the rescope, and the defect was that no such repo could reach
@@ -1204,20 +1238,19 @@ _set_consumer_lifecycle_restart() {
   _seed_current_remote
   _seed_released_remote "${_tag}"
   _seed_consumer "${_tag}"
-
-  # The release this arm is about is the one whose template literal is `no`.
-  # Asserted rather than assumed: a release that stopped seeding it would
-  # turn this arm into a test of nothing.
-  local _conf
-  _conf="$(_seeded_repo_conf)"
-  grep -qE '^[[:space:]]*restart[[:space:]]*=[[:space:]]*"?no"?[[:space:]]*$' \
-    "${CONSUMER}/${_conf}" \
-    || fail "${_tag}'s own bootstrap seeded no '[lifecycle] restart = no' into ${_conf}, so this arm has no stale default to retire"
+  # The stale copied default, in whatever format and at whatever path this
+  # release seeds. Written rather than inherited: see the note above on why
+  # the release the window hands us cannot be relied on to carry it. The
+  # helper verifies its own write, which is the non-vacuity guard this arm
+  # needs -- a seed that silently did not take would leave the assertions
+  # below running against the release's own value.
+  _set_consumer_lifecycle_restart 'no'
 
   local _upgrade
   _upgrade="$(_released_entry upgrade.sh)"
   cd "${CONSUMER}"
-  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" \
+      BASE_MIGRATION_FROM=v0.41.0 "${_upgrade}" "${NEXT_VER}"
   assert_success
   # The consumer is TOLD, because the value is theirs to disagree with.
   assert_output --partial "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
@@ -1232,10 +1265,12 @@ _set_consumer_lifecycle_restart() {
   run git -C "${CONSUMER}" status --porcelain -- setup.toml
   assert_output ""
 
-  # Running the upgrade again must not re-announce it. The runner keeps no
-  # ledger, so idempotence is the migration's own job and this is where it
-  # is observable.
-  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER_2}"
+  # Running the upgrade again must not re-announce it. The interval is named
+  # again on purpose, so the migration is RE-SELECTED and still has to be a
+  # no-op: the runner keeps no ledger, so idempotence is the migration's own
+  # job and this is the only place it is observable end to end.
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" \
+      BASE_MIGRATION_FROM=v0.41.0 "${_upgrade}" "${NEXT_VER_2}"
   assert_success
   refute_output --partial "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
   run _consumer_lifecycle_restart
@@ -1254,16 +1289,21 @@ _set_consumer_lifecycle_restart() {
   _seed_current_remote
   _seed_released_remote "${_tag}"
   _seed_consumer "${_tag}"
-  # A deliberate choice, made on a release that already ships the new
-  # default -- which is exactly what the interval cannot distinguish from a
-  # copied default once it starts at or after the rescope, and so must not
-  # touch.
+  # A deliberate choice: `no`, chosen by a repo that is already past the
+  # rescope. That is exactly what the interval cannot tell from a copied
+  # default once it starts at or after v0.42.0, and so must not touch.
   _set_consumer_lifecycle_restart 'no'
 
   local _upgrade
   _upgrade="$(_released_entry upgrade.sh)"
   cd "${CONSUMER}"
-  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  # v0.42.0 names the BOUNDARY, which is the case worth pinning: the
+  # interval is half-open at the from end, so `from = v0.42.0` must NOT
+  # select a migration landing in v0.42.0. Naming it also means this arm
+  # stays the post-rescope case as the window moves, rather than becoming
+  # whichever version the newest release happens to be.
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" \
+      BASE_MIGRATION_FROM=v0.42.0 "${_upgrade}" "${NEXT_VER}"
   assert_success
   refute_output --partial "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
 
