@@ -5861,7 +5861,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (173)
+### test/bats/unit/setup_cmd_spec.bats (174)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6051,6 +6051,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply --output rebases a relative context with an interpolated leaf (base#1087)` | Only interpolation that decides the path's ROOT has to stay untouched. `./contexts/${FLAVOUR}` is an explicitly relative local path with an interpolated leaf, and a blanket "any dollar sign means non-local" left it resolving against the output directory. The explicit relative prefix is read first, and the interpolation is carried through. |
 | `apply --output rebases a dot-only bind source (base#1087)` | `.` and `..` are valid bind sources on their own -- the repo root and its parent -- and the rebase matched only a prefix with a following slash, so `.:/mnt/repo:rshared` kept resolving to the output directory. A dot-only source is the spelling most likely to be used for exactly the thing relocation breaks: mounting the repo itself. |
 | `apply --output refuses a repo root carrying a line break (base#1087)` | A newline in the repo's own directory name is emitted literally into the artifact, which compose then rejects outright, and it also splits the newline-separated lists the rebase feeds -- one entry becomes two, neither of them a mount. Refused with the colon, for the same reason: what cannot be expressed is not written and reported as a generated set. |
+| `apply --output rebases a bare context with an interpolated component (base#1087)` | `contexts/${FLAVOUR}` is a bare relative path whose ROOT is fixed and whose leaf is interpolated, so it is as local as `./contexts/...`. Only an interpolation that decides the root -- a value that STARTS with one -- can be left alone, and a dollar sign anywhere was standing in for that distinction. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 

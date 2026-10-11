@@ -278,9 +278,15 @@ _compose_context_is_local() {
   # alone. A blanket "any dollar sign means non-local" left exactly this
   # resolving against the output directory.
   _compose_is_repo_relative "${_s}" && return 0
+  # A LEADING interpolation, braced or not, is the only one that can make
+  # this non-local: it decides the path's ROOT, and nothing here can know
+  # what it will expand to. One later in the string -- `contexts/${FLAVOUR}`
+  # -- leaves the root fixed and the path as local as `./contexts/...`, so
+  # a dollar sign ANYWHERE was standing in for a distinction it cannot
+  # make.
   # shellcheck disable=SC2016,SC2088  # literal `$` and `~/` are the point
   case "${_s}" in
-    *'$'*)              return 1 ;;
+    '$'*)               return 1 ;;
     /*|'~/'*)           return 1 ;;
     *://*)              return 1 ;;
     target:*|service:*) return 1 ;;

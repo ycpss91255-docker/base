@@ -3156,3 +3156,34 @@ EOF
   assert_failure
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
+
+# why: `contexts/${FLAVOUR}` is a bare relative path whose ROOT is fixed
+# and whose leaf is interpolated, so it is as local as `./contexts/...`.
+# Only an interpolation that decides the root -- a value that STARTS with
+# one -- can be left alone, and a dollar sign anywhere was standing in for
+# that distinction.
+@test "apply --output rebases a bare context with an interpolated component (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "bareflav"
+source = "contexts/${FLAVOUR}"
+
+[[additional_contexts]]
+name = "rooted"
+source = "${CTX_ROOT}/shared"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _b _r
+  _b="$(sed -n 's/^ *bareflav: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  _r="$(sed -n 's/^ *rooted: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  [[ "${_b}" == "${TEMP_DIR}/contexts/"* ]] || fail "not rebased: ${_b}"
+  [[ "${_b}" == *'${FLAVOUR}'* ]] || fail "interpolation lost: ${_b}"
+  # The one that DOES decide its own root stays exactly as configured.
+  assert_equal "${_r}" '${CTX_ROOT}/shared'
+}
