@@ -240,66 +240,138 @@ _assert_schema_covers_registry() {
   _assert_schema_covers_registry "accept"
 }
 
+# The invalid samples, held as DATA rather than as calls, so the per-stage
+# gate below can replay exactly the population this table covers instead of
+# keeping a second list beside it that rots on its own (base#1268). A row is
+# "<section>|<key>|<value>"; the value is everything after the SECOND bar, so
+# a sample carrying a bar or an embedded newline is still one row.
+declare -ga _SCHEMA_REJECT_ROWS=(
+  'project|name|My.Project'
+  'deploy|gpu_count|-1'
+  'network|port_1|not-a-port'
+  'logging|driver|bad driver!'
+  'logging|wrapper_transcript|maybe'
+  'logging|wrapper_transcript_keep|0'
+  'logging|wrapper_transcript_days|abc'
+  $'lifecycle|watchdog_notify|has\nnewline'
+  'resources|shm_size|huge'
+  'lifecycle|restart|sometimes'
+  'lifecycle|init|garbage'
+  'lifecycle|watchdog_interval|0'
+  'lifecycle|watchdog_timeout|-5'
+  'lifecycle|watchdog_start_period|-1'
+  'lifecycle|watchdog_failures|abc'
+  'lifecycle|watchdog_on_fail|restart-host'
+  'lifecycle|watchdog_max_restarts|1.5'
+  $'lifecycle|watchdog_check|has\nnewline'
+  'build|target_arch|sparc'
+  'build|network|carrier-pigeon'
+  'build|arg_1|1BAD=x'
+  'deploy|gpu_mode|on'
+  'deploy|gpu_capabilities|gpu bogus'
+  # base#1267: the empty string is one of the values this key refuses, and
+  # it is refused HERE rather than short-circuited by the empty-value
+  # policy -- SCHEMA_EMPTY marks the key `validate`, so an empty value
+  # reaches the validator like any other. A capability list the generator
+  # cannot carry is not a clear-the-key gesture.
+  'deploy|gpu_capabilities|'
+  'deploy|gpu_runtime|podman'
+  'deploy|runtime|podman'
+  'deploy|dri_groups|on'
+  'deploy|dri_groups|44,104'
+  'deploy|dri_groups|44 render'
+  'gui|mode|of'
+  'image|rule_1|whatever'
+  'network|network_name|-bad'
+  'network|mode|foo: bar'
+  'network|mode|bogus'
+  'network|ipc|bogus'
+  'network|ipc|bridge'
+  'network|pid|shareable'
+  'network|pid|bogus'
+  'logging|max_size|10petabytes'
+  'logging|max_file|0'
+  'logging|compress|maybe'
+  $'logging|local_path|has\nnewline'
+  'logging|container_log_keep|0'
+  'logging|container_log_days|abc'
+  'volumes|mount_1|noslash'
+  'devices|device_1|noslash'
+  'devices|cgroup_rule_1|bogus'
+  'environment|env_1|1BAD=x'
+  'tmpfs|tmpfs_1|relative/path'
+  'additional_contexts|context_1|noequals'
+  'security|cap_add_1|lowercase'
+  'security|cap_drop_1|has space'
+  'security|privileged|yes'
+  'security|security_opt_1|anything goes'
+)
+
+# Replay every row of _SCHEMA_REJECT_ROWS with <section_prefix> pasted in
+# front of the section name, asserting each is refused. The empty prefix is
+# the plain top-level reading; "stage:<name>." is the per-stage one.
+_assert_schema_reject_rows() {
+  local _prefix="${1-}"
+  local _row _rest _section _key _value
+  for _row in "${_SCHEMA_REJECT_ROWS[@]}"; do
+    _section="${_row%%|*}"
+    _rest="${_row#*|}"
+    _key="${_rest%%|*}"
+    _value="${_rest#*|}"
+    _assert_schema "${_prefix}${_section}" "${_key}" "${_value}" fail || return 1
+  done
+}
+
 # why: union coverage (reject), with the population DERIVED for the same
 # reason the accept table's is: the title claims every registered key, so
 # the keys the rows reach are held equal to the registry's own key set
 @test "_schema_validate rejects every registered key's invalid sample" {
   _SCHEMA_COVERED=""
-  _assert_schema project name "My.Project" fail
-  _assert_schema deploy gpu_count "-1" fail
-  _assert_schema network port_1 "not-a-port" fail
-  _assert_schema logging driver "bad driver!" fail
-  _assert_schema logging wrapper_transcript "maybe" fail
-  _assert_schema logging wrapper_transcript_keep "0" fail
-  _assert_schema logging wrapper_transcript_days "abc" fail
-  _assert_schema lifecycle watchdog_notify $'has\nnewline' fail
-  _assert_schema resources shm_size "huge" fail
-  _assert_schema lifecycle restart "sometimes" fail
-  _assert_schema lifecycle init "garbage" fail
-  _assert_schema lifecycle watchdog_interval "0" fail
-  _assert_schema lifecycle watchdog_timeout "-5" fail
-  _assert_schema lifecycle watchdog_start_period "-1" fail
-  _assert_schema lifecycle watchdog_failures "abc" fail
-  _assert_schema lifecycle watchdog_on_fail "restart-host" fail
-  _assert_schema lifecycle watchdog_max_restarts "1.5" fail
-  _assert_schema lifecycle watchdog_check $'has\nnewline' fail
-  _assert_schema build target_arch "sparc" fail
-  _assert_schema build network "carrier-pigeon" fail
-  _assert_schema build arg_1 "1BAD=x" fail
-  _assert_schema deploy gpu_mode "on" fail
-  _assert_schema deploy gpu_capabilities "gpu bogus" fail
-  _assert_schema deploy gpu_runtime "podman" fail
-  _assert_schema deploy runtime "podman" fail
-  _assert_schema deploy dri_groups "on" fail
-  _assert_schema deploy dri_groups "44,104" fail
-  _assert_schema deploy dri_groups "44 render" fail
-  _assert_schema gui mode "of" fail
-  _assert_schema image rule_1 "whatever" fail
-  _assert_schema network network_name "-bad" fail
-  _assert_schema network mode "foo: bar" fail
-  _assert_schema network mode "bogus" fail
-  _assert_schema network ipc "bogus" fail
-  _assert_schema network ipc "bridge" fail
-  _assert_schema network pid "shareable" fail
-  _assert_schema network pid "bogus" fail
-  _assert_schema logging max_size "10petabytes" fail
-  _assert_schema logging max_file "0" fail
-  _assert_schema logging compress "maybe" fail
-  _assert_schema logging local_path $'has\nnewline' fail
-  _assert_schema logging container_log_keep "0" fail
-  _assert_schema logging container_log_days "abc" fail
-  _assert_schema volumes mount_1 "noslash" fail
-  _assert_schema devices device_1 "noslash" fail
-  _assert_schema devices cgroup_rule_1 "bogus" fail
-  _assert_schema environment env_1 "1BAD=x" fail
-  _assert_schema tmpfs tmpfs_1 "relative/path" fail
-  _assert_schema additional_contexts context_1 "noequals" fail
-  _assert_schema security cap_add_1 "lowercase" fail
-  _assert_schema security cap_drop_1 "has space" fail
-  _assert_schema security privileged "yes" fail
-  _assert_schema security security_opt_1 "anything goes" fail
+  # Non-vacuity: an empty or truncated row table would refuse nothing and
+  # cover nothing, and the coverage assertion below would be comparing two
+  # empty sets. The floor is well under the live row count.
+  [ "${#_SCHEMA_REJECT_ROWS[@]}" -ge 50 ] \
+    || fail "_SCHEMA_REJECT_ROWS holds ${#_SCHEMA_REJECT_ROWS[@]} rows; the table did not load"
+  _assert_schema_reject_rows ""
 
   _assert_schema_covers_registry "reject"
+}
+
+# why: base#1268 -- the per-stage namespace was outside the gate entirely.
+# `_edit_stage_list` hands `_edit_list_entry` the section as
+# `stage:<name>.<section>`, `_schema_canonical_key` knew how to normalise
+# only `logging.<svc>`, so every per-stage key resolved to the empty string
+# and `_schema_validate` returned 0 on its free-form branch -- a validated
+# call site that could not refuse anything. The claim is the paired one, over
+# the SAME rows the unprefixed table uses rather than a second list: a value
+# the top level refuses is refused under `stage:<name>.` too. The coverage
+# assertion is what makes it a statement about resolution and not about these
+# rows -- it is satisfied only when every registered key resolved THROUGH the
+# prefix, so a normaliser that handled some sections and not others fails
+# here naming the ones it missed
+@test "_schema_validate refuses a stage:<name>. prefixed key the top level refuses (base#1268)" {
+  _SCHEMA_COVERED=""
+  [ "${#_SCHEMA_REJECT_ROWS[@]}" -ge 50 ] \
+    || fail "_SCHEMA_REJECT_ROWS holds ${#_SCHEMA_REJECT_ROWS[@]} rows; the table did not load"
+  _assert_schema_reject_rows "stage:dev."
+
+  _assert_schema_covers_registry "per-stage reject"
+}
+
+# why: base#1268 -- the normalisation itself, asked of the one function that
+# owns the rule, next to the `logging.<svc>` case it already carried. The
+# third reading is the boundary: `stage:dev` names no section, so it stays
+# free-form rather than being read as a bare `dev`
+@test "_schema_canonical_key strips a stage:<name>. section prefix (base#1268)" {
+  local _canon=""
+  _schema_canonical_key "stage:dev.network" mode _canon
+  [ "${_canon}" = "network.mode" ]
+  _schema_canonical_key "stage:dev.volumes" mount_3 _canon
+  [ "${_canon}" = "volumes.mount_" ]
+  _schema_canonical_key "stage:dev.logging" driver _canon
+  [ "${_canon}" = "logging.driver" ]
+  _schema_canonical_key "stage:dev" mode _canon
+  [ "${_canon}" = "" ]
 }
 
 # Embedded-newline values must be rejected by every value-bearing

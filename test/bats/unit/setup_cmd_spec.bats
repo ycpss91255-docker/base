@@ -1620,6 +1620,78 @@ EOF
   assert_success
 }
 
+# ── [deploy] gpu_capabilities: the empty value (base#1267) ───────────
+#
+# `set` reported success over a configuration the next `apply` refuses.
+# `_conf_upsert_scalar` writes `gpu_capabilities = ""` -- the key present
+# and empty, not cleared -- `deploy.sh`'s `gpu` default applies only when
+# the key is ABSENT, and `generate_compose_yaml` takes the capability list
+# as `"${6:?}"` and aborts on it. The three cases below drive the real
+# entry point and read the end state back through the real merge, because
+# the hole was invisible to any reading of the validator: the gate accepted
+# the empty string by POLICY (SCHEMA_EMPTY's `allow` default), before the
+# validator was ever called.
+
+# why: base#1267 -- the refusal itself, plus the end state a `set` that
+# reports success must not have produced. The before/after value comes from
+# `_conf_get` over `_setup_conf_handle`, the readers' own view, rather than
+# from a grep on the file, and the file is additionally held byte-identical
+# because "refused" and "rewrote it anyway" are different outcomes
+@test "set deploy.gpu_capabilities '' is refused and the conf is untouched (base#1267)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+
+  local _was
+  _setup_conf_handle "${TEMP_DIR}" _EFF_BEFORE
+  _was="$(_conf_get _EFF_BEFORE deploy gpu_capabilities "")"
+  [ -n "${_was}" ] || fail "the template resolves no gpu_capabilities, so this case would assert nothing"
+
+  run main set deploy.gpu_capabilities "" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value: deploy.gpu_capabilities ="
+
+  cmp -s "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml" \
+    || fail "a refused set rewrote setup.toml"
+
+  local _now
+  _setup_conf_handle "${TEMP_DIR}" _EFF_AFTER
+  _now="$(_conf_get _EFF_AFTER deploy gpu_capabilities "")"
+  assert_equal "${_now}" "${_was}"
+}
+
+# why: base#1267 -- what the refusal is FOR. The measured failure was not
+# the stored empty string but the apply after it: `.env`, `.env.generated`
+# and `.env.local` were written, then `generate_compose_yaml` aborted with
+# a raw `parameter null or not set`, so no compose.yaml was produced at
+# all. Asserted on the emitted artifact, through `apply`, so this stays a
+# claim about the generator rather than about the gate that now guards it
+@test "apply after the refused set still emits compose.yaml (base#1267)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  run main set deploy.gpu_capabilities "" --base-path "${TEMP_DIR}"
+  assert_failure
+
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "parameter null or not set"
+  assert [ -f "${TEMP_DIR}/compose.yaml" ]
+}
+
+# why: base#1267 -- `--local` is the same writer against a different file,
+# so a gate that only closed the committed path would leave the hole open
+# one flag away. The gitignored override must not even be CREATED by a
+# refused set: `_setup_write_target` touches it into existence, and an
+# empty setup.local.toml is itself a state the chain reports on
+@test "set --local deploy.gpu_capabilities '' is refused and creates no local layer (base#1267)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  run main set deploy.gpu_capabilities "" --local --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value: deploy.gpu_capabilities ="
+  assert [ ! -f "$(_setup_conf_local_path "${TEMP_DIR}")" ]
+}
+
 @test "[deploy] runtime = nvidia emits runtime: nvidia at service level" {
   # `runtime` is the permanent alias and is consulted only when the
   # effective config sets no canonical `gpu_runtime`. A [table] merges

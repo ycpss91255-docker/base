@@ -8,6 +8,15 @@
 # `_schema_validate`, so the two can no longer drift — the TUI can no
 # longer accept input that setup.sh rejects, and vice versa.
 #
+# That claim used to be true of the top-level sections and false of
+# `[stage:*]` (base#1268). A per-stage editor hands the section in as
+# `stage:<name>.<section>`, `_schema_canonical_key` had a normalisation
+# rule for `logging.<svc>` and none for that, so every per-stage key
+# resolved to the empty string and the gate accepted anything — on the
+# one path with no `setup.sh set` equivalent to fall back on. The rule now
+# lives beside the logging one, so both compound section spellings reach
+# the same key set and the sentence above holds for the whole file.
+#
 # The registry only maps a canonical (section,key) to the NAME of the
 # validator function; the validator bodies stay in _tui_conf.sh. This
 # file sources _tui_conf.sh (idempotent via its own guard) so any
@@ -217,12 +226,28 @@ declare -gA SCHEMA_I18N=(
 )
 
 # SCHEMA_EMPTY records the per-key empty-value policy. Default (a key
-# absent from this map) is "allow": an empty value clears the key and is
-# always accepted. The exception is keys whose validator rejects empty by
-# design — they are marked "validate" so the empty string is passed
-# through to the validator (which rejects it).
+# absent from this map) is "allow": an empty value is always accepted.
+# The exception is keys whose validator rejects empty by design — they
+# are marked "validate" so the empty string is passed through to the
+# validator (which rejects it).
+#
+# "allow" used to be described here as "an empty value clears the key",
+# and that was the defect base#1267 turned up, not the behaviour: on the
+# `setup.sh set` path `_upsert_conf_value` -> `_conf_upsert_scalar`
+# writes `<key> = ""`, so the key is left PRESENT and empty. Only the
+# TUI's `_mark_removed` actually removes a line, so clearing is a TUI
+# gesture and never something this policy performs. A key whose readers
+# cannot carry an empty value therefore cannot rely on "allow" meaning
+# the key goes away; it belongs below.
 declare -gA SCHEMA_EMPTY=(
   [deploy.gpu_count]=validate
+  # base#1267: `gpu` is the default for an ABSENT gpu_capabilities
+  # (deploy.sh), so a present-empty key resolves to "" and reaches
+  # `generate_compose_yaml`'s `local _gpu_caps="${6:?}"`, which aborts the
+  # whole apply after the .env files are already written. `set` reported
+  # success over a configuration the next command refuses; the refusal
+  # belongs at the one gate the CLI and the TUI share.
+  [deploy.gpu_capabilities]=validate
 )
 
 # ════════════════════════════════════════════════════════════════════
@@ -305,13 +330,23 @@ _schema_section_keys() {
 #
 # Resolves (section,key) to its registry canonical key in <out_canon>,
 # or the empty string when the key is free-form (not in the registry).
-# Normalises per-service logging sections ([logging.<svc>] -> logging)
-# and numbered list keys (port_3 -> port_).
+# Normalises the two compound section spellings (per-service logging
+# sections, [logging.<svc>] -> logging; per-stage overrides,
+# [stage:<name>.<section>] -> <section>) and numbered list keys
+# (port_3 -> port_).
 # ════════════════════════════════════════════════════════════════════
 _schema_canonical_key() {
   local _section="${1-}"
   local _key="${2-}"
   local -n _sck_out="${3:?_schema_canonical_key: missing out var}"
+
+  # [stage:<name>.<section>] per-stage overrides are the SAME setting as
+  # the top-level one and share its key set, so the stage namespace is
+  # stripped before anything else (base#1268). Shortest-match, so only the
+  # stage name goes and a compound section under it -- stage:dev.logging --
+  # is left for the rule below. A bare `stage:<name>` names no section and
+  # matches nothing here, which is correct: it carries no key set.
+  [[ "${_section}" == stage:*.* ]] && _section="${_section#stage:*.}"
 
   # [logging.<svc>] per-service overrides share the [logging] key set.
   [[ "${_section}" == logging.* ]] && _section="logging"
@@ -381,8 +416,10 @@ _schema_validate() {
   # Free-form key: accept any value.
   [[ -z "${_canon}" ]] && return 0
 
-  # Empty-value policy. Default "allow" (empty clears the key); only keys
-  # marked "validate" delegate the empty string to their validator.
+  # Empty-value policy. Default "allow" (empty is accepted without asking
+  # the validator -- it does NOT clear the key; see SCHEMA_EMPTY above);
+  # only keys marked "validate" delegate the empty string to their
+  # validator.
   local _policy="${SCHEMA_EMPTY[${_canon}]:-allow}"
   if [[ -z "${_value}" && "${_policy}" == "allow" ]]; then
     return 0

@@ -591,15 +591,25 @@ declare -ga _VALID_GPU_CAPABILITIES=(
 #
 # [deploy] gpu_capabilities: the space-separated capability list emitted
 # into compose `deploy.resources.reservations.devices[].capabilities`.
-# Accepts the empty string -- "reserve the devices, request no
-# capability" is a configuration an operator can state, and `setup.sh set
-# deploy.gpu_capabilities ""` clears the key.
+#
+# The empty string is REFUSED (base#1267). It used to be accepted on the
+# reading that "reserve the devices, request no capability" is a
+# configuration an operator can state, and that `setup.sh set
+# deploy.gpu_capabilities ""` cleared the key. Neither held: the writer
+# stores `gpu_capabilities = ""` rather than removing the line,
+# `_resolve_deploy_context`'s `gpu` default applies only to an ABSENT key,
+# and `generate_compose_yaml` takes the list as `"${6:?}"` -- so the value
+# this validator accepted was one the next `apply` aborted on, after it
+# had already written .env / .env.generated / .env.local. The TUI's own
+# capability screen reached the same conclusion in base#1177 and refuses
+# an empty selection upstream of here; this closes the CLI half. To stop
+# reserving a GPU, the setting is `gpu_mode = "off"`.
 #
 # The accepted names are read off _VALID_GPU_CAPABILITIES rather than restated
 # here, so this function and the TUI screen cannot drift (base#1177).
 _validate_gpu_capabilities() {
   local _v="${1-}"
-  [[ -z "${_v}" ]] && return 0
+  [[ -z "${_v}" ]] && return 1
   local _cap _known_cap _known
   local -a _caps=()
   read -ra _caps <<< "${_v}"
