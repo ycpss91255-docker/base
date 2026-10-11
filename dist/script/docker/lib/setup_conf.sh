@@ -138,6 +138,26 @@ _setup_conf_local_path() {
 # section list rather than a key list because the array case is not
 # key-level: a local `[[volumes]]` replaces the whole list, so naming the
 # section is the honest granularity for both kinds of entry.
+#
+# AN ARRAY DECLARED WITH NO ENTRIES IS ONE OF THOSE DECLARATIONS, and the
+# ENTRIES alone cannot see it. `args = []` replaces the lower layer's list
+# with nothing (ADR-00000037's zero-entry amendment), so a
+# `setup.local.toml` carrying only that changes the effective
+# configuration -- measured through the real merge: the template's three
+# build args become zero -- while the bridge emits no `--kv` row for it,
+# because there is no entry to emit. Read off the entries alone this
+# function answered "no local sections" for exactly that file, and the one
+# caller whose answer is a REFUSAL let it through: `_setup_deploy` bars a
+# field bundle from depending on the gitignored local layer, and a bundle
+# built from that clear came from untracked configuration with nothing in
+# its README recording which section. `_setup_warn_shadowed_write` and the
+# config summary read the same answer and had the same blind spot.
+#
+# So the declarations are read off the FILE, beside the entries. The
+# section of an array path is its FIRST component -- `build.args` is
+# `[build]`'s, `devices.cgroup_rules` is `[devices]`'s, and a root-level
+# `volumes` is its own -- which holds for every family
+# `_conf_toml_aot_section` maps, none of them deeper than two.
 _setup_conf_local_sections() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _scls_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
@@ -152,13 +172,43 @@ _setup_conf_local_sections() {
   local -n _scls_s=_SCLS_LOCAL__sects
   local -n _scls_es=_SCLS_LOCAL__es
 
+  # The sections an empty-array declaration defines, gathered first so the
+  # loop below can answer for a section that has nothing else.
+  local -A _scls_decl=()
+  if [[ "${_local}" == *.toml ]]; then
+    local _scls_line _scls_hdr="" _scls_tbl="" _scls_path=""
+    while IFS= read -r _scls_line || [[ -n "${_scls_line}" ]]; do
+      _conf_toml_header_uncomment "${_scls_line}" _scls_hdr
+      if [[ "${_scls_hdr}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+        _scls_tbl=""
+        continue
+      fi
+      if [[ "${_scls_hdr}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+        _conf_header_name "${BASH_REMATCH[1]}" _scls_tbl
+        continue
+      fi
+      if _conf_toml_empty_array_decl "${_scls_line}" "${_scls_tbl}" _scls_path; then
+        _scls_decl["${_scls_path%%.*}"]=1
+      fi
+    done < "${_local}"
+  fi
+
   local _sec _i _has
   for _sec in "${_scls_s[@]+"${_scls_s[@]}"}"; do
     _has=0
     for (( _i = 0; _i < ${#_scls_es[@]}; _i++ )); do
       [[ "${_scls_es[_i]}" == "${_sec}" ]] && { _has=1; break; }
     done
+    (( _has == 0 )) && [[ -n "${_scls_decl[${_sec}]+x}" ]] && _has=1
     (( _has )) && _scls_out+=("${_sec}")
+    unset "_scls_decl[${_sec}]"
+  done
+
+  # A declaration whose section the tokenizer listed nowhere still names a
+  # section the local layer defines: a root-level `volumes = []` has no
+  # `[volumes]` header to be listed under.
+  for _sec in "${!_scls_decl[@]}"; do
+    _scls_out+=("${_sec}")
   done
   return 0
 }

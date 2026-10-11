@@ -986,6 +986,29 @@ SH
   rm -rf "${_d}"
 }
 
+# why: The refusal reads `_setup_conf_local_sections`, and a local layer
+# whose ONLY contribution is an array declared with no entries emits no
+# `--kv` row -- there is no entry to emit. It still changes the effective
+# configuration: `args = []` replaces the lower layer's list with nothing
+# (ADR-00000037's zero-entry amendment), so the template's three build
+# args resolve to zero. The refusal therefore did not fire, and a bundle
+# built from that clear came from untracked configuration with nothing in
+# its README naming the section -- the exact failure this gate exists to
+# prevent, reached by the one spelling the gate could not see. Driven
+# through the real `_setup_deploy`, because the accessor's answer is only
+# a defect at this caller.
+@test "_setup_deploy: refuses while the local layer's only entry is an emptied array (base#1148)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  printf '[build]\nargs = []\n' > "${_d}/setup.local.toml"
+  SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
+  assert_failure
+  assert_output --partial "setup.local.toml"
+  assert_output --partial "build"
+  assert_output --partial "--allow-local-override"
+  rm -rf "${_d}"
+}
+
 @test "_setup_deploy: no refusal when there is no local override (#893)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"

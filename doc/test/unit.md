@@ -2039,7 +2039,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (66)
+### test/bats/unit/deploy_spec.bats (67)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2112,6 +2112,7 @@ refused before any build or bundle step.
 | `_setup_deploy: the preview shows each tunable bind at its declared access (#870)` | preview matches the bundle |
 | `_setup_deploy: refuses while setup.local.toml is present (#893)` | - |
 | `_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)` | - |
+| `_setup_deploy: refuses while the local layer's only entry is an emptied array (base#1148)` | The refusal reads `_setup_conf_local_sections`, and a local layer whose ONLY contribution is an array declared with no entries emits no `--kv` row -- there is no entry to emit. It still changes the effective configuration: `args = []` replaces the lower layer's list with nothing (ADR-00000037's zero-entry amendment), so the template's three build args resolve to zero. The refusal therefore did not fire, and a bundle built from that clear came from untracked configuration with nothing in its README naming the section -- the exact failure this gate exists to prevent, reached by the one spelling the gate could not see. Driven through the real `_setup_deploy`, because the accessor's answer is only a defect at this caller. |
 | `_setup_deploy: no refusal when there is no local override (#893)` | - |
 | `_render_deploy_readme: records the untracked sections a bundle was built from (#893)` | - |
 | `_render_deploy_readme: says nothing about local overrides when there were none (#893)` | - |
@@ -6035,7 +6036,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (35)
+### test/bats/unit/setup_conf_spec.bats (38)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6075,6 +6076,9 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_compute_conf_hash: editing setup.local.toml is drift` | A local-layer edit that leaves the hash unchanged means the wrapper reuses artifacts built from a different config. |
 | `_setup_effective_full: show/list read the local layer too` | - |
 | `_setup_conf_local_sections: names the sections the local layer shadows` | - |
+| `_setup_conf_local_sections: an array declared with no entries is a section the local layer defines` | An array declared with NO entries is a declaration, and the entries alone cannot see it. `args = []` replaces the lower layer's list with nothing (ADR-00000037's zero-entry amendment), so this file DOES change the effective configuration -- the template's three build args resolve to zero through the real merge -- while the bridge emits no `--kv` row for it. Read off the entries alone the answer was "no local sections", and the caller whose answer is a REFUSAL let it through: `_setup_deploy` bars a field bundle from depending on the gitignored local layer, so a bundle built from this clear came from untracked configuration with nothing in its README naming the section. |
+| `_setup_conf_local_sections: a root-level and an annotated empty array both count` | The two spellings the first case does not reach. A family whose path has no dot is declared at the ROOT -- TOML gives a root-level key one home, the region before the first table header -- so there is no `[volumes]` header for the tokenizer to list the section under, and the answer cannot come from the section list at all. And an operator who clears a list is exactly the one who writes down why, so the annotated spelling has to count too: `_conf_toml_empty_array_decl` already matches it for the writers, and reading the bare two characters instead was a defect there once. |
+| `_setup_conf_local_sections: an entry still counts and a commented declaration does not` | The control. A section whose only contribution is an ordinary array ENTRY was already counted and must stay counted, and a comment that merely mentions an array is not a declaration -- a rule that read any `[]` in the file would name a section the layer does not define, which is the opposite failure and the one that would make the deploy refusal fire on a file that changes nothing. |
 | `_setup_conf_local_sections: empty when no local layer is present` | - |
 | `_get_conf_value returns value for present key` | - |
 | `_get_conf_value returns default for absent key` | - |

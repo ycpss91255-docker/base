@@ -470,6 +470,72 @@ EOF
   assert_equal "${_sects[1]}" "network"
 }
 
+# why: An array declared with NO entries is a declaration, and the entries
+# alone cannot see it. `args = []` replaces the lower layer's list with
+# nothing (ADR-00000037's zero-entry amendment), so this file DOES change
+# the effective configuration -- the template's three build args resolve
+# to zero through the real merge -- while the bridge emits no `--kv` row
+# for it. Read off the entries alone the answer was "no local sections",
+# and the caller whose answer is a REFUSAL let it through: `_setup_deploy`
+# bars a field bundle from depending on the gitignored local layer, so a
+# bundle built from this clear came from untracked configuration with
+# nothing in its README naming the section.
+@test "_setup_conf_local_sections: an array declared with no entries is a section the local layer defines" {
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[build]
+args = []
+EOF
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "1"
+  assert_equal "${_sects[0]}" "build"
+}
+
+# why: The two spellings the first case does not reach. A family whose
+# path has no dot is declared at the ROOT -- TOML gives a root-level key
+# one home, the region before the first table header -- so there is no
+# `[volumes]` header for the tokenizer to list the section under, and the
+# answer cannot come from the section list at all. And an operator who
+# clears a list is exactly the one who writes down why, so the annotated
+# spelling has to count too: `_conf_toml_empty_array_decl` already
+# matches it for the writers, and reading the bare two characters instead
+# was a defect there once.
+@test "_setup_conf_local_sections: a root-level and an annotated empty array both count" {
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+volumes = []
+
+[security]
+cap_add = [ ]  # deliberately dropped every added capability
+EOF
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "2"
+  run printf '%s\n' "${_sects[@]}"
+  assert_line 'volumes'
+  assert_line 'security'
+}
+
+# why: The control. A section whose only contribution is an ordinary
+# array ENTRY was already counted and must stay counted, and a comment
+# that merely mentions an array is not a declaration -- a rule that read
+# any `[]` in the file would name a section the layer does not define,
+# which is the opposite failure and the one that would make the deploy
+# refusal fire on a file that changes nothing.
+@test "_setup_conf_local_sections: an entry still counts and a commented declaration does not" {
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[[volumes]]
+source = "/srv"
+target = "/srv"
+
+[build]
+# args = [] would clear them; not doing that here
+EOF
+  local -a _sects=()
+  _setup_conf_local_sections "${TEMP_DIR}" _sects
+  assert_equal "${#_sects[@]}" "1"
+  assert_equal "${_sects[0]}" "volumes"
+}
+
 @test "_setup_conf_local_sections: empty when no local layer is present" {
   local -a _sects=()
   _setup_conf_local_sections "${TEMP_DIR}" _sects
