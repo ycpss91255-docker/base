@@ -327,6 +327,7 @@ _TUI_MSG_EN[err.invalid_log_max_size]=$'Invalid max_size\n  - Expected: <num><un
 _TUI_MSG_EN[err.invalid_log_max_file]=$'Invalid max_file\n  - Expected: positive integer (1, 2, 3, ...)'
 _TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-empty and non-whitespace\n  - Cannot contain embedded newlines'
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
+_TUI_MSG_EN[err.reset_failed]=$'The reset FAILED and nothing was changed.\n\nsetup.sh reset could not replace <repo>/setup.toml with the template\nbaseline; its reason was printed to this terminal. Your pending edits\nare still here -- Save & Exit keeps them, Cancel discards them.'
 _TUI_MSG_EN[err.save_refused]=$'The save was DECLINED. <repo>/setup.toml is unchanged.\n\nThe writer refused this combination of changes and printed why to this\nterminal, just above. Nothing was written, so the repo is exactly as it\nwas and no pending edit is lost.'
 _TUI_MSG_EN[local.layer.title]="Per-worktree override in effect"
 _TUI_MSG_EN[local.layer.body]=$'%s is read on this machine, ABOVE <repo>/setup.toml.\n\nSections it defines: %s\n\nIn those sections it overrides the keys it names and replaces whole any\nlist it declares. The values this editor shows are the EFFECTIVE ones,\nthat layer included. A save still lands in <repo>/setup.toml -- the\ncommitted value CI and every other checkout of this repo uses -- so a\nchange to one of the sections above may not take effect here.'
@@ -564,6 +565,7 @@ _TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<
 _TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
 _TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
+_TUI_MSG_ZH_TW[err.reset_failed]=$'重置失敗，沒有任何變更。\n\nsetup.sh reset 無法以 template 基線取代 <repo>/setup.toml，原因已輸出\n在本終端機。你尚未儲存的編輯仍然存在——選「儲存並離開」會保留它們，\n取消則會捨棄。'
 _TUI_MSG_ZH_TW[err.save_refused]=$'儲存已被拒絕，<repo>/setup.toml 未變更。\n\n寫入端拒絕了這組變更，原因已輸出在本終端機上方。沒有任何內容被寫入，\nrepo 維持原狀，待儲存的編輯也不會遺失。'
 _TUI_MSG_ZH_TW[local.layer.title]="工作樹層級覆寫生效中"
 _TUI_MSG_ZH_TW[local.layer.body]=$'本機會讀取 %s，其優先序高於 <repo>/setup.toml。\n\n它定義的區段：%s\n\n在這些區段中，它會覆寫自己列出的 key，並整體取代自己宣告的清單。\n本編輯器顯示的是「實際生效」的值，已包含該層。儲存仍然寫入\n<repo>/setup.toml（CI 與其他 checkout 使用的共用值），因此對上述\n區段的修改在本機可能不會生效。'
@@ -794,6 +796,7 @@ _TUI_MSG_ZH_CN[lifecycle.restart.n_prompt]="on-failure 最大重试次数（整�
 _TUI_MSG_ZH_CN[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数，或留空为纯 on-failure）"
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
+_TUI_MSG_ZH_CN[err.reset_failed]=$'重置失败，没有任何变更。\n\nsetup.sh reset 无法以 template 基线替换 <repo>/setup.toml，原因已输出\n在本终端。你尚未保存的编辑仍然存在——选「保存并退出」会保留它们，\n取消则会丢弃。'
 _TUI_MSG_ZH_CN[err.save_refused]=$'保存已被拒绝，<repo>/setup.toml 未变更。\n\n写入端拒绝了这组变更，原因已输出在本终端上方。没有任何内容被写入，\nrepo 保持原状，待保存的编辑也不会丢失。'
 _TUI_MSG_ZH_CN[local.layer.title]="工作树级覆写生效中"
 _TUI_MSG_ZH_CN[local.layer.body]=$'本机会读取 %s，其优先级高于 <repo>/setup.toml。\n\n它定义的区段：%s\n\n在这些区段中，它会覆写自己列出的 key，并整体替换自己声明的列表。\n本编辑器显示的是「实际生效」的值，已包含该层。保存仍然写入\n<repo>/setup.toml（CI 与其他 checkout 使用的共用值），因此对上述\n区段的修改在本机可能不会生效。'
@@ -1024,6 +1027,7 @@ _TUI_MSG_JA[lifecycle.restart.n_prompt]="on-failure の最大リトライ回数�
 _TUI_MSG_JA[err.invalid_restart]="無効な restart ポリシー（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数、または素の on-failure なら空欄）"
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
+_TUI_MSG_JA[err.reset_failed]=$'リセットは失敗し、何も変更されていません。\n\nsetup.sh reset は <repo>/setup.toml を template のベースラインで置き\n換えられませんでした。理由はこの端末に出力されています。未保存の編集\nはまだ残っています: 「保存して終了」で保持、キャンセルで破棄します。'
 _TUI_MSG_JA[err.save_refused]=$'保存は拒否され、<repo>/setup.toml は変更されていません。\n\n書き込み側がこの変更の組み合わせを拒否し、理由をこの端末の上方に\n出力しました。何も書き込まれていないため、repo は元のままで、保留中\nの編集も失われません。'
 _TUI_MSG_JA[local.layer.title]="ワークツリー単位の上書きが有効"
 _TUI_MSG_JA[local.layer.body]=$'このマシンでは %s が <repo>/setup.toml より優先して読まれます。\n\nそれが定義するセクション: %s\n\nこれらのセクションでは、記載された key を上書きし、宣言した配列は\n全体を置き換えます。このエディタが表示するのはその層を含む「実効」\n値です。保存先は <repo>/setup.toml（CI と他のチェックアウトが使う\n共有の値）なので、上記セクションへの変更はこのマシンでは効かない\nことがあります。'
@@ -1295,6 +1299,23 @@ _tui_shadowed_sections() {
     [[ -n "${_tss_touched[${_s}]+x}" ]] && _tss_out+=("${_s}")
   done
   return 0
+}
+
+# _tui_in_list <needle> [<haystack>...]
+#
+# Zero when <needle> is one of the remaining arguments, exactly. A
+# membership test over a bash array, spelled once rather than as another
+# inline loop: `[[ " ${arr[*]} " == *" ${x} "* ]]` is the shorter idiom
+# and it is wrong for a value carrying a space, which a mount or an env
+# entry does.
+_tui_in_list() {
+  local _needle="${1-}"
+  shift || return 1
+  local _x
+  for _x in "$@"; do
+    [[ "${_x}" == "${_needle}" ]] && return 0
+  done
+  return 1
 }
 
 # _tui_aot_families_touched <outarray>
@@ -2839,13 +2860,23 @@ _render_advanced_menu() {
 # first, and it is what `build.sh --reset-conf` runs -- so the TUI's
 # Reset and the CLI's cannot come to mean two different things, and the
 # destructive step has one implementation to be careful in.
+# A FAILED RESET IS NOT A RESET. The status is checked and the session is
+# left intact: swallowed with `|| true` the editor went on to throw away
+# every pending edit, reload the configuration that had not changed, and
+# report that all settings were reset -- the same shape of misleading
+# success this whole rebuild exists to end, with the operator's unsaved
+# work gone as well. On failure the edits are still there to be saved.
 _do_reset() {
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
   # --quiet so the confirmation lines don't double-print after the TUI's
-  # own `[tui] saved` line.
-  "${_TUI_SCRIPT_DIR}/setup.sh" reset --yes --quiet \
-    --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}" \
-    >/dev/null 2>&1 || true
+  # own `[tui] saved` line. stderr is kept: the reason a reset failed is
+  # the only actionable thing about it, and the msgbox below says where
+  # to look for it.
+  if ! "${_TUI_SCRIPT_DIR}/setup.sh" reset --yes --quiet \
+      --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}" >/dev/null; then
+    _tui_msgbox "$(_tui_msg reset.title)" "$(_tui_msg err.reset_failed)"
+    return 2
+  fi
   "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet \
     --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
@@ -2946,6 +2977,91 @@ _commit_and_setup() {
   local _template_src="${_tpl_conf}"
   [[ -f "${_repo_conf}" ]] && _template_src="${_repo_conf}"
 
+  # TRIM A TOUCHED FAMILY TO THE LIST THE MENUS SHOWED. The writer
+  # addresses an array by SLOT -- it replaces block N, drops a removed
+  # one, appends past the end -- so it never shortens a family nobody
+  # removed from. A destination holding MORE blocks of a touched family
+  # than the effective list therefore keeps its own extras, which is
+  # reachable whenever a HIGHER layer declares a shorter array:
+  # `setup.local.toml` with one `[[build.args]]` entry over a committed
+  # file with two makes the effective list one entry long, and saving an
+  # edit to it left the committed file carrying the edited entry followed
+  # by its own leftover -- a list no layer ever wrote and no screen ever
+  # showed. The surplus slots are removed by index as part of the same
+  # save.
+  #
+  # THE SURPLUS IS AN ARITHMETIC, NOT A COUNT OF SURVIVORS. The keys the
+  # save carries are slot-ADDRESSED, so a list the user shortened by
+  # removing its first entry carries one survivor at INDEX 2 -- and the
+  # writer compacts, so it already produces a one-entry family. Trimming
+  # to "as many slots as there are survivors" would have removed index 2
+  # as well and emptied the list the operator only shortened. What the
+  # rewrite will produce is counted instead: the destination's slots,
+  # less the ones this save removes, plus the ones it appends past the
+  # end. Only the difference from the on-screen length is surplus.
+  #
+  # The destination's slots are counted off its own parse, not off
+  # `_TUI_CURRENT` -- the baseline is the merge, and the question here is
+  # what THIS FILE still has -- and over the parse's rows rather than a
+  # list reader that skips empty values, because an entry cleared to the
+  # empty string is still a slot.
+  #
+  # Trimmed from the TOP down. Slot 1 of `[volumes]` is the workspace
+  # bind by position, and a save that would hand it to another mount is
+  # declined by `_wsc_refuse_ws_slot_move` (base#1233 carries how that
+  # bind should be identified); taking the highest slots first means the
+  # trim reaches slot 1 only when the whole list is going, which is the
+  # one case that refusal deliberately allows.
+  local -a _removed_now=("${_TUI_REMOVED[@]+"${_TUI_REMOVED[@]}"}")
+  if [[ -f "${_repo_conf}" && "${_repo_conf}" == *.toml ]] \
+     && (( ${#_families[@]} > 0 )) \
+     && _conf_load "${_repo_conf}" _CAS_DST; then
+    local -n _cas_es=_CAS_DST__es
+    local -n _cas_k=_CAS_DST__keys
+    local _dst_n _want _rm_n _appended _surplus _prefix _nskey _idx _slot
+    for _fam in "${_families[@]}"; do
+      _conf_toml_aot_nskey "${_fam}" 1 _nskey || continue
+      _conf_split_nskey "${_nskey}" _s _key || continue
+      _prefix="${_key%_*}_"
+      _dst_n=0
+      for (( i=0; i<${#_cas_k[@]}; i++ )); do
+        [[ "${_cas_es[i]}" == "${_s}" ]] || continue
+        [[ "${_cas_k[i]}" == "${_prefix}"* ]] || continue
+        [[ "${_cas_k[i]#"${_prefix}"}" =~ ^[0-9]+$ ]] || continue
+        _dst_n=$(( _dst_n + 1 ))
+      done
+      # The on-screen length, and how much of it the writer appends.
+      _want=0
+      _appended=0
+      for (( i=0; i<${#_final_keys[@]}; i++ )); do
+        _conf_split_nskey "${_final_keys[i]}" _p _n || continue
+        [[ "${_p}" == "${_s}" && "${_n}" == "${_prefix}"* ]] || continue
+        _slot="${_n#"${_prefix}"}"
+        [[ "${_slot}" =~ ^[0-9]+$ ]] || continue
+        _want=$(( _want + 1 ))
+        (( _slot > _dst_n )) && _appended=$(( _appended + 1 ))
+      done
+      # Destination slots this save already removes.
+      _rm_n=0
+      for _nskey in "${_TUI_REMOVED[@]+"${_TUI_REMOVED[@]}"}"; do
+        _conf_split_nskey "${_nskey}" _p _n || continue
+        [[ "${_p}" == "${_s}" && "${_n}" == "${_prefix}"* ]] || continue
+        _slot="${_n#"${_prefix}"}"
+        [[ "${_slot}" =~ ^[0-9]+$ ]] || continue
+        (( _slot <= _dst_n )) && _rm_n=$(( _rm_n + 1 ))
+      done
+      _surplus=$(( _dst_n - _rm_n + _appended - _want ))
+      (( _surplus > 0 )) || continue
+      for (( _idx=_dst_n; _idx >= 1 && _surplus > 0; _idx-- )); do
+        _conf_toml_aot_nskey "${_fam}" "${_idx}" _nskey || continue
+        _tui_in_list "${_nskey}" "${_removed_now[@]+"${_removed_now[@]}"}" \
+          && continue
+        _removed_now+=("${_nskey}")
+        _surplus=$(( _surplus - 1 ))
+      done
+    done
+  fi
+
   # Which sections of this save the per-worktree layer also defines --
   # asked BEFORE the screen is released, so the answer is reported with
   # the save rather than after it.
@@ -2955,7 +3071,7 @@ _commit_and_setup() {
   _tui_clear
   if ! _write_setup_conf "${_repo_conf}" "${_template_src}" \
       _final_keys _final_values \
-      "${_TUI_REMOVED[*]:-}"; then
+      "${_removed_now[*]:-}"; then
     printf '[tui] %s\n' "$(_tui_msg err.save_refused)" >&2
     return 2
   fi

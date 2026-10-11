@@ -64,13 +64,15 @@
 # `_tui_aot_families_touched` derived from the array-of-tables table)
 #
 # - `_commit_and_setup` (the saved value is the one the readers resolve,
-# an inherited scalar is not pinned down, a touched array is saved whole,
-# a declined write is reported rather than reported as saved, setup.sh
-# apply re-run against the repo's base path)
+# an inherited scalar is not pinned down, a touched array is saved whole
+# and trimmed to the list the menus showed, the published mount_1 clear
+# survives, a declined write is reported rather than reported as saved,
+# setup.sh apply re-run against the repo's base path)
 #
 # - `_do_reset` (declined = untouched; confirmed = `setup.sh reset`
 # dispatched, chain reloaded, pending edits cleared, the per-worktree
-# layer left alone)
+# layer left alone; a FAILED reset keeps the pending edits and claims
+# nothing)
 #
 # - `main` (subcommand dispatch including the `resources` direct jump and
 # the `gpu` alias, unknown argument, `--lang` fallback notice, missing
@@ -929,6 +931,90 @@ EOF
   assert_equal "$(effective volumes mount_1)" ""
 }
 
+# why: an array is replaced whole, so a HIGHER layer declaring a SHORTER
+# list is what the menus show -- and the writer addresses an array by
+# SLOT, replacing block N and appending past the end, so a committed file
+# holding MORE blocks than that list keeps its own leftovers. Measured:
+# two committed build args, one in setup.local.toml, edit the one entry
+# the menu shows, and the committed list came back as the edited local
+# entry FOLLOWED BY the committed file's second argument -- a list no
+# layer ever wrote and no screen ever showed. The save now trims the
+# surplus slots, so the committed family is exactly as long as what was
+# on screen. Read back through the real merge with the local layer taken
+# away, because what has to be right is the COMMITTED list -- the value
+# CI and every other checkout get.
+@test "_commit_and_setup: a shorter local list does not leave the committed list longer" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  cat > "${_CHAIN_REPO}/setup.toml" <<'EOF'
+[build]
+
+[[build.args]]
+key = "A"
+value = "repo"
+
+[[build.args]]
+key = "B"
+value = "repo"
+EOF
+  cat > "${_CHAIN_REPO}/setup.local.toml" <<'EOF'
+[build]
+
+[[build.args]]
+key = "L"
+value = "local"
+EOF
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  # One entry on screen, because the local layer replaced the list whole.
+  run effective_family build build.args
+  assert_equal "${#lines[@]}" "1"
+  _override_set build.arg_1 'L=edited'
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  rm -f "${_CHAIN_REPO}/setup.local.toml"
+  run effective_family build build.args
+  assert_success
+  assert_equal "${#lines[@]}" "1"
+  assert_line --index 0 'L=edited'
+}
+
+# why: a removal names a slot of the EFFECTIVE list, and that list can be
+# inherited whole -- so clearing the template's only `[[build.args]]`
+# entry from a repo whose own file declares no args is the operator
+# deciding this repo takes no build arguments. Under atomic array
+# replacement the only way to say that is `args = []` in this layer
+# (ADR-00000037's zero-entry amendment). Counted off its own blocks alone
+# the writer had none to clear, wrote no declaration, and declined the
+# save, so the one thing the operator asked for was the one thing the
+# editor could not do. Read back through the real merge: the TEMPLATE
+# still declares its argument, so a chain that answers one entry means
+# the clear did not take.
+@test "_commit_and_setup: clearing the last inherited array entry empties the list" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_TPL}/setup.toml" <<'EOF'
+[build]
+
+[[build.args]]
+key = "A"
+value = "one"
+EOF
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  run effective_family build build.args
+  assert_line --index 0 'A=one'
+  _mark_removed build.arg_1
+  run _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_success
+  run effective_family build build.args
+  assert_success
+  assert_equal "${output}" ""
+  # And it is an EMPTY DECLARATION, not an absent key: absent inherits.
+  assert_equal "$(effective build args)" ""
+}
+
 # why: `_write_setup_conf` DECLINES a save it cannot make faithfully --
 # `_wsc_refuse_ws_slot_move` is the live case: removing volumes.mount_1
 # compacts the list, so the next mount would take slot 1, which is the
@@ -1150,6 +1236,39 @@ EOF
   [ "${#_TUI_REMOVED[@]}" -eq 0 ]
   assert_equal "${_TUI_CURRENT[network.mode]}" "none"
   warned "$(_tui_msg reset.done)"
+}
+
+# why: a failed reset is not a reset. The status used to be swallowed with
+# `|| true`, so the editor went on to throw away every pending edit,
+# reload a configuration that had not changed, and report that all
+# settings were reset -- misleading success with the operator's unsaved
+# work gone as well. On failure the session has to survive intact.
+@test "_do_reset: a failed reset keeps the pending edits and does not claim success" {
+  stub_chain
+  stub_apply
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  # The recorder refuses, the way a read-only config dir makes it refuse.
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' '[[ "${1}" == reset ]] && exit 1'
+    printf '%s\n' 'exit 0'
+  } > "${_TUI_SCRIPT_DIR}/setup.sh"
+  chmod +x "${_TUI_SCRIPT_DIR}/setup.sh"
+  _override_set gui.mode force
+  _mark_removed network.ipc
+  queue "0|"
+  # NOT `run`: the session state this test is about lives in THIS shell,
+  # and `run` would mutate a subshell's copy and leave the assertions
+  # below reading the values the test itself had just set -- green
+  # whatever _do_reset does to them.
+  local _rc=0
+  _do_reset || _rc="$?"
+  [ "${_rc}" -ne 0 ]
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 1 ]
+  [ "${#_TUI_REMOVED[@]}" -eq 1 ]
+  warned "$(_tui_msg err.reset_failed)"
+  ! warned "$(_tui_msg reset.done)"
 }
 
 # why: reset drops THIS REPO's layer and the operator's per-worktree file
