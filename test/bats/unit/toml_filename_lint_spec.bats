@@ -26,7 +26,7 @@ setup() {
 # Real-tree guard
 # ════════════════════════════════════════════════════════════════════
 
-# why: no stale `.setup.conf` in dist/ runtime code 
+# why: no stale `.setup.conf` in dist/ runtime code
 @test "dist/ has zero .setup.conf references outside migration + TUI + gitignore (#1136)" {
   # Grep for the retired INI dotfile name in all shell scripts under
   # dist/, excluding the four files that legitimately reference it.
