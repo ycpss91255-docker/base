@@ -212,3 +212,50 @@ CONF
   [[ -z "${_g}" ]]
   [[ -z "${_p}" ]]
 }
+
+# why: The service SET was matched off the physical header text
+# (`^\[logging\.<svc>\]$`), which is one of several ways TOML spells the
+# same table. A trailing comment after the bracket is part of a VALID
+# header -- the bridge reads `[logging.runtime] # rotation settings` as
+# `logging.runtime` -- and the matcher saw nothing, so `_collect_logging`
+# returned an empty per-service string and that service's driver,
+# rotation and host-log mount settings were dropped out of the generated
+# compose with nothing said. The set comes from the merged, parsed
+# sections now, which is also the union across the chain this code was
+# written to build.
+@test "_collect_logging: a header with a trailing comment still names its service" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+[logging]
+driver = "json-file"
+
+[logging.runtime] # rotation settings
+max_size = "100m"
+CONF
+  local _g="" _p=""
+  _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_p}" == *"runtime:max_size=100m"* ]] || {
+    printf 'per_svc=%s\n' "${_p}"
+    return 1
+  }
+}
+
+# why: The other spelling, and the one no header matcher could ever see.
+# `runtime = { max_size = "100m" }` inside `[logging]` is the same table
+# as `[logging.runtime]` and the bridge emits it as the same section, so
+# a reader that derives the set from the parse gets it for free while one
+# that greps for a header cannot.
+@test "_collect_logging: an inline table still names its service" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+[logging]
+driver = "json-file"
+runtime = { max_size = "100m" }
+CONF
+  local _g="" _p=""
+  _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_p}" == *"runtime:max_size=100m"* ]] || {
+    printf 'per_svc=%s\n' "${_p}"
+    return 1
+  }
+}

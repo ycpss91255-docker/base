@@ -768,3 +768,30 @@ EOF
   run toml_bridge_parse "${CONF}"
   assert_success
 }
+
+# why: Index N of the array IS the key `<prefix>_N`, and the writer
+# addresses a block by its POSITION, so a suffix that is not the plain
+# decimal spelling of a position lands somewhere else under a different
+# name. Measured on the shipped template, whose `[volumes]` holds no
+# block: `set volumes.mount_0` and `set volumes.mount_01` each wrote one
+# block that read back as `mount_1` -- the workspace bind, whose existing
+# absolute source `_reconcile_workspace_path` honours as a pinned
+# workspace. The converter already declines both shapes by name for the
+# same reason; this is the writer getting the same check. Refused before
+# the temp file exists, so the original is untouched, which is what the
+# second parse of each case asserts.
+@test "_upsert_conf_value: an index with no 1-based slot is refused, not rerouted" {
+  cp "${TPL}" "${CONF}"
+  run _upsert_conf_value "${CONF}" volumes mount_0 '/data:/data'
+  assert_failure
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  refute_line --regexp '^volumes	mount_1	.'
+
+  cp "${TPL}" "${CONF}"
+  run _upsert_conf_value "${CONF}" volumes mount_01 '/pad:/pad'
+  assert_failure
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  refute_line --regexp '^volumes	mount_1	.'
+}

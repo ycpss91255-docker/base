@@ -809,6 +809,39 @@ _conf_header_name() {
   _chn_out="${_raw}"
 }
 
+# _conf_toml_index_rejected <file> <section> <key>
+#
+# Zero -- having said so -- when `<section>.<key>` names a numbered
+# family of a TOML <file> with an index that has NO 1-based slot, so the
+# write must not be routed to an array block at all.
+#
+# Index N of the array IS the key `<prefix>_N`, and the writer addresses
+# a block by its POSITION, so a suffix that is not the plain decimal
+# spelling of a position lands somewhere else under a different name.
+# Measured on the shipped template, whose `[volumes]` holds no block:
+# `set volumes.mount_0` and `set volumes.mount_01` each wrote one block
+# that read back as `mount_1` -- the workspace bind -- so a key the
+# operator typed became the one slot that redirects WS_PATH.
+#
+# The converter already DECLINES exactly these two shapes, by name, for
+# exactly this reason (ini_to_toml_migrate.sh: "a populated `_0` has no
+# 1-based slot", `mount_01`). The writer was missing the same check, and
+# `_conf_toml_aot_slot` is deliberately NOT tightened to supply it: the
+# converter's decline depends on that matcher still RECOGNISING a
+# non-canonical suffix, so narrowing it there would turn a named refusal
+# into a key silently carried over as a table scalar.
+_conf_toml_index_rejected() {
+  local _f="${1-}" _s="${2-}" _k="${3-}"
+  [[ "${_f}" == *.toml ]] || return 1
+  local _cti_p="" _cti_n=""
+  _conf_toml_aot_slot "${_s}" "${_k}" _cti_p _cti_n || return 1
+  [[ "${_cti_n}" =~ ^[1-9][0-9]*$ ]] && return 1
+  _log_err conf conf_write_index_rejected \
+    "display=[conf] refusing to write ${_s}.${_k} into ${_f}: an entry of a numbered family is the ${_cti_p} array's N-th block, and '${_cti_n}' is not the plain decimal spelling of a position -- there is no slot of that name, so the value would land in another one. Use the index you mean, counting from 1." \
+    "file=${_f}" "section=${_s}" "key=${_k}" "index=${_cti_n}"
+  return 0
+}
+
 # _conf_toml_aot_slot <section> <key> <path_outvar> <index_outvar>
 #
 # Where a numbered list key lives in TOML. Returns 0 with the
@@ -1280,6 +1313,20 @@ _write_setup_conf() {
   for i in ${_removed_keys}; do
     __removed["${i}"]=1
   done
+
+  # The same index refusal the per-key writer makes, over every key this
+  # save carries, and BEFORE any of them is written: a save is one unit,
+  # so a key with no slot to land in refuses the save rather than being
+  # dropped out of it silently. The TUI composes these keys itself, and
+  # the commit gate below cannot catch this one -- the file stays valid
+  # TOML, with the value in the wrong block.
+  local __wsc_s="" __wsc_k=""
+  for i in "${_wsc_keys[@]+"${_wsc_keys[@]}"}" ${_removed_keys}; do
+    _conf_split_nskey "${i}" __wsc_s __wsc_k || continue
+    if _conf_toml_index_rejected "${_dst}" "${__wsc_s}" "${__wsc_k}"; then
+      return 1
+    fi
+  done
   # setup_tui's `_commit_and_setup` passes the same path for dst
   # and tpl when the per-repo file already exists. Truncating dst before
   # reading from tpl (the original `: > "${_dst}"` followed by `done <
@@ -1680,6 +1727,12 @@ _upsert_conf_value() {
   # is protected.
   if [[ "${_key}" == *$'\n'* || "${_value}" == *$'\n'* ]]; then
     _log_err conf conf_upsert_newline_rejected "display=_upsert_conf_value: refusing newline-bearing key/value"
+    return 1
+  fi
+
+  # An index with no 1-based slot is refused BEFORE the temp file exists,
+  # so nothing is created and the original is never touched.
+  if _conf_toml_index_rejected "${_file}" "${_section}" "${_key}"; then
     return 1
   fi
 

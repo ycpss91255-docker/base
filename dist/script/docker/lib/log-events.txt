@@ -41,6 +41,9 @@ conf_write_tmp_failed
 # The commit gate in front of both TOML writers: the rewrite did not parse,
 # so nothing was written. See _conf_commit_toml.
 conf_write_declined
+# A numbered-family index with no 1-based slot: the write would land in a
+# different block. See _conf_toml_index_rejected.
+conf_write_index_rejected
 # `set` / `add` reporting a refusal the writer above already named.
 conf_write_failed
 stage_baseline_collision

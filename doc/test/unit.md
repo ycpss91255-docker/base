@@ -1736,7 +1736,7 @@ on hand-edited / malformed setup.conf:
 | `_ini_tokenize tracks the owning section per entry and dedups headers` | - |
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 
-### test/bats/unit/conf_logging_spec.bats (10)
+### test/bats/unit/conf_logging_spec.bats (12)
 
 Unit tests for the logging-config collectors (`_parse_logging_svc_sections`
 / `_collect_logging`): per-service `[logging.<svc>]` enumeration in file
@@ -1754,8 +1754,10 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging: setup.local.toml supplies a [logging.<svc>] override (#893)` | - |
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
+| `_collect_logging: a header with a trailing comment still names its service` | The service SET was matched off the physical header text (`^\[logging\.<svc>\]$`), which is one of several ways TOML spells the same table. A trailing comment after the bracket is part of a VALID header -- the bridge reads `[logging.runtime] # rotation settings` as `logging.runtime` -- and the matcher saw nothing, so `_collect_logging` returned an empty per-service string and that service's driver, rotation and host-log mount settings were dropped out of the generated compose with nothing said. The set comes from the merged, parsed sections now, which is also the union across the chain this code was written to build. |
+| `_collect_logging: an inline table still names its service` | The other spelling, and the one no header matcher could ever see. `runtime = { max_size = "100m" }` inside `[logging]` is the same table as `[logging.runtime]` and the bridge emits it as the same section, so a reader that derives the set from the parse gets it for free while one that greps for a header cannot. |
 
-### test/bats/unit/conf_toml_writer_spec.bats (26)
+### test/bats/unit/conf_toml_writer_spec.bats (27)
 
 Every `setup.sh set` / `add` / `remove` and the `mount_1` bootstrap in
 setup_detect.sh go through these two writers. Until they learned TOML, each
@@ -1796,6 +1798,7 @@ docker interaction from inside the test.
 | `_upsert_conf_value: an empty middle field keeps its position instead of shifting the mode into it` | `volumes` was believed to escape the one-sided glue because its serialiser joins only the TRUTHY parts, but truthiness is the wrong test for a THREE-field entry: the writer emits `target` whenever the first colon is there and `mode` whenever the second is, empty or not, so a read-only mount with no container half (`/srv/data::ro`) came back as `/srv/data:ro` -- the mode SHIFTED into the target position, which mounts the host directory at the path `ro`. Presence rather than truthiness is what keeps a field's position, and it is the same rule the two-field families need, so there is one spelling of it rather than two. |
 | `_upsert_conf_value: a literal-quoted key is the key it names, not a second one` | TOML has two quote forms for a key, and a hand-edited file uses either: `'mode' = 'host'` is a literal-quoted key and exactly as valid as `"mode"`. `_conf_line_key` stripped only the double quotes, so the key came back as `'mode'`, `setup.sh set network.mode bridge` did not recognise the line it was there to replace, and it appended a SECOND `mode` to the table -- which TOML refuses, so a file that parsed before the write stopped parsing after it while the write reported success. The table HEADER matcher already took both forms; this is that rule one level down. Asserted through the parse, because the symptom is a file the bridge rejects rather than a wrong value. |
 | `_upsert_conf_value: a rewrite the bridge refuses is not promoted, and the file is untouched` | THE BACKSTOP, and the reason it is a parse rather than a fifth pattern. The writers are line-oriented, so a value spanning physical lines had its FIRST line replaced and the rest left standing: `watchdog_check = """` / `pgrep -f my_node` / `"""` became `watchdog_check = "pgrep -f other"` above the orphaned body, and the bridge answered `Expected '=' after a key in a key/value pair`. That is the fourth shape of one class this branch has fixed -- a commented header declared twice, an empty-array declaration beside new blocks, a literal-quoted key appended as a duplicate, this -- and patching the fifth as it is reported leaves the sixth. So the rewrite is now promoted only once the SHIPPED bridge has parsed it, the same gate `_ini_to_toml_commit` puts in front of the converter. A refused write leaves the operator's file byte-for-byte as it was, which is what this asserts: not that the edit succeeds, but that a failure costs nothing. |
+| `_upsert_conf_value: an index with no 1-based slot is refused, not rerouted` | Index N of the array IS the key `<prefix>_N`, and the writer addresses a block by its POSITION, so a suffix that is not the plain decimal spelling of a position lands somewhere else under a different name. Measured on the shipped template, whose `[volumes]` holds no block: `set volumes.mount_0` and `set volumes.mount_01` each wrote one block that read back as `mount_1` -- the workspace bind, whose existing absolute source `_reconcile_workspace_path` honours as a pinned workspace. The converter already declines both shapes by name for the same reason; this is the writer getting the same check. Refused before the temp file exists, so the original is untouched, which is what the second parse of each case asserts. |
 
 ### test/bats/unit/coverage_badge_spec.bats (47)
 

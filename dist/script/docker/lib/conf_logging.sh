@@ -116,19 +116,41 @@ _collect_logging() {
   # not mention); each service's table is then merged key by key like any
   # other, so a local layer that names one key of one service disturbs
   # neither the rest of that service nor the other services.
-  local -a _svcs=() _layer_svcs=()
-  local _layer _svc _known _seen
-  for _layer in "${_cl_layers[@]}"; do
-    [[ -f "${_layer}" ]] || continue
-    _layer_svcs=()
-    _parse_logging_svc_sections "${_layer}" _layer_svcs
-    for _svc in "${_layer_svcs[@]+"${_layer_svcs[@]}"}"; do
-      _seen=0
-      for _known in "${_svcs[@]+"${_svcs[@]}"}"; do
-        [[ "${_known}" == "${_svc}" ]] && { _seen=1; break; }
-      done
-      (( _seen )) || _svcs+=("${_svc}")
-    done
+  # DISCOVERED FROM THE PARSED SECTIONS, not from the physical header
+  # text. `_parse_logging_svc_sections` matches `^\[logging\.<svc>\]$`
+  # exactly, which is one of several ways TOML spells the same table:
+  # `[logging.runtime] # rotation settings` is a valid header the bridge
+  # reads as `logging.runtime`, and so is the inline
+  # `[logging]` / `runtime = { max_size = "100m" }`. Measured, both were
+  # parsed by the bridge and discovered by NOBODY, so `_collect_logging`
+  # returned an empty per-service string and that service's driver,
+  # rotation and host-log settings were dropped out of the generated
+  # compose with nothing said. `_parse_logging_svc_sections` is no longer
+  # on this path at all -- it stays as the direct single-file helper its
+  # own tests cover, and the merged view answers for every format,
+  # because an INI `[logging.runtime]` is a section name there too.
+  #
+  # The merged view is also the UNION this loop was written to build: the
+  # chain's layers are merged key by key and a sub-table is a table, so a
+  # service only the lowest layer mentions is in the merged sections, and
+  # the tokenizer already de-duplicates them in first-appearance order.
+  # One read of the chain rather than one per layer, which matters because
+  # each is a bridge invocation.
+  #
+  # The NAME filter stays what it was. A service name becomes a compose
+  # service and a host log directory, so the charset was never free, and
+  # widening it is not part of fixing which spellings are seen. A deeper
+  # table (`[logging.web.extra]`) is likewise not a service: the remainder
+  # has to be one component.
+  local -a _svcs=()
+  local -a _cl_eff_s=() _cl_eff_k=() _cl_eff_v=()
+  _setup_effective_full "${_base}" _cl_eff_s _cl_eff_k _cl_eff_v
+  local _cl_sect _svc
+  for _cl_sect in "${_cl_eff_s[@]+"${_cl_eff_s[@]}"}"; do
+    [[ "${_cl_sect}" == logging.* ]] || continue
+    _svc="${_cl_sect#logging.}"
+    [[ "${_svc}" =~ ^[a-z][a-z0-9_-]*$ ]] || continue
+    _svcs+=("${_svc}")
   done
 
   local -a _ps_lines=()
