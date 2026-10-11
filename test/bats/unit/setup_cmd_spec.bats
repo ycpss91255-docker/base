@@ -3086,13 +3086,15 @@ EOF
   [[ "${_line}" == *'- "'* ]] || fail "plain device entry not quoted: ${_line}"
 }
 
-# why: `_classify_volume_lhs` does not list `../` among its bind prefixes,
-# so a parent-relative host path reads as a Docker named volume -- and the
-# rebase consulted that classifier before rebasing. A `../device-tree`
-# bind therefore kept resolving against the output directory even though
-# the rebase helper handles parent-relative paths explicitly. The rebase
-# now decides on the population it actually moves, `./` and `../`, rather
-# than borrowing a verdict answering a different question.
+# why: the rebase used to consult `_classify_volume_lhs`, which listed no
+# `../` among its bind prefixes, so a parent-relative host path read as a
+# Docker named volume and a `../device-tree` bind kept resolving against
+# the output directory even though the rebase helper handles
+# parent-relative paths explicitly. The rebase decides on the population
+# it actually moves, `./` and `../`, rather than borrowing a verdict
+# answering a different question -- and since base#1257 the classifier
+# asks the same repo-relative predicate, so neither reading can call this
+# path a volume any more.
 @test "apply --output rebases a parent-relative bind source (base#1087)" {
   mkdir -p "${TEMP_DIR}/outer/device-tree"
   local _repo="${TEMP_DIR}/outer/repo"

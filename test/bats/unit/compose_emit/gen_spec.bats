@@ -200,6 +200,78 @@ teardown() {
   (( _vol_ln < _net_ln ))
 }
 
+# why: `_classify_volume_lhs` listed `/`, `./`, `~/` and `${` as its bind
+# prefixes and nothing else, so a parent-relative host path read as a
+# Docker named volume: the mount was emitted as a reference to a managed
+# volume AND declared in the top-level `volumes:` block under the literal
+# name `../foo`. compose does not error on that -- the service comes up
+# with an empty managed volume where the operator's sibling directory
+# should be. The gate is on the emitted file rather than on the
+# classifier's return value, because a return-value assertion passes
+# while the symptom stands (base#1115, base#1117, base#1175).
+@test "generate_compose_yaml keeps a parent-relative bind out of top-level volumes: (base#1257)" {
+  local _extras=('../foo:/bar')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F -- '- ../foo:/bar' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+# why: the gap was three spellings, not one. `.` and `..` carry no
+# trailing slash for the prefix globs to match, and they are the spelling
+# an operator reaches for to mount the repo itself or its parent -- so a
+# bind-only repo using either one grew a top-level `volumes:` block
+# declaring a volume literally named `.`, and lost the mount it asked for.
+@test "generate_compose_yaml keeps the bare-dot bind sources out of top-level volumes: (base#1257)" {
+  local _extras=('.:/bar' '..:/baz')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -F -- '- .:/bar' "${COMPOSE_OUT}"
+  assert_success
+  run grep -F -- '- ..:/baz' "${COMPOSE_OUT}"
+  assert_success
+  run grep -E '^volumes:$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+# why: widening the bind arm must not stop a genuine named volume being
+# declared, and the two cannot be checked apart: a repo that mixes them
+# gets the block, and the block must name the volume and ONLY the volume.
+# Asserting the block's absence over relative sources alone would also be
+# satisfied by a classifier that called everything a bind.
+@test "generate_compose_yaml declares only the real named volume when a relative bind sits beside it (base#1257)" {
+  local _extras=('../foo:/bar' '.:/here' 'my_state:/srv/state')
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras
+  run grep -cE '^volumes:$' "${COMPOSE_OUT}"
+  assert_output "1"
+  run grep -E '^  my_state:$' "${COMPOSE_OUT}"
+  assert_success
+  run grep -nE '^  (\.\./foo|\.):$' "${COMPOSE_OUT}"
+  assert_failure
+}
+
+# why: the classifier and `_compose_is_repo_relative` are two readings of
+# the same left-hand side, and base#1257 is what their disagreement cost.
+# The population is taken FROM the predicate rather than written out
+# here: every spelling it calls explicitly repo-relative is a host path,
+# so the classifier owes it `bind`. A spelling added to the predicate is
+# covered by the edit that adds it.
+@test "every repo-relative spelling the rebase predicate accepts classifies as a bind (base#1257)" {
+  local _lhs _rel
+  for _lhs in . .. ./foo ../foo ../../foo './a b' myvol my_state '' /abs '~/h' '${X}/y'; do
+    _compose_is_repo_relative "${_lhs}" && _rel=yes || _rel=no
+    [[ "${_rel}" == yes ]] || continue
+    run _classify_volume_lhs "${_lhs}:/tgt"
+    assert_output "bind"
+  done
+  # Non-vacuous in the other direction: a bare name is still a volume.
+  run _classify_volume_lhs 'my_state:/srv/state'
+  assert_output "named"
+}
+
 @test "generate_compose_yaml emits workspace mount when present in extras" {
   # Workspace is now driven by [volumes] mount_1 (setup.sh writeback),
   # not a hard-coded baseline. Simulate the extras array containing a
