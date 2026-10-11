@@ -105,17 +105,29 @@ _DOCKER_LIB_VERSION_MIGRATE_SOURCED=1
 # same version; across versions the runner orders by version ascending, so
 # appending an entry out of order cannot reorder the set.
 #
-# It is EMPTY, and that is the point. Every heal this tree carries today
-# infers its own applicability from the tree and must keep doing so: those
-# are what make `just base init` a repair command for a repo that already
-# took a bad upgrade, where there is no interval left to select on. This
-# registry is for the next one -- the migration that is only correct for a
-# repo arriving from before a particular release -- so that it does not have
-# to be discovered by a consumer first.
+# Every OTHER heal this tree carries infers its own applicability from the
+# tree, and must keep doing so: those are what make `just base init` a repair
+# command for a repo that already took a bad upgrade, where there is no
+# interval left to select on. This registry is for the kind that cannot --
+# the migration that is only correct for a repo ARRIVING FROM before a
+# particular release, where no shape in the tree says which side of that
+# release the repo's value was written on.
+#
+# `lifecycle_restart_default` is that kind, and it is here because inferring
+# it from the tree is what made it unreachable. It shipped in `upgrade.sh`
+# gated on the VENDORED template under `${TEMPLATE_REL}/` still reading
+# `restart = no` -- the tree the pull is about to replace. The function and
+# the new template default landed in the same commit, so the two conditions
+# were mutually exclusive by construction: every published tag that carries
+# the function also carries a template saying `unless-stopped`, and the gate
+# closed on every one of them. Not "rarely fires": never fired, silently,
+# returning 0 (base#1110).
 #
 # Not readonly: the released-caller integration spec declares into it to
 # drive a real upgrade through the real runner.
-_VERSION_MIGRATIONS=()
+_VERSION_MIGRATIONS=(
+  "v0.42.0 lifecycle_restart_default"
+)
 
 # ── Version arithmetic ─────────────────────────────────────────────────────
 
@@ -377,4 +389,88 @@ run_interval_migrations() {
       "display=  applied version-bound migration ${_name} (lands in ${_version})" \
       "migration=${_name}" "version=${_version}" "from=${_from}" "to=${_to}"
   done
+}
+
+# ── The declared migrations ────────────────────────────────────────────────
+
+# _vmigrate_lifecycle_restart_default_apply <repo_root>
+#
+# Retire the stale devel-scoped `[lifecycle] restart = no` that the
+# pre-v0.42.0 template seeded into every repo bootstrapped from it.
+#
+# `[lifecycle] restart` used to be devel-scoped and shipped as a literal
+# `restart = no`; `init.sh --gen-conf` copies the WHOLE template, so a repo
+# bootstrapped before v0.42.0 carries that literal whether or not anybody
+# chose it. The key is now deploy-scoped with a shipped default of
+# `unless-stopped`, which makes the copied `no` stale by construction: a
+# field bundle built from it loses its auto-start after a host reboot
+# (`compose_emit.sh` early-returns on `no`, and `deploy.sh` lets an explicit
+# value beat the `unless-stopped` default), with nothing printed either way.
+#
+# ── Why the version interval is the predicate, and nothing else ────────────
+#
+# The only question worth asking is whether this `no` was COPIED from the
+# old template or CHOSEN after the rescope, and the repo's own file cannot
+# answer it -- the two are the same three characters. The vendored template
+# cannot either: it is the tree the pull replaces, which is what made the
+# original gate unreachable (base#1110, and the registry note above).
+#
+# The interval can. A repo arriving from before v0.42.0 pre-dates the
+# rescope, so its `no` cannot be a post-rescope choice; the value is the old
+# default and nothing else. That is read from the consumer's own git history
+# -- the subtree-pull merge's first parent -- which no release can rewrite.
+#
+# A repo whose interval STARTS at v0.42.0 or later is deliberately left
+# alone, and the fail-safe is the point rather than a gap: past the rescope
+# the two cases are genuinely indistinguishable, and a repo that chose `no`
+# on purpose must never have it rewritten. That is the same discipline the
+# function carried before, now expressed in the one term that can hold it.
+#
+# ── Where it reads, and when ───────────────────────────────────────────────
+#
+# `setup.toml`, at the repo root: the resync runs the legacy relocation and
+# the INI-to-TOML conversion BEFORE the interval runner, so by this point
+# the repo's configuration is at that path in that format whatever release
+# it arrived from. The read goes through conf.sh's tokenizer rather than a
+# local one, so `restart = "no"`, `restart = 'no'` and the bare INI spelling
+# are one value and not three spellings; the write goes through
+# `_upsert_conf_value`, the one owner of a single-key in-place edit, so
+# every other line of the file is preserved.
+#
+# Idempotent: a second run reads `unless-stopped` and returns before
+# writing anything.
+_vmigrate_lifecycle_restart_default_apply() {
+  local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
+  local _conf="${_root%/}/setup.toml"
+
+  [[ -f "${_conf}" ]] || return 0
+
+  # A failed load is NOT an absent value. `_conf_load` of a `.toml` goes
+  # through the containerised parser, and when that parser cannot be reached
+  # or refuses the file it answers non-zero with an EMPTY handle -- so the
+  # read below returns "", the `== "no"` test fails, and this function
+  # returns 0 having decided nothing. The runner would then log
+  # `interval_migration_applied` over a `restart = no` still sitting in the
+  # file, and withhold the retry guidance that is the only way back to a
+  # migration the resync has already moved past. Returning non-zero is what
+  # routes it to `MIGRATION FAILED` instead. The runner calls every apply in
+  # an `||` list, so errexit cannot do this for us.
+  _conf_load "${_conf}" _VMLRD || return 1
+  local _current=""
+  _conf_get_into _VMLRD lifecycle restart "" _current
+  [[ "${_current}" == "no" ]] || return 0
+
+  _upsert_conf_value "${_conf}" lifecycle restart "unless-stopped" || return 1
+
+  _log_warn init lifecycle_restart_default_migrated \
+    "display=MIGRATION: [lifecycle] restart is now DEPLOY-scoped, and this repo arrived from before that change carrying the old template's literal 'no'. It has been rewritten to 'unless-stopped'. The key now applies to deployable stages and the field bundle only -- never to devel or a *-test stage -- and a field service is meant to auto-start again after a host reboot, which 'no' silently denied it. Set it back to 'no' in setup.toml if that is what you actually want; it will not be rewritten again." \
+    "path=${_conf}" "section=lifecycle" "key=restart" \
+    "from=no" "to=unless-stopped"
+
+  # The resync stages what the record names. Without it the rewrite is left
+  # unstaged and the release commit describes a tree it does not carry.
+  if declare -F _init_record_write >/dev/null 2>&1; then
+    _init_record_write "setup.toml"
+  fi
+  return 0
 }

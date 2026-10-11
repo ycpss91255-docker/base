@@ -1123,3 +1123,190 @@ _assert_interval_can_be_named_by_hand() {
 @test "an interval the history can no longer supply can be named by hand and re-run (base#1097)" {
   _assert_interval_can_be_named_by_hand "$(_release_tag 2)"
 }
+
+# ── The restart-default migration, through a real released driver ───────────
+#
+# base#1110. The migration that retires the stale devel-scoped
+# `[lifecycle] restart = no` used to live in `upgrade.sh` gated on the
+# VENDORED template under `.base/` still carrying the old value -- the tree
+# the pull replaces. The function and the new template default shipped in
+# the same release, so the gate closed on every tag that had the function:
+# the migration returned 0, printed nothing, and changed nothing, on every
+# consumer there has ever been.
+#
+# The two arms below are the ones the old unit fixture could not be. It
+# built its own driver/template pair with the vendored template saying
+# `restart = no`, a pairing no release produces, and went green over a
+# migration that never fired. These drive the consumer's OWN released
+# driver over the release that genuinely ships `restart = no`, and read the
+# answer out of the file the readers use.
+#
+# They also use the REAL declared entry rather than
+# `_register_interval_migration`'s probe. A probe proves the runner selects
+# what it is given; only the real entry proves THIS migration is reachable,
+# which is the whole of what base#1110 was about.
+
+# _consumer_lifecycle_restart
+#   The consumer's `[lifecycle] restart` value, section-scoped, with the TOML
+#   quotes off. Section-scoped because a `[stage:*]` block may legitimately
+#   carry its own `restart`, and a whole-file grep would read that one.
+_consumer_lifecycle_restart() {
+  local _conf="${CONSUMER}/setup.toml"
+  [[ -f "${_conf}" ]] \
+    || fail "the upgraded consumer has no setup.toml -- nothing to read a restart policy out of"
+  awk '
+    /^[[:space:]]*\[/ { s = $0; gsub(/[][ "'"'"']/, "", s) }
+    s == "lifecycle" && /^[[:space:]]*restart[[:space:]]*=/ {
+      sub(/^[^=]*=[[:space:]]*/, ""); gsub(/^["'"'"']|["'"'"']$/, ""); print; exit
+    }' "${_conf}"
+}
+
+# _set_consumer_lifecycle_restart <value>
+#   Write `[lifecycle] restart = <value>` into whichever config file the
+#   release's own bootstrap seeded, and commit. <value> is the BARE value;
+#   the quoting is decided from the file's own format, because the two are
+#   not interchangeable. A `"no"` written into an INI file is the three
+#   characters `"no"` to the INI tokenizer, so it survives the resync's
+#   conversion as a TOML string whose content is `"no"` -- a value nothing in
+#   the schema has, read back by the arm as if it were the one it set. Which
+#   file a release seeds is the release's business, so the format is read off
+#   the name rather than assumed.
+#
+#   Asserts the key was there to rewrite: a sed that matched nothing would
+#   leave the arm asserting against the seeded default under its own name.
+_set_consumer_lifecycle_restart() {
+  local _bare="${1:?BUG: _set_consumer_lifecycle_restart expects a value}"
+  local _conf
+  _conf="$(_seeded_repo_conf)"
+  local _value="${_bare}"
+  [[ "${_conf}" == *.toml ]] && _value="\"${_bare}\""
+  [[ -f "${CONSUMER}/${_conf}" ]] \
+    || fail "its own bootstrap seeded no per-repo config, so this arm has nothing to set"
+  local _before
+  _before="$(grep -cE '^[[:space:]]*restart[[:space:]]*=' "${CONSUMER}/${_conf}")"
+  (( _before > 0 )) \
+    || fail "the seeded ${_conf} carries no 'restart =' line to rewrite, so this arm would assert against the shipped default"
+  sed -i -E "s|^([[:space:]]*)restart[[:space:]]*=.*$|\1restart = ${_value}|" \
+    "${CONSUMER}/${_conf}"
+  # And it landed. Checked HERE, in the file the release actually seeded,
+  # because the caller cannot: the resync relocates and converts that file,
+  # so before the upgrade there is no `setup.toml` to read the value back
+  # out of, and a caller that tried would be asserting against a path that
+  # does not exist yet rather than against the value it just wrote.
+  grep -qE "^[[:space:]]*restart[[:space:]]*=[[:space:]]*${_value}[[:space:]]*\$" \
+    "${CONSUMER}/${_conf}" \
+    || fail "writing '[lifecycle] restart = ${_value}' into ${_conf} did not take, so this arm would run against the value the release seeded"
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "chore: the repo's own restart policy" || true
+}
+
+# ── Why these two arms NAME the interval ────────────────────────────────────
+#
+# `BASE_MIGRATION_FROM` rather than the window's own version. The
+# compatibility window is the two newest STABLE releases, resolved from the
+# repo's tags every run (script/test/prepare-prev-release.sh), so which
+# versions these arms get moves on its own. The migration's predicate is
+# `from < v0.42.0 <= to`, and the moment v0.43.0 is tagged the window
+# becomes v0.43.0 / v0.42.0 -- no release in it can supply a pre-rescope
+# arrival any more, and an arm reading the from-version out of the history
+# would start failing over correct production behaviour. That is not a
+# condition a fixed tag escapes either: pinning v0.41.0 here pins a release
+# the window has stopped materialising.
+#
+# So the released DRIVER still comes from the window -- that half is what
+# makes these reachability arms rather than unit tests, and it is the half
+# that has to keep moving -- and the interval is named. The version the
+# consumer came from is supplied by exactly the escape hatch the lib
+# documents for the case where the history cannot supply it, and the stale
+# value is seeded by hand rather than taken from whatever the release
+# happened to ship.
+#
+# Nothing is lost by naming it: that a real released upgrade DERIVES the
+# interval from its own subtree-pull merge is what
+# `_assert_interval_selection` (base#1097) above already drives, through the
+# same released drivers.
+
+# why: The population base#1110's migration exists for is a repo arriving
+# from before the rescope, and the defect was that no such repo could reach
+# it. This is that repo, driven by its own released driver over a real pull,
+# reading the answer out of the file the readers use -- the one arm that was
+# impossible to write while the gate read the tree the pull replaces
+@test "a released upgrade.sh retires the stale devel-scoped restart default (base#1110)" {
+  local _tag
+  _tag="$(_release_tag 2)"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+  # The stale copied default, in whatever format and at whatever path this
+  # release seeds. Written rather than inherited: see the note above on why
+  # the release the window hands us cannot be relied on to carry it. The
+  # helper verifies its own write, which is the non-vacuity guard this arm
+  # needs -- a seed that silently did not take would leave the assertions
+  # below running against the release's own value.
+  _set_consumer_lifecycle_restart 'no'
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" \
+      BASE_MIGRATION_FROM=v0.41.0 "${_upgrade}" "${NEXT_VER}"
+  assert_success
+  # The consumer is TOLD, because the value is theirs to disagree with.
+  assert_output --partial "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
+
+  run _consumer_lifecycle_restart
+  assert_output "unless-stopped"
+
+  # And the rewrite is in the commit the released driver just made. The
+  # resync is the only run that can stage it, and a migration's output is on
+  # no list written before the migration existed -- so the record it made is
+  # the whole of what put it there.
+  run git -C "${CONSUMER}" status --porcelain -- setup.toml
+  assert_output ""
+
+  # Running the upgrade again must not re-announce it. The interval is named
+  # again on purpose, so the migration is RE-SELECTED and still has to be a
+  # no-op: the runner keeps no ledger, so idempotence is the migration's own
+  # job and this is the only place it is observable end to end.
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" \
+      BASE_MIGRATION_FROM=v0.41.0 "${_upgrade}" "${NEXT_VER_2}"
+  assert_success
+  refute_output --partial "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
+  run _consumer_lifecycle_restart
+  assert_output "unless-stopped"
+}
+
+# why: The fail-safe is the other half, and it is the half the old gate was
+# built to protect: past the rescope a `no` cannot be told from a choice
+# somebody made, so a repo whose interval STARTS at the rescope must keep
+# the value it arrived with. An arm that only proved the rewrite would pass
+# just as well over a migration that rewrote everybody's
+@test "a released upgrade.sh leaves a post-rescope restart = no alone (base#1110)" {
+  local _tag
+  _tag="$(_release_tag 1)"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+  # A deliberate choice: `no`, chosen by a repo that is already past the
+  # rescope. That is exactly what the interval cannot tell from a copied
+  # default once it starts at or after v0.42.0, and so must not touch.
+  _set_consumer_lifecycle_restart 'no'
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  # v0.42.0 names the BOUNDARY, which is the case worth pinning: the
+  # interval is half-open at the from end, so `from = v0.42.0` must NOT
+  # select a migration landing in v0.42.0. Naming it also means this arm
+  # stays the post-rescope case as the window moves, rather than becoming
+  # whichever version the newest release happens to be.
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" \
+      BASE_MIGRATION_FROM=v0.42.0 "${_upgrade}" "${NEXT_VER}"
+  assert_success
+  refute_output --partial "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
+
+  run _consumer_lifecycle_restart
+  assert_output "no"
+}
