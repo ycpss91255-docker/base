@@ -29,8 +29,9 @@
 #
 # Grouped by concern:
 #
-# - `_load_current` (repo-conf wins; falls back to template; both missing →
-# silent return 0)
+# - `_load_current` (the repo layer wins on the keys it names and the
+# template's other keys come with it; a repo with no committed layer opens
+# on the template; both missing -> silent return 0)
 #
 # - `_render_main_menu` / `_render_advanced_menu` (#178 Save & Exit
 # unification, Cancel/Esc returns 1, navigation into section editor)
@@ -176,29 +177,50 @@ is_removed() {
 # _load_current
 # ════════════════════════════════════════════════════════════════════
 
-@test "_load_current: pulls keys from repo conf when present" {
-  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
-  cat > "${_repo}" <<'EOF'
+# why: these two tests used to pin the OPPOSITE rule -- "read the repo
+# file, else fall back to the template" -- and that one-file read is the
+# defect base#1232 records: the config is an overlay chain, so an editor
+# whose baseline is whichever file exists first shows one layer's contents
+# instead of the values in force. The repo layer must still WIN on the
+# keys it names (that half was always right), and the template's other
+# keys must now come with it rather than disappearing. `bridge` is not the
+# schema default (`host`), so the first assertion can only hold if the
+# repo layer was read; `auto` for gui.mode could not tell "the template
+# was read" from "nothing was read and a default stood in", so the
+# template key carries a non-default value too.
+@test "_load_current: the repo layer wins and the template's other keys come with it" {
+  local _base="${BATS_TEST_TMPDIR}/repo" _dist="${BATS_TEST_TMPDIR}/dist"
+  mkdir -p "${_base}" "${_dist}"
+  cat > "${_dist}/setup.toml" <<'EOF'
 [network]
-mode = "bridge"
-EOF
-  _load_current "${_repo}" "/dev/null"
-  # `bridge` is not the schema default (`host`), so this can only hold if
-  # the repo file was read.
-  [[ "${_TUI_CURRENT[network.mode]}" == "bridge" ]]
-}
+mode = "host"
 
-@test "_load_current: falls back to template conf when repo conf missing" {
-  local _tpl="${BATS_TEST_TMPDIR}/setup.toml"
-  cat > "${_tpl}" <<'EOF'
 [deploy]
 gpu_mode = "force"
 EOF
-  _load_current "${BATS_TEST_TMPDIR}/missing" "${_tpl}"
-  # `force` rather than the `auto` this fixture used to carry: `auto` IS
-  # the schema default for deploy.gpu_mode, so an assertion on it could
-  # not tell "the template was read" from "nothing was read and the
-  # default stood in" -- which is the whole claim of this test.
+  cat > "${_base}/setup.toml" <<'EOF'
+[network]
+mode = "bridge"
+EOF
+  _load_current "${_base}" "${_dist}"
+  [[ "${_TUI_CURRENT[network.mode]}" == "bridge" ]]
+  [[ "${_TUI_CURRENT[deploy.gpu_mode]}" == "force" ]]
+}
+
+# why: a repo that has never been set up has no committed layer, and the
+# template's values are what `setup.sh apply` is about to seed it with --
+# so they are what the menus have to open on. `force` rather than `auto`:
+# `auto` IS the schema default for deploy.gpu_mode, so an assertion on it
+# could not tell "the template was read" from "nothing was read and the
+# default stood in", which is the whole claim here.
+@test "_load_current: a repo with no committed layer opens on the template" {
+  local _base="${BATS_TEST_TMPDIR}/repo" _dist="${BATS_TEST_TMPDIR}/dist"
+  mkdir -p "${_base}" "${_dist}"
+  cat > "${_dist}/setup.toml" <<'EOF'
+[deploy]
+gpu_mode = "force"
+EOF
+  _load_current "${_base}" "${_dist}"
   [[ "${_TUI_CURRENT[deploy.gpu_mode]}" == "force" ]]
 }
 
