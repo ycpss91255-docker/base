@@ -1474,6 +1474,105 @@ EOF
   assert_failure
 }
 
+# why: base#1148. Removing an entry of a `[[volumes]]` array COMPACTS the
+# ones after it, and slot 1 is the workspace bind -- by POSITION and
+# nothing else. So `setup.sh remove volumes.mount_1` promoted the
+# operator's next bind into the workspace position. Measured on this
+# fixture: the removal reported success and exit 0, no warning was
+# emitted, and `_reconcile_workspace_path` read the promoted absolute
+# source as a deliberately pinned workspace -- WS_PATH resolved to the
+# data directory, so the container's workspace bound there instead of the
+# repo. The removal is refused now, which is asked here of the
+# reconciliation and of the real merge rather than of the file text.
+@test "setup.sh remove: slot 1 of [volumes] is refused, so WS_PATH is not redirected into a surviving bind" {
+  local _repo="${TEMP_DIR}/wsrepo"
+  local _data="${TEMP_DIR}/wsdata"
+  mkdir -p "${_repo}" "${_data}"
+  # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} is the portable form stored in setup.toml
+  printf '[[volumes]]\nsource = "${WS_PATH}"\ntarget = "/home/${USER_NAME}/work"\n\n[[volumes]]\nsource = "%s"\ntarget = "/data"\n' \
+    "${_data}" > "${_repo}/setup.toml"
+
+  run main remove volumes.mount_1 --base-path "${_repo}"
+  assert_failure
+  assert_output --partial 'setup.sh set volumes.mount_1'
+
+  # detect_ws_path has no `*_ws` ancestor on the fixture path, so its
+  # fallback is the repo root -- which is the answer only while the
+  # portable mount_1 is still slot 1.
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_repo}" volumes _vk _vv
+  local _ws=""
+  _reconcile_workspace_path "${_repo}" "${_repo}/setup.toml" _vk _vv _ws
+  assert_equal "${_ws}" "$(cd "${_repo}" && pwd -P)"
+
+  run toml_bridge_merge --kv /source/dist/setup.toml "${_repo}/setup.toml"
+  assert_success
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
+  assert_line "volumes	mount_2	${_data}:/data"
+}
+
+# why: base#1148, the other face of the same promotion. When the bind
+# compacted into slot 1 names a source that does NOT exist on this
+# machine, the reconciliation does not stay quiet: it reads it as a stale
+# absolute path, WARNs `conf_mount_stale_path`, and rewrites slot 1 to
+# the portable workspace mount -- so the operator's own bind is gone from
+# the file on the next apply, replaced by a workspace mount they did not
+# ask for. With the removal refused there is nothing in slot 1 but the
+# workspace bind, so the reconciliation says nothing and writes nothing.
+@test "setup.sh remove: a refused slot-1 removal leaves no bind for the stale-path rewrite to overwrite" {
+  local _repo="${TEMP_DIR}/wsrepo"
+  mkdir -p "${_repo}"
+  # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} is the portable form stored in setup.toml
+  printf '[[volumes]]\nsource = "${WS_PATH}"\ntarget = "/home/${USER_NAME}/work"\n\n[[volumes]]\nsource = "/absent/data"\ntarget = "/data"\n' \
+    > "${_repo}/setup.toml"
+
+  run main remove volumes.mount_1 --base-path "${_repo}"
+  assert_failure
+
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_repo}" volumes _vk _vv
+  local _ws=""
+  run _reconcile_workspace_path "${_repo}" "${_repo}/setup.toml" _vk _vv _ws
+  assert_success
+  refute_output --partial 'conf_mount_stale_path'
+  refute_output --partial 'does not exist on this machine'
+
+  run toml_bridge_parse "${_repo}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
+  assert_line 'volumes	mount_2	/absent/data:/data'
+}
+
+# why: Clearing is not removing, and only the removal is contained.
+# README publishes "clear it to opt out of mounting a workspace" and
+# v0.9 rules that setup.sh does not re-populate it, so the command the
+# refusal above names has to keep working on the very fixture that
+# refusal fires on -- including leaving the extra bind in slot 2 where
+# the operator put it. The cleared branch of the reconciliation is the
+# silent one that touches no file, which is what the second parse pins.
+@test "setup.sh set: clearing mount_1 still opts out with an extra bind present" {
+  local _repo="${TEMP_DIR}/wsrepo"
+  local _data="${TEMP_DIR}/wsdata"
+  mkdir -p "${_repo}" "${_data}"
+  # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} is the portable form stored in setup.toml
+  printf '[[volumes]]\nsource = "${WS_PATH}"\ntarget = "/home/${USER_NAME}/work"\n\n[[volumes]]\nsource = "%s"\ntarget = "/data"\n' \
+    "${_data}" > "${_repo}/setup.toml"
+
+  run main set volumes.mount_1 '' --base-path "${_repo}"
+  assert_success
+
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_repo}" volumes _vk _vv
+  local _ws=""
+  _reconcile_workspace_path "${_repo}" "${_repo}/setup.toml" _vk _vv _ws
+  assert_equal "${_ws}" "$(cd "${_repo}" && pwd -P)"
+
+  run toml_bridge_parse "${_repo}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	'
+  assert_line "volumes	mount_2	${_data}:/data"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # — --quiet flag + success confirmation output
 # ════════════════════════════════════════════════════════════════════

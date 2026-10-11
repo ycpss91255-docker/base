@@ -1303,6 +1303,62 @@ _wsc_flush_empty_arrays() {
   done
 }
 
+# _wsc_refuse_ws_slot_move <dst>
+#
+# Zero -- having said so -- when this save would hand slot 1 of
+# `[volumes]` to something that is not the workspace bind. One for every
+# other save.
+#
+# Removing an entry of an array of tables COMPACTS the ones after it, and
+# for every family but one that is simply the list getting shorter. Slot
+# 1 of `[volumes]` is the workspace bind, identified by POSITION and
+# nothing else, so a removal there promotes the operator's next mount
+# into the workspace position. Measured on a two-mount file, both ways:
+#   - the promoted source EXISTS on this machine ->
+#     `_reconcile_workspace_path` reads it as a deliberately pinned
+#     workspace and warns about nothing, so WS_PATH resolves to the
+#     operator's data directory and the container's workspace binds
+#     there instead of the repo;
+#   - the source is ABSENT -> the stale-path branch WARNs and overwrites
+#     that bind with the portable workspace mount on the next apply, so
+#     the operator's own mount is gone from the file.
+# Neither outcome is a removal of `mount_1`, and both are silent at the
+# moment the operator asks for one.
+#
+# So the save is REFUSED, before the rewrite is built and with <dst>
+# untouched -- the answer the converter already gives for the six INI
+# shapes it cannot represent faithfully, rather than guessing. The
+# message names the CLEAR instead: an empty `mount_1` is the published
+# opt-out, `setup.sh` does not re-populate it, and it moves no other
+# slot. Clearing is not removing; only the removal is contained here.
+#
+# NARROW, or it would be a blanket ban on `remove` over `[volumes]`. The
+# question asked is whether anything is LEFT to occupy slot 1, which is
+# exactly `__aot_empty` not naming `volumes`: a removal that empties the
+# array writes `volumes = []` and promotes nothing, and a removal above
+# slot 1 leaves slot 1 where it is. Both still succeed. An INI
+# destination is out of scope because it renumbers nothing -- the
+# remaining keys keep their own suffixes and the gap is tolerated.
+#
+# base#1233 asks how the workspace bind SHOULD be identified -- a named
+# key, or target matching -- and this function does not answer it. It
+# writes nothing, so nothing on disk commits to an answer either.
+#
+# Called from _write_setup_conf only; reads its walk state through bash's
+# dynamic scope, like the `_wsc_flush_*` helpers above.
+_wsc_refuse_ws_slot_move() {
+  local _dst="${1-}"
+  local _slot="volumes.mount_1"
+  [[ "${_dst}" == *.toml ]] || return 1
+  [[ -n "${__removed[${_slot}]+x}" ]] || return 1
+  (( ${__aot_total[volumes]:-0} >= 1 )) || return 1
+  [[ -z "${__aot_empty[volumes]:-}" ]] || return 1
+  _log_err conf conf_write_ws_slot_refused \
+    "display=[conf] WRITE DECLINED for ${_dst}: ${_slot} was to be removed, and removing an entry of an array compacts the ones after it -- the next mount would take slot 1, which is the workspace bind by position and nothing else. That bind would become the container's workspace when its source exists on this machine, and would itself be overwritten by the portable workspace mount on the next apply when it does not. Nothing was written and ${_dst} is unchanged. To stop mounting a workspace, CLEAR the entry instead of removing it: 'setup.sh set volumes.mount_1 \"\"' leaves slot 1 in place and empty, setup.sh does not re-populate it, and no other mount moves. To drop the other mounts, remove them by their own index. base#1233 carries how the workspace bind should be identified." \
+    "file=${_dst}" "key=${_slot}"
+  return 0
+}
+
 # _write_setup_conf <dst_file> <template_src> <keys_ref> <values_ref> [<removed_keys>]
 #
 # The section list is NOT a parameter. It was one, and it was never read:
@@ -1471,6 +1527,16 @@ _write_setup_conf() {
     done
   fi
 
+  # The one array position that identifies something rather than just
+  # ordering it. Asked here because the answer needs `__aot_empty` --
+  # whether anything is left to be promoted into slot 1 -- and asked
+  # before the walk writes a byte, so a refusal leaves _dst exactly as it
+  # was.
+  if _wsc_refuse_ws_slot_move "${_dst}"; then
+    rm -f "${_out}"
+    return 1
+  fi
+
   # Walk state: __current is the table whose scalar keys are in scope;
   # __aot_cur the array-of-tables path whose block is in scope (one of
   # the two is always empty); __aot_skip says what to do with the body of
@@ -1509,20 +1575,22 @@ _write_setup_conf() {
       __aot_skip=0
       if _conf_toml_aot_nskey "${__p}" "${__aot_seen["${__p}"]}" __nskey; then
         if [[ -n "${__removed[${__nskey}]+x}" ]]; then
-          # REMOVAL COMPACTS, and for slot 1 of `[volumes]` that is a
-          # maintainer-level question, not a safe edit. Skipping this
-          # block renumbers every block after it, so `remove
-          # volumes.mount_1` makes what was `mount_2` into `mount_1` --
-          # and `mount_1` is the workspace bind, identified by POSITION
-          # and nothing else. `_reconcile_workspace_path` then either
-          # honours the surviving source as a pinned workspace (silently,
-          # when it exists) or rewrites the operator's own bind as the
-          # workspace one. Compaction is correct for every other family;
-          # base#1233 carries how the workspace bind should be
+          # REMOVAL COMPACTS: skipping this block renumbers every block
+          # after it. That is correct for every family but one. Slot 1 of
+          # `[volumes]` is the workspace bind, identified by POSITION and
+          # nothing else, so `remove volumes.mount_1` would make what was
+          # `mount_2` into the workspace -- and
+          # `_reconcile_workspace_path` then either honours the promoted
+          # source as a pinned workspace (silently, when it exists) or
+          # overwrites the operator's own bind with the portable
+          # workspace mount. Such a save never reaches this line:
+          # `_wsc_refuse_ws_slot_move` declines it up front, with the
+          # file untouched, whenever anything would be left to promote.
+          # base#1233 still carries how the workspace bind SHOULD be
           # identified, and ADR-00000022 publishes the positional
-          # convention any answer would depart from. This comment is here
-          # so the next reader of this branch does not conclude from it
-          # that the edit path is settled -- the same note
+          # convention any answer would depart from; the refusal contains
+          # the edit without answering either, and writes nothing that
+          # would commit to an answer -- the same note
           # `_setup_remove`'s header carries one level up.
           __emitted[${__nskey}]=1
           __aot_skip=1
@@ -1843,8 +1911,11 @@ _upsert_conf_value() {
 # it, so `<prefix>_N` is EXPECTED to still exist, holding what used to be
 # `<prefix>_N+1` -- an absence check would fail on a correct removal, and
 # whether compaction is right for slot 1 of `[volumes]` is base#1233's
-# open question, which this gate must not answer by refusing. What is
-# unambiguous either way is that the family got SHORTER. So for those
+# open question, which this gate must not answer by refusing. (The one
+# save where compaction would hand slot 1 of `[volumes]` to another mount
+# is declined before the rewrite exists, so it never reaches this gate;
+# see `_wsc_refuse_ws_slot_move`.) What is unambiguous either way is that
+# the family got SHORTER. So for those
 # keys the check is on the array's LENGTH, which says nothing about which
 # value lands where.
 #

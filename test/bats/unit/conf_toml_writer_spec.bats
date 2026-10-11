@@ -309,8 +309,13 @@ teardown() {
 # One save exercises every shape at once: a scalar override lands in its
 # table, an existing array entry is replaced in place, a new one is
 # appended after the last of its kind, a removed entry drops its block
-# (the array compacts, so what was entry 2 reads back as entry 1), and
+# (the array compacts, so what was entry 3 reads back as entry 2), and
 # a section the template never had is opened with a quoted header.
+# The removed mount is the one ABOVE slot 1 on purpose: slot 1 of
+# `[volumes]` is the workspace bind by position, so a save that would
+# promote another mount into it is refused rather than compacted (the
+# containment cases at the end of this file). Compaction is what every
+# other entry of every family still does, which is the claim here.
 @test "_write_setup_conf: a TOML rewrite with scalar, array, removed and new-section overrides parses and reads back" {
   cp "${TPL}" "${CONF}"
   _upsert_conf_value "${CONF}" volumes mount_1 '/a:/b'
@@ -318,7 +323,7 @@ teardown() {
 
   local -a _keys=(network.mode image.rule_2 image.rule_4 volumes.mount_3 stage:headless.gui.mode deploy.gpu_count)
   local -a _vals=(bridge 'suffix:_dev' '@parent' /e:/f off 2)
-  _write_setup_conf "${CONF}" "${CONF}" _keys _vals 'volumes.mount_1 build.arg_2'
+  _write_setup_conf "${CONF}" "${CONF}" _keys _vals 'volumes.mount_2 build.arg_2'
 
   run toml_bridge_parse "${CONF}" --kv
   assert_success
@@ -327,9 +332,9 @@ teardown() {
   assert_line 'image	rule_2	suffix:_dev'
   assert_line 'image	rule_3	@basename'
   assert_line 'image	rule_4	@parent'
-  assert_line 'volumes	mount_1	/c:/d'
+  assert_line 'volumes	mount_1	/a:/b'
   assert_line 'volumes	mount_2	/e:/f'
-  refute_output --partial '/a:/b'
+  refute_output --partial '/c:/d'
   assert_line 'build	arg_1	APT_MIRROR_UBUNTU=tw.archive.ubuntu.com'
   assert_line 'build	arg_2	TZ=Asia/Taipei'
   refute_output --partial 'APT_MIRROR_DEBIAN'
@@ -630,7 +635,11 @@ EOF
 # `remove` leave behind has to parse through the bridge. `add` twice
 # has to append twice (its slot is computed from the TOML view now, so
 # the second add is entry 2 and not an overwrite of entry 1), and
-# `remove` by value has to find the entry in that same view.
+# `remove` by value has to find the entry in that same view. The value
+# removed is the one in slot 2: remove-by-value resolves to a SLOT, and
+# a resolution that lands on slot 1 of `[volumes]` -- the workspace bind
+# by position -- is refused rather than compacted, which the containment
+# cases at the end of this file cover on their own.
 @test "setup.sh set, add and remove leave a setup.toml the bridge parses" {
   local _repo="${TEMP_DIR}/repo"
   mkdir -p "${_repo}"
@@ -641,15 +650,15 @@ EOF
     main add volumes.mount /a:/b --base-path '${_repo}' -q || exit 12
     main add volumes.mount /c:/d --base-path '${_repo}' -q || exit 13
     main add build.arg FOO=bar --base-path '${_repo}' -q || exit 14
-    main remove volumes.mount /a:/b --base-path '${_repo}' -q || exit 15
+    main remove volumes.mount /c:/d --base-path '${_repo}' -q || exit 15
   "
   assert_success
 
   run toml_bridge_parse "${_repo}/setup.toml" --kv
   assert_success
   assert_line 'network	mode	bridge'
-  assert_line 'volumes	mount_1	/c:/d'
-  refute_output --partial '/a:/b'
+  assert_line 'volumes	mount_1	/a:/b'
+  refute_output --partial '/c:/d'
   assert_line 'build	arg_4	FOO=bar'
 }
 
@@ -877,4 +886,118 @@ EOF
   assert_success
   assert_line $'build\targ_1\tKEEP=yes'
   refute_line --regexp '^build	arg_2	'
+}
+
+# why: The one array position that identifies something rather than just
+# ordering it. Removing an entry COMPACTS the ones after it, so `remove
+# volumes.mount_1` promotes whatever was slot 2 -- and slot 1 of
+# `[volumes]` is the workspace bind, by POSITION and nothing else.
+# Measured both ways on a two-mount file: with the promoted bind's source
+# PRESENT, `_reconcile_workspace_path` honours it as a deliberately
+# pinned workspace with no warning at all and WS_PATH resolves to the
+# operator's data directory; with it ABSENT, the stale-path branch WARNs
+# and overwrites the operator's own bind with the portable workspace
+# mount. Neither is a removal of mount_1. So the save is declined before
+# the rewrite is built -- the answer the converter already gives for a
+# shape it cannot represent faithfully -- and the message names the
+# CLEAR, which is the published opt-out and moves no other slot.
+@test "_write_setup_conf: removing slot 1 of [volumes] while a later mount survives is refused" {
+  cat > "${CONF}" << 'EOF'
+[[volumes]]
+source = "/ws"
+target = "/work"
+
+[[volumes]]
+source = "/srv/data"
+target = "/data"
+EOF
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  local -a _k=() _v=()
+  run _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
+  assert_failure
+  assert_output --partial 'volumes.mount_1'
+  assert_output --partial 'setup.sh set volumes.mount_1'
+  run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'volumes\tmount_1\t/ws:/work'
+  assert_line $'volumes\tmount_2\t/srv/data:/data'
+}
+
+# why: The refusal above has to be NARROW or it is a blanket ban on
+# `remove`. Slot 1 can only be taken over when something is left to
+# promote into it, so removing the one and only mount cannot corrupt
+# anything: the array is replaced by nothing, which is `volumes = []`,
+# and `_reconcile_workspace_path` reads that as the cleared workspace --
+# its silent branch, which touches no file. This is the control for the
+# containment, pinned through the MERGE rather than the file text.
+@test "_write_setup_conf: removing slot 1 of [volumes] when it is the only mount is not refused" {
+  printf '[[volumes]]\nsource = "/ws"\ntarget = "/work"\n' > "${CONF}"
+  local -a _k=() _v=()
+  _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
+  run toml_bridge_merge --kv "${TPL}" "${CONF}"
+  assert_success
+  refute_line --regexp '^volumes\tmount_'
+}
+
+# why: The second control, and the ordinary case the containment must not
+# touch: an entry ABOVE slot 1. Removing it compacts the entries after it
+# and leaves slot 1 exactly where it was, so the workspace bind is never
+# promoted into or out of. A gate that refused this would have made
+# `setup.sh remove` unusable on `[volumes]` altogether.
+@test "_write_setup_conf: a [volumes] removal above slot 1 still compacts" {
+  cat > "${CONF}" << 'EOF'
+[[volumes]]
+source = "/ws"
+target = "/work"
+
+[[volumes]]
+source = "/srv/data"
+target = "/data"
+
+[[volumes]]
+source = "/srv/logs"
+target = "/logs"
+EOF
+  local -a _k=() _v=()
+  _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_2"
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'volumes\tmount_1\t/ws:/work'
+  assert_line $'volumes\tmount_2\t/srv/logs:/logs'
+  refute_line --regexp '^volumes	mount_3	'
+  refute_output --partial '/srv/data'
+}
+
+# why: The same takeover reached without a second block in the file. A
+# save that removes slot 1 and ADDS an entry at another index has nothing
+# to compact, but the added block is appended as the array's only one, so
+# it reads back as `mount_1` -- the operator's `/srv/data:/data` became
+# the workspace bind (measured). The refusal asks whether anything is
+# left to occupy slot 1, not how many blocks the file has, so this case
+# is one answer and not a second rule.
+@test "_write_setup_conf: a save that removes slot 1 of [volumes] and adds a mount is refused" {
+  printf '[[volumes]]\nsource = "/ws"\ntarget = "/work"\n' > "${CONF}"
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  local -a _k=(volumes.mount_2) _v=(/srv/data:/data)
+  run _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
+  assert_failure
+  run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+}
+
+# why: The containment is about COMPACTION, which only the TOML
+# destination does. An INI file keeps every remaining key's own suffix
+# and tolerates the gap, so `mount_2` stays `mount_2` and nothing is
+# promoted into the workspace position -- the frozen TUI's `.setup.conf`
+# must keep removing mount_1 as it always has.
+@test "_write_setup_conf: an INI destination still removes mount_1, which promotes nothing" {
+  local _ini="${TEMP_DIR}/.setup.conf"
+  printf '[volumes]\nmount_1 = /ws:/work\nmount_2 = /srv/data:/data\n' > "${_ini}"
+  local -a _k=() _v=()
+  _write_setup_conf "${_ini}" "${_ini}" _k _v "volumes.mount_1"
+  run cat "${_ini}"
+  assert_line 'mount_2 = /srv/data:/data'
+  refute_output --partial '/ws:/work'
 }

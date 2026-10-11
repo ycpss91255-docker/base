@@ -848,14 +848,21 @@ _setup_add() {
 # list unordered: every reader of one sorts it by the numeric suffix
 # (`_conf_list_sorted`).
 #
-# That matters for exactly one slot. The workspace bind is slot 1 of
-# `[volumes]` and nothing else marks it, so `remove volumes.mount_1` on a
-# TOML repo compacts whatever was slot 2 into the workspace position --
-# silently, when its source exists locally, because an absolute path that
-# exists reads as a deliberately pinned workspace. base#1233 carries that
-# as the maintainer-level question of how the workspace bind should be
-# identified; this comment exists so the next reader of this function
-# does not conclude from it that the edit path is safe.
+# That matters for exactly one slot, and that one is REFUSED. The
+# workspace bind is slot 1 of `[volumes]` and nothing else marks it, so
+# `remove volumes.mount_1` on a TOML repo would compact whatever was slot
+# 2 into the workspace position -- silently, when its source exists
+# locally, because an absolute path that exists reads as a deliberately
+# pinned workspace. `_write_setup_conf` declines that save before it
+# builds the rewrite (`_wsc_refuse_ws_slot_move`), so the failure branch
+# below reports it and the file is unchanged. It declines ONLY the case
+# that promotes something: removing the one and only mount, or any mount
+# above slot 1, still succeeds. To stop mounting a workspace the operator
+# CLEARS mount_1 -- the published opt-out, which moves no other slot --
+# and the refusal's message says so.
+#
+# base#1233 still carries how the workspace bind should be identified;
+# the refusal contains the edit without answering that.
 #
 # For an INI destination the old paragraph was right: remaining keys keep
 # their suffixes and a gap is tolerated.

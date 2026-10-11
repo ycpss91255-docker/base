@@ -1287,19 +1287,30 @@ target = "/a"
 [[volumes]]
 source = "/b"
 target = "/b"
+
+[[volumes]]
+source = "/c"
+target = "/c"
 EOF
-  run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
+  run main remove volumes.mount_2 --base-path "${TEMP_DIR}"
   assert_success
   # A mount's number is its position in the `[[volumes]]` array, so
-  # dropping the first entry leaves a one-entry array: the list is one
-  # shorter, and the survivor -- /b:/b, never /a:/a -- is what slot 1
-  # now holds. Asserting the other way round would claim the array
-  # keeps a hole where the removed entry was, which TOML cannot spell.
-  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  # dropping an entry leaves a shorter array with the survivors closed up
+  # behind it: /a:/a keeps slot 1, /c:/c -- never /b:/b -- is what slot 2
+  # now holds, and there is no slot 3. Asserting the other way round would
+  # claim the array keeps a hole where the removed entry was, which TOML
+  # cannot spell. The entry removed is above slot 1 because slot 1 of
+  # `[volumes]` is the workspace bind by position: a removal that would
+  # promote another mount into it is refused, not compacted, and
+  # conf_toml_writer_spec carries that case.
+  run main show volumes.mount_3 --base-path "${TEMP_DIR}"
   assert_failure
   run main show volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
-  assert_output "/b:/b"
+  assert_output "/a:/a"
+  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/c:/c"
 }
 
 @test "main remove by value finds matching key in list" {
@@ -1383,26 +1394,29 @@ target = "/b"
 # inline comment
 mode = "host"
 EOF
-  run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
+  run main remove volumes.mount_2 --base-path "${TEMP_DIR}"
   assert_success
   # remove modifies setup.toml in-place; comments and
   # untouched keys survive the rewrite.
   run cat "${TEMP_DIR}/setup.toml"
   assert_output --partial "Top-of-file comment"
   assert_output --partial "inline comment"
-  assert_output --partial 'source = "/b"'
-  assert_output --partial 'target = "/b"'
+  assert_output --partial 'source = "/a"'
+  assert_output --partial 'target = "/a"'
   assert_output --partial 'mode = "host"'
-  # The dropped entry is gone: /a was the only source and target spelled
-  # that way, so no field of the removed block is left behind. (`mount_1`
+  # The dropped entry is gone: /b was the only source and target spelled
+  # that way, so no field of the removed block is left behind. (`mount_2`
   # is not a string the TOML file ever contained, so the old refutation
-  # of that token would now hold vacuously.)
-  refute_output --partial '"/a"'
-  # ... and the array closed up behind it, so the survivor is slot 1.
+  # of that token would now hold vacuously.) The entry dropped is the one
+  # above slot 1, because slot 1 of `[volumes]` is the workspace bind by
+  # position and a removal there is refused rather than compacted --
+  # conf_toml_writer_spec carries that case.
+  refute_output --partial '"/b"'
+  # ... and the array is one shorter, with slot 1 where it was.
   run toml_bridge_parse "${TEMP_DIR}/setup.toml" --kv
   assert_success
-  assert_line 'volumes	mount_1	/b:/b'
-  refute_line 'volumes	mount_2	/b:/b'
+  assert_line 'volumes	mount_1	/a:/a'
+  refute_line --regexp '^volumes	mount_2	'
 }
 
 @test "main add then remove round-trips" {
