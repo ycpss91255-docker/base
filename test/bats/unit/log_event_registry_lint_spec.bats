@@ -1606,6 +1606,23 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/redirbrace.sh:2: redir_brace_missing"* ]]
 }
 
+# why: A PARAMETER EXPANSION is taken whole because its replacement text is
+# CHARACTERS and not shell to run, and a backslash quotes the brace behind
+# it. Reading an escaped '\}' as the close cut the span short and handed
+# the real brace back to the walk, where '}' is in the separator set -- so
+# the word after it opened a command position and the scan reported a body
+# no shell ever logs. The OVER-reporting direction, and the one the
+# body-truncation cases above no longer reach now that truncation walks
+# command positions instead of matching braces (base#1242)
+@test "_run_log_event_registry: PASSES a wrapper name behind an escaped brace in a parameter expansion" {
+  _seed
+  _write "dist/script/docker/lib/pexpesc.sh" \
+    'printf "%s" ${x:-\}; _die not_an_event}'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

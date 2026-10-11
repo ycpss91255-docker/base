@@ -3635,7 +3635,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
-### test/bats/unit/log_event_registry_lint_spec.bats (111)
+### test/bats/unit/log_event_registry_lint_spec.bats (112)
 
 The guard over the direction the registry check never covered. lib/log.sh is
 STRICT -- it refuses a body log-events.txt does not carry and prints 'FATAL:
@@ -3784,6 +3784,7 @@ rather than reporting what it managed.
 | `_run_log_event_registry: FAILS on an id through a wrapper holding an escaped brace` | Truncating the definition body at its matching closing brace needs a brace matcher that knows what the shell quotes. _brace_end skipped a backslash escape inside double quotes and not outside them, so a valid wrapper carrying a literal `\}` was cut short at that brace, declined, and every call of it left the population -- a regression the truncation introduced, in the missing direction (base#1228) |
 | `_run_log_event_registry: FAILS on an id through a wrapper holding a brace argument` | A function body closes on a `}` the shell reads as a RESERVED WORD, and it reads it as one only at a command position. Counting every unquoted brace cut the body short at a literal `}` handed to a command, read the wrapper as non-forwarding and took every call of it out of the population -- a regression the body truncation introduced, in the missing direction (base#1228) |
 | `_run_log_event_registry: FAILS on an id through a wrapper whose redirection names a brace` | A redirection OPERAND is a filename, so a `}` written as one is not the brace that closes the body. Reading the position after the operator as a command position cut the body short there, read the wrapper as non-forwarding and took every call of it out of the population -- the third shape a brace matcher over the raw text got wrong, and the reason the walk is asked instead (base#1228) |
+| `_run_log_event_registry: PASSES a wrapper name behind an escaped brace in a parameter expansion` | A PARAMETER EXPANSION is taken whole because its replacement text is CHARACTERS and not shell to run, and a backslash quotes the brace behind it. Reading an escaped '\}' as the close cut the span short and handed the real brace back to the walk, where '}' is in the separator set -- so the word after it opened a command position and the scan reported a body no shell ever logs. The OVER-reporting direction, and the one the body-truncation cases above no longer reach now that truncation walks command positions instead of matching braces (base#1242) |
 | `_run_log_event_registry: PASSES an id the registry carries` | The boundary of the rule and the whole of the fix base#1220 took: an id the registry carries is a message the operator actually reads, so there is nothing to report |
 | `_run_log_event_registry: PASSES a same-named function a file defines without forwarding` | A name is not global. script/ci/reclaim.sh defines its own _die that prints to stderr and never logs, so 'not a duration: 5x' is a MESSAGE, not an event id. Without the shadowing rule every such argument would be reported unregistered, which is the false finding that gets a lint muted |
 | `_run_log_event_registry: PASSES a body that is not a literal` | The stated blind spot, pinned so it cannot change shape unnoticed. A body this driver would have to run a shell to know is not resolved: exactly one hop -- the forwarding wrapper -- is, and anything further is out of reach rather than quietly guessed at |
@@ -7707,6 +7708,17 @@ call begin + detach
 | `transcript: _transcript_detach is a no-op when the transcript never began (#608)` | - |
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
+
+### test/bats/unit/triage_label_yaml_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `triage-label: at least one workflow applies a label, and the scan finds it` | The population this file's cases read. A declared filename was the first half of base#1089 and base#1115: the hazard belongs to the operation, so a second workflow growing an addLabels call must join the population rather than inherit a gate nobody applied to it. Zero is refused because a gate over an empty population is no gate -- it is the state that would turn every case below green for free |
+| `triage-label: the state roles are derived from the label doc, not copied` | The doc's table is the authority and this spec must read it, not a copy of it. If the derivation stops matching the table's shape it returns nothing, every label compares against an empty set, and the cases below fail open -- so the roster is asserted to be the six states the vocabulary documents before anything is compared to it |
+| `triage-label: every discovered applier yields at least one label` | The gate's fail-closed half, and the one it was missing. A workflow is discovered by the call it makes and read by a separate pattern, so the two can disagree: discovered, then unreadable, yields an empty label set, and an empty set compares clean against any vocabulary. A workflow spelling the operand `--add-label "triage"` passed exactly that way. Unreadable is a REFUSAL, so the next spelling nobody anticipated fails loudly instead of being waved through |
+| `triage-label: a quoted operand and a multi-line array are both read` | The two spellings the first extractor silently dropped, pinned as data rather than left to the live tree -- neither is in this repo today, so nothing here would fail if the patterns regressed. A quoted operand and a multi-line array are both ordinary YAML, and both read as zero labels, which the vocabulary case passes |
+| `triage-label: every label a workflow applies is one the vocabulary defines` | The defect itself, stated as the invariant it broke. The API CREATES a label an addLabels call names when the repo has none, so a workflow applying a string outside the vocabulary does not fail -- it mints a label the doc says does not exist, on GitHub's default grey, once per issue. Deleting the label by hand cannot fix that; this is the only place the recurrence can be closed (base#1182) |
+| `triage-label: the unlabeled-issue safety net applies the intake role` | The intake role has one spelling and the rename chose it. Naming the label positively, and not merely "something in the table", is what keeps a later edit from swapping the safety net onto ready-for-agent or wontfix -- both of which are in the table and neither of which is what an unlabeled externally-filed issue is waiting for |
 
 ### test/bats/unit/tui_backend_spec.bats (30)
 
