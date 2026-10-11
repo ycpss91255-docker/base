@@ -1504,6 +1504,28 @@ _write_setup_conf() {
     # not a replacement, and the merge then inherits the layer below. A
     # `setup remove build.arg_1` against a repo's single build argument
     # was handing back every build argument the template defines.
+    # A FAMILY THIS LAYER HAS NO BLOCK OF IS ONE OF THOSE PATHS, and the
+    # block count alone cannot see it. A removal names a slot of the
+    # EFFECTIVE list, which may be inherited whole: an operator clearing
+    # the template's only `[[build.args]]` entry from a repo whose own
+    # file declares no args has decided this repo takes no build
+    # arguments, and under atomic array replacement the only way to say
+    # that is `args = []` in this layer. Counted off the blocks alone the
+    # path was absent from this loop, nothing wrote a declaration, and
+    # the removal had no way to take effect at all -- the save was
+    # declined and the operator was told to edit the file by hand. So the
+    # paths the save REMOVES FROM are seeded at zero beside the ones it
+    # counted blocks for; zero reads the same as absent everywhere else
+    # `__aot_total` is consulted, and the loop below then finds no live
+    # slot and no override and declares the array empty, which is the
+    # state ADR-00000037's zero-entry amendment says this is.
+    local __sp_nskey __sp_s __sp_k __sp_p __sp_n
+    for __sp_nskey in "${!__removed[@]}"; do
+      _conf_split_nskey "${__sp_nskey}" __sp_s __sp_k || continue
+      _conf_toml_aot_slot "${__sp_s}" "${__sp_k}" __sp_p __sp_n || continue
+      [[ -n "${__aot_total[${__sp_p}]+x}" ]] && continue
+      __aot_total["${__sp_p}"]=0
+    done
     local __fe_n __fe_live __fe_nskey
     for __p in "${!__aot_total[@]}"; do
       __fe_live=0
@@ -1973,6 +1995,17 @@ _conf_toml_removal_applied() {
       local _before _after
       _before="$(_conf_kv_family_count "${_skv}" "${_sect}" "${_key%_*}_")"
       _after="$(_conf_kv_family_count "${_kv}" "${_sect}" "${_key%_*}_")"
+      # NOTHING TO SHORTEN IS NOT A FAILURE TO SHORTEN. A removal names a
+      # slot of the EFFECTIVE list, so the family may be inherited whole
+      # and absent from THIS file in every spelling -- in which case the
+      # rewrite's answer is the explicit `key = []` the writer emits, and
+      # an empty array contributes no `--kv` row at all. The length check
+      # would then read 0 against 0 and refuse a save that is exactly
+      # right. It is also the one case where the check has nothing to
+      # catch: the line-oriented writer can only have missed a spelling
+      # the reader can see, and the reader sees no entry of this family
+      # here.
+      (( _before == 0 )) && continue
       if (( _after >= _before )); then
         _ctra_why="${_nskey}"
         return 1

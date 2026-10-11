@@ -21,13 +21,20 @@
 # Two hazards this spec is written around, both load-bearing:
 #
 # - `FILE_PATH` is `readonly` and resolves to the sourced tree. Everything
-# keyed on it is steered by replacing the function that reads it, or
-# through `_TUI_SCRIPT_DIR` / `_TUI_TPL_DIR`, which are plain variables.
+# keyed on it is steered through `_TUI_BASE_PATH` / `_TUI_SCRIPT_DIR` /
+# `_TUI_TPL_DIR`, which are plain variables -- `stub_chain` points the
+# whole conf layer chain at the test's own scratch dirs.
 #
 # - Nothing here writes under `FILE_PATH`. The suite runs many-way
-# parallel over one shared source tree, so `_do_reset`'s `rm -f` is
-# intercepted by a shell function (which also makes "reset deletes the
-# per-repo conf" assertable) and `main`'s commit is a spy.
+# parallel over one shared source tree, so every save and every reset in
+# this file lands under `BATS_TEST_TMPDIR`, `setup.sh` is a recorder, and
+# `main`'s commit is a spy.
+#
+# - The config assertions ask the REAL merge (`effective` /
+# `effective_family`, over `_setup_conf_handle`), never a grep on file
+# text. base#1115 / base#1117 / base#1175 measured what a text gate is
+# worth: three greps claiming to pin `xhost` behaviour passed against a
+# `run.sh` with no `xhost` in it.
 #
 # Grouped by concern:
 #
@@ -51,11 +58,21 @@
 # `_edit_stage_deploy`, `_edit_stage_network`, `_edit_stage_volumes`,
 # `_edit_stage_environment`)
 #
-# - `_commit_and_setup` (baseline merged with overrides, removals dropped,
+# - the conf layer chain (`_load_current` opening on the effective
+# configuration, `_tui_local_layer_notice` /
+# `_tui_shadowed_sections` naming the per-worktree layer,
+# `_tui_aot_families_touched` derived from the array-of-tables table)
+#
+# - `_commit_and_setup` (the saved value is the one the readers resolve,
+# an inherited scalar is not pinned down, a touched array is saved whole
+# and trimmed to the list the menus showed, the published mount_1 clear
+# survives, a declined write is reported rather than reported as saved,
 # setup.sh apply re-run against the repo's base path)
 #
-# - `_do_reset` (declined = untouched; confirmed = conf removed, template
-# reloaded, pending edits cleared)
+# - `_do_reset` (declined = untouched; confirmed = `setup.sh reset`
+# dispatched, chain reloaded, pending edits cleared, the per-worktree
+# layer left alone; a FAILED reset keeps the pending edits and claims
+# nothing)
 #
 # - `main` (subcommand dispatch including the `resources` direct jump and
 # the `gpu` alias, unknown argument, `--lang` fallback notice, missing
@@ -683,180 +700,592 @@ stub_apply() {
   export _APPLY
 }
 
-# why: the value the user typed is the whole reason the TUI exists; it has
-# to reach the file on disk, not just the in-memory override array.
-@test "_commit_and_setup: the edited value reaches the saved conf" {
-  stub_apply
-  local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  # The frozen TUI writes INI into .setup.conf; the writers pick their
-  # format from the destination's name.
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
-  printf '[network]\nmode = host\n' > "${_tpl}"
-  _load_current "${_repo}" "${_tpl}"
-  _override_set network.mode bridge
-  _commit_and_setup "${_repo}" "${_tpl}"
-  grep -Eq '^mode[[:space:]]*=[[:space:]]*bridge$' "${_repo}"
+# A whole conf layer chain under the test's own directories: the template
+# layer in `<tmp>/tpl`, the repo's committed layer and the operator's
+# per-worktree layer in `<tmp>/repo`. Both ends are plain variables
+# (`_TUI_BASE_PATH` / `_TUI_TPL_DIR`), so the editor under test resolves
+# the same three paths `_setup_conf_layers` names for a real repo while
+# nothing is written under the readonly FILE_PATH this suite shares.
+#
+# `stub_apply` after this one, never before: it points _TUI_TPL_DIR at the
+# bare tmpdir and would undo the template layer's location.
+stub_chain() {
+  _CHAIN_REPO="${BATS_TEST_TMPDIR}/repo"
+  _CHAIN_TPL="${BATS_TEST_TMPDIR}/tpl"
+  mkdir -p "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _TUI_BASE_PATH="${_CHAIN_REPO}"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
 }
 
-# why: the TUI edits one key at a time but saves the whole file. A baseline
-# key the user never opened must survive the save, or every edit silently
-# resets the rest of the config.
-@test "_commit_and_setup: a key the user never touched survives the save" {
-  stub_apply
-  local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
-  printf '[network]\nmode = host\nipc = shareable\n' > "${_tpl}"
-  _load_current "${_repo}" "${_tpl}"
-  _override_set network.mode bridge
-  _commit_and_setup "${_repo}" "${_tpl}"
-  grep -Eq '^ipc[[:space:]]*=[[:space:]]*shareable$' "${_repo}"
+# What the REAL readers resolve for `<section>.<key>` over the test's
+# chain, printed. Asked of `_setup_conf_handle` -- the merge every other
+# reader in the tree goes through -- so a test can say "the setting took
+# effect" instead of "a line appeared in a file". base#1115 / base#1117 /
+# base#1175 are what a grep on file text is worth: three greps pinning
+# `xhost` behaviour passed against a run.sh with no `xhost` in it.
+effective() {
+  local _section="${1}" _key="${2}"
+  _setup_conf_handle "${_CHAIN_REPO}" _EFF "${_CHAIN_TPL}" || return 1
+  _conf_get _EFF "${_section}" "${_key}" ""
 }
 
-# why: .env.generated and compose.yaml are derived from setup.conf, so a
+# Every entry the readers resolve for one numbered family, in index order,
+# one per line. The family's PREFIX is derived from the array-of-tables
+# table (`_conf_toml_aot_section`), not spelled here, so a test naming
+# `volumes` gets whatever prefix that table says `volumes` numbers under.
+effective_family() {
+  local _section="${1}" _path="${2}"
+  _setup_conf_handle "${_CHAIN_REPO}" _EFF "${_CHAIN_TPL}" || return 1
+  local -a _fams=()
+  _conf_toml_aot_section "${_section}" _fams || return 1
+  local _f _prefix=""
+  for _f in "${_fams[@]}"; do
+    [[ "${_f#*=}" == "${_path}" ]] && _prefix="${_f%%=*}"
+  done
+  [[ -n "${_prefix}" ]] || return 1
+  local -a _entries=()
+  _conf_list_sorted _EFF "${_section}" "${_prefix}_" _entries
+  printf '%s\n' "${_entries[@]+"${_entries[@]}"}"
+}
+
+# why: the value the user typed is the whole reason the TUI exists, and
+# "reached a file" is not the claim -- the editor wrote <repo>/.setup.conf
+# for the whole of ADR-00000037's freeze while every reader resolved the
+# setup.toml chain, so a save printed its confirmation over a setting with
+# no effect (base#1232). The assertion is therefore on what the REAL merge
+# answers afterwards, through the same accessor setup.sh and the emitters
+# use, not on a line in a file: a filename is not the property, the
+# effective configuration is.
+@test "_commit_and_setup: a saved value is the one the readers resolve" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  assert_equal "$(effective gui mode)" "auto"
+  _override_set gui.mode force
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective gui mode)" "force"
+}
+
+# why: the menus have to open on the values IN FORCE. _load_current used to
+# take two paths and read whichever existed first, so with a repo layer
+# present the template's keys were invisible and with a per-worktree layer
+# present its values were silently absent from the screen -- an editor
+# whose baseline is one layer cannot show the user what is configured.
+# Three layers, each contributing one key, is the smallest fixture in
+# which reading any single file gives the wrong answer.
+@test "_load_current: the baseline is the whole chain merged, not one file" {
+  stub_chain
+  printf '[gui]\nmode = "auto"\n\n[network]\nmode = "host"\nipc = "host"\n' \
+    > "${_CHAIN_TPL}/setup.toml"
+  printf '[network]\nmode = "bridge"\n' > "${_CHAIN_REPO}/setup.toml"
+  printf '[network]\nipc = "shareable"\n' > "${_CHAIN_REPO}/setup.local.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  # template-only key, repo override, and the per-worktree layer's say.
+  assert_equal "${_TUI_CURRENT[gui.mode]}" "auto"
+  assert_equal "${_TUI_CURRENT[network.mode]}" "bridge"
+  assert_equal "${_TUI_CURRENT[network.ipc]}" "shareable"
+}
+
+# why: a reload has to REPLACE the baseline. _do_reset reloads after
+# dropping this repo's layer, and a merge into the previous map would keep
+# showing keys the chain no longer resolves -- the user reads a value off
+# a menu that nothing will emit.
+@test "_load_current: a reload drops a key the chain no longer resolves" {
+  stub_chain
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[network]\nmode = "bridge"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  assert_equal "${_TUI_CURRENT[network.mode]}" "bridge"
+  rm -f "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  [ -z "${_TUI_CURRENT[network.mode]:-}" ]
+  assert_equal "${_TUI_CURRENT[gui.mode]}" "auto"
+}
+
+# why: the baseline is now the EFFECTIVE configuration, so a save that
+# wrote all of it would copy every inherited value down into this repo's
+# committed file and the repo would stop tracking the template. Measured
+# through the merge in BOTH directions, because either half alone passes
+# on a wrong implementation: the key the user changed resolves to the new
+# value, and the key the user never opened still resolves to the
+# template's -- while this repo's own file does not name it.
+@test "_commit_and_setup: an inherited scalar is not pinned into the repo layer" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[network]\nmode = "host"\nipc = "host"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[network]\nmode = "host"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _override_set network.mode bridge
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective network mode)" "bridge"
+  assert_equal "$(effective network ipc)" "host"
+  # Still inherited, not copied: the repo's layer says nothing about ipc.
+  run grep -c 'ipc' "${_CHAIN_REPO}/setup.toml"
+  assert_equal "${output}" "0"
+}
+
+# why: an array is replaced ATOMICALLY by the highest layer that declares
+# it (ADR-00000037), so a repo layer naming ONE [[volumes]] entry replaces
+# the inherited list with that single mount. A save that wrote only the
+# slot the user touched would therefore delete the rest of the list with
+# no message: adding a third mount to a template's two leaves the repo
+# with the third alone, and slot 1 of [volumes] is the workspace bind. The
+# population is read back through the real merge, so the claim is "the
+# list the readers resolve", not "three blocks are in the file".
+@test "_commit_and_setup: touching one array entry saves the whole list" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_TPL}/setup.toml" <<'EOF'
+[[volumes]]
+source = "./src"
+target = "/opt/workspace"
+mode = "rw"
+
+[[volumes]]
+source = "/dev/shm"
+target = "/dev/shm"
+mode = "rw"
+EOF
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _override_set volumes.mount_3 '/data:/data:ro'
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  run effective_family volumes volumes
+  assert_success
+  assert_line --index 0 './src:/opt/workspace:rw'
+  assert_line --index 1 '/dev/shm:/dev/shm:rw'
+  assert_line --index 2 '/data:/data:ro'
+}
+
+# why: the mirror image of the rule above. A scalar section is merged key
+# by key, so writing a key the user did not touch is the defect there --
+# and an array is replaced whole, so NOT writing a sibling entry is the
+# defect here. One fixture, one save, both answers, because an
+# implementation that gets one right by writing everything or nothing gets
+# the other wrong.
+@test "_commit_and_setup: an untouched array keeps inheriting" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_TPL}/setup.toml" <<'EOF'
+[gui]
+mode = "auto"
+
+[[volumes]]
+source = "./src"
+target = "/opt/workspace"
+mode = "rw"
+EOF
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _override_set gui.mode force
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective gui mode)" "force"
+  run effective_family volumes volumes
+  assert_line --index 0 './src:/opt/workspace:rw'
+  # And the repo layer declares no volumes array at all, so the template's
+  # list is still INHERITED rather than copied down.
+  run grep -c 'volumes' "${_CHAIN_REPO}/setup.toml"
+  assert_equal "${output}" "0"
+}
+
+# why: the published opt-out is to CLEAR mount_1, not to remove it
+# (README: "clear it to opt out of mounting a workspace"; v0.9 rules that
+# setup.sh does not re-populate it). Clearing is not removing, and the
+# editor's save has to leave the clear exactly as the operator left it --
+# a save that re-detected or dropped the slot would silently re-mount a
+# workspace the operator opted out of.
+@test "_commit_and_setup: a cleared mount_1 stays cleared through a save" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_TPL}/setup.toml" <<'EOF'
+[gui]
+mode = "auto"
+
+[[volumes]]
+source = ""
+target = ""
+EOF
+  cat > "${_CHAIN_REPO}/setup.toml" <<'EOF'
+[gui]
+mode = "auto"
+
+[[volumes]]
+source = ""
+target = ""
+EOF
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _override_set gui.mode force
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_equal "$(effective gui mode)" "force"
+  # `_conf_list_sorted` skips empty entries, so an opted-out workspace is
+  # an EMPTY family -- and the slot is still there to be filled back in.
+  run effective_family volumes volumes
+  assert_equal "${output}" ""
+  assert_equal "$(effective volumes mount_1)" ""
+}
+
+# why: an array is replaced whole, so a HIGHER layer declaring a SHORTER
+# list is what the menus show -- and the writer addresses an array by
+# SLOT, replacing block N and appending past the end, so a committed file
+# holding MORE blocks than that list keeps its own leftovers. Measured:
+# two committed build args, one in setup.local.toml, edit the one entry
+# the menu shows, and the committed list came back as the edited local
+# entry FOLLOWED BY the committed file's second argument -- a list no
+# layer ever wrote and no screen ever showed. The save now trims the
+# surplus slots, so the committed family is exactly as long as what was
+# on screen. Read back through the real merge with the local layer taken
+# away, because what has to be right is the COMMITTED list -- the value
+# CI and every other checkout get.
+@test "_commit_and_setup: a shorter local list does not leave the committed list longer" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  cat > "${_CHAIN_REPO}/setup.toml" <<'EOF'
+[build]
+
+[[build.args]]
+key = "A"
+value = "repo"
+
+[[build.args]]
+key = "B"
+value = "repo"
+EOF
+  cat > "${_CHAIN_REPO}/setup.local.toml" <<'EOF'
+[build]
+
+[[build.args]]
+key = "L"
+value = "local"
+EOF
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  # One entry on screen, because the local layer replaced the list whole.
+  run effective_family build build.args
+  assert_equal "${#lines[@]}" "1"
+  _override_set build.arg_1 'L=edited'
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  rm -f "${_CHAIN_REPO}/setup.local.toml"
+  run effective_family build build.args
+  assert_success
+  assert_equal "${#lines[@]}" "1"
+  assert_line --index 0 'L=edited'
+}
+
+# why: a removal names a slot of the EFFECTIVE list, and that list can be
+# inherited whole -- so clearing the template's only `[[build.args]]`
+# entry from a repo whose own file declares no args is the operator
+# deciding this repo takes no build arguments. Under atomic array
+# replacement the only way to say that is `args = []` in this layer
+# (ADR-00000037's zero-entry amendment). Counted off its own blocks alone
+# the writer had none to clear, wrote no declaration, and declined the
+# save, so the one thing the operator asked for was the one thing the
+# editor could not do. Read back through the real merge: the TEMPLATE
+# still declares its argument, so a chain that answers one entry means
+# the clear did not take.
+@test "_commit_and_setup: clearing the last inherited array entry empties the list" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_TPL}/setup.toml" <<'EOF'
+[build]
+
+[[build.args]]
+key = "A"
+value = "one"
+EOF
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  run effective_family build build.args
+  assert_line --index 0 'A=one'
+  _mark_removed build.arg_1
+  run _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_success
+  run effective_family build build.args
+  assert_success
+  assert_equal "${output}" ""
+  # And it is an EMPTY DECLARATION, not an absent key: absent inherits.
+  assert_equal "$(effective build args)" ""
+}
+
+# why: `_write_setup_conf` DECLINES a save it cannot make faithfully --
+# `_wsc_refuse_ws_slot_move` is the live case: removing volumes.mount_1
+# compacts the list, so the next mount would take slot 1, which is the
+# workspace bind by position. It returns non-zero with the destination
+# untouched. The editor runs under `set -e`, so left unchecked that
+# aborted mid-curses with only the writer's log line; and a save that
+# reported success over a file it never wrote is the exact failure
+# base#1232 exists to end. So: non-zero out, the repo layer byte-identical,
+# and NO apply run -- regenerating from a config that did not change is
+# the step that would make the refusal look like a save.
+@test "_commit_and_setup: a declined write is reported, not reported as saved" {
+  stub_chain
+  stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  cat > "${_CHAIN_REPO}/setup.toml" <<'EOF'
+[[volumes]]
+source = "./src"
+target = "/opt/workspace"
+mode = "rw"
+
+[[volumes]]
+source = "/data"
+target = "/data"
+mode = "rw"
+EOF
+  cp "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  local _before
+  _before="$(cat "${_CHAIN_REPO}/setup.toml")"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _mark_removed volumes.mount_1
+  run _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
+  assert_failure
+  refute_output --partial "$(printf "$(_tui_msg saved)" "x")"
+  assert_equal "$(cat "${_CHAIN_REPO}/setup.toml")" "${_before}"
+  [ ! -s "${_APPLY}" ]
+}
+
+# why: .env.generated and compose.yaml are derived from setup.toml, so a
 # save that does not re-run apply leaves the container running the previous
-# configuration while the file says otherwise.
+# configuration while the file says otherwise. The base path it hands over
+# has to be the repo the editor just wrote, not the tree setup_tui.sh was
+# sourced from.
 @test "_commit_and_setup: re-runs setup.sh apply for the repo it saved" {
+  stub_chain
   stub_apply
-  local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
-  printf '[network]\nmode = host\n' > "${_tpl}"
-  _load_current "${_repo}" "${_tpl}"
-  _commit_and_setup "${_repo}" "${_tpl}"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[network]\nmode = "host"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[network]\nmode = "host"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
   grep -q -- 'apply' "${_APPLY}"
-  grep -q -- '--base-path' "${_APPLY}"
+  grep -q -- "--base-path ${_CHAIN_REPO}" "${_APPLY}"
 }
 
 # why: the saved path is the one thing the user needs after curses clears
 # the screen; printing it is how they know where the edit went.
 @test "_commit_and_setup: reports the path it saved" {
+  stub_chain
   stub_apply
-  local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
-  printf '[network]\nmode = host\n' > "${_tpl}"
-  _load_current "${_repo}" "${_tpl}"
-  run _commit_and_setup "${_repo}" "${_tpl}"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  printf '[network]\nmode = "host"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[network]\nmode = "host"\n' > "${_CHAIN_REPO}/setup.toml"
+  _load_current "${_CHAIN_REPO}" "${_CHAIN_TPL}"
+  run _commit_and_setup "${_CHAIN_REPO}/setup.toml" "${_CHAIN_TPL}/setup.toml"
   assert_success
-  assert_output --partial "${_repo}"
+  assert_output --partial "${_CHAIN_REPO}/setup.toml"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The per-worktree layer -- named, never silently winning
+# ════════════════════════════════════════════════════════════════════
+
+# why: the menus show the EFFECTIVE values, that layer included, and a
+# save goes to the COMMITTED one. Without the notice the operator reads a
+# setup.local.toml value off the screen, changes the same section, and
+# sees no difference on this machine -- the shape
+# `_setup_warn_shadowed_write` already warns about at the CLI, which logs
+# and is therefore invisible once curses owns the terminal. The sections
+# are named, not just the fact, because that is what makes it actionable.
+@test "_tui_local_layer_notice: names the per-worktree file and its sections" {
+  stub_chain
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[gui]\nmode = "off"\n\n[network]\nmode = "bridge"\n' \
+    > "${_CHAIN_REPO}/setup.local.toml"
+  _tui_local_layer_notice "${_CHAIN_REPO}"
+  warned "$(_setup_conf_local_path "${_CHAIN_REPO}")"
+  warned 'gui'
+  warned 'network'
+}
+
+# why: a notice that fires on every launch is a notice nobody reads. No
+# per-worktree layer is the ordinary case and has to stay silent.
+@test "_tui_local_layer_notice: silent when there is no per-worktree layer" {
+  stub_chain
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  _tui_local_layer_notice "${_CHAIN_REPO}"
+  [ ! -s "${_BOXFILE}" ]
+}
+
+# why: the save-time half. A write to a section the per-worktree layer
+# also defines may be inert HERE while still being the committed value for
+# every other checkout, so it is reported rather than refused -- the same
+# asymmetry `_setup_warn_shadowed_write` settles for `setup.sh set`. It
+# names only the sections this session actually touched: re-reading the
+# whole launch notice at the user would bury the one that matters.
+@test "_tui_shadowed_sections: only the touched sections the local layer defines" {
+  stub_chain
+  printf '[gui]\nmode = "off"\n\n[network]\nmode = "bridge"\n' \
+    > "${_CHAIN_REPO}/setup.local.toml"
+  _override_set gui.mode force
+  _override_set security.privileged false
+  local -a _got=()
+  _tui_shadowed_sections "${_CHAIN_REPO}" _got
+  assert_equal "${#_got[@]}" "1"
+  assert_equal "${_got[0]}" "gui"
+}
+
+# why: a removal is a write too -- clearing an entry of a list the local
+# layer replaces whole is exactly as inert as setting a key it names, and
+# a check that read the overrides alone reported nothing to warn about.
+@test "_tui_shadowed_sections: a removal counts as touching the section" {
+  stub_chain
+  printf '[[volumes]]\nsource = "/d"\ntarget = "/d"\n' \
+    > "${_CHAIN_REPO}/setup.local.toml"
+  _mark_removed volumes.mount_2
+  local -a _got=()
+  _tui_shadowed_sections "${_CHAIN_REPO}" _got
+  assert_equal "${#_got[@]}" "1"
+  assert_equal "${_got[0]}" "volumes"
+}
+
+# why: which keys a save has to carry WHOLE is the array question, and the
+# answer has to come off `_conf_toml_aot_section`'s `<prefix>=<path>`
+# table rather than a roster here -- a test naming today's families passes
+# forever while a new one silently loses its siblings on every save
+# (base#1089 / base#1112 / base#1214). So the population is DERIVED: every
+# section the schema has, every family that table gives it, one touched key
+# each, and the family's path has to come back. `[environment]`'s `env_N`
+# is excluded by having no row, which is the state base#1235 leaves open.
+@test "_tui_aot_families_touched: derives the families from the array table" {
+  local _section _fam _prefix _path
+  local -a _fams=()
+  local _checked=0
+  for _section in "${SCHEMA_SECTIONS[@]}"; do
+    _conf_toml_aot_section "${_section}" _fams || continue
+    for _fam in "${_fams[@]}"; do
+      _prefix="${_fam%%=*}"
+      _path="${_fam#*=}"
+      _TUI_OVR_KEYS=()
+      _TUI_OVR_VALUES=()
+      _TUI_REMOVED=()
+      _override_set "${_section}.${_prefix}_1" 'x'
+      local -a _got=()
+      _tui_aot_families_touched _got
+      assert_equal "${#_got[@]}" "1"
+      assert_equal "${_got[0]}" "${_path}"
+      _checked=$(( _checked + 1 ))
+    done
+  done
+  # The derivation has to have found families, not silently nothing.
+  [ "${_checked}" -ge 8 ]
+}
+
+# why: a scalar key must NOT drag its section's list into the save -- that
+# is the other half of the rule, and an implementation that answers "every
+# family of the touched section" would pass the derivation above and still
+# rewrite [volumes] every time the user edits a mount's neighbour.
+@test "_tui_aot_families_touched: a scalar key touches no family" {
+  _override_set gui.mode force
+  _override_set security.privileged false
+  _override_set environment.env_1 'FOO=bar'
+  local -a _got=()
+  _tui_aot_families_touched _got
+  assert_equal "${#_got[@]}" "0"
 }
 
 # ════════════════════════════════════════════════════════════════════
 # _do_reset
 # ════════════════════════════════════════════════════════════════════
 
-# Intercept the one destructive call in this file. `rm` is a shell function
-# here, which both keeps the delete off the shared source tree and makes
-# "reset removes the per-repo conf" an assertion rather than a hope. _RMLOG
-# is deliberately NOT `local`: the override outlives the test body, and a
-# dead local would leave it appending to an empty path.
-stub_rm() {
-  _RMLOG="${BATS_TEST_TMPDIR}/rm_args"
-  : > "${_RMLOG}"
-  rm() { printf '%s\n' "$*" >> "${_RMLOG}"; }
-}
-
-# Take the TOML-era refusal out of the way so the frozen body underneath
-# stays covered. The real _tui_refuse_frozen exits 2 and never returns;
-# every test that drives the body past it replaces it here, the same way
-# this suite replaces `_backend_detect` and the dialog primitives. The
-# refusal itself is asserted by the two tests that do NOT call this.
-stub_frozen_guard() {
-  _tui_refuse_frozen() { return 0; }
-}
-
 # why: reset is destructive, so declining the confirmation has to change
-# nothing at all -- no delete, no apply, no loss of the edits in progress.
+# nothing at all -- nothing run, no loss of the edits in progress.
 @test "_do_reset: declining the confirmation changes nothing" {
-  stub_frozen_guard
+  stub_chain
   stub_apply
-  stub_rm
   _override_set network.mode bridge
   queue "1|"
   _do_reset
-  unset -f rm
-  [ ! -s "${_RMLOG}" ]
   [ ! -s "${_APPLY}" ]
   [[ "$(ovr_get network.mode)" == "bridge" ]]
 }
 
 # why: reset means "go back to the template". That is three things at once
-# -- drop the per-repo file, re-seed it from the template, and throw away
-# the pending edits -- and leaving any one of them out gives the user a
-# menu that still shows values the file no longer has. The file it drops
-# is `.setup.conf`: ADR-00000037 freezes this editor on the INI pair until
-# the TOML rebuild lands, so that is the name the frozen body writes and
-# removes, and a blanket rename left this assertion naming a path the
-# function never touches. What keeps the frozen body from reaching a user
-# is _tui_refuse_frozen, stubbed out here so the body stays covered.
-@test "_do_reset: confirmed, it drops the conf, re-applies and clears pending edits" {
-  stub_frozen_guard
+# -- drop this repo's own layer, re-seed it from the template, and throw
+# away the pending edits -- and leaving any one of them out gives the user
+# a menu that still shows values the chain no longer resolves. The drop is
+# delegated to `setup.sh reset`, which IS "replace the repo's setup.toml
+# with the template baseline" and archives the file it replaces; a second
+# `rm -f` here would be a second meaning for Reset. So the assertions are
+# that the subcommand was dispatched, that apply followed it, and that the
+# baseline afterwards is what the REAL merge answers -- the template's
+# value, not the override the user had pending.
+@test "_do_reset: confirmed, it resets through setup.sh, re-applies and clears edits" {
+  stub_chain
   stub_apply
-  stub_rm
-  printf '[network]\nmode = none\n' > "${BATS_TEST_TMPDIR}/.setup.conf"
-  _override_set network.mode bridge
+  printf '[network]\nmode = "none"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[network]\nmode = "bridge"\n' > "${_CHAIN_REPO}/setup.toml"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  # The recorder does not actually reset, so do what it stands for.
+  rm -f "${_CHAIN_REPO}/setup.toml"
+  _override_set network.mode host
   _mark_removed network.ipc
   queue "0|"
   _do_reset
-  unset -f rm
-  grep -q -- '\.setup\.conf' "${_RMLOG}"
+  grep -q -- 'reset --yes' "${_APPLY}"
   grep -q -- 'apply' "${_APPLY}"
+  grep -q -- "--base-path ${_CHAIN_REPO}" "${_APPLY}"
   [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
   [ "${#_TUI_REMOVED[@]}" -eq 0 ]
-  [[ "${_TUI_CURRENT[network.mode]}" == "none" ]]
+  assert_equal "${_TUI_CURRENT[network.mode]}" "none"
   warned "$(_tui_msg reset.done)"
 }
 
-# ════════════════════════════════════════════════════════════════════
-# _tui_refuse_frozen -- the TOML-era refusal
-# ════════════════════════════════════════════════════════════════════
-
-# why: the readers did not wait for the freeze. _setup_conf_layers names
-# only `.toml` layers, so the `.setup.conf` this editor writes is read by
-# nothing: a user picks a value, the editor saves it, prints its save line,
-# and the setting has no effect. A silent no-op behind a success message is
-# worse than a refusal, so main refuses before it opens anything and names
-# the two surfaces that do work.
-@test "main: the TOML-era editor refuses instead of opening a menu" {
-  stub_main_deps
-  _tui_refuse_frozen() { printf '[tui] refused\n' >&2; return 2; }
-  run main
-  [ "${status}" -eq 2 ]
-  assert_output --partial 'refused'
-  run grep -c -- 'main_menu' "${_MARK}"
-  [ "${output}" -eq 0 ]
-  run grep -c -- '^commit ' "${_MARK}"
-  [ "${output}" -eq 0 ]
-}
-
-# why: the refusal has to carry the two places that DO take a setting, in
-# the user's own language, or it only replaces a silent no-op with a dead
-# end. Every message table has to answer, because a missing key prints the
-# key name.
-@test "_tui_refuse_frozen: every language names setup.toml and the CLI" {
-  local _lang
-  for _lang in en zh-TW zh-CN ja; do
-    _LANG="${_lang}"
-    _tui_init_lang
-    run _tui_refuse_frozen
-    [ "${status}" -eq 2 ]
-    assert_output --partial 'setup.toml'
-    assert_output --partial './setup.sh set'
-    refute_output --partial 'err.frozen'
-  done
-}
-
-# why: reset promises "back to template defaults" while the values in force
-# sit in setup.toml, untouched by it -- the same misleading success as a
-# save, with an `rm -f` attached. It refuses on its own rather than only
-# behind main, because the destructive step is here.
-@test "_do_reset: refuses in the TOML era instead of dropping the legacy conf" {
+# why: a failed reset is not a reset. The status used to be swallowed with
+# `|| true`, so the editor went on to throw away every pending edit,
+# reload a configuration that had not changed, and report that all
+# settings were reset -- misleading success with the operator's unsaved
+# work gone as well. On failure the session has to survive intact.
+@test "_do_reset: a failed reset keeps the pending edits and does not claim success" {
+  stub_chain
   stub_apply
-  stub_rm
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  # The recorder refuses, the way a read-only config dir makes it refuse.
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' '[[ "${1}" == reset ]] && exit 1'
+    printf '%s\n' 'exit 0'
+  } > "${_TUI_SCRIPT_DIR}/setup.sh"
+  chmod +x "${_TUI_SCRIPT_DIR}/setup.sh"
+  _override_set gui.mode force
+  _mark_removed network.ipc
   queue "0|"
-  run _do_reset
-  [ "${status}" -eq 2 ]
-  assert_output --partial 'setup.toml'
-  [ ! -s "${_RMLOG}" ]
-  [ ! -s "${_APPLY}" ]
+  # NOT `run`: the session state this test is about lives in THIS shell,
+  # and `run` would mutate a subshell's copy and leave the assertions
+  # below reading the values the test itself had just set -- green
+  # whatever _do_reset does to them.
+  local _rc=0
+  _do_reset || _rc="$?"
+  [ "${_rc}" -ne 0 ]
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 1 ]
+  [ "${#_TUI_REMOVED[@]}" -eq 1 ]
+  warned "$(_tui_msg err.reset_failed)"
+  ! warned "$(_tui_msg reset.done)"
+}
+
+# why: reset drops THIS REPO's layer and the operator's per-worktree file
+# is not this repo's -- it is gitignored, never touched by tooling, and
+# `setup.sh reset` leaves it alone. So a reset on a machine carrying one
+# does not go "back to template defaults" there, and the menus have to
+# keep showing what is actually in force rather than the template.
+@test "_do_reset: the per-worktree layer survives a reset and still shows" {
+  stub_chain
+  stub_apply
+  printf '[gui]\nmode = "auto"\n' > "${_CHAIN_TPL}/setup.toml"
+  printf '[gui]\nmode = "off"\n' > "${_CHAIN_REPO}/setup.local.toml"
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
+  queue "0|"
+  _do_reset
+  [ -f "${_CHAIN_REPO}/setup.local.toml" ]
+  assert_equal "${_TUI_CURRENT[gui.mode]}" "off"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -864,12 +1293,14 @@ stub_frozen_guard() {
 # ════════════════════════════════════════════════════════════════════
 
 # Everything main touches outside its own argument handling, replaced by a
-# recorder. _commit_and_setup is a spy because the real one writes under
-# FILE_PATH, which this suite shares with every other spec running in
-# parallel.
+# recorder. The base path and the template layer are pointed at the test's
+# own scratch dirs, so main's conf paths resolve there rather than under
+# the readonly FILE_PATH this suite shares with every other spec running
+# in parallel; _commit_and_setup stays a spy for the same reason.
 stub_main_deps() {
-  stub_frozen_guard
+  stub_chain
   stub_apply
+  _TUI_TPL_DIR="${_CHAIN_TPL}"
   _MARK="${BATS_TEST_TMPDIR}/marks"
   : > "${_MARK}"
   export _MARK
@@ -982,6 +1413,39 @@ stub_main_deps() {
   run main
   assert_success
   grep -q -- 'apply' "${_APPLY}"
+}
+
+# why: the editor's save target has to be a layer the readers actually
+# resolve. For the whole of ADR-00000037's freeze it was not: main wrote
+# `<repo>/.setup.conf` while `_setup_conf_layers` named only `.toml`
+# layers, so a save had no effect at all (base#1232). The chain is DERIVED
+# from `_setup_conf_layers` rather than spelled as a filename here -- the
+# claim is membership of the chain, so a layer that is renamed or
+# relocated keeps this test honest instead of pinning today's name.
+@test "main: the path it commits to is one of the layers the readers resolve" {
+  stub_main_deps
+  _MENU_RC=0
+  run main
+  assert_success
+  local _target
+  _target="$(sed -n 's/^commit //p' "${_MARK}")"
+  [ -n "${_target}" ]
+  local -a _layers=()
+  _setup_conf_layers "${_CHAIN_REPO}" _layers "${_CHAIN_TPL}"
+  [ "${#_layers[@]}" -ge 3 ]
+  local _l _hit=0
+  for _l in "${_layers[@]}"; do
+    [[ "${_l}" == "${_target}" ]] && _hit=1
+  done
+  [ "${_hit}" -eq 1 ] || {
+    printf 'commit target %s is in none of: %s\n' "${_target}" "${_layers[*]}" >&2
+    return 1
+  }
+  # And it is the repo's OWN layer, not the template and not the
+  # gitignored per-worktree one: a save that landed in the template would
+  # change every repo built from it, and one that landed in the local
+  # layer would be invisible to CI and every other checkout.
+  assert_equal "${_target}" "${_CHAIN_REPO}/setup.toml"
 }
 
 # why: -h must print usage rather than open the TUI, and it is the one path

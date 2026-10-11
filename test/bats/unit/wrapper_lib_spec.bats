@@ -683,24 +683,38 @@ _run_service_probe() {
   refute_output --partial "Could not ask compose"
 }
 
-# why: `build.sh --setup` and `run.sh --setup` on a TTY selected
-# setup_tui.sh, and ADR-00000037's Consequences freeze that editor until
-# the TOML migration completes -- `_tui_refuse_frozen` makes every path
-# through it exit 2 after argument parsing. So the wrapper failed with
-# status 2 BEFORE regenerating and before its main action: the one option
-# whose job is "regenerate now" was the one that could not. The non-TTY
-# path was unaffected, which is why nothing in CI noticed. Two observable
-# facts, because a TTY cannot be faked in this suite and the pair is what
-# makes the dispatch wrong: the shipped editor DOES refuse, and the
-# wrapper's predicate says it may not be dispatched to. Both move
-# together in the change that unfreezes it.
-@test "_wrapper_setup_sync: the frozen editor is not a dispatch target (base#1148)" {
-  run _wrapper_tui_usable
-  assert_failure
+# why: `build.sh --setup` and `run.sh --setup` on a TTY select
+# setup_tui.sh, and for the length of ADR-00000037's freeze that editor
+# refused on every path after argument parsing -- so the wrapper failed
+# with status 2 BEFORE regenerating and before its main action: the one
+# option whose job is "regenerate now" was the one that could not. The
+# non-TTY path was unaffected, which is why nothing in CI noticed.
+# base#1232 rebuilt the editor on the conf layer chain and lifted the
+# freeze, so both halves move back together: the predicate says the
+# editor MAY be dispatched to, and the shipped editor no longer refuses
+# on the freeze. The second half asserts WHICH refusal, not success:
+# this suite has no TTY and no dialog/whiptail, so the editor still exits
+# 2 -- on the backend probe, which is a different fact and one that proves
+# it got past argument parsing. The status alone would be green either
+# way, which is how a freeze that came back would go unnoticed. And THE
+# PREDICATE IS SOURCED, which the first spelling of this test was
+# not. It ran a bare `run _wrapper_tui_usable` in a shell that had never
+# sourced wrapper.sh, so `run` reported 127 -- command not found -- and
+# `assert_failure` was satisfied by the function's ABSENCE. The gate was
+# green for a reason that had nothing to do with the answer it claimed to
+# pin, and would have stayed green through any change to it in either
+# direction. Every other call in this file goes through
+# `bash -c "source ...; <call>"` for exactly this reason.
+@test "_wrapper_setup_sync: the rebuilt editor is a dispatch target again (base#1232)" {
+  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _wrapper_tui_usable"
+  assert_success
+  # Not 127: the predicate has to EXIST to be answering anything.
+  refute_output --partial 'command not found'
 
-  # And the editor it would have selected refuses, after parsing args and
-  # before any backend probe, so `-h` still works but nothing else does.
   run bash /source/dist/script/docker/wrapper/setup_tui.sh --lang en
   assert_failure
   assert_equal "${status}" "2"
+  assert_output --partial 'dialog'
+  refute_output --partial 'frozen'
+  refute_output --partial 'ADR-00000037'
 }

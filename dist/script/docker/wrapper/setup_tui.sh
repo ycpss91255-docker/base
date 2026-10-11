@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# setup_tui.sh — interactive setup.conf editor (dialog / whiptail front-end).
+# setup_tui.sh — interactive setup.toml editor (dialog / whiptail front-end).
 #
 # Usage:
 #   ./setup_tui.sh                 # main menu
@@ -9,8 +9,11 @@
 #   ./setup_tui.sh -h | --help     # show help
 #   ./setup_tui.sh --lang <code>   # en | zh | zh-CN | ja
 #
-# On save, setup_tui.sh writes <repo>/.setup.conf and execs setup.sh to
-# regenerate .env / .env.generated / compose.yaml. Cancel / Esc exits 0 without
+# The editor READS the whole conf layer chain merged (_setup_conf_layers:
+# template -> <repo>/setup.toml -> <repo>/setup.local.toml) so its menus
+# open on the values actually in force, and WRITES one layer of it,
+# <repo>/setup.toml, then execs setup.sh to regenerate
+# .env / .env.generated / compose.yaml. Cancel / Esc exits 0 without
 # saving.
 #
 # Style: Google Shell Style Guide.
@@ -45,6 +48,14 @@ _TUI_SCRIPT_DIR="$(cd -- "$(dirname -- "${_TUI_SELF}")" && pwd -P)"
 _TUI_LIB_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../lib" && pwd -P)"
 _TUI_TPL_DIR="$(cd -- "${_TUI_SCRIPT_DIR}/../../.." && pwd -P)"
 
+# The repo whose configuration this editor edits. One spelling, and a
+# plain variable rather than a second read of the readonly FILE_PATH:
+# every conf path in this file is derived from it, so the base path the
+# menus load from, the one a save lands in and the one handed to
+# `setup.sh apply` cannot drift apart -- and a spec can point the whole
+# chain at its own scratch directory, which a readonly cannot.
+_TUI_BASE_PATH="${FILE_PATH}"
+
 # setup_tui.sh sources its libs directly (there is no _bootstrap here), so
 # the verb has to be exported before transcript.sh so its classification
 # resolves setup_tui as an interactive capture verb.
@@ -66,6 +77,16 @@ source "${_TUI_LIB_DIR}/hook.sh"
 source "${_TUI_LIB_DIR}/_tui_backend.sh"
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/_tui_conf.sh"
+# setup_conf.sh carries the conf LAYER CHAIN -- _setup_conf_layers and the
+# _setup_conf_handle / _setup_effective_full / _setup_conf_local_sections
+# accessors over it. The editor opens on the effective configuration and
+# has to name the per-worktree layer, and both answers have to be the ones
+# every other reader gets: a private walk of the same three files here is
+# exactly how the editor and the emitters came to disagree about what is
+# configured (base#1232). It is a leaf of function definitions with its
+# own double-source guard, so sharing it costs the TUI nothing at startup.
+# shellcheck disable=SC1091
+source "${_TUI_LIB_DIR}/setup_conf.sh"
 # shellcheck disable=SC1091
 source "${_TUI_LIB_DIR}/schema.sh"
 # stage.sh for _dockerfile_stage_from_line: the TUI is a reader of the
@@ -132,7 +153,7 @@ _TUI_MSG_EN[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_EN[per_stage.inherit]="(inherit top-level — clear override)"
 _TUI_MSG_EN[per_stage.inherit_flag]="Inherit top-level entries"
 _TUI_MSG_EN[reset.title]="Reset to defaults"
-_TUI_MSG_EN[reset.confirm]=$'Reset ALL settings to template defaults?\n\n  - <repo>/.setup.conf will be removed\n  - setup.sh re-runs to regenerate from template\n  - Your current customizations will be LOST\n\nThis cannot be undone.'
+_TUI_MSG_EN[reset.confirm]=$'Reset ALL settings to template defaults?\n\n  - <repo>/setup.toml is replaced by the template baseline\n    (the file it replaces is archived as setup.toml.bak)\n  - setup.sh re-runs to regenerate from template\n  - Your current customizations will be LOST\n  - <repo>/setup.local.toml is yours and is NOT touched\n\nThis cannot be undone.'
 _TUI_MSG_EN[reset.done]="All settings reset to template defaults."
 _TUI_MSG_EN[security.title]="Security"
 _TUI_MSG_EN[security.menu]="Select: privileged / cap_add / cap_drop / security_opt"
@@ -208,7 +229,7 @@ _TUI_MSG_EN[deploy.runtime.auto]="auto (emit runtime: nvidia on Jetson — /etc/
 _TUI_MSG_EN[deploy.runtime.nvidia]="nvidia (force emit on all hosts)"
 _TUI_MSG_EN[deploy.runtime.off]="off (no runtime override — Docker default runc)"
 # [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
-_TUI_MSG_EN[deploy.runtime.migrate]=$'Your setup.conf still uses the legacy [deploy] runtime key.\n\nIt was renamed to gpu_runtime in #481 (the old name keeps working as a\npermanent alias). Saving here writes the new gpu_runtime key; you can\nthen remove the old runtime line from setup.conf. This page never edits\nthe legacy key for you.'
+_TUI_MSG_EN[deploy.runtime.migrate]=$'Your setup.toml still uses the legacy [deploy] runtime key.\n\nIt was renamed to gpu_runtime in #481 (the old name keeps working as a\npermanent alias). Saving here writes the new gpu_runtime key; you can\nthen remove the old runtime line from setup.toml. This page never edits\nthe legacy key for you.'
 _TUI_MSG_EN[deploy.mig.title]="Deploy — NVIDIA MIG detected"
 _TUI_MSG_EN[deploy.mig.warning]=$'NVIDIA MIG (Multi-Instance GPU) mode is enabled on this host.\n\nDocker\'s deploy `count=N` reservation addresses whole GPUs; it cannot pin a specific MIG slice. To target one slice, leave count as-is and add to the [environment] section:\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\nAvailable GPU / MIG instances:\n%s'
 _TUI_MSG_EN[gui.title]="GUI"
@@ -306,7 +327,11 @@ _TUI_MSG_EN[err.invalid_log_max_size]=$'Invalid max_size\n  - Expected: <num><un
 _TUI_MSG_EN[err.invalid_log_max_file]=$'Invalid max_file\n  - Expected: positive integer (1, 2, 3, ...)'
 _TUI_MSG_EN[err.invalid_log_local_path]=$'Invalid local_path\n  - Must be non-empty and non-whitespace\n  - Cannot contain embedded newlines'
 _TUI_MSG_EN[err.no_backend]="Neither dialog nor whiptail is installed. Install with: sudo apt install dialog"
-_TUI_MSG_EN[err.frozen]=$'This editor is frozen and cannot change anything (ADR-00000037).\n\nIt still writes <repo>/.setup.conf, which nothing reads any more: the\nreaders moved to setup.toml, so a save here would print a confirmation\nover a setting with no effect, and Reset would promise template defaults\nwhile the values in force stayed untouched.\n\nChange a setting one of these two ways instead:\n  - edit <repo>/setup.toml (or <repo>/setup.local.toml) by hand\n  - ./setup.sh set <section>.<key> <value>\n\nThe TUI returns when its TOML rebuild lands.'
+_TUI_MSG_EN[err.reset_failed]=$'The reset FAILED and nothing was changed.\n\nsetup.sh reset could not replace <repo>/setup.toml with the template\nbaseline; its reason was printed to this terminal. Your pending edits\nare still here -- Save & Exit keeps them, Cancel discards them.'
+_TUI_MSG_EN[err.save_refused]=$'The save was DECLINED. <repo>/setup.toml is unchanged.\n\nThe writer refused this combination of changes and printed why to this\nterminal, just above. Nothing was written, so the repo is exactly as it\nwas and no pending edit is lost.'
+_TUI_MSG_EN[local.layer.title]="Per-worktree override in effect"
+_TUI_MSG_EN[local.layer.body]=$'%s is read on this machine, ABOVE <repo>/setup.toml.\n\nSections it defines: %s\n\nIn those sections it overrides the keys it names and replaces whole any\nlist it declares. The values this editor shows are the EFFECTIVE ones,\nthat layer included. A save still lands in <repo>/setup.toml -- the\ncommitted value CI and every other checkout of this repo uses -- so a\nchange to one of the sections above may not take effect here.'
+_TUI_MSG_EN[saved.shadowed]="These sections are also defined in %s, which wins here: %s"
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
 _TUI_MSG_EN[deploy.ambiguous.title]="Two meanings of 'deploy'"
@@ -366,7 +391,7 @@ _TUI_MSG_ZH_TW[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_ZH_TW[per_stage.inherit]="(繼承 top-level — 清除 override)"
 _TUI_MSG_ZH_TW[per_stage.inherit_flag]="繼承 top-level 項目"
 _TUI_MSG_ZH_TW[reset.title]="重置為預設值"
-_TUI_MSG_ZH_TW[reset.confirm]=$'重置所有設定為 template 預設值？\n\n  - 移除 <repo>/.setup.conf\n  - 重跑 setup.sh 從 template 重建\n  - 你目前的客製化會遺失\n\n無法復原。'
+_TUI_MSG_ZH_TW[reset.confirm]=$'重置所有設定為 template 預設值？\n\n  - 以 template 基線取代 <repo>/setup.toml\n    （被取代的檔案會備份為 setup.toml.bak）\n  - 重跑 setup.sh 從 template 重建\n  - 你目前的客製化會遺失\n  - <repo>/setup.local.toml 屬於你，不會被動到\n\n無法復原。'
 _TUI_MSG_ZH_TW[reset.done]="所有設定已重置為預設值。"
 _TUI_MSG_ZH_TW[security.title]="Security"
 _TUI_MSG_ZH_TW[security.menu]="選擇：privileged／cap_add／cap_drop／security_opt"
@@ -442,7 +467,7 @@ _TUI_MSG_ZH_TW[deploy.runtime.auto]="auto（Jetson 自動輸出 runtime: nvidia 
 _TUI_MSG_ZH_TW[deploy.runtime.nvidia]="nvidia（所有主機強制輸出）"
 _TUI_MSG_ZH_TW[deploy.runtime.off]="off（不覆寫 — Docker 預設 runc）"
 # [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
-_TUI_MSG_ZH_TW[deploy.runtime.migrate]=$'你的 setup.conf 仍使用舊的 [deploy] runtime key。\n\n#481 已將它更名為 gpu_runtime（舊名仍以永久 alias 形式可用）。在此\n儲存會寫入新的 gpu_runtime key；之後你可自行從 setup.conf 移除舊的\nruntime 那行。本頁不會替你改動舊 key。'
+_TUI_MSG_ZH_TW[deploy.runtime.migrate]=$'你的 setup.toml 仍使用舊的 [deploy] runtime key。\n\n#481 已將它更名為 gpu_runtime（舊名仍以永久 alias 形式可用）。在此\n儲存會寫入新的 gpu_runtime key；之後你可自行從 setup.toml 移除舊的\nruntime 那行。本頁不會替你改動舊 key。'
 _TUI_MSG_ZH_TW[deploy.mig.title]="Deploy — 偵測到 NVIDIA MIG"
 _TUI_MSG_ZH_TW[deploy.mig.warning]=$'此主機已啟用 NVIDIA MIG（Multi-Instance GPU）模式。\n\nDocker 的 deploy `count=N` 只能預留整張 GPU，無法指定特定 MIG slice。若要使用單一 slice，請維持 count 不變，並在 [environment] 區塊加入：\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\n主機上的 GPU / MIG 實例：\n%s'
 _TUI_MSG_ZH_TW[gui.title]="GUI"
@@ -540,7 +565,11 @@ _TUI_MSG_ZH_TW[err.invalid_log_max_size]=$'max_size 格式錯誤\n  - 預期：<
 _TUI_MSG_ZH_TW[err.invalid_log_max_file]=$'max_file 格式錯誤\n  - 預期：正整數（1、2、3、...）'
 _TUI_MSG_ZH_TW[err.invalid_log_local_path]=$'local_path 格式錯誤\n  - 不可為空或純空白\n  - 不可含換行字元'
 _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo apt install dialog"
-_TUI_MSG_ZH_TW[err.frozen]=$'本編輯器已凍結，無法變更任何設定（ADR-00000037）。\n\n它仍然寫入 <repo>/.setup.conf，但已經沒有任何程式讀取該檔：讀取端\n已改用 setup.toml。在此儲存只會對一個不生效的設定印出成功訊息，\n而「重置」會聲稱回到 template 預設值，實際生效的值卻毫髮無傷。\n\n請改用下列兩種方式之一修改設定：\n  - 直接編輯 <repo>/setup.toml（或 <repo>/setup.local.toml）\n  - ./setup.sh set <section>.<key> <value>\n\n待 TUI 的 TOML 改寫完成後即會恢復。'
+_TUI_MSG_ZH_TW[err.reset_failed]=$'重置失敗，沒有任何變更。\n\nsetup.sh reset 無法以 template 基線取代 <repo>/setup.toml，原因已輸出\n在本終端機。你尚未儲存的編輯仍然存在——選「儲存並離開」會保留它們，\n取消則會捨棄。'
+_TUI_MSG_ZH_TW[err.save_refused]=$'儲存已被拒絕，<repo>/setup.toml 未變更。\n\n寫入端拒絕了這組變更，原因已輸出在本終端機上方。沒有任何內容被寫入，\nrepo 維持原狀，待儲存的編輯也不會遺失。'
+_TUI_MSG_ZH_TW[local.layer.title]="工作樹層級覆寫生效中"
+_TUI_MSG_ZH_TW[local.layer.body]=$'本機會讀取 %s，其優先序高於 <repo>/setup.toml。\n\n它定義的區段：%s\n\n在這些區段中，它會覆寫自己列出的 key，並整體取代自己宣告的清單。\n本編輯器顯示的是「實際生效」的值，已包含該層。儲存仍然寫入\n<repo>/setup.toml（CI 與其他 checkout 使用的共用值），因此對上述\n區段的修改在本機可能不會生效。'
+_TUI_MSG_ZH_TW[saved.shadowed]="下列區段同時定義於 %s，在本機由該檔勝出：%s"
 _TUI_MSG_ZH_TW[deploy.ambiguous.title]="「deploy」的兩種意思"
 _TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env / .env.generated / compose.yaml..."
@@ -598,7 +627,7 @@ _TUI_MSG_ZH_CN[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_ZH_CN[per_stage.inherit]="(继承 top-level — 清除 override)"
 _TUI_MSG_ZH_CN[per_stage.inherit_flag]="继承 top-level 项目"
 _TUI_MSG_ZH_CN[reset.title]="重置为默认值"
-_TUI_MSG_ZH_CN[reset.confirm]=$'重置所有设定为 template 默认值？\n\n  - 移除 <repo>/.setup.conf\n  - 重跑 setup.sh 从 template 重建\n  - 你当前的定制会丢失\n\n无法撤销。'
+_TUI_MSG_ZH_CN[reset.confirm]=$'重置所有设定为 template 默认值？\n\n  - 以 template 基线替换 <repo>/setup.toml\n    （被替换的文件会备份为 setup.toml.bak）\n  - 重跑 setup.sh 从 template 重建\n  - 你当前的定制会丢失\n  - <repo>/setup.local.toml 属于你，不会被改动\n\n无法撤销。'
 _TUI_MSG_ZH_CN[reset.done]="所有设定已重置为默认值。"
 _TUI_MSG_ZH_CN[security.title]="Security"
 _TUI_MSG_ZH_CN[security.menu]="选择：privileged／cap_add／cap_drop／security_opt"
@@ -674,7 +703,7 @@ _TUI_MSG_ZH_CN[deploy.runtime.auto]="auto（Jetson 自动输出 runtime: nvidia 
 _TUI_MSG_ZH_CN[deploy.runtime.nvidia]="nvidia（所有主机强制输出）"
 _TUI_MSG_ZH_CN[deploy.runtime.off]="off（不覆盖 — Docker 默认 runc）"
 # [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
-_TUI_MSG_ZH_CN[deploy.runtime.migrate]=$'你的 setup.conf 仍使用旧的 [deploy] runtime key。\n\n#481 已将它更名为 gpu_runtime（旧名仍以永久 alias 形式可用）。在此\n保存会写入新的 gpu_runtime key；之后你可自行从 setup.conf 移除旧的\nruntime 那行。本页不会替你改动旧 key。'
+_TUI_MSG_ZH_CN[deploy.runtime.migrate]=$'你的 setup.toml 仍使用旧的 [deploy] runtime key。\n\n#481 已将它更名为 gpu_runtime（旧名仍以永久 alias 形式可用）。在此\n保存会写入新的 gpu_runtime key；之后你可自行从 setup.toml 移除旧的\nruntime 那行。本页不会替你改动旧 key。'
 _TUI_MSG_ZH_CN[deploy.mig.title]="Deploy — 检测到 NVIDIA MIG"
 _TUI_MSG_ZH_CN[deploy.mig.warning]=$'此主机已启用 NVIDIA MIG（Multi-Instance GPU）模式。\n\nDocker 的 deploy `count=N` 只能预留整张 GPU，无法指定特定 MIG slice。若要使用单一 slice，请保持 count 不变，并在 [environment] 区块加入：\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\n主机上的 GPU / MIG 实例：\n%s'
 _TUI_MSG_ZH_CN[gui.title]="GUI"
@@ -767,7 +796,11 @@ _TUI_MSG_ZH_CN[lifecycle.restart.n_prompt]="on-failure 最大重试次数（整�
 _TUI_MSG_ZH_CN[err.invalid_restart]="restart 策略不合法（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_ZH_CN[err.invalid_restart_n]="重试次数不合法（预期正整数，或留空为纯 on-failure）"
 _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo apt install dialog"
-_TUI_MSG_ZH_CN[err.frozen]=$'本编辑器已冻结，无法变更任何设定（ADR-00000037）。\n\n它仍然写入 <repo>/.setup.conf，但已经没有任何程序读取该文件：读取端\n已改用 setup.toml。在此保存只会对一个不生效的设定打印成功消息，\n而「重置」会声称回到 template 默认值，实际生效的值却毫发无伤。\n\n请改用下列两种方式之一修改设定：\n  - 直接编辑 <repo>/setup.toml（或 <repo>/setup.local.toml）\n  - ./setup.sh set <section>.<key> <value>\n\n待 TUI 的 TOML 改写完成后即会恢复。'
+_TUI_MSG_ZH_CN[err.reset_failed]=$'重置失败，没有任何变更。\n\nsetup.sh reset 无法以 template 基线替换 <repo>/setup.toml，原因已输出\n在本终端。你尚未保存的编辑仍然存在——选「保存并退出」会保留它们，\n取消则会丢弃。'
+_TUI_MSG_ZH_CN[err.save_refused]=$'保存已被拒绝，<repo>/setup.toml 未变更。\n\n写入端拒绝了这组变更，原因已输出在本终端上方。没有任何内容被写入，\nrepo 保持原状，待保存的编辑也不会丢失。'
+_TUI_MSG_ZH_CN[local.layer.title]="工作树级覆写生效中"
+_TUI_MSG_ZH_CN[local.layer.body]=$'本机会读取 %s，其优先级高于 <repo>/setup.toml。\n\n它定义的区段：%s\n\n在这些区段中，它会覆写自己列出的 key，并整体替换自己声明的列表。\n本编辑器显示的是「实际生效」的值，已包含该层。保存仍然写入\n<repo>/setup.toml（CI 与其他 checkout 使用的共用值），因此对上述\n区段的修改在本机可能不会生效。'
+_TUI_MSG_ZH_CN[saved.shadowed]="下列区段同时定义于 %s，在本机由该文件胜出：%s"
 _TUI_MSG_ZH_CN[deploy.ambiguous.title]="「deploy」的两种意思"
 _TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本编辑器没有歧义的名称是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env / .env.generated / compose.yaml..."
@@ -825,7 +858,7 @@ _TUI_MSG_JA[per_stage.network.ports]="ports list (per-stage)"
 _TUI_MSG_JA[per_stage.inherit]="(top-level を継承 — override をクリア)"
 _TUI_MSG_JA[per_stage.inherit_flag]="top-level 項目を継承"
 _TUI_MSG_JA[reset.title]="デフォルトにリセット"
-_TUI_MSG_JA[reset.confirm]=$'全ての設定を template のデフォルトにリセット？\n\n  - <repo>/.setup.conf を削除\n  - setup.sh を再実行して template から再生成\n  - 現在のカスタマイズは失われます\n\n元に戻せません。'
+_TUI_MSG_JA[reset.confirm]=$'全ての設定を template のデフォルトにリセット？\n\n  - <repo>/setup.toml を template のベースラインで置き換え\n    （置き換えられたファイルは setup.toml.bak として保存）\n  - setup.sh を再実行して template から再生成\n  - 現在のカスタマイズは失われます\n  - <repo>/setup.local.toml はあなたのもので、変更しません\n\n元に戻せません。'
 _TUI_MSG_JA[reset.done]="全ての設定がデフォルトにリセットされました。"
 _TUI_MSG_JA[security.title]="Security"
 _TUI_MSG_JA[security.menu]="選択：privileged／cap_add／cap_drop／security_opt"
@@ -901,7 +934,7 @@ _TUI_MSG_JA[deploy.runtime.auto]="auto（Jetson で自動的に runtime: nvidia 
 _TUI_MSG_JA[deploy.runtime.nvidia]="nvidia（全ホストで強制出力）"
 _TUI_MSG_JA[deploy.runtime.off]="off（オーバーライドなし — Docker 既定の runc）"
 # [deploy] runtime -> gpu_runtime migration suggestion (fast-follow of)
-_TUI_MSG_JA[deploy.runtime.migrate]=$'setup.conf がまだ旧来の [deploy] runtime キーを使用しています。\n\n#481 で gpu_runtime に改名されました（旧名は恒久エイリアスとして\n動作し続けます）。ここで保存すると新しい gpu_runtime キーを書き込み\nます。その後、setup.conf から旧 runtime 行を手動で削除できます。\nこのページが旧キーを書き換えることはありません。'
+_TUI_MSG_JA[deploy.runtime.migrate]=$'setup.toml がまだ旧来の [deploy] runtime キーを使用しています。\n\n#481 で gpu_runtime に改名されました（旧名は恒久エイリアスとして\n動作し続けます）。ここで保存すると新しい gpu_runtime キーを書き込み\nます。その後、setup.toml から旧 runtime 行を手動で削除できます。\nこのページが旧キーを書き換えることはありません。'
 _TUI_MSG_JA[deploy.mig.title]="Deploy — NVIDIA MIG を検出"
 _TUI_MSG_JA[deploy.mig.warning]=$'このホストでは NVIDIA MIG（Multi-Instance GPU）モードが有効です。\n\nDocker の deploy `count=N` は GPU 単位の予約であり、特定の MIG スライスを指定できません。特定スライスを使う場合は count を変更せず、[environment] セクションに次を追加してください：\n  NVIDIA_VISIBLE_DEVICES=<MIG-UUID>\n\nホストで利用可能な GPU / MIG インスタンス：\n%s'
 _TUI_MSG_JA[gui.title]="GUI"
@@ -994,7 +1027,11 @@ _TUI_MSG_JA[lifecycle.restart.n_prompt]="on-failure の最大リトライ回数�
 _TUI_MSG_JA[err.invalid_restart]="無効な restart ポリシー（no / always / unless-stopped / on-failure / on-failure:N）"
 _TUI_MSG_JA[err.invalid_restart_n]="無効なリトライ回数（正の整数、または素の on-failure なら空欄）"
 _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールされていません：sudo apt install dialog"
-_TUI_MSG_JA[err.frozen]=$'このエディタは凍結されており、設定を変更できません（ADR-00000037）。\n\n書き込み先は今も <repo>/.setup.conf ですが、読み取り側は setup.toml に\n移行済みで、このファイルを読むものはもうありません。ここで保存しても\n効果のない設定に成功メッセージが出るだけで、リセットは template の\nデフォルトに戻すと言いながら実際に有効な値には触れません。\n\n設定の変更は次のいずれかで行ってください:\n  - <repo>/setup.toml（または <repo>/setup.local.toml）を直接編集\n  - ./setup.sh set <section>.<key> <value>\n\nTUI の TOML 書き換えが完了すれば復帰します。'
+_TUI_MSG_JA[err.reset_failed]=$'リセットは失敗し、何も変更されていません。\n\nsetup.sh reset は <repo>/setup.toml を template のベースラインで置き\n換えられませんでした。理由はこの端末に出力されています。未保存の編集\nはまだ残っています: 「保存して終了」で保持、キャンセルで破棄します。'
+_TUI_MSG_JA[err.save_refused]=$'保存は拒否され、<repo>/setup.toml は変更されていません。\n\n書き込み側がこの変更の組み合わせを拒否し、理由をこの端末の上方に\n出力しました。何も書き込まれていないため、repo は元のままで、保留中\nの編集も失われません。'
+_TUI_MSG_JA[local.layer.title]="ワークツリー単位の上書きが有効"
+_TUI_MSG_JA[local.layer.body]=$'このマシンでは %s が <repo>/setup.toml より優先して読まれます。\n\nそれが定義するセクション: %s\n\nこれらのセクションでは、記載された key を上書きし、宣言した配列は\n全体を置き換えます。このエディタが表示するのはその層を含む「実効」\n値です。保存先は <repo>/setup.toml（CI と他のチェックアウトが使う\n共有の値）なので、上記セクションへの変更はこのマシンでは効かない\nことがあります。'
+_TUI_MSG_JA[saved.shadowed]="次のセクションは %s にも定義されており、ここではそちらが優先されます: %s"
 _TUI_MSG_JA[deploy.ambiguous.title]="「deploy」の二つの意味"
 _TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  ./setup.sh deploy      (just docker setup deploy)\n\nこのエディタの曖昧でない名前は `gpu` です:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
 _TUI_MSG_JA[saved]="%s に保存しました。.env / .env.generated / compose.yaml を再生成中..."
@@ -1038,7 +1075,7 @@ usage() {
       cat >&2 <<'EOF'
 用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-互動式編輯 <repo>/.setup.conf，完成後自動呼叫 setup.sh 重新產生
+互動式編輯 <repo>/setup.toml，完成後自動呼叫 setup.sh 重新產生
 .env.generated 與 compose.yaml。需要已安裝 dialog 或 whiptail。
 
 SECTION（可直接跳至特定區段）:
@@ -1056,7 +1093,7 @@ EOF
       cat >&2 <<'EOF'
 用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-交互式编辑 <repo>/.setup.conf，完成后自动调用 setup.sh 重新生成
+交互式编辑 <repo>/setup.toml，完成后自动调用 setup.sh 重新生成
 .env.generated 和 compose.yaml。需要已安装 dialog 或 whiptail。
 
 SECTION（可直接跳至指定区段）:
@@ -1074,7 +1111,7 @@ EOF
       cat >&2 <<'EOF'
 使用法: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-<repo>/.setup.conf を対話的に編集し、完了後 setup.sh を自動実行して
+<repo>/setup.toml を対話的に編集し、完了後 setup.sh を自動実行して
 .env.generated と compose.yaml を再生成します。dialog または whiptail が必要。
 
 SECTION（特定セクションへ直接移動）:
@@ -1092,7 +1129,7 @@ EOF
       cat >&2 <<'EOF'
 Usage: ./setup_tui.sh [-h] [--lang <en|zh-TW|zh-CN|ja>] [SECTION]
 
-Interactively edit <repo>/.setup.conf. On save, setup.sh is invoked
+Interactively edit <repo>/setup.toml. On save, setup.sh is invoked
 automatically to regenerate .env.generated and compose.yaml. Requires
 dialog or whiptail.
 
@@ -1119,12 +1156,12 @@ EOF
 #   _TUI_OVR_VALUES[i] = value
 #
 # _override_set appends or updates; _override_get returns current (falling
-# back to the value loaded from the repo/template setup.conf).
+# back to the effective value _load_current resolved from the chain).
 
 declare -ga _TUI_OVR_KEYS=()
 declare -ga _TUI_OVR_VALUES=()
 declare -ga _TUI_REMOVED=()    # namespaced keys to drop on save
-declare -gA _TUI_CURRENT=()    # baseline values loaded from setup.conf
+declare -gA _TUI_CURRENT=()    # baseline: the effective conf chain
 
 _mark_removed() {
   local _nskey="${1}"
@@ -1173,23 +1210,150 @@ _override_get() {
   printf '%s' "${_TUI_CURRENT[${_nskey}]:-${_default}}"
 }
 
+# _load_current <base_path> <template_dist_dir>
+#
+# Seed the menus' baseline with THE EFFECTIVE CONFIGURATION: the whole
+# layer chain merged, through the same accessor `setup.sh show` / `list`
+# and the emitters read.
+#
+# This used to select ONE file -- `<repo>` if it existed, else the
+# template -- and the config is an overlay chain, so the menus opened on
+# one layer's contents rather than on the values in force. An editor
+# whose baseline is one layer cannot show the user what is configured,
+# and cannot tell a value this repo supplied from one it inherits, which
+# is the distinction a write has to respect (base#1232).
+#
+# The baseline is REPLACED, not added to: a reload (after Reset) that
+# merged into the old map would keep showing keys the chain no longer
+# resolves.
+#
+# Non-zero when the merge itself failed -- the handle reports that rather
+# than returning an empty configuration as a loaded one, and an editor
+# that opened on an empty baseline would offer to save a file full of
+# blanks over the user's config.
 _load_current() {
-  local _repo_conf="${1}"
-  local _tpl_conf="${2}"
-  local _src=""
-  if [[ -f "${_repo_conf}" ]]; then
-    _src="${_repo_conf}"
-  elif [[ -f "${_tpl_conf}" ]]; then
-    _src="${_tpl_conf}"
-  else
-    return 0
-  fi
+  local _base="${1:?"${FUNCNAME[0]}: missing base path"}"
+  local _dist="${2:?"${FUNCNAME[0]}: missing template dist dir"}"
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${_src}" _sections _keys _values
+  _setup_effective_full "${_base}" _sections _keys _values "${_dist}" || return 1
+  _TUI_CURRENT=()
   local i
   for (( i=0; i<${#_keys[@]}; i++ )); do
     _TUI_CURRENT[${_keys[i]}]="${_values[i]}"
   done
+}
+
+# _tui_local_layer_notice <base_path>
+#
+# Name the per-worktree layer, with the sections it defines, before the
+# menus open -- when there is one. Nothing may be silently shadowed: the
+# editor shows the EFFECTIVE values, so without this the operator reads a
+# `setup.local.toml` value off the screen, saves a change to the same
+# section into the committed `setup.toml`, and sees no difference on this
+# machine.
+#
+# A msgbox and not stderr, for the reason `_warn_if_lang_rejected` uses
+# one: curses clears the terminal before the user could read a printed
+# line. Section-granular because that is the granularity
+# `_setup_conf_local_sections` answers at and the honest one for both
+# kinds of entry -- a local table overrides the keys it names, a local
+# array replaces the list whole.
+_tui_local_layer_notice() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base path"}"
+  local -a _lln_sections=()
+  _setup_conf_local_sections "${_base}" _lln_sections
+  (( ${#_lln_sections[@]} > 0 )) || return 0
+  local _local
+  _local="$(_setup_conf_local_path "${_base}")"
+  # shellcheck disable=SC2059  # body is our own i18n template
+  _tui_msgbox "$(_tui_msg local.layer.title)" \
+    "$(printf "$(_tui_msg local.layer.body)" \
+      "${_local}" "${_lln_sections[*]}")"
+}
+
+# _tui_shadowed_sections <base_path> <outarray>
+#
+# The sections THIS SESSION writes to that the per-worktree layer also
+# defines -- the intersection, so the save-time notice names only what
+# the operator actually just changed rather than re-reading the whole
+# launch notice at them.
+#
+# The section of a key is asked of `_conf_split_nskey`, never derived by
+# cutting at a dot: `logging.web.driver` belongs to `[logging.web]` and a
+# prefix match binds it to `[logging]` as well.
+_tui_shadowed_sections() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base path"}"
+  local -n _tss_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _tss_out=()
+  local -a _tss_local=()
+  _setup_conf_local_sections "${_base}" _tss_local
+  (( ${#_tss_local[@]} > 0 )) || return 0
+  local -A _tss_touched=()
+  local _k _s _key
+  for _k in "${_TUI_OVR_KEYS[@]+"${_TUI_OVR_KEYS[@]}"}" \
+            "${_TUI_REMOVED[@]+"${_TUI_REMOVED[@]}"}"; do
+    _conf_split_nskey "${_k}" _s _key || continue
+    _tss_touched["${_s}"]=1
+  done
+  for _s in "${_tss_local[@]}"; do
+    [[ -n "${_tss_touched[${_s}]+x}" ]] && _tss_out+=("${_s}")
+  done
+  return 0
+}
+
+# _tui_in_list <needle> [<haystack>...]
+#
+# Zero when <needle> is one of the remaining arguments, exactly. A
+# membership test over a bash array, spelled once rather than as another
+# inline loop: `[[ " ${arr[*]} " == *" ${x} "* ]]` is the shorter idiom
+# and it is wrong for a value carrying a space, which a mount or an env
+# entry does.
+_tui_in_list() {
+  local _needle="${1-}"
+  shift || return 1
+  local _x
+  for _x in "$@"; do
+    [[ "${_x}" == "${_needle}" ]] && return 0
+  done
+  return 1
+}
+
+# _tui_aot_families_touched <outarray>
+#
+# Every array-of-tables PATH this session wrote to or removed an entry
+# from, in first-touch order.
+#
+# WHY THE SAVE NEEDS THIS. An array is replaced ATOMICALLY by the highest
+# layer that declares it (ADR-00000037), so a `<repo>/setup.toml` that
+# declares `[[volumes]]` at all replaces the template's whole list. A
+# save that wrote only the slot the user edited would therefore declare a
+# one-entry array and silently drop every entry the list inherited -- add
+# a third mount to a template's two and the workspace bind disappears.
+# The scalar keys of a `[table]` merge key by key and have the opposite
+# requirement: writing one that was only inherited pins an inherited
+# value into this repo's committed file.
+#
+# So the two kinds of key are answered differently, and which kind a key
+# IS comes from `_conf_toml_aot_slot` -- a lookup over
+# `_conf_toml_aot_section`'s `<prefix>=<path>` table, THE answer to
+# "which array does this key belong to" in this tree. Derived rather than
+# listed: a family added to that table is covered here by having been
+# added there, and `[environment]`'s `env_N` is excluded by having no row
+# in it, which is the state base#1235 leaves open.
+_tui_aot_families_touched() {
+  local -n _taft_out="${1:?"${FUNCNAME[0]}: missing outvar"}"
+  _taft_out=()
+  local -A _taft_seen=()
+  local _k _s _key _p _n
+  for _k in "${_TUI_OVR_KEYS[@]+"${_TUI_OVR_KEYS[@]}"}" \
+            "${_TUI_REMOVED[@]+"${_TUI_REMOVED[@]}"}"; do
+    _conf_split_nskey "${_k}" _s _key || continue
+    _conf_toml_aot_slot "${_s}" "${_key}" _p _n || continue
+    [[ -n "${_taft_seen[${_p}]:-}" ]] && continue
+    _taft_seen["${_p}"]=1
+    _taft_out+=("${_p}")
+  done
+  return 0
 }
 
 # ── Section editors ──────────────────────────────────────────────────────
@@ -1455,7 +1619,7 @@ _edit_section_build() {
           continue
         fi
         # Consistent with other scalar keys (e.g. resources.shm_size):
-        # empty value keeps the key present with "" in setup.conf, and
+        # empty value keeps the key present with "" in setup.toml, and
         # setup.sh's `[[ -n $target_arch ]]` check handles the empty
         # case by omitting TARGETARCH from .env.generated + compose.yaml.
         _override_set "build.target_arch" "${_new}"
@@ -1659,7 +1823,7 @@ _edit_section_deploy() {
 
   # runtime override (Jetson / csv-mode nvidia-container-toolkit).
   # renamed the conf key deploy.runtime -> deploy.gpu_runtime (permanent
-  # legacy alias).if the per-repo setup.conf still carries the
+  # legacy alias).if the per-repo setup.toml still carries the
   # legacy [deploy] runtime key (and no gpu_runtime), SUGGEST renaming it
   # -- never silently rewrite. The read honours both keys; the write uses
   # the canonical gpu_runtime.
@@ -2368,7 +2532,7 @@ _edit_stage_deploy() {
 # _edit_stage_network <stage>
 #
 # Network section: mode / ipc / network_name / privileged + the ports
-# sublist. privileged lives in the [security] section in setup.conf
+# sublist. privileged lives in the [security] section in setup.toml
 # but is bundled here for the user since it's network-adjacent in the
 # top-level menu structure.
 _edit_stage_network() {
@@ -2678,84 +2842,124 @@ _render_advanced_menu() {
   done
 }
 
-# _tui_refuse_frozen
-#
-# Print the "this editor cannot take effect" explanation and return 2.
-# Called at every point where this file would otherwise change something:
-# `main`, before it opens a menu or a section editor, and `_do_reset`,
-# whose `rm -f` is destructive on its own.
-#
-# ADR-00000037 freezes setup_tui.sh until its TOML rebuild lands, and the
-# readers did not wait: _setup_conf_layers names `.toml` layers only, so
-# the `.setup.conf` this file writes and reads is read by nothing else.
-# Left running, the editor collects a value, writes it, prints its save
-# line, and the setting has no effect -- and `reset` promises "back to
-# template defaults" while the values actually in force sit in setup.toml,
-# untouched. The freeze postpones the rebuild; it does not license either
-# claim, and a silent no-op behind a success message is the one outcome
-# worse than no editor at all. So the editor refuses, and the message
-# names the two surfaces that do take a setting.
-#
-# Status 2, not 0: 0 is what Cancel returns, and a wrapper has to be able
-# to tell "the user backed out" from "this cannot run". Same status as the
-# missing-backend refusal, for the same reason. It RETURNS rather than
-# exiting, and each caller propagates with `|| exit`/`|| return`, so the
-# control flow is visible where it happens -- an `exit` buried in a
-# helper makes every line after the call unreachable to a reader and to
-# ShellCheck alike (SC2317), and leaves `_do_reset` untestable.
-#
-# This goes away with the rebuild, not before: base#1232 replaces
-# _load_current's one-file read with the effective layer chain and carries
-# every INI path in main / bootstrap / _do_reset over with it. When that
-# lands, delete this function and its two call sites.
-_tui_refuse_frozen() {
-  printf '[tui] %s\n' "$(_tui_msg err.frozen)" >&2
-  return 2
-}
-
 # _do_reset
 #
-# Restore the repo's setup.conf to the template baseline: remove the
-# per-repo setup.conf, re-run setup.sh (which copies template + writes
-# detected workspace into mount_1), then clear all TUI session state
-# so the reloaded values are what the user sees on the next menu.
+# Drop this repo's overrides and go back to the template baseline, then
+# clear all TUI session state so the reloaded values are what the user
+# sees on the next menu.
+#
+# The layer it drops is `<repo>/setup.toml` -- the repo's own committed
+# layer, which is what "this repo's overrides" means under the chain.
+# `<repo>/setup.local.toml` is the operator's file and is NOT touched by
+# a reset, so the values the menus show afterwards can still carry it;
+# the launch notice is what keeps that from being a surprise.
+#
+# Delegated to `setup.sh reset --yes` rather than spelled as an `rm -f`
+# here. That subcommand IS "overwrite the repo's setup.toml with the
+# template baseline", it archives the prior file as `setup.toml.bak`
+# first, and it is what `build.sh --reset-conf` runs -- so the TUI's
+# Reset and the CLI's cannot come to mean two different things, and the
+# destructive step has one implementation to be careful in.
+# A FAILED RESET IS NOT A RESET. The status is checked and the session is
+# left intact: swallowed with `|| true` the editor went on to throw away
+# every pending edit, reload the configuration that had not changed, and
+# report that all settings were reset -- the same shape of misleading
+# success this whole rebuild exists to end, with the operator's unsaved
+# work gone as well. On failure the edits are still there to be saved.
 _do_reset() {
-  _tui_refuse_frozen || return "$?"
   _tui_yesno "$(_tui_msg reset.title)" "$(_tui_msg reset.confirm)" || return 0
-  # Reset deletes the per-repo override (setup.conf). The next apply
-  # re-bootstraps it from the template baseline + detected workspace.
-  rm -f "${FILE_PATH}/.setup.conf"
-  # --quiet so apply's confirmation lines don't double-print after the
-  # TUI's own `[tui] saved` line.
-  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}" \
+  # --quiet so the confirmation lines don't double-print after the TUI's
+  # own `[tui] saved` line. stderr is kept: the reason a reset failed is
+  # the only actionable thing about it, and the msgbox below says where
+  # to look for it.
+  if ! "${_TUI_SCRIPT_DIR}/setup.sh" reset --yes --quiet \
+      --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}" >/dev/null; then
+    _tui_msgbox "$(_tui_msg reset.title)" "$(_tui_msg err.reset_failed)"
+    return 2
+  fi
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet \
+    --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}" \
     >/dev/null 2>&1 || true
   _TUI_OVR_KEYS=()
   _TUI_OVR_VALUES=()
   _TUI_REMOVED=()
-  _TUI_CURRENT=()
-  _load_current "${FILE_PATH}/.setup.conf" "${_TUI_TPL_DIR}/.setup.conf"
+  _load_current "${_TUI_BASE_PATH}" "${_TUI_TPL_DIR}" || return 1
   _tui_msgbox "$(_tui_msg reset.title)" "$(_tui_msg reset.done)"
 }
 
 # ── Commit & trigger setup.sh ────────────────────────────────────────────
 
+# _commit_and_setup <repo_conf> <tpl_conf>
+#
+# Write the session's edits into <repo_conf> -- this repo's own layer of
+# the chain -- and re-run `setup.sh apply` so the derived artifacts
+# (.env / .env.generated / compose.yaml) follow.
+#
+# WHAT THE SAVE CARRIES, and why it is not simply "everything the menus
+# showed". The baseline is now the EFFECTIVE configuration, so writing
+# all of it would copy every inherited value down into this repo's
+# committed file and the repo would stop tracking the template. What the
+# user CHANGED is `_TUI_OVR_*` plus `_TUI_REMOVED`, and for a `[table]`
+# scalar that is exactly enough: key-level merge leaves every key this
+# file does not name inheriting as before.
+#
+# An ARRAY entry is the exception, and the whole list goes with it. An
+# array is replaced atomically by the highest layer that declares it, so
+# a file that names one `[[volumes]]` entry replaces the inherited list
+# with that single mount. Writing only the edited slot would delete the
+# rest of the list without saying so -- adding a third mount to a
+# template's two would drop the workspace bind. So every family this
+# session touched is written WHOLE, from the effective baseline, which is
+# the list the menus actually showed. `_tui_aot_families_touched` decides
+# which keys those are, off `_conf_toml_aot_section`'s table.
+#
+# A REFUSED write is reported, not swallowed. `_write_setup_conf` declines
+# a save it cannot make faithfully -- an index with no slot, or a removal
+# that would hand slot 1 of `[volumes]` to another mount -- and leaves
+# <repo_conf> untouched. Under `set -e` that would abort the editor on
+# the spot with only the writer's log line, mid-curses. So the screen is
+# released FIRST, the status is checked, and the refusal's own message
+# (already on the terminal by then) is pointed at rather than restated
+# here: one wording of why a write was declined, in the function that
+# declines it.
 _commit_and_setup() {
-  local _repo_conf="${1}"
-  local _tpl_conf="${2}"
+  local _repo_conf="${1:?"${FUNCNAME[0]}: missing repo conf"}"
+  local _tpl_conf="${2:?"${FUNCNAME[0]}: missing template conf"}"
 
-  # Merge current baseline into overrides for keys the user did not touch
-  # (so _write_setup_conf preserves untouched values via template).
-  # Build final arrays directly from _TUI_OVR_* + _TUI_CURRENT.
+  # The keys the user changed, overrides last so an edit wins over the
+  # baseline copy of the same key its family pulled in.
   local -a _final_keys=() _final_values=()
-  local _k
-  for _k in "${!_TUI_CURRENT[@]}"; do
-    _final_keys+=("${_k}")
-    _final_values+=("${_TUI_CURRENT[${_k}]}")
+  local -A _seen=()
+  local _k _s _key _p _n _fam _row
+  local -a _families=()
+  _tui_aot_families_touched _families
+  for _fam in "${_families[@]+"${_families[@]}"}"; do
+    # `_TUI_CURRENT` is an associative array, so iterating it straight
+    # walks a HASH order: a family's entries would reach the save in a
+    # different sequence from one run to the next, and the writer appends
+    # a family the destination has no block of in the order the caller
+    # named it. Sorted by index here, so one save of one configuration
+    # rewrites the file one way.
+    local -a _slots=()
+    for _k in "${!_TUI_CURRENT[@]}"; do
+      _conf_split_nskey "${_k}" _s _key || continue
+      _conf_toml_aot_slot "${_s}" "${_key}" _p _n || continue
+      [[ "${_p}" == "${_fam}" ]] || continue
+      _slots+=("${_n} ${_k}")
+    done
+    (( ${#_slots[@]} > 0 )) || continue
+    while IFS= read -r _row; do
+      _k="${_row#* }"
+      [[ -n "${_seen[${_k}]:-}" ]] && continue
+      _seen["${_k}"]=1
+      _final_keys+=("${_k}")
+      _final_values+=("${_TUI_CURRENT[${_k}]}")
+    done < <(printf '%s\n' "${_slots[@]}" | sort -n -k1,1)
   done
-  local i
+  local i j _found
   for (( i=0; i<${#_TUI_OVR_KEYS[@]}; i++ )); do
     _k="${_TUI_OVR_KEYS[i]}"
-    local _found=0 j
+    _found=0
     for (( j=0; j<${#_final_keys[@]}; j++ )); do
       if [[ "${_final_keys[j]}" == "${_k}" ]]; then
         _final_values[j]="${_TUI_OVR_VALUES[i]}"
@@ -2766,14 +2970,111 @@ _commit_and_setup() {
     (( _found )) || { _final_keys+=("${_k}"); _final_values+=("${_TUI_OVR_VALUES[i]}"); }
   done
 
-  # Write via template (per-repo setup.conf falls back to template's structure)
+  # The destination's own lines are the template to copy when it exists,
+  # so every comment, every untouched key and every untouched array block
+  # survives the rewrite; the shipped template supplies the structure only
+  # on a first run that had nothing to bootstrap from.
   local _template_src="${_tpl_conf}"
   [[ -f "${_repo_conf}" ]] && _template_src="${_repo_conf}"
 
-  _write_setup_conf "${_repo_conf}" "${_template_src}" \
-    _final_keys _final_values \
-    "${_TUI_REMOVED[*]:-}"
+  # TRIM A TOUCHED FAMILY TO THE LIST THE MENUS SHOWED. The writer
+  # addresses an array by SLOT -- it replaces block N, drops a removed
+  # one, appends past the end -- so it never shortens a family nobody
+  # removed from. A destination holding MORE blocks of a touched family
+  # than the effective list therefore keeps its own extras, which is
+  # reachable whenever a HIGHER layer declares a shorter array:
+  # `setup.local.toml` with one `[[build.args]]` entry over a committed
+  # file with two makes the effective list one entry long, and saving an
+  # edit to it left the committed file carrying the edited entry followed
+  # by its own leftover -- a list no layer ever wrote and no screen ever
+  # showed. The surplus slots are removed by index as part of the same
+  # save.
+  #
+  # THE SURPLUS IS AN ARITHMETIC, NOT A COUNT OF SURVIVORS. The keys the
+  # save carries are slot-ADDRESSED, so a list the user shortened by
+  # removing its first entry carries one survivor at INDEX 2 -- and the
+  # writer compacts, so it already produces a one-entry family. Trimming
+  # to "as many slots as there are survivors" would have removed index 2
+  # as well and emptied the list the operator only shortened. What the
+  # rewrite will produce is counted instead: the destination's slots,
+  # less the ones this save removes, plus the ones it appends past the
+  # end. Only the difference from the on-screen length is surplus.
+  #
+  # The destination's slots are counted off its own parse, not off
+  # `_TUI_CURRENT` -- the baseline is the merge, and the question here is
+  # what THIS FILE still has -- and over the parse's rows rather than a
+  # list reader that skips empty values, because an entry cleared to the
+  # empty string is still a slot.
+  #
+  # Trimmed from the TOP down. Slot 1 of `[volumes]` is the workspace
+  # bind by position, and a save that would hand it to another mount is
+  # declined by `_wsc_refuse_ws_slot_move` (base#1233 carries how that
+  # bind should be identified); taking the highest slots first means the
+  # trim reaches slot 1 only when the whole list is going, which is the
+  # one case that refusal deliberately allows.
+  local -a _removed_now=("${_TUI_REMOVED[@]+"${_TUI_REMOVED[@]}"}")
+  if [[ -f "${_repo_conf}" && "${_repo_conf}" == *.toml ]] \
+     && (( ${#_families[@]} > 0 )) \
+     && _conf_load "${_repo_conf}" _CAS_DST; then
+    local -n _cas_es=_CAS_DST__es
+    local -n _cas_k=_CAS_DST__keys
+    local _dst_n _want _rm_n _appended _surplus _prefix _nskey _idx _slot
+    for _fam in "${_families[@]}"; do
+      _conf_toml_aot_nskey "${_fam}" 1 _nskey || continue
+      _conf_split_nskey "${_nskey}" _s _key || continue
+      _prefix="${_key%_*}_"
+      _dst_n=0
+      for (( i=0; i<${#_cas_k[@]}; i++ )); do
+        [[ "${_cas_es[i]}" == "${_s}" ]] || continue
+        [[ "${_cas_k[i]}" == "${_prefix}"* ]] || continue
+        [[ "${_cas_k[i]#"${_prefix}"}" =~ ^[0-9]+$ ]] || continue
+        _dst_n=$(( _dst_n + 1 ))
+      done
+      # The on-screen length, and how much of it the writer appends.
+      _want=0
+      _appended=0
+      for (( i=0; i<${#_final_keys[@]}; i++ )); do
+        _conf_split_nskey "${_final_keys[i]}" _p _n || continue
+        [[ "${_p}" == "${_s}" && "${_n}" == "${_prefix}"* ]] || continue
+        _slot="${_n#"${_prefix}"}"
+        [[ "${_slot}" =~ ^[0-9]+$ ]] || continue
+        _want=$(( _want + 1 ))
+        (( _slot > _dst_n )) && _appended=$(( _appended + 1 ))
+      done
+      # Destination slots this save already removes.
+      _rm_n=0
+      for _nskey in "${_TUI_REMOVED[@]+"${_TUI_REMOVED[@]}"}"; do
+        _conf_split_nskey "${_nskey}" _p _n || continue
+        [[ "${_p}" == "${_s}" && "${_n}" == "${_prefix}"* ]] || continue
+        _slot="${_n#"${_prefix}"}"
+        [[ "${_slot}" =~ ^[0-9]+$ ]] || continue
+        (( _slot <= _dst_n )) && _rm_n=$(( _rm_n + 1 ))
+      done
+      _surplus=$(( _dst_n - _rm_n + _appended - _want ))
+      (( _surplus > 0 )) || continue
+      for (( _idx=_dst_n; _idx >= 1 && _surplus > 0; _idx-- )); do
+        _conf_toml_aot_nskey "${_fam}" "${_idx}" _nskey || continue
+        _tui_in_list "${_nskey}" "${_removed_now[@]+"${_removed_now[@]}"}" \
+          && continue
+        _removed_now+=("${_nskey}")
+        _surplus=$(( _surplus - 1 ))
+      done
+    done
+  fi
+
+  # Which sections of this save the per-worktree layer also defines --
+  # asked BEFORE the screen is released, so the answer is reported with
+  # the save rather than after it.
+  local -a _shadowed=()
+  _tui_shadowed_sections "${_TUI_BASE_PATH}" _shadowed
+
   _tui_clear
+  if ! _write_setup_conf "${_repo_conf}" "${_template_src}" \
+      _final_keys _final_values \
+      "${_removed_now[*]:-}"; then
+    printf '[tui] %s\n' "$(_tui_msg err.save_refused)" >&2
+    return 2
+  fi
   # The `saved` message contains a %s placeholder that we feed _repo_conf
   # into. SC2059 warns about format-from-variable — acceptable here because
   # the message source is our own i18n table, not external input.
@@ -2781,9 +3082,17 @@ _commit_and_setup() {
   _saved_fmt="$(_tui_msg saved)"
   # shellcheck disable=SC2059
   printf "[tui] ${_saved_fmt}\n" "${_repo_conf}"
+  if (( ${#_shadowed[@]} > 0 )); then
+    local _local_path _shadow_fmt
+    _local_path="$(_setup_conf_local_path "${_TUI_BASE_PATH}")"
+    _shadow_fmt="$(_tui_msg saved.shadowed)"
+    # shellcheck disable=SC2059
+    printf "[tui] ${_shadow_fmt}\n" "${_local_path}" "${_shadowed[*]}" >&2
+  fi
   # --quiet so apply's confirmation lines don't double-print after the
   # TUI's own `[tui] saved` line.
-  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}"
+  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet \
+    --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}"
 }
 
 # ── main ─────────────────────────────────────────────────────────────────
@@ -2816,7 +3125,7 @@ _tui_known_subcommand() {
   # A name is dispatchable only if the editor main jumps to actually
   # exists. Being a schema section is not enough: `project` is one, with
   # a deliberate no-editor opt-out (see schema.sh's SCHEMA_I18N note --
-  # the project name belongs in the gitignored .setup.conf.local, a
+  # the project name belongs in the gitignored setup.local.toml, a
   # layer the menu has no concept of), and accepting it on the section
   # list alone sent main into `_edit_section_project`, a bash
   # command-not-found raised after the backend probe and the seeding
@@ -2911,12 +3220,6 @@ main() {
 
   _tui_init_lang
 
-  # Nothing below this line can take effect: see _tui_refuse_frozen. The
-  # refusal sits after argument parsing so `-h` still prints usage, and
-  # before the backend probe so the message reaches the terminal as text
-  # rather than a dialog box the editor has no business opening.
-  _tui_refuse_frozen || exit "$?"
-
   if ! _backend_detect; then
     printf "[tui] %s\n" "$(_tui_msg err.no_backend)" >&2
     exit 2
@@ -2929,21 +3232,28 @@ main() {
   # one this is before the GPU editor opens.
   _warn_if_deploy_word_ambiguous "${_subcmd_raw}"
 
-  # TUI's save target is the per-repo override (setup.conf). Loading
-  # reads it on top of the template baseline so existing overrides
-  # surface as the menu's initial values; new edits land in setup.conf.
-  local _repo_conf="${FILE_PATH}/.setup.conf"
-  local _tpl_conf="${_TUI_TPL_DIR}/.setup.conf"
-  # First-run bootstrap: when no per-repo setup.conf exists yet, run
+  # The editor's save target is this repo's own layer of the conf chain,
+  # `<repo>/setup.toml`; the template layer supplies the file's structure
+  # on a first run. The menus' baseline is a different question -- the
+  # whole chain merged -- and _load_current answers it.
+  local _repo_conf="${_TUI_BASE_PATH}/setup.toml"
+  local _tpl_conf="${_TUI_TPL_DIR}/setup.toml"
+  # First-run bootstrap: when no per-repo setup.toml exists yet, run
   # setup.sh apply so mount_1 detection seeds the file before the TUI
   # opens its menus.
   if [[ ! -f "${_repo_conf}" ]]; then
     # --quiet so apply's confirmation lines don't double-print after the
-  # TUI's own `[tui] saved` line.
-  "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet --base-path "${FILE_PATH}" --lang "${_LANG}" \
+    # TUI's own `[tui] saved` line.
+    "${_TUI_SCRIPT_DIR}/setup.sh" apply --quiet \
+      --base-path "${_TUI_BASE_PATH}" --lang "${_LANG}" \
       >/dev/null 2>&1 || true
   fi
-  _load_current "${_repo_conf}" "${_tpl_conf}"
+  _load_current "${_TUI_BASE_PATH}" "${_TUI_TPL_DIR}" || exit 2
+
+  # A per-worktree layer is named before anything opens: the menus below
+  # show the EFFECTIVE values, that layer included, and a save goes to the
+  # committed one.
+  _tui_local_layer_notice "${_TUI_BASE_PATH}"
 
   # pre-tui hook fires before TUI launches. Skipped under
   # --dry-run.
