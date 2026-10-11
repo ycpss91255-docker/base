@@ -1529,3 +1529,34 @@ _bridge_kv() {
   assert_success
   assert_line $'lifecycle\twatchdog_check\ta\tb'
 }
+
+# why: A tab inside a VALUE is deliberately carried by the transport --
+# the value is the last field, so the row holds it intact, and
+# `_check_transportable` draws its line there rather than refusing a file
+# the stream carries correctly. The READER then undid it: `IFS=$'\t'
+# read -r a b c` strips a tab from the ends of a field and collapses runs
+# of it, because a tab is IFS whitespace. Measured: `[environment] env_1
+# = "TOKEN=abc<TAB>"` loaded as `TOKEN=abc` and `"<TAB>LEAD=x"` as
+# `LEAD=x`, silently changing a container value the writer had preserved.
+# Both readers split at the first two tabs now and keep the rest byte for
+# byte -- the single-file tokenizer and the merged-chain one, which is why
+# this asserts through each.
+@test "toml-bridge: a value's leading and trailing tabs survive both readers" {
+  local _f="${BATS_TEST_TMPDIR}/tabs.toml"
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  printf '[environment]\nenv_1 = "TOKEN=abc\\t"\nenv_2 = "\\tLEAD=x"\n' > "${_f}"
+
+  run bash -c "TOML_BRIDGE_FORCE_DOCKER='' bash -c \"
+    source '${_conf_sh}'
+    _conf_load '${_f}' T
+    printf '[%s][%s]\n' \\\"\\\${T__vals[0]}\\\" \\\"\\\${T__vals[1]}\\\"\""
+  assert_success
+  assert_output --partial "[TOKEN=abc	][	LEAD=x]"
+
+  run bash -c "TOML_BRIDGE_FORCE_DOCKER='' bash -c \"
+    source '${_conf_sh}'
+    _conf_load_layers L '${_f}'
+    printf '[%s][%s]\n' \\\"\\\${L__vals[0]}\\\" \\\"\\\${L__vals[1]}\\\"\""
+  assert_success
+  assert_output --partial "[TOKEN=abc	][	LEAD=x]"
+}

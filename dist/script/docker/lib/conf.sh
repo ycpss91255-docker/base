@@ -121,6 +121,35 @@ _ini_tokenize() {
   done < "${_file}"
 }
 
+# _conf_kv_split <row> <section_outvar> <key_outvar> <value_outvar>
+#
+# One row of the bridge's tab-separated KV stream, split at its FIRST TWO
+# tabs. Everything after the second tab is the value, byte for byte.
+#
+# NOT `IFS=$'\t' read -r a b c`, and that is the whole point of this
+# function existing. A tab is IFS WHITESPACE, so `read` strips it from
+# the ends of a field and collapses runs of it -- which silently rewrote
+# values the writer had preserved: `[environment] env_1 = "TOKEN=abc<TAB>"`
+# loaded as `TOKEN=abc`, and a leading one went the same way. The value
+# is the LAST field precisely so a tab inside it survives the transport
+# (toml_bridge.py's `_check_transportable` draws the line there and
+# refuses one in a section or key NAME), and then the reader undid it.
+_conf_kv_split() {
+  local _row="${1-}"
+  local -n _cks_s="${2:?"${FUNCNAME[0]}: missing section outvar"}"
+  local -n _cks_k="${3:?"${FUNCNAME[0]}: missing key outvar"}"
+  local -n _cks_v="${4:?"${FUNCNAME[0]}: missing value outvar"}"
+  local _rest
+  _cks_s="${_row%%$'\t'*}"
+  _cks_k=""
+  _cks_v=""
+  [[ "${_row}" == *$'\t'* ]] || return 0
+  _rest="${_row#*$'\t'}"
+  _cks_k="${_rest%%$'\t'*}"
+  [[ "${_rest}" == *$'\t'* ]] || return 0
+  _cks_v="${_rest#*$'\t'}"
+}
+
 # _toml_tokenize <file> <sections_out> <entry_sections_out> <keys_out> <values_out>
 #
 # TOML counterpart of _ini_tokenize. Calls the containerised bridge
@@ -166,7 +195,9 @@ _toml_tokenize() {
 
   local _tt_sect _tt_key _tt_val
   local -A _tt_seen=()
-  while IFS=$'\t' read -r _tt_sect _tt_key _tt_val; do
+  local _tt_row
+  while IFS= read -r _tt_row; do
+    _conf_kv_split "${_tt_row}" _tt_sect _tt_key _tt_val
     [[ -z "${_tt_sect}" ]] && continue
     if [[ -z "${_tt_seen[${_tt_sect}]:-}" ]]; then
       _tt_sections+=("${_tt_sect}")
@@ -497,7 +528,9 @@ _conf_load_layers() {
         "display=_conf_load_layers: the TOML merge of ${_cll_existing[*]} failed; refusing to report an empty configuration as a loaded one"
       return 1
     fi
-    while IFS=$'\t' read -r _cll_sect _cll_key _cll_val; do
+    local _cll_row
+    while IFS= read -r _cll_row; do
+      _conf_kv_split "${_cll_row}" _cll_sect _cll_key _cll_val
       [[ -z "${_cll_sect}" ]] && continue
       if [[ -z "${_cll_tseen[${_cll_sect}]:-}" ]]; then
         _cll_ts+=("${_cll_sect}")

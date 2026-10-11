@@ -7295,7 +7295,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (56)
+### test/bats/unit/toml_bridge_spec.bats (57)
 
 | Test | Description |
 |------|-------------|
@@ -7355,6 +7355,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: a value the tab-separated view cannot carry is refused, not truncated` | THE KV STREAM IS THE INTERFACE, and it is line- and tab-delimited -- `_toml_tokenize` reads each row with `IFS=$'\t' read -r section key value`. A TOML value may legally contain both delimiters, and the bridge emitted them raw. Measured: `watchdog_check = "echo first\necho second"` produced a row whose value held a real newline, so the shell read `watchdog_check = echo first` and then took `echo second` as a SECTION of its own -- the watchdog running a TRUNCATED command with no parse failure anywhere. A tab inside a quoted key shifted the split the same way: `"a\tb" = "v"` arrived as key `a` with value `b<TAB>v`. The refusal is the answer the writers already give at the other end of the same pipe (`conf_upsert_newline_rejected`), so the two ends agree instead of the stream growing a second decoded dialect every assertion written against it would have to learn. |
 | `toml-bridge: a tab in a key or a section name is refused` | - |
 | `toml-bridge: a tab inside a VALUE is carried, not refused` | The control, and the line the rule is drawn on. The value is the LAST field, so `read` hands it the rest of the line intact -- a tab there survives, measured. Refusing it would reject a file the transport carries correctly, which is the opposite failure. |
+| `toml-bridge: a value's leading and trailing tabs survive both readers` | A tab inside a VALUE is deliberately carried by the transport -- the value is the last field, so the row holds it intact, and `_check_transportable` draws its line there rather than refusing a file the stream carries correctly. The READER then undid it: `IFS=$'\t' read -r a b c` strips a tab from the ends of a field and collapses runs of it, because a tab is IFS whitespace. Measured: `[environment] env_1 = "TOKEN=abc<TAB>"` loaded as `TOKEN=abc` and `"<TAB>LEAD=x"` as `LEAD=x`, silently changing a container value the writer had preserved. Both readers split at the first two tabs now and keep the rest byte for byte -- the single-file tokenizer and the merged-chain one, which is why this asserts through each. |
 
 ### test/bats/unit/toml_config_template_spec.bats (20)
 
