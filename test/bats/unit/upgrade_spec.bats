@@ -23,10 +23,19 @@
 # subtree, malformed `.version`, and wrong-tag pulls), and the SemVer
 # §11-aware `_semver_cmp` + `_check` behavior added for issue #156
 # (prerelease ahead of latest stable must not be reported as "needing
-# downgrade"), and `_migrate_lifecycle_restart_default`, which retires the
-# stale devel-scoped `[lifecycle] restart = no` the old template seeded into
-# every downstream repo (gated on the pre-pull vendored template, so a
-# deliberately chosen policy is never rewritten).
+# downgrade").
+#
+# The `_migrate_lifecycle_restart_default` arms that used to live here are
+# gone with the function (base#1110). They were fail-open: the fixture built
+# its own driver/template pair with the vendored template saying
+# `restart = no`, a pairing no release has ever produced, so four green arms
+# stood over a migration that returned 0 without acting on every real
+# consumer. The replacement is in version_migrate_spec.bats (the migration,
+# now selected on the version interval) and in
+# integration/prev_release_upgrade_spec.bats (the same question asked
+# through a genuine released driver, which is what the fixture could not
+# do). The structural rule that keeps the shape from coming back is in
+# upgrade_migration_reachability_spec.bats.
 
 bats_require_minimum_version 1.5.0
 
@@ -79,10 +88,6 @@ EOS
   sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_get_latest_version() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
-  sed -n '/^_migrate_lifecycle_restart_default() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
-  sed -n '/^_trim_ws() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
-  sed -n '/^_unquote_scalar() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
-  sed -n '/^_lifecycle_restart_is() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_subtree_split_of() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_subtree_split_sha() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_collect_subtree_local_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
@@ -125,22 +130,6 @@ _seed_squashed_subtree() {
   # and a two-line capture makes an unparseable rev range.
   git -C "${_dir}" subtree add -q --prefix=.base "${_up}" main --squash >/dev/null
   printf '%s\n' "${_pre}"
-}
-
-# _seed_restart_repo <dir> <vendored_template_restart> <repo_restart_block...>
-#   A downstream git repo carrying a vendored template `setup.toml`
-#   (the pre-pull baseline the migration reads to decide whether this
-#   upgrade crosses the rescope) plus its own committed `setup.toml`.
-_seed_restart_repo() {
-  local _dir="$1" _tpl_restart="$2"; shift 2
-  mkdir -p "${_dir}/.base/dist"
-  git -C "${_dir}" init -q -b main
-  git -C "${_dir}" config user.email t@t
-  git -C "${_dir}" config user.name t
-  printf '[lifecycle]\n%s\n' "${_tpl_restart}" > "${_dir}/.base/dist/setup.toml"
-  printf '%s\n' "$@" > "${_dir}/setup.toml"
-  git -C "${_dir}" add -A
-  git -C "${_dir}" commit -q -m seed
 }
 
 teardown() {
@@ -807,92 +796,6 @@ EOS
   assert_failure
   assert_output --partial "downgrade"
   refute_output --partial "FATAL"
-}
-
-# ── _migrate_lifecycle_restart_default ──────────────────────────────────────
-#
-# `[lifecycle] restart` was devel-scoped and shipped as a literal
-# `restart = no`; init.sh --gen-conf copies the WHOLE template, so every
-# downstream repo carries that literal. The key is now deploy-scoped with a
-# shipped default of `unless-stopped`, which makes the copied `no` stale by
-# construction -- left alone it silently denies the field bundle its
-# auto-start on host reboot.
-
-@test "_migrate_lifecycle_restart_default rewrites the stale template default, loudly" {
-  local _r="${TEMP_DIR}/stale"
-  _seed_restart_repo "${_r}" 'restart = "no"' "[lifecycle]" 'restart = "no"' "init = true"
-
-  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
-  assert_success
-  assert_output --partial "MIGRATION"
-  assert_output --partial "restart = unless-stopped"
-
-  run grep -Fx 'restart = "unless-stopped"' "${_r}/setup.toml"
-  assert_success
-  # Unrelated keys survive untouched.
-  run grep -Fx "init = true" "${_r}/setup.toml"
-  assert_success
-  # The rewrite is committed, so the subsequent subtree pull sees a clean tree.
-  run git -C "${_r}" status --porcelain
-  assert_output ""
-}
-
-@test "_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone" {
-  local _r="${TEMP_DIR}/chosen"
-  _seed_restart_repo "${_r}" 'restart = "no"' "[lifecycle]" 'restart = "on-failure:5"'
-
-  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
-  assert_success
-  refute_output --partial "MIGRATION"
-  run grep -Fx 'restart = "on-failure:5"' "${_r}/setup.toml"
-  assert_success
-}
-
-@test "_migrate_lifecycle_restart_default is inert once the vendored template ships the new default" {
-  # Post-rescope the repo owns its `no`; a later deliberate choice of `no`
-  # must never be rewritten again.
-  local _r="${TEMP_DIR}/post"
-  _seed_restart_repo "${_r}" 'restart = "unless-stopped"' "[lifecycle]" 'restart = "no"'
-
-  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
-  assert_success
-  refute_output --partial "MIGRATION"
-  run grep -Fx 'restart = "no"' "${_r}/setup.toml"
-  assert_success
-}
-
-@test "_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]" {
-  local _r="${TEMP_DIR}/othersection"
-  _seed_restart_repo "${_r}" 'restart = "no"' '["stage:runtime"]' 'restart = "no"'
-
-  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
-  assert_success
-  refute_output --partial "MIGRATION"
-  run grep -Fx 'restart = "no"' "${_r}/setup.toml"
-  assert_success
-}
-
-@test "_migrate_lifecycle_restart_default is a no-op without a repo setup.toml" {
-  local _r="${TEMP_DIR}/noconf"
-  mkdir -p "${_r}/.base/dist"
-  printf '[lifecycle]\nrestart = "no"\n' > "${_r}/.base/dist/setup.toml"
-
-  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
-  assert_success
-  assert_output ""
-}
-
-@test "_migrate_lifecycle_restart_default is a no-op without a vendored template baseline" {
-  # Cannot tell whether this upgrade crosses the rescope -> touch nothing.
-  local _r="${TEMP_DIR}/notpl"
-  mkdir -p "${_r}"
-  printf '[lifecycle]\nrestart = "no"\n' > "${_r}/setup.toml"
-
-  run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
-  assert_success
-  refute_output --partial "MIGRATION"
-  run grep -Fx 'restart = "no"' "${_r}/setup.toml"
-  assert_success
 }
 
 # ── Vendored drift against the release that was pulled ──────────────────────

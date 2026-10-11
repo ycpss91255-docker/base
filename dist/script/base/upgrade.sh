@@ -122,129 +122,6 @@ _require_clean_merge_state() {
   done
 }
 
-# _migrate_lifecycle_restart_default <repo_root>
-#
-# `[lifecycle] restart` used to be a DEVEL-scoped key whose template
-# default was the literal `restart = no`, and `init.sh --gen-conf` copies
-# the WHOLE template to `<repo>/setup.toml` -- so every downstream repo
-# carries that literal whether or not anyone chose it. The key is now
-# DEPLOY-scoped (deployable stages + the field bundle, never devel, never
-# `*-test`) with a shipped default of `unless-stopped`, which makes the
-# copied `no` stale BY CONSTRUCTION: it is a devel-scoped answer to a
-# question that is now only ever asked about a field service, and left
-# alone it silently denies that service its auto-start on host reboot.
-#
-# So rewrite it -- but only when this upgrade is the one crossing the
-# rescope. The PRE-PULL vendored template is the discriminator: while it
-# still ships `restart = no`, a downstream `restart = no` can only be the
-# copied default; once the pull lands the new template the migration goes
-# permanently inert, so a `no` the repo deliberately chooses AFTERWARDS is
-# never touched. A repo that already chose something else (`on-failure:5`,
-# `always`, ...) is never touched either.
-#
-# Runs BEFORE the subtree pull and commits the rewrite, so the pull still
-# sees a clean tree.
-_migrate_lifecycle_restart_default() {
-  local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
-  local _conf="${_root}/setup.toml"
-  local _tpl="${_root}/${TEMPLATE_REL}/dist/setup.toml"
-
-  [[ -f "${_conf}" ]] || return 0
-  # No vendored baseline -> cannot tell whether this upgrade crosses the
-  # rescope, so touch nothing (fail-safe).
-  [[ -f "${_tpl}" ]] || return 0
-  _lifecycle_restart_is "${_tpl}" "no" || return 0
-  _lifecycle_restart_is "${_conf}" "no" || return 0
-
-  # Rewrite in place (`cat >` keeps the original mode + inode) so only the
-  # one `[lifecycle] restart` line changes.
-  local _tmp _line _trimmed _section=""
-  _tmp="$(mktemp)"
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    _trimmed="$(_trim_ws "${_line}")"
-    if [[ "${_trimmed}" == '['*']' ]]; then
-      _section="${_trimmed#\[}"
-      _section="${_section%\]}"
-    elif [[ "${_section}" == "lifecycle" ]] \
-         && [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*(.*)$ ]] \
-         && [[ "$(_unquote_scalar "${BASH_REMATCH[1]}")" == "no" ]]; then
-      _line='restart = "unless-stopped"'
-    fi
-    printf '%s\n' "${_line}" >> "${_tmp}"
-  done < "${_conf}"
-  cat "${_tmp}" > "${_conf}"
-  rm -f "${_tmp}"
-
-  _log ""
-  _log "MIGRATION: [lifecycle] restart is now DEPLOY-scoped"
-  _log "           restart = no -> restart = unless-stopped"
-  _log "           (the old template default was devel-scoped; the key now"
-  _log "            applies to deployable stages + the field bundle only,"
-  _log "            never to devel or a *-test stage, and a field service"
-  _log "            is meant to auto-start again after a host reboot)"
-  _log "           Set it back to 'no' in setup.toml if that is what you"
-  _log "           actually want -- it will not be rewritten again."
-
-  if git -C "${_root}" ls-files --error-unmatch "setup.toml" \
-       >/dev/null 2>&1; then
-    git -C "${_root}" add "setup.toml"
-    git -C "${_root}" commit -q \
-      -m "chore: migrate [lifecycle] restart default to unless-stopped" \
-      || _log "  (nothing staged for the restart-default migration)"
-  fi
-}
-
-# _trim_ws <line>
-#   Echo <line> with surrounding whitespace stripped.
-_trim_ws() {
-  local _s="${1-}"
-  _s="${_s#"${_s%%[![:space:]]*}"}"
-  printf '%s' "${_s%"${_s##*[![:space:]]}"}"
-}
-
-# _unquote_scalar <text>
-#   Echo <text> trimmed, with one matching pair of surrounding string
-#   quotes removed: `"no"` -> `no`, `'no'` -> `no`, `no` -> `no`.
-#
-#   setup.toml is TOML, where a string value is ALWAYS quoted, so a reader
-#   that compares the raw text after the `=` is comparing the spelling and
-#   not the value -- `restart = "no"` reads back as `"no"` and never equals
-#   `no`. Both basic and literal strings are accepted, and so is the bare
-#   INI spelling the format replaced, so a file written before the
-#   conversion still reads.
-_unquote_scalar() {
-  local _s
-  _s="$(_trim_ws "${1-}")"
-  if (( ${#_s} >= 2 )); then
-    case "${_s}" in
-      '"'*'"'|"'"*"'") _s="${_s:1:${#_s}-2}" ;;
-    esac
-  fi
-  printf '%s' "${_s}"
-}
-
-# _lifecycle_restart_is <conf_path> <value>
-#   True when <conf_path> carries `restart = <value>` inside its
-#   `[lifecycle]` section, whatever TOML spelling the value is written in.
-#   Section-scoped on purpose: a `[stage:*]` section may legitimately carry
-#   its own `restart` key.
-_lifecycle_restart_is() {
-  local _path="${1:?}" _want="${2:?}"
-  local _line _trimmed _section=""
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    _trimmed="$(_trim_ws "${_line}")"
-    if [[ "${_trimmed}" == '['*']' ]]; then
-      _section="${_trimmed#\[}"
-      _section="${_section%\]}"
-      continue
-    fi
-    [[ "${_section}" == "lifecycle" ]] || continue
-    [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
-    [[ "$(_unquote_scalar "${BASH_REMATCH[1]}")" == "${_want}" ]] && return 0
-  done < "${_path}"
-  return 1
-}
-
 # _verify_subtree_intact <pre_head_sha>
 #   Post-pull sanity check: `${TEMPLATE_REL}/` must still contain the
 #   subtree markers. A known failure mode (older git-subtree) is to
@@ -577,11 +454,20 @@ _upgrade() {
   _require_git_identity
   _require_clean_merge_state
 
-  # Retire the stale devel-scoped `[lifecycle] restart = no` the old
-  # template seeded into every repo. Must run BEFORE the pull: the
-  # pre-pull vendored template is what tells this migration whether the
-  # upgrade crosses the rescope.
-  _migrate_lifecycle_restart_default "${REPO_ROOT}"
+  # NOTE: retiring the stale devel-scoped `[lifecycle] restart = no` is NOT
+  # called from here. It used to be, and that is base#1110: the migration
+  # gated on the VENDORED template under `${TEMPLATE_REL}/` -- the tree this
+  # pull is about to replace -- still reading `restart = no`, while the
+  # function itself arrived in the same release that changed that template.
+  # Every published tag carrying the function therefore carries a template
+  # saying `unless-stopped`, so the gate closed on all of them and the
+  # migration returned 0 having done nothing, on every consumer, forever.
+  # No path under `${TEMPLATE_REL}/` can be a precondition for work done out
+  # here: the driver running is the consumer's own vendored copy, so a gate
+  # on the pre-pull tree and the code that reads it can never be in the same
+  # repo at the same time. It lives in lib/version_migrate.sh's declared set
+  # instead, selected on the version interval the upgrade crosses, and run
+  # from the init.sh resync at Step 3 below.
 
   # NOTE: the `.env` -> `.env.local` rename is NOT called from here. It has
   # to fire on the upgrade that CROSSES the naming change, and that upgrade

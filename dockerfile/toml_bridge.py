@@ -265,6 +265,128 @@ def _emit_table(section, entries, out):
             out.append((section, key, _format_value(value)))
 
 
+def _scalar_spellings_of(entries, prefix):
+    """The `<prefix>_N` keys <entries> carries as TABLE SCALARS.
+
+    Sorted by index, as `(index, key)` pairs, so a refusal naming several
+    of them reads in the order the family numbers rather than in whatever
+    order the file happened to spell them.
+
+    A key bound to an array or a sub-table is not a scalar spelling of
+    anything -- it is a home of its own -- so only leaf values count. The
+    suffix test is the one `_conf_list_sorted` applies on the other side
+    of the stream (`[[ "${_num}" =~ ^[0-9]+$ ]]`): plain decimal digits
+    and nothing else, so `cap_drop_x` is an unrelated key and not a
+    malformed member of the family.
+    """
+    head = prefix + "_"
+    found = []
+    for key, value in entries.items():
+        if isinstance(value, (list, dict)):
+            continue
+        if not key.startswith(head):
+            continue
+        rest = key[len(head):]
+        if not rest or rest.strip("0123456789"):
+            continue
+        found.append((int(rest), key))
+    return sorted(found)
+
+
+def _check_one_spelling(data):
+    """Refuse a file that carries one numbered family BOTH ways.
+
+    THE SHELL VIEW HAS ONE NAME PER ENTRY. Entry N of an array of tables
+    IS the key `<prefix>_N` there, and a table scalar spelled
+    `<prefix>_N` is the same name again -- so a file carrying both emits
+    that row TWICE, and the two readers of the stream disagree about what
+    that means. Measured, before this guard existed:
+
+      [security]
+      privileged = false
+      cap_drop_1 = "NET_RAW"
+
+      [[security.cap_drop]]
+      cap = "SYS_ADMIN"
+
+    emitted the row `security <TAB> cap_drop_1` twice, and conf.sh then
+    answered two
+    different configurations from the one file: `_conf_get` reads the
+    LAST occurrence alone and said `SYS_ADMIN` (one entry), while
+    `_conf_list_sorted` -- the reader every ordered-list consumer uses,
+    `_resolve_docker_conf`'s three `[security]` lists among them --
+    collects every non-empty entry and said `NET_RAW SYS_ADMIN` (two).
+    A `setup.sh set security.cap_drop_1 CHOWN` on it reported SUCCESS,
+    replaced the array block and left the scalar line, so an operator who
+    set one capability to drop got two, one of them the value they had
+    just replaced.
+
+    WHY REFUSE RATHER THAN PICK ONE. The array spelling is the only one
+    anything here can produce: `_conf_toml_aot_slot` routes every
+    numbered key of a family with an array home to the array renderer, so
+    neither writer can emit the scalar form, the converter emits blocks,
+    and the shipped template spells no family both ways. No released
+    version can produce such a file -- the only way to get one is to
+    hand-write it -- so there is no installed base to interpret for, and
+    interpretation is the one answer that can still leave the two readers
+    disagreeing. A refusal by name is the answer the converter already
+    gives to the INI shape of this same question (two populated
+    occurrences of one index), and it needs no `setup.sh` subcommand for
+    clearing a stale scalar the writers cannot reach.
+
+    DERIVED FROM _ARRAY_SPEC, never from a list of families. The prefix a
+    family numbers under is the spec's own first element, so a family
+    that gains an array home is covered by having been added there, and
+    one that is renamed cannot drift away from its check. Handling
+    `cap_drop` and `cap_add` by name would pass forever while the next
+    family reopened the defect.
+
+    ROOT-LEVEL FAMILIES NEED NO ROW HERE and get none: `[[volumes]]`
+    makes `volumes` an array, and TOML will not also let it be the
+    `[volumes]` table a `mount_1` scalar would need, so the collision is
+    unreachable in one file -- and across layers the merge replaces a
+    table with an array wholesale rather than keeping both. The families
+    that CAN collide are the ones whose array lives under a key of a
+    table, because that table can hold scalars beside it.
+    """
+    bad = []
+
+    def walk(section, table):
+        for key, value in table.items():
+            if isinstance(value, dict):
+                walk(f"{section}.{key}" if section else key, value)
+                continue
+            if not isinstance(value, list):
+                continue
+            spec = _ARRAY_SPEC.get(key)
+            if spec is None:
+                continue
+            path = f"{section}.{key}" if section else key
+            for index, scalar in _scalar_spellings_of(table, spec[0]):
+                bad.append((section, spec[0], index, scalar, path))
+
+    for section, entries in data.items():
+        if isinstance(entries, dict):
+            walk(section, entries)
+
+    if not bad:
+        return
+    for section, prefix, index, scalar, path in sorted(bad):
+        print(f"toml-bridge: {section}.{scalar} is carried two ways in one "
+              f"configuration: as a table scalar under [{section}] and as "
+              f"block {index} of the [[{path}]] array. The shell view has "
+              f"one name per entry, so entry {index} of the numbered "
+              f"family '{prefix}' arrives twice and its two readers "
+              f"disagree -- a key lookup answers the last occurrence alone, "
+              f"the ordered-list readers collect both. Nothing here writes "
+              f"the scalar spelling of a family with an array home, so no "
+              f"configuration is lost by saying so: keep the [[{path}]] "
+              f"block and delete the '{scalar}' line, or delete the block "
+              f"and keep the line, then read it again.",
+              file=sys.stderr)
+    raise SystemExit(1)
+
+
 def _emit_kv(data):
     """Emit section/key/value tab-separated lines for bash consumption.
 
@@ -283,7 +405,13 @@ def _emit_kv(data):
 
     A table goes through _emit_table, which flattens a nested one into
     its own dotted section.
+
+    A numbered family spelled BOTH ways is refused before any row is
+    built (_check_one_spelling), for the reason that function states: the
+    view has one name per entry, and a file that fills one name twice has
+    no single answer to give.
     """
+    _check_one_spelling(data)
     rows = []
     for section, entries in data.items():
         if isinstance(entries, list):

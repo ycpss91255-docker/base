@@ -431,39 +431,40 @@ _seed_entry() {
 # caller commits (ADR-00000006), and that caller's closing commit has
 # always been unscoped.
 
-@test "upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default" {
-  cd "${DOWN_DIR}"
-  # The vendored template still carries the OLD default, so this upgrade is
-  # the one that crosses the devel -> deploy rescope of the key.
-  mkdir -p .base/dist
-  printf '[lifecycle]\nrestart = "no"\n' > .base/dist/setup.toml
-  printf '[lifecycle]\nrestart = "no"\ninit = true\n' > setup.toml
-  git add -A
-  git commit -q -m "seed a stale devel-scoped restart default"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
-  assert_success
-  assert_output --partial "MIGRATION"
-  assert_output --partial "restart = unless-stopped"
-
-  grep -Fxq 'restart = "unless-stopped"' setup.toml
-  grep -Fxq "init = true" setup.toml
-  # Committed, so the subtree pull that follows it still saw a clean tree.
-  refute_output --partial "dirty"
-}
-
-@test "upgrade.sh leaves a deliberately configured restart policy alone" {
-  cd "${DOWN_DIR}"
-  mkdir -p .base/dist
-  printf '[lifecycle]\nrestart = "no"\n' > .base/dist/setup.toml
-  printf '[lifecycle]\nrestart = "on-failure:5"\n' > setup.toml
-  git add -A
-  git commit -q -m "seed a deliberate restart policy"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
-  assert_success
-  grep -Fxq 'restart = "on-failure:5"' setup.toml
-}
+# ── Restart-default migration: NOT HERE any more either ─────────────
+#
+# Two tests here drove upgrade.sh's pre-pull rewrite of a stale
+# `[lifecycle] restart = no`. That copy is gone for the same reason the
+# four above it are, one step worse: it gated on the VENDORED template
+# under `.base/` still reading `restart = no` -- the tree the pull is about
+# to replace -- while the function and the new template default shipped in
+# the same release. Every published tag carrying the function carries a
+# template saying `unless-stopped`, so the gate closed on all of them and
+# the migration returned 0 having done nothing (base#1110).
+#
+# Both tests passed anyway, and how they passed is the point:
+#
+#   - the firing one seeded `.base/dist/setup.toml` with `restart = "no"`
+#     by hand, which is the one pairing no release produces. It asserted
+#     against a tree that cannot exist.
+#   - the fail-safe one ("leaves a deliberately configured restart policy
+#     alone") asserted that a value was NOT rewritten, which is also what a
+#     migration that never runs produces. It was green through the total
+#     inversion -- base#1115 / base#1117 / base#1175's shape.
+#
+# Its coverage moved to where the code is:
+#   - test/bats/unit/version_migrate_spec.bats, for the rewrite and for the
+#     shipped declared set that selects it;
+#   - prev_release_upgrade_spec.bats's "retires the stale devel-scoped
+#     restart default" / "leaves a post-rescope restart = no alone" arms,
+#     which drive a REAL released upgrade.sh over a REAL init.sh and read
+#     the answer out of the file the readers use;
+#   - test/bats/unit/upgrade_migration_reachability_spec.bats, which
+#     refuses the placement rather than the instance.
+#
+# As with base#1086, an arm here could not be kept even if it were worth
+# keeping: this fixture's template ships a stub `init.sh` that exits 0, so
+# the Step 3 resync the migration now runs from does not happen.
 
 # ── Pre-flight guards ───────────────────────────────────────────────────────
 
