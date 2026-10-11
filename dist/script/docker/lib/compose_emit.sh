@@ -789,11 +789,15 @@ _logging_svc_local_path_mount() {
   # case so shellcheck SC2088 doesn't flag it; we're matching the
   # user's *literal* `~/foo` setup.toml value and rewriting it to
   # ${HOME}/foo.
+  # The prefix this function supplies itself, as opposed to what the
+  # operator configured. Only that half is filesystem-derived, so only
+  # that half carries literals compose must not interpolate.
+  local _llp_prefix=""
   case "${_raw}" in
     \~/*)
-      _raw="${HOME}/${_raw#\~/}" ;;
+      _raw="${HOME}/${_raw#\~/}" ; _llp_prefix="${HOME}" ;;
     \~)
-      _raw="${HOME}" ;;
+      _raw="${HOME}" ; _llp_prefix="${HOME}" ;;
   esac
   # Strip trailing slashes for predictable mount string.
   while [[ "${_raw}" == */ && "${_raw}" != "/" ]]; do
@@ -801,14 +805,24 @@ _logging_svc_local_path_mount() {
   done
   # Relative -> resolve against repo root (the compose.yaml's directory).
   if [[ "${_raw}" != /* ]]; then
-    _raw="${_setup_base%/}/${_raw}"
+    _llp_prefix="${_setup_base%/}"
+    _raw="${_llp_prefix}/${_raw}"
   fi
   # Create the dir eagerly so `docker run` doesn't auto-create it
   # root-owned. Failure is non-fatal -- if the user's running setup
   # without write perms to that dir, the eventual docker run will
   # raise a clear error.
   mkdir -p "${_raw}" 2>/dev/null || true
-  _llp_out="${_raw}:/var/log/${_name}"
+  # Emitted with ONLY the prefix escaped. A `$` in the repo's own
+  # directory name is a literal compose would interpolate away; a `$` the
+  # operator put in local_path is an interpolation they meant, and
+  # escaping the assembled string destroyed it -- on the plain apply as
+  # much as on a relocated one.
+  local _llp_emit="${_raw}"
+  if [[ -n "${_llp_prefix}" ]]; then
+    _llp_emit="$(_compose_escape_root "${_llp_prefix}")${_raw#"${_llp_prefix}"}"
+  fi
+  _llp_out="${_llp_emit}:/var/log/${_name}"
 }
 
 # _logging_svc_retention <svc> <keep_out> <days_out> <global> <per_svc>
@@ -936,7 +950,7 @@ YAML
       echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
       echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
       echo "    volumes:"
-      echo "      - $(_compose_yaml_scalar "$(_compose_escape_root "${_stage_llp}")")"
+      echo "      - $(_compose_yaml_scalar "${_stage_llp}")"
     fi
     # Per-stage [logging.<stage>] driver / rotation override (if any).
     # Without an override compose `extends: devel` already covers
@@ -1199,7 +1213,7 @@ YAML
       done <<< "${_eff_volumes}"
     fi
     [[ -n "${_stage_llp}" ]] && \
-      echo "      - $(_compose_yaml_scalar "$(_compose_escape_root "${_stage_llp}")")"
+      echo "      - $(_compose_yaml_scalar "${_stage_llp}")"
     # device entries with propagation redirect to volumes: long-form
     if [[ -n "${_devices_str}" ]]; then
       local _sd
@@ -1624,7 +1638,7 @@ YAML
       # The one host path the helper assembles itself, so the one that
       # bypassed the serialiser every other path goes through.
       [[ -n "${_devel_llp}" ]] && \
-        echo "      - $(_compose_yaml_scalar "$(_compose_escape_root "${_devel_llp}")")"
+        echo "      - $(_compose_yaml_scalar "${_devel_llp}")"
       # device entries with propagation redirect to volumes: long-form
       if [[ -n "${_devices_str}" ]]; then
         local _d

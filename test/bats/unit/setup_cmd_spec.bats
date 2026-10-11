@@ -3187,3 +3187,30 @@ EOF
   # The one that DOES decide its own root stays exactly as configured.
   assert_equal "${_r}" '${CTX_ROOT}/shared'
 }
+
+# why: Escaping the whole assembled logging mount was a regression on the
+# PLAIN apply too: a `${LOG_INSTANCE}` the operator put in
+# `[logging] local_path` became the literal `$${LOG_INSTANCE}`, so compose
+# stopped substituting it and the logs mounted a directory named after the
+# variable. Only the filesystem-derived prefix is a literal that needs
+# escaping; what the operator configured is an interpolation they meant.
+@test "apply preserves an interpolation configured in [logging] local_path (base#1087)" {
+  _ppa_repo
+  python3 - "${TEMP_DIR}/setup.toml" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace('local_path = ""', 'local_path = "/tmp/${LOG_INSTANCE}"', 1)
+open(p, "w").write(s)
+PY
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 -E '^ *- .*:/var/log/' "${TEMP_DIR}/compose.yaml")"
+  [[ -n "${_line}" ]] || fail "no logging bind emitted"
+  [[ "${_line}" == *'${LOG_INSTANCE}'* ]] || fail "interpolation lost: ${_line}"
+  [[ "${_line}" != *'$${LOG_INSTANCE}'* ]] || fail "interpolation escaped: ${_line}"
+}
