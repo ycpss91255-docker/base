@@ -5845,7 +5845,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (139)
+### test/bats/unit/setup_cmd_spec.bats (141)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6001,6 +6001,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `setup.sh post-setup hook failure overrides a failing subcommand rc (#956)` | - |
 | `setup.sh apply aborts where a handler command fails mid-apply (#956)` | - |
 | `setup.sh finalizes the transcript when the post-setup hook fails (#956)` | - |
+| `main add appends to the effective list instead of replacing it (base#1148)` | `add` means append, and under ADR-00000037 an array is replaced whole by the highest layer that defines it -- so the moment the target file declares one it owes the FULL list. The slot was chosen from the target file's OWN section whenever that section had any key at all, a rule that was true under the pre-ADR-37 blanket section-replace and is not true now. Measured: a repo `setup.toml` carrying only `[build] network = "host"` inherits the template's three build arguments, and `add build.arg FOO=bar` chose `arg_1` and wrote an array of one, which array-replace made the whole effective list. The two mirrors and the timezone were gone, from the one command whose entire job is to add. Asserted through `list`, which is the resolved view, not through the file -- the file is a layer, and the question is what the chain answers. |
+| `main add does not copy the local layer's entries into the committed file (base#1148)` | The other direction, and the leak the "at or below" rule exists to stop. A write to the committed `setup.toml` must never materialise the gitignored `setup.local.toml`'s entries into it: that file is the operator's alone, and copying it down would publish it to everyone who clones the repo while also freezing a value they never chose. The baseline for a repo-targeted add is template + repo, so the local layer's own entry stays where it was and still wins the merge. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 

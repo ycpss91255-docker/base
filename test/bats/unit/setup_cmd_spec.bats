@@ -2318,3 +2318,57 @@ _seed_post_setup_hook() {
   assert_output --partial "POST_SETUP_HOOK_FIRED"
   assert_output --partial "transcript_complete exit_code=9"
 }
+
+# why: `add` means append, and under ADR-00000037 an array is replaced
+# whole by the highest layer that defines it -- so the moment the target
+# file declares one it owes the FULL list. The slot was chosen from the
+# target file's OWN section whenever that section had any key at all, a
+# rule that was true under the pre-ADR-37 blanket section-replace and is
+# not true now. Measured: a repo `setup.toml` carrying only
+# `[build] network = "host"` inherits the template's three build
+# arguments, and `add build.arg FOO=bar` chose `arg_1` and wrote an array
+# of one, which array-replace made the whole effective list. The two
+# mirrors and the timezone were gone, from the one command whose entire
+# job is to add. Asserted through `list`, which is the resolved view, not
+# through the file -- the file is a layer, and the question is what the
+# chain answers.
+@test "main add appends to the effective list instead of replacing it (base#1148)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[build]
+network = "host"
+EOF
+  run main add build.arg FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main list build --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial 'arg_1 = APT_MIRROR_UBUNTU=tw.archive.ubuntu.com'
+  assert_output --partial 'arg_2 = APT_MIRROR_DEBIAN=mirror.twds.com.tw'
+  assert_output --partial 'arg_3 = TZ=Asia/Taipei'
+  assert_output --partial 'arg_4 = FOO=bar'
+}
+
+# why: The other direction, and the leak the "at or below" rule exists to
+# stop. A write to the committed `setup.toml` must never materialise the
+# gitignored `setup.local.toml`'s entries into it: that file is the
+# operator's alone, and copying it down would publish it to everyone who
+# clones the repo while also freezing a value they never chose. The
+# baseline for a repo-targeted add is template + repo, so the local
+# layer's own entry stays where it was and still wins the merge.
+@test "main add does not copy the local layer's entries into the committed file (base#1148)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[build]
+network = "host"
+EOF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[[build.args]]
+key = "SECRET_MIRROR"
+value = "internal.example"
+EOF
+  run main add build.arg FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run grep -c 'SECRET_MIRROR' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+  # The committed file carries the template's three plus the new one.
+  run grep -c '^\[\[build.args\]\]$' "${TEMP_DIR}/setup.toml"
+  assert_output "4"
+}

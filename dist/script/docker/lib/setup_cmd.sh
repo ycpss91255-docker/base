@@ -677,27 +677,44 @@ _setup_add() {
   # back, which the INI tokenizer cannot see, and a slot computed from
   # an empty view is always 1 -- every `add` would overwrite the first
   # entry instead of appending.
+  # THE EFFECTIVE LIST, and it is a real merge of the layers AT OR BELOW
+  # the write target. The paragraph above always claimed this; the code
+  # under it was an if/elif that took the target file's OWN section
+  # whenever that section had any key at all -- "replace strategy: only
+  # .local entries exist for this section" -- which was true under the
+  # pre-ADR-37 blanket section-replace and is not true now. Measured: a
+  # repo `setup.toml` carrying only `[build] network = "host"` inherits
+  # the template's three build arguments, and `add build.arg FOO=bar`
+  # read the repo section, chose `arg_1`, and wrote an array of ONE --
+  # which array-replace then made the whole effective list. The two
+  # mirrors and the timezone were gone, from a command whose entire job
+  # is to append.
+  #
+  # AT OR BELOW, not the whole chain: materialising a layer ABOVE the
+  # target would copy it down. For a write to the committed `setup.toml`
+  # the baseline is template + repo, so the operator's gitignored
+  # `setup.local.toml` entries are never written into the file everyone
+  # else gets.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
-  local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../setup.toml"
   _parse_conf_section "${_conf}" "${_section}" _local_k _local_v
-  if (( ${#_local_k[@]} > 0 )); then
-    # Override section present — replace strategy: only .local entries
-    # exist for this section.
-    local _li
-    for (( _li=0; _li<${#_local_k[@]}; _li++ )); do
-      _keys+=("${_section}.${_local_k[_li]}")
-      _vals+=("${_local_v[_li]}")
-    done
-  elif [[ -f "${_tpl_conf}" ]]; then
-    # Fall back to template baseline so max-suffix matches what the
-    # merged view would produce.
-    local -a _tpl_k=() _tpl_v=()
-    _parse_conf_section "${_tpl_conf}" "${_section}" _tpl_k _tpl_v
-    local _ti
-    for (( _ti=0; _ti<${#_tpl_k[@]}; _ti++ )); do
-      _keys+=("${_section}.${_tpl_k[_ti]}")
-      _vals+=("${_tpl_v[_ti]}")
+
+  local -a _sa_layers=() _sa_below=()
+  _setup_conf_layers "${_base_path}" _sa_layers
+  if (( _is_local )); then
+    _sa_below=("${_sa_layers[@]}")
+  else
+    _sa_below=("${_sa_layers[@]:0:${#_sa_layers[@]}-1}")
+  fi
+  if _conf_load_layers _SETUP_ADD_EFF "${_sa_below[@]}"; then
+    local -n _sa_es=_SETUP_ADD_EFF__es
+    local -n _sa_k=_SETUP_ADD_EFF__keys
+    local -n _sa_v=_SETUP_ADD_EFF__vals
+    local _ei
+    for (( _ei=0; _ei<${#_sa_k[@]}; _ei++ )); do
+      [[ "${_sa_es[_ei]}" == "${_section}" ]] || continue
+      _keys+=("${_section}.${_sa_k[_ei]}")
+      _vals+=("${_sa_v[_ei]}")
     done
   fi
   local _max=0 _empty_idx="" _i _k _suffix
@@ -727,6 +744,43 @@ _setup_add() {
     _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key} = ${_value}" "section=${_section}" "key=${_new_key}" "value=${_value}"
     return 2
   fi
+
+  # MATERIALISE WHAT THIS LAYER WOULD OTHERWISE DROP, before appending.
+  # An array is replaced whole by the highest layer that defines it
+  # (ADR-00000037), so the moment this file declares one it owes the
+  # FULL list -- an append that writes only the new entry is a
+  # replacement of everything below. Each inherited entry the target
+  # does not already carry is written first, at the index it holds in the
+  # effective view, so the positions the list readers sort by are the
+  # ones the merge produced.
+  #
+  # An empty effective entry is skipped: it is a cleared slot (the
+  # workspace opt-out is exactly that) and writing it back as a value
+  # would be inventing one. The slot keeps its position either way --
+  # that is what the writer's field-less padding is for.
+  local _mi _mval _mown _mj
+  for (( _mi = 1; _mi < _new_idx; _mi++ )); do
+    _mval=""
+    for (( _mj=0; _mj<${#_keys[@]}; _mj++ )); do
+      if [[ "${_keys[_mj]}" == "${_section}.${_list}_${_mi}" ]]; then
+        _mval="${_vals[_mj]}"
+        break
+      fi
+    done
+    [[ -n "${_mval}" ]] || continue
+    _mown=""
+    for (( _mj=0; _mj<${#_local_k[@]}; _mj++ )); do
+      if [[ "${_local_k[_mj]}" == "${_list}_${_mi}" ]]; then
+        _mown="${_local_v[_mj]}"
+        break
+      fi
+    done
+    [[ "${_mown}" == "${_mval}" ]] && continue
+    if ! _upsert_conf_value "${_conf}" "${_section}" "${_list}_${_mi}" "${_mval}"; then
+      _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_list}_${_mi}" "section=${_section}" "key=${_list}_${_mi}"
+      return 2
+    fi
+  done
 
   if ! _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"; then
     _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key}" "section=${_section}" "key=${_new_key}"
