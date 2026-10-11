@@ -98,6 +98,19 @@ parameter sets without writing into the repo and racing each other.
 A call names the file it wants read as that layer. Two calls, two files, no
 write to the repo's own.
 
+**Amendment (#1258, 2026-10-12): the chain's filenames and its merge rule
+were both replaced.** ADR-00000037 (#1148) retired the INI chain. The chain
+is now `<template>/setup.toml` -> repo `setup.toml` -> `setup.local.toml`,
+and the merge is type-aware rather than blanket section-replace: scalar keys
+inside a `[table]` merge key-level (the highest layer that defines a key
+wins it, unmentioned keys inherit from the layer below), and an
+`[[array of tables]]` is replaced whole by the highest layer that defines
+it. Read every `.setup.conf` and `.setup.conf.local` in this record -- in
+this section, in the Relates-to line and in Consequences -- as its TOML
+successor. What this section DECIDES is untouched: the chain's top layer
+takes a caller-supplied path, that layer may override any section, and
+`_setup_conf_local_path` is the one place the address resolves.
+
 ### 2. Generation takes an output directory
 
 `deploy` already has `--output`. `devel` writes `compose.yaml` and `.env` into
@@ -140,6 +153,13 @@ checkout". With a caller-supplied path the same layer serves both axes: a
 developer still gets the per-worktree file at the default location, and an
 orchestrator passes its own. The layer's semantics -- section-replace, overrides
 any section, gitignored at the default path -- are unchanged.
+
+**Amendment (#1258, 2026-10-12): "section-replace" in the sentence above is
+no longer the layer's semantics.** ADR-00000037 (#1148) made the merge
+type-aware -- key-level for `[table]` scalars, whole-array replacement for
+an `[[array of tables]]` -- and ADR-00000025 carries that same amendment at
+its own section 3. The two claims this paragraph needs still hold: the layer
+overrides any section, and it is gitignored at its default path.
 
 ## Alternatives
 
