@@ -2942,3 +2942,53 @@ EOF
   # build targets a directory that is not the repo.
   [[ "${_ctx}" == *'$${MISSING}'* ]] || fail "dollar not escaped: ${_ctx}"
 }
+
+# why: A short-form bind is `host:container[:mode]`, so a relocated root
+# carrying a colon produces `/tmp/repo:one/config/demo:/opt/demo` and
+# compose rejects the whole file with "too many colons" -- and YAML
+# quoting cannot help, because the ambiguity is in the mount grammar, not
+# the document. The co-located artifact has no such problem (`./config/x`
+# carries no root), so relocation is what introduces it and relocation is
+# what refuses: an artifact that cannot be expressed is not emitted and
+# called a success.
+@test "apply --output refuses a repo root that mount syntax cannot express (base#1087)" {
+  local _repo="${TEMP_DIR}/repo:one"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_failure
+  assert_output --partial "repo:one"
+  assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
+}
+
+# why: The [logging] local_path bind is assembled by its own helper and
+# was emitted raw, so it was the one host path that bypassed the
+# serialiser every other one goes through -- "the site added later is the
+# one that was missed", here and now rather than later. Raw for the
+# mkdir it performs, serialised for the line it emits.
+@test "apply --output serialises the logging bind built from the repo root (base#1087)" {
+  local _repo="${TEMP_DIR}/repo #1"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  python3 - "${_repo}/setup.toml" <<'PY'
+import sys, re
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace('local_path = ""', 'local_path = "./logs"', 1)
+open(p, "w").write(s)
+PY
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _line
+  _line="$(grep -m1 -E '^ *- .*:/var/log/' "${TEMP_DIR}/inst-1/compose.yaml")"
+  [[ -n "${_line}" ]] || fail "no logging bind emitted"
+  [[ "${_line}" == *'- "'* ]] || fail "logging bind not quoted: ${_line}"
+}

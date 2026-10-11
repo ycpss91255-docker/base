@@ -5861,7 +5861,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (164)
+### test/bats/unit/setup_cmd_spec.bats (166)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6042,6 +6042,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply --output leaves every conf layer byte-identical (base#1087)` | An --output call must not write the conf chain at all. The first cut enforced that by photographing the chain and ROLLING IT BACK on a mismatch, which attributes any concurrent write -- another `setup set`, an operator's edit, an edit to the caller's own local file -- to this call and discards it. The guarantee is therefore that the call does not write, asserted over the whole chain rather than over the one file the reconciliation happens to touch today. |
 | `apply --output leaves a compose-interpolated additional context alone (base#1087)` | Two ways the relocated emitter can corrupt a source it should have left alone, both reporting a successful generation. An unbraced `$SHARED_CTX` is compose interpolation just as `${...}` is, so rebasing it yields `<repo>/$SHARED_CTX`, which compose expands to `<repo>//tmp/shared`. An scp-style git remote is `user@host:path` for ANY ssh user, so recognising only the literal `git@` turned a valid remote into a local-looking path the build cannot fetch. |
 | `apply --output escapes a dollar the repo's own name carries (base#1087)` | A `$` the FILESYSTEM put in the repo's own directory name is a literal, and compose interpolates the emitted file -- so an unescaped `${MISSING}` expands to nothing and the build targets a directory that is not the repo. YAML quoting does not prevent it: interpolation happens after the parse, so the root has to carry `$$`. |
+| `apply --output refuses a repo root that mount syntax cannot express (base#1087)` | A short-form bind is `host:container[:mode]`, so a relocated root carrying a colon produces `/tmp/repo:one/config/demo:/opt/demo` and compose rejects the whole file with "too many colons" -- and YAML quoting cannot help, because the ambiguity is in the mount grammar, not the document. The co-located artifact has no such problem (`./config/x` carries no root), so relocation is what introduces it and relocation is what refuses: an artifact that cannot be expressed is not emitted and called a success. |
+| `apply --output serialises the logging bind built from the repo root (base#1087)` | The [logging] local_path bind is assembled by its own helper and was emitted raw, so it was the one host path that bypassed the serialiser every other one goes through -- "the site added later is the one that was missed", here and now rather than later. Raw for the mkdir it performs, serialised for the line it emits. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 

@@ -898,7 +898,7 @@ YAML
       echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
       echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
       echo "    volumes:"
-      echo "      - ${_stage_llp}"
+      echo "      - $(_compose_yaml_scalar "$(_compose_escape_root "${_stage_llp}")")"
     fi
     # Per-stage [logging.<stage>] driver / rotation override (if any).
     # Without an override compose `extends: devel` already covers
@@ -1160,7 +1160,8 @@ YAML
         echo "      - $(_compose_yaml_scalar "${_m}")"
       done <<< "${_eff_volumes}"
     fi
-    [[ -n "${_stage_llp}" ]] && echo "      - ${_stage_llp}"
+    [[ -n "${_stage_llp}" ]] && \
+      echo "      - $(_compose_yaml_scalar "$(_compose_escape_root "${_stage_llp}")")"
     # device entries with propagation redirect to volumes: long-form
     if [[ -n "${_devices_str}" ]]; then
       local _sd
@@ -1310,6 +1311,20 @@ generate_compose_yaml() {
   # the committed artifact's relative paths exactly as they are.
   local _reroot=""
   if [[ "${_setup_base}" != "${_out_dir}" ]]; then
+    # A short-form bind is `host:container[:mode]`, so a root carrying a
+    # colon cannot be put in one: compose rejects the whole file with
+    # "too many colons", and quoting does not help because the ambiguity
+    # is in the mount grammar rather than in the document. The co-located
+    # artifact never carries the root (`./config/x` is the whole source),
+    # so relocation is what introduces this and relocation is what
+    # refuses -- an artifact that cannot be expressed is not written and
+    # called a success.
+    if [[ "${_setup_base}" == *:* ]]; then
+      _log_err compose compose_relocated_root_unusable \
+        "display=generate_compose_yaml: the repo root ${_setup_base} contains a colon, and a relocated set has to name it inside short-form bind mounts, where a colon is the field separator. Relocate from a path without one, or generate in place." \
+        "path=${_setup_base}"
+      return 1
+    fi
     # Escaped once, here, so every emitted spelling of the root carries
     # the same escaping -- the build context and every rebased path.
     _ctx_dir="$(_compose_escape_root "${_setup_base}")"
@@ -1555,7 +1570,10 @@ YAML
       for _m in "${_gcy_mounts[@]}"; do
         echo "      - $(_compose_yaml_scalar "${_m}")"
       done
-      [[ -n "${_devel_llp}" ]] && echo "      - ${_devel_llp}"
+      # The one host path the helper assembles itself, so the one that
+      # bypassed the serialiser every other path goes through.
+      [[ -n "${_devel_llp}" ]] && \
+        echo "      - $(_compose_yaml_scalar "$(_compose_escape_root "${_devel_llp}")")"
       # device entries with propagation redirect to volumes: long-form
       if [[ -n "${_devices_str}" ]]; then
         local _d

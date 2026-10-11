@@ -27,6 +27,7 @@ conf_local_override_unusable
 apply_output_unusable
 apply_repo_conf_mutated
 apply_repo_conf_unsettled
+compose_relocated_root_unusable
 conf_write_shadowed
 conf_toml_merge_failed
 conf_toml_parse_failed
