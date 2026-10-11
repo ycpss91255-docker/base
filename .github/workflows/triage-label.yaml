@@ -3,9 +3,20 @@ name: Triage label
 # Safety net for externally-filed, unlabeled issues. The maintainer and
 # the to-issues flow already set real area/type labels at issue creation,
 # so the only issues reaching this workflow with zero labels are ones
-# opened without any label at all. For those, apply `triage` so a later
-# maintainer sweep can replace it with the right label. Issues that
-# already carry a label are left untouched.
+# opened without any label at all. For those, apply the intake state role
+# so a later maintainer sweep can replace it with the right label. Issues
+# that already carry a label are left untouched.
+#
+# The label is `needs-triage`, the canonical intake role in
+# `doc/agents/triage-labels.md`, and NOT `triage`. This line said `triage`
+# for long enough to matter: the tracker migration renamed that label in
+# place to `needs-triage`, and `addLabels` CREATES a label the repo does
+# not have -- so every unlabeled issue reaching here silently minted the
+# retired name again, on GitHub's default grey, with no description and
+# outside the vocabulary. Deleting the label by hand does not hold while
+# this line disagrees with the doc, which is why
+# `test/bats/unit/triage_label_yaml_spec.bats` derives the allowed set
+# from that doc's own table and fails on anything outside it (base#1182).
 #
 # Zero ongoing maintenance: no keyword/path ruleset to keep current.
 
@@ -41,5 +52,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              labels: ['triage'],
+              labels: ['needs-triage'],
             })

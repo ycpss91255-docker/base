@@ -78,9 +78,18 @@ $ gh label list -R ycpss91255-docker/base
 $ gh issue list -R ycpss91255-docker/base --label needs-triage --state all
 ```
 
-The live set is **thirteen labels and nothing else**: the six state roles in
-the table, the three kind labels, `backlog` and `upstream`, and Dependabot's
-`dependencies` and `github_actions`. Anything outside that list is drift.
+The live set is **thirteen labels**: the six state roles in the table, the
+three kind labels, `backlog` and `upstream`, and Dependabot's `dependencies`
+and `github_actions`.
+
+That is an **observed inventory, not the whole allowed vocabulary.** Other
+labels are legitimately created on demand by documented flows -- `/wayfinder`
+applies `wayfinder:map` to a map issue and `wayfinder:<type>`
+(`research`/`prototype`/`grilling`/`task`) to its child tickets, per
+`doc/agents/issue-tracker.md`, and those are metadata for that workflow
+rather than drift to clean up. What this section rules out is a label that
+duplicates or shadows a **state role** under another spelling. If an
+unfamiliar label turns up, ask which flow creates it before deleting it.
 
 What was applied:
 
@@ -123,18 +132,38 @@ not rename it into one.
 
 ### `triage` came back once, and how it was closed out
 
-The rename above is an assertion that rots: nothing stops a label named
-`triage` being **recreated**, and one was -- empty description, colour
-`ededed`, carried by two open issues (`#1192` and `#1193`) and by nothing
-else, while this file still said no such label remained. GitHub creates a
-label on demand when one is applied by a name that does not exist, so a
-single `--label triage` is all it takes.
+The rename above is an assertion that rots, and it did: a label named
+`triage` was **recreated** -- empty description, colour `ededed`, nothing
+like the `fbca04` the rename moved to `needs-triage` -- and was carried by
+two open issues (`#1192` and `#1193`) and by nothing else, while this file
+still said no such label remained.
 
-It was closed out in the direction this file already argued for: both issues
-were given `needs-triage`, the canonical intake role, `triage` was removed
-from them, usage was re-checked at zero across issues and pull requests, and
-only then was the label deleted. The relabelling came first precisely so the
-delete stripped nothing -- the same care the `question` delete above needed.
+**The producer was in the tree, not in anybody's typing.**
+`.github/workflows/triage-label.yaml` is the safety net for
+externally-filed unlabeled issues, and it called
+`github.rest.issues.addLabels` with `labels: ['triage']`. The REST API
+**creates** a label the repository does not have when `addLabels` names it,
+so every unlabeled issue that reached the workflow minted the retired name
+again. (The CLI does not behave this way: `gh issue create --label triage`
+fails with a label-not-found error when the label is absent, which is why
+this could not have come from a hand-typed command.)
 
-So the assertion stands, but treat it as a thing to re-derive rather than a
-fact on file. `gh label list -R ycpss91255-docker/base` is the check.
+So deleting the label fixes nothing on its own -- the next externally-filed
+unlabeled issue brings it straight back. Closing it out took three moves,
+in this order:
+
+1. `#1192` and `#1193` were given `needs-triage`, the canonical intake role,
+   and `triage` was removed from them. Relabelling came first precisely so
+   the delete stripped nothing -- the same care the `question` delete above
+   needed.
+2. Usage was re-checked at zero across issues and pull requests, and only
+   then was the label deleted.
+3. **The workflow was pointed at `needs-triage`**, which is the only one of
+   the three that stops it recurring, and
+   `test/bats/unit/triage_label_yaml_spec.bats` now derives the allowed set
+   from the role table above and fails on any workflow applying a label
+   outside it.
+
+Step 3 is the lesson worth carrying: when this file and a workflow disagree
+about a label, the workflow wins every time, because it runs. Prefer a gate
+that reads this table over a sentence asserting the table is obeyed.

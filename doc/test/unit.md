@@ -7422,6 +7422,15 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
+### test/bats/unit/triage_label_yaml_spec.bats (4)
+
+| Test | Description |
+|------|-------------|
+| `triage-label: at least one workflow applies a label, and the scan finds it` | The population this file's cases read. A declared filename was the first half of base#1089 and base#1115: the hazard belongs to the operation, so a second workflow growing an addLabels call must join the population rather than inherit a gate nobody applied to it. Zero is refused because a gate over an empty population is no gate -- it is the state that would turn every case below green for free |
+| `triage-label: the state roles are derived from the label doc, not copied` | The doc's table is the authority and this spec must read it, not a copy of it. If the derivation stops matching the table's shape it returns nothing, every label compares against an empty set, and the cases below fail open -- so the roster is asserted to be the six states the vocabulary documents before anything is compared to it |
+| `triage-label: every label a workflow applies is one the vocabulary defines` | The defect itself, stated as the invariant it broke. The API CREATES a label an addLabels call names when the repo has none, so a workflow applying a string outside the vocabulary does not fail -- it mints a label the doc says does not exist, on GitHub's default grey, once per issue. Deleting the label by hand cannot fix that; this is the only place the recurrence can be closed (base#1182) |
+| `triage-label: the unlabeled-issue safety net applies the intake role` | The intake role has one spelling and the rename chose it. Naming the label positively, and not merely "something in the table", is what keeps a later edit from swapping the safety net onto ready-for-agent or wontfix -- both of which are in the table and neither of which is what an unlabeled externally-filed issue is waiting for |
+
 ### test/bats/unit/tui_backend_spec.bats (30)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub `dialog` /
