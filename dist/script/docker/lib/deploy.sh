@@ -246,8 +246,15 @@ _resolve_deploy_version() {
 #   privileged restart_policy init watchdog_env_str dri_groups_str
 #   devices_str cgroup_rule_str
 #   env_str tmpfs_str ports_str cap_add_str cap_drop_str sec_opt_str
-#   shm_size  (assoc subscripts quoted so ShellCheck does not read them
+#   shm_size logging_global_str logging_per_svc_str
+#   (assoc subscripts quoted so ShellCheck does not read them
 #   as arithmetic refs (SC2154) -- the out-param is a nameref).
+#
+# This list is prose; the record itself is the population that matters,
+# and test/bats/unit/validated_key_reach_spec.bats derives from it --
+# every field it holds has to be able to change a generated bundle
+# artifact, or carry a written reason for where the value does go
+# instead (base#1094).
 # ════════════════════════════════════════════════════════════════════
 _resolve_deploy_context() {
   local _rdc_base="${1:?"${FUNCNAME[0]}: missing base_path"}"
@@ -339,10 +346,21 @@ _resolve_deploy_context() {
   fi
   _rdc_out["watchdog_env_str"]="${_wd_env_str}"
 
-  # dri_groups (non-NVIDIA iGPU /dev/dri); auto -> detect host GIDs.
+  # dri_groups (non-NVIDIA iGPU /dev/dri). Three forms, and the third is
+  # base#1094's: `auto` detects the host's owning GIDs, `off` grants
+  # none, and anything else IS the list. Until the key carried a list the
+  # only way to pin the GIDs was the SETUP_DETECT_DRI_GROUPS environment
+  # variable -- so the key looked like a setting, behaved as a switch,
+  # and the actual value was reachable only through the mechanism
+  # ADR-00000025 section 9 removed everywhere else. The env var still
+  # steers the `auto` path, which is where it was always documented.
   local _dri_groups_mode="" _dri_groups_str=""
   _conf_get_into _RDC_CONF deploy dri_groups auto _dri_groups_mode
-  [[ "${_dri_groups_mode}" == "auto" ]] && _dri_groups_str="$(_detect_dri_groups)"
+  case "${_dri_groups_mode}" in
+    auto)    _dri_groups_str="$(_detect_dri_groups)" ;;
+    off|"")  _dri_groups_str="" ;;
+    *)       _dri_groups_str="${_dri_groups_mode}" ;;
+  esac
   _rdc_out["dri_groups_str"]="${_dri_groups_str}"
 
   # [devices] device_* + cgroup_rule_*.
@@ -396,6 +414,24 @@ _resolve_deploy_context() {
 
   # [resources] shm_size (only meaningful when ipc != host).
   _conf_get_into _RDC_CONF resources shm_size "" _tmp; _rdc_out["shm_size"]="${_tmp}"
+
+  # [logging] + the per-service [logging.<svc>] overlay, resolved through
+  # the same _collect_logging the dev emitter uses. The bundle had never
+  # read this section: a repo configuring a driver, max_size, max_file
+  # and compress got all four in development and none of them in the
+  # artifact shipped to a device, which is the one place where an
+  # unbounded log actually fills a disk (base#1094).
+  #
+  # Read here rather than inside the compose writer so the bundle's
+  # `.env` writer and the compose writer see one resolution, the way
+  # every other section in this record does. `local_path` rides along in
+  # the string and is deliberately NOT emitted: it is a host bind, not a
+  # Docker logging option, and a bundle that bound a build-host path
+  # would stop being self-contained.
+  local _logging_global_str="" _logging_per_svc_str=""
+  _collect_logging "${_rdc_base}" _logging_global_str _logging_per_svc_str
+  _rdc_out["logging_global_str"]="${_logging_global_str}"
+  _rdc_out["logging_per_svc_str"]="${_logging_per_svc_str}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -448,9 +484,9 @@ _generate_resolved_compose() {
   local _ctx_src="${7:-}"
   local _modes_src="${8:-}"
 
-  # Re-arm the ports-inert latch (see compose_emit.sh): one bundle, at most
-  # one diagnostic.
-  _reset_ports_inert_warning
+  # Re-arm the inert-value latches (see compose_emit.sh): one bundle, at
+  # most one diagnostic of each kind.
+  _reset_inert_warnings
 
   # Global conf context (shared with apply). Consume a passed record when
   # given, else resolve standalone (direct callers / tests).
@@ -576,13 +612,18 @@ _generate_resolved_compose() {
     [[ "${_priv}" == "true" ]] && printf '    privileged: true\n'
     # ipc: literal; the private default is omitted.
     [[ -n "${_eff_ipc}" && "${_eff_ipc}" != "private" ]] && printf '    ipc: %s\n' "${_eff_ipc}"
-    # pid: only host is a valid literal.
-    [[ "${_eff_pid}" == "host" ]] && printf '    pid: host\n'
+    # pid: the two forms Docker takes as a literal (see
+    # _pid_mode_emits); `private` is its own default and is rejected as a
+    # literal. This read `== host` and nothing else, so an operator who
+    # set `container:<name>` -- which the validator accepts and the TUI
+    # offers -- got a bundle with no `pid:` line (base#1094).
+    _pid_mode_emits "${_eff_pid}" && printf '    pid: %s\n' "${_eff_pid}"
     # runtime: only when explicitly set / non-auto / non-off.
     if [[ -n "${_eff_runtime}" && "${_eff_runtime}" != "off" && "${_eff_runtime}" != "auto" ]]; then
       printf '    runtime: %s\n' "${_eff_runtime}"
     fi
     # network: literal host, or a named bridge network (declared below).
+    _warn_network_name_inert "${_eff_net_name}" "${_eff_net_mode}"
     if [[ "${_eff_net_mode}" == "bridge" && -n "${_eff_net_name}" ]]; then
       printf '    networks:\n      - %s\n' "${_eff_net_name}"
     elif [[ "${_eff_net_mode}" == "host" ]]; then
@@ -668,7 +709,14 @@ YAML
     fi
     _emit_cgroup_rules_block "${_grc_ctx["cgroup_rule_str"]}"
     _emit_tmpfs_block "${_grc_ctx["tmpfs_str"]}"
-    # shm_size only when ipc != host.
+    # [logging] -> compose `logging:` for THIS stage's service, so the
+    # bundle carries the log bounds the dev compose has always carried
+    # (base#1094). The service name is the stage, which is also the key
+    # a [logging.<stage>] overlay is written under.
+    _emit_logging_block "${_stage}" \
+      "${_grc_ctx["logging_global_str"]-}" "${_grc_ctx["logging_per_svc_str"]-}"
+    # shm_size only when ipc != host; reported when it is dropped.
+    _warn_shm_size_inert "${_shm}" "${_eff_ipc}"
     [[ -n "${_shm}" && "${_eff_ipc}" != "host" ]] && printf '    shm_size: %s\n' "${_shm}"
     # GPU reservation block (shared emitter) when gpu resolves on.
     if [[ "${_eff["gpu"]}" == "true" ]]; then

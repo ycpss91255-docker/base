@@ -5307,7 +5307,7 @@ the ldd-skip + accumulate-all behaviour (#692).
 | `smoke.sh: documented behaviour -- a .so whose ldd exits non-zero is skipped (#692)` | ldd-fail skip |
 | `smoke.sh: accumulates _exit=1 and reports every bad .so (#692)` | Accumulate-all reporting |
 
-### test/bats/unit/schema_coverage_spec.bats (12)
+### test/bats/unit/schema_coverage_spec.bats (13)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry must
 stay internally consistent and in sync with the `setup.conf` template, so
@@ -5331,6 +5331,7 @@ translation in any locale fails CI.
 | `every shipped setup.toml key is registered or an explicit free-form opt-out (#876)` | - |
 | `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
 | `no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)` | - |
+| `every SCHEMA_SECTIONS section has at least one SCHEMA_VALIDATOR row (base#1095)` | base#1095 -- `tmpfs` was the one SCHEMA_SECTIONS entry with no SCHEMA_VALIDATOR row of any kind, so `setup.sh set tmpfs.tmpfs_1` accepted a value carrying a newline and _emit_tmpfs_block wrote it into compose.yaml as two list items. Deriving the population from SCHEMA_SECTIONS and the evidence from SCHEMA_VALIDATOR's keys is what makes the NEXT unvalidated section a red test rather than the next operator's surprise. |
 
 ### test/bats/unit/schema_spec.bats (30)
 
@@ -5368,7 +5369,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate accepts free-form (unregistered) keys` | default-accept |
 | `SCHEMA_SECTIONS lists every setup.conf section in file order (#561)` | ordered section list (#561) |
 | `_schema_is_section accepts a registered section with typed keys (#561)` | membership accept (#561) |
-| `_schema_is_section accepts a free-form-only section (image) (#561)` | membership accept, no keys (#561) |
+| `_schema_is_section accepts a section whose only key is a list key (image) (#561)` | membership accept, list-key-only section (#561). The title said "free-form-only" until base#1095: image.rule_ has had a validator for a while, and the only genuinely keyless section (tmpfs) now has one too, so the name was describing a state the tree had left. |
 | `_schema_is_section rejects an unknown section (#561)` | membership reject (#561) |
 | `_schema_is_section rejects a per-service logging variant (#561)` | logging.<svc> not a base section (#561) |
 | `_schema_is_section tracks SCHEMA_SECTIONS additions (single source) (#561)` | single source (#561) |
@@ -5861,7 +5862,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (175)
+### test/bats/unit/setup_cmd_spec.bats (176)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -5992,6 +5993,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `[environment] empty section omits environment: block` | - |
 | `[tmpfs] tmpfs_1 = /tmp emits tmpfs: block with the entry` | - |
 | `[tmpfs] tmpfs_1 with size= suffix preserved verbatim` | - |
+| `[tmpfs] a tmpfs_1 carrying a newline is refused before it can reach compose.yaml (base#1095)` | base#1095 -- the whole point of registering a tmpfs validator is the artifact, not the error message: `tmpfs` was the one section that validated nothing, so a value carrying a newline was accepted by `setup.sh set` and _emit_tmpfs_block -- which reads the string with `while IFS= read -r` -- wrote each line as a tmpfs entry of its own. The assertion is therefore in two halves: the write is refused, AND the generated compose.yaml carries no entry it did not already have. Grepping only for the refusal would pass on a tree that refused the write and then emitted the value from a stale layer anyway. |
 | `[tmpfs] empty section omits tmpfs: block` | - |
 | `[devices] device_1 = /dev/video0:/dev/video0 emits devices: block` | - |
 | `[devices] cgroup_rule_1 emits device_cgroup_rules: block` | - |
@@ -8210,7 +8212,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_advanced_menu: tmpfs entry no longer dispatches` | - |
 | `_render_advanced_menu: security still dispatches` | - |
 
-### test/bats/unit/tui_spec.bats (134)
+### test/bats/unit/tui_spec.bats (139)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -8277,6 +8279,11 @@ overlay; writes no override)
 | `_validate_mount rejects invalid propagation mode (#450)` | - |
 | `_validate_mount rejects rw,bogus combo (#450)` | - |
 | `_validate_mount rejects embedded newline (YAML injection) (#687)` | - |
+| `_validate_dri_groups accepts auto, off and an explicit GID list (base#1094)` | base#1094 item 4 -- the validator took only `auto` and `off`, so the key looked like a setting and behaved as a switch, and the GIDs themselves were reachable only through the SETUP_DETECT_DRI_GROUPS environment variable -- the mechanism ADR-00000025 section 9 removed everywhere else. The list form is what makes the key able to carry the value it names. |
+| `_validate_dri_groups rejects anything that is not a bare GID list (base#1094)` | base#1094 item 4 -- the value is interpolated into compose's `group_add:` list, so a word that is not a bare decimal GID is YAML the emitter would write and docker would then refuse, and a newline is a group_add entry of its own. Rejecting at `setup.sh set` is the only point where the operator is still holding the typo. |
+| `_validate_tmpfs accepts a bare container path and a path with options (base#1095)` | base#1095 -- the two spellings the shipped template teaches (`path = "/tmp"` alone, and `path` + `size` which the bridge joins into `/tmp:size=64m`) are the values a conforming repo actually carries, so a validator that refused either would refuse the template's own example. |
+| `_validate_tmpfs rejects whitespace, which reaches compose as extra entries (base#1095)` | base#1095 -- a newline is the injection this guard exists for: _emit_tmpfs_block reads the value with `while IFS= read -r`, so every line after the first became a tmpfs list item of its own and the operator silently got mounts they never wrote. A leading space is the same defect one character quieter. |
+| `_validate_tmpfs rejects an empty value, a relative path and an empty options list (base#1095)` | base#1095 -- the structural halves. An empty value is the clear that SCHEMA_EMPTY handles above the validator, a relative path is not a mount point docker accepts, and a trailing or doubled colon is an options list with nothing in it -- each one a file compose takes and then fails on, rather than a refusal at `setup.sh set`. |
 | `_validate_restart accepts the four bare policies + on-failure:N (#687)` | - |
 | `_validate_restart rejects on-failure:0 (docker forbids zero retries) (#687)` | - |
 | `_validate_restart rejects leading-zero retry count on-failure:01 (#687)` | - |
@@ -8393,7 +8400,17 @@ overlay; writes no override)
 | `_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)` | - |
 | `_edit_section_deploy writes the canonical gpu_runtime key (#517)` | - |
 
-### test/bats/unit/upgrade_spec.bats (55)
+### test/bats/unit/upgrade_migration_reachability_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `dist/script/base/upgrade.sh defines no migration (base#1110)` | The rule itself, read off the shipped file. A migration here cannot reach the population it exists for, and returns 0 while not reaching it -- so the file has to carry none at all, and the check has to be against the real file rather than a fixture standing in for it |
+| `dist/script/base/upgrade.sh calls no migration (base#1110)` | The call side is the other half. A migration defined in a lib and merely CALLED from upgrade.sh is just as unreachable, because what makes it unreachable is where the call runs and not where the body is written |
+| `the migration scan is not vacuous: upgrade.sh is found and parsed (base#1110)` | Both arms above pass by finding nothing, which is exactly how a scanner that has gone blind reports a clean tree. This pins that the scanner can see the file at all, and sees a believable amount of it, so a renamed or relocated upgrade.sh fails rather than emptying the rule |
+| `the migration scan reports a migration injected into upgrade.sh (base#1110)` | Driving the rule red by hand, as a test, so it can never pass by never firing. The injected function is added to a copy of the REAL file through the REAL scanner, so this arm fails the moment the detector stops detecting -- which is the failure the two arms above cannot tell from success |
+| `the migration scan reads the 'function name' spelling too (base#1110)` | The `function name {` spelling is the one an author reaching for a way around a name rule would find first, and a scanner that only read `name() {` would report the file clean with a migration sitting in it |
+
+### test/bats/unit/upgrade_spec.bats (49)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -8412,11 +8429,18 @@ the hard-coded marker list with a path-agnostic structural invariant +
 target-version match (catches destructive fast-forward, empty subtree,
 malformed `.version`, and wrong-tag pulls), and the SemVer §11-aware
 `_semver_cmp` + `_check` behavior added for issue #156 (prerelease ahead of
-latest stable must not be reported as "needing downgrade"), and
-`_migrate_lifecycle_restart_default`, which retires the stale devel-scoped
-`[lifecycle] restart = no` the old template seeded into every downstream
-repo (gated on the pre-pull vendored template, so a deliberately chosen
-policy is never rewritten).
+latest stable must not be reported as "needing downgrade").
+
+The `_migrate_lifecycle_restart_default` arms that used to live here are
+gone with the function (base#1110). They were fail-open: the fixture built
+its own driver/template pair with the vendored template saying `restart =
+no`, a pairing no release has ever produced, so four green arms stood over a
+migration that returned 0 without acting on every real consumer. The
+replacement is in version_migrate_spec.bats (the migration, now selected on
+the version interval) and in integration/prev_release_upgrade_spec.bats (the
+same question asked through a genuine released driver, which is what the
+fixture could not do). The structural rule that keeps the shape from coming
+back is in upgrade_migration_reachability_spec.bats.
 
 | Test | Description |
 |------|-------------|
@@ -8462,12 +8486,6 @@ policy is never rewritten).
 | `_get_latest_version: an early-closing reader cannot empty the tag scan (#905)` | - |
 | `_get_latest_version: empty result feeds _check's 'Could not fetch' guard` | Empty result still surfaces real fetch failures |
 | `_upgrade refuses to downgrade from a newer local version` | Implicit-downgrade guard |
-| `_migrate_lifecycle_restart_default rewrites the stale template default, loudly` | - |
-| `_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone` | - |
-| `_migrate_lifecycle_restart_default is inert once the vendored template ships the new default` | - |
-| `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
-| `_migrate_lifecycle_restart_default is a no-op without a repo setup.toml` | - |
-| `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
 | `_collect_subtree_local_drift finds an edit to a vendored path (#1092)` | The silence base#1092 is about -- an edit to a path upstream left alone -- is invisible to the merge, so the only thing that can report it is a tree comparison; this is the arm that proves the comparison finds the edit at all, from the metadata the pull itself recorded |
 | `_collect_subtree_local_drift finds nothing on a byte-exact vendored tree (#1092)` | A clean tree has to produce an EMPTY finding set, because a report that fires on every upgrade names nothing; this arm fails if the comparison ever picks up the subtree prefix itself or the consumer files that live outside it |
 | `_collect_subtree_local_drift records why it could not compare when the range holds no subtree squash (#1092)` | A comparison that cannot find the release to compare against reports the same zero findings as a clean tree, and that is the shape of silence base#1092 is about -- so the reason is recorded rather than the absence being left to read as agreement |
@@ -8490,7 +8508,49 @@ policy is never rewritten).
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
-### test/bats/unit/version_migrate_spec.bats (20)
+### test/bats/unit/validated_key_reach_spec.bats (21)
+
+Covers base#1094 -- the keys that validate and then never reach the emitted
+artifact. The DERIVED gate here is the one that matters:
+`_resolve_deploy_context` is the code's own declaration of which config
+values the field bundle is built from, so its populated record IS the
+population, and every field of it has to be able to change the generated
+bundle under SOME configuration. A per-key assertion naming today's five
+would stay green while the sixth grew. The explicit tests below it cover the
+three defects a reachability check cannot see: a value that reaches one tier
+and not the other, and a value another key silently overrules.
+
+The two tiers are the dev compose (`generate_compose_yaml`) and the
+field-deploy bundle (`_generate_resolved_compose`). They are separate
+emitters over the same config, which is why base#1094's `[logging]` gap
+existed at all -- one of them called `_emit_logging_block` and the other had
+never heard of it.
+
+| Test | Description |
+|------|-------------|
+| `every deploy-context field has a reach probe, and every probe names a field (base#1094)` | base#1094 -- `_resolve_deploy_context`'s populated record is the code's own declaration of which config values the field bundle is built from, so holding the probe table equal to it is what stops this gate from quietly covering 23 of 24 fields. Measured on 0faacb57: 24 fields. |
+| `every deploy-context field can change the generated bundle compose, or is a declared exemption (base#1094)` | base#1094 -- the defect's exact shape: a key validates, the resolver reads it into the context, and the emitter never consumes it, so the operator's setting does nothing and nothing says so. `pid_mode` and the two `[logging]` fields were in that state. The population is derived from the context record, so a field added tomorrow and then dropped by the emitter fails here; the alternative -- naming today's fields -- is the assertion that would have passed all through base#1094. |
+| `every reach exemption names a deploy-context field and carries a reason (base#1094)` | base#1094 -- an exemption is a claim about where the value goes, and an unexplained one is the hole this gate exists to close. Mirrors schema.sh's SCHEMA_FREEFORM reason rule. |
+| `pid = container:<name> reaches the dev compose, and private still does not (base#1094)` | base#1094 item 1 -- `_validate_pid_mode` accepts `container:<name>` and the TUI offers it, while both emitters wrote `pid:` only when the value was exactly `host`. A user who set `container:foo` got a green config and a compose file with no `pid:` line at all. `private` stays omitted on purpose: Docker rejects it as a literal and omitting the key gives the same private namespace. |
+| `pid = container:<name> reaches the field bundle as a literal (base#1094)` | base#1094 item 1, field tier. The bundle writes literals rather than `${PID_MODE}`, so the value itself has to arrive -- a bundle that merely carried the key would be no use to the device. |
+| `a shm_size dropped under ipc = host is reported by the dev emitter (base#1094)` | base#1094 item 2 -- the shipped template sets `ipc = "host"`, and both emitters drop `shm_size` unless ipc is something else. So the DEFAULT configuration makes the only key in `[resources]` do nothing. `ports` has the identical situation under `mode = host` and has printed a diagnostic for it since base#879; this one printed nothing. The fix is the same diagnostic, not a default change (ADR-00000019 chose the host defaults deliberately). |
+| `a shm_size that is emitted under a non-host ipc is not reported (base#1094)` | - |
+| `setting resources.shm_size under the shipped ipc = host warns at store time (base#1094)` | base#1094 item 2 -- the diagnostic has to fire where the user can act on it, which is also when the value is stored. The ports precedent (base#879) fires at both points and so does this. |
+| `setting resources.shm_size under a non-host ipc stays quiet (base#1094)` | - |
+| `mode = host beside a network_name keeps host networking in the dev compose (base#1094)` | base#1094 item 3 -- two keys answered one question and the loser was silent. Three of the five emission sites already agreed that mode decides and `network_name` only applies under bridge (the per-stage service emitter, and both branches of the field bundle); the devel service and the top-level `networks:` declaration consulted only `network_name`. So one setup.toml produced bridge networking in development and host networking on the device, with nothing said. The devel service now follows the same rule as its own siblings. |
+| `mode = bridge beside a network_name still joins the named network (base#1094)` | - |
+| `a stage overriding mode to bridge still gets its named network declared (base#1094)` | base#1094 item 3, the case a global-mode reading gets wrong. A `[stage:<name>]` override can set network.mode = "bridge" while the global mode is host: that stage joins the inherited name, so the top-level declaration has to be there or compose refuses the whole project for referencing an undeclared network. The declaration is therefore driven by what the service blocks EMITTED, not by re-deriving the condition from the global mode -- a second derivation of one question being the family base#1094 belongs to. |
+| `a network_name under a non-bridge mode is reported, naming both keys (base#1094)` | base#1094 item 3 -- the issue's words: "Silence is the one option that is not available." The precedence is now stated in the template beside both keys, and warned about when it applies. |
+| `a network_name under mode = bridge is not reported (base#1094)` | - |
+| `setting network.network_name under the shipped host default warns at store time (base#1094)` | - |
+| `dri_groups carrying an explicit GID list reaches group_add without the env var (base#1094)` | base#1094 item 4 -- the key looked like a setting and was a switch: the validator took only `auto` / `off`, and the GIDs themselves were reachable only through the `SETUP_DETECT_DRI_GROUPS` environment variable -- the mechanism ADR-00000025 section 9 removed everywhere else ("no ambient environment variable can steer the chain"). The key now carries the list, with `auto` still the default and the env var still honoured for the auto path. |
+| `dri_groups = off still grants nothing (base#1094)` | - |
+| `a configured [logging] reaches the field bundle, matching the dev compose (base#1094)` | base#1094 item 5 -- `_emit_logging_block` was called by the dev emitter and never by `deploy.sh`, so a repo configuring a driver, max_size, max_file and compress got all four in development and none of them in the artifact shipped to a device. That is the one place where an unbounded log actually fills a disk. `local_path` stays out of the bundle on purpose: it is a host bind, not a Docker logging option, and the block has never emitted it. |
+| `a [logging.<stage>] override reaches the field bundle for that stage (base#1094)` | base#1094 item 5 -- `[logging.<svc>]` is the per-service override layer, and the bundle's service is the deployed stage. A bundle that took only the global block would drop exactly the override an operator wrote for that stage. |
+| `the shipped [logging] defaults reach a bundle that configures nothing (base#1094)` | base#1094 item 5 -- the shipped template sets driver / max_size / max_file / compress, so "configure nothing" is not "no logging options": it is the template's bounds. Those are the ones that matter, because the repo that never thought about logging is the one whose device disk fills. This asserts the DEFAULT reaches the bundle, not just an explicitly configured value. |
+| `the bundle's logging block is the same block the dev compose emits (base#1094)` | base#1094 item 5 -- the defect was two emitters over one config disagreeing, so the assertion that holds the fix is agreement, not presence. Both tiers are handed the same _collect_logging result and their `logging:` blocks are compared line for line; a future change to one emitter's block that the other does not get fails here. |
+
+### test/bats/unit/version_migrate_spec.bats (31)
 
 The version interval an upgrade crossed is what selects a version-bound
 migration, and every way of failing to read that interval ends in the same
@@ -8524,6 +8584,17 @@ upgrade shows one interval, not the arithmetic.
 | `run_interval_migrations warns when a shallow history has grafted the first parent away (base#1097)` | A shallow clone is the one case git itself erases: it GRAFTS the parents away, so a subtree-pull merge on the shallow boundary reads back as a root commit and is byte-identical to the standalone-resync arm above. Reading the parent count alone therefore reports "nothing was crossed" about a repo that crossed a release -- the one answer that looks healthy and is wrong. It is also CI's default checkout |
 | `run_interval_migrations warns when the installed version cannot be ordered (base#1097)` | The other half of the pair can be unreadable too, and it is the half the caller supplies. An empty or junk installed version would otherwise compare as 0.0.0 and select nothing at all -- silently, which is the shape every arm here exists to refuse |
 | `run_interval_migrations warns when the version moved backwards (base#1097)` | A re-established subtree or a hand-pinned downgrade moves the version backwards, which makes the interval empty rather than wrong -- but silence there would mean the one case where a migration genuinely cannot help is indistinguishable from a bug in the selection |
+| `every shipped _VERSION_MIGRATIONS entry is well formed and has its apply function` | Every shipped entry must be selectable at all. The runner reports an unusable declaration only on the upgrades that would have selected it, which is how one stays unreported -- so the whole set is validated here, walked rather than listed, and a new entry is covered the moment it exists |
+| `the shipped set selects lifecycle_restart_default for a repo arriving from before v0.42.0 (base#1110)` | base#1110's whole defect was a migration no consumer could reach, so the one thing its new home has to prove is that a repo arriving from before v0.42.0 selects it -- read off the real shipped set, through the real interval resolver, not a probe standing in for it |
+| `the shipped set does NOT select lifecycle_restart_default for a repo already past v0.42.0 (base#1110)` | The fail-safe is the other half of the predicate and is as easy to lose as the firing half. Past the rescope a `no` cannot be told from a choice, so a repo whose interval STARTS at v0.42.0 must select nothing -- the arm that would go quiet if the version were ever re-pointed |
+| `_vmigrate_lifecycle_restart_default_apply rewrites the stale copied default (base#1110)` | The firing case, and the one no spec could reach before: the repo's own stale value is rewritten with no vendored template read at all |
+| `_vmigrate_lifecycle_restart_default_apply is silent and inert on a second run (base#1110)` | The runner keeps no ledger and re-selects the same interval on a resync re-entered before the pull commits, so a second run that wrote again would be a second log line over an unchanged value -- idempotence is the migration's own job |
+| `_vmigrate_lifecycle_restart_default_apply leaves a chosen policy alone (base#1110)` | A repo that chose something else never had the stale default, and the migration touching it would be rewriting a policy somebody picked |
+| `_vmigrate_lifecycle_restart_default_apply ignores a restart key outside [lifecycle] (base#1110)` | `restart` is a legal key of a `[stage:*]` section too, and a reader that matched the key without its section would rewrite a per-stage value the migration has nothing to say about |
+| `_vmigrate_lifecycle_restart_default_apply reads both string spellings of the same value (base#1110)` | TOML quotes a string value, so a reader comparing the raw text after the `=` compares the SPELLING and not the value -- `"no"` never equals `no`, which is a mistake the function this replaced had to carry its own unquoter to avoid. The read goes through conf.sh's tokenizer instead, so a basic string and a literal string are one value. The bare INI spelling is deliberately NOT in this list: it is not a TOML value, and by the time the interval runner runs, the resync's INI-to-TOML conversion has already quoted the file Written out one spelling per call rather than looped over a variable: the TOML fixture body gate reads these bodies out of this file's own text, so a body assembled from `${_s}` is one it cannot parse and has to be excused from -- and the point of the gate is that a fixture the bridge refuses leaves an EMPTY handle, which is exactly how an arm like this would pass without its fixture ever being read. |
+| `_vmigrate_lifecycle_restart_default_apply is a no-op with no setup.toml (base#1110)` | The resync runs on repos that are not upgrades at all, and a migration that assumed its file existed would abort the resync of a repo that simply has no configuration yet |
+| `_vmigrate_lifecycle_restart_default_apply fails loudly when the config cannot be parsed (base#1110)` | An unreadable config is not an absent value, and conflating the two is how this migration would report success over a file it never read: the containerised parser answers non-zero with an EMPTY handle, so the value reads back as "", the `== "no"` test fails, and a plain `return 0` would have the runner log `interval_migration_applied` over a `restart = no` still in the file -- withholding the retry guidance that is the only way back once the resync has moved past. Found by codex review on base#1110 and driven red by stubbing the parser's refusal |
+| `run_interval_migrations reports the restart migration's parse failure and skips what follows (base#1110)` | The failure has to reach the RUNNER, not just the apply function. The runner calls every apply in an `\|\|` list, which suspends errexit inside it, so a non-zero return is the only signal there is -- and what the consumer needs is the runner's own MIGRATION FAILED line with the BASE_MIGRATION_FROM recipe in it, plus the later entries skipped rather than run on a repo whose state is unknown |
 
 ### test/bats/unit/watchdog_spec.bats (18)
 

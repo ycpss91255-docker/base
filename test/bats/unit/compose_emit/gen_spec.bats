@@ -179,9 +179,17 @@ teardown() {
   # that as a pass on every run since the test was written. Both blocks are
   # now asserted present before the order is compared, so a generator that
   # stops emitting either one fails here instead of skipping.
+  #
+  # `bridge` is the FOURTEENTH positional argument and it is now required
+  # for a named network to be emitted at all: base#1094 made the devel
+  # service and this top-level block honour `[network] mode` the way the
+  # per-stage emitter and the field bundle always have. Before that the
+  # name alone was enough here, which is precisely the divergence
+  # base#1094 measured -- so this test used to pass while asserting the
+  # defect.
   local _extras=('my_state:/srv/state')
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "mynet"
+    "false" "false" "0" "gpu" _extras "mynet" "" "" "" "" "" "bridge"
   run grep -cE '^volumes:$' "${COMPOSE_OUT}"
   assert_output "1"
   run grep -cE '^networks:$' "${COMPOSE_OUT}"
@@ -224,9 +232,13 @@ teardown() {
 }
 
 @test "generate_compose_yaml with network_name emits networks list + bridge driver block (compose self-managed)" {
+  # `bridge` as the fourteenth positional is now part of the condition:
+  # base#1094 made `[network] mode` decide here too, so a name beside
+  # `mode = host` is reported and ignored rather than silently winning.
+  # The sibling case lives in validated_key_reach_spec.
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
-    "false" "false" "0" "gpu" _extras "mynet"
+    "false" "false" "0" "gpu" _extras "mynet" "" "" "" "" "" "bridge"
   # network_mode is replaced
   run grep -F 'network_mode: ${NETWORK_MODE}' "${COMPOSE_OUT}"
   assert_failure

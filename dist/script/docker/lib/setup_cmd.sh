@@ -64,39 +64,70 @@ _setup_validate_kv() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _setup_warn_ports_inert <base_path> <section> <key>
+# _setup_warn_inert <base_path> <section> <key>
 #
-# Store-time half of the ports-inert diagnostic (the emit-time half lives at
-# the `ports:` gates in compose_emit.sh / deploy.sh, and both go through the
-# same `_warn_ports_inert`). Validation answers "is this value well formed?";
-# this answers the question the user actually asked, which is "will it do
-# anything?" -- compose publishes ports only under network_mode=bridge, and
-# the template ships mode = host.
+# Store-time half of the inert-value diagnostics (the emit-time half lives
+# at the corresponding gates in compose_emit.sh / deploy.sh, and both go
+# through the same `_warn_*` function, so store-time and emit-time can
+# never disagree about when a value is inert). Validation answers "is this
+# value well formed?"; this answers the question the user actually asked,
+# which is "will it do anything?".
 #
-# Fires on both moves that can create the mismatch: writing a `port_*` while
-# the effective mode is not bridge, and switching `mode` away from bridge
-# while ports are already configured. Any other key is a no-op.
+# Three pairs of keys, each a question with two answerers where the loser
+# used to be silent:
+#
+#   [network] port_*     vs [network] mode -- compose publishes ports only
+#                           under bridge, and the template ships host (base#879)
+#   [resources] shm_size vs [network] ipc  -- docker honours shm_size only
+#                           when the container has its own IPC namespace,
+#                           and the template ships ipc = host, so the only
+#                           key in [resources] was inert by default
+#                           (base#1094)
+#   [network] network_name vs [network] mode -- compose joins a named
+#                           network only under bridge, so mode wins
+#                           (base#1094)
+#
+# Fires on BOTH moves that can create each mismatch: writing the dependent
+# key while the deciding key already forbids it, and switching the deciding
+# key while the dependent one is already configured. Any other key is a
+# no-op, which is also why the merged view is read ONCE, after that gate:
+# _setup_effective_full re-resolves the whole layer chain.
 #
 # Reads the MERGED view (template baseline <- repo override) so an unset
 # `[network] mode` is judged by the default the emitter will actually use,
 # not by the absence of a key.
+#
+# ONE function for the family rather than one per diagnostic: `set` and
+# `add` each call it once, so a new member is a case label and a
+# `_warn_*` line here, not a fourth call site at every entry point.
 # ════════════════════════════════════════════════════════════════════
-_setup_warn_ports_inert() {
+_setup_warn_inert() {
   local _base_path="${1-}" _section="${2-}" _key="${3-}"
-  [[ "${_section}" == "network" ]] || return 0
-  case "${_key}" in
-    mode|port_[0-9]*) ;;
+  case "${_section}.${_key}" in
+    network.mode|network.ipc|network.network_name|network.port_[0-9]*) ;;
+    resources.shm_size) ;;
     *) return 0 ;;
   esac
 
   local -a _wpi_sections=() _wpi_keys=() _wpi_values=()
   _setup_effective_full "${_base_path}" _wpi_sections _wpi_keys _wpi_values
 
-  local _i _mode="host" _ports=""
+  # The defaults are the shipped template's, so a key the repo never set
+  # is judged by the value the emitter will actually use.
+  local _i _mode="host" _ipc="host" _net_name="" _shm="" _ports=""
   for (( _i=0; _i<${#_wpi_keys[@]}; _i++ )); do
     case "${_wpi_keys[_i]}" in
       network.mode)
         [[ -n "${_wpi_values[_i]}" ]] && _mode="${_wpi_values[_i]}"
+        ;;
+      network.ipc)
+        [[ -n "${_wpi_values[_i]}" ]] && _ipc="${_wpi_values[_i]}"
+        ;;
+      network.network_name)
+        _net_name="${_wpi_values[_i]}"
+        ;;
+      resources.shm_size)
+        _shm="${_wpi_values[_i]}"
         ;;
       network.port_[0-9]*)
         [[ -n "${_wpi_values[_i]}" ]] && _ports+="${_wpi_values[_i]}"$'\n'
@@ -105,6 +136,8 @@ _setup_warn_ports_inert() {
   done
 
   _warn_ports_inert "${_ports}" "${_mode}"
+  _warn_shm_size_inert "${_shm}" "${_ipc}"
+  _warn_network_name_inert "${_net_name}" "${_mode}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -315,7 +348,7 @@ _setup_set() {
   # Diagnostics, not chatter: --quiet drops the receipt, never a warning
   # that the value just stored will not take effect.
   _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
-  _setup_warn_ports_inert "${_base_path}" "${_section}" "${_key}"
+  _setup_warn_inert "${_base_path}" "${_section}" "${_key}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -818,7 +851,7 @@ _setup_add() {
   # Same diagnostics as `set` -- `add network.port` is the other way in,
   # and an append to a shadowed section is just as inert as an assignment.
   _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
-  _setup_warn_ports_inert "${_base_path}" "${_section}" "${_new_key}"
+  _setup_warn_inert "${_base_path}" "${_section}" "${_new_key}"
 }
 
 # ════════════════════════════════════════════════════════════════════

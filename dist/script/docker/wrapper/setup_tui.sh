@@ -279,6 +279,7 @@ _TUI_MSG_EN[additional_contexts.add]="Add named context"
 _TUI_MSG_EN[additional_contexts.back]="Back to main menu"
 _TUI_MSG_EN[additional_contexts.entry.prompt]=$'Named build context\n  - Format: <name>=<source>\n  - Empty = delete this entry\n  - <source> is anything BuildKit accepts: relative path, docker-image://, https://, oci-layout://\n  - Example (relative): repo=..\n  - Example (image): base=docker-image://debian:bookworm-slim'
 _TUI_MSG_EN[err.invalid_mount]="Invalid mount format (expected <host>:<container>[:ro|rw])"
+_TUI_MSG_EN[err.invalid_tmpfs]="Invalid tmpfs mount (expected <path>[:<option>[,<option>]], e.g. /tmp:size=64m)"
 _TUI_MSG_EN[err.invalid_cgroup_rule]="Invalid cgroup rule (expected: <c|b|a> <major>:<minor|*> <r|w|m>)"
 _TUI_MSG_EN[err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a positive integer)"
 _TUI_MSG_EN[err.invalid_runtime]="Invalid runtime (expected 'auto', 'nvidia', or 'off')"
@@ -517,6 +518,7 @@ _TUI_MSG_ZH_TW[additional_contexts.add]="新增具名 context"
 _TUI_MSG_ZH_TW[additional_contexts.back]="回主選單"
 _TUI_MSG_ZH_TW[additional_contexts.entry.prompt]=$'具名 build context\n  - 格式：<name>=<source>\n  - 留空 = 刪除此項目\n  - <source> 可以是 BuildKit 接受的任意來源：相對路徑、docker-image://、https://、oci-layout://\n  - 範例（相對路徑）：repo=..\n  - 範例（image）：base=docker-image://debian:bookworm-slim'
 _TUI_MSG_ZH_TW[err.invalid_mount]="掛載格式錯誤（預期 <host>:<container>[:ro|rw]）"
+_TUI_MSG_ZH_TW[err.invalid_tmpfs]="tmpfs 掛載格式錯誤（預期 <path>[:<option>[,<option>]]，例如 /tmp:size=64m）"
 _TUI_MSG_ZH_TW[err.invalid_cgroup_rule]="Cgroup 規則格式錯誤（預期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_TW[err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或正整數）"
 _TUI_MSG_ZH_TW[err.invalid_runtime]="runtime 值不合法（預期 'auto'、'nvidia' 或 'off'）"
@@ -753,6 +755,7 @@ _TUI_MSG_ZH_CN[additional_contexts.add]="新增具名 context"
 _TUI_MSG_ZH_CN[additional_contexts.back]="回主菜单"
 _TUI_MSG_ZH_CN[additional_contexts.entry.prompt]=$'具名 build context\n  - 格式：<name>=<source>\n  - 留空 = 删除此项目\n  - <source> 可以是 BuildKit 接受的任意来源：相对路径、docker-image://、https://、oci-layout://\n  - 示例（相对路径）：repo=..\n  - 示例（image）：base=docker-image://debian:bookworm-slim'
 _TUI_MSG_ZH_CN[err.invalid_mount]="挂载格式错误（预期 <host>:<container>[:ro|rw]）"
+_TUI_MSG_ZH_CN[err.invalid_tmpfs]="tmpfs 挂载格式错误（预期 <path>[:<option>[,<option>]]，例如 /tmp:size=64m）"
 _TUI_MSG_ZH_CN[err.invalid_additional_context]=$'具名 build context 格式错误\n  - 预期：<name>=<source>\n  - <name>：以 [A-Za-z0-9] 开头，仅含字母／数字／[_.-]\n  - <source>：不可为空\n  - 示例：repo=..'
 _TUI_MSG_ZH_CN[logging.title]="Logging"
 _TUI_MSG_ZH_CN[logging.svc.title]="Logging [%s]"
@@ -984,6 +987,7 @@ _TUI_MSG_JA[additional_contexts.add]="名前付き context を追加"
 _TUI_MSG_JA[additional_contexts.back]="メインメニューへ戻る"
 _TUI_MSG_JA[additional_contexts.entry.prompt]=$'名前付き build context\n  - 形式: <name>=<source>\n  - 空 = この項目を削除\n  - <source> は BuildKit が受け付ける任意の形式: 相対パス、docker-image://、https://、oci-layout://\n  - 例（相対パス）: repo=..\n  - 例（image）: base=docker-image://debian:bookworm-slim'
 _TUI_MSG_JA[err.invalid_mount]="マウント形式が不正（<host>:<container>[:ro|rw] を期待）"
+_TUI_MSG_JA[err.invalid_tmpfs]="tmpfs マウント形式が不正（<path>[:<option>[,<option>]]、例: /tmp:size=64m を期待）"
 _TUI_MSG_JA[err.invalid_additional_context]=$'名前付き build context が不正\n  - 形式: <name>=<source>\n  - <name>: [A-Za-z0-9] で始まり、文字／数字／[_.-]\n  - <source>: 空にできません\n  - 例: repo=..'
 _TUI_MSG_JA[logging.title]="Logging"
 _TUI_MSG_JA[logging.svc.title]="Logging [%s]"
@@ -1985,12 +1989,15 @@ declare -gA _TUI_LIST_LABELS=(
   [environment.env_.entry]=environment.entry.prompt
   [environment.env_.err]=err.invalid_env_kv
 
-  # Free-form mount spec, no validator (see _edit_section_tmpfs).
+  # Validated since base#1095, so the row needs an `err` slot like every
+  # other validated list: without one a rejected entry opened a message
+  # box with no message in it.
   [tmpfs.tmpfs_.title]=tmpfs.title
   [tmpfs.tmpfs_.menu]=tmpfs.menu
   [tmpfs.tmpfs_.add]=tmpfs.add
   [tmpfs.tmpfs_.back]=tmpfs.back
   [tmpfs.tmpfs_.entry]=tmpfs.entry.prompt
+  [tmpfs.tmpfs_.err]=err.invalid_tmpfs
 
   # The port list lives in [network] and labels its screen `ports.*`.
   [network.port_.title]=ports.title
@@ -2065,8 +2072,10 @@ _edit_list_section() {
   # Resolve the per-entry prompt key through the schema i18n-index
   # when this list key is registered, so the menu string is the same key
   # the coverage spec asserts across all four locales. The literal
-  # _entry_key remains the fallback for free-form list keys with no
-  # registry row (e.g. tmpfs_, security.security_opt_).
+  # _entry_key remains the fallback for a list key with no registry row;
+  # every list key this file labels has one today (tmpfs_ was the last
+  # without, until base#1095), so the fallback is the path a NEW list
+  # takes before its row lands, not a standing arrangement.
   _entry_key="$(_schema_i18n_key "${_section}" "${_prefix}1" "${_entry_key}")"
 
   while :; do

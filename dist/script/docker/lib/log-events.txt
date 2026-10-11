@@ -77,6 +77,8 @@ conf_reset_aborted
 conf_reset_needs_yes
 conf_mount_stale_path
 network_ports_inert
+network_name_inert
+resources_shm_size_inert
 stage_devel_reserved
 env_drift_detail
 deploy_no_dockerfile
@@ -222,6 +224,10 @@ interval_migration_window
 interval_migration_applied
 interval_migration_unreadable
 interval_migration_declined
+# ... and the declared migrations' own bodies. The runner's `applied` line
+# says THAT one ran; this one says what it changed in the repo's own file,
+# which is the half the consumer has to be able to disagree with.
+lifecycle_restart_default_migrated
 
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)

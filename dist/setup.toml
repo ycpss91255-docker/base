@@ -67,6 +67,14 @@ value = "Asia/Taipei"
 # ═════════════════════════════════════════════════════════════════════
 # [deploy] -- GPU reservation (compose.yaml deploy.resources)
 # ═════════════════════════════════════════════════════════════════════
+# dri_groups: which /dev/dri owning GIDs the container is granted via
+# compose `group_add:` (the non-NVIDIA iGPU path; only applied when GUI
+# resolves on).
+#   "auto"     detect them from this host's /dev/dri
+#   "off"      grant none
+#   "44 104"   grant exactly these, space-separated
+# The explicit list is the one to use when the build host and the target
+# host number their render group differently.
 [deploy]
 gpu_mode = "auto"
 gpu_count = "all"
@@ -103,11 +111,20 @@ mode = "auto"
 # [network] -- network mode, IPC, port mappings
 # ═════════════════════════════════════════════════════════════════════
 # mode defaults to host for cross-machine ROS compatibility.
-# Ports only take effect under bridge mode.
+#
+# PRECEDENCE: mode decides. Both `network_name` and `[[network.ports]]`
+# apply only under mode = "bridge", so with the shipped host default a
+# network name is not joined and a port mapping is not published --
+# `setup.sh set` and every emitter say so rather than dropping the value
+# quietly. Set mode = "bridge" to use either.
+#
+# pid: "private" (docker's own default, emitted as no key at all),
+# "host", or "container:<name>". ipc takes those three plus "shareable".
 [network]
 mode = "host"
 ipc = "host"
 pid = "private"
+# Joined only under mode = "bridge" (see PRECEDENCE above).
 network_name = ""
 
 # Port mappings: array-of-tables. Only take effect once
@@ -145,6 +162,11 @@ privileged = false
 # ═════════════════════════════════════════════════════════════════════
 # [resources] -- container resource limits (shm_size, etc.)
 # ═════════════════════════════════════════════════════════════════════
+# shm_size needs the container to have its own IPC namespace, so it is
+# dropped while [network] ipc = "host" -- which is the shipped default.
+# Set [network] ipc to "private" or "shareable" to use it; `setup.sh set`
+# and every emitter report the drop rather than discarding the value
+# quietly.
 [resources]
 shm_size = ""
 

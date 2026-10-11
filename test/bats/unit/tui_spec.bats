@@ -177,6 +177,98 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_dri_groups -- the three forms (base#1094)
+# ════════════════════════════════════════════════════════════════════
+
+# why: base#1094 item 4 -- the validator took only `auto` and `off`, so
+# the key looked like a setting and behaved as a switch, and the GIDs
+# themselves were reachable only through the SETUP_DETECT_DRI_GROUPS
+# environment variable -- the mechanism ADR-00000025 section 9 removed
+# everywhere else. The list form is what makes the key able to carry the
+# value it names.
+@test "_validate_dri_groups accepts auto, off and an explicit GID list (base#1094)" {
+  _validate_dri_groups "auto"
+  _validate_dri_groups "off"
+  _validate_dri_groups "44"
+  _validate_dri_groups "44 104"
+  # Empty clears the key; SCHEMA_EMPTY's default policy accepts it above
+  # the validator, and the validator agrees rather than disagreeing.
+  _validate_dri_groups ""
+}
+
+# why: base#1094 item 4 -- the value is interpolated into compose's
+# `group_add:` list, so a word that is not a bare decimal GID is YAML
+# the emitter would write and docker would then refuse, and a newline is
+# a group_add entry of its own. Rejecting at `setup.sh set` is the only
+# point where the operator is still holding the typo.
+@test "_validate_dri_groups rejects anything that is not a bare GID list (base#1094)" {
+  run _validate_dri_groups "44,104"
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups "44 render"
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups "-1"
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups $'44\n104'
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups "AUTO"
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _validate_tmpfs -- the [tmpfs] entry shape (base#1095)
+#
+# `[tmpfs]` was the last SCHEMA_SECTIONS entry with no validator of any
+# kind, so every value fell through _schema_validate's free-form branch
+# and reached _emit_tmpfs_block verbatim. The shape is the one the
+# template documents and the bridge renders: a container path, with the
+# mount options after a single colon.
+# ════════════════════════════════════════════════════════════════════
+
+# why: base#1095 -- the two spellings the shipped template teaches
+# (`path = "/tmp"` alone, and `path` + `size` which the bridge joins into
+# `/tmp:size=64m`) are the values a conforming repo actually carries, so
+# a validator that refused either would refuse the template's own
+# example.
+@test "_validate_tmpfs accepts a bare container path and a path with options (base#1095)" {
+  _validate_tmpfs "/tmp"
+  _validate_tmpfs "/run"
+  _validate_tmpfs "/tmp:size=64m"
+  _validate_tmpfs "/run:size=1g,mode=1777"
+}
+
+# why: base#1095 -- a newline is the injection this guard exists for:
+# _emit_tmpfs_block reads the value with `while IFS= read -r`, so every
+# line after the first became a tmpfs list item of its own and the
+# operator silently got mounts they never wrote. A leading space is the
+# same defect one character quieter.
+@test "_validate_tmpfs rejects whitespace, which reaches compose as extra entries (base#1095)" {
+  run _validate_tmpfs $'/tmp\n      - /evil'
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs " /tmp"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:size=64 m"
+  [ "${status}" -ne 0 ]
+}
+
+# why: base#1095 -- the structural halves. An empty value is the clear
+# that SCHEMA_EMPTY handles above the validator, a relative path is not a
+# mount point docker accepts, and a trailing or doubled colon is an
+# options list with nothing in it -- each one a file compose takes and
+# then fails on, rather than a refusal at `setup.sh set`.
+@test "_validate_tmpfs rejects an empty value, a relative path and an empty options list (base#1095)" {
+  run _validate_tmpfs ""
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "tmp"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:size=64m:mode=1777"
+  [ "${status}" -ne 0 ]
+  run _validate_tmpfs "/tmp:size=64m,"
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _validate_restart — direct coverage (previously only exercised
 # indirectly via _edit_section_lifecycle happy paths)
 # ════════════════════════════════════════════════════════════════════
