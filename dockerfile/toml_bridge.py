@@ -267,6 +267,42 @@ def _emit_kv(data):
         print(f"{section}\t{key}\t{value}")
 
 
+def _emit_empty_arrays(data):
+    """Emit `<section>\t<path>` for every array declared with NO entries.
+
+    An empty array is a DECLARATION that replaces the layer below with
+    nothing (ADR-37's zero-entry amendment), and it is the one
+    declaration the KV view cannot carry: that view emits a row per
+    ENTRY, and this has none. So the shell asks for it separately rather
+    than inferring it from the file's lines.
+
+    Inferring it from the lines is what `_conf_toml_empty_array_decl`
+    does for the WRITERS, which is correct there -- they rewrite lines --
+    and wrong for a reader. TOML spells the same declaration several
+    ways: `args = []`, `args = [` on one line and `]` on the next, and
+    the inline `build = { args = [] }`. A line matcher sees the first and
+    misses the rest, so a `setup.local.toml` whose only content was one
+    of the others reported no local sections at all -- and
+    `_setup_deploy`, whose answer is a REFUSAL, let a field bundle be
+    built from gitignored configuration with nothing recording it.
+
+    The SECTION is the path's first component, which is how every reader
+    on the shell side names the table a numbered family belongs to:
+    `build.args` is `[build]`'s, `devices.cgroup_rules` is `[devices]`'s,
+    and a root-level `volumes` is its own.
+    """
+    def walk(prefix, node):
+        for key, value in node.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, list):
+                if not value:
+                    print(f"{path.split('.')[0]}\t{path}")
+            elif isinstance(value, dict):
+                walk(path, value)
+
+    walk("", data)
+
+
 def _merge_tables(base, layer):
     """Merge <layer> into <base> in place: key-level, recursive, arrays atomic.
 
@@ -359,11 +395,14 @@ def main():
     args = list(sys.argv[1:])
     kv_mode = "--kv" in args
     merge_mode = "--merge" in args
+    empty_arrays_mode = "--empty-arrays" in args
 
     if kv_mode:
         args.remove("--kv")
     if merge_mode:
         args.remove("--merge")
+    if empty_arrays_mode:
+        args.remove("--empty-arrays")
 
     if merge_mode:
         if not args:
@@ -379,7 +418,9 @@ def main():
             print(f"toml-bridge: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-    if kv_mode:
+    if empty_arrays_mode:
+        _emit_empty_arrays(data)
+    elif kv_mode:
         _emit_kv(data)
     else:
         json.dump(data, sys.stdout, ensure_ascii=False)

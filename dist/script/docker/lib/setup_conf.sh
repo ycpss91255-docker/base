@@ -174,23 +174,24 @@ _setup_conf_local_sections() {
 
   # The sections an empty-array declaration defines, gathered first so the
   # loop below can answer for a section that has nothing else.
+  #
+  # ASKED OF THE PARSE, not of the file's lines. The first spelling of
+  # this read the lines through `_conf_toml_empty_array_decl`, which is
+  # the WRITERS' matcher and correct there because they rewrite lines.
+  # For a reader it is one spelling of several: TOML takes `args = []`,
+  # `args = [` with the `]` on the next line, and the inline
+  # `build = { args = [] }`, and a line matcher saw only the first. A
+  # local layer whose only content was one of the others reported NO
+  # sections, so `_setup_deploy` -- whose answer is a refusal -- let a
+  # field bundle be built from gitignored configuration again, which is
+  # the defect this whole block exists to close.
   local -A _scls_decl=()
   if [[ "${_local}" == *.toml ]]; then
-    local _scls_line _scls_hdr="" _scls_tbl="" _scls_path=""
-    while IFS= read -r _scls_line || [[ -n "${_scls_line}" ]]; do
-      _conf_toml_header_uncomment "${_scls_line}" _scls_hdr
-      if [[ "${_scls_hdr}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
-        _scls_tbl=""
-        continue
-      fi
-      if [[ "${_scls_hdr}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
-        _conf_header_name "${BASH_REMATCH[1]}" _scls_tbl
-        continue
-      fi
-      if _conf_toml_empty_array_decl "${_scls_line}" "${_scls_tbl}" _scls_path; then
-        _scls_decl["${_scls_path%%.*}"]=1
-      fi
-    done < "${_local}"
+    local _scls_row _scls_sect
+    while IFS=$'\t' read -r _scls_sect _ ; do
+      [[ -n "${_scls_sect}" ]] || continue
+      _scls_decl["${_scls_sect}"]=1
+    done < <(toml_bridge_parse "${_local}" --empty-arrays || true)
   fi
 
   local _sec _i _has

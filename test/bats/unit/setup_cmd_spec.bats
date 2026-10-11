@@ -2372,3 +2372,50 @@ EOF
   run grep -c '^\[\[build.args\]\]$' "${TEMP_DIR}/setup.toml"
   assert_output "4"
 }
+
+# why: `add` prefers to REUSE an empty slot -- a template placeholder
+# gets filled rather than appended past -- and when it does, the entries
+# that matter sit AFTER the one being written. The materialisation loop
+# covered only the indices below it, so a committed array whose first
+# block is empty and whose second is `KEEP=yes` lost `KEEP=yes` entirely
+# to `add --local`: the local layer declared an array of ONE and
+# array-replace made that the whole effective list. Every populated index
+# except the slot being filled is materialised now.
+@test "main add --local keeps an inherited entry that sits after the reused slot (base#1148)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[build.args]]
+
+[[build.args]]
+key = "KEEP"
+value = "yes"
+EOF
+  run main add build.arg NEW=yes --local --base-path "${TEMP_DIR}"
+  assert_success
+  run main list build --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial 'arg_1 = NEW=yes'
+  assert_output --partial 'arg_2 = KEEP=yes'
+}
+
+# why: The empty-array declaration is what the deploy refusal reads, and
+# TOML spells it several ways. A line matcher saw `args = []` and missed
+# both the multiline `args = [` / `]` and the inline
+# `build = { args = [] }` -- each of which changes the effective
+# configuration (the template's three build args resolve to zero) while
+# emitting no KV row, because there is no entry to emit. The declarations
+# come from the bridge's own parse now, so the spelling cannot hide one.
+@test "main deploy: an emptied array in any spelling is still a local override (base#1148)" {
+  local _f
+  for _f in 'args = [\n]' 'args = []'; do
+    printf '[build]\n%b\n' "${_f}" > "${TEMP_DIR}/setup.local.toml"
+    local -a _sects=()
+    _setup_conf_local_sections "${TEMP_DIR}" _sects
+    assert_equal "${#_sects[@]}" "1"
+    assert_equal "${_sects[0]}" "build"
+  done
+  printf 'build = { args = [] }\n' > "${TEMP_DIR}/setup.local.toml"
+  local -a _inline=()
+  _setup_conf_local_sections "${TEMP_DIR}" _inline
+  assert_equal "${#_inline[@]}" "1"
+  assert_equal "${_inline[0]}" "build"
+}

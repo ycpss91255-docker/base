@@ -758,8 +758,19 @@ _setup_add() {
   # workspace opt-out is exactly that) and writing it back as a value
   # would be inventing one. The slot keeps its position either way --
   # that is what the writer's field-less padding is for.
+  #
+  # EVERY index, not only the ones below the new one. When the new entry
+  # REUSES an empty slot -- which is this function's documented
+  # preference, so a template placeholder gets filled rather than
+  # appended past -- the entries that matter sit AFTER it. A committed
+  # array whose first block is empty and whose second is `KEEP=yes` lost
+  # `KEEP=yes` entirely to `add --local`: the local layer declared an
+  # array of one and replaced the whole inherited list. The loop stops
+  # at `_max`, which is the highest index the effective view holds, and
+  # skips `_new_idx` because that slot is the one being written below.
   local _mi _mval _mown _mj
-  for (( _mi = 1; _mi < _new_idx; _mi++ )); do
+  for (( _mi = 1; _mi <= _max; _mi++ )); do
+    (( _mi == _new_idx )) && continue
     _mval=""
     for (( _mj=0; _mj<${#_keys[@]}; _mj++ )); do
       if [[ "${_keys[_mj]}" == "${_section}.${_list}_${_mi}" ]]; then
