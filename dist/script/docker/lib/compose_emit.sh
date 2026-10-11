@@ -241,25 +241,39 @@ _compose_reroot_path() {
 # ordinary local contexts -- so a rebase that only moved `./` and `../`
 # left exactly those resolving into the caller's output directory.
 #
-# What is NOT local is the closed set the compose specification defines
-# for this field, recognised by SHAPE rather than listed by name: a
-# `<scheme>://` source (`docker-image://`, `oci-layout://`, `http(s)://`,
-# `git://`, `ssh://`), an scp-style git remote, and a `target:` /
-# `service:` reference to something inside this same file. A `${VAR}` is
-# a per-instance overlay value (ADR-00000022) and not a path this emitter
-# may resolve; an absolute or `~/` path is already unambiguous.
+# What is NOT local is recognised by SHAPE rather than listed by name,
+# because every one of these forms has more spellings than the obvious:
+#
+#   - compose interpolation, BRACED OR NOT. `$SHARED_CTX` is as much an
+#     interpolation as `${SHARED_CTX}`, and rebasing it yields
+#     `<repo>/$SHARED_CTX`, which compose expands to `<repo>//tmp/shared`.
+#   - a `<scheme>://` source: `docker-image://`, `oci-layout://`,
+#     `http(s)://`, `git://`, `ssh://`.
+#   - an scp-style git remote, `user@host:path`, for ANY ssh user --
+#     `builder@example.com:org/repo.git` is as valid as a `git@` one, so
+#     the shape is what is matched: an `@` and no `/` before the colon.
+#   - a `target:` / `service:` reference to something in this same file.
+#   - an absolute or `~/` path, already unambiguous.
 _compose_context_is_local() {
-  # shellcheck disable=SC2016,SC2088  # literal `${` and `~/` prefixes
-  case "${1-}" in
-    *'${'*)             return 1 ;;
+  local _s="${1-}"
+  # shellcheck disable=SC2016,SC2088  # literal `$` and `~/` are the point
+  case "${_s}" in
+    *'$'*)              return 1 ;;
     /*|'~/'*)           return 1 ;;
     *://*)              return 1 ;;
     target:*|service:*) return 1 ;;
-    git@*)              return 1 ;;
-    *)                  return 0 ;;
   esac
+  if [[ "${_s}" == *:* ]]; then
+    local _pre="${_s%%:*}"
+    [[ "${_pre}" == *@* && "${_pre}" != */* ]] && return 1
+  fi
+  return 0
 }
 
+# _compose_reroot_mount <mount_string> <root>
+#
+# Rebase the HOST side of a `host:container[:mode]` mount. Only a bind is
+# touched; a Docker named volume has no host path to rebase.
 _compose_reroot_mount() {
   local _m="${1-}" _root="${2-}"
   if [[ -z "${_root}" ]] || [[ "$(_classify_volume_lhs "${_m}")" != bind ]]; then
@@ -269,6 +283,10 @@ _compose_reroot_mount() {
   printf '%s%s' "$(_compose_reroot_path "${_m%%:*}" "${_root}")" ":${_m#*:}"
 }
 
+# _compose_reroot_named <name=path> <root>
+#
+# Rebase the SOURCE half of an `additional_contexts` entry, when
+# _compose_context_is_local says it is a path at all.
 _compose_reroot_named() {
   local _e="${1-}" _root="${2-}"
   if [[ -z "${_root}" ]] || [[ "${_e}" != *=* ]]; then
@@ -282,7 +300,26 @@ _compose_reroot_named() {
   printf '%s=%s' "${_e%%=*}" "${_src}"
 }
 
-# _compose_reroot_lines <newline_separated> <root> <mount|named>
+# _compose_escape_root <path>
+#
+# Escape a path the FILESYSTEM supplied so compose reads it literally:
+# every `$` becomes `$$`.
+#
+# The repo root is a directory name, not a configured value, so a `$` in
+# it is a literal -- and compose interpolates the emitted file, so a root
+# spelled `<parent>/repo${MISSING}` becomes `<parent>/repo` with the
+# variable unset and the build targets another directory. YAML
+# quoting does not help: the interpolation happens after the parse.
+#
+# Applied to the ROOT only. The configured values rebased onto it keep
+# their interpolations, which are deliberate (ADR-00000022's per-instance
+# overlay channel is exactly that).
+_compose_escape_root() {
+  local _p="${1-}"
+  printf '%s' "${_p//\$/\$\$}"
+}
+
+# _compose_reroot_lines <newline_separated> <root> <mount|named># _compose_reroot_lines <newline_separated> <root> <mount|named>
 #
 # Rebase every entry of a newline-separated list, preserving order and
 # blank-line handling. One pass over the list, so a caller cannot rebase
@@ -1273,8 +1310,10 @@ generate_compose_yaml() {
   # the committed artifact's relative paths exactly as they are.
   local _reroot=""
   if [[ "${_setup_base}" != "${_out_dir}" ]]; then
-    _ctx_dir="${_setup_base}"
-    _reroot="${_setup_base}"
+    # Escaped once, here, so every emitted spelling of the root carries
+    # the same escaping -- the build context and every rebased path.
+    _ctx_dir="$(_compose_escape_root "${_setup_base}")"
+    _reroot="${_ctx_dir}"
   fi
   local _ctx_yaml
   _ctx_yaml="$(_compose_yaml_scalar "${_ctx_dir}")"

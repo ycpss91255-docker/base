@@ -2888,3 +2888,57 @@ EOF
     assert_equal "$(sha256sum "${_f}" | cut -d' ' -f1)" "${_before[${_f}]}"
   done
 }
+
+# why: Two ways the relocated emitter can corrupt a source it should have
+# left alone, both reporting a successful generation. An unbraced
+# `$SHARED_CTX` is compose interpolation just as `${...}` is, so rebasing
+# it yields `<repo>/$SHARED_CTX`, which compose expands to
+# `<repo>//tmp/shared`. An scp-style git remote is `user@host:path` for ANY
+# ssh user, so recognising only the literal `git@` turned a valid remote
+# into a local-looking path the build cannot fetch.
+@test "apply --output leaves a compose-interpolated additional context alone (base#1087)" {
+  _ppa_repo
+  cat >> "${TEMP_DIR}/setup.toml" <<'EOF'
+
+[[additional_contexts]]
+name = "unbraced"
+source = "$SHARED_CTX"
+
+[[additional_contexts]]
+name = "remote"
+source = "builder@example.com:org/repo.git"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _u _r
+  _u="$(sed -n 's/^ *unbraced: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  _r="$(sed -n 's/^ *remote: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  assert_equal "${_u}" '$SHARED_CTX'
+  assert_equal "${_r}" "builder@example.com:org/repo.git"
+}
+
+# why: A `$` the FILESYSTEM put in the repo's own directory name is a
+# literal, and compose interpolates the emitted file -- so an unescaped
+# `${MISSING}` expands to nothing and the build targets a directory that
+# is not the repo. YAML quoting does not prevent it: interpolation happens
+# after the parse, so the root has to carry `$$`.
+@test "apply --output escapes a dollar the repo's own name carries (base#1087)" {
+  local _repo="${TEMP_DIR}/repo\${MISSING}"
+  mkdir -p "${_repo}"
+  cp /source/dist/setup.toml "${_repo}/setup.toml"
+  printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+  "
+  assert_success
+  local _ctx
+  _ctx="$(sed -n 's/^ *context: *//p' "${TEMP_DIR}/inst-1/compose.yaml" | head -1)"
+  # Escaped for compose: `$$` is how a literal dollar survives
+  # interpolation. Unescaped, `${MISSING}` expands to nothing and the
+  # build targets a directory that is not the repo.
+  [[ "${_ctx}" == *'$${MISSING}'* ]] || fail "dollar not escaped: ${_ctx}"
+}
