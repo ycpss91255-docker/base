@@ -1429,6 +1429,21 @@ _write_setup_conf() {
       __aot_skip=0
       if _conf_toml_aot_nskey "${__p}" "${__aot_seen["${__p}"]}" __nskey; then
         if [[ -n "${__removed[${__nskey}]+x}" ]]; then
+          # REMOVAL COMPACTS, and for slot 1 of `[volumes]` that is a
+          # maintainer-level question, not a safe edit. Skipping this
+          # block renumbers every block after it, so `remove
+          # volumes.mount_1` makes what was `mount_2` into `mount_1` --
+          # and `mount_1` is the workspace bind, identified by POSITION
+          # and nothing else. `_reconcile_workspace_path` then either
+          # honours the surviving source as a pinned workspace (silently,
+          # when it exists) or rewrites the operator's own bind as the
+          # workspace one. Compaction is correct for every other family;
+          # base#1233 carries how the workspace bind should be
+          # identified, and ADR-00000022 publishes the positional
+          # convention any answer would depart from. This comment is here
+          # so the next reader of this branch does not conclude from it
+          # that the edit path is settled -- the same note
+          # `_setup_remove`'s header carries one level up.
           __emitted[${__nskey}]=1
           __aot_skip=1
           continue
