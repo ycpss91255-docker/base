@@ -207,6 +207,9 @@ _assert_schema_covers_registry() {
   _assert_schema deploy gpu_runtime "nvidia" ok
   _assert_schema deploy runtime "auto" ok
   _assert_schema deploy dri_groups "auto" ok
+  _assert_schema deploy dri_groups "off" ok
+  _assert_schema deploy dri_groups "44" ok
+  _assert_schema deploy dri_groups "44 104" ok
   _assert_schema gui mode "off" ok
   _assert_schema image rule_1 "@basename" ok
   _assert_schema network network_name "my_net" ok
@@ -267,6 +270,8 @@ _assert_schema_covers_registry() {
   _assert_schema deploy gpu_runtime "podman" fail
   _assert_schema deploy runtime "podman" fail
   _assert_schema deploy dri_groups "on" fail
+  _assert_schema deploy dri_groups "44,104" fail
+  _assert_schema deploy dri_groups "44 render" fail
   _assert_schema gui mode "of" fail
   _assert_schema image rule_1 "whatever" fail
   _assert_schema network network_name "-bad" fail

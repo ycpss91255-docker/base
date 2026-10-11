@@ -91,11 +91,81 @@ _warn_ports_inert() {
     "display=$(_setup_msg network ports_inert) (mode=${_mode})" "mode=${_mode}"
 }
 
-# _reset_ports_inert_warning
+# _SHM_SIZE_INERT_WARNED / _NETWORK_NAME_INERT_WARNED -- the same latch
+# for the other two "configured, then overruled by a sibling key"
+# diagnostics base#1094 measured. Declared beside the ports one so the
+# family is visible as a family: each new member is one latch, one
+# _warn_* and one line in _reset_inert_warnings, and nothing else.
+_SHM_SIZE_INERT_WARNED=0
+_NETWORK_NAME_INERT_WARNED=0
+
+# _warn_shm_size_inert <shm_size> <ipc_mode>
 #
-# Re-arm the latch. Called at the top of each top-level emitter.
-_reset_ports_inert_warning() {
+# Warn once per emit that <shm_size> will be dropped under <ipc_mode>.
+# Docker honours shm_size only when the container has its own IPC
+# namespace, so an `ipc = host` service ignores it -- and `ipc = "host"`
+# is what the shipped template sets, which made the only key in
+# `[resources]` inert by default (base#1094). `ports` has had this
+# diagnostic since base#879 and this key had none.
+_warn_shm_size_inert() {
+  local _shm="${1-}" _ipc="${2-}"
+  [[ -z "${_shm}" ]] && return 0
+  [[ "${_ipc}" != "host" ]] && return 0
+  (( _SHM_SIZE_INERT_WARNED )) && return 0
+  _SHM_SIZE_INERT_WARNED=1
+  _log_warn setup resources_shm_size_inert \
+    "display=$(_setup_msg resources shm_size_inert) (ipc=${_ipc})" "ipc=${_ipc}"
+}
+
+# _warn_network_name_inert <net_name> <net_mode>
+#
+# Warn once per emit that <net_name> will not be joined under
+# <net_mode>. Two keys answer one question -- which network the service
+# is on -- and `mode` decides: the per-stage service emitter and both
+# branches of the field bundle have always required bridge before a
+# named network, so a name set beside `mode = host` is the loser. It
+# used to lose SILENTLY, and in the devel service it used to win, which
+# is how one setup.toml produced bridge networking in development and
+# host networking on the device (base#1094).
+_warn_network_name_inert() {
+  local _name="${1-}" _mode="${2-}"
+  [[ -z "${_name}" ]] && return 0
+  [[ "${_mode}" == "bridge" ]] && return 0
+  (( _NETWORK_NAME_INERT_WARNED )) && return 0
+  _NETWORK_NAME_INERT_WARNED=1
+  _log_warn setup network_name_inert \
+    "display=$(_setup_msg network network_name_inert) (mode=${_mode})" "mode=${_mode}"
+}
+
+# _reset_inert_warnings
+#
+# Re-arm every inert-value latch. Called at the top of each top-level
+# emitter. ONE function for the family rather than one call per
+# diagnostic: a new member that forgot its reset would print once per
+# process instead of once per emit, and nothing would say so.
+_reset_inert_warnings() {
   _PORTS_INERT_WARNED=0
+  _SHM_SIZE_INERT_WARNED=0
+  _NETWORK_NAME_INERT_WARNED=0
+}
+
+# _pid_mode_emits <mode>
+#
+# Does this `[network] pid` value produce a compose `pid:` line? `host`
+# and `container:<name>` are the two forms Docker accepts as a literal;
+# `private` is Docker's own default and is REJECTED as a literal, so the
+# key is omitted for it, and for empty.
+#
+# Shared by all three emission sites because they disagreed: each wrote
+# `pid:` only for exactly `host`, so `container:<name>` -- which
+# `_validate_pid_mode` accepts and the TUI offers -- reached no file at
+# all (base#1094).
+_pid_mode_emits() {
+  case "${1-}" in
+    host)         return 0 ;;
+    container:?*) return 0 ;;
+    *)            return 1 ;;
+  esac
 }
 
 _device_has_propagation() {
@@ -811,9 +881,11 @@ YAML
   else
     echo "    ipc: \${IPC_MODE}"
   fi
-  # pid: only emitted for "host" — Docker rejects "private" as literal.
+  # pid: emitted for the two forms Docker takes as a literal (see
+  # _pid_mode_emits); "private" is its own default and is rejected as a
+  # literal, so the key is omitted for it.
   # Same apply-time guard: a bogus stage override drops to the env-var ref.
-  if [[ "${_eff_pid_mode}" == "host" ]]; then
+  if _pid_mode_emits "${_eff_pid_mode}"; then
     if [[ "${_eff_pid_mode}" != "${_pid_mode}" ]] \
        && _validate_pid_mode "${_eff_pid_mode}"; then
       echo "    pid: ${_eff_pid_mode}"
@@ -841,6 +913,7 @@ YAML
   _emit_group_add_block "${_eff_gui}" "${_dri_groups_str}"
   # network: literal mode + optional named network. When stage didn't
   # override mode, fall back to env-var ref (matches devel).
+  _warn_network_name_inert "${_eff_net_name}" "${_eff_net_mode}"
   if [[ "${_eff_net_mode}" == "bridge" ]] && [[ -n "${_eff_net_name}" ]]; then
     cat <<YAML
     networks:
@@ -985,7 +1058,9 @@ YAML
   _emit_cgroup_rules_block "${_cgroup_rule_str}"
   _emit_tmpfs_block "${_tmpfs_str}"
   # shm_size: depends on effective ipc (only emitted under non-host ipc,
-  # mirroring devel).
+  # mirroring devel). Reported when it is dropped -- the shipped template
+  # sets ipc = "host", so this was the default (base#1094).
+  _warn_shm_size_inert "${_shm_size}" "${_eff_ipc_mode}"
   if [[ -n "${_shm_size}" ]] && [[ "${_eff_ipc_mode}" != "host" ]]; then
     echo "    shm_size: ${_shm_size}"
   fi
@@ -1047,7 +1122,7 @@ generate_compose_yaml() {
 
   # Re-arm the ports-inert latch: one emit, at most one diagnostic, but a
   # second emit in the same process still reports.
-  _reset_ports_inert_warning
+  _reset_inert_warnings
 
   # Host name for the GUI+bridge hostname pin (ADR-00000019). Resolved once here so
   # both the devel service and every per-stage block emit an identical value.
@@ -1189,9 +1264,12 @@ YAML
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
 YAML
-    # pid: only emitted for "host" — Docker rejects "private" as a
-    # literal; omitting the key gives the same private-namespace default.
-    if [[ "${_pid_mode}" == "host" ]]; then
+    # pid: emitted for the two forms Docker takes as a literal (see
+    # _pid_mode_emits) -- "private" is rejected as a literal and omitting
+    # the key gives the same private-namespace default. The value itself
+    # rides ${PID_MODE} from the generated .env, which has always carried
+    # it; what was missing was the reference (base#1094).
+    if _pid_mode_emits "${_pid_mode}"; then
       echo "    pid: \${PID_MODE}"
     fi
     cat <<YAML
@@ -1207,7 +1285,14 @@ YAML
     # cap_add / cap_drop / security_opt + group_add (shared emitters).
     _emit_caps_block "${_cap_add_str}" "${_cap_drop_str}" "${_sec_opt_str}"
     _emit_group_add_block "${_gui}" "${_dri_groups_str}"
-    if [[ -n "${_net_name}" ]]; then
+    # mode decides, network_name applies only under bridge. This used to
+    # consult network_name alone, which made the devel service the one
+    # emitter that let the name beat the mode -- the per-stage emitter
+    # above and both branches of the field bundle have always required
+    # bridge, so one setup.toml produced bridge networking here and host
+    # networking on the device (base#1094).
+    _warn_network_name_inert "${_net_name}" "${_net_mode}"
+    if [[ "${_net_mode}" == "bridge" ]] && [[ -n "${_net_name}" ]]; then
       cat <<YAML
     networks:
       - ${_net_name}
@@ -1325,7 +1410,9 @@ YAML
     # device_cgroup_rules + tmpfs (shared emitters).
     _emit_cgroup_rules_block "${_cgroup_rule_str}"
     _emit_tmpfs_block "${_tmpfs_str}"
-    # shm_size: only emitted when ipc != host (otherwise Docker ignores it)
+    # shm_size: only emitted when ipc != host (otherwise Docker ignores
+    # it). Reported when it is dropped (base#1094).
+    _warn_shm_size_inert "${_shm_size}" "${_ipc_mode}"
     if [[ -n "${_shm_size}" ]] && [[ "${_ipc_mode}" != "host" ]]; then
       echo "    shm_size: ${_shm_size}"
     fi
@@ -1464,7 +1551,11 @@ YAML
     # by devel or a stage. Emitted before networks: (top-level section order).
     # No-op (zero-diff) when only bind mounts are used.
     _emit_volumes_block _named_vols
-    if [[ -n "${_net_name}" ]]; then
+    # Declared only when something joins it, which is the same condition
+    # the service blocks use: mode bridge AND a name. A declaration with
+    # no member is a network compose creates and nothing attaches to
+    # (base#1094).
+    if [[ "${_net_mode}" == "bridge" ]] && [[ -n "${_net_name}" ]]; then
       cat <<YAML
 
 networks:

@@ -531,16 +531,39 @@ _validate_gpu_capabilities() {
 
 # _validate_dri_groups <value>
 #
-# [deploy] dri_groups: whether to detect the host's /dev/dri owning GIDs
-# and grant them via group_add. `auto` detects, anything else means
-# never -- which is why an unvalidated typo reads as an opt-out.
+# [deploy] dri_groups: which /dev/dri owning GIDs the container is
+# granted via group_add. Three forms:
+#
+#   auto            detect them from the host's /dev/dri (the default)
+#   off             grant none
+#   <gid> [<gid>…]  grant exactly these, space-separated
+#
+# The third is base#1094's: the validator took only `auto` and `off`, so
+# the key looked like a setting and behaved as a switch, and the only way
+# to pin the GIDs was the SETUP_DETECT_DRI_GROUPS environment variable --
+# the mechanism ADR-00000025 section 9 removed everywhere else ("no
+# ambient environment variable can steer the chain"). A list is refused
+# unless every word is a bare decimal GID: the value is interpolated into
+# compose's `group_add:` list, so a word that is not a number is YAML the
+# emitter would write and docker would then refuse.
 _validate_dri_groups() {
   local _v="${1-}"
   [[ -z "${_v}" ]] && return 0
   case "${_v}" in
     auto|off) return 0 ;;
-    *) return 1 ;;
   esac
+  # Space is the separator and the only whitespace allowed: a tab or a
+  # newline is not printable, and a newline would inject a group_add line
+  # of its own.
+  [[ "${_v}" =~ [^[:print:]] ]] && return 1
+  local -a _gids=()
+  read -ra _gids <<< "${_v}"
+  (( ${#_gids[@]} >= 1 )) || return 1
+  local _g
+  for _g in "${_gids[@]}"; do
+    [[ "${_g}" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
+  done
+  return 0
 }
 
 # _validate_privileged <value>

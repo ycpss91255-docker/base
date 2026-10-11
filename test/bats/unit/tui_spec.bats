@@ -177,6 +177,44 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _validate_dri_groups -- the three forms (base#1094)
+# ════════════════════════════════════════════════════════════════════
+
+# why: base#1094 item 4 -- the validator took only `auto` and `off`, so
+# the key looked like a setting and behaved as a switch, and the GIDs
+# themselves were reachable only through the SETUP_DETECT_DRI_GROUPS
+# environment variable -- the mechanism ADR-00000025 section 9 removed
+# everywhere else. The list form is what makes the key able to carry the
+# value it names.
+@test "_validate_dri_groups accepts auto, off and an explicit GID list (base#1094)" {
+  _validate_dri_groups "auto"
+  _validate_dri_groups "off"
+  _validate_dri_groups "44"
+  _validate_dri_groups "44 104"
+  # Empty clears the key; SCHEMA_EMPTY's default policy accepts it above
+  # the validator, and the validator agrees rather than disagreeing.
+  _validate_dri_groups ""
+}
+
+# why: base#1094 item 4 -- the value is interpolated into compose's
+# `group_add:` list, so a word that is not a bare decimal GID is YAML
+# the emitter would write and docker would then refuse, and a newline is
+# a group_add entry of its own. Rejecting at `setup.sh set` is the only
+# point where the operator is still holding the typo.
+@test "_validate_dri_groups rejects anything that is not a bare GID list (base#1094)" {
+  run _validate_dri_groups "44,104"
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups "44 render"
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups "-1"
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups $'44\n104'
+  [ "${status}" -ne 0 ]
+  run _validate_dri_groups "AUTO"
+  [ "${status}" -ne 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _validate_restart — direct coverage (previously only exercised
 # indirectly via _edit_section_lifecycle happy paths)
 # ════════════════════════════════════════════════════════════════════

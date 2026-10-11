@@ -8166,7 +8166,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_advanced_menu: tmpfs entry no longer dispatches` | - |
 | `_render_advanced_menu: security still dispatches` | - |
 
-### test/bats/unit/tui_spec.bats (134)
+### test/bats/unit/tui_spec.bats (136)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -8233,6 +8233,8 @@ overlay; writes no override)
 | `_validate_mount rejects invalid propagation mode (#450)` | - |
 | `_validate_mount rejects rw,bogus combo (#450)` | - |
 | `_validate_mount rejects embedded newline (YAML injection) (#687)` | - |
+| `_validate_dri_groups accepts auto, off and an explicit GID list (base#1094)` | base#1094 item 4 -- the validator took only `auto` and `off`, so the key looked like a setting and behaved as a switch, and the GIDs themselves were reachable only through the SETUP_DETECT_DRI_GROUPS environment variable -- the mechanism ADR-00000025 section 9 removed everywhere else. The list form is what makes the key able to carry the value it names. |
+| `_validate_dri_groups rejects anything that is not a bare GID list (base#1094)` | base#1094 item 4 -- the value is interpolated into compose's `group_add:` list, so a word that is not a bare decimal GID is YAML the emitter would write and docker would then refuse, and a newline is a group_add entry of its own. Rejecting at `setup.sh set` is the only point where the operator is still holding the typo. |
 | `_validate_restart accepts the four bare policies + on-failure:N (#687)` | - |
 | `_validate_restart rejects on-failure:0 (docker forbids zero retries) (#687)` | - |
 | `_validate_restart rejects leading-zero retry count on-failure:01 (#687)` | - |
@@ -8456,6 +8458,47 @@ back is in upgrade_migration_reachability_spec.bats.
 | `check-base-version.sh defaults BASE_REPO to the shared constant (#895)` | - |
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
+
+### test/bats/unit/validated_key_reach_spec.bats (20)
+
+Covers base#1094 -- the keys that validate and then never reach the emitted
+artifact. The DERIVED gate here is the one that matters:
+`_resolve_deploy_context` is the code's own declaration of which config
+values the field bundle is built from, so its populated record IS the
+population, and every field of it has to be able to change the generated
+bundle under SOME configuration. A per-key assertion naming today's five
+would stay green while the sixth grew. The explicit tests below it cover the
+three defects a reachability check cannot see: a value that reaches one tier
+and not the other, and a value another key silently overrules.
+
+The two tiers are the dev compose (`generate_compose_yaml`) and the
+field-deploy bundle (`_generate_resolved_compose`). They are separate
+emitters over the same config, which is why base#1094's `[logging]` gap
+existed at all -- one of them called `_emit_logging_block` and the other had
+never heard of it.
+
+| Test | Description |
+|------|-------------|
+| `every deploy-context field has a reach probe, and every probe names a field (base#1094)` | base#1094 -- `_resolve_deploy_context`'s populated record is the code's own declaration of which config values the field bundle is built from, so holding the probe table equal to it is what stops this gate from quietly covering 23 of 24 fields. Measured on 0faacb57: 24 fields. |
+| `every deploy-context field can change the generated bundle compose, or is a declared exemption (base#1094)` | base#1094 -- the defect's exact shape: a key validates, the resolver reads it into the context, and the emitter never consumes it, so the operator's setting does nothing and nothing says so. `pid_mode` and the two `[logging]` fields were in that state. The population is derived from the context record, so a field added tomorrow and then dropped by the emitter fails here; the alternative -- naming today's fields -- is the assertion that would have passed all through base#1094. |
+| `every reach exemption names a deploy-context field and carries a reason (base#1094)` | base#1094 -- an exemption is a claim about where the value goes, and an unexplained one is the hole this gate exists to close. Mirrors schema.sh's SCHEMA_FREEFORM reason rule. |
+| `pid = container:<name> reaches the dev compose, and private still does not (base#1094)` | base#1094 item 1 -- `_validate_pid_mode` accepts `container:<name>` and the TUI offers it, while both emitters wrote `pid:` only when the value was exactly `host`. A user who set `container:foo` got a green config and a compose file with no `pid:` line at all. `private` stays omitted on purpose: Docker rejects it as a literal and omitting the key gives the same private namespace. |
+| `pid = container:<name> reaches the field bundle as a literal (base#1094)` | base#1094 item 1, field tier. The bundle writes literals rather than `${PID_MODE}`, so the value itself has to arrive -- a bundle that merely carried the key would be no use to the device. |
+| `a shm_size dropped under ipc = host is reported by the dev emitter (base#1094)` | base#1094 item 2 -- the shipped template sets `ipc = "host"`, and both emitters drop `shm_size` unless ipc is something else. So the DEFAULT configuration makes the only key in `[resources]` do nothing. `ports` has the identical situation under `mode = host` and has printed a diagnostic for it since base#879; this one printed nothing. The fix is the same diagnostic, not a default change (ADR-00000019 chose the host defaults deliberately). |
+| `a shm_size that is emitted under a non-host ipc is not reported (base#1094)` | - |
+| `setting resources.shm_size under the shipped ipc = host warns at store time (base#1094)` | base#1094 item 2 -- the diagnostic has to fire where the user can act on it, which is also when the value is stored. The ports precedent (base#879) fires at both points and so does this. |
+| `setting resources.shm_size under a non-host ipc stays quiet (base#1094)` | - |
+| `mode = host beside a network_name keeps host networking in the dev compose (base#1094)` | base#1094 item 3 -- two keys answered one question and the loser was silent. Three of the five emission sites already agreed that mode decides and `network_name` only applies under bridge (the per-stage service emitter, and both branches of the field bundle); the devel service and the top-level `networks:` declaration consulted only `network_name`. So one setup.toml produced bridge networking in development and host networking on the device, with nothing said. The devel service now follows the same rule as its own siblings. |
+| `mode = bridge beside a network_name still joins the named network (base#1094)` | - |
+| `a network_name under a non-bridge mode is reported, naming both keys (base#1094)` | base#1094 item 3 -- the issue's words: "Silence is the one option that is not available." The precedence is now stated in the template beside both keys, and warned about when it applies. |
+| `a network_name under mode = bridge is not reported (base#1094)` | - |
+| `setting network.network_name under the shipped host default warns at store time (base#1094)` | - |
+| `dri_groups carrying an explicit GID list reaches group_add without the env var (base#1094)` | base#1094 item 4 -- the key looked like a setting and was a switch: the validator took only `auto` / `off`, and the GIDs themselves were reachable only through the `SETUP_DETECT_DRI_GROUPS` environment variable -- the mechanism ADR-00000025 section 9 removed everywhere else ("no ambient environment variable can steer the chain"). The key now carries the list, with `auto` still the default and the env var still honoured for the auto path. |
+| `dri_groups = off still grants nothing (base#1094)` | - |
+| `a configured [logging] reaches the field bundle, matching the dev compose (base#1094)` | base#1094 item 5 -- `_emit_logging_block` was called by the dev emitter and never by `deploy.sh`, so a repo configuring a driver, max_size, max_file and compress got all four in development and none of them in the artifact shipped to a device. That is the one place where an unbounded log actually fills a disk. `local_path` stays out of the bundle on purpose: it is a host bind, not a Docker logging option, and the block has never emitted it. |
+| `a [logging.<stage>] override reaches the field bundle for that stage (base#1094)` | base#1094 item 5 -- `[logging.<svc>]` is the per-service override layer, and the bundle's service is the deployed stage. A bundle that took only the global block would drop exactly the override an operator wrote for that stage. |
+| `the shipped [logging] defaults reach a bundle that configures nothing (base#1094)` | base#1094 item 5 -- the shipped template sets driver / max_size / max_file / compress, so "configure nothing" is not "no logging options": it is the template's bounds. Those are the ones that matter, because the repo that never thought about logging is the one whose device disk fills. This asserts the DEFAULT reaches the bundle, not just an explicitly configured value. |
+| `the bundle's logging block is the same block the dev compose emits (base#1094)` | base#1094 item 5 -- the defect was two emitters over one config disagreeing, so the assertion that holds the fix is agreement, not presence. Both tiers are handed the same _collect_logging result and their `logging:` blocks are compared line for line; a future change to one emitter's block that the other does not get fails here. |
 
 ### test/bats/unit/version_migrate_spec.bats (31)
 
