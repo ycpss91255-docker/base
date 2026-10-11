@@ -1913,6 +1913,29 @@ EOF
   assert_success
 }
 
+# why: base#1095 -- the whole point of registering a tmpfs validator is
+# the artifact, not the error message: `tmpfs` was the one section that
+# validated nothing, so a value carrying a newline was accepted by
+# `setup.sh set` and _emit_tmpfs_block -- which reads the string with
+# `while IFS= read -r` -- wrote each line as a tmpfs entry of its own.
+# The assertion is therefore in two halves: the write is refused, AND
+# the generated compose.yaml carries no entry it did not already have.
+# Grepping only for the refusal would pass on a tree that refused the
+# write and then emitted the value from a stale layer anyway.
+@test "[tmpfs] a tmpfs_1 carrying a newline is refused before it can reach compose.yaml (base#1095)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  run main set tmpfs.tmpfs_1 "$(printf '/tmp\n      - /evil')" --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "Invalid value"
+
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -c -- '- /evil' '${TEMP_DIR}/compose.yaml' || true
+  "
+  assert_output "0"
+}
+
 @test "[tmpfs] empty section omits tmpfs: block" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [tmpfs]

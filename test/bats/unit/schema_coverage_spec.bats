@@ -306,10 +306,14 @@ ${_why}${_missing}A key reached under ja or zh-CN with no row there renders in E
   assert_success
   assert_output "logging.driver.prompt"
 
-  # Free-form (unregistered) key -> fallback echoed verbatim.
-  run _schema_i18n_key tmpfs tmpfs_1 tmpfs.entry.prompt
+  # Free-form (unregistered) key -> fallback echoed verbatim. This read
+  # `tmpfs tmpfs_1` until base#1095 registered that key: the assertion
+  # then passed for the wrong reason, because the registry answer and the
+  # fallback are the same string. A key no section declares is the
+  # population this branch still answers for.
+  run _schema_i18n_key environment not_a_registered_key some.fallback.key
   assert_success
-  assert_output "tmpfs.entry.prompt"
+  assert_output "some.fallback.key"
 
   # No-editor opt-out ("" index value) -> fallback, not the empty string.
   run _schema_i18n_key logging wrapper_transcript fallback.key
@@ -407,4 +411,46 @@ _is_freeform() {
     [[ -v "SCHEMA_VALIDATOR[${_k}]" ]] && _both+=" ${_k}"
   done
   [ -z "${_both}" ] || { echo "registered AND opted out:${_both}"; false; }
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Section-level validator coverage
+#
+# SCHEMA_FREEFORM opts a single KEY out of validation. A whole SECTION
+# with no validator at all is a different thing: `setup.sh set
+# <section>.<key>` dispatches there (SCHEMA_SECTIONS lists it), every
+# value falls through _schema_validate's free-form branch, and whatever
+# the operator typed reaches the emitted compose.yaml -- a newline
+# included. base#1095 measured that on `tmpfs`, the last section in that
+# state.
+#
+# The rule is DERIVED from the two registries rather than written as a
+# list of today's sections: the population is SCHEMA_SECTIONS and the
+# evidence is SCHEMA_VALIDATOR's own key set, so a section added
+# tomorrow without a validator fails here instead of shipping as an
+# accept-anything hole. A per-key assertion naming today's sections
+# would stay green while the next one grew.
+# ════════════════════════════════════════════════════════════════════
+
+# why: base#1095 -- `tmpfs` was the one SCHEMA_SECTIONS entry with no
+# SCHEMA_VALIDATOR row of any kind, so `setup.sh set tmpfs.tmpfs_1`
+# accepted a value carrying a newline and _emit_tmpfs_block wrote it
+# into compose.yaml as two list items. Deriving the population from
+# SCHEMA_SECTIONS and the evidence from SCHEMA_VALIDATOR's keys is what
+# makes the NEXT unvalidated section a red test rather than the next
+# operator's surprise.
+@test "every SCHEMA_SECTIONS section has at least one SCHEMA_VALIDATOR row (base#1095)" {
+  local -A _covered=()
+  local _k _s _bare=""
+  for _k in "${!SCHEMA_VALIDATOR[@]}"; do
+    _covered["${_k%%.*}"]=1
+  done
+  for _s in "${SCHEMA_SECTIONS[@]}"; do
+    [[ -n "${_covered[${_s}]:-}" ]] || _bare+=" ${_s}"
+  done
+  [ -z "${_bare}" ] || {
+    echo "sections with no validator of any kind:${_bare}"
+    echo "a section that validates nothing accepts anything, and the value reaches compose.yaml"
+    false
+  }
 }

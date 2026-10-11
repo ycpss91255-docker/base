@@ -227,6 +227,7 @@ _assert_schema_covers_registry() {
   _assert_schema devices device_1 "/dev/snd:/dev/snd" ok
   _assert_schema devices cgroup_rule_1 "c 81:* rmw" ok
   _assert_schema environment env_1 "FOO=bar" ok
+  _assert_schema tmpfs tmpfs_1 "/run:size=64m" ok
   _assert_schema additional_contexts context_1 "repo=.." ok
   _assert_schema security cap_add_1 "SYS_ADMIN" ok
   _assert_schema security cap_drop_1 "NET_RAW" ok
@@ -286,6 +287,7 @@ _assert_schema_covers_registry() {
   _assert_schema devices device_1 "noslash" fail
   _assert_schema devices cgroup_rule_1 "bogus" fail
   _assert_schema environment env_1 "1BAD=x" fail
+  _assert_schema tmpfs tmpfs_1 "relative/path" fail
   _assert_schema additional_contexts context_1 "noequals" fail
   _assert_schema security cap_add_1 "lowercase" fail
   _assert_schema security cap_drop_1 "has space" fail
@@ -306,6 +308,7 @@ _assert_schema_covers_registry() {
   _assert_schema additional_contexts context_1 $'repo=.\ninject' fail
   _assert_schema volumes mount_1 $'/d:/d\ninject' fail
   _assert_schema devices device_1 $'/dev/x:/dev/x\ninject' fail
+  _assert_schema tmpfs tmpfs_1 $'/tmp\n      - /evil' fail
 }
 
 # The numeric validators are deliberately shape-only: they constrain the
@@ -342,6 +345,7 @@ _assert_schema_covers_registry() {
   _assert_schema volumes mount_1 "" ok
   _assert_schema devices device_1 "" ok
   _assert_schema environment env_1 "" ok
+  _assert_schema tmpfs tmpfs_1 "" ok
   _assert_schema security cap_add_1 "" ok
 }
 
@@ -349,8 +353,11 @@ _assert_schema_covers_registry() {
 @test "_schema_validate accepts free-form (unregistered) keys" {
   # security.security_opt_ and image.rule_ used to sit here: both have a
   # closed value set their consumer dispatches on, so both are registered
-  # now and the free-form default no longer covers them.
-  _assert_schema tmpfs tmpfs_1 "/run:size=64m" ok
+  # now and the free-form default no longer covers them. tmpfs.tmpfs_ sat
+  # here too until base#1095: it was the last SECTION with no validator of
+  # any kind, which is not the same thing as a free-form key, and its
+  # value reached compose.yaml. What is left is a key no section declares,
+  # which is the only population this branch still answers for.
   _assert_schema environment not_a_registered_key "anything goes" ok
 }
 
@@ -378,8 +385,11 @@ _assert_schema_covers_registry() {
   [ "${status}" -eq 0 ]
 }
 
-# why: membership accept, no keys (#561)
-@test "_schema_is_section accepts a free-form-only section (image) (#561)" {
+# why: membership accept, list-key-only section (#561). The title said
+# "free-form-only" until base#1095: image.rule_ has had a validator for
+# a while, and the only genuinely keyless section (tmpfs) now has one
+# too, so the name was describing a state the tree had left.
+@test "_schema_is_section accepts a section whose only key is a list key (image) (#561)" {
   run _schema_is_section image
   [ "${status}" -eq 0 ]
 }
