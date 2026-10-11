@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included bdad83a9cb63 d1f36dca5b46 -->
+<!-- sync: whats-included 28d6fbb66955 bd27e665a1b0 -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -147,7 +147,7 @@ flowchart LR
 | `exec.sh` | 進入執行中的容器 |
 | `stop.sh` | 停止並移除容器 |
 | `prune.sh` | 清理容器 / image / build cache |
-| `setup_tui.sh` | 互動式 setup.conf 編輯器（dialog / whiptail 前端） |
+| `setup_tui.sh` | 互動式 setup.toml 編輯器（dialog / whiptail 前端） |
 | `dist/script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` / `.env.generated` + `compose.yaml` |
 | `dist/script/docker/lib/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `dist/script/docker/lib/bootstrap.sh` | wrapper 共用初始化與參數解析 |
@@ -172,7 +172,7 @@ flowchart LR
 | `script/test/drivers/` | 每個工具一支 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 檢查 |
 | `config/` | Container 內部 shell 設定檔（bashrc、tmux、terminator、pip） |
-| `.setup.conf` | 單一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
+| `setup.toml` | 單一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共用 smoke 測試 + runtime assertion helpers（見下方） |
 | `test/bats/unit/` | base 自身測試，unit（bats + kcov） |
 | `test/bats/integration/` | base 自身測試，init/upgrade 端對端 |
@@ -272,7 +272,7 @@ image，`$HOME` 可能不一樣。
 第 1、2 條屬於判斷題，grep 判不出來。設計理由見
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 7c90746cbedf 90b4ca477f35 -->
+<!-- sync: adding-extra-stages-215 46284b5d635f aaaac8f5f54d -->
 #### 新增額外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -287,7 +287,7 @@ entrypoint 變體，如 NVIDIA Isaac Sim 在 `devel` 之上的
 User 操作流程：
 
 ```dockerfile
-# Dockerfile 加新 stage（不用動 setup.conf）
+# Dockerfile 加新 stage（不用動 setup.toml）
 FROM devel AS headless
 ENTRYPOINT ["/isaac-sim/runheadless.sh"]
 CMD ["-v"]
@@ -325,28 +325,30 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
   `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑會自動 regen
   `compose.yaml`。其他 `RUN apt-get install` 等修改**不會**觸發 drift。
 
-<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f f41367af636b -->
-#### Per-stage `setup.conf` overrides（#220）
+<!-- sync: per-stage-setuptoml-overrides-220 02d674d1433e 36a108dd2b1b -->
+#### Per-stage `setup.toml` overrides（#220）
 
 #215 auto-emit 出來的 stage 預設共用 devel 的 runtime 設定
 （volumes / GPU / network / GUI）。當某 stage 需要不同的 runtime
 設定 — 例如 NVIDIA Isaac Sim 的 `headless` 跑 WebRTC livestream
 要 `network=bridge` + 一個 port mapping + `gui=off`，但 `devel`
-跟 `gui` 維持 `network=host` + X11 — 在 repo 的 `setup.conf` 加上
-`[stage:<name>]` section：
+跟 `gui` 維持 `network=host` + X11 — 在 repo 的 `setup.toml` 加上
+`[stage:<name>]` table。TOML 的 table 名稱含冒號時必須加引號，
+所以實際寫成 `["stage:headless"]`，底下點號形式的
+override key 也要加引號：
 
-```ini
+```toml
 [gui]
-mode = auto
+mode = "auto"
 
 [network]
-mode = host
+mode = "host"
 
-[stage:headless]
-gui.mode = off
-network.mode = bridge
-network.port_1 = 8080:80
-deploy.gpu_capabilities = gpu compute utility graphics video
+["stage:headless"]
+"gui.mode" = "off"
+"network.mode" = "bridge"
+"network.port_1" = "8080:80"
+"deploy.gpu_capabilities" = "gpu compute utility graphics video"
 ```
 
 也可以用 `./setup_tui.sh` 走互動式編輯：
@@ -414,22 +416,22 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
-<!-- sync: per-repo-runtime-configuration 7bea51e3ea8b bbe85ad3be6a -->
+<!-- sync: per-repo-runtime-configuration 75d2557836d2 345dc744919c -->
 ## 各 repo runtime 配置
 
-每個下游 repo 透過一個 `setup.conf` INI 檔驅動自己的 runtime 配置
+每個下游 repo 透過一個 `setup.toml`驅動自己的 runtime 配置
 （GPU 保留、GUI env/volumes、network mode、額外 volume mounts）。
 `setup.sh` 讀它 + 系統偵測後重新產生 `.env`、`.env.generated` 與
 `compose.yaml`，這些衍生檔使用者不用動手編輯。`.env.local` 才是另一個檔：
 setup 只在第一次 scaffold，之後永不覆寫，你自己的值放在那裡。
 
-所有檔名共用一條規則：**標準名是我們的，加後綴才是本機變體。**
-`Dockerfile`、`compose.yaml`、`.setup.conf`、`.env` 都是產生或出貨的，
-更新時會被取代;`.setup.conf.local` 與 `.env.local` 是你的，永遠不會被動。
+所有檔名共用一條規則：**標準名是我們的，有 `.local` 後綴或中綴才是本機變體。**
+`Dockerfile`、`compose.yaml`、`setup.toml`、`.env` 都是產生或出貨的，
+更新時會被取代;`setup.local.toml` 與 `.env.local` 是你的，永遠不會被動。
 `.env.generated` 保留後綴的理由不同 —— 它只餵 compose 的 `${VAR}` 插值、
 從不進容器，後綴標的是類別而非歸屬。
 
-<!-- sync: one-conf-15-sections 6f932c1347bc 3d803b815fe6 -->
+<!-- sync: one-conf-15-sections 0fa80f1ce5cd eaa1674abf51 -->
 ### 單一 conf、15 個 section
 
 下面這份 section 清單不是散文，而是 `SCHEMA_SECTIONS`
@@ -439,7 +441,7 @@ setup 只在第一次 scaffold，之後永不覆寫，你自己的值放在那�
 ```
 [project]  name — 這個 checkout 執行時所屬的 compose project（留空 =
            推導出 <DOCKER_HUB_USER>-<IMAGE_NAME>）。想同時跑兩個
-           checkout，就在 .setup.conf.local 依 WORKTREE 各自設定
+           checkout，就在 setup.local.toml 依 WORKTREE 各自設定
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
@@ -474,35 +476,45 @@ setup 只在第一次 scaffold，之後永不覆寫，你自己的值放在那�
            [logging.<svc>] 可對單一 service 做 key-level override
 ```
 
-Template default 在 `.base/dist/.setup.conf`；per-repo 覆蓋放 repo 根目錄的
-dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放進手動編輯的
-`config/` 介面）。Section-level **replace** 策略：上層若有該 section 就整段
-取代下層；沒寫的 section 則往下層落。
+上面這些方括號名稱是 section 名冊，不是檔案語法。純量 section 是 TOML 的
+`[table]`；清單形式的 section 是 `[[array of tables]]`，其中第 N 個 block
+就是 `<prefix>_N` 所指的那一個 —— `volumes.mount_1` 就是第一個
+`[[volumes]]` block。
 
-<!-- sync: three-layers-the-third-is-yours-setupconflocal d6b292a21a41 b1af7735fce9 -->
-#### 三層設定，第三層是你的（`.setup.conf.local`）
+Template default 在 `.base/dist/setup.toml`；per-repo 覆蓋放
+`<repo>/setup.toml`（由 `just setup` 工具管理，刻意不放進手動編輯的
+`config/` 介面）。合併是**型別感知**的
+（[ADR-00000037](../adr/00000037-toml-config-format-unification.md)）：
+`[table]` 內的純量鍵走 key-level 合併 —— 定義該鍵的最上層勝出，它沒提到
+的鍵則從下層繼承 —— 而 `[[array of tables]]` 由定義它的最上層整份取代。
+沒有任何一層提到的 section 則往下層落。
+
+<!-- sync: three-layers-the-third-is-yours-setuplocaltoml 7888e2447051 d3ec0ddff32b -->
+#### 三層設定，第三層是你的（`setup.local.toml`）
 
 | 層 | 是否進版控 | 屬於誰 |
 |---|---|---|
-| `.base/dist/.setup.conf` | 隨 subtree 出貨 | base 的預設 |
-| `<repo>/.setup.conf` | 已 commit | repo 的 —— CI 與其他所有 checkout 用的就是它 |
-| `<repo>/.setup.conf.local` | **gitignored** | 你的，只在這台機器、這個 worktree |
+| `.base/dist/setup.toml` | 隨 subtree 出貨 | base 的預設 |
+| `<repo>/setup.toml` | 已 commit | repo 的 —— CI 與其他所有 checkout 用的就是它 |
+| `<repo>/setup.local.toml` | **gitignored** | 你的，只在這台機器、這個 worktree |
 
-三層共用同一套語法、同一條 section-replace 規則。第三層用 `--local` 寫：
+三層共用同一套語法、同一條型別感知合併規則。第三層用 `--local` 寫：
 
 ```bash
 ./setup.sh set --local project.name myrepo-wt2
 ```
 
-為什麼是整段取代而不是逐鍵合併：上面的 section 有八個是 `<prefix>_N` 有序
-清單。只覆蓋 `port_2` 會把兩層拼成同一份有序清單，你永遠無法「移除」某一
-項，要新增又得知道你看不到的那層目前最大的 `N`。相關鍵之間也互相制約
-（`[network] mode` 決定 `port_N` 會不會被 emit），半套覆蓋會產生哪一層都
-沒寫過的組合。
+為什麼清單是整份取代而不是逐項合併：上面的 section 有八個是有序清單。
+只覆蓋 `port_2` 會把兩層拼成同一份有序清單，你永遠無法「移除」某一項，
+要新增又得知道你看不到的那層目前最大的索引。相關鍵之間也互相制約
+（`[network] mode` 決定那些 port 會不會被 emit），半套覆蓋會產生哪一層都
+沒寫過的組合。這套理由正是 ADR-00000037 保留下來、作為型別感知規則中
+array-replace 那一半的依據；它原本涵蓋的純量 `[table]` 鍵改走 key-level
+合併。
 
 由此衍生三件事，而且全都會出聲、不會默默發生：
 
-- `.setup.conf.local` 已定義某 section 時，用一般的 `set` 寫該 section 會
+- `setup.local.toml` 已定義某 section 時，用一般的 `set` 寫該 section 會
   **警告**並指名該 section。不會拒絕 —— 那個值仍然是 CI 與其他 checkout
   會用的 committed 值 —— 但它在這台機器上不會有任何效果。
 - 每個 wrapper 執行前的摘要都會多一行 `local override:`，列出檔案與被它
@@ -510,7 +522,7 @@ dotfile `<repo>/.setup.conf`（由 `just setup` 工具管理，刻意不放進�
 - `just docker setup deploy` 只要該檔存在就**拒絕執行**（見
   [Field 部署](#field-部署just-docker-setup-deploy)）。
 
-<!-- sync: running-two-worktrees-at-once efccbe6e6686 88a06015d35f -->
+<!-- sync: running-two-worktrees-at-once efccbe6e6686 4be86e8c0122 -->
 #### 同時跑兩個 worktree
 
 每個 checkout 都在某個 compose project name 底下執行，它建立的一切
@@ -542,15 +554,18 @@ wrapper 的 `docker compose -p`，以及產生出來的 `compose.yaml` 裡的
 需要什麼就開什麼：走 `setup_tui.sh`（security / devices 頁）、
 `setup.sh add security.cap_add SYS_ADMIN`，或把 template 裡的範例取消註解。
 
-首次執行 `setup.sh`（尚無 per-repo setup.conf）時，template 檔會被
-複製到 repo，並把偵測到的 workspace 寫入 `[volumes] mount_1`。後續
-執行以 `mount_1` 為真實來源 — 清空該欄即可放棄掛 workspace。編輯方式：
+首次執行 `setup.sh`（尚無 per-repo `setup.toml`）時，template 檔會被
+複製到 `<repo>/setup.toml`，並把偵測到的 workspace 寫入**第一個
+`[[volumes]]` block** —— 也就是 `volumes.mount_1` 所指的那一個，因為第 N
+個 `[[volumes]]` block 就是 `mount_N`。後續執行以 `mount_1` 為真實來源 —
+清空該欄即可放棄掛 workspace。編輯方式：
 
 ```bash
 ./setup_tui.sh                      # 互動式 dialog/whiptail 編輯器
 ./setup_tui.sh volumes              # 直接跳到指定 section
 ./build.sh --setup            # 有 TTY 時啟動 setup_tui.sh；無 TTY 時執行 setup.sh
-./.base/dist/script/base/init.sh --gen-conf # 單純複製 .base/dist/.setup.conf 到 <repo>/.setup.conf
+./.base/dist/script/base/init.sh --gen-conf # 單純複製 .base/dist/setup.toml 到 <repo>/setup.toml；
+                              # 該檔已存在時會拒絕（--force 會先備份成 setup.toml.bak）
 ```
 
 <!-- sync: logging-output-to-host 81a10abacbca c253badf6270 -->
@@ -625,7 +640,7 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的編輯器
 （如 `./setup_tui.sh volumes`），不必走主選單。
 
-<!-- sync: when-setupsh-runs 4b98ca4c7af4 db91b8fba656 -->
+<!-- sync: when-setupsh-runs 4b98ca4c7af4 bfd66c720912 -->
 ### setup.sh 什麼時候跑
 
 `setup.sh` 不會在每次 build / run 都重跑，但也不是只有你明確要求時才
@@ -636,7 +651,7 @@ Main
   再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` /
   `.env.generated` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
-  有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
+  有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.toml`，無 TTY 時直接呼叫 `setup.sh`
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env.generated`
   尚未存在，例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶
   `--setup`
@@ -663,7 +678,7 @@ Main
 `APT_MIRROR_DEBIAN`，所以手動調過的 workspace 路徑或 apt mirror 升級時
 不會被蓋掉。
 
-<!-- sync: drift-detection 2ebab6909c30 c1b582b7df01 -->
+<!-- sync: drift-detection 2dc72e3cf7bd e3e1b26bb3d8 -->
 ### Drift 偵測
 
 `setup.sh apply` 會把五個值寫進 `.env.generated`：`SETUP_CONF_HASH`、
@@ -671,7 +686,7 @@ Main
 每次 `./build.sh` / `./run.sh` 都會拿這些值跟當前的 tree 與 host 比對，
 任一項自上次 setup 後改變就印 `[WARNING]`（不阻擋執行）：
 
-- `setup.conf` 內容（`SETUP_CONF_HASH`）
+- `setup.toml` 內容（`SETUP_CONF_HASH`）
 - Dockerfile stage 清單（`SETUP_DOCKERFILE_HASH`）— 新增或移除
   `FROM ... AS <stage>`
 - GPU 偵測結果（`GPU_ENABLED`）
@@ -684,10 +699,10 @@ Main
 重生永遠安全。帶 `--setup` 可以立刻強制重生，在 TTY 下會先開
 `setup_tui.sh`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa a7a48df3b067 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 8f177949750f eacbd4f6ded8 -->
 ### Field 部署（`just docker setup deploy`）
 
-`just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
+`just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.toml` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.toml`。
 
 ```bash
 just docker setup deploy                      # 打包 runtime bundle（會先確認）
@@ -702,7 +717,7 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 資料�
 | 檔案 | 是什麼 |
 |---|---|
 | `image.tar.xz` | `xz` 壓縮過的映像（`deploy.sh` 會 `docker load` 它） |
-| `compose.yaml` | 完全解析、自帶式的 compose —— 全是字面值、**沒有 `${VAR}` 插值**（GUI stage 的 `${DISPLAY}` host passthrough 除外），不依賴 `setup.conf` / `.env`；帶 `restart: unless-stopped` |
+| `compose.yaml` | 完全解析、自帶式的 compose —— 全是字面值、**沒有 `${VAR}` 插值**（GUI stage 的 `${DISPLAY}` host passthrough 除外），不依賴 `setup.toml` / `.env`；帶 `restart: unless-stopped` |
 | `config/` | 每個可由操作者調整之檔案的可編輯副本（見下） |
 | `deploy.sh` | 輕薄的 `up` / `down` / `logs` 啟動器 |
 | `README` | 給 field 操作者的說明 |
@@ -716,9 +731,9 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 資料�
 
 build 前會印出解析後的 `compose.yaml`，讓你逐項檢視每個解析後的參數再確認（`-y` 跳過；`--dry-run` 只印 plan 不 build；非互動 shell 未帶 `-y` 會拒絕）。
 
-**只要 `<repo>/.setup.conf.local` 存在，它就直接拒絕。** 該檔是 gitignored 的，因此從乾淨 checkout 無法重現用它 build 出來的 bundle —— 而 bundle 本身不會有任何說明（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒絕發生在預覽之前、任何 build 步驟之前，所以 `--dry-run` 也會回報。`--allow-local-override` 會照樣 build，並把取自那個未進版控檔案的 section 記進 bundle 自己的 `README` —— 因為在 field 執行這個 bundle 的人，不是當初決定繞過這道關卡的人。
+**只要 `<repo>/setup.local.toml` 存在，它就直接拒絕。** 該檔是 gitignored 的，因此從乾淨 checkout 無法重現用它 build 出來的 bundle —— 而 bundle 本身不會有任何說明（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒絕發生在預覽之前、任何 build 步驟之前，所以 `--dry-run` 也會回報。`--allow-local-override` 會照樣 build，並把取自那個未進版控檔案的 section 記進 bundle 自己的 `README` —— 因為在 field 執行這個 bundle 的人，不是當初決定繞過這道關卡的人。
 
-**在 field 機器上** —— 把整個資料夾複製過去，再用 `deploy.sh` 啟動器操作（它會載入映像並驅動 `docker compose`；不用 `docker run`、不用 `setup.conf`、不用 base 工具鏈）：
+**在 field 機器上** —— 把整個資料夾複製過去，再用 `deploy.sh` 啟動器操作（它會載入映像並驅動 `docker compose`；不用 `docker run`、不用 `setup.toml`、不用 base 工具鏈）：
 
 ```bash
 cd <repo>-runtime-<version>
@@ -745,22 +760,22 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 **持續部署（CD）**：deploy 工具只誠實標記、從不阻擋 —— 它會蓋上 `-dirty` / short-commit 的 `<version>`，所以任何樹狀態都能做 review 部署。自動化 CD 請先呼叫 base 出貨的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作樹不乾淨**或** HEAD 不在 tag 上時會拒絕部署，確保出貨的 field bundle 永遠可以追溯到某個已發布版本。
 
-<!-- sync: setupsh-subcommands-v0110 cd8a84b5410c 8b157218b0db -->
+<!-- sync: setupsh-subcommands-v0110 032cfb44b789 0b2df8ab7945 -->
 ### setup.sh 子指令（v0.11.0+）
 
 `setup.sh` 是 git 風格的後端，提供明確的子指令。build / run / TUI 腳本會代為呼叫；直接呼叫適合腳本化／非互動情境：
 
 | 子指令 | 用途 |
 |---|---|
-| `apply` | 從 setup.conf + 系統偵測重新產生 `.env` + `.env.generated` + `compose.yaml`（不會動 `.env.local`） |
+| `apply` | 從 setup.toml + 系統偵測重新產生 `.env` + `.env.generated` + `compose.yaml`（不會動 `.env.local`） |
 | `check-drift` | 同步回 0、漂移回 1（漂移描述印到 stderr） |
-| `set <section>.<key> <value>` | 寫單一鍵值。`--local` 改寫 gitignored 的 `.setup.conf.local` 而非已 commit 的 `.setup.conf`；不加時，若寫的 section 已被 `.setup.conf.local` 定義會指名警告 |
+| `set <section>.<key> <value>` | 寫單一鍵值。`--local` 改寫 gitignored 的 `setup.local.toml` 而非已 commit 的 `setup.toml`；不加時，若寫的 section 已被 `setup.local.toml` 定義會指名警告 |
 | `show <section>[.<key>]` | 讀單鍵或整 section |
 | `list [<section>]` | INI 風格 dump |
 | `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1`。可加 `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除。可加 `--local` |
-| `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env.generated` → `.env.bak`。不會動 `.env.local` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。`.setup.conf.local` 存在時會拒絕，除非加 `--allow-local-override`。見 [Field 部署](#field-部署just-docker-setup-deploy) |
+| `reset [-y\|--yes]` | 回復 template 預設；舊 `setup.toml` → `setup.toml.bak`、舊 `.env.generated` → `.env.bak`。不會動 `.env.local` |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。`setup.local.toml` 存在時會拒絕，除非加 `--allow-local-override`。見 [Field 部署](#field-部署just-docker-setup-deploy) |
 
 有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env.generated` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
 
@@ -777,7 +792,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 下游 repo 若有自定 script 直接呼叫 `setup.sh`，前面加 `apply`。template 內附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored 1a208545a257 18cc2c7e9295 -->
+<!-- sync: derived-artifacts-gitignored a3a31b52be28 aa89eb3d4fc7 -->
 ### 衍生檔（gitignored）
 
 - `.env.generated` — compose 插值用的變數（含解析後的 `PROJECT_NAME`）
@@ -788,7 +803,7 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
 `just base upgrade` 都會重生這三個檔（init.sh 在 subtree pull 後重跑
-`setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
+`setup.sh apply`）— 不要手改，需要 override 寫到 `setup.toml`。
 
 `.env.local` 一樣被 gitignore，但**不是**衍生檔：它是你的，第一次 apply 時
 scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也不會蓋掉。compose 在
@@ -799,9 +814,9 @@ scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也不會�
 > 升級路徑而先跑了 `setup`，只有當該檔是舊的插值 cache 時值才會留在
 > `.env.bak`，否則請從自己的備份還原。
 
-`.setup.conf.local` 在上一層是同樣的形狀：gitignored、屬於你、工具永不改寫。
+`setup.local.toml` 在上一層是同樣的形狀：gitignored、屬於你、工具永不改寫。
 它是設定的*輸入*而不是產出 —— 見
-[三層設定](#三層設定第三層是你的setupconflocal)。
+[三層設定](#三層設定第三層是你的setuplocaltoml)。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f 84409436ca30 -->
 ### 每個 wrapper 的 pre/post hook（#440）
@@ -842,7 +857,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 0890e8fcfd09 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 610767fed195 9ea868957c39 -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
 `setup.sh` 會在 `.env` / `compose.yaml` 產兩個名稱，第三個由 compose
@@ -905,7 +920,7 @@ stack 屬於 compose 那一層，就像 `docker` 本身沒有 project 概念、
 `-p` 歸 `docker compose` 管一樣。
 
 同一個 repo 的兩個 *checkout* 是另一個問題，而這個 base 有解：用
-`.setup.conf.local` 的 `[project] name` 給每個 checkout 自己的
+`setup.local.toml` 的 `[project] name` 給每個 checkout 自己的
 project name — 見[同時跑兩個 worktree](#同時跑兩個-worktree)。
 
 範例。OS user `alice`，Docker Hub user `alice-hub`，repo
@@ -1049,7 +1064,7 @@ export。
 每週的升級「提醒」（`check-base-version.sh`）讀的是另一個變數 `BASE_REPO`；
 見 [CONTEXT.md](../../CONTEXT.md) 的 base version monitor。
 
-<!-- sync: what-upgradesh-rewrites-in-your-repo 8c9b33aec195 0ae231ae9661 -->
+<!-- sync: what-upgradesh-rewrites-in-your-repo 2d72a78fe44c 1a2df263f219 -->
 #### upgrade.sh 會改寫你 repo 裡的哪些檔案
 
 `.base/` 是 base 的，其他都是你的。即使如此，升級對 `.base/` 以外**並非**
@@ -1085,9 +1100,9 @@ git log --oneline <升級前的 sha>..HEAD          # 依名稱列出 migration 
 git diff <升級前的 sha>..HEAD -- . ':!.base'    # .base/ 以外的所有變更
 ```
 
-upgrade.sh **不會**動的：`.setup.conf` 裡除了那一行 `[lifecycle] restart`
+upgrade.sh **不會**動的：`setup.toml` 裡除了那一行 `[lifecycle] restart`
 以外的內容，以及 `<repo>/config/`（bashrc / tmux / terminator …）完全不動 —
-若上游 `.base/dist/config/` 或 `.base/dist/.setup.conf` 自上次 pull 後有變動，
+若上游 `.base/dist/config/` 或 `.base/dist/setup.toml` 自上次 pull 後有變動，
 upgrade.sh 會印出 `diff -ruN .base/dist/config config` 提示，由你自行
 reconcile，而不是替你合併。
 
@@ -1185,7 +1200,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure baa1cd88323d 7114280bc184 -->
+<!-- sync: directory-structure 0ee61143ce9b e34b6dd0d1bf -->
 ## 目錄結構
 
 ```
@@ -1196,7 +1211,8 @@ just --list  # 顯示 CI 指令
 ├── .dockerignore                       # Canonical ignore 集（同步進各 consumer）
 ├── dist/                         # 出貨的工具 + 內容（single source of truth）
 │   ├── .hadolint.yaml                  # 共用 Hadolint 規則（symlink 進各 consumer）
-│   ├── .setup.conf                     # Template runtime 配置預設（產生 <repo>/.setup.conf）
+│   ├── .setup.conf                     # 已退役的 INI template；僅供一次性 INI→TOML 轉換使用
+│   ├── setup.toml                      # Template runtime 配置預設（產生 <repo>/setup.toml）
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # 新 repo 的多階段 Dockerfile 範本
 │   ├── config/                         # Container 內部 shell / 工具設定（可手改）

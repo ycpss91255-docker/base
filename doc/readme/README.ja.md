@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included bdad83a9cb63 7943850563f0 -->
+<!-- sync: whats-included 28d6fbb66955 2b67d82998da -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -151,7 +151,7 @@ flowchart LR
 | `exec.sh` | 実行中のコンテナに入る |
 | `stop.sh` | コンテナの停止・削除 |
 | `prune.sh` | コンテナ / image / build キャッシュの整理 |
-| `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
+| `setup_tui.sh` | インタラクティブな setup.toml エディタ（dialog / whiptail フロントエンド） |
 | `dist/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` / `.env.generated` + `compose.yaml` 生成 |
 | `dist/script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
 | `dist/script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
@@ -173,7 +173,7 @@ flowchart LR
 | `dist/dockerfile/entrypoint.sh` | bringup テンプレート、新規 repo 作成時に `script/entrypoint.sh` として seed（repo 側の半分、orchestrator が source） |
 | `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 依存欠落スキャン） |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
-| `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
+| `setup.toml` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/bats/unit/` | base 自己テスト、ユニット（bats + kcov） |
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
@@ -287,7 +287,7 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 7c90746cbedf 478d8c1193b8 -->
+<!-- sync: adding-extra-stages-215 46284b5d635f f7b4c1171c96 -->
 #### 追加ステージの追加（#215）
 
 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -303,7 +303,7 @@ cap_add / additional_contexts を継承）し、`build.target` /
 ユーザー操作フロー：
 
 ```dockerfile
-# Dockerfile に新 stage を追加（setup.conf は変更不要）
+# Dockerfile に新 stage を追加（setup.toml は変更不要）
 FROM devel AS headless
 ENTRYPOINT ["/isaac-sim/runheadless.sh"]
 CMD ["-v"]
@@ -344,29 +344,31 @@ just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestre
   時に自動的に `compose.yaml` を再生成します。`RUN apt-get install`
   などの他の編集は drift をトリガー**しません**。
 
-<!-- sync: per-stage-setupconf-overrides-220 a5064ca6a91f 0b2469a1ba80 -->
-#### Per-stage `setup.conf` overrides（#220）
+<!-- sync: per-stage-setuptoml-overrides-220 02d674d1433e 00d7a912aec8 -->
+#### Per-stage `setup.toml` overrides（#220）
 
 #215 で auto-emit された stage はデフォルトで devel の runtime 設定
 （volumes / GPU / network / GUI）を共有します。stage ごとに異なる
 runtime 設定が必要な場合 — 例えば NVIDIA Isaac Sim の `headless`
 が WebRTC livestream で `network=bridge` + port mapping + `gui=off`
 を必要とし、`devel` と `gui` は `network=host` + X11 を維持する
-場合 — repo の `setup.conf` に `[stage:<name>]` セクションを
-追加します：
+場合 — repo の `setup.toml` に `[stage:<name>]` テーブルを
+追加します。TOML はコロンを含むテーブル名を引用符で囲むため、
+実際には `["stage:headless"]` と書き、ドット区切りの
+override キーも引用符で囲みます：
 
-```ini
+```toml
 [gui]
-mode = auto
+mode = "auto"
 
 [network]
-mode = host
+mode = "host"
 
-[stage:headless]
-gui.mode = off
-network.mode = bridge
-network.port_1 = 8080:80
-deploy.gpu_capabilities = gpu compute utility graphics video
+["stage:headless"]
+"gui.mode" = "off"
+"network.mode" = "bridge"
+"network.port_1" = "8080:80"
+"deploy.gpu_capabilities" = "gpu compute utility graphics video"
 ```
 
 `./setup_tui.sh` でも対話的に編集できます：
@@ -440,24 +442,24 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
-<!-- sync: per-repo-runtime-configuration 7bea51e3ea8b fcfbac3189da -->
+<!-- sync: per-repo-runtime-configuration 75d2557836d2 3c2601573fe0 -->
 ## repo ごとのランタイム設定
 
-各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
+各下流 repo は 1 つの `setup.toml`で自身のランタイム設定
 （GPU 予約 / GUI env/volumes / network mode / 追加 volume mounts）を
 駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env` /
 `.env.generated` / `compose.yaml` を再生成します — これらの生成物をユーザ
 が手動編集する必要はありません。別のファイルは `.env.local` で、setup は
 最初に scaffold するだけで以後上書きせず、あなた自身の値はそこに置きます。
 
-すべての名前が 1 つの規則に従います：**標準名はツールのもの、サフィックス
-がローカル版。** `Dockerfile` / `compose.yaml` / `.setup.conf` / `.env` は
-生成または配布されるもので更新時に置き換わります。`.setup.conf.local` と
+すべての名前が 1 つの規則に従います：**標準名はツールのもの、`.local` のサフィックス
+またはインフィックスがローカル版。** `Dockerfile` / `compose.yaml` / `setup.toml` / `.env` は
+生成または配布されるもので更新時に置き換わります。`setup.local.toml` と
 `.env.local` はあなたのもので、決して書き換えられません。`.env.generated`
 がサフィックスを保つ理由は別で、compose の `${VAR}` 補間のためだけに存在し
 コンテナには入りません — サフィックスは所有者ではなく分類を表します。
 
-<!-- sync: one-conf-15-sections 6f932c1347bc 92dff26e5837 -->
+<!-- sync: one-conf-15-sections 0fa80f1ce5cd 6a2c5ee0bb39 -->
 ### 単一 conf、15 個の section
 
 以下の section 一覧は散文ではなく `SCHEMA_SECTIONS`
@@ -468,7 +470,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 ```
 [project]  name — この checkout が動く compose project（空 =
            <DOCKER_HUB_USER>-<IMAGE_NAME> を導出）。2 つの checkout を
-           同時に動かすなら .setup.conf.local に WORKTREE ごとに設定する
+           同時に動かすなら setup.local.toml に WORKTREE ごとに設定する
 [image]    rules = prefix:docker_, suffix:_ws, @default:unknown
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
@@ -504,36 +506,48 @@ assertion helpers のセットを提供します。ダウンストリーム repo
            [logging.<svc>] で個別 service に key-level override 可能
 ```
 
-テンプレート既定値は `.base/dist/.setup.conf`；repo ごとの上書きは repo
-ルートの dotfile `<repo>/.setup.conf`（`just setup` が管理し、手で編集する
-`config/` 面には意図的に置かない）。セクションレベル **replace** 戦略：上位
-レイヤに section があれば下位の section を全置換；無ければ下位に落ちる。
+上の角括弧の名前は section の一覧であって、ファイルの構文ではありません。
+スカラー section は TOML の `[table]`、リスト形式の section は
+`[[array of tables]]` で、その N 番目の block が `<prefix>_N` が指すもの
+です —— `volumes.mount_1` は最初の `[[volumes]]` block です。
 
-<!-- sync: three-layers-the-third-is-yours-setupconflocal d6b292a21a41 e6aee3651ebf -->
-#### 3 レイヤ、3 枚目はあなたのもの（`.setup.conf.local`）
+テンプレート既定値は `.base/dist/setup.toml`；repo ごとの上書きは
+`<repo>/setup.toml`（`just setup` が管理し、手で編集する `config/` 面には
+意図的に置かない）。マージは**型を見る**方式です
+（[ADR-00000037](../adr/00000037-toml-config-format-unification.md)）：
+`[table]` 内のスカラーキーは key-level マージ —— そのキーを定義する最上位
+レイヤが勝ち、そのレイヤが触れないキーは下位から継承します —— 一方
+`[[array of tables]]` は、それを定義する最上位レイヤが配列ごと置き換え
+ます。どのレイヤも触れない section は下位に落ちます。
+
+<!-- sync: three-layers-the-third-is-yours-setuplocaltoml 7888e2447051 49dad66ce236 -->
+#### 3 レイヤ、3 枚目はあなたのもの（`setup.local.toml`）
 
 | レイヤ | バージョン管理 | 誰のものか |
 |---|---|---|
-| `.base/dist/.setup.conf` | subtree で出荷 | base の既定値 |
-| `<repo>/.setup.conf` | commit 済み | repo のもの —— CI も他のどの checkout もこれを使う |
-| `<repo>/.setup.conf.local` | **gitignored** | あなたのもの。このマシン、この worktree だけ |
+| `.base/dist/setup.toml` | subtree で出荷 | base の既定値 |
+| `<repo>/setup.toml` | commit 済み | repo のもの —— CI も他のどの checkout もこれを使う |
+| `<repo>/setup.local.toml` | **gitignored** | あなたのもの。このマシン、この worktree だけ |
 
-3 枚とも同じ文法、同じ section-replace 規則です。3 枚目は `--local` で書きます：
+3 枚とも同じ文法、同じ型を見るマージ規則です。3 枚目は `--local` で書きます：
 
 ```bash
 ./setup.sh set --local project.name myrepo-wt2
 ```
 
-キー単位のマージではなく section 全置換である理由：上の section のうち 8 つは
-`<prefix>_N` の順序付きリストです。`port_2` だけを上書きすると 2 つのレイヤ
-から 1 本の順序付きリストが組み上がり、項目を「削除」する手段が無く、追加
-するには見えないレイヤの最大 `N` を知る必要があります。関連キーどうしも
-互いを制御する（`[network] mode` が `port_N` を emit するかを決める）ため、
-中途半端な上書きはどのレイヤも書いていない組み合わせを生みます。
+項目単位のマージではなくリストごと置き換える理由：上の section のうち 8 つは
+順序付きリストです。`port_2` だけを上書きすると 2 つのレイヤから 1 本の
+順序付きリストが組み上がり、項目を「削除」する手段が無く、追加するには
+見えないレイヤの最大の添字を知る必要があります。関連キーどうしも互いを
+制御する（`[network] mode` がそれらの port を emit するかを決める）ため、
+中途半端な上書きはどのレイヤも書いていない組み合わせを生みます。この理由
+こそ ADR-00000037 が型を見る規則の array-replace 側の根拠として残したもの
+で、かつてこの規則が覆っていたスカラーの `[table]` キーは key-level
+マージに変わりました。
 
 ここから 3 つの帰結があり、いずれも黙って起きることはありません：
 
-- `.setup.conf.local` がその section を定義しているとき、通常の `set` で同じ
+- `setup.local.toml` がその section を定義しているとき、通常の `set` で同じ
   section を書くと section 名を挙げて**警告**します。拒否はしません ——
   その値は CI と他の checkout が使う commit 済みの値のままです —— が、この
   マシンでは何も変わりません。
@@ -542,7 +556,7 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `just docker setup deploy` はこのファイルがある限り**拒否**します
   （[フィールド配備](#フィールド配備just-docker-setup-deploy)参照）。
 
-<!-- sync: running-two-worktrees-at-once efccbe6e6686 d0a3c3b2d126 -->
+<!-- sync: running-two-worktrees-at-once efccbe6e6686 43e215730c17 -->
 #### 2 つの worktree を同時に動かす
 
 各 checkout は compose プロジェクト名のもとで動き、生成するもの
@@ -578,17 +592,20 @@ just build            # 再生成される。以後 2 つの worktree を並行�
 （security / devices ページ）、`setup.sh add security.cap_add SYS_ADMIN`、
 または template の例のコメント解除で有効化してください。
 
-初回の `setup.sh` 実行時（repo 側の setup.conf がまだ無い状態）、
-template ファイルが repo にコピーされ、検出された workspace が
-`[volumes] mount_1` に書き込まれます。以降の実行は `mount_1` を
-真のソースとして扱います — 空にすれば workspace マウントを
-オプトアウトできます。編集方法：
+初回の `setup.sh` 実行時（repo 側の `setup.toml` がまだ無い状態）、
+template ファイルが `<repo>/setup.toml` にコピーされ、検出された
+workspace が**最初の `[[volumes]]` block** —— つまり
+`volumes.mount_1` が指すもの —— に書き込まれます（N 番目の
+`[[volumes]]` block が `mount_N` だからです）。以降の実行は
+`mount_1` を真のソースとして扱います — 空にすれば workspace
+マウントをオプトアウトできます。編集方法：
 
 ```bash
 ./setup_tui.sh                      # インタラクティブな dialog/whiptail エディタ
 ./setup_tui.sh volumes              # 特定 section に直接ジャンプ
 ./build.sh --setup            # TTY 下では setup_tui.sh を起動、それ以外は setup.sh を実行
-./.base/dist/script/base/init.sh --gen-conf # .base/dist/.setup.conf を repo ルートに単純コピー
+./.base/dist/script/base/init.sh --gen-conf # .base/dist/setup.toml を <repo>/setup.toml に単純コピー。
+                              # 既に存在する場合は拒否（--force は setup.toml.bak に退避）
 ```
 
 <!-- sync: logging-output-to-host 81a10abacbca 5e1aebf86a32 -->
@@ -671,7 +688,7 @@ Main
 `./setup_tui.sh <section>` は引き続き任意の section エディタへ
 直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
-<!-- sync: when-setupsh-runs 4b98ca4c7af4 c0041424d19e -->
+<!-- sync: when-setupsh-runs 4b98ca4c7af4 a6f567089b1c -->
 ### setup.sh の実行タイミング
 
 `setup.sh` は build / run の度に再実行されることはありませんが、名前を
@@ -683,7 +700,7 @@ Main
   baseline で `.env` / `.env.generated` / `compose.yaml` を再生成した
   状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
-  明示的に再実行。TTY がある場合は先に `setup_tui.sh` を起動して `setup.conf`
+  明示的に再実行。TTY がある場合は先に `setup_tui.sh` を起動して `setup.toml`
   を編集させ、TTY が無い場合は直接 `setup.sh` を呼び出します
 - **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env.generated` が無い
   初回実行（CI の新規 clone 等）では、同じ TTY-aware フローを自動で
@@ -713,7 +730,7 @@ Main
 `APT_MIRROR_DEBIAN` は保持されるため、手動で調整した workspace パスや
 apt mirror はアップグレードで上書きされません。
 
-<!-- sync: drift-detection 2ebab6909c30 e7066444f97b -->
+<!-- sync: drift-detection 2dc72e3cf7bd ae0e1b722eca -->
 ### ドリフト検出
 
 `setup.sh apply` は `.env.generated` に 5 つの値を記録します：
@@ -722,7 +739,7 @@ apt mirror はアップグレードで上書きされません。
 tree と host と比較し、前回の setup から変化したものごとに `[WARNING]`
 を出力します（実行は継続）：
 
-- `setup.conf` の内容（`SETUP_CONF_HASH`）
+- `setup.toml` の内容（`SETUP_CONF_HASH`）
 - Dockerfile の stage 一覧（`SETUP_DOCKERFILE_HASH`）— `FROM ... AS <stage>`
   の追加・削除
 - GPU 検出結果（`GPU_ENABLED`）
@@ -735,10 +752,10 @@ tree と host と比較し、前回の setup から変化したものごとに `
 派生物でありユーザのデータを持たないため、drift 時の再生成は常に安全です。
 `--setup` はその場で再生成を強制し、TTY では `setup_tui.sh` を先に開きます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 93fb0bfe1ba5 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 8f177949750f b5f71f8ddfe4 -->
 ### フィールド配備（`just docker setup deploy`）
 
-`just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
+`just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.toml` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.toml` を見ることはありません。
 
 ```bash
 just docker setup deploy                      # runtime バンドルを生成（先に確認）
@@ -753,7 +770,7 @@ just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指�
 | ファイル | 内容 |
 |---|---|
 | `image.tar.xz` | `xz` 圧縮したイメージ（`deploy.sh` が `docker load` する） |
-| `compose.yaml` | 完全に解決済みの自己完結 compose —— すべてリテラル値で **`${VAR}` 展開なし**（GUI ステージの `${DISPLAY}` ホストパススルーは例外）、`setup.conf` / `.env` に依存しない；`restart: unless-stopped` 付き |
+| `compose.yaml` | 完全に解決済みの自己完結 compose —— すべてリテラル値で **`${VAR}` 展開なし**（GUI ステージの `${DISPLAY}` ホストパススルーは例外）、`setup.toml` / `.env` に依存しない；`restart: unless-stopped` 付き |
 | `config/` | オペレータが調整可能な各ファイルの編集用コピー（後述） |
 | `deploy.sh` | 薄い `up` / `down` / `logs` ランチャ |
 | `README` | フィールドオペレータ向けの手順 |
@@ -767,9 +784,9 @@ just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指�
 
 build 前に解決済みの `compose.yaml` を表示するので、解決された各パラメータを確認してから進められます（`-y` でスキップ；`--dry-run` は plan を表示するだけで build しない；非対話シェルで `-y` なしは拒否）。
 
-**`<repo>/.setup.conf.local` が存在する限り、そのまま拒否します。** このファイルは gitignored なので、それを使って build した bundle はクリーンな checkout から再現できません —— しかも bundle 自体には何の説明も残りません（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒否はプレビューより前、いかなる build 手順よりも前に発生するので `--dry-run` でも報告されます。`--allow-local-override` を渡すと build を続行し、バージョン管理外のファイルから取り込んだ section を bundle 自身の `README` に記録します —— フィールドでこの bundle を動かす人は、ゲートを迂回すると決めた人とは別人だからです。
+**`<repo>/setup.local.toml` が存在する限り、そのまま拒否します。** このファイルは gitignored なので、それを使って build した bundle はクリーンな checkout から再現できません —— しかも bundle 自体には何の説明も残りません（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒否はプレビューより前、いかなる build 手順よりも前に発生するので `--dry-run` でも報告されます。`--allow-local-override` を渡すと build を続行し、バージョン管理外のファイルから取り込んだ section を bundle 自身の `README` に記録します —— フィールドでこの bundle を動かす人は、ゲートを迂回すると決めた人とは別人だからです。
 
-**フィールドマシン側** —— ディレクトリごとコピーし、`deploy.sh` ランチャで操作します（イメージを load して `docker compose` を駆動します；`docker run` も `setup.conf` も base のツールチェーンも不要）:
+**フィールドマシン側** —— ディレクトリごとコピーし、`deploy.sh` ランチャで操作します（イメージを load して `docker compose` を駆動します；`docker run` も `setup.toml` も base のツールチェーンも不要）:
 
 ```bash
 cd <repo>-runtime-<version>
@@ -796,22 +813,22 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 **継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
-<!-- sync: setupsh-subcommands-v0110 cd8a84b5410c 7a3701ee0842 -->
+<!-- sync: setupsh-subcommands-v0110 032cfb44b789 17065838be07 -->
 ### setup.sh のサブコマンド（v0.11.0+）
 
 `setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
 
 | サブコマンド | 用途 |
 |---|---|
-| `apply` | setup.conf + システム検出から `.env` + `.env.generated` + `compose.yaml` を再生成（`.env.local` は対象外） |
+| `apply` | setup.toml + システム検出から `.env` + `.env.generated` + `compose.yaml` を再生成（`.env.local` は対象外） |
 | `check-drift` | 同期なら 0、ドリフトしていれば 1（ドリフト内容は stderr） |
-| `set <section>.<key> <value>` | 単一キーを書き込む。`--local` は commit 済みの `.setup.conf` ではなく gitignored な `.setup.conf.local` を対象にする；付けない場合、`.setup.conf.local` が既に定義している section への書き込みは section 名を挙げて警告される |
+| `set <section>.<key> <value>` | 単一キーを書き込む。`--local` は commit 済みの `setup.toml` ではなく gitignored な `setup.local.toml` を対象にする；付けない場合、`setup.local.toml` が既に定義している section への書き込みは section 名を挙げて警告される |
 | `show <section>[.<key>]` | 単一キーまたは section 全体を読み取る |
 | `list [<section>]` | INI スタイルでダンプ |
 | `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1`。`--local` 可 |
 | `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除。`--local` 可 |
-| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env.generated` → `.env.bak`。`.env.local` はそのまま |
-| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。`.setup.conf.local` がある場合は `--allow-local-override` を付けない限り拒否。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
+| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.bak`。`.env.local` はそのまま |
+| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。`setup.local.toml` がある場合は `--allow-local-override` を付けない限り拒否。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env.generated` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
 
@@ -828,7 +845,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
 
-<!-- sync: derived-artifacts-gitignored 1a208545a257 5d4f11074040 -->
+<!-- sync: derived-artifacts-gitignored a3a31b52be28 1e630a8f6e59 -->
 ### 生成物（gitignored）
 
 - `.env.generated` — compose 補間用の変数（解決済みの `PROJECT_NAME` を
@@ -840,7 +857,7 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
 3 ファイルとも `just base upgrade` のたびに再生成されます（init.sh が subtree
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
-override は `setup.conf` に書きます。
+override は `setup.toml` に書きます。
 
 `.env.local` も gitignore されますが生成物では**ありません**。あなたのもので、
 最初の apply で一度 scaffold されたあとは上書きされません。編集しても setup の
@@ -853,10 +870,10 @@ override は `setup.conf` に書きます。
 > 場合、値が `.env.bak` に残るのはそのファイルが旧い補間キャッシュだったとき
 > だけです。それ以外は自分のバックアップから復元してください。
 
-`.setup.conf.local` は 1 つ上のレイヤで同じ形をしています：gitignored、
+`setup.local.toml` は 1 つ上のレイヤで同じ形をしています：gitignored、
 あなたのもの、ツールが書き換えることはありません。設定の*入力*であって
 生成物ではありません ——
-[3 レイヤ](#3-レイヤ3-枚目はあなたのものsetupconflocal)参照。
+[3 レイヤ](#3-レイヤ3-枚目はあなたのものsetuplocaltoml)参照。
 
 <!-- sync: per-wrapper-hooks-440 3f5c5d24592f b6f612f647f5 -->
 ### Wrapper 毎の pre/post hook（#440）
@@ -898,7 +915,7 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 5dd858b76e55 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities 610767fed195 e094c617e4c9 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
 `setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
@@ -970,7 +987,7 @@ repo を N 個の並行 stack として動かすのは compose レイヤの仕�
 持つのと同じ構図です。
 
 同一 repo の 2 つの *checkout* は別の話で、そちらには base の答えがあります:
-`.setup.conf.local` の `[project] name` で checkout ごとに固有の project name
+`setup.local.toml` の `[project] name` で checkout ごとに固有の project name
 を与えてください — [2 つの worktree を同時に動かす](#2-つの-worktree-を同時に動かす)
 を参照。
 
@@ -1129,7 +1146,7 @@ TEMPLATE_REMOTE=git@github.com:acme/base.git just base upgrade v1.2.0
 `BASE_REPO` を読みます。[CONTEXT.md](../../CONTEXT.md) の base version
 monitor を参照してください。
 
-<!-- sync: what-upgradesh-rewrites-in-your-repo 8c9b33aec195 2409ef1bac33 -->
+<!-- sync: what-upgradesh-rewrites-in-your-repo 2d72a78fe44c c6bc3de377a3 -->
 #### upgrade.sh が repo 内で書き換えるもの
 
 `.base/` は base のもの、それ以外は全部あなたのものです。それでも
@@ -1170,9 +1187,9 @@ git log --oneline <アップグレード前の sha>..HEAD        # マイグレ�
 git diff <アップグレード前の sha>..HEAD -- . ':!.base'  # .base/ 以外のすべての差分
 ```
 
-upgrade.sh が **触れない**もの：`.setup.conf` のうち `[lifecycle] restart`
+upgrade.sh が **触れない**もの：`setup.toml` のうち `[lifecycle] restart`
 の 1 行を除くすべてと、`<repo>/config/`（bashrc / tmux / terminator …）
-全体です — 上流の `.base/dist/config/` や `.base/dist/.setup.conf` が前回
+全体です — 上流の `.base/dist/config/` や `.base/dist/setup.toml` が前回
 pull 以降変わっていれば、upgrade.sh は
 `diff -ruN .base/dist/config config` のヒントを表示するだけで、あなたの
 代わりにマージはしません。
@@ -1273,7 +1290,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure baa1cd88323d edc420381abd -->
+<!-- sync: directory-structure 0ee61143ce9b c9c6a1e49d11 -->
 ## ディレクトリ構造
 
 ```
@@ -1284,7 +1301,8 @@ just --list  # CI ターゲット表示
 ├── .dockerignore                       # canonical な ignore セット（consumer へ同期）
 ├── dist/                         # 出荷されるツール + コンテンツ（single source of truth）
 │   ├── .hadolint.yaml                  # 共有 Hadolint ルール（consumer へ symlink）
-│   ├── .setup.conf                     # ランタイム設定テンプレート（<repo>/.setup.conf の元）
+│   ├── .setup.conf                     # 退役した INI テンプレート。一度だけの INI→TOML 変換用
+│   ├── setup.toml                      # ランタイム設定テンプレート（<repo>/setup.toml の元）
 │   ├── dockerfile/
 │   │   └── Dockerfile                  # 新 repo 用マルチステージ Dockerfile テンプレート
 │   ├── config/                         # コンテナ内部のシェル/ツール設定（手編集可）
