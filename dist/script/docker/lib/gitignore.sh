@@ -17,6 +17,7 @@ _gitignore_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 source "${_gitignore_lib_dir}/log.sh"
 unset _gitignore_lib_dir
 
+# stale-path-lint: allow-begin -- _canonical_gitignore_entries must keep IGNORING the retired INI layers and their .bak siblings: the rename leaves them behind carrying the credentials the original did, and an unignored one ships in the build context
 # _canonical_gitignore_entries
 #   Print the canonical .gitignore set, one entry per line. Order is
 #   stable so consumers can diff outputs across versions.
@@ -58,6 +59,7 @@ log/
 /deploy/
 EOF
 }
+# stale-path-lint: allow-end
 
 # _canonical_dockerignore_entries
 #   Print the canonical .dockerignore derived-artifact set, one entry per
@@ -73,6 +75,7 @@ _canonical_dockerignore_entries() {
   _canonical_gitignore_entries
 }
 
+# stale-path-lint: allow-begin -- _retired_gitignore_entries records which entry was retired and un-retired, which cannot be said without naming it
 # _retired_gitignore_entries
 #   Print the entries the template used to emit and no longer does, one per
 #   line. Kept as a list rather than deleted outright so the sync can RETRACT
@@ -99,6 +102,7 @@ _retired_gitignore_entries() {
   cat <<'EOF'
 EOF
 }
+# stale-path-lint: allow-end
 
 # _prune_retired_entries <path>
 #   Delete every _retired_gitignore_entries line from <path>'s MANAGED half
