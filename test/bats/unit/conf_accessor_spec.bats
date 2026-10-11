@@ -636,3 +636,96 @@ EOF
   assert_equal "${_k[1]}" "deploy.gpu_mode"
   assert_equal "${_v[1]}" "force"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# One numbered family, one spelling: the two accessors agree (base#1243)
+# ════════════════════════════════════════════════════════════════════
+
+# why: THE DEFECT WAS THE DISAGREEMENT, so this is the assertion that
+# closes it, on the same file that produced it. A `[security]` carrying
+# `cap_drop_1` as a table scalar AND a `[[security.cap_drop]]` block made
+# the bridge emit that key twice, and the two accessors read the doubling
+# differently: `_conf_get` keeps assigning as it walks and answered
+# `SYS_ADMIN` -- the last occurrence, ONE entry -- while
+# `_conf_list_sorted` collects every non-empty entry and answered
+# `NET_RAW SYS_ADMIN` -- TWO. One file, two effective configurations,
+# decided by which reader asked. `_resolve_docker_conf` reads all three
+# `[security]` lists through the list accessor and `setup.sh show` and
+# the validators read keys, so both answers were live at once.
+# The agreement is now that the LOAD fails: `_conf_load` propagates the
+# bridge's refusal, which is why this asserts the status and not only the
+# values. The accessors answering their defaults on a failed load is the
+# half that must not be mistaken for a loaded configuration, and
+# `_toml_tokenize` says so in its own voice -- see its header.
+@test "the two accessors agree on a numbered family carried both ways: the load is refused (base#1243)" {
+  local _f="${TEMP_DIR}/ambiguous.toml"
+  cat > "${_f}" << 'EOF'
+[security]
+privileged = false
+cap_drop_1 = "NET_RAW"
+
+[[security.cap_drop]]
+cap = "SYS_ADMIN"
+EOF
+
+  run _conf_load "${_f}" AMB
+  assert_failure
+
+  _conf_load "${_f}" AMB || true
+  run _conf_get AMB security cap_drop_1
+  assert_success
+  assert_output ""
+
+  local -a _got=()
+  _conf_list_sorted AMB security "cap_drop_" _got
+  assert_equal "${#_got[@]}" 0
+}
+
+# why: The control for the case above, and the proof the agreement is not
+# bought by refusing every file. The SAME section spelled ONE way loads,
+# and the two accessors answer the same configuration: the key lookup
+# reads entry 1 and the list reads the entries in index order. Both
+# spellings are asserted because both are readable -- the array one is
+# what the writers and the converter produce, the scalar one is what a
+# family with no array home still uses -- and a refusal that caught
+# either would make every repo's configuration unloadable.
+@test "_conf_get and _conf_list_sorted agree on a family spelled one way, in either spelling (base#1243)" {
+  local _f="${TEMP_DIR}/single.toml"
+  local -a _got=()
+
+  cat > "${_f}" << 'EOF'
+[security]
+privileged = false
+
+[[security.cap_drop]]
+cap = "SYS_ADMIN"
+
+[[security.cap_drop]]
+cap = "NET_RAW"
+EOF
+  _conf_load "${_f}" ARR
+  run _conf_get ARR security cap_drop_1
+  assert_success
+  assert_output "SYS_ADMIN"
+  _got=()
+  _conf_list_sorted ARR security "cap_drop_" _got
+  assert_equal "${#_got[@]}" 2
+  assert_equal "${_got[0]}" "SYS_ADMIN"
+  assert_equal "${_got[1]}" "NET_RAW"
+
+  cat > "${_f}" << 'EOF'
+[security]
+privileged = false
+cap_drop_1 = "SYS_ADMIN"
+cap_drop_2 = "NET_RAW"
+EOF
+  _conf_load "${_f}" SCA
+  run _conf_get SCA security cap_drop_1
+  assert_success
+  assert_output "SYS_ADMIN"
+  _got=()
+  _conf_list_sorted SCA security "cap_drop_" _got
+  assert_equal "${#_got[@]}" 2
+  assert_equal "${_got[0]}" "SYS_ADMIN"
+  assert_equal "${_got[1]}" "NET_RAW"
+}

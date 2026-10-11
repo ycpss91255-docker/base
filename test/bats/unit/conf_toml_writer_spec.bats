@@ -1001,3 +1001,99 @@ EOF
   assert_line 'mount_2 = /srv/data:/data'
   refute_output --partial '/ws:/work'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# One numbered family, one spelling: the write face (base#1243)
+# ════════════════════════════════════════════════════════════════════
+
+# why: A WRITE THAT CANNOT DO WHAT IT SAYS MUST NOT REPORT SUCCESS, and
+# this one did. On a file carrying `cap_add_1` as a table scalar AND a
+# `[[security.cap_add]]` block, `setup.sh set security.cap_add_1 CHOWN`
+# maps the key through `_conf_toml_aot_slot` to array block 1, replaces
+# THAT, and leaves the scalar line untouched -- measured: exit 0, with
+# the effective list then `CHOWN NET_RAW`. So an operator who added one
+# capability got two, one of them the value they had just replaced, and
+# `add` / `remove` reach the same writer with no path to the stale
+# scalar. The commit gate now asks the question in the mode the
+# configuration is actually read in, so the rewrite is not promoted and
+# the operator's file is left exactly as it was. `cap_add` and not
+# `cap_drop` on purpose: this family has had an array home from the
+# start, so the write face is the family's and not one slice's.
+@test "_upsert_conf_value: a set on a numbered family carried both ways is declined, and the file is untouched (base#1243)" {
+  cat > "${CONF}" << 'EOF'
+[security]
+privileged = false
+cap_add_1 = "NET_RAW"
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
+EOF
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+
+  run _upsert_conf_value "${CONF}" security cap_add_1 'CHOWN'
+  assert_failure
+  assert_output --partial "WRITE DECLINED"
+  assert_output --partial "security.cap_add_1"
+
+  run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+}
+
+# why: The control the gate must not break: a write on a file spelling
+# the family the ONE way the writers produce still round-trips. The
+# array spelling is the winner here -- `_conf_toml_aot_slot` routes every
+# numbered key of a family with an array home to the array renderer, so
+# it is the only spelling either writer can emit -- and a set that
+# replaces block 1 leaves the family one-spelled and readable. A gate
+# that refused this would have made `setup.sh set` unusable on every
+# numbered family.
+@test "_upsert_conf_value: a set on a single-spelling array family still round-trips (base#1243)" {
+  cat > "${CONF}" << 'EOF'
+[security]
+privileged = false
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
+
+[[security.cap_add]]
+cap = "NET_RAW"
+EOF
+  _upsert_conf_value "${CONF}" security cap_add_1 'CHOWN'
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'security\tcap_add_1\tCHOWN'
+  assert_line $'security\tcap_add_2\tNET_RAW'
+}
+
+# why: The other half of "one spelling wins", and a deliberate behaviour
+# change. A file carrying the family ONLY as table scalars is readable --
+# both accessors agree on it -- but the writers cannot produce that
+# spelling for a family with an array home, so the rewrite appends a
+# `[[security.cap_drop]]` block beside the scalar line and MAKES the
+# ambiguous file. Before the gate asked in the reading mode, that write
+# reported success and left the two readers disagreeing. Declining it is
+# the only answer that neither reports a success it did not achieve nor
+# migrates a spelling, which base#1243 bounds out; the refusal is also
+# why no `setup.sh` subcommand for clearing a stale scalar is owed.
+@test "_upsert_conf_value: a set that would make the file ambiguous is declined, not promoted (base#1243)" {
+  cat > "${CONF}" << 'EOF'
+[security]
+privileged = false
+cap_drop_1 = "NET_RAW"
+EOF
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+
+  run _upsert_conf_value "${CONF}" security cap_drop_1 'CHOWN'
+  assert_failure
+  assert_output --partial "WRITE DECLINED"
+
+  run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+
+  # The file it was: still one-spelled, still readable, still saying what
+  # the operator wrote.
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line $'security\tcap_drop_1\tNET_RAW'
+}
