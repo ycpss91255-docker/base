@@ -42,7 +42,8 @@ just test bats-path test/bats/integration/            # a directory works too
 The TDD inner loop, and the fastest thing in this file: it skips the
 static-lint table and kcov both, so what a red-green iteration costs is a
 container start plus the spec you named. `--filter <regex>` narrows further,
-to one `@test` within the file.
+to one `@test` within the file, and the regex reaches bats intact -- a space
+or a `|` in it is not re-split or read as a pipeline by the recipe's shell.
 
 The argument is required. A bare `just test bats-path` is an error naming the
 missing `spec`, not a run -- bare `just test` is the whole suite, and a typo

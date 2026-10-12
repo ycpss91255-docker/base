@@ -260,13 +260,19 @@ coverage-path spec *args:
 #
 # The argument is REQUIRED (contrast `coverage shard=''`): a bare invocation
 # must name the missing spec, not silently run the whole suite -- which is the
-# very thing this recipe exists to avoid paying for. Extra flags pass through.
+# very thing this recipe exists to avoid paying for.
+#
+# Extra flags pass through as "$@", not as an interpolated {{args}}, for the
+# reason `set positional-arguments` is set at the top of this file: a
+# `--filter` regex is ONE argument, and {{args}} hands the recipe's own shell
+# the expression to re-split. `--filter 'one two'` becomes two arguments the
+# runner rejects by name, and `--filter 'foo|bar'` becomes a shell pipeline.
 #
 #   just test bats-path test/bats/unit/justfile_spec.bats
 #   just test bats-path test/bats/unit/schema_spec.bats --filter 'gpu_count'
 #   just test bats-path test/bats/integration/
 bats-path spec *args:
-    ./script/test/test.sh --bats-path '{{spec}}' {{args}}
+    ./script/test/test.sh --bats-path "$@"
 
 # lifecycle: RECLAIMED BY THE RUNNER. The probe drives the suite through
 # script/test/test.sh, which installs its own EXIT-trap sweep on every
