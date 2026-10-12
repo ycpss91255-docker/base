@@ -28,17 +28,55 @@ LICENSE
 
 # ── Derived / generated artifacts (see script/docker/lib/gitignore.sh
 #    _canonical_gitignore_entries) ──────────────────────────────────
+#
+# A COPY OF A COMPUTED SET, AND GATED AS ONE (base#1275). Every line
+# below is one entry of _canonical_dockerignore_entries, which delegates
+# to _canonical_gitignore_entries, in that function's own order. The
+# agreement is not remembered: `./script/test/test.sh
+# --canonical-ignore-sync-only` derives both sides and fails naming any
+# canonical entry this block lacks, so the next entry added to the
+# function fails until this file agrees. Add new derived artifacts THERE,
+# then re-run the gate and paste what it names.
+#
+# The gate is ONE-DIRECTIONAL: it asks that every canonical entry be
+# here, and allows extras. That is what _sync_dockerignore does for a
+# consumer, and it is what lets the base-local section below exist.
+# Presence is a WHOLE LINE -- the `*.bak` glob below would cover three of
+# these in effect, and they are listed here anyway, because `grep -qxF`
+# is the test the shipped sync applies and it would append them verbatim
+# regardless.
 .env
 .env.local
+.env.local.toml
+.env.generated
 .env.bak
-runtime.env
+.env.local.bak
+env.local.toml
 compose.yaml
 .setup.conf.bak
+setup.toml.bak
 .setup.conf.local
+.setup.conf.local.bak
+setup.local.toml
 coverage/
 .Dockerfile.generated
 .docker.xauth
 log/
+/deploy/
+
+# ── Derived artifacts that are base's OWN, not the canonical set ─────
+#
+# Below the managed block on purpose: the header above claims its lines
+# come from the shipped function, and these do not. `.prev-release/` is
+# the released-tree scratch script/test/prepare-prev-release.sh
+# materialises for the vendored-drift checks; nothing in dist/ names it,
+# and base's root .gitignore documents it as base's own. It sat inside
+# the block until base#1275 -- correct content under a false header.
+#
+# `runtime.env` used to sit there too and is now GONE rather than moved:
+# it names a retired artifact (dist/script/docker/lib/setup_cmd.sh
+# records "S7: runtime.env retired"), so a reader of the block concluded
+# the template still emits it.
 .prev-release/
 
 # ── Editor / OS / backup cruft ───────────────────────────────────────

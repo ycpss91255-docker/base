@@ -70,6 +70,7 @@ default:
 # / `just test lint --spec-repo-root`
 # / `just test lint --test-name-backtick`
 # / `just test lint --toml-fixture`
+# / `just test lint --canonical-ignore-sync`
 # / `just test lint --log-event-registry` -- NOT in _LINT_TOOLS, so this
 #   one does not narrow the phase, it ADDS to it: the bare `lint` does not
 #   run the log event registry scan and no CI job does. base#1226 shipped

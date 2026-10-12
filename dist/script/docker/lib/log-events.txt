@@ -279,6 +279,7 @@ ci_spec_repo_root
 ci_test_name_backtick
 ci_log_event_registry
 ci_toml_fixture
+ci_canonical_ignore_sync
 ci_home_literal
 ci_arch_literal
 ci_bash_source_guard
