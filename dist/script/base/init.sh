@@ -1237,14 +1237,14 @@ _init_existing_repo() {
     || _error "the INI-to-TOML migration above declined, and the resync stops here rather than letting setup seed a setup.toml from the template defaults over a configuration that is still only INI. Nothing after this point ran. Resolve the file the refusal names, then re-run."
   # The sibling converter `_migrate_env_local_to_toml` is deliberately
   # NOT called here yet (base#1163). It moves the operator's `.env.local`
-  # aside to `.env.local.bak` and writes `.env.local.toml` -- but nothing
-  # reads `.env.local.toml`: compose still loads `.env` plus `.env.local`
+  # aside to `.env.local.bak` and writes `env.local.toml` -- but nothing
+  # reads `env.local.toml`: compose still loads `.env` plus `.env.local`
   # (compose_emit.sh), and the `setup apply` that follows re-scaffolds
   # `.env.local` as a comment-only file. Calling it from here therefore
   # discards the operator's overrides during `just upgrade`'s Step 3
   # resync while logging that they "were converted", which reads as
   # "still in effect" and is not. Restore the call in the same change
-  # that lands the `.env.toml` / `.env.toml.local` readers (base#1168),
+  # that lands the `env.toml` / `env.local.toml` readers (base#1168),
   # never before.
   # And then the migrations that are bound to a RELEASE rather than to a
   # shape in the tree. The ones above infer for themselves whether they still

@@ -24,7 +24,7 @@ unset _gitignore_lib_dir
 #
 #   Add new entries here when the template introduces another derived or
 #   machine-local artifact, then bump the next release. `setup.local.toml`
-#   and `.env.local.toml` (plus their legacy INI counterparts
+#   and `env.local.toml` (plus their legacy INI counterparts
 #   `.setup.conf.local` / `.env.local`) are the members that are NOT
 #   derived: they are the operator's per-worktree config override and
 #   per-machine env override, hand-authored and never regenerated, and they
@@ -38,6 +38,20 @@ unset _gitignore_lib_dir
 #   in the Docker build context. Downstreams
 #   pick it up via `just base upgrade` -> ./.base/dist/script/base/
 #   upgrade.sh -> init.sh resync chain.
+#
+#   `.env.local.toml` stands BESIDE `env.local.toml` rather than being
+#   replaced by it (base#1167 dropped the leading dot from the TOML config
+#   sources). It is not a dead line: v0.43.0-rc1 and -rc2 shipped a
+#   template whose own header documented `<repo>/.env.local.toml` as the
+#   gitignored per-instance override, so a consumer who followed the
+#   shipped instructions authored that file by hand and it carries exactly
+#   what the dotless one would. Retiring the entry would prune the line out
+#   of their .gitignore on the next resync -- the same "ignore the original
+#   but not its sibling" hole the paragraph above refuses, arriving through
+#   a rename instead of through a backup. The sibling rename
+#   (`.setup.conf.local` -> `setup.local.toml`, base#1148) kept both
+#   spellings for the same reason, and `_retired_gitignore_entries` is
+#   still empty.
 _canonical_gitignore_entries() {
   cat <<'EOF'
 .env
@@ -46,6 +60,7 @@ _canonical_gitignore_entries() {
 .env.generated
 .env.bak
 .env.local.bak
+env.local.toml
 compose.yaml
 .setup.conf.bak
 setup.toml.bak

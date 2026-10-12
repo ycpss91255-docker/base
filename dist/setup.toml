@@ -5,7 +5,7 @@
 # This file owns HOW the container is assembled and run: image rules,
 # build args, GPU, GUI, network, volumes, devices, security, lifecycle,
 # logging, deploy, additional contexts. Service runtime env vars
-# (ROS_MASTER_URI, LOG_LEVEL, etc.) belong in .env.toml, not here.
+# (ROS_MASTER_URI, LOG_LEVEL, etc.) belong in env.toml, not here.
 #
 # Override layering (three files, lowest precedence first):
 #   1. Template default: .base/dist/setup.toml
@@ -177,8 +177,8 @@ shm_size = ""
 # function. These are infrastructure, not application behavior.
 #
 # Service runtime env vars (ROS_MASTER_URI, LOG_LEVEL, etc.) are not
-# infrastructure and do not belong here. ADR-37 gives them .env.toml /
-# .env.local.toml; until those readers land, the channel that acts is the
+# infrastructure and do not belong here. ADR-37 gives them env.toml /
+# env.local.toml; until those readers land, the channel that acts is the
 # gitignored .env.local, which takes effect with `just run` alone -- no
 # regenerate, no drift, no git churn. Note the naming rule either way:
 # .env is OURS, generated from this file and where the entries below land

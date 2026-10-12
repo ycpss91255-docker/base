@@ -10,7 +10,7 @@
 #   - idempotency (skip when TOML file already exists)
 #   - backup (.bak suffix)
 #   - env_N unpack (environment.env_N = K=V -> [environment] K = "V")
-#   - .env.local flat KEY=VALUE -> .env.local.toml [environment]
+#   - .env.local flat KEY=VALUE -> env.local.toml [environment]
 #   - refusal: an input it cannot render as parseable TOML leaves the
 #     source INI where it was, writes no target, and says so
 
@@ -1098,21 +1098,49 @@ EOF
   assert [ ! -f "${TEMP_DIR}/setup.local.toml" ]
 }
 
-# ── .env.local -> .env.local.toml ─────────────────────────────────────
+# ── .env.local -> env.local.toml ─────────────────────────────────────
 
 # why: Flat KEY=VALUE wraps under [environment]
-@test "_migrate_env_local_to_toml converts .env.local to .env.local.toml (#1137)" {
+@test "_migrate_env_local_to_toml converts .env.local to env.local.toml (#1137)" {
   cat > "${TEMP_DIR}/.env.local" <<'EOF'
 ROS_MASTER_URI=http://localhost:11311
 LOG_LEVEL=debug
 EOF
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
-  assert [ -f "${TEMP_DIR}/.env.local.toml" ]
-  run cat "${TEMP_DIR}/.env.local.toml"
+  assert [ -f "${TEMP_DIR}/env.local.toml" ]
+  run cat "${TEMP_DIR}/env.local.toml"
   assert_output --partial '[environment]'
   assert_output --partial 'ROS_MASTER_URI = "http://localhost:11311"'
   assert_output --partial 'LOG_LEVEL = "debug"'
+}
+
+# why: base#1167 drops the leading dot from the TOML config SOURCES, so the
+# converter's target is `env.local.toml`. Reading the target off the source
+# with grep cannot judge this rename -- the literal moves either way and the
+# text still matches -- so the name is taken from the FILESYSTEM the real
+# function wrote, and the written file is handed to the SHIPPED bridge, the
+# reader that would have to read it once `.env.local` is gone. Both halves
+# are needed: the dotted spelling has to be absent (a converter writing both
+# leaves the operator two files and no rule for which wins), and the values
+# have to survive the trip (the INI tokenizer over an already-TOML input
+# re-quotes every value into `"\"7\""` and the bridge still accepts it, so
+# "it parsed" is not "it is intact").
+@test "_migrate_env_local_to_toml writes env.local.toml, not the dotted spelling (base#1167)" {
+  cat > "${TEMP_DIR}/.env.local" <<'EOF'
+ROS_DOMAIN_ID=7
+LOG_LEVEL=debug
+EOF
+  run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/env.local.toml" ]
+  assert [ ! -e "${TEMP_DIR}/.env.local.toml" ]
+  assert [ -f "${TEMP_DIR}/.env.local.bak" ]
+
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/env.local.toml' --kv"
+  assert_success
+  assert_line 'environment	ROS_DOMAIN_ID	7'
+  assert_line 'environment	LOG_LEVEL	debug'
 }
 
 # why: The env override must be backed up; without this the user loses their original file
@@ -1125,12 +1153,12 @@ EOF
 }
 
 # why: A second init cycle must not overwrite an operator's already-converted env overrides
-@test "_migrate_env_local_to_toml is idempotent when .env.local.toml exists (#1137)" {
+@test "_migrate_env_local_to_toml is idempotent when env.local.toml exists (#1137)" {
   printf 'KEY=VALUE\n' > "${TEMP_DIR}/.env.local"
-  printf '# existing\n' > "${TEMP_DIR}/.env.local.toml"
+  printf '# existing\n' > "${TEMP_DIR}/env.local.toml"
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
-  run cat "${TEMP_DIR}/.env.local.toml"
+  run cat "${TEMP_DIR}/env.local.toml"
   assert_output "# existing"
   # Original not backed up (nothing happened)
   assert [ -f "${TEMP_DIR}/.env.local" ]
@@ -1147,17 +1175,17 @@ OTHER=VAL
 EOF
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
-  run cat "${TEMP_DIR}/.env.local.toml"
+  run cat "${TEMP_DIR}/env.local.toml"
   assert_output --partial 'KEY = "VALUE"'
   assert_output --partial 'OTHER = "VAL"'
   refute_output --partial '# comment'
 }
 
-# why: A repo with no .env.local must not produce a phantom .env.local.toml
+# why: A repo with no .env.local must not produce a phantom env.local.toml
 @test "_migrate_env_local_to_toml is inert when there is no .env.local (#1137)" {
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
-  assert [ ! -f "${TEMP_DIR}/.env.local.toml" ]
+  assert [ ! -f "${TEMP_DIR}/env.local.toml" ]
 }
 
 # why: Values with = in them split on the FIRST = only
@@ -1165,7 +1193,7 @@ EOF
   printf 'JAVA_OPTS=-Xmx=1g\n' > "${TEMP_DIR}/.env.local"
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
-  run cat "${TEMP_DIR}/.env.local.toml"
+  run cat "${TEMP_DIR}/env.local.toml"
   assert_output --partial 'JAVA_OPTS = "-Xmx=1g"'
 }
 
@@ -1356,7 +1384,7 @@ EOF
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_failure
   assert_output --partial 'MIGRATION DECLINED'
-  assert [ ! -f "${TEMP_DIR}/.env.local.toml" ]
+  assert [ ! -f "${TEMP_DIR}/env.local.toml" ]
   assert [ ! -f "${TEMP_DIR}/.env.local.bak" ]
   run cat "${TEMP_DIR}/.env.local"
   assert_output 'JAVA_OPTS=-Dfoo="bar"'
@@ -1394,7 +1422,7 @@ EOF
 }
 
 # why: the flat-env converter has the same caller contract to honour, and
-#      base#1163 restores its call site once the .env.toml readers land.
+#      base#1163 restores its call site once the env.toml readers land.
 @test "_migrate_env_local_to_toml answers non-zero when it refuses (base#1148)" {
   printf 'JAVA_OPTS=-Dfoo="bar"\n' > "${TEMP_DIR}/.env.local"
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"

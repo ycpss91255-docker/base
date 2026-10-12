@@ -72,6 +72,7 @@ teardown() {
 .env.generated
 .env.bak
 .env.local.bak
+env.local.toml
 compose.yaml
 .setup.conf.bak
 setup.toml.bak
@@ -286,6 +287,7 @@ EOF
 .env.generated
 .env.bak
 .env.local.bak
+env.local.toml
 compose.yaml
 .setup.conf.bak
 setup.toml.bak

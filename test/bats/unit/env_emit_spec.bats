@@ -216,7 +216,7 @@ EOF
 # on which override file compose actually reads is
 # `_emit_env_file_block` -- the function that writes the `env_file:` list
 # into the generated compose. It lists `.env` and `.env.local`; nothing
-# reads `.env.local.toml`, which init.sh states where it declines to call
+# reads `env.local.toml`, which init.sh states where it declines to call
 # the converter (base#1163, readers on base#1168). Both files named it
 # anyway, and the scaffold went further and put a TOML `[environment]`
 # table into the dotenv file compose parses -- measured against compose
@@ -228,7 +228,15 @@ EOF
 # loaded set is DERIVED here, so moving the `env_file:` list moves what
 # the guidance is allowed to say rather than stranding this assertion --
 # which is what the previous `--partial ".env.local"` check did, since
-# `.env.local.toml` satisfies it.
+# the old `.env.local.toml` spelling satisfies it.
+# And the generated `.env` is now written WITH a service-env entry, which is
+# the arm that was missing. The section header carries the name of the file
+# the block came from, and it is emitted only when `<service_env_str>` is
+# non-empty -- so passing "" asked this rule about every line of the
+# artifact except the one line that names another file. Under the dotted
+# spelling base#1167 retired, that header advertised `.env.toml` inside a
+# file compose parses as dotenv, which is precisely what this test forbids
+# and could not see.
 @test "_scaffold_env_local / write_container_env: the guidance names only files the env_file block loads" {
   local -a _loaded=()
   mapfile -t _loaded < <(_emit_env_file_block | sed -n 's/^[[:space:]]*-[[:space:]]*//p')
@@ -238,7 +246,7 @@ EOF
     || fail "the env_file block does not list .env.local; the files below are guidance for something else now"
 
   _scaffold_env_local "${TEMP_DIR}/.env.local"
-  write_container_env "${TEMP_DIR}/.env" "" ""
+  write_container_env "${TEMP_DIR}/.env" "" "" "" 'ROS_DOMAIN_ID=7'
 
   # Every `.env*` path either file mentions must be one compose loads.
   local _f _named _bad=""
@@ -413,16 +421,16 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# write_container_env -- service env from .env.toml (ADR-37 D6)
+# write_container_env -- service env from env.toml (ADR-37 D6)
 # ════════════════════════════════════════════════════════════════════
-# why: ADR-37 splits service runtime env into .env.toml. The emitter
+# why: ADR-37 splits service runtime env into env.toml. The emitter
 # must produce a headed section so the operator can see which file each
 # block came from, and each key must land single-quoted (the same
 # format _emit_env_file_line uses for setup.toml entries).
-@test "write_container_env emits .env.toml [environment] entries under a service env header (#1135)" {
+@test "write_container_env emits env.toml [environment] entries under a service env header (#1135)" {
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" "" "" "" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug'
-  run grep -F '# ── [environment] (from .env.toml) ──' "${_out}"
+  run grep -F '# ── [environment] (from env.toml) ──' "${_out}"
   assert_success
   run grep -xF "ROS_DOMAIN_ID='42'" "${_out}"
   assert_success
@@ -430,17 +438,17 @@ EOF
   assert_success
 }
 
-# why: An empty service_env_str means the repo carries no .env.toml
+# why: An empty service_env_str means the repo carries no env.toml
 # entries. The section header must not appear -- a headed empty block
 # misleads the operator into thinking the file was read but had nothing.
 @test "write_container_env omits the service env section when the parameter is empty (#1135)" {
   local _out="${TEMP_DIR}/.env"
   write_container_env "${_out}" "" "" "" ""
-  run grep -F '.env.toml' "${_out}"
+  run grep -F 'env.toml' "${_out}"
   assert_failure
 }
 
-# why: The two env sources (setup.toml infra + .env.toml service) and
+# why: The two env sources (setup.toml infra + env.toml service) and
 # the watchdog block must coexist in one .env file. A merge bug would
 # drop one source or intermingle their headers.
 @test "write_container_env emits both infra and service env sections (#1135)" {
@@ -452,7 +460,7 @@ EOF
   # Watchdog
   run grep -xF "WATCHDOG_ENABLED='true'" "${_out}"
   assert_success
-  # Service env from .env.toml
+  # Service env from env.toml
   run grep -xF "ROS_DOMAIN_ID='7'" "${_out}"
   assert_success
 }

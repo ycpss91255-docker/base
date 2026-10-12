@@ -72,8 +72,39 @@ split by service boundary (ADR-00000003 axis A):
 |---|---|---|---|
 | `setup.toml` | the repo's (committed) | Docker infrastructure: how the container is assembled | template -> repo -> (caller-supplied per ADR-36) |
 | `setup.local.toml` | the operator's (gitignored) | Per-instance Docker infrastructure override | overrides `setup.toml` |
-| `.env.toml` | the repo's (committed) | Container service runtime env defaults | template -> repo |
-| `.env.local.toml` | the operator's (gitignored) | Per-instance service env override | overrides `.env.toml` |
+| `env.toml` | the repo's (committed) | Container service runtime env defaults | template -> repo |
+| `env.local.toml` | the operator's (gitignored) | Per-instance service env override | overrides `env.toml` |
+
+**Amendment (base#1167, 2026-10-12): the TOML config SOURCES carry no
+leading dot.** The table above originally spelled the service-env pair
+`.env.toml` / `.env.local.toml`. The dot was inherited from `.env`'s
+dotenv convention and did not belong on a TOML config source: `setup.toml`
+never carried one, and the two pairs are the same kind of file. The
+sources are now `env.toml` / `env.local.toml`, and the variant marker is
+an INFIX, not a suffix -- `env.local.toml` keeps `.toml` as the real
+extension, so editors highlight it, `*.toml` globs match it and TOML
+linters read it, which `env.toml.local` would not.
+
+The GENERATED outputs are unchanged and keep their dots. `.env` and
+`.env.local` are compose dotenv files loaded through `env_file:`, so the
+rename stops at the source side of the arrow in the generated-outputs
+block below. The root `.gitignore` entries `.env` and `.env.local` are
+likewise untouched.
+
+Nothing read either source under either spelling when this landed (the
+readers are base#1168), and no release ever wrote one to a consumer's
+disk: `_migrate_env_local_to_toml` had no caller in v0.42.0, v0.43.0-rc1
+or v0.43.0-rc2, and `_scaffold_env_local` is called with `.env.local` at
+both of its call sites in all three. So this rename owes no migration and
+carries no forwarder under ADR-00000006 -- nothing a released caller names
+moved. The one artifact that does reach a consumer is the canonical
+`.gitignore` entry, and the dotted spelling STAYS in
+`_canonical_gitignore_entries` beside the dotless one rather than moving
+to `_retired_gitignore_entries`: v0.43.0-rc1 and -rc2 shipped a template
+documenting `<repo>/.env.local.toml` as the gitignored per-instance
+override, so an operator who followed those instructions has that file,
+and retracting the line would leave their service env reachable by
+`git add .` and shipped in the build context.
 
 **Split criterion.** The boundary is the **service boundary**, not
 lifecycle (build vs run):
@@ -81,18 +112,18 @@ lifecycle (build vs run):
 - `setup.toml` = Docker infrastructure (how the container is built and
   run): image rules, build args, GPU, GUI, network, volumes, devices,
   security, lifecycle, logging, deploy, additional contexts.
-- `.env.toml` = service runtime env (how the application inside the
+- `env.toml` = service runtime env (how the application inside the
   container behaves): `ROS_MASTER_URI`, `ROS_DOMAIN_ID`, `LOG_LEVEL`,
   `WATCHDOG_ENABLED`, application-level parameters.
 
 The two have **zero intersection** at the service level. If overlap
-is discovered, `.env.toml` takes precedence because its purpose is
+is discovered, `env.toml` takes precedence because its purpose is
 the container-internal service. The current `[environment]` section
 splits along the service boundary: infrastructure env vars
 (`DISPLAY`, `NVIDIA_VISIBLE_DEVICES`, `PULSE_SERVER` -- host
 interfaces the container needs to function) stay in `setup.toml`;
 service runtime env vars (`ROS_MASTER_URI`, `LOG_LEVEL`,
-`WATCHDOG_ENABLED`) move to `.env.toml`.
+`WATCHDOG_ENABLED`) move to `env.toml`.
 
 **TOML structure.** Scalar sections use standard `[table]` syntax;
 list-shaped sections use `[[array of tables]]`:
@@ -206,8 +237,8 @@ key-level merged safely.
 
 ```
 compose.yaml     <- from setup.toml (infrastructure)
-.env             <- from setup.toml (infra env) + .env.toml (service env)
-.env.local       <- from .env.local.toml
+.env             <- from setup.toml (infra env) + env.toml (service env)
+.env.local       <- from env.local.toml
 .env.generated   <- interpolation cache (unchanged)
 ```
 
@@ -291,7 +322,7 @@ image, which is the one that has to work on a 3.6--3.10 runtime.
 - The `[environment]` section splits along the service boundary:
   infrastructure env vars (host interfaces like `DISPLAY`, GPU
   visibility) stay in `setup.toml`; service runtime env vars
-  (application parameters) move to `.env.toml`. `setup.toml` has
+  (application parameters) move to `env.toml`. `setup.toml` has
   zero application-level env vars.
 
 - Scalar-section overrides become lighter: an operator who wants only
@@ -338,7 +369,7 @@ image, which is the one that has to work on a 3.6--3.10 runtime.
   writer that bypasses the bridge, and nothing in the TUI does.
 
 - Migration path for downstream repos: a one-time converter
-  (`setup.conf` -> `setup.toml`, `.env.local` -> `.env.local.toml`)
+  (`setup.conf` -> `setup.toml`, `.env.local` -> `env.local.toml`)
   runs during the first `init.sh` resync after upgrade, gated on
   file existence (same pattern as the `.env` -> `.env.local` migration
   in ADR-00000003's 2026-08-26 amendment).

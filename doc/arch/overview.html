@@ -275,7 +275,7 @@ td {
 <text x="50" y="236" font-size="8" font-weight="600" fill="var(--text-1)">Sections（來自 setup.conf 15 個 sections）：</text>
 <text x="50" y="250" font-size="7.5" fill="var(--text-2)">[project] [image] [build] [deploy] [lifecycle] [gui] [network]</text>
 <text x="50" y="262" font-size="7.5" fill="var(--text-2)">[security] [resources] [tmpfs] [devices] [volumes] [additional_contexts] [logging]</text>
-<text x="50" y="276" font-size="7" fill="var(--warn)">* [environment] section 遷出至 .env.toml</text>
+<text x="50" y="276" font-size="7" fill="var(--warn)">* [environment] section 遷出至 env.toml</text>
 
 <!-- RIGHT: Container Service -->
 <rect x="464" y="28" width="400" height="270" rx="6" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="1" opacity="0.5"/>
@@ -283,22 +283,22 @@ td {
 <text x="480" y="64" font-size="8" fill="var(--text-2)">應用程式內部如何運作</text>
 
 <rect x="484" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--svc)" stroke-width="1.2"/>
-<text x="569" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">.env.toml</text>
+<text x="569" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">env.toml</text>
 <text x="569" y="112" text-anchor="middle" font-size="7.5" fill="var(--svc)">已提交（repo 的）</text>
 <text x="569" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">ROS_DOMAIN_ID, LOG_LEVEL,</text>
 <text x="569" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">WATCHDOG_ENABLED, app params...</text>
 
 <rect x="678" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
-<text x="763" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">.env.local.toml</text>
+<text x="763" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">env.local.toml</text>
 <text x="763" y="112" text-anchor="middle" font-size="7.5" fill="var(--overlay)">gitignored（操作者的）</text>
 <text x="763" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">每個 instance 的服務 env</text>
-<text x="763" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">overrides .env.toml</text>
+<text x="763" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">overrides env.toml</text>
 
 <line x1="657" y1="109" x2="675" y2="109" stroke="var(--overlay)" stroke-width="1" marker-end="url(#ar)"/>
 <text x="666" y="103" text-anchor="middle" font-size="6" fill="var(--overlay)">overrides</text>
 
 <rect x="484" y="160" width="170" height="42" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
-<text x="569" y="178" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/.env.toml</text>
+<text x="569" y="178" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/env.toml</text>
 <text x="569" y="192" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設（base 出貨）</text>
 
 <line x1="569" y1="160" x2="569" y2="141" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
@@ -308,9 +308,9 @@ td {
 <text x="498" y="236" font-size="8" font-weight="600" fill="var(--text-1)">邊界判定準則（ADR-3 Axis A）：</text>
 <text x="498" y="252" font-size="7.5" fill="var(--text-2)">與機器綁定（換機器時會變嗎？）</text>
 <text x="498" y="264" font-size="7.5" fill="var(--infra)">會 -> setup.toml（Docker 基礎建設）</text>
-<text x="498" y="276" font-size="7.5" fill="var(--svc)">不會，任務易變 -> .env.toml（服務 runtime）</text>
+<text x="498" y="276" font-size="7.5" fill="var(--svc)">不會，任務易變 -> env.toml（服務 runtime）</text>
 </svg>
-<figcaption>四檔結構。左半: Docker 基礎建設（容器如何組裝與執行）。右半: 容器服務 runtime（應用程式如何運作）。兩者<strong>零交集</strong>; 若發現重疊, <code>.env.toml</code> 優先。<code>[environment]</code> section 從 setup 遷出到 <code>.env.toml</code>。</figcaption>
+<figcaption>四檔結構。左半: Docker 基礎建設（容器如何組裝與執行）。右半: 容器服務 runtime（應用程式如何運作）。兩者<strong>零交集</strong>; 若發現重疊, <code>env.toml</code> 優先。<code>[environment]</code> section 從 setup 遷出到 <code>env.toml</code>。</figcaption>
 </figure>
 
 <div class="tbl-wrap">
@@ -319,8 +319,8 @@ td {
 <tbody>
 <tr><td><code>setup.toml</code></td><td>repo（已提交）</td><td>Docker 基礎建設</td><td>template -> repo -> caller-supplied</td></tr>
 <tr><td><code>setup.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的基礎建設覆蓋</td><td>覆蓋 setup.toml</td></tr>
-<tr><td><code>.env.toml</code></td><td>repo（已提交）</td><td>容器服務 runtime env</td><td>template -> repo</td></tr>
-<tr><td><code>.env.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的服務 env</td><td>覆蓋 .env.toml</td></tr>
+<tr><td><code>env.toml</code></td><td>repo（已提交）</td><td>容器服務 runtime env</td><td>template -> repo</td></tr>
+<tr><td><code>env.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的服務 env</td><td>覆蓋 env.toml</td></tr>
 </tbody>
 </table>
 </div>
@@ -444,22 +444,22 @@ td {
 <text x="652" y="44" text-anchor="middle" font-size="9" font-weight="500" fill="var(--gen)">已解析 config</text>
 <text x="652" y="58" text-anchor="middle" font-size="7" fill="var(--gen)">型別感知合併</text>
 
-<text x="16" y="108" font-size="10" font-weight="600" fill="var(--svc)">.env.toml chain</text>
+<text x="16" y="108" font-size="10" font-weight="600" fill="var(--svc)">env.toml chain</text>
 
 <rect x="16" y="118" width="150" height="40" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
-<text x="91" y="134" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/.env.toml</text>
+<text x="91" y="134" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/env.toml</text>
 <text x="91" y="148" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設</text>
 
 <line x1="169" y1="138" x2="195" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
 
 <rect x="198" y="118" width="150" height="40" rx="3" fill="var(--surface)" stroke="var(--svc)" stroke-width="1"/>
-<text x="273" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">.env.toml</text>
+<text x="273" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">env.toml</text>
 <text x="273" y="148" text-anchor="middle" font-size="7" fill="var(--svc)">repo 覆蓋</text>
 
 <line x1="351" y1="138" x2="377" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
 
 <rect x="380" y="118" width="170" height="40" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
-<text x="465" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">.env.local.toml</text>
+<text x="465" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">env.local.toml</text>
 <text x="465" y="148" text-anchor="middle" font-size="7" fill="var(--overlay)">操作者</text>
 
 <line x1="553" y1="138" x2="579" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
@@ -531,7 +531,7 @@ td {
 
 <!-- TOML annotation -->
 <rect x="50" y="242" width="270" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8" stroke-dasharray="3 2"/>
-<text x="185" y="256" text-anchor="middle" font-size="7.5" fill="var(--gen)">遷移後：setup.toml → setup.local.toml → .env.toml</text>
+<text x="185" y="256" text-anchor="middle" font-size="7.5" fill="var(--gen)">遷移後：setup.toml → setup.local.toml → env.toml</text>
 <text x="185" y="270" text-anchor="middle" font-size="7" fill="var(--text-3)">format 換、layers 同概念</text>
 
 <line x1="440" y1="281" x2="440" y2="302" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>

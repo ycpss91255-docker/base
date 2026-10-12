@@ -219,7 +219,7 @@ EOF
 # regenerated from setup.toml on every apply, so a hand edit here is lost
 # by design. The operator's values go in `.env.local`, which compose loads
 # after this file -- the file `_emit_env_file_block` names, not the
-# `.env.local.toml` ADR-00000037's output table renders it FROM once the
+# `env.local.toml` ADR-00000037's output table renders it FROM once the
 # readers land (see _scaffold_env_local's header).
 #
 # What lands here is everything the container is meant to receive as a
@@ -230,7 +230,7 @@ EOF
 #                       emitters take).
 #   <watchdog_env_str>  the `[lifecycle] watchdog_*` block as WATCHDOG_*
 #                       entries, empty when the watchdog is disarmed.
-#   <service_env_str>   the `.env.toml [environment]` entries (ADR-37
+#   <service_env_str>   the `env.toml [environment]` entries (ADR-37
 #                       service runtime env), newline-separated KEY=VALUE.
 #                       Empty when the file has no entries.
 #
@@ -350,7 +350,7 @@ EOF
       done <<< "${_watchdog_env_str}"
     fi
     if [[ -n "${_service_env_str}" ]]; then
-      printf '\n# ── [environment] (from .env.toml) ──\n'
+      printf '\n# ── [environment] (from env.toml) ──\n'
       local _sl
       while IFS= read -r _sl; do
         [[ -z "${_sl}" ]] && continue
@@ -375,9 +375,9 @@ EOF
 # FLAT `KEY=VALUE`, NOT TOML, AND THAT IS NOT A LEFTOVER. This file is the
 # one `_emit_env_file_block` lists in `env_file:`, so compose reads it with
 # its own dotenv parser. ADR-00000037's output table has `.env.local`
-# RENDERED from `.env.local.toml`, and that renderer has not landed --
+# RENDERED from `env.local.toml`, and that renderer has not landed --
 # init.sh says so where it declines to call the converter: "nothing reads
-# `.env.local.toml`: compose still loads `.env` plus `.env.local`"
+# `env.local.toml`: compose still loads `.env` plus `.env.local`"
 # (base#1163; the readers are base#1168). The guidance here said
 # `[environment]` with `key = "value"` under it anyway, which is TOML
 # written into the dotenv file. Measured against compose 2.x it does not
