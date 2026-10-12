@@ -551,6 +551,168 @@ _assert_release_migrates_env() {
   refute_output --partial "API_TOKEN=secret"
 }
 
+# _consumer_env_files <out_array>
+#   The env files the consumer's CURRENT compose.yaml loads, in the order it
+#   loads them.
+#
+#   Read off the emitted artifact rather than named. Which files carry an
+#   operator's env is `_emit_env_file_block`'s business, and
+#   ADR-00000037's output table has `.env.local` RENDERED from
+#   `env.local.toml` once those readers land (base#1168) -- at which point a
+#   caller naming `.env.local` by hand would either go quiet or refute the
+#   wrong file. What must not change across that move is that the value an
+#   operator wrote is still the value the container receives, so that is
+#   what the callers below assert and this is how they find out where to
+#   look.
+#
+#   Fails loudly on a list it could not parse. An unwritten compose.yaml, an
+#   unparsed block or a service that stopped carrying `env_file:` would all
+#   leave nothing to walk, and "the key is absent" would then be reported as
+#   the operator's value being gone rather than as this being blind. ONE
+#   entry is a legitimate shape, not a half-parse: every release the fixture
+#   window can supply predates base#868 and lists `.env` alone.
+_consumer_env_files() {
+  local -n _cef_out="${1:?BUG: _consumer_env_files expects an outvar}"
+  assert [ -f "${CONSUMER}/compose.yaml" ]
+  _cef_out=()
+  mapfile -t _cef_out < <(
+    awk '
+      /^[[:space:]]*env_file:[[:space:]]*$/ { in_blk = 1; next }
+      in_blk && /^[[:space:]]*-[[:space:]]*[^[:space:]]/ {
+        sub(/^[[:space:]]*-[[:space:]]*/, ""); print; next
+      }
+      in_blk { in_blk = 0 }
+    ' "${CONSUMER}/compose.yaml"
+  )
+  (( ${#_cef_out[@]} >= 1 )) \
+    || fail "compose.yaml carries no parseable env_file entry; there is no env chain to resolve against"
+}
+
+# _resolve_consumer_env <key> <out_var>
+#   Resolve <key> the way compose resolves it in the consumer: walk the
+#   `env_file:` list its compose.yaml carries, in that order, later file
+#   wins.
+#
+#   One layer of surrounding quotes is stripped: the generated `.env` emits
+#   `KEY='v'` through the dotenv quoting rules and a hand-written override
+#   is bare, and compose's own parser reads both as `v`.
+_resolve_consumer_env() {
+  local _key="${1:?BUG: _resolve_consumer_env expects a key}"
+  local -n _rce_out="${2:?BUG: _resolve_consumer_env expects an outvar}"
+  _rce_out=""
+
+  local -a _files=()
+  _consumer_env_files _files
+
+  local _f _line _val
+  for _f in "${_files[@]}"; do
+    [[ -f "${CONSUMER}/${_f}" ]] || continue
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      [[ "${_line}" == "${_key}="* ]] || continue
+      _val="${_line#*=}"
+      if [[ ${#_val} -ge 2 && ( "${_val}" == \'*\' || "${_val}" == \"*\" ) ]]; then
+        _val="${_val:1:${#_val}-2}"
+      fi
+      _rce_out="${_val}"
+    done < "${CONSUMER}/${_f}"
+  done
+}
+
+# _assert_release_keeps_env_local_overrides <tag>
+#   An operator's env overrides, once in effect, stay in effect across
+#   EVERY later upgrade -- not just the one that first gave them their own
+#   file.
+#
+#   This is the end state init.sh's resync is otherwise only PROSE about:
+#   the comment where it declines to call `_migrate_env_local_to_toml`
+#   (base#1163) explains why calling it would discard those overrides, and
+#   nothing observed the outcome. Restoring the call regresses the
+#   operator-visible result with the rest of the suite green -- the
+#   converter's own unit arms assert its conversion, and the resync's
+#   protected-path arm is satisfied by the comment-only file the following
+#   apply re-scaffolds under the same name.
+#
+#   Two upgrades, because today's fixture window and tomorrow's put the
+#   operator's file in different places and the arm has to hold in both.
+#   Every release the window can currently supply predates the `.env` ->
+#   `.env.local` rule flip (base#868), so the file the seeded release loads is
+#   `.env`: `_migrate_env_to_local` moves it inside the FIRST resync
+#   (init.sh:1211) and the converter would take it away again further down
+#   that same resync, which is the arm that goes red today. Once the window
+#   slides onto a release past base#868 the seeded file is already the override
+#   file, the first upgrade stops being a migration, and the resync that
+#   runs with an override file simply sitting there -- the steady state
+#   every consumer is permanently in -- is the SECOND one. Asserting after
+#   both is what keeps this arm asking base#1163's question across that
+#   slide instead of going quiet, the way base#1084 records the base#1077 arms
+#   doing.
+#
+#   The sibling base#868 arm cannot stand in for either half: it reads
+#   `.env.local` by name and the loss recreates that name as a comment-only
+#   scaffold, so it is satisfied by the file whose emptiness is the defect.
+_assert_release_keeps_env_local_overrides() {
+  local _tag="${1:?BUG: _assert_release_keeps_env_local_overrides expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  # Seeded into the override file the SEEDED release loads, taken off that
+  # release's own emitted compose: an operator can only have put their
+  # values where the release they are on reads them, and a hand-named file
+  # here would seed overrides into a file that was already inert.
+  local -a _seed_files=()
+  _consumer_env_files _seed_files
+  local _override="${_seed_files[-1]}"
+
+  printf '# my machine\nROS_DOMAIN_ID=42\nAPI_TOKEN=secret\n' \
+    > "${CONSUMER}/${_override}"
+
+  # In effect BEFORE any upgrade. Without this the arm would pass on a
+  # release that never loaded the file, and the upgrades below would be
+  # credited with preserving something that never applied.
+  local _resolved=""
+  _resolve_consumer_env ROS_DOMAIN_ID _resolved
+  assert_equal "${_resolved}" "42"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  # Still in effect through whatever file the upgraded tree's own compose
+  # now names. Asserted here too, so a second upgrade that preserves
+  # nothing because the first already lost everything reads as the first
+  # arm failing rather than the second.
+  _resolve_consumer_env ROS_DOMAIN_ID _resolved
+  assert_equal "${_resolved}" "42"
+
+  # The upgrade DID regenerate what is ours, so the arms around it are not
+  # passing because the apply never ran.
+  assert [ -f "${CONSUMER}/.env" ]
+  run cat "${CONSUMER}/.env"
+  assert_output --partial "Auto-generated"
+
+  # The resync legitimately leaves review-able output behind (see the NOTE
+  # further up), and `git subtree` refuses to start against a dirty tree.
+  # The fixture does what the upgrade's own closing instructions say.
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "chore: commit the resync" || true
+
+  # The same command again, on the tree it just produced. THIS is the
+  # resync that runs with the operator's override file already there.
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER_2}"
+  assert_success
+  assert_equal "$(cat "${CONSUMER}/.base/.version")" "${NEXT_VER_2}"
+
+  _resolve_consumer_env ROS_DOMAIN_ID _resolved
+  assert_equal "${_resolved}" "42"
+  _resolve_consumer_env API_TOKEN _resolved
+  assert_equal "${_resolved}" "secret"
+}
+
 # ── The repo's own configuration ────────────────────────────────────────────
 
 # _seeded_repo_conf
@@ -915,6 +1077,24 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {
   _assert_release_migrates_env "$(_release_tag 1)"
+}
+
+# why: base#1163's loss was done BY the upgrade path, so it reached
+# operators who had only followed the documented procedure, and the only
+# thing holding it off since is a comment in init.sh saying why the
+# converter is not called -- a comment nothing refutes and a later change
+# can delete. The sibling base#868 arm cannot see it: it reads `.env.local` by
+# name, and the loss recreates that name as a comment-only scaffold, so the
+# file whose emptiness IS the defect satisfies it. This arm resolves the
+# value through the emitted compose's own env_file chain rather than reading
+# a named file, so it stays the same question when the env.local.toml
+# readers move which file carries it (base#1168). The newest
+# driver is the one an operator upgrading today runs, and the mechanism
+# lives in the resync of the tree being upgraded INTO, which every
+# supported driver reaches by the same route -- a second arm on an older
+# tag would re-ask the identical question.
+@test "a released upgrade.sh leaves an operator's existing env overrides in effect (base#1163)" {
+  _assert_release_keeps_env_local_overrides "$(_release_tag 1)"
 }
 
 # why: The oldest driver predates the setup.conf relocation, so its own

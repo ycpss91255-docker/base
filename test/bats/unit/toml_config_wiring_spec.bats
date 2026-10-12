@@ -1,11 +1,18 @@
 #!/usr/bin/env bats
 #
-# toml_config_wiring_spec.bats -- verify conf.sh / setup_conf.sh / env_emit.sh
-# wire TOML config files (setup.toml, env.toml, setup.local.toml,
-# env.local.toml) instead of their legacy INI counterparts.
+# toml_config_wiring_spec.bats -- verify setup_conf.sh / gitignore.sh wire
+# the TOML config SOURCES (setup.toml, setup.local.toml) instead of their
+# legacy INI counterparts.
 #
 # D1: setup.toml as the primary config source.
-# D2: env.toml + env.local.toml wiring.
+# D2: the gitignore entries for the local TOML overrides.
+#
+# `env.toml` / `env.local.toml` are NOT in scope, and that is the honest
+# scope rather than a gap: nothing in the tree reads either file, so there
+# is no wiring here to verify (base#1168). The generated `.env` /
+# `.env.local` that compose does load are env_emit.sh's, and they are
+# covered in env_emit_spec.bats against the paths production passes -- see
+# the retirement note at D2 below (base#1163).
 #
 # Pure path + file tests -- no docker interaction needed.
 
@@ -89,44 +96,31 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# D2: _scaffold_env_local creates env.local.toml
+# D2: _scaffold_env_local -- RETIRED here, held in env_emit_spec.bats
+#
+# Two arms stood here, "_scaffold_env_local creates env.local.toml when
+# absent" and "... does not overwrite existing env.local.toml". Both
+# handed the function a path THIS FILE chose -- `${BASE_PATH}/env.local.toml`
+# -- and `_scaffold_env_local` writes whatever path it is given, so they
+# passed whatever path production used. Production uses neither: both
+# callers pass `.env.local` (setup_cmd.sh, deploy.sh), which is what the
+# `env_file:` block loads and what compose parses as dotenv. The name of
+# each arm therefore asserted a wiring the tree does not have, and the
+# first one's "the scaffold should contain TOML guidance" check was
+# `grep -i toml` over a scaffold whose only TOML is the two sentences
+# pointing at `setup.toml` -- it stayed green through the rewrite that took
+# every line of TOML guidance OUT of that file (base#1163; the readers are
+# base#1168).
+#
+# Both properties are held against the path production passes, in
+# env_emit_spec.bats: "_scaffold_env_local is idempotent (never
+# overwrites)", "_scaffold_env_local creates a comment-only override file
+# naming .env", and "_scaffold_env_local / write_container_env: the
+# guidance names only files the env_file block loads" -- the last of which
+# DERIVES the permitted file set from `_emit_env_file_block` rather than
+# naming it, so it moves with the readers instead of having to be rewritten
+# for them.
 # ════════════════════════════════════════════════════════════════════
-
-# why: The TOML scaffold must be created on first run; without it operators have no guidance for the override format.
-@test "_scaffold_env_local creates env.local.toml when absent" {
-  # Source env_emit.sh (it needs _setup_msg which we stub).
-  _setup_msg() { echo "stub"; }
-  export -f _setup_msg
-  # shellcheck source=dist/script/docker/lib/env_emit.sh
-  # shellcheck disable=SC1091
-  source /source/dist/script/docker/lib/env_emit.sh
-
-  local _target="${BASE_PATH}/env.local.toml"
-  [[ ! -e "${_target}" ]]
-
-  _scaffold_env_local "${_target}"
-  [[ -f "${_target}" ]]
-
-  # The scaffold should contain TOML guidance.
-  run grep -i 'toml' "${_target}"
-  assert_success
-}
-
-# why: Idempotency -- re-running setup must not destroy operator-authored overrides.
-@test "_scaffold_env_local does not overwrite existing env.local.toml" {
-  _setup_msg() { echo "stub"; }
-  export -f _setup_msg
-  # shellcheck source=dist/script/docker/lib/env_emit.sh
-  # shellcheck disable=SC1091
-  source /source/dist/script/docker/lib/env_emit.sh
-
-  local _target="${BASE_PATH}/env.local.toml"
-  echo "MY_SECRET=42" > "${_target}"
-
-  _scaffold_env_local "${_target}"
-  run cat "${_target}"
-  assert_output "MY_SECRET=42"
-}
 
 # ════════════════════════════════════════════════════════════════════
 # D2: gitignore includes TOML local overrides
