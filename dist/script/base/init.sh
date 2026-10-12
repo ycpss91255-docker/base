@@ -1246,6 +1246,16 @@ _init_existing_repo() {
   # "still in effect" and is not. Restore the call in the same change
   # that lands the `env.toml` / `env.local.toml` readers (base#1168),
   # never before.
+  #
+  # This paragraph is no longer the only thing holding that: the arm "a
+  # released upgrade.sh leaves an operator's existing env overrides in
+  # effect" in test/bats/integration/prev_release_upgrade_spec.bats drives
+  # a real released upgrade.sh over a consumer that has overrides and
+  # resolves the value through the emitted compose's own `env_file:` chain,
+  # so restoring the call here goes red on the outcome rather than on a
+  # named file -- which is what lets it stay the same question once the
+  # readers move which file carries the value.
+  #
   # And then the migrations that are bound to a RELEASE rather than to a
   # shape in the tree. The ones above infer for themselves whether they still
   # apply, which is what makes them repairs a repo can re-run at any time;
