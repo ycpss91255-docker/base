@@ -8,7 +8,7 @@
 #
 #   .setup.conf        -> setup.toml
 #   .setup.conf.local  -> setup.local.toml
-#   .env.local         -> .env.local.toml
+#   .env.local         -> env.local.toml
 #
 # Each conversion is gated on the source file existing AND the target
 # NOT existing, so the migration is idempotent: a repo that already has
@@ -679,16 +679,16 @@ _migrate_ini_to_toml() {
 
 # _migrate_env_local_to_toml <repo_root>
 #
-# Convert .env.local (flat KEY=VALUE) -> .env.local.toml (TOML with
+# Convert .env.local (flat KEY=VALUE) -> env.local.toml (TOML with
 # [environment] section). Gated on [[ -f .env.local && ! -f
-# .env.local.toml ]], and the rename of the source gated again on the
+# env.local.toml ]], and the rename of the source gated again on the
 # conversion having parsed, for the reason the file header gives. A
 # refusal answers non-zero, like the sibling above: this one has no
 # caller yet, and the caller base#1163 restores needs the same signal.
 _migrate_env_local_to_toml() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _env="${_root%/}/.env.local"
-  local _toml="${_root%/}/.env.local.toml"
+  local _toml="${_root%/}/env.local.toml"
 
   [[ -f "${_env}" && ! -f "${_toml}" ]] || return 0
 
@@ -719,12 +719,12 @@ _migrate_env_local_to_toml() {
   done < "${_env}"
 
   # Write to a temp file; the commit gate parses it and only then does it
-  # become .env.local.toml and the source become a .bak.
+  # become env.local.toml and the source become a .bak.
   local _tmp="${_toml}.$$"
   printf '%s' "${_result}" > "${_tmp}"
   _ini_to_toml_commit "${_env}" "${_tmp}" "${_toml}" || return 1
   mv -- "${_env}" "${_env}.bak"
   _log_warn init env_local_to_toml_migrated \
-    "display=MIGRATION: .env.local -> .env.local.toml. The per-instance env override was converted from flat KEY=VALUE to TOML (ADR-00000037) and the original was backed up to .env.local.bak." \
+    "display=MIGRATION: .env.local -> env.local.toml. The per-instance env override was converted from flat KEY=VALUE to TOML (ADR-00000037) and the original was backed up to .env.local.bak." \
     "path=${_toml}"
 }

@@ -5,7 +5,7 @@
 #
 # Verifies:
 #   - setup.toml template exists with all 15 INI-equivalent sections
-#   - .env.toml template exists with its [environment] section
+#   - env.toml template exists with its [environment] section
 #   - The two files have no overlapping [environment] keys (boundary)
 #
 # Pure file reads, no mocks: Unit level (ADR-00000018).
@@ -18,7 +18,7 @@ setup() {
 
   ROOT=/source
   SETUP_TOML="${ROOT}/dist/setup.toml"
-  ENV_TOML="${ROOT}/dist/.env.toml"
+  ENV_TOML="${ROOT}/dist/env.toml"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -95,7 +95,7 @@ setup() {
 }
 
 # why: [environment] for INFRASTRUCTURE env (DISPLAY, NVIDIA_*);
-#      service runtime env belongs in .env.toml, not here
+#      service runtime env belongs in env.toml, not here
 @test "setup.toml: has [environment] table for infrastructure env" {
   run grep '^\[environment\]' "${SETUP_TOML}"
   assert_success
@@ -136,19 +136,34 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Seam 2: .env.toml template existence and structure
+# Seam 2: env.toml template existence and structure
 # ════════════════════════════════════════════════════════════════════
 
-# why: ADR-37 splits service runtime env into .env.toml
-@test ".env.toml: template exists" {
+# why: ADR-37 splits service runtime env into env.toml
+@test "env.toml: template exists" {
   assert_spec_subject "${ENV_TOML}" \
-    "the .env.toml template (ADR-37 service runtime env)"
+    "the env.toml template (ADR-37 service runtime env)"
 }
 
-# why: .env.toml must carry its own [environment] section for service vars
-@test ".env.toml: has [environment] table for service runtime env" {
+# why: env.toml must carry its own [environment] section for service vars
+@test "env.toml: has [environment] table for service runtime env" {
   run grep '^\[environment\]' "${ENV_TOML}"
   assert_success
+}
+
+# why: The TOML config SOURCES carry no leading dot -- `setup.toml` never
+# had one and its sibling has no reason to (base#1167). The dot came from
+# `.env`'s dotenv convention, and `.env` is the GENERATED output, not the
+# source. Asserting only that `env.toml` exists would stay green with both
+# spellings shipped side by side, which is the state an operator cannot
+# read: two templates, one of them dead, and nothing saying which layer
+# `[environment]` is taken from. So the dotted spelling has to be ABSENT,
+# and that half is what a half-finished rename trips over.
+@test "env.toml: the shipped source is dotless and the dotted spelling is gone" {
+  assert_spec_subject "${ENV_TOML}" \
+    "the env.toml template (ADR-37 service runtime env, base#1167)"
+  assert [ "${ENV_TOML##*/}" = "env.toml" ]
+  assert [ ! -e "${ROOT}/dist/.env.toml" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -156,7 +171,7 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 # why: ADR-37 mandates zero intersection between setup.toml infra env
-#      and .env.toml service runtime env; an overlapping key would mean
+#      and env.toml service runtime env; an overlapping key would mean
 #      a variable is owned by both files, violating the service boundary.
 #      Both sections ship with commented-out examples; the test extracts
 #      those example key names and verifies they are disjoint.
@@ -169,7 +184,7 @@ setup() {
 #      spelling is what made this test fail its own non-vacuity check
 #      when the examples changed -- an empty key set is not a passing
 #      boundary, it is a boundary nobody looked at.
-@test "boundary: setup.toml and .env.toml have no overlapping env keys" {
+@test "boundary: setup.toml and env.toml have no overlapping env keys" {
   local -a setup_keys=() env_keys=()
   local in_env=0 line
 
@@ -187,7 +202,7 @@ setup() {
     fi
   done < "${SETUP_TOML}"
 
-  # Extract commented example key names from .env.toml [environment]
+  # Extract commented example key names from env.toml [environment]
   in_env=0
   while IFS= read -r line; do
     if [[ "${line}" =~ ^\[.+\] ]]; then
@@ -212,6 +227,6 @@ setup() {
   done
 
   if [[ -n "${overlap}" ]]; then
-    fail "overlapping [environment] keys between setup.toml and .env.toml:${overlap}"
+    fail "overlapping [environment] keys between setup.toml and env.toml:${overlap}"
   fi
 }

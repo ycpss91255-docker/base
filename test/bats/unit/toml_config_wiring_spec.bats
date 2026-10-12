@@ -1,11 +1,11 @@
 #!/usr/bin/env bats
 #
 # toml_config_wiring_spec.bats -- verify conf.sh / setup_conf.sh / env_emit.sh
-# wire TOML config files (setup.toml, .env.toml, setup.local.toml,
-# .env.local.toml) instead of their legacy INI counterparts.
+# wire TOML config files (setup.toml, env.toml, setup.local.toml,
+# env.local.toml) instead of their legacy INI counterparts.
 #
 # D1: setup.toml as the primary config source.
-# D2: .env.toml + .env.local.toml wiring.
+# D2: env.toml + env.local.toml wiring.
 #
 # Pure path + file tests -- no docker interaction needed.
 
@@ -89,11 +89,11 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# D2: _scaffold_env_local creates .env.local.toml
+# D2: _scaffold_env_local creates env.local.toml
 # ════════════════════════════════════════════════════════════════════
 
 # why: The TOML scaffold must be created on first run; without it operators have no guidance for the override format.
-@test "_scaffold_env_local creates .env.local.toml when absent" {
+@test "_scaffold_env_local creates env.local.toml when absent" {
   # Source env_emit.sh (it needs _setup_msg which we stub).
   _setup_msg() { echo "stub"; }
   export -f _setup_msg
@@ -101,7 +101,7 @@ teardown() {
   # shellcheck disable=SC1091
   source /source/dist/script/docker/lib/env_emit.sh
 
-  local _target="${BASE_PATH}/.env.local.toml"
+  local _target="${BASE_PATH}/env.local.toml"
   [[ ! -e "${_target}" ]]
 
   _scaffold_env_local "${_target}"
@@ -113,14 +113,14 @@ teardown() {
 }
 
 # why: Idempotency -- re-running setup must not destroy operator-authored overrides.
-@test "_scaffold_env_local does not overwrite existing .env.local.toml" {
+@test "_scaffold_env_local does not overwrite existing env.local.toml" {
   _setup_msg() { echo "stub"; }
   export -f _setup_msg
   # shellcheck source=dist/script/docker/lib/env_emit.sh
   # shellcheck disable=SC1091
   source /source/dist/script/docker/lib/env_emit.sh
 
-  local _target="${BASE_PATH}/.env.local.toml"
+  local _target="${BASE_PATH}/env.local.toml"
   echo "MY_SECRET=42" > "${_target}"
 
   _scaffold_env_local "${_target}"
@@ -152,6 +152,42 @@ teardown() {
   run _canonical_gitignore_entries
   assert_success
   assert_line ".env.local.toml"
+}
+
+# why: base#1167 renamed the per-instance TOML source to the dotless
+# `env.local.toml`, so the canonical set has to ignore the name the
+# toolchain will write. The dotted spelling stays in the SAME set rather
+# than moving to _retired_gitignore_entries, and that is the load-bearing
+# half: v0.43.0-rc1 and -rc2 shipped a template whose own header documents
+# `<repo>/.env.local.toml` as the gitignored per-instance override, so an
+# operator who followed the shipped instructions has that file on disk with
+# their service env in it. Retiring the entry would PRUNE the line out of
+# their .gitignore on the next resync and leave those values reachable by
+# `git add .` and shipped in the build context -- the outcome
+# _canonical_gitignore_entries' own header forbids, and the reason the
+# sibling rename (.setup.conf.local -> setup.local.toml, base#1148) kept
+# both spellings too. Asserting the pair together, and asking the
+# retirement list as well, is what stops a later tidy-up from "finishing"
+# the rename by deleting the old line.
+@test "canonical gitignore entries add env.local.toml and keep the dotted spelling (base#1167)" {
+  # shellcheck source=dist/script/docker/lib/gitignore.sh
+  # shellcheck disable=SC1091
+  source /source/dist/script/docker/lib/gitignore.sh
+
+  run _canonical_gitignore_entries
+  assert_success
+  assert_line "env.local.toml"
+  assert_line ".env.local.toml"
+
+  # `refute_line` is not usable here: the retired list is EMPTY today, so
+  # `run` leaves `${lines}` unset and refute_line dies on the unset array
+  # instead of passing -- an assertion that cannot answer for the state it
+  # is written about. The whole stdout is the pruning population, so refute
+  # against that; it reads correctly when the list is empty and still fires
+  # the day the entry is added to it.
+  run _retired_gitignore_entries
+  assert_success
+  refute_output --partial ".env.local.toml"
 }
 
 # ════════════════════════════════════════════════════════════════════
