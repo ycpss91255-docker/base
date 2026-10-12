@@ -1186,7 +1186,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (181)
+### test/bats/unit/ci_spec.bats (182)
 
 | Test | Description |
 |------|-------------|
@@ -1327,6 +1327,7 @@ between them can be asserted at all.
 | `_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)` | base#1113 a driver never added to the table is in no lint phase and no CI group, and the guards all read the table |
 | `_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)` | base#1113 an exemption array is the one hand-written thing left, so it is held to the rule that each entry excuses something real |
 | `lint flags: every flag the justfile advertises is backed by the tree (base#1226)` | base#1226 shipped the log event registry scan as a MANUAL tool -- dispatchable, in no lint phase and no CI job -- and added `just test lint --log-event-registry` to the justfile's narrowing list, where it sat indistinguishable from the twenty-one flags that DO narrow the bare phase. The list's own closing sentence then generalised over it: "the behaviour matches the bare `lint`", which cannot hold for a tool the bare `lint` never runs. Nothing was red, because the flag dispatches and exits 0 -- the divergence was entirely in the prose, and a comment is where base#1117 and base#1175 both found a claim nothing had to keep. Three rules, each over a set derived from the tree |
+| `lint flags: every tabled lint has a host-direct --<tool>-only arm (base#1277)` | base#1277 nothing held the host-direct arms to _LINT_TOOLS. canonical-ignore-sync joined the table, ran in a lint-static group and was green everywhere; its first host-direct run died on `Unknown option: --canonical-ignore-sync-only`. The three guards that look adjacent all miss that direction: the base#1226 case above reads the justfile's advertised list (advertised subset of the table, never the arms), self_test_yaml_spec's CI-join case falls back to "in exactly one lint-static group" so a table entry with no arm anywhere takes the group branch and passes, and the dispatch-table case names "the host-direct `--<tool>-only` primitives" in its comment while asserting only that eleven names are in the table. Both populations derived from the tree, superset not equality, exemptions as data |
 | `drivers: the bats runners live in drivers/bats.sh, not test.sh` | #650 bats runners moved out |
 | `drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh` | #650 shellcheck moved out |
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |

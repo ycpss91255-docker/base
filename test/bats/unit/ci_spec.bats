@@ -4042,6 +4042,39 @@ _UNTABLED_LINT_ENTRY_POINTS=(
   log-event-registry
 )
 
+# Tabled lints that deliberately have NO host-direct `--<tool>-only` arm,
+# each with the reason. The MIRROR of _UNTABLED_LINT_ENTRY_POINTS above:
+# that array models arms the table does not carry, this one models table
+# entries no arm carries, and neither direction is equality. Anything NOT
+# listed here must have an arm, so a lint added to _LINT_TOOLS without one
+# fails instead of gating nothing visible while the operator's
+# `--<tool>-only` dies on `Unknown option`.
+#
+# base#1277 MEASURED THAT STATE. canonical-ignore-sync joined the table in
+# base#1276, ran in CI inside a lint-static group, was green in every
+# check the tree has, and its first host-direct run died on
+# `Unknown option: --canonical-ignore-sync-only`. The arm had to be added
+# by hand as a fourth edit, which is the edit base#1275's own Seams said
+# was not owed.
+#
+# HADOLINT IS THE ONLY ONE, and it is not transitional. Its binary exists
+# only in the alpine test-tools image and has no install-it-on-the-runner
+# form, so its CI job runs the driver INSIDE that image
+# (`--lint --hadolint`) instead of host-direct. test.sh says so twice --
+# at the usage flag list ("no `--hadolint-only` equivalent: hadolint
+# exists only in the test-tools image") and in the table's own prose
+# ("Every tool but hadolint is runnable host-direct"). Giving it an arm is
+# base#1277's Out of scope for that reason, so the exemption is the
+# honest record and this is where it stops being prose.
+#
+# NOT _LINT_TOOLS_OWN_CI_JOB, which is a different question: which lints
+# carry a dedicated CI job. It holds shellcheck and doc-counts too, and
+# both of those DO have arms, so reusing it here would excuse two tools
+# that need no excuse and would stop refusing the next armless entry.
+_TABLED_LINTS_WITHOUT_HOST_ARM=(
+  hadolint
+)
+
 # Whether <needle> is one of the remaining arguments.
 _in_set() {
   local _needle="${1}" _item
@@ -4241,6 +4274,43 @@ _dispatchable_lint_tools() {
   ' /source/script/test/test.sh | sort -u
 }
 
+# The host-direct narrowing arms of `main`'s option `case`, one per line as
+# `<flag-name> <host_lint-value>`: the flag with its leading `--` and its
+# trailing `-only` stripped, then the tool name that arm narrows the run
+# to. Read out of the tree with the same awk shape the two guards above
+# use, and NOT by sourcing test.sh --
+# test/bats/unit/self_test_yaml_spec.bats:1944 records why (the lib chain
+# reads BASH_SOURCE unguarded, and under the kcov-instrumented bash of the
+# coverage shard the source aborts and its stderr gets parsed as a lint
+# name).
+#
+# `host_lint=` IS THE POPULATION, not `--*-only`. Two arms spell
+# `--<something>-only` and narrow no tool: `--hadolint-only` sets
+# `hadolint_only=1` for the in-container job, and `--bats-only` sets
+# `bats_only=1`. That is why a raw count of `--*-only)` lines is 34 where
+# the arms are 32, and counting the raw lines would excuse two names that
+# are not tools.
+#
+# THE CHARACTER CLASS CARRIES A DIGIT, deliberately. `[a-z-]` silently
+# drops `--i18n-orphan-only`, which is a real arm; that hole gave two
+# separate readings of this file a count of 33 where it has 34
+# (base#1277). The spec below refuses a derivation that has it.
+_host_direct_lint_arms() {
+  local _file="${1:-/source/script/test/test.sh}"
+  awk '
+    /^[[:space:]]+--[a-z0-9-]+-only\)[[:space:]]+host_lint=/ {
+      flag = $1
+      sub(/\).*/, "", flag)
+      sub(/^--/, "", flag)
+      sub(/-only$/, "", flag)
+      value = $0
+      sub(/^.*host_lint="/, "", value)
+      sub(/".*$/, "", value)
+      print flag " " value
+    }
+  ' "${_file}" | sort -u
+}
+
 # why: base#1226 shipped the log event registry scan as a MANUAL tool --
 # dispatchable, in no lint phase and no CI job -- and added
 # `just test lint --log-event-registry` to the justfile's narrowing list,
@@ -4307,6 +4377,96 @@ _dispatchable_lint_tools() {
   done
   [ -z "${_unmarked}" ] \
     || fail "the justfile advertises narrowing flag(s) _LINT_TOOLS does not carry without naming the table on the same line:${_unmarked} -- a reader takes the narrowing list for the table, and the bare 'lint' does not run these"
+}
+
+# why: base#1277 nothing held the host-direct arms to _LINT_TOOLS.
+# canonical-ignore-sync joined the table, ran in a lint-static group and
+# was green everywhere; its first host-direct run died on
+# `Unknown option: --canonical-ignore-sync-only`. The three guards that
+# look adjacent all miss that direction: the base#1226 case above reads
+# the justfile's advertised list (advertised subset of the table, never
+# the arms), self_test_yaml_spec's CI-join case falls back to "in exactly
+# one lint-static group" so a table entry with no arm anywhere takes the
+# group branch and passes, and the dispatch-table case names "the
+# host-direct `--<tool>-only` primitives" in its comment while asserting
+# only that eleven names are in the table. Both populations derived from
+# the tree, superset not equality, exemptions as data
+@test "lint flags: every tabled lint has a host-direct --<tool>-only arm (base#1277)" {
+  assert_spec_subject /source/script/test/test.sh \
+      "the option case whose host-direct narrowing arms this spec derives"
+  local -a _table=() _pairs=() _arms=()
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+  mapfile -t _pairs < <(_host_direct_lint_arms)
+  local _pair
+  for _pair in "${_pairs[@]}"; do
+    _arms+=("${_pair%% *}")
+  done
+
+  # Non-vacuity on both sides. An unparsed or empty population makes every
+  # rule below pass having compared nothing, which is the declared-population
+  # failure this repo names most often (base#1089, base#1090, base#1113,
+  # base#1112, base#1109, base#1214).
+  [ "${#_table[@]}" -ge 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_table[@]} entries; the table did not parse"
+  [ "${#_arms[@]}" -ge 25 ] \
+    || fail "main's option case yielded ${#_arms[@]} host-direct arms; the case did not parse"
+
+  # And non-vacuity of the PATTERN, not just of the count: i18n-orphan is a
+  # real arm that the digit-less class `[a-z-]` drops silently. A derivation
+  # with that hole would excuse every future lint whose name carries a digit.
+  if ! _in_set i18n-orphan "${_arms[@]}"; then
+    fail "the derived arm set holds no 'i18n-orphan', which IS an arm -- the pattern dropped a name containing a digit, the hole that gave base#1277 two wrong counts"
+  fi
+  # The two `--*-only` flags that narrow no tool must not be counted as
+  # arms: --hadolint-only sets hadolint_only=1 and --bats-only sets
+  # bats_only=1. Counting either would excuse a name that is not a tool,
+  # and hadolint's would excuse the one entry this gate is here to name.
+  if _in_set hadolint "${_arms[@]}"; then
+    fail "the derived arm set holds 'hadolint'; --hadolint-only sets hadolint_only=1 for the in-container job and is not tool narrowing"
+  fi
+  if _in_set bats "${_arms[@]}"; then
+    fail "the derived arm set holds 'bats'; --bats-only sets bats_only=1 and is not tool narrowing"
+  fi
+
+  local _t _x _flag _value _armless="" _unexcused="" _stale="" _mismatch=""
+
+  # R1 -- every tabled lint is reachable host-direct, unless named.
+  for _t in "${_table[@]}"; do
+    if _in_set "${_t}" "${_arms[@]}"; then
+      continue
+    fi
+    if _in_set "${_t}" "${_TABLED_LINTS_WITHOUT_HOST_ARM[@]}"; then
+      continue
+    fi
+    _armless+=" ${_t}"
+  done
+  [ -z "${_armless}" ] \
+    || fail "THE RULE APPLIED: every _LINT_TOOLS entry has a host-direct '--<tool>-only' arm in main's option case, unless _TABLED_LINTS_WITHOUT_HOST_ARM in this file names it with its reason. Entry/entries in neither:${_armless} -- each of those runs in CI inside a lint-static group and is green in every check the tree has, while the operator's '--<entry>-only' dies on 'Unknown option'. Add the arm beside the others (script/test/test.sh, the host_lint block of main's case), or name it in that exemption array. THE RULE IS ONE-DIRECTIONAL: arms the table does not carry are allowed, and _UNTABLED_LINT_ENTRY_POINTS is where those are named (${_UNTABLED_LINT_ENTRY_POINTS[*]}), so nothing here asks you to delete an arm."
+  # R2 -- the exemption excuses something real. A name in it that the
+  # table does not carry excuses nothing, and a name in it that HAS an
+  # arm is a spent excuse that would cover the next regression silently.
+  for _x in "${_TABLED_LINTS_WITHOUT_HOST_ARM[@]}"; do
+    if ! _in_set "${_x}" "${_table[@]}"; then
+      _unexcused+=" ${_x}"
+    elif _in_set "${_x}" "${_arms[@]}"; then
+      _stale+=" ${_x}"
+    fi
+  done
+  [ -z "${_unexcused}" ] \
+    || fail "_TABLED_LINTS_WITHOUT_HOST_ARM names:${_unexcused} -- which _LINT_TOOLS does not carry, so the exemption excuses nothing and R1 above is weaker than it reads"
+  [ -z "${_stale}" ] \
+    || fail "_TABLED_LINTS_WITHOUT_HOST_ARM names:${_stale} -- which DOES have a host-direct arm, so the exemption is spent: drop the name, or the next entry added to the table behind it goes unrefused"
+
+  # R3 -- an arm narrows to the tool it advertises. The flag is what the
+  # operator types, so '--foo-only' setting host_lint=bar satisfies R1 for
+  # 'bar' while '--bar-only' is still an unknown option.
+  for _pair in "${_pairs[@]}"; do
+    _flag="${_pair%% *}"
+    _value="${_pair##* }"
+    [[ "${_flag}" == "${_value}" ]] || _mismatch+=" --${_flag}-only sets ${_value}"
+  done
+  [ -z "${_mismatch}" ] \
+    || fail "host-direct arm(s) narrow to a tool their flag does not name:${_mismatch} -- the flag is what an operator types, so R1 above would be satisfied for a name no flag reaches"
 }
 
 # why: #650 bats runners moved out
