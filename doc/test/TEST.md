@@ -31,6 +31,27 @@ sibling docs below.
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
+## Running one spec: `just test bats-path`
+
+```bash
+just test bats-path test/bats/unit/justfile_spec.bats
+just test bats-path test/bats/unit/schema_spec.bats --filter 'gpu_count'
+just test bats-path test/bats/integration/            # a directory works too
+```
+
+The TDD inner loop, and the fastest thing in this file: it skips the
+static-lint table and kcov both, so what a red-green iteration costs is a
+container start plus the spec you named. `--filter <regex>` narrows further,
+to one `@test` within the file.
+
+The argument is required. A bare `just test bats-path` is an error naming the
+missing `spec`, not a run -- bare `just test` is the whole suite, and a typo
+must not become one.
+
+For the same narrowing under instrumentation, see `coverage-path` below; the
+runner refuses the two flags together, so they are separate recipes rather
+than one with a switch.
+
 ## Running one spec under kcov: `just test coverage-path`
 
 ```bash

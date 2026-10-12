@@ -182,6 +182,76 @@ setup() {
   assert_success
 }
 
+# why: Required spec argument (a defaulted one would run the whole suite on a
+# typo, base#1173)
+@test "test namespace: bats-path demands its spec and forwards it (base#1173)" {
+  # `just test bats-path <spec>` is the uninstrumented one-spec entry -- the
+  # TDD inner loop. Its argument is REQUIRED for the same reason
+  # `coverage-path`'s is: an optional one (`spec=''`, the shape the sibling
+  # `coverage` recipe uses for its shard) would turn a mistyped bare
+  # invocation into a silent full-suite run instead of an error naming the
+  # missing argument. This is the static half; the executed half is below.
+  local _test_justfile=/source/script/test/justfile.test
+  run grep -E "^bats-path spec \*args:$" "${_test_justfile}"
+  assert_success
+  run grep -E "^bats-path spec=" "${_test_justfile}"
+  assert_failure
+  run grep -F -- "--bats-path '{{spec}}'" "${_test_justfile}"
+  assert_success
+}
+
+# why: a grep proves the recipe LINE exists, not that it runs one spec
+# (base#1173)
+@test "just test bats-path dispatches ONE spec and refuses a bare invocation (base#1173)" {
+  # The grep-only gate is the failure family this repo names most often:
+  # base#1115 / base#1117 / base#1175 were three greps claiming to pin
+  # `xhost` behaviour that passed against a run.sh carrying no `xhost` at
+  # all. So the forwarding and the bare-invocation refusal are EXECUTED
+  # here, against a stubbed runner that records what it was handed and
+  # starts no container.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the static half above still runs"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  mkdir -p "${_tmp}/script/test"
+  cp /source/justfile "${_tmp}/justfile"
+  cp /source/script/test/justfile.test "${_tmp}/script/test/justfile.test"
+  # The runner as a recorder: one argument per line, to an absolute path, so
+  # what the recipe dispatched is observable whatever the recipe's cwd is.
+  cat > "${_tmp}/script/test/test.sh" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> '${_tmp}/.dispatch_log'
+STUB
+  chmod +x "${_tmp}/script/test/test.sh"
+
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" \
+    test bats-path test/bats/unit/justfile_spec.bats --filter 'nounset'
+  local _s="${status}" _o="${output}" _dispatched=''
+  [[ -f "${_tmp}/.dispatch_log" ]] && _dispatched="$(cat "${_tmp}/.dispatch_log")"
+  status="${_s}"; output="${_o}"
+  assert_success
+  # The spec named on the command line reaches the runner behind the NARROWING
+  # flag, not as a bare full-suite dispatch, and trailing flags ride along.
+  [[ "${_dispatched}" == *"--bats-path"$'\n'"test/bats/unit/justfile_spec.bats"* ]] \
+    || fail "the recipe dispatched [${_dispatched}], not --bats-path with the spec it was given"
+  [[ "${_dispatched}" == *"--filter"$'\n'"nounset"* ]] \
+    || fail "the recipe dropped the trailing flags: [${_dispatched}]"
+
+  # Bare invocation: a refusal, and NOTHING dispatched. A defaulted `spec=`
+  # would make this the whole suite instead.
+  rm -f "${_tmp}/.dispatch_log"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test bats-path
+  _s="${status}"; _o="${output}"
+  local _ran_anything=0
+  [[ -f "${_tmp}/.dispatch_log" ]] && _ran_anything=1
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_failure
+  assert_output --partial 'bats-path'
+  (( _ran_anything == 0 )) \
+    || fail "a bare 'just test bats-path' reached the runner, so a typo would start a suite"
+}
+
 # why: #655 -- ADR-00000011 i18n scope (machine/CI namespaces)
 @test "test / release namespaces are English-only -- no --lang plumbing (#655)" {
   # ADR-00000011 i18n scope: test / release are machine/CI namespaces, so
