@@ -243,6 +243,37 @@ coverage-local jobs='':
 coverage-path spec *args:
     ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms, pass
+# or fail, and asks whether the previous run has let go of this project
+# before it starts. This recipe adds no second sweep, for the same reason
+# `coverage-path` above does not: the runner is also what CI invokes
+# directly, so a copy here would cover the `just` path only.
+#
+# just test bats-path <spec> -> run ONE spec FILE or DIRECTORY, uninstrumented.
+#
+# The TDD inner loop. The alternatives are the whole suite (bare `just test`,
+# minutes) or `coverage-path`, which instruments the run; this one skips the
+# static-lint table and the instrumentation both, so a red-green iteration on
+# a single spec costs a container start and the spec itself. `--filter <regex>`
+# narrows further, to one `@test` within the file.
+#
+# The argument is REQUIRED (contrast `coverage shard=''`): a bare invocation
+# must name the missing spec, not silently run the whole suite -- which is the
+# very thing this recipe exists to avoid paying for.
+#
+# Extra flags pass through as "$@", not as an interpolated {{args}}, for the
+# reason `set positional-arguments` is set at the top of this file: a
+# `--filter` regex is ONE argument, and {{args}} hands the recipe's own shell
+# the expression to re-split. `--filter 'one two'` becomes two arguments the
+# runner rejects by name, and `--filter 'foo|bar'` becomes a shell pipeline.
+#
+#   just test bats-path test/bats/unit/justfile_spec.bats
+#   just test bats-path test/bats/unit/schema_spec.bats --filter 'gpu_count'
+#   just test bats-path test/bats/integration/
+bats-path spec *args:
+    ./script/test/test.sh --bats-path "$@"
+
 # lifecycle: RECLAIMED BY THE RUNNER. The probe drives the suite through
 # script/test/test.sh, which installs its own EXIT-trap sweep on every
 # dispatch it arms, so this recipe adds no second one.
