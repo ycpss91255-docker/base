@@ -156,6 +156,8 @@ source "${SCRIPT_DIR}/drivers/test_name_backtick.sh"
 source "${SCRIPT_DIR}/drivers/log_event_registry.sh"
 # shellcheck source=script/test/drivers/toml_fixture.sh
 source "${SCRIPT_DIR}/drivers/toml_fixture.sh"
+# shellcheck source=script/test/drivers/canonical_ignore_sync.sh
+source "${SCRIPT_DIR}/drivers/canonical_ignore_sync.sh"
 # shellcheck source=script/test/drivers/shell_metrics.sh
 source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 
@@ -202,6 +204,7 @@ readonly _LINT_TOOLS=(
   spec-repo-root
   test-name-backtick
   toml-fixture
+  canonical-ignore-sync
 )
 
 # ORDER IS NOT A FAIL-FAST LEVER. It reads like one -- put the cheap
@@ -480,6 +483,7 @@ _run_lint_tool() {
     test-name-backtick) _run_test_name_backtick ;;
     log-event-registry) _run_log_event_registry ;;
     toml-fixture)     _run_toml_fixture ;;
+    canonical-ignore-sync) _run_canonical_ignore_sync ;;
     # The three implementation-standard metric lints and their combined
     # report (base#994 phase 2). Dispatchable here -- this is the one
     # place a lint driver is run, and the ERR trap above is what names
@@ -1071,6 +1075,7 @@ Examples:
   ./test.sh --test-name-backtick-only # Direct @test name backtick lint, no compose
   ./test.sh --log-event-registry-only # Direct log event registry lint, no compose
   ./test.sh --toml-fixture-only   # Direct TOML fixture body gate, no compose
+  ./test.sh --canonical-ignore-sync-only # Direct canonical ignore-sync lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -2623,6 +2628,7 @@ main() {
       --test-name-backtick-only) host_lint="test-name-backtick"; shift ;;
       --log-event-registry-only) host_lint="log-event-registry"; shift ;;
       --toml-fixture-only) host_lint="toml-fixture"; shift ;;
+      --canonical-ignore-sync-only) host_lint="canonical-ignore-sync"; shift ;;
       --nesting-depth-only) host_lint="nesting-depth"; shift ;;
       --function-length-only) host_lint="function-length"; shift ;;
       --positional-params-only) host_lint="positional-params"; shift ;;

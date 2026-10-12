@@ -864,6 +864,42 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
 
+### test/bats/unit/canonical_ignore_sync_lint_spec.bats (19)
+
+Unit tests for `script/test/drivers/canonical_ignore_sync.sh`
+(`_run_canonical_ignore_sync`, refs base#1275), the "base's own
+`.dockerignore` covers every canonical entry" lint. The file's
+derived-artifact block is a hand-written copy of a shipped function's output
+and had drifted by eight entries, so machine-local names went to the daemon
+as build context under a header asserting they were handled. The rule is
+ONE-DIRECTIONAL -- every canonical entry present, extras allowed -- and
+presence is a WHOLE LINE, matching the `grep -qxF` the shipped
+`_sync_managed_entries` applies. Driven over throwaway fixture trees, with a
+case for each of the three ways the lint could go green having checked
+nothing.
+
+| Test | Description |
+|------|-------------|
+| `_run_canonical_ignore_sync: passes when every canonical entry is a line of the file (base#1275)` | A covered file must not be reported |
+| `_run_canonical_ignore_sync: the clean report names how many entries it checked (base#1275)` | The clean report states the derived count, not a remembered one |
+| `_run_canonical_ignore_sync: FAILS on a canonical entry absent from the file, naming it (base#1275)` | The drift itself -- an absent canonical entry |
+| `_run_canonical_ignore_sync: names EVERY absent entry, not only the first (base#1275)` | Every absence is reported, not just the first |
+| `_run_canonical_ignore_sync: an entry added to the emitter fails until the file agrees (base#1275)` | THE POINT OF THE ISSUE -- the set is derived, so a new entry fails |
+| `_run_canonical_ignore_sync: a non-canonical line in the file is NOT a failure (base#1275)` | `.prev-release/` and the editor globs are legitimate extras |
+| `_run_canonical_ignore_sync: a line naming a retired artifact keeps the gate green (base#1275)` | A retired name left in the file is not this lint's business |
+| `_run_canonical_ignore_sync: a glob that would cover an entry does not count as that entry (base#1275)` | The rule chosen in base#1275 -- a covering glob is not the entry |
+| `_run_canonical_ignore_sync: an entry is not satisfied by a line it is a prefix of (base#1275)` | A substring reader would find `.env.generated` inside the `.env` line |
+| `_run_canonical_ignore_sync: an entry is not satisfied by a longer line containing it (base#1275)` | Nor by a line that merely contains it |
+| `_run_canonical_ignore_sync: each reported absence names the target file (base#1275)` | The report must name the one file it holds the set to |
+| `_run_canonical_ignore_sync: an emitter that yields nothing DIES rather than passing (base#1275)` | An empty canonical set is covered by every file |
+| `_run_canonical_ignore_sync: a lib with no such emitter DIES rather than passing (base#1275)` | A renamed or deleted emitter is the same vacuous pass |
+| `_run_canonical_ignore_sync: a missing shipped lib DIES rather than passing (base#1275)` | A lib that cannot be read at all must not read as an empty set quietly |
+| `_run_canonical_ignore_sync: a missing target file DIES rather than passing (base#1275)` | No target file means the question was asked of nothing |
+| `_run_canonical_ignore_sync: an EMPTY target file reports every entry absent (base#1275)` | An empty target file is a real file, so it reports absences not vacuity |
+| `_run_canonical_ignore_sync: output a lib writes while loading is not an entry (base#1275)` | A lib that prints while loading must not be read as an entry |
+| `_run_canonical_ignore_sync: a lib that redefines _die cannot disarm the refusal (base#1275)` | A lib defining its own `_die` must not replace the dispatcher's |
+| `_run_canonical_ignore_sync: a blank line from the emitter is not counted as an entry (base#1275)` | Blank lines in the emitter are not entries no file can satisfy |
+
 ### test/bats/unit/catalog_description_lint_spec.bats (10)
 
 The rule is base#922's and the first implementation was base#976's, which

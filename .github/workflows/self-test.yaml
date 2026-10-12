@@ -597,6 +597,15 @@ jobs:
     #                     measured across 17 spec files and nothing in the
     #                     tree could tell the difference. Whole-tree, so it
     #                     belongs to this phase rather than to a spec
+    #   canonical-ignore-sync
+    #                     base's own root .dockerignore carries a line for
+    #                     every entry _canonical_dockerignore_entries
+    #                     emits. The block is HEADED as a copy of that
+    #                     function and had drifted by eight entries, so
+    #                     both sides are derived and compared -- the next
+    #                     entry added to the function fails until the file
+    #                     agrees. One-directional (extras allowed), which
+    #                     is what _sync_dockerignore does for a consumer
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the
