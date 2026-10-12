@@ -864,7 +864,7 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
 
-### test/bats/unit/canonical_ignore_sync_lint_spec.bats (19)
+### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
 
 Unit tests for `script/test/drivers/canonical_ignore_sync.sh`
 (`_run_canonical_ignore_sync`, refs base#1275), the "base's own
@@ -899,6 +899,10 @@ nothing.
 | `_run_canonical_ignore_sync: output a lib writes while loading is not an entry (base#1275)` | A lib that prints while loading must not be read as an entry |
 | `_run_canonical_ignore_sync: a lib that redefines _die cannot disarm the refusal (base#1275)` | A lib defining its own `_die` must not replace the dispatcher's |
 | `_run_canonical_ignore_sync: a blank line from the emitter is not counted as an entry (base#1275)` | Blank lines in the emitter are not entries no file can satisfy |
+| `canonical-ignore-sync: is a member of the lint phase's tool table` | A lint nobody runs is a comment |
+| `canonical-ignore-sync: has a lint-static CI join` | One plain-runner lint group, no docker -- and exactly one, because none gates nothing and two pays twice |
+| `canonical-ignore-sync: its failure event id is registered` | An unregistered event id is an anonymous exit: the log line carries no name a reader can look up |
+| `canonical-ignore-sync: the dispatcher has a case arm for it (base#1275)` | The driver must be dispatchable by the name the table carries |
 
 ### test/bats/unit/catalog_description_lint_spec.bats (10)
 

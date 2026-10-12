@@ -282,3 +282,63 @@ _write_target() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"2 canonical entries"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Wiring
+# ════════════════════════════════════════════════════════════════════
+#
+# The three guards every lint spec in this tree carries. A driver can be
+# written, specced and green while gating nothing at all -- the gap
+# base#1113 names -- and these are what refuse that for this lint:
+# membership in the dispatcher's table, exactly one CI group, and a
+# failure id a reader can look up.
+
+# why: A lint nobody runs is a comment
+@test "canonical-ignore-sync: is a member of the lint phase's tool table" {
+  # _LINT_TOOLS is the one table every lint-phase caller dispatches
+  # through, and it is also what the self-test.yaml completeness guard
+  # reads -- so membership here is what makes the CI join mandatory.
+  # PARSED, never sourced: sourcing test.sh drags in the whole lib chain,
+  # which reads BASH_SOURCE unguarded, and under the kcov-instrumented
+  # bash of the coverage shard that aborts.
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" "the test runner whose _LINT_TOOLS table this lint joins"
+  run awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "${_test_sh}"
+  assert_success
+  assert_line "canonical-ignore-sync"
+}
+
+# why: One plain-runner lint group, no docker -- and exactly one, because none
+# gates nothing and two pays twice
+@test "canonical-ignore-sync: has a lint-static CI join" {
+  local _wf="/source/.github/workflows/self-test.yaml"
+  assert_spec_subject "${_wf}" "the workflow whose lint-static groups this lint joins"
+  local _hits
+  _hits="$(lint_group_hits canonical-ignore-sync "${_wf}")"
+  [ "${_hits}" -eq 1 ] \
+    || fail "the canonical-ignore-sync lint is in ${_hits} lint-static groups; in none, the next entry added to _canonical_gitignore_entries reaches main with nothing checking that base's own .dockerignore grew it too"
+}
+
+# why: An unregistered event id is an anonymous exit: the log line carries no
+# name a reader can look up
+@test "canonical-ignore-sync: its failure event id is registered" {
+  run grep -qx 'ci_canonical_ignore_sync' /source/dist/script/docker/lib/log-events.txt
+  assert_success
+}
+
+# why: The driver must be dispatchable by the name the table carries
+@test "canonical-ignore-sync: the dispatcher has a case arm for it (base#1275)" {
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" "the dispatcher whose _run_lint_tool arm this lint needs"
+  run grep -qE '^[[:space:]]*canonical-ignore-sync\)[[:space:]]*_run_canonical_ignore_sync' \
+    "${_test_sh}"
+  assert_success
+}
