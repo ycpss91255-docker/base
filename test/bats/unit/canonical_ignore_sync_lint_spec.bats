@@ -78,6 +78,16 @@ _write_target() {
   fi
 }
 
+teardown() {
+  # An `if` rather than the `[[ -n ... ]] && rm -rf` the sibling specs
+  # use: that form's status IS the test's status when the guard is false,
+  # so an unset SCRATCH would fail the case it was tidying up after
+  # rather than simply skipping the cleanup.
+  if [[ -n "${SCRATCH:-}" ]]; then
+    rm -rf "${SCRATCH}"
+  fi
+}
+
 # ── The control group ──────────────────────────────────────────────────────
 
 # why: A covered file must not be reported
