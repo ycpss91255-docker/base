@@ -46,8 +46,13 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 17 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133, #1137)" {
-  # Seventeen, and not one substitution: the TOML names were ADDED
+@test "_canonical_gitignore_entries: emits exactly the canonical lines, and not one substitution (#502, #507, #606, #832, #879, #893, #868, #1133, #1137)" {
+  # The asserted heredoc below is the count, and the only place it is
+  # written: a figure in this name or in this comment is a second copy of
+  # it that nothing re-derives, and it drifted once already (base#1278 --
+  # the name said seventeen from the day base#1273 added env.local.toml,
+  # while the heredoc it asserts said eighteen and stayed green). Not one
+  # substitution, either: the TOML names were ADDED
   # alongside the legacy INI ones, never swapped in for them. `.setup.conf.local` is the old
   # per-worktree override layer, which a repo part-way through the format
   # migration still has on disk, and the whole reason the line is canonical
