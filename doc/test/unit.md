@@ -2209,13 +2209,17 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (80)
+### test/bats/unit/derived_figures_lint_spec.bats (84)
 
 | Test | Description |
 |------|-------------|
 | `_derived_baseline_renderings: derives the forward-looking and legacy sets from _validate_stage_name (#874)` | - |
 | `_derived_baseline_renderings: does NOT include devel-test -- the predicate emits it as a service (#874)` | - |
 | `_derived_baseline_renderings: every derived name probes back as a baseline collision (#874)` | - |
+| `_run_derived_figures: FAILS when the documented capabilities omit one (base#1174)` | base#1174 -- the shipped comment documented four of nine accepted capability names and then none at all, while _VALID_GPU_CAPABILITIES kept growing. `graphics` does not imply `ngx`, and a list missing it fails silently, so the list is written down and pinned here. |
+| `_run_derived_figures: FAILS when the documented capabilities are reordered (base#1174)` | base#1174 -- order is part of the figure. A set comparison would pass a comment that lists the right names in an order no reader can check against the array. |
+| `_run_derived_figures: FAILS when the Accepted: marker appears twice (base#1174)` | base#1174 -- codex's review of the pin: matching the first marker anywhere lets an earlier correct one hide a later stale list, so the pin passes while the thing it pins is wrong. Exactly one, and it must be a comment. |
+| `_run_derived_figures: FAILS when the Accepted: marker is gone (base#1174)` | base#1174 -- the pin needs somewhere to attach. A deleted marker must be reported rather than letting the figure pass vacuously, which is the failure this whole driver was written against. |
 | `_run_derived_figures: FAILS on a README baseline set that lists devel-test, naming file and line (#874)` | - |
 | `_run_derived_figures: PASSES on the canonical forward-looking and legacy renderings (#874)` | - |
 | `_run_derived_figures: ignores a brace set that names no baseline stage (#874)` | - |

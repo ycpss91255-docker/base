@@ -1227,13 +1227,93 @@ _derived_scan_just_literals() {
   return "${_violations}"
 }
 
+# ── Figure 6: the GPU capability names a consumer may write ─────────────────
+#
+# base#1174. `dist/setup.toml` ships `gpu_capabilities` and said nothing about
+# what is legal. The validator accepts nine names; the comment documented four
+# and then, at some point, none at all -- the file went from partially
+# documented to silent while the validator kept growing.
+#
+# The cost of the gap is specific: `graphics` does not imply `ngx`, and a list
+# without `ngx` fails SILENTLY -- the container never receives libnvidia-ngx or
+# nvoptix.bin, so a DLSS or OptiX workload renders wrongly with nothing naming
+# the cause. A downstream repo lost an investigation to exactly that.
+#
+# So the names are written down, and pinned here, because a hand-written list
+# beside a growing array is the drift this lint exists for.
+# `_tui_conf.sh:610` already states the principle for the same value: "the
+# accepted names are read off _VALID_GPU_CAPABILITIES rather than restated".
+# A shipped comment cannot read them at runtime, so it is pinned instead.
+readonly _DERIVED_FIGURES_CAPS_FILE='dist/setup.toml'
+readonly _DERIVED_FIGURES_CAPS_MARKER='NVIDIA_DRIVER_CAPABILITIES. Accepted:'
+
+# _derived_check_gpu_capabilities -- the comment line after the Accepted:
+# marker must be _VALID_GPU_CAPABILITIES, in declaration order. Prints each
+# violation; returns the count.
+_derived_check_gpu_capabilities() {
+  local _rel="${_DERIVED_FIGURES_CAPS_FILE}"
+  local _abs="${REPO_ROOT}/${_rel}"
+  local -a _lines=()
+  mapfile -t _lines < "${_abs}"
+
+  # The marker must be a COMMENT and must occur exactly once. Matching any
+  # line that merely contains the text would let a TOML string satisfy the
+  # pin, and taking the first of several would let an earlier correct marker
+  # hide a later stale list -- a guard that passes while the thing it guards
+  # is wrong, which is the failure this driver exists to prevent.
+  local _i _marker_idx=-1 _marker_count=0
+  for (( _i = 0; _i < ${#_lines[@]}; _i++ )); do
+    [[ "${_lines[_i]}" == '#'* ]] || continue
+    [[ "${_lines[_i]}" == *"${_DERIVED_FIGURES_CAPS_MARKER}"* ]] || continue
+    _marker_count=$(( _marker_count + 1 ))
+    (( _marker_idx < 0 )) && _marker_idx="${_i}"
+  done
+
+  if (( _marker_count > 1 )); then
+    printf "%s:%s: the '%s' marker appears %s times -- the pin would read the first and ignore the rest, so a stale list below it would pass. Keep exactly one.\n" \
+      "${_rel}" "$(( _marker_idx + 1 ))" \
+      "${_DERIVED_FIGURES_CAPS_MARKER}" "${_marker_count}"
+    return 1
+  fi
+
+  local _expected="${_VALID_GPU_CAPABILITIES[*]}"
+
+  if (( _marker_idx < 0 )); then
+    printf "%s: no '%s' marker -- the GPU capability figure has nowhere to be pinned. Restore the comment (the names are %s) or move the pin in drivers/derived_figures.sh.\n" \
+      "${_rel}" "${_DERIVED_FIGURES_CAPS_MARKER}" \
+      "$(_derived_join_comma "${_VALID_GPU_CAPABILITIES[@]}")"
+    return 1
+  fi
+
+  local _next=$(( _marker_idx + 1 ))
+  if (( _next >= ${#_lines[@]} )) || [[ "${_lines[_next]}" != '#'* ]]; then
+    printf '%s:%s: the Accepted: marker is not followed by a comment line holding the names\n' \
+      "${_rel}" "$(( _next + 1 ))"
+    return 1
+  fi
+
+  local -a _found=()
+  read -r -a _found <<< "${_lines[_next]#\#}"
+
+  if [[ "${_found[*]}" != "${_expected}" ]]; then
+    printf '%s:%s: gpu_capabilities documented as [%s], _VALID_GPU_CAPABILITIES declares [%s]\n' \
+      "${_rel}" "$(( _next + 1 ))" \
+      "$(_derived_join_comma "${_found[@]}")" \
+      "$(_derived_join_comma "${_VALID_GPU_CAPABILITIES[@]}")"
+    return 1
+  fi
+
+  return 0
+}
+
 _run_derived_figures() {
   echo "--- Running derived-figure lint ---"
 
   if ! declare -F _validate_stage_name >/dev/null \
-    || [[ ! -v SCHEMA_SECTIONS ]]; then
+    || [[ ! -v SCHEMA_SECTIONS ]] \
+    || [[ ! -v _VALID_GPU_CAPABILITIES ]]; then
     _die ci_derived_figures \
-      "the shipped lib is not loaded (_validate_stage_name / SCHEMA_SECTIONS missing) -- the figures cannot be derived, and a lint that cannot derive them must not pass."
+      "the shipped lib is not loaded (_validate_stage_name / SCHEMA_SECTIONS / _VALID_GPU_CAPABILITIES missing) -- the figures cannot be derived, and a lint that cannot derive them must not pass."
     return 1
   fi
 
@@ -1334,6 +1414,10 @@ _run_derived_figures() {
 
   _hits=0
   _derived_check_conf_sections || _hits=$?
+  _violations=$(( _violations + _hits ))
+
+  _hits=0
+  _derived_check_gpu_capabilities || _hits=$?
   _violations=$(( _violations + _hits ))
 
   # Figure 3. Derive the flag, the subcommand vocabulary and the lint table
@@ -1453,7 +1537,7 @@ _run_derived_figures() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_derived_figures \
-      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach. Fix the prose, not the predicate."
+      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The GPU capability names are _VALID_GPU_CAPABILITIES. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach. Fix the prose, not the predicate."
     return 1
   fi
   echo "derived-figure lint: clean"
