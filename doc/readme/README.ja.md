@@ -1290,7 +1290,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 0ee61143ce9b c9c6a1e49d11 -->
+<!-- sync: directory-structure b4011532c7d5 ead12d0d7905 -->
 ## ディレクトリ構造
 
 ```
@@ -1370,7 +1370,7 @@ just --list  # CI ターゲット表示
 ├── doc/
 │   ├── badge/                          # 生成されるリリースカバレッジバッジ（リリース時に hand-run、bump caller は未接続：docker_harness#289）
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
-│   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
+│   ├── adr/                            # Architecture Decision Records
 │   ├── test/
 │   │   ├── TEST.md                     # テスト索引（種別リンク；総数は記録しない、ADR-00000028）
 │   │   ├── unit.md                     # ユニットテスト一覧
