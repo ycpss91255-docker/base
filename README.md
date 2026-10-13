@@ -1879,7 +1879,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 ├── doc/
 │   ├── badge/                          # Generated release coverage badge (hand-run at release; bump caller pending, docker_harness#289)
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
-│   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
+│   ├── adr/                            # Architecture Decision Records
 │   ├── test/
 │   │   ├── TEST.md                     # Test index (per-category links; no suite total, ADR-00000028)
 │   │   ├── unit.md                     # Unit spec catalog

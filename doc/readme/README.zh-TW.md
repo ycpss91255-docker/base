@@ -1200,7 +1200,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 0ee61143ce9b e34b6dd0d1bf -->
+<!-- sync: directory-structure b4011532c7d5 3d6cd73c87d8 -->
 ## 目錄結構
 
 ```
@@ -1280,7 +1280,7 @@ just --list  # 顯示 CI 指令
 ├── doc/
 │   ├── badge/                          # 產生的發布覆蓋率徽章（release 時 hand-run，bump caller 待接：docker_harness#289）
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
-│   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
+│   ├── adr/                            # Architecture Decision Records
 │   ├── test/
 │   │   ├── TEST.md                     # 測試索引（各類型連結；不記總計，ADR-00000028）
 │   │   ├── unit.md                     # 單元測試清單
