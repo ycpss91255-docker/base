@@ -43,6 +43,7 @@ setup() {
 
   # A tree that passes, so each case perturbs exactly one thing.
   _write_drift_libs
+  _write_setup_toml
   _write_readme
   _write_runner
   _write_test_justfile
@@ -54,6 +55,22 @@ setup() {
 
 teardown() {
   [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
+}
+
+# _write_setup_toml [name]... -- a scratch dist/setup.toml whose documented
+# capability list is _VALID_GPU_CAPABILITIES, or exactly the names given.
+# base#1174. Derived rather than restated for the same reason the figure
+# exists: a fixture carrying its own hand-written copy of the list drifts from
+# the array just as the shipped comment did.
+_write_setup_toml() {
+  local -a _names=( "${_VALID_GPU_CAPABILITIES[@]}" )
+  [[ $# -gt 0 ]] && _names=( "$@" )
+  {
+    printf '[deploy]\n'
+    printf '# gpu_capabilities: space-separated NVIDIA_DRIVER_CAPABILITIES. Accepted:\n'
+    printf '#   %s\n' "${_names[*]}"
+    printf 'gpu_capabilities = "gpu compute utility graphics"\n'
+  } > "${SCRATCH}/dist/setup.toml"
 }
 
 # _write_readme [extra-line]... -- a scratch README.md whose setup.conf
@@ -238,6 +255,62 @@ _append() {
 # ════════════════════════════════════════════════════════════════════
 # _run_derived_figures: the baseline stage set
 # ════════════════════════════════════════════════════════════════════
+
+# why: base#1174 -- the shipped comment documented four of nine accepted
+# capability names and then none at all, while _VALID_GPU_CAPABILITIES kept
+# growing. `graphics` does not imply `ngx`, and a list missing it fails
+# silently, so the list is written down and pinned here.
+@test "_run_derived_figures: FAILS when the documented capabilities omit one (base#1174)" {
+  # Every name but the last. Dropping the tail is the live shape: the names
+  # added since the comment was written are the ones it is missing.
+  local -a _short=( "${_VALID_GPU_CAPABILITIES[@]:0:${#_VALID_GPU_CAPABILITIES[@]}-1}" )
+  _write_setup_toml "${_short[@]}"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/setup.toml:"* ]]
+  [[ "${output}" == *"${_VALID_GPU_CAPABILITIES[-1]}"* ]]
+}
+
+# why: base#1174 -- order is part of the figure. A set comparison would pass
+# a comment that lists the right names in an order no reader can check
+# against the array.
+@test "_run_derived_figures: FAILS when the documented capabilities are reordered (base#1174)" {
+  local -a _swapped=( "${_VALID_GPU_CAPABILITIES[@]}" )
+  local _tmp="${_swapped[0]}"; _swapped[0]="${_swapped[1]}"; _swapped[1]="${_tmp}"
+  _write_setup_toml "${_swapped[@]}"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/setup.toml:"* ]]
+}
+
+# why: base#1174 -- codex's review of the pin: matching the first marker
+# anywhere lets an earlier correct one hide a later stale list, so the pin
+# passes while the thing it pins is wrong. Exactly one, and it must be a
+# comment.
+@test "_run_derived_figures: FAILS when the Accepted: marker appears twice (base#1174)" {
+  _write_setup_toml
+  # A second, correct marker ABOVE the real one: the stale list below it is
+  # what a first-match parser would never reach.
+  {
+    printf '# gpu_capabilities: space-separated NVIDIA_DRIVER_CAPABILITIES. Accepted:\n'
+    printf '#   %s\n' "${_VALID_GPU_CAPABILITIES[*]}"
+    cat "${SCRATCH}/dist/setup.toml"
+  } > "${SCRATCH}/dist/setup.toml.new"
+  mv "${SCRATCH}/dist/setup.toml.new" "${SCRATCH}/dist/setup.toml"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"appears 2 times"* ]]
+}
+
+# why: base#1174 -- the pin needs somewhere to attach. A deleted marker must
+# be reported rather than letting the figure pass vacuously, which is the
+# failure this whole driver was written against.
+@test "_run_derived_figures: FAILS when the Accepted: marker is gone (base#1174)" {
+  printf '[deploy]\ngpu_capabilities = "gpu"\n' > "${SCRATCH}/dist/setup.toml"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Accepted:"* ]]
+}
 
 @test "_run_derived_figures: FAILS on a README baseline set that lists devel-test, naming file and line (#874)" {
   _write_readme 'Any stage outside the blocklist' \
