@@ -25,8 +25,10 @@ set working-directory := '../..'
 # carrying a space becomes several arguments and the probe refuses it, while
 # one carrying a `>` or a `;` is EXECUTED by the recipe shell -- outside the
 # record-and-restore loop, writing a file the probe never recorded and so can
-# never put back. No recipe here reads $0 / $1 / $@ for anything else, so the
-# setting is free.
+# never put back. base#1284 made the rule uniform: EVERY forwarding recipe in
+# this file passes "$@", because the same re-split reached `coverage-path`'s
+# `--filter` as well, and a per-recipe exception is what let it survive.
+# No recipe here reads $0 / $1 / $@ for anything but forwarding.
 set positional-arguments := true
 
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
@@ -87,7 +89,7 @@ default:
 # holds this list to the table and to the dispatcher, so a flag advertised
 # here that nothing answers for is a red test rather than a comment.
 lint *args:
-    ./script/test/test.sh --lint {{args}}
+    ./script/test/test.sh --lint "$@"
 
 # lifecycle: CREATES NOTHING. It is the one recipe here that runs
 # host-direct -- pure bash over the checkout, no compose, no container --
@@ -235,13 +237,21 @@ coverage-local jobs='':
 # This recipe means the same thing in both places.
 #
 # The argument is REQUIRED (contrast `coverage shard=''`): a bare invocation
-# must name the missing spec, not silently kcov the whole suite. Extra flags
-# pass through, so `--filter <regex>` narrows to a single test.
+# must name the missing spec, not silently kcov the whole suite.
+#
+# The spec and the extra flags both pass through as "$@", not as an
+# interpolated {{spec}} / {{args}}, for the reason `set positional-arguments`
+# is set at the top of this file: a `--filter` regex is ONE argument, and
+# {{args}} hands the recipe's own shell the expression to re-split. Until
+# base#1284 `--filter 'one two'` arrived as two arguments and
+# `--filter 'foo|bar'` became a shell pipeline -- `bar: not found`, status
+# 127, from the recipe's own shell, which reads as nothing an operator can
+# connect to quoting.
 #
 #   just test coverage-path test/bats/unit/lib_spec.bats
 #   just test coverage-path test/bats/unit/lib_spec.bats --filter 'nounset'
 coverage-path spec *args:
-    ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
+    ./script/test/test.sh --coverage-path "$@"
 
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
 # trap that sweeps orphaned compose projects on every dispatch it arms, pass
@@ -428,7 +438,7 @@ smoke *args:
     export BUILDKIT_PROGRESS=plain
     ./script/test/test.sh --await-project
     just docker build --target test-tools
-    just docker build {{args}} --target smoke
+    just docker build "$@" --target smoke
 
 # The gap it closes: base runs two compose projects out of one checkout.
 # `just docker build` / `run` mint `local-<dir>`, which the shipped
@@ -471,7 +481,7 @@ stop *args:
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
     export HOST_UID HOST_GID
-    ./script/stop.sh {{args}}
+    ./script/stop.sh "$@"
 
 # lifecycle: RECLAIMED BY THE RUNNER. This recipe starts a container of
 # its own, so it mints a compose project; script/test/test.sh arms the
@@ -572,7 +582,7 @@ resolve-docs:
 # explicit "I read the English change and the translation is still correct"
 # -- the case an English typo fix creates, kept to one command.
 sync-readme *args:
-    ./script/test/sync-readme-hashes.sh {{args}}
+    ./script/test/sync-readme-hashes.sh "$@"
 
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
 # trap that sweeps orphaned compose projects on every dispatch it arms,

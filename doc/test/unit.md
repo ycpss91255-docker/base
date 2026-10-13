@@ -3502,7 +3502,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
-### test/bats/unit/justfile_spec.bats (18)
+### test/bats/unit/justfile_spec.bats (19)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -3528,6 +3528,7 @@ base verbs to `./.base/upgrade.sh`. Asserted by grep, not execution --
 | `test namespace: coverage-path demands its spec, coverage keeps its optional shard (#887)` | Required spec argument (a defaulted one would kcov the whole suite on a typo) |
 | `test namespace: bats-path demands its spec and forwards it (base#1173)` | Required spec argument (a defaulted one would run the whole suite on a typo, base#1173) |
 | `just test bats-path dispatches ONE spec and refuses a bare invocation (base#1173)` | a grep proves the recipe LINE exists, not that it runs one spec (base#1173) |
+| `just test coverage-path forwards a --filter as ONE argument (base#1284)` | a grep proves the recipe LINE exists, not that a flag survives the recipe's own shell (base#1284) |
 | `test / release namespaces are English-only -- no --lang plumbing (#655)` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
 | `consumer entry: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- guards `just --list` descriptions (no blank-gap empty, no multi-line fragment) |
 | `base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- same invariant for base's self-dev entry |

@@ -35,8 +35,8 @@ teardown() {
   # Guarded with an if-block, not `[ ] && rm`: most tests here never set it,
   # and the `&&` chain's non-zero status would turn a passing test into a
   # teardown failure.
-  if [[ -n "${BATS_PATH_SANDBOX:-}" ]]; then
-    rm -rf "${BATS_PATH_SANDBOX}"
+  if [[ -n "${JUST_TEST_SANDBOX:-}" ]]; then
+    rm -rf "${JUST_TEST_SANDBOX}"
   fi
 }
 
@@ -184,8 +184,19 @@ teardown() {
   assert_success
   run grep -E "^coverage-path spec=" "${_test_justfile}"
   assert_failure
-  run grep -F -- "--coverage-path '{{spec}}'" "${_test_justfile}"
+  # The spec AND the trailing flags forward through quoted "$@". This arm
+  # asserted `--coverage-path '{{spec}}'` until base#1284 -- i.e. it PINNED
+  # the defect: `just` expands {{args}} as text, so the recipe's own shell
+  # re-read it and a `--filter` carrying a space became two arguments while
+  # one carrying a `|` became a pipeline (status 127). The refutation below
+  # is the half that matters: no `{{` may return to the forwarding line, so
+  # the next transliteration of this recipe cannot reintroduce it. The
+  # executed proof is `just test coverage-path forwards a --filter ...`
+  # below.
+  run grep -F -- './script/test/test.sh --coverage-path "$@"' "${_test_justfile}"
   assert_success
+  run grep -nE '^[[:space:]]+\./script/test/test\.sh --coverage-path .*\{\{' "${_test_justfile}"
+  assert_failure
   # The shard argument of `coverage` stays optional (bare = full suite).
   run grep -E "^coverage shard='':$" "${_test_justfile}"
   assert_success
@@ -215,10 +226,11 @@ teardown() {
   assert_failure
 }
 
-# _bats_path_sandbox <dir> -- base's own root entry plus the `test` namespace,
+# _just_test_sandbox <dir> -- base's own root entry plus the `test` namespace,
 # with the runner replaced by a recorder that writes one argument per line to
-# <dir>/.dispatch_log and starts no container. base#1173.
-_bats_path_sandbox() {
+# <dir>/.dispatch_log and starts no container. base#1173; shared with
+# base#1284's coverage-path arm, which needs the identical tree.
+_just_test_sandbox() {
   local _dir="${1}"
   mkdir -p "${_dir}/script/test"
   cp /source/justfile "${_dir}/justfile"
@@ -230,16 +242,17 @@ STUB
   chmod +x "${_dir}/script/test/test.sh"
 }
 
-# _bats_path_dispatch <dir> <arg>... -- run `just test bats-path <arg>...` in
-# the sandbox. Leaves the recorded dispatch in _dispatched (one argument per
-# line, empty when the runner was never reached), just's exit status in
-# _dispatch_status and its own output in _dispatch_output. base#1173.
-_bats_path_dispatch() {
-  local _dir="${1}"; shift
+# _just_test_dispatch <dir> <recipe> <arg>... -- run
+# `just test <recipe> <arg>...` in the sandbox. Leaves the recorded dispatch
+# in _dispatched (one argument per line, empty when the runner was never
+# reached), just's exit status in _dispatch_status and its own output in
+# _dispatch_output. base#1173; the recipe is a parameter since base#1284.
+_just_test_dispatch() {
+  local _dir="${1}" _recipe="${2}"; shift 2
   rm -f "${_dir}/.dispatch_log"
   local _out='' _st=0
   _out="$(just --justfile "${_dir}/justfile" --working-directory "${_dir}" \
-    test bats-path "$@" 2>&1)" || _st="$?"
+    test "${_recipe}" "$@" 2>&1)" || _st="$?"
   _dispatch_output="${_out}"
   _dispatch_status="${_st}"
   _dispatched=''
@@ -260,13 +273,14 @@ _bats_path_dispatch() {
   command -v just >/dev/null 2>&1 \
     || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the static half above still runs"
   local _dispatched='' _dispatch_status=0 _dispatch_output=''
-  BATS_PATH_SANDBOX="$(mktemp -d)"
-  _bats_path_sandbox "${BATS_PATH_SANDBOX}"
+  JUST_TEST_SANDBOX="$(mktemp -d)"
+  _just_test_sandbox "${JUST_TEST_SANDBOX}"
 
   # The spec named on the command line reaches the runner behind the
   # NARROWING flag, and is the WHOLE dispatch -- not a full-suite run with
   # the path somewhere in it.
-  _bats_path_dispatch "${BATS_PATH_SANDBOX}" test/bats/unit/justfile_spec.bats
+  _just_test_dispatch "${JUST_TEST_SANDBOX}" bats-path \
+    test/bats/unit/justfile_spec.bats
   [[ "${_dispatch_status}" -eq 0 ]] \
     || fail "the recipe failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "--bats-path"$'\n'"test/bats/unit/justfile_spec.bats" ]] \
@@ -278,15 +292,15 @@ _bats_path_dispatch() {
   # so the first becomes two arguments the runner rejects by name and the
   # second becomes a shell pipeline (`bar: not found`, status 127). That is
   # the defect `set positional-arguments` exists to avoid in this file.
-  _bats_path_dispatch "${BATS_PATH_SANDBOX}" test/bats/unit/schema_spec.bats \
-    --filter 'gpu_count under nounset'
+  _just_test_dispatch "${JUST_TEST_SANDBOX}" bats-path \
+    test/bats/unit/schema_spec.bats --filter 'gpu_count under nounset'
   [[ "${_dispatch_status}" -eq 0 ]] \
     || fail "a filter with spaces failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "--bats-path"$'\n'"test/bats/unit/schema_spec.bats"$'\n'"--filter"$'\n'"gpu_count under nounset" ]] \
     || fail "the filter did not arrive as one argument: [${_dispatched}]"
 
-  _bats_path_dispatch "${BATS_PATH_SANDBOX}" test/bats/unit/schema_spec.bats \
-    --filter 'gpu_count|nounset'
+  _just_test_dispatch "${JUST_TEST_SANDBOX}" bats-path \
+    test/bats/unit/schema_spec.bats --filter 'gpu_count|nounset'
   [[ "${_dispatch_status}" -eq 0 ]] \
     || fail "a filter with an alternation failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == *$'\n'"--filter"$'\n'"gpu_count|nounset" ]] \
@@ -294,13 +308,53 @@ _bats_path_dispatch() {
 
   # Bare invocation: a refusal naming the missing argument, and NOTHING
   # dispatched. A defaulted `spec=` would make this the whole suite instead.
-  _bats_path_dispatch "${BATS_PATH_SANDBOX}"
+  _just_test_dispatch "${JUST_TEST_SANDBOX}" bats-path
   [[ "${_dispatch_status}" -ne 0 ]] \
     || fail "a bare 'just test bats-path' succeeded: [${_dispatch_output}]"
   [[ "${_dispatch_output}" == *'bats-path'* && "${_dispatch_output}" == *'spec'* ]] \
     || fail "the refusal names neither the recipe nor its missing argument: [${_dispatch_output}]"
   [[ -z "${_dispatched}" ]] \
     || fail "a bare 'just test bats-path' reached the runner with [${_dispatched}], so a typo would start a suite"
+}
+
+# why: a grep proves the recipe LINE exists, not that a flag survives the
+# recipe's own shell (base#1284)
+@test "just test coverage-path forwards a --filter as ONE argument (base#1284)" {
+  # Until base#1284 the body was `--coverage-path '{{spec}}' {{args}}`, and
+  # the static arm above asserted exactly that -- a guard that pinned the
+  # defect instead of observing the property it names, which is this repo's
+  # most frequent failure family (base#1115 / base#1117 / base#1175). So
+  # the forwarding is EXECUTED here, against a stubbed runner that records
+  # one argument per line and starts no container.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the static half above still runs"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_TEST_SANDBOX="$(mktemp -d)"
+  _just_test_sandbox "${JUST_TEST_SANDBOX}"
+
+  # A filter carrying a regex ALTERNATION. `just` expands {{args}} as TEXT,
+  # so the recipe's own shell read the `|` as a pipeline: the runner got
+  # `--filter foo` and `bar` was run as a command, `bar: not found`, exit
+  # 127. That is why what is asserted is an EQUALITY on the recorded
+  # argument list plus the message, and never a bare non-zero -- a 127 has
+  # satisfied an exit-status check in this repo before.
+  _just_test_dispatch "${JUST_TEST_SANDBOX}" coverage-path \
+    test/bats/unit/lib_spec.bats --filter 'nounset|coverage'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a filter with an alternation failed (${_dispatch_status}): [${_dispatch_output}]"
+  [[ "${_dispatch_output}" != *'not found'* ]] \
+    || fail "the recipe shell ran part of the filter as a command: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "--coverage-path"$'\n'"test/bats/unit/lib_spec.bats"$'\n'"--filter"$'\n'"nounset|coverage" ]] \
+    || fail "dispatched [${_dispatched}], not the spec with the alternation as one argument"
+
+  # A filter carrying a SPACE: ONE `bats -f` argument, which the
+  # interpolation split into two the runner then reads as a stray path.
+  _just_test_dispatch "${JUST_TEST_SANDBOX}" coverage-path \
+    test/bats/unit/lib_spec.bats --filter 'bare invocation'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a filter with spaces failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "--coverage-path"$'\n'"test/bats/unit/lib_spec.bats"$'\n'"--filter"$'\n'"bare invocation" ]] \
+    || fail "the filter did not arrive as one argument: [${_dispatched}]"
 }
 
 # why: #655 -- ADR-00000011 i18n scope (machine/CI namespaces)
