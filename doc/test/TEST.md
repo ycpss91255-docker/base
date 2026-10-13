@@ -70,6 +70,10 @@ The other instrumented entries are the whole suite (serially, or as parallel
 kcov processes) and a whole shard, minutes each; this one runs the spec you
 name.
 
+`--filter <regex>` narrows further, to one `@test` within the file, and the
+regex reaches bats intact -- a space or a `|` in it is not re-split or read as
+a pipeline by the recipe's shell (base#1284).
+
 **It reports no coverage figure, deliberately.** The kcov report goes to a
 throwaway directory inside the container and is removed on the way out, so
 nothing this mode runs can write `coverage/cobertura.xml` -- which the

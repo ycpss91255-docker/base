@@ -94,12 +94,16 @@ setup() {
 @test "justfile.test lint recipe forwards args + runs all linters by default (#650)" {
   # `just test lint` (no flag) runs --lint (all linters: shellcheck +
   # hadolint via the test-tools container); `--shellcheck` / `--hadolint`
-  # narrow. The recipe forwards {{args}} so the narrowing flags reach
-  # test.sh (ADR-00000011 #3 min->max).
+  # narrow. The recipe forwards the narrowing flags to test.sh
+  # (ADR-00000011 #3 min->max) as quoted "$@", not as an interpolated
+  # {{args}} that `just` expands as text for the recipe's own shell to
+  # re-split -- base#1284 swept the whole file onto the one form.
   run grep -E '^lint \*args:' /source/script/test/justfile.test
   assert_success
-  run grep -F './script/test/test.sh --lint {{args}}' /source/script/test/justfile.test
+  run grep -F -- './script/test/test.sh --lint "$@"' /source/script/test/justfile.test
   assert_success
+  run grep -nE '^[[:space:]]+\./script/test/test\.sh --lint .*\{\{' /source/script/test/justfile.test
+  assert_failure
 }
 
 # why: just recipe
