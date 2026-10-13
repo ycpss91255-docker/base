@@ -17,7 +17,7 @@ resolves to an issue.
 ## Conventions
 
 - **Create an issue**: `.agents/scripts/gh-issue.sh create --title "scope: ..." --body-file <path> --label <kind> [--label <state>]`. Write the body to a file first; the script always hands it to `gh` as `--body-file`. `.agents/hooks/enforce_gh_body_file.sh` denies a `gh issue create` that carries an inline `--body` or no `--label`, so both flags are mandatory in practice, not merely conventional.
-- **Edit an issue**: `.agents/scripts/gh-issue.sh edit <number> --title "..."` / `--body-file <path>`. The target may be the issue number or its URL, the two forms `gh` itself accepts.
+- **Edit an issue**: `.agents/scripts/gh-issue.sh edit <number> --title "..."` / `--body-file <path>`. The target may be the issue number or its URL, the two forms `gh` itself accepts. A body passed to `edit` is held to the shape the issue's body **already has**, not to the shape a new issue must arrive with: `## Context` and `## Out of scope` are required only where the current body already carries them, so a body that predates the requirement can be corrected in place -- and an edit may not drop either of those two where it does carry them. Only those two are protected; an existing `## Problem`, `## Proposal` or `## Acceptance criteria` may be removed. Section order still applies to whichever sections are present, and if the current body cannot be read at all the `create` rule applies instead. `create` itself is unchanged -- a new issue arrives carrying both. The refusal names which rule it applied.
 - **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."` for a short single-line comment; anything multi-line or long goes through `--body-file`, which the same hook enforces.
@@ -38,6 +38,8 @@ vendored `gh-artifact-format` skill (`.agents/skills/gh-artifact-format/`).
 That skill is the single home for the format; this document does not restate
 it, and where the two ever disagree the skill wins for format and this
 document wins for which command to run.
+
+One consequence belongs here rather than there, because it is about the command and not the format: the five sections are what a body is *written* to, and `gh-issue.sh edit` therefore asks what the issue carries today before it asks what the new body carries. Most bodies in this tracker predate the requirement, and holding an edit to a shape its body never had makes the oldest issues -- the ones whose measurements have gone stalest -- the ones that cannot be corrected.
 
 ## Labels
 
