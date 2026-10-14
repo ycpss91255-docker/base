@@ -729,3 +729,149 @@ EOF
   assert_equal "${_got[0]}" "SYS_ADMIN"
   assert_equal "${_got[1]}" "NET_RAW"
 }
+
+# why: base#1185 -- the splitter hard-codes `logging` as the only
+#      sub-sectioned name, so the whole base.* namespace cannot land
+@test "_conf_split_nskey: today's answers are pinned, so a refactor that changes one is loud (base#1185)" {
+  # This arm changes nothing on its own. It is here so the arms below --
+  # which move WHERE the rule comes from -- cannot quietly move WHAT the
+  # rule says. Every row is the current tree's answer, including the two
+  # the docstring names and the `stage:` shape, which has a dot in its
+  # KEY rather than its section.
+  source /source/dist/script/docker/lib/schema.sh
+  local _s="" _k=""
+
+  _conf_split_nskey "logging.web.driver" _s _k
+  assert_equal "${_s}|${_k}" "logging.web|driver"
+
+  _conf_split_nskey "logging.max_size" _s _k
+  assert_equal "${_s}|${_k}" "logging|max_size"
+
+  _conf_split_nskey "stage:headless.gui.mode" _s _k
+  assert_equal "${_s}|${_k}" "stage:headless|gui.mode"
+
+  _conf_split_nskey "lifecycle.restart" _s _k
+  assert_equal "${_s}|${_k}" "lifecycle|restart"
+
+  # A name with no dot is not a split at all, and both outvars are
+  # cleared rather than left holding the caller's previous answer.
+  _s="stale"; _k="stale"
+  run _conf_split_nskey "logging" _s _k
+  assert_failure
+  _conf_split_nskey "logging" _s _k || true
+  assert_equal "${_s}|${_k}" "|"
+}
+
+# why: base#1185 -- the set of sub-sectioned names must come from the
+#      registry, or base#1152 / base#1184 cannot add one
+@test "_conf_split_nskey: follows the registry, so a new sub-sectioned name needs no edit here (base#1185)" {
+  # THE arm for this issue. A fix that merely moves the string `logging`
+  # into a variable passes every other check in this file; only this one
+  # fails it. The registry is extended in the FIXTURE -- nothing under
+  # dist/ is touched -- and the splitter has to follow.
+  #
+  # `base` rather than `base.watchdog`: the registry names the PARENT
+  # that has sub-sections, which is what the splitter can see before it
+  # has split anything. The name is base#1152's and is deliberately NOT
+  # added to the shipped registry by this slice.
+  source /source/dist/script/docker/lib/schema.sh
+  local _s="" _k=""
+
+  _conf_split_nskey "base.watchdog.check" _s _k
+  assert_equal "${_s}|${_k}" "base|watchdog.check"
+
+  SCHEMA_SUBSECTIONED+=( base )
+
+  _conf_split_nskey "base.watchdog.check" _s _k
+  assert_equal "${_s}|${_k}" "base.watchdog|check"
+
+  # One dot is still one dot. Registering a parent must not drag its own
+  # scalars into a sub-section that does not exist -- the exact failure
+  # the docstring rules out for a prefix match.
+  _conf_split_nskey "base.project" _s _k
+  assert_equal "${_s}|${_k}" "base|project"
+
+  # And the name that was already there is unaffected by the new one.
+  _conf_split_nskey "logging.web.driver" _s _k
+  assert_equal "${_s}|${_k}" "logging.web|driver"
+
+  # The other direction, and the reason this arm is not satisfied by
+  # "recognise `logging` AND consult the registry": TAKING logging out
+  # has to change its answer too. An implementation that keeps the
+  # literal as a floor passes every assertion above and fails this one.
+  SCHEMA_SUBSECTIONED=( base )
+  _conf_split_nskey "logging.web.driver" _s _k
+  assert_equal "${_s}|${_k}" "logging|web.driver"
+  _conf_split_nskey "base.watchdog.check" _s _k
+  assert_equal "${_s}|${_k}" "base.watchdog|check"
+
+  # A registry that names NOTHING is a registry, not a missing one: it
+  # answers "no" for every name and the split falls to the first dot.
+  # This is what distinguishes it from the refusal arm below.
+  SCHEMA_SUBSECTIONED=()
+  _conf_split_nskey "logging.web.driver" _s _k
+  assert_equal "${_s}|${_k}" "logging|web.driver"
+}
+
+# why: base#1185 -- conf.sh gains its first dependency on schema.sh, and
+#      it must declare that itself rather than trust the caller
+@test "_conf_split_nskey: sourcing conf.sh alone carries the registry with it (base#1185)" {
+  # This file sources conf.sh ALONE, and so do five libraries under
+  # dist/ -- setup_conf.sh, conf_logging.sh, config_summary.sh,
+  # setup_conf_migrate.sh, ini_to_toml_migrate.sh -- one of which
+  # (config_summary.sh) calls the splitter. Had the dependency been left
+  # to the caller, every one of those would have stopped splitting, so
+  # conf.sh sources schema.sh at its own foot.
+  #
+  # Asserted from THIS file's setup, which names conf.sh and nothing
+  # else: if the source line at the foot of conf.sh is removed, this is
+  # the arm that says so.
+  declare -F _schema_is_subsectioned > /dev/null
+  assert_equal "${SCHEMA_SUBSECTIONED[*]}" "logging"
+
+  local _s="" _k=""
+  _conf_split_nskey "logging.web.driver" _s _k
+  assert_equal "${_s}|${_k}" "logging.web|driver"
+}
+
+# why: base#1185 -- an unloaded registry must not read as "nothing is
+#      sub-sectioned", an answer worse than the literal it replaced
+@test "_conf_split_nskey: refuses rather than guessing when the registry is gone (base#1185)" {
+  # With the predicate absent, "is this name sub-sectioned?" has no
+  # answer, and the cheap reading of no answer is `no` -- which files
+  # `logging.web.driver` under `[logging]` again and says nothing. That
+  # is worse than the literal it replaced, which at least got `logging`
+  # right, so a missing registry is a REFUSAL.
+  #
+  # What callers do with that refusal is NOT uniform, which is why the
+  # refusal has to be loud on its own account: of the twenty call sites,
+  # sixteen `|| continue` and drop the key, three reject with a usage
+  # message, and `show` decides between a section and a key -- that one
+  # reads the shape of its SPEC rather than the status, so a refusal
+  # does not read as "this names a whole section".
+  #
+  # Reached by removing the registry rather than by withholding the
+  # source, because conf.sh now brings it in itself (arm above). Both
+  # halves are checked separately: a predicate with no array is not a
+  # registry, it is a predicate that answers "no" to everything.
+  local _s="stale" _k="stale"
+
+  unset -f _schema_is_subsectioned
+  run _conf_split_nskey "logging.web.driver" _s _k
+  assert_failure
+  assert_output --partial "conf_subsection_registry_missing"
+
+  # Re-sourcing needs the guard cleared first: schema.sh returns at its
+  # second line when _DOCKER_SCHEMA_SOURCED is set, so a bare `source`
+  # here would restore neither half and this would re-test the arm
+  # above. Found by mutation -- with the guard left set, a conf.sh that
+  # checked only the predicate passed this.
+  unset _DOCKER_SCHEMA_SOURCED
+  source /source/dist/script/docker/lib/schema.sh
+  declare -F _schema_is_subsectioned > /dev/null
+
+  unset SCHEMA_SUBSECTIONED
+  run _conf_split_nskey "logging.web.driver" _s _k
+  assert_failure
+  assert_output --partial "conf_subsection_registry_missing"
+}
