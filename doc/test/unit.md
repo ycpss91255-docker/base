@@ -3515,21 +3515,22 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
-### test/bats/unit/justfile_spec.bats (19)
+### test/bats/unit/justfile_spec.bats (22)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
 top-level import). The entry `dist/script/justfile` mods the docker + base
-modules; docker verbs forward 1:1 to `./script/<name>.sh` via `{{args}}`,
-base verbs to `./.base/upgrade.sh`. Asserted by grep, not execution --
-`just` is not in the test-tools image; downstream installs it.
+modules; docker verbs forward 1:1 to `./script/<name>.sh` via `"$@"`
+(base#1289), base verbs to `./.base/upgrade.sh`. Asserted by grep where the
+claim is about the file's shape, and by running the recipe where it is about
+what reaches a wrapper.
 
 | Test | Description |
 |------|-------------|
 | `layered entry + docker module exist` | both files present |
 | `docker module declares args-passthrough recipes for every wrapper verb (#545)` | build/run/exec/stop/prune/setup/setup-tui `*args` |
 | `docker module no longer carries upgrade/upgrade-check (moved to base ns, #652)` | #652 -- upgrade is a .base op |
-| `docker module recipes forward to ./script/<wrapper>.sh with {{args}} (#545)` | forwarding bodies |
+| `docker module recipes forward to ./script/<wrapper>.sh (#545, base#1289)` | forwarding bodies -- as "$@" since base#1289, not {{args}} |
 | `base module declares upgrade + update (apt-aligned) forwarding to .base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)` | - |
 | `base update recipe forwards -h\|--help to upgrade.sh usage without the check (#789)` | - |
 | `every shipped namespace module ships a help recipe + h alias (#789)` | - |
@@ -3545,6 +3546,9 @@ base verbs to `./.base/upgrade.sh`. Asserted by grep, not execution --
 | `test / release namespaces are English-only -- no --lang plumbing (#655)` | #655 -- ADR-00000011 i18n scope (machine/CI namespaces) |
 | `consumer entry: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- guards `just --list` descriptions (no blank-gap empty, no multi-line fragment) |
 | `base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)` | #720 -- same invariant for base's self-dev entry |
+| `just docker: a forwarded flag arrives as ONE argument, space or pipe (base#1289)` | the consumer's own interface re-read every flag it forwarded (base#1289) |
+| `just docker start --help still prints usage and starts nothing (base#1289)` | converting the -h scan by accident is the regression this invites (base#1289) |
+| `no forwarding line in justfile.docker interpolates {{ (base#1289)` | a transliteration that reintroduces {{ on a forwarding line is the way this comes back (base#1289) |
 
 ### test/bats/unit/justfile_user_spec.bats (33)
 
