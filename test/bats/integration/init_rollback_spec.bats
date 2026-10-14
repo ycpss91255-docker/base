@@ -353,3 +353,117 @@ _seed_template_remote() {
   run git -C "${CONSUMER}" status --porcelain
   assert_output ""
 }
+
+# ══════════════════════════════════════════════════════════════════════
+# The index, which the byte-identical assertions above do not reach
+# ══════════════════════════════════════════════════════════════════════
+
+# why: base#1160 -- a rolled-back resync left the smoke-tree rename staged
+@test "a failed resync leaves the index clean, not just the working tree (base#1160)" {
+  # `_assert_consumer_unchanged` compares FILES, and the files were
+  # restored correctly. The index was not. `_migrate_smoke_tree` used to
+  # `git add -A -- test/smoke test/bats/smoke` from inside the rollback
+  # bracket, and `_init_restore_index` only re-adds entries the run
+  # REMOVED -- it has never removed ones the run ADDED.
+  #
+  # Asserted on `git diff --cached`, which is the direct statement about
+  # the index. base#1160's own text says `git status` "nets out to
+  # nothing" here; measured, that is not true -- status reports
+  # `RD test/smoke/… -> test/bats/smoke/shared/…`, an `AD` per
+  # placeholder and a `??` for the restored source. What it does not do
+  # is make any of that look like a BUG, and the arms above it assert
+  # the FILES are byte-identical, which they were. Every command in the
+  # scenario also exits as expected. So the index was the one question
+  # nothing asked, not the one question nothing could answer.
+  _git_init_repo "${CONSUMER}"
+  _seed_subtree "${CONSUMER}"
+  _seed_consumer_files "${CONSUMER}"
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "consumer at v0.41.0"
+
+  cd "${CONSUMER}"
+  run env PATH="$(_stub_failing_sed)" ./.base/dist/script/base/init.sh
+  assert_failure
+
+  run git -C "${CONSUMER}" diff --cached --name-status
+  assert_success
+  assert_output ""
+}
+
+# why: base#1160 -- dropping the stager must not drop the rename from the
+#      consumer's commit, which is strictly worse than the defect
+@test "a successful resync still stages the smoke-tree rename (base#1160)" {
+  # The companion the fix needs. Removing the inline `git add` without
+  # recording the paths passes the arm above perfectly and silently loses
+  # the migration from the caller's commit -- the rename then surfaces
+  # later as an unexplained move, which is what the `git add` was there
+  # to prevent.
+  #
+  # Both ends are asserted. The new path is a write; the old one exists
+  # nowhere but the index once the file has moved, so a stager handed
+  # only the new path leaves the delete unstaged and the commit describes
+  # a tree carrying both copies.
+  _git_init_repo "${CONSUMER}"
+  _seed_subtree "${CONSUMER}"
+  _seed_consumer_files "${CONSUMER}"
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "consumer at v0.41.0"
+
+  cd "${CONSUMER}"
+  run ./.base/dist/script/base/init.sh
+  assert_success
+
+  # The move happened on disk.
+  assert [ ! -e "${CONSUMER}/test/smoke/repo_env.bats" ]
+  assert [ -f "${CONSUMER}/test/bats/smoke/shared/repo_env.bats" ]
+
+  # `--no-renames` on purpose. With detection on git reports this as one
+  # `R100 test/smoke/… test/bats/smoke/shared/…` line, which is true but
+  # is a statement about similarity scoring rather than about what was
+  # staged: the same two index entries would be reported as `D` + `A` the
+  # moment the file's content differed enough, or under a consumer's own
+  # `diff.renames` setting. Asking for both ends explicitly pins the
+  # thing this fix is about and nothing else.
+  run git -C "${CONSUMER}" diff --cached --no-renames --name-status
+  assert_success
+  assert_line "D	test/smoke/repo_env.bats"
+  assert_line "A	test/bats/smoke/shared/repo_env.bats"
+  # The per-stage placeholders the same migration writes ride with it;
+  # they were covered by the old `git add -A -- test/bats/smoke` and must
+  # not fall out of the commit now that the paths are named one by one.
+  assert_line "A	test/bats/smoke/devel-test/.gitkeep"
+  assert_line "A	test/bats/smoke/runtime-test/.gitkeep"
+}
+
+# why: base#1160 -- the rule _init_restore_index already held, pinned so
+#      the change above cannot quietly take it away
+@test "a failed resync leaves what the consumer had already staged alone (base#1160)" {
+  # `_init_restore_index` puts back only entries that are GONE from the
+  # index, so anything the consumer staged before the run survives
+  # exactly as it was. That rule is older than this issue and is not
+  # changed by it; it is pinned here because the two arms above both
+  # assert about the index, and a fix that reached for `git reset` to
+  # satisfy the first would destroy this one and satisfy neither.
+  _git_init_repo "${CONSUMER}"
+  _seed_subtree "${CONSUMER}"
+  _seed_consumer_files "${CONSUMER}"
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "consumer at v0.41.0"
+
+  # The consumer's own work in progress, staged and not committed.
+  echo "operator edit" > "${CONSUMER}/NOTES.md"
+  git -C "${CONSUMER}" add NOTES.md
+
+  cd "${CONSUMER}"
+  run env PATH="$(_stub_failing_sed)" ./.base/dist/script/base/init.sh
+  assert_failure
+
+  run git -C "${CONSUMER}" diff --cached --name-status
+  assert_success
+  assert_output "A	NOTES.md"
+  # The CONTENT too, not just the name and the status: an index entry
+  # rewritten from a stale snapshot would still read `A NOTES.md`.
+  run git -C "${CONSUMER}" show ":NOTES.md"
+  assert_success
+  assert_output "operator edit"
+}

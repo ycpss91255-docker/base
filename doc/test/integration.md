@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **193 tests**.
+Integration specs under `test/bats/integration/`: **196 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -265,7 +265,7 @@ the unit `tui_spec`.
 | `every path the resync touches lies under a protected root (refs #1050)` | The rollback surface is derived from what the resync does, not from a list restated in the spec |
 | `a rollback after a successful INI-to-TOML conversion restores the INI (refs base#1137)` | The other side of the containment pair (base#1137). That pair stopped a FAILED conversion from retiring the INI; this is a conversion that SUCCEEDS and is then rolled back. The migration writes `setup.toml` and renames `.setup.conf` to `.setup.conf.bak`, and the rollback surface named neither the source nor the name it is renamed to -- so the snapshot recorded `setup.toml` as absent and removed it, while the rename was left standing. The repo came out of a failed run carrying no configuration any shipped reader looks at, which is the outcome the containment exists to prevent, reached from the successful direction. |
 
-### test/bats/integration/init_rollback_spec.bats (5)
+### test/bats/integration/init_rollback_spec.bats (8)
 
 | Test | Description |
 |------|-------------|
@@ -274,6 +274,9 @@ the unit `tui_spec`.
 | `just base init: the failed resync says it restored the files (#937)` | - |
 | `a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)` | - |
 | `the current upgrade.sh: inner and outer rollback compose, not fight (#937)` | - |
+| `a failed resync leaves the index clean, not just the working tree (base#1160)` | base#1160 -- a rolled-back resync left the smoke-tree rename staged |
+| `a successful resync still stages the smoke-tree rename (base#1160)` | base#1160 -- dropping the stager must not drop the rename from the consumer's commit, which is strictly worse than the defect |
+| `a failed resync leaves what the consumer had already staged alone (base#1160)` | base#1160 -- the rule _init_restore_index already held, pinned so the change above cannot quietly take it away |
 
 ### test/bats/integration/just_runner_version_spec.bats (1)
 
