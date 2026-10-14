@@ -592,10 +592,14 @@ _just_release_dispatch() {
 # why: the release namespace re-read the flags it forwarded, same shape
 # as base#1284 and base#1289's docker slice
 @test "just release forwards a flag as ONE argument (base#1289)" {
-  # Measured on this file before the change: `coverage-badge --note 'two
-  # words'` reached the script as THREE arguments and exited 0, and
-  # `changelog-index 'foo|bar'` became a shell pipeline that died with
-  # `bar: not found` at 127.
+  # Measured against RECORDERS on the file before this change:
+  # `coverage-badge --note 'two words'` reached the script as THREE
+  # arguments and the recorder exited 0, and `changelog-index 'foo|bar'`
+  # became a shell pipeline that died with `bar: not found` at 127. The
+  # real `coverage_badge.sh` would have refused `--note` with exit 2 --
+  # what the bare interpolation broke is the ARGUMENT LIST, and a
+  # recorder is how that is seen without a script's own validation in
+  # the way.
   #
   # Equality, never --partial: three arguments contain two.
   command -v just > /dev/null 2>&1 \
@@ -621,16 +625,30 @@ _just_release_dispatch() {
   [[ "${_dispatch_output}" != *'not found'* ]] \
     || fail "the recipe shell ran part of the argument: [${_dispatch_output}]"
 
-  # A bare invocation still reaches the script with nothing, which is
-  # what both recipes are for: `just release changelog-index` is the
-  # whole re-render.
+  # TWO caller arguments, one of them spaced. A single argument cannot
+  # tell `"$@"` from `"$*"`, and `"$*"` would collapse these into one --
+  # review found that passing every other assertion here.
+  _just_release_dispatch "${JUST_RELEASE_SANDBOX}" changelog-index \
+    doc/changelog 'two words'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "changelog-index with two arguments failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=3"$'\n'"ARG[--write]"$'\n'"ARG[doc/changelog]"$'\n'"ARG[two words]" ]] \
+    || fail "changelog-index dispatched [${_dispatched}], not three arguments"
+
+  # A bare invocation reaches the script with NOTHING -- `n=0`, which is
+  # the one thing that tells zero arguments from the single empty one
+  # `"$*"` would produce, since both print `ARG[]`. `coverage-badge` is
+  # the right recipe to ask: `changelog-index` always has its own
+  # `--write` and can never be empty.
   _just_release_dispatch "${JUST_RELEASE_SANDBOX}" coverage-badge
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a bare coverage-badge failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "n=0"$'\n'"ARG[]" ]] \
     || fail "a bare coverage-badge dispatched [${_dispatched}]"
 }
 
 # why: a transliteration that reintroduces {{ is how this comes back
-@test "no forwarding line in justfile.release interpolates {{ (base#1289)" {
+@test "no live line in justfile.release interpolates {{args}} (base#1289)" {
   # Comment lines are stripped first: the header above the setting names
   # `{{args}}` while explaining why it is gone, and a grep over the whole
   # file would match its own documentation.

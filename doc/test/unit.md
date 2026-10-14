@@ -3550,7 +3550,7 @@ what reaches a wrapper.
 | `just docker start --help still prints usage and starts nothing (base#1289)` | converting the -h scan by accident is the regression this invites (base#1289) |
 | `no forwarding line in justfile.docker interpolates {{ (base#1289)` | a transliteration that reintroduces {{ on a forwarding line is the way this comes back (base#1289) |
 | `just release forwards a flag as ONE argument (base#1289)` | the release namespace re-read the flags it forwarded, same shape as base#1284 and base#1289's docker slice |
-| `no forwarding line in justfile.release interpolates {{ (base#1289)` | a transliteration that reintroduces {{ is how this comes back |
+| `no live line in justfile.release interpolates {{args}} (base#1289)` | a transliteration that reintroduces {{ is how this comes back |
 | `just template new hands the scaffolder ONE argument (base#1299)` | an unquoted single interpolation re-split the group name, and new.sh's own validator could not see it (base#1299) |
 | `justfile.template forwards the name through quote() (base#1299)` | the quote is one character and a later edit can drop it (base#1299) |
 
