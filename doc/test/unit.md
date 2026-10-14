@@ -2353,7 +2353,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (130)
+### test/bats/unit/dockerfile_migrate_spec.bats (134)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2498,6 +2498,10 @@ force-rewrite).
 | `a raw in-place write no helper made is still reported (#1036)` | A migration is free to write however it likes, so the record has to be closed by the dispatcher rather than by every author remembering a house-style helper |
 | `a raw write to the entrypoint is still reported (#1036)` | The sibling entrypoint is written by migrations too, so a raw write there is the same unstaged rewrite one file over |
 | `a migration that opens a file without changing it reports nothing (#1036)` | "The dispatcher checks the files itself" must mean their CONTENT -- a check on mtime would report every file a migration merely opened and hand the caller a commit of files nothing changed |
+| `apply_migrations reports the exact count, names and rewrite tally (base#1189)` | base#1189 -- a run that recognised nothing looked exactly like a run with nothing to do, in both cases by printing nothing at all |
+| `apply_migrations says zero when nothing matched, in one line (base#1189)` | base#1189 -- the zero case is the one that was indistinguishable, and it must still be ONE line rather than sixteen |
+| `apply_migrations derives the total and the names from _MIGRATIONS (base#1189)` | base#1189 -- the numbers have to come from _MIGRATIONS as it ran, or the report is a second list that rots on the seventeenth |
+| `no QUIET reader exists on the migration path, so the report has no quiet mode (base#1189)` | base#1189 -- the gate asked for a QUIET=1 arm; there is no QUIET on this path, and saying so beats writing a vacuous one |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
