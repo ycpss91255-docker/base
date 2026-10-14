@@ -223,28 +223,74 @@ EOF
   assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
 }
 
-# ── git: the move rides the caller's commit ────────────────────
+# ── the move rides the caller's commit, through the record ──────
 
-# why: The rename rides the caller commit instead of surfacing later
-@test "_migrate_smoke_tree stages the move when the repo is a git tree (#1044)" {
+# why: The rename rides the caller commit instead of surfacing later --
+#      recorded for the resync's stager, not staged here (base#1160)
+@test "_migrate_smoke_tree records both ends of the move (#1044, base#1160)" {
+  # This arm used to assert the migration had STAGED the move itself, with
+  # an inline `git add` that ran inside the resync's rollback bracket. A
+  # rolled-back resync therefore restored every file byte for byte and
+  # left the rename in the index (base#1160). `git status` does report
+  # that, as `RD` plus a `??`; nothing in the run treats it as a failure,
+  # and the rollback arms that existed assert the FILES.
+  #
+  # The guarantee is unchanged -- the rename still rides the caller's
+  # commit -- but it is now delivered by `_init_record_write`, which
+  # `_stage_resync_output` reads AFTER the bracket closes. So this arm
+  # asks the record, and `init_rollback_spec.bats` asserts the end of the
+  # chain against a real resync.
   git -C "${TEMP_DIR}" init --quiet -b main
   git -C "${TEMP_DIR}" config user.name t
   git -C "${TEMP_DIR}" config user.email t@e
   _seed_flat ros_env
   git -C "${TEMP_DIR}" add -A
   git -C "${TEMP_DIR}" commit --quiet -m seed
-  run bash -c "$(_src); _migrate_smoke_tree '${TEMP_DIR}'"
+
+  # `REC ` prefix: the migration writes its own MIGRATION warning to the
+  # same stream `run` captures, so the record has to be told apart from
+  # the narration before it can be compared as a set.
+  run bash -c "$(_src)
+    declare -gA _INIT_WROTE=()
+    _init_record_write() { _INIT_WROTE[\"\${1}\"]=1; }
+    _migrate_smoke_tree '${TEMP_DIR}'
+    printf 'REC %s\n' \"\${!_INIT_WROTE[@]}\" | sort"
   assert_success
-  run git -C "${TEMP_DIR}" status --porcelain
-  # Nothing is left for the user to notice later: the rename is staged.
-  refute_output --partial '??'
-  assert_output --partial 'test/bats/smoke/shared/ros_env.bats'
+
+  local _rec
+  _rec="$(printf '%s\n' "${output}" | sed -n 's/^REC //p' | sort)"
+  # The EXACT set, not four `assert_line`s. Inclusion alone would accept a
+  # record that also named `test/` or `test/smoke`, and a broad entry here
+  # becomes a broad `git add` at the stager -- the sweep that commits the
+  # consumer's half-finished work under a release message, which
+  # `_stage_resync_output`'s own header forbids in as many words.
+  #
+  # Both ends of the move: the old path exists nowhere but the index once
+  # the file has moved, so a record naming only the new one leaves the
+  # delete behind. Plus the placeholders the same call seeds.
+  assert_equal "${_rec}" "test/bats/smoke/devel-test/.gitkeep
+test/bats/smoke/runtime-test/.gitkeep
+test/bats/smoke/shared/ros_env.bats
+test/smoke/ros_env.bats"
+
+  # And it stages nothing on its own account -- that is the whole point.
+  run git -C "${TEMP_DIR}" diff --cached --name-only
+  assert_output ""
 }
 
-# why: An absent git degrades to a plain move, not an error
-@test "_migrate_smoke_tree works outside a git tree (#1044)" {
+# why: An absent record degrades to a plain move, not an error
+@test "_migrate_smoke_tree moves the tree with no recorder loaded (#1044, base#1160)" {
+  # `_init_record_write` lives in init.sh, and this lib is reachable
+  # without it -- a spec, or a conversion run outside a resync. The
+  # recorder is a no-op there, the same shape and the same reason as
+  # ini_to_toml_migrate.sh's `_ini_to_toml_record`. The move still
+  # happens; there is simply no commit to stage into.
+  #
+  # This replaces the old "works outside a git tree" arm, which asserted
+  # the same resilience against a dependency the function no longer has.
   _seed_flat ros_env
   run bash -c "$(_src); _migrate_smoke_tree '${TEMP_DIR}'"
   assert_success
   assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
+  assert [ ! -e "${TEMP_DIR}/test/smoke/ros_env.bats" ]
 }
