@@ -856,11 +856,22 @@ STUB
   [[ "${_dispatch_output}" != *'not found'* ]] \
     || fail "the recipe shell ran part of the argument: [${_dispatch_output}]"
 
-  # TWO caller arguments, one spaced: one argument cannot tell "$@" from
-  # "$*", which would collapse these into one.
+  # THREE caller arguments, one of them spaced -- four at the recorder,
+  # counting the literal `template` the recipe prepends. A single caller
+  # argument cannot tell "$@" from "$*", which would collapse these.
   _tmpl_help --lang en 'two words'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with three arguments failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "n=4"$'\n'"ARG[template]"$'\n'"ARG[--lang]"$'\n'"ARG[en]"$'\n'"ARG[two words]" ]] \
     || fail "help dispatched [${_dispatched}], not four arguments"
+
+  # An EMPTY argument is still an argument, and the count line is what
+  # says so: `ARG[]` alone cannot tell it from none.
+  _tmpl_help ''
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with an empty argument failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[template]"$'\n'"ARG[]" ]] \
+    || fail "help dispatched [${_dispatched}] for an empty argument"
 
   # Bare: the literal `template` and nothing else.
   _tmpl_help

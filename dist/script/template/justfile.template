@@ -12,7 +12,8 @@
 # across the namespace modules, and this is its template slice.
 #
 # The precondition, re-established for THIS file rather than inherited:
-# `grep -nE '\$[0-9@*]'` over it matches nothing. `new` below takes a
+# before this change `grep -nE '\$[0-9@*]'` over it matched nothing (it
+# matches the forwarding line and these comments now). `new` below takes a
 # NAMED parameter, so `set positional-arguments` does put the group name
 # in `$1` inside that recipe -- and its body reads `{{quote(name)}}`,
 # never a positional, so the setting changes the meaning of no existing
