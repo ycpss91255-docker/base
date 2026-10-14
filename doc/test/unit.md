@@ -3515,7 +3515,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
-### test/bats/unit/justfile_spec.bats (29)
+### test/bats/unit/justfile_spec.bats (32)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -3556,6 +3556,9 @@ what reaches a wrapper.
 | `just base forwards a flag as ONE argument (base#1289)` | the base namespace re-read the flags it forwarded -- the last module in base#1289's sweep |
 | `just base update's -h scan is unchanged by positional-arguments (base#1289)` | update's -h scan is the one deliberate interpolation left, and the setting must not disturb it (base#1289, base#1304) |
 | `justfile.base interpolates {{args}} only in update's scan (base#1289)` | a transliteration that reintroduces {{args}} on a FORWARDING line |
+| `just template help forwards a flag as ONE argument (base#1289)` | the template namespace re-read the flags it forwarded, the last shipped module in base#1289's sweep |
+| `set positional-arguments does not disturb template new (base#1289)` | base#1299's quote() fix must survive the setting this slice adds |
+| `no live line in justfile.template interpolates {{args}} (base#1289)` | a transliteration that reintroduces {{args}} is how this comes back |
 
 ### test/bats/unit/justfile_user_spec.bats (33)
 

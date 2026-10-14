@@ -954,6 +954,123 @@ _just_base_dispatch() {
   assert_success
   assert_equal "$(printf '%s\n' "${output}" | wc -l)" "1"
   assert_output --partial 'for _a in {{args}}'
+  run grep -c '^set positional-arguments := true$' "${_body}"
+  assert_output "1"
+}
+
+# why: the template namespace re-read the flags it forwarded, the last
+# shipped module in base#1289's sweep
+@test "just template help forwards a flag as ONE argument (base#1289)" {
+  # Measured against a recorder on this file before the change:
+  # `help --lang 'zh TW'` reached help.sh as FOUR arguments
+  # (`template`, `--lang`, `zh`, `TW`), and `help 'foo|bar'` became a
+  # shell pipeline that died with `bar: not found` at 127.
+  #
+  # The recipe prepends the literal `template`, so each assertion also
+  # pins that that argument still arrives FIRST and is not re-ordered.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_TEMPLATE_SANDBOX="$(mktemp -d)"
+  mkdir -p "${JUST_TEMPLATE_SANDBOX}/docker/lib" \
+    "${JUST_TEMPLATE_SANDBOX}/template"
+  cp /source/dist/script/template/justfile.template \
+    "${JUST_TEMPLATE_SANDBOX}/template/justfile.template"
+  cat > "${JUST_TEMPLATE_SANDBOX}/docker/lib/help.sh" <<STUB
+#!/usr/bin/env bash
+printf 'n=%s\n' "\$#" >> '${JUST_TEMPLATE_SANDBOX}/.dispatch_log'
+printf 'ARG[%s]\n' "\$@" >> '${JUST_TEMPLATE_SANDBOX}/.dispatch_log'
+STUB
+  chmod +x "${JUST_TEMPLATE_SANDBOX}/docker/lib/help.sh"
+
+  # The module is invoked by its own file rather than through a root
+  # entry: `help` resolves its script from `{{source_file()}}`, so what
+  # the sandbox has to reproduce is the module's own directory and its
+  # `../docker/lib` sibling -- not the consumer's mod? wiring.
+  _tmpl_help() {
+    rm -f "${JUST_TEMPLATE_SANDBOX}/.dispatch_log"
+    local _out='' _st=0
+    _out="$(just --justfile "${JUST_TEMPLATE_SANDBOX}/template/justfile.template" \
+      --working-directory "${JUST_TEMPLATE_SANDBOX}/template" help "$@" 2>&1)" \
+      || _st="$?"
+    _dispatch_output="${_out}"
+    _dispatch_status="${_st}"
+    _dispatched=''
+    [[ -f "${JUST_TEMPLATE_SANDBOX}/.dispatch_log" ]] \
+      && _dispatched="$(cat "${JUST_TEMPLATE_SANDBOX}/.dispatch_log")"
+  }
+
+  _tmpl_help --lang 'zh TW'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with a spaced flag failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=3"$'\n'"ARG[template]"$'\n'"ARG[--lang]"$'\n'"ARG[zh TW]" ]] \
+    || fail "help dispatched [${_dispatched}]"
+
+  _tmpl_help 'foo|bar'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with an alternation failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[template]"$'\n'"ARG[foo|bar]" ]] \
+    || fail "help dispatched [${_dispatched}]"
+  [[ "${_dispatch_output}" != *'not found'* ]] \
+    || fail "the recipe shell ran part of the argument: [${_dispatch_output}]"
+
+  # THREE caller arguments, one of them spaced -- four at the recorder,
+  # counting the literal `template` the recipe prepends. A single caller
+  # argument cannot tell "$@" from "$*", which would collapse these.
+  _tmpl_help --lang en 'two words'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with three arguments failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=4"$'\n'"ARG[template]"$'\n'"ARG[--lang]"$'\n'"ARG[en]"$'\n'"ARG[two words]" ]] \
+    || fail "help dispatched [${_dispatched}], not four arguments"
+
+  # An EMPTY argument is still an argument, and the count line is what
+  # says so: `ARG[]` alone cannot tell it from none.
+  _tmpl_help ''
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with an empty argument failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[template]"$'\n'"ARG[]" ]] \
+    || fail "help dispatched [${_dispatched}] for an empty argument"
+
+  # Bare: the literal `template` and nothing else.
+  _tmpl_help
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a bare help failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[template]" ]] \
+    || fail "a bare help dispatched [${_dispatched}]"
+}
+
+# why: base#1299's quote() fix must survive the setting this slice adds
+@test "set positional-arguments does not disturb template new (base#1289)" {
+  # `new` takes a NAMED parameter, so the setting does put the group name
+  # in `$1` inside that recipe. Its body reads `{{quote(name)}}` and
+  # never a positional, so nothing changes -- asserted rather than
+  # assumed, because "the setting is safe here" is the precondition this
+  # slice had to establish and a named parameter is the one shape that
+  # could make it false.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_TEMPLATE_SANDBOX="$(mktemp -d)"
+  _just_template_sandbox "${JUST_TEMPLATE_SANDBOX}"
+
+  local _n
+  for _n in 'two words' "two'words" "' --help #" '$USER' 'deploy-aws'; do
+    _just_template_dispatch "${JUST_TEMPLATE_SANDBOX}" "${_n}"
+    [[ "${_dispatch_status}" -eq 0 ]] \
+      || fail "[${_n}] failed: [${_dispatch_output}]"
+    [[ "${_dispatched}" == "n=1"$'\n'"ARG[${_n}]" ]] \
+      || fail "[${_n}] dispatched [${_dispatched}] under positional-arguments"
+  done
+}
+
+# why: a transliteration that reintroduces {{args}} is how this comes back
+@test "no live line in justfile.template interpolates {{args}} (base#1289)" {
+  local _body="${BATS_TEST_TMPDIR}/justfile.template.args"
+  grep -vE '^[[:space:]]*#' /source/dist/script/template/justfile.template \
+    > "${_body}"
+
+  run grep -nE '\{\{[[:space:]]*args[[:space:]]*\}\}' "${_body}"
+  assert_failure
 
   run grep -c '^set positional-arguments := true$' "${_body}"
   assert_output "1"
