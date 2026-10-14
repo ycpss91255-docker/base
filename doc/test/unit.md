@@ -3515,7 +3515,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
-### test/bats/unit/justfile_spec.bats (22)
+### test/bats/unit/justfile_spec.bats (24)
 
 Static content checks for the layered just entry (ADR-00000005 / #545,
 ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not a
@@ -3549,6 +3549,8 @@ what reaches a wrapper.
 | `just docker: a forwarded flag arrives as ONE argument, space or pipe (base#1289)` | the consumer's own interface re-read every flag it forwarded (base#1289) |
 | `just docker start --help still prints usage and starts nothing (base#1289)` | converting the -h scan by accident is the regression this invites (base#1289) |
 | `no forwarding line in justfile.docker interpolates {{ (base#1289)` | a transliteration that reintroduces {{ on a forwarding line is the way this comes back (base#1289) |
+| `just release forwards a flag as ONE argument (base#1289)` | the release namespace re-read the flags it forwarded, same shape as base#1284 and base#1289's docker slice |
+| `no forwarding line in justfile.release interpolates {{ (base#1289)` | a transliteration that reintroduces {{ is how this comes back |
 
 ### test/bats/unit/justfile_user_spec.bats (33)
 

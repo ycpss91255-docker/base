@@ -11,6 +11,22 @@
 # run from the repo root whether reached via the `release` module or `just -f`.
 set working-directory := '../..'
 
+# Arguments reach a recipe body as "$@", not as an unquoted {{args}}
+# interpolation, which hands the recipe's own shell a string to re-split.
+# Measured on this file before the change: `just release coverage-badge
+# --note 'two words'` reached the script as THREE arguments and exited 0,
+# and `just release changelog-index 'foo|bar'` became a shell pipeline
+# that died with `bar: not found` at 127. base#1284 swept
+# script/test/justfile.test onto "$@"; base#1289 is the same sweep across
+# the namespace modules, and this is its release slice.
+#
+# The precondition for the setting, re-established for THIS file rather
+# than inherited: `grep -nE '\$[0-9@*]'` over it matches nothing, and the
+# only recipes are `default` (no arguments) and the two `*args`
+# forwarders below. Nothing here reads a positional, so the setting
+# changes the meaning of no existing line.
+set positional-arguments := true
+
 # source_file (not justfile) is this module's own file: inside a mod?'d
 # module justfile resolves to the ROOT entry, so listing it would show the
 # entry's namespaces instead of the release recipes. source_file
@@ -68,7 +84,7 @@ default:
 # current .version. That is for a version that genuinely has no measurement;
 # the bump must never pass it.
 coverage-badge *args:
-    ./script/release/coverage_badge.sh {{args}}
+    ./script/release/coverage_badge.sh "$@"
 
 # just release changelog-index -> re-render the generated series index in
 # doc/changelog/CHANGELOG.md from the series files themselves.
@@ -85,4 +101,4 @@ coverage-badge *args:
 # Print-only (no --write) with a directory argument, which is what the lint
 # runs:  ./script/release/changelog_index.sh doc/changelog
 changelog-index *args:
-    ./script/release/changelog_index.sh --write {{args}}
+    ./script/release/changelog_index.sh --write "$@"
