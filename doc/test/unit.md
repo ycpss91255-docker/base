@@ -1186,7 +1186,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (182)
+### test/bats/unit/ci_spec.bats (183)
 
 | Test | Description |
 |------|-------------|
@@ -1366,6 +1366,7 @@ between them can be asserted at all.
 | `_run_via_compose: honours COMPOSE_PROJECT_NAME (#891)` | #891 -p forwards the caller's name |
 | `_run_via_compose: hands compose the very tag the tooling resolver prints (#896)` | #896 one derivation, exported for interpolation |
 | `_ensure_test_tools_image: builds the derived tag when the host does not have it (#896)` | #896 a local-only tag absent means not built, not pull |
+| `_ensure_test_tools_image: a failed build refuses and names the way past it (base#1187)` | base#1187 -- a failed tooling build was not observed AT ALL |
 | `_ensure_test_tools_image: leaves a caller-pinned image alone (#896)` | #896 CI provisions its own |
 | `_ensure_test_tools_image: does not rebuild a tag the host already has (#896)` | #896 identical inputs are a cache hit |
 | `main --compose-project-name: prints the resolved project for the justfile (#891)` | #891 one entry point for both call sites |
