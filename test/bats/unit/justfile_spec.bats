@@ -12,7 +12,7 @@
 # Most arms here are content assertions (grep). That used to be the whole
 # file, with `just` absent from the test-tools image as the reason --
 # which is also how two of those greps came to pin a DEFECTIVE body
-# verbatim (base#1284's own guard, and the `#545` body guard below).
+# verbatim (base#1284's own guard, and the `base#545` body guard below).
 # Since base#1173 the image carries `just`, so the arms that matter run
 # the recipe against a recorder and skip where it is missing. Execution
 # parity across namespaces lives in justfile_user_spec.bats.
@@ -78,7 +78,7 @@ teardown() {
   # defect: an unquoted interpolation hands the recipe's own shell a string
   # to re-split, so a flag carrying a space reached the wrapper as several
   # arguments and one carrying a `|` became a pipeline (base#1289). The
-  # guarantee #545 wanted -- each verb forwards 1:1 to its wrapper -- is
+  # guarantee base#545 wanted -- each verb forwards 1:1 to its wrapper -- is
   # unchanged; only the spelling that delivers it is.
   #
   # base#1284 found its own static guard asserting ITS defective body the
