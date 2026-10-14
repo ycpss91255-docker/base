@@ -1797,8 +1797,36 @@ _ensure_test_tools_image() {
     return 0
   fi
   echo "--- Building the tooling image ${_image} (content hash of ${_TEST_TOOLS_DOCKERFILE_REL} and what it COPYs) ---"
-  TEST_TOOLS_IMAGE="${_image}" docker compose -p "${_project}" \
-    -f "${REPO_ROOT}/compose.yaml" build test-tools
+  # base#1187. The build used to run unchecked. Run directly -- which is the
+  # `just test` path -- `:78` has errexit on, so a failed build did abort;
+  # it aborted with no line saying what to do. Sourced, which is how the
+  # specs reach this, the caller's settings apply and neither caller
+  # (`:1663`, `:2469`) tests the return.
+  #
+  # The surface message is the problem either way. An unreachable Alpine
+  # index reads as an EMPTY one, so apk reports every package as "no such
+  # package" -- the operator is told the list does not contain `bash` and
+  # goes looking for a packaging mistake that is not there.
+  # Dockerfile.test-tools' own `alpine-apk` comment predicted exactly this
+  # reader (base#1008), but a comment inside the file is not what they are
+  # reading.
+  #
+  # The hint is deliberately NOT conditioned on the failure's shape -- matching
+  # apk's wording is one upstream string change away from silence -- but the
+  # two remedies are SCOPED, because neither is general and they are not
+  # scoped alike. A mirror answers an unreachable index and nothing else. The
+  # published image gets PAST a broken local build whatever broke it, a typo
+  # in the package list included -- but getting past is not fixing: the typo
+  # is still there for whoever builds locally next. Neither starts a daemon
+  # that is not running. Saying "both work" would trade one wrong diagnosis
+  # for another. For the same reason the message says an unreachable index
+  # MAY be the cause rather than asserting it: a genuine typo produces the
+  # same wording.
+  if ! TEST_TOOLS_IMAGE="${_image}" docker compose -p "${_project}" \
+      -f "${REPO_ROOT}/compose.yaml" build test-tools; then
+    _die ci_tooling_build_failed \
+      "could not build the tooling image ${_image}. If the output above reports packages that do not exist, an unreachable package index may be the cause rather than a packaging mistake: an index apk cannot fetch reads as an empty one. For that case, APK_MIRROR=<host> just test repoints the Alpine index (compose.yaml already forwards it). To skip the local build whatever the cause, TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:main just test uses the published image instead. The published image gets you past a package name that is genuinely wrong too, but it does not fix it: the next local build still fails. Neither remedy starts a Docker daemon that is not running. A dead daemon says so before apk runs at all; a wrong package name does not -- apk words it exactly as it words an unreachable index, so the output above cannot tell you which of those two you have. Retried with the same inputs, BuildKit keeps the instructions that already succeeded, so the retry re-pays the failed instruction rather than the whole file -- but it does re-pay it, for as long as the cause persists. Setting APK_MIRROR is not the same inputs: it re-pays from the instruction that reads it."
+  fi
 }
 
 # ── Compose project name ─────────────────────────────────────────────────────

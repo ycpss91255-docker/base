@@ -5262,6 +5262,69 @@ _tag_as_nobody() {
   assert_output --partial "compose -p base-000000000000 -f /source/compose.yaml build test-tools"
 }
 
+# why: base#1187 -- a failed tooling build was not observed AT ALL
+@test "_ensure_test_tools_image: a failed build refuses and names the way past it (base#1187)" {
+  # Run directly, test.sh:78 turns on errexit, so a failed build did abort --
+  # with no line saying what to do about it. SOURCED, which is how this spec
+  # reaches the function, the caller's settings apply and neither caller
+  # checks the return, so it simply returned. Either way the operator read
+  # apk reporting every package as "no such package" -- an unreachable index
+  # reads as an EMPTY one -- and went looking for a packaging mistake that
+  # was never there.
+  #
+  # The hint is NOT conditioned on the failure's shape -- a matcher on apk's
+  # wording is one upstream string change away from silence -- but the two
+  # escapes it names are SCOPED, and not scoped alike. A mirror answers an
+  # unreachable index and nothing else; the published image gets past a
+  # broken local build whatever broke it, a typo included, without fixing it;
+  # neither starts a daemon that is not running. This arm asserts both names
+  # are PRESENT, not that either one would work.
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    [[ "${1}" == "image" ]] && exit 1
+    [[ "${1}" == "compose" ]] && exit 1
+    exit 0'
+
+  # The sentinel is what makes this an assertion about STOPPING rather than
+  # about the message. Two things about it are load-bearing: the call sits
+  # inside an `if` CONDITION, and the marker is a FILE.
+  #
+  # The condition, because bash suppresses errexit there. A failure branch
+  # that merely logs and returns -- even one that runs `set -e` first --
+  # reaches the sentinel, and would pass an arm that only ran the function
+  # bare and checked the status.
+  #
+  # The file, because every later way of beating this arm found in review
+  # beat the OBSERVING, not the stopping: closing stdout makes an echoed
+  # marker fail to appear, and `trap 'exit 1' EXIT` forges the status that
+  # would otherwise have given the continuation away. A file written under
+  # BATS_TEST_TMPDIR survives both of those, because it depends on neither.
+  # It is not a proof against every shell state a branch could leave behind
+  # -- `set -r` would refuse the redirection itself -- so what this arm
+  # claims is what was tried against it: `log; return 1`, the same with
+  # `set -e`, the same with `exec 1>&-`, and the same with `trap 'exit 1'
+  # EXIT` all fail it.
+  local _sentinel="${BATS_TEST_TMPDIR}/continued-past-the-failed-build"
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    unset TEST_TOOLS_IMAGE
+    if _ensure_test_tools_image test-tools:abc123abc123 base-000000000000; then :; fi
+    : > "'"${_sentinel}"'"
+  '
+  assert_failure
+  refute [ -e "${_sentinel}" ]
+  # Both escapes NAMED -- neither is discoverable from the build output. What
+  # each one is good for is the diagnostic's business, not this arm's.
+  assert_output --partial "APK_MIRROR"
+  assert_output --partial "TEST_TOOLS_IMAGE"
+  # It really did attempt the build -- otherwise this arm would pass for a
+  # function that refused before trying.
+  run cat "${_log}"
+  assert_output --partial "build test-tools"
+}
+
 # why: #896 CI provisions its own
 @test "_ensure_test_tools_image: leaves a caller-pinned image alone (#896)" {
   # CI pins a published GHCR tag, or an in-run tag it built itself, and
