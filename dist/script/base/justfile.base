@@ -33,8 +33,9 @@ set working-directory := '../..'
 # SHEBANG recipe, so the setting gives its body `$@` as well -- it reads
 # neither, so the setting changes the meaning of no existing line.
 #
-# `update`'s `-h` scan keeps its `{{args}}` and is the one deliberate
-# interpolation left in the four namespace modules. It wants real word
+# `update`'s `-h` scan keeps its `{{args}}`. It is the only SPLITTING
+# interpolation left in the four namespace modules -- justfile.docker's
+# `case " {{args}} "` is deliberate too, and joins. It wants real word
 # SPLITTING, unlike justfile.docker's `case " {{args}} "`, which only
 # joins -- so converting it is a behaviour change, not a transliteration:
 # `just base update 'x -h'` execs `upgrade.sh --help` today because the

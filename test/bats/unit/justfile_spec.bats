@@ -898,9 +898,13 @@ _just_base_dispatch() {
   # Bare, and an empty argument: the count line is the only thing that
   # separates one empty argument from none.
   _just_base_dispatch "${JUST_BASE_SANDBOX}" init
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a bare init failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "n=0"$'\n'"ARG[]" ]] \
     || fail "a bare init dispatched [${_dispatched}]"
   _just_base_dispatch "${JUST_BASE_SANDBOX}" init ''
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "init with an empty argument failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "n=1"$'\n'"ARG[]" ]] \
     || fail "init with an empty argument dispatched [${_dispatched}]"
 }
@@ -909,8 +913,9 @@ _just_base_dispatch() {
 # the setting must not disturb it (base#1289, base#1304)
 @test "just base update's -h scan is unchanged by positional-arguments (base#1289)" {
   # `update` is a SHEBANG recipe whose `*args` exists only as a `--help`
-  # shim. Its `for _a in {{args}}` wants real word SPLITTING -- unlike
-  # justfile.docker's `case " {{args}} "`, which joins -- so it keeps its
+  # shim. Its `for _a in {{args}}` is the only SPLITTING interpolation
+  # left in the four namespace modules -- justfile.docker's
+  # `case " {{args}} "` is deliberate too, and joins -- so it keeps its
   # interpolation and base#1289's Out of scope defers whether it should.
   # base#1304 carries that question with the measurement.
   #
@@ -925,6 +930,8 @@ _just_base_dispatch() {
 
   # --help reaches upgrade.sh's usage and NOT the network check.
   _just_base_dispatch "${JUST_BASE_SANDBOX}" update --help
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "update --help failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
     || fail "update --help dispatched [${_dispatched}]"
 
@@ -940,6 +947,8 @@ _just_base_dispatch() {
   # help path. base#1304 is where that is decided; until then this arm is
   # what makes a silent change to it impossible.
   _just_base_dispatch "${JUST_BASE_SANDBOX}" update 'x -h'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "update 'x -h' failed: [${_dispatch_output}]"
   [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
     || fail "update 'x -h' dispatched [${_dispatched}]"
 }
