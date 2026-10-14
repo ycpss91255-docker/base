@@ -258,6 +258,39 @@ migrated_files() {
 #   here, by comparing the target files either side of the loop. A
 #   migration cannot leave a rewrite out of the record by writing in a
 #   shape nobody anticipated.
+#
+#   The run now SAYS what it did (base#1189). It used to say nothing at
+#   all unless the Dockerfile was missing, so "no migration applied to
+#   this tree" and "no detector recognised this tree" were byte-identical
+#   output: nothing. Base was bitten twice -- `downstream_to_dist`
+#   matched a prerelease-only layout no consumer had, and the repo-owned
+#   smoke COPY (base#1044) sat outside every detector's scope -- and both
+#   were found by a person noticing, months later.
+#
+#   What it reports is the COUNT and the NAMES, not a verdict. The loop
+#   cannot identify the unrecognised case: all sixteen detectors
+#   returning false is also exactly what a fully-migrated Dockerfile
+#   looks like, so a warning on that condition would fire on every
+#   healthy upgrade and be trained away inside a week. `0 of 16` beside
+#   `3 of 16` is something an operator who believed an old Dockerfile had
+#   been migrated can read; it is not something that decides for them.
+#
+#   This does NOT add a positive signal of currency -- a marker saying
+#   "this file IS in the current shape", which is the only thing that
+#   could separate unrecognised from up to date. That is a design
+#   question and is deliberately left to its own issue.
+#
+#   The word is MATCHED, not applied. A matching detector runs its
+#   handler, and a handler is not obliged to change anything:
+#   `entrypoint_orchestrator` and `bringup_residue` only warn, both
+#   ending "Nothing was changed here", and they match again on every
+#   subsequent run. `1 matched ... 0 rewritten` is the true shape of
+#   that, and `1 applied ... 0 rewritten` would read as a migration
+#   that completed.
+#
+#   That second number is what `_dfm_reconcile_targets` learned, which
+#   had no `_log_*` of its own, so the reconciliation step is not left
+#   as the silent half of a reporting function.
 apply_migrations() {
   local _file="${1:?apply_migrations requires a Dockerfile path}"
   _DFM_TOUCHED=()
@@ -270,13 +303,26 @@ apply_migrations() {
   _dfm_snapshot_targets "${_file}"
 
   local _name
+  local -a _am_fired=()
   for _name in "${_MIGRATIONS[@]}"; do
     if "_migrate_${_name}_detect" "${_file}"; then
       "_migrate_${_name}_apply" "${_file}"
+      _am_fired+=("${_name}")
     fi
   done
 
   _dfm_reconcile_targets
+
+  # The names come from the array that just ran, never from a second
+  # list: a restated set rots on the seventeenth migration.
+  local _am_names="none"
+  (( ${#_am_fired[@]} > 0 )) && _am_names="${_am_fired[*]}"
+  _log_info upgrade dockerfile_migrations_reported \
+    "display=  Dockerfile migrations: ${#_am_fired[@]} of ${#_MIGRATIONS[@]} matched (${_am_names}), ${#_DFM_TOUCHED[@]} file(s) rewritten" \
+    "matched=${#_am_fired[@]}" \
+    "available=${#_MIGRATIONS[@]}" \
+    "names=${_am_names}" \
+    "rewritten=${#_DFM_TOUCHED[@]}"
 }
 
 # ── Migration 0: shipped-tree dir rename .base/downstream/ -> .base/dist/ ────
