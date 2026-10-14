@@ -50,6 +50,34 @@ KEEP
   esac
 }
 
+# _smoke_record <repo-relative-path>
+#   Record a path this file wrote or removed, so `_stage_resync_output`
+#   puts it in the upgrade commit. The stager also reads
+#   `migrated_files()` and `_init_installed_paths()`, but this migration
+#   is on neither -- `migrated_files` is the DOCKERFILE migration's own
+#   record -- so `_init_record_write` is the only one of the three that
+#   can carry this file's output, and a migration's output cannot be on a
+#   list written before the migration existed.
+#
+#   Same shape and same reason as ini_to_toml_migrate.sh's
+#   `_ini_to_toml_record`: a no-op where `_init_record_write` is not
+#   defined, because this lib is reachable outside a resync and there is
+#   no commit to stage into there.
+#
+#   This replaced an inline `git add` (base#1160). That `add` ran INSIDE
+#   the resync's rollback bracket, and `_init_restore_index` only re-adds
+#   index entries the run REMOVED -- it has never removed ones the run
+#   ADDED. So a resync that rolled back restored every file byte for byte
+#   and left the rename staged. `git status` does say so, as `RD` plus a
+#   `??`, but nothing in the run treats it as a failure and the rollback
+#   arms assert the FILES, which were correct. Recording instead of
+#   staging puts this file's output through the one stager that runs after
+#   the bracket, and leaves the rollback nothing of ours to undo.
+_smoke_record() {
+  declare -F _init_record_write > /dev/null 2>&1 || return 0
+  _init_record_write "${1:?"${FUNCNAME[0]}: missing repo-relative path"}"
+}
+
 # _smoke_seed_stage_dirs <repo_root>
 #   Create the per-stage folders with their placeholders. Never overwrites:
 #   a placeholder the user has replaced with real specs, or annotated, is
@@ -63,6 +91,10 @@ _smoke_seed_stage_dirs() {
     mkdir -p "${_base}/${_stage}"
     [[ -e "${_base}/${_stage}/.gitkeep" ]] && continue
     _smoke_stage_placeholder "${_stage}" > "${_base}/${_stage}/.gitkeep"
+    # Recorded only where one was actually written -- a placeholder the
+    # user has replaced or annotated is theirs, and the `continue` above
+    # is what keeps it out of the record as well as off disk.
+    _smoke_record "test/bats/smoke/${_stage}/.gitkeep"
   done
 }
 
@@ -129,6 +161,11 @@ _migrate_smoke_tree() {
       continue
     fi
     mv -- "${_src}" "${_shared}/${_name}"
+    # BOTH ends. The stager's `git add -A` takes a removal as readily as a
+    # write, but only for a path it is given, and the old spelling exists
+    # nowhere but the index once the file has moved.
+    _smoke_record "test/smoke/${_name}"
+    _smoke_record "test/bats/smoke/shared/${_name}"
   done
 
   _smoke_seed_stage_dirs "${_root}"
@@ -140,9 +177,9 @@ _migrate_smoke_tree() {
       "path=${_shared}"
   fi
 
-  # A repo that tracked the flat tree needs the rename staged, so it rides
-  # the caller's commit instead of surfacing later as an unexplained move.
-  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
-    git -C "${_root}" add -A -- test/smoke test/bats/smoke >/dev/null 2>&1 || true
-  fi
+  # No `git add` here. A repo that tracked the flat tree still needs the
+  # rename staged, and it is: every path above went into the record, which
+  # `_stage_resync_output` stages after the rollback bracket has closed.
+  # One stager instead of two, and nothing of this migration's inside the
+  # bracket for a rollback to have to undo (base#1160).
 }

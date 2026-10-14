@@ -6608,8 +6608,8 @@ force-rewritten.
 | `_migrate_smoke_tree proceeds when the Dockerfile never names the tree (#1044)` | No reference to the tree means nothing to keep in step |
 | `_migrate_smoke_tree does not decline over base's own shipped path (#1044)` | The decline keys off the repo path, not smoke_copy s |
 | `_migrate_smoke_tree proceeds when there is no Dockerfile at all (#1044)` | No Dockerfile means no COPY that could be left dangling |
-| `_migrate_smoke_tree stages the move when the repo is a git tree (#1044)` | The rename rides the caller commit instead of surfacing later |
-| `_migrate_smoke_tree works outside a git tree (#1044)` | An absent git degrades to a plain move, not an error |
+| `_migrate_smoke_tree records both ends of the move (#1044, base#1160)` | The rename rides the caller commit instead of surfacing later -- recorded for the resync's stager, not staged here (base#1160) |
+| `_migrate_smoke_tree moves the tree with no recorder loaded (#1044, base#1160)` | An absent record degrades to a plain move, not an error |
 
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
 
