@@ -3311,3 +3311,56 @@ PY
   [[ "${_line}" == *'${LOG_INSTANCE}'* ]] || fail "interpolation lost: ${_line}"
   [[ "${_line}" != *'$${LOG_INSTANCE}'* ]] || fail "interpolation escaped: ${_line}"
 }
+
+# why: base#1185 -- the splitter gained a second way to answer non-zero,
+#      and `show` was reading both as "this spec names a whole section"
+@test "show tells a dotless spec from a split it could not make (base#1185)" {
+  # `show` is the one caller of `_conf_split_nskey` that acts on the
+  # failure rather than skipping the key: a dotless spec is legal here
+  # and means "dump the whole section". It used to recognise that case
+  # from the split's STATUS, which was sound while "no dot" was the only
+  # way to fail. base#1185 added a second -- a registry that cannot be
+  # read -- and under the old reading `show logging.web.driver` would
+  # then try to dump a section called `logging.web.driver` and report
+  # `conf_section_not_found` for it: a true-sounding message about the
+  # wrong problem.
+  #
+  # It now reads the SPEC. A dotted spec that cannot be split is a
+  # refusal and is propagated; only a genuinely dotless one is a section.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[logging]
+driver = "json-file"
+
+[logging.web]
+driver = "local"
+EOF
+  # The dotless path still works, and still means the whole section.
+  run main show logging --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line --index 0 "driver = json-file"
+
+  # With the registry gone, a dotted spec is refused -- and the failure
+  # it reports is the registry's, not a fabricated missing section.
+  #
+  # `network.mode`, not `logging.web.driver`: `_setup_known_section`
+  # accepts `logging.?*` for ANY suffix, so under the old reading the
+  # whole spec passed AS a section and nothing looked wrong. This arm
+  # was green against the very shape it exists to catch until a
+  # mutation said otherwise. `network.mode` is dotted, splits normally
+  # in a loaded tree, and is not a section under any reading.
+  # Called in THIS shell rather than through a `bash -c` that sources
+  # _lib.sh: `_setup_msg` lives in the setup.sh wrapper, so in a
+  # _lib.sh-only subshell the section error renders as an empty string
+  # and `refute_output --partial "Unknown section"` passes for the
+  # wrong reason. That made this arm vacuous; a mutation caught it.
+  unset SCHEMA_SUBSECTIONED
+  run _setup_show network.mode --base-path "${TEMP_DIR}"
+  assert_failure
+  # The renderer here is the human one, so the assertion is on the text
+  # rather than on the event body the JSON renderer would carry.
+  assert_output --partial "cannot split the namespace key network.mode"
+  # And NOT the fabricated one: under the old reading this printed
+  # `Unknown section: network.mode`, sending the reader after a section
+  # they never asked for.
+  refute_output --partial "Unknown section"
+}

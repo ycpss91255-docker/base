@@ -437,8 +437,18 @@ _setup_show() {
 
   # Same split rule as `set` / `remove` (conf.sh owns it); unlike those,
   # a dotless spec is legal here and means "show the whole section".
+  #
+  # The dotless case is recognised from the SPEC, not from the split's
+  # status. The splitter has two ways to answer non-zero -- no dot, and
+  # a registry it cannot read (base#1185) -- and the old `|| treat the
+  # whole spec as a section` read both as the first. That turned a
+  # refusal into `show` trying to dump a section named
+  # `logging.web.driver` and reporting `conf_section_not_found` for it,
+  # which names the wrong problem.
   local _section _key
-  if ! _conf_split_nskey "${_spec}" _section _key; then
+  if [[ "${_spec}" == *.* ]]; then
+    _conf_split_nskey "${_spec}" _section _key || return 2
+  else
     _section="${_spec}"
     _key=""
   fi
