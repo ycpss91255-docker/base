@@ -314,7 +314,12 @@ setup() {
   # verb; the reclaim is a MODE of that verb, so `just docker prune
   # --reclaim` needs no new recipe, no new help table and no new
   # completion entry to be a first-class control surface.
-  run grep -F './script/prune.sh {{args}}' "${JUSTDOCKER}"
+  #
+  # The forwarding is spelled `"$@"` since base#1289 -- it was an
+  # unquoted `{{args}}` interpolation, which re-split anything carrying a
+  # space. What this arm asserts is unchanged: prune passes whatever it
+  # was given straight through, so the mode flag needs nothing of its own.
+  run grep -F './script/prune.sh "$@"' "${JUSTDOCKER}"
   assert_success
 }
 

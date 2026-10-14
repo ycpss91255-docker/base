@@ -5,21 +5,25 @@
 # script/justfile, with <repo>/justfile -> script/justfile) imports the
 # docker recipes at dist/script/docker/justfile.docker as top-level
 # verbs. ADR-00000005: `just` replaces the GNU make wrapper -- recipes
-# forward 1:1 to ./script/<name>.sh with full `{{args}}` passthrough (no
-# MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim).
+# forward 1:1 to ./script/<name>.sh with full passthrough, as `"$@"`
+# since base#1284 / base#1289 rather than an interpolated `{{args}}`
+# (no MAKEOVERRIDES guard / `--` separator / EXEC_ARGS shim).
 #
-# These are content assertions (grep), not execution: `just` is not
-# installed in the test-tools image, so the files are verified statically
-# here; downstream installs `just` to run them. Execution parity lives in
-# justfile_user_spec.bats.
+# Most arms here are content assertions (grep). That used to be the whole
+# file, with `just` absent from the test-tools image as the reason --
+# which is also how two of those greps came to pin a DEFECTIVE body
+# verbatim (base#1284's own guard, and the `#545` body guard below).
+# Since base#1173 the image carries `just`, so the arms that matter run
+# the recipe against a recorder and skip where it is missing. Execution
+# parity across namespaces lives in justfile_user_spec.bats.
 #
 # why: Static content checks for the layered just entry (ADR-00000005 /
 # #545, ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not
 # a top-level import). The entry `dist/script/justfile` mods the docker +
 # base modules; docker verbs forward 1:1 to `./script/<name>.sh` via
-# `{{args}}`, base verbs to `./.base/upgrade.sh`. Asserted by grep, not
-# execution -- `just` is not in the test-tools image; downstream installs
-# it.
+# `"$@"` (base#1289), base verbs to `./.base/upgrade.sh`. Asserted by
+# grep where the claim is about the file's shape, and by running the
+# recipe where it is about what reaches a wrapper.
 
 bats_require_minimum_version 1.5.0
 
@@ -37,6 +41,9 @@ teardown() {
   # teardown failure.
   if [[ -n "${JUST_TEST_SANDBOX:-}" ]]; then
     rm -rf "${JUST_TEST_SANDBOX}"
+  fi
+  if [[ -n "${JUST_DOCKER_SANDBOX:-}" ]]; then
+    rm -rf "${JUST_DOCKER_SANDBOX}"
   fi
 }
 
@@ -65,16 +72,25 @@ teardown() {
   assert_failure
 }
 
-# why: forwarding bodies
-@test "docker module recipes forward to ./script/<wrapper>.sh with {{args}} (#545)" {
-  run grep -F './script/build.sh {{args}}' "${DOCKER_JUSTFILE}"
-  assert_success
-  run grep -F './script/run.sh {{args}}' "${DOCKER_JUSTFILE}"
-  assert_success
-  run grep -F './script/exec.sh {{args}}' "${DOCKER_JUSTFILE}"
-  assert_success
-  run grep -F './script/setup_tui.sh {{args}}' "${DOCKER_JUSTFILE}"
-  assert_success
+# why: forwarding bodies -- as "$@" since base#1289, not {{args}}
+@test "docker module recipes forward to ./script/<wrapper>.sh (#545, base#1289)" {
+  # This arm used to assert the literal `{{args}}` body. That body was the
+  # defect: an unquoted interpolation hands the recipe's own shell a string
+  # to re-split, so a flag carrying a space reached the wrapper as several
+  # arguments and one carrying a `|` became a pipeline (base#1289). The
+  # guarantee #545 wanted -- each verb forwards 1:1 to its wrapper -- is
+  # unchanged; only the spelling that delivers it is.
+  #
+  # base#1284 found its own static guard asserting ITS defective body the
+  # same way, which is why this one is rewritten rather than trusted.
+  local _v
+  for _v in build run exec stop prune setup setup_tui; do
+    run grep -F "./script/${_v}.sh \"\$@\"" "${DOCKER_JUSTFILE}"
+    assert_success
+    # And not the old shape anywhere, for any verb.
+    run grep -F "./script/${_v}.sh {{args}}" "${DOCKER_JUSTFILE}"
+    assert_failure
+  done
 }
 
 @test "base module declares upgrade + update (apt-aligned) forwarding to .base/dist/script/base/upgrade.sh (#652, #654, ADR-00000011)" {
@@ -395,4 +411,139 @@ _assert_mod_doc_comments() {
 @test "base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)" {
   run _assert_mod_doc_comments /source/justfile
   assert_success
+}
+
+# _just_docker_sandbox <dir> -- base's own root entry plus the `docker`
+# namespace, with every wrapper replaced by a recorder that writes one
+# argument per line to <dir>/.dispatch_log and starts no container. The
+# twin of _just_test_sandbox above (base#1173/base#1284), for the module
+# base SHIPS rather than the one it tests itself with (base#1289).
+#
+# The layout is load-bearing. justfile.docker carries
+# `set working-directory := '../..'`, so the recipes run two levels up
+# from the module file and reach their wrappers as `./script/<verb>.sh`.
+# A flat sandbox runs them somewhere else and every invocation dies with
+# `./script/exec.sh: not found` -- an error that has nothing to do with
+# what these arms assert.
+_just_docker_sandbox() {
+  local _dir="${1}"
+  mkdir -p "${_dir}/script/docker"
+  cp /source/justfile "${_dir}/justfile"
+  cp /source/dist/script/docker/justfile.docker "${_dir}/script/docker/justfile.docker"
+  local _verb
+  for _verb in build run exec stop prune setup setup_tui; do
+    cat > "${_dir}/script/${_verb}.sh" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> '${_dir}/.dispatch_log'
+STUB
+    chmod +x "${_dir}/script/${_verb}.sh"
+  done
+}
+
+# _just_docker_dispatch <dir> <recipe> <arg>... -- as _just_test_dispatch,
+# for the `docker` namespace.
+_just_docker_dispatch() {
+  local _dir="${1}" _recipe="${2}"; shift 2
+  rm -f "${_dir}/.dispatch_log"
+  local _out='' _st=0
+  _out="$(just --justfile "${_dir}/justfile" --working-directory "${_dir}" \
+    docker "${_recipe}" "$@" 2>&1)" || _st="$?"
+  _dispatch_output="${_out}"
+  _dispatch_status="${_st}"
+  _dispatched=''
+  if [[ -f "${_dir}/.dispatch_log" ]]; then
+    _dispatched="$(cat "${_dir}/.dispatch_log")"
+  fi
+}
+
+# why: the consumer's own interface re-read every flag it forwarded
+# (base#1289)
+@test "just docker: a forwarded flag arrives as ONE argument, space or pipe (base#1289)" {
+  # EXECUTED, not grepped. base#1284 found its own static guard was
+  # asserting the defective body verbatim, so a grep here would prove the
+  # recipe line exists and nothing about what reaches the wrapper.
+  #
+  # Measured on this file before the change: `--filter 'bare invocation'`
+  # arrived as THREE arguments and the command exited 0 -- silently wrong
+  # -- and `--filter 'foo|bar'` became a shell pipeline that died with
+  # `bar: not found` at status 127.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_DOCKER_SANDBOX="$(mktemp -d)"
+  _just_docker_sandbox "${JUST_DOCKER_SANDBOX}"
+
+  local _verb
+  for _verb in exec stop prune setup; do
+    _just_docker_dispatch "${JUST_DOCKER_SANDBOX}" "${_verb}" \
+      --filter 'bare invocation'
+    [[ "${_dispatch_status}" -eq 0 ]] \
+      || fail "${_verb}: a flag with a space failed: [${_dispatch_output}]"
+    # Equality, never --partial: three arguments CONTAIN two.
+    [[ "${_dispatched}" == "--filter"$'\n'"bare invocation" ]] \
+      || fail "${_verb}: dispatched [${_dispatched}], not one --filter argument"
+
+    _just_docker_dispatch "${JUST_DOCKER_SANDBOX}" "${_verb}" \
+      --filter 'foo|bar'
+    [[ "${_dispatch_status}" -eq 0 ]] \
+      || fail "${_verb}: an alternation failed: [${_dispatch_output}]"
+    [[ "${_dispatched}" == "--filter"$'\n'"foo|bar" ]] \
+      || fail "${_verb}: the alternation was read by the recipe shell: [${_dispatched}]"
+    # The 127 shape specifically: a bare non-zero check would have passed
+    # for it, and that is how this class has survived before.
+    [[ "${_dispatch_output}" != *'not found'* ]] \
+      || fail "${_verb}: the recipe shell ran part of the argument: [${_dispatch_output}]"
+  done
+}
+
+# why: converting the -h scan by accident is the regression this invites
+# (base#1289)
+@test "just docker start --help still prints usage and starts nothing (base#1289)" {
+  # `start` scans its arguments as TEXT (`case " {{args}} " in`) and must
+  # keep doing so. `set positional-arguments` is additive -- interpolation
+  # still works beside "$@" -- so the scan is correct under it, and this
+  # arm is what says so rather than the setting's documentation.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_DOCKER_SANDBOX="$(mktemp -d)"
+  _just_docker_sandbox "${JUST_DOCKER_SANDBOX}"
+
+  _just_docker_dispatch "${JUST_DOCKER_SANDBOX}" start --help
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "start --help failed: [${_dispatch_output}]"
+  [[ "${_dispatch_output}" == *'Usage: just docker start'* ]] \
+    || fail "start --help printed no usage: [${_dispatch_output}]"
+  [[ -z "${_dispatched}" ]] \
+    || fail "start --help reached a wrapper with [${_dispatched}], so --help built an image"
+}
+
+# why: a transliteration that reintroduces {{ on a forwarding line is the
+# way this comes back (base#1289)
+@test "no forwarding line in justfile.docker interpolates {{ (base#1289)" {
+  # The static half, kept BESIDE the executed arms rather than instead of
+  # them. It cannot prove what reaches a wrapper -- base#1284's guard
+  # proved that by passing against the defective body -- but it does catch
+  # the one thing the executed arms cannot: a NEW recipe added later with
+  # the old shape.
+  #
+  # The one deliberate text use in THIS file -- `start`'s `-h` scan -- is
+  # exempted by name, not by pattern: an exemption matching "any line
+  # with a case statement" would quietly cover a future mistake.
+  # (justfile.base has a second such scan; it is not this file and not
+  # this slice.)
+  #
+  # `[[:space:]]*` inside the braces because `{{ args }}` is valid just
+  # and interpolates identically -- a regex pinned to the tight spelling
+  # is one space away from passing the thing it exists to catch.
+  local _jf=/source/dist/script/docker/justfile.docker
+  run grep -nE '^[[:space:]]+[^#]*\{\{[[:space:]]*args[[:space:]]*\}\}' "${_jf}"
+  assert_success
+  # Exactly one line, and it is the scan.
+  assert_equal "$(printf '%s\n' "${output}" | wc -l)" "1"
+  assert_output --partial 'case " {{args}} " in'
+
+  # And the setting that makes "$@" mean anything is there.
+  run grep -c '^set positional-arguments := true$' "${_jf}"
+  assert_output "1"
 }
