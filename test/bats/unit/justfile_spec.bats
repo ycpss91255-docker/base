@@ -45,6 +45,9 @@ teardown() {
   if [[ -n "${JUST_DOCKER_SANDBOX:-}" ]]; then
     rm -rf "${JUST_DOCKER_SANDBOX}"
   fi
+  if [[ -n "${JUST_RELEASE_SANDBOX:-}" ]]; then
+    rm -rf "${JUST_RELEASE_SANDBOX}"
+  fi
   if [[ -n "${JUST_TEMPLATE_SANDBOX:-}" ]]; then
     rm -rf "${JUST_TEMPLATE_SANDBOX}"
   fi
@@ -548,6 +551,114 @@ _just_docker_dispatch() {
 
   # And the setting that makes "$@" mean anything is there.
   run grep -c '^set positional-arguments := true$' "${_jf}"
+  assert_output "1"
+}
+
+# _just_release_sandbox <dir> -- the `release` namespace with both of its
+# backing scripts replaced by recorders. The fourth of these, after
+# base#1173's `test`, base#1289's `docker` and base#1299's `template`;
+# the count line is recorded first for the same reason as there.
+_just_release_sandbox() {
+  local _dir="${1}"
+  mkdir -p "${_dir}/script/release"
+  cp /source/justfile "${_dir}/justfile"
+  cp /source/script/release/justfile.release "${_dir}/script/release/justfile.release"
+  local _s
+  for _s in coverage_badge changelog_index; do
+    cat > "${_dir}/script/release/${_s}.sh" <<STUB
+#!/usr/bin/env bash
+printf 'n=%s\n' "\$#" >> '${_dir}/.dispatch_log'
+printf 'ARG[%s]\n' "\$@" >> '${_dir}/.dispatch_log'
+STUB
+    chmod +x "${_dir}/script/release/${_s}.sh"
+  done
+}
+
+# _just_release_dispatch <dir> <recipe> <arg>... -- as the siblings above.
+_just_release_dispatch() {
+  local _dir="${1}" _recipe="${2}"; shift 2
+  rm -f "${_dir}/.dispatch_log"
+  local _out='' _st=0
+  _out="$(just --justfile "${_dir}/justfile" --working-directory "${_dir}" \
+    release "${_recipe}" "$@" 2>&1)" || _st="$?"
+  _dispatch_output="${_out}"
+  _dispatch_status="${_st}"
+  _dispatched=''
+  if [[ -f "${_dir}/.dispatch_log" ]]; then
+    _dispatched="$(cat "${_dir}/.dispatch_log")"
+  fi
+}
+
+# why: the release namespace re-read the flags it forwarded, same shape
+# as base#1284 and base#1289's docker slice
+@test "just release forwards a flag as ONE argument (base#1289)" {
+  # Measured against RECORDERS on the file before this change:
+  # `coverage-badge --note 'two words'` reached the script as THREE
+  # arguments and the recorder exited 0, and `changelog-index 'foo|bar'`
+  # became a shell pipeline that died with `bar: not found` at 127. The
+  # real `coverage_badge.sh` would have refused `--note` with exit 2 --
+  # what the bare interpolation broke is the ARGUMENT LIST, and a
+  # recorder is how that is seen without a script's own validation in
+  # the way.
+  #
+  # Equality, never --partial: three arguments contain two.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_RELEASE_SANDBOX="$(mktemp -d)"
+  _just_release_sandbox "${JUST_RELEASE_SANDBOX}"
+
+  _just_release_dispatch "${JUST_RELEASE_SANDBOX}" coverage-badge \
+    --note 'two words'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "coverage-badge with a spaced flag failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[--note]"$'\n'"ARG[two words]" ]] \
+    || fail "coverage-badge dispatched [${_dispatched}]"
+
+  # changelog-index prepends --write, so this also pins that the recipe's
+  # OWN argument still arrives first and is not re-ordered by the change.
+  _just_release_dispatch "${JUST_RELEASE_SANDBOX}" changelog-index 'foo|bar'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "changelog-index with an alternation failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[--write]"$'\n'"ARG[foo|bar]" ]] \
+    || fail "changelog-index dispatched [${_dispatched}]"
+  [[ "${_dispatch_output}" != *'not found'* ]] \
+    || fail "the recipe shell ran part of the argument: [${_dispatch_output}]"
+
+  # TWO caller arguments, one of them spaced. A single argument cannot
+  # tell `"$@"` from `"$*"`, and `"$*"` would collapse these into one --
+  # review found that passing every other assertion here.
+  _just_release_dispatch "${JUST_RELEASE_SANDBOX}" changelog-index \
+    doc/changelog 'two words'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "changelog-index with two arguments failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=3"$'\n'"ARG[--write]"$'\n'"ARG[doc/changelog]"$'\n'"ARG[two words]" ]] \
+    || fail "changelog-index dispatched [${_dispatched}], not three arguments"
+
+  # A bare invocation reaches the script with NOTHING -- `n=0`, which is
+  # the one thing that tells zero arguments from the single empty one
+  # `"$*"` would produce, since both print `ARG[]`. `coverage-badge` is
+  # the right recipe to ask: `changelog-index` always has its own
+  # `--write` and can never be empty.
+  _just_release_dispatch "${JUST_RELEASE_SANDBOX}" coverage-badge
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a bare coverage-badge failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=0"$'\n'"ARG[]" ]] \
+    || fail "a bare coverage-badge dispatched [${_dispatched}]"
+}
+
+# why: a transliteration that reintroduces {{ is how this comes back
+@test "no live line in justfile.release interpolates {{args}} (base#1289)" {
+  # Comment lines are stripped first: the header above the setting names
+  # `{{args}}` while explaining why it is gone, and a grep over the whole
+  # file would match its own documentation.
+  local _body="${BATS_TEST_TMPDIR}/justfile.release.body"
+  grep -vE '^[[:space:]]*#' /source/script/release/justfile.release > "${_body}"
+
+  run grep -nE '\{\{[[:space:]]*args[[:space:]]*\}\}' "${_body}"
+  assert_failure
+
+  run grep -c '^set positional-arguments := true$' "${_body}"
   assert_output "1"
 }
 
