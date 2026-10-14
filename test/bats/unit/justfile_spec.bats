@@ -48,6 +48,9 @@ teardown() {
   if [[ -n "${JUST_RELEASE_SANDBOX:-}" ]]; then
     rm -rf "${JUST_RELEASE_SANDBOX}"
   fi
+  if [[ -n "${JUST_BASE_SANDBOX:-}" ]]; then
+    rm -rf "${JUST_BASE_SANDBOX}"
+  fi
   if [[ -n "${JUST_TEMPLATE_SANDBOX:-}" ]]; then
     rm -rf "${JUST_TEMPLATE_SANDBOX}"
   fi
@@ -108,8 +111,14 @@ teardown() {
   # the signature is `update *args:` not the old argless `update:`.
   run grep -E '^update \*args:' "${_base}"
   assert_success
-  run grep -F './.base/dist/script/base/upgrade.sh {{args}}' "${_base}"
+  # The forwarding is spelled `"$@"` since base#1289: `{{args}}` was an
+  # unquoted interpolation the recipe's own shell re-split. What base#652
+  # wanted -- `upgrade` forwards 1:1 to upgrade.sh -- is unchanged, so
+  # this asserts the new spelling and refuses the old one.
+  run grep -F './.base/dist/script/base/upgrade.sh "$@"' "${_base}"
   assert_success
+  run grep -F './.base/dist/script/base/upgrade.sh {{args}}' "${_base}"
+  assert_failure
   run grep -F './.base/dist/script/base/upgrade.sh --check' "${_base}"
   assert_success
 }
@@ -147,10 +156,17 @@ teardown() {
   assert_success
   run grep -E '^completions ' "${_base}"
   assert_success
+  # `"$@"` since base#1289, for the reason the upgrade guard above
+  # records. base#653's guarantee -- each verb forwards 1:1 to its script --
+  # is unchanged.
+  run grep -F './.base/dist/script/base/init.sh "$@"' "${_base}"
+  assert_success
   run grep -F './.base/dist/script/base/init.sh {{args}}' "${_base}"
+  assert_failure
+  run grep -F 'script/base/completions.sh "$@"' "${_base}"
   assert_success
   run grep -F 'script/base/completions.sh {{args}}' "${_base}"
-  assert_success
+  assert_failure
 }
 
 # why: #652 -- `mod? base`
@@ -798,6 +814,157 @@ _just_template_dispatch() {
   # appearing on a SECOND live line, so it is refuted on its own below.
   run grep -nF 'script/template/new.sh {{name}}' "${_body}"
   assert_failure
+}
+
+# _just_base_sandbox <dir> -- the `base` namespace with every backing
+# script replaced by a recorder. The fifth and last of these. The `a/b`
+# nesting is load-bearing: justfile.base carries
+# `set working-directory := '../..'`, so the recipes run two levels up and
+# reach `./.base/dist/script/base/` and `script/base/` from there.
+_just_base_sandbox() {
+  local _dir="${1}"
+  mkdir -p "${_dir}/.base/dist/script/base" "${_dir}/script/base" \
+    "${_dir}/a/b" "${_dir}/a/docker/lib"
+  cp /source/dist/script/base/justfile.base "${_dir}/a/b/justfile"
+  local _s
+  for _s in .base/dist/script/base/upgrade.sh .base/dist/script/base/init.sh \
+            script/base/completions.sh a/docker/lib/help.sh; do
+    cat > "${_dir}/${_s}" <<STUB
+#!/usr/bin/env bash
+printf 'n=%s\n' "\$#" >> '${_dir}/.dispatch_log'
+printf 'ARG[%s]\n' "\$@" >> '${_dir}/.dispatch_log'
+[[ "\${1:-}" == "--check" ]] && exit 1
+exit 0
+STUB
+    chmod +x "${_dir}/${_s}"
+  done
+}
+
+# _just_base_dispatch <dir> <recipe> <arg>... -- as the siblings above.
+_just_base_dispatch() {
+  local _dir="${1}" _recipe="${2}"; shift 2
+  rm -f "${_dir}/.dispatch_log"
+  local _out='' _st=0
+  _out="$(just --justfile "${_dir}/a/b/justfile" "${_recipe}" "$@" 2>&1)" || _st="$?"
+  _dispatch_output="${_out}"
+  _dispatch_status="${_st}"
+  _dispatched=''
+  if [[ -f "${_dir}/.dispatch_log" ]]; then
+    _dispatched="$(cat "${_dir}/.dispatch_log")"
+  fi
+}
+
+# why: the base namespace re-read the flags it forwarded -- the last
+# module in base#1289's sweep
+@test "just base forwards a flag as ONE argument (base#1289)" {
+  # Measured against recorders before the change: `upgrade --to 'v1 2'`
+  # reached upgrade.sh as THREE arguments, and `init 'foo|bar'` became a
+  # shell pipeline that died with `bar: not found` at 127.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_BASE_SANDBOX="$(mktemp -d)"
+  _just_base_sandbox "${JUST_BASE_SANDBOX}"
+
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" upgrade --to 'v1 2'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "upgrade with a spaced flag failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[--to]"$'\n'"ARG[v1 2]" ]] \
+    || fail "upgrade dispatched [${_dispatched}]"
+
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" init 'foo|bar'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "init with an alternation failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[foo|bar]" ]] \
+    || fail "init dispatched [${_dispatched}]"
+  [[ "${_dispatch_output}" != *'not found'* ]] \
+    || fail "the recipe shell ran part of the argument: [${_dispatch_output}]"
+
+  # TWO caller arguments, one spaced: one argument cannot tell "$@" from
+  # "$*", which would collapse them.
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" completions bash 'two words'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "completions with two arguments failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=2"$'\n'"ARG[bash]"$'\n'"ARG[two words]" ]] \
+    || fail "completions dispatched [${_dispatched}]"
+
+  # `help` prepends the literal `base`, which must still arrive FIRST.
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" help --lang 'zh TW'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "help with a spaced flag failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=3"$'\n'"ARG[base]"$'\n'"ARG[--lang]"$'\n'"ARG[zh TW]" ]] \
+    || fail "help dispatched [${_dispatched}]"
+
+  # Bare, and an empty argument: the count line is the only thing that
+  # separates one empty argument from none.
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" init
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a bare init failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=0"$'\n'"ARG[]" ]] \
+    || fail "a bare init dispatched [${_dispatched}]"
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" init ''
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "init with an empty argument failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[]" ]] \
+    || fail "init with an empty argument dispatched [${_dispatched}]"
+}
+
+# why: update's -h scan is the one deliberate interpolation left, and
+# the setting must not disturb it (base#1289, base#1304)
+@test "just base update's -h scan is unchanged by positional-arguments (base#1289)" {
+  # `update` is a SHEBANG recipe whose `*args` exists only as a `--help`
+  # shim. Its `for _a in {{args}}` is the only SPLITTING interpolation
+  # left in the four namespace modules -- justfile.docker's
+  # `case " {{args}} "` is deliberate too, and joins -- so it keeps its
+  # interpolation and base#1289's Out of scope defers whether it should.
+  # base#1304 carries that question with the measurement.
+  #
+  # This arm is green on both trees ON PURPOSE. It is not a demonstration
+  # of a defect; it is what says `set positional-arguments` left the scan
+  # alone, which is the precondition this slice had to establish.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_BASE_SANDBOX="$(mktemp -d)"
+  _just_base_sandbox "${JUST_BASE_SANDBOX}"
+
+  # --help reaches upgrade.sh's usage and NOT the network check.
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" update --help
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "update --help failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
+    || fail "update --help dispatched [${_dispatched}]"
+
+  # A bare update reaches --check, whose non-zero the recipe tolerates.
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" update
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "a bare update failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[--check]" ]] \
+    || fail "a bare update dispatched [${_dispatched}]"
+
+  # And the splitting behaviour itself, pinned as it IS rather than as it
+  # perhaps should be: an argument containing `-h` as a word reaches the
+  # help path. base#1304 is where that is decided; until then this arm is
+  # what makes a silent change to it impossible.
+  _just_base_dispatch "${JUST_BASE_SANDBOX}" update 'x -h'
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "update 'x -h' failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
+    || fail "update 'x -h' dispatched [${_dispatched}]"
+}
+
+# why: a transliteration that reintroduces {{args}} on a FORWARDING line
+@test "justfile.base interpolates {{args}} only in update's scan (base#1289)" {
+  local _body="${BATS_TEST_TMPDIR}/justfile.base.body"
+  grep -vE '^[[:space:]]*#' /source/dist/script/base/justfile.base > "${_body}"
+
+  # Exactly one live interpolation, and it is the scan.
+  run grep -nE '\{\{[[:space:]]*args[[:space:]]*\}\}' "${_body}"
+  assert_success
+  assert_equal "$(printf '%s\n' "${output}" | wc -l)" "1"
+  assert_output --partial 'for _a in {{args}}'
+  run grep -c '^set positional-arguments := true$' "${_body}"
+  assert_output "1"
 }
 
 # why: the template namespace re-read the flags it forwarded, the last

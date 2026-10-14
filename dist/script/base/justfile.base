@@ -19,6 +19,30 @@
 # to the repo root.
 set working-directory := '../..'
 
+# Arguments reach a recipe body as "$@", not as an unquoted {{args}}
+# interpolation, which hands the recipe's own shell a string to re-split.
+# Measured against recorders on this file before the change: `just base
+# upgrade --to 'v1 2'` reached upgrade.sh as THREE arguments, and `just
+# base init 'foo|bar'` became a shell pipeline that died with `bar: not
+# found` at 127. base#1284 swept script/test/justfile.test; base#1289 is
+# the same sweep across the namespace modules, and this is its last
+# slice.
+#
+# The precondition, re-established for THIS file: before this change
+# `grep -nE '\$[0-9@*]'` over it matched nothing. `update` below is a
+# SHEBANG recipe, so the setting gives its body `$@` as well -- it reads
+# neither, so the setting changes the meaning of no existing line.
+#
+# `update`'s `-h` scan keeps its `{{args}}`. It is the only SPLITTING
+# interpolation left in the four namespace modules -- justfile.docker's
+# `case " {{args}} "` is deliberate too, and joins. It wants real word
+# SPLITTING, unlike justfile.docker's `case " {{args}} "`, which only
+# joins -- so converting it is a behaviour change, not a transliteration:
+# `just base update 'x -h'` execs `upgrade.sh --help` today because the
+# split sees a bare `-h`, and would stop doing so. base#1289's Out of
+# scope defers that question and base#1304 carries it.
+set positional-arguments := true
+
 # source_file (not justfile) is this module's own file: inside a mod?'d
 # module justfile resolves to the ROOT entry, so listing it would show the
 # entry's namespaces instead of the base verbs. source_file pins
@@ -37,11 +61,11 @@ alias h := help
 # translated one-line summaries via the shared `_msg help` i18n renderer
 # (honours $LANG / --lang). Bare `just base` and `just --list` stay English.
 help *args:
-    @"$(dirname "$(readlink -f '{{source_file()}}')")/../docker/lib/help.sh" base {{args}}
+    @"$(dirname "$(readlink -f '{{source_file()}}')")/../docker/lib/help.sh" base "$@"
 
 # just base upgrade [vX.Y.Z] -> pull the .base subtree (empty = latest)
 upgrade *args:
-    ./.base/dist/script/base/upgrade.sh {{args}}
+    ./.base/dist/script/base/upgrade.sh "$@"
 
 # `*args` on `update` is a `--help` shim only: update always runs the check
 # and never upgrades, so non-help args are ignored; `-h|--help` reaches
@@ -62,9 +86,9 @@ update *args:
 
 # just base init -> (re-)wire repo symlinks + .gitignore
 init *args:
-    ./.base/dist/script/base/init.sh {{args}}
+    ./.base/dist/script/base/init.sh "$@"
 
 # just base completions install|uninstall [--shell bash|zsh|fish|all]
 #   opt-in shell tab-completion; never edits a shell rc.
 completions *args:
-    script/base/completions.sh {{args}}
+    script/base/completions.sh "$@"
