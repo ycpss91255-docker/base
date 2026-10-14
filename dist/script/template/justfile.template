@@ -28,5 +28,36 @@ help *args:
 # reliable whether reached via `--working-directory` or a bare invocation;
 # `[no-cd]` / `invocation_directory` are not, so the scaffolder runs from
 # a known-good cwd) before running new.sh, which writes to ./script/local/.
+#
+# `{{quote(name)}}`, and NOT a hand-written quote around it. An
+# interpolation is TEXT handed to the recipe's own shell, so the bare form
+# re-split it: `just template new 'two words'` reached new.sh as two
+# arguments, and new.sh -- which validates `^[a-z][a-z0-9_-]*$`, and so
+# would have refused the real name -- was handed `words`, created that
+# group, registered it in script/local/justfile.local and exited 0
+# (base#1299).
+#
+# Measured against a recorder that prints its argument count and then one
+# line per argument, for each of the three forms a reviewer reaches for:
+#
+#   name          {{name}}         '{{name}}'           {{quote(name)}}
+#   two words     2 args           1 arg                1 arg
+#   foo|bar       PIPELINE, 127    1 arg                1 arg
+#   two'words     SYNTAX ERROR     SYNTAX ERROR         1 arg
+#   a''b          1 arg `ab`       1 arg `ab`           1 arg `a''b`
+#   ' --help #    SYNTAX ERROR     2 args: `` `--help`  1 arg
+#   $USER         1 arg `<user>`   1 arg, literal       1 arg, literal
+#   deploy-aws    1 arg            1 arg                1 arg
+#   (empty)       0 args           1 empty arg          1 empty arg
+#
+# The `' --help #` row is why the hand-written quote is not enough: it
+# closes the quote the recipe opened and hands new.sh a FLAG, which that
+# script answers by printing its help and exiting 0. `quote()` is just's
+# own shell-escaper -- it wraps in single quotes and escapes embedded
+# apostrophes -- and is the only form right for every input.
+#
+# A fourth form, `"{{name}}"`, fixes the re-split and is wrong for its
+# own reason: it EXPANDS, so `$USER` arrives as the operator's name,
+# which satisfies the validator and scaffolds a group named after them.
 new name:
-    @cd {{justfile_directory()}} && script/template/new.sh {{name}}
+    @cd {{justfile_directory()}} && script/template/new.sh {{quote(name)}}

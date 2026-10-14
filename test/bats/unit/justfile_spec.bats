@@ -48,6 +48,9 @@ teardown() {
   if [[ -n "${JUST_RELEASE_SANDBOX:-}" ]]; then
     rm -rf "${JUST_RELEASE_SANDBOX}"
   fi
+  if [[ -n "${JUST_TEMPLATE_SANDBOX:-}" ]]; then
+    rm -rf "${JUST_TEMPLATE_SANDBOX}"
+  fi
 }
 
 # why: both files present
@@ -639,4 +642,142 @@ _just_release_dispatch() {
 
   run grep -c '^set positional-arguments := true$' "${_body}"
   assert_output "1"
+}
+
+# _just_template_sandbox <dir> -- the `template` namespace with its
+# scaffolder replaced by a recorder. The third of these (base#1173's
+# `test`, base#1289's `docker`); this one needs no nesting, because
+# justfile.template sets no working-directory and the recipe `cd`s to
+# `{{justfile_directory()}}` itself.
+_just_template_sandbox() {
+  local _dir="${1}"
+  mkdir -p "${_dir}/script/template"
+  cp /source/dist/script/template/justfile.template "${_dir}/justfile"
+  # The count is recorded FIRST and separately, because the argument
+  # lines alone cannot tell ONE EMPTY argument from NONE: bash's
+  # `printf 'ARG[%s]\n'` writes `ARG[]` for both. The bare interpolation
+  # produces the second, so that is a distinction this file has to make.
+  cat > "${_dir}/script/template/new.sh" <<STUB
+#!/usr/bin/env bash
+printf 'n=%s\n' "\$#" >> '${_dir}/.dispatch_log'
+printf 'ARG[%s]\n' "\$@" >> '${_dir}/.dispatch_log'
+STUB
+  chmod +x "${_dir}/script/template/new.sh"
+}
+
+# _just_template_dispatch <dir> <arg>... -- run `just template new <arg>...`
+# in the sandbox, leaving the recorded dispatch in _dispatched.
+_just_template_dispatch() {
+  local _dir="${1}"; shift
+  rm -f "${_dir}/.dispatch_log"
+  local _out='' _st=0
+  _out="$(just --justfile "${_dir}/justfile" --working-directory "${_dir}" \
+    new "$@" 2>&1)" || _st="$?"
+  _dispatch_output="${_out}"
+  _dispatch_status="${_st}"
+  _dispatched=''
+  if [[ -f "${_dir}/.dispatch_log" ]]; then
+    _dispatched="$(cat "${_dir}/.dispatch_log")"
+  fi
+}
+
+# why: an unquoted single interpolation re-split the group name, and
+# new.sh's own validator could not see it (base#1299)
+@test "just template new hands the scaffolder ONE argument (base#1299)" {
+  # The validator in new.sh (`^[a-z][a-z0-9_-]*$`) does not catch this and
+  # makes it worse: `two words` re-split reaches it as two arguments, the
+  # LAST of which is a legal name, so it created a group called `words`,
+  # registered it in script/local/justfile.local and exited 0 saying so.
+  # The user asked for neither.
+  #
+  # Equality, not --partial: two arguments contain one.
+  command -v just > /dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _dispatched='' _dispatch_status=0 _dispatch_output=''
+  JUST_TEMPLATE_SANDBOX="$(mktemp -d)"
+  _just_template_sandbox "${JUST_TEMPLATE_SANDBOX}"
+
+  # Every shape a hand-written quote gets wrong, plus the ordinary one.
+  # Review built this list, and each entry is here because some other
+  # form of the fix gets it wrong. A hand-written `'{{name}}'` turns
+  # `two'words` into a shell syntax error, silently reduces `a''b` to
+  # `ab`, and lets `' --help #` close the quote the recipe wrote and hand
+  # new.sh a FLAG -- which that script answers by printing its help and
+  # exiting 0. The last two entries are for wrong fixes the others do
+  # not catch: `{{quote(trim(name))}}` passes every other one and drops a
+  # trailing NEWLINE, and an `exec` wrapper that strips a trailing SPACE
+  # passes every one including that. Only `{{quote(name)}}` is right for
+  # all of them.
+  _assert_one_arg() {
+    local _name="${1}"
+    _just_template_dispatch "${JUST_TEMPLATE_SANDBOX}" "${_name}"
+    [[ "${_dispatch_status}" -eq 0 ]] \
+      || fail "[${_name}] failed: [${_dispatch_output}]"
+    [[ "${_dispatched}" == "n=1"$'\n'"ARG[${_name}]" ]] \
+      || fail "[${_name}] dispatched [${_dispatched}], not one argument"
+    # The recipe shell must have run none of it. Refuted by name because
+    # the bad shapes exit 127 and a bare non-zero check has been satisfied
+    # by a 127 in this repo before.
+    [[ "${_dispatch_output}" != *'not found'* ]] \
+      || fail "[${_name}]: the recipe shell ran part of the name: [${_dispatch_output}]"
+    [[ "${_dispatch_output}" != *'Syntax error'* ]] \
+      || fail "[${_name}]: the recipe shell could not parse the body: [${_dispatch_output}]"
+  }
+
+  _assert_one_arg 'two words'
+  _assert_one_arg 'foo|bar'
+  _assert_one_arg "two'words"
+  _assert_one_arg "a''b"
+  _assert_one_arg "' --help #"
+  _assert_one_arg '$USER'
+  _assert_one_arg 'deploy-aws'
+  _assert_one_arg 'back\\slash'
+  _assert_one_arg 'trailing-space '
+  _assert_one_arg 'trailing-newline
+'
+
+  # An EMPTY name is still exactly one argument, and the count line is
+  # what proves it. Not because of any newline stripping -- `printf
+  # 'ARG[%s]\n'` emits `ARG[]` for an empty argument AND for no arguments
+  # at all, so those two are the pair the argument lines cannot tell
+  # apart. The bare interpolation produces the second (`n=0`), which is
+  # one of the shapes this arm exists to reject.
+  _just_template_dispatch "${JUST_TEMPLATE_SANDBOX}" ''
+  [[ "${_dispatch_status}" -eq 0 ]] \
+    || fail "an empty name failed: [${_dispatch_output}]"
+  [[ "${_dispatched}" == "n=1"$'\n'"ARG[]" ]] \
+    || fail "an empty name dispatched [${_dispatched}], not one empty argument"
+}
+
+# why: the quote is one character and a later edit can drop it (base#1299)
+@test "justfile.template forwards the name through quote() (base#1299)" {
+  # The static half. It cannot prove what reaches the scaffolder -- the
+  # arm above does that -- but it catches the edit that replaces
+  # `quote()` with a hand-written quote, which is the way this comes
+  # back, and the one a reviewer is most likely to make.
+  #
+  # Comment lines are stripped FIRST, into a file the greps read. An
+  # earlier version matched the whole file and passed against a body
+  # using double quotes while the correct form survived in a comment
+  # three lines above -- a guard its own documentation satisfies, which
+  # is the failure family base#1115 / base#1117 / base#1175 name.
+  local _body="${BATS_TEST_TMPDIR}/justfile.template.body"
+  grep -vE '^[[:space:]]*#' /source/dist/script/template/justfile.template \
+    > "${_body}"
+
+  # The WHOLE command is anchored, start of line to end. Review reached
+  # past a tail-only match twice: `... {{quote(name)}}x` is a different
+  # program, and an `exec` wrapper around the same tail ends in exactly
+  # the right characters while stripping a trailing space from the name.
+  # Matching the line and nothing else is the only form that rules both
+  # out.
+  run grep -nxE '[[:space:]]*@cd \{\{justfile_directory\(\)\}\} && script/template/new[.]sh \{\{quote\(name\)\}\}' "${_body}"
+  assert_success
+
+  # The positive grep is already exclusive: a live line carrying
+  # `"{{name}}"` or `'{{name}}'` does not carry `{{quote(name)}}`, so it
+  # fails above. What that cannot distinguish is the bare interpolation
+  # appearing on a SECOND live line, so it is refuted on its own below.
+  run grep -nF 'script/template/new.sh {{name}}' "${_body}"
+  assert_failure
 }
