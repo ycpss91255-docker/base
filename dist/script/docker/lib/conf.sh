@@ -254,21 +254,33 @@ _load_setup_conf_full() {
 # Inverse of the join `_load_setup_conf_full` performs: split a
 # "<section>.<key>" namespace key back into its two halves.
 #
-# The join is lossy -- either half may contain a dot -- so the split
-# leans on the one rule the config schema fixes: the per-service
-# `[logging.<svc>]` block is the only sub-sectioned name, so
-# `logging.<svc>.<key>` splits at the RIGHTMOST dot and everything else
-# splits at the first (`stage:headless.gui.mode` -> section
-# `stage:headless`, key `gui.mode`).
+# The join is lossy -- either half may contain a dot -- so no rule over
+# the STRING can recover which dot was the join's: `logging.max_size`
+# and `logging.web.driver` share a prefix and split at different dots.
+# The split therefore asks something outside the string. A name whose
+# HEAD is registered in SCHEMA_SUBSECTIONED and that carries at least
+# two dots splits at the RIGHTMOST dot; everything else splits at the
+# first (`stage:headless.gui.mode` -> section `stage:headless`, key
+# `gui.mode`, because `stage:headless`'s dot is in the KEY).
 #
-# A dot-split PREFIX is not a substitute: `logging.` prefixes both
-# `logging.max_size` and `logging.web.driver`, so prefix matching binds
-# a per-service override to the parent `[logging]` section as well.
+# This used to be a literal `logging.*.*` match, which made the set of
+# sub-sectioned names one long by construction and was the reason
+# base#1152's `base.*` namespace and base#1184's `[base.watchdog]`
+# could not land: registering a section was not enough, because the
+# name was already destroyed by the time anything checked membership.
+# Adding a name to SCHEMA_SUBSECTIONED is now the whole of it.
+#
+# A dot-split PREFIX is still not a substitute, for the reason above.
 # Anything deciding which section an override key belongs to must ask
 # here rather than re-derive it.
 #
-# Returns 1 with both outvars empty when <nskey> carries no dot, i.e. it
-# names a section and no key.
+# Returns non-zero with both outvars empty in two cases, and callers
+# that can act on only one of them must tell them apart by the shape of
+# the input rather than by the status:
+#   - <nskey> carries no dot, i.e. it names a section and no key;
+#   - the registry is not loaded, because "no answer" must not read as
+#     "nothing is sub-sectioned" -- that reading is WORSE than the
+#     literal this replaced, which at least got `logging` right.
 _conf_split_nskey() {
   local _nskey="${1-}"
   local -n _csn_section="${2:?"${FUNCNAME[0]}: missing section outvar"}"
@@ -278,7 +290,30 @@ _conf_split_nskey() {
   _csn_key=""
   [[ "${_nskey}" == *.* ]] || return 1
 
-  if [[ "${_nskey}" == logging.*.* ]]; then
+  # conf.sh's first dependency on schema.sh, which conf.sh declares for
+  # itself at the foot of this file -- so in a loaded tree this branch
+  # is unreachable. It exists for a tree where the registry has been
+  # removed or shadowed, because the cheap reading of "no answer" is
+  # "nothing is sub-sectioned", and that answer is WORSE than the
+  # literal `logging.*.*` it replaced: the literal at least got
+  # `logging.<svc>.<key>` right. Refusing is the only safe answer.
+  #
+  # BOTH halves are checked. The predicate without the array is not a
+  # registry: `_schema_is_subsectioned` would iterate an unset array,
+  # answer "no" for everything, and leave no trace. A DECLARED but empty
+  # array is a different thing and is allowed -- it is a registry that
+  # happens to name nothing, and every key then splits at the first dot,
+  # which is a true answer to the question asked.
+  if ! declare -F _schema_is_subsectioned > /dev/null 2>&1 \
+    || ! declare -p SCHEMA_SUBSECTIONED > /dev/null 2>&1; then
+    _log_err conf conf_subsection_registry_missing \
+      "display=cannot split the namespace key ${_nskey}: SCHEMA_SUBSECTIONED and its predicate are not both loaded, so whether its first component has sub-sections has no answer. conf.sh sources schema.sh itself, so reaching this means the registry was removed or shadowed rather than merely not sourced. Guessing here would file every sub-sectioned key under its parent section without saying so, including the per-service [logging.<svc>] blocks that worked before this registry existed." \
+      "nskey=${_nskey}"
+    return 1
+  fi
+
+  if [[ "${_nskey}" == *.*.* ]] \
+    && _schema_is_subsectioned "${_nskey%%.*}"; then
     _csn_section="${_nskey%.*}"
     _csn_key="${_nskey##*.}"
   else
@@ -2296,3 +2331,32 @@ _conf_toml_upsert_aot() {
     printf '[[%s]]\n%s\n' "${_path}" "${__fields}" >> "${_dst}"
   fi
 }
+
+# ════════════════════════════════════════════════════════════════════
+# conf.sh's one dependency on the schema registry, declared here rather
+# than left to whoever sources this file.
+#
+# `_conf_split_nskey` asks SCHEMA_SUBSECTIONED which names have
+# sub-sections (base#1185). Every production ENTRY POINT reaches both
+# files through _lib.sh, but five libraries source conf.sh directly --
+# setup_conf.sh, conf_logging.sh, config_summary.sh,
+# setup_conf_migrate.sh and ini_to_toml_migrate.sh -- and
+# config_summary.sh calls the splitter. Left implicit, a lone
+# `source config_summary.sh` would refuse every split: correct, and
+# useless.
+#
+# It sources at the END, after conf.sh's own functions exist. The chain
+# schema.sh -> _tui_conf.sh -> conf.sh closes on the
+# _DOCKER_LIB_CONF_SOURCED guard at the top of this file, and
+# _tui_conf.sh does no source-time work beyond declarations, so the
+# cycle resolves whichever file a caller names first.
+# ════════════════════════════════════════════════════════════════════
+# `disable=SC1091` rather than a `source=` directive, which is what
+# _lib.sh and config_summary.sh use for every sibling they pull in this
+# way. A resolving directive makes shellcheck analyse schema.sh as part
+# of THIS file, and in the consumer's flat-layout pass (no -x, lib/*.sh
+# copied side by side) that merged view reports SC2178 against
+# `_schema_section_keys`'s nameref -- a finding about a function this
+# change does not touch, raised only because of how it was reached.
+# shellcheck disable=SC1091
+source "${_conf_sh_dir}/schema.sh"

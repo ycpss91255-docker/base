@@ -1156,3 +1156,50 @@ EOF
   assert_success
   assert_output ""
 }
+
+# why: base#1185 -- the splitter call the original blast-radius analysis
+#      missed; a wrong split here is a wrong SUMMARY, which no exit
+#      status reports
+@test "_summary_dump_section groups by the registry, not by the first dot (base#1185)" {
+  # `_summary_dump_section` asks `_conf_split_nskey` which section each
+  # resolved key belongs to and prints the ones that match. It was absent
+  # from base#1185's original call list, and it is the one site whose
+  # symptom is silent: a mis-grouped key still prints, under the wrong
+  # heading, and the command still succeeds.
+  #
+  # Two runs over the same input, differing only in whether `base` is
+  # registered as sub-sectioned. Nothing under dist/ differs between
+  # them, which is the property this slice bought.
+  run bash -c "
+    source ${LIB}
+    _k=( base.watchdog.check logging.web.driver )
+    _v=( 30s json-file )
+    _summary_dump_section t base _k _v
+    echo ---
+    _summary_dump_section t base.watchdog _k _v
+  "
+  assert_success
+  # Unregistered: the key lands under [base] with a dotted key name, and
+  # [base.watchdog] is empty.
+  assert_line --index 0 "[t]   [base]"
+  assert_line --index 1 "[t]     watchdog.check = 30s"
+  assert_line --index 2 "---"
+  assert_equal "${#lines[@]}" 3
+
+  run bash -c "
+    source ${LIB}
+    SCHEMA_SUBSECTIONED+=( base )
+    _k=( base.watchdog.check logging.web.driver )
+    _v=( 30s json-file )
+    _summary_dump_section t base _k _v
+    echo ---
+    _summary_dump_section t base.watchdog _k _v
+  "
+  assert_success
+  # Registered: [base] has nothing of its own, and the key is grouped
+  # under the table it names.
+  assert_line --index 0 "---"
+  assert_line --index 1 "[t]   [base.watchdog]"
+  assert_line --index 2 "[t]     check = 30s"
+  assert_equal "${#lines[@]}" 3
+}

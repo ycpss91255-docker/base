@@ -19,6 +19,7 @@ conf_reset
 conf_invalid_value
 conf_key_not_found
 conf_section_not_found
+conf_subsection_registry_missing
 conf_unknown_subcmd
 conf_unknown_arg
 conf_upsert_file_missing

@@ -134,6 +134,54 @@ declare -ga SCHEMA_SECTIONS=(
 )
 
 # ════════════════════════════════════════════════════════════════════
+# The sections that have SUB-SECTIONS: a name that can appear as
+# `<name>.<sub>` and own keys there, rather than owning keys directly
+# under `<name>`.
+#
+# This exists because `<section>.<key>` is a LOSSY join -- either half
+# may contain a dot -- and the split back (`_conf_split_nskey` in
+# conf.sh) cannot recover which dot was the join's. No string rule can:
+# `logging.max_size` and `logging.web.driver` share a prefix and split
+# at different dots. The splitter used to carry the answer as a literal
+# `logging.*.*` match, which made this list one name long by
+# construction and is why base#1152's whole `base.*` namespace and
+# base#1184's `[base.watchdog]` could not land.
+#
+# Adding a name here is the whole of making it sub-sectioned. Nothing in
+# conf.sh is edited for it, which is the property
+# conf_accessor_spec.bats asserts by extending this array in a fixture.
+#
+# It is deliberately SEPARATE from SCHEMA_SECTIONS rather than a mark on
+# it. `logging` is in both; `stage:<name>` is in neither and must not be
+# -- its dot is in the KEY (`stage:headless.gui.mode` is section
+# `stage:headless`, key `gui.mode`), so registering it would split that
+# key at the wrong end. A per-service `[logging.<svc>]` is likewise not
+# a SCHEMA_SECTIONS entry: that open-ended shape is _setup_known_section's
+# business, and this list answers a narrower question than membership.
+# ════════════════════════════════════════════════════════════════════
+declare -ga SCHEMA_SUBSECTIONED=(
+  logging
+)
+
+# ════════════════════════════════════════════════════════════════════
+# _schema_is_subsectioned <name>
+#
+# Returns 0 when <name> is registered as having sub-sections, 1
+# otherwise. The single predicate over SCHEMA_SUBSECTIONED, for the
+# same reason _schema_is_section is the single one over
+# SCHEMA_SECTIONS: a consumer that re-derives the list is a consumer
+# that goes stale when the list grows.
+# ════════════════════════════════════════════════════════════════════
+_schema_is_subsectioned() {
+  local _s="${1-}"
+  local _name
+  for _name in "${SCHEMA_SUBSECTIONED[@]}"; do
+    [[ "${_name}" == "${_s}" ]] && return 0
+  done
+  return 1
+}
+
+# ════════════════════════════════════════════════════════════════════
 # SCHEMA_I18N — the i18n-index (deferred fromepic).
 #
 # Maps each canonical SCHEMA_VALIDATOR key to the i18n message key its

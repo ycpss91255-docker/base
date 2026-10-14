@@ -1733,7 +1733,7 @@ for the knobs the conf sets.
 | `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
 | `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
-### test/bats/unit/conf_accessor_spec.bats (29)
+### test/bats/unit/conf_accessor_spec.bats (33)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563):
 `_conf_load` loads a file into a named handle, `_conf_get` reads a value by
@@ -1783,6 +1783,10 @@ on hand-edited / malformed setup.conf:
 | `_ini_tokenize keeps dotted keys verbatim (per-stage override keys)` | - |
 | `the two accessors agree on a numbered family carried both ways: the load is refused (base#1243)` | THE DEFECT WAS THE DISAGREEMENT, so this is the assertion that closes it, on the same file that produced it. A `[security]` carrying `cap_drop_1` as a table scalar AND a `[[security.cap_drop]]` block made the bridge emit that key twice, and the two accessors read the doubling differently: `_conf_get` keeps assigning as it walks and answered `SYS_ADMIN` -- the last occurrence, ONE entry -- while `_conf_list_sorted` collects every non-empty entry and answered `NET_RAW SYS_ADMIN` -- TWO. One file, two effective configurations, decided by which reader asked. `_resolve_docker_conf` reads all three `[security]` lists through the list accessor and `setup.sh show` and the validators read keys, so both answers were live at once. The agreement is now that the LOAD fails: `_conf_load` propagates the bridge's refusal, which is why this asserts the status and not only the values. The accessors answering their defaults on a failed load is the half that must not be mistaken for a loaded configuration, and `_toml_tokenize` says so in its own voice -- see its header. |
 | `_conf_get and _conf_list_sorted agree on a family spelled one way, in either spelling (base#1243)` | The control for the case above, and the proof the agreement is not bought by refusing every file. The SAME section spelled ONE way loads, and the two accessors answer the same configuration: the key lookup reads entry 1 and the list reads the entries in index order. Both spellings are asserted because both are readable -- the array one is what the writers and the converter produce, the scalar one is what a family with no array home still uses -- and a refusal that caught either would make every repo's configuration unloadable. |
+| `_conf_split_nskey: today's answers are pinned, so a refactor that changes one is loud (base#1185)` | base#1185 -- the splitter hard-codes `logging` as the only sub-sectioned name, so the whole base.* namespace cannot land |
+| `_conf_split_nskey: follows the registry, so a new sub-sectioned name needs no edit here (base#1185)` | base#1185 -- the set of sub-sectioned names must come from the registry, or base#1152 / base#1184 cannot add one |
+| `_conf_split_nskey: sourcing conf.sh alone carries the registry with it (base#1185)` | base#1185 -- conf.sh gains its first dependency on schema.sh, and it must declare that itself rather than trust the caller |
+| `_conf_split_nskey: refuses rather than guessing when the registry is gone (base#1185)` | base#1185 -- an unloaded registry must not read as "nothing is sub-sectioned", an answer worse than the literal it replaced |
 
 ### test/bats/unit/conf_logging_spec.bats (12)
 
@@ -3608,7 +3612,7 @@ the bump rather than moving the coverage number by a plausible margin.
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
 
-### test/bats/unit/lib_spec.bats (68)
+### test/bats/unit/lib_spec.bats (69)
 
 | Test | Description |
 |------|-------------|
@@ -3680,6 +3684,7 @@ the bump rather than moving the coverage number by a plausible margin.
 | `_print_config_summary uses ja labels when _LANG=ja` | - |
 | `_print_config_summary conf_missing hint is translated (zh-TW)` | - |
 | `no lib module declares a variable the generated .env already names (base#1177)` | base#1177 put a `GPU_CAPABILITIES` array in the lib tree and measured what that costs: `_lib.sh` loads env_emit.sh and config_summary.sh into ONE process alongside every other module, and `.env` carries a variable of that exact name, so the array shadowed the operator's value and `${GPU_CAPABILITIES:--}` read back `gpu` -- the array's first element -- whatever the configuration said. Nothing failed; the summary just printed a different list. The population is DERIVED from the names env_emit.sh actually writes rather than listed here, because a guard naming today's twenty-four passes forever while the next emitted name is taken by a module variable (base#1089 / base#1090 / base#1214). The probe runs with those names cleared from the environment, so what it finds is what the TREE declares. |
+| `_summary_dump_section groups by the registry, not by the first dot (base#1185)` | base#1185 -- the splitter call the original blast-radius analysis missed; a wrong split here is a wrong SUMMARY, which no exit status reports |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 
@@ -5919,7 +5924,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (179)
+### test/bats/unit/setup_cmd_spec.bats (180)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6115,6 +6120,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply --output refuses a repo root carrying a line break (base#1087)` | A newline in the repo's own directory name is emitted literally into the artifact, which compose then rejects outright, and it also splits the newline-separated lists the rebase feeds -- one entry becomes two, neither of them a mount. Refused with the colon, for the same reason: what cannot be expressed is not written and reported as a generated set. |
 | `apply --output rebases a bare context with an interpolated component (base#1087)` | `contexts/${FLAVOUR}` is a bare relative path whose ROOT is fixed and whose leaf is interpolated, so it is as local as `./contexts/...`. Only an interpolation that decides the root -- a value that STARTS with one -- can be left alone, and a dollar sign anywhere was standing in for that distinction. |
 | `apply preserves an interpolation configured in [logging] local_path (base#1087)` | Escaping the whole assembled logging mount was a regression on the PLAIN apply too: a `${LOG_INSTANCE}` the operator put in `[logging] local_path` became the literal `$${LOG_INSTANCE}`, so compose stopped substituting it and the logs mounted a directory named after the variable. Only the filesystem-derived prefix is a literal that needs escaping; what the operator configured is an interpolation they meant. |
+| `show tells a dotless spec from a split it could not make (base#1185)` | base#1185 -- the splitter gained a second way to answer non-zero, and `show` was reading both as "this spec names a whole section" |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 
