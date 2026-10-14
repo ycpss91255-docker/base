@@ -206,9 +206,15 @@ _assert_consumer_unchanged() {
 # directly IS what `just base init` runs. Pinned here so the claim above
 # cannot quietly stop being true.
 @test "just base init: the recipe passes straight through to init.sh (#937)" {
+  # The forwarding is spelled `"$@"` since base#1289; it was an unquoted
+  # `{{args}}` interpolation the recipe's own shell re-split. What base#937
+  # needs here is unchanged and is the whole reason this arm exists:
+  # running init.sh directly IS what `just base init` runs, so the arms
+  # below may drive the script rather than the recipe.
   run grep -A1 '^init \*args:' /source/dist/script/base/justfile.base
   assert_success
-  assert_output --partial "./.base/dist/script/base/init.sh {{args}}"
+  assert_output --partial './.base/dist/script/base/init.sh "$@"'
+  refute_output --partial './.base/dist/script/base/init.sh {{args}}'
 }
 
 @test "just base init: a mid-migration failure leaves the consumer byte-identical (#937)" {
