@@ -2503,3 +2503,118 @@ migrated_files"
   assert_success
   assert_output ""
 }
+
+# why: base#1189 -- a run that recognised nothing looked exactly like a
+#      run with nothing to do, in both cases by printing nothing at all
+@test "apply_migrations reports the exact count, names and rewrite tally (base#1189)" {
+  # Asserted as the WHOLE message, not as fragments of it. The match is
+  # still `--partial`, because the line arrives inside a log stream the
+  # run also writes to; what is pinned is every number and name in one
+  # string rather than three independent substrings.
+  #
+  # The first version checked only that `downstream_to_dist` appeared
+  # somewhere and that the count was not zero, and review showed a
+  # reporter emitting `99 of 16 matched (downstream_to_dist invented),
+  # 99 file(s) rewritten` -- twice -- passed it. Fragments cannot tell a
+  # derived number from an invented one.
+  #
+  # Both COPY lines are the SAME migration: `downstream_to_dist` rewrites
+  # every `.base/downstream/` source in one pass. Two lines, one match.
+  cat > "${DF}" <<'EOF'
+FROM alpine
+COPY .base/downstream/script/docker/lib /lint/lib
+COPY .base/downstream/script/docker/wrapper /lint/wrapper
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial \
+    "Dockerfile migrations: 1 of 16 matched (downstream_to_dist), 1 file(s) rewritten"
+  # Exactly one report per run, on the positive case too.
+  assert_equal "$(printf '%s\n' "${output}" | grep -c 'Dockerfile migrations:')" "1"
+  # And the rewrite actually happened, so `1 file(s) rewritten` is not a
+  # number this arm would accept from a reporter that never looked.
+  run grep -c '\.base/dist/' "${DF}"
+  assert_output "2"
+}
+
+# why: base#1189 -- the zero case is the one that was indistinguishable,
+#      and it must still be ONE line rather than sixteen
+@test "apply_migrations says zero when nothing matched, in one line (base#1189)" {
+  # A Dockerfile in the current shape. Every detector returns false,
+  # which is ALSO what an unrecognised tree looks like -- the loop
+  # cannot tell them apart, and this line does not pretend to. What it
+  # gives the operator is a number to compare against what they
+  # expected of this file.
+  #
+  # One line, not one per migration: a per-detector report would be
+  # sixteen lines on every healthy upgrade, which is the noise failure
+  # base#1189's own proposal warns about.
+  cat > "${DF}" <<'EOF'
+FROM alpine
+RUN echo hello
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial \
+    "Dockerfile migrations: 0 of 16 matched (none), 0 file(s) rewritten"
+  assert_equal "$(printf '%s\n' "${output}" | grep -c 'Dockerfile migrations:')" "1"
+}
+
+# why: base#1189 -- the numbers have to come from _MIGRATIONS as it ran,
+#      or the report is a second list that rots on the seventeenth
+@test "apply_migrations derives the total and the names from _MIGRATIONS (base#1189)" {
+  # `16` and `downstream_to_dist` are hard-codeable; the two arms above
+  # pass a reporter that writes them literally. This one replaces
+  # _MIGRATIONS with a list the test owns, so a literal total or a
+  # literal name is wrong by construction.
+  #
+  # Two entries, one of which matches, and NEITHER is a real migration
+  # name -- so a reporter echoing anything it knows about the shipped
+  # list cannot produce this line.
+  cat > "${DF}" <<'EOF'
+FROM alpine
+RUN echo marker_alpha
+EOF
+  run bash -c "$(_src)
+    _migrate_alpha_detect() { grep -q marker_alpha \"\$1\"; }
+    _migrate_alpha_apply()  { :; }
+    _migrate_beta_detect()  { return 1; }
+    _migrate_beta_apply()   { :; }
+    _MIGRATIONS=( alpha beta )
+    apply_migrations '${DF}'"
+  assert_success
+  # Detected and deliberately changed NOTHING: `matched` is 1 and
+  # `rewritten` is 0. That pair is the real shape of the warn-only
+  # migrations in the shipped list (entrypoint_orchestrator,
+  # bringup_residue, both ending "Nothing was changed here"), and it is
+  # why the word is `matched` rather than `applied`.
+  assert_output --partial \
+    "Dockerfile migrations: 1 of 2 matched (alpha), 0 file(s) rewritten"
+  assert_equal "$(printf '%s\n' "${output}" | grep -c 'Dockerfile migrations:')" "1"
+}
+
+# why: base#1189 -- the gate asked for a QUIET=1 arm; there is no QUIET
+#      on this path, and saying so beats writing a vacuous one
+@test "no QUIET reader exists on the migration path, so the report has no quiet mode (base#1189)" {
+  # This arm does NOT exercise apply_migrations, and is green on the
+  # tree before this change as well. It is here because base#1189's
+  # gate asked that `QUIET=1` gain no new line, and the premise is
+  # false: QUIET is read in exactly two places under dist/script --
+  # `wrapper/build.sh:493` and `wrapper/run.sh:501` -- and both guard
+  # `_print_config_summary`. Neither `upgrade.sh` (which calls the
+  # dispatcher at :644), nor `init.sh` (:1311), nor
+  # dockerfile_migrate.sh mentions it.
+  #
+  # An arm that set QUIET=1 and asserted the line survives would pass
+  # for that reason rather than for any behaviour. So this asserts the
+  # premise: when a QUIET reader appears in either directory, this
+  # fails and whoever added it has to decide what the report does under
+  # it. The gate's real concern -- noise on the normal path -- is arm 2.
+  #
+  # `grep -rl` with the status checked, not just the output: an
+  # unreadable path or a bad pattern exits 2 with no stdout, which an
+  # output-only assertion would read as "clean".
+  run grep -rl 'QUIET' /source/dist/script/base/ /source/dist/script/docker/lib/
+  assert_equal "${status}" "1"
+  assert_output ""
+}

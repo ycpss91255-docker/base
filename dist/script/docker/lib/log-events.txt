@@ -182,6 +182,7 @@ hook_not_executable
 
 # upgrade.sh
 upgrade_started
+dockerfile_migrations_reported
 upgrade_completed
 upgrade_subtree_pull_failed
 upgrade_version_bumped
