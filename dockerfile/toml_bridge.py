@@ -283,12 +283,13 @@ def _emit_array(section, key, items, out, root=False):
         raise SystemExit(1)
     prefix, serializer, fields, also_read = spec
     allowed = fields + also_read
+    needs = _FIELD_NEEDS.get(key, {})
     for i, elem in enumerate(items, 1):
-        _check_entry(path, i, elem, fields, allowed, _FIELD_NEEDS.get(key, {}))
+        _check_entry(path, i, elem, fields, allowed, needs)
         out.append((section, f"{prefix}_{i}", serializer(elem)))
 
 
-def _check_entry(path, index, elem, fields, allowed, needs=None):
+def _check_entry(path, index, elem, fields, allowed, needs):
     """Refuse entry <index> of <path> when it carries none of <fields>,
     carries a field outside <allowed>, carries a field whose value is
     an array or a table, or carries a field without the one <needs>
@@ -357,7 +358,7 @@ def _check_entry(path, index, elem, fields, allowed, needs=None):
               f"view carries only a single value per field: write it as "
               f"one string, number or boolean", file=sys.stderr)
         raise SystemExit(1)
-    for name, need in sorted((needs or {}).items()):
+    for name, need in sorted(needs.items()):
         if name in elem and need not in elem:
             print(f"toml-bridge: entry {index} of {path} carries {name} "
                   f"without {need}, a combination its family is never "
