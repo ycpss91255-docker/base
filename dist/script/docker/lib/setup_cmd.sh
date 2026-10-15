@@ -79,6 +79,10 @@ _setup_known_key() {
 # which layer a key came from. Every unknown entry is reported before
 # returning, so one run lists them all. Returns 1 when any was found.
 #
+# An empty array (`[deploy] args = []`) has no row either; it is judged
+# by the row its first entry would take (the bridge's --empty-families
+# view), so a family its table does not read is refused like a key.
+#
 # Tables are judged from the layer's own table list (the bridge's
 # --tables view), not only from its key/value rows: a table with no
 # entry -- `[deploy2]` alone, or holding only `args = []` -- projects no
@@ -129,6 +133,22 @@ _setup_conf_check_known() {
         _bad=1
       fi
     done
+    # An empty array declares a family with no entry, so it has no row
+    # above, and a known table hid it: `[deploy] args = []` passed though
+    # no reader consumes deploy.args (base#1328 review). The bridge names
+    # the row its first entry would take, judged here like any row; an
+    # unknown table was already reported by the table walk.
+    local _sck_empty="" _path
+    _sck_empty="$(toml_bridge_parse "${_layer}" --empty-families)" || return 1
+    while IFS=$'\t' read -r _sect _key _path; do
+      [[ -z "${_sect}" || "${_sect}" == stage:* ]] && continue
+      _setup_known_section "${_sect}" || continue
+      _setup_known_key "${_sect}" "${_key}" && continue
+      _log_err setup apply_unknown_key \
+        "display=[setup] apply: ${_layer}: unknown key ${_path}; no reader reads it, so the default would apply instead. Fix the spelling or remove the key" \
+        "file=${_layer}" "table=${_sect}" "key=${_path#"${_sect}".}"
+      _bad=1
+    done <<< "${_sck_empty}"
     unset -n _sck_es _sck_k
     unset _sck_reported
   done

@@ -630,6 +630,46 @@ def _emit_tables(data):
     walk("", data)
 
 
+def _emit_empty_families(data):
+    """Emit `<section>\t<key>\t<path>` for every array declared EMPTY.
+
+    <section> and <key> are the KV row the array's FIRST entry would
+    take -- the section _emit_kv numbers it under and `<prefix>_1` from
+    _ARRAY_SPEC -- and <path> is the dotted name the file spells it by.
+
+    An empty array has no entry, so the KV view carries no row for it,
+    and a check that judges a table's keys by walking those rows passed
+    `[deploy] args = []` with exit 0 though no reader consumes
+    deploy.args: a populated `[[deploy.args]]` reads back as
+    `deploy arg_1`, which that check refuses (base#1328 review). Naming
+    the row the first entry would take lets the shell judge the empty
+    declaration exactly as it judges that row.
+
+    _emit_empty_arrays answers a different question -- which family a
+    layer clears -- and names the section by the path's first component,
+    which is not the KV view's section for an array nested deeper than
+    one table (`[logging.web] rules = []` is `logging.web`'s, not
+    `logging`'s).
+
+    An array whose name _ARRAY_SPEC does not know is left out: the KV
+    view refuses it by name (_emit_array), and the shell reads that view
+    first. The walk does not descend into an array's elements.
+    """
+    def walk(section, node):
+        for key, value in node.items():
+            if isinstance(value, dict):
+                walk(f"{section}.{key}" if section else key, value)
+            elif isinstance(value, list) and not value:
+                spec = _ARRAY_SPEC.get(key)
+                if not spec:
+                    continue
+                home = section or key
+                path = f"{section}.{key}" if section else key
+                print(f"{home}\t{spec[0]}_1\t{path}")
+
+    walk("", data)
+
+
 def _merge_tables(base, layer):
     """Merge <layer> into <base> in place: key-level, recursive, arrays atomic.
 
@@ -724,7 +764,10 @@ def main():
     merge_mode = "--merge" in args
     empty_arrays_mode = "--empty-arrays" in args
     tables_mode = "--tables" in args
+    empty_families_mode = "--empty-families" in args
 
+    if empty_families_mode:
+        args.remove("--empty-families")
     if tables_mode:
         args.remove("--tables")
     if kv_mode:
@@ -748,7 +791,9 @@ def main():
             print(f"toml-bridge: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-    if tables_mode:
+    if empty_families_mode:
+        _emit_empty_families(data)
+    elif tables_mode:
         _emit_tables(data)
     elif empty_arrays_mode:
         _emit_empty_arrays(data)
