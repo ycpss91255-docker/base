@@ -358,6 +358,11 @@ teardown() {
 }
 
 # ── `just --list` descriptions (base#1326) ─────────────────────────────
+# _just_list <ns>: the namespace listing the user sees from the repo root.
+_just_list() {
+  just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" --list "$1"
+}
+
 # just takes a recipe's --list description from the LAST comment line above
 # it, so a multi-line rationale comment ending mid-sentence surfaces as a
 # fragment ("(honours $LANG ...", "which satisfies the validator ...").
@@ -372,7 +377,7 @@ _list_description_offenders() {
       if [[ ! "${_desc}" =~ ^[A-Z] ]] && [[ "${_desc}" != "just "* ]]; then
         printf '%s: %s\n' "${_ns}" "${_line}"
       fi
-    done < <(just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" --list "${_ns}")
+    done < <(_just_list "${_ns}")
   done
 }
 
@@ -385,7 +390,7 @@ _list_description_offenders() {
 @test "no just --list description names the retired setup.conf (base#1326)" {
   local _ns
   for _ns in docker base template; do
-    run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" --list "${_ns}"
+    run _just_list "${_ns}"
     assert_success
     refute_output --partial "setup.conf"
   done
