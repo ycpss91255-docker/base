@@ -231,11 +231,29 @@ def _check_transportable(section, key, value):
             raise SystemExit(1)
 
 
-def _emit_array(section, key, items, out):
-    """Collect an array of tables as numbered-key KV rows."""
+def _emit_array(section, key, items, out, root=False):
+    """Collect an array of tables as numbered-key KV rows.
+
+    An array whose key _ARRAY_SPEC has no family for is REFUSED, not
+    skipped. The shell view has no way to carry it -- a numbered family
+    is the only shape an array takes there -- and skipping it was
+    measured to drop it with exit 0 and nothing said: `[[install]]`
+    printed no row at all, `[[build.install]]` beside `[build] x = "1"`
+    printed only `build x 1`, and `[gui] list = ["a", "b"]` lost `list`
+    (base#1307). A misspelt family (`[[volume]]`) is the realistic way to
+    meet it, and its entries would vanish while the configuration loads.
+    Every array the writers and the converter produce is a key the spec
+    knows, so this refuses only a hand-written file. Called while rows
+    are still being collected, so a refusal leaves stdout empty.
+    """
     spec = _ARRAY_SPEC.get(key)
     if not spec:
-        return
+        path = key if root else f"{section}.{key}"
+        print(f"toml-bridge: {path} is an array, and no numbered family "
+              f"of the shell view carries an array by that name, so "
+              f"nothing would read it: check the spelling of the array "
+              f"name, or remove it", file=sys.stderr)
+        raise SystemExit(1)
     prefix, serializer = spec
     for i, elem in enumerate(items, 1):
         out.append((section, f"{prefix}_{i}", serializer(elem)))
@@ -415,7 +433,7 @@ def _emit_kv(data):
     rows = []
     for section, entries in data.items():
         if isinstance(entries, list):
-            _emit_array(section, section, entries, rows)
+            _emit_array(section, section, entries, rows, root=True)
         elif isinstance(entries, dict):
             _emit_table(section, entries, rows)
     for section, key, value in rows:

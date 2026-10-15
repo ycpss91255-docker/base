@@ -1802,3 +1802,162 @@ EOF
   assert_output --partial "security.cap_drop_1"
   assert_output --partial "block 1"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 14: nothing the shell view cannot carry is dropped without a word
+# ════════════════════════════════════════════════════════════════════
+#
+# PRD: nothing fails silently. The KV stream is the only view of the
+# configuration the shell has, so a value the bridge leaves out of it is
+# a value the operator wrote and nothing reads -- with exit 0 and no
+# message. The answer is the one `_check_transportable` already gives:
+# a `toml-bridge:` refusal on stderr naming what it refused, exit 1, and
+# no stdout.
+
+# _bridge_refuses <name> [bridge args...] -- run the TRACKED bridge on
+# stdin and assert the whole refusal contract: exit 1, nothing on
+# stdout, a `toml-bridge:` line on stderr that names <name>.
+_bridge_refuses() {
+  local _name="$1"
+  shift
+  run -1 --separate-stderr python3 "${BRIDGE_PY}" "$@"
+  assert_equal "${output}" ""
+  [[ "${stderr}" == "toml-bridge: "* ]] \
+    || fail "stderr is not a toml-bridge refusal: ${stderr}"
+  [[ "${stderr}" == *"${_name}"* ]] \
+    || fail "the refusal does not name ${_name}: ${stderr}"
+}
+
+# why: An array of tables is emitted only through _ARRAY_SPEC, and a key
+# the spec has no entry for fell through `_emit_array` with no row and no
+# word. Measured on main: `[[install]] source = "a"` answered exit 0 and
+# printed nothing at all, and `[[build.install]]` beside `[build] x = "1"`
+# printed only `build x 1`. A misspelt family (`[[volume]]` for
+# `[[volumes]]`) is the realistic way to meet it: the mounts vanish and
+# the configuration loads. The refusal names the array's dotted path,
+# because that is the line the operator has to find (base#1307).
+@test "toml-bridge: --kv refuses an array of tables the spec has no family for (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/unknown_aot.toml"
+
+  printf '[[install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "install" --kv < "${_f}"
+
+  # No prefix of the configuration: the `[build] x` row the old bridge
+  # did print must not reach a caller that ignores the status.
+  printf '[build]\nx = "1"\n\n[[build.install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "build.install" --kv < "${_f}"
+}
+
+# why: An INLINE array of scalars is the same drop by another spelling.
+# Measured on main: `[gui] list = ["a", "b"]` beside `mode = "x"` printed
+# `gui mode x` alone -- `list` went through `_emit_array`, found no spec,
+# and vanished (base#1307).
+@test "toml-bridge: --kv refuses an inline array under a key the spec has no family for (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/unknown_inline.toml"
+  printf '[gui]\nlist = ["a", "b"]\nmode = "x"\n' > "${_f}"
+  _bridge_refuses "gui.list" --kv < "${_f}"
+}
+
+# why: An EMPTY array under an unknown name is refused too. It drops no
+# entry, but it is a declaration -- ADR-37's zero-entry replacement --
+# of a list no reader has, so it says nothing the operator meant and is
+# almost certainly a misspelt family whose clearing silently did not
+# happen. Root-level and table-nested both (base#1307).
+@test "toml-bridge: --kv refuses an empty array the spec has no family for (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/unknown_empty.toml"
+  printf 'install = []\n' > "${_f}"
+  _bridge_refuses "install" --kv < "${_f}"
+
+  printf '[gui]\nlist = []\nmode = "x"\n' > "${_f}"
+  _bridge_refuses "gui.list" --kv < "${_f}"
+}
+
+# why: `_conf_load_layers` reads every configuration through `--merge
+# --kv`, so a refusal only in the single-file mode would leave the real
+# read path dropping the array. Two shapes: a lower layer's array that no
+# upper layer touches, and an upper layer's empty declaration that
+# replaces it -- the array the merge keeps is still one no reader has
+# (base#1307).
+@test "toml-bridge: --merge --kv refuses an unknown array that survives the merge (base#1307)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[install]]\nsource = "a"\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "install" --merge --kv "${_lower}" "${_upper}"
+
+  printf 'install = []\n' > "${_upper}"
+  _bridge_refuses "install" --merge --kv "${_lower}" "${_upper}"
+}
+
+# why: The control, DERIVED from the writers' own table of array homes
+# (`_conf_toml_aot_section` over `SCHEMA_SECTIONS`) and filled through
+# their own field renderer (`_conf_toml_aot_fields`), so a family added
+# there is covered by having been added. Populated, each family numbers
+# to exactly one row and nothing else is printed; declared empty -- the
+# legacy one-array `devices` with them -- they print nothing at all. A
+# refusal satisfied by refusing more, or a bridge that invented a row,
+# fails here (base#1307).
+@test "toml-bridge: --kv still numbers every array home the writers produce, and nothing else (base#1307)" {
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
+  # shellcheck disable=SC1090
+  source "${_conf_sh}"
+  # shellcheck disable=SC1090
+  source "${_schema_sh}"
+
+  # `A=B:C` round-trips through every renderer: a one-field family keeps
+  # it whole, a `=` family splits at the `=`, a `:` family at the first
+  # `:`, and the bridge glues each back with the same separator.
+  local _v="A=B:C"
+  local _sect _pair _prefix _path _fields _body="" _empty=""
+  local -a _fams=() _want=()
+  local -A _tables=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _prefix="${_pair%%=*}"
+      _path="${_pair#*=}"
+      _conf_toml_aot_fields "${_path}" "${_v}" _fields
+      _body+="[[${_path}]]"$'\n'"${_fields}"$'\n\n'
+      _want+=("${_path%%.*}"$'\t'"${_prefix}_1"$'\t'"${_v}")
+      if [[ "${_path}" == *.* ]]; then
+        _tables["${_path%%.*}"]+="${_tables["${_path%%.*}"]:+, }${_path#*.} = []"
+      else
+        _empty+="${_path} = []"$'\n'
+      fi
+    done
+  done
+  (( ${#_want[@]} > 0 )) || fail "the family table named no array home"
+
+  local _f="${BATS_TEST_TMPDIR}/every_home.toml"
+  printf '%s' "${_body}" > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${#lines[@]}" "${#_want[@]}"
+  local _row
+  for _row in "${_want[@]}"; do
+    assert_line "${_row}"
+  done
+
+  # Every home declared empty, plus the legacy `[[devices]]` key -- which
+  # cannot share a file with `devices.bindings`, so it is its own file.
+  local _t
+  for _t in "${!_tables[@]}"; do
+    _empty+="${_t} = { ${_tables[${_t}]} }"$'\n'
+  done
+  printf '%s' "${_empty}" > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" ""
+
+  printf 'devices = []\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" ""
+
+  # And the shipped template, whose every array is a known family.
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${ROOT}/dist/setup.toml"
+  assert_success
+  assert_line $'image\trule_1\tprefix:docker_'
+}
