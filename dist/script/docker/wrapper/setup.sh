@@ -244,9 +244,9 @@ Normally invoked indirectly via `./build.sh --setup` or `./setup_tui.sh`
 Save; run directly for non-interactive / scripted / CI use.
 
 Subcommands:
-  apply         (default) Regenerate .env / .env.generated / compose.yaml.
-                No-arg
-                invocation falls back to apply for backward compat.
+  apply         Regenerate .env / .env.generated / compose.yaml.
+                A bare ./setup.sh (no subcommand) prints this help;
+                name `apply` explicitly to regenerate.
   check-drift   Compare current system / setup.toml against
                 .env.generated's SETUP_* metadata. Exit 0 when in sync,
                 exit 1 (with drift descriptions on stderr) when a regen
@@ -261,12 +261,14 @@ Subcommands:
                 regenerate .env / .env.generated — run `apply`
                 afterwards if needed.
                 --local writes <base-path>/setup.local.toml instead:
-                the gitignored per-worktree layer, whose sections
-                REPLACE the committed file's on this machine only.
+                the gitignored per-worktree layer. On this machine
+                only, its tables override only the keys they name and
+                its arrays replace the committed list whole.
                 Without --local, a write to a section setup.local.toml
                 already defines is warned about by name -- it is still
-                the value CI and other checkouts use, but it will not
-                change anything here.
+                the value CI and other checkouts use, but here a key
+                the local layer also names, or an entry of an array it
+                declares, stays shadowed.
   show <section>[.<key>]
                 Print the value of a single key, or all key=value
                 pairs in a section (in on-disk order). Exits non-zero
@@ -388,13 +390,16 @@ Apply-only options (ADR-00000036):
                         instead, and the plain `apply` settles it.
 
 Outputs (apply only — both derived artifacts, gitignored):
-  <output>/.env             Exported variables + SETUP_* drift metadata
+  <output>/.env.generated   Resolved variables + SETUP_* drift metadata
+                            (what check-drift compares against)
+  <output>/.env             Container-bound defaults ([environment])
   <output>/compose.yaml     Full compose with baseline + conditional
                             blocks (GPU / GUI / extra volumes / etc.)
   (<output> is <base-path> unless --output names another directory)
 
-Source of truth is setup.toml (template default + optional per-repo
-override via section-replace). Edit setup.toml, not the derived files.
+Source of truth is setup.toml, layered over the template default and
+under the optional setup.local.toml: tables merge key by key and arrays
+are replaced whole. Edit setup.toml, not the derived files.
 EOF
       ;;
   esac

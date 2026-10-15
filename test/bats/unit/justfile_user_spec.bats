@@ -357,6 +357,79 @@ teardown() {
   assert_output --partial "命令群組"
 }
 
+# ── `just --list` descriptions (base#1326) ─────────────────────────────
+# _just_list <ns>: the namespace listing the user sees from the repo root.
+_just_list() {
+  just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" --list "$1"
+}
+
+# just takes a recipe's --list description from the LAST comment line above
+# it, so a multi-line rationale comment ending mid-sentence surfaces as a
+# fragment ("(honours $LANG ...", "which satisfies the validator ...").
+# Every description must open a sentence: a capital letter, or a `just ...`
+# usage line. Prints each offending `<ns>: <line>` so the failure names it.
+_list_description_offenders() {
+  local _ns _line _desc
+  for _ns in docker base template; do
+    while IFS= read -r _line; do
+      [[ "${_line}" == *"# "* ]] || continue
+      _desc="${_line#*# }"
+      if [[ ! "${_desc}" =~ ^[A-Z] ]] && [[ "${_desc}" != "just "* ]]; then
+        printf '%s: %s\n' "${_ns}" "${_line}"
+      fi
+    done < <(_just_list "${_ns}")
+  done
+}
+
+@test "just --list descriptions are whole sentences, never a mid-comment fragment (base#1326)" {
+  run _list_description_offenders
+  assert_success
+  assert_output ""
+}
+
+# _list_description <ns> <recipe>: the --list description of one recipe,
+# empty when the listing shows the recipe without one.
+_list_description() {
+  local _line _name
+  while IFS= read -r _line; do
+    read -r _name _ <<<"${_line}"
+    [[ "${_name}" == "$2" ]] || continue
+    [[ "${_line}" == *"# "* ]] && printf '%s\n' "${_line#*# }"
+    return 0
+  done < <(_just_list "$1")
+}
+
+@test "just --list shows the summary each base#1326 recipe was given (base#1326)" {
+  # The prefix rule above passes a capitalised fragment and skips a recipe
+  # with no description at all; pin the exact summary of every recipe whose
+  # listing base#1326 repaired, so neither weaker fix passes.
+  local _ns _recipe _want
+  while IFS='|' read -r _ns _recipe _want; do
+    run _list_description "${_ns}" "${_recipe}"
+    assert_success
+    assert_output "${_want}"
+  done <<'ROWS'
+docker|start|Build + run in one step (e.g. just start  |  just start --no-cache)
+docker|help|List the docker recipes in your language (--lang / $LANG) [alias: h]
+docker|setup|Regenerate .env / .env.generated / compose.yaml from setup.toml
+docker|setup-tui|Interactive TUI to edit setup.toml
+base|help|List the base recipes in your language (--lang / $LANG) [alias: h]
+base|completions|just base completions install|uninstall [--shell bash|zsh|fish|all]
+template|default|Print the template help (same as `just template help`)
+template|help|List the template recipes in your language (--lang / $LANG) [alias: h]
+template|new|Scaffold a new repo-local command group in script/local/<name>/
+ROWS
+}
+
+@test "no just --list description names the retired setup.conf (base#1326)" {
+  local _ns
+  for _ns in docker base template; do
+    run _just_list "${_ns}"
+    assert_success
+    refute_output --partial "setup.conf"
+  done
+}
+
 @test "dashed just <ns> --help errors but hints 'help' (documented just limit, #789)" {
   # A dashed name cannot be a just recipe/alias, so `just <ns> --help` cannot be
   # intercepted; with a `help` recipe present just emits a 'Did you mean help?'

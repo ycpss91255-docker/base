@@ -55,6 +55,10 @@ alias h := help
 # just base help (or `just base h`) -> language-aware recipe listing:
 # translated one-line summaries via the shared `_msg help` i18n renderer
 # (honours $LANG / --lang). Bare `just base` and `just --list` stay English.
+# The blank line below detaches this rationale from the --list doc, which
+# just takes from the last comment line above the recipe (base#1326).
+
+# List the base recipes in your language (--lang / $LANG)
 help *args:
     @"$(dirname "$(readlink -f '{{source_file()}}')")/../docker/lib/help.sh" base "$@"
 
@@ -90,7 +94,9 @@ update *args:
 init *args:
     ./.base/dist/script/base/init.sh "$@"
 
+# Opt-in shell tab-completion; never edits a shell rc. The blank line
+# below detaches this note from the --list doc (base#1326).
+
 # just base completions install|uninstall [--shell bash|zsh|fish|all]
-#   opt-in shell tab-completion; never edits a shell rc.
 completions *args:
     script/base/completions.sh "$@"
