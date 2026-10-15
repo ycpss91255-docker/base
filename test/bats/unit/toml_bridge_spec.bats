@@ -2302,6 +2302,13 @@ _bridge_refuses() {
   _bridge_refuses "image.rules" --kv < "${_f}"
   [[ "${stderr}" == *"entry 2"* ]] || fail "the refusal does not name entry 2: ${stderr}"
 
+  # An EMPTY array or table is refused too: a guard that tested the
+  # value's truthiness would let `[]` and `{}` through.
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = []\n' > "${_f}"
+  _bridge_refuses "tmpfs" --kv < "${_f}"
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = {}\n' > "${_f}"
+  _bridge_refuses "tmpfs" --kv < "${_f}"
+
   # The control: scalars of every kind still read back as before.
   printf '[[tmpfs]]\npath = "/tmp"\nsize = 64\n' > "${_f}"
   run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
@@ -2313,8 +2320,8 @@ _bridge_refuses() {
 # and base#1313 cases above, so a family added there is covered by having
 # been added: every field the home's writer spells (plus tmpfs `size`,
 # which _tmpfs_mount reads but the writer never spells) is given an array
-# value and then an inline-table value, beside the home's other fields,
-# and each is refused (base#1314).
+# value, an inline-table value, an empty array and an empty table, beside
+# the home's other fields, and each is refused (base#1314).
 @test "toml-bridge: every array home refuses a field whose value is an array or a table (base#1314)" {
   local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
   local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
@@ -2338,7 +2345,7 @@ _bridge_refuses() {
         _names+=("${_line%% =*}")
       done <<< "${_fields}"
       for _name in "${_names[@]}"; do
-        for _value in '["x"]' '{a = "x"}'; do
+        for _value in '["x"]' '{a = "x"}' '[]' '{}'; do
           _body="[[${_path}]]"$'\n'
           while IFS= read -r _line; do
             _other="${_line%% =*}"
@@ -2370,5 +2377,14 @@ _bridge_refuses() {
 
   printf '[gui]\nmode = "x"\n' > "${_lower}"
   printf '[[devices.bindings]]\npath = {a = "x"}\n' > "${_upper}"
+  _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
+
+  # Empty containers, one from each layer.
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = []\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "tmpfs" --merge --kv "${_lower}" "${_upper}"
+
+  printf '[gui]\nmode = "x"\n' > "${_lower}"
+  printf '[[devices.bindings]]\npath = {}\n' > "${_upper}"
   _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
 }
