@@ -198,8 +198,9 @@ _toml_bridge_use_native() {
   [[ "${TOML_BRIDGE_FORCE_DOCKER:-}" != "1" ]] && command -v toml-bridge &>/dev/null
 }
 
-# toml_bridge_parse <toml-file> [--kv]
-#   Parse a TOML file and emit JSON (or --kv TSV) on stdout.
+# toml_bridge_parse <toml-file> [--kv | --empty-arrays | --tables]
+#   Parse a TOML file and emit JSON (or --kv TSV, or with --tables the
+#   dotted path of every declared table, one per line) on stdout.
 #   Returns non-zero if the file does not exist or parsing fails.
 toml_bridge_parse() {
   local _file="${1:?toml_bridge_parse expects a TOML file path}"

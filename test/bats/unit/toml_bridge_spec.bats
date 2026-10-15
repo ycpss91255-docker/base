@@ -2492,3 +2492,40 @@ _bridge_refuses() {
   printf '[[volumes]]\ntarget = "/x"\nmode = "ro"\n' > "${_upper}"
   _bridge_refuses "volumes" --merge --kv "${_lower}" "${_upper}"
 }
+
+# why: The KV view emits a row per entry, so a table with none -- an
+# empty `[deploy2]`, or one holding only `args = []` -- has no row, and
+# setup apply's unknown-table check walked only rows and passed both
+# (base#1328). --tables lists every declared table, empty or not, nested
+# ones by their dotted path, and root-level arrays by their name.
+@test "toml-bridge: --tables lists every declared table, including an empty one (base#1328)" {
+  local _f="${BATS_TEST_TMPDIR}/tables.toml"
+  cat > "${_f}" <<'EOF'
+[deploy2]
+
+[empty_array]
+args = []
+
+[logging]
+max_size = "1m"
+
+[logging.web]
+driver = "local"
+
+["stage:dev"]
+"deploy.gpu_mode" = "off"
+
+[[volumes]]
+source = "a"
+target = "/b"
+EOF
+  run --separate-stderr python3 "${BRIDGE_PY}" --tables < "${_f}"
+  assert_success
+  assert_equal "${stderr}" ""
+  assert_equal "${output}" "deploy2
+empty_array
+logging
+logging.web
+stage:dev
+volumes"
+}

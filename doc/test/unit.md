@@ -6320,7 +6320,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (131)
+### test/bats/unit/setup_spec.bats (134)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -6464,10 +6464,13 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply no longer emits runtime.env; [environment] still reaches the container (#868)` | - |
 | `_write_runtime_env is removed (#507)` | - |
 | `apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)` | - |
+| `apply refuses an unknown table that carries no key, naming the file and the table (base#1328)` | - |
+| `apply refuses an unknown table whose only key is an empty array (base#1328)` | - |
 | `apply refuses a misspelt key in a known table of setup.toml (base#1328)` | - |
 | `apply refuses a misspelt key in setup.local.toml, naming that layer (base#1328)` | - |
 | `apply refuses a misspelt key in a --local-conf layer, naming that layer (base#1328)` | - |
 | `apply still accepts a per-stage key, [logging.<svc>] and a free-form reader key (base#1328)` | - |
+| `apply still accepts the free-form [build] named keys and lifts them into build args (base#1328)` | - |
 
 ### test/bats/unit/shell_metrics_spec.bats (59)
 
@@ -7468,7 +7471,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (85)
+### test/bats/unit/toml_bridge_spec.bats (86)
 
 | Test | Description |
 |------|-------------|
@@ -7557,6 +7560,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: --merge --kv refuses a field whose value is an array or a table (base#1314)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so a non-scalar field in a layer whose array survives the merge must be refused there too (base#1314). |
 | `toml-bridge: --kv refuses a volumes entry whose fields the writer never combines (base#1315)` | _check_entry accepts a [[volumes]] entry that carries ANY of source / target / mode, and _joined joins whatever is present, so an entry with only `target = "/x"` read back as `volumes mount_1 /x`, exit 0 -- the spelling compose takes as an anonymous volume, not the bind mount the operator wrote half of. The writer (`_conf_toml_aot_fields` volumes arm) always writes `source`, adds `target` only for a value with a `:`, and `mode` only after `target`, so {source}, {source, target} and {source, target, mode} are the only nonempty combinations it produces. The one other combination accepted is {}, the field-less block the converter (`ini_to_toml_migrate.sh`) and the writers' padding spell a cleared slot with, which base#1309 keeps as one empty entry. Every other combination is refused like the base#1309 / base#1313 entries: a toml-bridge line naming the array, exit 1, empty stdout (base#1315). The rule is presence, not truthiness: an EMPTY `target` or `mode` is still a field the entry carries. |
 | `toml-bridge: --merge --kv refuses a volumes entry whose fields the writer never combines (base#1315)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so a target-only volume in a layer whose array survives the merge must be refused there too (base#1315). |
+| `toml-bridge: --tables lists every declared table, including an empty one (base#1328)` | The KV view emits a row per entry, so a table with none -- an empty `[deploy2]`, or one holding only `args = []` -- has no row, and setup apply's unknown-table check walked only rows and passed both (base#1328). --tables lists every declared table, empty or not, nested ones by their dotted path, and root-level arrays by their name. |
 
 ### test/bats/unit/toml_config_template_spec.bats (21)
 

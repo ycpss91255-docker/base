@@ -79,6 +79,11 @@ _setup_known_key() {
 # which layer a key came from. Every unknown entry is reported before
 # returning, so one run lists them all. Returns 1 when any was found.
 #
+# Tables are judged from the layer's own table list (the bridge's
+# --tables view), not only from its key/value rows: a table with no
+# entry -- `[deploy2]` alone, or holding only `args = []` -- projects no
+# row, and a row walk passed it with exit 0 (base#1328 review).
+#
 # A [stage:<name>] table, and anything under it, is not judged here:
 # its keys already pass _validate_stage_override_key where the stage is
 # emitted, which WARNs on a key outside the per-stage allowlist.
@@ -94,6 +99,18 @@ _setup_conf_check_known() {
     local -n _sck_es=_SCK_CONF__es
     local -n _sck_k=_SCK_CONF__keys
     local -A _sck_reported=()
+    local _sck_tables=""
+    _sck_tables="$(toml_bridge_parse "${_layer}" --tables)" || return 1
+    while IFS= read -r _sect; do
+      [[ -z "${_sect}" || "${_sect}" == stage:* ]] && continue
+      _setup_known_section "${_sect}" && continue
+      [[ -n "${_sck_reported[${_sect}]:-}" ]] && continue
+      _sck_reported[${_sect}]=1
+      _log_err setup apply_unknown_table \
+        "display=[setup] apply: ${_layer}: unknown table [${_sect}]; no reader knows it, so its settings would be dropped. Fix or remove the table" \
+        "file=${_layer}" "table=${_sect}"
+      _bad=1
+    done <<< "${_sck_tables}"
     for (( _i = 0; _i < ${#_sck_k[@]}; _i++ )); do
       _sect="${_sck_es[_i]}"
       _key="${_sck_k[_i]}"

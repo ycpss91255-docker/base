@@ -602,6 +602,34 @@ def _emit_empty_arrays(data):
     walk("", data)
 
 
+def _emit_tables(data):
+    """Emit the dotted path of every TABLE the file declares, one per line.
+
+    The KV view emits a row per ENTRY, so a table with none -- `[deploy2]`
+    alone, or `[deploy2]` holding only `args = []` -- has no row in it and
+    a check that walks the rows never sees the table (base#1328). This
+    asks the parsed document instead, where a declared table is a dict
+    whether or not anything is in it.
+
+    A nested table is its own dotted path (`logging.web`), which is how
+    the KV view names its section. A root-level array is listed by its
+    name too: `[[volumes]]` is the `volumes` home, and an empty root
+    `volumes = []` declares it with no entry for the KV view to carry.
+    The walk does not descend into an array's elements, whose fields are
+    judged by the array's own spec (_ARRAY_SPEC).
+    """
+    def walk(prefix, node):
+        for key, value in node.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                print(path)
+                walk(path, value)
+            elif isinstance(value, list) and not prefix:
+                print(path)
+
+    walk("", data)
+
+
 def _merge_tables(base, layer):
     """Merge <layer> into <base> in place: key-level, recursive, arrays atomic.
 
@@ -695,7 +723,10 @@ def main():
     kv_mode = "--kv" in args
     merge_mode = "--merge" in args
     empty_arrays_mode = "--empty-arrays" in args
+    tables_mode = "--tables" in args
 
+    if tables_mode:
+        args.remove("--tables")
     if kv_mode:
         args.remove("--kv")
     if merge_mode:
@@ -717,7 +748,9 @@ def main():
             print(f"toml-bridge: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-    if empty_arrays_mode:
+    if tables_mode:
+        _emit_tables(data)
+    elif empty_arrays_mode:
         _emit_empty_arrays(data)
     elif kv_mode:
         _emit_kv(data)
