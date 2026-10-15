@@ -2399,3 +2399,96 @@ _bridge_refuses() {
   printf '[[devices.bindings]]\npath = {}\n' > "${_upper}"
   _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
 }
+
+# why: _check_entry accepts a [[volumes]] entry that carries ANY of
+# source / target / mode, and _joined joins whatever is present, so an
+# entry with only `target = "/x"` read back as `volumes mount_1 /x`,
+# exit 0 -- the spelling compose takes as an anonymous volume, not the
+# bind mount the operator wrote half of. The writer (`_conf_toml_aot_fields`
+# volumes arm) always writes `source`, adds `target` only for a value with
+# a `:`, and `mode` only after `target`, so {source}, {source, target} and
+# {source, target, mode} are the only nonempty combinations it produces.
+# The one other combination accepted is {}, the field-less block the
+# converter (`ini_to_toml_migrate.sh`) and the writers' padding spell a
+# cleared slot with, which base#1309 keeps as one empty entry. Every other
+# combination is refused like the base#1309 / base#1313 entries: a
+# toml-bridge line naming the array, exit 1, empty stdout (base#1315).
+# The rule is presence, not truthiness: an EMPTY `target` or `mode` is
+# still a field the entry carries.
+@test "toml-bridge: --kv refuses a volumes entry whose fields the writer never combines (base#1315)" {
+  local _f="${BATS_TEST_TMPDIR}/volume_combination.toml"
+
+  # The issue's case.
+  printf '[[volumes]]\ntarget = "/x"\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+
+  printf '[[volumes]]\nmode = "ro"\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+
+  printf '[[volumes]]\ntarget = "/x"\nmode = "ro"\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+
+  # `mode` without `target` joins to `/a:ro`, which reads `ro` as the
+  # container path.
+  printf '[[volumes]]\nsource = "/a"\nmode = "ro"\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+
+  # Presence, not truthiness: an empty field still needs its partner,
+  # so a guard that tested the value instead of the key would let these
+  # through.
+  printf '[[volumes]]\ntarget = ""\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+
+  printf '[[volumes]]\nsource = "/a"\nmode = ""\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+
+  # The bad entry is the SECOND one, after a good one.
+  printf '[[volumes]]\nsource = "/a"\ntarget = "/b"\n\n[[volumes]]\ntarget = "/x"\n' > "${_f}"
+  _bridge_refuses "volumes" --kv < "${_f}"
+  [[ "${stderr}" == *"entry 2"* ]] || fail "the refusal does not name entry 2: ${stderr}"
+
+  # The controls: every combination the writer produces still reads back.
+  printf '[[volumes]]\nsource = "/x"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'volumes\tmount_1\t/x'
+
+  printf '[[volumes]]\nsource = "/a"\ntarget = "/b"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'volumes\tmount_1\t/a:/b'
+
+  printf '[[volumes]]\nsource = "/a"\ntarget = "/b"\nmode = "ro"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'volumes\tmount_1\t/a:/b:ro'
+
+  # An explicitly EMPTY target is present, so it holds the middle slot
+  # and `mode` beside it is accepted.
+  printf '[[volumes]]\nsource = "/a"\ntarget = ""\nmode = "ro"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'volumes\tmount_1\t/a::ro'
+
+  # The cleared slot: a field-less block still reads back as one empty
+  # entry (base#1309).
+  printf '[[volumes]]\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'volumes\tmount_1\t'
+}
+
+# why: `_conf_load_layers` reads every configuration through `--merge
+# --kv`, so a target-only volume in a layer whose array survives the merge
+# must be refused there too (base#1315).
+@test "toml-bridge: --merge --kv refuses a volumes entry whose fields the writer never combines (base#1315)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[volumes]]\ntarget = "/x"\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "volumes" --merge --kv "${_lower}" "${_upper}"
+
+  printf '[gui]\nmode = "x"\n' > "${_lower}"
+  printf '[[volumes]]\ntarget = "/x"\nmode = "ro"\n' > "${_upper}"
+  _bridge_refuses "volumes" --merge --kv "${_lower}" "${_upper}"
+}
