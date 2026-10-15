@@ -52,14 +52,10 @@ _setup_known_section() {
 # _schema_canonical_key), or when it is one of the free-form keys a
 # reader takes through _conf_get_into without a validator (the
 # pre-arg_N [build] named keys _setup_apply lifts into build args).
-#
-# A [stage:<name>] table, and anything under it, is not judged here:
-# its keys already pass _validate_stage_override_key where the stage is
-# emitted, which WARNs on a key outside the per-stage allowlist.
+# <section> is a known non-stage section; see _setup_conf_check_known.
 # ════════════════════════════════════════════════════════════════════
 _setup_known_key() {
   local _section="${1-}" _key="${2-}"
-  [[ "${_section}" == stage:* ]] && return 0
   local _canon=""
   _schema_canonical_key "${_section}" "${_key}" _canon
   [[ -n "${_canon}" ]] && return 0
@@ -82,6 +78,10 @@ _setup_known_key() {
 # the file the operator has to edit -- the merged view no longer knows
 # which layer a key came from. Every unknown entry is reported before
 # returning, so one run lists them all. Returns 1 when any was found.
+#
+# A [stage:<name>] table, and anything under it, is not judged here:
+# its keys already pass _validate_stage_override_key where the stage is
+# emitted, which WARNs on a key outside the per-stage allowlist.
 # ════════════════════════════════════════════════════════════════════
 _setup_conf_check_known() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
@@ -97,7 +97,8 @@ _setup_conf_check_known() {
     for (( _i = 0; _i < ${#_sck_k[@]}; _i++ )); do
       _sect="${_sck_es[_i]}"
       _key="${_sck_k[_i]}"
-      if ! _setup_known_section "${_sect}" && [[ "${_sect}" != stage:* ]]; then
+      [[ "${_sect}" == stage:* ]] && continue
+      if ! _setup_known_section "${_sect}"; then
         [[ -n "${_sck_reported[${_sect}]:-}" ]] && continue
         _sck_reported[${_sect}]=1
         _log_err setup apply_unknown_table \
