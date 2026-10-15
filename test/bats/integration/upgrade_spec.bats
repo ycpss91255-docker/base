@@ -284,7 +284,8 @@ EOF
   local _before
   _before="$(git rev-parse HEAD)"
 
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  # Under a restrictive umask, so the mode cannot come from the umask.
+  run bash -c 'umask 077; exec env TEMPLATE_REMOTE="$1" ./.base/dist/script/base/upgrade.sh v0.9.7' _ "file://${TMPL_BARE}"
   assert_success
   grep -Fxq "set +u" script/entrypoint.sh
   # The upgrade recorded no mode change for the entrypoint, in its

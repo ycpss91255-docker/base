@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (134)
+### test/bats/unit/dockerfile_migrate_spec.bats (136)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2403,6 +2403,7 @@ force-rewrite).
 | `migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)` | - |
 | `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
 | `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
+| `migration 3 (explicit-copy): the rewritten Dockerfile keeps its exact mode under umask 077 (base#1323)` | the awk migrations land the Dockerfile through _dfm_install too; the Dockerfile must come back with exactly the mode it had, not 0600 and not a fixed default. Several modes under a restrictive umask (077) so a hardcoded mode or a umask-derived one cannot pass (base#1323). |
 | `migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)` | - |
 | `migration 4 (logging-rename): rewrites the Dockerfile COPY to runtime/logging.sh (#567)` | - |
 | `migration 4 (logging-rename): rewrites a sibling entrypoint source line (#567)` | - |
@@ -2462,6 +2463,7 @@ force-rewrite).
 | `migration 7 (arg-user): idempotent — already defaulted is not detected (#579)` | - |
 | `migration 7 (arg-user): does not touch an unrelated ARG (#579)` | - |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
+| `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
 | `migration 8 (nounset-source): fires under the orchestrator when the bringup sets nothing (#945)` | The gap the branch's own README migration opens. Keying the guard on an in-file `set -u` covers nothing here -- the bringup seeded before this release has no `set` line at all, and the orchestrator imposes nounset from outside it. This is the FAILS-at-HEAD case; without it the migration stays silent on exactly the path base tells people to take |
