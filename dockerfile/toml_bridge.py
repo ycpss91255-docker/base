@@ -436,6 +436,18 @@ def _emit_kv(data):
             _emit_array(section, section, entries, rows, root=True)
         elif isinstance(entries, dict):
             _emit_table(section, entries, rows)
+        else:
+            # A key above the first table header. The shell view names
+            # every value by section, so it has nowhere to carry this
+            # one, and skipping it was measured to drop it with exit 0:
+            # `top = "v"` above `[gui] mode = "x"` printed `gui mode x`
+            # alone (base#1308). Refused while rows are still being
+            # collected, so stdout stays empty.
+            print(f"toml-bridge: {section} is a key outside every "
+                  f"table, and the shell view names every value by its "
+                  f"table, so nothing would read it: move it under the "
+                  f"[table] it belongs to, or remove it", file=sys.stderr)
+            raise SystemExit(1)
     for section, key, value in rows:
         _check_transportable(section, key, value)
     for section, key, value in rows:
