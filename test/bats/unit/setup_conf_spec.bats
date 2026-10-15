@@ -270,6 +270,28 @@ EOF
   done
 }
 
+@test "setup.sh usage describes the TOML-era apply, not the INI era, in every language (base#1326)" {
+  # Three claims in setup.sh --help outlived the behaviour they described:
+  #   - a bare `setup.sh` prints usage (main(), B-4), it does not fall
+  #     back to apply;
+  #   - the SETUP_* drift metadata is written to .env.generated (the file
+  #     check-drift reads), not to .env;
+  #   - the per-repo layer merges tables key by key and replaces arrays
+  #     whole (the --local-conf text, ADR-00000037), not section-replace.
+  local _lang
+  for _lang in zh-TW zh-CN ja en; do
+    run bash -c "
+      # shellcheck disable=SC1091
+      source /source/dist/script/docker/wrapper/setup.sh
+      _LANG='${_lang}' usage
+    "
+    assert_success
+    refute_output --partial "falls back to apply"
+    refute_output --regexp '<output>/\.env +[^[:space:]].*SETUP_\*'
+    refute_output --partial "section-replace"
+  done
+}
+
 @test "no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)" {
   run grep -rn 'repo>/setup\.conf' /source/dist
   assert_failure

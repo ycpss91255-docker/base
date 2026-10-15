@@ -357,6 +357,40 @@ teardown() {
   assert_output --partial "命令群組"
 }
 
+# ── `just --list` descriptions (base#1326) ─────────────────────────────
+# just takes a recipe's --list description from the LAST comment line above
+# it, so a multi-line rationale comment ending mid-sentence surfaces as a
+# fragment ("(honours $LANG ...", "which satisfies the validator ...").
+# Every description must open a sentence: a capital letter, or a `just ...`
+# usage line. Prints each offending `<ns>: <line>` so the failure names it.
+_list_description_offenders() {
+  local _ns _line _desc
+  for _ns in docker base template; do
+    while IFS= read -r _line; do
+      [[ "${_line}" == *"# "* ]] || continue
+      _desc="${_line#*# }"
+      if [[ ! "${_desc}" =~ ^[A-Z] ]] && [[ "${_desc}" != "just "* ]]; then
+        printf '%s: %s\n' "${_ns}" "${_line}"
+      fi
+    done < <(just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" --list "${_ns}")
+  done
+}
+
+@test "just --list descriptions are whole sentences, never a mid-comment fragment (base#1326)" {
+  run _list_description_offenders
+  assert_success
+  assert_output ""
+}
+
+@test "no just --list description names the retired setup.conf (base#1326)" {
+  local _ns
+  for _ns in docker base template; do
+    run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" --list "${_ns}"
+    assert_success
+    refute_output --partial "setup.conf"
+  done
+}
+
 @test "dashed just <ns> --help errors but hints 'help' (documented just limit, #789)" {
   # A dashed name cannot be a just recipe/alias, so `just <ns> --help` cannot be
   # intercepted; with a `help` recipe present just emits a 'Did you mean help?'
