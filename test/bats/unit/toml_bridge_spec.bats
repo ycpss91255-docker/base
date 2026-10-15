@@ -1961,3 +1961,53 @@ _bridge_refuses() {
   assert_success
   assert_line $'image\trule_1\tprefix:docker_'
 }
+
+# why: `_emit_kv` handled a top-level array and a top-level table and had
+# no `else`, so a top-level SCALAR produced no row and no word. Measured
+# on main: `top = "v"` above `[gui] mode = "x"` printed `gui mode x` alone
+# with exit 0. The shell view names every value by section, so a key
+# written above the first table header -- a setting meant for a table,
+# typed before its header -- has nowhere to go. Every type of scalar is
+# the same drop, so a string, an integer and a boolean are each held to
+# it (base#1308).
+@test "toml-bridge: --kv refuses a key that sits outside every table (base#1308)" {
+  local _f="${BATS_TEST_TMPDIR}/top_scalar.toml"
+
+  printf 'top = "v"\n\n[gui]\nmode = "x"\n' > "${_f}"
+  _bridge_refuses "top" --kv < "${_f}"
+
+  printf 'count = 3\n' > "${_f}"
+  _bridge_refuses "count" --kv < "${_f}"
+
+  printf 'flag = true\n\n[gui]\nmode = "x"\n' > "${_f}"
+  _bridge_refuses "flag" --kv < "${_f}"
+}
+
+# why: `_conf_load_layers` reads every configuration through `--merge
+# --kv`, and the merge carries a top-level scalar from any layer into the
+# merged data -- so the refusal must hold there too, from the lower layer
+# as well as from the upper one (base#1308).
+@test "toml-bridge: --merge --kv refuses a top-level key from any layer (base#1308)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf 'top = "v"\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "top" --merge --kv "${_lower}" "${_upper}"
+
+  printf '[gui]\nmode = "x"\n' > "${_lower}"
+  printf 'top = "v"\n' > "${_upper}"
+  _bridge_refuses "top" --merge --kv "${_lower}" "${_upper}"
+}
+
+# why: The control. The root region is also where the writers and the
+# converter put a root-level array's declaration (`volumes = []`), and
+# a root-level `[[volumes]]` block is an array too -- neither is a
+# scalar, and refusing the root region wholesale would eat both
+# (base#1308).
+@test "toml-bridge: --kv still accepts a root-level array declaration (base#1308)" {
+  local _f="${BATS_TEST_TMPDIR}/root_decl.toml"
+  printf 'volumes = []\n\n[gui]\nmode = "x"\n\n[[tmpfs]]\npath = "/run"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'gui\tmode\tx\ntmpfs\ttmpfs_1\t/run'
+}
