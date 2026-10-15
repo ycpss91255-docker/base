@@ -300,8 +300,10 @@ _ini_to_toml_convert() {
     esac
     if [[ -n "${_rt_old}" ]]; then
       for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
-        [[ "${_es[_i]}" == "${_s}" && "${_keys[_i]}" == "${_rt_new}" ]] \
-          && _rt_has_new=1
+        if [[ "${_es[_i]}" == "${_s}" && "${_keys[_i]}" == "${_rt_new}" ]]; then
+          _rt_has_new=1
+          break
+        fi
       done
     fi
 
