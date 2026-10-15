@@ -510,7 +510,11 @@ main() {
   # prefix. Two base versions (or two downstream repos pinning different
   # versions) on one host therefore get two distinct tags instead of
   # silently clobbering a single, version-agnostic `test-tools:local`.
-  local _tools_dockerfile="${FILE_PATH}/.base/dockerfile/Dockerfile.test-tools"
+  # The context is the vendored base subtree, not the consumer root:
+  # Dockerfile.test-tools COPYs dockerfile/toml_bridge.py, a path that
+  # exists only under .base/ in a consumer (base#1172).
+  local _tools_context="${FILE_PATH}/.base"
+  local _tools_dockerfile="${_tools_context}/dockerfile/Dockerfile.test-tools"
   local _tools_version_file="${FILE_PATH}/.base/.version"
   local _tools_args=()
   [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
@@ -545,13 +549,13 @@ main() {
     if [[ "${DRY_RUN}" == true ]]; then
       printf '[dry-run] docker build'
       printf ' %q' "${_tools_args[@]}" -t "${_test_tools_image}" \
-        -f "${_tools_dockerfile}" "${FILE_PATH}" -q
+        -f "${_tools_dockerfile}" "${_tools_context}" -q
       printf '\n'
     else
       docker build "${_tools_args[@]}" \
         -t "${_test_tools_image}" \
         -f "${_tools_dockerfile}" \
-        "${FILE_PATH}" -q >/dev/null
+        "${_tools_context}" -q >/dev/null
     fi
   fi
 
