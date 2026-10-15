@@ -3562,7 +3562,7 @@ what reaches a wrapper.
 | `set positional-arguments does not disturb template new (base#1289)` | base#1299's quote() fix must survive the setting this slice adds |
 | `no live line in justfile.template interpolates {{args}} (base#1289)` | a transliteration that reintroduces {{args}} is how this comes back |
 
-### test/bats/unit/justfile_user_spec.bats (33)
+### test/bats/unit/justfile_user_spec.bats (36)
 
 Executable tests for the user-facing layered entry + namespaces (#546 /
 ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
@@ -3604,6 +3604,9 @@ status).
 | `just docker help English default still renders the translated listing (i18n)` | - |
 | `just base help renders zh-TW recipe summaries under LANG=zh-TW (i18n)` | - |
 | `just template help renders zh-TW recipe summary under LANG=zh-TW (i18n)` | - |
+| `just --list descriptions are whole sentences, never a mid-comment fragment (base#1326)` | - |
+| `just --list shows the summary each base#1326 recipe was given (base#1326)` | - |
+| `no just --list description names the retired setup.conf (base#1326)` | - |
 | `dashed just <ns> --help errors but hints 'help' (documented just limit, #789)` | - |
 | `just template new --help shows the recipe usage (recipe-level help, #789)` | - |
 | `repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)` | #632 `import?` registry + `mod?` group |
@@ -6182,7 +6185,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (52)
+### test/bats/unit/setup_conf_spec.bats (53)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6210,6 +6213,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf answers what the merged handle answers (ADR-00000037)` | the two readers must not be able to disagree. This asserts the agreement itself rather than one reader's answer, so a future change to either path that reintroduces a second precedence rule fails here -- which is the failure mode the split had, undetected, until `show` and the emitters were compared by hand. |
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
 | `setup_tui.sh usage names the repo-root setup.toml in every language (#842)` | - |
+| `setup.sh usage describes the TOML-era apply, not the INI era, in every language (base#1326)` | - |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |

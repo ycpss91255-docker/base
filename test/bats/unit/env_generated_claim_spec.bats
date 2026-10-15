@@ -62,7 +62,7 @@ setup() {
 @test "justfile.docker: the setup doc comment names .env + .env.generated (#868)" {
   run grep -n '^# Regenerate' "${JUSTFILE_DOCKER}"
   assert_success
-  assert_output --partial ".env / .env.generated / compose.yaml from setup.conf"
+  assert_output --partial ".env / .env.generated / compose.yaml from setup.toml"
 }
 
 # ════════════════════════════════════════════════════════════════════
