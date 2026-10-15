@@ -1212,6 +1212,63 @@ EOF
   assert_output --partial '"gui.mode" = "off"'
 }
 
+# ── [deploy] runtime -> gpu_runtime ────────────────────────────────────
+#
+# `[deploy] runtime` is the deprecated spelling of `gpu_runtime`
+# (doc/deprecations.md). A conversion that carries it over verbatim
+# hands the operator a fresh setup.toml that warns
+# `conf_runtime_key_deprecated` on the first `setup apply`, for a file
+# they never wrote. The converter rewrites it instead.
+
+# why: the converted file names the GPU runtime the way the current
+#      readers spell it, so no deprecation WARN follows the upgrade.
+@test "_migrate_ini_to_toml writes [deploy] runtime as gpu_runtime (base#1327)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[deploy]
+runtime = auto
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'deploy	gpu_runtime	auto'
+  refute_line --regexp '^deploy	runtime	'
+}
+
+# why: when the INI names both keys, `gpu_runtime` is the one the readers
+#      honour (doc/deprecations.md), so its value survives and the legacy
+#      line is dropped rather than turned into a duplicate key.
+@test "_migrate_ini_to_toml keeps gpu_runtime over a legacy runtime in the same section (base#1327)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[deploy]
+runtime = nvidia
+gpu_runtime = runc
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run grep -c 'runtime = ' "${TEMP_DIR}/setup.toml"
+  assert_output "1"
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'deploy	gpu_runtime	runc'
+  refute_line --regexp '^deploy	runtime	'
+}
+
+# why: a per-stage override spells the same key `deploy.runtime`; it is
+#      rewritten to `deploy.gpu_runtime` the same way.
+@test "_migrate_ini_to_toml writes a per-stage deploy.runtime as deploy.gpu_runtime (base#1327)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:headless]
+deploy.runtime = runc
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'stage:headless	deploy.gpu_runtime	runc'
+  refute_line --regexp '^stage:headless	deploy\.runtime	'
+}
+
 # ── Round trip: what the converter writes is what the bridge reads ─────
 #
 # Every case above asserts the TEXT the converter emits. None of them asks
