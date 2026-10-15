@@ -67,6 +67,20 @@ _ARRAY_SPEC = {
 }
 
 
+# Fields a family reads only beside another one: {family: {field: the
+# field it needs}}. _check_entry refuses an entry carrying the first
+# without the second (base#1315). The volumes writer
+# (_conf_toml_aot_fields in lib/conf.sh) always writes `source`, adds
+# `target` only for a value with a `:`, and `mode` only after `target`,
+# so {source}, {source, target} and {source, target, mode} are every
+# combination it produces. Measured before this guard: `[[volumes]]
+# target = "/x"` read back as `volumes mount_1 /x`, exit 0 -- the
+# spelling compose takes as an anonymous volume -- and `source = "/a"`
+# with `mode = "ro"` as `/a:ro`, which puts `ro` in the target slot.
+_FIELD_NEEDS = {
+    "volumes": {"target": "source", "mode": "target"},
+}
+
 # Deprecated key spellings kept working behind a permanent alias (the W3
 # strategy doc/deprecations.md states). Each entry names the tables it
 # applies to and the (canonical, legacy) pair inside them. A name ending
@@ -270,14 +284,15 @@ def _emit_array(section, key, items, out, root=False):
     prefix, serializer, fields, also_read = spec
     allowed = fields + also_read
     for i, elem in enumerate(items, 1):
-        _check_entry(path, i, elem, fields, allowed)
+        _check_entry(path, i, elem, fields, allowed, _FIELD_NEEDS.get(key, {}))
         out.append((section, f"{prefix}_{i}", serializer(elem)))
 
 
-def _check_entry(path, index, elem, fields, allowed):
+def _check_entry(path, index, elem, fields, allowed, needs=None):
     """Refuse entry <index> of <path> when it carries none of <fields>,
-    carries a field outside <allowed>, or carries a field whose value is
-    an array or a table.
+    carries a field outside <allowed>, carries a field whose value is
+    an array or a table, or carries a field without the one <needs>
+    names for it.
 
     Every serializer answers "" for an entry that lacks the field it
     reads, and "" is the value the shell readers skip, so such an entry
@@ -306,6 +321,12 @@ def _check_entry(path, index, elem, fields, allowed):
     the shell view received a Python repr no TOML file wrote: the issue's
     `[[tmpfs]] path = "/tmp"` with `size = [1]` read back as `tmpfs
     tmpfs_1 /tmp:size=[1]`, exit 0 (base#1314).
+
+    A field present without the field <needs> names for it is refused
+    last: _joined joins whatever is present, so a `[[volumes]]` entry
+    with only `target` read back as an anonymous volume (_FIELD_NEEDS,
+    base#1315). Presence, not truthiness, as in _joined: an empty
+    `target` holding the middle slot of `/srv/data::ro` still counts.
     """
     if not isinstance(elem, dict):
         print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "
@@ -336,6 +357,13 @@ def _check_entry(path, index, elem, fields, allowed):
               f"view carries only a single value per field: write it as "
               f"one string, number or boolean", file=sys.stderr)
         raise SystemExit(1)
+    for name, need in sorted((needs or {}).items()):
+        if name in elem and need not in elem:
+            print(f"toml-bridge: entry {index} of {path} carries {name} "
+                  f"without {need}, a combination its family is never "
+                  f"written in, so it would not read back as what was "
+                  f"meant: add {need}, or remove {name}", file=sys.stderr)
+            raise SystemExit(1)
 
 
 def _emit_table(section, entries, out):
