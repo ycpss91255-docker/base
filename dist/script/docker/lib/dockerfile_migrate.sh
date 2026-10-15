@@ -154,12 +154,15 @@ _dfm_sed() {
 # _dfm_install <file> <rewritten>
 #   Put a rewritten copy in place of <file>, recorded when the bytes
 #   differ. The awk-driven migrations build their output beside the
-#   original and land it through here.
+#   original and land it through here. The rewritten copy takes the
+#   original's mode first: it comes from a bare mktemp (0600), and an
+#   entrypoint landed at 0600 drops its 100755 bit in git (base#1323).
 _dfm_install() {
   local _file="${1:?BUG: _dfm_install expects a file}"
   local _new="${2:?BUG: _dfm_install expects the rewritten file}"
   local _changed=0
   cmp -s -- "${_file}" "${_new}" || _changed=1
+  chmod --reference="${_file}" -- "${_new}"
   mv -- "${_new}" "${_file}"
   (( _changed )) && _dfm_record "${_file}"
   return 0
