@@ -62,7 +62,7 @@ help *args:
 upgrade *args:
     ./.base/dist/script/base/upgrade.sh "$@"
 
-# `*args` on `update` is a `--help` shim only: update always runs the check
+# `*args` on `update` is a `--help` shim only: a bare update runs the check
 # and never upgrades. An argument that IS `-h` or `--help` reaches upgrade.sh's
 # usage WITHOUT the network check (a dashed name cannot be a just recipe, so
 # the entry cannot intercept `just base update --help` -- the recipe does).
