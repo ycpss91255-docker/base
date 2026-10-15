@@ -3225,7 +3225,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (67)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (70)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3295,6 +3295,9 @@ the source INI where it was, writes no target, and says so
 | `_migrate_env_local_to_toml is inert when there is no .env.local (#1137)` | A repo with no .env.local must not produce a phantom env.local.toml |
 | `_migrate_env_local_to_toml handles values containing = (#1137)` | Values with = in them split on the FIRST = only |
 | `_migrate_ini_to_toml quotes section names containing colon (#1137)` | A section name containing : needs TOML quoting |
+| `_migrate_ini_to_toml writes [deploy] runtime as gpu_runtime (base#1327)` | the converted file names the GPU runtime the way the current readers spell it, so no deprecation WARN follows the upgrade. |
+| `_migrate_ini_to_toml keeps gpu_runtime over a legacy runtime in the same section (base#1327)` | when the INI names both keys, `gpu_runtime` is the one the readers honour (doc/deprecations.md), so its value survives and the legacy line is dropped rather than turned into a duplicate key. |
+| `_migrate_ini_to_toml writes a per-stage deploy.runtime as deploy.gpu_runtime (base#1327)` | a per-stage override spells the same key `deploy.runtime`; it is rewritten to `deploy.gpu_runtime` the same way. |
 | `_migrate_ini_to_toml: the converted file reads back as the same configuration (#1137)` | a migration that loses a mount, an env var or a dropped capability is worse than one that refuses: the repo comes back up with the workspace unmounted, the variable gone and a capability the operator removed restored, and the only record of what it used to be is a .bak file nothing reads. |
 | `_migrate_ini_to_toml: a quote or a backslash in a value survives (#1137)` | the converter renames the INI out of the way, so a value it renders as invalid TOML takes the only copy of the configuration with it. A double quote inside a build arg and a backslash inside a watchdog command are both ordinary INI values. |
 | `_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)` | an INI key carrying a space in its name is harmless there and unrenderable in TOML, so its conversion is a document the parser refuses. The repo must come out of this with its configuration still on disk and readable, because the refusal is recoverable and the rename is not. |
