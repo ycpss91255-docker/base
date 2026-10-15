@@ -955,6 +955,21 @@ _just_base_dispatch() {
     [[ "${_dispatch_output}" == *"${_bad}"* ]] \
       || fail "update '${_bad}' did not name the argument: [${_dispatch_output}]"
   done
+
+  # A help flag does not excuse an unknown argument beside it, in either
+  # order: a scan that exec'd help on the first `--help` would accept
+  # `update --help foo` silently.
+  local _order
+  for _order in '--help foo' 'foo --help'; do
+    # shellcheck disable=SC2086 # split on purpose: two arguments
+    _just_base_dispatch "${JUST_BASE_SANDBOX}" update ${_order}
+    [[ "${_dispatch_status}" -eq 1 ]] \
+      || fail "update ${_order} exited ${_dispatch_status}, not 1: [${_dispatch_output}]"
+    [[ -z "${_dispatched}" ]] \
+      || fail "update ${_order} dispatched [${_dispatched}]"
+    [[ "${_dispatch_output}" == *foo* ]] \
+      || fail "update ${_order} did not name foo: [${_dispatch_output}]"
+  done
 }
 
 # why: a transliteration that reintroduces {{args}} on any live line
