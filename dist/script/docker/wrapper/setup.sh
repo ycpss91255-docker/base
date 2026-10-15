@@ -261,12 +261,14 @@ Subcommands:
                 regenerate .env / .env.generated — run `apply`
                 afterwards if needed.
                 --local writes <base-path>/setup.local.toml instead:
-                the gitignored per-worktree layer, whose sections
-                REPLACE the committed file's on this machine only.
+                the gitignored per-worktree layer. On this machine
+                only, its tables override only the keys they name and
+                its arrays replace the committed list whole.
                 Without --local, a write to a section setup.local.toml
                 already defines is warned about by name -- it is still
-                the value CI and other checkouts use, but it will not
-                change anything here.
+                the value CI and other checkouts use, but here a key
+                the local layer also names, or an entry of an array it
+                declares, stays shadowed.
   show <section>[.<key>]
                 Print the value of a single key, or all key=value
                 pairs in a section (in on-disk order). Exits non-zero

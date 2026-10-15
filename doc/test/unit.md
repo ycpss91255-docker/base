@@ -3603,7 +3603,7 @@ status).
 | `just base help renders zh-TW recipe summaries under LANG=zh-TW (i18n)` | - |
 | `just template help renders zh-TW recipe summary under LANG=zh-TW (i18n)` | - |
 | `just --list descriptions are whole sentences, never a mid-comment fragment (base#1326)` | - |
-| `just --list shows the summary each base#1326 recipe was given (base#1326)` | the prefix rule passes a capitalised fragment and skips a recipe with no description; the exact summaries close both |
+| `just --list shows the summary each base#1326 recipe was given (base#1326)` | - |
 | `no just --list description names the retired setup.conf (base#1326)` | - |
 | `dashed just <ns> --help errors but hints 'help' (documented just limit, #789)` | - |
 | `just template new --help shows the recipe usage (recipe-level help, #789)` | - |
