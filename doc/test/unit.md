@@ -7452,7 +7452,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (80)
+### test/bats/unit/toml_bridge_spec.bats (83)
 
 | Test | Description |
 |------|-------------|
@@ -7536,6 +7536,9 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: --merge --kv refuses an entry with an unknown field that survives the merge (base#1313)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so an entry with an unknown field in a layer whose array survives the merge must be refused there too (base#1313). |
 | `toml-bridge: every array home refuses a field that only another family reads (base#1313)` | The allowed fields are per FAMILY, not one pool. A field that is legal in another family -- tmpfs `size` beside a device `path` -- is read by no serializer of THIS family, so it would vanish the same way an unknown name does. DERIVED from the writers' table: every field any home's writer spells is tried beside every other home's own fields (base#1313). |
 | `toml-bridge: --merge --kv refuses a field that only another family reads (base#1313)` | The same per-family rule must hold on the `--merge --kv` path `_conf_load_layers` reads through (base#1313). |
+| `toml-bridge: --kv refuses an array entry field whose value is an array or a table (base#1314)` | _field formats every array-of-tables field through _format_value, which is `str(v)` for anything but a bool, so a field whose value is an array or an inline table reached the shell view as a Python repr: `[[tmpfs]] path = "/tmp"` with `size = [1]` read back as `tmpfs tmpfs_1 /tmp:size=[1]`, exit 0. The refusal names the array, the entry and the field; a scalar size still reads back (base#1314). |
+| `toml-bridge: every array home refuses a field whose value is an array or a table (base#1314)` | DERIVED from the writers' table of array homes, like the base#1309 and base#1313 cases: every field the home's writer spells (plus tmpfs `size`) is given an array value and then an inline-table value, beside the home's other fields, and each is refused (base#1314). |
+| `toml-bridge: --merge --kv refuses a field whose value is an array or a table (base#1314)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so a non-scalar field in a layer whose array survives the merge must be refused there too (base#1314). |
 
 ### test/bats/unit/toml_config_template_spec.bats (21)
 
