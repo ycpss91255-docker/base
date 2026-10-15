@@ -737,20 +737,25 @@ EOF
   grep -Fq "COPY .base/script/docker/lib /lint/lib" "${DF}"
 }
 
-# why: the awk migrations land the Dockerfile through _dfm_install too; a
-# 0644 Dockerfile must not come back 0600 (base#1323).
-@test "migration 3 (explicit-copy): the rewritten Dockerfile keeps its 0644 mode (base#1323)" {
-  cat > "${DF}" <<'EOF'
+# why: the awk migrations land the Dockerfile through _dfm_install too;
+# the Dockerfile must come back with exactly the mode it had, not 0600 and
+# not a fixed default. Several modes under a restrictive umask (077) so a
+# hardcoded mode or a umask-derived one cannot pass (base#1323).
+@test "migration 3 (explicit-copy): the rewritten Dockerfile keeps its exact mode under umask 077 (base#1323)" {
+  local _mode
+  for _mode in 644 640 664 600; do
+    cat > "${DF}" <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/_lib.sh .base/script/docker/i18n.sh /lint/
 COPY .base/script/docker/lib /lint/lib
 EOF
-  chmod 0644 "${DF}"
-  run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
-  assert_success
-  refute grep -q '_lib.sh' "${DF}"
-  run stat -c '%a' "${DF}"
-  assert_output "644"
+    chmod "${_mode}" "${DF}"
+    run bash -c "umask 077; $(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
+    assert_success
+    refute grep -q '_lib.sh' "${DF}"
+    run stat -c '%a' "${DF}"
+    assert_output "${_mode}"
+  done
 }
 
 @test "migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)" {
@@ -1800,23 +1805,28 @@ EOF
 
 # why: _dfm_install lands the awk output with mv, so the rewritten file
 # would carry the mktemp's 0600 instead of the original's mode -- a
-# committed 0755 entrypoint must stay executable (base#1323).
-@test "migration 8 (nounset-source): the rewritten entrypoint keeps its 0755 mode (base#1323)" {
+# committed entrypoint must keep exactly its mode, executable or not.
+# Several modes under a restrictive umask (077) so a hardcoded 0755 or a
+# umask-derived mode cannot pass (base#1323).
+@test "migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)" {
   mkdir -p "${TEMP_DIR}/script"
-  : > "${DF}"
-  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+  local _mode
+  for _mode in 755 750 700 644; do
+    : > "${DF}"
+    cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 # shellcheck disable=SC1090,SC1091
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 exec "$@"
 EOF
-  chmod 0755 "${TEMP_DIR}/script/entrypoint.sh"
-  run bash -c "$(_src); apply_migrations '${DF}'"
-  assert_success
-  grep -Fxq "set +u" "${TEMP_DIR}/script/entrypoint.sh"
-  run stat -c '%a' "${TEMP_DIR}/script/entrypoint.sh"
-  assert_output "755"
+    chmod "${_mode}" "${TEMP_DIR}/script/entrypoint.sh"
+    run bash -c "umask 077; $(_src); apply_migrations '${DF}'"
+    assert_success
+    grep -Fxq "set +u" "${TEMP_DIR}/script/entrypoint.sh"
+    run stat -c '%a' "${TEMP_DIR}/script/entrypoint.sh"
+    assert_output "${_mode}"
+  done
 }
 
 @test "migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)" {
