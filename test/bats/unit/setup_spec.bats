@@ -1995,3 +1995,122 @@ EOC
   "
   assert_failure
 }
+
+# ════════════════════════════════════════════════════════════════════
+# apply refuses an unknown table or a misspelt key (base#1328)
+#
+# PRD invariant 2: a table no reader knows, or a key in a known table no
+# reader reads, used to pass apply with rc=0 and no WARN/ERROR -- the
+# operator's setting was dropped and the default applied (`gpu_cuont = "1"`
+# generated `count: all`). apply now refuses it after the chain is merged
+# and before anything is generated: ERROR, the layer file, the table and
+# the key, non-zero exit, `.env` and `compose.yaml` untouched.
+#
+# The `--config` layer of the issue is apply's `--local-conf` address
+# (ADR-00000036), the one caller-named layer of the chain.
+# ════════════════════════════════════════════════════════════════════
+
+# Seed .env and compose.yaml with sentinels so "untouched" is byte-checked.
+_seed_generated_sentinels() {
+  printf 'SENTINEL_ENV=untouched\n' > "${TEMP_DIR}/.env"
+  printf '# sentinel compose untouched\n' > "${TEMP_DIR}/compose.yaml"
+}
+
+_assert_generated_untouched() {
+  run cat "${TEMP_DIR}/.env"
+  assert_output "SENTINEL_ENV=untouched"
+  run cat "${TEMP_DIR}/compose.yaml"
+  assert_output "# sentinel compose untouched"
+}
+
+@test "apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy2]
+x = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses a misspelt key in a known table of setup.toml (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_cuont = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses a misspelt key in setup.local.toml, naming that layer (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_count = "1"
+EOF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[deploy]
+gpu_cuont = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.local\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/setup\.local\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses a misspelt key in a --local-conf layer, naming that layer (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_count = "1"
+EOF
+  cat > "${TEMP_DIR}/override.toml" <<'EOF'
+[deploy]
+gpu_cuont = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/override.toml' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/override\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/override\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply still accepts a per-stage key, [logging.<svc>] and a free-form reader key (base#1328)" {
+  # Regression guard for the refusal above: these are all read by a
+  # reader, so none of them may be refused.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[gui]
+mode = "off"
+
+[deploy]
+gpu_count = "1"
+
+["stage:dev"]
+"deploy.gpu_mode" = "off"
+
+[logging.devel]
+max_size = "50m"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "ERROR"
+}
