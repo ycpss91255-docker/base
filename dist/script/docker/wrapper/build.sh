@@ -515,7 +515,7 @@ main() {
   # exists only under .base/ in a consumer (base#1172).
   local _tools_context="${FILE_PATH}/.base"
   local _tools_dockerfile="${_tools_context}/dockerfile/Dockerfile.test-tools"
-  local _tools_version_file="${FILE_PATH}/.base/.version"
+  local _tools_version_file="${_tools_context}/.version"
   local _tools_args=()
   [[ "${NO_CACHE}" == true ]] && _tools_args+=(--no-cache)
   # Forward user's TARGETARCH override when set. Empty = leave unset so
