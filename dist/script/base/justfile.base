@@ -30,17 +30,12 @@ set working-directory := '../..'
 #
 # The precondition, re-established for THIS file: before this change
 # `grep -nE '\$[0-9@*]'` over it matched nothing. `update` below is a
-# SHEBANG recipe, so the setting gives its body `$@` as well -- it reads
-# neither, so the setting changes the meaning of no existing line.
+# SHEBANG recipe, so the setting gives its body `$@` as well -- it read
+# neither then, so the setting changed the meaning of no existing line.
 #
-# `update`'s `-h` scan keeps its `{{args}}`. It is the only SPLITTING
-# interpolation left in the four namespace modules -- justfile.docker's
-# `case " {{args}} "` is deliberate too, and joins. It wants real word
-# SPLITTING, unlike justfile.docker's `case " {{args}} "`, which only
-# joins -- so converting it is a behaviour change, not a transliteration:
-# `just base update 'x -h'` execs `upgrade.sh --help` today because the
-# split sees a bare `-h`, and would stop doing so. base#1289's Out of
-# scope defers that question and base#1304 carries it.
+# `update`'s `-h` scan reads `"$@"` too (base#1304): it used to split
+# `{{args}}`, so `just base update 'x -h'` exec'd `upgrade.sh --help`
+# because the split saw a bare `-h`. No `{{args}}` remains in this file.
 set positional-arguments := true
 
 # source_file (not justfile) is this module's own file: inside a mod?'d
@@ -68,20 +63,27 @@ upgrade *args:
     ./.base/dist/script/base/upgrade.sh "$@"
 
 # `*args` on `update` is a `--help` shim only: update always runs the check
-# and never upgrades, so non-help args are ignored; `-h|--help` reaches
-# upgrade.sh's usage WITHOUT the network check (a dashed name cannot be a just
-# recipe, so the entry cannot intercept `just base update --help` -- the recipe
-# does). The blank line below detaches this rationale from the --list doc.
+# and never upgrades. An argument that IS `-h` or `--help` reaches upgrade.sh's
+# usage WITHOUT the network check (a dashed name cannot be a just recipe, so
+# the entry cannot intercept `just base update --help` -- the recipe does).
+# Any other argument is refused by name, before the check, with exit 1 --
+# upgrade.sh's own status for an unknown argument (base#1304). The blank line
+# below detaches this rationale from the --list doc.
 
 # just base update -> report whether a newer base tag is available (apt-style)
 update *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    for _a in {{args}}; do
+    _help=0
+    for _a in "$@"; do
       case "${_a}" in
-        -h|--help) exec ./.base/dist/script/base/upgrade.sh --help ;;
+        -h|--help) _help=1 ;;
+        *) printf 'update: unknown argument: %s\n' "${_a}" >&2; exit 1 ;;
       esac
     done
+    if [ "${_help}" -eq 1 ]; then
+      exec ./.base/dist/script/base/upgrade.sh --help
+    fi
     ./.base/dist/script/base/upgrade.sh --check || [ "$?" -eq 1 ]
 
 # just base init -> (re-)wire repo symlinks + .gitignore
