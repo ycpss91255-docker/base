@@ -2010,23 +2010,61 @@ EOC
 # (ADR-00000036), the one caller-named layer of the chain.
 # ════════════════════════════════════════════════════════════════════
 
-# Seed .env and compose.yaml with sentinels so "untouched" is byte-checked.
+# Seed .env and compose.yaml with sentinels and keep a copy of each, so
+# "untouched" is checked byte for byte with cmp. `run cat` + assert_output
+# would not do: command substitution strips trailing newlines, so a
+# rewrite that dropped or added one would still compare equal.
 _seed_generated_sentinels() {
   printf 'SENTINEL_ENV=untouched\n' > "${TEMP_DIR}/.env"
   printf '# sentinel compose untouched\n' > "${TEMP_DIR}/compose.yaml"
+  cp "${TEMP_DIR}/.env" "${TEMP_DIR}/.env.orig"
+  cp "${TEMP_DIR}/compose.yaml" "${TEMP_DIR}/compose.yaml.orig"
 }
 
 _assert_generated_untouched() {
-  run cat "${TEMP_DIR}/.env"
-  assert_output "SENTINEL_ENV=untouched"
-  run cat "${TEMP_DIR}/compose.yaml"
-  assert_output "# sentinel compose untouched"
+  run cmp "${TEMP_DIR}/.env.orig" "${TEMP_DIR}/.env"
+  assert_success
+  run cmp "${TEMP_DIR}/compose.yaml.orig" "${TEMP_DIR}/compose.yaml"
+  assert_success
 }
 
 @test "apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy2]
 x = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses an unknown table that carries no key, naming the file and the table (base#1328)" {
+  # An empty table projects no key/value row, so a check that walks only
+  # the rows never sees it: the table itself has to be judged.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy2]
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses an unknown table whose only key is an empty array (base#1328)" {
+  # `args = []` is a zero-entry declaration: the KV view emits no row for
+  # it, so the table is invisible to a row walk here too.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy2]
+args = []
 EOF
   _seed_generated_sentinels
   run bash -c "
@@ -2113,4 +2151,32 @@ EOF
   "
   assert_success
   refute_output --partial "ERROR"
+}
+
+@test "apply still accepts the free-form [build] named keys and lifts them into build args (base#1328)" {
+  # apt_mirror_ubuntu / apt_mirror_debian / tz have no SCHEMA_VALIDATOR
+  # entry; _setup_apply reads them through _conf_get_into when no layer
+  # supplies [[build.args]] -- the shipped template always does, so the
+  # layer clears the array with `args = []` to make the lift fire. They
+  # are known only by the free-form exemption in _setup_known_key, so
+  # this is the test that guards it.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[build]
+args = []
+apt_mirror_ubuntu = "mirror.example.org"
+apt_mirror_debian = "deb.example.org"
+tz = "Europe/Berlin"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "ERROR"
+  run grep -x 'APT_MIRROR_UBUNTU=mirror.example.org' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -x 'APT_MIRROR_DEBIAN=deb.example.org' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -x 'TZ=Europe/Berlin' "${TEMP_DIR}/.env.generated"
+  assert_success
 }
