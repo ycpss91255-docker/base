@@ -588,6 +588,33 @@ EOS
   assert_output --partial "TEST_TOOLS_IMAGE=test-tools:v9.9.9-test"
 }
 
+# why: the tooling Dockerfile COPYs dockerfile/toml_bridge.py from its
+# build context, a path only the vendored base carries -- a consumer root
+# has no dockerfile/ -- so the context is the `.base/` subtree, not the
+# consumer root (base#1172)
+@test "build.sh builds the local test-tools image with the .base subtree as its context (base#1172)" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock compose" > "${SANDBOX}/compose.yaml"
+
+  bash "${SANDBOX}/build.sh"
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "-f ${SANDBOX}/.base/dockerfile/Dockerfile.test-tools ${SANDBOX}/.base -q"
+  refute_output --partial "-f ${SANDBOX}/.base/dockerfile/Dockerfile.test-tools ${SANDBOX} -q"
+}
+
+# why: --dry-run prints the build it would run; the printed context must
+# be the one the real build uses (base#1172)
+@test "build.sh --dry-run prints the .base subtree as the test-tools build context (base#1172)" {
+  run bash "${SANDBOX}/build.sh" --dry-run
+  assert_success
+  assert_output --partial "-f ${SANDBOX}/.base/dockerfile/Dockerfile.test-tools ${SANDBOX}/.base -q"
+  refute_output --partial "-f ${SANDBOX}/.base/dockerfile/Dockerfile.test-tools ${SANDBOX} -q"
+}
+
 @test "build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)" {
   # No silent fallback to a bare, version-agnostic tag: if build.sh
   # must build the local test-tools image but cannot resolve the base
