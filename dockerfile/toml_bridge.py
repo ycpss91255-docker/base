@@ -279,9 +279,10 @@ def _check_entry(path, index, elem, fields):
 
     An empty entry is NOT refused when it is spelled the way the writers
     spell one. A field-less block is how the converter and the writers'
-    padding spell a cleared slot, and a block whose fields are present
-    but empty is the published opt-out (_joined). Neither lacks its
-    field, so both still read back as one empty entry.
+    padding spell a cleared slot -- it carries nothing at all, so it is
+    exempt by name rather than by carrying a field -- and a block whose
+    fields are present but empty is the published opt-out (_joined),
+    which does carry its field. Both still read back as one empty entry.
     """
     if not isinstance(elem, dict):
         print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "

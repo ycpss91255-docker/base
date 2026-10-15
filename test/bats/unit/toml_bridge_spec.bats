@@ -2050,7 +2050,8 @@ _bridge_refuses() {
 # empty spellings the writers and the converter produce -- a field-less
 # block (the converter's cleared slot) and a block whose fields are all
 # present but empty (`_conf_toml_aot_fields` of "") -- still read back as
-# one empty entry, because neither LACKS its field (base#1309).
+# one empty entry: the first carries nothing at all and is exempt as the
+# cleared slot, the second carries its field (base#1309).
 @test "toml-bridge: every array home refuses an entry without its field and keeps an empty one (base#1309)" {
   local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
   local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
