@@ -2309,11 +2309,22 @@ _bridge_refuses() {
   printf '[[tmpfs]]\npath = "/tmp"\nsize = {}\n' > "${_f}"
   _bridge_refuses "tmpfs" --kv < "${_f}"
 
-  # The control: scalars of every kind still read back as before.
+  # The controls: a string, an integer, a float and a boolean still read
+  # back as before.
   printf '[[tmpfs]]\npath = "/tmp"\nsize = 64\n' > "${_f}"
   run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
   assert_success
   assert_equal "${output}" $'tmpfs\ttmpfs_1\t/tmp:size=64'
+
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = 1.5\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'tmpfs\ttmpfs_1\t/tmp:size=1.5'
+
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = true\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'tmpfs\ttmpfs_1\t/tmp:size=true'
 }
 
 # why: DERIVED from the writers' table of array homes, like the base#1309
