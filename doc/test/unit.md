@@ -7452,7 +7452,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (83)
+### test/bats/unit/toml_bridge_spec.bats (85)
 
 | Test | Description |
 |------|-------------|
@@ -7539,6 +7539,8 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: --kv refuses an array entry field whose value is an array or a table (base#1314)` | _field formats every array-of-tables field through _format_value, which is `str(v)` for anything but a bool, so a field whose value is an array or an inline table reached the shell view as a Python repr. The issue's case: `[[tmpfs]] path = "/tmp"` with `size = [1]` read back as `tmpfs tmpfs_1 /tmp:size=[1]`, exit 0 -- a string no TOML file wrote and no compose option accepts. The refusal follows _check_transportable: a toml-bridge line naming the array, exit 1, empty stdout (base#1314). |
 | `toml-bridge: every array home refuses a field whose value is an array or a table (base#1314)` | DERIVED from the writers' table of array homes, like the base#1309 and base#1313 cases above, so a family added there is covered by having been added: every field the home's writer spells (plus tmpfs `size`, which _tmpfs_mount reads but the writer never spells) is given an array value, an inline-table value, an empty array and an empty table, beside the home's other fields, and each is refused (base#1314). |
 | `toml-bridge: --merge --kv refuses a field whose value is an array or a table (base#1314)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so a non-scalar field in a layer whose array survives the merge must be refused there too (base#1314). |
+| `toml-bridge: --kv refuses a volumes entry whose fields the writer never combines (base#1315)` | _check_entry accepts a [[volumes]] entry that carries ANY of source / target / mode, and _joined joins whatever is present, so an entry with only `target = "/x"` read back as `volumes mount_1 /x`, exit 0 -- the spelling compose takes as an anonymous volume, not the bind mount the operator wrote half of. The writer (`_conf_toml_aot_fields` volumes arm) always writes `source`, adds `target` only for a value with a `:`, and `mode` only after `target`, so {source}, {source, target} and {source, target, mode} are the only nonempty combinations it produces. The one other combination accepted is {}, the field-less block the converter (`ini_to_toml_migrate.sh`) and the writers' padding spell a cleared slot with, which base#1309 keeps as one empty entry. Every other combination is refused like the base#1309 / base#1313 entries: a toml-bridge line naming the array, exit 1, empty stdout (base#1315). The rule is presence, not truthiness: an EMPTY `target` or `mode` is still a field the entry carries. |
+| `toml-bridge: --merge --kv refuses a volumes entry whose fields the writer never combines (base#1315)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so a target-only volume in a layer whose array survives the merge must be refused there too (base#1315). |
 
 ### test/bats/unit/toml_config_template_spec.bats (21)
 
