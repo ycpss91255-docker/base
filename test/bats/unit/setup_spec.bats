@@ -2076,6 +2076,27 @@ EOF
   _assert_generated_untouched
 }
 
+@test "apply refuses an empty array no reader reads in a known table (base#1328)" {
+  # `args = []` declares the `args` family of [deploy] with no entry, so
+  # the KV view emits no row and the table itself is known: a row walk and
+  # a table walk both passed it with rc=0, though no reader consumes
+  # deploy.args -- a populated [[deploy.args]] is refused as deploy.arg_1.
+  # The empty declaration has to be judged against its table's families.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_count = "1"
+args = []
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy\.args|ERROR.*deploy\.args.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
 @test "apply refuses a misspelt key in a known table of setup.toml (base#1328)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
