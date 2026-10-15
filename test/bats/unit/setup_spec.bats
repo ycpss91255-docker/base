@@ -858,7 +858,7 @@ EOF
   # Partial override is normal usage — don't INFO-spam users who edited
   # only one section.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[gpu]
+[gui]
 mode = "auto"
 EOF
   run bash -c "

@@ -6320,7 +6320,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (126)
+### test/bats/unit/setup_spec.bats (131)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -6463,6 +6463,11 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply does NOT warn duplicate when device and volume targets differ (#450 P4)` | - |
 | `apply no longer emits runtime.env; [environment] still reaches the container (#868)` | - |
 | `_write_runtime_env is removed (#507)` | - |
+| `apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)` | - |
+| `apply refuses a misspelt key in a known table of setup.toml (base#1328)` | - |
+| `apply refuses a misspelt key in setup.local.toml, naming that layer (base#1328)` | - |
+| `apply refuses a misspelt key in a --local-conf layer, naming that layer (base#1328)` | - |
+| `apply still accepts a per-stage key, [logging.<svc>] and a free-form reader key (base#1328)` | - |
 
 ### test/bats/unit/shell_metrics_spec.bats (59)
 

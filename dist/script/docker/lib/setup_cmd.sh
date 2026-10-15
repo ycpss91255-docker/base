@@ -44,6 +44,80 @@ _setup_known_section() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_known_key <section> <key>
+#
+# Returns 0 when some reader consumes <section>.<key>, 1 otherwise. A
+# key is known when it resolves to a SCHEMA_VALIDATOR entry (numbered
+# list suffix and the per-service [logging.<svc>] spelling normalised by
+# _schema_canonical_key), or when it is one of the free-form keys a
+# reader takes through _conf_get_into without a validator (the
+# pre-arg_N [build] named keys _setup_apply lifts into build args).
+#
+# A [stage:<name>] table, and anything under it, is not judged here:
+# its keys already pass _validate_stage_override_key where the stage is
+# emitted, which WARNs on a key outside the per-stage allowlist.
+# ════════════════════════════════════════════════════════════════════
+_setup_known_key() {
+  local _section="${1-}" _key="${2-}"
+  [[ "${_section}" == stage:* ]] && return 0
+  local _canon=""
+  _schema_canonical_key "${_section}" "${_key}" _canon
+  [[ -n "${_canon}" ]] && return 0
+  case "${_section}.${_key}" in
+    build.apt_mirror_ubuntu|build.apt_mirror_debian|build.tz) return 0 ;;
+  esac
+  return 1
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_conf_check_known <base_path>
+#
+# Refuse a setup.toml chain that carries a table no reader knows or a
+# key in a known table no reader reads (base#1328). Before this, both
+# passed `apply` with exit 0 and nothing said: `[deploy] gpu_cuont = "1"`
+# generated `count: all`, the default, because no reader asks for
+# `gpu_cuont`.
+#
+# Each TOML layer of the chain is read on its OWN, so the refusal names
+# the file the operator has to edit -- the merged view no longer knows
+# which layer a key came from. Every unknown entry is reported before
+# returning, so one run lists them all. Returns 1 when any was found.
+# ════════════════════════════════════════════════════════════════════
+_setup_conf_check_known() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -a _sck_layers=()
+  _setup_conf_layers "${_base}" _sck_layers || return 1
+  local _layer _i _sect _key _bad=0
+  for _layer in "${_sck_layers[@]}"; do
+    [[ -f "${_layer}" && "${_layer}" == *.toml ]] || continue
+    _conf_load_layers _SCK_CONF "${_layer}" || return 1
+    local -n _sck_es=_SCK_CONF__es
+    local -n _sck_k=_SCK_CONF__keys
+    local -A _sck_reported=()
+    for (( _i = 0; _i < ${#_sck_k[@]}; _i++ )); do
+      _sect="${_sck_es[_i]}"
+      _key="${_sck_k[_i]}"
+      if ! _setup_known_section "${_sect}" && [[ "${_sect}" != stage:* ]]; then
+        [[ -n "${_sck_reported[${_sect}]:-}" ]] && continue
+        _sck_reported[${_sect}]=1
+        _log_err setup apply_unknown_table \
+          "display=[setup] apply: ${_layer}: unknown table [${_sect}]; no reader knows it, so its settings would be dropped. Fix or remove the table" \
+          "file=${_layer}" "table=${_sect}"
+        _bad=1
+      elif ! _setup_known_key "${_sect}" "${_key}"; then
+        _log_err setup apply_unknown_key \
+          "display=[setup] apply: ${_layer}: unknown key ${_sect}.${_key}; no reader reads it, so the default would apply instead. Fix the spelling or remove the key" \
+          "file=${_layer}" "table=${_sect}" "key=${_key}"
+        _bad=1
+      fi
+    done
+    unset -n _sck_es _sck_k
+    unset _sck_reported
+  done
+  (( _bad == 0 ))
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_validate_kv <section> <key> <value>
 #
 # Thin adapter over the shared validation registry. The accept /
@@ -1301,6 +1375,10 @@ _setup_apply() {
   fi
 
   _announce_template_default_fallback "${_base_path}"
+
+  # A table or key no reader knows is refused before anything is
+  # written, naming the layer it is in (base#1328).
+  _setup_conf_check_known "${_base_path}" || return 1
 
   # Where the emitted set goes. The repo itself with no --output, which is
   # every existing checkout and leaves that path byte-identical; otherwise
