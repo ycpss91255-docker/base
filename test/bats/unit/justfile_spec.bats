@@ -909,31 +909,31 @@ _just_base_dispatch() {
     || fail "init with an empty argument dispatched [${_dispatched}]"
 }
 
-# why: update's -h scan is the one deliberate interpolation left, and
-# the setting must not disturb it (base#1289, base#1304)
-@test "just base update's -h scan is unchanged by positional-arguments (base#1289)" {
-  # `update` is a SHEBANG recipe whose `*args` exists only as a `--help`
-  # shim. Its `for _a in {{args}}` is the only SPLITTING interpolation
-  # left in the four namespace modules -- justfile.docker's
-  # `case " {{args}} "` is deliberate too, and joins -- so it keeps its
-  # interpolation and base#1289's Out of scope defers whether it should.
-  # base#1304 carries that question with the measurement.
-  #
-  # This arm is green on both trees ON PURPOSE. It is not a demonstration
-  # of a defect; it is what says `set positional-arguments` left the scan
-  # alone, which is the precondition this slice had to establish.
+# why: update's -h scan split its argument text, so `update 'x -h'`
+# reached help (base#1304)
+@test "just base update reaches help only on an exact -h|--help, refuses anything else (base#1304)" {
+  # Measured before base#1304: the scan was `for _a in {{args}}`, which
+  # re-split the caller's text, so `update 'x -h'` exec'd
+  # `upgrade.sh --help`, and `update foo` ran the network check with
+  # `foo` ignored. The decided contract: only an argument that IS `-h`
+  # or `--help` reaches help; no argument runs `--check`; any other
+  # argument is refused, named, without the check, at upgrade.sh's own
+  # status for an unknown argument (1).
   command -v just > /dev/null 2>&1 \
     || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
   local _dispatched='' _dispatch_status=0 _dispatch_output=''
   JUST_BASE_SANDBOX="$(mktemp -d)"
   _just_base_sandbox "${JUST_BASE_SANDBOX}"
 
-  # --help reaches upgrade.sh's usage and NOT the network check.
-  _just_base_dispatch "${JUST_BASE_SANDBOX}" update --help
-  [[ "${_dispatch_status}" -eq 0 ]] \
-    || fail "update --help failed: [${_dispatch_output}]"
-  [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
-    || fail "update --help dispatched [${_dispatched}]"
+  # --help and -h reach upgrade.sh's usage and NOT the network check.
+  local _h
+  for _h in --help -h; do
+    _just_base_dispatch "${JUST_BASE_SANDBOX}" update "${_h}"
+    [[ "${_dispatch_status}" -eq 0 ]] \
+      || fail "update ${_h} failed: [${_dispatch_output}]"
+    [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
+      || fail "update ${_h} dispatched [${_dispatched}]"
+  done
 
   # A bare update reaches --check, whose non-zero the recipe tolerates.
   _just_base_dispatch "${JUST_BASE_SANDBOX}" update
@@ -942,27 +942,45 @@ _just_base_dispatch() {
   [[ "${_dispatched}" == "n=1"$'\n'"ARG[--check]" ]] \
     || fail "a bare update dispatched [${_dispatched}]"
 
-  # And the splitting behaviour itself, pinned as it IS rather than as it
-  # perhaps should be: an argument containing `-h` as a word reaches the
-  # help path. base#1304 is where that is decided; until then this arm is
-  # what makes a silent change to it impossible.
-  _just_base_dispatch "${JUST_BASE_SANDBOX}" update 'x -h'
-  [[ "${_dispatch_status}" -eq 0 ]] \
-    || fail "update 'x -h' failed: [${_dispatch_output}]"
-  [[ "${_dispatched}" == "n=1"$'\n'"ARG[--help]" ]] \
-    || fail "update 'x -h' dispatched [${_dispatched}]"
+  # Anything else is refused: exit 1, the argument named, nothing
+  # dispatched -- neither help nor the network check. `x -h` is ONE
+  # argument that merely contains `-h` as a word.
+  local _bad
+  for _bad in 'x -h' foo; do
+    _just_base_dispatch "${JUST_BASE_SANDBOX}" update "${_bad}"
+    [[ "${_dispatch_status}" -eq 1 ]] \
+      || fail "update '${_bad}' exited ${_dispatch_status}, not 1: [${_dispatch_output}]"
+    [[ -z "${_dispatched}" ]] \
+      || fail "update '${_bad}' dispatched [${_dispatched}]"
+    [[ "${_dispatch_output}" == *"${_bad}"* ]] \
+      || fail "update '${_bad}' did not name the argument: [${_dispatch_output}]"
+  done
+
+  # A help flag does not excuse an unknown argument beside it, in either
+  # order: a scan that exec'd help on the first `--help` would accept
+  # `update --help foo` silently.
+  local _order
+  for _order in '--help foo' 'foo --help'; do
+    # shellcheck disable=SC2086 # split on purpose: two arguments
+    _just_base_dispatch "${JUST_BASE_SANDBOX}" update ${_order}
+    [[ "${_dispatch_status}" -eq 1 ]] \
+      || fail "update ${_order} exited ${_dispatch_status}, not 1: [${_dispatch_output}]"
+    [[ -z "${_dispatched}" ]] \
+      || fail "update ${_order} dispatched [${_dispatched}]"
+    [[ "${_dispatch_output}" == *foo* ]] \
+      || fail "update ${_order} did not name foo: [${_dispatch_output}]"
+  done
 }
 
-# why: a transliteration that reintroduces {{args}} on a FORWARDING line
-@test "justfile.base interpolates {{args}} only in update's scan (base#1289)" {
+# why: a transliteration that reintroduces {{args}} on any live line
+@test "justfile.base interpolates {{args}} nowhere (base#1289, base#1304)" {
   local _body="${BATS_TEST_TMPDIR}/justfile.base.body"
   grep -vE '^[[:space:]]*#' /source/dist/script/base/justfile.base > "${_body}"
 
-  # Exactly one live interpolation, and it is the scan.
+  # update's scan was the last live interpolation; base#1304 moved it to
+  # "$@", so none remain.
   run grep -nE '\{\{[[:space:]]*args[[:space:]]*\}\}' "${_body}"
-  assert_success
-  assert_equal "$(printf '%s\n' "${output}" | wc -l)" "1"
-  assert_output --partial 'for _a in {{args}}'
+  assert_failure
   run grep -c '^set positional-arguments := true$' "${_body}"
   assert_output "1"
 }
