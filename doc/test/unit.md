@@ -459,7 +459,7 @@ mentions the `--no-prune` flag.
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
 
-### test/bats/unit/build_sh_spec.bats (61)
+### test/bats/unit/build_sh_spec.bats (63)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a sandbox
 tree mirroring the expected layout (build.sh + `template/` subtree with real
@@ -536,6 +536,8 @@ runs).
 | `build.sh --help documents QUIET in every locale (#895)` | - |
 | `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `build.sh calls real docker build when --dry-run is not set` | - |
+| `build.sh builds the local test-tools image with the .base subtree as its context (base#1172)` | the tooling Dockerfile COPYs dockerfile/toml_bridge.py from its build context, a path only the vendored base carries -- a consumer root has no dockerfile/ -- so the context is the `.base/` subtree, not the consumer root (base#1172) |
+| `build.sh --dry-run prints the .base subtree as the test-tools build context (base#1172)` | --dry-run prints the build it would run; the printed context must be the one the real build uses (base#1172) |
 | `build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)` | - |
 | `build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)` | - |
 | `build.sh takes a self-managed repo's tooling tag from that repo's own resolver (#896)` | - |

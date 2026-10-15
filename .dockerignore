@@ -1,12 +1,15 @@
 # .dockerignore - trim build-context bloat (refs #499).
 #
 # The only build whose context is the repo root (`docker build ... .`)
-# is dockerfile/Dockerfile.test-tools, and it copies NOTHING from the
-# context (every COPY is `COPY --from=<stage>`). Dockerfile.example is
-# only ever built against a synthesized consumer repo (integration-e2e
-# job copies the template into a temp repo's .base/ and builds there),
-# never against base's own root. So nothing the root-context build
-# needs is excluded below.
+# is dockerfile/Dockerfile.test-tools. From the context it COPYs exactly
+# one file, dockerfile/toml_bridge.py; every other COPY is
+# `COPY --from=<stage>`. In a consumer, build.sh builds it with the
+# vendored .base/ as the context (base#1172), so this file -- vendored
+# as .base/.dockerignore -- is the one that applies there too, and it
+# must keep dockerfile/. Dockerfile.example is only ever built against a
+# synthesized consumer repo (integration-e2e job copies the template
+# into a temp repo's .base/ and builds there), never against base's own
+# root. So nothing the root-context build needs is excluded below.
 #
 # We still KEEP the source/template trees (script/, test/, dist/config/,
 # .base/, dockerfile/, Dockerfile, .hadolint.yaml, entrypoints) so this
