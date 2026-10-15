@@ -73,8 +73,12 @@ _ARRAY_SPEC = {
 # (_conf_toml_aot_fields in lib/conf.sh) always writes `source`, adds
 # `target` only for a value with a `:`, and `mode` only after `target`,
 # so {source}, {source, target} and {source, target, mode} are every
-# combination it produces. Measured before this guard: `[[volumes]]
-# target = "/x"` read back as `volumes mount_1 /x`, exit 0 -- the
+# nonempty combination it produces. The one other legal combination is
+# {}, the field-less block the converter (ini_to_toml_migrate.sh) and the
+# writers' padding (_conf_toml_aot_pad) spell a cleared slot with, which
+# _check_entry keeps as one empty entry (base#1309) and which needs
+# nothing here because it carries no field. Measured before this guard:
+# `[[volumes]] target = "/x"` read back as `volumes mount_1 /x`, exit 0 -- the
 # spelling compose takes as an anonymous volume -- and `source = "/a"`
 # with `mode = "ro"` as `/a:ro`, which puts `ro` in the target slot.
 _FIELD_NEEDS = {
