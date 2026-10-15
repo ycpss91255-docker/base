@@ -7452,7 +7452,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (64)
+### test/bats/unit/toml_bridge_spec.bats (68)
 
 | Test | Description |
 |------|-------------|
@@ -7520,6 +7520,10 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: --kv accepts a family spelled one way, in either spelling` | The control that stops the refusal being satisfied by refusing more. A family spelled ONE way is an ordinary configuration, and both spellings are: the array one is what the writers and the converter produce, the scalar one is what a family with no array home still uses and what a hand-written file may carry. Each must parse AND number back to the same two keys, or the refusal has eaten a valid file. |
 | `toml-bridge: --kv keeps a key that merely shares a family's prefix` | The other edge of the control. The family test is the one `_conf_list_sorted` applies -- the prefix followed by plain decimal digits and nothing else -- so `cap_drop_policy` is an unrelated key that happens to share a prefix, not a malformed member of the family. A refusal that matched on the prefix alone would reject a file whose two keys never name one entry. |
 | `toml-bridge: --merge --kv refuses a double spelling the merge itself produced` | THE MERGE MANUFACTURES THE AMBIGUITY, so the refusal has to be where the merged view is produced and not only where a single file is read. Measured: a lower layer carrying `cap_drop_1 = "NET_RAW"` and an upper one carrying `[[security.cap_drop]]` are each unambiguous alone, and the key-level table merge puts both in `[security]` -- the merged stream doubled `security / cap_drop_1` exactly as the single file did. `_conf_load_layers` reads every configuration through this mode, so a refusal only in the single-file mode would leave the real read path disagreeing with itself. |
+| `toml-bridge: --kv refuses an array of tables the spec has no family for (base#1307)` | An array of tables is emitted only through _ARRAY_SPEC, and a key the spec has no entry for fell through `_emit_array` with no row and no word. Measured on main: `[[install]] source = "a"` answered exit 0 and printed nothing at all, and `[[build.install]]` beside `[build] x = "1"` printed only `build x 1`. A misspelt family (`[[volume]]` for `[[volumes]]`) is the realistic way to meet it: the mounts vanish and the configuration loads. The refusal names the array's dotted path, because that is the line the operator has to find (base#1307). |
+| `toml-bridge: --kv refuses an inline array under a key the spec has no family for (base#1307)` | An INLINE array of scalars is the same drop by another spelling. Measured on main: `[gui] list = ["a", "b"]` beside `mode = "x"` printed `gui mode x` alone -- `list` went through `_emit_array`, found no spec, and vanished (base#1307). |
+| `toml-bridge: --merge --kv refuses an unknown array a lower layer carries (base#1307)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so a refusal only in the single-file mode would leave the real read path dropping the array. A lower layer carrying the unknown array and an upper one that does not touch it must refuse together (base#1307). |
+| `toml-bridge: --kv still numbers every array the spec knows (base#1307)` | The control. Every array the spec DOES know still numbers, an empty one still declares without a row, and the shipped template still loads -- a refusal satisfied by refusing every array would pass the three cases above (base#1307). |
 
 ### test/bats/unit/toml_config_template_spec.bats (21)
 
