@@ -1984,10 +1984,11 @@ _bridge_refuses() {
 }
 
 # why: `_conf_load_layers` reads every configuration through `--merge
-# --kv`, and the merge carries a top-level scalar from any layer into the
-# merged data -- so the refusal must hold there too, from the lower layer
-# as well as from the upper one (base#1308).
-@test "toml-bridge: --merge --kv refuses a top-level key from any layer (base#1308)" {
+# --kv`, and a top-level scalar no upper layer replaces survives the
+# merge into the merged data -- so the refusal must hold there too, for
+# one that came from the lower layer as well as the upper one
+# (base#1308).
+@test "toml-bridge: --merge --kv refuses a top-level key that survives the merge (base#1308)" {
   local _lower="${BATS_TEST_TMPDIR}/lower.toml"
   local _upper="${BATS_TEST_TMPDIR}/upper.toml"
   printf 'top = "v"\n' > "${_lower}"
