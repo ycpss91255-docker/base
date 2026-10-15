@@ -1811,8 +1811,22 @@ EOF
 # configuration the shell has, so a value the bridge leaves out of it is
 # a value the operator wrote and nothing reads -- with exit 0 and no
 # message. The answer is the one `_check_transportable` already gives:
-# a `toml-bridge:` refusal on stderr naming what it refused, a non-zero
-# exit, and no partial stdout.
+# a `toml-bridge:` refusal on stderr naming what it refused, exit 1, and
+# no stdout.
+
+# _bridge_refuses <name> [bridge args...] -- run the TRACKED bridge on
+# stdin and assert the whole refusal contract: exit 1, nothing on
+# stdout, a `toml-bridge:` line on stderr that names <name>.
+_bridge_refuses() {
+  local _name="$1"
+  shift
+  run -1 --separate-stderr python3 "${BRIDGE_PY}" "$@"
+  assert_equal "${output}" ""
+  [[ "${stderr}" == "toml-bridge: "* ]] \
+    || fail "stderr is not a toml-bridge refusal: ${stderr}"
+  [[ "${stderr}" == *"${_name}"* ]] \
+    || fail "the refusal does not name ${_name}: ${stderr}"
+}
 
 # why: An array of tables is emitted only through _ARRAY_SPEC, and a key
 # the spec has no entry for fell through `_emit_array` with no row and no
@@ -1826,19 +1840,12 @@ EOF
   local _f="${BATS_TEST_TMPDIR}/unknown_aot.toml"
 
   printf '[[install]]\nsource = "a"\n' > "${_f}"
-  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
-  assert_failure
-  assert_equal "${output}" ""
-  [[ "${stderr}" == *"toml-bridge:"* ]] || fail "no toml-bridge refusal: ${stderr}"
-  [[ "${stderr}" == *"install"* ]] || fail "refusal does not name the array: ${stderr}"
+  _bridge_refuses "install" --kv < "${_f}"
 
-  printf '[build]\nx = "1"\n\n[[build.install]]\nsource = "a"\n' > "${_f}"
-  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
-  assert_failure
   # No prefix of the configuration: the `[build] x` row the old bridge
   # did print must not reach a caller that ignores the status.
-  assert_equal "${output}" ""
-  [[ "${stderr}" == *"build.install"* ]] || fail "refusal does not name build.install: ${stderr}"
+  printf '[build]\nx = "1"\n\n[[build.install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "build.install" --kv < "${_f}"
 }
 
 # why: An INLINE array of scalars is the same drop by another spelling.
@@ -1848,39 +1855,108 @@ EOF
 @test "toml-bridge: --kv refuses an inline array under a key the spec has no family for (base#1307)" {
   local _f="${BATS_TEST_TMPDIR}/unknown_inline.toml"
   printf '[gui]\nlist = ["a", "b"]\nmode = "x"\n' > "${_f}"
-  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
-  assert_failure
-  assert_equal "${output}" ""
-  [[ "${stderr}" == *"gui.list"* ]] || fail "refusal does not name gui.list: ${stderr}"
+  _bridge_refuses "gui.list" --kv < "${_f}"
+}
+
+# why: An EMPTY array under an unknown name is refused too. It drops no
+# entry, but it is a declaration -- ADR-37's zero-entry replacement --
+# of a list no reader has, so it says nothing the operator meant and is
+# almost certainly a misspelt family whose clearing silently did not
+# happen. Root-level and table-nested both (base#1307).
+@test "toml-bridge: --kv refuses an empty array the spec has no family for (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/unknown_empty.toml"
+  printf 'install = []\n' > "${_f}"
+  _bridge_refuses "install" --kv < "${_f}"
+
+  printf '[gui]\nlist = []\nmode = "x"\n' > "${_f}"
+  _bridge_refuses "gui.list" --kv < "${_f}"
 }
 
 # why: `_conf_load_layers` reads every configuration through `--merge
 # --kv`, so a refusal only in the single-file mode would leave the real
-# read path dropping the array. A lower layer carrying the unknown array
-# and an upper one that does not touch it must refuse together (base#1307).
-@test "toml-bridge: --merge --kv refuses an unknown array a lower layer carries (base#1307)" {
+# read path dropping the array. Two shapes: a lower layer's array that no
+# upper layer touches, and an upper layer's empty declaration that
+# replaces it -- the array the merge keeps is still one no reader has
+# (base#1307).
+@test "toml-bridge: --merge --kv refuses an unknown array that survives the merge (base#1307)" {
   local _lower="${BATS_TEST_TMPDIR}/lower.toml"
   local _upper="${BATS_TEST_TMPDIR}/upper.toml"
   printf '[[install]]\nsource = "a"\n' > "${_lower}"
   printf '[gui]\nmode = "x"\n' > "${_upper}"
-  run --separate-stderr python3 "${BRIDGE_PY}" --merge --kv "${_lower}" "${_upper}"
-  assert_failure
-  assert_equal "${output}" ""
-  [[ "${stderr}" == *"install"* ]] || fail "refusal does not name the array: ${stderr}"
+  _bridge_refuses "install" --merge --kv "${_lower}" "${_upper}"
+
+  printf 'install = []\n' > "${_upper}"
+  _bridge_refuses "install" --merge --kv "${_lower}" "${_upper}"
 }
 
-# why: The control. Every array the spec DOES know still numbers, an
-# empty one still declares without a row, and the shipped template still
-# loads -- a refusal satisfied by refusing every array would pass the
-# three cases above (base#1307).
-@test "toml-bridge: --kv still numbers every array the spec knows (base#1307)" {
-  local _f="${BATS_TEST_TMPDIR}/known.toml"
-  printf '[build]\nargs = []\n\n[[devices.bindings]]\npath = "/dev/x"\n\n[[volumes]]\nsource = "/a"\ntarget = "/b"\n' > "${_f}"
+# why: The control, DERIVED from the writers' own table of array homes
+# (`_conf_toml_aot_section` over `SCHEMA_SECTIONS`) and filled through
+# their own field renderer (`_conf_toml_aot_fields`), so a family added
+# there is covered by having been added. Populated, each family numbers
+# to exactly one row and nothing else is printed; declared empty -- the
+# legacy one-array `devices` with them -- they print nothing at all. A
+# refusal satisfied by refusing more, or a bridge that invented a row,
+# fails here (base#1307).
+@test "toml-bridge: --kv still numbers every array home the writers produce, and nothing else (base#1307)" {
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
+  # shellcheck disable=SC1090
+  source "${_conf_sh}"
+  # shellcheck disable=SC1090
+  source "${_schema_sh}"
+
+  # `A=B:C` round-trips through every renderer: a one-field family keeps
+  # it whole, a `=` family splits at the `=`, a `:` family at the first
+  # `:`, and the bridge glues each back with the same separator.
+  local _v="A=B:C"
+  local _sect _pair _prefix _path _fields _body="" _empty=""
+  local -a _fams=() _want=()
+  local -A _tables=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _prefix="${_pair%%=*}"
+      _path="${_pair#*=}"
+      _conf_toml_aot_fields "${_path}" "${_v}" _fields
+      _body+="[[${_path}]]"$'\n'"${_fields}"$'\n\n'
+      _want+=("${_path%%.*}"$'\t'"${_prefix}_1"$'\t'"${_v}")
+      if [[ "${_path}" == *.* ]]; then
+        _tables["${_path%%.*}"]+="${_tables["${_path%%.*}"]:+, }${_path#*.} = []"
+      else
+        _empty+="${_path} = []"$'\n'
+      fi
+    done
+  done
+  (( ${#_want[@]} > 0 )) || fail "the family table named no array home"
+
+  local _f="${BATS_TEST_TMPDIR}/every_home.toml"
+  printf '%s' "${_body}" > "${_f}"
   run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
   assert_success
-  assert_line $'devices\tdevice_1\t/dev/x'
-  assert_line $'volumes\tmount_1\t/a:/b'
+  assert_equal "${#lines[@]}" "${#_want[@]}"
+  local _row
+  for _row in "${_want[@]}"; do
+    assert_line "${_row}"
+  done
 
+  # Every home declared empty, plus the legacy `[[devices]]` key -- which
+  # cannot share a file with `devices.bindings`, so it is its own file.
+  local _t
+  for _t in "${!_tables[@]}"; do
+    _empty+="${_t} = { ${_tables[${_t}]} }"$'\n'
+  done
+  printf '%s' "${_empty}" > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" ""
+
+  printf 'devices = []\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" ""
+
+  # And the shipped template, whose every array is a known family.
   run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${ROOT}/dist/setup.toml"
   assert_success
   assert_line $'image\trule_1\tprefix:docker_'
