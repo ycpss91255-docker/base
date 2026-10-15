@@ -7452,7 +7452,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (72)
+### test/bats/unit/toml_bridge_spec.bats (75)
 
 | Test | Description |
 |------|-------------|
@@ -7528,6 +7528,9 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: --kv refuses a key that sits outside every table (base#1308)` | `_emit_kv` handled a top-level array and a top-level table and had no `else`, so a top-level SCALAR produced no row and no word. Measured on main: `top = "v"` above `[gui] mode = "x"` printed `gui mode x` alone with exit 0. The shell view names every value by section, so a key written above the first table header -- a setting meant for a table, typed before its header -- has nowhere to go. Every type of scalar is the same drop, so a string, an integer and a boolean are each held to it (base#1308). |
 | `toml-bridge: --merge --kv refuses a top-level key that survives the merge (base#1308)` | `_conf_load_layers` reads every configuration through `--merge --kv`, and a top-level scalar no upper layer replaces survives the merge into the merged data -- so the refusal must hold there too, for one that came from the lower layer as well as the upper one (base#1308). |
 | `toml-bridge: --kv still accepts a root-level array declaration (base#1308)` | The control. The root region is also where the writers and the converter put a root-level array's declaration (`volumes = []`), and a root-level `[[volumes]]` block is an array too -- neither is a scalar, and refusing the root region wholesale would eat both (base#1308). |
+| `toml-bridge: --kv refuses a known array entry that carries none of its fields (base#1309)` | Every _ARRAY_SPEC serializer answered "" for an entry lacking the field it reads, and "" is the value the shell readers skip. Measured on main: `[[devices]] foo = 1` gave `devices device_1 <empty>`, `[[tmpfs]] size = [1]` gave `tmpfs tmpfs_1 <empty>`, and `[build] args = ["A=1"]` -- a string where a table belongs -- gave `build arg_1 <empty>`, all with exit 0. A misspelt field name is the realistic way to meet it: the entry the operator wrote disappears while the configuration loads. The refusal names the array and the entry, because the operator has to find the one block of several (base#1309). |
+| `toml-bridge: every array home refuses an entry without its field and keeps an empty one (base#1309)` | DERIVED from the writers' table of array homes (`_conf_toml_aot_section` over `SCHEMA_SECTIONS`), so a family added there is covered by having been added, both ways an entry can lack its field: a table carrying only a field no serializer reads, and a plain string where a table belongs. And the control, the same way: the two empty spellings the writers and the converter produce -- a field-less block (the converter's cleared slot) and a block whose fields are all present but empty (`_conf_toml_aot_fields` of "") -- still read back as one empty entry: the first carries nothing at all and is exempt as the cleared slot, the second carries its field (base#1309). |
+| `toml-bridge: --merge --kv refuses an entry without its field that survives the merge (base#1309)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so an entry without its field in a layer whose array survives the merge must be refused there too (base#1309). |
 
 ### test/bats/unit/toml_config_template_spec.bats (21)
 

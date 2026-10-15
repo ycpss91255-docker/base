@@ -2012,3 +2012,103 @@ _bridge_refuses() {
   assert_success
   assert_equal "${output}" $'gui\tmode\tx\ntmpfs\ttmpfs_1\t/run'
 }
+
+# why: Every _ARRAY_SPEC serializer answered "" for an entry lacking the
+# field it reads, and "" is the value the shell readers skip. Measured on
+# main: `[[devices]] foo = 1` gave `devices device_1 <empty>`, `[[tmpfs]]
+# size = [1]` gave `tmpfs tmpfs_1 <empty>`, and `[build] args = ["A=1"]`
+# -- a string where a table belongs -- gave `build arg_1 <empty>`, all
+# with exit 0. A misspelt field name is the realistic way to meet it: the
+# entry the operator wrote disappears while the configuration loads. The
+# refusal names the array and the entry, because the operator has to find
+# the one block of several (base#1309).
+@test "toml-bridge: --kv refuses a known array entry that carries none of its fields (base#1309)" {
+  local _f="${BATS_TEST_TMPDIR}/missing_field.toml"
+
+  printf '[[devices]]\nfoo = 1\n' > "${_f}"
+  _bridge_refuses "devices" --kv < "${_f}"
+  [[ "${stderr}" == *"path"* ]] || fail "the refusal does not name the field: ${stderr}"
+
+  printf '[[tmpfs]]\nsize = [1]\n' > "${_f}"
+  _bridge_refuses "tmpfs" --kv < "${_f}"
+
+  printf '[build]\nargs = ["A=1"]\n' > "${_f}"
+  _bridge_refuses "build.args" --kv < "${_f}"
+
+  # The bad entry is the SECOND one, after a good one: the good row must
+  # not reach stdout, and the refusal must say which entry it was.
+  printf '[[image.rules]]\nrule = "a"\n\n[[image.rules]]\nrul = "b"\n' > "${_f}"
+  _bridge_refuses "image.rules" --kv < "${_f}"
+  [[ "${stderr}" == *"entry 2"* ]] || fail "the refusal does not name entry 2: ${stderr}"
+}
+
+# why: DERIVED from the writers' table of array homes
+# (`_conf_toml_aot_section` over `SCHEMA_SECTIONS`), so a family added
+# there is covered by having been added, both ways an entry can lack its
+# field: a table carrying only a field no serializer reads, and a plain
+# string where a table belongs. And the control, the same way: the two
+# empty spellings the writers and the converter produce -- a field-less
+# block (the converter's cleared slot) and a block whose fields are all
+# present but empty (`_conf_toml_aot_fields` of "") -- still read back as
+# one empty entry: the first carries nothing at all and is exempt as the
+# cleared slot, the second carries its field (base#1309).
+@test "toml-bridge: every array home refuses an entry without its field and keeps an empty one (base#1309)" {
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
+  # shellcheck disable=SC1090
+  source "${_conf_sh}"
+  # shellcheck disable=SC1090
+  source "${_schema_sh}"
+
+  local _f="${BATS_TEST_TMPDIR}/every_home_fields.toml"
+  local _sect _pair _prefix _path _leaf _fields _row _body _n=0
+  local -a _fams=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _prefix="${_pair%%=*}"
+      _path="${_pair#*=}"
+      _leaf="${_path##*.}"
+      _row="${_path%%.*}"$'\t'"${_prefix}_1"$'\t'
+
+      _body="[[${_path}]]"$'\n''zz = "x"'$'\n'
+      printf '%s' "${_body}" > "${_f}"
+      _bridge_refuses "${_path}" --kv < "${_f}"
+
+      if [[ "${_path}" == *.* ]]; then
+        _body="[${_path%%.*}]"$'\n'"${_leaf}"' = ["x"]'$'\n'
+      else
+        _body="${_path}"' = ["x"]'$'\n'
+      fi
+      printf '%s' "${_body}" > "${_f}"
+      _bridge_refuses "${_path}" --kv < "${_f}"
+
+      _body="[[${_path}]]"$'\n'
+      printf '%s' "${_body}" > "${_f}"
+      run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+      assert_success
+      assert_equal "${output}" "${_row}"
+
+      _conf_toml_aot_fields "${_path}" "" _fields
+      _body="[[${_path}]]"$'\n'"${_fields}"$'\n'
+      printf '%s' "${_body}" > "${_f}"
+      run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+      assert_success
+      assert_equal "${output}" "${_row}"
+      _n=$(( _n + 1 ))
+    done
+  done
+  (( _n > 0 )) || fail "the family table named no array home"
+}
+
+# why: `_conf_load_layers` reads every configuration through `--merge
+# --kv`, so an entry without its field in a layer whose array survives
+# the merge must be refused there too (base#1309).
+@test "toml-bridge: --merge --kv refuses an entry without its field that survives the merge (base#1309)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[devices.bindings]]\nfoo = 1\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
+}
