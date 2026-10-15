@@ -3554,8 +3554,8 @@ what reaches a wrapper.
 | `just template new hands the scaffolder ONE argument (base#1299)` | an unquoted single interpolation re-split the group name, and new.sh's own validator could not see it (base#1299) |
 | `justfile.template forwards the name through quote() (base#1299)` | the quote is one character and a later edit can drop it (base#1299) |
 | `just base forwards a flag as ONE argument (base#1289)` | the base namespace re-read the flags it forwarded -- the last module in base#1289's sweep |
-| `just base update's -h scan is unchanged by positional-arguments (base#1289)` | update's -h scan is the one deliberate interpolation left, and the setting must not disturb it (base#1289, base#1304) |
-| `justfile.base interpolates {{args}} only in update's scan (base#1289)` | a transliteration that reintroduces {{args}} on a FORWARDING line |
+| `just base update reaches help only on an exact -h\|--help, refuses anything else (base#1304)` | update's -h scan split its argument text, so `update 'x -h'` reached help (base#1304) |
+| `justfile.base interpolates {{args}} nowhere (base#1289, base#1304)` | a transliteration that reintroduces {{args}} on any live line |
 | `just template help forwards a flag as ONE argument (base#1289)` | the template namespace re-read the flags it forwarded, the last shipped module in base#1289's sweep |
 | `set positional-arguments does not disturb template new (base#1289)` | base#1299's quote() fix must survive the setting this slice adds |
 | `no live line in justfile.template interpolates {{args}} (base#1289)` | a transliteration that reintroduces {{args}} is how this comes back |
