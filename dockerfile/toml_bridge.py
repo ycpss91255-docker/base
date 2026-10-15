@@ -35,15 +35,22 @@ except ModuleNotFoundError:
 # for `volumes` any of its three positions. An entry carrying none of
 # them is refused in _emit_array (base#1309), because the serializer
 # would answer "" for it, which is the value the shell readers skip.
+#
+# The fourth element names the fields a serializer ALSO reads beyond
+# the third: args `value`, ports `container`, tmpfs `size`
+# (_tmpfs_mount), additional_contexts `source`. The third and fourth
+# together are every field the family reads; an entry carrying any
+# field outside them is refused in _check_entry (base#1313), because no
+# serializer would read it and the value would vanish.
 _ARRAY_SPEC = {
-    "rules": ("rule", lambda e: _field(e, "rule"), ("rule",)),
-    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else "", ("key",)),
-    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else "", ("host",)),
-    "cap_add": ("cap_add", lambda e: _field(e, "cap"), ("cap",)),
-    "cap_drop": ("cap_drop", lambda e: _field(e, "cap"), ("cap",)),
-    "security_opt": ("security_opt", lambda e: _field(e, "opt"), ("opt",)),
-    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode")), ("source", "target", "mode")),
-    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e), ("path",)),
+    "rules": ("rule", lambda e: _field(e, "rule"), ("rule",), ()),
+    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else "", ("key",), ("value",)),
+    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else "", ("host",), ("container",)),
+    "cap_add": ("cap_add", lambda e: _field(e, "cap"), ("cap",), ()),
+    "cap_drop": ("cap_drop", lambda e: _field(e, "cap"), ("cap",), ()),
+    "security_opt": ("security_opt", lambda e: _field(e, "opt"), ("opt",), ()),
+    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode")), ("source", "target", "mode"), ()),
+    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e), ("path",), ("size",)),
     # `devices` is a namespace of two independently replaceable lists,
     # not one list: host bindings under `[[devices.bindings]]` and cgroup
     # rules under `[[devices.cgroup_rules]]`. Both number into the
@@ -53,10 +60,10 @@ _ARRAY_SPEC = {
     # carries the one-array `[[devices]]` spelling; the two cannot
     # collide, because TOML will not let one name be an array and a table
     # in the same document.
-    "devices": ("device", lambda e: _field(e, "path"), ("path",)),
-    "bindings": ("device", lambda e: _field(e, "path"), ("path",)),
-    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule"), ("rule",)),
-    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else "", ("name",)),
+    "devices": ("device", lambda e: _field(e, "path"), ("path",), ()),
+    "bindings": ("device", lambda e: _field(e, "path"), ("path",), ()),
+    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule"), ("rule",), ()),
+    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else "", ("name",), ("source",)),
 }
 
 
@@ -260,14 +267,16 @@ def _emit_array(section, key, items, out, root=False):
               f"nothing would read it: check the spelling of the array "
               f"name, or remove it", file=sys.stderr)
         raise SystemExit(1)
-    prefix, serializer, fields = spec
+    prefix, serializer, fields, also_read = spec
+    allowed = fields + also_read
     for i, elem in enumerate(items, 1):
-        _check_entry(path, i, elem, fields)
+        _check_entry(path, i, elem, fields, allowed)
         out.append((section, f"{prefix}_{i}", serializer(elem)))
 
 
-def _check_entry(path, index, elem, fields):
-    """Refuse entry <index> of <path> when it carries none of <fields>.
+def _check_entry(path, index, elem, fields, allowed):
+    """Refuse entry <index> of <path> when it carries none of <fields>,
+    or carries a field outside <allowed>.
 
     Every serializer answers "" for an entry that lacks the field it
     reads, and "" is the value the shell readers skip, so such an entry
@@ -283,6 +292,13 @@ def _check_entry(path, index, elem, fields):
     exempt by name rather than by carrying a field -- and a block whose
     fields are present but empty is the published opt-out (_joined),
     which does carry its field. Both still read back as one empty entry.
+
+    A field outside <allowed> -- the fields the family's serializer
+    reads -- is refused too, even beside one it does read. Measured
+    before this guard (base#1313): `[[devices]] path = "/dev/x"` with
+    `foo = 1` beside it gave `devices device_1 /dev/x`, exit 0, and
+    `[[tmpfs]] path = "/tmp"` with `sise = "64m"` gave `tmpfs tmpfs_1
+    /tmp` -- the size the operator wrote was lost.
     """
     if not isinstance(elem, dict):
         print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "
@@ -295,6 +311,14 @@ def _check_entry(path, index, elem, fields):
               f"the fields it is read from ({' / '.join(fields)}), so "
               f"nothing would read it: check the spelling of its "
               f"fields ({', '.join(sorted(elem))}), or remove it",
+              file=sys.stderr)
+        raise SystemExit(1)
+    unknown = sorted(name for name in elem if name not in allowed)
+    if unknown:
+        print(f"toml-bridge: entry {index} of {path} carries "
+              f"{', '.join(unknown)}, which its family does not read "
+              f"(it reads {' / '.join(allowed)}), so the value would be "
+              f"dropped: check the spelling of the field, or remove it",
               file=sys.stderr)
         raise SystemExit(1)
 
