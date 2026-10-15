@@ -92,15 +92,16 @@ build *args:
 run *args:
     ./script/run.sh "$@"
 
-# lifecycle: BEGINS a flow, being exactly the two verbs it composes. Ended
-# by `just docker stop`.
-#
 # `-h|--help` short-circuits with the composite-verb usage and exits
 # WITHOUT building or running -- otherwise --help would forward to
 # build.sh (prints its help, exit 0) and the recipe would run.sh anyway.
 # The blank line below detaches this rationale from the --list doc
-# (base#1326).
+# (base#1326); the lifecycle note stays in the block attached to the
+# recipe, where the lifecycle spec reads it.
 
+# lifecycle: BEGINS a flow, being exactly the two verbs it composes. Ended
+# by `just docker stop`.
+#
 # Build + run in one step (e.g. just start  |  just start --no-cache)
 start *args:
     #!/usr/bin/env bash
