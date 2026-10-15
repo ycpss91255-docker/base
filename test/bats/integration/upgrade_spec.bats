@@ -265,6 +265,36 @@ EOF
   grep -Fxq "set -u" script/entrypoint.sh
 }
 
+# why: a migration that rewrites a committed 100755 entrypoint must not
+# turn it into 100644 in the upgrade's commit (base#1323).
+@test "upgrade.sh keeps a migrated entrypoint's 100755 mode in git (base#1323)" {
+  cd "${DOWN_DIR}"
+  : > Dockerfile  # presence-only; the dispatcher runs against the entrypoint
+  mkdir -p script
+  cat > script/entrypoint.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+exec "$@"
+EOF
+  chmod 0755 script/entrypoint.sh
+  git add Dockerfile script/entrypoint.sh
+  git commit -q -m "add Dockerfile + executable nounset-unsafe entrypoint"
+  local _before
+  _before="$(git rev-parse HEAD)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  grep -Fxq "set +u" script/entrypoint.sh
+  # The upgrade recorded no mode change for the entrypoint, in its
+  # commit or left in the working tree.
+  run git diff --summary "${_before}" -- script/entrypoint.sh
+  refute_output --partial "mode change"
+  run git ls-files -s script/entrypoint.sh
+  assert_output --regexp '^100755 '
+}
+
 # why: Subtree-only repos (no consumer Dockerfile) skip silently
 @test "upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)" {
   cd "${DOWN_DIR}"

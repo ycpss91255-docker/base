@@ -737,6 +737,22 @@ EOF
   grep -Fq "COPY .base/script/docker/lib /lint/lib" "${DF}"
 }
 
+# why: the awk migrations land the Dockerfile through _dfm_install too; a
+# 0644 Dockerfile must not come back 0600 (base#1323).
+@test "migration 3 (explicit-copy): the rewritten Dockerfile keeps its 0644 mode (base#1323)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/_lib.sh .base/script/docker/i18n.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+EOF
+  chmod 0644 "${DF}"
+  run bash -c "$(_src); _migrate_explicit_copy_detect '${DF}' && _migrate_explicit_copy_apply '${DF}'"
+  assert_success
+  refute grep -q '_lib.sh' "${DF}"
+  run stat -c '%a' "${DF}"
+  assert_output "644"
+}
+
 @test "migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS lint
@@ -1780,6 +1796,27 @@ EOF
   minus="$(grep -n '^set -u' "${TEMP_DIR}/script/entrypoint.sh" | tail -1 | cut -d: -f1)"
   [ "${plus}" -lt "${src}" ]
   [ "${minus}" -gt "${src}" ]
+}
+
+# why: _dfm_install lands the awk output with mv, so the rewritten file
+# would carry the mktemp's 0600 instead of the original's mode -- a
+# committed 0755 entrypoint must stay executable (base#1323).
+@test "migration 8 (nounset-source): the rewritten entrypoint keeps its 0755 mode (base#1323)" {
+  mkdir -p "${TEMP_DIR}/script"
+  : > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+exec "$@"
+EOF
+  chmod 0755 "${TEMP_DIR}/script/entrypoint.sh"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fxq "set +u" "${TEMP_DIR}/script/entrypoint.sh"
+  run stat -c '%a' "${TEMP_DIR}/script/entrypoint.sh"
+  assert_output "755"
 }
 
 @test "migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)" {
