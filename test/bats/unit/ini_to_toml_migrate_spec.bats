@@ -1254,6 +1254,26 @@ EOF
   refute_line --regexp '^deploy	runtime	'
 }
 
+# why: the canonical key wins by NAME, not by position. With
+#      `gpu_runtime` written first, a plain rename of the legacy line
+#      followed by the last-value-wins scalar collapse would keep the
+#      legacy value; the converter must keep the canonical one.
+@test "_migrate_ini_to_toml keeps gpu_runtime over a later legacy runtime in the same section (base#1327)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[deploy]
+gpu_runtime = runc
+runtime = nvidia
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run grep -c 'runtime = ' "${TEMP_DIR}/setup.toml"
+  assert_output "1"
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'deploy	gpu_runtime	runc'
+  refute_line --regexp '^deploy	runtime	'
+}
+
 # why: a per-stage override spells the same key `deploy.runtime`; it is
 #      rewritten to `deploy.gpu_runtime` the same way.
 @test "_migrate_ini_to_toml writes a per-stage deploy.runtime as deploy.gpu_runtime (base#1327)" {
@@ -1267,6 +1287,27 @@ EOF
   assert_success
   assert_line 'stage:headless	deploy.gpu_runtime	runc'
   refute_line --regexp '^stage:headless	deploy\.runtime	'
+}
+
+# why: the per-stage form honours the same precedence, in either order.
+@test "_migrate_ini_to_toml keeps a per-stage deploy.gpu_runtime over a legacy deploy.runtime in either order (base#1327)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[stage:first]
+deploy.gpu_runtime = runc
+deploy.runtime = nvidia
+
+[stage:last]
+deploy.runtime = nvidia
+deploy.gpu_runtime = runc
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'stage:first	deploy.gpu_runtime	runc'
+  assert_line 'stage:last	deploy.gpu_runtime	runc'
+  refute_line --regexp '^stage:[a-z]+	deploy\.runtime	'
+  refute_line --regexp '	deploy\.gpu_runtime	nvidia$'
 }
 
 # ── Round trip: what the converter writes is what the bridge reads ─────
