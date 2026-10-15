@@ -285,8 +285,38 @@ _ini_to_toml_convert() {
     local -A _sc_at=() _sc_ne=()
     local _aot_buf="" _decl_buf=""
 
+    # The deprecated GPU-runtime key is written under its canonical name
+    # (base#1327): `[deploy] runtime` becomes `gpu_runtime`, and the
+    # per-stage `deploy.runtime` becomes `deploy.gpu_runtime`. Converted
+    # verbatim, the new setup.toml carried the legacy key and the first
+    # `setup apply` warned about a file the upgrade had just written.
+    # When the section also names the canonical key, that one wins
+    # (doc/deprecations.md), so the legacy line is dropped rather than
+    # renamed into a duplicate.
+    local _rt_old="" _rt_new="" _rt_has_new=0 _rt_note=""
+    case "${_s}" in
+      deploy)  _rt_old="runtime";        _rt_new="gpu_runtime" ;;
+      stage:*) _rt_old="deploy.runtime"; _rt_new="deploy.gpu_runtime" ;;
+    esac
+    if [[ -n "${_rt_old}" ]]; then
+      for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
+        if [[ "${_es[_i]}" == "${_s}" && "${_keys[_i]}" == "${_rt_new}" ]]; then
+          _rt_has_new=1
+          break
+        fi
+      done
+    fi
+
     for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
       [[ "${_es[_i]}" == "${_s}" ]] || continue
+      if [[ -n "${_rt_old}" && "${_keys[_i]}" == "${_rt_old}" ]]; then
+        if (( _rt_has_new )); then
+          _rt_note="dropped"
+          continue
+        fi
+        _keys[_i]="${_rt_new}"
+        _rt_note="renamed"
+      fi
       if _ini_to_toml_is_numbered "${_s}" "${_keys[_i]}"; then
         _num_order+=("${_i}")
       elif [[ -z "${_sc_at[${_keys[_i]}]+set}" ]]; then
@@ -309,6 +339,17 @@ _ini_to_toml_convert() {
         [[ -z "${_vals[_i]}" ]] || _sc_ne["${_keys[_i]}"]=1
       fi
     done
+
+    case "${_rt_note}" in
+      renamed)
+        _log_info init ini_to_toml_runtime_renamed \
+          "display=MIGRATION: [${_s}] ${_rt_old} is deprecated; the converted file spells it ${_rt_new} (doc/deprecations.md)." \
+          "path=${_ini}" "section=${_s}" "key=${_rt_old}" "target_key=${_rt_new}" ;;
+      dropped)
+        _log_info init ini_to_toml_runtime_dropped \
+          "display=MIGRATION: [${_s}] names both ${_rt_old} and ${_rt_new}; ${_rt_new} wins, so the deprecated ${_rt_old} line is not carried into the converted file (doc/deprecations.md)." \
+          "path=${_ini}" "section=${_s}" "key=${_rt_old}" "target_key=${_rt_new}" ;;
+    esac
 
     # ── Numbered families ─────────────────────────────────────────────
     #
