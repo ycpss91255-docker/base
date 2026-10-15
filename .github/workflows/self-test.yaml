@@ -1492,6 +1492,34 @@ jobs:
         with:
           just-version: ${{ steps.just-pin.outputs.version }}
 
+      - name: Build the consumer's own tooling image, nothing pinned (base#1172)
+        working-directory: ${{ env.REPO_DIR }}
+        # Every other build step here runs with TEST_TOOLS_IMAGE pinned by
+        # the workflow-level env, so build.sh skips its internal tooling
+        # build and none of them reach the path a downstream developer
+        # takes. Unset it so build.sh builds the version-scoped
+        # test-tools:<.base/.version> image itself, from the consumer's
+        # checkout, then run that image's toml-bridge and assert its
+        # exact output. The consumer root carries no
+        # dockerfile/toml_bridge.py -- only the vendored .base/ does --
+        # which the first check pins so this cannot pass vacuously.
+        run: |
+          set -euo pipefail
+          if [[ -e dockerfile/toml_bridge.py ]]; then
+            echo "ERROR: the scaffolded consumer carries dockerfile/toml_bridge.py at its root; this guard would pass vacuously"
+            exit 1
+          fi
+          env -u TEST_TOOLS_IMAGE just docker build test
+          ver="$(tr -d '[:space:]' < .base/.version)"
+          got="$(printf 'a = 1\n[t]\nb = "x"\n' \
+                   | docker run --rm -i --entrypoint toml-bridge "test-tools:${ver}")"
+          want='{"a": 1, "t": {"b": "x"}}'
+          echo "toml-bridge in test-tools:${ver}: ${got}"
+          if [[ "${got}" != "${want}" ]]; then
+            echo "ERROR: toml-bridge printed '${got}', expected '${want}'"
+            exit 1
+          fi
+
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}
         # build.sh skips its internal test-tools build when TEST_TOOLS_IMAGE
