@@ -36,21 +36,21 @@ except ModuleNotFoundError:
 # them is refused in _emit_array (base#1309), because the serializer
 # would answer "" for it, which is the value the shell readers skip.
 #
-# The fourth element names EVERY field a serializer reads, which is
-# wider than the third: args also reads `value`, ports `container`,
-# tmpfs `size` (_tmpfs_mount), additional_contexts `source`. An entry
-# carrying any field outside it is refused in _check_entry (base#1313),
-# because no serializer would read it and the value would vanish.
+# The fourth element names the fields a serializer ALSO reads beyond
+# the third: args `value`, ports `container`, tmpfs `size`
+# (_tmpfs_mount), additional_contexts `source`. The third and fourth
+# together are every field the family reads; an entry carrying any
+# field outside them is refused in _check_entry (base#1313), because no
+# serializer would read it and the value would vanish.
 _ARRAY_SPEC = {
-    "rules": ("rule", lambda e: _field(e, "rule"), ("rule",), ("rule",)),
-    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else "", ("key",), ("key", "value")),
-    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else "", ("host",), ("host", "container")),
-    "cap_add": ("cap_add", lambda e: _field(e, "cap"), ("cap",), ("cap",)),
-    "cap_drop": ("cap_drop", lambda e: _field(e, "cap"), ("cap",), ("cap",)),
-    "security_opt": ("security_opt", lambda e: _field(e, "opt"), ("opt",), ("opt",)),
-    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode")), ("source", "target", "mode"),
-                ("source", "target", "mode")),
-    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e), ("path",), ("path", "size")),
+    "rules": ("rule", lambda e: _field(e, "rule"), ("rule",), ()),
+    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else "", ("key",), ("value",)),
+    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else "", ("host",), ("container",)),
+    "cap_add": ("cap_add", lambda e: _field(e, "cap"), ("cap",), ()),
+    "cap_drop": ("cap_drop", lambda e: _field(e, "cap"), ("cap",), ()),
+    "security_opt": ("security_opt", lambda e: _field(e, "opt"), ("opt",), ()),
+    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode")), ("source", "target", "mode"), ()),
+    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e), ("path",), ("size",)),
     # `devices` is a namespace of two independently replaceable lists,
     # not one list: host bindings under `[[devices.bindings]]` and cgroup
     # rules under `[[devices.cgroup_rules]]`. Both number into the
@@ -60,10 +60,10 @@ _ARRAY_SPEC = {
     # carries the one-array `[[devices]]` spelling; the two cannot
     # collide, because TOML will not let one name be an array and a table
     # in the same document.
-    "devices": ("device", lambda e: _field(e, "path"), ("path",), ("path",)),
-    "bindings": ("device", lambda e: _field(e, "path"), ("path",), ("path",)),
-    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule"), ("rule",), ("rule",)),
-    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else "", ("name",), ("name", "source")),
+    "devices": ("device", lambda e: _field(e, "path"), ("path",), ()),
+    "bindings": ("device", lambda e: _field(e, "path"), ("path",), ()),
+    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule"), ("rule",), ()),
+    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else "", ("name",), ("source",)),
 }
 
 
@@ -267,7 +267,8 @@ def _emit_array(section, key, items, out, root=False):
               f"nothing would read it: check the spelling of the array "
               f"name, or remove it", file=sys.stderr)
         raise SystemExit(1)
-    prefix, serializer, fields, allowed = spec
+    prefix, serializer, fields, also_read = spec
+    allowed = fields + also_read
     for i, elem in enumerate(items, 1):
         _check_entry(path, i, elem, fields, allowed)
         out.append((section, f"{prefix}_{i}", serializer(elem)))
