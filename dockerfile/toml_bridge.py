@@ -29,15 +29,21 @@ except ModuleNotFoundError:
 # configuration stops loading. `%s` survived but rendered a boolean as
 # Python's `True`, which every `== true` on the shell side reads as
 # false. _field answers _format_value's spelling in both cases.
+#
+# Each entry is (prefix, serializer, fields): the third element names
+# the fields an entry is read FROM -- the one a serializer gates on, or
+# for `volumes` any of its three positions. An entry carrying none of
+# them is refused in _emit_array (base#1309), because the serializer
+# would answer "" for it, which is the value the shell readers skip.
 _ARRAY_SPEC = {
-    "rules": ("rule", lambda e: _field(e, "rule")),
-    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else ""),
-    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else ""),
-    "cap_add": ("cap_add", lambda e: _field(e, "cap")),
-    "cap_drop": ("cap_drop", lambda e: _field(e, "cap")),
-    "security_opt": ("security_opt", lambda e: _field(e, "opt")),
-    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode"))),
-    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e)),
+    "rules": ("rule", lambda e: _field(e, "rule"), ("rule",)),
+    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else "", ("key",)),
+    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else "", ("host",)),
+    "cap_add": ("cap_add", lambda e: _field(e, "cap"), ("cap",)),
+    "cap_drop": ("cap_drop", lambda e: _field(e, "cap"), ("cap",)),
+    "security_opt": ("security_opt", lambda e: _field(e, "opt"), ("opt",)),
+    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode")), ("source", "target", "mode")),
+    "tmpfs": ("tmpfs", lambda e: _tmpfs_mount(e), ("path",)),
     # `devices` is a namespace of two independently replaceable lists,
     # not one list: host bindings under `[[devices.bindings]]` and cgroup
     # rules under `[[devices.cgroup_rules]]`. Both number into the
@@ -47,10 +53,10 @@ _ARRAY_SPEC = {
     # carries the one-array `[[devices]]` spelling; the two cannot
     # collide, because TOML will not let one name be an array and a table
     # in the same document.
-    "devices": ("device", lambda e: _field(e, "path")),
-    "bindings": ("device", lambda e: _field(e, "path")),
-    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule")),
-    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else ""),
+    "devices": ("device", lambda e: _field(e, "path"), ("path",)),
+    "bindings": ("device", lambda e: _field(e, "path"), ("path",)),
+    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule"), ("rule",)),
+    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else "", ("name",)),
 }
 
 
@@ -247,16 +253,49 @@ def _emit_array(section, key, items, out, root=False):
     are still being collected, so a refusal leaves stdout empty.
     """
     spec = _ARRAY_SPEC.get(key)
+    path = key if root else f"{section}.{key}"
     if not spec:
-        path = key if root else f"{section}.{key}"
         print(f"toml-bridge: {path} is an array, and no numbered family "
               f"of the shell view carries an array by that name, so "
               f"nothing would read it: check the spelling of the array "
               f"name, or remove it", file=sys.stderr)
         raise SystemExit(1)
-    prefix, serializer = spec
+    prefix, serializer, fields = spec
     for i, elem in enumerate(items, 1):
+        _check_entry(path, i, elem, fields)
         out.append((section, f"{prefix}_{i}", serializer(elem)))
+
+
+def _check_entry(path, index, elem, fields):
+    """Refuse entry <index> of <path> when it carries none of <fields>.
+
+    Every serializer answers "" for an entry that lacks the field it
+    reads, and "" is the value the shell readers skip, so such an entry
+    vanished with exit 0. Measured before this guard (base#1309):
+    `[[devices]] foo = 1` gave `devices device_1 <empty>`, `[[tmpfs]]
+    size = [1]` gave `tmpfs tmpfs_1 <empty>`, and `[build] args =
+    ["A=1"]` -- a string where a table belongs -- gave `build arg_1
+    <empty>`.
+
+    An empty entry is NOT refused when it is spelled the way the writers
+    spell one. A field-less block is how the converter and the writers'
+    padding spell a cleared slot, and a block whose fields are present
+    but empty is the published opt-out (_joined). Neither lacks its
+    field, so both still read back as one empty entry.
+    """
+    if not isinstance(elem, dict):
+        print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "
+              f"table, so it has no {' / '.join(fields)} field to read "
+              f"and nothing would read it: write it as a [[{path}]] "
+              f"block, or remove it", file=sys.stderr)
+        raise SystemExit(1)
+    if elem and not any(name in elem for name in fields):
+        print(f"toml-bridge: entry {index} of {path} carries none of "
+              f"the fields it is read from ({' / '.join(fields)}), so "
+              f"nothing would read it: check the spelling of its "
+              f"fields ({', '.join(sorted(elem))}), or remove it",
+              file=sys.stderr)
+        raise SystemExit(1)
 
 
 def _emit_table(section, entries, out):
