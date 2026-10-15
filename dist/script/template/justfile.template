@@ -23,7 +23,10 @@ set positional-arguments := true
 # Default: bare `just template` prints help (the `default` recipe must come
 # first -- a module otherwise treats the first recipe, `new`, as default and
 # errors because it needs an argument). `default` delegates to `help` so the
-# usage text has a single source.
+# usage text has a single source. The blank line below detaches this
+# rationale from the --list doc (base#1326).
+
+# Print the template help (same as `just template help`)
 default: help
 
 # `help` is a named twin of `default` reachable as `just template help` (and
@@ -36,6 +39,10 @@ alias h := help
 # just template help (or `just template h`) -> language-aware recipe listing:
 # translated one-line summaries via the shared `_msg help` i18n renderer
 # (honours $LANG / --lang). Bare `just template` prints the same via `default`.
+# The blank line below detaches this rationale from the --list doc, which
+# just takes from the last comment line above the recipe (base#1326).
+
+# List the template recipes in your language (--lang / $LANG)
 help *args:
     @"$(dirname "$(readlink -f '{{source_file()}}')")/../docker/lib/help.sh" template "$@"
 
@@ -77,5 +84,9 @@ help *args:
 # A fourth form, `"{{name}}"`, fixes the re-split and is wrong for its
 # own reason: it EXPANDS, so `$USER` arrives as the operator's name,
 # which satisfies the validator and scaffolds a group named after them.
+# The blank line below detaches this rationale from the --list doc
+# (base#1326).
+
+# Scaffold a new repo-local command group in script/local/<name>/
 new name:
     @cd {{justfile_directory()}} && script/template/new.sh {{quote(name)}}

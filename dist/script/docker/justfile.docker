@@ -66,6 +66,10 @@ alias h := help
 # just docker help (or `just docker h`) -> language-aware recipe listing:
 # translated one-line summaries via the shared `_msg help` i18n renderer
 # (honours $LANG / --lang). Bare `just docker` and `just --list` stay English.
+# The blank line below detaches this rationale from the --list doc, which
+# just takes from the last comment line above the recipe (base#1326).
+
+# List the docker recipes in your language (--lang / $LANG)
 help *args:
     @"$(dirname "$(readlink -f '{{source_file()}}')")/lib/help.sh" docker "$@"
 
@@ -91,10 +95,13 @@ run *args:
 # lifecycle: BEGINS a flow, being exactly the two verbs it composes. Ended
 # by `just docker stop`.
 #
-# Build + run in one step (e.g. just start  |  just start --no-cache).
 # `-h|--help` short-circuits with the composite-verb usage and exits
 # WITHOUT building or running -- otherwise --help would forward to
 # build.sh (prints its help, exit 0) and the recipe would run.sh anyway.
+# The blank line below detaches this rationale from the --list doc
+# (base#1326).
+
+# Build + run in one step (e.g. just start  |  just start --no-cache)
 start *args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -136,10 +143,10 @@ stop *args:
 prune *args:
     ./script/prune.sh "$@"
 
-# Regenerate .env / .env.generated / compose.yaml from setup.conf
+# Regenerate .env / .env.generated / compose.yaml from setup.toml
 setup *args:
     ./script/setup.sh "$@"
 
-# Interactive TUI to edit setup.conf
+# Interactive TUI to edit setup.toml
 setup-tui *args:
     ./script/setup_tui.sh "$@"
