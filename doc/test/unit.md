@@ -7452,7 +7452,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (78)
+### test/bats/unit/toml_bridge_spec.bats (80)
 
 | Test | Description |
 |------|-------------|
@@ -7534,6 +7534,8 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: --kv refuses a known array entry that carries a field its family does not read (base#1313)` | base#1309 refuses an entry that carries NONE of its fields, but an entry that carries its field AND a field its family never reads was still emitted with the stray field dropped. Measured on main: `[[devices]] path = "/dev/x"` with `foo = 1` beside it read back as `devices device_1 /dev/x`, exit 0, nothing on stderr. A misspelt second field (`sise` for `size` under `[[tmpfs]]`) is the realistic way to meet it: the value the operator wrote is lost while the configuration loads. The refusal names the array, the entry and the field (base#1313). |
 | `toml-bridge: every array home refuses an entry with an unknown field beside its own (base#1313)` | DERIVED from the writers' table of array homes, like the base#1309 case above: each home's fully populated entry, as the writers spell it (`_conf_toml_aot_fields` of a value carrying every separator), is still accepted, and the same entry with one field no serializer reads beside it is refused (base#1313). |
 | `toml-bridge: --merge --kv refuses an entry with an unknown field that survives the merge (base#1313)` | `_conf_load_layers` reads every configuration through `--merge --kv`, so an entry with an unknown field in a layer whose array survives the merge must be refused there too (base#1313). |
+| `toml-bridge: every array home refuses a field that only another family reads (base#1313)` | The allowed fields are per FAMILY, not one pool. A field that is legal in another family -- tmpfs `size` beside a device `path` -- is read by no serializer of THIS family, so it would vanish the same way an unknown name does. DERIVED from the writers' table: every field any home's writer spells is tried beside every other home's own fields (base#1313). |
+| `toml-bridge: --merge --kv refuses a field that only another family reads (base#1313)` | The same per-family rule must hold on the `--merge --kv` path `_conf_load_layers` reads through (base#1313). |
 
 ### test/bats/unit/toml_config_template_spec.bats (21)
 

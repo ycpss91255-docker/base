@@ -2200,3 +2200,77 @@ _bridge_refuses() {
   printf '[gui]\nmode = "x"\n' > "${_upper}"
   _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
 }
+
+# why: The allowed fields are per FAMILY, not one pool. A field that is
+# legal in another family -- tmpfs `size` beside a device `path` -- is
+# read by no serializer of THIS family, so it would vanish the same way
+# an unknown name does. DERIVED from the writers' table: every field any
+# home's writer spells is tried beside every other home's own fields
+# (base#1313).
+@test "toml-bridge: every array home refuses a field that only another family reads (base#1313)" {
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
+  # shellcheck disable=SC1090
+  source "${_conf_sh}"
+  # shellcheck disable=SC1090
+  source "${_schema_sh}"
+
+  local _f="${BATS_TEST_TMPDIR}/cross_family.toml"
+  local _sect _pair _path _fields _line _name _entry _n=0
+  local -a _fams=() _homes=()
+  local -A _own=() _body=()
+  # `size` is read by _tmpfs_mount but the writer never spells it, so it
+  # joins the pool by hand; it is legal only under tmpfs.
+  local -A _pool=([size]=1)
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _path="${_pair#*=}"
+      _conf_toml_aot_fields "${_path}" "a=b:c:d" _fields
+      _homes+=("${_path}")
+      _body[${_path}]="${_fields}"
+      _own[${_path}]=" "
+      while IFS= read -r _line; do
+        _name="${_line%% =*}"
+        _pool[${_name}]=1
+        _own[${_path}]+="${_name} "
+      done <<< "${_fields}"
+    done
+  done
+  _own[tmpfs]+="size "
+
+  for _path in "${_homes[@]}"; do
+    for _name in "${!_pool[@]}"; do
+      [[ "${_own[${_path}]}" == *" ${_name} "* ]] && continue
+      _entry="[[${_path}]]"$'\n'"${_body[${_path}]}"$'\n'"${_name}"' = "x"'$'\n'
+      printf '%s' "${_entry}" > "${_f}"
+      _bridge_refuses "${_path}" --kv < "${_f}"
+      [[ "${stderr}" == *"${_name}"* ]] \
+        || fail "the refusal for ${_name} under ${_path} does not name it: ${stderr}"
+      _n=$(( _n + 1 ))
+    done
+  done
+  (( _n > 0 )) || fail "no cross-family field was tried"
+
+  # The reviewer's case, on the legacy one-array spelling too.
+  printf '[[devices]]\npath = "/dev/x"\nsize = "64m"\n' > "${_f}"
+  _bridge_refuses "devices" --kv < "${_f}"
+  [[ "${stderr}" == *"size"* ]] || fail "the refusal does not name size: ${stderr}"
+}
+
+# why: The same per-family rule must hold on the `--merge --kv` path
+# `_conf_load_layers` reads through (base#1313).
+@test "toml-bridge: --merge --kv refuses a field that only another family reads (base#1313)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[devices.bindings]]\npath = "/dev/x"\nsize = "64m"\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
+  [[ "${stderr}" == *"size"* ]] || fail "the refusal does not name size: ${stderr}"
+
+  printf '[gui]\nmode = "x"\n' > "${_lower}"
+  printf '[[tmpfs]]\npath = "/tmp"\ncontainer = "c"\n' > "${_upper}"
+  _bridge_refuses "tmpfs" --merge --kv "${_lower}" "${_upper}"
+  [[ "${stderr}" == *"container"* ]] || fail "the refusal does not name container: ${stderr}"
+}
