@@ -2274,3 +2274,101 @@ _bridge_refuses() {
   _bridge_refuses "tmpfs" --merge --kv "${_lower}" "${_upper}"
   [[ "${stderr}" == *"container"* ]] || fail "the refusal does not name container: ${stderr}"
 }
+
+# why: _field formats every array-of-tables field through _format_value,
+# which is `str(v)` for anything but a bool, so a field whose value is an
+# array or an inline table reached the shell view as a Python repr. The
+# issue's case: `[[tmpfs]] path = "/tmp"` with `size = [1]` read back as
+# `tmpfs tmpfs_1 /tmp:size=[1]`, exit 0 -- a string no TOML file wrote
+# and no compose option accepts. The refusal follows _check_transportable:
+# a toml-bridge line naming the array, exit 1, empty stdout (base#1314).
+@test "toml-bridge: --kv refuses an array entry field whose value is an array or a table (base#1314)" {
+  local _f="${BATS_TEST_TMPDIR}/nonscalar_field.toml"
+
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = [1]\n' > "${_f}"
+  _bridge_refuses "tmpfs" --kv < "${_f}"
+  [[ "${stderr}" == *"size"* ]] || fail "the refusal does not name the field: ${stderr}"
+
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = {a = 1}\n' > "${_f}"
+  _bridge_refuses "tmpfs" --kv < "${_f}"
+  [[ "${stderr}" == *"size"* ]] || fail "the refusal does not name the field: ${stderr}"
+
+  # The legacy one-array spelling, on the field it gates on.
+  printf '[[devices]]\npath = ["/dev/x"]\n' > "${_f}"
+  _bridge_refuses "devices" --kv < "${_f}"
+
+  # The bad entry is the SECOND one, after a good one.
+  printf '[[image.rules]]\nrule = "a"\n\n[[image.rules]]\nrule = {b = "c"}\n' > "${_f}"
+  _bridge_refuses "image.rules" --kv < "${_f}"
+  [[ "${stderr}" == *"entry 2"* ]] || fail "the refusal does not name entry 2: ${stderr}"
+
+  # The control: scalars of every kind still read back as before.
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = 64\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_equal "${output}" $'tmpfs\ttmpfs_1\t/tmp:size=64'
+}
+
+# why: DERIVED from the writers' table of array homes, like the base#1309
+# and base#1313 cases above, so a family added there is covered by having
+# been added: every field the home's writer spells (plus tmpfs `size`,
+# which _tmpfs_mount reads but the writer never spells) is given an array
+# value and then an inline-table value, beside the home's other fields,
+# and each is refused (base#1314).
+@test "toml-bridge: every array home refuses a field whose value is an array or a table (base#1314)" {
+  local _conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  local _schema_sh="${ROOT}/dist/script/docker/lib/schema.sh"
+  # shellcheck disable=SC1090
+  source "${_conf_sh}"
+  # shellcheck disable=SC1090
+  source "${_schema_sh}"
+
+  local _f="${BATS_TEST_TMPDIR}/every_home_nonscalar.toml"
+  local _sect _pair _path _fields _line _name _other _value _body _n=0
+  local -a _fams=() _names=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _path="${_pair#*=}"
+      _conf_toml_aot_fields "${_path}" "a=b:c:d" _fields
+      [[ "${_path}" == tmpfs ]] && _fields+=$'\n''size = "64m"'
+      _names=()
+      while IFS= read -r _line; do
+        _names+=("${_line%% =*}")
+      done <<< "${_fields}"
+      for _name in "${_names[@]}"; do
+        for _value in '["x"]' '{a = "x"}'; do
+          _body="[[${_path}]]"$'\n'
+          while IFS= read -r _line; do
+            _other="${_line%% =*}"
+            if [[ "${_other}" == "${_name}" ]]; then
+              _body+="${_name} = ${_value}"$'\n'
+            else
+              _body+="${_line}"$'\n'
+            fi
+          done <<< "${_fields}"
+          printf '%s' "${_body}" > "${_f}"
+          _bridge_refuses "${_path}" --kv < "${_f}"
+          _n=$(( _n + 1 ))
+        done
+      done
+    done
+  done
+  (( _n > 0 )) || fail "the family table named no array home"
+}
+
+# why: `_conf_load_layers` reads every configuration through `--merge
+# --kv`, so a non-scalar field in a layer whose array survives the merge
+# must be refused there too (base#1314).
+@test "toml-bridge: --merge --kv refuses a field whose value is an array or a table (base#1314)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[tmpfs]]\npath = "/tmp"\nsize = [1]\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  _bridge_refuses "tmpfs" --merge --kv "${_lower}" "${_upper}"
+
+  printf '[gui]\nmode = "x"\n' > "${_lower}"
+  printf '[[devices.bindings]]\npath = {a = "x"}\n' > "${_upper}"
+  _bridge_refuses "devices.bindings" --merge --kv "${_lower}" "${_upper}"
+}
