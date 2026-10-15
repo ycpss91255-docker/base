@@ -1802,3 +1802,86 @@ EOF
   assert_output --partial "security.cap_drop_1"
   assert_output --partial "block 1"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 14: nothing the shell view cannot carry is dropped without a word
+# ════════════════════════════════════════════════════════════════════
+#
+# PRD: nothing fails silently. The KV stream is the only view of the
+# configuration the shell has, so a value the bridge leaves out of it is
+# a value the operator wrote and nothing reads -- with exit 0 and no
+# message. The answer is the one `_check_transportable` already gives:
+# a `toml-bridge:` refusal on stderr naming what it refused, a non-zero
+# exit, and no partial stdout.
+
+# why: An array of tables is emitted only through _ARRAY_SPEC, and a key
+# the spec has no entry for fell through `_emit_array` with no row and no
+# word. Measured on main: `[[install]] source = "a"` answered exit 0 and
+# printed nothing at all, and `[[build.install]]` beside `[build] x = "1"`
+# printed only `build x 1`. A misspelt family (`[[volume]]` for
+# `[[volumes]]`) is the realistic way to meet it: the mounts vanish and
+# the configuration loads. The refusal names the array's dotted path,
+# because that is the line the operator has to find (base#1307).
+@test "toml-bridge: --kv refuses an array of tables the spec has no family for (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/unknown_aot.toml"
+
+  printf '[[install]]\nsource = "a"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_failure
+  assert_equal "${output}" ""
+  [[ "${stderr}" == *"toml-bridge:"* ]] || fail "no toml-bridge refusal: ${stderr}"
+  [[ "${stderr}" == *"install"* ]] || fail "refusal does not name the array: ${stderr}"
+
+  printf '[build]\nx = "1"\n\n[[build.install]]\nsource = "a"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_failure
+  # No prefix of the configuration: the `[build] x` row the old bridge
+  # did print must not reach a caller that ignores the status.
+  assert_equal "${output}" ""
+  [[ "${stderr}" == *"build.install"* ]] || fail "refusal does not name build.install: ${stderr}"
+}
+
+# why: An INLINE array of scalars is the same drop by another spelling.
+# Measured on main: `[gui] list = ["a", "b"]` beside `mode = "x"` printed
+# `gui mode x` alone -- `list` went through `_emit_array`, found no spec,
+# and vanished (base#1307).
+@test "toml-bridge: --kv refuses an inline array under a key the spec has no family for (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/unknown_inline.toml"
+  printf '[gui]\nlist = ["a", "b"]\nmode = "x"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_failure
+  assert_equal "${output}" ""
+  [[ "${stderr}" == *"gui.list"* ]] || fail "refusal does not name gui.list: ${stderr}"
+}
+
+# why: `_conf_load_layers` reads every configuration through `--merge
+# --kv`, so a refusal only in the single-file mode would leave the real
+# read path dropping the array. A lower layer carrying the unknown array
+# and an upper one that does not touch it must refuse together (base#1307).
+@test "toml-bridge: --merge --kv refuses an unknown array a lower layer carries (base#1307)" {
+  local _lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local _upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[install]]\nsource = "a"\n' > "${_lower}"
+  printf '[gui]\nmode = "x"\n' > "${_upper}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --merge --kv "${_lower}" "${_upper}"
+  assert_failure
+  assert_equal "${output}" ""
+  [[ "${stderr}" == *"install"* ]] || fail "refusal does not name the array: ${stderr}"
+}
+
+# why: The control. Every array the spec DOES know still numbers, an
+# empty one still declares without a row, and the shipped template still
+# loads -- a refusal satisfied by refusing every array would pass the
+# three cases above (base#1307).
+@test "toml-bridge: --kv still numbers every array the spec knows (base#1307)" {
+  local _f="${BATS_TEST_TMPDIR}/known.toml"
+  printf '[build]\nargs = []\n\n[[devices.bindings]]\npath = "/dev/x"\n\n[[volumes]]\nsource = "/a"\ntarget = "/b"\n' > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_success
+  assert_line $'devices\tdevice_1\t/dev/x'
+  assert_line $'volumes\tmount_1\t/a:/b'
+
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${ROOT}/dist/setup.toml"
+  assert_success
+  assert_line $'image\trule_1\tprefix:docker_'
+}
