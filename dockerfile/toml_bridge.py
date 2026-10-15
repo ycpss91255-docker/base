@@ -276,15 +276,16 @@ def _emit_array(section, key, items, out, root=False):
 
 def _check_entry(path, index, elem, fields, allowed):
     """Refuse entry <index> of <path> when it carries none of <fields>,
-    or carries a field outside <allowed>.
+    carries a field outside <allowed>, or carries a field whose value is
+    an array or a table.
 
     Every serializer answers "" for an entry that lacks the field it
     reads, and "" is the value the shell readers skip, so such an entry
     vanished with exit 0. Measured before this guard (base#1309):
-    `[[devices]] foo = 1` gave `devices device_1 <empty>`, `[[tmpfs]]
-    size = [1]` gave `tmpfs tmpfs_1 <empty>`, and `[build] args =
-    ["A=1"]` -- a string where a table belongs -- gave `build arg_1
-    <empty>`.
+    `[[devices]] foo = 1` gave `devices device_1 <empty>`, a `[[tmpfs]]`
+    entry carrying only `size` gave `tmpfs tmpfs_1 <empty>`, and
+    `[build] args = ["A=1"]` -- a string where a table belongs -- gave
+    `build arg_1 <empty>`.
 
     An empty entry is NOT refused when it is spelled the way the writers
     spell one. A field-less block is how the converter and the writers'
@@ -299,6 +300,12 @@ def _check_entry(path, index, elem, fields, allowed):
     `foo = 1` beside it gave `devices device_1 /dev/x`, exit 0, and
     `[[tmpfs]] path = "/tmp"` with `sise = "64m"` gave `tmpfs tmpfs_1
     /tmp` -- the size the operator wrote was lost.
+
+    A field whose value is an array or an inline table is refused as
+    well. _field formats it through _format_value, which is `str(v)`, so
+    the shell view received a Python repr no TOML file wrote: the issue's
+    `[[tmpfs]] path = "/tmp"` with `size = [1]` read back as `tmpfs
+    tmpfs_1 /tmp:size=[1]`, exit 0 (base#1314).
     """
     if not isinstance(elem, dict):
         print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "
@@ -320,6 +327,14 @@ def _check_entry(path, index, elem, fields, allowed):
               f"(it reads {' / '.join(allowed)}), so the value would be "
               f"dropped: check the spelling of the field, or remove it",
               file=sys.stderr)
+        raise SystemExit(1)
+    nonscalar = sorted(name for name in elem
+                       if isinstance(elem[name], (list, dict)))
+    if nonscalar:
+        print(f"toml-bridge: entry {index} of {path} gives "
+              f"{', '.join(nonscalar)} an array or a table, and the shell "
+              f"view carries only a single value per field: write it as "
+              f"one string, number or boolean", file=sys.stderr)
         raise SystemExit(1)
 
 
