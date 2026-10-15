@@ -2492,3 +2492,78 @@ _bridge_refuses() {
   printf '[[volumes]]\ntarget = "/x"\nmode = "ro"\n' > "${_upper}"
   _bridge_refuses "volumes" --merge --kv "${_lower}" "${_upper}"
 }
+
+# why: The KV view emits a row per entry, so a table with none -- an
+# empty `[deploy2]`, or one holding only `args = []` -- has no row, and
+# setup apply's unknown-table check walked only rows and passed both
+# (base#1328). --tables lists every declared table, empty or not, nested
+# ones by their dotted path, and root-level arrays by their name.
+@test "toml-bridge: --tables lists every declared table, including an empty one (base#1328)" {
+  local _f="${BATS_TEST_TMPDIR}/tables.toml"
+  cat > "${_f}" <<'EOF'
+[deploy2]
+
+[empty_array]
+args = []
+
+[logging]
+max_size = "1m"
+
+[logging.web]
+driver = "local"
+
+["stage:dev"]
+"deploy.gpu_mode" = "off"
+
+[[volumes]]
+source = "a"
+target = "/b"
+EOF
+  run --separate-stderr python3 "${BRIDGE_PY}" --tables < "${_f}"
+  assert_success
+  assert_equal "${stderr}" ""
+  assert_equal "${output}" "deploy2
+empty_array
+logging
+logging.web
+stage:dev
+volumes"
+}
+
+# why: An empty array declares a numbered family with no entry, so the KV
+# view emits no row for it, and `[deploy] args = []` passed setup apply's
+# unknown-key check though no reader consumes deploy.args -- a populated
+# [[deploy.args]] reads back as `deploy arg_1` and is refused (base#1328
+# review). --empty-families names the row the first entry WOULD have, in
+# the KV view's own section naming, so the shell can judge the
+# declaration against the table's families the way it judges a row.
+@test "toml-bridge: --empty-families names the KV row an empty array's first entry would take (base#1328)" {
+  local _f="${BATS_TEST_TMPDIR}/empty-families.toml"
+  cat > "${_f}" <<'EOF2'
+volumes = []
+
+[build]
+args = []
+target = "devel"
+
+[deploy]
+args = []
+
+[devices]
+cgroup_rules = []
+
+[[devices.bindings]]
+path = "/dev/x"
+
+[logging.web]
+rules = []
+EOF2
+  run --separate-stderr python3 "${BRIDGE_PY}" --empty-families < "${_f}"
+  assert_success
+  assert_equal "${stderr}" ""
+  assert_equal "${output}" "volumes	mount_1	volumes
+build	arg_1	build.args
+deploy	arg_1	deploy.args
+devices	cgroup_rule_1	devices.cgroup_rules
+logging.web	rule_1	logging.web.rules"
+}

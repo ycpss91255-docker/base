@@ -2608,7 +2608,7 @@ DF
 # call that resolved the parameter but emitted the repo's value fails here.
 @test "two apply calls over one repo emit two sets that differ in the parameterised value (base#1087)" {
   _ppa_repo
-  printf '[network]\nmode = "bridge"\nname = "inst-a"\n' > "${TEMP_DIR}/a.toml"
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/a.toml"
   printf '[network]\nmode = "host"\n' > "${TEMP_DIR}/b.toml"
   local _digest_before
   _digest_before="$(sha256sum "${TEMP_DIR}/setup.toml" | cut -d' ' -f1)"

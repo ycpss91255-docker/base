@@ -858,7 +858,7 @@ EOF
   # Partial override is normal usage — don't INFO-spam users who edited
   # only one section.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[gpu]
+[gui]
 mode = "auto"
 EOF
   run bash -c "
@@ -1994,4 +1994,210 @@ EOC
     declare -F _write_runtime_env
   "
   assert_failure
+}
+
+# ════════════════════════════════════════════════════════════════════
+# apply refuses an unknown table or a misspelt key (base#1328)
+#
+# PRD invariant 2: a table no reader knows, or a key in a known table no
+# reader reads, used to pass apply with rc=0 and no WARN/ERROR -- the
+# operator's setting was dropped and the default applied (`gpu_cuont = "1"`
+# generated `count: all`). apply now refuses it after the chain is merged
+# and before anything is generated: ERROR, the layer file, the table and
+# the key, non-zero exit, `.env` and `compose.yaml` untouched.
+#
+# The `--config` layer of the issue is apply's `--local-conf` address
+# (ADR-00000036), the one caller-named layer of the chain.
+# ════════════════════════════════════════════════════════════════════
+
+# Seed .env and compose.yaml with sentinels and keep a copy of each, so
+# "untouched" is checked byte for byte with cmp. `run cat` + assert_output
+# would not do: command substitution strips trailing newlines, so a
+# rewrite that dropped or added one would still compare equal.
+_seed_generated_sentinels() {
+  printf 'SENTINEL_ENV=untouched\n' > "${TEMP_DIR}/.env"
+  printf '# sentinel compose untouched\n' > "${TEMP_DIR}/compose.yaml"
+  cp "${TEMP_DIR}/.env" "${TEMP_DIR}/.env.orig"
+  cp "${TEMP_DIR}/compose.yaml" "${TEMP_DIR}/compose.yaml.orig"
+}
+
+_assert_generated_untouched() {
+  run cmp "${TEMP_DIR}/.env.orig" "${TEMP_DIR}/.env"
+  assert_success
+  run cmp "${TEMP_DIR}/compose.yaml.orig" "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy2]
+x = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses an unknown table that carries no key, naming the file and the table (base#1328)" {
+  # An empty table projects no key/value row, so a check that walks only
+  # the rows never sees it: the table itself has to be judged.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy2]
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses an unknown table whose only key is an empty array (base#1328)" {
+  # `args = []` is a zero-entry declaration: the KV view emits no row for
+  # it, so the table is invisible to a row walk here too.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy2]
+args = []
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses an empty array no reader reads in a known table (base#1328)" {
+  # `args = []` declares the `args` family of [deploy] with no entry, so
+  # the KV view emits no row and the table itself is known: a row walk and
+  # a table walk both passed it with rc=0, though no reader consumes
+  # deploy.args -- a populated [[deploy.args]] is refused as deploy.arg_1.
+  # The empty declaration has to be judged against its table's families.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_count = "1"
+args = []
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy\.args|ERROR.*deploy\.args.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses a misspelt key in a known table of setup.toml (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_cuont = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/setup\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses a misspelt key in setup.local.toml, naming that layer (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_count = "1"
+EOF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+[deploy]
+gpu_cuont = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.local\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/setup\.local\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply refuses a misspelt key in a --local-conf layer, naming that layer (base#1328)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[deploy]
+gpu_count = "1"
+EOF
+  cat > "${TEMP_DIR}/override.toml" <<'EOF'
+[deploy]
+gpu_cuont = "1"
+EOF
+  _seed_generated_sentinels
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/override.toml' 2>&1
+  "
+  assert_failure
+  assert_line --regexp "ERROR.*${TEMP_DIR}/override\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/override\.toml"
+  _assert_generated_untouched
+}
+
+@test "apply still accepts a per-stage key, [logging.<svc>] and a free-form reader key (base#1328)" {
+  # Regression guard for the refusal above: these are all read by a
+  # reader, so none of them may be refused.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[gui]
+mode = "off"
+
+[deploy]
+gpu_count = "1"
+
+["stage:dev"]
+"deploy.gpu_mode" = "off"
+
+[logging.devel]
+max_size = "50m"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "ERROR"
+}
+
+@test "apply still accepts the free-form [build] named keys and lifts them into build args (base#1328)" {
+  # apt_mirror_ubuntu / apt_mirror_debian / tz have no SCHEMA_VALIDATOR
+  # entry; _setup_apply reads them through _conf_get_into when no layer
+  # supplies [[build.args]] -- the shipped template always does, so the
+  # layer clears the array with `args = []` to make the lift fire. They
+  # are known only by the free-form exemption in _setup_known_key, so
+  # this is the test that guards it.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[build]
+args = []
+apt_mirror_ubuntu = "mirror.example.org"
+apt_mirror_debian = "deb.example.org"
+tz = "Europe/Berlin"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial "ERROR"
+  run grep -x 'APT_MIRROR_UBUNTU=mirror.example.org' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -x 'APT_MIRROR_DEBIAN=deb.example.org' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -x 'TZ=Europe/Berlin' "${TEMP_DIR}/.env.generated"
+  assert_success
 }
