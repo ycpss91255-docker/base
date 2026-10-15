@@ -289,6 +289,19 @@ EOF
     refute_output --partial "falls back to apply"
     refute_output --regexp '<output>/\.env +[^[:space:]].*SETUP_\*'
     refute_output --partial "section-replace"
+    # The corrected statements themselves, not only the absence of the
+    # old ones: deleting the Outputs block and the source-of-truth
+    # paragraph would pass every refute above.
+    assert_output --regexp '<output>/\.env\.generated +[^[:space:]].*SETUP_\* drift metadata'
+    assert_output --partial "under the optional setup.local.toml: tables merge key by key and arrays"
+    assert_output --partial "are replaced whole. Edit setup.toml, not the derived files."
+    # `set --local` describes the same layer: it overrides the keys it
+    # names (a measured merge keeps a committed key the local table does
+    # not name), so it does not REPLACE the committed section.
+    refute_output --partial "REPLACE the committed"
+    assert_output --partial "its tables override only the keys they name"
+    refute_output --partial "it will not
+                change anything here"
   done
 }
 

@@ -3560,7 +3560,7 @@ what reaches a wrapper.
 | `set positional-arguments does not disturb template new (base#1289)` | base#1299's quote() fix must survive the setting this slice adds |
 | `no live line in justfile.template interpolates {{args}} (base#1289)` | a transliteration that reintroduces {{args}} is how this comes back |
 
-### test/bats/unit/justfile_user_spec.bats (35)
+### test/bats/unit/justfile_user_spec.bats (36)
 
 Executable tests for the user-facing layered entry + namespaces (#546 /
 ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
@@ -3603,6 +3603,7 @@ status).
 | `just base help renders zh-TW recipe summaries under LANG=zh-TW (i18n)` | - |
 | `just template help renders zh-TW recipe summary under LANG=zh-TW (i18n)` | - |
 | `just --list descriptions are whole sentences, never a mid-comment fragment (base#1326)` | - |
+| `just --list shows the summary each base#1326 recipe was given (base#1326)` | the prefix rule passes a capitalised fragment and skips a recipe with no description; the exact summaries close both |
 | `no just --list description names the retired setup.conf (base#1326)` | - |
 | `dashed just <ns> --help errors but hints 'help' (documented just limit, #789)` | - |
 | `just template new --help shows the recipe usage (recipe-level help, #789)` | - |
