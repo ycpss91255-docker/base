@@ -1009,6 +1009,35 @@ EOF
 EOF
 }
 
+# why: an array entry is a block whether or not it has fields. Three
+# `[[image.rules]]` entries with an empty middle one are three entries,
+# but rows were emitted per FIELD, so the fieldless one produced none
+# and the summary printed two headers -- the user's three rules read as
+# two.
+@test "_print_config_summary prints a fieldless array entry as its own header (base#1339)" {
+  local _fp="${BATS_TEST_TMPDIR}/fieldless"
+  mkdir -p "${_fp}"
+  cat > "${_fp}/setup.toml" <<'EOF2'
+[[image.rules]]
+rule = "A"
+
+[[image.rules]]
+
+[[image.rules]]
+rule = "C"
+EOF2
+  _summary_toml "${_fp}"
+  assert_success
+  run _summary_entries "${output}"
+  assert_output - <<'EOF2'
+[build]   [[image.rules]]
+[build]     rule = A
+[build]   [[image.rules]]
+[build]   [[image.rules]]
+[build]     rule = C
+EOF2
+}
+
 # why: the loader still accepts a family spelled as numbered table
 # scalars (`[image] rule_1 = ...`), and printing those verbatim put the
 # `<prefix>_N` vocabulary back under the setup.toml heading. They print
