@@ -1805,14 +1805,16 @@ _M7_PORT=(
   ':329'
 )
 
-# _m7_assert_warn_only <line>:<root|bare>...
+# _m7_assert_warn_only <line>:<root|bare|literal=VALUE>...
 #   Dispatch twice. Each pass must leave ${DF} byte-identical to what the
 #   test wrote and report `0 file(s) rewritten` with arg_user matched. For
 #   every <line>, a warning must name ${DF}:<line> and state each piece of
 #   the manual port (_M7_PORT). With `root`, that warning must also say the
 #   image may run as root (the form an earlier upgrade already wrote). With
 #   `bare`, it must name the parent-stage case and must not claim the image
-#   builds its default user (base#1340).
+#   builds its default user (base#1340). With `literal=VALUE`, it must say
+#   ARG USER defaults to "VALUE" and the image builds that user, and must
+#   not say the ARG has no default (base#1348).
 _m7_assert_warn_only() {
   cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
   local _pass _spec _line _form _hits _piece
@@ -1838,7 +1840,23 @@ _m7_assert_warn_only() {
           return 1
         }
       done
-      if [[ "${_form}" == root ]]; then
+      if [[ "${_form}" == literal=* ]]; then
+        printf '%s\n' "${_hits}" | grep -qF "ARG USER defaults to \"${_form#literal=}\"" || {
+          printf 'pass %s: literal warning for %s:%s does not name the default "%s"\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${_form#literal=}" "${output}" >&2
+          return 1
+        }
+        printf '%s\n' "${_hits}" | grep -qF 'the image builds that user, not the one compose passes' || {
+          printf 'pass %s: literal warning for %s:%s does not say the image builds that user\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        }
+        if printf '%s\n' "${_hits}" | grep -qF 'has no default'; then
+          printf 'pass %s: literal warning for %s:%s says ARG USER has no default\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        fi
+      elif [[ "${_form}" == root ]]; then
         printf '%s\n' "${_hits}" | grep -qF 'may run as root' || {
           printf 'pass %s: warning for %s:%s does not say the image may run as root\n%s\n' \
             "${_pass}" "${DF}" "${_line}" "${output}" >&2
@@ -2321,6 +2339,92 @@ EOF
   assert_success
   assert_output --partial "${DF}:6: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes;"
   refute_output --partial "builds its default user"
+}
+
+# why: base#1348 -- an ARG USER with a literal default (double-quoted,
+#      unquoted, single-quoted, or a later name in a multi-name ARG) has a
+#      default, so its notice names that default instead of saying it has
+#      none; a bare ARG USER beside it keeps the base#1340 wording
+@test "migration 7 (arg-user): a literal ARG USER default is named, not told it has none (base#1348)" {
+  cat > "${DF}" <<'EOF'
+FROM ubuntu:22.04 AS sys
+ARG USER="dq-name"
+ARG USER
+FROM sys AS a
+ARG USER=plain-name
+FROM sys AS b
+ARG USER='sq-name'
+FROM sys AS c
+ARG USER_GROUP="g" USER="multi-name"
+EOF
+  _m7_assert_warn_only 2:literal=dq-name 3:bare 5:literal=plain-name 7:literal=sq-name 9:literal=multi-name
+}
+
+# why: base#1348 review round 1 -- an explicitly empty default (quoted,
+#      blank-only, or `USER=` at the end) is still a default, so it is
+#      named, not told it has none; the value reaches the notice exactly,
+#      boundary whitespace included; of two USER defaults the last is
+#      named; an expression other than USER_NAME is named as written; and
+#      a USER_NAME default or an unclosed quote still warns as root
+@test "migration 7 (arg-user) regression: empty, blank-padded and expression ARG USER defaults are named exactly (base#1348)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER=""
+ARG USER=''
+ARG USER="   "
+ARG USER="  spaced  "
+ARG USER=first USER=second
+ARG USER="${OTHER:-fallback}"
+ARG USER=
+ARG USER="" USER="${USER_NAME}"
+ARG USER="${USER_NAME}"
+ARG USER="" OTHER="unterminated
+EOF
+  _m7_assert_warn_only 2:literal= 3:literal= "4:literal=   " "5:literal=  spaced  " \
+    6:literal=second '7:literal=${OTHER:-fallback}' 8:literal= 9:root 10:root 11:root
+}
+
+# why: base#1348 review round 2 -- the scan reads every Unicode space as
+#      whitespace, but the default it names keeps the bytes the Dockerfile
+#      wrote: a U+00A0, U+3000 or U+2028 inside a quoted default (also one
+#      on a continued line, or after a U+00A0 that separates ARG from
+#      USER) is named as written, not as an ASCII space
+@test "migration 7 (arg-user) regression: a Unicode space inside an ARG USER default is named byte for byte (base#1348)" {
+  local nbsp=$'\xc2\xa0' ideo=$'\xe3\x80\x80' lsep=$'\xe2\x80\xa8'
+  {
+    printf 'FROM busybox AS sys\n'
+    printf 'ARG USER="a%sb"\n' "${nbsp}"
+    printf "ARG USER='%sx%s'\n" "${ideo}" "${lsep}"
+    printf 'ARG%sUSER="c%sd"\n' "${nbsp}" "${nbsp}"
+    printf 'ARG OTHER=1 \\\n'
+    printf '  USER="e%sf"\n' "${ideo}"
+  } > "${DF}"
+  _m7_assert_warn_only "2:literal=a${nbsp}b" "3:literal=${ideo}x${lsep}" \
+    "4:literal=c${nbsp}d" "5:literal=e${ideo}f"
+}
+
+# why: base#1348 review round 3 -- the default named is the one Docker
+#      reads under the active escape directive: under `# escape=` + "`"
+#      a value continued with a backtick is named whole, not cut at the
+#      backtick
+@test "migration 7 (arg-user) regression: under a backtick escape directive a continued default is named whole (base#1348)" {
+  printf '# escape=`\nFROM busybox AS sys\nARG USER=ini`\ntial\nARG USER="x"\n' > "${DF}"
+  _m7_assert_warn_only 3:literal=initial 5:literal=x
+}
+
+# why: base#1348 review round 3 -- an escape followed by a Unicode space
+#      outside quotes takes the whole character, so the default is named
+#      byte for byte (escape included) and every ARG USER still warns
+#      exactly once
+@test "migration 7 (arg-user) regression: an escaped Unicode space outside quotes is named byte for byte (base#1348)" {
+  local nbsp=$'\xc2\xa0' ideo=$'\xe3\x80\x80'
+  {
+    printf 'FROM busybox AS sys\n'
+    printf 'ARG USER=a\\%sb\n' "${nbsp}"
+    printf 'ARG OTHER=1 USER=c\\%sd\n' "${ideo}"
+  } > "${DF}"
+  _m7_assert_warn_only "2:literal=a\\${nbsp}b" "3:literal=c\\${ideo}d"
+  assert_equal "$(printf '%s\n' "${output}" | grep -c "Dockerfile unchanged: ${DF}:")" 2
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────

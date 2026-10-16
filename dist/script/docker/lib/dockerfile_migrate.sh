@@ -1143,10 +1143,11 @@ _migrate_sc1090_apply() {
 # (`ARG \` + `USER`, `ARG USER=\` + its default). One whose USER default
 # names USER_NAME (what the retired rewrite wrote) also says the image may
 # run as root, and so does a declaration whose quotes the scan cannot
-# balance. The scan has no stage or heredoc model: any physical line that
-# itself reads `ARG USER...` warns too, even inside a heredoc body or
-# another instruction's continuation. A false positive is accepted
-# (base#1322).
+# balance. One with any other default names that default: the image builds
+# that user, not the one compose passes (base#1348). The scan has no stage
+# or heredoc model: any physical line that itself reads `ARG USER...` warns
+# too, even inside a heredoc body or another instruction's continuation. A
+# false positive is accepted (base#1322).
 # SC2016: ${USER_NAME} is Dockerfile text the user copies, never expanded here.
 # shellcheck disable=SC2016
 _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USER_UID / USER_GID and create the user from them (dist/dockerfile/Dockerfile:214, :298), then in each later stage alias ARG USER="${USER_NAME}" (dist/dockerfile/Dockerfile:329)'
@@ -1159,26 +1160,41 @@ _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USE
 _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\xe2\x80\x82|\xe2\x80\x83|\xe2\x80\x84|\xe2\x80\x85|\xe2\x80\x86|\xe2\x80\x87|\xe2\x80\x88|\xe2\x80\x89|\xe2\x80\x8a|\xe2\x80\xa8|\xe2\x80\xa9|\xe2\x80\xaf|\xe2\x81\x9f|\xe3\x80\x80'
 
 # _dfm_arg_user_scan <dockerfile>
-#   Print `<line> root|bare` for every ARG declaring USER (ONBUILD ARG
-#   too), sorted by line. <line> is the physical line its instruction
+#   Print `<line> root|bare|literal [<value>]` for every ARG declaring USER
+#   (ONBUILD ARG too), sorted by line. `root` is a USER_NAME default or a
+#   declaration the scan cannot read, `literal` any other default, empty
+#   or blank ones included (printed after it and one space, byte for byte,
+#   one layer of matching outer quotes removed; base#1348), `bare` no
+#   default. <line> is the physical line its instruction
 #   starts on. Lines are joined as Docker's parser joins them (moby/buildkit
 #   frontend/dockerfile/parser/parser.go): a line ending in the escape
 #   character (trailing blanks allowed, not an escaped escape) continues,
 #   the character and the newline are removed and nothing is inserted;
 #   comment and blank lines inside a continuation are dropped. Trailing
 #   CR/LF and a UTF-8 byte-order mark on line 1 are ignored, and every
-#   Unicode space counts as whitespace.
+#   Unicode space counts as whitespace; a literal default is still printed
+#   with the bytes the Dockerfile wrote, Unicode spaces included.
 #
 #   The scan never decides where an instruction starts: it joins forward
 #   from EVERY line that could open an ARG (after a heredoc, a directive or
 #   a continuation it might misread), once with `\` and once with the
 #   backtick as the escape character, and merges the results. A join that
 #   goes too far can only add a warning, never hide one; a false positive
-#   is accepted.
+#   is accepted. The scan with the escape the parser directives make
+#   active runs first, so where both read an ARG the form and default it
+#   names are the ones Docker reads; the other scan only adds lines or
+#   raises one to root (base#1348).
 _dfm_arg_user_scan() {
   LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
-    # classify <instruction text> <line>: record when it is an ARG naming USER.
-    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form) {
+    BEGIN {
+      nu = split(uws, US, "|")
+      for (u = 1; u <= nu; u++) { UB[u] = US[u]; gsub(/./, " ", UB[u]) }
+    }
+    # classify <instruction text> <original text> <line>: record when it
+    # is an ARG naming USER. <text> is read; <original text> is the same
+    # instruction with its Unicode spaces kept, of the same length, so the
+    # default named is cut from it at the same position (base#1348).
+    function classify(text, otext, ln,    rest, orest, i, c, q, ts, len, n, toks, tpos, j, name, val, form, lit, hasdef, u) {
       sub(/^[[:space:]]+/, "", text)
       # ONBUILD ARG declares the ARG in every build FROM this image.
       while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
@@ -1186,28 +1202,43 @@ _dfm_arg_user_scan() {
       }
       if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[[:space:]]/) return
       rest = substr(text, 4)
+      # Only leading text was cut, so rest is the tail of otext.
+      orest = substr(otext, length(otext) - length(rest) + 1)
       # Each token is the raw text between unquoted, unescaped blanks, cut
       # out with substr once it ends (never built a character at a time,
       # which is quadratic on a long continued value).
       n = 0; ts = 0; q = ""; len = length(rest)
       for (i = 1; i <= len; i++) {
         c = substr(rest, i, 1)
-        if (q == "" && index(ws, c)) { if (ts) toks[++n] = substr(rest, ts, i - ts); ts = 0; continue }
+        if (q == "" && index(ws, c)) { if (ts) { toks[++n] = substr(rest, ts, i - ts); tpos[n] = ts }; ts = 0; continue }
         if (!ts) ts = i
         # The escape character escapes the next one outside quotes and
         # inside double quotes (`"a\" b"` stays one token); single quotes
-        # take it literally.
-        if (c == esc && q != "\047" && i < len) { i++; continue }
+        # take it literally. An escaped Unicode space is one character:
+        # all of its bytes (spaces in rest) are skipped, not just the first.
+        if (c == esc && q != "\047" && i < len) {
+          i++
+          if (substr(rest, i, 1) == " ")
+            for (u = 1; u <= nu; u++)
+              if (substr(orest, i, length(US[u])) == US[u]) { i += length(US[u]) - 1; break }
+          continue
+        }
         if (q != "") { if (c == q) q = ""; continue }
         if (c == "\"" || c == "\047") q = c
       }
-      if (ts) toks[++n] = substr(rest, ts)
+      if (ts) { toks[++n] = substr(rest, ts); tpos[n] = ts }
       form = ""
       for (j = 1; j <= n; j++) {
         name = toks[j]; val = ""
         if (index(name, "=")) { val = substr(name, index(name, "=") + 1); name = substr(name, 1, index(name, "=") - 1) }
         if (name != "USER") continue
         if (form == "") form = "bare"
+        # The last USER default is the one Docker keeps. Whether it has a
+        # default is the `=`, not its contents: `USER=""` is a default.
+        hasdef = index(toks[j], "=") > 0
+        # The value as written: the same span of the original text.
+        lit = hasdef ? substr(orest, tpos[j] + index(toks[j], "="), length(val)) : ""
+        if (lit ~ /^".*"$/ || lit ~ /^\047.*\047$/) lit = substr(lit, 2, length(lit) - 2)
         # A USER_NAME default, or one whose `${` never closes, warns as root.
         if (val ~ /USER_NAME/ || val ~ /\$\{[^}]*$/) form = "root"
         # An empty `USER=` followed by a name-less token is a shape the scan
@@ -1217,10 +1248,13 @@ _dfm_arg_user_scan() {
       }
       # A quote that never closes leaves the whole declaration unreadable.
       if (form != "" && q != "") form = "root"
+      # Any other default, empty or blank included, is a literal user
+      # name (base#1348).
+      if (form == "bare" && hasdef) form = "literal"
       # A USER the token walk did not reach (a shape it misreads) still
       # warns, as may-run-as-root; a false positive is accepted.
       if (form == "" && rest ~ /(^|[[:space:]"\047])USER([[:space:]=]|$)/) form = "root"
-      if (form != "" && (!(ln in found) || form == "root")) found[ln] = form
+      if (form != "" && (!(ln in found) || form == "root")) { found[ln] = form; value[ln] = lit }
     }
     # continues <line>: true when <line> ends in the escape character that
     # is not itself escaped (trailing blanks allowed), or is that character
@@ -1255,8 +1289,10 @@ _dfm_arg_user_scan() {
     # still read once. A cut tail is prefixed with "_" so its first byte
     # never reads as the start of the instruction. Skipped comment and
     # blank lines leave prev and tail as they are.
+    # obuf is the same join over the original lines (O), byte for byte:
+    # a piece of L is a prefix of its line and O[j] has the same length.
     function joined(i,    buf, j, v, k, piece, prev, tail) {
-      buf = ""; v = 1; toolong = 0; longuser = 0; prev = ""; tail = ""
+      buf = ""; obuf = ""; v = 1; toolong = 0; longuser = 0; prev = ""; tail = ""
       for (j = i; j <= nl; j++) {
         if (j > i && L[j] ~ /^[[:space:]]*(#|$)/) continue
         k = continues(L[j]); piece = k ? body : L[j]
@@ -1266,9 +1302,9 @@ _dfm_arg_user_scan() {
         if (tail ~ /(^|[[:space:]"\047=])USER([[:space:]=]|$)/) longuser = 1
         if (length(tail) > 6) tail = "_" substr(tail, length(tail) - 4)
         if (!toolong) {
-          buf = buf piece
+          buf = buf piece; obuf = obuf substr(O[j], 1, length(piece))
           if (v == 1) { v = viable(buf); if (!v) return "" }
-          if (length(buf) > 4096) { toolong = 1; buf = "" }
+          if (length(buf) > 4096) { toolong = 1; buf = ""; obuf = "" }
         }
         if (!k) break
       }
@@ -1279,21 +1315,42 @@ _dfm_arg_user_scan() {
       line = $0
       if (NR == 1) sub(/^\357\273\277/, "", line)
       sub(/[\r\n]+$/, "", line)
-      gsub(uws, " ", line)
-      L[++nl] = line
+      O[++nl] = line
+      # Each Unicode space becomes as many ASCII spaces as it has bytes,
+      # so L[i] reads as Docker reads it and keeps the positions of O[i].
+      for (u = 1; u <= nu; u++) gsub(US[u], UB[u], line)
+      L[nl] = line
+      # Parser directives lead the file; the first other line ends them.
+      # `# escape=` + backtick makes the backtick the active escape.
+      if (!ddone) {
+        if (line ~ /^[[:space:]]*#[[:space:]]*[A-Za-z][A-Za-z0-9]*[[:space:]]*=/) {
+          dn = line; sub(/^[[:space:]]*#[[:space:]]*/, "", dn)
+          dv = dn; sub(/[[:space:]]*=.*/, "", dn)
+          sub(/^[^=]*=[[:space:]]*/, "", dv); sub(/[[:space:]]+$/, "", dv)
+          if (tolower(dn) == "escape") actesc = dv
+        } else ddone = 1
+      }
     }
     END {
       ws = " \t\n\v\f\r"
+      # The active escape is scanned first: a line both scans read as an
+      # ARG keeps the form and value it gives, and the other scan can only
+      # add a line or raise one to root.
+      act = (actesc == "`") ? "`" : "\\"
       for (e = 1; e <= 2; e++) {
-        esc = (e == 1) ? "\\" : "`"
+        esc = (e == 1) ? act : (act == "`" ? "\\" : "`")
         for (i = 1; i <= nl; i++)
           if (L[i] ~ /^[[:space:]]*[AaOo\\`]/) {
             t = joined(i)
-            if (!toolong) classify(t, i)
+            if (!toolong) classify(t, obuf, i)
             else if (longuser) found[i] = "root"
           }
       }
-      for (ln in found) print ln, found[ln]
+      # Only a literal carries its value: everything after the second
+      # space, kept byte for byte (it may be empty or blank-padded).
+      for (ln in found)
+        if (found[ln] == "literal") print ln, found[ln], value[ln]
+        else print ln, found[ln]
     }
   ' "$1" | sort -n
 }
@@ -1304,10 +1361,17 @@ _migrate_arg_user_detect() {
 
 _migrate_arg_user_apply() {
   local _file="$1"
-  local _ln _form
-  while read -r _ln _form; do
+  local _row _ln _form _val
+  # The value is cut out by position, not split by read: a split would
+  # strip its boundary blanks (base#1348).
+  while IFS= read -r _row; do
+    _ln="${_row%% *}"; _row="${_row#* }"
+    _form="${_row%% *}"; _val=""
+    [[ "${_form}" == literal ]] && _val="${_row#literal }"
     if [[ "${_form}" == root ]]; then
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
+    elif [[ "${_form}" == literal ]]; then
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to \"${_val}\" and compose passes no USER build arg -- the image builds that user, not the one compose passes, unless the build is given --build-arg USER; ${_DFM_ARG_USER_PORT} (base#1348)"
     else
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
     fi
