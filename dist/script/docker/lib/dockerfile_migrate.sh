@@ -1180,7 +1180,10 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 #   a continuation it might misread), once with `\` and once with the
 #   backtick as the escape character, and merges the results. A join that
 #   goes too far can only add a warning, never hide one; a false positive
-#   is accepted.
+#   is accepted. The scan with the escape the parser directives make
+#   active runs first, so where both read an ARG the form and default it
+#   names are the ones Docker reads; the other scan only adds lines or
+#   raises one to root (base#1348).
 _dfm_arg_user_scan() {
   LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
     BEGIN {
@@ -1191,7 +1194,7 @@ _dfm_arg_user_scan() {
     # is an ARG naming USER. <text> is read; <original text> is the same
     # instruction with its Unicode spaces kept, of the same length, so the
     # default named is cut from it at the same position (base#1348).
-    function classify(text, otext, ln,    rest, orest, i, c, q, ts, len, n, toks, tpos, j, name, val, form, lit, hasdef) {
+    function classify(text, otext, ln,    rest, orest, i, c, q, ts, len, n, toks, tpos, j, name, val, form, lit, hasdef, u) {
       sub(/^[[:space:]]+/, "", text)
       # ONBUILD ARG declares the ARG in every build FROM this image.
       while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
@@ -1211,8 +1214,15 @@ _dfm_arg_user_scan() {
         if (!ts) ts = i
         # The escape character escapes the next one outside quotes and
         # inside double quotes (`"a\" b"` stays one token); single quotes
-        # take it literally.
-        if (c == esc && q != "\047" && i < len) { i++; continue }
+        # take it literally. An escaped Unicode space is one character:
+        # all of its bytes (spaces in rest) are skipped, not just the first.
+        if (c == esc && q != "\047" && i < len) {
+          i++
+          if (substr(rest, i, 1) == " ")
+            for (u = 1; u <= nu; u++)
+              if (substr(orest, i, length(US[u])) == US[u]) { i += length(US[u]) - 1; break }
+          continue
+        }
         if (q != "") { if (c == q) q = ""; continue }
         if (c == "\"" || c == "\047") q = c
       }
@@ -1310,11 +1320,25 @@ _dfm_arg_user_scan() {
       # so L[i] reads as Docker reads it and keeps the positions of O[i].
       for (u = 1; u <= nu; u++) gsub(US[u], UB[u], line)
       L[nl] = line
+      # Parser directives lead the file; the first other line ends them.
+      # `# escape=` + backtick makes the backtick the active escape.
+      if (!ddone) {
+        if (line ~ /^[[:space:]]*#[[:space:]]*[A-Za-z][A-Za-z0-9]*[[:space:]]*=/) {
+          dn = line; sub(/^[[:space:]]*#[[:space:]]*/, "", dn)
+          dv = dn; sub(/[[:space:]]*=.*/, "", dn)
+          sub(/^[^=]*=[[:space:]]*/, "", dv); sub(/[[:space:]]+$/, "", dv)
+          if (tolower(dn) == "escape") actesc = dv
+        } else ddone = 1
+      }
     }
     END {
       ws = " \t\n\v\f\r"
+      # The active escape is scanned first: a line both scans read as an
+      # ARG keeps the form and value it gives, and the other scan can only
+      # add a line or raise one to root.
+      act = (actesc == "`") ? "`" : "\\"
       for (e = 1; e <= 2; e++) {
-        esc = (e == 1) ? "\\" : "`"
+        esc = (e == 1) ? act : (act == "`" ? "\\" : "`")
         for (i = 1; i <= nl; i++)
           if (L[i] ~ /^[[:space:]]*[AaOo\\`]/) {
             t = joined(i)

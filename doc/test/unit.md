@@ -2354,7 +2354,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (171)
+### test/bats/unit/dockerfile_migrate_spec.bats (173)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2496,6 +2496,8 @@ force-rewrite).
 | `migration 7 (arg-user): a literal ARG USER default is named, not told it has none (base#1348)` | base#1348 -- an ARG USER with a literal default (double-quoted, unquoted, single-quoted, or a later name in a multi-name ARG) has a default, so its notice names that default instead of saying it has none; a bare ARG USER beside it keeps the base#1340 wording |
 | `migration 7 (arg-user) regression: empty, blank-padded and expression ARG USER defaults are named exactly (base#1348)` | base#1348 review round 1 -- an explicitly empty default (quoted, blank-only, or `USER=` at the end) is still a default, so it is named, not told it has none; the value reaches the notice exactly, boundary whitespace included; of two USER defaults the last is named; an expression other than USER_NAME is named as written; and a USER_NAME default or an unclosed quote still warns as root |
 | `migration 7 (arg-user) regression: a Unicode space inside an ARG USER default is named byte for byte (base#1348)` | base#1348 review round 2 -- the scan reads every Unicode space as whitespace, but the default it names keeps the bytes the Dockerfile wrote: a U+00A0, U+3000 or U+2028 inside a quoted default (also one on a continued line, or after a U+00A0 that separates ARG from USER) is named as written, not as an ASCII space |
+| `migration 7 (arg-user) regression: under a backtick escape directive a continued default is named whole (base#1348)` | base#1348 review round 3 -- the default named is the one Docker reads under the active escape directive: under `# escape=` + "`" a value continued with a backtick is named whole, not cut at the backtick |
+| `migration 7 (arg-user) regression: an escaped Unicode space outside quotes is named byte for byte (base#1348)` | base#1348 review round 3 -- an escape followed by a Unicode space outside quotes takes the whole character, so the default is named byte for byte (escape included) and every ARG USER still warns exactly once |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
