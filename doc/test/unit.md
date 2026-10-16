@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (138)
+### test/bats/unit/dockerfile_migrate_spec.bats (164)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2461,9 +2461,35 @@ force-rewrite).
 | `migration 6 (sc1090): broadens the entrypoint directive to SC1090,SC1091 (#567)` | - |
 | `migration 6 (sc1090): idempotent when already SC1090,SC1091 (#567)` | - |
 | `migration 6 (sc1090): detect false when no sibling entrypoint (#567)` | - |
-| `migration 7 (arg-user): rewrites bare 'ARG USER' to default from USER_NAME (#579)` | - |
-| `migration 7 (arg-user): idempotent — already defaulted is not detected (#579)` | - |
+| `migration 7 (arg-user): a bare 'ARG USER' is warned about, never rewritten (base#1322)` | base#1322 criterion 1/2 -- the old rewrite is retired; a bare ARG USER is reported with its file and line and left alone |
+| `migration 7 (arg-user): an earlier upgrade's ARG USER="${USER_NAME}" is warned about as may-run-as-root (base#1322)` | base#1322 criterion 2 -- a consumer that already took the v0.42 rewrite has to learn the image may run as root |
+| `migration 7 (arg-user): the full dispatcher reports 0 files rewritten for an ARG USER Dockerfile (base#1322)` | base#1322 criterion 1 -- through the full shipped list, arg_user matches and the dispatcher reports nothing rewritten |
 | `migration 7 (arg-user): does not touch an unrelated ARG (#579)` | - |
+| `migration 7 (arg-user) regression: case-insensitive FROM (base#1322)` | base#1322 -- a lower-case FROM/AS still opens a stage |
+| `migration 7 (arg-user) regression: global-scope ARG USER_NAME (base#1322)` | base#1322 -- a global USER_NAME before the first FROM does not make the later alias safe to leave unreported |
+| `migration 7 (arg-user) regression: sibling stage declares USER_NAME (base#1322)` | base#1322 -- USER_NAME declared in a sibling stage is not in scope |
+| `migration 7 (arg-user) regression: inherited stage declares USER_NAME (base#1322)` | base#1322 -- USER_NAME inherited from the parent stage (the template shape) still gets the verify-this notice; a false positive is allowed |
+| `migration 7 (arg-user) regression: declaration order (base#1322)` | base#1322 -- a USER_NAME declared AFTER the alias in the same stage |
+| `migration 7 (arg-user) regression: quoted and unquoted defaults (base#1322)` | base#1322 -- the alias with other quoting is the same shape |
+| `migration 7 (arg-user) regression: line continuations (base#1322)` | base#1322 -- a backslash continuation around ARG USER |
+| `migration 7 (arg-user) regression: continued and multi-name declarations (base#1322)` | base#1322 review round 1 -- the declaration itself is continued: `ARG \` + `USER` is a bare ARG USER, `ARG USER=\` + its USER_NAME default is the earlier rewrite, a comment line inside a continuation is dropped by the parser, and USER can be a later name in a multi-name ARG. Each warns at the line its ARG instruction starts on. |
+| `migration 7 (arg-user) regression: escape directive and unreadable quoting (base#1322)` | base#1322 review round 1 -- a `# escape=` directive moves the continuation character, and a default whose quote never closes is a shape the scan cannot read, so it gets the may-run-as-root notice |
+| `migration 7 (arg-user) regression: heredocs (base#1322)` | base#1322 -- a RUN heredoc before the ARG must not swallow it, and an ARG USER_NAME inside a heredoc body is not a declaration |
+| `migration 7 (arg-user) regression: numeric heredoc delimiter (base#1322)` | base#1322 -- a numeric heredoc delimiter |
+| `migration 7 (arg-user) regression: quoted and JSON '<<' literals (base#1322)` | base#1322 -- a quoted `<<` literal or a JSON-form `<<` opens no heredoc, so the ARG after it is a real instruction |
+| `migration 7 (arg-user) regression: CRLF line endings (base#1322)` | base#1322 review round 2 -- a CRLF Dockerfile keeps its carriage returns; the scan must still see `ARG USER` (bare and continued) and the file must keep its CRLF bytes |
+| `migration 7 (arg-user) regression: escaped quote before USER (base#1322)` | base#1322 review round 2 -- an escaped quote inside an earlier name's default must not swallow the USER declaration after it |
+| `migration 7 (arg-user) regression: a continuation joins without a space (base#1322)` | base#1322 review round 3 -- Docker's parser drops the continuation character and the newline and inserts nothing, so `ARG US\` + `ER` is `ARG USER` (moby/buildkit frontend/dockerfile/parser/parser.go). A comment line inside the split word is dropped too, trailing blanks after the escape still continue, and an escaped escape (`\\`) at the end of a line ends the instruction, so the ARG after it warns at its own line. |
+| `migration 7 (arg-user) regression: byte-order mark on the first line (base#1322)` | base#1322 review round 3 -- the parser strips a UTF-8 byte-order mark from the first line, so an ARG USER or an escape directive on that line still counts |
+| `migration 7 (arg-user) regression: escape directive after an unknown directive (base#1322)` | base#1322 review round 3 -- buildkit stops reading directives at the first comment that is not a known one, so an escape directive after `# foo=bar` is ignored and `\` still continues; parser versions differ here, and doubt must never hide the warning |
+| `migration 7 (arg-user) regression: repeated carriage returns and form feeds (base#1322)` | base#1322 review round 3 -- the parser trims every trailing CR/LF and treats an ASCII form feed as whitespace, both between ARG and its names and before a comment inside a continuation |
+| `migration 7 (arg-user) regression: Unicode whitespace (base#1322)` | base#1322 review round 4 -- the parser counts every Unicode space (unicode.IsSpace) as whitespace: a no-break space before ARG or between ARG and USER, and an ideographic space indenting a comment line inside a continuation |
+| `migration 7 (arg-user) regression: heredoc terminator ending in the escape character (base#1322)` | base#1322 review round 4 -- the parser reads a heredoc body and its terminator raw, so a terminator ending in `\` continues nothing and the split `ARG US\` + `ER` after it is `ARG USER` at its own line |
+| `migration 7 (arg-user) regression: ONBUILD ARG USER (base#1322)` | base#1322 review round 4 -- an ONBUILD trigger declares the ARG in every build FROM this image, so it warns like a plain one |
+| `migration 7 (arg-user) regression: unclosed quote after USER (base#1322)` | base#1322 review round 5 -- a quote that never closes after USER makes the whole declaration unreadable, so it gets the may-run-as-root notice even though USER itself parsed as bare |
+| `migration 7 (arg-user) regression: a long continuation scans in linear time (base#1322)` | base#1322 review round 5 -- the scan joins forward from lines that might open an ARG; a long continuation whose lines start with `a` must not make that quadratic (20000 lines took minutes before) |
+| `migration 7 (arg-user) regression: unclosed parameter expansion in the USER default (base#1322)` | base#1322 review round 6 -- a `${` that never closes in the USER default is as unreadable as an unclosed quote, so it gets the may-run-as-root notice |
+| `migration 7 (arg-user) regression: a long continued ARG scans in linear time (base#1322)` | base#1322 review round 6 -- an ARG whose quoted value runs over 20000 continued lines must still scan in linear time (it took seconds to minutes when every appended line re-read the whole text); an instruction that long is not read token by token, so it warns as could-not-be-read |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |

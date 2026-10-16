@@ -642,8 +642,9 @@ setup() {
 lib/compose_emit.sh|        USER_NAME: \${USER_NAME}
 lib/config_summary.sh|    "$(_lib_msg user)" "${USER_NAME:--}" "${USER_UID:--}" \
 lib/config_summary.sh|  printf "[%s]   \${USER_NAME} = %s\n"  "${_tag}" "${USER_NAME:--}"
-lib/dockerfile_migrate.sh|  _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
-lib/dockerfile_migrate.sh|  _dfm_sed "${_file}" -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|'
+lib/dockerfile_migrate.sh|_DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USER_UID / USER_GID and create the user from them (dist/dockerfile/Dockerfile:214, :298), then in each later stage alias ARG USER="${USER_NAME}" (dist/dockerfile/Dockerfile:329)'
+lib/dockerfile_migrate.sh|        if (val ~ /USER_NAME/ || val ~ /\$\{[^}]*$/) form = "root"
+lib/dockerfile_migrate.sh|      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
 lib/env_emit.sh|USER_NAME=${_user_name}
 lib/setup_cmd.sh|    printf 'USER_NAME=%s\n' "${user_name}"
 lib/setup_detect.sh|  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
