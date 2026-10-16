@@ -286,7 +286,8 @@ migrated_files() {
 #   The word is MATCHED, not applied. A matching detector runs its
 #   handler, and a handler is not obliged to change anything:
 #   `entrypoint_orchestrator` and `bringup_residue` only warn, both
-#   ending "Nothing was changed here", and they match again on every
+#   ending "Nothing was changed here", and `arg_user` only warns
+#   "Dockerfile unchanged" (base#1322); all three match again on every
 #   subsequent run. `1 matched ... 0 rewritten` is the true shape of
 #   that, and `1 applied ... 0 rewritten` would read as a migration
 #   that completed.
