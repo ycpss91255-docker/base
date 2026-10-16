@@ -2248,6 +2248,20 @@ EOF
   assert_output --partial "${DF}:2: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read"
 }
 
+# why: base#1336 -- past 4096 bytes the scan stops building the text and
+#      looks for USER line by line; a USER split over three or more
+#      continued lines (`U\`, `S\`, `ER`), with or without a comment line
+#      inside the split, must still warn as could-not-be-read
+@test "migration 7 (arg-user) regression: USER split over three lines of a long ARG (base#1336)" {
+  local _long
+  _long="$(printf 'x%.0s' $(seq 4100))"
+  {
+    printf 'FROM busybox AS sys\nARG OTHER=%s \\\nU\\\nS\\\nER\n' "${_long}"
+    printf 'FROM sys AS devel\nARG OTHER=%s \\\nU\\\n# a comment\nS\\\nER\n' "${_long}"
+  } > "${DF}"
+  _m7_assert_warn_only 2:root 7:root
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
