@@ -18,8 +18,9 @@
 # SCHEMA_SECTIONS -- and fails on any prose that disagrees.
 #
 # Detection runs against a controlled temp REPO_ROOT so the spec is
-# independent of the live tree's contents; a final case drives the REAL tree
-# to prove it passes today. Shape mirrors stale_setup_conf_lint_spec.bats /
+# independent of the live tree's contents; a final case copies the shipped
+# files base#1349 rewrote into that tree to prove they pass today (the whole
+# tree is the lint job's to check, base#1075). Shape mirrors stale_setup_conf_lint_spec.bats /
 # home_literal_lint_spec.bats.
 
 setup() {
@@ -1242,11 +1243,29 @@ _append() {
   [[ "${output}" == *"clean"* ]]
 }
 
-# why: The acceptance criterion on the live tree: every generated heredoc and
-# shipped template names only commands the consumer's entry justfile
-# dispatches, so the widened figure passes on base's own dist/ as it ships
-@test "_run_derived_figures: the REAL tree's emitted and shipped text names only dispatchable commands (base#1349)" {
-  REPO_ROOT=/source
+# why: The acceptance criterion on the text base actually ships: every
+# generated heredoc and shipped template the base#1349 fix rewrote names only
+# commands the consumer's real entry justfile dispatches. Asserted through a
+# COPY of those files in the scratch tree, not by pointing REPO_ROOT at the
+# checkout -- the coverage suite checks the driver against fixtures and the
+# lint job checks the tree (base#1075) -- so the copy is the shipped text and
+# the real layering it is judged against, and nothing else
+@test "_run_derived_figures: the shipped emitted and template text names only dispatchable commands (base#1349)" {
+  local _rel
+  for _rel in \
+    dist/setup.toml \
+    dist/.setup.conf \
+    dist/dockerfile/Dockerfile \
+    dist/.hadolint.yaml \
+    dist/script/docker/lib/env_emit.sh \
+    dist/script/base/init.sh \
+    dist/script/justfile \
+    dist/script/docker/justfile.docker \
+    dist/script/base/justfile.base \
+    dist/script/template/justfile.template; do
+    mkdir -p "$(dirname "${SCRATCH}/${_rel}")"
+    cp "/source/${_rel}" "${SCRATCH}/${_rel}"
+  done
   run _run_derived_figures
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
