@@ -2354,7 +2354,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (165)
+### test/bats/unit/dockerfile_migrate_spec.bats (167)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2490,6 +2490,8 @@ force-rewrite).
 | `migration 7 (arg-user) regression: unclosed parameter expansion in the USER default (base#1322)` | base#1322 review round 6 -- a `${` that never closes in the USER default is as unreadable as an unclosed quote, so it gets the may-run-as-root notice |
 | `migration 7 (arg-user) regression: a long continued ARG scans in linear time (base#1322)` | base#1322 review round 6 -- an ARG whose quoted value runs over 20000 continued lines must still scan in linear time (it took seconds to minutes when every appended line re-read the whole text); an instruction that long is not read token by token, so it warns as could-not-be-read |
 | `migration 7 (arg-user) regression: USER split over three lines of a long ARG (base#1336)` | base#1336 -- past 4096 bytes the scan stops building the text and looks for USER in the lines as it joins them; a USER split over three or more continued lines (`U\`, `S\`, `ER`), with or without a comment line inside the split, must still warn as could-not-be-read |
+| `migration 7 (arg-user) regression: a long ARG keeps the line-pair USER warnings (base#1336)` | base#1336 review round 1 -- the carried tail must not drop a warning the line-pair check gave before: `U\` + `SER` after a long value with no blank before the split, `USER\` + ` end`, and `USER=x\` after a value ending in `foo\` all warned on a5bcbf8a |
+| `migration 7 (arg-user) regression: USER split over four and five lines of a long ARG (base#1336)` | base#1336 review round 1 -- the tail must hold the boundary in front of USER however finely the word is split: a four-line split (`U\`, `S\`, `E\`, `R`) and a five-line one whose blank sits on its own continued line, with blank and comment lines skipped inside it |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
