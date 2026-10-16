@@ -2403,6 +2403,30 @@ EOF
     "4:literal=c${nbsp}d" "5:literal=e${ideo}f"
 }
 
+# why: base#1348 review round 3 -- the default named is the one Docker
+#      reads under the active escape directive: under `# escape=` + "`"
+#      a value continued with a backtick is named whole, not cut at the
+#      backtick
+@test "migration 7 (arg-user) regression: under a backtick escape directive a continued default is named whole (base#1348)" {
+  printf '# escape=`\nFROM busybox AS sys\nARG USER=ini`\ntial\nARG USER="x"\n' > "${DF}"
+  _m7_assert_warn_only 3:literal=initial 5:literal=x
+}
+
+# why: base#1348 review round 3 -- an escape followed by a Unicode space
+#      outside quotes takes the whole character, so the default is named
+#      byte for byte (escape included) and every ARG USER still warns
+#      exactly once
+@test "migration 7 (arg-user) regression: an escaped Unicode space outside quotes is named byte for byte (base#1348)" {
+  local nbsp=$'\xc2\xa0' ideo=$'\xe3\x80\x80'
+  {
+    printf 'FROM busybox AS sys\n'
+    printf 'ARG USER=a\\%sb\n' "${nbsp}"
+    printf 'ARG OTHER=1 USER=c\\%sd\n' "${ideo}"
+  } > "${DF}"
+  _m7_assert_warn_only "2:literal=a\\${nbsp}b" "3:literal=c\\${ideo}d"
+  assert_equal "$(printf '%s\n' "${output}" | grep -c "Dockerfile unchanged: ${DF}:")" 2
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
