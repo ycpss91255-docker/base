@@ -809,19 +809,26 @@ EOF
   assert_output --partial "project      : alice-myrepo"
   assert_output --partial "workspace    : /home/alice/work"
   # setup.conf dump — each populated section
-  assert_output --partial "[image]"
-  assert_output --partial "rule_1 = @basename"
-  assert_output --partial "[build]"
-  assert_output --partial "arg_1 = TZ=Asia/Taipei"
-  assert_output --partial "[volumes]"
-  assert_output --partial "mount_1 = /home/alice/work:/home/alice/work"
+  # Array-of-tables entries print in setup.toml's own vocabulary: the
+  # `[[...]]` table name and the entry's field names, never the internal
+  # `<prefix>_N` view (base#1339).
+  assert_output --partial "[[image.rules]]"
+  assert_output --partial "rule = @basename"
+  assert_output --partial "[[build.args]]"
+  assert_output --partial "key = TZ"
+  assert_output --partial "value = Asia/Taipei"
+  assert_output --partial "[[volumes]]"
+  assert_output --partial "source = /home/alice/work"
+  assert_output --partial "target = /home/alice/work"
   # The capability list, and a scalar beside it in the same section --
   # the array families are the half the INI reader lost, and the scalar
   # is what says the section is not simply being dumped raw (an INI
   # reader printed `privileged = false` with its TOML quotes on).
   assert_output --partial "[security]"
-  assert_output --partial "cap_add_1 = NET_ADMIN"
+  assert_output --partial "[[security.cap_add]]"
+  assert_output --partial "cap = NET_ADMIN"
   assert_output --partial "privileged = false"
+  refute_output --regexp "(rule|arg|mount|cap_add)_[0-9]+ ="
   # Resolved
   assert_output --partial "GPU enabled : true"
   assert_output --partial "GUI enabled : true"
@@ -829,6 +836,39 @@ EOF
   assert_output --partial "TZ=Asia/Taipei"
   # Customize hint
   assert_output --partial "./setup_tui.sh"
+}
+
+# why: the shipped template is what a first-time user's summary reads
+@test "_print_config_summary shows the template's [[...]] entries in setup.toml vocabulary (base#1339)" {
+  local _fp="${BATS_TEST_TMPDIR}/template"
+  mkdir -p "${_fp}"
+  cp /source/dist/setup.toml "${_fp}/setup.toml"
+  run bash -c "
+    source ${LIB}
+    FILE_PATH='${_fp}'
+    USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo
+    _print_config_summary build
+  "
+  assert_success
+  # No INI-era numbered key may surface under the setup.toml heading.
+  refute_output --regexp "(rule|arg)_[0-9]+ ="
+  # The entries, as the template writes them.
+  assert_output --partial "[[image.rules]]"
+  assert_output --partial "rule = prefix:docker_"
+  assert_output --partial "rule = @basename"
+  assert_output --partial "[[build.args]]"
+  assert_output --partial "key = APT_MIRROR_UBUNTU"
+  assert_output --partial "value = tw.archive.ubuntu.com"
+  assert_output --partial "key = TZ"
+  assert_output --partial "value = Asia/Taipei"
+  # Scalars keep printing as they do today.
+  assert_output --partial "network = auto"
+  # Entries keep the file's order.
+  local _first _last
+  _first="$(grep -n 'key = APT_MIRROR_UBUNTU' <<< "${output}" | cut -d: -f1)"
+  _last="$(grep -n 'key = TZ' <<< "${output}" | cut -d: -f1)"
+  (( _first < _last ))
 }
 
 @test "_print_config_summary names an active setup.local.toml and its sections (#893)" {
