@@ -2071,6 +2071,59 @@ EOF
   _m7_assert_warn_only 2:root 4:bare
 }
 
+# why: base#1322 review round 3 -- Docker's parser drops the continuation
+#      character and the newline and inserts nothing, so `ARG US\` + `ER`
+#      is `ARG USER` (moby/buildkit frontend/dockerfile/parser/parser.go).
+#      A comment line inside the split word is dropped too, trailing
+#      blanks after the escape still continue, and an escaped escape
+#      (`\\`) at the end of a line ends the instruction, so the ARG after
+#      it warns at its own line.
+@test "migration 7 (arg-user) regression: a continuation joins without a space (base#1322)" {
+  printf '%s\n' \
+    'FROM busybox AS sys' \
+    'ARG US\' \
+    'ER' \
+    'FROM sys AS devel' \
+    'AR\' \
+    'G USER="${USER_NAME}"' \
+    'FROM sys AS runtime' \
+    'ARG US\  ' \
+    '# a comment the parser drops' \
+    'ER' \
+    'FROM sys AS test' \
+    'ARG A=x\\' \
+    'ARG US\' \
+    'ER' > "${DF}"
+  _m7_assert_warn_only 2:bare 5:root 8:bare 13:bare
+}
+
+# why: base#1322 review round 3 -- the parser strips a UTF-8 byte-order
+#      mark from the first line, so an ARG USER or an escape directive on
+#      that line still counts
+@test "migration 7 (arg-user) regression: byte-order mark on the first line (base#1322)" {
+  printf '\xef\xbb\xbfARG USER\nFROM busybox AS sys\n' > "${DF}"
+  _m7_assert_warn_only 1:bare
+  printf '\xef\xbb\xbf# escape=`\nFROM busybox AS sys\nARG `\n    USER\n' > "${DF}"
+  _m7_assert_warn_only 3:bare
+}
+
+# why: base#1322 review round 3 -- buildkit stops reading directives at
+#      the first comment that is not a known one, so an escape directive
+#      after `# foo=bar` is ignored and `\` still continues; parser
+#      versions differ here, and doubt must never hide the warning
+@test "migration 7 (arg-user) regression: escape directive after an unknown directive (base#1322)" {
+  printf '# foo=bar\n# escape=`\nFROM busybox AS sys\nARG \\\n    USER\n' > "${DF}"
+  _m7_assert_warn_only 4:bare
+}
+
+# why: base#1322 review round 3 -- the parser trims every trailing CR/LF
+#      and treats any Unicode space (a form feed too) as whitespace, both
+#      between ARG and its names and before a comment inside a continuation
+@test "migration 7 (arg-user) regression: repeated carriage returns and form feeds (base#1322)" {
+  printf 'FROM busybox AS sys\nARG USER\r\r\nARG\fUSER\nARG \\\n\f# a comment\nUSER\n' > "${DF}"
+  _m7_assert_warn_only 2:bare 3:bare 4:bare
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
