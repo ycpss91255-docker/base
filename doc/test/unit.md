@@ -2354,7 +2354,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (167)
+### test/bats/unit/dockerfile_migrate_spec.bats (168)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
