@@ -618,6 +618,31 @@ def _entry_fields(path, value):
     return [("rule", value)]
 
 
+def _header_path(opener, key):
+    """The dotted path a table header names, decoded as TOML decodes it.
+
+    <key> is the text between the brackets. A header key is a TOML key:
+    `security."cap_add"` and `security."cap\\u005Fadd"` both name
+    `security.cap_add`, and a quoted part may hold a `.` -- so it is
+    decoded by parsing the header alone with tomllib, never by stripping
+    quotes and splitting on dots, which leaves an escape undecoded and
+    loses that block's position (base#1339). The path's parts are joined
+    with `.`, as _emit_entries joins the parsed data's keys. None when
+    the text does not parse as a header: a line inside a multi-line
+    string that merely looks like one.
+    """
+    closer = "]]" if opener == "[[" else "]"
+    try:
+        node = tomllib.loads(f"{opener}{key}{closer}\n")
+    except tomllib.TOMLDecodeError:
+        return None
+    parts = []
+    while isinstance(node, dict) and len(node) == 1:
+        name, node = next(iter(node.items()))
+        parts.append(name)
+    return ".".join(parts) if parts else None
+
+
 def _header_positions(raw):
     """Where each table header sits in the source text.
 
@@ -638,8 +663,9 @@ def _header_positions(raw):
         m = header.match(line)
         if not m:
             continue
-        path = ".".join(part.strip().strip("\"'")
-                        for part in m.group(2).split("."))
+        path = _header_path(m.group(1), m.group(2))
+        if path is None:
+            continue
         if m.group(1) == "[[":
             aot.setdefault(path, []).append(number)
         else:
