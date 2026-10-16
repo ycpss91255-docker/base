@@ -1085,6 +1085,40 @@ DOCKERFILE
   diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
 }
 
+# The retired prefix reaches the rewriter's awk as a REGEX, its dots escaped
+# so that `.base` means the literal directory. An escape that is lost on the
+# way in turns every dot back into "any character": a sibling tree such as
+# `xbase/test/smoke` is then taken for the retired one and rewritten into a
+# path the subtree never ships, and GNU awk says so on every upgrade.
+
+# why: A dot in the retired prefix matches only a dot
+@test "migration (smoke-copy): rewrites .base/test/smoke but leaves an xbase/test/smoke COPY alone (base#1324)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS custom-test
+COPY xbase/test/smoke/ /smoke_test/
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fxq "COPY xbase/test/smoke/ /smoke_test/" "${DF}"
+  grep -Fxq "COPY .base/dist/test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  [ "$(grep -c 'smoke_test/' "${DF}")" -eq 2 ]
+}
+
+# why: An upgrade prints no awk escape-sequence warning
+@test "migration (smoke-copy): the rewrite prints no awk escape-sequence warning (base#1324)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS custom-test
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  run --separate-stderr bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  refute_output --partial "escape sequence"
+  [[ "${stderr}" != *"escape sequence"* ]]
+}
+
 # ── migration (repo-smoke-copy): repo-owned test/smoke/ -> per-stage ────────
 # The sibling of smoke-copy. That one heals the path into base's SHIPPED
 # tree; this one heals the path into the repo's OWN. Both moved in the same
