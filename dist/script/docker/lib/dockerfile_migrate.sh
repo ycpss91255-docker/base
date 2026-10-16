@@ -1153,17 +1153,22 @@ _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USE
 
 # _dfm_arg_user_scan <dockerfile>
 #   Print `<line> root|bare` for every ARG declaring USER, sorted by line.
-#   <line> is the physical line its ARG instruction starts on. Continued
-#   lines are joined first (the escape character from a leading
-#   `# escape=` directive, else `\`); comment and blank lines inside a
-#   continuation are dropped, as the Dockerfile parser drops them. A
-#   trailing carriage return (CRLF file) is ignored.
+#   <line> is the physical line its ARG instruction starts on. Lines are
+#   joined as Docker's parser joins them (moby/buildkit
+#   frontend/dockerfile/parser/parser.go): a line ending in the escape
+#   character (trailing blanks allowed, not an escaped escape) continues,
+#   the character and the newline are removed and nothing is inserted;
+#   comment and blank lines inside a continuation are dropped; trailing
+#   CR/LF and a UTF-8 byte-order mark on line 1 are ignored. The file is
+#   scanned once with `\` and once with the backtick as the escape
+#   character and the results merged, so a `# escape=` directive the scan
+#   might read differently from the builder never hides a warning.
 _dfm_arg_user_scan() {
-  awk '
-    # classify <instruction text> <line>: print when it is an ARG naming USER.
+  LC_ALL=C awk '
+    # classify <instruction text> <line>: record when it is an ARG naming USER.
     function classify(text, ln,    rest, i, c, q, tok, n, toks, j, name, val, form) {
-      sub(/^[ \t]+/, "", text)
-      if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[ \t]/) return
+      sub(/^[[:space:]]+/, "", text)
+      if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[[:space:]]/) return
       rest = substr(text, 4)
       n = 0; tok = ""; q = ""
       for (i = 1; i <= length(rest); i++) {
@@ -1174,7 +1179,7 @@ _dfm_arg_user_scan() {
         if (c == esc && q != "\047" && i < length(rest)) { tok = tok c substr(rest, i + 1, 1); i++; continue }
         if (q != "") { tok = tok c; if (c == q) q = ""; continue }
         if (c == "\"" || c == "\047") { q = c; tok = tok c; continue }
-        if (c ~ /[ \t]/) { if (tok != "") toks[++n] = tok; tok = ""; continue }
+        if (c ~ /[[:space:]]/) { if (tok != "") toks[++n] = tok; tok = ""; continue }
         tok = tok c
       }
       if (tok != "") toks[++n] = tok
@@ -1186,40 +1191,51 @@ _dfm_arg_user_scan() {
         if (form == "") form = "bare"
         # Shapes the scan cannot read warn as root: an unclosed quote, or an
         # empty `USER=` followed by a name-less token (the default may sit
-        # on the continued line, e.g. `ARG USER=\` + `"${USER_NAME}"`).
+        # on the continued line, e.g. `ARG USER=\` + `  "${USER_NAME}"`).
         if (val ~ /USER_NAME/ || (j == n && q != "")) form = "root"
         if (val == "" && index(toks[j], "=") && j < n && !index(toks[j + 1], "=")) form = "root"
       }
       # A USER the token walk did not reach (a shape it misreads) still
       # warns, as may-run-as-root; a false positive is accepted.
-      if (form == "" && rest ~ /(^|[ \t"\047])USER([ \t=]|$)/) form = "root"
-      if (form != "" && !(ln in seen)) { seen[ln] = 1; print ln, form }
+      if (form == "" && rest ~ /(^|[[:space:]"\047])USER([[:space:]=]|$)/) form = "root"
+      if (form != "" && (!(ln in found) || form == "root")) found[ln] = form
     }
-    BEGIN { esc = "\\"; start = 0; buf = ""; header = 1 }
+    # continues <line>: true when <line> ends in the escape character that
+    # is not itself escaped (trailing blanks allowed); sets body to the line
+    # without it.
+    function continues(line,    t, k) {
+      t = line; sub(/[ \t]+$/, "", t); k = length(t)
+      if (k == 0 || substr(t, k, 1) != esc) return 0
+      if (k > 1 && substr(t, k - 1, 1) == esc) return 0
+      body = substr(t, 1, k - 1); return 1
+    }
+    # scan <escape>: join the lines under that escape character, classify each instruction.
+    function scan(e,    i, line, start, buf) {
+      esc = e; start = 0; buf = ""
+      for (i = 1; i <= nl; i++) {
+        line = L[i]
+        if (line ~ /^[[:space:]]*(#|$)/) continue
+        if (start == 0) start = i
+        if (continues(line)) { buf = buf body; continue }
+        classify(buf line, start); start = 0; buf = ""
+      }
+      if (start) classify(buf, start)
+    }
     {
-      # A CRLF file is scanned as LF (the bytes are never touched): a
-      # trailing carriage return would otherwise end every name and hide
-      # each continuation.
-      line = $0; sub(/\r$/, "", line)
-      if (header) {
-        if (match(line, /^#[ \t]*[Ee][Ss][Cc][Aa][Pp][Ee][ \t]*=[ \t]*[\\`]/)) { esc = substr(line, RLENGTH, 1); next }
-        if (line !~ /^#[ \t]*[A-Za-z]+[ \t]*=/) header = 0
-      }
-      if (line ~ /^[ \t]*[Aa][Rr][Gg][ \t]+USER([ \t=]|$)/ || line ~ /^[ \t]*[Aa][Rr][Gg][ \t]+USER\\/) phys[NR] = line
-      if (start == 0) {
-        if (line ~ /^[ \t]*(#|$)/) next
-        start = NR; buf = ""
-      } else if (line ~ /^[ \t]*(#|$)/) next
-      tail = line; sub(/[ \t]+$/, "", tail)
-      if (length(tail) > 0 && substr(tail, length(tail), 1) == esc) {
-        buf = buf substr(tail, 1, length(tail) - 1) " "
-        next
-      }
-      classify(buf line, start); start = 0; buf = ""
+      # Scanned as the parser reads it; the bytes are never touched.
+      line = $0
+      if (NR == 1) sub(/^\357\273\277/, "", line)
+      sub(/[\r\n]+$/, "", line)
+      L[++nl] = line
     }
     END {
-      if (start) classify(buf, start)
-      for (ln in phys) classify(phys[ln], ln)
+      scan("\\"); scan("`")
+      # Each physical line opening with ARG USER also counts on its own, in
+      # case a join above folded it into an earlier instruction.
+      esc = "\\"
+      for (i = 1; i <= nl; i++)
+        if (L[i] ~ /^[[:space:]]*[Aa][Rr][Gg][[:space:]]+USER([[:space:]=\\`]|$)/) classify(L[i], i)
+      for (ln in found) print ln, found[ln]
     }
   ' "$1" | sort -n
 }

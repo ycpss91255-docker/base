@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (151)
+### test/bats/unit/dockerfile_migrate_spec.bats (155)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2477,6 +2477,10 @@ force-rewrite).
 | `migration 7 (arg-user) regression: quoted and JSON '<<' literals (base#1322)` | base#1322 -- a quoted `<<` literal or a JSON-form `<<` opens no heredoc, so the ARG after it is a real instruction |
 | `migration 7 (arg-user) regression: CRLF line endings (base#1322)` | base#1322 review round 2 -- a CRLF Dockerfile keeps its carriage returns; the scan must still see `ARG USER` (bare and continued) and the file must keep its CRLF bytes |
 | `migration 7 (arg-user) regression: escaped quote before USER (base#1322)` | base#1322 review round 2 -- an escaped quote inside an earlier name's default must not swallow the USER declaration after it |
+| `migration 7 (arg-user) regression: a continuation joins without a space (base#1322)` | base#1322 review round 3 -- Docker's parser drops the continuation character and the newline and inserts nothing, so `ARG US\` + `ER` is `ARG USER` (moby/buildkit frontend/dockerfile/parser/parser.go). A comment line inside the split word is dropped too, trailing blanks after the escape still continue, and an escaped escape (`\\`) at the end of a line ends the instruction, so the ARG after it warns at its own line. |
+| `migration 7 (arg-user) regression: byte-order mark on the first line (base#1322)` | base#1322 review round 3 -- the parser strips a UTF-8 byte-order mark from the first line, so an ARG USER or an escape directive on that line still counts |
+| `migration 7 (arg-user) regression: escape directive after an unknown directive (base#1322)` | base#1322 review round 3 -- buildkit stops reading directives at the first comment that is not a known one, so an escape directive after `# foo=bar` is ignored and `\` still continues; parser versions differ here, and doubt must never hide the warning |
+| `migration 7 (arg-user) regression: repeated carriage returns and form feeds (base#1322)` | base#1322 review round 3 -- the parser trims every trailing CR/LF and treats any Unicode space (a form feed too) as whitespace, both between ARG and its names and before a comment inside a continuation |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
