@@ -1309,7 +1309,7 @@ _migrate_arg_user_apply() {
     if [[ "${_form}" == root ]]; then
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
     else
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER receives no build arg -- the image builds its default user, not the one compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
     fi
   done < <(_dfm_arg_user_scan "${_file}")
 }
