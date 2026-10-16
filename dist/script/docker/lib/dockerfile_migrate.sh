@@ -1151,23 +1151,39 @@ _migrate_sc1090_apply() {
 # shellcheck disable=SC2016
 _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USER_UID / USER_GID and create the user from them (dist/dockerfile/Dockerfile:214, :298), then in each later stage alias ARG USER="${USER_NAME}" (dist/dockerfile/Dockerfile:329)'
 
+# _DFM_UNICODE_SPACES
+#   The UTF-8 encodings of the non-ASCII characters Go's unicode.IsSpace
+#   accepts (U+0085, U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029,
+#   U+202F, U+205F, U+3000), as an ERE alternation. Docker's parser counts
+#   them as whitespace wherever it trims or splits words.
+_DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\xe2\x80\x82|\xe2\x80\x83|\xe2\x80\x84|\xe2\x80\x85|\xe2\x80\x86|\xe2\x80\x87|\xe2\x80\x88|\xe2\x80\x89|\xe2\x80\x8a|\xe2\x80\xa8|\xe2\x80\xa9|\xe2\x80\xaf|\xe2\x81\x9f|\xe3\x80\x80'
+
 # _dfm_arg_user_scan <dockerfile>
-#   Print `<line> root|bare` for every ARG declaring USER, sorted by line.
-#   <line> is the physical line its ARG instruction starts on. Lines are
-#   joined as Docker's parser joins them (moby/buildkit
+#   Print `<line> root|bare` for every ARG declaring USER (ONBUILD ARG
+#   too), sorted by line. <line> is the physical line its instruction
+#   starts on. Lines are joined as Docker's parser joins them (moby/buildkit
 #   frontend/dockerfile/parser/parser.go): a line ending in the escape
 #   character (trailing blanks allowed, not an escaped escape) continues,
 #   the character and the newline are removed and nothing is inserted;
-#   comment and blank lines inside a continuation are dropped; trailing
-#   CR/LF and a UTF-8 byte-order mark on line 1 are ignored. The file is
-#   scanned once with `\` and once with the backtick as the escape
-#   character and the results merged, so a `# escape=` directive the scan
-#   might read differently from the builder never hides a warning.
+#   comment and blank lines inside a continuation are dropped. Trailing
+#   CR/LF and a UTF-8 byte-order mark on line 1 are ignored, and every
+#   Unicode space counts as whitespace.
+#
+#   The scan never decides where an instruction starts: it joins forward
+#   from EVERY line that could open an ARG (after a heredoc, a directive or
+#   a continuation it might misread), once with `\` and once with the
+#   backtick as the escape character, and merges the results. A join that
+#   goes too far can only add a warning, never hide one; a false positive
+#   is accepted.
 _dfm_arg_user_scan() {
-  LC_ALL=C awk '
+  LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
     # classify <instruction text> <line>: record when it is an ARG naming USER.
     function classify(text, ln,    rest, i, c, q, tok, n, toks, j, name, val, form) {
       sub(/^[[:space:]]+/, "", text)
+      # ONBUILD ARG declares the ARG in every build FROM this image.
+      while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
+        text = substr(text, 8); sub(/^[[:space:]]+/, "", text)
+      }
       if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[[:space:]]/) return
       rest = substr(text, 4)
       n = 0; tok = ""; q = ""
@@ -1201,40 +1217,38 @@ _dfm_arg_user_scan() {
       if (form != "" && (!(ln in found) || form == "root")) found[ln] = form
     }
     # continues <line>: true when <line> ends in the escape character that
-    # is not itself escaped (trailing blanks allowed); sets body to the line
-    # without it.
+    # is not itself escaped (trailing blanks allowed), or is that character
+    # alone; sets body to the line without it.
     function continues(line,    t, k) {
       t = line; sub(/[ \t]+$/, "", t); k = length(t)
       if (k == 0 || substr(t, k, 1) != esc) return 0
       if (k > 1 && substr(t, k - 1, 1) == esc) return 0
       body = substr(t, 1, k - 1); return 1
     }
-    # scan <escape>: join the lines under that escape character, classify each instruction.
-    function scan(e,    i, line, start, buf) {
-      esc = e; start = 0; buf = ""
-      for (i = 1; i <= nl; i++) {
-        line = L[i]
-        if (line ~ /^[[:space:]]*(#|$)/) continue
-        if (start == 0) start = i
-        if (continues(line)) { buf = buf body; continue }
-        classify(buf line, start); start = 0; buf = ""
+    # joined <line>: the instruction text that starts at physical <line>.
+    function joined(i,    buf, j) {
+      buf = ""
+      for (j = i; j <= nl; j++) {
+        if (j > i && L[j] ~ /^[[:space:]]*(#|$)/) continue
+        if (!continues(L[j])) return buf L[j]
+        buf = buf body
       }
-      if (start) classify(buf, start)
+      return buf
     }
     {
       # Scanned as the parser reads it; the bytes are never touched.
       line = $0
       if (NR == 1) sub(/^\357\273\277/, "", line)
       sub(/[\r\n]+$/, "", line)
+      gsub(uws, " ", line)
       L[++nl] = line
     }
     END {
-      scan("\\"); scan("`")
-      # Each physical line opening with ARG USER also counts on its own, in
-      # case a join above folded it into an earlier instruction.
-      esc = "\\"
-      for (i = 1; i <= nl; i++)
-        if (L[i] ~ /^[[:space:]]*[Aa][Rr][Gg][[:space:]]+USER([[:space:]=\\`]|$)/) classify(L[i], i)
+      for (e = 1; e <= 2; e++) {
+        esc = (e == 1) ? "\\" : "`"
+        for (i = 1; i <= nl; i++)
+          if (L[i] ~ /^[[:space:]]*[AaOo\\`]/) classify(joined(i), i)
+      }
       for (ln in found) print ln, found[ln]
     }
   ' "$1" | sort -n
