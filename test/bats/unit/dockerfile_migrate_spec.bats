@@ -2160,6 +2160,31 @@ EOF
   _m7_assert_warn_only 2:root 3:bare 4:bare
 }
 
+# why: base#1322 review round 5 -- a quote that never closes after USER
+#      makes the whole declaration unreadable, so it gets the
+#      may-run-as-root notice even though USER itself parsed as bare
+@test "migration 7 (arg-user) regression: unclosed quote after USER (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER OTHER="unterminated
+EOF
+  _m7_assert_warn_only 2:root
+}
+
+# why: base#1322 review round 5 -- the scan joins forward from lines that
+#      might open an ARG; a long continuation whose lines start with `a`
+#      must not make that quadratic (20000 lines took minutes before)
+@test "migration 7 (arg-user) regression: a long continuation scans in linear time (base#1322)" {
+  {
+    printf 'FROM busybox AS sys\nRUN echo start \\\n'
+    printf '    a \\\n%.0s' $(seq 20000)
+    printf '    end\nARG USER\n'
+  } > "${DF}"
+  run timeout 10 bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial "${DF}:20004: ARG USER receives no build arg"
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
