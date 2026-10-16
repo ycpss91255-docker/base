@@ -1229,7 +1229,7 @@ _dfm_arg_user_scan() {
       # A USER the token walk did not reach (a shape it misreads) still
       # warns, as may-run-as-root; a false positive is accepted.
       if (form == "" && rest ~ /(^|[[:space:]"\047])USER([[:space:]=]|$)/) form = "root"
-      if (form != "" && (!(ln in found) || form == "root")) { found[ln] = form; value[ln] = (form == "literal") ? lit : "" }
+      if (form != "" && (!(ln in found) || form == "root")) { found[ln] = form; value[ln] = lit }
     }
     # continues <line>: true when <line> ends in the escape character that
     # is not itself escaped (trailing blanks allowed), or is that character
@@ -1302,7 +1302,10 @@ _dfm_arg_user_scan() {
             else if (longuser) found[i] = "root"
           }
       }
-      for (ln in found) print ln, found[ln], value[ln]
+      # Only a literal carries its value; root and bare print two fields.
+      for (ln in found)
+        if (found[ln] == "literal") print ln, found[ln], value[ln]
+        else print ln, found[ln]
     }
   ' "$1" | sort -n
 }
