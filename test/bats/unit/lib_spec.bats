@@ -838,37 +838,181 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
-# why: the shipped template is what a first-time user's summary reads
-@test "_print_config_summary shows the template's [[...]] entries in setup.toml vocabulary (base#1339)" {
-  local _fp="${BATS_TEST_TMPDIR}/template"
-  mkdir -p "${_fp}"
-  cp /source/dist/setup.toml "${_fp}/setup.toml"
+# _summary_entries <output>
+#
+# The setup.toml dump of a `_print_config_summary build` run, as its
+# entry lines alone: every `[build]   <header>` line and every
+# `[build]     <field> = <value>` line under one, in printed order.
+# A header is a `[...]` table name, which is what tells these apart from
+# the identity and resolved lines that share the tag.
+_summary_entries() {
+  grep -E '^\[build\]   (\[|  [^ ].* = )' <<< "${1}"
+}
+
+# _summary_toml <dir>
+#
+# Run the summary over <dir>/setup.toml with a fixed identity.
+_summary_toml() {
   run bash -c "
     source ${LIB}
-    FILE_PATH='${_fp}'
+    FILE_PATH='${1}'
     USER_NAME=alice USER_UID=1000 USER_GROUP=alice USER_GID=1000
     DOCKER_HUB_USER=alice IMAGE_NAME=myrepo PROJECT_NAME=alice-myrepo
     _print_config_summary build
   "
+}
+
+# why: the shipped template is what a first-time user's summary reads.
+# The whole ordered dump is pinned, not substrings of it: one header per
+# ENTRY (an implementation printing one per array still contains every
+# substring), each entry's fields together and in file order (pairing a
+# key with another entry's value still contains both), and every entry
+# of the template (dropping a middle one still has a first and a last).
+@test "_print_config_summary shows the template's [[...]] entries in setup.toml vocabulary (base#1339)" {
+  local _fp="${BATS_TEST_TMPDIR}/template"
+  mkdir -p "${_fp}"
+  cp /source/dist/setup.toml "${_fp}/setup.toml"
+  _summary_toml "${_fp}"
   assert_success
   # No INI-era numbered key may surface under the setup.toml heading.
-  refute_output --regexp "(rule|arg)_[0-9]+ ="
-  # The entries, as the template writes them.
-  assert_output --partial "[[image.rules]]"
-  assert_output --partial "rule = prefix:docker_"
-  assert_output --partial "rule = @basename"
-  assert_output --partial "[[build.args]]"
-  assert_output --partial "key = APT_MIRROR_UBUNTU"
-  assert_output --partial "value = tw.archive.ubuntu.com"
-  assert_output --partial "key = TZ"
-  assert_output --partial "value = Asia/Taipei"
-  # Scalars keep printing as they do today.
-  assert_output --partial "network = auto"
-  # Entries keep the file's order.
-  local _first _last
-  _first="$(grep -n 'key = APT_MIRROR_UBUNTU' <<< "${output}" | cut -d: -f1)"
-  _last="$(grep -n 'key = TZ' <<< "${output}" | cut -d: -f1)"
-  (( _first < _last ))
+  refute_output --regexp "[a-z]_[0-9]+ ="
+  run _summary_entries "${output}"
+  assert_output - <<'EOF'
+[build]   [[image.rules]]
+[build]     rule = prefix:docker_
+[build]   [[image.rules]]
+[build]     rule = suffix:_ws
+[build]   [[image.rules]]
+[build]     rule = @basename
+[build]   [build]
+[build]     network = auto
+[build]   [[build.args]]
+[build]     key = APT_MIRROR_UBUNTU
+[build]     value = tw.archive.ubuntu.com
+[build]   [[build.args]]
+[build]     key = APT_MIRROR_DEBIAN
+[build]     value = mirror.twds.com.tw
+[build]   [[build.args]]
+[build]     key = TZ
+[build]     value = Asia/Taipei
+[build]   [deploy]
+[build]     gpu_mode = auto
+[build]     gpu_count = all
+[build]     gpu_capabilities = gpu compute utility graphics
+[build]     gpu_runtime = auto
+[build]     dri_groups = auto
+[build]   [gui]
+[build]     mode = auto
+[build]   [network]
+[build]     mode = host
+[build]     ipc = host
+[build]     pid = private
+[build]   [security]
+[build]     privileged = false
+EOF
+}
+
+# why: TOML lets two arrays of one table interleave, and lets the
+# table's own `[security]` header come after its arrays; tomllib groups
+# an array's entries under one key, so a dump walked from the parsed
+# dict printed A, C, B and the scalars first. And an entry's empty field
+# is part of the entry -- the KV view keeps `EMPTY=` -- so dropping it
+# showed a different build argument from the one the run gets.
+@test "_print_config_summary keeps setup.toml's entry order and an entry's empty field (base#1339)" {
+  local _fp="${BATS_TEST_TMPDIR}/order"
+  mkdir -p "${_fp}"
+  cat > "${_fp}/setup.toml" <<'EOF'
+[[build.args]]
+key = "EMPTY"
+value = ""
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[security.cap_add]]
+cap = "A"
+
+[[security.cap_drop]]
+cap = "B"
+
+[[security.cap_add]]
+cap = "C"
+
+[security]
+privileged = false
+
+[build]
+network = "auto"
+target_arch = ""
+EOF
+  _summary_toml "${_fp}"
+  assert_success
+  run _summary_entries "${output}"
+  assert_output - <<'EOF'
+[build]   [[build.args]]
+[build]     key = EMPTY
+[build]     value = ""
+[build]   [[build.args]]
+[build]     key = TZ
+[build]     value = Asia/Taipei
+[build]   [build]
+[build]     network = auto
+[build]   [[security.cap_add]]
+[build]     cap = A
+[build]   [[security.cap_drop]]
+[build]     cap = B
+[build]   [[security.cap_add]]
+[build]     cap = C
+[build]   [security]
+[build]     privileged = false
+EOF
+}
+
+# why: the loader still accepts a family spelled as numbered table
+# scalars (`[image] rule_1 = ...`), and printing those verbatim put the
+# `<prefix>_N` vocabulary back under the setup.toml heading. They print
+# as the [[...]] entries `setup.sh set` would write for them, in their
+# numbered order, split into fields the way the writer splits them.
+@test "_print_config_summary prints numbered table scalars as [[...]] entries (base#1339)" {
+  local _fp="${BATS_TEST_TMPDIR}/numbered"
+  mkdir -p "${_fp}"
+  cat > "${_fp}/setup.toml" <<'EOF'
+[image]
+rule_2 = "suffix:_ws"
+rule_1 = "@basename"
+
+[build]
+network = "auto"
+arg_1 = "EMPTY="
+arg_2 = "HTTP_PROXY"
+
+[network]
+mode = "bridge"
+port_1 = "8080:80"
+EOF
+  _summary_toml "${_fp}"
+  assert_success
+  refute_output --regexp "[a-z]_[0-9]+ ="
+  run _summary_entries "${output}"
+  assert_output - <<'EOF'
+[build]   [[image.rules]]
+[build]     rule = @basename
+[build]   [[image.rules]]
+[build]     rule = suffix:_ws
+[build]   [build]
+[build]     network = auto
+[build]   [[build.args]]
+[build]     key = EMPTY
+[build]     value = ""
+[build]   [[build.args]]
+[build]     key = HTTP_PROXY
+[build]   [network]
+[build]     mode = bridge
+[build]   [[network.ports]]
+[build]     host = 8080
+[build]     container = 80
+EOF
 }
 
 @test "_print_config_summary names an active setup.local.toml and its sections (#893)" {
