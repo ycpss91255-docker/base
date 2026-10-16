@@ -194,19 +194,19 @@ _summary_dump_section() {
 # them shows the user a vocabulary their file does not use (base#1339).
 _summary_dump_entries() {
   local _tag="${1:?}" _sec="${2:?}" _rows="${3-}"
-  local _sds_row _sds_s _sds_n _sds_h _sds_f _sds_v _sds_last=""
-  while IFS= read -r _sds_row; do
-    [[ -n "${_sds_row}" ]] || continue
-    _sds_s="${_sds_row%%$'\t'*}"; _sds_row="${_sds_row#*$'\t'}"
-    [[ "${_sds_s}" == "${_sec}" ]] || continue
-    _sds_n="${_sds_row%%$'\t'*}"; _sds_row="${_sds_row#*$'\t'}"
-    _sds_h="${_sds_row%%$'\t'*}"; _sds_row="${_sds_row#*$'\t'}"
-    _sds_f="${_sds_row%%$'\t'*}"; _sds_v="${_sds_row#*$'\t'}"
-    if [[ "${_sds_n}" != "${_sds_last}" ]]; then
-      printf "[%s]   %s\n" "${_tag}" "${_sds_h}"
-      _sds_last="${_sds_n}"
+  local _sde_row _sde_s _sde_n _sde_h _sde_f _sde_v _sde_last=""
+  while IFS= read -r _sde_row; do
+    [[ -n "${_sde_row}" ]] || continue
+    _sde_s="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
+    [[ "${_sde_s}" == "${_sec}" ]] || continue
+    _sde_n="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
+    _sde_h="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
+    _sde_f="${_sde_row%%$'\t'*}"; _sde_v="${_sde_row#*$'\t'}"
+    if [[ "${_sde_n}" != "${_sde_last}" ]]; then
+      printf "[%s]   %s\n" "${_tag}" "${_sde_h}"
+      _sde_last="${_sde_n}"
     fi
-    printf "[%s]     %s = %s\n" "${_tag}" "${_sds_f}" "${_sds_v}"
+    printf "[%s]     %s = %s\n" "${_tag}" "${_sde_f}" "${_sde_v}"
   done <<< "${_rows}"
 }
 

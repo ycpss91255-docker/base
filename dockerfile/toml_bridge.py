@@ -626,7 +626,7 @@ def _emit_entries(data):
         for path, items in arrays:
             entries(section, f"[[{path}]]", items)
 
-    for section, _n, header, field, value in rows:
+    for _section, _n, header, field, value in rows:
         _check_transportable(header, field, value)
     for section, n, header, field, value in rows:
         print(f"{section}\t{n}\t{header}\t{field}\t{value}")
