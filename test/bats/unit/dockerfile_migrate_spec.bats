@@ -2348,16 +2348,40 @@ EOF
 @test "migration 7 (arg-user): a literal ARG USER default is named, not told it has none (base#1348)" {
   cat > "${DF}" <<'EOF'
 FROM ubuntu:22.04 AS sys
-ARG USER="initial"
+ARG USER="dq-name"
 ARG USER
 FROM sys AS a
-ARG USER=initial
+ARG USER=plain-name
 FROM sys AS b
-ARG USER='initial'
+ARG USER='sq-name'
 FROM sys AS c
-ARG USER_GROUP="g" USER="initial"
+ARG USER_GROUP="g" USER="multi-name"
 EOF
-  _m7_assert_warn_only 2:literal=initial 3:bare 5:literal=initial 7:literal=initial 9:literal=initial
+  _m7_assert_warn_only 2:literal=dq-name 3:bare 5:literal=plain-name 7:literal=sq-name 9:literal=multi-name
+}
+
+# why: base#1348 review round 1 -- an explicitly empty default (quoted,
+#      blank-only, or `USER=` at the end) is still a default, so it is
+#      named, not told it has none; the value reaches the notice exactly,
+#      boundary whitespace included; of two USER defaults the last is
+#      named; an expression other than USER_NAME is named as written; and
+#      a USER_NAME default or an unclosed quote still warns as root
+@test "migration 7 (arg-user) regression: empty, blank-padded and expression ARG USER defaults are named exactly (base#1348)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER=""
+ARG USER=''
+ARG USER="   "
+ARG USER="  spaced  "
+ARG USER=first USER=second
+ARG USER="${OTHER:-fallback}"
+ARG USER=
+ARG USER="" USER="${USER_NAME}"
+ARG USER="${USER_NAME}"
+ARG USER="" OTHER="unterminated
+EOF
+  _m7_assert_warn_only 2:literal= 3:literal= "4:literal=   " "5:literal=  spaced  " \
+    6:literal=second '7:literal=${OTHER:-fallback}' 8:literal= 9:root 10:root 11:root
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
