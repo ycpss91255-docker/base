@@ -1134,3 +1134,120 @@ _append() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Figure 5, widened: text the toolchain WRITES into, or SHIPS to, a consumer
+# ════════════════════════════════════════════════════════════════════
+
+# why: A heredoc body is not maintainer prose even when each of its lines opens
+# with `#` -- it is the generated .env header / .env.local seed / config/
+# .gitkeep a consumer reads, and a `just setup` there answers itself with
+# `error: justfile does not contain recipe` exactly as a printed hint does
+@test "_run_derived_figures: FAILS on a top-level recipe inside a heredoc a shipped script writes out (base#1349)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '_emit_header() {' \
+    "  cat << 'EOF'" \
+    '# Container env defaults -- OURS. `just setup` rewrites this file' \
+    'EOF' \
+    '}'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:4:"* ]]
+  [[ "${output}" == *"no 'setup'"* ]]
+  [[ "${output}" == *"just docker setup"* ]]
+}
+
+# why: The repair has to be reachable inside the heredoc too, or the generated
+# file would have no spelling that passes
+@test "_run_derived_figures: PASSES on the namespaced spelling inside a written-out heredoc (base#1349)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '_emit_header() {' \
+    "  cat << 'EOF'" \
+    '# Container env defaults -- OURS. `just docker setup` rewrites this file' \
+    'EOF' \
+    '}'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The widening stops where the heredoc stops: a source comment after the
+# terminator is maintainer prose again (base#1221 kept those out of figure 5),
+# so a scan that never noticed the heredoc close would report every docstring
+# below the first one
+@test "_run_derived_figures: a source comment after the heredoc closes is still not an instruction (base#1349)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '_emit_header() {' \
+    '  cat <<EOF' \
+    '# Container env defaults -- OURS. `just docker setup` rewrites this file' \
+    'EOF' \
+    '}' \
+    '# ADR-00000011 zero-special-case: there is no top-level `just build`.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The shipped setup.toml is copied into the consumer repo and read there;
+# its comments ARE the consumer-facing text, so `just run` in one is an
+# instruction the consumer cannot type
+@test "_run_derived_figures: FAILS on a top-level recipe in a shipped setup.toml comment (base#1349)" {
+  _append 'dist/setup.toml' \
+    '# the gitignored .env.local takes effect with `just run` alone'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/setup.toml:"* ]]
+  [[ "${output}" == *"no 'run'"* ]]
+}
+
+# why: The same for the legacy .setup.conf template a consumer still receives
+@test "_run_derived_figures: FAILS on a top-level recipe in a shipped .setup.conf comment (base#1349)" {
+  _append 'dist/.setup.conf' \
+    '# `.env.local`, which takes effect with only `just run` (no regenerate)'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/.setup.conf:"* ]]
+  [[ "${output}" == *"no 'run'"* ]]
+}
+
+# why: The shipped Dockerfile is the template a consumer copies blocks out of;
+# its `just setup` / `just build` walk-through is a set of instructions
+@test "_run_derived_figures: FAILS on top-level recipes in a shipped Dockerfile comment (base#1349)" {
+  _append 'dist/dockerfile/Dockerfile' \
+    '#      -- then `just setup` (which emits it into compose.yaml) and `just build`.'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/dockerfile/Dockerfile:"* ]]
+  [[ "${output}" == *"no 'setup'"* ]]
+  [[ "${output}" == *"no 'build'"* ]]
+}
+
+# why: The shipped .hadolint.yaml is copied to the consumer as-is
+@test "_run_derived_figures: FAILS on a top-level recipe in a shipped .hadolint.yaml comment (base#1349)" {
+  _append 'dist/.hadolint.yaml' \
+    '  # `just build` followed by reading /usr/local/share/base/base-image.env'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/.hadolint.yaml:"* ]]
+  [[ "${output}" == *"no 'build'"* ]]
+}
+
+# why: The repair is reachable in a template comment, or the shipped template
+# would have no spelling that passes
+@test "_run_derived_figures: PASSES on the namespaced spelling in a shipped template comment (base#1349)" {
+  _append 'dist/dockerfile/Dockerfile' \
+    '#      -- then `just docker setup` and `just docker build`.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The acceptance criterion on the live tree: every generated heredoc and
+# shipped template names only commands the consumer's entry justfile
+# dispatches, so the widened figure passes on base's own dist/ as it ships
+@test "_run_derived_figures: the REAL tree's emitted and shipped text names only dispatchable commands (base#1349)" {
+  REPO_ROOT=/source
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
