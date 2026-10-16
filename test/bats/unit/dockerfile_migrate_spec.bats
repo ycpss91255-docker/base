@@ -2384,6 +2384,25 @@ EOF
     6:literal=second '7:literal=${OTHER:-fallback}' 8:literal= 9:root 10:root 11:root
 }
 
+# why: base#1348 review round 2 -- the scan reads every Unicode space as
+#      whitespace, but the default it names keeps the bytes the Dockerfile
+#      wrote: a U+00A0, U+3000 or U+2028 inside a quoted default (also one
+#      on a continued line, or after a U+00A0 that separates ARG from
+#      USER) is named as written, not as an ASCII space
+@test "migration 7 (arg-user) regression: a Unicode space inside an ARG USER default is named byte for byte (base#1348)" {
+  local nbsp=$'\xc2\xa0' ideo=$'\xe3\x80\x80' lsep=$'\xe2\x80\xa8'
+  {
+    printf 'FROM busybox AS sys\n'
+    printf 'ARG USER="a%sb"\n' "${nbsp}"
+    printf "ARG USER='%sx%s'\n" "${ideo}" "${lsep}"
+    printf 'ARG%sUSER="c%sd"\n' "${nbsp}" "${nbsp}"
+    printf 'ARG OTHER=1 \\\n'
+    printf '  USER="e%sf"\n' "${ideo}"
+  } > "${DF}"
+  _m7_assert_warn_only "2:literal=a${nbsp}b" "3:literal=${ideo}x${lsep}" \
+    "4:literal=c${nbsp}d" "5:literal=e${ideo}f"
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
