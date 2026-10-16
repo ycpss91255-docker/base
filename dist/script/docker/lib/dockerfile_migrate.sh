@@ -1128,12 +1128,14 @@ _migrate_sc1090_apply() {
 # v0.41.0 compose/CI pass the build args USER_NAME / USER_GROUP / USER_UID /
 # USER_GID. A downstream Dockerfile still declaring `ARG USER` receives no
 # value for it. The earlier automatic rewrite (bare `ARG USER` ->
-# `ARG USER="${USER_NAME}"`) is retired (base#1322): it changed only the
-# later stages, while the account is created in `sys`, so on a Dockerfile
-# whose `sys` never declares USER_NAME the rewritten stages ran
-# `USER ""` and the image ran as root. A correct port changes `sys` and the
-# later stages together, which needs knowing how each repo creates its
-# user, so this migration only warns, naming the file and line and the
+# `ARG USER="${USER_NAME}"`) is retired (base#1322). It rewrote every
+# bare `ARG USER` line, in any stage, without looking at how the user is
+# created; in a layout where `sys` creates the account from its own
+# defaulted `ARG USER` and only later stages declare a bare one, the
+# rewrite left `sys` alone, and where `sys` never declares USER_NAME a
+# rewritten stage may switch to `USER ""` and run as root. A correct port
+# changes `sys` and the later stages together, which needs knowing how
+# each repo creates its user, so this migration only warns, naming the file and line and the
 # manual port the template uses. It never changes the bytes.
 #
 # Every `ARG` instruction that declares USER warns -- bare, with a
@@ -1154,7 +1156,8 @@ _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USE
 #   <line> is the physical line its ARG instruction starts on. Continued
 #   lines are joined first (the escape character from a leading
 #   `# escape=` directive, else `\`); comment and blank lines inside a
-#   continuation are dropped, as the Dockerfile parser drops them.
+#   continuation are dropped, as the Dockerfile parser drops them. A
+#   trailing carriage return (CRLF file) is ignored.
 _dfm_arg_user_scan() {
   awk '
     # classify <instruction text> <line>: print when it is an ARG naming USER.
@@ -1165,6 +1168,10 @@ _dfm_arg_user_scan() {
       n = 0; tok = ""; q = ""
       for (i = 1; i <= length(rest); i++) {
         c = substr(rest, i, 1)
+        # The escape character escapes the next one outside quotes and
+        # inside double quotes (`"a\" b"` stays one token); single quotes
+        # take it literally.
+        if (c == esc && q != "\047" && i < length(rest)) { tok = tok c substr(rest, i + 1, 1); i++; continue }
         if (q != "") { tok = tok c; if (c == q) q = ""; continue }
         if (c == "\"" || c == "\047") { q = c; tok = tok c; continue }
         if (c ~ /[ \t]/) { if (tok != "") toks[++n] = tok; tok = ""; continue }
@@ -1183,11 +1190,17 @@ _dfm_arg_user_scan() {
         if (val ~ /USER_NAME/ || (j == n && q != "")) form = "root"
         if (val == "" && index(toks[j], "=") && j < n && !index(toks[j + 1], "=")) form = "root"
       }
+      # A USER the token walk did not reach (a shape it misreads) still
+      # warns, as may-run-as-root; a false positive is accepted.
+      if (form == "" && rest ~ /(^|[ \t"\047])USER([ \t=]|$)/) form = "root"
       if (form != "" && !(ln in seen)) { seen[ln] = 1; print ln, form }
     }
     BEGIN { esc = "\\"; start = 0; buf = ""; header = 1 }
     {
-      line = $0
+      # A CRLF file is scanned as LF (the bytes are never touched): a
+      # trailing carriage return would otherwise end every name and hide
+      # each continuation.
+      line = $0; sub(/\r$/, "", line)
       if (header) {
         if (match(line, /^#[ \t]*[Ee][Ss][Cc][Aa][Pp][Ee][ \t]*=[ \t]*[\\`]/)) { esc = substr(line, RLENGTH, 1); next }
         if (line !~ /^#[ \t]*[A-Za-z]+[ \t]*=/) header = 0

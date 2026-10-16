@@ -1738,10 +1738,11 @@ EOF
 
 # ── migration 7 (facet B): ARG USER is reported, never rewritten ────────
 # base#1322: the old rewrite (bare `ARG USER` -> `ARG USER="${USER_NAME}"`)
-# changed only the later stages. The account is still created in `sys`
-# from its own `ARG USER` default, and on a Dockerfile whose `sys` never
-# declares USER_NAME the rewritten stages switch to `USER ""` -- the image
-# runs as root. A correct port changes `sys` and the later stages together,
+# rewrote every bare `ARG USER` line, in any stage. In a layout where `sys`
+# creates the account from its own defaulted `ARG USER` and only later
+# stages declare a bare one, `sys` kept its default; where `sys` never
+# declares USER_NAME a rewritten stage may switch to `USER ""` and the
+# image may run as root. A correct port changes `sys` and the later stages together,
 # which base cannot do without knowing how each repo creates its user. So
 # the migration is warn-only: the bytes never change, and the warning names
 # the file and line and states the manual port the template uses.
