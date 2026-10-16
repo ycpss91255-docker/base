@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (147)
+### test/bats/unit/dockerfile_migrate_spec.bats (149)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2470,6 +2470,8 @@ force-rewrite).
 | `migration 7 (arg-user) regression: declaration order (base#1322)` | base#1322 -- a USER_NAME declared AFTER the alias in the same stage |
 | `migration 7 (arg-user) regression: quoted and unquoted defaults (base#1322)` | base#1322 -- the alias with other quoting is the same shape |
 | `migration 7 (arg-user) regression: line continuations (base#1322)` | base#1322 -- a backslash continuation around ARG USER |
+| `migration 7 (arg-user) regression: continued and multi-name declarations (base#1322)` | base#1322 review round 1 -- the declaration itself is continued: `ARG \` + `USER` is a bare ARG USER, `ARG USER=\` + its USER_NAME default is the earlier rewrite, a comment line inside a continuation is dropped by the parser, and USER can be a later name in a multi-name ARG. Each warns at the line its ARG instruction starts on. |
+| `migration 7 (arg-user) regression: escape directive and unreadable quoting (base#1322)` | base#1322 review round 1 -- a `# escape=` directive moves the continuation character, and a default whose quote never closes is a shape the scan cannot read, so it gets the may-run-as-root notice |
 | `migration 7 (arg-user) regression: heredocs (base#1322)` | base#1322 -- a RUN heredoc before the ARG must not swallow it, and an ARG USER_NAME inside a heredoc body is not a declaration |
 | `migration 7 (arg-user) regression: numeric heredoc delimiter (base#1322)` | base#1322 -- a numeric heredoc delimiter |
 | `migration 7 (arg-user) regression: quoted and JSON '<<' literals (base#1322)` | base#1322 -- a quoted `<<` literal or a JSON-form `<<` opens no heredoc, so the ARG after it is a real instruction |

@@ -1987,6 +1987,21 @@ EOF
   _m7_assert_warn_only 2:bare 5:root 8:root 12:bare 14:root
 }
 
+# why: base#1322 review round 1 -- a `# escape=` directive moves the
+#      continuation character, and a default whose quote never closes is a
+#      shape the scan cannot read, so it gets the may-run-as-root notice
+@test "migration 7 (arg-user) regression: escape directive and unreadable quoting (base#1322)" {
+  cat > "${DF}" <<'EOF'
+# escape=`
+FROM busybox AS sys
+ARG `
+    USER
+FROM sys AS devel
+ARG USER="${HOME
+EOF
+  _m7_assert_warn_only 3:bare 6:root
+}
+
 # why: base#1322 -- a RUN heredoc before the ARG must not swallow it, and an
 #      ARG USER_NAME inside a heredoc body is not a declaration
 @test "migration 7 (arg-user) regression: heredocs (base#1322)" {

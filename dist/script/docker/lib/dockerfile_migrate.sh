@@ -1136,33 +1136,95 @@ _migrate_sc1090_apply() {
 # user, so this migration only warns, naming the file and line and the
 # manual port the template uses. It never changes the bytes.
 #
-# Every `ARG USER` line warns -- bare, with a default, or continued. One
-# whose default names USER_NAME (what the retired rewrite wrote) also says
-# the image may run as root. The scan is a plain line match with no stage or
-# heredoc model, so a line it cannot place still warns; a false positive is
-# accepted (base#1322).
-_DFM_ARG_USER_RE='^[[:space:]]*[Aa][Rr][Gg][[:space:]]+USER([[:space:]=\\]|$)'
+# Every `ARG` instruction that declares USER warns -- bare, with a
+# default, as a later name in a multi-name ARG, or continued over lines
+# (`ARG \` + `USER`, `ARG USER=\` + its default). One whose USER default
+# names USER_NAME (what the retired rewrite wrote) also says the image may
+# run as root, and so does a declaration whose quotes the scan cannot
+# balance. The scan has no stage or heredoc model: any physical line that
+# itself reads `ARG USER...` warns too, even inside a heredoc body or
+# another instruction's continuation. A false positive is accepted
+# (base#1322).
 # SC2016: ${USER_NAME} is Dockerfile text the user copies, never expanded here.
 # shellcheck disable=SC2016
 _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USER_UID / USER_GID and create the user from them (dist/dockerfile/Dockerfile:214, :298), then in each later stage alias ARG USER="${USER_NAME}" (dist/dockerfile/Dockerfile:329)'
 
+# _dfm_arg_user_scan <dockerfile>
+#   Print `<line> root|bare` for every ARG declaring USER, sorted by line.
+#   <line> is the physical line its ARG instruction starts on. Continued
+#   lines are joined first (the escape character from a leading
+#   `# escape=` directive, else `\`); comment and blank lines inside a
+#   continuation are dropped, as the Dockerfile parser drops them.
+_dfm_arg_user_scan() {
+  awk '
+    # classify <instruction text> <line>: print when it is an ARG naming USER.
+    function classify(text, ln,    rest, i, c, q, tok, n, toks, j, name, val, form) {
+      sub(/^[ \t]+/, "", text)
+      if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[ \t]/) return
+      rest = substr(text, 4)
+      n = 0; tok = ""; q = ""
+      for (i = 1; i <= length(rest); i++) {
+        c = substr(rest, i, 1)
+        if (q != "") { tok = tok c; if (c == q) q = ""; continue }
+        if (c == "\"" || c == "\047") { q = c; tok = tok c; continue }
+        if (c ~ /[ \t]/) { if (tok != "") toks[++n] = tok; tok = ""; continue }
+        tok = tok c
+      }
+      if (tok != "") toks[++n] = tok
+      form = ""
+      for (j = 1; j <= n; j++) {
+        name = toks[j]; val = ""
+        if (index(name, "=")) { val = substr(name, index(name, "=") + 1); name = substr(name, 1, index(name, "=") - 1) }
+        if (name != "USER") continue
+        if (form == "") form = "bare"
+        # Shapes the scan cannot read warn as root: an unclosed quote, or an
+        # empty `USER=` followed by a name-less token (the default may sit
+        # on the continued line, e.g. `ARG USER=\` + `"${USER_NAME}"`).
+        if (val ~ /USER_NAME/ || (j == n && q != "")) form = "root"
+        if (val == "" && index(toks[j], "=") && j < n && !index(toks[j + 1], "=")) form = "root"
+      }
+      if (form != "" && !(ln in seen)) { seen[ln] = 1; print ln, form }
+    }
+    BEGIN { esc = "\\"; start = 0; buf = ""; header = 1 }
+    {
+      line = $0
+      if (header) {
+        if (match(line, /^#[ \t]*[Ee][Ss][Cc][Aa][Pp][Ee][ \t]*=[ \t]*[\\`]/)) { esc = substr(line, RLENGTH, 1); next }
+        if (line !~ /^#[ \t]*[A-Za-z]+[ \t]*=/) header = 0
+      }
+      if (line ~ /^[ \t]*[Aa][Rr][Gg][ \t]+USER([ \t=]|$)/ || line ~ /^[ \t]*[Aa][Rr][Gg][ \t]+USER\\/) phys[NR] = line
+      if (start == 0) {
+        if (line ~ /^[ \t]*(#|$)/) next
+        start = NR; buf = ""
+      } else if (line ~ /^[ \t]*(#|$)/) next
+      tail = line; sub(/[ \t]+$/, "", tail)
+      if (length(tail) > 0 && substr(tail, length(tail), 1) == esc) {
+        buf = buf substr(tail, 1, length(tail) - 1) " "
+        next
+      }
+      classify(buf line, start); start = 0; buf = ""
+    }
+    END {
+      if (start) classify(buf, start)
+      for (ln in phys) classify(phys[ln], ln)
+    }
+  ' "$1" | sort -n
+}
+
 _migrate_arg_user_detect() {
-  local _file="$1"
-  grep -Eq "${_DFM_ARG_USER_RE}" "${_file}"
+  [[ -n "$(_dfm_arg_user_scan "$1")" ]]
 }
 
 _migrate_arg_user_apply() {
   local _file="$1"
-  local _hit _ln _text
-  while IFS= read -r _hit; do
-    _ln="${_hit%%:*}"
-    _text="${_hit#*:}"
-    if [[ "${_text}" == *USER_NAME* ]]; then
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
+  local _ln _form
+  while read -r _ln _form; do
+    if [[ "${_form}" == root ]]; then
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
     else
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER receives no build arg -- the image builds its default user, not the one compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
     fi
-  done < <(grep -nE "${_DFM_ARG_USER_RE}" "${_file}")
+  done < <(_dfm_arg_user_scan "${_file}")
 }
 
 # ── Migration 8 (facet B): nounset-guard the entrypoint ROS source ─────
