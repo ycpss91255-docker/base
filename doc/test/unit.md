@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (160)
+### test/bats/unit/dockerfile_migrate_spec.bats (162)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2486,6 +2486,8 @@ force-rewrite).
 | `migration 7 (arg-user) regression: ONBUILD ARG USER (base#1322)` | base#1322 review round 4 -- an ONBUILD trigger declares the ARG in every build FROM this image, so it warns like a plain one |
 | `migration 7 (arg-user) regression: unclosed quote after USER (base#1322)` | base#1322 review round 5 -- a quote that never closes after USER makes the whole declaration unreadable, so it gets the may-run-as-root notice even though USER itself parsed as bare |
 | `migration 7 (arg-user) regression: a long continuation scans in linear time (base#1322)` | base#1322 review round 5 -- the scan joins forward from lines that might open an ARG; a long continuation whose lines start with `a` must not make that quadratic (20000 lines took minutes before) |
+| `migration 7 (arg-user) regression: unclosed parameter expansion in the USER default (base#1322)` | base#1322 review round 6 -- a `${` that never closes in the USER default is as unreadable as an unclosed quote, so it gets the may-run-as-root notice |
+| `migration 7 (arg-user) regression: a long continued ARG scans in linear time (base#1322)` | base#1322 review round 6 -- an ARG whose quoted value runs over 20000 continued lines must still scan in linear time (it took seconds to minutes when every appended line re-read the whole text); an instruction that long is not read token by token, so it warns as could-not-be-read |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |

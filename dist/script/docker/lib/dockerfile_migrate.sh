@@ -1178,7 +1178,7 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 _dfm_arg_user_scan() {
   LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
     # classify <instruction text> <line>: record when it is an ARG naming USER.
-    function classify(text, ln,    rest, i, c, q, tok, n, toks, j, name, val, form) {
+    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form) {
       sub(/^[[:space:]]+/, "", text)
       # ONBUILD ARG declares the ARG in every build FROM this image.
       while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
@@ -1186,26 +1186,30 @@ _dfm_arg_user_scan() {
       }
       if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[[:space:]]/) return
       rest = substr(text, 4)
-      n = 0; tok = ""; q = ""
-      for (i = 1; i <= length(rest); i++) {
+      # Each token is the raw text between unquoted, unescaped blanks, cut
+      # out with substr once it ends (never built a character at a time,
+      # which is quadratic on a long continued value).
+      n = 0; ts = 0; q = ""; len = length(rest)
+      for (i = 1; i <= len; i++) {
         c = substr(rest, i, 1)
+        if (q == "" && index(ws, c)) { if (ts) toks[++n] = substr(rest, ts, i - ts); ts = 0; continue }
+        if (!ts) ts = i
         # The escape character escapes the next one outside quotes and
         # inside double quotes (`"a\" b"` stays one token); single quotes
         # take it literally.
-        if (c == esc && q != "\047" && i < length(rest)) { tok = tok c substr(rest, i + 1, 1); i++; continue }
-        if (q != "") { tok = tok c; if (c == q) q = ""; continue }
-        if (c == "\"" || c == "\047") { q = c; tok = tok c; continue }
-        if (c ~ /[[:space:]]/) { if (tok != "") toks[++n] = tok; tok = ""; continue }
-        tok = tok c
+        if (c == esc && q != "\047" && i < len) { i++; continue }
+        if (q != "") { if (c == q) q = ""; continue }
+        if (c == "\"" || c == "\047") q = c
       }
-      if (tok != "") toks[++n] = tok
+      if (ts) toks[++n] = substr(rest, ts)
       form = ""
       for (j = 1; j <= n; j++) {
         name = toks[j]; val = ""
         if (index(name, "=")) { val = substr(name, index(name, "=") + 1); name = substr(name, 1, index(name, "=") - 1) }
         if (name != "USER") continue
         if (form == "") form = "bare"
-        if (val ~ /USER_NAME/) form = "root"
+        # A USER_NAME default, or one whose `${` never closes, warns as root.
+        if (val ~ /USER_NAME/ || val ~ /\$\{[^}]*$/) form = "root"
         # An empty `USER=` followed by a name-less token is a shape the scan
         # cannot read (the default may sit on the continued line, e.g.
         # `ARG USER=\` + `  "${USER_NAME}"`): it warns as root.
@@ -1227,25 +1231,35 @@ _dfm_arg_user_scan() {
       if (k > 1 && substr(t, k - 1, 1) == esc) return 0
       body = substr(t, 1, k - 1); return 1
     }
-    # viable <text>: true while <text> can still grow into an ARG or
-    # ONBUILD ARG instruction (it is one, or a prefix of the keywords).
+    # viable <text>: 2 once <text> is an ARG or ONBUILD ARG instruction,
+    # 1 while it is still a prefix of one, 0 when it can never be one.
     function viable(text,    r) {
       r = tolower(text); sub(/^[[:space:]]+/, "", r)
       while (r ~ /^onbuild[[:space:]]/) { r = substr(r, 8); sub(/^[[:space:]]+/, "", r) }
-      if (r ~ /^arg[[:space:]]/) return 1
+      if (r ~ /^arg[[:space:]]/) return 2
       return r == "" || index("arg", r) == 1 || index("onbuild", r) == 1
     }
     # joined <line>: the instruction text that starts at physical <line>,
     # or "" once the join can no longer be an ARG. Joining only appends,
     # so a text that is not viable never becomes one, and stopping there
     # keeps a long continuation from being re-walked from every line.
-    function joined(i,    buf, j) {
-      buf = ""
+    # Past 4096 bytes the text is not built (awk string work on it would
+    # be quadratic): toolong is set, and longuser says whether USER shows
+    # as a word in any line or pair of adjacent lines, so classify is
+    # skipped and the caller warns as unreadable instead.
+    function joined(i,    buf, j, v, k, piece, prev) {
+      buf = ""; v = 1; toolong = 0; longuser = 0; prev = ""
       for (j = i; j <= nl; j++) {
         if (j > i && L[j] ~ /^[[:space:]]*(#|$)/) continue
-        if (!continues(L[j])) return buf L[j]
-        buf = buf body
-        if (!viable(buf)) return ""
+        k = continues(L[j]); piece = k ? body : L[j]
+        if ((prev piece) ~ /(^|[[:space:]"\047=])USER([[:space:]=]|$)/) longuser = 1
+        prev = piece
+        if (!toolong) {
+          buf = buf piece
+          if (v == 1) { v = viable(buf); if (!v) return "" }
+          if (length(buf) > 4096) { toolong = 1; buf = "" }
+        }
+        if (!k) break
       }
       return buf
     }
@@ -1258,10 +1272,15 @@ _dfm_arg_user_scan() {
       L[++nl] = line
     }
     END {
+      ws = " \t\n\v\f\r"
       for (e = 1; e <= 2; e++) {
         esc = (e == 1) ? "\\" : "`"
         for (i = 1; i <= nl; i++)
-          if (L[i] ~ /^[[:space:]]*[AaOo\\`]/) classify(joined(i), i)
+          if (L[i] ~ /^[[:space:]]*[AaOo\\`]/) {
+            t = joined(i)
+            if (!toolong) classify(t, i)
+            else if (longuser) found[i] = "root"
+          }
       }
       for (ln in found) print ln, found[ln]
     }

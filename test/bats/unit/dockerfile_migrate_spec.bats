@@ -2200,7 +2200,9 @@ EOF
 
 # why: base#1322 review round 6 -- an ARG whose quoted value runs over
 #      20000 continued lines must still scan in linear time (it took
-#      seconds to minutes when every appended line re-read the whole text)
+#      seconds to minutes when every appended line re-read the whole text);
+#      an instruction that long is not read token by token, so it warns as
+#      could-not-be-read
 @test "migration 7 (arg-user) regression: a long continued ARG scans in linear time (base#1322)" {
   {
     printf 'FROM busybox AS sys\nARG OTHER="\\\n'
@@ -2209,7 +2211,7 @@ EOF
   } > "${DF}"
   run timeout 10 bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
   assert_success
-  assert_output --partial "${DF}:2: ARG USER receives no build arg"
+  assert_output --partial "${DF}:2: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read"
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
