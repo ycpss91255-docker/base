@@ -36,10 +36,10 @@
 # → cache-hit guard returns early), successful displaced rebuild (`pre !=
 # post`, old id has no other tag → `docker rmi <old-id>` fires), tagged
 # guard (old id still carries one alias, or several → "skip prune:
-# predecessor still tagged" log + no rmi, base#1338), `--no-prune` opt-out (no inspect calls + no rmi
-# even when ids would have moved), `--dry-run` (planned-action line
-# `[dry-run] docker rmi <old-id-of ... if displaced>` visible + zero real
-# rmi), and `--help` mentions the `--no-prune` flag.
+# predecessor still tagged" log + no rmi, base#1338), `--no-prune` opt-out
+# (no inspect calls + no rmi even when ids would have moved), `--dry-run`
+# (planned-action line `[dry-run] docker rmi <old-id-of ... if displaced>`
+# visible + zero real rmi), and `--help` mentions the `--no-prune` flag.
 
 bats_require_minimum_version 1.5.0
 
