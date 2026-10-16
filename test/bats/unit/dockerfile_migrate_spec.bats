@@ -2049,6 +2049,27 @@ EOF
   _m7_assert_warn_only 3:bare 6:root 9:bare
 }
 
+# why: base#1322 review round 2 -- a CRLF Dockerfile keeps its carriage
+#      returns; the scan must still see `ARG USER` (bare and continued) and
+#      the file must keep its CRLF bytes
+@test "migration 7 (arg-user) regression: CRLF line endings (base#1322)" {
+  printf 'FROM busybox AS sys\r\nARG USER\r\nFROM sys AS devel\r\nARG \\\r\n    USER\r\nFROM sys AS runtime\r\nARG USER="${USER_NAME}"\r\n' > "${DF}"
+  _m7_assert_warn_only 2:bare 4:bare 7:root
+  grep -q $'\r$' "${DF}"
+}
+
+# why: base#1322 review round 2 -- an escaped quote inside an earlier
+#      name's default must not swallow the USER declaration after it
+@test "migration 7 (arg-user) regression: escaped quote before USER (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG OTHER="a\" b" USER="${USER_NAME}"
+FROM sys AS devel
+ARG OTHER='a\' USER
+EOF
+  _m7_assert_warn_only 2:root 4:bare
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
