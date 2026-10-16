@@ -1241,7 +1241,7 @@ _init_existing_repo() {
   # reads `env.local.toml`: compose still loads `.env` plus `.env.local`
   # (compose_emit.sh), and the `setup apply` that follows re-scaffolds
   # `.env.local` as a comment-only file. Calling it from here therefore
-  # discards the operator's overrides during `just upgrade`'s Step 3
+  # discards the operator's overrides during `just base upgrade`'s Step 3
   # resync while logging that they "were converted", which reads as
   # "still in effect" and is not. Restore the call in the same change
   # that lands the `env.toml` / `env.local.toml` readers (base#1168),

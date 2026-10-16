@@ -17,7 +17,7 @@
 #
 # The orchestrator half is guarded, for the same reason
 # reproducibility.bats guards the manifest: THIS FILE arrives through
-# `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
+# `.base/dist/`, which `just base upgrade` refreshes, while the Dockerfile that
 # installs the orchestrator is the consumer's own. On the runtime stage
 # that install is opt-in -- the scaffold ships the directory COPY
 # commented out, and the migration that collapses the per-file helper
@@ -43,7 +43,7 @@
 # The orchestrator half skips (rather than fails) on an image whose
 # `/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000032
 # single-file model. This file reaches a consumer through `.base/dist/`,
-# which `just upgrade` refreshes, while the Dockerfile that installs the
+# which `just base upgrade` refreshes, while the Dockerfile that installs the
 # orchestrator is the consumer's own — and on the optional runtime stage
 # that install is opt-in. Without the guard, a repo running the optional
 # runtime-test bats smoke would go red on the upgrade that delivers this

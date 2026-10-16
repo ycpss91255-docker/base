@@ -188,7 +188,7 @@
 # The pair travels the same three routes. Under `[build]` that is
 # `arg_5 = BASE_IMAGE=ubuntu@sha256:<digest>` beside the
 # `arg_4 = BASE_IMAGE_DIGEST=sha256:<digest>` above -- the route that
-# costs no hand-edit of this file and survives the next `just upgrade`,
+# costs no hand-edit of this file and survives the next `just base upgrade`,
 # whereas changing the `ARG BASE_IMAGE=` default below edits a
 # template-owned line a later migration may rewrite.
 # Pinning is a per-repo call because the bump maintenance it costs is the
