@@ -2117,11 +2117,47 @@ EOF
 }
 
 # why: base#1322 review round 3 -- the parser trims every trailing CR/LF
-#      and treats any Unicode space (a form feed too) as whitespace, both
-#      between ARG and its names and before a comment inside a continuation
+#      and treats an ASCII form feed as whitespace, both between ARG and
+#      its names and before a comment inside a continuation
 @test "migration 7 (arg-user) regression: repeated carriage returns and form feeds (base#1322)" {
   printf 'FROM busybox AS sys\nARG USER\r\r\nARG\fUSER\nARG \\\n\f# a comment\nUSER\n' > "${DF}"
   _m7_assert_warn_only 2:bare 3:bare 4:bare
+}
+
+# why: base#1322 review round 4 -- the parser counts every Unicode space
+#      (unicode.IsSpace) as whitespace: a no-break space before ARG or
+#      between ARG and USER, and an ideographic space indenting a comment
+#      line inside a continuation
+@test "migration 7 (arg-user) regression: Unicode whitespace (base#1322)" {
+  printf 'FROM busybox AS sys\n\xc2\xa0ARG USER\nARG\xc2\xa0USER\nARG \\\n\xe3\x80\x80# a comment\nUSER\n' > "${DF}"
+  _m7_assert_warn_only 2:bare 3:bare 4:bare
+}
+
+# why: base#1322 review round 4 -- the parser reads a heredoc body and its
+#      terminator raw, so a terminator ending in `\` continues nothing and
+#      the split `ARG US\` + `ER` after it is `ARG USER` at its own line
+@test "migration 7 (arg-user) regression: heredoc terminator ending in the escape character (base#1322)" {
+  printf '%s\n' \
+    'FROM busybox AS sys' \
+    "RUN <<'END\\'" \
+    'echo hello' \
+    'END\' \
+    'ARG US\' \
+    'ER' > "${DF}"
+  _m7_assert_warn_only 5:bare
+}
+
+# why: base#1322 review round 4 -- an ONBUILD trigger declares the ARG in
+#      every build FROM this image, so it warns like a plain one
+@test "migration 7 (arg-user) regression: ONBUILD ARG USER (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ONBUILD ARG USER="${USER_NAME}"
+onbuild arg USER
+ONBUILD \
+    ARG USER
+EOF
+  _m7_assert_warn_only 2:root 3:bare 4:bare
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
