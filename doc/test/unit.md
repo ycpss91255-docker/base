@@ -2215,7 +2215,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (84)
+### test/bats/unit/derived_figures_lint_spec.bats (93)
 
 | Test | Description |
 |------|-------------|
@@ -2303,6 +2303,15 @@ refused before any build or bundle step.
 | `_run_derived_figures: a backticked placeholder shape is not a recipe claim (base#1221)` | A backticked placeholder is a shape the reader substitutes into, not an invocation, and the shipped init.sh warning spells it exactly that way -- so the widened scope must not turn that correct line into a violation |
 | `_run_derived_figures: reads the recipe out of an ESCAPED backtick span (base#1221)` | Inside a double-quoted shell string the shipped code must escape the delimiter, so the live defect is spelled `\`just build\``; reading the escaping backslash as part of the recipe name reports `build\` and loses the namespaced repair the message exists to hand over |
 | `_run_derived_figures: an ESCAPED backtick span naming a dispatchable command is clean (base#1221)` | The false positive the same mis-read causes, and the load-bearing half: an escaped backtick span naming a command the layering DOES dispatch must stay silent, or the widening reports correct shipped prose |
+| `_run_derived_figures: FAILS on a top-level recipe inside a heredoc a shipped script writes out (base#1349)` | A heredoc body is not maintainer prose even when each of its lines opens with `#` -- it is the generated .env header / .env.local seed / config/ .gitkeep a consumer reads, and a `just setup` there answers itself with `error: justfile does not contain recipe` exactly as a printed hint does |
+| `_run_derived_figures: PASSES on the namespaced spelling inside a written-out heredoc (base#1349)` | The repair has to be reachable inside the heredoc too, or the generated file would have no spelling that passes |
+| `_run_derived_figures: a source comment after the heredoc closes is still not an instruction (base#1349)` | The widening stops where the heredoc stops: a source comment after the terminator is maintainer prose again (base#1221 kept those out of figure 5), so a scan that never noticed the heredoc close would report every docstring below the first one |
+| `_run_derived_figures: FAILS on a top-level recipe in a shipped setup.toml comment (base#1349)` | The shipped setup.toml is copied into the consumer repo and read there; its comments ARE the consumer-facing text, so `just run` in one is an instruction the consumer cannot type |
+| `_run_derived_figures: FAILS on a top-level recipe in a shipped .setup.conf comment (base#1349)` | The same for the legacy .setup.conf template a consumer still receives |
+| `_run_derived_figures: FAILS on top-level recipes in a shipped Dockerfile comment (base#1349)` | The shipped Dockerfile is the template a consumer copies blocks out of; its `just setup` / `just build` walk-through is a set of instructions |
+| `_run_derived_figures: FAILS on a top-level recipe in a shipped .hadolint.yaml comment (base#1349)` | The shipped .hadolint.yaml is copied to the consumer as-is |
+| `_run_derived_figures: PASSES on the namespaced spelling in a shipped template comment (base#1349)` | The repair is reachable in a template comment, or the shipped template would have no spelling that passes |
+| `_run_derived_figures: the shipped emitted and template text names only dispatchable commands (base#1349)` | The acceptance criterion on the text base actually ships: every generated heredoc and shipped template the base#1349 fix rewrote names only commands the consumer's real entry justfile dispatches. Asserted through a COPY of those files in the scratch tree, not by pointing REPO_ROOT at the checkout -- the coverage suite checks the driver against fixtures and the lint job checks the tree (base#1075) -- so the copy is the shipped text and the real layering it is judged against, and nothing else |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
@@ -2649,7 +2658,7 @@ the file's bottom guard and are pinned separately.
 | `the orchestrator ships with the executable bit set (#945)` | Its four runtime siblings are 644 because they are sourced; this one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed 644, so nothing in a normal build goes red -- the file is simply not runnable from the subtree, and any consumer path that stops going through that COPY inherits an exit 126 |
 | `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | Joins the two files nothing else joins -- it reads the ENTRYPOINT out of the shipped Dockerfile and requires the shared build-time baseline to name that same path. Without it the half the container actually starts is asserted by nothing, and a dropped runtime-directory COPY stays invisible until a real container fails to come up |
 
-### test/bats/unit/env_emit_spec.bats (32)
+### test/bats/unit/env_emit_spec.bats (33)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_* metadata,
 SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
@@ -2663,6 +2672,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_scaffold_env_local is idempotent (never overwrites) (#868)` | - |
 | `write_env emits PROJECT_NAME_PENDING only when a rename is deferred (#920)` | - |
 | `_scaffold_env_local / write_container_env: the guidance names only files the env_file block loads` | Both files are GUIDANCE an operator follows, and the only authority on which override file compose actually reads is `_emit_env_file_block` -- the function that writes the `env_file:` list into the generated compose. It lists `.env` and `.env.local`; nothing reads `env.local.toml`, which init.sh states where it declines to call the converter (base#1163, readers on base#1168). Both files named it anyway, and the scaffold went further and put a TOML `[environment]` table into the dotenv file compose parses -- measured against compose 2.x, that does not refuse, it improvises: the header line is skipped, `KEY = "42"` arrives as `42`, and a second header such as `[stage:headless]` arrives as a variable literally named `[stage`. So an operator following the shipped instructions either edits a file nothing reads or puts junk in the container, with no error either way. The loaded set is DERIVED here, so moving the `env_file:` list moves what the guidance is allowed to say rather than stranding this assertion -- which is what the previous `--partial ".env.local"` check did, since the old `.env.local.toml` spelling satisfies it. And the generated `.env` is now written WITH a service-env entry, which is the arm that was missing. The section header carries the name of the file the block came from, and it is emitted only when `<service_env_str>` is non-empty -- so passing "" asked this rule about every line of the artifact except the one line that names another file. Under the dotted spelling base#1167 retired, that header advertised `.env.toml` inside a file compose parses as dotenv, which is precisely what this test forbids and could not see. |
+| `_scaffold_env_local / write_container_env: the regenerate command named is one the consumer can run (base#1349)` | Both generated files tell the consumer how `.env` is rewritten, and the consumer's entry justfile has no top-level `setup` recipe (ADR-00000011), so `just setup` in either answers itself with `error: justfile does not contain recipe`; the command they can type is `just docker setup` |
 | `_scaffold_env_local creates a comment-only override file naming .env (#868)` | - |
 | `write_container_env emits the [environment] defaults it is given (#868)` | - |
 | `write_container_env emits the WATCHDOG_* block into .env, not compose (#868)` | - |

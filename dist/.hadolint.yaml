@@ -41,7 +41,7 @@ ignored:
   # So it is a hand port: `just base upgrade`, then copy the two manifest
   # blocks -- the sys stage RUN and, if the runtime split is enabled,
   # runtime-base's -- from .base/dist/dockerfile/Dockerfile into your own.
-  # `just build` followed by reading
+  # `just docker build` followed by reading
   # /usr/local/share/base/base-image.env in the built image says which
   # side of that you are on.
   #

@@ -134,13 +134,13 @@
 #        key = "BASE_IMAGE_DIGEST"
 #        value = "sha256:<digest>"
 #
-#      -- then `just setup` (which emits it into compose.yaml's build
-#      `args:` and into `.env`) and `just build`. The value is versioned
-#      with the repo instead of living in one shell's history, and no
-#      template-owned line is edited. `setup.local.toml` takes the same
-#      entry for a machine-local value, but a layer that defines any
-#      `[[build.args]]` replaces the whole list -- restate the other args
-#      in it or lose them.
+#      -- then `just docker setup` (which emits it into compose.yaml's
+#      build `args:` and into `.env`) and `just docker build`. The value
+#      is versioned with the repo instead of living in one shell's
+#      history, and no template-owned line is edited. `setup.local.toml`
+#      takes the same entry for a machine-local value, but a layer that
+#      defines any `[[build.args]]` replaces the whole list -- restate the
+#      other args in it or lose them.
 #   2. CI: the `build_args:` input of base's reusable build-worker
 #      workflow, which forwards it to every build step.
 #   3. `--build-arg`, for a throwaway one-off. Every container operation
@@ -441,7 +441,8 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
 # 3. Never spell a concrete username into a path. Use ${HOME} /
 #    ${USER_NAME} where a home path is genuinely needed. A shipped
 #    Dockerfile / entrypoint carrying a literal one fails base's
-#    `home-literal` lint (`just test lint --home-literal`).
+#    `home-literal` lint, which base runs over this template in its own CI
+#    (a consumer repo has no recipe that runs it).
 #
 # Rule 3 is mechanical and gated; rules 1-2 are a judgement call the lint
 # cannot make for you. Rationale: ADR-00000024.
@@ -476,11 +477,12 @@ RUN cat "${CONFIG_DIR}"/shell/bashrc >> "${HOME}/.bashrc" && \
 #    let an unknown value FAIL loudly rather than guess.
 #
 # That mapping is the one place a bare architecture literal is legitimate, so
-# it opts out of base's `arch-literal` lint
-# (`just test lint --arch-literal`), which otherwise refuses one anywhere in a
-# shipped Dockerfile. The region markers sit OUTSIDE the instruction, so a
-# multi-line RUN needs no comments between its continuations, and the reason
-# after `--` is required -- an opt-out without one is an off switch.
+# it opts out of base's `arch-literal` lint -- run over this template in
+# base's own CI, not by any consumer recipe -- which otherwise refuses one
+# anywhere in a shipped Dockerfile. The region markers sit OUTSIDE the
+# instruction, so a multi-line RUN needs no comments between its
+# continuations, and the reason after `--` is required -- an opt-out without
+# one is an off switch.
 #
 # Example (uncomment and adapt):
 # arch-literal-lint: allow-begin -- a worked example of rule 2 has to show both
@@ -767,7 +769,7 @@ RUN bats /smoke_test/
 # #      only the ENTRYPOINT can source it. A directly-exec'd
 # #      non-interactive process never reads bashrc, so the entrypoint is
 # #      necessary and cannot be replaced by bashrc.
-# #   2. Interactive shells (`just exec -t runtime bash`, i.e.
+# #   2. Interactive shells (`just docker exec -t runtime bash`, i.e.
 # #      `docker exec -it`): bashrc / ~/.bashrc.d/. devel wires this up;
 # #      the minimal runtime does NOT -- this is the gap closes.
 # #   3. Non-interactive ad-hoc exec (`docker exec ... ros2 ...`):
