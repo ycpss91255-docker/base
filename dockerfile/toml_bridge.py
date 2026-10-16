@@ -566,6 +566,72 @@ def _emit_kv(data):
         print(f"{section}\t{key}\t{value}")
 
 
+def _emit_entries(data):
+    """Emit the file's values in setup.toml's own vocabulary, for display.
+
+    One row per populated field, `<section>\t<n>\t<header>\t<field>\t<value>`:
+    <header> is the table the field sits under as the file spells it --
+    `[build]` for a table's scalars, `[[build.args]]` (or `[[volumes]]`
+    at the root) for an array-of-tables entry -- and <n> numbers the
+    blocks, so two entries of one array stay two blocks. The config
+    summary prints from this rather than from the KV view, whose
+    `<prefix>_N` keys are the shell's internal names, not names a
+    setup.toml contains (base#1339).
+
+    A table's scalars come before its arrays, which is the order TOML
+    itself requires of them in a file; a nested table's scalars keep
+    their dotted key under the section. Everything else is file order.
+    An empty value is not a row: the summary shows populated values only.
+    Rows are collected before any is printed, so a refusal from
+    _check_transportable leaves stdout empty.
+    """
+    rows = []
+    block = 0
+
+    def add(section, header, field, value):
+        value = _format_value(value)
+        if value != "":
+            rows.append((section, block, header, field, value))
+
+    def entries(section, header, items):
+        nonlocal block
+        for elem in items:
+            block += 1
+            if isinstance(elem, dict):
+                for field, value in elem.items():
+                    if not isinstance(value, (dict, list)):
+                        add(section, header, field, value)
+
+    for section, node in data.items():
+        if isinstance(node, list):
+            entries(section, f"[[{section}]]", node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        scalars, arrays = [], []
+
+        def walk(prefix, table):
+            for key, value in table.items():
+                if isinstance(value, list):
+                    arrays.append((f"{section}.{prefix}{key}", value))
+                elif isinstance(value, dict):
+                    walk(f"{prefix}{key}.", value)
+                else:
+                    scalars.append((f"{prefix}{key}", value))
+
+        walk("", node)
+        block += 1
+        for key, value in scalars:
+            add(section, f"[{section}]", key, value)
+        for path, items in arrays:
+            entries(section, f"[[{path}]]", items)
+
+    for section, _n, header, field, value in rows:
+        _check_transportable(header, field, value)
+    for section, n, header, field, value in rows:
+        print(f"{section}\t{n}\t{header}\t{field}\t{value}")
+
+
 def _emit_empty_arrays(data):
     """Emit `<section>\t<path>` for every array declared with NO entries.
 
@@ -765,7 +831,10 @@ def main():
     empty_arrays_mode = "--empty-arrays" in args
     tables_mode = "--tables" in args
     empty_families_mode = "--empty-families" in args
+    entries_mode = "--entries" in args
 
+    if entries_mode:
+        args.remove("--entries")
     if empty_families_mode:
         args.remove("--empty-families")
     if tables_mode:
@@ -791,7 +860,9 @@ def main():
             print(f"toml-bridge: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-    if empty_families_mode:
+    if entries_mode:
+        _emit_entries(data)
+    elif empty_families_mode:
         _emit_empty_families(data)
     elif tables_mode:
         _emit_tables(data)
