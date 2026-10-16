@@ -1736,30 +1736,110 @@ EOF
   assert_failure
 }
 
-# ── migration 7 (facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
-# v0.41.0 compose/CI pass USER_NAME (not USER) as the build arg; a Dockerfile
-# still declaring a bare `ARG USER` builds the default `initial` user, which
-# mismatches the compose /home/${USER_NAME}/work mount. Re-declare the arg to
-# default from USER_NAME so the existing user-creation block keeps working.
+# ── migration 7 (facet B): ARG USER is reported, never rewritten ────────
+# base#1322: the old rewrite (bare `ARG USER` -> `ARG USER="${USER_NAME}"`)
+# changed only the later stages. The account is still created in `sys`
+# from its own `ARG USER` default, and on a Dockerfile whose `sys` never
+# declares USER_NAME the rewritten stages switch to `USER ""` -- the image
+# runs as root. A correct port changes `sys` and the later stages together,
+# which base cannot do without knowing how each repo creates its user. So
+# the migration is warn-only: the bytes never change, and the warning names
+# the file and line and states the manual port the template uses.
 
-@test "migration 7 (arg-user): rewrites bare 'ARG USER' to default from USER_NAME (#579)" {
+# _m7_dispatch
+#   Run the real dispatcher over ${DF} with the list narrowed to arg_user,
+#   so the `rewritten` count it reports belongs to this migration alone.
+_m7_dispatch() {
+  run bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
+}
+
+# _m7_assert_warn_only <root|bare> <line>...
+#   Dispatch twice. Each pass must leave ${DF} byte-identical to what the
+#   test wrote, report `0 file(s) rewritten` with arg_user matched, name
+#   ${DF}:<line> for every given line, and state the manual port. With
+#   `root`, the warning for each line must also say the image may run as
+#   root (the form an earlier upgrade already wrote).
+_m7_assert_warn_only() {
+  local _form="$1"
+  shift
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  local _pass _line _hits
+  for _pass in 1 2; do
+    _m7_dispatch
+    assert_success
+    cmp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+    assert_output --partial \
+      "Dockerfile migrations: 1 of 1 matched (arg_user), 0 file(s) rewritten"
+    # The manual port: sys declares the four identity args and creates the
+    # user from them; the later stages alias ARG USER="${USER_NAME}".
+    assert_output --partial "USER_NAME"
+    assert_output --partial "USER_GROUP"
+    assert_output --partial "USER_UID"
+    assert_output --partial "USER_GID"
+    assert_output --partial "dist/dockerfile/Dockerfile:214"
+    assert_output --partial ":298"
+    assert_output --partial ":329"
+    for _line in "$@"; do
+      _hits="$(printf '%s\n' "${output}" | grep -E "${DF}:${_line}([^0-9]|$)" || true)"
+      [[ -n "${_hits}" ]] || {
+        printf 'pass %s: no warning names %s:%s\n%s\n' \
+          "${_pass}" "${DF}" "${_line}" "${output}" >&2
+        return 1
+      }
+      if [[ "${_form}" == root ]]; then
+        printf '%s\n' "${_hits}" | grep -qi 'root' || {
+          printf 'pass %s: warning for %s:%s does not say root\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        }
+      fi
+    done
+  done
+}
+
+# why: base#1322 criterion 1/2 -- the old rewrite is retired; a bare
+#      ARG USER is reported with its file and line and left alone
+@test "migration 7 (arg-user): a bare 'ARG USER' is warned about, never rewritten (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER="initial"
+RUN useradd "${USER}"
+FROM sys AS devel
+ARG USER
+USER "${USER}"
+EOF
+  _m7_assert_warn_only bare 5
+}
+
+# why: base#1322 criterion 2 -- a consumer that already took the v0.42
+#      rewrite has to learn the image may run as root
+@test "migration 7 (arg-user): an earlier upgrade's ARG USER=\"\${USER_NAME}\" is warned about as may-run-as-root (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER="initial"
+RUN useradd "${USER}"
+FROM sys AS devel
+ARG USER="${USER_NAME}"
+USER "${USER}"
+FROM sys AS runtime
+ARG USER="${USER_NAME}"
+USER "${USER}"
+EOF
+  _m7_assert_warn_only root 5 8
+}
+
+# why: base#1322 criterion 1 -- through the full shipped list, arg_user
+#      matches and the dispatcher reports nothing rewritten
+@test "migration 7 (arg-user): the full dispatcher reports 0 files rewritten for an ARG USER Dockerfile (base#1322)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
 ARG USER
-RUN useradd "${USER}"
 EOF
-  run bash -c "$(_src); _migrate_arg_user_detect '${DF}' && _migrate_arg_user_apply '${DF}'"
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
   assert_success
-  grep -Fxq 'ARG USER="${USER_NAME}"' "${DF}"
-}
-
-@test "migration 7 (arg-user): idempotent — already defaulted is not detected (#579)" {
-  cat > "${DF}" <<'EOF'
-FROM busybox AS sys
-ARG USER="${USER_NAME}"
-EOF
-  run bash -c "$(_src); _migrate_arg_user_detect '${DF}'"
-  assert_failure
+  cmp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  assert_output --partial "matched (arg_user), 0 file(s) rewritten"
 }
 
 @test "migration 7 (arg-user): does not touch an unrelated ARG (#579)" {
@@ -1770,6 +1850,156 @@ ARG USER_NAME
 EOF
   run bash -c "$(_src); _migrate_arg_user_detect '${DF}'"
   assert_failure
+}
+
+# ── migration 7 regression inputs (base#1322 criterion 4) ───────────────
+# Every input the three review rounds of the retired scope scanner raised.
+# Each one now asserts unchanged bytes and the warning, twice (criterion 5).
+
+# why: base#1322 -- a lower-case FROM/AS still opens a stage
+@test "migration 7 (arg-user) regression: case-insensitive FROM (base#1322)" {
+  cat > "${DF}" <<'EOF'
+from busybox as sys
+arg USER_NAME="user"
+From sys As devel
+ARG USER="${USER_NAME}"
+EOF
+  _m7_assert_warn_only root 4
+}
+
+# why: base#1322 -- a global USER_NAME before the first FROM does not make
+#      the later alias safe to leave unreported
+@test "migration 7 (arg-user) regression: global-scope ARG USER_NAME (base#1322)" {
+  cat > "${DF}" <<'EOF'
+ARG USER_NAME="user"
+FROM busybox AS sys
+ARG USER
+FROM sys AS devel
+ARG USER="${USER_NAME}"
+EOF
+  _m7_assert_warn_only root 5
+  _m7_dispatch
+  assert_output --regexp "${DF}:3([^0-9]|$)"
+}
+
+# why: base#1322 -- USER_NAME declared in a sibling stage is not in scope
+@test "migration 7 (arg-user) regression: sibling stage declares USER_NAME (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER="initial"
+FROM busybox AS other
+ARG USER_NAME="user"
+FROM sys AS devel
+ARG USER="${USER_NAME}"
+EOF
+  _m7_assert_warn_only root 6
+}
+
+# why: base#1322 -- USER_NAME inherited from the parent stage (the template
+#      shape) still gets the verify-this notice; a false positive is allowed
+@test "migration 7 (arg-user) regression: inherited stage declares USER_NAME (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER_NAME="user"
+RUN useradd "${USER_NAME}"
+FROM sys AS devel-base
+FROM devel-base AS devel
+ARG USER="${USER_NAME}"
+EOF
+  _m7_assert_warn_only root 6
+}
+
+# why: base#1322 -- a USER_NAME declared AFTER the alias in the same stage
+@test "migration 7 (arg-user) regression: declaration order (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER="${USER_NAME}"
+ARG USER_NAME="user"
+EOF
+  _m7_assert_warn_only root 2
+}
+
+# why: base#1322 -- the alias with other quoting is the same shape
+@test "migration 7 (arg-user) regression: quoted and unquoted defaults (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER_NAME='user'
+FROM sys AS a
+ARG USER=${USER_NAME}
+FROM sys AS b
+ARG USER='${USER_NAME}'
+FROM sys AS c
+ARG USER="$USER_NAME"
+EOF
+  _m7_assert_warn_only root 4 6 8
+}
+
+# why: base#1322 -- a backslash continuation around ARG USER
+@test "migration 7 (arg-user) regression: line continuations (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN echo one \
+    two
+ARG USER \
+    GROUP
+FROM sys AS devel
+ARG USER="${USER_NAME}" \
+    GROUP="${USER_GROUP}"
+EOF
+  _m7_assert_warn_only bare 4
+  _m7_dispatch
+  assert_output --regexp "${DF}:7([^0-9]|$)"
+}
+
+# why: base#1322 -- a RUN heredoc before the ARG must not swallow it, and an
+#      ARG USER_NAME inside a heredoc body is not a declaration
+@test "migration 7 (arg-user) regression: heredocs (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN <<SCRIPT
+ARG USER_NAME="user"
+SCRIPT
+ARG USER
+FROM sys AS devel
+RUN <<-EOT cat
+	echo hi
+	EOT
+ARG USER="${USER_NAME}"
+EOF
+  _m7_assert_warn_only bare 5
+  _m7_dispatch
+  assert_output --regexp "${DF}:10([^0-9]|$)"
+}
+
+# why: base#1322 -- a numeric heredoc delimiter
+@test "migration 7 (arg-user) regression: numeric heredoc delimiter (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN <<1
+echo body
+1
+ARG USER
+EOF
+  _m7_assert_warn_only bare 5
+}
+
+# why: base#1322 -- a quoted `<<` literal or a JSON-form `<<` opens no
+#      heredoc, so the ARG after it is a real instruction
+@test "migration 7 (arg-user) regression: quoted and JSON '<<' literals (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+RUN echo "<<EOF"
+ARG USER
+FROM sys AS devel
+RUN ["sh", "-c", "cat <<EOF"]
+ARG USER="${USER_NAME}"
+FROM sys AS runtime
+RUN echo '<<"EOT"'
+ARG USER
+EOF
+  _m7_assert_warn_only bare 3 9
+  _m7_dispatch
+  assert_output --regexp "${DF}:6([^0-9]|$)"
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
