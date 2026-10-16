@@ -1122,33 +1122,46 @@ _migrate_sc1090_apply() {
   _log_info upgrade upgrade_started "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
 }
 
-# ── Migration 7 (facet B): ARG USER -> ARG USER="${USER_NAME}" ─────────
+# ── Migration 7 (facet B): ARG USER is reported, never rewritten ─────
 #
 # v0.41.0 compose/CI pass the build args USER_NAME / USER_GROUP / USER_UID /
-# USER_GID. A downstream Dockerfile still declaring a bare `ARG USER`
-# receives no value, so the image builds the default `initial` user, whose
-# home directory mismatches the compose `/home/${USER_NAME}/work` bind
-# mount. Re-declare the arg to default from USER_NAME so the existing
-# user-creation block (which references ${USER}) keeps working unchanged.
+# USER_GID. A downstream Dockerfile still declaring `ARG USER` receives no
+# value for it. The earlier automatic rewrite (bare `ARG USER` ->
+# `ARG USER="${USER_NAME}"`) is retired (base#1322): it changed only the
+# later stages, while the account is created in `sys`, so on a Dockerfile
+# whose `sys` never declares USER_NAME the rewritten stages ran
+# `USER ""` and the image ran as root. A correct port changes `sys` and the
+# later stages together, which needs knowing how each repo creates its
+# user, so this migration only warns, naming the file and line and the
+# manual port the template uses. It never changes the bytes.
 #
-# home-literal-lint: allow-begin -- naming the WRONG home directory is the
-# whole point of the note below; it is prose about a defect, not a path any
-# shipped code reads.
-# The mismatching home directory is literally /home/initial.
-# home-literal-lint: allow-end
+# Every `ARG USER` line warns -- bare, with a default, or continued. One
+# whose default names USER_NAME (what the retired rewrite wrote) also says
+# the image may run as root. The scan is a plain line match with no stage or
+# heredoc model, so a line it cannot place still warns; a false positive is
+# accepted (base#1322).
+_DFM_ARG_USER_RE='^[[:space:]]*[Aa][Rr][Gg][[:space:]]+USER([[:space:]=\\]|$)'
+# SC2016: ${USER_NAME} is Dockerfile text the user copies, never expanded here.
+# shellcheck disable=SC2016
+_DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USER_UID / USER_GID and create the user from them (dist/dockerfile/Dockerfile:214, :298), then in each later stage alias ARG USER="${USER_NAME}" (dist/dockerfile/Dockerfile:329)'
+
 _migrate_arg_user_detect() {
   local _file="$1"
-  grep -Eq '^[[:space:]]*ARG[[:space:]]+USER[[:space:]]*$' "${_file}"
+  grep -Eq "${_DFM_ARG_USER_RE}" "${_file}"
 }
 
 _migrate_arg_user_apply() {
   local _file="$1"
-  # SC2016: the ${USER_NAME} must be written LITERALLY into the Dockerfile
-  # (Docker, not this shell, resolves the build arg), so single quotes are
-  # intentional.
-  # shellcheck disable=SC2016
-  _dfm_sed "${_file}" -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|'
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
+  local _hit _ln _text
+  while IFS= read -r _hit; do
+    _ln="${_hit%%:*}"
+    _text="${_hit#*:}"
+    if [[ "${_text}" == *USER_NAME* ]]; then
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
+    else
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER receives no build arg -- the image builds its default user, not the one compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
+    fi
+  done < <(grep -nE "${_DFM_ARG_USER_RE}" "${_file}")
 }
 
 # ── Migration 8 (facet B): nounset-guard the entrypoint ROS source ─────

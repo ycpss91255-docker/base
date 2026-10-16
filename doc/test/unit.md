@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (136)
+### test/bats/unit/dockerfile_migrate_spec.bats (147)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2459,9 +2459,20 @@ force-rewrite).
 | `migration 6 (sc1090): broadens the entrypoint directive to SC1090,SC1091 (#567)` | - |
 | `migration 6 (sc1090): idempotent when already SC1090,SC1091 (#567)` | - |
 | `migration 6 (sc1090): detect false when no sibling entrypoint (#567)` | - |
-| `migration 7 (arg-user): rewrites bare 'ARG USER' to default from USER_NAME (#579)` | - |
-| `migration 7 (arg-user): idempotent — already defaulted is not detected (#579)` | - |
+| `migration 7 (arg-user): a bare 'ARG USER' is warned about, never rewritten (base#1322)` | base#1322 criterion 1/2 -- the old rewrite is retired; a bare ARG USER is reported with its file and line and left alone |
+| `migration 7 (arg-user): an earlier upgrade's ARG USER="${USER_NAME}" is warned about as may-run-as-root (base#1322)` | base#1322 criterion 2 -- a consumer that already took the v0.42 rewrite has to learn the image may run as root |
+| `migration 7 (arg-user): the full dispatcher reports 0 files rewritten for an ARG USER Dockerfile (base#1322)` | base#1322 criterion 1 -- through the full shipped list, arg_user matches and the dispatcher reports nothing rewritten |
 | `migration 7 (arg-user): does not touch an unrelated ARG (#579)` | - |
+| `migration 7 (arg-user) regression: case-insensitive FROM (base#1322)` | base#1322 -- a lower-case FROM/AS still opens a stage |
+| `migration 7 (arg-user) regression: global-scope ARG USER_NAME (base#1322)` | base#1322 -- a global USER_NAME before the first FROM does not make the later alias safe to leave unreported |
+| `migration 7 (arg-user) regression: sibling stage declares USER_NAME (base#1322)` | base#1322 -- USER_NAME declared in a sibling stage is not in scope |
+| `migration 7 (arg-user) regression: inherited stage declares USER_NAME (base#1322)` | base#1322 -- USER_NAME inherited from the parent stage (the template shape) still gets the verify-this notice; a false positive is allowed |
+| `migration 7 (arg-user) regression: declaration order (base#1322)` | base#1322 -- a USER_NAME declared AFTER the alias in the same stage |
+| `migration 7 (arg-user) regression: quoted and unquoted defaults (base#1322)` | base#1322 -- the alias with other quoting is the same shape |
+| `migration 7 (arg-user) regression: line continuations (base#1322)` | base#1322 -- a backslash continuation around ARG USER |
+| `migration 7 (arg-user) regression: heredocs (base#1322)` | base#1322 -- a RUN heredoc before the ARG must not swallow it, and an ARG USER_NAME inside a heredoc body is not a declaration |
+| `migration 7 (arg-user) regression: numeric heredoc delimiter (base#1322)` | base#1322 -- a numeric heredoc delimiter |
+| `migration 7 (arg-user) regression: quoted and JSON '<<' literals (base#1322)` | base#1322 -- a quoted `<<` literal or a JSON-form `<<` opens no heredoc, so the ARG after it is a real instruction |
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): the rewritten entrypoint keeps its exact mode under umask 077 (base#1323)` | _dfm_install lands the awk output with mv, so the rewritten file would carry the mktemp's 0600 instead of the original's mode -- a committed entrypoint must keep exactly its mode, executable or not. Several modes under a restrictive umask (077) so a hardcoded 0755 or a umask-derived mode cannot pass (base#1323). |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
