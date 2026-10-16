@@ -3004,10 +3004,23 @@ FIXTURE
   # has to name the condition and how to meet it.
   run grep -F 'Dockerfile predates' <<< "${_why}"
   assert_success
-  run grep -F 'just upgrade' <<< "${_why}"
+  # The command it names has to be one the reader can run: since
+  # ADR-00000011 the recipe lives in the base module, so it is
+  # `just base upgrade`; a bare `just upgrade` no longer exists
+  # (base#1341). It is named twice -- where the rationale says the upgrade
+  # does not close the gap, and in the hand-port instruction -- and both
+  # have to be the real command, so each location is pinned on its own
+  # line rather than by one match anywhere in the block.
+  run grep -F '# `just base upgrade` does not close that by itself' <<< "${_why}"
   assert_success
+  run grep -F 'So it is a hand port: `just base upgrade`, then copy' <<< "${_why}"
+  assert_success
+  # ... and the removed command appears nowhere in it. `just upgrade-check`
+  # is a different recipe and stays allowed.
+  run grep -E 'just upgrade([^-]|$)' <<< "${_why}"
+  assert_failure
   # And it has to say WHY the upgrade does not close the gap on its own.
-  # `just upgrade` can rewrite a consumer Dockerfile (init.sh and
+  # `just base upgrade` can rewrite a consumer Dockerfile (init.sh and
   # upgrade.sh both call apply_migrations over the `_MIGRATIONS` list in
   # dist/script/docker/lib/dockerfile_migrate.sh), so "the upgrade does
   # not rewrite it" is not the reason; "no
@@ -3088,7 +3101,20 @@ FIXTURE
   # FAILURE in the spec, not a second kind of skip.
   run grep -E 'missing\)$' "${_spec}"
   assert_success
-  # The skip's stated REASON has to match the wiring. `just upgrade` does
+  # The skip tells the reader what to run, so that has to be a command
+  # that exists: the upgrade recipe lives in the base module since
+  # ADR-00000011, and a bare `just upgrade` is not a recipe (base#1341).
+  # Pinned on the skip STATEMENT itself, not anywhere in the file, so a
+  # comment carrying the right command cannot stand in for the message the
+  # reader actually sees.
+  local _skip_lines
+  _skip_lines="$(grep -E '^[[:space:]]*skip[[:space:]]' "${_spec}")" \
+    || fail "no skip statement found in ${_spec}"
+  run grep -F "run 'just base upgrade', then re-apply" <<< "${_skip_lines}"
+  assert_success
+  run grep -E 'just upgrade([^-]|$)' <<< "${_skip_lines}"
+  assert_failure
+  # The skip's stated REASON has to match the wiring. `just base upgrade` does
   # rewrite a consumer Dockerfile -- init.sh and upgrade.sh both call
   # apply_migrations -- so "the consumer's Dockerfile is not rewritten by
   # the upgrade" was false where this file ships it to 17 repos. The true

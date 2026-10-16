@@ -204,7 +204,7 @@ assert_pip_pkg() {
 # notice cannot disagree about what counts as an exec.
 #
 # Why a probe at all: the shared smoke baseline reaches a consumer through
-# `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
+# `.base/dist/`, which `just base upgrade` refreshes, while the Dockerfile that
 # would install the orchestrator is the consumer's own and hand-edited. A
 # repo that has not migrated therefore gets the spec before it gets the
 # file, and failing it would turn an upgrade into a broken build over a

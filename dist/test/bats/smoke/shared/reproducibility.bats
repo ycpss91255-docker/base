@@ -17,7 +17,7 @@
 # runtime-base's re-emit.
 #
 # Why the guard below skips rather than fails: this file is COPYed into a
-# consumer's `-test` stage from `.base/dist/`, which `just upgrade`
+# consumer's `-test` stage from `.base/dist/`, which `just base upgrade`
 # refreshes -- while the Dockerfile that would write the manifest is the
 # consumer's own and hand-edited. The upgrade CAN rewrite that file
 # (init.sh and upgrade.sh both run apply_migrations from
@@ -65,18 +65,18 @@
 # `${BASE_IMAGE}` expanded to the empty string, so the file lands with an
 # empty record and every static grep stays green. Skips (rather than fails)
 # when the repo has not ported the record yet: this spec reaches a consumer
-# through `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
-# writes the manifest is the consumer's own and hand-edited. The upgrade can
-# rewrite that file — `init.sh` and `upgrade.sh` both run `apply_migrations`
-# — but no migration was written for this record, because it splices into
-# the middle of the sys stage's continued `RUN` chain rather than onto an
-# anchorable whole line, so the port is by hand. What decides that is the
-# IMAGE, not the absence of the files this spec came to read: the record's own
-# directory `/usr/local/share/base` is created by the instruction that writes
-# them, so the directory standing there with neither file in it is a record
-# that was adopted and lost, and it FAILS. A repo that writes one file and not
-# the other, or writes an empty record, has adopted the manifest and broken
-# it, and fails too.
+# through `.base/dist/`, which `just base upgrade` refreshes, while the
+# Dockerfile that writes the manifest is the consumer's own and hand-edited.
+# The upgrade can rewrite that file — `init.sh` and `upgrade.sh` both run
+# `apply_migrations` — but no migration was written for this record, because it
+# splices into the middle of the sys stage's continued `RUN` chain rather than
+# onto an anchorable whole line, so the port is by hand. What decides that is
+# the IMAGE, not the absence of the files this spec came to read: the record's
+# own directory `/usr/local/share/base` is created by the instruction that
+# writes them, so the directory standing there with neither file in it is a
+# record that was adopted and lost, and it FAILS. A repo that writes one file
+# and not the other, or writes an empty record, has adopted the manifest and
+# broken it, and fails too.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -98,7 +98,7 @@ _require_manifest_adopted() {
     missing)
       fail "${REPRO_DIR} is in this image and holds neither ${REPRO_ENV} nor ${REPRO_PKGS}: that directory is created by the instruction that writes the record, so the record was adopted and has been LOST -- the stage no longer runs, or no longer writes there. This is not the un-ported case; that one skips." ;;
     *)
-      skip "no ${REPRO_DIR} in this image, so nothing here has ever written the manifest: this repo has not ported the record yet (run 'just upgrade', then re-apply .base/dist/dockerfile/Dockerfile)" ;;
+      skip "no ${REPRO_DIR} in this image, so nothing here has ever written the manifest: this repo has not ported the record yet (run 'just base upgrade', then re-apply .base/dist/dockerfile/Dockerfile)" ;;
   esac
 }
 

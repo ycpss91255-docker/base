@@ -397,7 +397,7 @@ _migrate_wrapper_copy_apply() {
 # dependency list. Deleting it in the second case removes a WORKING install:
 # the build still succeeds and the packages are silently gone. This
 # migration reaches every consumer repo mechanically through
-# `just upgrade`, so a delete it cannot justify is a delete it must not do.
+# `just base upgrade`, so a delete it cannot justify is a delete it must not do.
 #
 # The precondition is checkable, so it is checked: the requirements file
 # sits next to the Dockerfile the migration was handed. The line is dropped

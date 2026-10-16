@@ -205,7 +205,7 @@ installed entry point (ADR-00000032) and bash on PATH — so it never touches
 The orchestrator half skips (rather than fails) on an image whose
 `/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000032
 single-file model. This file reaches a consumer through `.base/dist/`, which
-`just upgrade` refreshes, while the Dockerfile that installs the
+`just base upgrade` refreshes, while the Dockerfile that installs the
 orchestrator is the consumer's own — and on the optional runtime stage that
 install is opt-in. Without the guard, a repo running the optional
 runtime-test bats smoke would go red on the upgrade that delivers this spec,
@@ -228,7 +228,7 @@ the template as TEXT, which cannot see the failure this file exists for — a
 manifest written from a stage where `${BASE_IMAGE}` expanded to the empty
 string, so the file lands with an empty record and every static grep stays
 green. Skips (rather than fails) when the repo has not ported the record
-yet: this spec reaches a consumer through `.base/dist/`, which `just
+yet: this spec reaches a consumer through `.base/dist/`, which `just base
 upgrade` refreshes, while the Dockerfile that writes the manifest is the
 consumer's own and hand-edited. The upgrade can rewrite that file —
 `init.sh` and `upgrade.sh` both run `apply_migrations` — but no migration
