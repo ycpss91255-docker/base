@@ -1069,14 +1069,16 @@ _prune_predecessor() {
   # Cache-hit / no-op rebuild → same ID, nothing to prune.
   [[ "${_pre_build_id}" == "${_post_build_id}" ]] && return 0
   # If the pre-build ID still has any other tag pointing to it, leave
-  # it alone — `docker rmi <id>` would refuse without -f, and a force
-  # delete would unexpectedly untag the alias. Filter excludes the
-  # `<none>:<none>` self-entry produced by docker images when the ID
-  # has no tags besides ours.
+  # it alone — `docker rmi <id>` given an ID with exactly one tag
+  # untags it and deletes the image. The tags are read from the image
+  # by its ID: `docker images --filter reference=` matches repo:tag
+  # patterns only, never an ID (base#1338). The rebuilt tag is dropped
+  # in case it is still listed against the old ID.
   local _other_tags
-  _other_tags="$(docker images --format '{{.Repository}}:{{.Tag}}' \
-    --filter "reference=${_pre_build_id}" 2>/dev/null \
-    | grep -v '^<none>:<none>$' || true)"
+  _other_tags="$(docker image inspect \
+    --format '{{range .RepoTags}}{{println .}}{{end}}' \
+    "${_pre_build_id}" 2>/dev/null \
+    | grep -vxF -e '' -e "${_full_tag}" | paste -sd ' ' - || true)"
   if [[ -n "${_other_tags}" ]]; then
     _log_info build build_prune_skip_tagged "display=skip prune: predecessor still tagged (${_other_tags})" "tags=${_other_tags}"
     return 0
