@@ -2355,7 +2355,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (136)
+### test/bats/unit/dockerfile_migrate_spec.bats (138)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2422,6 +2422,8 @@ force-rewrite).
 | `migration (smoke-copy): warns about an unresolvable spec on a continuation line (#928)` | - |
 | `migration (smoke-copy): duplicates a continued wholesale COPY into shared + the stage's own folder (#928)` | - |
 | `migration (smoke-copy): a .base/test/smoke-prefixed sibling path is not the retired tree (#928)` | - |
+| `migration (smoke-copy): rewrites .base/test/smoke but leaves an xbase/test/smoke COPY alone (base#1324)` | A dot in the retired prefix matches only a dot |
+| `migration (smoke-copy): the rewrite prints no awk escape-sequence warning (base#1324)` | An upgrade prints no awk escape-sequence warning |
 | `migration (repo-smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#1044)` | Wholesale rewrite: shared baseline plus the enclosing stage folder |
 | `migration (repo-smoke-copy): emits only the shared baseline when the repo ships no stage folder (#1044)` | A stage the repo has no folder for gets no COPY of its own |
 | `migration (repo-smoke-copy): leaves base's own shipped path to smoke-copy (#1044)` | The two smoke migrations stay disjoint over one Dockerfile |

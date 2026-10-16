@@ -1359,8 +1359,12 @@ _dfm_smoke_rewrite() {
   # and the consumer's own wrapping, flags, destination and column
   # alignment survive. Track the enclosing build stage (`FROM ... AS
   # <name>`) so each rewritten wholesale COPY can name its own folder.
+  # The escaped prefix travels through the environment, not `awk -v`: awk
+  # processes escape sequences in a -v value, so `\.` would arrive as a bare
+  # `.` matching any character (base#1324). ENVIRON hands it over verbatim.
+  DFM_RETIRED_RE="${_retired_re}" \
   awk -v stages="${_stages}" -v specs="${_specs}" \
-      -v retired="${_retired_re}" -v newroot="${_new}" '
+      -v newroot="${_new}" '
     # Exact, whitespace-delimited literal substitution. A regex would let
     # the dots in a spec name match anything, and these are file names read
     # off disk, not patterns.
@@ -1449,6 +1453,7 @@ _dfm_smoke_rewrite() {
     BEGIN {
       nb = 0
       joined = ""
+      retired = ENVIRON["DFM_RETIRED_RE"]
       n = split(specs, spec, "\n")
       for (j = 1; j <= n; j++) {
         if (spec[j] == "") { continue }
