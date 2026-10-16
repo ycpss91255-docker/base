@@ -1162,9 +1162,10 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 # _dfm_arg_user_scan <dockerfile>
 #   Print `<line> root|bare|literal [<value>]` for every ARG declaring USER
 #   (ONBUILD ARG too), sorted by line. `root` is a USER_NAME default or a
-#   declaration the scan cannot read, `literal` any other non-empty default
-#   (printed after it, one layer of matching outer quotes removed;
-#   base#1348), `bare` no default. <line> is the physical line its instruction
+#   declaration the scan cannot read, `literal` any other default, empty
+#   or blank ones included (printed after it and one space, byte for byte,
+#   one layer of matching outer quotes removed; base#1348), `bare` no
+#   default. <line> is the physical line its instruction
 #   starts on. Lines are joined as Docker's parser joins them (moby/buildkit
 #   frontend/dockerfile/parser/parser.go): a line ending in the escape
 #   character (trailing blanks allowed, not an escaped escape) continues,
@@ -1182,7 +1183,7 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 _dfm_arg_user_scan() {
   LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
     # classify <instruction text> <line>: record when it is an ARG naming USER.
-    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form, lit) {
+    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form, lit, hasdef) {
       sub(/^[[:space:]]+/, "", text)
       # ONBUILD ARG declares the ARG in every build FROM this image.
       while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
@@ -1212,8 +1213,9 @@ _dfm_arg_user_scan() {
         if (index(name, "=")) { val = substr(name, index(name, "=") + 1); name = substr(name, 1, index(name, "=") - 1) }
         if (name != "USER") continue
         if (form == "") form = "bare"
-        # The last USER default is the one Docker keeps.
-        lit = val
+        # The last USER default is the one Docker keeps. Whether it has a
+        # default is the `=`, not its contents: `USER=""` is a default.
+        lit = val; hasdef = index(toks[j], "=") > 0
         if (lit ~ /^".*"$/ || lit ~ /^\047.*\047$/) lit = substr(lit, 2, length(lit) - 2)
         # A USER_NAME default, or one whose `${` never closes, warns as root.
         if (val ~ /USER_NAME/ || val ~ /\$\{[^}]*$/) form = "root"
@@ -1224,8 +1226,9 @@ _dfm_arg_user_scan() {
       }
       # A quote that never closes leaves the whole declaration unreadable.
       if (form != "" && q != "") form = "root"
-      # Any other non-empty default is a literal user name (base#1348).
-      if (form == "bare" && lit ~ /[^[:space:]]/) form = "literal"
+      # Any other default, empty or blank included, is a literal user
+      # name (base#1348).
+      if (form == "bare" && hasdef) form = "literal"
       # A USER the token walk did not reach (a shape it misreads) still
       # warns, as may-run-as-root; a false positive is accepted.
       if (form == "" && rest ~ /(^|[[:space:]"\047])USER([[:space:]=]|$)/) form = "root"
@@ -1302,7 +1305,8 @@ _dfm_arg_user_scan() {
             else if (longuser) found[i] = "root"
           }
       }
-      # Only a literal carries its value; root and bare print two fields.
+      # Only a literal carries its value: everything after the second
+      # space, kept byte for byte (it may be empty or blank-padded).
       for (ln in found)
         if (found[ln] == "literal") print ln, found[ln], value[ln]
         else print ln, found[ln]
@@ -1316,8 +1320,13 @@ _migrate_arg_user_detect() {
 
 _migrate_arg_user_apply() {
   local _file="$1"
-  local _ln _form _val
-  while read -r _ln _form _val; do
+  local _row _ln _form _val
+  # The value is cut out by position, not split by read: a split would
+  # strip its boundary blanks (base#1348).
+  while IFS= read -r _row; do
+    _ln="${_row%% *}"; _row="${_row#* }"
+    _form="${_row%% *}"; _val=""
+    [[ "${_form}" == literal ]] && _val="${_row#literal }"
     if [[ "${_form}" == root ]]; then
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
     elif [[ "${_form}" == literal ]]; then
