@@ -1805,14 +1805,16 @@ _M7_PORT=(
   ':329'
 )
 
-# _m7_assert_warn_only <line>:<root|bare>...
+# _m7_assert_warn_only <line>:<root|bare|literal=VALUE>...
 #   Dispatch twice. Each pass must leave ${DF} byte-identical to what the
 #   test wrote and report `0 file(s) rewritten` with arg_user matched. For
 #   every <line>, a warning must name ${DF}:<line> and state each piece of
 #   the manual port (_M7_PORT). With `root`, that warning must also say the
 #   image may run as root (the form an earlier upgrade already wrote). With
 #   `bare`, it must name the parent-stage case and must not claim the image
-#   builds its default user (base#1340).
+#   builds its default user (base#1340). With `literal=VALUE`, it must say
+#   ARG USER defaults to "VALUE" and the image builds that user, and must
+#   not say the ARG has no default (base#1348).
 _m7_assert_warn_only() {
   cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
   local _pass _spec _line _form _hits _piece
@@ -1838,7 +1840,23 @@ _m7_assert_warn_only() {
           return 1
         }
       done
-      if [[ "${_form}" == root ]]; then
+      if [[ "${_form}" == literal=* ]]; then
+        printf '%s\n' "${_hits}" | grep -qF "ARG USER defaults to \"${_form#literal=}\"" || {
+          printf 'pass %s: literal warning for %s:%s does not name the default "%s"\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${_form#literal=}" "${output}" >&2
+          return 1
+        }
+        printf '%s\n' "${_hits}" | grep -qF 'the image builds that user, not the one compose passes' || {
+          printf 'pass %s: literal warning for %s:%s does not say the image builds that user\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        }
+        if printf '%s\n' "${_hits}" | grep -qF 'has no default'; then
+          printf 'pass %s: literal warning for %s:%s says ARG USER has no default\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        fi
+      elif [[ "${_form}" == root ]]; then
         printf '%s\n' "${_hits}" | grep -qF 'may run as root' || {
           printf 'pass %s: warning for %s:%s does not say the image may run as root\n%s\n' \
             "${_pass}" "${DF}" "${_line}" "${output}" >&2
@@ -2321,6 +2339,25 @@ EOF
   assert_success
   assert_output --partial "${DF}:6: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes;"
   refute_output --partial "builds its default user"
+}
+
+# why: base#1348 -- an ARG USER with a literal default (double-quoted,
+#      unquoted, single-quoted, or a later name in a multi-name ARG) has a
+#      default, so its notice names that default instead of saying it has
+#      none; a bare ARG USER beside it keeps the base#1340 wording
+@test "migration 7 (arg-user): a literal ARG USER default is named, not told it has none (base#1348)" {
+  cat > "${DF}" <<'EOF'
+FROM ubuntu:22.04 AS sys
+ARG USER="initial"
+ARG USER
+FROM sys AS a
+ARG USER=initial
+FROM sys AS b
+ARG USER='initial'
+FROM sys AS c
+ARG USER_GROUP="g" USER="initial"
+EOF
+  _m7_assert_warn_only 2:literal=initial 3:bare 5:literal=initial 7:literal=initial 9:literal=initial
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
