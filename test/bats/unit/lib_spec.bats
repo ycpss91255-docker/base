@@ -956,8 +956,6 @@ EOF
 [build]   [[build.args]]
 [build]     key = TZ
 [build]     value = Asia/Taipei
-[build]   [build]
-[build]     network = auto
 [build]   [[security.cap_add]]
 [build]     cap = A
 [build]   [[security.cap_drop]]
@@ -966,6 +964,48 @@ EOF
 [build]     cap = C
 [build]   [security]
 [build]     privileged = false
+[build]   [build]
+[build]     network = auto
+EOF
+}
+
+# why: file order is the file's, across sections too. The bridge emits
+# blocks in source order, but a summary that walks a fixed list of
+# sections and prints each one's rows regroups them: `[[security.cap_add]]`
+# A, `[[build.args]]` TZ, `[[security.cap_drop]]` B printed TZ, A, B.
+# And a header is a TOML key, so `[[security."cap\u005Fadd"]]` IS
+# `security.cap_add`: placing blocks by the header's undecoded spelling
+# lost that entry's position and printed A, C, B.
+@test "_print_config_summary keeps file order across sections and through a quoted header (base#1339)" {
+  local _fp="${BATS_TEST_TMPDIR}/cross"
+  mkdir -p "${_fp}"
+  cat > "${_fp}/setup.toml" <<'EOF'
+[[security.cap_add]]
+cap = "A"
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[security.cap_drop]]
+cap = "B"
+
+[[ security . "cap\u005Fadd" ]] # escaped key
+cap = "C"
+EOF
+  _summary_toml "${_fp}"
+  assert_success
+  run _summary_entries "${output}"
+  assert_output - <<'EOF'
+[build]   [[security.cap_add]]
+[build]     cap = A
+[build]   [[build.args]]
+[build]     key = TZ
+[build]     value = Asia/Taipei
+[build]   [[security.cap_drop]]
+[build]     cap = B
+[build]   [[security.cap_add]]
+[build]     cap = C
 EOF
 }
 
