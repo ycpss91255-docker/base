@@ -1245,15 +1245,21 @@ _dfm_arg_user_scan() {
     # keeps a long continuation from being re-walked from every line.
     # Past 4096 bytes the text is not built (awk string work on it would
     # be quadratic): toolong is set, and longuser says whether USER shows
-    # as a word in any line or pair of adjacent lines, so classify is
-    # skipped and the caller warns as unreadable instead.
-    function joined(i,    buf, j, v, k, piece, prev) {
-      buf = ""; v = 1; toolong = 0; longuser = 0; prev = ""
+    # as a word anywhere in the joined text, so classify is skipped and the
+    # caller warns as unreadable instead. The word is matched against tail,
+    # the last 5 bytes joined so far (a boundary character plus USER), and
+    # the next piece, so a USER split over any number of continued lines is
+    # seen (base#1336) while each line is still read once. Once cut, tail
+    # starts with "_" so its first byte never reads as the start of the
+    # instruction. Skipped comment and blank lines leave tail as it is.
+    function joined(i,    buf, j, v, k, piece, tail) {
+      buf = ""; v = 1; toolong = 0; longuser = 0; tail = ""
       for (j = i; j <= nl; j++) {
         if (j > i && L[j] ~ /^[[:space:]]*(#|$)/) continue
         k = continues(L[j]); piece = k ? body : L[j]
-        if ((prev piece) ~ /(^|[[:space:]"\047=])USER([[:space:]=]|$)/) longuser = 1
-        prev = piece
+        tail = tail piece
+        if (tail ~ /(^|[[:space:]"\047=])USER([[:space:]=]|$)/) longuser = 1
+        if (length(tail) > 6) tail = "_" substr(tail, length(tail) - 4)
         if (!toolong) {
           buf = buf piece
           if (v == 1) { v = viable(buf); if (!v) return "" }
