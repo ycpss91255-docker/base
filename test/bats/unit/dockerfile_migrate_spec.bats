@@ -2249,9 +2249,9 @@ EOF
 }
 
 # why: base#1336 -- past 4096 bytes the scan stops building the text and
-#      looks for USER line by line; a USER split over three or more
-#      continued lines (`U\`, `S\`, `ER`), with or without a comment line
-#      inside the split, must still warn as could-not-be-read
+#      looks for USER in the lines as it joins them; a USER split over
+#      three or more continued lines (`U\`, `S\`, `ER`), with or without a
+#      comment line inside the split, must still warn as could-not-be-read
 @test "migration 7 (arg-user) regression: USER split over three lines of a long ARG (base#1336)" {
   local _long
   _long="$(printf 'x%.0s' $(seq 4100))"

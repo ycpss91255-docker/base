@@ -1246,12 +1246,13 @@ _dfm_arg_user_scan() {
     # Past 4096 bytes the text is not built (awk string work on it would
     # be quadratic): toolong is set, and longuser says whether USER shows
     # as a word anywhere in the joined text, so classify is skipped and the
-    # caller warns as unreadable instead. The word is matched against tail,
-    # the last 5 bytes joined so far (a boundary character plus USER), and
-    # the next piece, so a USER split over any number of continued lines is
-    # seen (base#1336) while each line is still read once. Once cut, tail
-    # starts with "_" so its first byte never reads as the start of the
-    # instruction. Skipped comment and blank lines leave tail as it is.
+    # caller warns as unreadable instead. The word is matched against tail
+    # plus the next piece, where tail keeps the last 5 bytes joined so far
+    # (a boundary character plus USER), so a USER split over any number of
+    # continued lines is seen (base#1336) while each line is still read
+    # once. A cut tail is prefixed with "_" so its first byte never reads
+    # as the start of the instruction. Skipped comment and blank lines
+    # leave tail as it is.
     function joined(i,    buf, j, v, k, piece, tail) {
       buf = ""; v = 1; toolong = 0; longuser = 0; tail = ""
       for (j = i; j <= nl; j++) {
