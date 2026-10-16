@@ -2185,6 +2185,33 @@ EOF
   assert_output --partial "${DF}:20004: ARG USER receives no build arg"
 }
 
+# why: base#1322 review round 6 -- a `${` that never closes in the USER
+#      default is as unreadable as an unclosed quote, so it gets the
+#      may-run-as-root notice
+@test "migration 7 (arg-user) regression: unclosed parameter expansion in the USER default (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER=${HOME
+FROM sys AS devel
+ARG USER=${HOME OTHER=x
+EOF
+  _m7_assert_warn_only 2:root 4:root
+}
+
+# why: base#1322 review round 6 -- an ARG whose quoted value runs over
+#      20000 continued lines must still scan in linear time (it took
+#      seconds to minutes when every appended line re-read the whole text)
+@test "migration 7 (arg-user) regression: a long continued ARG scans in linear time (base#1322)" {
+  {
+    printf 'FROM busybox AS sys\nARG OTHER="\\\n'
+    printf '    0123456789012345678901234567890123456789 \\\n%.0s' $(seq 20000)
+    printf '    " USER\n'
+  } > "${DF}"
+  run timeout 10 bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial "${DF}:2: ARG USER receives no build arg"
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
