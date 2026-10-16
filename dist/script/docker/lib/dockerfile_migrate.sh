@@ -1143,10 +1143,11 @@ _migrate_sc1090_apply() {
 # (`ARG \` + `USER`, `ARG USER=\` + its default). One whose USER default
 # names USER_NAME (what the retired rewrite wrote) also says the image may
 # run as root, and so does a declaration whose quotes the scan cannot
-# balance. The scan has no stage or heredoc model: any physical line that
-# itself reads `ARG USER...` warns too, even inside a heredoc body or
-# another instruction's continuation. A false positive is accepted
-# (base#1322).
+# balance. One with any other default names that default: the image builds
+# that user, not the one compose passes (base#1348). The scan has no stage
+# or heredoc model: any physical line that itself reads `ARG USER...` warns
+# too, even inside a heredoc body or another instruction's continuation. A
+# false positive is accepted (base#1322).
 # SC2016: ${USER_NAME} is Dockerfile text the user copies, never expanded here.
 # shellcheck disable=SC2016
 _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USER_UID / USER_GID and create the user from them (dist/dockerfile/Dockerfile:214, :298), then in each later stage alias ARG USER="${USER_NAME}" (dist/dockerfile/Dockerfile:329)'
@@ -1159,8 +1160,11 @@ _DFM_ARG_USER_PORT='manual port: in sys declare ARG USER_NAME / USER_GROUP / USE
 _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\xe2\x80\x82|\xe2\x80\x83|\xe2\x80\x84|\xe2\x80\x85|\xe2\x80\x86|\xe2\x80\x87|\xe2\x80\x88|\xe2\x80\x89|\xe2\x80\x8a|\xe2\x80\xa8|\xe2\x80\xa9|\xe2\x80\xaf|\xe2\x81\x9f|\xe3\x80\x80'
 
 # _dfm_arg_user_scan <dockerfile>
-#   Print `<line> root|bare` for every ARG declaring USER (ONBUILD ARG
-#   too), sorted by line. <line> is the physical line its instruction
+#   Print `<line> root|bare|literal [<value>]` for every ARG declaring USER
+#   (ONBUILD ARG too), sorted by line. `root` is a USER_NAME default or a
+#   declaration the scan cannot read, `literal` any other non-empty default
+#   (printed after it, one layer of matching outer quotes removed;
+#   base#1348), `bare` no default. <line> is the physical line its instruction
 #   starts on. Lines are joined as Docker's parser joins them (moby/buildkit
 #   frontend/dockerfile/parser/parser.go): a line ending in the escape
 #   character (trailing blanks allowed, not an escaped escape) continues,
@@ -1178,7 +1182,7 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 _dfm_arg_user_scan() {
   LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
     # classify <instruction text> <line>: record when it is an ARG naming USER.
-    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form) {
+    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form, lit) {
       sub(/^[[:space:]]+/, "", text)
       # ONBUILD ARG declares the ARG in every build FROM this image.
       while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
@@ -1208,6 +1212,9 @@ _dfm_arg_user_scan() {
         if (index(name, "=")) { val = substr(name, index(name, "=") + 1); name = substr(name, 1, index(name, "=") - 1) }
         if (name != "USER") continue
         if (form == "") form = "bare"
+        # The last USER default is the one Docker keeps.
+        lit = val
+        if (lit ~ /^".*"$/ || lit ~ /^\047.*\047$/) lit = substr(lit, 2, length(lit) - 2)
         # A USER_NAME default, or one whose `${` never closes, warns as root.
         if (val ~ /USER_NAME/ || val ~ /\$\{[^}]*$/) form = "root"
         # An empty `USER=` followed by a name-less token is a shape the scan
@@ -1217,10 +1224,12 @@ _dfm_arg_user_scan() {
       }
       # A quote that never closes leaves the whole declaration unreadable.
       if (form != "" && q != "") form = "root"
+      # Any other non-empty default is a literal user name (base#1348).
+      if (form == "bare" && lit ~ /[^[:space:]]/) form = "literal"
       # A USER the token walk did not reach (a shape it misreads) still
       # warns, as may-run-as-root; a false positive is accepted.
       if (form == "" && rest ~ /(^|[[:space:]"\047])USER([[:space:]=]|$)/) form = "root"
-      if (form != "" && (!(ln in found) || form == "root")) found[ln] = form
+      if (form != "" && (!(ln in found) || form == "root")) { found[ln] = form; value[ln] = (form == "literal") ? lit : "" }
     }
     # continues <line>: true when <line> ends in the escape character that
     # is not itself escaped (trailing blanks allowed), or is that character
@@ -1293,7 +1302,7 @@ _dfm_arg_user_scan() {
             else if (longuser) found[i] = "root"
           }
       }
-      for (ln in found) print ln, found[ln]
+      for (ln in found) print ln, found[ln], value[ln]
     }
   ' "$1" | sort -n
 }
@@ -1304,10 +1313,12 @@ _migrate_arg_user_detect() {
 
 _migrate_arg_user_apply() {
   local _file="$1"
-  local _ln _form
-  while read -r _ln _form; do
+  local _ln _form _val
+  while read -r _ln _form _val; do
     if [[ "${_form}" == root ]]; then
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
+    elif [[ "${_form}" == literal ]]; then
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to \"${_val}\" and compose passes no USER build arg -- the image builds that user, not the one compose passes, unless the build is given --build-arg USER; ${_DFM_ARG_USER_PORT} (base#1348)"
     else
       _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
     fi
