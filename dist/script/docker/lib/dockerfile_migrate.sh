@@ -1205,12 +1205,14 @@ _dfm_arg_user_scan() {
         if (index(name, "=")) { val = substr(name, index(name, "=") + 1); name = substr(name, 1, index(name, "=") - 1) }
         if (name != "USER") continue
         if (form == "") form = "bare"
-        # Shapes the scan cannot read warn as root: an unclosed quote, or an
-        # empty `USER=` followed by a name-less token (the default may sit
-        # on the continued line, e.g. `ARG USER=\` + `  "${USER_NAME}"`).
-        if (val ~ /USER_NAME/ || (j == n && q != "")) form = "root"
+        if (val ~ /USER_NAME/) form = "root"
+        # An empty `USER=` followed by a name-less token is a shape the scan
+        # cannot read (the default may sit on the continued line, e.g.
+        # `ARG USER=\` + `  "${USER_NAME}"`): it warns as root.
         if (val == "" && index(toks[j], "=") && j < n && !index(toks[j + 1], "=")) form = "root"
       }
+      # A quote that never closes leaves the whole declaration unreadable.
+      if (form != "" && q != "") form = "root"
       # A USER the token walk did not reach (a shape it misreads) still
       # warns, as may-run-as-root; a false positive is accepted.
       if (form == "" && rest ~ /(^|[[:space:]"\047])USER([[:space:]=]|$)/) form = "root"
@@ -1225,13 +1227,25 @@ _dfm_arg_user_scan() {
       if (k > 1 && substr(t, k - 1, 1) == esc) return 0
       body = substr(t, 1, k - 1); return 1
     }
-    # joined <line>: the instruction text that starts at physical <line>.
+    # viable <text>: true while <text> can still grow into an ARG or
+    # ONBUILD ARG instruction (it is one, or a prefix of the keywords).
+    function viable(text,    r) {
+      r = tolower(text); sub(/^[[:space:]]+/, "", r)
+      while (r ~ /^onbuild[[:space:]]/) { r = substr(r, 8); sub(/^[[:space:]]+/, "", r) }
+      if (r ~ /^arg[[:space:]]/) return 1
+      return r == "" || index("arg", r) == 1 || index("onbuild", r) == 1
+    }
+    # joined <line>: the instruction text that starts at physical <line>,
+    # or "" once the join can no longer be an ARG. Joining only appends,
+    # so a text that is not viable never becomes one, and stopping there
+    # keeps a long continuation from being re-walked from every line.
     function joined(i,    buf, j) {
       buf = ""
       for (j = i; j <= nl; j++) {
         if (j > i && L[j] ~ /^[[:space:]]*(#|$)/) continue
         if (!continues(L[j])) return buf L[j]
         buf = buf body
+        if (!viable(buf)) return ""
       }
       return buf
     }
