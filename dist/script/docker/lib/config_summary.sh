@@ -178,6 +178,51 @@ _summary_dump_section() {
   done
 }
 
+# _summary_dump_entries <tag> <sections> <rows>
+#
+# setup.toml as the file spells it: each block under its own header --
+# `[build]` for a table's scalars, `[[build.args]]` (or `[[volumes]]` at
+# the root) once per array entry -- and each field by the name the file
+# gives it (`key` / `value`, `rule`), blocks in the order the bridge
+# emits them, which is the order the file writes them, across sections
+# too: rows are never regrouped by section, so `[[security.cap_add]]`,
+# `[[build.args]]`, `[[security.cap_drop]]` print in that order
+# (base#1339). <sections> is a space-separated list; a block of any
+# other section is skipped, as the INI dump skips one. <rows> is the output of
+# `toml_bridge_parse --entries`, which numbers the blocks so that two
+# entries of one array print as two blocks. A table scalar arrives only
+# when populated, so a section with none prints nothing at all; an
+# entry's field arrives even when empty, and prints as `""` -- the
+# `value = ""` of a build argument set empty is part of that argument.
+# An entry with no fields at all arrives as a header-only row (no field
+# column) and prints as its header alone, so it still counts as an entry.
+#
+# The KV view `_load_setup_conf_full` reads is not used here: its
+# `<prefix>_N` keys (`rule_1`, `arg_1`) are the shell's internal names
+# for an array entry, not names a setup.toml contains, and a summary in
+# them shows the user a vocabulary their file does not use (base#1339).
+_summary_dump_entries() {
+  local _tag="${1:?}" _secs=" ${2:?} " _rows="${3-}"
+  local _sde_row _sde_s _sde_n _sde_h _sde_f _sde_v _sde_last=""
+  while IFS= read -r _sde_row; do
+    [[ -n "${_sde_row}" ]] || continue
+    _sde_s="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
+    [[ "${_secs}" == *" ${_sde_s} "* ]] || continue
+    _sde_n="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
+    _sde_h="${_sde_row%%$'\t'*}"
+    if [[ "${_sde_n}" != "${_sde_last}" ]]; then
+      printf "[%s]   %s\n" "${_tag}" "${_sde_h}"
+      _sde_last="${_sde_n}"
+    fi
+    # A header-only row is an entry with no fields: header, nothing under it.
+    [[ "${_sde_row}" == *$'\t'* ]] || continue
+    _sde_row="${_sde_row#*$'\t'}"
+    _sde_f="${_sde_row%%$'\t'*}"; _sde_v="${_sde_row#*$'\t'}"
+    [[ -n "${_sde_v}" ]] || _sde_v='""'
+    printf "[%s]     %s = %s\n" "${_tag}" "${_sde_f}" "${_sde_v}"
+  done <<< "${_rows}"
+}
+
 # _print_config_summary <tag>
 #
 # Print the resolved runtime config right before the main action
@@ -265,7 +310,7 @@ _print_config_summary() {
       # shellcheck disable=SC2059  # format string is intentional (i18n table owns no %s)
       printf "[%s]   $(_lib_msg conf_empty)\n" "${_tag}"
     else
-      # Read the RESOLVED view, not the file's lines. `_dump_conf_section`
+      # Read the PARSED file, not its lines. `_dump_conf_section`
       # is an INI reader -- it matches an exact `[section]` header and
       # stops at the next one -- so against a setup.toml every numbered
       # family disappeared from this summary: an `[[volumes]]` block is
@@ -274,27 +319,27 @@ _print_config_summary() {
       # ports and the capability lists -- every array-valued setting the
       # run actually consumes -- were missing from the one screen a
       # first-time user reads before a build, while the scalars printed
-      # with their TOML quotes still on. Loaded ONCE: each call is a
+      # with their TOML quotes still on. The parse is printed in the
+      # file's own vocabulary (`[[build.args]]`, `key = ...`), never the
+      # KV view's `arg_N` names (base#1339). Loaded ONCE: each call is a
       # bridge invocation, and eleven of them per summary is eleven
       # `docker run`s.
       local _sec _content _l
-      local -a _pcs_s=() _pcs_k=() _pcs_v=()
-      local _pcs_toml=0
-      [[ "${_conf}" == *.toml ]] && _pcs_toml=1
-      (( _pcs_toml )) && _load_setup_conf_full "${_conf}" _pcs_s _pcs_k _pcs_v
-      for _sec in image build deploy gui network security resources \
-                  environment tmpfs devices volumes; do
-        if (( _pcs_toml )); then
-          _summary_dump_section "${_tag}" "${_sec}" _pcs_k _pcs_v
-          continue
-        fi
-        _content="$(_dump_conf_section "${_conf}" "${_sec}")"
-        [[ -z "${_content}" ]] && continue
-        printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
-        while IFS= read -r _l; do
-          printf "[%s]     %s\n" "${_tag}" "${_l}"
-        done <<< "${_content}"
-      done
+      local -a _pcs_secs=(image build deploy gui network security resources
+                          environment tmpfs devices volumes)
+      if [[ "${_conf}" == *.toml ]]; then
+        _summary_dump_entries "${_tag}" "${_pcs_secs[*]}" \
+          "$(toml_bridge_parse "${_conf}" --entries)"
+      else
+        for _sec in "${_pcs_secs[@]}"; do
+          _content="$(_dump_conf_section "${_conf}" "${_sec}")"
+          [[ -z "${_content}" ]] && continue
+          printf "[%s]   [%s]\n" "${_tag}" "${_sec}"
+          while IFS= read -r _l; do
+            printf "[%s]     %s\n" "${_tag}" "${_l}"
+          done <<< "${_content}"
+        done
+      fi
     fi
   else
     # shellcheck disable=SC2059  # format string is intentional (i18n table owns %s)
