@@ -135,12 +135,12 @@
 #        value = "sha256:<digest>"
 #
 #      -- then `just docker setup` (which emits it into compose.yaml's
-#      build `args:` and into `.env`) and `just docker build`. The value is versioned
-#      with the repo instead of living in one shell's history, and no
-#      template-owned line is edited. `setup.local.toml` takes the same
-#      entry for a machine-local value, but a layer that defines any
-#      `[[build.args]]` replaces the whole list -- restate the other args
-#      in it or lose them.
+#      build `args:` and into `.env`) and `just docker build`. The value
+#      is versioned with the repo instead of living in one shell's
+#      history, and no template-owned line is edited. `setup.local.toml`
+#      takes the same entry for a machine-local value, but a layer that
+#      defines any `[[build.args]]` replaces the whole list -- restate the
+#      other args in it or lose them.
 #   2. CI: the `build_args:` input of base's reusable build-worker
 #      workflow, which forwards it to every build step.
 #   3. `--build-arg`, for a throwaway one-off. Every container operation

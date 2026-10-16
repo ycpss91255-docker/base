@@ -1002,11 +1002,11 @@ _derived_check_drift_keys() {
 #     every line of a shipped template, whose comments are copied into the
 #     consumer's repo and read there. The heredoc ends at its terminator, so
 #     a source comment after it is prose again.
-#     Both delimiters get their own pattern rather than one
-#     alternation, because bash's ERE has no backreference to require the
-#     closing delimiter to match the opening one, and a pattern that accepted
-#     a span opened with one delimiter and closed with the other would read
-#     a command out of two unrelated spans.
+#     Both delimiters get their own pattern rather than one alternation,
+#     because bash's ERE has no backreference to require the closing
+#     delimiter to match the opening one, and a pattern that accepted a span
+#     opened with one delimiter and closed with the other would read a
+#     command out of two unrelated spans.
 #     A command spelled with no delimiter at all (bare inside a usage
 #     heredoc) is still NOT detected.
 #   - retired ROOT WRAPPER paths (`./setup.sh`, `./stop.sh`) are a separate
