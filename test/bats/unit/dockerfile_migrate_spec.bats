@@ -2248,6 +2248,49 @@ EOF
   assert_output --partial "${DF}:2: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read"
 }
 
+# why: base#1336 -- past 4096 bytes the scan stops building the text and
+#      looks for USER in the lines as it joins them; a USER split over
+#      three or more continued lines (`U\`, `S\`, `ER`), with or without a
+#      comment line inside the split, must still warn as could-not-be-read
+@test "migration 7 (arg-user) regression: USER split over three lines of a long ARG (base#1336)" {
+  local _long
+  _long="$(printf 'x%.0s' $(seq 4100))"
+  {
+    printf 'FROM busybox AS sys\nARG OTHER=%s \\\nU\\\nS\\\nER\n' "${_long}"
+    printf 'FROM sys AS devel\nARG OTHER=%s \\\nU\\\n# a comment\nS\\\nER\n' "${_long}"
+  } > "${DF}"
+  _m7_assert_warn_only 2:root 7:root
+}
+
+# why: base#1336 review round 1 -- the carried tail must not drop a
+#      warning the line-pair check gave before: `U\` + `SER` after a long
+#      value with no blank before the split, `USER\` + ` end`, and
+#      `USER=x\` after a value ending in `foo\` all warned on a5bcbf8a
+@test "migration 7 (arg-user) regression: a long ARG keeps the line-pair USER warnings (base#1336)" {
+  local _long
+  _long="$(printf 'x%.0s' $(seq 4100))"
+  {
+    printf 'FROM busybox AS sys\nARG OTHER=%s\\\nU\\\nSER\n' "${_long}"
+    printf 'FROM sys AS devel\nARG OTHER=%s\\\nUSER\\\n end\n' "${_long}"
+    printf 'FROM devel AS rt\nARG OTHER=%sfoo\\\nUSER=x\\\nz\n' "${_long}"
+  } > "${DF}"
+  _m7_assert_warn_only 2:root 6:root 10:root
+}
+
+# why: base#1336 review round 1 -- the tail must hold the boundary in
+#      front of USER however finely the word is split: a four-line split
+#      (`U\`, `S\`, `E\`, `R`) and a five-line one whose blank sits on its
+#      own continued line, with blank and comment lines skipped inside it
+@test "migration 7 (arg-user) regression: USER split over four and five lines of a long ARG (base#1336)" {
+  local _long
+  _long="$(printf 'x%.0s' $(seq 4100))"
+  {
+    printf 'FROM busybox AS sys\nARG OTHER=%s \\\nU\\\nS\\\nE\\\nR\n' "${_long}"
+    printf 'FROM sys AS devel\nARG OTHER=%s\\\n \\\nU\\\n\nS\\\n# c\nE\\\n\nR\n' "${_long}"
+  } > "${DF}"
+  _m7_assert_warn_only 2:root 8:root
+}
+
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
 # Under `set -u`, sourcing /opt/ros/$ROS_DISTRO/setup.bash dies on the
 # unbound AMENT_TRACE_SETUP_FILES, so the container exits at start and
