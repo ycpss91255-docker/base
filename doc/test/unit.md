@@ -426,35 +426,34 @@ setup-sync lifecycle.
 | `build.sh --help resolves its libs in the base-self topology (no .base/)` | - |
 | `build.sh --target test-tools (base self) dispatches compose build, skips setup.sh` | - |
 
-### test/bats/unit/build_sh_prune_spec.bats (7)
+### test/bats/unit/build_sh_prune_spec.bats (8)
 
 Unit tests for `build.sh`'s #387 post-build prune-predecessor logic.
-Separate spec so the docker stub can be tailored to image-inspect /
-images-filter / rmi semantics without bloating the default build_sh_spec
-stub (which only logs argv). Smart docker stub branches on `image inspect`
-(returns `DOCKER_INSPECT_PRE_ID` on the first call, `DOCKER_INSPECT_POST_ID`
-on the second — defaults to PRE_ID for the cache-hit case), `images --filter
-reference=<id>` (emits the `<none>:<none>` self-entry plus
-`DOCKER_IMAGES_OUTPUT` lines so the multi-tag-still-references case can be
-simulated), and `rmi` (appends the id to `DOCKER_RMI_LOG` so tests assert
-presence/absence).
+Separate spec so the docker stub can be tailored to image-inspect / images /
+rmi semantics without bloating the default build_sh_spec stub (which only
+logs argv). The smart docker stub models a small image store (rebuilt tag →
+pre/post ID, pre ID → its other tags) and answers `image inspect`, `images`
+and `rmi` from it, so a lookup that asks the wrong question -- e.g.
+`--filter reference=<image-id>`, which matches no repo:tag -- gets the empty
+answer a real daemon gives (base#1338).
 
 Covers: first-build path (`docker image inspect` exits 1 → no
 `_pre_build_id` → prune skipped, no rmi), cache-hit rebuild (`pre == post` →
 cache-hit guard returns early), successful displaced rebuild (`pre != post`,
-old id has no other tag → `docker rmi <old-id>` fires), multi-tag guard (old
-id still referenced elsewhere → "skip prune: predecessor still tagged" log +
-no rmi), `--no-prune` opt-out (no inspect calls + no rmi even when ids would
-have moved), `--dry-run` (planned-action line `[dry-run] docker rmi
-<old-id-of ... if displaced>` visible + zero real rmi), and `--help`
-mentions the `--no-prune` flag.
+old id has no other tag → `docker rmi <old-id>` fires), tagged guard (old id
+still carries one alias, or several → "skip prune: predecessor still tagged"
+log + no rmi, base#1338), `--no-prune` opt-out (no inspect calls + no rmi
+even when ids would have moved), `--dry-run` (planned-action line `[dry-run]
+docker rmi <old-id-of ... if displaced>` visible + zero real rmi), and
+`--help` mentions the `--no-prune` flag.
 
 | Test | Description |
 |------|-------------|
 | `build.sh first build (no prior image) skips prune` | - |
 | `build.sh cache-hit rebuild (same id) skips prune` | - |
 | `build.sh successful rebuild with displaced id rmi's old id` | - |
-| `build.sh skips prune when old id still tagged by another reference` | - |
+| `build.sh skips prune when old id keeps its one other tag (base#1338)` | - |
+| `build.sh skips prune when old id still carries several other tags (base#1338)` | - |
 | `build.sh --no-prune skips prune even when id displaced` | - |
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
