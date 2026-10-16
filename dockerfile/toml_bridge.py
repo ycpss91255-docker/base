@@ -244,6 +244,10 @@ def _check_transportable(section, key, value):
     comes back as `a<TAB>b`. Refusing it would reject a file the
     transport carries correctly.
 
+    An array entry with no fields is still a block: it emits one
+    header-only row, `<section>\t<n>\t<header>`, with no field or value
+    column, so three entries with an empty middle one stay three blocks.
+
     Rows are collected before any is printed, so a refusal leaves stdout
     empty rather than a prefix of the configuration.
     """
@@ -701,6 +705,10 @@ def _emit_entries(data, raw):
     settings only -- but an entry's empty field is: `value = ""` is part
     of the build argument `EMPTY=`, which the KV view carries too.
 
+    An array entry with no fields is still a block: it emits one
+    header-only row, `<section>\t<n>\t<header>`, with no field or value
+    column, so three entries with an empty middle one stay three blocks.
+
     Rows are collected before any is printed, so a refusal from
     _check_transportable leaves stdout empty.
     """
@@ -770,12 +778,15 @@ def _emit_entries(data, raw):
     rows = []
     for n, (_pos, _seq, section, header, fields) in enumerate(
             sorted(blocks, key=lambda b: b[:2]), 1):
-        for field, value in fields:
+        for field, value in fields or [(None, None)]:
             rows.append((section, n, header, field, value))
     for _section, _n, header, field, value in rows:
-        _check_transportable(header, field, value)
+        _check_transportable(header, field or "", value or "")
     for section, n, header, field, value in rows:
-        print(f"{section}\t{n}\t{header}\t{field}\t{value}")
+        if field is None:
+            print(f"{section}\t{n}\t{header}")
+        else:
+            print(f"{section}\t{n}\t{header}\t{field}\t{value}")
 
 
 def _emit_empty_arrays(data):

@@ -194,6 +194,8 @@ _summary_dump_section() {
 # when populated, so a section with none prints nothing at all; an
 # entry's field arrives even when empty, and prints as `""` -- the
 # `value = ""` of a build argument set empty is part of that argument.
+# An entry with no fields at all arrives as a header-only row (no field
+# column) and prints as its header alone, so it still counts as an entry.
 #
 # The KV view `_load_setup_conf_full` reads is not used here: its
 # `<prefix>_N` keys (`rule_1`, `arg_1`) are the shell's internal names
@@ -207,13 +209,16 @@ _summary_dump_entries() {
     _sde_s="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
     [[ "${_secs}" == *" ${_sde_s} "* ]] || continue
     _sde_n="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
-    _sde_h="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
-    _sde_f="${_sde_row%%$'\t'*}"; _sde_v="${_sde_row#*$'\t'}"
-    [[ -n "${_sde_v}" ]] || _sde_v='""'
+    _sde_h="${_sde_row%%$'\t'*}"
     if [[ "${_sde_n}" != "${_sde_last}" ]]; then
       printf "[%s]   %s\n" "${_tag}" "${_sde_h}"
       _sde_last="${_sde_n}"
     fi
+    # A header-only row is an entry with no fields: header, nothing under it.
+    [[ "${_sde_row}" == *$'\t'* ]] || continue
+    _sde_row="${_sde_row#*$'\t'}"
+    _sde_f="${_sde_row%%$'\t'*}"; _sde_v="${_sde_row#*$'\t'}"
+    [[ -n "${_sde_v}" ]] || _sde_v='""'
     printf "[%s]     %s = %s\n" "${_tag}" "${_sde_f}" "${_sde_v}"
   done <<< "${_rows}"
 }
