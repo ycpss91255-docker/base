@@ -10,6 +10,7 @@ type-aware semantics (table key-level merge, array-of-tables replace),
 outputs merged result.  ADR-37 sec. Merge semantics.
 """
 import json
+import re
 import sys
 
 try:
@@ -242,6 +243,10 @@ def _check_transportable(section, key, value):
     `read` hands it the rest of the line intact -- measured: `"a\tb"`
     comes back as `a<TAB>b`. Refusing it would reject a file the
     transport carries correctly.
+
+    An array entry with no fields is still a block: it emits one
+    header-only row, `<section>\t<n>\t<header>`, with no field or value
+    column, so three entries with an empty middle one stay three blocks.
 
     Rows are collected before any is printed, so a refusal leaves stdout
     empty rather than a prefix of the configuration.
@@ -566,6 +571,224 @@ def _emit_kv(data):
         print(f"{section}\t{key}\t{value}")
 
 
+# Every numbered family a table HOSTS as table scalars, and the
+# [[...]] path that family is written under: the same table as
+# _conf_toml_aot_section in lib/conf.sh. Only the display view
+# (_emit_entries) reads it -- the KV view carries a `[image] rule_1 =`
+# scalar through as the key it is.
+_SECTION_FAMILIES = {
+    "image": (("rule", "image.rules"),),
+    "build": (("arg", "build.args"),),
+    "network": (("port", "network.ports"),),
+    "volumes": (("mount", "volumes"),),
+    "tmpfs": (("tmpfs", "tmpfs"),),
+    "devices": (("device", "devices.bindings"),
+                ("cgroup_rule", "devices.cgroup_rules")),
+    "additional_contexts": (("context", "additional_contexts"),),
+    "security": (("cap_add", "security.cap_add"),
+                 ("cap_drop", "security.cap_drop"),
+                 ("security_opt", "security.security_opt")),
+}
+
+
+def _entry_fields(path, value):
+    """The fields of the [[<path>]] entry a numbered scalar stands for.
+
+    Split the way _conf_toml_aot_fields in lib/conf.sh writes the entry
+    for the same value: `KEY=VALUE` into key / value, `host:container`
+    into host / container, a mount into source / target / mode, anything
+    else into its one field. A half the value does not have is a field
+    with no line, and an empty half after a separator is an empty field,
+    as there.
+    """
+    def split(sep, names):
+        parts = value.split(sep, len(names) - 1)
+        return list(zip(names, parts))
+
+    if path == "build.args":
+        return split("=", ("key", "value"))
+    if path == "additional_contexts":
+        return split("=", ("name", "source"))
+    if path == "network.ports":
+        return split(":", ("host", "container"))
+    if path == "volumes":
+        return split(":", ("source", "target", "mode"))
+    if path in ("security.cap_add", "security.cap_drop"):
+        return [("cap", value)]
+    if path == "security.security_opt":
+        return [("opt", value)]
+    if path in ("tmpfs", "devices.bindings"):
+        return [("path", value)]
+    return [("rule", value)]
+
+
+def _header_path(opener, key):
+    """The dotted path a table header names, decoded as TOML decodes it.
+
+    <key> is the text between the brackets. A header key is a TOML key:
+    `security."cap_add"` and `security."cap\\u005Fadd"` both name
+    `security.cap_add`, and a quoted part may hold a `.` -- so it is
+    decoded by parsing the header alone with tomllib, never by stripping
+    quotes and splitting on dots, which leaves an escape undecoded and
+    loses that block's position (base#1339). The path's parts are joined
+    with `.`, as _emit_entries joins the parsed data's keys. None when
+    the text does not parse as a header: a line inside a multi-line
+    string that merely looks like one.
+    """
+    closer = "]]" if opener == "[[" else "]"
+    try:
+        node = tomllib.loads(f"{opener}{key}{closer}\n")
+    except tomllib.TOMLDecodeError:
+        return None
+    parts = []
+    while isinstance(node, dict) and len(node) == 1:
+        name, node = next(iter(node.items()))
+        parts.append(name)
+    return ".".join(parts) if parts else None
+
+
+def _header_positions(raw):
+    """Where each table header sits in the source text.
+
+    Returns ({path: [line, ...]} for `[[path]]` headers,
+    {path: line} for the first `[path]` header). tomllib keeps no
+    positions and groups an array's entries under one key, so the order
+    the file wrote its blocks in -- two arrays of one table interleaved,
+    a table's own header after its arrays -- is only in the text.
+
+    A line-wise scan, so a multi-line string holding a line shaped like a
+    header is miscounted; _emit_entries uses an array's positions only
+    when their count equals its entry count, and a table's only when the
+    header was found at all.
+    """
+    aot, table = {}, {}
+    header = re.compile(r"^\s*(\[\[?)\s*([^\[\]]+?)\s*\]\]?\s*(#.*)?$")
+    for number, line in enumerate(raw.splitlines()):
+        m = header.match(line)
+        if not m:
+            continue
+        path = _header_path(m.group(1), m.group(2))
+        if path is None:
+            continue
+        if m.group(1) == "[[":
+            aot.setdefault(path, []).append(number)
+        else:
+            table.setdefault(path, number)
+    return aot, table
+
+
+def _emit_entries(data, raw):
+    """Emit the file's values in setup.toml's own vocabulary, for display.
+
+    One row per field, `<section>\t<n>\t<header>\t<field>\t<value>`:
+    <header> is the table the field sits under as the file spells it --
+    `[build]` for a table's scalars, `[[build.args]]` (or `[[volumes]]`
+    at the root) for an array-of-tables entry -- and <n> numbers the
+    blocks, so two entries of one array stay two blocks. The config
+    summary prints from this rather than from the KV view, whose
+    `<prefix>_N` keys are the shell's internal names, not names a
+    setup.toml contains (base#1339).
+
+    Blocks come out in the order their headers appear in <raw>, the
+    source text (_header_positions): TOML lets arrays of one table
+    interleave and lets a table's own header follow its arrays. A block
+    whose header cannot be placed falls back to its table's position,
+    after that table's scalars. A nested table's scalars keep their
+    dotted key under the section.
+
+    A numbered table scalar of a family the table hosts
+    (`[image] rule_1 = "@basename"`, _SECTION_FAMILIES) prints as the
+    [[...]] entry it stands for, fields split as the writer splits them
+    (_entry_fields), in numbered order after the table's other scalars.
+
+    An empty table scalar is not a row -- the summary shows populated
+    settings only -- but an entry's empty field is: `value = ""` is part
+    of the build argument `EMPTY=`, which the KV view carries too.
+
+    An array entry with no fields is still a block: it emits one
+    header-only row, `<section>\t<n>\t<header>`, with no field or value
+    column, so three entries with an empty middle one stay three blocks.
+
+    Rows are collected before any is printed, so a refusal from
+    _check_transportable leaves stdout empty.
+    """
+    aot_pos, table_pos = _header_positions(raw)
+    blocks = []
+
+    def place(section):
+        if section in table_pos:
+            return table_pos[section]
+        inner = [n for path, n in table_pos.items()
+                 if path.startswith(section + ".")]
+        inner += [n for path, ns in aot_pos.items()
+                  if path.startswith(section + ".") for n in ns]
+        return min(inner) if inner else -1
+
+    def block(pos, section, header, fields):
+        blocks.append((pos, len(blocks), section, header, fields))
+
+    def entries(section, path, items):
+        found = aot_pos.get(path, [])
+        exact = len(found) == len(items)
+        for index, elem in enumerate(items):
+            if not isinstance(elem, dict):
+                continue
+            fields = [(field, _format_value(value))
+                      for field, value in elem.items()
+                      if not isinstance(value, (dict, list))]
+            pos = found[index] if exact else place(section)
+            block(pos, section, f"[[{path}]]", fields)
+
+    for section, node in data.items():
+        if isinstance(node, list):
+            entries(section, section, node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        scalars, arrays, numbered = [], [], []
+        families = _SECTION_FAMILIES.get(section, ())
+
+        def walk(prefix, table):
+            for key, value in table.items():
+                if isinstance(value, list):
+                    arrays.append((f"{section}.{prefix}{key}", value))
+                elif isinstance(value, dict):
+                    walk(f"{prefix}{key}.", value)
+                else:
+                    value = _format_value(value)
+                    if value == "":
+                        continue
+                    for family, path in families if not prefix else ():
+                        m = re.fullmatch(rf"{family}_([0-9]+)", key)
+                        if m:
+                            numbered.append((path, int(m.group(1)), value))
+                            break
+                    else:
+                        scalars.append((f"{prefix}{key}", value))
+
+        walk("", node)
+        pos = place(section)
+        if scalars:
+            block(pos, section, f"[{section}]", scalars)
+        for path, _n, value in sorted(numbered, key=lambda r: r[:2]):
+            block(pos, section, f"[[{path}]]", _entry_fields(path, value))
+        for path, items in arrays:
+            entries(section, path, items)
+
+    rows = []
+    for n, (_pos, _seq, section, header, fields) in enumerate(
+            sorted(blocks, key=lambda b: b[:2]), 1):
+        for field, value in fields or [(None, None)]:
+            rows.append((section, n, header, field, value))
+    for _section, _n, header, field, value in rows:
+        _check_transportable(header, field or "", value or "")
+    for section, n, header, field, value in rows:
+        if field is None:
+            print(f"{section}\t{n}\t{header}")
+        else:
+            print(f"{section}\t{n}\t{header}\t{field}\t{value}")
+
+
 def _emit_empty_arrays(data):
     """Emit `<section>\t<path>` for every array declared with NO entries.
 
@@ -765,7 +988,10 @@ def main():
     empty_arrays_mode = "--empty-arrays" in args
     tables_mode = "--tables" in args
     empty_families_mode = "--empty-families" in args
+    entries_mode = "--entries" in args
 
+    if entries_mode:
+        args.remove("--entries")
     if empty_families_mode:
         args.remove("--empty-families")
     if tables_mode:
@@ -791,7 +1017,13 @@ def main():
             print(f"toml-bridge: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-    if empty_families_mode:
+    if entries_mode:
+        if merge_mode:
+            print("toml-bridge: --entries reads one file from stdin, "
+                  "not --merge", file=sys.stderr)
+            raise SystemExit(1)
+        _emit_entries(data, raw.decode())
+    elif empty_families_mode:
         _emit_empty_families(data)
     elif tables_mode:
         _emit_tables(data)
