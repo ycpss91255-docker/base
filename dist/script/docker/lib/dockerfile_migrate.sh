@@ -1172,7 +1172,8 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 #   the character and the newline are removed and nothing is inserted;
 #   comment and blank lines inside a continuation are dropped. Trailing
 #   CR/LF and a UTF-8 byte-order mark on line 1 are ignored, and every
-#   Unicode space counts as whitespace.
+#   Unicode space counts as whitespace; a literal default is still printed
+#   with the bytes the Dockerfile wrote, Unicode spaces included.
 #
 #   The scan never decides where an instruction starts: it joins forward
 #   from EVERY line that could open an ARG (after a heredoc, a directive or
@@ -1182,8 +1183,15 @@ _DFM_UNICODE_SPACES=$'\xc2\x85|\xc2\xa0|\xe1\x9a\x80|\xe2\x80\x80|\xe2\x80\x81|\
 #   is accepted.
 _dfm_arg_user_scan() {
   LC_ALL=C awk -v uws="${_DFM_UNICODE_SPACES}" '
-    # classify <instruction text> <line>: record when it is an ARG naming USER.
-    function classify(text, ln,    rest, i, c, q, ts, len, n, toks, j, name, val, form, lit, hasdef) {
+    BEGIN {
+      nu = split(uws, US, "|")
+      for (u = 1; u <= nu; u++) { UB[u] = US[u]; gsub(/./, " ", UB[u]) }
+    }
+    # classify <instruction text> <original text> <line>: record when it
+    # is an ARG naming USER. <text> is read; <original text> is the same
+    # instruction with its Unicode spaces kept, of the same length, so the
+    # default named is cut from it at the same position (base#1348).
+    function classify(text, otext, ln,    rest, orest, i, c, q, ts, len, n, toks, tpos, j, name, val, form, lit, hasdef) {
       sub(/^[[:space:]]+/, "", text)
       # ONBUILD ARG declares the ARG in every build FROM this image.
       while (tolower(substr(text, 1, 7)) == "onbuild" && substr(text, 8, 1) ~ /[[:space:]]/) {
@@ -1191,13 +1199,15 @@ _dfm_arg_user_scan() {
       }
       if (tolower(substr(text, 1, 3)) != "arg" || substr(text, 4, 1) !~ /[[:space:]]/) return
       rest = substr(text, 4)
+      # Only leading text was cut, so rest is the tail of otext.
+      orest = substr(otext, length(otext) - length(rest) + 1)
       # Each token is the raw text between unquoted, unescaped blanks, cut
       # out with substr once it ends (never built a character at a time,
       # which is quadratic on a long continued value).
       n = 0; ts = 0; q = ""; len = length(rest)
       for (i = 1; i <= len; i++) {
         c = substr(rest, i, 1)
-        if (q == "" && index(ws, c)) { if (ts) toks[++n] = substr(rest, ts, i - ts); ts = 0; continue }
+        if (q == "" && index(ws, c)) { if (ts) { toks[++n] = substr(rest, ts, i - ts); tpos[n] = ts }; ts = 0; continue }
         if (!ts) ts = i
         # The escape character escapes the next one outside quotes and
         # inside double quotes (`"a\" b"` stays one token); single quotes
@@ -1206,7 +1216,7 @@ _dfm_arg_user_scan() {
         if (q != "") { if (c == q) q = ""; continue }
         if (c == "\"" || c == "\047") q = c
       }
-      if (ts) toks[++n] = substr(rest, ts)
+      if (ts) { toks[++n] = substr(rest, ts); tpos[n] = ts }
       form = ""
       for (j = 1; j <= n; j++) {
         name = toks[j]; val = ""
@@ -1215,7 +1225,9 @@ _dfm_arg_user_scan() {
         if (form == "") form = "bare"
         # The last USER default is the one Docker keeps. Whether it has a
         # default is the `=`, not its contents: `USER=""` is a default.
-        lit = val; hasdef = index(toks[j], "=") > 0
+        hasdef = index(toks[j], "=") > 0
+        # The value as written: the same span of the original text.
+        lit = hasdef ? substr(orest, tpos[j] + index(toks[j], "="), length(val)) : ""
         if (lit ~ /^".*"$/ || lit ~ /^\047.*\047$/) lit = substr(lit, 2, length(lit) - 2)
         # A USER_NAME default, or one whose `${` never closes, warns as root.
         if (val ~ /USER_NAME/ || val ~ /\$\{[^}]*$/) form = "root"
@@ -1267,8 +1279,10 @@ _dfm_arg_user_scan() {
     # still read once. A cut tail is prefixed with "_" so its first byte
     # never reads as the start of the instruction. Skipped comment and
     # blank lines leave prev and tail as they are.
+    # obuf is the same join over the original lines (O), byte for byte:
+    # a piece of L is a prefix of its line and O[j] has the same length.
     function joined(i,    buf, j, v, k, piece, prev, tail) {
-      buf = ""; v = 1; toolong = 0; longuser = 0; prev = ""; tail = ""
+      buf = ""; obuf = ""; v = 1; toolong = 0; longuser = 0; prev = ""; tail = ""
       for (j = i; j <= nl; j++) {
         if (j > i && L[j] ~ /^[[:space:]]*(#|$)/) continue
         k = continues(L[j]); piece = k ? body : L[j]
@@ -1278,9 +1292,9 @@ _dfm_arg_user_scan() {
         if (tail ~ /(^|[[:space:]"\047=])USER([[:space:]=]|$)/) longuser = 1
         if (length(tail) > 6) tail = "_" substr(tail, length(tail) - 4)
         if (!toolong) {
-          buf = buf piece
+          buf = buf piece; obuf = obuf substr(O[j], 1, length(piece))
           if (v == 1) { v = viable(buf); if (!v) return "" }
-          if (length(buf) > 4096) { toolong = 1; buf = "" }
+          if (length(buf) > 4096) { toolong = 1; buf = ""; obuf = "" }
         }
         if (!k) break
       }
@@ -1291,8 +1305,11 @@ _dfm_arg_user_scan() {
       line = $0
       if (NR == 1) sub(/^\357\273\277/, "", line)
       sub(/[\r\n]+$/, "", line)
-      gsub(uws, " ", line)
-      L[++nl] = line
+      O[++nl] = line
+      # Each Unicode space becomes as many ASCII spaces as it has bytes,
+      # so L[i] reads as Docker reads it and keeps the positions of O[i].
+      for (u = 1; u <= nu; u++) gsub(US[u], UB[u], line)
+      L[nl] = line
     }
     END {
       ws = " \t\n\v\f\r"
@@ -1301,7 +1318,7 @@ _dfm_arg_user_scan() {
         for (i = 1; i <= nl; i++)
           if (L[i] ~ /^[[:space:]]*[AaOo\\`]/) {
             t = joined(i)
-            if (!toolong) classify(t, i)
+            if (!toolong) classify(t, obuf, i)
             else if (longuser) found[i] = "root"
           }
       }
