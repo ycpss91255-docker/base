@@ -267,6 +267,22 @@ EOF
   refute_output "0"
 }
 
+# why: Both generated files tell the consumer how `.env` is rewritten, and the
+# consumer's entry justfile has no top-level `setup` recipe (ADR-00000011), so
+# `just setup` in either answers itself with `error: justfile does not contain
+# recipe`; the command they can type is `just docker setup`
+@test "_scaffold_env_local / write_container_env: the regenerate command named is one the consumer can run (base#1349)" {
+  _scaffold_env_local "${TEMP_DIR}/.env.local"
+  write_container_env "${TEMP_DIR}/.env" "" ""
+  local _f
+  for _f in "${TEMP_DIR}/.env" "${TEMP_DIR}/.env.local"; do
+    run grep -nE '`just (setup|build|run)`' "${_f}"
+    assert_failure
+    run grep -F '`just docker setup`' "${_f}"
+    assert_success
+  done
+}
+
 @test "_scaffold_env_local creates a comment-only override file naming .env (#868)" {
   run _scaffold_env_local "${TEMP_DIR}/.env.local"
   assert_success
