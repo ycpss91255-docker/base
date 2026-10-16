@@ -1753,42 +1753,57 @@ _m7_dispatch() {
   run bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
 }
 
-# _m7_assert_warn_only <root|bare> <line>...
+# _M7_PORT
+#   The manual port every warning must state, piece by piece: sys declares
+#   the four identity args and creates the user from them, and each later
+#   stage aliases ARG USER="${USER_NAME}" -- with the template lines.
+# shellcheck disable=SC2016
+_M7_PORT=(
+  'in sys declare ARG USER_NAME'
+  'USER_GROUP'
+  'USER_UID'
+  'USER_GID'
+  'create the user from them'
+  'in each later stage alias ARG USER="${USER_NAME}"'
+  'dist/dockerfile/Dockerfile:214'
+  ':298'
+  ':329'
+)
+
+# _m7_assert_warn_only <line>:<root|bare>...
 #   Dispatch twice. Each pass must leave ${DF} byte-identical to what the
-#   test wrote, report `0 file(s) rewritten` with arg_user matched, name
-#   ${DF}:<line> for every given line, and state the manual port. With
-#   `root`, the warning for each line must also say the image may run as
-#   root (the form an earlier upgrade already wrote).
+#   test wrote and report `0 file(s) rewritten` with arg_user matched. For
+#   every <line>, a warning must name ${DF}:<line> and state each piece of
+#   the manual port (_M7_PORT). With `root`, that warning must also say the
+#   image may run as root (the form an earlier upgrade already wrote).
 _m7_assert_warn_only() {
-  local _form="$1"
-  shift
   cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
-  local _pass _line _hits
+  local _pass _spec _line _form _hits _piece
   for _pass in 1 2; do
     _m7_dispatch
     assert_success
     cmp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
     assert_output --partial \
       "Dockerfile migrations: 1 of 1 matched (arg_user), 0 file(s) rewritten"
-    # The manual port: sys declares the four identity args and creates the
-    # user from them; the later stages alias ARG USER="${USER_NAME}".
-    assert_output --partial "USER_NAME"
-    assert_output --partial "USER_GROUP"
-    assert_output --partial "USER_UID"
-    assert_output --partial "USER_GID"
-    assert_output --partial "dist/dockerfile/Dockerfile:214"
-    assert_output --partial ":298"
-    assert_output --partial ":329"
-    for _line in "$@"; do
+    for _spec in "$@"; do
+      _line="${_spec%%:*}"
+      _form="${_spec#*:}"
       _hits="$(printf '%s\n' "${output}" | grep -E "${DF}:${_line}([^0-9]|$)" || true)"
       [[ -n "${_hits}" ]] || {
         printf 'pass %s: no warning names %s:%s\n%s\n' \
           "${_pass}" "${DF}" "${_line}" "${output}" >&2
         return 1
       }
+      for _piece in "${_M7_PORT[@]}"; do
+        printf '%s\n' "${_hits}" | grep -qF -- "${_piece}" || {
+          printf 'pass %s: warning for %s:%s lacks %s\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${_piece}" "${output}" >&2
+          return 1
+        }
+      done
       if [[ "${_form}" == root ]]; then
-        printf '%s\n' "${_hits}" | grep -qi 'root' || {
-          printf 'pass %s: warning for %s:%s does not say root\n%s\n' \
+        printf '%s\n' "${_hits}" | grep -qF 'may run as root' || {
+          printf 'pass %s: warning for %s:%s does not say the image may run as root\n%s\n' \
             "${_pass}" "${DF}" "${_line}" "${output}" >&2
           return 1
         }
@@ -1808,7 +1823,7 @@ FROM sys AS devel
 ARG USER
 USER "${USER}"
 EOF
-  _m7_assert_warn_only bare 5
+  _m7_assert_warn_only 5:bare
 }
 
 # why: base#1322 criterion 2 -- a consumer that already took the v0.42
@@ -1825,7 +1840,7 @@ FROM sys AS runtime
 ARG USER="${USER_NAME}"
 USER "${USER}"
 EOF
-  _m7_assert_warn_only root 5 8
+  _m7_assert_warn_only 5:root 8:root
 }
 
 # why: base#1322 criterion 1 -- through the full shipped list, arg_user
@@ -1864,7 +1879,7 @@ arg USER_NAME="user"
 From sys As devel
 ARG USER="${USER_NAME}"
 EOF
-  _m7_assert_warn_only root 4
+  _m7_assert_warn_only 4:root
 }
 
 # why: base#1322 -- a global USER_NAME before the first FROM does not make
@@ -1877,9 +1892,7 @@ ARG USER
 FROM sys AS devel
 ARG USER="${USER_NAME}"
 EOF
-  _m7_assert_warn_only root 5
-  _m7_dispatch
-  assert_output --regexp "${DF}:3([^0-9]|$)"
+  _m7_assert_warn_only 3:bare 5:root
 }
 
 # why: base#1322 -- USER_NAME declared in a sibling stage is not in scope
@@ -1892,7 +1905,7 @@ ARG USER_NAME="user"
 FROM sys AS devel
 ARG USER="${USER_NAME}"
 EOF
-  _m7_assert_warn_only root 6
+  _m7_assert_warn_only 6:root
 }
 
 # why: base#1322 -- USER_NAME inherited from the parent stage (the template
@@ -1906,7 +1919,7 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 ARG USER="${USER_NAME}"
 EOF
-  _m7_assert_warn_only root 6
+  _m7_assert_warn_only 6:root
 }
 
 # why: base#1322 -- a USER_NAME declared AFTER the alias in the same stage
@@ -1916,7 +1929,7 @@ FROM busybox AS sys
 ARG USER="${USER_NAME}"
 ARG USER_NAME="user"
 EOF
-  _m7_assert_warn_only root 2
+  _m7_assert_warn_only 2:root
 }
 
 # why: base#1322 -- the alias with other quoting is the same shape
@@ -1931,7 +1944,7 @@ ARG USER='${USER_NAME}'
 FROM sys AS c
 ARG USER="$USER_NAME"
 EOF
-  _m7_assert_warn_only root 4 6 8
+  _m7_assert_warn_only 4:root 6:root 8:root
 }
 
 # why: base#1322 -- a backslash continuation around ARG USER
@@ -1946,9 +1959,32 @@ FROM sys AS devel
 ARG USER="${USER_NAME}" \
     GROUP="${USER_GROUP}"
 EOF
-  _m7_assert_warn_only bare 4
-  _m7_dispatch
-  assert_output --regexp "${DF}:7([^0-9]|$)"
+  _m7_assert_warn_only 4:bare 7:root
+}
+
+# why: base#1322 review round 1 -- the declaration itself is continued:
+#      `ARG \` + `USER` is a bare ARG USER, `ARG USER=\` + its USER_NAME
+#      default is the earlier rewrite, a comment line inside a continuation
+#      is dropped by the parser, and USER can be a later name in a
+#      multi-name ARG. Each warns at the line its ARG instruction starts on.
+@test "migration 7 (arg-user) regression: continued and multi-name declarations (base#1322)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG \
+    USER
+FROM sys AS devel
+ARG USER=\
+    "${USER_NAME}"
+FROM sys AS runtime
+ARG USER_GROUP \
+# a comment the parser drops
+    USER="${USER_NAME}"
+FROM sys AS test
+ARG USER_GROUP USER
+FROM sys AS lint
+ARG USER_GROUP="g" USER="${USER_NAME}"
+EOF
+  _m7_assert_warn_only 2:bare 5:root 8:root 12:bare 14:root
 }
 
 # why: base#1322 -- a RUN heredoc before the ARG must not swallow it, and an
@@ -1966,9 +2002,7 @@ RUN <<-EOT cat
 	EOT
 ARG USER="${USER_NAME}"
 EOF
-  _m7_assert_warn_only bare 5
-  _m7_dispatch
-  assert_output --regexp "${DF}:10([^0-9]|$)"
+  _m7_assert_warn_only 5:bare 10:root
 }
 
 # why: base#1322 -- a numeric heredoc delimiter
@@ -1980,7 +2014,7 @@ echo body
 1
 ARG USER
 EOF
-  _m7_assert_warn_only bare 5
+  _m7_assert_warn_only 5:bare
 }
 
 # why: base#1322 -- a quoted `<<` literal or a JSON-form `<<` opens no
@@ -1997,9 +2031,7 @@ FROM sys AS runtime
 RUN echo '<<"EOT"'
 ARG USER
 EOF
-  _m7_assert_warn_only bare 3 9
-  _m7_dispatch
-  assert_output --regexp "${DF}:6([^0-9]|$)"
+  _m7_assert_warn_only 3:bare 6:root 9:bare
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
