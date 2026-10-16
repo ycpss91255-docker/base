@@ -3004,10 +3004,14 @@ FIXTURE
   # has to name the condition and how to meet it.
   run grep -F 'Dockerfile predates' <<< "${_why}"
   assert_success
-  run grep -F 'just upgrade' <<< "${_why}"
+  # The command it names has to be one the reader can run: since
+  # ADR-00000011 the recipe lives in the base module, so it is
+  # `just base upgrade`; a bare `just upgrade` no longer exists
+  # (base#1341).
+  run grep -F 'just base upgrade' <<< "${_why}"
   assert_success
   # And it has to say WHY the upgrade does not close the gap on its own.
-  # `just upgrade` can rewrite a consumer Dockerfile (init.sh and
+  # `just base upgrade` can rewrite a consumer Dockerfile (init.sh and
   # upgrade.sh both call apply_migrations over the `_MIGRATIONS` list in
   # dist/script/docker/lib/dockerfile_migrate.sh), so "the upgrade does
   # not rewrite it" is not the reason; "no
@@ -3088,7 +3092,12 @@ FIXTURE
   # FAILURE in the spec, not a second kind of skip.
   run grep -E 'missing\)$' "${_spec}"
   assert_success
-  # The skip's stated REASON has to match the wiring. `just upgrade` does
+  # The skip tells the reader what to run, so that has to be a command
+  # that exists: the upgrade recipe lives in the base module since
+  # ADR-00000011, and a bare `just upgrade` is not a recipe (base#1341).
+  run grep -F "run 'just base upgrade'" "${_spec}"
+  assert_success
+  # The skip's stated REASON has to match the wiring. `just base upgrade` does
   # rewrite a consumer Dockerfile -- init.sh and upgrade.sh both call
   # apply_migrations -- so "the consumer's Dockerfile is not rewritten by
   # the upgrade" was false where this file ships it to 17 repos. The true
