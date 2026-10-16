@@ -981,10 +981,12 @@ _derived_check_drift_keys() {
 #
 # Scope, and the residual limits, stated rather than papered over:
 #
-#   - only dist/**/*.sh. That is the tree that ships, and the entry justfile
-#     it ships beside it is the layering being derived; base's own root
-#     justfile is a different one (it carries the `test` namespace), so
-#     README.md and CONTEXT.md are deliberately not judged by this figure.
+#   - only dist/**/*.sh plus the shipped config / Dockerfile templates
+#     (_DERIVED_FIGURES_SHIPPED_TEMPLATES). That is the tree that ships, and
+#     the entry justfile it ships beside it is the layering being derived;
+#     base's own root justfile is a different one (it carries the `test`
+#     namespace), so README.md and CONTEXT.md are deliberately not judged by
+#     this figure.
 #   - only a QUOTED literal -- single-quoted or backticked -- and only on a
 #     line that is not a comment. That pairing is what separates an
 #     instruction from prose about one: a quoted command inside a message
@@ -993,7 +995,14 @@ _derived_check_drift_keys() {
 #     message table), while a comment is maintainer prose -- the entry
 #     justfile's own docstring says there is no top-level `just build`, and a
 #     rule that judged comments would fail on the file that documents the
-#     hazard. Both delimiters get their own pattern rather than one
+#     hazard. Two kinds of `#` line are NOT maintainer prose, though, and
+#     are judged (base#1349): a line inside a heredoc body under dist/, which
+#     is the text of a file the toolchain WRITES into the consumer's repo
+#     (the generated .env header, the .env.local seed, config/.gitkeep), and
+#     every line of a shipped template, whose comments are copied into the
+#     consumer's repo and read there. The heredoc ends at its terminator, so
+#     a source comment after it is prose again.
+#     Both delimiters get their own pattern rather than one
 #     alternation, because bash's ERE has no backreference to require the
 #     closing delimiter to match the opening one, and a pattern that accepted
 #     a span opened with one delimiter and closed with the other would read
@@ -1004,6 +1013,24 @@ _derived_check_drift_keys() {
 #     question with a separate population -- the names init.sh deletes on
 #     sight -- and they are not derived here.
 readonly _DERIVED_FIGURES_ENTRY_JUSTFILE='dist/script/justfile'
+
+# The non-script files the consumer receives whose every line -- comments
+# included -- is consumer-facing text (base#1349). Each is judged when it is
+# present; dist/setup.toml is required by figure 6 already.
+readonly -a _DERIVED_FIGURES_SHIPPED_TEMPLATES=(
+  'dist/setup.toml'
+  'dist/.setup.conf'
+  'dist/dockerfile/Dockerfile'
+  'dist/.hadolint.yaml'
+)
+
+# The opener of a heredoc on a shell line: `<<WORD`, `<<-WORD`, `<< 'WORD'`,
+# `<<"WORD"`, `<<\WORD`. The character before `<<` must not be another `<`,
+# so a here-string (`<<<`) is not read as one. Group 2 is the `-` that lets
+# the terminator be tab-indented, group 3 the terminator word. An
+# arithmetic left shift (`$(( a << b ))`) also matches; no non-comment line
+# under dist/ spells one today.
+readonly _DERIVED_FIGURES_HEREDOC_RE="(^|[^<])<<(-?)[[:space:]]*[\\'\"]?([A-Za-z_][A-Za-z0-9_]*)"
 
 # A quoted `just` invocation inside a message string, one pattern per
 # delimiter. _derived_scan_just_literals walks the line once per pattern.
@@ -1177,18 +1204,23 @@ _derived_just_candidate() {
   return 0
 }
 
-# _derived_scan_just_literals <file> <rel> <commands_var_name>
+# _derived_scan_just_literals <file> <rel> <commands_var_name> [template]
 #
 # Report every quoted `just` invocation in <file> -- single-quoted or
 # backticked -- that the consumer's layering does not dispatch. Prints one
 # violation per hit and returns the count.
 #
+# A shell file skips its `#` lines EXCEPT inside a heredoc body, which is
+# text written out to the consumer (base#1349). With a fourth argument of
+# `template` the file is a shipped template and every line is judged.
+#
 # Each line is walked once per delimiter pattern, so two undispatchable
 # commands in one span of prose ("after `just stop` and `just test`") are
 # both reported rather than the first one swallowing the rest of the line.
 _derived_scan_just_literals() {
-  local _file="$1" _rel="$2" _cmds_name="$3"
+  local _file="$1" _rel="$2" _cmds_name="$3" _mode="${4:-script}"
   local _violations=0
+  local _heredoc_end='' _heredoc_tabs=0 _cmp
 
   local -a _patterns=(
     "${_DERIVED_FIGURES_JUST_LITERAL_RE}"
@@ -1198,7 +1230,23 @@ _derived_scan_just_literals() {
   local _lineno=0 _line _pattern _rest _match _invocation _cand _repair
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
-    [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
+    if [[ -n "${_heredoc_end}" ]]; then
+      _cmp="${_line}"
+      if [[ "${_heredoc_tabs}" -eq 1 ]]; then
+        while [[ "${_cmp}" == $'\t'* ]]; do _cmp="${_cmp#$'\t'}"; done
+      fi
+      if [[ "${_cmp}" == "${_heredoc_end}" ]]; then
+        _heredoc_end=''
+        continue
+      fi
+    elif [[ "${_mode}" != 'template' ]]; then
+      [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
+      if [[ "${_line}" =~ ${_DERIVED_FIGURES_HEREDOC_RE} ]]; then
+        _heredoc_end="${BASH_REMATCH[3]}"
+        _heredoc_tabs=0
+        [[ -n "${BASH_REMATCH[2]}" ]] && _heredoc_tabs=1
+      fi
+    fi
     for _pattern in "${_patterns[@]}"; do
       _rest="${_line}"
       while [[ "${_rest}" =~ ${_pattern} ]]; do
@@ -1529,6 +1577,14 @@ _run_derived_figures() {
     _hits=0
     _derived_scan_just_literals \
       "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done
+  local _tmpl
+  for _tmpl in "${_DERIVED_FIGURES_SHIPPED_TEMPLATES[@]}"; do
+    [[ -f "${REPO_ROOT}/${_tmpl}" ]] || continue
+    _hits=0
+    _derived_scan_just_literals \
+      "${REPO_ROOT}/${_tmpl}" "${_tmpl}" _just_cmds template || _hits=$?
     _violations=$(( _violations + _hits ))
   done
 

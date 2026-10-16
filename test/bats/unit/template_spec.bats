@@ -1804,9 +1804,13 @@ EOF
   # what anything sources.
   run grep -F 'convenience symlink' "${_df}"
   assert_success
-  # Rule 3 plus its enforcement handle, so the reader can run the gate.
-  run grep -F 'just test lint --home-literal' "${_df}"
+  # Rule 3 plus the gate that enforces it. The gate runs in base's own CI
+  # only, so the comment names the lint rather than a `just test` command a
+  # consumer repo cannot dispatch (base#1349).
+  run grep -F '`home-literal` lint' "${_df}"
   assert_success
+  run grep -F 'just test lint' "${_df}"
+  assert_failure
   # The recorded rationale, so the WHY does not have to live in the comment.
   run grep -F 'ADR-00000024' "${_df}"
   assert_success
@@ -2656,13 +2660,14 @@ _df_claim_hits() {
   assert_success
   # ... and the route it names first has to be the one this repo actually
   # drives builds through. `[build] arg_N` in setup.toml reaches the
-  # build via `just setup` + `just build`; a note that offers only
+  # build via `just docker setup` + `just docker build` (the namespaced
+  # spellings a consumer can dispatch, base#1349); a note that offers only
   # `--build-arg` sends a local reader to the one surface the repo's
   # convention refuses, and offering only an `ARG` default edit sends
   # them to a template-owned line a later migration may rewrite.
   run grep -F 'setup.toml' <<< "${_note}"
   assert_success
-  run grep -F 'just setup' <<< "${_note}"
+  run grep -F 'just docker setup' <<< "${_note}"
   assert_success
 }
 
