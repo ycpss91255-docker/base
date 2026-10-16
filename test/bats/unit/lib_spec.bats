@@ -1106,7 +1106,8 @@ rule_1 = "@basename"
 EOF
   run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
   assert_success
-  assert_output --partial "[image]"
+  assert_output --partial "[[image.rules]]"
+  assert_output --partial "rule = @basename"
   refute_output --partial "  [build]"
   refute_output --partial "  [volumes]"
 }

@@ -183,10 +183,13 @@ _summary_dump_section() {
 # One section of setup.toml as the file spells it: each block under its
 # own header -- `[build]` for the table's scalars, `[[build.args]]` (or
 # `[[volumes]]` at the root) once per array entry -- and each field by
-# the name the file gives it (`key` / `value`, `rule`). <rows> is the
-# output of `toml_bridge_parse --entries`, which numbers the blocks so
-# that two entries of one array print as two blocks, and carries only
-# populated values, so a section with none prints nothing at all.
+# the name the file gives it (`key` / `value`, `rule`), blocks in the
+# order the file writes them. <rows> is the output of
+# `toml_bridge_parse --entries`, which numbers the blocks so that two
+# entries of one array print as two blocks. A table scalar arrives only
+# when populated, so a section with none prints nothing at all; an
+# entry's field arrives even when empty, and prints as `""` -- the
+# `value = ""` of a build argument set empty is part of that argument.
 #
 # The KV view `_load_setup_conf_full` reads is not used here: its
 # `<prefix>_N` keys (`rule_1`, `arg_1`) are the shell's internal names
@@ -202,6 +205,7 @@ _summary_dump_entries() {
     _sde_n="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
     _sde_h="${_sde_row%%$'\t'*}"; _sde_row="${_sde_row#*$'\t'}"
     _sde_f="${_sde_row%%$'\t'*}"; _sde_v="${_sde_row#*$'\t'}"
+    [[ -n "${_sde_v}" ]] || _sde_v='""'
     if [[ "${_sde_n}" != "${_sde_last}" ]]; then
       printf "[%s]   %s\n" "${_tag}" "${_sde_h}"
       _sde_last="${_sde_n}"

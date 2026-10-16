@@ -10,6 +10,7 @@ type-aware semantics (table key-level merge, array-of-tables replace),
 outputs merged result.  ADR-37 sec. Merge semantics.
 """
 import json
+import re
 import sys
 
 try:
@@ -566,10 +567,90 @@ def _emit_kv(data):
         print(f"{section}\t{key}\t{value}")
 
 
-def _emit_entries(data):
+# Every numbered family a table HOSTS as table scalars, and the
+# [[...]] path that family is written under: the same table as
+# _conf_toml_aot_section in lib/conf.sh. Only the display view
+# (_emit_entries) reads it -- the KV view carries a `[image] rule_1 =`
+# scalar through as the key it is.
+_SECTION_FAMILIES = {
+    "image": (("rule", "image.rules"),),
+    "build": (("arg", "build.args"),),
+    "network": (("port", "network.ports"),),
+    "volumes": (("mount", "volumes"),),
+    "tmpfs": (("tmpfs", "tmpfs"),),
+    "devices": (("device", "devices.bindings"),
+                ("cgroup_rule", "devices.cgroup_rules")),
+    "additional_contexts": (("context", "additional_contexts"),),
+    "security": (("cap_add", "security.cap_add"),
+                 ("cap_drop", "security.cap_drop"),
+                 ("security_opt", "security.security_opt")),
+}
+
+
+def _entry_fields(path, value):
+    """The fields of the [[<path>]] entry a numbered scalar stands for.
+
+    Split the way _conf_toml_aot_fields in lib/conf.sh writes the entry
+    for the same value: `KEY=VALUE` into key / value, `host:container`
+    into host / container, a mount into source / target / mode, anything
+    else into its one field. A half the value does not have is a field
+    with no line, and an empty half after a separator is an empty field,
+    as there.
+    """
+    def split(sep, names):
+        parts = value.split(sep, len(names) - 1)
+        return list(zip(names, parts))
+
+    if path == "build.args":
+        return split("=", ("key", "value"))
+    if path == "additional_contexts":
+        return split("=", ("name", "source"))
+    if path == "network.ports":
+        return split(":", ("host", "container"))
+    if path == "volumes":
+        return split(":", ("source", "target", "mode"))
+    if path in ("security.cap_add", "security.cap_drop"):
+        return [("cap", value)]
+    if path == "security.security_opt":
+        return [("opt", value)]
+    if path in ("tmpfs", "devices.bindings"):
+        return [("path", value)]
+    return [("rule", value)]
+
+
+def _header_positions(raw):
+    """Where each table header sits in the source text.
+
+    Returns ({path: [line, ...]} for `[[path]]` headers,
+    {path: line} for the first `[path]` header). tomllib keeps no
+    positions and groups an array's entries under one key, so the order
+    the file wrote its blocks in -- two arrays of one table interleaved,
+    a table's own header after its arrays -- is only in the text.
+
+    A line-wise scan, so a multi-line string holding a line shaped like a
+    header is miscounted; _emit_entries uses an array's positions only
+    when their count equals its entry count, and a table's only when the
+    header was found at all.
+    """
+    aot, table = {}, {}
+    header = re.compile(r"^\s*(\[\[?)\s*([^\[\]]+?)\s*\]\]?\s*(#.*)?$")
+    for number, line in enumerate(raw.splitlines()):
+        m = header.match(line)
+        if not m:
+            continue
+        path = ".".join(part.strip().strip("\"'")
+                        for part in m.group(2).split("."))
+        if m.group(1) == "[[":
+            aot.setdefault(path, []).append(number)
+        else:
+            table.setdefault(path, number)
+    return aot, table
+
+
+def _emit_entries(data, raw):
     """Emit the file's values in setup.toml's own vocabulary, for display.
 
-    One row per populated field, `<section>\t<n>\t<header>\t<field>\t<value>`:
+    One row per field, `<section>\t<n>\t<header>\t<field>\t<value>`:
     <header> is the table the field sits under as the file spells it --
     `[build]` for a table's scalars, `[[build.args]]` (or `[[volumes]]`
     at the root) for an array-of-tables entry -- and <n> numbers the
@@ -578,37 +659,60 @@ def _emit_entries(data):
     `<prefix>_N` keys are the shell's internal names, not names a
     setup.toml contains (base#1339).
 
-    A table's scalars come before its arrays, which is the order TOML
-    itself requires of them in a file; a nested table's scalars keep
-    their dotted key under the section. Everything else is file order.
-    An empty value is not a row: the summary shows populated values only.
+    Blocks come out in the order their headers appear in <raw>, the
+    source text (_header_positions): TOML lets arrays of one table
+    interleave and lets a table's own header follow its arrays. A block
+    whose header cannot be placed falls back to its table's position,
+    after that table's scalars. A nested table's scalars keep their
+    dotted key under the section.
+
+    A numbered table scalar of a family the table hosts
+    (`[image] rule_1 = "@basename"`, _SECTION_FAMILIES) prints as the
+    [[...]] entry it stands for, fields split as the writer splits them
+    (_entry_fields), in numbered order after the table's other scalars.
+
+    An empty table scalar is not a row -- the summary shows populated
+    settings only -- but an entry's empty field is: `value = ""` is part
+    of the build argument `EMPTY=`, which the KV view carries too.
+
     Rows are collected before any is printed, so a refusal from
     _check_transportable leaves stdout empty.
     """
-    rows = []
-    block = 0
+    aot_pos, table_pos = _header_positions(raw)
+    blocks = []
 
-    def add(section, header, field, value):
-        value = _format_value(value)
-        if value != "":
-            rows.append((section, block, header, field, value))
+    def place(section):
+        if section in table_pos:
+            return table_pos[section]
+        inner = [n for path, n in table_pos.items()
+                 if path.startswith(section + ".")]
+        inner += [n for path, ns in aot_pos.items()
+                  if path.startswith(section + ".") for n in ns]
+        return min(inner) if inner else -1
 
-    def entries(section, header, items):
-        nonlocal block
-        for elem in items:
-            block += 1
-            if isinstance(elem, dict):
-                for field, value in elem.items():
-                    if not isinstance(value, (dict, list)):
-                        add(section, header, field, value)
+    def block(pos, section, header, fields):
+        blocks.append((pos, len(blocks), section, header, fields))
+
+    def entries(section, path, items):
+        found = aot_pos.get(path, [])
+        exact = len(found) == len(items)
+        for index, elem in enumerate(items):
+            if not isinstance(elem, dict):
+                continue
+            fields = [(field, _format_value(value))
+                      for field, value in elem.items()
+                      if not isinstance(value, (dict, list))]
+            pos = found[index] if exact else place(section)
+            block(pos, section, f"[[{path}]]", fields)
 
     for section, node in data.items():
         if isinstance(node, list):
-            entries(section, f"[[{section}]]", node)
+            entries(section, section, node)
             continue
         if not isinstance(node, dict):
             continue
-        scalars, arrays = [], []
+        scalars, arrays, numbered = [], [], []
+        families = _SECTION_FAMILIES.get(section, ())
 
         def walk(prefix, table):
             for key, value in table.items():
@@ -617,15 +721,31 @@ def _emit_entries(data):
                 elif isinstance(value, dict):
                     walk(f"{prefix}{key}.", value)
                 else:
-                    scalars.append((f"{prefix}{key}", value))
+                    value = _format_value(value)
+                    if value == "":
+                        continue
+                    for family, path in families if not prefix else ():
+                        m = re.fullmatch(rf"{family}_([0-9]+)", key)
+                        if m:
+                            numbered.append((path, int(m.group(1)), value))
+                            break
+                    else:
+                        scalars.append((f"{prefix}{key}", value))
 
         walk("", node)
-        block += 1
-        for key, value in scalars:
-            add(section, f"[{section}]", key, value)
+        pos = place(section)
+        if scalars:
+            block(pos, section, f"[{section}]", scalars)
+        for path, _n, value in sorted(numbered, key=lambda r: r[:2]):
+            block(pos, section, f"[[{path}]]", _entry_fields(path, value))
         for path, items in arrays:
-            entries(section, f"[[{path}]]", items)
+            entries(section, path, items)
 
+    rows = []
+    for n, (_pos, _seq, section, header, fields) in enumerate(
+            sorted(blocks, key=lambda b: b[:2]), 1):
+        for field, value in fields:
+            rows.append((section, n, header, field, value))
     for _section, _n, header, field, value in rows:
         _check_transportable(header, field, value)
     for section, n, header, field, value in rows:
@@ -861,7 +981,11 @@ def main():
             raise SystemExit(1)
 
     if entries_mode:
-        _emit_entries(data)
+        if merge_mode:
+            print("toml-bridge: --entries reads one file from stdin, "
+                  "not --merge", file=sys.stderr)
+            raise SystemExit(1)
+        _emit_entries(data, raw.decode())
     elif empty_families_mode:
         _emit_empty_families(data)
     elif tables_mode:
