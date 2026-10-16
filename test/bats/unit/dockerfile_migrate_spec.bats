@@ -1810,7 +1810,9 @@ _M7_PORT=(
 #   test wrote and report `0 file(s) rewritten` with arg_user matched. For
 #   every <line>, a warning must name ${DF}:<line> and state each piece of
 #   the manual port (_M7_PORT). With `root`, that warning must also say the
-#   image may run as root (the form an earlier upgrade already wrote).
+#   image may run as root (the form an earlier upgrade already wrote). With
+#   `bare`, it must name the parent-stage case and must not claim the image
+#   builds its default user (base#1340).
 _m7_assert_warn_only() {
   cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
   local _pass _spec _line _form _hits _piece
@@ -1842,6 +1844,17 @@ _m7_assert_warn_only() {
             "${_pass}" "${DF}" "${_line}" "${output}" >&2
           return 1
         }
+      else
+        printf '%s\n' "${_hits}" | grep -qF 'unless a parent stage declares ARG USER' || {
+          printf 'pass %s: bare warning for %s:%s does not name the parent-stage case\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        }
+        if printf '%s\n' "${_hits}" | grep -qF 'builds its default user'; then
+          printf 'pass %s: bare warning for %s:%s claims the image builds its default user\n%s\n' \
+            "${_pass}" "${DF}" "${_line}" "${output}" >&2
+          return 1
+        fi
       fi
     done
   done
@@ -2216,7 +2229,7 @@ EOF
   } > "${DF}"
   run timeout 10 bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
   assert_success
-  assert_output --partial "${DF}:20004: ARG USER receives no build arg"
+  assert_output --partial "${DF}:20004: ARG USER has no default and compose passes no USER build arg"
 }
 
 # why: base#1322 review round 6 -- a `${` that never closes in the USER
@@ -2289,6 +2302,25 @@ EOF
     printf 'FROM sys AS devel\nARG OTHER=%s\\\n \\\nU\\\n\nS\\\n# c\nE\\\n\nR\n' "${_long}"
   } > "${DF}"
   _m7_assert_warn_only 2:root 8:root
+}
+
+# why: base#1340 -- a bare ARG USER in a stage built FROM a parent that
+#      declares ARG USER inherits the parent's value, so the notice must
+#      not claim the image builds its default user; it names that case
+@test "migration 7 (arg-user): the bare notice names parent-stage inheritance, not a default user (base#1340)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS sys
+ARG USER_NAME="user"
+FROM sys AS devel
+ARG USER="${USER_NAME}"
+FROM devel AS t
+ARG USER
+USER "${USER}"
+EOF
+  run bash -c "$(_src); _MIGRATIONS=( arg_user ); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial "${DF}:6: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes;"
+  refute_output --partial "builds its default user"
 }
 
 # ── migration 8 (facet B): entrypoint nounset-guard the ROS source ─────
