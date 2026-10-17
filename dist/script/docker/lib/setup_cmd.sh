@@ -698,6 +698,31 @@ _setup_list() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_entry_label <section> <key> <value> <outvar>
+#
+# The entry `add` / `remove` touched, named the way setup.toml spells it.
+# A key of an array-backed list (`volumes.mount_N`, `network.port_N`,
+# `devices.cgroup_rule_N`, ...) is the N-th `[[<path>]]` block, so it is
+# named by that header and its fields, comma-joined and rendered by the
+# writer's own `_conf_toml_aot_fields`:
+# `[[volumes]] source = "/foo", target = "/bar"`. The `mount_N` name is
+# the CLI address and no key of that name is in the file (base#1354).
+# Any other key is a key of its table (`[environment] env_N = <value>`),
+# and keeps that form; an empty <value> prints the key alone.
+# ════════════════════════════════════════════════════════════════════
+_setup_entry_label() {
+  local _sel_s="${1-}" _sel_k="${2-}" _sel_v="${3-}"
+  local -n _sel_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  local _sel_p="" _sel_n="" _sel_f=""
+  if _conf_toml_aot_slot "${_sel_s}" "${_sel_k}" _sel_p _sel_n; then
+    _conf_toml_aot_fields "${_sel_p}" "${_sel_v}" _sel_f
+    _sel_out="[[${_sel_p}]]${_sel_f:+ ${_sel_f//$'\n'/, }}"
+    return 0
+  fi
+  _sel_out="[${_sel_s}] ${_sel_k}${_sel_v:+ = ${_sel_v}}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_add
 #
 # Subcommand handler for `setup.sh add <section>.<list> <value>`.
@@ -965,7 +990,9 @@ _setup_add() {
   fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
+    local _sa_label=""
+    _setup_entry_label "${_section}" "${_new_key}" "${_value}" _sa_label
+    printf '[setup] add %s\n' "${_sa_label}"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
@@ -1123,13 +1150,14 @@ _setup_remove() {
   local -a _sects=() _keys=() _vals=()
   _load_setup_conf_full "${_conf}" _sects _keys _vals
 
-  local _target_key="" _i
+  local _target_key="" _target_val="" _i
   if (( _have_value )); then
     # Remove-by-value: scan for first <section>.<rest>_* with matching value.
     for (( _i=0; _i<${#_keys[@]}; _i++ )); do
       if [[ "${_keys[_i]}" == "${_section}.${_rest}_"* ]] \
          && [[ "${_vals[_i]}" == "${_value}" ]]; then
         _target_key="${_keys[_i]#"${_section}".}"
+        _target_val="${_vals[_i]}"
         break
       fi
     done
@@ -1143,6 +1171,7 @@ _setup_remove() {
     for (( _i=0; _i<${#_keys[@]}; _i++ )); do
       if [[ "${_keys[_i]}" == "${_section}.${_rest}" ]]; then
         _found=1
+        _target_val="${_vals[_i]}"
         break
       fi
     done
@@ -1175,7 +1204,9 @@ _setup_remove() {
   rm -f "${_tmp}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
+    local _sr_label=""
+    _setup_entry_label "${_section}" "${_target_key}" "${_target_val}" _sr_label
+    printf '[setup] remove %s\n' "${_sr_label}"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi

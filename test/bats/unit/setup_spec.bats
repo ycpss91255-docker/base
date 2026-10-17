@@ -1628,7 +1628,8 @@ EOF
     main add --base-path '${TEMP_DIR}' build.arg HARDWARE=arm64
   "
   assert_success
-  assert_output --partial "[setup] add [build] arg_"
+  # The entry as setup.toml spells it, not an INI `arg_N` key (base#1354).
+  assert_output --partial '[setup] add [[build.args]] key = "HARDWARE", value = "arm64"'
   assert_output --partial "[setup] file:"
   assert_output --partial "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply'"
 }
@@ -1644,8 +1645,8 @@ EOF
 
 @test "setup.sh remove: prints 3-line confirmation by default" {
   # `build.arg_1` is the first `[[build.args]]` block; the bridge numbers
-  # it back as arg_1, which is the name `remove` is given below and the
-  # name the confirmation echoes.
+  # it back as arg_1, which is the name `remove` is given below. The
+  # confirmation names the entry as setup.toml spells it (base#1354).
   cat > "${TEMP_DIR}/setup.toml" <<EOC
 [[build.args]]
 key = "HARDWARE"
@@ -1656,7 +1657,7 @@ EOC
     main remove --base-path '${TEMP_DIR}' build.arg_1
   "
   assert_success
-  assert_output --partial "[setup] remove [build] arg_1"
+  assert_output --partial '[setup] remove [[build.args]] key = "HARDWARE", value = "arm64"'
   assert_output --partial "[setup] file:"
   assert_output --partial "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply'"
 }

@@ -6022,7 +6022,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (180)
+### test/bats/unit/setup_cmd_spec.bats (185)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6124,6 +6124,11 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `main add then remove round-trips` | - |
 | `main add validates env_kv format` | - |
 | `main add free-form image rule accepts arbitrary string` | - |
+| `help: add/remove describe array entries, not <list>_N keys (base#1354)` | the help is where an operator learns what `add` writes; it named a `<list>_N` key setup.toml never holds, so the file they then open shows a `[[...]]` entry the help never mentioned. |
+| `add volumes.mount confirms the [[volumes]] entry it wrote (base#1354)` | the confirmation is the one line that says what landed in the file; it named `[volumes] mount_2`, a key nobody can find in setup.toml. Read back from the written fixture so the line cannot drift from the write. |
+| `add network.port confirms the [[network.ports]] entry it wrote (base#1354)` | the port entry splits into host / container fields, a different shape from a mount, so the label has to follow the per-array field spec. |
+| `add devices.cgroup_rule confirms the [[devices.cgroup_rules]] entry it wrote (base#1354)` | a one-field entry under a dotted array path; the INI name `cgroup_rule_1` is neither the header nor the field the file holds. |
+| `remove volumes.mount <value> confirms the [[volumes]] entry it dropped (base#1354)` | remove-by-value has to say WHICH entry went; naming the CLI index `mount_2` does not tell the operator what is now missing from the file. |
 | `main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)` | - |
 | `main reset --yes backs up prior setup.conf to .local.bak (#174)` | - |
 | `main reset --yes backs up prior .env.generated to .env.generated.bak` | - |

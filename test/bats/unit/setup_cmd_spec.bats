@@ -1483,6 +1483,9 @@ _toml_block_fields() {
   ' "$1"
 }
 
+# why: the help is where an operator learns what `add` writes; it named a
+# `<list>_N` key setup.toml never holds, so the file they then open shows
+# a `[[...]]` entry the help never mentioned.
 @test "help: add/remove describe array entries, not <list>_N keys (base#1354)" {
   run main -h
   assert_success
@@ -1503,6 +1506,9 @@ _toml_block_fields() {
   [[ "${_blk}" != *'cgroup_rule_N'* ]]
 }
 
+# why: the confirmation is the one line that says what landed in the file;
+# it named `[volumes] mount_2`, a key nobody can find in setup.toml. Read
+# back from the written fixture so the line cannot drift from the write.
 @test "add volumes.mount confirms the [[volumes]] entry it wrote (base#1354)" {
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [[volumes]]
@@ -1518,6 +1524,8 @@ TOML
   refute_output --partial 'mount_'
 }
 
+# why: the port entry splits into host / container fields, a different
+# shape from a mount, so the label has to follow the per-array field spec.
 @test "add network.port confirms the [[network.ports]] entry it wrote (base#1354)" {
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [network]
@@ -1532,6 +1540,8 @@ TOML
   refute_output --partial 'port_'
 }
 
+# why: a one-field entry under a dotted array path; the INI name
+# `cgroup_rule_1` is neither the header nor the field the file holds.
 @test "add devices.cgroup_rule confirms the [[devices.cgroup_rules]] entry it wrote (base#1354)" {
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [devices]
@@ -1545,6 +1555,8 @@ TOML
   refute_output --partial 'cgroup_rule_'
 }
 
+# why: remove-by-value has to say WHICH entry went; naming the CLI index
+# `mount_2` does not tell the operator what is now missing from the file.
 @test "remove volumes.mount <value> confirms the [[volumes]] entry it dropped (base#1354)" {
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [[volumes]]
