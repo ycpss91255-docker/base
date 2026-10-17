@@ -6022,7 +6022,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (185)
+### test/bats/unit/setup_cmd_spec.bats (187)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6129,6 +6129,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `add network.port confirms the [[network.ports]] entry it wrote (base#1354)` | the port entry splits into host / container fields, a different shape from a mount, so the label has to follow the per-array field spec. |
 | `add devices.cgroup_rule confirms the [[devices.cgroup_rules]] entry it wrote (base#1354)` | a one-field entry under a dotted array path; the INI name `cgroup_rule_1` is neither the header nor the field the file holds. |
 | `remove volumes.mount <value> confirms the [[volumes]] entry it dropped (base#1354)` | remove-by-value has to say WHICH entry went; naming the CLI index `mount_2` does not tell the operator what is now missing from the file. |
+| `remove tmpfs.tmpfs_1 names the [[tmpfs]] entry with its own fields (base#1354)` | a `[[tmpfs]]` block with separate `path` and `size` flattens to `/tmp/x:size=64m`; a label rebuilt from that value printed one `path` field the file never held. The label is read from the file before the write. |
+| `entry label of a [[devices]] block names [[devices]], not [[devices.bindings]] (base#1354)` | `[[devices]]` is the other spelling of `device_N`; rebuilding the label from the value named `[[devices.bindings]]`, a table absent from the file. add and remove both decline such a file, so the label helper is pinned directly. |
 | `main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)` | - |
 | `main reset --yes backs up prior setup.conf to .local.bak (#174)` | - |
 | `main reset --yes backs up prior .env.generated to .env.generated.bak` | - |

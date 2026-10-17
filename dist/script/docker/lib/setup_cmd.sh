@@ -709,6 +709,11 @@ _setup_list() {
 # the CLI address and no key of that name is in the file (base#1354).
 # Any other key is a key of its table (`[environment] env_N = <value>`),
 # and keeps that form; an empty <value> prints the key alone.
+#
+# The fallback only: add and remove print _setup_toml_entry_label's
+# reading of the file first, because this rebuild from the flattened
+# value cannot tell a `[[tmpfs]]` size field or a `[[devices]]` header
+# apart from the default shape.
 # ════════════════════════════════════════════════════════════════════
 _setup_entry_label() {
   local _sel_s="${1-}" _sel_k="${2-}" _sel_v="${3-}"
@@ -720,6 +725,56 @@ _setup_entry_label() {
     return 0
   fi
   _sel_out="[${_sel_s}] ${_sel_k}${_sel_v:+ = ${_sel_v}}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_toml_entry_label <file> <section> <key> <outvar>
+#
+# The array-of-tables entry `<section>.<key>` names, read from <file> as
+# it stands: the header the file uses and the field lines it holds,
+# comma-joined -- `[[tmpfs]] path = "/tmp/x", size = "64m"`. Returns 1,
+# leaving <outvar> alone, when <file> is not TOML, the key is not an
+# array slot, or the file holds no such block.
+#
+# Why not _setup_entry_label: that one rebuilds the entry from the
+# flattened value, and the flattening is lossy. A `[[tmpfs]]` block with
+# separate `path` and `size` reads back as `/tmp/x:size=64m` and was
+# reprinted as one `path`; a `[[devices]]` block (the other spelling of
+# `device_N`) was reprinted as `[[devices.bindings]]`, a table the file
+# does not have (base#1354). Blocks are counted per header path, the
+# same way the writer addresses them (`_conf_toml_aot_nskey`).
+# ════════════════════════════════════════════════════════════════════
+_setup_toml_entry_label() {
+  local _stel_f="${1-}" _stel_want="${2-}.${3-}"
+  local -n _stel_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  [[ "${_stel_f}" == *.toml && -f "${_stel_f}" ]] || return 1
+  local -A _stel_seen=()
+  local _stel_line _stel_h _stel_p _stel_k _stel_in=0 _stel_hit=0
+  local _stel_hdr="" _stel_fields=""
+  while IFS= read -r _stel_line || [[ -n "${_stel_line}" ]]; do
+    _conf_toml_header_uncomment "${_stel_line}" _stel_h
+    if [[ "${_stel_h}" =~ ^[[:space:]]*\[ ]]; then
+      (( _stel_in )) && break
+      [[ "${_stel_h}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]] || continue
+      _conf_header_name "${BASH_REMATCH[1]}" _stel_p
+      _stel_seen["${_stel_p}"]=$(( ${_stel_seen["${_stel_p}"]:-0} + 1 ))
+      _conf_toml_aot_nskey "${_stel_p}" "${_stel_seen["${_stel_p}"]}" _stel_k \
+        || continue
+      if [[ "${_stel_k}" == "${_stel_want}" ]]; then
+        _stel_in=1
+        _stel_hit=1
+        _stel_hdr="[[${_stel_p}]]"
+      fi
+      continue
+    fi
+    (( _stel_in )) || continue
+    _conf_is_kv_line "${_stel_line}" || continue
+    _stel_line="${_stel_line#"${_stel_line%%[![:space:]]*}"}"
+    _stel_line="${_stel_line%"${_stel_line##*[![:space:]]}"}"
+    _stel_fields+="${_stel_fields:+, }${_stel_line}"
+  done < "${_stel_f}"
+  (( _stel_hit )) || return 1
+  _stel_out="${_stel_hdr}${_stel_fields:+ ${_stel_fields}}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -990,8 +1045,11 @@ _setup_add() {
   fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
+    # Read back from the file just written, so the line names the entry
+    # as it landed there; a non-array key falls back to `[sect] key = v`.
     local _sa_label=""
-    _setup_entry_label "${_section}" "${_new_key}" "${_value}" _sa_label
+    _setup_toml_entry_label "${_conf}" "${_section}" "${_new_key}" _sa_label \
+      || _setup_entry_label "${_section}" "${_new_key}" "${_value}" _sa_label
     printf '[setup] add %s\n' "${_sa_label}"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
@@ -1182,6 +1240,13 @@ _setup_remove() {
     _target_key="${_rest}"
   fi
 
+  # The entry's label is read BEFORE the write: afterwards the block is
+  # gone, and rebuilding it from the flattened value names a different
+  # entry (_setup_toml_entry_label's header says how).
+  local _sr_label=""
+  _setup_toml_entry_label "${_conf}" "${_section}" "${_target_key}" _sr_label \
+    || _setup_entry_label "${_section}" "${_target_key}" "${_target_val}" _sr_label
+
   # _write_setup_conf truncates dst before reading tpl, so when dst==src
   # we'd lose data. Stage current contents into a sibling temp file and
   # use that as the read source.
@@ -1204,8 +1269,6 @@ _setup_remove() {
   rm -f "${_tmp}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    local _sr_label=""
-    _setup_entry_label "${_section}" "${_target_key}" "${_target_val}" _sr_label
     printf '[setup] remove %s\n' "${_sr_label}"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"

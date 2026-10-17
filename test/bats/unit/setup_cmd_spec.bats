@@ -1586,9 +1586,11 @@ TOML
   assert_output "0"
 }
 
+# why: a `[[tmpfs]]` block with separate `path` and `size` flattens to
+# `/tmp/x:size=64m`; a label rebuilt from that value printed one `path`
+# field the file never held. The label is read from the file before the
+# write.
 @test "remove tmpfs.tmpfs_1 names the [[tmpfs]] entry with its own fields (base#1354)" {
-  # A [[tmpfs]] entry with separate path and size fields. The confirmation
-  # names the fields the file held, not the flattened `path:size=` value.
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [[tmpfs]]
 path = "/tmp/x"
@@ -1605,10 +1607,11 @@ TOML
   assert_output "0"
 }
 
+# why: `[[devices]]` is the other spelling of `device_N`; rebuilding the
+# label from the value named `[[devices.bindings]]`, a table absent from
+# the file. add and remove both decline such a file, so the label helper
+# is pinned directly.
 @test "entry label of a [[devices]] block names [[devices]], not [[devices.bindings]] (base#1354)" {
-  # `[[devices]]` is a supported spelling of devices.device_N. Both add
-  # and remove decline a file that uses it (the writer cannot edit it), so
-  # the label is pinned at the helper the confirmation line prints.
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [[devices]]
 path = "/dev/fuse"
