@@ -1405,6 +1405,23 @@ _wsc_refuse_ws_slot_move() {
   return 0
 }
 
+# _conf_take_mode <dst> <tmp>
+#   Give the rewrite in <tmp> the mode <dst> should end up with, before
+#   the `mv` lands it. <tmp> comes from a bare mktemp (0600), so without
+#   this every rewrite of a user-owned setup.toml left it at 0600
+#   (base#1356). An existing <dst> keeps its own mode (the base#1323
+#   precedent, chmod --reference); a <dst> the write is about to create
+#   gets the mode any new file gets under the caller's umask.
+_conf_take_mode() {
+  local _dst="${1:?BUG: _conf_take_mode expects a destination}"
+  local _tmp="${2:?BUG: _conf_take_mode expects the rewritten file}"
+  if [[ -e "${_dst}" ]]; then
+    chmod --reference="${_dst}" -- "${_tmp}"
+  else
+    chmod "$(printf '%o' $(( 0666 & ~0$(umask) )))" -- "${_tmp}"
+  fi
+}
+
 # _write_setup_conf <dst_file> <template_src> <keys_ref> <values_ref> [<removed_keys>]
 #
 # The section list is NOT a parameter. It was one, and it was never read:
@@ -1871,6 +1888,7 @@ _write_setup_conf() {
   # failed mv (e.g. _dst on a read-only mount) is surfaced rather than
   # leaving a stray temp file silently behind: remove the orphan temp,
   # log an actionable error, and bail with the original _dst untouched.
+  _conf_take_mode "${_dst}" "${_out}" || true
   mv "${_out}" "${_dst}" || {
     rm -f "${_out}"
     _log_err conf conf_write_mv_failed "display=_write_setup_conf: could not replace ${_dst}; destination left unchanged" "file=${_dst}"
@@ -1950,6 +1968,7 @@ _upsert_conf_value() {
   # Atomically replace _file only after the rewrite succeeded. A failed
   # mv (e.g. _file on a read-only mount) removes the orphan temp, logs an
   # actionable error, and bails with the original _file untouched.
+  _conf_take_mode "${_file}" "${_tmp}" || true
   mv "${_tmp}" "${_file}" || {
     rm -f "${_tmp}"
     _log_err conf conf_upsert_mv_failed "display=_upsert_conf_value: could not replace ${_file}; original left unchanged" "file=${_file}"

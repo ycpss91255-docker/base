@@ -175,6 +175,9 @@ _prune_retired_entries() {
         print
       }
     ' "${_path}" > "${_tmp}"; then
+    # The rewrite comes from a bare mktemp (0600); give it the file's own
+    # mode first so .gitignore / .dockerignore keep theirs (base#1356).
+    chmod --reference="${_path}" -- "${_tmp}" || true
     mv -f -- "${_tmp}" "${_path}"
   else
     rm -f -- "${_tmp}"
