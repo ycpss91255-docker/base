@@ -1561,6 +1561,37 @@ _append() {
   [[ "${output}" == *"./build.sh"* ]]
 }
 
+# why: A sentence can end right after the name -- run.sh's delegating
+# message was "Delegating to ./build.sh..." -- and the ellipsis or full stop
+# is punctuation, not part of the name, so it is the same instruction
+@test "_run_derived_figures: FAILS on a root-relative wrapper followed by an ellipsis (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    *:delegating)        echo "Delegating to ./build.sh..." ;;'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+@test "_run_derived_figures: FAILS on a root-relative wrapper ending a sentence (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '  _log "  1. Then verify the image with ./build.sh."'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: A dot followed by a name character is a filename suffix: ./build.sh.bak
+# is another file, not the wrapper
+@test "_run_derived_figures: a suffixed file name is not a root-relative wrapper (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    *:backup)            echo "Saved the old copy as ./build.sh.bak" ;;'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: The config summary formats the wrapper name in: `./%s.sh --setup`
 # prints ./build.sh or ./run.sh, so a placeholder in the name's place is
 # the same root-relative instruction
