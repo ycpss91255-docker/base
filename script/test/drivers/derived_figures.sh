@@ -1399,6 +1399,16 @@ _derived_scan_just_literals() {
   return "${_violations}"
 }
 
+# _derived_is_bare_call <invocation> <candidate> -- succeed when nothing
+# follows <candidate> in <invocation>: `just` plus the candidate's own words
+# is every token there is (base#1355).
+_derived_is_bare_call() {
+  local -a _words=() _cand_words=()
+  read -r -a _words <<< "$1"
+  read -r -a _cand_words <<< "$2"
+  (( ${#_words[@]} == ${#_cand_words[@]} + 1 ))
+}
+
 # _derived_judge_just_invocation <invocation> <rel> <lineno> <commands_var>
 #   [help_only_var]
 # -- print the violation and return 1 when the consumer's layering does not
@@ -1413,12 +1423,7 @@ _derived_judge_just_invocation() {
   if _derived_is_known_command "${_cand}" "${_cmds_name}"; then
     [[ -n "${_help_name}" ]] || return 0
     _derived_is_known_command "${_cand}" "${_help_name}" || return 0
-    # Bare: nothing follows the candidate. `just` plus the candidate's own
-    # words is every token there is.
-    local -a _words=() _cand_words=()
-    read -r -a _words <<< "${_invocation}"
-    read -r -a _cand_words <<< "${_cand}"
-    (( ${#_words[@]} > ${#_cand_words[@]} + 1 )) && return 0
+    _derived_is_bare_call "${_invocation}" "${_cand}" || return 0
     printf "%s:%s: tells the user to run '%s', which only prints its help and changes nothing -- the wrapper answers a call with no argument with usage; name the subcommand that does the work\n" \
       "${_rel}" "${_lineno}" "${_invocation}"
     return 1
