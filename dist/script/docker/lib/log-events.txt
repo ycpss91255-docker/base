@@ -42,8 +42,10 @@ config_preset_dangling
 deploy_local_override_refused
 deploy_local_override_accepted
 conf_upsert_newline_rejected
+conf_upsert_mode_failed
 conf_upsert_mv_failed
 conf_upsert_tmp_failed
+conf_write_mode_failed
 conf_write_mv_failed
 conf_write_tmp_failed
 # The commit gate in front of both TOML writers: the rewrite did not parse,
@@ -240,6 +242,7 @@ lifecycle_restart_default_migrated
 gitignore_managed_block_invalid
 gitignore_managed_block_migrated
 gitignore_managed_block_orphans
+gitignore_prune_mode_failed
 gitignore_untrack_ls_files_failed
 gitignore_untrack_rm_failed
 
