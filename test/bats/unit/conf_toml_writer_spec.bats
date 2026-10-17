@@ -1097,3 +1097,43 @@ EOF
   assert_success
   assert_line $'security\tcap_drop_1\tNET_RAW'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# File mode across a rewrite (base#1356)
+# ════════════════════════════════════════════════════════════════════
+
+# why: Both writers land the rewrite with `mv` from a `mktemp` sibling,
+# and mktemp creates that sibling at 0600. setup.toml is the user's own
+# committed file: a group-writable (0664) or world-readable (0644) one
+# must come back at exactly that mode, not 0600. A restrictive umask
+# (077) so a hardcoded mode or a umask-derived one cannot pass -- only
+# the destination's own mode can (the base#1323 precedent).
+@test "_upsert_conf_value: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)" {
+  local _mode
+  for _mode in 664 644; do
+    cp "${TPL}" "${CONF}"
+    chmod "${_mode}" "${CONF}"
+    ( umask 077; _upsert_conf_value "${CONF}" lifecycle restart no )
+    run grep -Fx 'restart = "no"' "${CONF}"
+    assert_success
+    run stat -c '%a' "${CONF}"
+    assert_output "${_mode}"
+  done
+}
+
+# why: The template-rewrite writer behind TUI Save and `setup.sh remove`
+# lands its rewrite the same way, so the same mode contract holds.
+@test "_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)" {
+  local _mode
+  for _mode in 664 644; do
+    cp "${TPL}" "${CONF}"
+    chmod "${_mode}" "${CONF}"
+    local -a _keys=(network.mode) _vals=(bridge)
+    ( umask 077; _write_setup_conf "${CONF}" "${CONF}" _keys _vals )
+    run toml_bridge_parse "${CONF}" --kv
+    assert_success
+    assert_line $'network\tmode\tbridge'
+    run stat -c '%a' "${CONF}"
+    assert_output "${_mode}"
+  done
+}

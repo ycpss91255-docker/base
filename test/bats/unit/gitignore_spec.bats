@@ -225,6 +225,33 @@ EOF
   assert_line ".env"
 }
 
+# why: The prune lands its rewrite with `mv` from a `mktemp` sibling,
+# which mktemp creates at 0600. .gitignore / .dockerignore are the user's
+# own committed files: a 0664 or 0644 one must come back at exactly that
+# mode. A restrictive umask (077) so a hardcoded mode or a umask-derived
+# one cannot pass -- only the file's own mode can (the base#1323
+# precedent).
+@test "_prune_retired_entries: the rewritten file keeps its exact mode under umask 077 (base#1356)" {
+  _stub_retired
+  local _f _mode
+  for _f in "${TMP_DIR}/.gitignore" "${TMP_DIR}/.dockerignore"; do
+    for _mode in 664 644; do
+      cat > "${_f}" <<'EOF'
+node_modules/
+# managed by template (do not remove)
+.env
+legacy.retired
+EOF
+      chmod "${_mode}" "${_f}"
+      ( umask 077; _prune_retired_entries "${_f}" )
+      run cat "${_f}"
+      refute_line "legacy.retired"
+      run stat -c '%a' "${_f}"
+      assert_output "${_mode}"
+    done
+  done
+}
+
 @test "_sync_gitignore: pruning a retired entry is idempotent (#879)" {
   _stub_retired
   local _f="${TMP_DIR}/.gitignore"

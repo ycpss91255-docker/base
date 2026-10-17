@@ -638,6 +638,25 @@ _restart_repo() {
   assert_output --partial 'init = true'
 }
 
+# why: The rewrite goes through `_upsert_conf_value`, which lands it with
+# `mv` from a 0600 `mktemp` sibling. Upgrading must not change the mode of
+# the user's committed setup.toml: a 0664 or 0644 one comes back at exactly
+# that mode. umask 077 so only the file's own mode can pass (the base#1323
+# precedent).
+@test "_vmigrate_lifecycle_restart_default_apply keeps setup.toml's exact mode under umask 077 (base#1356)" {
+  local _mode
+  for _mode in 664 644; do
+    rm -rf "${TEMP_DIR}/mode"
+    _restart_repo "${TEMP_DIR}/mode" '[lifecycle]' 'restart = "no"' 'init = true'
+    chmod "${_mode}" "${TEMP_DIR}/mode/setup.toml"
+    run bash -c "umask 077; $(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/mode'"
+    assert_success
+    assert_output --partial '"body":"lifecycle_restart_default_migrated"'
+    run stat -c '%a' "${TEMP_DIR}/mode/setup.toml"
+    assert_output "${_mode}"
+  done
+}
+
 # why: The runner keeps no ledger and re-selects the same interval on a
 # resync re-entered before the pull commits, so a second run that wrote again
 # would be a second log line over an unchanged value -- idempotence is the
