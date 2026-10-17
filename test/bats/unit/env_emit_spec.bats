@@ -270,7 +270,7 @@ EOF
 # why: Both generated files tell the consumer how `.env` is rewritten, and the
 # consumer's entry justfile has no top-level `setup` recipe (ADR-00000011), so
 # `just setup` in either answers itself with `error: justfile does not contain
-# recipe`; the command they can type is `just docker setup`
+# recipe`; the command they can type is `just docker setup apply` (base#1355)
 @test "_scaffold_env_local / write_container_env: the regenerate command named is one the consumer can run (base#1349)" {
   _scaffold_env_local "${TEMP_DIR}/.env.local"
   write_container_env "${TEMP_DIR}/.env" "" ""
@@ -294,7 +294,7 @@ _comment_prose() {
 # writing anything (wrapper/setup.sh main: no argument -> usage), so a header
 # that says it rewrites `.env` sends the consumer to a command that leaves
 # the file exactly as it was. The command that regenerates is `just docker
-# setup apply`; the whole sentence is pinned so the promise and the command
+# setup apply`; the whole header is pinned so the promise and the command
 # that keeps it are read together
 @test "write_container_env: the .env header names the command that regenerates it (base#1355)" {
   write_container_env "${TEMP_DIR}/.env" "" ""
