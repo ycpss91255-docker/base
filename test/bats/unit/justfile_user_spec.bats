@@ -409,7 +409,7 @@ _list_description() {
     assert_success
     assert_output "${_want}"
   done <<'ROWS'
-docker|start|Build + run in one step (e.g. just start  |  just start --no-cache)
+docker|start|Build + run in one step (e.g. just docker start  |  just docker start --no-cache)
 docker|help|List the docker recipes in your language (--lang / $LANG) [alias: h]
 docker|setup|Regenerate .env / .env.generated / compose.yaml from setup.toml
 docker|setup-tui|Interactive TUI to edit setup.toml

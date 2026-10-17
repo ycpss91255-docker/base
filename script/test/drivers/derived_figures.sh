@@ -1009,6 +1009,15 @@ _derived_check_drift_keys() {
 #     command out of two unrelated spans.
 #     A command spelled with no delimiter at all (bare inside a usage
 #     heredoc) is still NOT detected.
+#   - one more kind of `#` line is consumer-facing text (base#1353): the
+#     doc comment of a recipe in a shipped justfile (dist/script/**/
+#     justfile*), which is the description `just --list` prints. just takes
+#     it from the last comment line directly above the recipe, so that line
+#     alone is judged, and every `just <word>` on it counts -- quoted or
+#     bare, since the shipped doc lines spell their examples bare
+#     (`e.g. just docker run -d`). A comment block a blank line separates
+#     from its recipe is not shown by `just --list` (base#1326 detaches
+#     rationale that way on purpose) and stays maintainer prose.
 #   - retired ROOT WRAPPER paths (`./setup.sh`, `./stop.sh`) are a separate
 #     question with a separate population -- the names init.sh deletes on
 #     sight -- and they are not derived here.
@@ -1044,6 +1053,18 @@ readonly _DERIVED_FIGURES_HEREDOC_RE="(^|[^<])<<(-?)[[:space:]]*[\\'\"]?([A-Za-z
 readonly _DERIVED_FIGURES_JUST_LITERAL_RE="'(just([[:space:]]+[^']*)?)'"
 # shellcheck disable=SC2016 # an ERE matching a backtick; nothing expands.
 readonly _DERIVED_FIGURES_JUST_BACKTICK_RE='`(just([[:space:]]+[^`\]*)?)\\?`'
+
+# A `just` invocation with or without a delimiter, for a recipe doc comment
+# (base#1353): `just` as a word of its own, then the whitespace-separated
+# tokens after it up to the first delimiter or separator (a quote, a
+# backtick, `|`, a bracket, `,` or `;`), so `just docker run  |  just
+# docker run -d` reads as two invocations and a quoted span reads as the
+# command inside it.
+readonly _DERIVED_FIGURES_JUST_BARE_RE=$'(^|[^A-Za-z0-9_./-])(just([[:space:]]+[^][:space:]`\'"|(),;]+)*)'
+
+# A justfile line that defines a recipe, as _derived_justfile_recipes reads
+# one; a `:=` line (setting / alias) is excluded by the caller.
+readonly _DERIVED_FIGURES_RECIPE_LINE_RE='^[a-z_][a-zA-Z0-9_-]*([[:space:]][^:]*)?:'
 
 # A token standing in for whatever the reader substitutes, rather than naming
 # a recipe. `just <verb> [args...]` is a shape, not an invocation, and
@@ -1227,7 +1248,7 @@ _derived_scan_just_literals() {
     "${_DERIVED_FIGURES_JUST_BACKTICK_RE}"
   )
 
-  local _lineno=0 _line _pattern _rest _match _invocation _cand _repair
+  local _lineno=0 _line _pattern _rest _match _invocation
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
     if [[ -n "${_heredoc_end}" ]]; then
@@ -1254,23 +1275,68 @@ _derived_scan_just_literals() {
         _invocation="${BASH_REMATCH[1]}"
         _rest="${_rest#*"${_match}"}"
 
-        _cand=''
-        _derived_just_candidate "${_invocation}" "${_cmds_name}" _cand
-        [[ -n "${_cand}" ]] || continue
-        _derived_is_known_command "${_cand}" "${_cmds_name}" && continue
-
-        _repair="$(_derived_namespaced_spellings "${_cand}" "${_cmds_name}")"
-        if [[ -n "${_repair}" ]]; then
-          _repair=" -- the layering dispatches ${_repair}"
-        else
-          _repair=''
-        fi
-        printf "%s:%s: tells the user to run '%s', and the consumer's layering has no '%s'%s\n" \
-          "${_rel}" "${_lineno}" "${_invocation}" "${_cand}" "${_repair}"
-        _violations=$(( _violations + 1 ))
+        _derived_judge_just_invocation \
+          "${_invocation}" "${_rel}" "${_lineno}" "${_cmds_name}" \
+          || _violations=$(( _violations + 1 ))
       done
     done
   done < "${_file}"
+
+  return "${_violations}"
+}
+
+# _derived_judge_just_invocation <invocation> <rel> <lineno> <commands_var>
+# -- print the violation and return 1 when the consumer's layering does not
+# dispatch <invocation>; return 0 when it does or there is nothing to judge.
+_derived_judge_just_invocation() {
+  local _invocation="$1" _rel="$2" _lineno="$3" _cmds_name="$4"
+  local _cand='' _repair
+  _derived_just_candidate "${_invocation}" "${_cmds_name}" _cand
+  [[ -n "${_cand}" ]] || return 0
+  _derived_is_known_command "${_cand}" "${_cmds_name}" && return 0
+
+  _repair="$(_derived_namespaced_spellings "${_cand}" "${_cmds_name}")"
+  if [[ -n "${_repair}" ]]; then
+    _repair=" -- the layering dispatches ${_repair}"
+  else
+    _repair=''
+  fi
+  printf "%s:%s: tells the user to run '%s', and the consumer's layering has no '%s'%s\n" \
+    "${_rel}" "${_lineno}" "${_invocation}" "${_cand}" "${_repair}"
+  return 1
+}
+
+# _derived_scan_recipe_docs <file> <rel> <commands_var_name>
+#
+# Report every `just` invocation, quoted or bare, on a recipe doc comment of
+# a shipped justfile that the consumer's layering does not dispatch
+# (base#1353). A doc comment is the column-0 `#` line directly above a
+# recipe line -- the line `just --list` prints -- so a blank line between
+# them detaches it. Prints one violation per hit and returns the count.
+_derived_scan_recipe_docs() {
+  local _file="$1" _rel="$2" _cmds_name="$3"
+  local _violations=0
+  local -a _lines=()
+  mapfile -t _lines < "${_file}"
+
+  local _i _next _rest _match _invocation
+  for (( _i = 0; _i + 1 < ${#_lines[@]}; _i++ )); do
+    [[ "${_lines[_i]}" == '#'* ]] || continue
+    _next="${_lines[_i + 1]}"
+    [[ "${_next}" == *':='* ]] && continue
+    [[ "${_next}" =~ ^(mod|mod\?|import|import\?)[[:space:]] ]] && continue
+    [[ "${_next}" =~ ${_DERIVED_FIGURES_RECIPE_LINE_RE} ]] || continue
+
+    _rest="${_lines[_i]}"
+    while [[ "${_rest}" =~ ${_DERIVED_FIGURES_JUST_BARE_RE} ]]; do
+      _match="${BASH_REMATCH[0]}"
+      _invocation="${BASH_REMATCH[2]}"
+      _rest="${_rest#*"${_match}"}"
+      _derived_judge_just_invocation \
+        "${_invocation}" "${_rel}" "$(( _i + 1 ))" "${_cmds_name}" \
+        || _violations=$(( _violations + 1 ))
+    done
+  done
 
   return "${_violations}"
 }
@@ -1579,6 +1645,13 @@ _run_derived_figures() {
       "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds || _hits=$?
     _violations=$(( _violations + _hits ))
   done
+  while IFS= read -r -d '' _file; do
+    _hits=0
+    _derived_scan_recipe_docs \
+      "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done < <(find "${_code_root}/script" -name 'justfile*' -type f -print0 \
+    2>/dev/null | sort -z)
   local _tmpl
   for _tmpl in "${_DERIVED_FIGURES_SHIPPED_TEMPLATES[@]}"; do
     [[ -f "${REPO_ROOT}/${_tmpl}" ]] || continue

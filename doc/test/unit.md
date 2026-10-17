@@ -2215,7 +2215,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (93)
+### test/bats/unit/derived_figures_lint_spec.bats (97)
 
 | Test | Description |
 |------|-------------|
@@ -2311,6 +2311,10 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS on top-level recipes in a shipped Dockerfile comment (base#1349)` | The shipped Dockerfile is the template a consumer copies blocks out of; its `just setup` / `just build` walk-through is a set of instructions |
 | `_run_derived_figures: FAILS on a top-level recipe in a shipped .hadolint.yaml comment (base#1349)` | The shipped .hadolint.yaml is copied to the consumer as-is |
 | `_run_derived_figures: PASSES on the namespaced spelling in a shipped template comment (base#1349)` | The repair is reachable in a template comment, or the shipped template would have no spelling that passes |
+| `_run_derived_figures: FAILS on a bare top-level recipe in a shipped recipe doc comment (base#1353)` | The comment line directly above a recipe in a shipped justfile is the description `just --list docker` prints to the consumer, so it is consumer-facing text, not maintainer prose. `e.g. just run` there names a top-level recipe the consumer's layering does not dispatch -- the shipped justfile.docker said exactly that, unquoted, which the quoted-literal scan never saw |
+| `_run_derived_figures: FAILS on a backticked top-level recipe in a recipe doc comment of another shipped justfile (base#1353)` | Quoted or bare, the doc line is the same instruction; a backticked `just exec` must fail too, and in the doc line of any shipped justfile, not only the docker module |
+| `_run_derived_figures: PASSES on the namespaced spelling in a recipe doc comment (base#1353)` | The repair has to pass, or the shipped doc line would have no spelling the lint accepts |
+| `_run_derived_figures: a comment block detached from its recipe by a blank line is not judged (base#1353)` | A comment block a blank line separates from its recipe is not shown by `just --list` (base#1326 detaches rationale that way on purpose), so it stays maintainer prose and out of scope |
 | `_run_derived_figures: the shipped emitted and template text names only dispatchable commands (base#1349)` | The acceptance criterion on the text base actually ships: every generated heredoc and shipped template the base#1349 fix rewrote names only commands the consumer's real entry justfile dispatches. Asserted through a COPY of those files in the scratch tree, not by pointing REPO_ROOT at the checkout -- the coverage suite checks the driver against fixtures and the lint job checks the tree (base#1075) -- so the copy is the shipped text and the real layering it is judged against, and nothing else |
 
 ### test/bats/unit/doc_counts_spec.bats (26)

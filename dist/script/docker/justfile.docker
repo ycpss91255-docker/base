@@ -88,7 +88,7 @@ build *args:
 # the project with --remove-orphans); a detached one is ended by
 # `just docker stop`, which is also where the scoped reclaim runs.
 #
-# Run container interactively (e.g. just run  |  just run -d)
+# Run container interactively (e.g. just docker run  |  just docker run -d)
 run *args:
     ./script/run.sh "$@"
 
@@ -102,7 +102,7 @@ run *args:
 # lifecycle: BEGINS a flow, being exactly the two verbs it composes. Ended
 # by `just docker stop`.
 #
-# Build + run in one step (e.g. just start  |  just start --no-cache)
+# Build + run in one step (e.g. just docker start  |  just docker start --no-cache)
 start *args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -132,7 +132,7 @@ start *args:
 # started and creates nothing, so it has nothing to reclaim -- and no
 # standing to end what it did not begin.
 #
-# Exec into a running container (e.g. just exec -t bats-src bash)
+# Exec into a running container (e.g. just docker exec -t <svc> bash)
 exec *args:
     ./script/exec.sh "$@"
 
