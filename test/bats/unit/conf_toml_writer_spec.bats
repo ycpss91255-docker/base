@@ -1137,3 +1137,25 @@ EOF
     assert_output "${_mode}"
   done
 }
+
+# why: A setup.toml the write itself creates has no mode to keep; it must
+# get what any new file gets under the caller's umask, not mktemp's 0600
+# (base#1356). The two existing-destination specs above pre-create the
+# file, so they cannot see this branch. The expected mode is read off a
+# probe file created under the same umask, never hardcoded; 022 and 002
+# are the umasks where 0600 and the umask mode differ.
+@test "_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)" {
+  local _um _expect _dst
+  for _um in 022 002 077; do
+    _dst="${TEMP_DIR}/new-${_um}/setup.toml"
+    mkdir -p "${TEMP_DIR}/new-${_um}"
+    _expect="$(umask "${_um}"; : > "${TEMP_DIR}/probe-${_um}"; stat -c '%a' "${TEMP_DIR}/probe-${_um}")"
+    local -a _keys=(network.mode) _vals=(bridge)
+    ( umask "${_um}"; _write_setup_conf "${_dst}" "${TPL}" _keys _vals )
+    run toml_bridge_parse "${_dst}" --kv
+    assert_success
+    assert_line $'network\tmode\tbridge'
+    run stat -c '%a' "${_dst}"
+    assert_output "${_expect}"
+  done
+}

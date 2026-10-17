@@ -1734,7 +1734,7 @@ for the knobs the conf sets.
 | `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
 | `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
-### test/bats/unit/conf_accessor_spec.bats (33)
+### test/bats/unit/conf_accessor_spec.bats (35)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563):
 `_conf_load` loads a file into a named handle, `_conf_get` reads a value by
@@ -1771,6 +1771,8 @@ on hand-edited / malformed setup.conf:
 | `_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)` | Temp+atomic-mv -> no in-place truncate data-loss window |
 | `_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + original unchanged |
 | `_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + destination unchanged |
+| `_upsert_conf_value refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)` | The rewrite comes from a bare mktemp (0600) and takes the destination's mode just before the mv (base#1356). When that chmod fails, landing the rewrite anyway would leave the user's setup.toml at 0600 -- the very defect the chmod is there to stop. The replacement is abandoned instead: the destination keeps its bytes and its mode, the temp is removed, and the writer reports failure. |
+| `_write_setup_conf refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)` | Same contract for the template-rewrite writer behind TUI Save and `setup.sh remove` (base#1356). |
 | `_parse_ini_section reads keys and values for one section` | - |
 | `_parse_ini_section isolates sections (entries from other sections ignored)` | - |
 | `_parse_ini_section skips comment and empty lines` | - |
@@ -1810,7 +1812,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging: a header with a trailing comment still names its service` | The service SET was matched off the physical header text (`^\[logging\.<svc>\]$`), which is one of several ways TOML spells the same table. A trailing comment after the bracket is part of a VALID header -- the bridge reads `[logging.runtime] # rotation settings` as `logging.runtime` -- and the matcher saw nothing, so `_collect_logging` returned an empty per-service string and that service's driver, rotation and host-log mount settings were dropped out of the generated compose with nothing said. The set comes from the merged, parsed sections now, which is also the union across the chain this code was written to build. |
 | `_collect_logging: an inline table still names its service` | The other spelling, and the one no header matcher could ever see. `runtime = { max_size = "100m" }` inside `[logging]` is the same table as `[logging.runtime]` and the bridge emits it as the same section, so a reader that derives the set from the parse gets it for free while one that greps for a header cannot. |
 
-### test/bats/unit/conf_toml_writer_spec.bats (41)
+### test/bats/unit/conf_toml_writer_spec.bats (42)
 
 Every `setup.sh set` / `add` / `remove` and the `mount_1` bootstrap in
 setup_detect.sh go through these two writers. Until they learned TOML, each
@@ -1866,6 +1868,7 @@ docker interaction from inside the test.
 | `_upsert_conf_value: a set that would make the file ambiguous is declined, not promoted (base#1243)` | The other half of "one spelling wins", and a deliberate behaviour change. A file carrying the family ONLY as table scalars is readable -- both accessors agree on it -- but the writers cannot produce that spelling for a family with an array home, so the rewrite appends a `[[security.cap_drop]]` block beside the scalar line and MAKES the ambiguous file. Before the gate asked in the reading mode, that write reported success and left the two readers disagreeing. Declining it is the only answer that neither reports a success it did not achieve nor migrates a spelling, which base#1243 bounds out; the refusal is also why no `setup.sh` subcommand for clearing a stale scalar is owed. |
 | `_upsert_conf_value: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | Both writers land the rewrite with `mv` from a `mktemp` sibling, and mktemp creates that sibling at 0600. setup.toml is the user's own committed file: a group-writable (0664) or world-readable (0644) one must come back at exactly that mode, not 0600. A restrictive umask (077) so a hardcoded mode or a umask-derived one cannot pass -- only the destination's own mode can (the base#1323 precedent). |
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
+| `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
 ### test/bats/unit/coverage_badge_spec.bats (47)
 
@@ -3122,7 +3125,7 @@ all.
 | `.gitattributes: the generated changelog index merges by union (#926)` | The original scope of the rule, kept rather than assumed: the index is derived and the layout lint re-derives it, so a union duplicate there is reported instead of shipped. |
 | `.gitattributes: CONVENTIONS.md is NOT union-merged (#926)` | The boundary the widened glob nearly crossed. A gitattributes `*` does not cross `/`, so `doc/changelog/*.md` would have covered hand-written prose -- where union merging keeps both copies of a rewritten paragraph in silence, and no gate in this repo reads that file outside its marker block. |
 
-### test/bats/unit/gitignore_spec.bats (54)
+### test/bats/unit/gitignore_spec.bats (55)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -3138,6 +3141,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
 | `_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)` | - |
 | `_prune_retired_entries: the rewritten file keeps its exact mode under umask 077 (base#1356)` | The prune lands its rewrite with `mv` from a `mktemp` sibling, which mktemp creates at 0600. .gitignore / .dockerignore are the user's own committed files: a 0664 or 0644 one must come back at exactly that mode. A restrictive umask (077) so a hardcoded mode or a umask-derived one cannot pass -- only the file's own mode can (the base#1323 precedent). |
+| `_prune_retired_entries refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)` | When the rewrite cannot take the file's mode, landing it anyway would leave .gitignore / .dockerignore at mktemp's 0600 -- the defect the chmod is there to stop (base#1356). The prune is abandoned instead: the file keeps its bytes and its mode, the temp is removed, and the failure is reported rather than swallowed. |
 | `_sync_gitignore: pruning a retired entry is idempotent (#879)` | - |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |

@@ -788,6 +788,22 @@ call-release: contents: write'
   assert_output --regexp '^source = ".+"$'
 }
 
+# why: The whole first-init flow is what leaves setup.toml behind -- the
+# template copy, then the mount_1 bootstrap upsert, which lands its rewrite
+# with `mv` from a 0600 `mktemp` sibling (base#1356). A fresh repo's
+# setup.toml must come out at the mode a new file gets under the caller's
+# umask, read off a probe file created under the same umask, not 0600.
+# umask 022 so the 0600 the defect leaves and the umask mode differ.
+@test "new repo: init.sh leaves setup.toml at the umask mode, not 0600 (base#1356)" {
+  local _expect
+  _expect="$(umask 022; : > "${TMP_ROOT}/umask-probe"; stat -c '%a' "${TMP_ROOT}/umask-probe")"
+  run bash -c 'umask 022; bash .base/dist/script/base/init.sh'
+  assert_success
+  assert [ -f "${REPO_DIR}/setup.toml" ]
+  run stat -c '%a' "${REPO_DIR}/setup.toml"
+  assert_output "${_expect}"
+}
+
 # why: #201 — bootstrap writes WS_PATH back
 @test "new repo: per-repo setup.toml auto-created on first init (workspace writeback)" {
   # setup.sh on first run (no <repo>/setup.toml) copies template + fills

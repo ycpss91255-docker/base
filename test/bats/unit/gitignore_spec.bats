@@ -252,6 +252,45 @@ EOF
   done
 }
 
+# why: When the rewrite cannot take the file's mode, landing it anyway
+# would leave .gitignore / .dockerignore at mktemp's 0600 -- the defect
+# the chmod is there to stop (base#1356). The prune is abandoned instead:
+# the file keeps its bytes and its mode, the temp is removed, and the
+# failure is reported rather than swallowed.
+@test "_prune_retired_entries refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)" {
+  # Skipped under kcov: overrides `chmod` with a failing shell function,
+  # the same stub shape as the mv-failure specs in conf_accessor_spec.
+  [ "${COVERAGE:-0}" = 1 ] && skip "chmod-failure stub is kcov-fragile (#613)"
+
+  local _f="${TMP_DIR}/.gitignore"
+  cat > "${_f}" <<'EOF'
+node_modules/
+# managed by template (do not remove)
+.env
+legacy.retired
+EOF
+  chmod 664 "${_f}"
+  local _orig
+  _orig="$(cat "${_f}")"
+
+  run bash -c "
+    source /source/dist/script/docker/lib/conf.sh
+    source /source/dist/script/docker/lib/gitignore.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    _retired_gitignore_entries() { printf '%s\n' legacy.retired; }
+    chmod() { return 1; }
+    _prune_retired_entries '${_f}'
+  "
+  assert_failure
+  assert_output --partial "could not give the rewrite"
+  run cat "${_f}"
+  assert_output "${_orig}"
+  run stat -c '%a' "${_f}"
+  assert_output "664"
+  run bash -c "ls '${_f}'.* 2>/dev/null | wc -l"
+  assert_output "0"
+}
+
 @test "_sync_gitignore: pruning a retired entry is idempotent (#879)" {
   _stub_retired
   local _f="${TMP_DIR}/.gitignore"
