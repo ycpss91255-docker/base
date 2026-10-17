@@ -2220,7 +2220,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (116)
+### test/bats/unit/derived_figures_lint_spec.bats (119)
 
 | Test | Description |
 |------|-------------|
@@ -2333,6 +2333,9 @@ refused before any build or bundle step.
 | `_run_derived_figures: the root-relative wrapper violation names the consumer spelling (base#1357)` | The repair is handed over, as figure 5 does for a top-level recipe: the recipe whose body runs ./script/build.sh is what the consumer types |
 | `_run_derived_figures: FAILS on a root-relative wrapper in a written-out heredoc (base#1357)` | The generated compose.yaml header and README Quick Start are heredoc bodies written into the consumer's repo; a `#` line there is not maintainer prose |
 | `_run_derived_figures: FAILS on a root-relative wrapper in a shipped template comment (base#1357)` | The shipped Dockerfile's comments are copied into the consumer's Dockerfile and read there |
+| `_run_derived_figures: FAILS on a root-relative wrapper followed by an ellipsis (base#1357)` | A sentence can end right after the name -- run.sh's delegating message was "Delegating to ./build.sh..." -- and the ellipsis or full stop is punctuation, not part of the name, so it is the same instruction |
+| `_run_derived_figures: FAILS on a root-relative wrapper ending a sentence (base#1357)` | A full stop after the name ends the sentence the same way; the instruction it carries is still ./build.sh |
+| `_run_derived_figures: a suffixed file name is not a root-relative wrapper (base#1357)` | A dot followed by a name character is a filename suffix: ./build.sh.bak is another file, not the wrapper |
 | `_run_derived_figures: FAILS on a formatted root-relative wrapper name (base#1357)` | The config summary formats the wrapper name in: `./%s.sh --setup` prints ./build.sh or ./run.sh, so a placeholder in the name's place is the same root-relative instruction |
 | `_run_derived_figures: the root-wrapper set is derived from init.sh's links (base#1357)` | Which names are wrappers is derived from init.sh's links: a name init.sh does not link is not knowable as a wrapper, and linking it makes the same text the violation with no edit to the driver |
 | `_run_derived_figures: PASSES on just docker and ./script/<name>.sh spellings (base#1357)` | The consumer-runnable spellings must pass, or the text would have no repair: the `just docker` recipe and the ./script/<name>.sh path both run from the repo root |

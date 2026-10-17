@@ -1573,6 +1573,8 @@ _append() {
   [[ "${output}" == *"./build.sh"* ]]
 }
 
+# why: A full stop after the name ends the sentence the same way; the
+# instruction it carries is still ./build.sh
 @test "_run_derived_figures: FAILS on a root-relative wrapper ending a sentence (base#1357)" {
   _append 'dist/script/docker/lib/sample.sh' \
     '  _log "  1. Then verify the image with ./build.sh."'

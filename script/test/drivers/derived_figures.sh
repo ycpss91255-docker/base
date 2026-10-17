@@ -1426,8 +1426,10 @@ _derived_scan_root_wrappers() {
     _alt+="|${_name}"
   done
   # Not after a path character, so ./script/build.sh and ../build.sh are
-  # not read as ./build.sh; not followed by one, so ./build.sh.bak is not.
-  local _re="(^|[^A-Za-z0-9_./-])(\\./(${_alt})\\.sh)([^A-Za-z0-9_.-]|\$)"
+  # not read as ./build.sh; not followed by a name character, so
+  # ./build.sh.bak is not. A dot that is not followed by a name character
+  # is sentence punctuation ("Delegating to ./build.sh..."), not a suffix.
+  local _re="(^|[^A-Za-z0-9_./-])(\\./(${_alt})\\.sh)([^A-Za-z0-9_.-]|\\.+([^A-Za-z0-9_-]|\$)|\$)"
 
   local _heredoc_end='' _heredoc_tabs=0 _cmp _usage_end=''
   local _lineno=0 _line _rest _hit _which _repair
