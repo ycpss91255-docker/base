@@ -1243,6 +1243,85 @@ _append() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Figure 5, widened: recipe doc comments `just --list` shows (base#1353)
+# ════════════════════════════════════════════════════════════════════
+
+# why: The comment line directly above a recipe in a shipped justfile is the
+# description `just --list docker` prints to the consumer, so it is
+# consumer-facing text, not maintainer prose. `e.g. just run` there names a
+# top-level recipe the consumer's layering does not dispatch -- the shipped
+# justfile.docker said exactly that, unquoted, which the quoted-literal scan
+# never saw
+@test "_run_derived_figures: FAILS on a bare top-level recipe in a shipped recipe doc comment (base#1353)" {
+  _append 'dist/script/docker/justfile.docker' \
+    '# Run container interactively (e.g. just run  |  just run -d)' \
+    'run *args:' \
+    '    ./script/run.sh "$@"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/justfile.docker:10:"* ]]
+  [[ "${output}" == *"no 'run'"* ]]
+  [[ "${output}" == *"just docker run"* ]]
+}
+
+# why: Quoted or bare, the doc line is the same instruction; a backticked
+# `just exec` must fail too, and in the doc line of any shipped justfile, not
+# only the docker module
+@test "_run_derived_figures: FAILS on a backticked top-level recipe in a recipe doc comment of another shipped justfile (base#1353)" {
+  _append 'dist/script/base/justfile.base' \
+    '# Exec into a running container (e.g. `just exec -t bats-src bash`)' \
+    'shell *args:' \
+    '    ./script/exec.sh "$@"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/base/justfile.base:1:"* ]]
+  [[ "${output}" == *"no 'exec'"* ]]
+}
+
+# why: A bare invocation runs to the next delimiter, so one span of prose can
+# hold two of them ("just docker help and just run"). Judging the span by its
+# first command only would let a valid first command hide an undispatchable
+# second one; each `just` occurrence has to be judged on its own
+@test "_run_derived_figures: FAILS on an undispatchable bare recipe after a dispatchable one in one doc comment span (base#1353)" {
+  _append 'dist/script/docker/justfile.docker' \
+    '# Start the stack (see just docker help and just start for details)' \
+    'run *args:' \
+    '    ./script/run.sh "$@"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/justfile.docker:10:"* ]]
+  [[ "${output}" == *"no 'start'"* ]]
+  [[ "${output}" != *"no 'docker"* ]]
+}
+
+# why: The repair has to pass, or the shipped doc line would have no spelling
+# the lint accepts
+@test "_run_derived_figures: PASSES on the namespaced spelling in a recipe doc comment (base#1353)" {
+  _append 'dist/script/docker/justfile.docker' \
+    '# Run container interactively (e.g. just docker run  |  just docker run -d)' \
+    'run *args:' \
+    '    ./script/run.sh "$@"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: A comment block a blank line separates from its recipe is not shown by
+# `just --list` (base#1326 detaches rationale that way on purpose), so it stays
+# maintainer prose and out of scope
+@test "_run_derived_figures: a comment block detached from its recipe by a blank line is not judged (base#1353)" {
+  _append 'dist/script/docker/justfile.docker' \
+    '# there is no top-level `just build` -- so just run is not a recipe here' \
+    '' \
+    '# Run container interactively' \
+    'run *args:' \
+    '    ./script/run.sh "$@"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: The acceptance criterion on the text base actually ships: every
 # generated heredoc and shipped template the base#1349 fix rewrote names only
 # commands the consumer's real entry justfile dispatches. Asserted through a
