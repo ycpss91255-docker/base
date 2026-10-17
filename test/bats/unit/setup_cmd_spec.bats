@@ -1461,6 +1461,111 @@ EOF
   assert_output "prefix:my_"
 }
 
+# ── add / remove speak setup.toml's vocabulary (base#1354) ────────────
+#
+# `volumes.mount`, `network.port` and `devices.cgroup_rule` are arrays of
+# tables in setup.toml: `add` appends a `[[volumes]]` /
+# `[[network.ports]]` / `[[devices.cgroup_rules]]` entry, and no
+# `mount_N` / `port_N` / `cgroup_rule_N` key is written to the file. Only
+# `environment.env` writes a numbered `env_N` key. The help and the
+# confirmation line must name what the file holds. Every case runs
+# against a fixture in ${TEMP_DIR}, never the live tree (base#1075).
+
+# _toml_block_fields <file> <header> <n>
+#   Print the fields of the <n>-th `<header>` block of <file>, joined by
+#   ", " -- the entry as setup.toml spells it, read from the written file.
+_toml_block_fields() {
+  awk -v hdr="$2" -v want="$3" '
+    $0 == hdr { n++; inb = (n == want); next }
+    /^\[/     { inb = 0; next }
+    inb && NF { out = out (out == "" ? "" : ", ") $0 }
+    END       { print out }
+  ' "$1"
+}
+
+@test "help: add/remove describe array entries, not <list>_N keys (base#1354)" {
+  run main -h
+  assert_success
+  # The add + remove blocks of the help, up to the next subcommand.
+  local _blk
+  _blk="$(printf '%s\n' "${output}" | sed -n '/^  add <section>\.<list>/,/^  reset /p')"
+  [[ -n "${_blk}" ]]
+  # What add writes for each list.
+  [[ "${_blk}" == *'[[volumes]]'* ]]
+  [[ "${_blk}" == *'[[network.ports]]'* ]]
+  [[ "${_blk}" == *'[[devices.cgroup_rules]]'* ]]
+  [[ "${_blk}" == *'env_N'* ]]
+  # No key claim the file does not contain.
+  [[ "${_blk}" != *'<list>_N'* ]]
+  [[ "${_blk}" != *'mount_<next>'* ]]
+  [[ "${_blk}" != *'<list>_*'* ]]
+  [[ "${_blk}" != *'port_N'* ]]
+  [[ "${_blk}" != *'cgroup_rule_N'* ]]
+}
+
+@test "add volumes.mount confirms the [[volumes]] entry it wrote (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[volumes]]
+source = "/a"
+target = "/a"
+TOML
+  run main add volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[volumes]]' 2)"
+  [[ "${_want}" == *'source = "/b"'* ]]
+  assert_line "[setup] add [[volumes]] ${_want}"
+  refute_output --partial 'mount_'
+}
+
+@test "add network.port confirms the [[network.ports]] entry it wrote (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[network]
+mode = "bridge"
+TOML
+  run main add network.port 8080:80 --base-path "${TEMP_DIR}"
+  assert_success
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[network.ports]]' 1)"
+  [[ "${_want}" == *'host = "8080"'* ]]
+  assert_line "[setup] add [[network.ports]] ${_want}"
+  refute_output --partial 'port_'
+}
+
+@test "add devices.cgroup_rule confirms the [[devices.cgroup_rules]] entry it wrote (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[devices]
+TOML
+  run main add devices.cgroup_rule 'c 189:* rwm' --base-path "${TEMP_DIR}"
+  assert_success
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[devices.cgroup_rules]]' 1)"
+  [[ "${_want}" == *'rule = "c 189:* rwm"'* ]]
+  assert_line "[setup] add [[devices.cgroup_rules]] ${_want}"
+  refute_output --partial 'cgroup_rule_'
+}
+
+@test "remove volumes.mount <value> confirms the [[volumes]] entry it dropped (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/b"
+target = "/b"
+TOML
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[volumes]]' 2)"
+  run main remove volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line "[setup] remove [[volumes]] ${_want}"
+  refute_output --partial 'mount_'
+  # The entry named is the one gone from the written file.
+  run grep -c '^source = "/b"$' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Subcommand: reset (Phase B-4)
 #
