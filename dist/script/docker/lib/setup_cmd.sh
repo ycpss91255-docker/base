@@ -728,6 +728,130 @@ _setup_entry_label() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_toml_kv_render <text> <outvar>
+#
+# One `key = value` field of setup.toml, which may span lines, printed on
+# one line in the value TOML reads. Returns 1, leaving <outvar> alone,
+# while <text> still ends inside a string or an open `[` / `{`: the
+# caller appends the next line and asks again.
+#
+#   path = """          ->  path = "/tmp/x"
+#   /tmp/x"""
+#
+# A `"""` string becomes the basic string it equals: the newline right
+# after the opener is dropped, a line-ending backslash folds the next
+# line in with its leading whitespace, a newline inside is `\n`, a lone
+# `"` is `\"`, and an escape the file wrote is kept as written. A `'''`
+# literal string becomes the same basic string, its `\` and `"` escaped.
+# Outside a string, a comment is dropped and a run of whitespace or
+# newlines is one space. Without this, the field line alone was printed
+# -- `path = """` -- and the value removed was never named (base#1354).
+# ════════════════════════════════════════════════════════════════════
+_setup_toml_kv_render() {
+  local _tkr_t="${1-}"
+  local -n _tkr_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  local _tkr_o="" _tkr_st=n _tkr_c="" _tkr_rest="" _tkr_ws=""
+  local -i _tkr_i=0 _tkr_d=0 _tkr_q=0 _tkr_len=${#_tkr_t}
+  while (( _tkr_i < _tkr_len )); do
+    _tkr_c="${_tkr_t:_tkr_i:1}"
+    case "${_tkr_st}" in
+      n)
+        case "${_tkr_c}" in
+          '"'|"'")
+            if [[ "${_tkr_t:_tkr_i:3}" == "${_tkr_c}${_tkr_c}${_tkr_c}" ]]; then
+              # A multi-line string opens; both kinds print as basic.
+              [[ "${_tkr_c}" == '"' ]] && _tkr_st=mb || _tkr_st=ml
+              _tkr_o+='"'
+              _tkr_i+=3
+              [[ "${_tkr_t:_tkr_i:2}" == $'\r\n' ]] && _tkr_i+=1
+              [[ "${_tkr_t:_tkr_i:1}" == $'\n' ]] && _tkr_i+=1
+              continue
+            fi
+            [[ "${_tkr_c}" == '"' ]] && _tkr_st=b || _tkr_st=l
+            _tkr_o+="${_tkr_c}"
+            ;;
+          '#')
+            _tkr_rest="${_tkr_t:_tkr_i}"
+            _tkr_rest="${_tkr_rest%%$'\n'*}"
+            _tkr_i+=${#_tkr_rest}
+            continue
+            ;;
+          ' '|$'\t'|$'\r'|$'\n')
+            [[ "${_tkr_o}" == *' ' ]] || _tkr_o+=' '
+            ;;
+          '['|'{') _tkr_d+=1; _tkr_o+="${_tkr_c}" ;;
+          ']'|'}') _tkr_d+=-1; _tkr_o+="${_tkr_c}" ;;
+          *) _tkr_o+="${_tkr_c}" ;;
+        esac
+        ;;
+      b)
+        if [[ "${_tkr_c}" == "\\" ]]; then
+          _tkr_o+="${_tkr_t:_tkr_i:2}"
+          _tkr_i+=2
+          continue
+        fi
+        [[ "${_tkr_c}" == '"' ]] && _tkr_st=n
+        _tkr_o+="${_tkr_c}"
+        ;;
+      l)
+        [[ "${_tkr_c}" == "'" ]] && _tkr_st=n
+        _tkr_o+="${_tkr_c}"
+        ;;
+      mb|ml)
+        if [[ "${_tkr_c}" == '"' && "${_tkr_st}" == mb ]] \
+            || [[ "${_tkr_c}" == "'" && "${_tkr_st}" == ml ]]; then
+          # A run of the delimiter: its last three close the string, up
+          # to two before them are content.
+          _tkr_q=0
+          while [[ "${_tkr_t:_tkr_i+_tkr_q:1}" == "${_tkr_c}" ]]; do
+            _tkr_q+=1
+          done
+          _tkr_i+=_tkr_q
+          if (( _tkr_q >= 3 )); then
+            _tkr_q+=-3
+            _tkr_st=n
+          fi
+          while (( _tkr_q > 0 )); do
+            [[ "${_tkr_c}" == '"' ]] && _tkr_o+='\"' || _tkr_o+="'"
+            _tkr_q+=-1
+          done
+          [[ "${_tkr_st}" == n ]] && _tkr_o+='"'
+          continue
+        fi
+        case "${_tkr_c}" in
+          "\\")
+            if [[ "${_tkr_st}" == ml ]]; then
+              _tkr_o+="\\\\"
+            else
+              _tkr_rest="${_tkr_t:_tkr_i+1}"
+              _tkr_ws="${_tkr_rest%%[!$' \t\r']*}"
+              if [[ "${_tkr_rest:${#_tkr_ws}:1}" == $'\n' ]]; then
+                # Line-ending backslash: drop it and the whitespace and
+                # newlines after it.
+                _tkr_ws="${_tkr_rest%%[!$' \t\r\n']*}"
+                _tkr_i+=$(( 1 + ${#_tkr_ws} ))
+                continue
+              fi
+              _tkr_o+="${_tkr_t:_tkr_i:2}"
+              _tkr_i+=2
+              continue
+            fi
+            ;;
+          '"') _tkr_o+='\"' ;;
+          $'\r') [[ "${_tkr_t:_tkr_i+1:1}" == $'\n' ]] || _tkr_o+='\r' ;;
+          $'\n') _tkr_o+='\n' ;;
+          *) _tkr_o+="${_tkr_c}" ;;
+        esac
+        ;;
+    esac
+    _tkr_i+=1
+  done
+  [[ "${_tkr_st}" == n ]] && (( _tkr_d <= 0 )) || return 1
+  _tkr_o="${_tkr_o#"${_tkr_o%%[! ]*}"}"
+  _tkr_out="${_tkr_o%"${_tkr_o##*[! ]}"}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_toml_entry_label <file> <section> <key> <outvar>
 #
 # The array-of-tables entry `<section>.<key>` names, read from <file> as
@@ -743,6 +867,11 @@ _setup_entry_label() {
 # `device_N`) was reprinted as `[[devices.bindings]]`, a table the file
 # does not have (base#1354). Blocks are counted per header path, the
 # same way the writer addresses them (`_conf_toml_aot_nskey`).
+#
+# A field whose value spans lines (a `"""` or `'''` string, an array
+# split over lines) is gathered whole and printed on one line by
+# _setup_toml_kv_render; its continuation lines are never read as fields
+# or headers, so a header-shaped line inside a string counts no block.
 # ════════════════════════════════════════════════════════════════════
 _setup_toml_entry_label() {
   local _stel_f="${1-}" _stel_want="${2-}.${3-}"
@@ -750,8 +879,16 @@ _setup_toml_entry_label() {
   [[ "${_stel_f}" == *.toml && -f "${_stel_f}" ]] || return 1
   local -A _stel_seen=()
   local _stel_line _stel_h _stel_p _stel_k _stel_in=0 _stel_hit=0
-  local _stel_hdr="" _stel_fields=""
+  local _stel_hdr="" _stel_fields="" _stel_buf="" _stel_r=""
   while IFS= read -r _stel_line || [[ -n "${_stel_line}" ]]; do
+    # A continuation line of a value still open: part of that field.
+    if [[ -n "${_stel_buf}" ]]; then
+      _stel_buf+=$'\n'"${_stel_line}"
+      _setup_toml_kv_render "${_stel_buf}" _stel_r || continue
+      _stel_buf=""
+      (( _stel_in )) && _stel_fields+="${_stel_fields:+, }${_stel_r}"
+      continue
+    fi
     _conf_toml_header_uncomment "${_stel_line}" _stel_h
     if [[ "${_stel_h}" =~ ^[[:space:]]*\[ ]]; then
       (( _stel_in )) && break
@@ -767,8 +904,19 @@ _setup_toml_entry_label() {
       fi
       continue
     fi
-    (( _stel_in )) || continue
     _conf_is_kv_line "${_stel_line}" || continue
+    # Only a line that can open a multi-line value is scanned; every
+    # other field line is printed as written. Lines outside the wanted
+    # block are scanned too, so their continuations are skipped.
+    if [[ "${_stel_line}" == *[\[\{]* || "${_stel_line}" == *'"""'* \
+          || "${_stel_line}" == *"'''"* ]]; then
+      if ! _setup_toml_kv_render "${_stel_line}" _stel_r; then
+        _stel_buf="${_stel_line}"
+        continue
+      fi
+      _stel_line="${_stel_r}"
+    fi
+    (( _stel_in )) || continue
     _stel_line="${_stel_line#"${_stel_line%%[![:space:]]*}"}"
     _stel_line="${_stel_line%"${_stel_line##*[![:space:]]}"}"
     _stel_fields+="${_stel_fields:+, }${_stel_line}"
