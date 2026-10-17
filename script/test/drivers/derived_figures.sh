@@ -1062,9 +1062,12 @@ readonly _DERIVED_FIGURES_JUST_BACKTICK_RE='`(just([[:space:]]+[^`\]*)?)\\?`'
 # command inside it.
 readonly _DERIVED_FIGURES_JUST_BARE_RE=$'(^|[^A-Za-z0-9_./-])(just([[:space:]]+[^][:space:]`\'"|(),;]+)*)'
 
-# A justfile line that defines a recipe, as _derived_justfile_recipes reads
-# one; a `:=` line (setting / alias) is excluded by the caller.
+# A justfile line that defines a recipe. A `:=` line (setting / alias) also
+# matches and a `mod` / `import` line could, so _derived_justfile_recipes and
+# _derived_is_recipe_line rule both out first. Both regexes go to awk via -v,
+# which reads backslash escapes, so neither is spelled with one.
 readonly _DERIVED_FIGURES_RECIPE_LINE_RE='^[a-z_][a-zA-Z0-9_-]*([[:space:]][^:]*)?:'
+readonly _DERIVED_FIGURES_MODULE_LINE_RE='^(mod|import)[?]?[[:space:]]'
 
 # A token standing in for whatever the reader substitutes, rather than naming
 # a recipe. `just <verb> [args...]` is a shape, not an invocation, and
@@ -1081,13 +1084,14 @@ readonly _DERIVED_FIGURES_PLACEHOLDER_RE='[<>{}$%*[]'
 # as dispatchable as `just docker help`. `mod` / `import` lines define no
 # recipe of their own and are read by the caller.
 _derived_justfile_recipes() {
-  awk '
+  awk -v module_re="${_DERIVED_FIGURES_MODULE_LINE_RE}" \
+      -v recipe_re="${_DERIVED_FIGURES_RECIPE_LINE_RE}" '
     /:=/ {
       if ($1 == "alias") { print $2 }
       next
     }
-    /^(mod|mod\?|import|import\?)[[:space:]]/ { next }
-    /^[a-z_][a-zA-Z0-9_-]*([[:space:]][^:]*)?:/ {
+    $0 ~ module_re { next }
+    $0 ~ recipe_re {
       name = $1
       sub(/:.*$/, "", name)
       if (name != "") { print name }
@@ -1306,6 +1310,14 @@ _derived_judge_just_invocation() {
   return 1
 }
 
+# _derived_is_recipe_line <line> -- succeed when <line> defines a recipe,
+# by the same rules _derived_justfile_recipes reads a justfile with.
+_derived_is_recipe_line() {
+  [[ "$1" == *':='* ]] && return 1
+  [[ "$1" =~ ${_DERIVED_FIGURES_MODULE_LINE_RE} ]] && return 1
+  [[ "$1" =~ ${_DERIVED_FIGURES_RECIPE_LINE_RE} ]]
+}
+
 # _derived_scan_recipe_docs <file> <rel> <commands_var_name>
 #
 # Report every `just` invocation, quoted or bare, on a recipe doc comment of
@@ -1319,13 +1331,10 @@ _derived_scan_recipe_docs() {
   local -a _lines=()
   mapfile -t _lines < "${_file}"
 
-  local _i _next _rest _match _invocation
+  local _i _rest _match _invocation
   for (( _i = 0; _i + 1 < ${#_lines[@]}; _i++ )); do
     [[ "${_lines[_i]}" == '#'* ]] || continue
-    _next="${_lines[_i + 1]}"
-    [[ "${_next}" == *':='* ]] && continue
-    [[ "${_next}" =~ ^(mod|mod\?|import|import\?)[[:space:]] ]] && continue
-    [[ "${_next}" =~ ${_DERIVED_FIGURES_RECIPE_LINE_RE} ]] || continue
+    _derived_is_recipe_line "${_lines[_i + 1]}" || continue
 
     _rest="${_lines[_i]}"
     while [[ "${_rest}" =~ ${_DERIVED_FIGURES_JUST_BARE_RE} ]]; do
