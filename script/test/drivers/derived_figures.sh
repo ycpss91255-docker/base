@@ -1021,7 +1021,35 @@ _derived_check_drift_keys() {
 #   - retired ROOT WRAPPER paths (`./setup.sh`, `./stop.sh`) are a separate
 #     question with a separate population -- the names init.sh deletes on
 #     sight -- and they are not derived here.
+#
+# Dispatchable is not the same as doing what the text says (base#1355). A
+# bare `just docker setup` dispatches -- it reaches wrapper/setup.sh -- and
+# that script answers a call with no argument by printing its help and
+# exiting 0, so a generated .env header saying "`just docker setup`
+# rewrites this file" sent the consumer to a help screen. Whether a text
+# PROMISES a write is a reading of English, which a lint cannot do; what it
+# can derive is which bare commands do nothing BUT print help, and a
+# shipped instruction to type one of those is never the instruction the
+# text means. So a bare invocation of a HELP-ONLY recipe is a violation
+# wherever figure 5 judges an invocation, and naming any subcommand after
+# it repairs it. The help-only set is derived, not listed:
+#
+#   - a module recipe's body names the script it forwards to,
+#     ./script/<name>.sh (the first such line; `start` forwards to build.sh
+#     first and is judged by it);
+#   - init.sh's `_symlink "../${TEMPLATE_REL}/<path>" "script/<name>.sh"`
+#     line names the shipped file that <name>.sh is in the consumer;
+#   - that file is help-only when its `if [[ $# -eq 0 ]]; then` branch
+#     opens with `usage`. exec.sh has the same test and supplies a default
+#     command instead, and build.sh has none, so neither is help-only.
+#
+# A recipe whose script init.sh does not link is not judged this way: what
+# it runs bare is then not knowable from base's tree.
 readonly _DERIVED_FIGURES_ENTRY_JUSTFILE='dist/script/justfile'
+
+# The file that links each consumer ./script/<name>.sh to its shipped
+# wrapper (base#1355).
+readonly _DERIVED_FIGURES_INIT_SH='dist/script/base/init.sh'
 
 # The non-script files the consumer receives whose every line -- comments
 # included -- is consumer-facing text (base#1349). Each is judged when it is
@@ -1200,6 +1228,86 @@ _derived_namespaced_spellings() {
   [[ "${#_hits[@]}" -gt 0 ]] && _derived_join_comma "${_hits[@]}"
 }
 
+# _derived_wrapper_bare_help <file> -- succeed when <file> answers a call
+# with no argument by printing its help: an `if [[ $# -eq 0 ]]; then` whose
+# first statement is `usage` (base#1355).
+_derived_wrapper_bare_help() {
+  awk '
+    /^[[:space:]]*if[[:space:]]+\[\[[[:space:]]+\$#[[:space:]]+-eq[[:space:]]+0[[:space:]]+\]\];[[:space:]]*then[[:space:]]*$/ {
+      armed = 1
+      next
+    }
+    armed && /^[[:space:]]*$/ { next }
+    armed {
+      if ($1 == "usage" || $1 == "usage;") { found = 1; exit }
+      armed = 0
+    }
+    END { exit found ? 0 : 1 }
+  ' "$1"
+}
+
+# _derived_recipe_scripts <module-file> -- one `<recipe> <script-name>` line
+# per recipe whose body runs ./script/<script-name>.sh, the first such line
+# of the body.
+_derived_recipe_scripts() {
+  awk -v module_re="${_DERIVED_FIGURES_MODULE_LINE_RE}" \
+      -v recipe_re="${_DERIVED_FIGURES_RECIPE_LINE_RE}" '
+    /^[^[:space:]]/ {
+      recipe = ""
+      if ($0 ~ /:=/ || $0 ~ module_re) { next }
+      if ($0 ~ recipe_re) {
+        recipe = $1
+        sub(/:.*$/, "", recipe)
+        done = 0
+      }
+      next
+    }
+    recipe != "" && !done && match($0, /\.\/script\/[A-Za-z0-9_-]+\.sh/) {
+      script = substr($0, RSTART + 9, RLENGTH - 12)
+      print recipe, script
+      done = 1
+    }
+  ' "$1"
+}
+
+# _derived_help_only_commands <out_var> -- every `<namespace> <recipe>` whose
+# bare call prints help and writes nothing (base#1355), derived through the
+# recipe body, init.sh's link and the linked wrapper. Returns non-zero when
+# init.sh is missing: without it no wrapper is knowable, and an empty set
+# would pass every bare instruction.
+_derived_help_only_commands() {
+  local -n _dhoc_out="$1"
+  _dhoc_out=()
+
+  local _entry="${REPO_ROOT}/${_DERIVED_FIGURES_ENTRY_JUSTFILE}"
+  local _init="${REPO_ROOT}/${_DERIVED_FIGURES_INIT_SH}"
+  [[ -f "${_init}" ]] || return 1
+
+  local -A _links=()
+  local _line
+  local _link_re='_symlink[[:space:]]+"\.\./\$\{TEMPLATE_REL\}/([^"]+)"[[:space:]]+"script/([A-Za-z0-9_-]+)\.sh"'
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ${_link_re} ]] || continue
+    _links["${BASH_REMATCH[2]}"]="${BASH_REMATCH[1]}"
+  done < "${_init}"
+
+  local _consumer_root
+  _consumer_root="$(dirname "$(dirname "${_entry}")")"
+  local _ns _path _recipe _script _wrapper
+  while read -r _ns _path; do
+    [[ -n "${_ns}" && -n "${_path}" ]] || continue
+    [[ -f "${_consumer_root}/${_path}" ]] || continue
+    while read -r _recipe _script; do
+      [[ -n "${_script}" && -v "_links[${_script}]" ]] || continue
+      _wrapper="${REPO_ROOT}/${_links[${_script}]}"
+      [[ -f "${_wrapper}" ]] || continue
+      _derived_wrapper_bare_help "${_wrapper}" \
+        && _dhoc_out+=( "${_ns} ${_recipe}" )
+    done < <(_derived_recipe_scripts "${_consumer_root}/${_path}")
+  done < <(_derived_entry_modules "${_entry}")
+  return 0
+}
+
 # _derived_just_candidate <invocation> <commands_var_name> <out_var> -- the
 # invocation prefix to judge, or empty when there is nothing to judge.
 #
@@ -1230,6 +1338,7 @@ _derived_just_candidate() {
 }
 
 # _derived_scan_just_literals <file> <rel> <commands_var_name> [template]
+#   [help_only_var_name]
 #
 # Report every quoted `just` invocation in <file> -- single-quoted or
 # backticked -- that the consumer's layering does not dispatch. Prints one
@@ -1244,6 +1353,7 @@ _derived_just_candidate() {
 # both reported rather than the first one swallowing the rest of the line.
 _derived_scan_just_literals() {
   local _file="$1" _rel="$2" _cmds_name="$3" _mode="${4:-script}"
+  local _help_name="${5:-}"
   local _violations=0
   local _heredoc_end='' _heredoc_tabs=0 _cmp
 
@@ -1281,7 +1391,7 @@ _derived_scan_just_literals() {
 
         _derived_judge_just_invocation \
           "${_invocation}" "${_rel}" "${_lineno}" "${_cmds_name}" \
-          || _violations=$(( _violations + 1 ))
+          "${_help_name}" || _violations=$(( _violations + 1 ))
       done
     done
   done < "${_file}"
@@ -1290,14 +1400,29 @@ _derived_scan_just_literals() {
 }
 
 # _derived_judge_just_invocation <invocation> <rel> <lineno> <commands_var>
+#   [help_only_var]
 # -- print the violation and return 1 when the consumer's layering does not
-# dispatch <invocation>; return 0 when it does or there is nothing to judge.
+# dispatch <invocation>, or when it is a bare call of a help-only recipe
+# (base#1355); return 0 when it does or there is nothing to judge.
 _derived_judge_just_invocation() {
   local _invocation="$1" _rel="$2" _lineno="$3" _cmds_name="$4"
+  local _help_name="${5:-}"
   local _cand='' _repair
   _derived_just_candidate "${_invocation}" "${_cmds_name}" _cand
   [[ -n "${_cand}" ]] || return 0
-  _derived_is_known_command "${_cand}" "${_cmds_name}" && return 0
+  if _derived_is_known_command "${_cand}" "${_cmds_name}"; then
+    [[ -n "${_help_name}" ]] || return 0
+    _derived_is_known_command "${_cand}" "${_help_name}" || return 0
+    # Bare: nothing follows the candidate. `just` plus the candidate's own
+    # words is every token there is.
+    local -a _words=() _cand_words=()
+    read -r -a _words <<< "${_invocation}"
+    read -r -a _cand_words <<< "${_cand}"
+    (( ${#_words[@]} > ${#_cand_words[@]} + 1 )) && return 0
+    printf "%s:%s: tells the user to run '%s', which only prints its help and changes nothing -- the wrapper answers a call with no argument with usage; name the subcommand that does the work\n" \
+      "${_rel}" "${_lineno}" "${_invocation}"
+    return 1
+  fi
 
   _repair="$(_derived_namespaced_spellings "${_cand}" "${_cmds_name}")"
   if [[ -n "${_repair}" ]]; then
@@ -1319,6 +1444,7 @@ _derived_is_recipe_line() {
 }
 
 # _derived_scan_recipe_docs <file> <rel> <commands_var_name>
+#   [help_only_var_name]
 #
 # Report every `just` invocation, quoted or bare, on a recipe doc comment of
 # a shipped justfile that the consumer's layering does not dispatch
@@ -1326,7 +1452,7 @@ _derived_is_recipe_line() {
 # recipe line -- the line `just --list` prints -- so a blank line between
 # them detaches it. Prints one violation per hit and returns the count.
 _derived_scan_recipe_docs() {
-  local _file="$1" _rel="$2" _cmds_name="$3"
+  local _file="$1" _rel="$2" _cmds_name="$3" _help_name="${4:-}"
   local _violations=0
   local -a _lines=()
   mapfile -t _lines < "${_file}"
@@ -1347,7 +1473,7 @@ _derived_scan_recipe_docs() {
       _rest="${_rest#*"${_lead}"}"
       _derived_judge_just_invocation \
         "${_invocation}" "${_rel}" "$(( _i + 1 ))" "${_cmds_name}" \
-        || _violations=$(( _violations + 1 ))
+        "${_help_name}" || _violations=$(( _violations + 1 ))
     done
   done
 
@@ -1652,16 +1778,24 @@ _run_derived_figures() {
       ;;
   esac
 
+  local -a _help_only=()
+  if ! _derived_help_only_commands _help_only; then
+    _die ci_derived_figures \
+      "'${_DERIVED_FIGURES_INIT_SH}' not found under ${REPO_ROOT} -- which consumer ./script/<name>.sh is which shipped wrapper cannot be derived, so a bare instruction to type a command that only prints its help would pass unseen."
+    return 1
+  fi
+
   for _file in "${_shipped_surfaces[@]}"; do
     _hits=0
     _derived_scan_just_literals \
-      "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds || _hits=$?
+      "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds script _help_only \
+      || _hits=$?
     _violations=$(( _violations + _hits ))
   done
   while IFS= read -r -d '' _file; do
     _hits=0
     _derived_scan_recipe_docs \
-      "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds || _hits=$?
+      "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds _help_only || _hits=$?
     _violations=$(( _violations + _hits ))
   done < <(find "${_code_root}/script" -name 'justfile*' -type f -print0 \
     2>/dev/null | sort -z)
@@ -1670,7 +1804,8 @@ _run_derived_figures() {
     [[ -f "${REPO_ROOT}/${_tmpl}" ]] || continue
     _hits=0
     _derived_scan_just_literals \
-      "${REPO_ROOT}/${_tmpl}" "${_tmpl}" _just_cmds template || _hits=$?
+      "${REPO_ROOT}/${_tmpl}" "${_tmpl}" _just_cmds template _help_only \
+      || _hits=$?
     _violations=$(( _violations + _hits ))
   done
 
@@ -1679,7 +1814,7 @@ _run_derived_figures() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_derived_figures \
-      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The GPU capability names are _VALID_GPU_CAPABILITIES. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach. Fix the prose, not the predicate."
+      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The GPU capability names are _VALID_GPU_CAPABILITIES. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach, and a bare call of a recipe whose linked wrapper answers no argument with usage only prints help. Fix the prose, not the predicate."
     return 1
   fi
   echo "derived-figure lint: clean"

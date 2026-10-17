@@ -144,7 +144,7 @@ stop *args:
 prune *args:
     ./script/prune.sh "$@"
 
-# Regenerate .env / .env.generated / compose.yaml from setup.toml
+# Print the setup subcommands (just docker setup apply regenerates .env / .env.generated / compose.yaml from setup.toml)
 setup *args:
     ./script/setup.sh "$@"
 
