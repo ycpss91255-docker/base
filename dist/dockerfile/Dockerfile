@@ -134,7 +134,7 @@
 #        key = "BASE_IMAGE_DIGEST"
 #        value = "sha256:<digest>"
 #
-#      -- then `just docker setup` (which emits it into compose.yaml's
+#      -- then `just docker setup apply` (which emits it into compose.yaml's
 #      build `args:` and into `.env`) and `just docker build`. The value
 #      is versioned with the repo instead of living in one shell's
 #      history, and no template-owned line is edited. `setup.local.toml`

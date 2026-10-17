@@ -241,8 +241,8 @@ _populate_config() {
 #    bind-mounted at /opt/app/config/<component> in development -- edit on
 #    the host, restart, no rebuild -- and COPY-baked at the same path into
 #    a deployable image, which is how one config survives both. A regular
-#    file sitting directly under config/ gets NEITHER; `just docker setup`
-#    warns about it by name.
+#    file sitting directly under config/ gets NEITHER;
+#    `just docker setup apply` warns about it by name.
 #
 #    Inside config/<component>/, group by kind only once a kind has more
 #    than one file. Name a copy-me template <name>.example.<ext>, keeping
@@ -259,8 +259,8 @@ _populate_config() {
 #    config/<component>/ -- e.g. camera.yaml -> config/realsense/yaml/none.yaml
 #    -- and COPY it through a build ARG whose default is that symlink's
 #    name, so `--build-arg` overrides one build without touching the tree.
-#    `just docker setup` names every selector and the preset it currently
-#    points at.
+#    `just docker setup apply` names every selector and the preset it
+#    currently points at.
 EOF
   _log "  Created empty config/ placeholder (.base/dist/config/ is the default layer; <repo>/config/ overlays per-file)"
 }

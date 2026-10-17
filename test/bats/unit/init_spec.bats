@@ -1908,6 +1908,23 @@ _git_init_tmp_repo() {
   assert_output --partial ".base/dist/config/"
 }
 
+# why: A bare `just docker setup` prints the setup help and exits 0 without
+# reading config/ at all, so the placeholder's two promises -- a loose file
+# under config/ is warned about by name, every preset selector is named --
+# have to name the command that does the reading, `just docker setup apply`
+# (base#1355). Read as joined prose, so the pin is the sentence and not
+# where it wraps
+@test "_populate_config: the seeded placeholder names setup apply for its warnings (base#1355)" {
+  _source_init
+  _populate_config
+  run bash -c "sed -n 's/^#[[:space:]]*//p' \"\$1\" | tr '\\n' ' ' | tr -s ' '" _ \
+    "${TMP_REPO}/config/.gitkeep"
+  assert_output --partial 'gets NEITHER; `just docker setup apply` warns about it by name.'
+  assert_output --partial '`just docker setup apply` names every selector and the preset it currently points at.'
+  run grep -F '`just docker setup`' "${TMP_REPO}/config/.gitkeep"
+  assert_failure
+}
+
 # why: seeded text and the record use one vocabulary
 @test "_populate_config: the seeded placeholder and ADR-00000030 name the convention identically" {
   # The convention now lives in two artifacts by design, and ADR-00000028

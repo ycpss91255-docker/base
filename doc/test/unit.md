@@ -2215,7 +2215,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (98)
+### test/bats/unit/derived_figures_lint_spec.bats (104)
 
 | Test | Description |
 |------|-------------|
@@ -2316,6 +2316,12 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS on an undispatchable bare recipe after a dispatchable one in one doc comment span (base#1353)` | A bare invocation runs to the next delimiter, so one span of prose can hold two of them ("just docker help and just run"). Judging the span by its first command only would let a valid first command hide an undispatchable second one; each `just` occurrence has to be judged on its own |
 | `_run_derived_figures: PASSES on the namespaced spelling in a recipe doc comment (base#1353)` | The repair has to pass, or the shipped doc line would have no spelling the lint accepts |
 | `_run_derived_figures: a comment block detached from its recipe by a blank line is not judged (base#1353)` | A comment block a blank line separates from its recipe is not shown by `just --list` (base#1326 detaches rationale that way on purpose), so it stays maintainer prose and out of scope |
+| `_run_derived_figures: FAILS on a bare help-only command in a written-out heredoc (base#1355)` | The live defect -- the generated .env header's heredoc names a bare help-only command as the one that rewrites the file |
+| `_run_derived_figures: FAILS on a bare help-only command in a shipped message string (base#1355)` | The same instruction in a printed message -- a quoted literal in a log string, the shape of compose.sh's missing-.env.generated error |
+| `_run_derived_figures: FAILS on a bare help-only command in a shipped template comment (base#1355)` | And in a shipped template comment, which is copied into the consumer's repo and read there |
+| `_run_derived_figures: PASSES on the help-only command with its subcommand named (base#1355)` | The repair has to pass: naming the subcommand that writes is the spelling the consumer can act on |
+| `_run_derived_figures: a bare command whose wrapper does not print help is clean (base#1355)` | Only a wrapper that answers a bare call with help is judged this way. A bare `just docker build` builds, so the rule must not fire on every bare namespaced command |
+| `_run_derived_figures: the help-only set is derived from the wrapper (base#1355)` | The help-only set is read from the wrapper, not remembered: a setup wrapper with no bare-help branch makes the same bare spelling clean |
 | `_run_derived_figures: the shipped emitted and template text names only dispatchable commands (base#1349)` | The acceptance criterion on the text base actually ships: every generated heredoc and shipped template the base#1349 fix rewrote names only commands the consumer's real entry justfile dispatches. Asserted through a COPY of those files in the scratch tree, not by pointing REPO_ROOT at the checkout -- the coverage suite checks the driver against fixtures and the lint job checks the tree (base#1075) -- so the copy is the shipped text and the real layering it is judged against, and nothing else |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
@@ -2668,7 +2674,7 @@ the file's bottom guard and are pinned separately.
 | `the orchestrator ships with the executable bit set (#945)` | Its four runtime siblings are 644 because they are sourced; this one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed 644, so nothing in a normal build goes red -- the file is simply not runnable from the subtree, and any consumer path that stops going through that COPY inherits an exit 126 |
 | `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | Joins the two files nothing else joins -- it reads the ENTRYPOINT out of the shipped Dockerfile and requires the shared build-time baseline to name that same path. Without it the half the container actually starts is asserted by nothing, and a dropped runtime-directory COPY stays invisible until a real container fails to come up |
 
-### test/bats/unit/env_emit_spec.bats (33)
+### test/bats/unit/env_emit_spec.bats (37)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_* metadata,
 SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
@@ -2682,7 +2688,9 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_scaffold_env_local is idempotent (never overwrites) (#868)` | - |
 | `write_env emits PROJECT_NAME_PENDING only when a rename is deferred (#920)` | - |
 | `_scaffold_env_local / write_container_env: the guidance names only files the env_file block loads` | Both files are GUIDANCE an operator follows, and the only authority on which override file compose actually reads is `_emit_env_file_block` -- the function that writes the `env_file:` list into the generated compose. It lists `.env` and `.env.local`; nothing reads `env.local.toml`, which init.sh states where it declines to call the converter (base#1163, readers on base#1168). Both files named it anyway, and the scaffold went further and put a TOML `[environment]` table into the dotenv file compose parses -- measured against compose 2.x, that does not refuse, it improvises: the header line is skipped, `KEY = "42"` arrives as `42`, and a second header such as `[stage:headless]` arrives as a variable literally named `[stage`. So an operator following the shipped instructions either edits a file nothing reads or puts junk in the container, with no error either way. The loaded set is DERIVED here, so moving the `env_file:` list moves what the guidance is allowed to say rather than stranding this assertion -- which is what the previous `--partial ".env.local"` check did, since the old `.env.local.toml` spelling satisfies it. And the generated `.env` is now written WITH a service-env entry, which is the arm that was missing. The section header carries the name of the file the block came from, and it is emitted only when `<service_env_str>` is non-empty -- so passing "" asked this rule about every line of the artifact except the one line that names another file. Under the dotted spelling base#1167 retired, that header advertised `.env.toml` inside a file compose parses as dotenv, which is precisely what this test forbids and could not see. |
-| `_scaffold_env_local / write_container_env: the regenerate command named is one the consumer can run (base#1349)` | Both generated files tell the consumer how `.env` is rewritten, and the consumer's entry justfile has no top-level `setup` recipe (ADR-00000011), so `just setup` in either answers itself with `error: justfile does not contain recipe`; the command they can type is `just docker setup` |
+| `_scaffold_env_local / write_container_env: the regenerate command named is one the consumer can run (base#1349)` | Both generated files tell the consumer how `.env` is rewritten, and the consumer's entry justfile has no top-level `setup` recipe (ADR-00000011), so `just setup` in either answers itself with `error: justfile does not contain recipe`; the command they can type is `just docker setup apply` (base#1355) |
+| `write_container_env: the .env header names the command that regenerates it (base#1355)` | A bare `just docker setup` prints the setup help and exits 0 without writing anything (wrapper/setup.sh main: no argument -> usage), so a header that says it rewrites `.env` sends the consumer to a command that leaves the file exactly as it was. The command that regenerates is `just docker setup apply`; the whole header is pinned so the promise and the command that keeps it are read together |
+| `_scaffold_env_local: the .env.local seed names the command that regenerates .env (base#1355)` | The .env.local seed repeats the same promise about `.env`, and it is the file a consumer opens to decide where an edit belongs (base#1355) |
 | `_scaffold_env_local creates a comment-only override file naming .env (#868)` | - |
 | `write_container_env emits the [environment] defaults it is given (#868)` | - |
 | `write_container_env emits the WATCHDOG_* block into .env, not compose (#868)` | - |
@@ -2703,13 +2711,15 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `write_container_env omits the service env section when the parameter is empty (#1135)` | An empty service_env_str means the repo carries no env.toml entries. The section header must not appear -- a headed empty block misleads the operator into thinking the file was read but had nothing. |
 | `write_container_env emits both infra and service env sections (#1135)` | The two env sources (setup.toml infra + env.toml service) and the watchdog block must coexist in one .env file. A merge bug would drop one source or intermingle their headers. |
 | `_migrate_env_to_local renames a hand-written .env to .env.local (#868)` | - |
+| `_migrate_env_to_local: the migration notice names the command that regenerates .env (base#1355)` | The migration notice explains WHY the hand-written .env had to move: the toolchain regenerates it. The command it names for that has to be the one that does, or the explanation points at a help screen (base#1355) |
+| `_migrate_env_to_local: the conflict notice names the command that regenerates .env (base#1355)` | Same promise in the conflict notice, the branch where both files exist |
 | `_migrate_env_to_local is inert on a second run (#868)` | - |
 | `_migrate_env_to_local leaves a generated .env alone (#868)` | - |
 | `_migrate_env_to_local leaves a comment-only scaffold alone (#868)` | - |
 | `_migrate_env_to_local is a no-op when there is no .env (#868)` | - |
 | `_migrate_env_to_local stages the removal when .env was git-tracked (#868)` | - |
 
-### test/bats/unit/env_generated_claim_spec.bats (12)
+### test/bats/unit/env_generated_claim_spec.bats (13)
 
 | Test | Description |
 |------|-------------|
@@ -2718,6 +2728,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `just docker help: zh-CN setup summary names .env + .env.generated (#868)` | - |
 | `just docker help: ja setup summary names .env + .env.generated (#868)` | - |
 | `justfile.docker: the setup doc comment names .env + .env.generated (#868)` | - |
+| `justfile.docker: the setup doc comment says the bare recipe prints help and names setup apply (base#1355)` | `just --list docker` prints this line as what `just docker setup` does, and a bare `setup` prints the subcommand help and writes nothing (wrapper/setup.sh main: no argument -> usage). A summary that says the bare recipe regenerates sends the consumer to a help screen; the line has to say what the bare recipe does and name the subcommand that writes (base#1355) |
 | `setup.sh --help: usage names .env + .env.generated (#868)` | - |
 | `setup.sh set: the next hint names .env + .env.generated (#868)` | - |
 | `setup.sh add: the next hint names .env + .env.generated (#868)` | - |
@@ -3390,7 +3401,7 @@ the source INI where it was, writes no target, and says so
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (106)
+### test/bats/unit/init_spec.bats (107)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3504,6 +3515,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
 | `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
 | `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
+| `_populate_config: the seeded placeholder names setup apply for its warnings (base#1355)` | A bare `just docker setup` prints the setup help and exits 0 without reading config/ at all, so the placeholder's two promises -- a loose file under config/ is warned about by name, every preset selector is named -- have to name the command that does the reading, `just docker setup apply` (base#1355). Read as joined prose, so the pin is the sentence and not where it wraps |
 | `_populate_config: the seeded placeholder and ADR-00000030 name the convention identically` | seeded text and the record use one vocabulary |
 | `the resync: stops when the INI-to-TOML migration is declined (base#1148)` | the one case where continuing is worse than stopping: everything after this point in `main` writes the file the refusal declined to write, and the seeded default then locks the migration out for good |
 | `the resync: an INI that converts does not stop it (base#1148)` | the stop is for the refusal only. A repo with no INI at all, and a repo whose INI converts, must resync to the end |
