@@ -49,6 +49,7 @@ setup() {
   _write_runner
   _write_test_justfile
   _write_consumer_justfiles
+  _write_consumer_wrappers
   printf '%s\n' '# CONTEXT' > "${SCRATCH}/CONTEXT.md"
   printf '%s\n' '#!/usr/bin/env bash' \
     > "${SCRATCH}/dist/script/docker/lib/sample.sh"
@@ -212,6 +213,51 @@ _write_consumer_justfiles() {
     'setup *args:' \
     '    ./script/setup.sh {{args}}' \
     > "${SCRATCH}/dist/script/docker/justfile.docker"
+}
+
+# _write_consumer_wrappers -- the scripts the scratch docker recipes forward
+# to, in the shape the shipped ones have, plus the init.sh line that links
+# each into the consumer as ./script/<name>.sh (base#1355).
+#
+# setup.sh is the one whose BARE invocation prints its help and exits 0
+# without writing anything -- the shipped wrapper/setup.sh main() opens with
+# `if [[ $# -eq 0 ]]; then usage` -- so a text that says `just docker setup`
+# rewrites a file names a command that does not. build.sh has no such
+# branch: a bare `just docker build` builds.
+_write_consumer_wrappers() {
+  mkdir -p "${SCRATCH}/dist/script/docker/wrapper" "${SCRATCH}/dist/script/base"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'usage() {' \
+    "  printf 'Usage: ./setup.sh <subcommand>\\n'" \
+    '  exit 0' \
+    '}' \
+    'main() {' \
+    '  if [[ $# -eq 0 ]]; then' \
+    '    usage' \
+    '  fi' \
+    '  case "$1" in' \
+    '    -h|--help) usage ;;' \
+    '    apply|check-drift|set|show) _subcmd="$1"; shift ;;' \
+    '  esac' \
+    '}' \
+    'main "$@"' \
+    > "${SCRATCH}/dist/script/docker/wrapper/setup.sh"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'main() {' \
+    '  local _target="${1:-devel}"' \
+    '  docker compose build "${_target}"' \
+    '}' \
+    'main "$@"' \
+    > "${SCRATCH}/dist/script/docker/wrapper/build.sh"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '_link_wrappers() {' \
+    '  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/build.sh" "script/build.sh"' \
+    '  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/setup.sh" "script/setup.sh"' \
+    '}' \
+    > "${SCRATCH}/dist/script/base/init.sh"
 }
 
 # _append <relative-path> <line>... -- add prose to a scratch file.
@@ -1130,7 +1176,7 @@ _append() {
 # stay silent, or the widening reports correct shipped prose
 @test "_run_derived_figures: an ESCAPED backtick span naming a dispatchable command is clean (base#1221)" {
   _append 'dist/script/docker/lib/sample.sh' \
-    '    _log_err ci x "display=re-run \`just docker setup\` to finish"'
+    '    _log_err ci x "display=re-run \`just docker setup apply\` to finish"'
   run _run_derived_figures
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
@@ -1164,7 +1210,7 @@ _append() {
   _append 'dist/script/docker/lib/sample.sh' \
     '_emit_header() {' \
     "  cat << 'EOF'" \
-    '# Container env defaults -- OURS. `just docker setup` rewrites this file' \
+    '# Container env defaults -- OURS. `just docker setup apply` rewrites this file' \
     'EOF' \
     '}'
   run _run_derived_figures
@@ -1180,7 +1226,7 @@ _append() {
   _append 'dist/script/docker/lib/sample.sh' \
     '_emit_header() {' \
     '  cat <<EOF' \
-    '# Container env defaults -- OURS. `just docker setup` rewrites this file' \
+    '# Container env defaults -- OURS. `just docker setup apply` rewrites this file' \
     'EOF' \
     '}' \
     '# ADR-00000011 zero-special-case: there is no top-level `just build`.'
@@ -1237,7 +1283,7 @@ _append() {
 # would have no spelling that passes
 @test "_run_derived_figures: PASSES on the namespaced spelling in a shipped template comment (base#1349)" {
   _append 'dist/dockerfile/Dockerfile' \
-    '#      -- then `just docker setup` and `just docker build`.'
+    '#      -- then `just docker setup apply` and `just docker build`.'
   run _run_derived_figures
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
@@ -1322,6 +1368,93 @@ _append() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Figure 5, widened: a bare command that only prints its help (base#1355)
+# ════════════════════════════════════════════════════════════════════
+#
+# Dispatchable is not the same as doing what the text says. A bare `just
+# docker setup` dispatches -- it reaches wrapper/setup.sh -- and that
+# script prints its help and exits 0 when it is given no argument, so a
+# generated .env header saying "`just docker setup` rewrites this file"
+# sent the consumer to a help screen. Which wrapper answers a bare call
+# with help is read from the wrapper itself, the one the consumer's
+# ./script/<name>.sh links to, not from a list.
+
+# why: The live defect -- the generated .env header's heredoc names a bare
+# help-only command as the one that rewrites the file
+@test "_run_derived_figures: FAILS on a bare help-only command in a written-out heredoc (base#1355)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '_emit_header() {' \
+    "  cat << 'EOF'" \
+    '# Container env defaults -- OURS. `just docker setup` rewrites this file' \
+    'EOF' \
+    '}'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:4:"* ]]
+  [[ "${output}" == *"help"* ]]
+}
+
+# why: The same instruction in a printed message -- a quoted literal in a
+# log string, the shape of compose.sh's missing-.env.generated error
+@test "_run_derived_figures: FAILS on a bare help-only command in a shipped message string (base#1355)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    _log_err ci x \"display=Run 'just docker setup' to restore it\""
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"help"* ]]
+}
+
+# why: And in a shipped template comment, which is copied into the
+# consumer's repo and read there
+@test "_run_derived_figures: FAILS on a bare help-only command in a shipped template comment (base#1355)" {
+  _append 'dist/dockerfile/Dockerfile' \
+    '#      -- then `just docker setup` (which emits it into compose.yaml)'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/dockerfile/Dockerfile:"* ]]
+  [[ "${output}" == *"help"* ]]
+}
+
+# why: The repair has to pass: naming the subcommand that writes is the
+# spelling the consumer can act on
+@test "_run_derived_figures: PASSES on the help-only command with its subcommand named (base#1355)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '_emit_header() {' \
+    "  cat << 'EOF'" \
+    '# Container env defaults -- OURS. `just docker setup apply` rewrites this file' \
+    'EOF' \
+    '}' \
+    "    _log_err ci x \"display=Run 'just docker setup apply' to restore it\""
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: Only a wrapper that answers a bare call with help is judged this way.
+# A bare `just docker build` builds, so the rule must not fire on every
+# bare namespaced command
+@test "_run_derived_figures: a bare command whose wrapper does not print help is clean (base#1355)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    _log_err ci x \"display=Run 'just docker build' to rebuild it\""
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The help-only set is read from the wrapper, not remembered: a setup
+# wrapper with no bare-help branch makes the same bare spelling clean
+@test "_run_derived_figures: the help-only set is derived from the wrapper (base#1355)" {
+  printf '%s\n' '#!/usr/bin/env bash' 'main() { _setup_apply "$@"; }' 'main "$@"' \
+    > "${SCRATCH}/dist/script/docker/wrapper/setup.sh"
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    _log_err ci x \"display=Run 'just docker setup' to restore it\""
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: The acceptance criterion on the text base actually ships: every
 # generated heredoc and shipped template the base#1349 fix rewrote names only
 # commands the consumer's real entry justfile dispatches. Asserted through a
@@ -1337,6 +1470,9 @@ _append() {
     dist/dockerfile/Dockerfile \
     dist/.hadolint.yaml \
     dist/script/docker/lib/env_emit.sh \
+    dist/script/docker/lib/compose.sh \
+    dist/script/docker/wrapper/setup.sh \
+    dist/script/docker/wrapper/build.sh \
     dist/script/base/init.sh \
     dist/script/justfile \
     dist/script/docker/justfile.docker \

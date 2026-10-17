@@ -60,9 +60,23 @@ setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "justfile.docker: the setup doc comment names .env + .env.generated (#868)" {
-  run grep -n '^# Regenerate' "${JUSTFILE_DOCKER}"
+  run grep -B1 '^setup ' "${JUSTFILE_DOCKER}"
   assert_success
   assert_output --partial ".env / .env.generated / compose.yaml from setup.toml"
+}
+
+# why: `just --list docker` prints this line as what `just docker setup`
+# does, and a bare `setup` prints the subcommand help and writes nothing
+# (wrapper/setup.sh main: no argument -> usage). A summary that says the
+# bare recipe regenerates sends the consumer to a help screen; the line has
+# to say what the bare recipe does and name the subcommand that writes
+# (base#1355)
+@test "justfile.docker: the setup doc comment says the bare recipe prints help and names setup apply (base#1355)" {
+  run grep -B1 '^setup ' "${JUSTFILE_DOCKER}"
+  assert_success
+  assert_line --index 0 --partial 'Print the setup subcommands'
+  assert_line --index 0 --partial 'just docker setup apply regenerates'
+  refute_line --index 0 --regexp '^# Regenerate'
 }
 
 # ════════════════════════════════════════════════════════════════════

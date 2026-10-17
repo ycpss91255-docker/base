@@ -411,7 +411,7 @@ _list_description() {
   done <<'ROWS'
 docker|start|Build + run in one step (e.g. just docker start  |  just docker start --no-cache)
 docker|help|List the docker recipes in your language (--lang / $LANG) [alias: h]
-docker|setup|Regenerate .env / .env.generated / compose.yaml from setup.toml
+docker|setup|Print the setup subcommands (just docker setup apply regenerates .env / .env.generated / compose.yaml from setup.toml)
 docker|setup-tui|Interactive TUI to edit setup.toml
 base|help|List the base recipes in your language (--lang / $LANG) [alias: h]
 base|completions|just base completions install|uninstall [--shell bash|zsh|fish|all]
