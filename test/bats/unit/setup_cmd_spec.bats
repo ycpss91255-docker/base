@@ -1607,6 +1607,81 @@ TOML
   assert_output "0"
 }
 
+# why: a field value may span lines. `path = """` + newline + `/tmp/x"""`
+# is the TOML string `/tmp/x` (the newline after the opener is trimmed),
+# and a reader that keeps only `key = value` lines printed `path = """`
+# and lost the path the operator removed.
+@test "remove tmpfs.tmpfs_1 names a multi-line path by its whole value (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = """
+/tmp/x"""
+size = "64m"
+TOML
+  run main remove tmpfs.tmpfs_1 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line '[setup] remove [[tmpfs]] path = "/tmp/x", size = "64m"'
+  refute_output --partial '"""'
+  # The entry named is the one gone from the written file.
+  run grep -c '/tmp/x' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+}
+
+# why: the other multi-line spellings carry the same value: a literal
+# `'''` string, a line-ending backslash that folds the next line in, and
+# an array split over lines. Each label is one line and names the value
+# TOML reads, so a literal string is respelled as the basic string it
+# equals.
+@test "entry label renders every multi-line field value whole (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = '''
+/tmp/lit\dir'''
+
+[[tmpfs]]
+path = """/tmp/\
+    folded"""
+size = "64m"
+
+[[volumes]]
+source = "/a"
+target = [
+  "/b",  # comment
+  "/c",
+]
+TOML
+  local _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_1 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "/tmp/lit\\dir"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_2 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "/tmp/folded", size = "64m"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" volumes mount_1 _lbl
+  [[ "${_lbl}" == '[[volumes]] source = "/a", target = [ "/b", "/c", ]' ]]
+}
+
+# why: a line inside a multi-line string is text, not a header; counting
+# it as `[[tmpfs]]` shifted every later block by one and named the wrong
+# entry.
+@test "entry label does not count a header-shaped line inside a multi-line string (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = """
+[[tmpfs]]
+"""
+
+[[tmpfs]]
+path = "/tmp/second"
+TOML
+  local _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_2 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "/tmp/second"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_1 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "[[tmpfs]]\n"' ]]
+}
+
 # why: `[[devices]]` is the other spelling of `device_N`; rebuilding the
 # label from the value named `[[devices.bindings]]`, a table absent from
 # the file. add and remove both decline such a file, so the label helper
