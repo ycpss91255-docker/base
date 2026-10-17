@@ -1279,6 +1279,22 @@ _append() {
   [[ "${output}" == *"no 'exec'"* ]]
 }
 
+# why: A bare invocation runs to the next delimiter, so one span of prose can
+# hold two of them ("just docker help and just run"). Judging the span by its
+# first command only would let a valid first command hide an undispatchable
+# second one; each `just` occurrence has to be judged on its own
+@test "_run_derived_figures: FAILS on an undispatchable bare recipe after a dispatchable one in one doc comment span (base#1353)" {
+  _append 'dist/script/docker/justfile.docker' \
+    '# Start the stack (see just docker help and just start for details)' \
+    'run *args:' \
+    '    ./script/run.sh "$@"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/justfile.docker:10:"* ]]
+  [[ "${output}" == *"no 'start'"* ]]
+  [[ "${output}" != *"no 'docker"* ]]
+}
+
 # why: The repair has to pass, or the shipped doc line would have no spelling
 # the lint accepts
 @test "_run_derived_figures: PASSES on the namespaced spelling in a recipe doc comment (base#1353)" {
