@@ -1443,20 +1443,16 @@ _derived_scan_root_wrappers() {
         continue
       fi
     elif [[ "${_mode}" != 'template' ]]; then
+      # Inside a usage() body only its closing brace matters; a heredoc
+      # opener there is still tracked so its body cannot end the function.
       if [[ -n "${_usage_end}" ]]; then
         [[ "${_line}" == "${_usage_end}" ]] && _usage_end=''
-        if [[ "${_line}" =~ ${_DERIVED_FIGURES_HEREDOC_RE} ]]; then
-          _heredoc_end="${BASH_REMATCH[3]}"
-          _heredoc_tabs=0
-          [[ -n "${BASH_REMATCH[2]}" ]] && _heredoc_tabs=1
-        fi
-        continue
-      fi
-      if [[ "${_line}" =~ ${_DERIVED_FIGURES_USAGE_FN_RE} ]]; then
+      elif [[ "${_line}" =~ ${_DERIVED_FIGURES_USAGE_FN_RE} ]]; then
         _usage_end="${BASH_REMATCH[1]}}"
         continue
+      elif [[ "${_line}" =~ ^[[:space:]]*# ]]; then
+        continue
       fi
-      [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
       if [[ "${_line}" =~ ${_DERIVED_FIGURES_HEREDOC_RE} ]]; then
         _heredoc_end="${BASH_REMATCH[3]}"
         _heredoc_tabs=0
@@ -1981,14 +1977,12 @@ _run_derived_figures() {
       _wrapper_repairs || _hits=$?
     _violations=$(( _violations + _hits ))
   done
-  local _exempt _skip
+  local _exempt
   for _tmpl in "${_DERIVED_FIGURES_SHIPPED_TEMPLATES[@]}"; do
     [[ -f "${REPO_ROOT}/${_tmpl}" ]] || continue
-    _skip=0
     for _exempt in "${_DERIVED_FIGURES_ROOT_WRAPPER_EXEMPT[@]}"; do
-      [[ "${_tmpl}" == "${_exempt}" ]] && _skip=1
+      [[ "${_tmpl}" == "${_exempt}" ]] && continue 2
     done
-    (( _skip )) && continue
     _hits=0
     _derived_scan_root_wrappers \
       "${REPO_ROOT}/${_tmpl}" "${_tmpl}" template _root_wrappers \
