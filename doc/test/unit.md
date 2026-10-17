@@ -2220,7 +2220,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (104)
+### test/bats/unit/derived_figures_lint_spec.bats (116)
 
 | Test | Description |
 |------|-------------|
@@ -2328,6 +2328,18 @@ refused before any build or bundle step.
 | `_run_derived_figures: a bare command whose wrapper does not print help is clean (base#1355)` | Only a wrapper that answers a bare call with help is judged this way. A bare `just docker build` builds, so the rule must not fire on every bare namespaced command |
 | `_run_derived_figures: the help-only set is derived from the wrapper (base#1355)` | The help-only set is read from the wrapper, not remembered: a setup wrapper with no bare-help branch makes the same bare spelling clean |
 | `_run_derived_figures: the shipped emitted and template text names only dispatchable commands (base#1349)` | The acceptance criterion on the text base actually ships: every generated heredoc and shipped template the base#1349 fix rewrote names only commands the consumer's real entry justfile dispatches. Asserted through a COPY of those files in the scratch tree, not by pointing REPO_ROOT at the checkout -- the coverage suite checks the driver against fixtures and the lint job checks the tree (base#1075) -- so the copy is the shipped text and the real layering it is judged against, and nothing else |
+| `_run_derived_figures: FAILS on a root-relative wrapper in a shipped message string (base#1357)` | The live defect in a printed message -- the rerun_setup hint and the upgrade next step name a root-level ./build.sh the consumer does not have |
+| `_run_derived_figures: FAILS on an unquoted root-relative wrapper in a log string (base#1357)` | The same name with no quote around it, inside a double-quoted log string -- upgrade.sh's "Run ./build.sh test to verify" -- is the same instruction, so the rule cannot stop at quoted spans |
+| `_run_derived_figures: the root-relative wrapper violation names the consumer spelling (base#1357)` | The repair is handed over, as figure 5 does for a top-level recipe: the recipe whose body runs ./script/build.sh is what the consumer types |
+| `_run_derived_figures: FAILS on a root-relative wrapper in a written-out heredoc (base#1357)` | The generated compose.yaml header and README Quick Start are heredoc bodies written into the consumer's repo; a `#` line there is not maintainer prose |
+| `_run_derived_figures: FAILS on a root-relative wrapper in a shipped template comment (base#1357)` | The shipped Dockerfile's comments are copied into the consumer's Dockerfile and read there |
+| `_run_derived_figures: FAILS on a formatted root-relative wrapper name (base#1357)` | The config summary formats the wrapper name in: `./%s.sh --setup` prints ./build.sh or ./run.sh, so a placeholder in the name's place is the same root-relative instruction |
+| `_run_derived_figures: the root-wrapper set is derived from init.sh's links (base#1357)` | Which names are wrappers is derived from init.sh's links: a name init.sh does not link is not knowable as a wrapper, and linking it makes the same text the violation with no edit to the driver |
+| `_run_derived_figures: PASSES on just docker and ./script/<name>.sh spellings (base#1357)` | The consumer-runnable spellings must pass, or the text would have no repair: the `just docker` recipe and the ./script/<name>.sh path both run from the repo root |
+| `_run_derived_figures: a wrapper's usage() text is not judged for root-relative names (base#1357)` | A wrapper's own --help describes the script being invoked; its Usage line is out of scope (base#1357) and must not be reported |
+| `_run_derived_figures: a root-relative wrapper in a source comment is not an instruction (base#1357)` | A source comment is maintainer prose, as it is for the rest of figure 5 |
+| `_run_derived_figures: the legacy .setup.conf is not judged for root-relative names (base#1357)` | The legacy INI reference dist/.setup.conf is out of scope for this rule (base#1357) |
+| `_run_derived_figures: the shipped sites name no root-relative wrapper (base#1357)` | The acceptance criterion on the text base actually ships: every site base#1357 names, through a COPY in the scratch tree (base#1075), names only commands a consumer can run from its repo root |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 

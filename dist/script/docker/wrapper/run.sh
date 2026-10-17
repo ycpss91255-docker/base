@@ -56,10 +56,10 @@ _msg_errors() {
     zh-CN:no_env)            echo "setup 未生成 .env.generated。" ;;
     ja:no_env)               echo "setup が .env.generated を生成しませんでした。" ;;
     *:no_env)                echo "setup did not produce .env.generated." ;;
-    zh-TW:rerun_setup)       echo "請改以 './run.sh --setup' 重新執行以開啟編輯器。" ;;
-    zh-CN:rerun_setup)       echo "请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
-    ja:rerun_setup)          echo "'./run.sh --setup' で再実行してエディタを開いてください。" ;;
-    *:rerun_setup)           echo "Re-run with './run.sh --setup' to open the editor." ;;
+    zh-TW:rerun_setup)       echo "請改以 'just docker run --setup' 重新執行以開啟編輯器。" ;;
+    zh-CN:rerun_setup)       echo "请改以 'just docker run --setup' 重新运行以打开编辑器。" ;;
+    ja:rerun_setup)          echo "'just docker run --setup' で再実行してエディタを開いてください。" ;;
+    *:rerun_setup)           echo "Re-run with 'just docker run --setup' to open the editor." ;;
     # Two %s expanded by printf -v at the callsite, in this order: the
     # compose SERVICE, then the compose PROJECT. Every locale keeps that
     # order (the parenthetical form in the CJK strings exists for exactly
@@ -73,28 +73,28 @@ _msg_errors() {
 
 _msg_hints() {
   case "${_LANG}:${1:?}" in
-    zh-TW:stop_hint)      echo "請以 './stop.sh' 停止。" ;;
-    zh-CN:stop_hint)      echo "请以 './stop.sh' 停止。" ;;
-    ja:stop_hint)         echo "'./stop.sh' で停止してください。" ;;
-    *:stop_hint)          echo "Stop it with './stop.sh'." ;;
+    zh-TW:stop_hint)      echo "請以 'just docker stop' 停止。" ;;
+    zh-CN:stop_hint)      echo "请以 'just docker stop' 停止。" ;;
+    ja:stop_hint)         echo "'just docker stop' で停止してください。" ;;
+    *:stop_hint)          echo "Stop it with 'just docker stop'." ;;
   esac
 }
 
 # --build flow + first-run auto-delegate messages.
 _msg_build() {
   case "${_LANG}:${1:?}" in
-    zh-TW:invoking)      echo "正在執行 ./build.sh test（lint + smoke）..." ;;
-    zh-CN:invoking)      echo "正在执行 ./build.sh test（lint + smoke）..." ;;
-    ja:invoking)         echo "./build.sh test を実行中（lint + smoke）..." ;;
-    *:invoking)          echo "Running ./build.sh test (lint + smoke) before compose up..." ;;
+    zh-TW:invoking)      echo "正在執行 just docker build test（lint + smoke）..." ;;
+    zh-CN:invoking)      echo "正在执行 just docker build test（lint + smoke）..." ;;
+    ja:invoking)         echo "just docker build test を実行中（lint + smoke）..." ;;
+    *:invoking)          echo "Running just docker build test (lint + smoke) before compose up..." ;;
     zh-TW:image_missing) echo "本機尚無此 image" ;;
     zh-CN:image_missing) echo "本机尚无此 image" ;;
     ja:image_missing)    echo "ローカルに image なし" ;;
     *:image_missing)     echo "Image not found locally" ;;
-    zh-TW:delegating)    echo "委派給 ./build.sh 建置..." ;;
-    zh-CN:delegating)    echo "委派给 ./build.sh 构建..." ;;
-    ja:delegating)       echo "./build.sh にビルドを委譲中..." ;;
-    *:delegating)        echo "Delegating to ./build.sh..." ;;
+    zh-TW:delegating)    echo "委派給 just docker build 建置..." ;;
+    zh-CN:delegating)    echo "委派给 just docker build 构建..." ;;
+    ja:delegating)       echo "just docker build にビルドを委譲中..." ;;
+    *:delegating)        echo "Delegating to just docker build..." ;;
   esac
 }
 
@@ -479,7 +479,7 @@ main() {
   # override cmd, so -d + CMD is ambiguous — refuse rather than silently
   # drop the cmd.
   if [[ "${DETACH}" == true ]] && (( ${#CMD_ARGS[@]} > 0 )); then
-    _log_err run run_detach_cmd_rejected "display=-d/--detach does not accept a CMD (got: ${CMD_ARGS[*]}). Use './exec.sh -t ${TARGET} ${CMD_ARGS[*]}' to run a command inside a detached container."
+    _log_err run run_detach_cmd_rejected "display=-d/--detach does not accept a CMD (got: ${CMD_ARGS[*]}). Use 'just docker exec -t ${TARGET} ${CMD_ARGS[*]}' to run a command inside a detached container."
     exit 2
   fi
 

@@ -518,7 +518,7 @@ HOOK
   assert_failure
   [ "$status" -eq 2 ]
   assert_output --partial "does not accept a CMD"
-  assert_output --partial "./exec.sh"
+  assert_output --partial "just docker exec"
 }
 
 @test "run.sh refuses to start when the service is already running (devel + no -d)" {
@@ -792,7 +792,7 @@ HOOK
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
   assert_output --partial "not found locally"
-  assert_output --partial "Delegating to ./build.sh"
+  assert_output --partial "Delegating to just docker build"
   run grep -F "build.sh invoked" "${BUILD_SH_LOG}"
   assert_output --partial "devel"
 }

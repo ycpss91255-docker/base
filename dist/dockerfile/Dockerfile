@@ -3,7 +3,7 @@
 # Copy this file to your repo root as "Dockerfile" and customize.
 # The test-tools image (ShellCheck, Hadolint, Bats) is consumed via the
 # TEST_TOOLS_IMAGE build arg, always passed explicitly (no bare-tag
-# default). The local `./build.sh` flow builds Dockerfile.test-tools into
+# default). The local `just docker build` flow builds Dockerfile.test-tools into
 # the host Docker daemon and passes a version-scoped
 # `test-tools:<base-version>` (mirroring the CI tag minus the registry
 # prefix, so two base versions never collide on one host). CI passes
@@ -54,7 +54,7 @@
 # not collide with `latest` / `v[0-9]*` (reserved release tag
 # namespace). Use case: entrypoint variants like `headless` + `gui`
 # for the same baseline. No setup.toml change needed; run any wrapper
-# to regenerate compose.yaml, then `./run.sh -t <stage>`.
+# to regenerate compose.yaml, then `just docker run -t <stage>`.
 #
 # Backward-compat: the legacy stage names `base` and `test` are still
 # accepted by the blocklist during the v0.21.x transition (downstream
@@ -830,7 +830,7 @@ RUN bats /smoke_test/
 # `COPY --from=test-tools-stage`, the test-tools image enters
 # runtime-test's build graph, so its build must receive the pinned
 # `TEST_TOOLS_IMAGE` build-arg too (not just devel-test). build-worker's
-# "Build runtime-test stage" step forwards it; a local `./build.sh`
+# "Build runtime-test stage" step forwards it; a local `just docker build`
 # forwards its version-scoped `test-tools:<base-version>` tag.
 #
 # Default smoke command is generic install-check (USER set + bash on

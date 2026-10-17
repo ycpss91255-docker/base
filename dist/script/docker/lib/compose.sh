@@ -218,7 +218,7 @@ _compute_project_name() {
   local _generated="${FILE_PATH:-}/.env.generated"
   if [[ -n "${FILE_PATH:-}" && -f "${_generated}" ]]; then
     _log_warn compose project_name_missing_from_env \
-      "display=${_generated} carries no PROJECT_NAME: it was generated before the project name became a resolved value. Deriving one for this run; re-run './setup.sh apply' (or any wrapper, which regenerates on drift) to record it." \
+      "display=${_generated} carries no PROJECT_NAME: it was generated before the project name became a resolved value. Deriving one for this run; re-run 'just docker setup apply' (or any wrapper, which regenerates on drift) to record it." \
       "file=${_generated}"
   elif [[ -n "${FILE_PATH:-}" ]] && ! _is_self_managed_repo "${FILE_PATH}"; then
     _log_err compose project_name_unrecorded \

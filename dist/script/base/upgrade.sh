@@ -691,7 +691,7 @@ COMMIT
   _log "Done! Upgraded to ${target_ver}"
   _log ""
   _log "Next steps:"
-  _log "  1. Run ./build.sh test to verify"
+  _log "  1. Run just docker build test to verify"
   _log "  2. git push"
 }
 

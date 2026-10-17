@@ -740,7 +740,7 @@ EOF
   run bash "${_tmp}/exec.sh"
   assert_failure
   assert_output --partial "is not running"
-  assert_output --partial "run.sh"
+  assert_output --partial "just docker run"
   rm -rf "${_tmp}"
 }
 

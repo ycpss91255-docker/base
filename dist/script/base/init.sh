@@ -593,7 +593,7 @@ YAML
 ## Quick Start
 
 \`\`\`bash
-./build.sh && ./run.sh
+just docker build && just docker run
 \`\`\`
 
 ## Smoke Tests
@@ -1884,7 +1884,7 @@ _call_setup() {
   fi
   _log "Running setup.sh to generate .env + compose.yaml"
   if ! bash "${_setup}" apply --base-path "${REPO_ROOT}" >/dev/null; then
-    _log "WARNING: setup.sh exited non-zero; inspect manually and rerun ./build.sh --setup"
+    _log "WARNING: setup.sh exited non-zero; inspect manually and rerun just docker setup apply"
   fi
 
   [[ -f "${_conf}" ]] && _after="$(cat -- "${_conf}" 2> /dev/null; printf x)"

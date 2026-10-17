@@ -2073,7 +2073,7 @@ _setup_apply() {
   if [[ -n "${_project_name_conf}" && -n "${_project_name_recorded}" \
         && "${_project_name_recorded}" != "${project_name}" ]]; then
     _log_warn setup project_name_reconfigured \
-      "display=compose project renamed: '${_project_name_recorded}' -> '${project_name}' (from [project] name). Anything still under '${_project_name_recorded}' is no longer addressed by this checkout -- containers, and named volumes, which './stop.sh' does not remove. Tear the old project down (or move its volumes) before renaming." \
+      "display=compose project renamed: '${_project_name_recorded}' -> '${project_name}' (from [project] name). Anything still under '${_project_name_recorded}' is no longer addressed by this checkout -- containers, and named volumes, which 'just docker stop' does not remove. Tear the old project down (or move its volumes) before renaming." \
       "from=${_project_name_recorded}" "to=${project_name}"
   fi
 
