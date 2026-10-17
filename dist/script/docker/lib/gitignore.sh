@@ -175,6 +175,17 @@ _prune_retired_entries() {
         print
       }
     ' "${_path}" > "${_tmp}"; then
+    # The rewrite comes from a bare mktemp (0600); give it the file's own
+    # mode first so .gitignore / .dockerignore keep theirs (base#1356).
+    # A chmod that fails abandons the prune rather than landing a 0600
+    # file over the user's own.
+    if ! chmod --reference="${_path}" -- "${_tmp}"; then
+      rm -f -- "${_tmp}"
+      _log_err init gitignore_prune_mode_failed \
+        "display=could not give the rewrite the mode of ${_path}; retired entries were not pruned and the file is unchanged" \
+        "file=${_path}"
+      return 1
+    fi
     mv -f -- "${_tmp}" "${_path}"
   else
     rm -f -- "${_tmp}"
@@ -208,7 +219,7 @@ _sync_managed_entries() {
 
   # Retract before adding: the prune must run even when nothing is missing,
   # which is the common case for an up-to-date repo.
-  _prune_retired_entries "${_path}"
+  _prune_retired_entries "${_path}" || return 1
 
   while IFS= read -r _entry; do
     [[ -z "${_entry}" ]] && continue

@@ -547,6 +547,57 @@ EOF
   assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
 }
 
+# why: The bootstrap is the setup.toml a fresh `init.sh` leaves behind: a
+# `cp` of the template, then the mount_1 upsert, which lands its rewrite
+# with `mv` from a 0600 `mktemp` sibling. A newly created setup.toml must
+# carry the mode any new file gets under the caller's umask (what every
+# other generated file gets), not 0600. umask 022 so the 0600 the bug
+# leaves and the 0644 a new file gets are told apart.
+@test "_reconcile_workspace_path: first-time bootstrap leaves setup.toml at the umask mode, not 0600 (base#1356)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}"
+  local _repo_conf="${_base}/setup.toml"
+  local _expect
+  _expect="$(umask 022; : > "${TEMP_DIR}/umask-probe"; stat -c '%a' "${TEMP_DIR}/umask-probe")"
+  (
+    umask 022
+    local -a _vk=() _vv=()
+    local _ws=""
+    _reconcile_workspace_path "${_base}" "${_repo_conf}" _vk _vv _ws
+  )
+  run toml_bridge_parse "${_repo_conf}" --kv
+  assert_success
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
+  run stat -c '%a' "${_repo_conf}"
+  assert_output "${_expect}"
+}
+
+# why: The stale-path branch rewrites an existing, user-owned setup.toml
+# through the same upsert, so it must keep the file's exact mode. umask
+# 077 so only the file's own mode can pass (the base#1323 precedent).
+@test "_reconcile_workspace_path: the stale-path rewrite keeps setup.toml's exact mode under umask 077 (base#1356)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}"
+  local _mode
+  for _mode in 664 644; do
+    printf '[[volumes]]\nsource = "/nonexistent/contributor-a/repo"\ntarget = "/work"\n' \
+      > "${_base}/setup.toml"
+    chmod "${_mode}" "${_base}/setup.toml"
+    (
+      umask 077
+      local -a _vk=() _vv=()
+      _load_setup_conf "${_base}" "volumes" _vk _vv
+      local _ws=""
+      _reconcile_workspace_path "${_base}" "${_base}/setup.toml" _vk _vv _ws
+    ) >/dev/null 2>&1
+    run toml_bridge_parse "${_base}/setup.toml" --kv
+    assert_success
+    assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
+    run stat -c '%a' "${_base}/setup.toml"
+    assert_output "${_mode}"
+  done
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _setup_ssh_x11_cookie (cookie rewrite via xauth,)
 # ════════════════════════════════════════════════════════════════════

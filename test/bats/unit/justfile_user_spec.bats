@@ -389,14 +389,19 @@ _list_description_offenders() {
 
 # _list_description <ns> <recipe>: the --list description of one recipe,
 # empty when the listing shows the recipe without one.
+# Reads the listing to EOF rather than returning at the match: just writes
+# --list one line per write, and closing the pipe early made it panic on
+# a broken pipe into the captured output (base#1344).
 _list_description() {
-  local _line _name
+  local _line _name _found=0
   while IFS= read -r _line; do
+    (( _found )) && continue
     read -r _name _ <<<"${_line}"
     [[ "${_name}" == "$2" ]] || continue
+    _found=1
     [[ "${_line}" == *"# "* ]] && printf '%s\n' "${_line#*# }"
-    return 0
   done < <(_just_list "$1")
+  return 0
 }
 
 @test "just --list shows the summary each base#1326 recipe was given (base#1326)" {

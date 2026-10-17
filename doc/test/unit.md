@@ -1734,7 +1734,7 @@ for the knobs the conf sets.
 | `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
 | `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
-### test/bats/unit/conf_accessor_spec.bats (33)
+### test/bats/unit/conf_accessor_spec.bats (35)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563):
 `_conf_load` loads a file into a named handle, `_conf_get` reads a value by
@@ -1771,6 +1771,8 @@ on hand-edited / malformed setup.conf:
 | `_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)` | Temp+atomic-mv -> no in-place truncate data-loss window |
 | `_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + original unchanged |
 | `_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)` | Failed atomic mv -> orphan temp removed + error logged + destination unchanged |
+| `_upsert_conf_value refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)` | The rewrite comes from a bare mktemp (0600) and takes the destination's mode just before the mv (base#1356). When that chmod fails, landing the rewrite anyway would leave the user's setup.toml at 0600 -- the very defect the chmod is there to stop. The replacement is abandoned instead: the destination keeps its bytes and its mode, the temp is removed, and the writer reports failure. |
+| `_write_setup_conf refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)` | Same contract for the template-rewrite writer behind TUI Save and `setup.sh remove` (base#1356). |
 | `_parse_ini_section reads keys and values for one section` | - |
 | `_parse_ini_section isolates sections (entries from other sections ignored)` | - |
 | `_parse_ini_section skips comment and empty lines` | - |
@@ -1810,7 +1812,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging: a header with a trailing comment still names its service` | The service SET was matched off the physical header text (`^\[logging\.<svc>\]$`), which is one of several ways TOML spells the same table. A trailing comment after the bracket is part of a VALID header -- the bridge reads `[logging.runtime] # rotation settings` as `logging.runtime` -- and the matcher saw nothing, so `_collect_logging` returned an empty per-service string and that service's driver, rotation and host-log mount settings were dropped out of the generated compose with nothing said. The set comes from the merged, parsed sections now, which is also the union across the chain this code was written to build. |
 | `_collect_logging: an inline table still names its service` | The other spelling, and the one no header matcher could ever see. `runtime = { max_size = "100m" }` inside `[logging]` is the same table as `[logging.runtime]` and the bridge emits it as the same section, so a reader that derives the set from the parse gets it for free while one that greps for a header cannot. |
 
-### test/bats/unit/conf_toml_writer_spec.bats (39)
+### test/bats/unit/conf_toml_writer_spec.bats (42)
 
 Every `setup.sh set` / `add` / `remove` and the `mount_1` bootstrap in
 setup_detect.sh go through these two writers. Until they learned TOML, each
@@ -1864,6 +1866,9 @@ docker interaction from inside the test.
 | `_upsert_conf_value: a set on a numbered family carried both ways is declined, and the file is untouched (base#1243)` | A WRITE THAT CANNOT DO WHAT IT SAYS MUST NOT REPORT SUCCESS, and this one did. On a file carrying `cap_add_1` as a table scalar AND a `[[security.cap_add]]` block, `setup.sh set security.cap_add_1 CHOWN` maps the key through `_conf_toml_aot_slot` to array block 1, replaces THAT, and leaves the scalar line untouched -- measured: exit 0, with the effective list then `CHOWN NET_RAW`. So an operator who added one capability got two, one of them the value they had just replaced, and `add` / `remove` reach the same writer with no path to the stale scalar. The commit gate now asks the question in the mode the configuration is actually read in, so the rewrite is not promoted and the operator's file is left exactly as it was. `cap_add` and not `cap_drop` on purpose: this family has had an array home from the start, so the write face is the family's and not one slice's. |
 | `_upsert_conf_value: a set on a single-spelling array family still round-trips (base#1243)` | The control the gate must not break: a write on a file spelling the family the ONE way the writers produce still round-trips. The array spelling is the winner here -- `_conf_toml_aot_slot` routes every numbered key of a family with an array home to the array renderer, so it is the only spelling either writer can emit -- and a set that replaces block 1 leaves the family one-spelled and readable. A gate that refused this would have made `setup.sh set` unusable on every numbered family. |
 | `_upsert_conf_value: a set that would make the file ambiguous is declined, not promoted (base#1243)` | The other half of "one spelling wins", and a deliberate behaviour change. A file carrying the family ONLY as table scalars is readable -- both accessors agree on it -- but the writers cannot produce that spelling for a family with an array home, so the rewrite appends a `[[security.cap_drop]]` block beside the scalar line and MAKES the ambiguous file. Before the gate asked in the reading mode, that write reported success and left the two readers disagreeing. Declining it is the only answer that neither reports a success it did not achieve nor migrates a spelling, which base#1243 bounds out; the refusal is also why no `setup.sh` subcommand for clearing a stale scalar is owed. |
+| `_upsert_conf_value: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | Both writers land the rewrite with `mv` from a `mktemp` sibling, and mktemp creates that sibling at 0600. setup.toml is the user's own committed file: a group-writable (0664) or world-readable (0644) one must come back at exactly that mode, not 0600. A restrictive umask (077) so a hardcoded mode or a umask-derived one cannot pass -- only the destination's own mode can (the base#1323 precedent). |
+| `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
+| `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
 ### test/bats/unit/coverage_badge_spec.bats (47)
 
@@ -3120,7 +3125,7 @@ all.
 | `.gitattributes: the generated changelog index merges by union (#926)` | The original scope of the rule, kept rather than assumed: the index is derived and the layout lint re-derives it, so a union duplicate there is reported instead of shipped. |
 | `.gitattributes: CONVENTIONS.md is NOT union-merged (#926)` | The boundary the widened glob nearly crossed. A gitattributes `*` does not cross `/`, so `doc/changelog/*.md` would have covered hand-written prose -- where union merging keeps both copies of a rewritten paragraph in silence, and no gate in this repo reads that file outside its marker block. |
 
-### test/bats/unit/gitignore_spec.bats (53)
+### test/bats/unit/gitignore_spec.bats (55)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -3135,6 +3140,8 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_gitignore: prunes a retired entry from the managed block (#879)` | - |
 | `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
 | `_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)` | - |
+| `_prune_retired_entries: the rewritten file keeps its exact mode under umask 077 (base#1356)` | The prune lands its rewrite with `mv` from a `mktemp` sibling, which mktemp creates at 0600. .gitignore / .dockerignore are the user's own committed files: a 0664 or 0644 one must come back at exactly that mode. A restrictive umask (077) so a hardcoded mode or a umask-derived one cannot pass -- only the file's own mode can (the base#1323 precedent). |
+| `_prune_retired_entries refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)` | When the rewrite cannot take the file's mode, landing it anyway would leave .gitignore / .dockerignore at mktemp's 0600 -- the defect the chmod is there to stop (base#1356). The prune is abandoned instead: the file keeps its bytes and its mode, the temp is removed, and the failure is reported rather than swallowed. |
 | `_sync_gitignore: pruning a retired entry is idempotent (#879)` | - |
 | `_canonical_gitignore_entries: list is stable order` | Deterministic output |
 | `_sync_gitignore: creates the file when missing, with marker block + all entries` | Greenfield |
@@ -6338,7 +6345,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_setup_conf_chain_changed reports a layer the call created (base#1087)` | A chain that moved must be reported as moved, and one that did not must not -- the second half matters as much, because a detector that always fires would make every --output call refuse and the whole parameterised API unusable. |
 | `_setup_conf_chain_changed reports no change over an untouched chain (base#1087)` | - |
 
-### test/bats/unit/setup_detect_spec.bats (50)
+### test/bats/unit/setup_detect_spec.bats (52)
 
 Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 `detect_user_info`, `detect_hardware`, `detect_docker_hub_user`,
@@ -6395,6 +6402,8 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_reconcile_workspace_path: stale absolute path warns + rewrites mount_1 to portable (#569)` | - |
 | `_reconcile_workspace_path: empty mount_1 detects WS_PATH only, conf untouched (#569)` | - |
 | `_reconcile_workspace_path: first-time bootstrap copies template + writes portable mount_1 (#569)` | - |
+| `_reconcile_workspace_path: first-time bootstrap leaves setup.toml at the umask mode, not 0600 (base#1356)` | The bootstrap is the setup.toml a fresh `init.sh` leaves behind: a `cp` of the template, then the mount_1 upsert, which lands its rewrite with `mv` from a 0600 `mktemp` sibling. A newly created setup.toml must carry the mode any new file gets under the caller's umask (what every other generated file gets), not 0600. umask 022 so the 0600 the bug leaves and the 0644 a new file gets are told apart. |
+| `_reconcile_workspace_path: the stale-path rewrite keeps setup.toml's exact mode under umask 077 (base#1356)` | The stale-path branch rewrites an existing, user-owned setup.toml through the same upsert, so it must keep the file's exact mode. umask 077 so only the file's own mode can pass (the base#1323 precedent). |
 | `_setup_ssh_x11_cookie writes .docker.xauth and echoes its path (#321)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge writes 0-byte cookie (#321 hotfix)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
@@ -8775,7 +8784,7 @@ never heard of it.
 | `the shipped [logging] defaults reach a bundle that configures nothing (base#1094)` | base#1094 item 5 -- the shipped template sets driver / max_size / max_file / compress, so "configure nothing" is not "no logging options": it is the template's bounds. Those are the ones that matter, because the repo that never thought about logging is the one whose device disk fills. This asserts the DEFAULT reaches the bundle, not just an explicitly configured value. |
 | `the bundle's logging block is the same block the dev compose emits (base#1094)` | base#1094 item 5 -- the defect was two emitters over one config disagreeing, so the assertion that holds the fix is agreement, not presence. Both tiers are handed the same _collect_logging result and their `logging:` blocks are compared line for line; a future change to one emitter's block that the other does not get fails here. |
 
-### test/bats/unit/version_migrate_spec.bats (31)
+### test/bats/unit/version_migrate_spec.bats (32)
 
 The version interval an upgrade crossed is what selects a version-bound
 migration, and every way of failing to read that interval ends in the same
@@ -8813,6 +8822,7 @@ upgrade shows one interval, not the arithmetic.
 | `the shipped set selects lifecycle_restart_default for a repo arriving from before v0.42.0 (base#1110)` | base#1110's whole defect was a migration no consumer could reach, so the one thing its new home has to prove is that a repo arriving from before v0.42.0 selects it -- read off the real shipped set, through the real interval resolver, not a probe standing in for it |
 | `the shipped set does NOT select lifecycle_restart_default for a repo already past v0.42.0 (base#1110)` | The fail-safe is the other half of the predicate and is as easy to lose as the firing half. Past the rescope a `no` cannot be told from a choice, so a repo whose interval STARTS at v0.42.0 must select nothing -- the arm that would go quiet if the version were ever re-pointed |
 | `_vmigrate_lifecycle_restart_default_apply rewrites the stale copied default (base#1110)` | The firing case, and the one no spec could reach before: the repo's own stale value is rewritten with no vendored template read at all |
+| `_vmigrate_lifecycle_restart_default_apply keeps setup.toml's exact mode under umask 077 (base#1356)` | The rewrite goes through `_upsert_conf_value`, which lands it with `mv` from a 0600 `mktemp` sibling. Upgrading must not change the mode of the user's committed setup.toml: a 0664 or 0644 one comes back at exactly that mode. umask 077 so only the file's own mode can pass (the base#1323 precedent). |
 | `_vmigrate_lifecycle_restart_default_apply is silent and inert on a second run (base#1110)` | The runner keeps no ledger and re-selects the same interval on a resync re-entered before the pull commits, so a second run that wrote again would be a second log line over an unchanged value -- idempotence is the migration's own job |
 | `_vmigrate_lifecycle_restart_default_apply leaves a chosen policy alone (base#1110)` | A repo that chose something else never had the stale default, and the migration touching it would be rewriting a policy somebody picked |
 | `_vmigrate_lifecycle_restart_default_apply ignores a restart key outside [lifecycle] (base#1110)` | `restart` is a legal key of a `[stage:*]` section too, and a reader that matched the key without its section would rewrite a per-stage value the migration has nothing to say about |

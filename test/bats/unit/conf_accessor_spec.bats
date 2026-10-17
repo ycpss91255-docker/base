@@ -436,6 +436,75 @@ EOF
   rm -f "${_tpl}" "${_dst}"
 }
 
+# why: The rewrite comes from a bare mktemp (0600) and takes the
+# destination's mode just before the mv (base#1356). When that chmod
+# fails, landing the rewrite anyway would leave the user's setup.toml at
+# 0600 -- the very defect the chmod is there to stop. The replacement is
+# abandoned instead: the destination keeps its bytes and its mode, the
+# temp is removed, and the writer reports failure.
+@test "_upsert_conf_value refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)" {
+  # Skipped under kcov: overrides `chmod` with a failing shell function,
+  # the same stub shape as the mv-failure specs above.
+  [ "${COVERAGE:-0}" = 1 ] && skip "chmod-failure stub is kcov-fragile (#613)"
+
+  local _d _f
+  _d="$(mktemp -d)"
+  _f="${_d}/setup.toml"
+  printf '[network]\nmode = "host"\n' > "${_f}"
+  chmod 664 "${_f}"
+  local _orig
+  _orig="$(cat "${_f}")"
+
+  run bash -c "
+    source /source/dist/script/docker/lib/conf.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    chmod() { return 1; }
+    _upsert_conf_value '${_f}' network mode bridge
+  "
+  assert_failure
+  assert_output --partial "could not give the rewrite"
+  run cat "${_f}"
+  assert_output "${_orig}"
+  run stat -c '%a' "${_f}"
+  assert_output "664"
+  run bash -c "ls '${_f}'.* 2>/dev/null | wc -l"
+  assert_output "0"
+  rm -rf "${_d}"
+}
+
+# why: Same contract for the template-rewrite writer behind TUI Save and
+# `setup.sh remove` (base#1356).
+@test "_write_setup_conf refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "chmod-failure stub is kcov-fragile (#613)"
+
+  local _d _tpl _dst
+  _d="$(mktemp -d)"
+  _tpl="${_d}/tpl.toml"
+  _dst="${_d}/setup.toml"
+  printf '[network]\nmode = "host"\n' > "${_tpl}"
+  printf '[network]\nmode = "host"\n' > "${_dst}"
+  chmod 644 "${_dst}"
+  local _orig
+  _orig="$(cat "${_dst}")"
+
+  run bash -c "
+    source /source/dist/script/docker/lib/conf.sh
+    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
+    chmod() { return 1; }
+    declare -a _keys=(network.mode) _values=(bridge)
+    _write_setup_conf '${_dst}' '${_tpl}' _keys _values
+  "
+  assert_failure
+  assert_output --partial "could not give the rewrite"
+  run cat "${_dst}"
+  assert_output "${_orig}"
+  run stat -c '%a' "${_dst}"
+  assert_output "644"
+  run bash -c "ls '${_dst}'.* 2>/dev/null | wc -l"
+  assert_output "0"
+  rm -rf "${_d}"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _parse_ini_section
 #

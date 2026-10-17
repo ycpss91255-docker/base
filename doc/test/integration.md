@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **197 tests**.
+Integration specs under `test/bats/integration/`: **198 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -178,7 +178,7 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 |------|-------------|
 | `the printed manifest equals what the resync installs (refs #927)` | - |
 
-### test/bats/integration/init_new_repo_spec.bats (62)
+### test/bats/integration/init_new_repo_spec.bats (63)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
@@ -251,6 +251,7 @@ the unit `tui_spec`.
 | `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
 | `new repo: compose.yaml omits devices block by default (#466 opt-in)` | - |
 | `new repo: setup.toml mount_1 is NOT empty after first init (workspace detected + written)` | workspace writeback non-empty |
+| `new repo: init.sh leaves setup.toml at the umask mode, not 0600 (base#1356)` | The whole first-init flow is what leaves setup.toml behind -- the template copy, then the mount_1 bootstrap upsert, which lands its rewrite with `mv` from a 0600 `mktemp` sibling (base#1356). A fresh repo's setup.toml must come out at the mode a new file gets under the caller's umask, read off a probe file created under the same umask, not 0600. umask 022 so the 0600 the defect leaves and the umask mode differ. |
 | `new repo: per-repo setup.toml auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
 | `new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)` | Missing runner -> non-fatal WARN, symlinks still laid down |
 | `new repo: init is silent about just when the runner is present (#607)` | Runner present -> no warning |
