@@ -1331,16 +1331,20 @@ _derived_scan_recipe_docs() {
   local -a _lines=()
   mapfile -t _lines < "${_file}"
 
-  local _i _rest _match _invocation
+  local _i _rest _lead _invocation
   for (( _i = 0; _i + 1 < ${#_lines[@]}; _i++ )); do
     [[ "${_lines[_i]}" == '#'* ]] || continue
     _derived_is_recipe_line "${_lines[_i + 1]}" || continue
 
     _rest="${_lines[_i]}"
     while [[ "${_rest}" =~ ${_DERIVED_FIGURES_JUST_BARE_RE} ]]; do
-      _match="${BASH_REMATCH[0]}"
+      _lead="${BASH_REMATCH[1]}just"
       _invocation="${BASH_REMATCH[2]}"
-      _rest="${_rest#*"${_match}"}"
+      # Advance past this `just` only, not the whole match: a bare
+      # invocation runs to the next delimiter, so "just docker help and
+      # just start" is one match, and the second `just` in it must be
+      # judged on its own.
+      _rest="${_rest#*"${_lead}"}"
       _derived_judge_just_invocation \
         "${_invocation}" "${_rel}" "$(( _i + 1 ))" "${_cmds_name}" \
         || _violations=$(( _violations + 1 ))
