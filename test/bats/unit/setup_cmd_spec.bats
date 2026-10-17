@@ -1461,6 +1461,250 @@ EOF
   assert_output "prefix:my_"
 }
 
+# ── add / remove speak setup.toml's vocabulary (base#1354) ────────────
+#
+# `volumes.mount`, `network.port` and `devices.cgroup_rule` are arrays of
+# tables in setup.toml: `add` appends a `[[volumes]]` /
+# `[[network.ports]]` / `[[devices.cgroup_rules]]` entry, and no
+# `mount_N` / `port_N` / `cgroup_rule_N` key is written to the file. Only
+# `environment.env` writes a numbered `env_N` key. The help and the
+# confirmation line must name what the file holds. Every case runs
+# against a fixture in ${TEMP_DIR}, never the live tree (base#1075).
+
+# _toml_block_fields <file> <header> <n>
+#   Print the fields of the <n>-th `<header>` block of <file>, joined by
+#   ", " -- the entry as setup.toml spells it, read from the written file.
+_toml_block_fields() {
+  awk -v hdr="$2" -v want="$3" '
+    $0 == hdr { n++; inb = (n == want); next }
+    /^\[/     { inb = 0; next }
+    inb && NF { out = out (out == "" ? "" : ", ") $0 }
+    END       { print out }
+  ' "$1"
+}
+
+# why: the help is where an operator learns what `add` writes; it named a
+# `<list>_N` key setup.toml never holds, so the file they then open shows
+# a `[[...]]` entry the help never mentioned.
+@test "help: add/remove describe array entries, not <list>_N keys (base#1354)" {
+  run main -h
+  assert_success
+  # The add + remove blocks of the help, up to the next subcommand.
+  local _blk
+  _blk="$(printf '%s\n' "${output}" | sed -n '/^  add <section>\.<list>/,/^  reset /p')"
+  [[ -n "${_blk}" ]]
+  # One line per claim: newlines and indentation folded to single spaces,
+  # so a statement wrapped across help lines is matched whole.
+  local _flat
+  _flat="$(printf '%s' "${_blk}" | tr -s ' \n' '  ')"
+  # Which list appends which array-of-tables entry, and that it appends.
+  [[ "${_flat}" == *'`volumes.mount`, `network.port` and `devices.cgroup_rule` append a new `[[volumes]]`, `[[network.ports]]` or `[[devices.cgroup_rules]]` entry built from the value'* ]]
+  [[ "${_flat}" == *'`add volumes.mount /foo:/bar` appends `[[volumes]]` with source = "/foo", target = "/bar"'* ]]
+  # Only environment.env writes a numbered key, and it is the next free one.
+  [[ "${_flat}" == *'`environment.env` writes the next free `env_N` key'* ]]
+  # The CLI address stays, and is said to be an entry, not a key.
+  [[ "${_flat}" == *'`volumes.mount_2` is the 2nd `[[volumes]]` entry'* ]]
+  # With that one permitted address taken out, no array list is spoken
+  # of as a numbered key: no mount_N / port_N / cgroup_rule_N (any index
+  # spelling), no <list>_N, no max+1 numbering.
+  local _rest="${_flat//'`volumes.mount_2` is the 2nd `[[volumes]]` entry'/}"
+  [[ ! "${_rest}" =~ (mount|port|cgroup_rule|device|tmpfs)_(N|[0-9]+|\<|\*) ]]
+  [[ "${_rest}" != *'<list>_'* ]]
+  [[ "${_rest}" != *'max+1'* ]]
+  [[ "${_rest}" != *'mount_<next>'* ]]
+}
+
+# why: the confirmation is the one line that says what landed in the file;
+# it named `[volumes] mount_2`, a key nobody can find in setup.toml. Read
+# back from the written fixture so the line cannot drift from the write.
+@test "add volumes.mount confirms the [[volumes]] entry it wrote (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[volumes]]
+source = "/a"
+target = "/a"
+TOML
+  run main add volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[volumes]]' 2)"
+  [[ "${_want}" == *'source = "/b"'* ]]
+  assert_line "[setup] add [[volumes]] ${_want}"
+  refute_output --partial 'mount_'
+}
+
+# why: the port entry splits into host / container fields, a different
+# shape from a mount, so the label has to follow the per-array field spec.
+@test "add network.port confirms the [[network.ports]] entry it wrote (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[network]
+mode = "bridge"
+TOML
+  run main add network.port 8080:80 --base-path "${TEMP_DIR}"
+  assert_success
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[network.ports]]' 1)"
+  [[ "${_want}" == *'host = "8080"'* ]]
+  assert_line "[setup] add [[network.ports]] ${_want}"
+  refute_output --partial 'port_'
+}
+
+# why: a one-field entry under a dotted array path; the INI name
+# `cgroup_rule_1` is neither the header nor the field the file holds.
+@test "add devices.cgroup_rule confirms the [[devices.cgroup_rules]] entry it wrote (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[devices]
+TOML
+  run main add devices.cgroup_rule 'c 189:* rwm' --base-path "${TEMP_DIR}"
+  assert_success
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[devices.cgroup_rules]]' 1)"
+  [[ "${_want}" == *'rule = "c 189:* rwm"'* ]]
+  assert_line "[setup] add [[devices.cgroup_rules]] ${_want}"
+  refute_output --partial 'cgroup_rule_'
+}
+
+# why: remove-by-value has to say WHICH entry went; naming the CLI index
+# `mount_2` does not tell the operator what is now missing from the file.
+@test "remove volumes.mount <value> confirms the [[volumes]] entry it dropped (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/b"
+target = "/b"
+TOML
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[volumes]]' 2)"
+  run main remove volumes.mount /b:/b --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line "[setup] remove [[volumes]] ${_want}"
+  refute_output --partial 'mount_'
+  # The entry named is the one gone from the written file.
+  run grep -c '^source = "/b"$' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+}
+
+# why: a `[[tmpfs]]` block with separate `path` and `size` flattens to
+# `/tmp/x:size=64m`; a label rebuilt from that value printed one `path`
+# field the file never held. The label is read from the file before the
+# write.
+@test "remove tmpfs.tmpfs_1 names the [[tmpfs]] entry with its own fields (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = "/tmp/x"
+size = "64m"
+TOML
+  local _want
+  _want="$(_toml_block_fields "${TEMP_DIR}/setup.toml" '[[tmpfs]]' 1)"
+  [[ "${_want}" == 'path = "/tmp/x", size = "64m"' ]]
+  run main remove tmpfs.tmpfs_1 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line "[setup] remove [[tmpfs]] ${_want}"
+  refute_output --partial 'size=64m'
+  run grep -c '^path = "/tmp/x"$' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+}
+
+# why: a field value may span lines. `path = """` + newline + `/tmp/x"""`
+# is the TOML string `/tmp/x` (the newline after the opener is trimmed),
+# and a reader that keeps only `key = value` lines printed `path = """`
+# and lost the path the operator removed.
+@test "remove tmpfs.tmpfs_1 names a multi-line path by its whole value (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = """
+/tmp/x"""
+size = "64m"
+TOML
+  run main remove tmpfs.tmpfs_1 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line '[setup] remove [[tmpfs]] path = "/tmp/x", size = "64m"'
+  refute_output --partial '"""'
+  # The entry named is the one gone from the written file.
+  run grep -c '/tmp/x' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+}
+
+# why: the other multi-line spellings carry the same value: a literal
+# `'''` string, a line-ending backslash that folds the next line in, and
+# an array split over lines. Each label is one line and names the value
+# TOML reads, so a literal string is respelled as the basic string it
+# equals.
+@test "entry label renders every multi-line field value whole (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = '''
+/tmp/lit\dir'''
+
+[[tmpfs]]
+path = """/tmp/\
+    folded"""
+size = "64m"
+
+[[volumes]]
+source = "/a"
+target = [
+  "/b",  # comment
+  "/c",
+]
+TOML
+  local _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_1 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "/tmp/lit\\dir"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_2 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "/tmp/folded", size = "64m"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" volumes mount_1 _lbl
+  [[ "${_lbl}" == '[[volumes]] source = "/a", target = [ "/b", "/c", ]' ]]
+}
+
+# why: a line inside a multi-line string is text, not a header; counting
+# it as `[[tmpfs]]` shifted every later block by one and named the wrong
+# entry.
+@test "entry label does not count a header-shaped line inside a multi-line string (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[tmpfs]]
+path = """
+[[tmpfs]]
+"""
+
+[[tmpfs]]
+path = "/tmp/second"
+TOML
+  local _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_2 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "/tmp/second"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" tmpfs tmpfs_1 _lbl
+  [[ "${_lbl}" == '[[tmpfs]] path = "[[tmpfs]]\n"' ]]
+}
+
+# why: `[[devices]]` is the other spelling of `device_N`; rebuilding the
+# label from the value named `[[devices.bindings]]`, a table absent from
+# the file. add and remove both decline such a file, so the label helper
+# is pinned directly.
+@test "entry label of a [[devices]] block names [[devices]], not [[devices.bindings]] (base#1354)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[[devices]]
+path = "/dev/fuse"
+
+[[devices]]
+path = "/dev/x"
+TOML
+  local _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" devices device_2 _lbl
+  [[ "${_lbl}" == '[[devices]] path = "/dev/x"' ]]
+  _lbl=""
+  _setup_toml_entry_label "${TEMP_DIR}/setup.toml" devices device_1 _lbl
+  [[ "${_lbl}" == '[[devices]] path = "/dev/fuse"' ]]
+  # A slot the file does not hold is no label at all.
+  run _setup_toml_entry_label "${TEMP_DIR}/setup.toml" devices device_3 _lbl
+  assert_failure
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Subcommand: reset (Phase B-4)
 #

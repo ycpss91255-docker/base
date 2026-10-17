@@ -277,13 +277,17 @@ Subcommands:
                 Without an arg: print every section header + key in
                 setup.toml. With an arg: equivalent to `show <section>`.
   add <section>.<list> <value> [--local]
-                Append a value to a list-style section. Picks the next
-                free numeric suffix (max+1) and writes `<list>_N = <value>`.
-                e.g. `add volumes.mount /foo:/bar` lands in `mount_<next>`.
+                Append a value to a list. `volumes.mount`, `network.port`
+                and `devices.cgroup_rule` append a new `[[volumes]]`,
+                `[[network.ports]]` or `[[devices.cgroup_rules]]` entry
+                built from the value, e.g. `add volumes.mount /foo:/bar`
+                appends `[[volumes]]` with source = "/foo", target = "/bar".
+                `environment.env` writes the next free `env_N` key.
                 Same validators, same --local target, as `set`.
-  remove <section>.<key> [--local]            Delete the exact key.
-  remove <section>.<list> <value> [--local]   Delete the first key under
-                the section matching `<list>_*` whose value equals <value>.
+  remove <section>.<key> [--local]            Delete the exact key or
+                entry (`volumes.mount_2` is the 2nd `[[volumes]]` entry).
+  remove <section>.<list> <value> [--local]   Delete the first entry of
+                that list whose value equals <value>.
                 --local operates on setup.local.toml instead.
   reset [-y|--yes]
                 Overwrite setup.toml with the template default. Prior

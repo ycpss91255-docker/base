@@ -698,6 +698,234 @@ _setup_list() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_entry_label <section> <key> <value> <outvar>
+#
+# The entry `add` / `remove` touched, named the way setup.toml spells it.
+# A key of an array-backed list (`volumes.mount_N`, `network.port_N`,
+# `devices.cgroup_rule_N`, ...) is the N-th `[[<path>]]` block, so it is
+# named by that header and its fields, comma-joined and rendered by the
+# writer's own `_conf_toml_aot_fields`:
+# `[[volumes]] source = "/foo", target = "/bar"`. The `mount_N` name is
+# the CLI address and no key of that name is in the file (base#1354).
+# Any other key is a key of its table (`[environment] env_N = <value>`),
+# and keeps that form; an empty <value> prints the key alone.
+#
+# The fallback only: add and remove print _setup_toml_entry_label's
+# reading of the file first, because this rebuild from the flattened
+# value cannot tell a `[[tmpfs]]` size field or a `[[devices]]` header
+# apart from the default shape.
+# ════════════════════════════════════════════════════════════════════
+_setup_entry_label() {
+  local _sel_s="${1-}" _sel_k="${2-}" _sel_v="${3-}"
+  local -n _sel_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  local _sel_p="" _sel_n="" _sel_f=""
+  if _conf_toml_aot_slot "${_sel_s}" "${_sel_k}" _sel_p _sel_n; then
+    _conf_toml_aot_fields "${_sel_p}" "${_sel_v}" _sel_f
+    _sel_out="[[${_sel_p}]]${_sel_f:+ ${_sel_f//$'\n'/, }}"
+    return 0
+  fi
+  _sel_out="[${_sel_s}] ${_sel_k}${_sel_v:+ = ${_sel_v}}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_toml_kv_render <text> <outvar>
+#
+# One `key = value` field of setup.toml, which may span lines, printed on
+# one line in the value TOML reads. Returns 1, leaving <outvar> alone,
+# while <text> still ends inside a string or an open `[` / `{`: the
+# caller appends the next line and asks again.
+#
+#   path = """          ->  path = "/tmp/x"
+#   /tmp/x"""
+#
+# A `"""` string becomes the basic string it equals: the newline right
+# after the opener is dropped, a line-ending backslash folds the next
+# line in with its leading whitespace, a newline inside is `\n`, a lone
+# `"` is `\"`, and an escape the file wrote is kept as written. A `'''`
+# literal string becomes the same basic string, its `\` and `"` escaped.
+# Outside a string, a comment is dropped and a run of whitespace or
+# newlines is one space. Without this, the field line alone was printed
+# -- `path = """` -- and the value removed was never named (base#1354).
+# ════════════════════════════════════════════════════════════════════
+_setup_toml_kv_render() {
+  local _tkr_t="${1-}"
+  local -n _tkr_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  local _tkr_o="" _tkr_st=n _tkr_c="" _tkr_rest="" _tkr_ws=""
+  local -i _tkr_i=0 _tkr_d=0 _tkr_q=0 _tkr_len=${#_tkr_t}
+  while (( _tkr_i < _tkr_len )); do
+    _tkr_c="${_tkr_t:_tkr_i:1}"
+    case "${_tkr_st}" in
+      n)
+        case "${_tkr_c}" in
+          '"'|"'")
+            if [[ "${_tkr_t:_tkr_i:3}" == "${_tkr_c}${_tkr_c}${_tkr_c}" ]]; then
+              # A multi-line string opens; both kinds print as basic.
+              [[ "${_tkr_c}" == '"' ]] && _tkr_st=mb || _tkr_st=ml
+              _tkr_o+='"'
+              _tkr_i+=3
+              [[ "${_tkr_t:_tkr_i:2}" == $'\r\n' ]] && _tkr_i+=1
+              [[ "${_tkr_t:_tkr_i:1}" == $'\n' ]] && _tkr_i+=1
+              continue
+            fi
+            [[ "${_tkr_c}" == '"' ]] && _tkr_st=b || _tkr_st=l
+            _tkr_o+="${_tkr_c}"
+            ;;
+          '#')
+            _tkr_rest="${_tkr_t:_tkr_i}"
+            _tkr_rest="${_tkr_rest%%$'\n'*}"
+            _tkr_i+=${#_tkr_rest}
+            continue
+            ;;
+          ' '|$'\t'|$'\r'|$'\n')
+            [[ "${_tkr_o}" == *' ' ]] || _tkr_o+=' '
+            ;;
+          '['|'{') _tkr_d+=1; _tkr_o+="${_tkr_c}" ;;
+          ']'|'}') _tkr_d+=-1; _tkr_o+="${_tkr_c}" ;;
+          *) _tkr_o+="${_tkr_c}" ;;
+        esac
+        ;;
+      b)
+        if [[ "${_tkr_c}" == "\\" ]]; then
+          _tkr_o+="${_tkr_t:_tkr_i:2}"
+          _tkr_i+=2
+          continue
+        fi
+        [[ "${_tkr_c}" == '"' ]] && _tkr_st=n
+        _tkr_o+="${_tkr_c}"
+        ;;
+      l)
+        [[ "${_tkr_c}" == "'" ]] && _tkr_st=n
+        _tkr_o+="${_tkr_c}"
+        ;;
+      mb|ml)
+        if [[ "${_tkr_c}" == '"' && "${_tkr_st}" == mb ]] \
+            || [[ "${_tkr_c}" == "'" && "${_tkr_st}" == ml ]]; then
+          # A run of the delimiter: its last three close the string, up
+          # to two before them are content.
+          _tkr_q=0
+          while [[ "${_tkr_t:_tkr_i+_tkr_q:1}" == "${_tkr_c}" ]]; do
+            _tkr_q+=1
+          done
+          _tkr_i+=_tkr_q
+          if (( _tkr_q >= 3 )); then
+            _tkr_q+=-3
+            _tkr_st=n
+          fi
+          while (( _tkr_q > 0 )); do
+            [[ "${_tkr_c}" == '"' ]] && _tkr_o+='\"' || _tkr_o+="'"
+            _tkr_q+=-1
+          done
+          [[ "${_tkr_st}" == n ]] && _tkr_o+='"'
+          continue
+        fi
+        case "${_tkr_c}" in
+          "\\")
+            if [[ "${_tkr_st}" == ml ]]; then
+              _tkr_o+="\\\\"
+            else
+              _tkr_rest="${_tkr_t:_tkr_i+1}"
+              _tkr_ws="${_tkr_rest%%[!$' \t\r']*}"
+              if [[ "${_tkr_rest:${#_tkr_ws}:1}" == $'\n' ]]; then
+                # Line-ending backslash: drop it and the whitespace and
+                # newlines after it.
+                _tkr_ws="${_tkr_rest%%[!$' \t\r\n']*}"
+                _tkr_i+=$(( 1 + ${#_tkr_ws} ))
+                continue
+              fi
+              _tkr_o+="${_tkr_t:_tkr_i:2}"
+              _tkr_i+=2
+              continue
+            fi
+            ;;
+          '"') _tkr_o+='\"' ;;
+          $'\r') [[ "${_tkr_t:_tkr_i+1:1}" == $'\n' ]] || _tkr_o+='\r' ;;
+          $'\n') _tkr_o+='\n' ;;
+          *) _tkr_o+="${_tkr_c}" ;;
+        esac
+        ;;
+    esac
+    _tkr_i+=1
+  done
+  [[ "${_tkr_st}" == n ]] && (( _tkr_d <= 0 )) || return 1
+  _tkr_o="${_tkr_o#"${_tkr_o%%[! ]*}"}"
+  _tkr_out="${_tkr_o%"${_tkr_o##*[! ]}"}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_toml_entry_label <file> <section> <key> <outvar>
+#
+# The array-of-tables entry `<section>.<key>` names, read from <file> as
+# it stands: the header the file uses and the field lines it holds,
+# comma-joined -- `[[tmpfs]] path = "/tmp/x", size = "64m"`. Returns 1,
+# leaving <outvar> alone, when <file> is not TOML, the key is not an
+# array slot, or the file holds no such block.
+#
+# Why not _setup_entry_label: that one rebuilds the entry from the
+# flattened value, and the flattening is lossy. A `[[tmpfs]]` block with
+# separate `path` and `size` reads back as `/tmp/x:size=64m` and was
+# reprinted as one `path`; a `[[devices]]` block (the other spelling of
+# `device_N`) was reprinted as `[[devices.bindings]]`, a table the file
+# does not have (base#1354). Blocks are counted per header path, the
+# same way the writer addresses them (`_conf_toml_aot_nskey`).
+#
+# A field whose value spans lines (a `"""` or `'''` string, an array
+# split over lines) is gathered whole and printed on one line by
+# _setup_toml_kv_render; its continuation lines are never read as fields
+# or headers, so a header-shaped line inside a string counts no block.
+# ════════════════════════════════════════════════════════════════════
+_setup_toml_entry_label() {
+  local _stel_f="${1-}" _stel_want="${2-}.${3-}"
+  local -n _stel_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  [[ "${_stel_f}" == *.toml && -f "${_stel_f}" ]] || return 1
+  local -A _stel_seen=()
+  local _stel_line _stel_h _stel_p _stel_k _stel_in=0 _stel_hit=0
+  local _stel_hdr="" _stel_fields="" _stel_buf="" _stel_r=""
+  while IFS= read -r _stel_line || [[ -n "${_stel_line}" ]]; do
+    # A continuation line of a value still open: part of that field.
+    if [[ -n "${_stel_buf}" ]]; then
+      _stel_buf+=$'\n'"${_stel_line}"
+      _setup_toml_kv_render "${_stel_buf}" _stel_r || continue
+      _stel_buf=""
+      (( _stel_in )) && _stel_fields+="${_stel_fields:+, }${_stel_r}"
+      continue
+    fi
+    _conf_toml_header_uncomment "${_stel_line}" _stel_h
+    if [[ "${_stel_h}" =~ ^[[:space:]]*\[ ]]; then
+      (( _stel_in )) && break
+      [[ "${_stel_h}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]] || continue
+      _conf_header_name "${BASH_REMATCH[1]}" _stel_p
+      _stel_seen["${_stel_p}"]=$(( ${_stel_seen["${_stel_p}"]:-0} + 1 ))
+      _conf_toml_aot_nskey "${_stel_p}" "${_stel_seen["${_stel_p}"]}" _stel_k \
+        || continue
+      if [[ "${_stel_k}" == "${_stel_want}" ]]; then
+        _stel_in=1
+        _stel_hit=1
+        _stel_hdr="[[${_stel_p}]]"
+      fi
+      continue
+    fi
+    _conf_is_kv_line "${_stel_line}" || continue
+    # Only a line that can open a multi-line value is scanned; every
+    # other field line is printed as written. Lines outside the wanted
+    # block are scanned too, so their continuations are skipped.
+    if [[ "${_stel_line}" == *[\[\{]* || "${_stel_line}" == *'"""'* \
+          || "${_stel_line}" == *"'''"* ]]; then
+      if ! _setup_toml_kv_render "${_stel_line}" _stel_r; then
+        _stel_buf="${_stel_line}"
+        continue
+      fi
+      _stel_line="${_stel_r}"
+    fi
+    (( _stel_in )) || continue
+    _stel_line="${_stel_line#"${_stel_line%%[![:space:]]*}"}"
+    _stel_line="${_stel_line%"${_stel_line##*[![:space:]]}"}"
+    _stel_fields+="${_stel_fields:+, }${_stel_line}"
+  done < "${_stel_f}"
+  (( _stel_hit )) || return 1
+  _stel_out="${_stel_hdr}${_stel_fields:+ ${_stel_fields}}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_add
 #
 # Subcommand handler for `setup.sh add <section>.<list> <value>`.
@@ -965,7 +1193,12 @@ _setup_add() {
   fi
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    printf '[setup] add [%s] %s = %s\n' "${_section}" "${_new_key}" "${_value}"
+    # Read back from the file just written, so the line names the entry
+    # as it landed there; a non-array key falls back to `[sect] key = v`.
+    local _sa_label=""
+    _setup_toml_entry_label "${_conf}" "${_section}" "${_new_key}" _sa_label \
+      || _setup_entry_label "${_section}" "${_new_key}" "${_value}" _sa_label
+    printf '[setup] add %s\n' "${_sa_label}"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
@@ -1123,13 +1356,14 @@ _setup_remove() {
   local -a _sects=() _keys=() _vals=()
   _load_setup_conf_full "${_conf}" _sects _keys _vals
 
-  local _target_key="" _i
+  local _target_key="" _target_val="" _i
   if (( _have_value )); then
     # Remove-by-value: scan for first <section>.<rest>_* with matching value.
     for (( _i=0; _i<${#_keys[@]}; _i++ )); do
       if [[ "${_keys[_i]}" == "${_section}.${_rest}_"* ]] \
          && [[ "${_vals[_i]}" == "${_value}" ]]; then
         _target_key="${_keys[_i]#"${_section}".}"
+        _target_val="${_vals[_i]}"
         break
       fi
     done
@@ -1143,6 +1377,7 @@ _setup_remove() {
     for (( _i=0; _i<${#_keys[@]}; _i++ )); do
       if [[ "${_keys[_i]}" == "${_section}.${_rest}" ]]; then
         _found=1
+        _target_val="${_vals[_i]}"
         break
       fi
     done
@@ -1152,6 +1387,13 @@ _setup_remove() {
     fi
     _target_key="${_rest}"
   fi
+
+  # The entry's label is read BEFORE the write: afterwards the block is
+  # gone, and rebuilding it from the flattened value names a different
+  # entry (_setup_toml_entry_label's header says how).
+  local _sr_label=""
+  _setup_toml_entry_label "${_conf}" "${_section}" "${_target_key}" _sr_label \
+    || _setup_entry_label "${_section}" "${_target_key}" "${_target_val}" _sr_label
 
   # _write_setup_conf truncates dst before reading tpl, so when dst==src
   # we'd lose data. Stage current contents into a sibling temp file and
@@ -1175,7 +1417,7 @@ _setup_remove() {
   rm -f "${_tmp}"
 
   if [[ "${_quiet}" -eq 0 ]]; then
-    printf '[setup] remove [%s] %s\n' "${_section}" "${_target_key}"
+    printf '[setup] remove %s\n' "${_sr_label}"
     printf '[setup] file: %s\n' "${_conf}"
     printf "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply' to regenerate .env / .env.generated / compose.yaml\n"
   fi
