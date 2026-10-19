@@ -958,3 +958,99 @@ EOS
   assert_equal "${#lines[@]}" "1"
   assert_output --partial 'Upgrading:'
 }
+
+# _json_harness
+#   Print the path of a harness that sources the REAL _lib.sh under
+#   LOG_FORMAT=json and the REAL `_log` helper from upgrade.sh, plus the
+#   real _semver_cmp / _check / _warn_config_drift / _warn_setup_conf_drift
+#   bodies. The stub harness above replaces `_log`, so it cannot see what
+#   body the helper forwards; this one can. `git` and the version getters
+#   are stubbed so the drift and check paths run without a fixture repo.
+_json_harness() {
+  local _h="${TEMP_DIR}/json_harness.sh"
+  {
+    printf 'export LOG_FORMAT=json\n'
+    printf 'source /source/dist/script/docker/lib/_lib.sh\n'
+    printf 'TEMPLATE_REL=.base\n'
+    printf '_get_local_version() { printf "%%s" "${_LV}"; }\n'
+    printf '_get_latest_version() { printf "%%s" "${_RV}"; }\n'
+    printf 'git() { printf "%%s\\n" "${_GIT_POST}"; }\n'
+    grep -E '^_log\(\) \{' "${UPGRADE}"
+    sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}"
+    sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}"
+    sed -n '/^_warn_config_drift() {$/,/^}$/p' "${UPGRADE}"
+    sed -n '/^_warn_setup_conf_drift() {$/,/^}$/p' "${UPGRADE}"
+  } > "${_h}"
+  printf '%s' "${_h}"
+}
+
+# _upgrade_call_line <display-prefix>
+#   The one `_log ...` call in _upgrade whose display text starts with
+#   <display-prefix>, exactly as upgrade.sh writes it. Matched on the
+#   display text, never on the event, so a call site that changes its
+#   event is caught by the body assertion rather than by a missed grep.
+_upgrade_call_line() {
+  grep -E "^[[:space:]]*_log [a-z_]+ \"$1" "${UPGRADE}" | head -n 1
+}
+
+# _assert_record <output> <display-fixed-text> <severity> <body>
+_assert_record() {
+  local _line
+  _line="$(printf '%s\n' "$1" | grep -F -- "\"display\":\"$2")"
+  [ -n "${_line}" ] || { echo "no record with display '$2' in: $1" >&2; return 1; }
+  [[ "${_line}" == *"\"severity_text\":\"$3\""* ]] || { echo "severity: ${_line}" >&2; return 1; }
+  [[ "${_line}" == *"\"body\":\"$4\""* ]] || { echo "body: ${_line}" >&2; return 1; }
+}
+
+# why: The source count above cannot see what the helper forwards. Run the
+# real `_log` on the real call lines of _upgrade: the announcement has to
+# emit upgrade_started and the step and done lines must not -- a helper
+# that dropped its event argument for a fixed body would fail one side
+@test "upgrade.sh: the real _log emits upgrade_started for 'Upgrading:' and its own body for step / done (base#1364)" {
+  local _h _ann _step _done
+  _h="$(_json_harness)"
+  _ann="$(_upgrade_call_line 'Upgrading: ')"
+  _step="$(_upgrade_call_line 'Step 1/5: ')"
+  _done="$(_upgrade_call_line 'Done! ')"
+  [ -n "${_ann}" ] && [ -n "${_step}" ] && [ -n "${_done}" ]
+  run bash -c "
+    source '${_h}'
+    local_ver=v1.0.0 target_ver=v1.1.0
+    ${_ann}
+    ${_step}
+    ${_done}
+  " 2>&1
+  assert_success
+  _assert_record "${output}" 'Upgrading: v1.0.0' INFO upgrade_started
+  _assert_record "${output}" 'Step 1/5: git subtree pull' INFO upgrade_step
+  _assert_record "${output}" 'Done! Upgraded to v1.1.0' INFO upgrade_completed
+  run grep -c '"body":"upgrade_started"' <<< "${output}"
+  assert_output "1"
+}
+
+# why: The check path is what `upgrade --check` prints on every run; its
+# lines report a comparison, not a start
+@test "upgrade.sh: _check logs upgrade_version_check / upgrade_up_to_date / upgrade_available through the real _log (base#1364)" {
+  local _h
+  _h="$(_json_harness)"
+  run bash -c "source '${_h}'; _LV=v1.0.0 _RV=v1.0.0 _check" 2>&1
+  assert_success
+  _assert_record "${output}" 'Local:  v1.0.0' INFO upgrade_version_check
+  _assert_record "${output}" 'Already up to date.' INFO upgrade_up_to_date
+  run bash -c "source '${_h}'; _LV=v1.0.0 _RV=v1.1.0 _check" 2>&1
+  assert_failure 1
+  _assert_record "${output}" 'Update available: v1.0.0' INFO upgrade_available
+  refute_output --partial '"body":"upgrade_started"'
+}
+
+# why: The drift WARNING lines tell the consumer their config was NOT
+# updated; logged as upgrade_started they read as the upgrade beginning
+@test "upgrade.sh: config / setup.toml drift lines log their drift body through the real _log (base#1364)" {
+  local _h
+  _h="$(_json_harness)"
+  run bash -c "source '${_h}'; _GIT_POST=bbbbbbbbbbbbbbbb _warn_config_drift aaaaaaaaaaaaaaaa; _GIT_POST=bbbbbbbbbbbbbbbb _warn_setup_conf_drift aaaaaaaaaaaaaaaa" 2>&1
+  assert_success
+  _assert_record "${output}" 'WARNING: .base/dist/config/ changed upstream' INFO upgrade_config_drift
+  _assert_record "${output}" 'WARNING: .base/dist/setup.toml changed upstream' INFO upgrade_setup_conf_drift
+  refute_output --partial '"body":"upgrade_started"'
+}
