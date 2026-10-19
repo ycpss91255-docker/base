@@ -784,6 +784,18 @@ _assert_fatal_body() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# why: `--lang` with no value is an argument error too; it used to die
+# through a bare `${2:?}` expansion that logged no event at all
+@test "upgrade.sh: --lang with no value logs upgrade_arg_missing_value (base#1369)" {
+  cd "${DOWN_DIR}"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh --lang
+  assert_failure 1
+  _assert_fatal_body "${output}" upgrade_arg_missing_value
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
 # ── Rollback on destructive subtree pull ────────────────────────────────────
 
 # _install_destructive_ff_stub <stub_dir> [after_reset_cmd]
