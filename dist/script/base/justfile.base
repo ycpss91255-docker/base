@@ -88,7 +88,11 @@ update *args:
     if [ "${_help}" -eq 1 ]; then
       exec ./.base/dist/script/base/upgrade.sh --help
     fi
-    ./.base/dist/script/base/upgrade.sh --check || [ "$?" -eq 1 ]
+    # --check exits 1 for "update available", which is not a failure here;
+    # 2 and above (the check itself failed) propagate as-is (base#1370).
+    _rc=0
+    ./.base/dist/script/base/upgrade.sh --check || _rc=$?
+    if [ "${_rc}" -ne 1 ]; then exit "${_rc}"; fi
 
 # just base init -> (re-)wire repo symlinks + .gitignore
 init *args:

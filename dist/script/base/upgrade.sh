@@ -8,6 +8,13 @@
 #
 # Steady-state users call `just base upgrade [vX.Y.Z]`; the raw path above
 # is only for environments without `just`.
+#
+# Exit codes (base#1370):
+#   --check       0 up to date, or local is ahead of the latest tag
+#                 1 an update is available
+#                 2 the check itself failed (e.g. the remote could not be
+#                   fetched); `just base update` exits with this code
+#   normal run    0 upgraded (or nothing to do); non-zero on failure
 
 set -euo pipefail
 
@@ -21,6 +28,15 @@ set -euo pipefail
 # without code changes.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
+# Exit code of a fatal error. --check reserves 1 for "update available", so
+# a check that fails exits 2 and a caller that tolerates 1 (the
+# `just base update` recipe) still sees the failure (base#1370). A normal
+# run keeps 1.
+_UPGRADE_FATAL_RC=1
+for _upgrade_arg in "$@"; do
+  [[ "${_upgrade_arg}" == "--check" ]] && _UPGRADE_FATAL_RC=2
+done
+unset _upgrade_arg
 SUBTREE_ROOT="${SCRIPT_DIR}"
 while [[ "${SUBTREE_ROOT}" != "/" ]]; do
   [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/dist" ]] && break
@@ -28,7 +44,7 @@ while [[ "${SUBTREE_ROOT}" != "/" ]]; do
 done
 [[ -f "${SUBTREE_ROOT}/.version" ]] || {
   echo "upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}" >&2
-  exit 1
+  exit "${_UPGRADE_FATAL_RC:-1}"
 }
 readonly SUBTREE_ROOT
 REPO_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
@@ -65,7 +81,7 @@ cd "${REPO_ROOT}"
 #   INFO line under the upgrade service; <event> is the registered body
 #   (log-events.txt) naming what the line reports (base#1364).
 _log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
-_error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
+_error() { _log_err upgrade upgrade_rollback "display=$*"; exit "${_UPGRADE_FATAL_RC:-1}"; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
 # once the upgrade is past everything that can fail; a non-empty
@@ -911,6 +927,13 @@ Arguments:
                 from SETUP_LANG / \$LANG)
   -h, --help    Show this help
 
+Exit codes:
+  --check       0 up to date (or local is ahead of the latest tag),
+                1 update available, 2 the check failed (e.g. fetch error)
+  normal run    0 upgraded or nothing to do, non-zero on failure
+  just base update exits 0 for the first two --check results and with the
+  check's own code when the check fails.
+
 Examples:
   just base upgrade                                          # upgrade to latest
   just base upgrade v0.5.0                                   # specific version
@@ -956,7 +979,7 @@ main() {
   # "this is the template source, not a consumer" -- proceeding would
   # subtree-pull into base's PARENT dir. After --help (which must work
   # anywhere), before any mutation. Same helper init.sh uses.
-  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit 1
+  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit "${_UPGRADE_FATAL_RC:-1}"
 
   [[ ! -d "${TEMPLATE_REL}" ]] && \
     _error "${TEMPLATE_REL}/ not found. Run from repo root."
