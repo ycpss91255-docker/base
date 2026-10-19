@@ -816,6 +816,26 @@ _assert_fatal_body() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# why: A downstream tree in a repo with no commits yet (git init, unborn
+# HEAD) passed the merge-state preflight and then died under set -e on
+# `git rev-parse HEAD` with only git's own stderr and no event
+@test "upgrade.sh: a repo with no commits logs upgrade_no_commits (base#1385)" {
+  local _copy="${BATS_TEST_TMPDIR}/no_commits_copy"
+  cp -a "${DOWN_DIR}/." "${_copy}"
+  rm -rf "${_copy}/.git"
+  git -C "${_copy}" init -q
+  local _gitconfig="${BATS_TEST_TMPDIR}/identity.gitconfig"
+  printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "${_gitconfig}"
+  cd "${_copy}"
+
+  run env LOG_FORMAT=json GIT_CONFIG_GLOBAL="${_gitconfig}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_fatal_body "${output}" upgrade_no_commits
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
 # ── Rollback on destructive subtree pull ────────────────────────────────────
 
 # _install_destructive_ff_stub <stub_dir> [after_reset_cmd]
