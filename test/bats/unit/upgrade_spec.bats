@@ -1064,6 +1064,39 @@ _assert_record() {
 # a fixture copy of upgrade.sh in a temp dir with no `.version` above it,
 # never the live tree (base#1075).
 
+# Parse every line of $1 as JSON (a substring match would pass a malformed
+# record that happens to carry the fragments) and require exactly one
+# ERROR / 17 record whose body is upgrade_subtree_root_not_found and whose
+# display names the script directory $2.
+_assert_root_record() {
+  python3 -c '
+import json, sys
+out, sdir = sys.argv[1], sys.argv[2]
+recs = []
+for ln in out.splitlines():
+    if not ln.strip():
+        continue
+    try:
+        recs.append(json.loads(ln))
+    except ValueError as e:
+        sys.exit("not JSON: %r (%s)" % (ln, e))
+hits = [r for r in recs if r.get("body") == "upgrade_subtree_root_not_found"]
+if len(hits) != 1:
+    sys.exit("want 1 upgrade_subtree_root_not_found record, got %d in: %r" % (len(hits), out))
+r = hits[0]
+want = "upgrade.sh: cannot locate subtree root above " + sdir
+checks = [
+    ("severity_text", r.get("severity_text"), "ERROR"),
+    ("severity_number", r.get("severity_number"), 17),
+    ("display", (r.get("attributes") or {}).get("display"), want),
+    ("service.name", (r.get("attributes") or {}).get("service.name"), "upgrade"),
+]
+for name, got, exp in checks:
+    if got != exp:
+        sys.exit("%s: got %r, want %r in %r" % (name, got, exp, r))
+' "$1" "$2"
+}
+
 # why: With the logger reachable (dist/script/docker/lib/ beside the copy)
 # the failure must be a structured ERROR record naming the registered event
 @test "upgrade.sh: a missing subtree root emits upgrade_subtree_root_not_found under LOG_FORMAT=json (base#1382)" {
@@ -1072,11 +1105,7 @@ _assert_record() {
   cp -R /source/dist/script/base /source/dist/script/docker "${_fx}/"
   run env LOG_FORMAT=json bash "${_fx}/base/upgrade.sh" 2>&1
   assert_failure 1
-  local _line
-  _line="$(printf '%s\n' "${output}" | grep -F '"body":"upgrade_subtree_root_not_found"')"
-  [ -n "${_line}" ] || { echo "no upgrade_subtree_root_not_found record in: ${output}" >&2; return 1; }
-  [[ "${_line}" == *'"severity_text":"ERROR"'* ]] || { echo "severity: ${_line}" >&2; return 1; }
-  [[ "${_line}" == *'cannot locate subtree root'* ]] || { echo "display: ${_line}" >&2; return 1; }
+  _assert_root_record "${output}" "$(cd -- "${_fx}/base" && pwd -P)"
 }
 
 # why: The issue's own repro copies upgrade.sh alone, so log.sh is missing
@@ -1087,5 +1116,5 @@ _assert_record() {
   cp /source/dist/script/base/upgrade.sh "${_fx}/"
   run env LOG_FORMAT=json bash "${_fx}/upgrade.sh" 2>&1
   assert_failure 1
-  assert_output --partial '"body":"upgrade_subtree_root_not_found"'
+  _assert_root_record "${output}" "$(cd -- "${_fx}" && pwd -P)"
 }
