@@ -4333,7 +4333,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/network_ports_inert_spec.bats (15)
+### test/bats/unit/network_ports_inert_spec.bats (16)
 
 | Test | Description |
 |------|-------------|
@@ -4352,6 +4352,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_generate_resolved_compose stays quiet when the field bundle emits ports (#879)` | - |
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
+| `the ports-inert diagnostic names network.ports, not port_*, in every locale (base#1365)` | setup.toml spells a port mapping as a [[network.ports]] entry; a warning that names the old INI key port_* points the user at a key that does not exist |
 
 ### test/bats/unit/obtain_test_tools_spec.bats (7)
 
@@ -6196,7 +6197,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `[network] pid = host emits pid: host in compose.yaml` | - |
 | `[network] network_name = my_bridge under mode=bridge emits external network ref` | - |
 | `[network] port_1 = 8080:80 emits ports: block under bridge mode` | - |
-| `[network] port_* under mode=host is silently dropped` | - |
+| `[[network.ports]] under mode=host is silently dropped` | - |
 | `[resources] shm_size = 2gb under ipc=private emits shm_size: 2gb` | - |
 | `[resources] shm_size empty omits shm_size line` | - |
 | `[environment] env_1 = ROS_DOMAIN_ID=7 lands in the generated .env (#868)` | - |
@@ -6375,7 +6376,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_setup_conf_chain_changed reports a layer the call created (base#1087)` | A chain that moved must be reported as moved, and one that did not must not -- the second half matters as much, because a detector that always fires would make every --output call refuse and the whole parameterised API unusable. |
 | `_setup_conf_chain_changed reports no change over an untouched chain (base#1087)` | - |
 
-### test/bats/unit/setup_detect_spec.bats (52)
+### test/bats/unit/setup_detect_spec.bats (53)
 
 Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 `detect_user_info`, `detect_hardware`, `detect_docker_hub_user`,
@@ -6430,6 +6431,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_reconcile_workspace_path: portable form detects WS_PATH locally, mount_1 untouched (#569)` | - |
 | `_reconcile_workspace_path: absolute existing host path is honored as WS_PATH (#569)` | - |
 | `_reconcile_workspace_path: stale absolute path warns + rewrites mount_1 to portable (#569)` | - |
+| `_reconcile_workspace_path: stale-path warning names [[volumes]] / volumes.mount_1, not INI mount_1 (base#1365)` | setup.toml has no [volumes] mount_1 key; the stale-path warning must name the entry as setup.toml or the CLI address spells it |
 | `_reconcile_workspace_path: empty mount_1 detects WS_PATH only, conf untouched (#569)` | - |
 | `_reconcile_workspace_path: first-time bootstrap copies template + writes portable mount_1 (#569)` | - |
 | `_reconcile_workspace_path: first-time bootstrap leaves setup.toml at the umask mode, not 0600 (base#1356)` | The bootstrap is the setup.toml a fresh `init.sh` leaves behind: a `cp` of the template, then the mount_1 upsert, which lands its rewrite with `mv` from a 0600 `mktemp` sibling. A newly created setup.toml must carry the mode any new file gets under the caller's umask (what every other generated file gets), not 0600. umask 022 so the 0600 the bug leaves and the 0644 a new file gets are told apart. |
@@ -6439,7 +6441,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (135)
+### test/bats/unit/setup_spec.bats (136)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -6543,6 +6545,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `[build] arg_N override replaces TW default when set` | - |
 | `[build] the apt_mirror_* named keys lose to any layer's [[build.args]]` | - |
 | `[build] user-added arg_N propagates to .env` | - |
+| `[build] extra-args comment in .env.generated names [[build.args]] (base#1365)` | setup.toml spells extra build args as [[build.args]] entries; the generated comment must not name the old INI key arg_N |
 | `[build] target_arch = arm64 writes TARGET_ARCH to .env` | - |
 | `[build] target_arch empty omits TARGET_ARCH from .env` | - |
 | `[build] network = host writes BUILD_NETWORK to .env` | - |

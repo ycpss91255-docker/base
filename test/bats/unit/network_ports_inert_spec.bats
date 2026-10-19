@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# The diagnostic for a configured `[network] port_*` that will never be
+# The diagnostic for a configured `[[network.ports]]` entry that will never be
 # published.
 #
 # The template ships `[network] mode = host`, and compose only honours a
@@ -210,4 +210,19 @@ EOF
   [[ "${_zh_tw}" != "${_zh_cn}" ]]
   [[ "${_zh_tw}" != "${_ja}" ]]
   [[ "${_zh_cn}" != "${_ja}" ]]
+}
+
+# why: setup.toml spells a port mapping as a [[network.ports]] entry; a warning
+# that names the old INI key port_* points the user at a key that does not exist
+@test "the ports-inert diagnostic names network.ports, not port_*, in every locale (base#1365)" {
+  local _lang _msg _prev="${_LANG}"
+  for _lang in en zh-TW zh-CN ja; do
+    _LANG="${_lang}"
+    _msg="$(_setup_msg network ports_inert)"
+    [[ "${_msg}" == *"network.ports"* ]] || {
+      _LANG="${_prev}"; echo "${_lang}: no network.ports: ${_msg}"; return 1; }
+    [[ "${_msg}" != *"port_*"* ]] || {
+      _LANG="${_prev}"; echo "${_lang}: still names port_*: ${_msg}"; return 1; }
+  done
+  _LANG="${_prev}"
 }

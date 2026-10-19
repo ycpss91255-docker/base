@@ -171,10 +171,10 @@ _setup_msg_network() {
     zh-CN:network_name_inert) echo "[network] 已设置 network_name，但生效的 mode 不是 bridge——compose joins a named network only under mode = bridge，mode 优先；请将 mode 设为 bridge 或清除 network_name" ;;
     ja:network_name_inert)    echo "[network] に network_name が設定されていますが、有効な mode が bridge ではありません——compose joins a named network only under mode = bridge。mode が優先されます。mode を bridge にするか、network_name を空にしてください" ;;
     *:network_name_inert)     echo "[network] network_name is set but the effective mode is not bridge -- compose joins a named network only under mode = bridge, so mode wins and the name is ignored; set mode = bridge, or clear network_name" ;;
-    zh-TW:ports_inert) echo "[network] 已設定 port_*，但生效的 mode 不是 bridge —— compose 只有在 mode = bridge 時才會發布 ports，因此該映射會被丟棄" ;;
-    zh-CN:ports_inert) echo "[network] 已设置 port_*，但生效的 mode 不是 bridge —— compose 仅在 mode = bridge 时才会发布 ports，因此该映射会被丢弃" ;;
-    ja:ports_inert)    echo "[network] に port_* が設定されていますが、有効な mode が bridge ではありません —— compose は mode = bridge のときだけ ports を公開するため、このマッピングは破棄されます" ;;
-    *:ports_inert)     echo "[network] port_* is configured but the effective mode is not bridge -- compose publishes ports only under mode = bridge, so the mapping is dropped" ;;
+    zh-TW:ports_inert) echo "已設定 [[network.ports]]，但生效的 mode 不是 bridge —— compose 只有在 mode = bridge 時才會發布 ports，因此該映射會被丟棄" ;;
+    zh-CN:ports_inert) echo "已设置 [[network.ports]]，但生效的 mode 不是 bridge —— compose 仅在 mode = bridge 时才会发布 ports，因此该映射会被丢弃" ;;
+    ja:ports_inert)    echo "[[network.ports]] が設定されていますが、有効な mode が bridge ではありません —— compose は mode = bridge のときだけ ports を公開するため、このマッピングは破棄されます" ;;
+    *:ports_inert)     echo "[[network.ports]] is configured but the effective mode is not bridge -- compose publishes ports only under mode = bridge, so the mapping is dropped" ;;
   esac
 }
 

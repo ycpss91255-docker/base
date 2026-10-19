@@ -511,6 +511,24 @@ EOF
   refute_output --partial "/nonexistent/contributor-a/repo"
 }
 
+# why: setup.toml has no [volumes] mount_1 key; the stale-path warning must
+# name the entry as setup.toml or the CLI address spells it
+@test "_reconcile_workspace_path: stale-path warning names [[volumes]] / volumes.mount_1, not INI mount_1 (base#1365)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}"
+  printf '[[volumes]]\nsource = "/nonexistent/contributor-a/repo"\ntarget = "/work"\n' \
+    > "${_base}/setup.toml"
+  local -a _vk=() _vv=()
+  _load_setup_conf "${_base}" "volumes" _vk _vv
+  local _ws=""
+  run _reconcile_workspace_path "${_base}" "${_base}/setup.toml" _vk _vv _ws
+  assert_success
+  assert_output --partial "stale"
+  refute_output --partial "[volumes] mount_1"
+  refute_output --regexp "Rewriting mount_1"
+  [[ "${output}" == *"[[volumes]]"* || "${output}" == *"volumes.mount_1"* ]]
+}
+
 @test "_reconcile_workspace_path: empty mount_1 detects WS_PATH only, conf untouched (#569)" {
   local _base="${TEMP_DIR}/repo"
   mkdir -p "${_base}"

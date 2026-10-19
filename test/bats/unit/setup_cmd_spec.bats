@@ -2432,7 +2432,7 @@ EOF
   assert_success
 }
 
-@test "[network] port_* under mode=host is silently dropped" {
+@test "[[network.ports]] under mode=host is silently dropped" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
 mode = "host"
