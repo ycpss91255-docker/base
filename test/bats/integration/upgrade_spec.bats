@@ -1019,6 +1019,75 @@ STUB
   rm -f "$(git rev-parse --git-dir)/index.lock"
 }
 
+# _install_failing_rm <stub_dir> <pattern>
+#   An `rm` PATH shim that fails for any argument matching the glob
+#   <pattern> and forwards every other invocation to the real rm.
+_install_failing_rm() {
+  local _stub_dir="$1"
+  local _pattern="$2"
+  local _real_rm
+  _real_rm="$(command -v rm)"
+  mkdir -p "${_stub_dir}"
+  cat > "${_stub_dir}/rm" <<STUB
+#!/usr/bin/env bash
+for _a in "\$@"; do
+  if [[ "\${_a}" == ${_pattern} ]]; then
+    echo "rm stub: refusing \${_a}" >&2
+    exit 1
+  fi
+done
+exec "${_real_rm}" "\$@"
+STUB
+  chmod +x "${_stub_dir}/rm"
+}
+
+# why: The reset can succeed and the sweep of upgrade-created files still
+# fail; a failed removal followed by a successful one must not read as a
+# restored repo, so the log carries upgrade_rollback_failed and no
+# upgrade_rollback while the leftover file is still there
+@test "upgrade.sh: a failed post-pull cleanup logs upgrade_rollback_failed, never upgrade_rollback (base#1369)" {
+  _publish_failing_init 'touch aaa-cleanup-blocker zzz-upgrade-created; exit 7'
+  cd "${DOWN_DIR}"
+  local _stub_dir="${BATS_TEST_TMPDIR}/rm_shim"
+  _install_failing_rm "${_stub_dir}" '*aaa-cleanup-blocker'
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json PATH="${_stub_dir}:${PATH}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_rollback_failed_not_rollback "${output}"
+  # The reset ran and the later removal succeeded; only the blocked file
+  # is left -- the record above is the truth.
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  assert [ -e aaa-cleanup-blocker ]
+  assert [ ! -e zzz-upgrade-created ]
+}
+
+# why: The integrity-check rollback runs the same sweep; a failed removal
+# there must not end on upgrade_rollback either
+@test "upgrade.sh: a failed integrity-check cleanup logs upgrade_rollback_failed, never upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+  local _stub_dir="${BATS_TEST_TMPDIR}/stub_bin"
+  _install_destructive_ff_stub "${_stub_dir}" \
+    'touch aaa-cleanup-blocker zzz-upgrade-created'
+  local _rm_dir="${BATS_TEST_TMPDIR}/rm_shim"
+  _install_failing_rm "${_rm_dir}" '*aaa-cleanup-blocker'
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json GIT_EXEC_PATH="${_stub_dir}" \
+      PATH="${_rm_dir}:${PATH}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_rollback_failed_not_rollback "${output}"
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  assert [ -e aaa-cleanup-blocker ]
+  assert [ ! -e zzz-upgrade-created ]
+}
+
 # why: Aborting a conflicted pull's merge puts back a repo nothing was
 # committed to; it is not a rollback, and a successful abort ends on
 # upgrade_subtree_pull_failed with no upgrade_rollback record
