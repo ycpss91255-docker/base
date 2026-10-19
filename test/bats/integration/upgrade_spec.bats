@@ -1312,21 +1312,21 @@ STUB
   assert [ -e zzz-upgrade-created ]
 }
 
-# _install_first_ls_files_fails <stub_dir> <counter>
+# _install_first_ls_files_fails <stub_dir> <marker>
 #   A `git` PATH shim that fails only the FIRST `git ls-files` call and
-#   forwards every other invocation to the real git. <counter> is a file
+#   forwards every other invocation to the real git. <marker> is a file
 #   the shim creates on that first call, so later calls -- the rollback's
 #   sweep among them -- enumerate normally.
 _install_first_ls_files_fails() {
   local _stub_dir="$1"
-  local _counter="$2"
+  local _marker="$2"
   local _real_git
   _real_git="$(command -v git)"
   mkdir -p "${_stub_dir}"
   cat > "${_stub_dir}/git" <<STUB
 #!/usr/bin/env bash
-if [[ "\$1" == "ls-files" && ! -e "${_counter}" ]]; then
-  : > "${_counter}"
+if [[ "\$1" == "ls-files" && ! -e "${_marker}" ]]; then
+  : > "${_marker}"
   echo "git stub: first ls-files refused" >&2
   exit 128
 fi
@@ -1347,7 +1347,7 @@ STUB
   echo "user data" > mine.txt
   local _stub_dir="${BATS_TEST_TMPDIR}/git_shim"
   _install_first_ls_files_fails "${_stub_dir}" \
-    "${BATS_TEST_TMPDIR}/ls_files_called"
+    "${BATS_TEST_TMPDIR}/ls_files_failed_once"
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
 

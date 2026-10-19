@@ -659,6 +659,8 @@ _upgrade() {
     _error upgrade_untracked_snapshot_failed \
       "Could not list untracked files before the upgrade; nothing was changed"
   fi
+  # Guarded: a here-string of an empty listing would still feed mapfile
+  # one empty line, recording "" as an untracked path.
   if [[ -n "${_untracked_listing}" ]]; then
     mapfile -t _UPGRADE_UNTRACKED_SNAPSHOT <<< "${_untracked_listing}"
   fi
