@@ -98,18 +98,23 @@ done
     source "${SCRIPT_DIR}/../docker/lib/log.sh"
     _log_err upgrade upgrade_subtree_root_not_found \
       "display=${_upgrade_no_root_msg}"
-  elif [[ "${LOG_FORMAT:-auto}" == "text" ]] \
-     || { [[ "${LOG_FORMAT:-auto}" != "json" ]] && [[ -t 2 ]]; }; then
-    printf '%s [upgrade] ERROR: %s\n' \
-      "$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')" "${_upgrade_no_root_msg}" >&2
   else
-    _upgrade_no_root_msg="${_upgrade_no_root_msg//\\/\\\\}"
-    _upgrade_no_root_msg="${_upgrade_no_root_msg//\"/\\\"}"
-    _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\n'/\\n}"
-    _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\t'/\\t}"
-    _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\r'/\\r}"
-    printf '{"timestamp":"%s","severity_text":"ERROR","severity_number":17,"body":"upgrade_subtree_root_not_found","attributes":{"service.name":"upgrade","service.lang":"bash","display":"%s"}}\n' \
-      "$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')" "${_upgrade_no_root_msg}" >&2
+    # Mirrors log.sh's LOG_FORMAT dispatch (text, json, auto = text on a TTY).
+    _upgrade_no_root_fmt="${LOG_FORMAT:-auto}"
+    _upgrade_no_root_ts="$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')"
+    if [[ "${_upgrade_no_root_fmt}" == "text" ]] \
+       || { [[ "${_upgrade_no_root_fmt}" != "json" ]] && [[ -t 2 ]]; }; then
+      printf '%s [upgrade] ERROR: %s\n' \
+        "${_upgrade_no_root_ts}" "${_upgrade_no_root_msg}" >&2
+    else
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//\\/\\\\}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//\"/\\\"}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\n'/\\n}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\t'/\\t}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\r'/\\r}"
+      printf '{"timestamp":"%s","severity_text":"ERROR","severity_number":17,"body":"upgrade_subtree_root_not_found","attributes":{"service.name":"upgrade","service.lang":"bash","display":"%s"}}\n' \
+        "${_upgrade_no_root_ts}" "${_upgrade_no_root_msg}" >&2
+    fi
   fi
   exit 1
 }
