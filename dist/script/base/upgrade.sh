@@ -256,8 +256,8 @@ _was_untracked_before_upgrade() {
 #   This is the pre-arm sibling of _restore_pre_upgrade_state, and it is
 #   deliberately narrower. The exit rollback undoes a pull that COMMITTED;
 #   there is no commit to undo here, so the only state to clear is an
-#   in-progress merge -- which `git merge --abort` restores exactly, HEAD, index and
-#   working tree together.
+#   in-progress merge -- which `git merge --abort` restores exactly, HEAD,
+#   index and working tree together.
 #
 #   Aborting is safe for the same reason the exit rollback is: git-subtree
 #   refuses to run against a dirty tree, so every change the merge left is
@@ -285,10 +285,11 @@ _abort_failed_subtree_pull() {
 
 # _upgrade_exit_rollback
 #   An _atexit callback (transcript.sh owns the single EXIT trap, so this
-#   never installs or clears one -- base#1371). Armed the moment the subtree pull has COMMITTED, disarmed once the
-#   upgrade has finished everything that can fail. In between, the repo is
-#   mid-flight: the new subtree is already in the history, but the resync
-#   that makes it usable has not run.
+#   never installs or clears one -- base#1371). Armed the moment the
+#   subtree pull has COMMITTED, disarmed once the upgrade has finished
+#   everything that can fail. In between, the repo is mid-flight: the new
+#   subtree is already in the history, but the resync that makes it usable
+#   has not run.
 #
 #   Leaving that state behind is what turned a missing file into a repo
 #   that claimed a version it never reached -- .version bumped, commit
@@ -312,12 +313,11 @@ _upgrade_exit_rollback() {
     return 0
   fi
   _log_err upgrade upgrade_rollback "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
-  if ! _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"; then
+  if _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"; then
+    _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
+  else
     _atexit_set_exit_code 1
-    return 0
   fi
-  _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
-  return 0
 }
 
 # ── Get versions ─────────────────────────────────────────────────────────────
@@ -543,9 +543,9 @@ _upgrade() {
   # Guarded rather than left to `set -e`: the pull is the ONE step that can
   # fail while the exit rollback below is still unarmed, and its
   # characteristic failure (a conflict against a hand-edited .base/) leaves
-  # a merge in progress. Aborting under `set -e` there would hand the user a tree
-  # mid-merge that nothing in this run put back -- discovered one run later
-  # by _require_clean_merge_state, on a state they never chose.
+  # a merge in progress. Aborting under `set -e` there would hand the user
+  # a tree mid-merge that nothing in this run put back -- discovered one run
+  # later by _require_clean_merge_state, on a state they never chose.
   local _pull_rc=0
   git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
