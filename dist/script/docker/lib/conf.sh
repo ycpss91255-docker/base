@@ -1293,6 +1293,7 @@ _wsc_flush_scalars() {
     _conf_fmt_kv "${__toml}" "${__ovk_key}" "${__override[${__ovk}]}" __kv
     printf '%s\n' "${__kv}" >> "${_out}"
     __emitted[${__ovk}]=1
+    __wsc_nw=$(( __wsc_nw + 1 ))
   done
   # This is also where <section>'s key scope ends, so it is where an
   # emptied array belonging to <section> gets its explicit declaration.
@@ -1346,7 +1347,66 @@ _wsc_flush_empty_arrays() {
     _conf_toml_key "${__fea_k}" __fea_k
     printf '%s = []\n' "${__fea_k}" >> "${_out}"
     __aot_empty_done["${__fea_p}"]=1
+    __wsc_nw=$(( __wsc_nw + 1 ))
   done
+}
+
+# _wsc_emit <line>
+#
+# Write one non-blank line of the walk: the blank lines held back before
+# it first, then the line. Blank lines are held back so that what a
+# table's end appends (added keys, emptied-array declarations) lands
+# after the table's last line and before the blank lines that separate
+# it from the next header, not after them (base#1363).
+_wsc_emit() {
+  _wsc_emit_blanks
+  printf '%s\n' "${1}" >> "${_out}"
+  __wsc_nw=$(( __wsc_nw + 1 ))
+  __wsc_tail_removed=0
+}
+
+# _wsc_emit_blanks
+#
+# Write the blank lines the walk is holding back.
+_wsc_emit_blanks() {
+  while (( __wsc_blank > 0 )); do
+    printf '\n' >> "${_out}"
+    __wsc_blank=$(( __wsc_blank - 1 ))
+  done
+}
+
+# _wsc_end_table
+#
+# Close the `[table]` whose keys are in scope: append its added keys and
+# emptied-array declarations, put back the blank line that separates
+# appended keys from the next header when the file had none, and drop
+# the table -- header and the blank lines before it -- when this save
+# removed a key from it and left nothing under the header. A table
+# whose last key `setup remove` takes is one that `setup add` created,
+# so an add/remove round trip gives back the file it started from
+# (base#1363). A table that had no key to remove is kept as it is.
+_wsc_end_table() {
+  local _nw_before="${__wsc_nw}" _keep
+  _wsc_flush_scalars "${__current}"
+  if (( __wsc_nw > _nw_before && __wsc_blank == 0 )); then
+    __wsc_blank=1
+  fi
+  if (( __wsc_tbl_removed && __wsc_nw == __wsc_tbl_nw )); then
+    _keep="$(head -c "${__wsc_tbl_off}" "${_out}"; printf x)"
+    printf '%s' "${_keep%x}" > "${_out}"
+  fi
+  __wsc_tbl_removed=0
+}
+
+# _wsc_begin_table
+#
+# Note where the table about to be written starts: the size of the
+# output before the blank lines held back ahead of its header, and how
+# many lines will have been written once the header is.
+_wsc_begin_table() {
+  __wsc_tbl_off="$(wc -c < "${_out}")"
+  __wsc_tbl_nw=$(( __wsc_nw + 1 ))
+  __wsc_tbl_removed=0
 }
 
 # _wsc_refuse_ws_slot_move <dst>
@@ -1630,6 +1690,14 @@ _write_setup_conf() {
   # the current block: 0 copy, 1 drop (removed), 2 drop its key lines
   # (replaced, the new fields already written).
   local __current="" __aot_cur="" __aot_skip=0 __nskey __raw __rest __hdr __kv __fields
+  # __wsc_blank: blank lines read and not yet written (see _wsc_emit);
+  # __wsc_nw: non-blank lines written so far; __wsc_tbl_*: where the
+  # current `[table]` started and whether this save removed a key of it
+  # (see _wsc_end_table).
+  local __wsc_blank=0 __wsc_nw=0 __wsc_tbl_off=0 __wsc_tbl_nw=0 __wsc_tbl_removed=0 __eof_blank=0
+  # __wsc_tail_removed: the last thing read was a removed `[[...]]` block,
+  # so the blank lines held back before it separated nothing.
+  local __wsc_tail_removed=0
   : > "${_out}"
   for __line in "${__tpl_lines[@]}"; do
     # The root-key region ends at the first table header, so that is the
@@ -1649,13 +1717,16 @@ _write_setup_conf() {
     if (( __toml )) && [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       if [[ -n "${__current}" ]]; then
-        _wsc_flush_scalars "${__current}"
-        printf '\n' >> "${_out}"
+        _wsc_end_table
         __current=""
       fi
       if [[ -n "${__aot_cur}" && "${__aot_cur}" != "${__p}" ]] \
          && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
-        _wsc_flush_aot "${__aot_cur}" boundary
+        if (( __wsc_blank > 0 )); then
+          _wsc_flush_aot "${__aot_cur}" eof
+        else
+          _wsc_flush_aot "${__aot_cur}" boundary
+        fi
       fi
       __aot_cur="${__p}"
       __aot_seen["${__p}"]=$(( ${__aot_seen["${__p}"]:-0} + 1 ))
@@ -1681,18 +1752,19 @@ _write_setup_conf() {
           # `_setup_remove`'s header carries one level up.
           __emitted[${__nskey}]=1
           __aot_skip=1
+          __wsc_tail_removed=1
           continue
         fi
-        printf '%s\n' "${__line}" >> "${_out}"
+        _wsc_emit "${__line}"
         if [[ -n "${__override[${__nskey}]+x}" ]]; then
           _conf_toml_aot_fields "${__p}" "${__override[${__nskey}]}" __fields
-          printf '%s\n' "${__fields}" >> "${_out}"
+          _wsc_emit "${__fields}"
           __emitted[${__nskey}]=1
           __aot_skip=2
         fi
         continue
       fi
-      printf '%s\n' "${__line}" >> "${_out}"
+      _wsc_emit "${__line}"
       continue
     fi
     if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
@@ -1702,13 +1774,15 @@ _write_setup_conf() {
       # Flush not-yet-emitted overrides belonging to the section we are
       # about to leave (those are "added" keys with no template line).
       if [[ -n "${__current}" ]]; then
-        _wsc_flush_scalars "${__current}"
-        # Separate appended keys from the next section header with a blank line
-        printf '\n' >> "${_out}"
+        _wsc_end_table
       fi
       if [[ -n "${__aot_cur}" ]] \
          && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
-        _wsc_flush_aot "${__aot_cur}" boundary
+        if (( __wsc_blank > 0 )); then
+          _wsc_flush_aot "${__aot_cur}" eof
+        else
+          _wsc_flush_aot "${__aot_cur}" boundary
+        fi
       fi
       __aot_cur=""
       __aot_skip=0
@@ -1717,7 +1791,8 @@ _write_setup_conf() {
       else
         __current="${__raw}"
       fi
-      printf '%s\n' "${__line}" >> "${_out}"
+      _wsc_begin_table
+      _wsc_emit "${__line}"
       continue
     fi
     if (( __aot_skip == 1 )); then
@@ -1726,16 +1801,25 @@ _write_setup_conf() {
     if (( __aot_skip == 2 )) && _conf_is_kv_line "${__line}"; then
       continue
     fi
-    if [[ -z "${__line}" || "${__line}" =~ ^[[:space:]]*# ]]; then
-      printf '%s\n' "${__line}" >> "${_out}"
+    if [[ -z "${__line}" ]]; then
+      __wsc_blank=$(( __wsc_blank + 1 ))
       continue
     fi
-    # An explicit empty-array declaration is re-decided, never copied:
-    # the flushes write one back for every path still empty, so copying
-    # it here would duplicate the key when the path is still empty and
-    # leave a key TOML refuses to extend when an override refills it.
+    if [[ "${__line}" =~ ^[[:space:]]*# ]]; then
+      _wsc_emit "${__line}"
+      continue
+    fi
+    # An explicit empty-array declaration is re-decided: it is kept, in
+    # its place, while the path is still empty, and dropped when an
+    # override refills it (TOML refuses to extend a key already bound to
+    # an array). Kept where it stands, the file's own order of `x = []`
+    # lines survives a rewrite that does not touch them (base#1363).
     if (( __toml )) && [[ -z "${__aot_cur}" ]] \
        && _conf_toml_empty_array_decl "${__line}" "${__current}" __eap; then
+      if [[ -n "${__aot_empty[${__eap}]:-}" && -z "${__aot_empty_done[${__eap}]:-}" ]]; then
+        _wsc_emit "${__line}"
+        __aot_empty_done["${__eap}"]=1
+      fi
       continue
     fi
     if [[ -n "${__current}" && "${__line}" == *=* ]]; then
@@ -1743,22 +1827,29 @@ _write_setup_conf() {
       __nskey="${__current}.${__rest}"
       if [[ -n "${__removed[${__nskey}]+x}" ]]; then
         __emitted[${__nskey}]=1
+        __wsc_tbl_removed=1
         continue
       fi
       if [[ -n "${__override[${__nskey}]+x}" ]]; then
         _conf_fmt_kv "${__toml}" "${__rest}" "${__override[${__nskey}]}" __kv
-        printf '%s\n' "${__kv}" >> "${_out}"
+        _wsc_emit "${__kv}"
         __emitted[${__nskey}]=1
         continue
       fi
     fi
-    printf '%s\n' "${__line}" >> "${_out}"
+    _wsc_emit "${__line}"
   done
 
   # Flush leftovers belonging to the final section / final block kind
   if [[ -n "${__current}" ]]; then
-    _wsc_flush_scalars "${__current}"
+    # No header follows, so no separator is owed to one: the file keeps
+    # the trailing blank lines it had.
+    __eof_blank="${__wsc_blank}"
+    _wsc_end_table
+    __wsc_blank="${__eof_blank}"
   fi
+  (( __wsc_tail_removed )) && __wsc_blank=0
+  _wsc_emit_blanks
   if [[ -n "${__aot_cur}" ]]; then
     _wsc_flush_aot "${__aot_cur}" eof
   fi
