@@ -88,9 +88,12 @@ while [[ "${SUBTREE_ROOT}" != "/" ]]; do
 done
 # This failure comes before _lib.sh is sourced, so it reaches for log.sh
 # beside the script (dist/script/docker/lib/) to log the registered event.
-# A lone copy has no log.sh either; it then writes the same record by hand
-# -- JSON unless LOG_FORMAT=text or stderr is a terminal -- so a
-# LOG_FORMAT=json reader still gets one it can parse (base#1382).
+# A lone copy has no log.sh either; it then writes a minimal fallback record
+# by hand -- JSON unless LOG_FORMAT=text or stderr is a terminal -- so a
+# LOG_FORMAT=json reader still gets one it can parse (base#1382). That
+# record carries timestamp, severity, body, service.name, service.lang and
+# display only: no code.filepath, code.lineno, thread.id or trace context,
+# and the text form has no color and ignores log.sh's cached TTY state.
 [[ -f "${SUBTREE_ROOT}/.version" ]] || {
   _upgrade_no_root_msg="upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}"
   if [[ -f "${SCRIPT_DIR}/../docker/lib/log.sh" ]]; then
