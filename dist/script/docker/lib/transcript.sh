@@ -73,6 +73,9 @@ _transcript_install_trap() {
 #   owns the single EXIT trap; wrappers register here instead of calling
 #   `trap ... EXIT` so the transcript finalize is never clobbered.
 #   Callbacks run in LIFO order; each is best-effort (errors ignored).
+#   A callback reads the process exit status from _ATEXIT_STATUS (its own
+#   `$?` is not that status) and must not call `exit` -- see
+#   _atexit_set_exit_code.
 _atexit() {
   local _fn="${1:?_atexit requires a function name}"
   _ATEXIT_FNS+=("${_fn}")
@@ -312,6 +315,10 @@ _transcript_prune() {
 _transcript_exit_handler() {
   local _rc=$?
   local _i
+  # The status the shell is exiting with, for callbacks: inside the loop
+  # below `$?` is the loop test's, not the process's, so a callback that
+  # acts only on failure (upgrade.sh's rollback, base#1371) reads it here.
+  _ATEXIT_STATUS="${_rc}"
   for (( _i=${#_ATEXIT_FNS[@]}-1; _i>=0; _i-- )); do
     "${_ATEXIT_FNS[_i]}" || true
   done
