@@ -201,7 +201,8 @@ _rollback_subtree_pull() {
 #   transcript.sh's, and clearing it skips the transcript finalize
 #   (base#1371).
 #
-#   Returns 1 when the rescue reset itself fails, and each caller turns
+#   Returns 1 when the rescue reset fails or any upgrade-created file
+#   cannot be removed, logging upgrade_rollback_failed, and each caller turns
 #   that into a non-zero exit. Do NOT swallow it with `|| true`: this runs
 #   when the tree is already damaged, and the user must hear the truth --
 #   a still-broken tree -- rather than a reassuring 'restored' message they
@@ -217,15 +218,24 @@ _restore_pre_upgrade_state() {
     _log_err upgrade upgrade_rollback_failed "display=rollback FAILED -- could not reset to ${_pre_head:0:12}; manual recovery required (working tree is NOT restored)." "commit=${_pre_head:0:12}"
     return 1
   fi
-  _remove_untracked_since_snapshot
+  if ! _remove_untracked_since_snapshot; then
+    _log_err upgrade upgrade_rollback_failed "display=rollback INCOMPLETE -- reset to ${_pre_head:0:12}, but some files the upgrade created could not be removed; run 'git status' and delete the untracked files it lists that you did not create (working tree is NOT fully restored)." "commit=${_pre_head:0:12}"
+    return 1
+  fi
 }
 
 # _remove_untracked_since_snapshot
 #   Delete every currently-untracked path that was not untracked before the
 #   upgrade started. Run AFTER the reset, so `--exclude-standard` reads the
 #   restored .gitignore rather than the one the aborted upgrade wrote.
+#
+#   Keeps sweeping past a removal that fails, so as much as possible is
+#   cleaned, and returns 1 if ANY removal failed: a later success must not
+#   hide an earlier failure, or the caller reports a restore that left
+#   files behind (base#1369).
 _remove_untracked_since_snapshot() {
   local _path
+  local _failed=0
   while IFS= read -r _path; do
     if [[ -z "${_path}" ]]; then
       continue
@@ -235,8 +245,11 @@ _remove_untracked_since_snapshot() {
     fi
     # `:?` rather than a bare expansion: an unset root would make this
     # `rm -f /<path>`, and a sweep is not a place to guess.
-    rm -f -- "${REPO_ROOT:?}/${_path}"
+    if ! rm -f -- "${REPO_ROOT:?}/${_path}"; then
+      _failed=1
+    fi
   done < <(git ls-files --others --exclude-standard)
+  return "${_failed}"
 }
 
 # _was_untracked_before_upgrade <path>
