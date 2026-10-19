@@ -6312,7 +6312,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (53)
+### test/bats/unit/setup_conf_spec.bats (54)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6341,6 +6341,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
 | `setup_tui.sh usage names the repo-root setup.toml in every language (#842)` | - |
 | `setup.sh usage describes the TOML-era apply, not the INI era, in every language (base#1326)` | - |
+| `setup.sh usage names the workspace bind as a setup.toml [[volumes]] entry, not [volumes] mount_1 (base#1373)` | setup.toml holds the workspace bind as the first `[[volumes]]` entry (source/target), not an INI `[volumes] mount_1` key; help that names the INI key sends the operator looking for a line the file never holds. |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
