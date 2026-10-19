@@ -648,7 +648,7 @@ lib/dockerfile_migrate.sh|      _log_warn upgrade upgrade_started "display=  Doc
 lib/env_emit.sh|USER_NAME=${_user_name}
 lib/setup_cmd.sh|    printf 'USER_NAME=%s\n' "${user_name}"
 lib/setup_detect.sh|  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
-lib/setup_detect.sh|      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.toml to share." "path=${_mount_1_host}"
+lib/setup_detect.sh|      _log_warn setup conf_mount_stale_path "display=the first [[volumes]] entry (volumes.mount_1) has host path '${_mount_1_host}', which does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting volumes.mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.toml to share." "path=${_mount_1_host}"
 wrapper/run.sh|    xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true
 wrapper/setup_tui.sh|_TUI_MSG_EN[volumes.edit.prompt]=$'Mount spec\n  - Format: <host>:<container>[:ro|rw]\n  - Empty = delete this entry\n  - Example: /data:/home/${USER_NAME}/data:rw'
 wrapper/setup_tui.sh|_TUI_MSG_JA[volumes.edit.prompt]=$'マウント指定\n  - 形式: <host>:<container>[:ro|rw]\n  - 空 = この項目を削除\n  - 例: /data:/home/${USER_NAME}/data:rw'

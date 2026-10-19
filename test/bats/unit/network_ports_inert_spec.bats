@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# The diagnostic for a configured `[network] port_*` that will never be
+# The diagnostic for a configured `[[network.ports]]` entry that will never be
 # published.
 #
 # The template ships `[network] mode = host`, and compose only honours a

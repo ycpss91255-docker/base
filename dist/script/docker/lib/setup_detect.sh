@@ -412,7 +412,7 @@ _reconcile_workspace_path() {
       # a stale bake from another contributor's clone. Warn loudly so
       # the user understands the rewrite, then migrate mount_1 back to
       # the portable form.
-      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.toml to share." "path=${_mount_1_host}"
+      _log_warn setup conf_mount_stale_path "display=the first [[volumes]] entry (volumes.mount_1) has host path '${_mount_1_host}', which does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting volumes.mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.toml to share." "path=${_mount_1_host}"
       _rwp_ws=""
       detect_ws_path _rwp_ws "${_rwp_base}"
       [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"

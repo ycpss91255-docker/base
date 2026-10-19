@@ -178,7 +178,7 @@ EOF
   # via the same set -o allexport source.
   if [[ -n "${_user_build_args:-}" ]]; then
     {
-      printf '\n# ── Extra build args (from [build] arg_N) ──\n'
+      printf '\n# ── Extra build args (from [[build.args]]) ──\n'
       local _line _k _v
       while IFS= read -r _line; do
         [[ -z "${_line}" ]] && continue
