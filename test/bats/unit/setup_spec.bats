@@ -1284,6 +1284,22 @@ EOF
   assert_output --partial "PYTHON_VERSION=3.12"
 }
 
+# why: setup.toml spells extra build args as [[build.args]] entries; the
+# generated comment must not name the old INI key arg_N
+@test "[build] extra-args comment in .env.generated names [[build.args]] (base#1365)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build arg_9 \
+    "PYTHON_VERSION=3.12"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep '^# .*Extra build args' '${TEMP_DIR}/.env.generated'
+  "
+  assert_success
+  assert_output --partial "[[build.args]]"
+  refute_output --partial "arg_N"
+}
+
 @test "[build] target_arch = arm64 writes TARGET_ARCH to .env" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   _upsert_conf_value "${TEMP_DIR}/setup.toml" build target_arch arm64
