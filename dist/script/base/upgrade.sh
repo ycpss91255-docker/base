@@ -305,27 +305,16 @@ _restore_pre_upgrade_state() {
 #   hide an earlier failure, or the caller reports a restore that left
 #   files behind (base#1369).
 #
-#   The listing is NUL-delimited (`-z`): line-oriented output C-quotes any
-#   name holding a tab, a newline, a quote, a backslash or a non-ASCII
-#   byte, and `rm -f` given that quoted form removes nothing (base#1381).
-#   NUL bytes cannot pass through `$(...)`, so the listing goes to a temp
-#   file rather than through a process substitution, whose exit status
-#   bash discards: a failed `git ls-files` would otherwise enumerate
-#   nothing, remove nothing, and still return success (base#1369).
+#   A listing that cannot be taken fails the sweep: enumerating nothing,
+#   removing nothing and returning success would report a clean restore
+#   (base#1369).
 _remove_untracked_since_snapshot() {
   local _path
   local _failed=0
-  local _listing_file
   local -a _paths=()
-  if ! _listing_file="$(mktemp)"; then
+  if ! _list_untracked_paths _paths; then
     return 1
   fi
-  if ! git ls-files -z --others --exclude-standard > "${_listing_file}"; then
-    rm -f -- "${_listing_file}"
-    return 1
-  fi
-  mapfile -d '' -t _paths < "${_listing_file}"
-  rm -f -- "${_listing_file}"
   for _path in "${_paths[@]}"; do
     if [[ -z "${_path}" ]]; then
       continue
@@ -340,6 +329,35 @@ _remove_untracked_since_snapshot() {
     fi
   done
   return "${_failed}"
+}
+
+# _list_untracked_paths <array_name>
+#   Fill the named array with every untracked, non-ignored path, each
+#   exactly as it is on disk. Returns 1, leaving the array empty, when the
+#   listing cannot be taken. Both the pre-upgrade snapshot and the
+#   rollback sweep read through here, so the two always agree on a path's
+#   spelling.
+#
+#   NUL-delimited (`-z`): line-oriented output C-quotes any name holding a
+#   tab, a newline, a quote, a backslash or a non-ASCII byte, and that
+#   quoted form names no file on disk (base#1381). NUL bytes cannot pass
+#   through `$(...)`, so the listing goes to a temp file -- and not
+#   through a process substitution, whose exit status bash discards: a
+#   failed `git ls-files` would otherwise read as "nothing untracked"
+#   (base#1369, base#1384).
+_list_untracked_paths() {
+  local -n _list_untracked_out="${1:?"${FUNCNAME[0]}: missing array name"}"
+  local _listing_file
+  _list_untracked_out=()
+  if ! _listing_file="$(mktemp)"; then
+    return 1
+  fi
+  if ! git ls-files -z --others --exclude-standard > "${_listing_file}"; then
+    rm -f -- "${_listing_file}"
+    return 1
+  fi
+  mapfile -d '' -t _list_untracked_out < "${_listing_file}"
+  rm -f -- "${_listing_file}"
 }
 
 # _was_untracked_before_upgrade <path>
@@ -659,24 +677,13 @@ _upgrade() {
   # user's own stray files (leave them) from the ones an aborted upgrade
   # created (remove them).
   #
-  # NUL-delimited (`-z`) so a name git would C-quote -- a tab, a newline,
-  # a quote, a backslash, a non-ASCII byte -- is recorded literally, the
-  # form the rollback sweep compares against (base#1381). Captured into a
-  # temp file because NUL bytes cannot pass through `$(...)`, and not read
-  # from a process substitution, whose exit status bash discards: a failed
-  # `git ls-files` would leave the snapshot empty, and a later rollback
-  # would then sweep the user's own untracked files. A snapshot that
-  # cannot be taken stops the upgrade here, before anything is pulled
-  # (base#1384).
-  local _untracked_listing_file=""
-  if ! _untracked_listing_file="$(mktemp)" \
-      || ! git ls-files -z --others --exclude-standard > "${_untracked_listing_file}"; then
-    [[ -n "${_untracked_listing_file}" ]] && rm -f -- "${_untracked_listing_file}"
+  # A snapshot that cannot be taken stops the upgrade here, before
+  # anything is pulled: an empty snapshot would let a later rollback sweep
+  # the user's own untracked files (base#1384).
+  if ! _list_untracked_paths _UPGRADE_UNTRACKED_SNAPSHOT; then
     _error upgrade_untracked_snapshot_failed \
       "Could not list untracked files before the upgrade; nothing was changed"
   fi
-  mapfile -d '' -t _UPGRADE_UNTRACKED_SNAPSHOT < "${_untracked_listing_file}"
-  rm -f -- "${_untracked_listing_file}"
 
   # Step 1: subtree pull
   _log upgrade_step "Step 1/5: git subtree pull"

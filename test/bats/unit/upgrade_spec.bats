@@ -84,6 +84,7 @@ EOS
   sed -n '/^_rollback_subtree_pull() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_restore_pre_upgrade_state() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_remove_untracked_since_snapshot() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
+  sed -n '/^_list_untracked_paths() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_was_untracked_before_upgrade() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_semver_cmp() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
   sed -n '/^_check() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
