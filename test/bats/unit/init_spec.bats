@@ -1648,7 +1648,7 @@ EOF
 # [init] ERROR framing, no timestamp, no JSON record when piped, and an
 # instruction to edit a registry file that means nothing to a user.
 # upgrade.sh's sibling gets this right (_log_err upgrade
-# upgrade_rollback "display=$*").
+# "${_ev}" "display=$*", the event naming what failed -- base#1369).
 # ────────────────────────────────────────────────────────────────────
 
 _stage_missing_template_conf() {

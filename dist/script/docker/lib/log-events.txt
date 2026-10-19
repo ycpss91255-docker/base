@@ -193,8 +193,10 @@ upgrade_completed
 upgrade_subtree_pull_failed
 upgrade_version_bumped
 upgrade_version_mismatch
+upgrade_rollback_started
 upgrade_rollback
 upgrade_rollback_failed
+upgrade_merge_aborted
 upgrade_subtree_local_drift
 upgrade_subtree_local_drift_detail
 upgrade_version_check
@@ -205,6 +207,14 @@ upgrade_step
 upgrade_nothing_to_commit
 upgrade_config_drift
 upgrade_setup_conf_drift
+upgrade_git_identity_missing
+upgrade_git_operation_in_progress
+upgrade_not_a_git_repo
+upgrade_fetch_failed
+upgrade_downgrade_refused
+upgrade_base_not_found
+upgrade_unknown_arg
+upgrade_arg_missing_value
 # lib/dockerfile_migrate.sh (emitted under the upgrade service; base#1364)
 dockerfile_migration_snapshot_failed
 dockerfile_migration_skipped

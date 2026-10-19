@@ -132,7 +132,11 @@ cd "${REPO_ROOT}"
 #   INFO line under the upgrade service; <event> is the registered body
 #   (log-events.txt) naming what the line reports (base#1364).
 _log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
-_error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
+# _error <event> <message...>
+#   Fatal: ERROR line under the upgrade service, then exit 1. <event> is
+#   the registered body naming what failed; only a path that has already
+#   restored the repo passes upgrade_rollback (base#1369).
+_error() { local _ev="$1"; shift; _log_err upgrade "${_ev}" "display=$*"; exit 1; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
 # once the upgrade is past everything that can fail; a non-empty
@@ -172,7 +176,7 @@ _require_git_identity() {
   _name="$(git config user.name 2>/dev/null || true)"
   _email="$(git config user.email 2>/dev/null || true)"
   if [[ -z "${_name}" || -z "${_email}" ]]; then
-    _error "git identity not configured. Set it before upgrading:
+    _error upgrade_git_identity_missing "git identity not configured. Set it before upgrading:
   git config --global user.name \"Your Name\"
   git config --global user.email \"you@example.com\""
   fi
@@ -181,13 +185,17 @@ _require_git_identity() {
 # _require_clean_merge_state
 #   Refuse to start if a merge / rebase / cherry-pick / revert is in
 #   progress; our subtree merge would be conflated with the user's
-#   in-flight operation.
+#   in-flight operation. Also the first git call that needs a repository,
+#   so a tree with no .git is refused here by name rather than dying
+#   under set -e with only git's stderr (base#1369).
 _require_clean_merge_state() {
   local _git_dir _state
-  _git_dir="$(git rev-parse --git-dir)"
+  if ! _git_dir="$(git rev-parse --git-dir 2>/dev/null)"; then
+    _error upgrade_not_a_git_repo "$(pwd -P) is not inside a git repository; run the upgrade from the root of the repo's git checkout."
+  fi
   for _state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
     if [[ -e "${_git_dir}/${_state}" ]]; then
-      _error "${_state} present in ${_git_dir} — resolve or abort it before upgrading."
+      _error upgrade_git_operation_in_progress "${_state} present in ${_git_dir} — resolve or abort it before upgrading."
     fi
   done
 }
@@ -240,9 +248,11 @@ _verify_subtree_intact() {
 
 _rollback_subtree_pull() {
   local _pre_head="$1"
-  _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
+  # upgrade_rollback_started, not upgrade_rollback: the restore has not
+  # run yet, and may fail (base#1369).
+  _log_err upgrade upgrade_rollback_started "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
   _restore_pre_upgrade_state "${_pre_head}" || exit 1
-  _error "upgrade aborted; repo restored to pre-upgrade state"
+  _error upgrade_rollback "upgrade aborted; repo restored to pre-upgrade state"
 }
 
 # _restore_pre_upgrade_state <pre_head_sha>
@@ -262,7 +272,8 @@ _rollback_subtree_pull() {
 #   transcript.sh's, and clearing it skips the transcript finalize
 #   (base#1371).
 #
-#   Returns 1 when the rescue reset itself fails, and each caller turns
+#   Returns 1 when the rescue reset fails or any upgrade-created file
+#   cannot be removed, logging upgrade_rollback_failed, and each caller turns
 #   that into a non-zero exit. Do NOT swallow it with `|| true`: this runs
 #   when the tree is already damaged, and the user must hear the truth --
 #   a still-broken tree -- rather than a reassuring 'restored' message they
@@ -273,20 +284,38 @@ _restore_pre_upgrade_state() {
   local _pre_head="${1:?"${FUNCNAME[0]}: missing pre_head"}"
   _UPGRADE_PRE_HEAD=""
 
-  _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
+  _log_info upgrade upgrade_rollback_started "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
   if ! git reset --hard "${_pre_head}" >/dev/null 2>&1; then
     _log_err upgrade upgrade_rollback_failed "display=rollback FAILED -- could not reset to ${_pre_head:0:12}; manual recovery required (working tree is NOT restored)." "commit=${_pre_head:0:12}"
     return 1
   fi
-  _remove_untracked_since_snapshot
+  if ! _remove_untracked_since_snapshot; then
+    _log_err upgrade upgrade_rollback_failed "display=rollback INCOMPLETE -- reset to ${_pre_head:0:12}, but some files the upgrade created could not be removed; run 'git status' and delete the untracked files it lists that you did not create (working tree is NOT fully restored)." "commit=${_pre_head:0:12}"
+    return 1
+  fi
 }
 
 # _remove_untracked_since_snapshot
 #   Delete every currently-untracked path that was not untracked before the
 #   upgrade started. Run AFTER the reset, so `--exclude-standard` reads the
 #   restored .gitignore rather than the one the aborted upgrade wrote.
+#
+#   Keeps sweeping past a removal that fails, so as much as possible is
+#   cleaned, and returns 1 if ANY removal failed: a later success must not
+#   hide an earlier failure, or the caller reports a restore that left
+#   files behind (base#1369).
+#
+#   The listing is captured before the loop rather than read from a
+#   process substitution, whose exit status bash discards: a failed
+#   `git ls-files` would otherwise enumerate nothing, remove nothing, and
+#   still return success (base#1369).
 _remove_untracked_since_snapshot() {
   local _path
+  local _failed=0
+  local _listing
+  if ! _listing="$(git ls-files --others --exclude-standard)"; then
+    return 1
+  fi
   while IFS= read -r _path; do
     if [[ -z "${_path}" ]]; then
       continue
@@ -296,8 +325,11 @@ _remove_untracked_since_snapshot() {
     fi
     # `:?` rather than a bare expansion: an unset root would make this
     # `rm -f /<path>`, and a sweep is not a place to guess.
-    rm -f -- "${REPO_ROOT:?}/${_path}"
-  done < <(git ls-files --others --exclude-standard)
+    if ! rm -f -- "${REPO_ROOT:?}/${_path}"; then
+      _failed=1
+    fi
+  done <<< "${_listing}"
+  return "${_failed}"
 }
 
 # _was_untracked_before_upgrade <path>
@@ -333,6 +365,9 @@ _was_untracked_before_upgrade() {
 #
 #   A rescue that itself fails is reported, never swallowed: the user is
 #   holding a mid-merge tree either way, and must hear which one it is.
+#   Neither outcome logs upgrade_rollback: nothing was committed, so there
+#   is no upgrade to roll back, and the abort is reported only once it has
+#   succeeded (base#1369).
 _abort_failed_subtree_pull() {
   local _rc="${1:?"${FUNCNAME[0]}: missing rc"}"
   local _target="${2:?"${FUNCNAME[0]}: missing target_ver"}"
@@ -340,14 +375,14 @@ _abort_failed_subtree_pull() {
   _git_dir="$(git rev-parse --git-dir)"
 
   if [[ -e "${_git_dir}/MERGE_HEAD" ]]; then
-    _log_err upgrade upgrade_rollback "display=subtree pull left a conflicted merge in progress; aborting it so the repo is not left mid-merge." "status=${_rc}"
     if ! git merge --abort >/dev/null 2>&1; then
-      _log_err upgrade upgrade_rollback_failed "display=could not abort the merge; the tree is still mid-merge — resolve it or run 'git merge --abort' by hand before retrying."
+      _log_err upgrade upgrade_rollback_failed "display=subtree pull left a conflicted merge in progress and it could not be aborted; the tree is still mid-merge — resolve it or run 'git merge --abort' by hand before retrying." "status=${_rc}"
       exit 1
     fi
+    _log_warn upgrade upgrade_merge_aborted "display=subtree pull left a conflicted merge in progress; aborted it so the repo is not left mid-merge." "status=${_rc}"
   fi
 
-  _error "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
+  _error upgrade_subtree_pull_failed "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
 }
 
 # _upgrade_dfm_ran_file_cleanup
@@ -387,7 +422,7 @@ _upgrade_exit_rollback() {
   if (( _status == 0 )) || [[ -z "${_UPGRADE_PRE_HEAD}" ]]; then
     return 0
   fi
-  _log_err upgrade upgrade_rollback "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
+  _log_err upgrade upgrade_rollback_started "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
   if _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"; then
     _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
   else
@@ -495,7 +530,7 @@ _check() {
   latest_ver="$(_get_latest_version)"
 
   if [[ -z "${latest_ver}" ]]; then
-    _error "Could not fetch latest version from ${TEMPLATE_REMOTE}"
+    _error upgrade_fetch_failed "Could not fetch latest version from ${TEMPLATE_REMOTE}"
   fi
 
   _log upgrade_version_check "Local:  ${local_ver}"
@@ -538,7 +573,7 @@ _upgrade() {
     local _cmp=0
     _semver_cmp "${local_ver}" "${target_ver}" || _cmp=$?
     if (( _cmp == 2 )); then
-      _error "Refusing implicit downgrade from ${local_ver} to ${target_ver}.
+      _error upgrade_downgrade_refused "Refusing implicit downgrade from ${local_ver} to ${target_ver}.
   If this is intentional (rolling back a bad release), edit
   ${TEMPLATE_REL}/.version manually and re-run the upgrade."
     fi
@@ -1040,7 +1075,10 @@ main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --lang)
-        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        if [[ -z "${2:-}" ]]; then
+          _error upgrade_arg_missing_value "--lang requires a value (en|zh-TW|zh-CN|ja)"
+        fi
+        _LANG="$2"
         _sanitize_lang _LANG "upgrade"
         shift 2
         ;;
@@ -1062,7 +1100,7 @@ main() {
   _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit 1
 
   [[ ! -d "${TEMPLATE_REL}" ]] && \
-    _error "${TEMPLATE_REL}/ not found. Run from repo root."
+    _error upgrade_base_not_found "${TEMPLATE_REL}/ not found. Run from repo root."
 
   case "${1:-}" in
     --check) _check ;;
@@ -1073,10 +1111,10 @@ main() {
     "")
       local latest
       latest="$(_get_latest_version)"
-      [[ -z "${latest}" ]] && _error "Could not fetch latest version"
+      [[ -z "${latest}" ]] && _error upgrade_fetch_failed "Could not fetch latest version"
       _upgrade "${latest}"
       ;;
-    *) _error "Unknown argument: $1" ;;
+    *) _error upgrade_unknown_arg "Unknown argument: $1" ;;
   esac
 }
 
