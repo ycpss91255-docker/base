@@ -377,8 +377,9 @@ EOF
   cd "${DOWN_DIR}"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh --check
-  # _check exits 1 when an update is available (documented contract).
-  assert_failure
+  # _check exits 1 when an update is available (documented contract), and
+  # exactly 1: every other failure of --check exits 2 or above (base#1370).
+  assert_failure 1
   assert_output --partial "Local:  v0.9.5"
   assert_output --partial "Latest: v0.9.7"
   assert_output --partial "Update available"
@@ -482,6 +483,56 @@ _seed_entry() {
     || fail "just base update exited 0 although the version check could not fetch"
   [[ "${status}" == "${_check_status}" ]] \
     || fail "just base update exited ${status}; the failed check exited ${_check_status}"
+}
+
+# why: Every fatal --check path, not only the fetch, exits >= 2 (base#1370)
+@test "upgrade.sh --check: a refused WRAPPER_TRANSCRIPT exits 2 or above, not the 'update available' 1 (base#1370)" {
+  # The transcript setup refuses a value it cannot read and exits on its
+  # own, outside upgrade.sh's _error. The exit code a --check caller sees
+  # must still not read as "update available".
+  cd "${DOWN_DIR}"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" WRAPPER_TRANSCRIPT=invalid \
+    ./.base/dist/script/base/upgrade.sh --check
+  assert_output --partial "WRAPPER_TRANSCRIPT must be true or false"
+  (( status >= 2 )) \
+    || fail "a --check refused at transcript setup exited ${status}; 1 reads as update available"
+}
+
+# why: A failure before any upgrade.sh code runs is still not "update available" (base#1370)
+@test "upgrade.sh --check: a missing sourced helper exits 2 or above, not the 'update available' 1 (base#1370)" {
+  # upstream.sh is sourced at load, before _lib.sh and before main. A
+  # source that fails there stops the script under set -e; that exit is
+  # not one of _check's results either.
+  cd "${DOWN_DIR}"
+  rm -f .base/dist/script/base/upstream.sh
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+    ./.base/dist/script/base/upgrade.sh --check
+  assert_output --partial "upstream.sh"
+  (( status >= 2 )) \
+    || fail "a --check whose helper is missing exited ${status}; 1 reads as update available"
+}
+
+# why: Recipe propagates a check refused outside _error (skips w/o just, base#1370)
+@test "just base update (downstream entry): a refused WRAPPER_TRANSCRIPT exits non-zero (base#1370)" {
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
+  cd "${DOWN_DIR}"
+  _seed_entry
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" WRAPPER_TRANSCRIPT=invalid just base update
+  assert_output --partial "WRAPPER_TRANSCRIPT must be true or false"
+  (( status != 0 )) \
+    || fail "just base update exited 0 although the version check was refused"
 }
 
 # ── Legacy setup.conf auto-migration: NOT HERE any more ─────────────
