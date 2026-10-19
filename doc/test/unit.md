@@ -2585,7 +2585,7 @@ force-rewrite).
 | `apply_migrations: the no-Dockerfile skip is not logged as upgrade_started (base#1364)` | The skip line is the first one every consumer without a Dockerfile sees; under JSON it has to say "skipped", not "started" |
 | `apply_migrations: a 'Dockerfile patched' line is not logged as upgrade_started (base#1364)` | A patch line records a rewrite on disk; a log query for what an upgrade changed needs an event that says so |
 | `migration (entrypoint-orchestrator): the WARN notice is not logged as upgrade_started (base#1364)` | A WARN-severity advisory carrying an INFO-style "started" body is the mismatch the issue reports: the severity says warning, the event says nothing happened yet |
-| `dockerfile_migrate.sh: no log call uses the upgrade_started body (base#1364)` | The three runtime arms above sample the lib; this pins the rest of its ~27 log calls, none of which announces the upgrade |
+| `dockerfile_migrate.sh: no log call uses the upgrade_started body (base#1364)` | The three runtime arms above sample the lib; this pins the rest of its log calls, none of which announces the upgrade |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -8764,7 +8764,7 @@ back is in upgrade_migration_reachability_spec.bats.
 | `_warn_subtree_local_drift says the comparison could not run rather than nothing (#1092)` | Recording the reason is only half of it -- the consumer has to be told, because an upgrade that printed nothing is exactly what they saw before this check existed |
 | `_warn_subtree_local_drift names each drifted path repo-relative (#1092)` | Naming the files is the whole requirement -- a count with no paths leaves the consumer exactly where the silence did -- and the path has to be repo-relative, which is what they type at the prompt, not the subtree-relative form the comparison works in |
 | `_warn_subtree_local_drift says nothing when no drift was recorded (#1092)` | Silence on a clean tree is the behaviour every consumer sees on every upgrade, so it is the one the reporter has to get right even though it prints nothing |
-| `upgrade.sh: upgrade_started is emitted only by the 'Upgrading:' line (base#1364)` | `upgrade_started` is the event for the one line that announces the upgrade ("Upgrading: X -> Y"). The generic _log helper stamped it on every line -- step markers, check results, the done banner and the config-drift WARNING -- so a JSON reader filtering on the event saw ~40 "started" records per run (base#1364) |
+| `upgrade.sh: upgrade_started is emitted only by the 'Upgrading:' line (base#1364)` | `upgrade_started` is the event for the one line that announces the upgrade ("Upgrading: X -> Y"). The generic _log helper stamped it on every line -- step markers, check results, the done banner and the config-drift WARNING -- so a JSON reader filtering on the event saw every line of the run as a "started" record (base#1364) |
 
 ### test/bats/unit/upstream_spec.bats (9)
 

@@ -950,8 +950,8 @@ EOS
 # why: `upgrade_started` is the event for the one line that announces the
 # upgrade ("Upgrading: X -> Y"). The generic _log helper stamped it on every
 # line -- step markers, check results, the done banner and the config-drift
-# WARNING -- so a JSON reader filtering on the event saw ~40 "started"
-# records per run (base#1364)
+# WARNING -- so a JSON reader filtering on the event saw every line of
+# the run as a "started" record (base#1364)
 @test "upgrade.sh: upgrade_started is emitted only by the 'Upgrading:' line (base#1364)" {
   run grep -n 'upgrade_started' "${UPGRADE}"
   assert_success

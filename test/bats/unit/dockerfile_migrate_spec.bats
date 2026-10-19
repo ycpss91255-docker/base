@@ -3376,7 +3376,7 @@ EOT
 }
 
 # why: The three runtime arms above sample the lib; this pins the rest of
-# its ~27 log calls, none of which announces the upgrade
+# its log calls, none of which announces the upgrade
 @test "dockerfile_migrate.sh: no log call uses the upgrade_started body (base#1364)" {
   run grep -n 'upgrade_started' "${LIB}/dockerfile_migrate.sh"
   assert_failure
