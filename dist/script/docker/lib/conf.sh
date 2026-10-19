@@ -1060,9 +1060,10 @@ _conf_toml_empty_array_decl() {
   # the one who writes down why. Matched as the bare two characters, the
   # annotated spelling was copied through and the next added entry landed
   # beside a key already bound to an array: the unreadable file again,
-  # reached by annotating the decision the declaration records. (The
-  # annotation is not carried onto the declaration written back; the
-  # alternative on this path is a file nothing can parse.)
+  # reached by annotating the decision the declaration records. (A
+  # declaration the writers re-create carries no annotation; only one
+  # `setup add` retired behind _CONF_ADD_DECL_NOTE comes back as it was
+  # spelled.)
   [[ "${_ctea_v}" =~ ^\[[[:space:]]*\][[:space:]]*(#.*)?$ ]] || return 1
   _conf_line_key "${_line}" _ctea_k
   _ctea_cand="${_table:+${_table}.}${_ctea_k}"
@@ -1611,7 +1612,7 @@ _write_setup_conf() {
   # new entries of that kind are appended so the array stays in order.
   local -A __aot_of=() __aot_idx_of=() __aot_total=() __aot_seen=()
   local -A __aot_empty=() __aot_empty_done=() __aot_declared_empty=()
-  local __root_decls_flushed=0 __eap=""
+  local __root_decls_flushed=0 __eap="" __decl=""
   local __ovk __ovk_sect __ovk_key __p __n __hline
   if (( __toml )); then
     for __ovk in "${!__override[@]}"; do
@@ -1842,6 +1843,20 @@ _write_setup_conf() {
     if [[ -z "${__line}" ]]; then
       __wsc_blank=$(( __wsc_blank + 1 ))
       continue
+    fi
+    # A declaration `setup add` retired (see _CONF_ADD_DECL_NOTE) comes
+    # back, as it was spelled and where it stood, once this rewrite
+    # leaves its list empty; until then the comment is copied.
+    if (( __toml )) && [[ -z "${__aot_cur}" \
+          && "${__line}" == "${_CONF_ADD_DECL_NOTE}"* ]]; then
+      __decl="${__line#"${_CONF_ADD_DECL_NOTE}"}"
+      if _conf_toml_empty_array_decl "${__decl}" "${__current}" __eap \
+         && [[ -n "${__aot_empty[${__eap}]:-}" \
+               && -z "${__aot_empty_done[${__eap}]:-}" ]]; then
+        _wsc_emit "${__decl}"
+        __aot_empty_done["${__eap}"]=1
+        continue
+      fi
     fi
     if [[ "${__line}" =~ ^[[:space:]]*# ]]; then
       _wsc_emit "${__line}"
@@ -2319,6 +2334,16 @@ _conf_commit_toml() {
 # deleting an empty table the file already held (base#1363).
 _CONF_ADD_TABLE_NOTE="# added by setup add; removed with its last entry"
 
+# _CONF_ADD_DECL_NOTE
+#
+# The prefix `setup add` puts in front of an empty-array declaration
+# (`ports = []`) it has to retire because it gives the list an entry.
+# The declaration stays on its line as a comment, spelling and inline
+# comment included, and the rewrite that leaves the list empty again
+# writes it back from there, so an add/remove round trip gives back the
+# file it started from (base#1363).
+_CONF_ADD_DECL_NOTE="# setup remove restores this once the list is empty: "
+
 # _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value> [<note>]
 #
 # The scalar half of _upsert_conf_value: rewrite <src> into <dst> with
@@ -2495,7 +2520,11 @@ _conf_toml_upsert_aot() {
          && [[ "${__eap}" == "${_path}" ]]; then
       # This write gives the array an entry, so the declaration that said
       # it had none cannot stay: TOML refuses to extend a key already
-      # bound to an array, and the whole file would stop parsing.
+      # bound to an array, and the whole file would stop parsing. It
+      # stays, commented out behind _CONF_ADD_DECL_NOTE, where it stood,
+      # so the remove that empties the list again puts back these exact
+      # bytes in this place (base#1363).
+      printf '%s%s\n' "${_CONF_ADD_DECL_NOTE}" "${__line}" >> "${_dst}"
       continue
     fi
     printf '%s\n' "${__line}" >> "${_dst}"
