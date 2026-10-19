@@ -204,6 +204,12 @@ upgrade_step
 upgrade_nothing_to_commit
 upgrade_config_drift
 upgrade_setup_conf_drift
+upgrade_git_identity_missing
+upgrade_git_operation_in_progress
+upgrade_fetch_failed
+upgrade_downgrade_refused
+upgrade_base_not_found
+upgrade_unknown_arg
 # lib/dockerfile_migrate.sh (emitted under the upgrade service; base#1364)
 dockerfile_migration_snapshot_failed
 dockerfile_migration_skipped

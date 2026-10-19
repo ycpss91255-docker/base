@@ -65,7 +65,11 @@ cd "${REPO_ROOT}"
 #   INFO line under the upgrade service; <event> is the registered body
 #   (log-events.txt) naming what the line reports (base#1364).
 _log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
-_error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
+# _error <event> <message...>
+#   Fatal: ERROR line under the upgrade service, then exit 1. <event> is
+#   the registered body naming what failed; only a path that really
+#   restored the repo passes upgrade_rollback (base#1369).
+_error() { local _ev="$1"; shift; _log_err upgrade "${_ev}" "display=$*"; exit 1; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
 # once the upgrade is past everything that can fail; a non-empty
@@ -105,7 +109,7 @@ _require_git_identity() {
   _name="$(git config user.name 2>/dev/null || true)"
   _email="$(git config user.email 2>/dev/null || true)"
   if [[ -z "${_name}" || -z "${_email}" ]]; then
-    _error "git identity not configured. Set it before upgrading:
+    _error upgrade_git_identity_missing "git identity not configured. Set it before upgrading:
   git config --global user.name \"Your Name\"
   git config --global user.email \"you@example.com\""
   fi
@@ -120,7 +124,7 @@ _require_clean_merge_state() {
   _git_dir="$(git rev-parse --git-dir)"
   for _state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
     if [[ -e "${_git_dir}/${_state}" ]]; then
-      _error "${_state} present in ${_git_dir} — resolve or abort it before upgrading."
+      _error upgrade_git_operation_in_progress "${_state} present in ${_git_dir} — resolve or abort it before upgrading."
     fi
   done
 }
@@ -175,7 +179,7 @@ _rollback_subtree_pull() {
   local _pre_head="$1"
   _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
   _restore_pre_upgrade_state "${_pre_head}" || exit 1
-  _error "upgrade aborted; repo restored to pre-upgrade state"
+  _error upgrade_rollback "upgrade aborted; repo restored to pre-upgrade state"
 }
 
 # _restore_pre_upgrade_state <pre_head_sha>
@@ -280,7 +284,7 @@ _abort_failed_subtree_pull() {
     fi
   fi
 
-  _error "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
+  _error upgrade_subtree_pull_failed "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
 }
 
 # _upgrade_exit_rollback
@@ -420,7 +424,7 @@ _check() {
   latest_ver="$(_get_latest_version)"
 
   if [[ -z "${latest_ver}" ]]; then
-    _error "Could not fetch latest version from ${TEMPLATE_REMOTE}"
+    _error upgrade_fetch_failed "Could not fetch latest version from ${TEMPLATE_REMOTE}"
   fi
 
   _log upgrade_version_check "Local:  ${local_ver}"
@@ -460,7 +464,7 @@ _upgrade() {
     local _cmp=0
     _semver_cmp "${local_ver}" "${target_ver}" || _cmp=$?
     if (( _cmp == 2 )); then
-      _error "Refusing implicit downgrade from ${local_ver} to ${target_ver}.
+      _error upgrade_downgrade_refused "Refusing implicit downgrade from ${local_ver} to ${target_ver}.
   If this is intentional (rolling back a bad release), edit
   ${TEMPLATE_REL}/.version manually and re-run the upgrade."
     fi
@@ -959,7 +963,7 @@ main() {
   _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit 1
 
   [[ ! -d "${TEMPLATE_REL}" ]] && \
-    _error "${TEMPLATE_REL}/ not found. Run from repo root."
+    _error upgrade_base_not_found "${TEMPLATE_REL}/ not found. Run from repo root."
 
   case "${1:-}" in
     --check) _check ;;
@@ -970,10 +974,10 @@ main() {
     "")
       local latest
       latest="$(_get_latest_version)"
-      [[ -z "${latest}" ]] && _error "Could not fetch latest version"
+      [[ -z "${latest}" ]] && _error upgrade_fetch_failed "Could not fetch latest version"
       _upgrade "${latest}"
       ;;
-    *) _error "Unknown argument: $1" ;;
+    *) _error upgrade_unknown_arg "Unknown argument: $1" ;;
   esac
 }
 
