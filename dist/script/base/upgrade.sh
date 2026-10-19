@@ -61,7 +61,10 @@ source "${SUBTREE_ROOT}/dist/script/docker/lib/template_guard.sh"
 
 cd "${REPO_ROOT}"
 
-_log() { _log_info upgrade upgrade_started "display=$*"; }
+# _log <event> <message...>
+#   INFO line under the upgrade service; <event> is the registered body
+#   (log-events.txt) naming what the line reports (base#1364).
+_log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
 _error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
@@ -406,20 +409,20 @@ _check() {
     _error "Could not fetch latest version from ${TEMPLATE_REMOTE}"
   fi
 
-  _log "Local:  ${local_ver}"
-  _log "Latest: ${latest_ver}"
+  _log upgrade_version_check "Local:  ${local_ver}"
+  _log upgrade_version_check "Latest: ${latest_ver}"
 
   if [[ "${local_ver}" == "unknown" ]]; then
-    _log "Update available: ${local_ver} →${latest_ver}"
+    _log upgrade_available "Update available: ${local_ver} →${latest_ver}"
     return 1
   fi
 
   local _cmp=0
   _semver_cmp "${local_ver}" "${latest_ver}" || _cmp=$?
   case "${_cmp}" in
-    0) _log "Already up to date."; return 0 ;;
-    1) _log "Update available: ${local_ver} →${latest_ver}"; return 1 ;;
-    2) _log "Local is ahead of latest stable (prerelease or local-only tag)."; return 0 ;;
+    0) _log upgrade_up_to_date "Already up to date."; return 0 ;;
+    1) _log upgrade_available "Update available: ${local_ver} →${latest_ver}"; return 1 ;;
+    2) _log upgrade_ahead_of_latest "Local is ahead of latest stable (prerelease or local-only tag)."; return 0 ;;
   esac
 }
 
@@ -431,7 +434,7 @@ _upgrade() {
   local_ver="$(_get_local_version)"
 
   if [[ "${local_ver}" == "${target_ver}" ]]; then
-    _log "Already at ${target_ver}. Nothing to do."
+    _log upgrade_up_to_date "Already at ${target_ver}. Nothing to do."
     return 0
   fi
 
@@ -493,7 +496,7 @@ _upgrade() {
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
 
-  _log "Upgrading: ${local_ver} → ${target_ver}"
+  _log upgrade_started "Upgrading: ${local_ver} → ${target_ver}"
 
   # Snapshot the pre-pull tree hash of ${TEMPLATE_REL}/dist/config so we can
   # tell the user if their seeded <repo>/config is now out of sync with
@@ -522,7 +525,7 @@ _upgrade() {
     < <(git ls-files --others --exclude-standard)
 
   # Step 1: subtree pull
-  _log "Step 1/5: git subtree pull"
+  _log upgrade_step "Step 1/5: git subtree pull"
   # Guarded rather than left to `set -e`: the pull is the ONE step that can
   # fail while the exit trap below is still unarmed, and its characteristic
   # failure (a conflict against a hand-edited .base/) leaves a merge in
@@ -544,7 +547,7 @@ _upgrade() {
   trap _upgrade_exit_trap EXIT
 
   # Step 2: post-pull integrity check (rolls back on corruption)
-  _log "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
+  _log upgrade_step "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
   _verify_subtree_intact "${_pre_head}" "${target_ver}"
 
   # Record how far the vendored tree diverges from the release that was just
@@ -554,14 +557,14 @@ _upgrade() {
   _collect_subtree_local_drift "${_pre_head}"
 
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
-  _log "Step 3/5: re-run init.sh to sync symlinks"
+  _log upgrade_step "Step 3/5: re-run init.sh to sync symlinks"
   # when upgrading from <v0.30.0, init.sh's stale-removal loop
   # migrates the seven root *.sh symlinks into the script/ subfolder.
-  _log "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
+  _log upgrade_step "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
   "./${TEMPLATE_REL}/dist/script/base/init.sh"
 
   # Step 4: update main.yaml @tag references
-  _log "Step 4/5: update workflow @tag references"
+  _log upgrade_step "Step 4/5: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
   local _ref_note="not present, so there was no workflow @ref to update"
   if [[ -f "${main_yaml}" ]]; then
@@ -637,7 +640,7 @@ _upgrade() {
   # force-rewrite) where structure is missing or ambiguous. Adding the next
   # fanout breakage is a new {detect, transform} pair in the lib, not another
   # branch here.
-  _log "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
+  _log upgrade_step "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
   local _dockerfile="${REPO_ROOT}/Dockerfile"
   # shellcheck disable=SC1091
   source "${SUBTREE_ROOT}/dist/script/docker/lib/dockerfile_migrate.sh"
@@ -663,7 +666,7 @@ chore: update template references to ${target_ver}
 - .gitignore: synced canonical entries (template lib/gitignore.sh)
 - untracked any derived artifacts now covered by .gitignore
 COMMIT
-)" || _log "No additional changes to commit"
+)" || _log upgrade_nothing_to_commit "No additional changes to commit"
 
   # Every step that can fail has succeeded; the upgrade is done. Disarm
   # BEFORE the drift warnings below -- they are advisory, and an upgrade
@@ -688,11 +691,11 @@ COMMIT
   # has to act on rather than a diff they may want to read.
   _warn_subtree_local_drift
 
-  _log "Done! Upgraded to ${target_ver}"
-  _log ""
-  _log "Next steps:"
-  _log "  1. Run just docker build test to verify"
-  _log "  2. git push"
+  _log upgrade_completed "Done! Upgraded to ${target_ver}"
+  _log upgrade_completed ""
+  _log upgrade_completed "Next steps:"
+  _log upgrade_completed "  1. Run just docker build test to verify"
+  _log upgrade_completed "  2. git push"
 }
 
 # ── Vendored-tree drift against the release that was pulled ──────────────────
@@ -836,16 +839,16 @@ _warn_config_drift() {
   _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0         # no config in new subtree
   [[ "${_pre}" == "${_post}" ]] && return 0   # unchanged
-  _log ""
-  _log "WARNING: ${TEMPLATE_REL}/dist/config/ changed upstream since the last pull."
-  _log "         Your <repo>/config/ is user-owned and was NOT updated."
-  _log "         Review the diff and port any upstream changes you want:"
-  _log ""
-  _log "           diff -ruN ${TEMPLATE_REL}/dist/config config"
+  _log upgrade_config_drift ""
+  _log upgrade_config_drift "WARNING: ${TEMPLATE_REL}/dist/config/ changed upstream since the last pull."
+  _log upgrade_config_drift "         Your <repo>/config/ is user-owned and was NOT updated."
+  _log upgrade_config_drift "         Review the diff and port any upstream changes you want:"
+  _log upgrade_config_drift ""
+  _log upgrade_config_drift "           diff -ruN ${TEMPLATE_REL}/dist/config config"
   if [[ -n "${_pre}" ]]; then
-    _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/config/):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/config"
+    _log upgrade_config_drift ""
+    _log upgrade_config_drift "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/config/):"
+    _log upgrade_config_drift "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/config"
   fi
 }
 
@@ -863,16 +866,16 @@ _warn_setup_conf_drift() {
   _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/setup.toml" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0
   [[ "${_pre}" == "${_post}" ]] && return 0
-  _log ""
-  _log "WARNING: ${TEMPLATE_REL}/dist/setup.toml changed upstream since the last pull."
-  _log "         Your setup.toml is the user override and was NOT updated."
-  _log "         Review the diff and copy any new sections / keys you want:"
-  _log ""
-  _log "           diff -u ${TEMPLATE_REL}/dist/setup.toml setup.toml"
+  _log upgrade_setup_conf_drift ""
+  _log upgrade_setup_conf_drift "WARNING: ${TEMPLATE_REL}/dist/setup.toml changed upstream since the last pull."
+  _log upgrade_setup_conf_drift "         Your setup.toml is the user override and was NOT updated."
+  _log upgrade_setup_conf_drift "         Review the diff and copy any new sections / keys you want:"
+  _log upgrade_setup_conf_drift ""
+  _log upgrade_setup_conf_drift "           diff -u ${TEMPLATE_REL}/dist/setup.toml setup.toml"
   if [[ -n "${_pre}" ]]; then
-    _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/setup.toml):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/setup.toml"
+    _log upgrade_setup_conf_drift ""
+    _log upgrade_setup_conf_drift "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/setup.toml):"
+    _log upgrade_setup_conf_drift "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/setup.toml"
   fi
 }
 

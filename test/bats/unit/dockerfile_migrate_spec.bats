@@ -3320,3 +3320,77 @@ EOF
   assert_equal "${status}" "1"
   assert_output ""
 }
+
+# ── log event bodies name what happened (base#1364) ─────────────────────────
+# Every migration notice used to carry the body `upgrade_started`, so a
+# JSON log reader filtering on the event could not tell a patch from a skip
+# from an advisory warning. `upgrade_started` belongs to the one line that
+# announces the upgrade (upgrade.sh); a migration line names its own event.
+
+# _json_bodies <output>
+#   Print the body of every JSON log record in <output>, one per line.
+_json_bodies() {
+  printf '%s\n' "$1" | grep -o '"body":"[^"]*"' | sed 's/^"body":"//; s/"$//'
+}
+
+# _json_record <output> <fixed-text>
+#   Print the one JSON log record in <output> whose display carries
+#   <fixed-text>; fails when there is none.
+_json_record() {
+  printf '%s\n' "$1" | grep -F -- "$2"
+}
+
+# why: The skip line is the first one every consumer without a Dockerfile
+# sees; under JSON it has to say "skipped" at INFO, not "started" -- and not
+# any other registered body either, which a mere absence check would allow
+@test "apply_migrations: the no-Dockerfile skip logs INFO dockerfile_migration_skipped (base#1364)" {
+  run bash -c "export LOG_FORMAT=json; $(_src); apply_migrations '${TEMP_DIR}/nope'"
+  assert_success
+  local _out="${output}" _line
+  _line="$(_json_record "${_out}" 'skip migrations')"
+  [ -n "${_line}" ]
+  [[ "${_line}" == *'"severity_text":"INFO"'* ]]
+  [[ "${_line}" == *'"body":"dockerfile_migration_skipped"'* ]]
+  run grep -Fx 'upgrade_started' <<< "$(_json_bodies "${_out}")"
+  assert_failure
+}
+
+# why: A patch line records a rewrite on disk; a log query for what an
+# upgrade changed needs an event that says so, at INFO
+@test "apply_migrations: a 'Dockerfile patched' line logs INFO dockerfile_patched (base#1364)" {
+  cat > "${DF}" <<'EOT'
+FROM busybox AS lint
+COPY .base/downstream/script/docker/lib /lint/lib
+EOT
+  run bash -c "export LOG_FORMAT=json; $(_src); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial 'Dockerfile patched'
+  local _line
+  _line="$(_json_record "${output}" 'Dockerfile patched')"
+  [ -n "${_line}" ]
+  [[ "${_line}" == *'"severity_text":"INFO"'* ]]
+  [[ "${_line}" == *'"body":"dockerfile_patched"'* ]]
+}
+
+# why: A WARN-severity advisory carrying an INFO-style "started" body is the
+# mismatch the issue reports. The body has to name the advisory: a WARN
+# that changed nothing logged as, say, upgrade_completed would be the same
+# mismatch with a different word
+@test "migration (entrypoint-orchestrator): the WARN notice logs dockerfile_entrypoint_advisory (base#1364)" {
+  _write_old_model_repo
+  run bash -c "export LOG_FORMAT=json; $(_src); _migrate_entrypoint_orchestrator_apply '${DF}' 2>&1"
+  assert_success
+  local _line
+  _line="$(_json_record "${output}" 'Nothing was changed here')"
+  [ -n "${_line}" ]
+  [[ "${_line}" == *'"severity_text":"WARN"'* ]]
+  [[ "${_line}" == *'"body":"dockerfile_entrypoint_advisory"'* ]]
+}
+
+# why: The three runtime arms above sample the lib; this pins the rest of
+# its log calls, none of which announces the upgrade
+@test "dockerfile_migrate.sh: no log call uses the upgrade_started body (base#1364)" {
+  run grep -n 'upgrade_started' "${LIB}/dockerfile_migrate.sh"
+  assert_failure
+  assert_output ""
+}

@@ -199,7 +199,7 @@ _dfm_snapshot_targets() {
   # helpers still report. Say so rather than reconciling against nothing.
   if ! _DFM_BEFORE_DIR="$(mktemp -d)"; then
     _DFM_BEFORE_DIR=""
-    _log_warn upgrade upgrade_started "display=  cannot snapshot the migration targets; a rewrite made outside the write helpers will not be reported"
+    _log_warn upgrade dockerfile_migration_snapshot_failed "display=  cannot snapshot the migration targets; a rewrite made outside the write helpers will not be reported"
     return 0
   fi
 
@@ -300,7 +300,7 @@ apply_migrations() {
   _DFM_TOUCHED=()
 
   if [[ ! -f "${_file}" ]]; then
-    _log_info upgrade upgrade_started "display=  no Dockerfile at ${_file} — skip migrations"
+    _log_info upgrade dockerfile_migration_skipped "display=  no Dockerfile at ${_file} — skip migrations"
     return 0
   fi
 
@@ -349,7 +349,7 @@ _migrate_downstream_to_dist_detect() {
 _migrate_downstream_to_dist_apply() {
   local _file="$1"
   _dfm_sed "${_file}" 's#\.base/downstream/#.base/dist/#g'
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/downstream/ -> .base/dist/ (#714)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: .base/downstream/ -> .base/dist/ (#714)"
 }
 
 # ── Migration 1: wrapper COPY shape A/B -> wrapper/*.sh ─────────────────────
@@ -374,7 +374,7 @@ _migrate_wrapper_copy_apply() {
   _dfm_sed "${_file}" -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|'
   # Shape B: flat top-level .base glob.
   _dfm_sed "${_file}" -E 's|^([[:space:]]*)COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|'
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: wrapper COPY -> .base/script/docker/wrapper/*.sh (#567 m1)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: wrapper COPY -> .base/script/docker/wrapper/*.sh (#567 m1)"
 }
 
 # ── Migration 2: retired .base/dockerfile/setup pip helper ──────────────────
@@ -758,7 +758,7 @@ _migrate_pip_helper_apply() {
 
   local _config_dir
   if ! _config_dir="$(_dfm_pip_config_dir "${_file}")"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — CONFIG_DIR is not provably overlaid from <repo>/config here (CONFIG_SRC is redirected, a conf layer could not be read, or that directory is absent), so what the line installs cannot be read from here; drop it by hand if it installs nothing (#567 m2)"
+    _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — CONFIG_DIR is not provably overlaid from <repo>/config here (CONFIG_SRC is redirected, a conf layer could not be read, or that directory is absent), so what the line installs cannot be read from here; drop it by hand if it installs nothing (#567 m2)"
     return 0
   fi
 
@@ -769,24 +769,24 @@ _migrate_pip_helper_apply() {
   _dfm_pip_requirements_populated "${_config_dir}" || _rst=$?
   case "${_rst}" in
     0)
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
+      _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
       return 0
       ;;
     1) ;;
     *)
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt could not be read, so what the line installs is unknown; a file this migration never read is not a file with nothing in it (#567 m2)"
+      _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt could not be read, so what the line installs is unknown; a file this migration never read is not a file with nothing in it (#567 m2)"
       return 0
       ;;
   esac
 
   if ! _dfm_pip_line_is_standalone "${_file}"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — it is part of a backslash-continued RUN a line delete would break; drop it by hand (#567 m2)"
+    _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — it is part of a backslash-continued RUN a line delete would break; drop it by hand (#567 m2)"
     return 0
   fi
 
   _dfm_sed "${_file}" -E "\\%${_DFM_PIP_HELPER_RE}%d"
   _dfm_sed "${_file}" '/^# Setup pip packages$/d'
-  _log_warn upgrade upgrade_started "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
+  _log_warn upgrade dockerfile_patched "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
 }
 
 # ── Migration 3: explicit hand-listed lib/wrapper COPYs ─────────────────────
@@ -836,7 +836,7 @@ _migrate_explicit_copy_apply() {
     { print }
   ' "${_file}" > "${_tmp}"
   _dfm_install "${_file}" "${_tmp}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: dropped redundant explicit lib/wrapper COPY(s) (#567 m3)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: dropped redundant explicit lib/wrapper COPY(s) (#567 m3)"
 }
 
 # ── Migration 4: _entrypoint_logging.sh -> runtime/logging.sh rename ────────
@@ -876,9 +876,9 @@ _migrate_logging_rename_apply() {
   _entry="$(_dfm_entrypoint_path "${_file}")"
   if [[ -f "${_entry}" ]] && grep -q '_entrypoint_logging\.sh' "${_entry}"; then
     _dfm_sed "${_entry}" 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g'
-    _log_info upgrade upgrade_started "display=  entrypoint patched: _entrypoint_logging.sh -> logging.sh source (#567 m4)"
+    _log_info upgrade entrypoint_patched "display=  entrypoint patched: _entrypoint_logging.sh -> logging.sh source (#567 m4)"
   fi
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: _entrypoint_logging.sh -> runtime/logging.sh (#567 m4)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: _entrypoint_logging.sh -> runtime/logging.sh (#567 m4)"
 }
 
 # ── Migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ──────
@@ -1100,7 +1100,7 @@ _migrate_hadolint_apply() {
     ' "${_file}" > "${_tmp3066}"
     _dfm_install "${_file}" "${_tmp3066}"
   fi
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006/DL3066 (#567 m5, #946)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006/DL3066 (#567 m5, #946)"
 }
 
 # ── Migration 6: noetic entrypoint SC1090 directive ─────────────────────────
@@ -1120,7 +1120,7 @@ _migrate_sc1090_apply() {
   local _entry
   _entry="$(_dfm_entrypoint_path "$1")"
   _dfm_sed "${_entry}" -E 's|^([[:space:]]*#[[:space:]]*shellcheck disable=)SC1091([[:space:]]*)$|\1SC1090,SC1091\2|'
-  _log_info upgrade upgrade_started "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
+  _log_info upgrade entrypoint_patched "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
 }
 
 # ── Migration 7 (facet B): ARG USER is reported, never rewritten ─────
@@ -1369,11 +1369,11 @@ _migrate_arg_user_apply() {
     _form="${_row%% *}"; _val=""
     [[ "${_form}" == literal ]] && _val="${_row#literal }"
     if [[ "${_form}" == root ]]; then
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
+      _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to USER_NAME (an earlier upgrade's rewrite) or could not be read -- if sys never declares USER_NAME and creates the user from it, the image may run as root; ${_DFM_ARG_USER_PORT} (base#1322)"
     elif [[ "${_form}" == literal ]]; then
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to \"${_val}\" and compose passes no USER build arg -- the image builds that user, not the one compose passes, unless the build is given --build-arg USER; ${_DFM_ARG_USER_PORT} (base#1348)"
+      _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER defaults to \"${_val}\" and compose passes no USER build arg -- the image builds that user, not the one compose passes, unless the build is given --build-arg USER; ${_DFM_ARG_USER_PORT} (base#1348)"
     else
-      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
+      _log_warn upgrade dockerfile_unchanged "display=  Dockerfile unchanged: ${_file}:${_ln}: ARG USER has no default and compose passes no USER build arg -- unless a parent stage declares ARG USER (which this stage then inherits), the image does not get the user compose passes; ${_DFM_ARG_USER_PORT} (base#1322)"
     fi
   done < <(_dfm_arg_user_scan "${_file}")
 }
@@ -1458,7 +1458,7 @@ _migrate_nounset_source_apply() {
     END { if (held != "") print held }
   ' "${_entry}" > "${_tmp}"
   _dfm_install "${_entry}" "${_tmp}"
-  _log_info upgrade upgrade_started "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
+  _log_info upgrade entrypoint_patched "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
 }
 
 # ── Migration (smoke-copy): flat .base/test/smoke/ -> per-stage dist tree ────
@@ -1702,7 +1702,7 @@ _dfm_smoke_rewrite() {
     END { flush() }
   ' "${_file}" > "${_tmp}"
   _dfm_install "${_file}" "${_tmp}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: ${_retired}/ -> per-stage smoke COPYs under ${_new} (${_ref})"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: ${_retired}/ -> per-stage smoke COPYs under ${_new} (${_ref})"
 
   # Anything still naming the retired tree is a spec the pulled subtree no
   # longer ships under that name, or ships twice. Say so: the build will
@@ -1711,7 +1711,7 @@ _dfm_smoke_rewrite() {
   # unresolved sources on continuation lines, which is exactly where a
   # ^COPY-anchored grep over raw lines cannot see them.
   if _dfm_smoke_present "${_file}" "${_retired}"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired ${_retired}/ spec that is shipped at no single path — resolve it by hand (${_ref})"
+    _log_warn upgrade dockerfile_needs_manual_fix "display=  Dockerfile still COPYs a retired ${_retired}/ spec that is shipped at no single path — resolve it by hand (${_ref})"
   fi
 }
 
@@ -1785,7 +1785,7 @@ _migrate_flat_to_dist_apply() {
   local _file="$1"
   _dfm_sed "${_file}" -e 's#\.base/config#.base/dist/config#g' \
     -e 's#\.base/script#.base/dist/script#g'
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: flat .base/{config,script} -> .base/dist/ (#915)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: flat .base/{config,script} -> .base/dist/ (#915)"
 }
 
 # ── Migration (runtime-moved-files): the two non-helpers leaving runtime/ ───
@@ -1819,7 +1819,7 @@ _migrate_runtime_moved_files_apply() {
   _dfm_sed "${_file}" -E \
     -e 's#\.base/(downstream/|dist/)?script/docker/runtime/entrypoint\.sh#.base/dist/dockerfile/entrypoint.sh#g' \
     -e 's#\.base/(downstream/|dist/)?script/docker/runtime/smoke\.sh#.base/dist/test/bats/smoke/smoke.sh#g'
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime/{entrypoint,smoke}.sh moved out of the helper dir (#971)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: runtime/{entrypoint,smoke}.sh moved out of the helper dir (#971)"
 }
 
 # ── Migration (runtime-dir-copy): per-file helper COPYs -> one dir COPY ──────
@@ -1911,14 +1911,14 @@ _migrate_runtime_dir_copy_apply() {
     }
   ' "${_file}" > "${_tmp}"
   _dfm_install "${_file}" "${_tmp}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime helper COPYs collapsed into one directory COPY (#971)"
+  _log_info upgrade dockerfile_patched "display=  Dockerfile patched: runtime helper COPYs collapsed into one directory COPY (#971)"
 
   # Anything still naming a helper file is a shape the rewrite declined --
   # a backslash-continued statement. It still builds; say so rather than
   # reporting a collapse that did not happen to that line.
   if grep -qE "^[[:space:]]*#?[[:space:]]*COPY[[:space:]].*${_DFM_RUNTIME_HELPER_SRC_RE}" \
       "${_file}"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a runtime helper per file on a continued statement — collapse it by hand into the directory COPY (#971)"
+    _log_warn upgrade dockerfile_needs_manual_fix "display=  Dockerfile still COPYs a runtime helper per file on a continued statement — collapse it by hand into the directory COPY (#971)"
   fi
 }
 
@@ -1959,7 +1959,7 @@ _migrate_entrypoint_orchestrator_detect() {
 
 _migrate_entrypoint_orchestrator_apply() {
   local _file="$1"
-  _log_warn upgrade upgrade_started "display=  Dockerfile still runs the repo's own /entrypoint.sh as the container ENTRYPOINT. base now ships an orchestrator at /usr/local/lib/base/entrypoint.sh that sources it; migrating means flipping ENTRYPOINT and cleaning script/entrypoint.sh in the SAME commit (README: Container entrypoint). Nothing was changed here."
+  _log_warn upgrade dockerfile_entrypoint_advisory "display=  Dockerfile still runs the repo's own /entrypoint.sh as the container ENTRYPOINT. base now ships an orchestrator at /usr/local/lib/base/entrypoint.sh that sources it; migrating means flipping ENTRYPOINT and cleaning script/entrypoint.sh in the SAME commit (README: Container entrypoint). Nothing was changed here."
 }
 
 # ── Migration (bringup-residue): the other half of that same notice ─────────
@@ -2006,10 +2006,10 @@ _migrate_bringup_residue_apply() {
   local _bringup
   _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 0
   if grep -qE "${_DFM_BRINGUP_EXEC_RE}" "${_bringup}"; then
-    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still execs, but the ENTRYPOINT is base's orchestrator, which SOURCES it -- the exec fires mid-source and the watchdog never arms. Drop it; the orchestrator owns the final exec. Nothing was changed here."
+    _log_warn upgrade entrypoint_advisory "display=  script/entrypoint.sh still execs, but the ENTRYPOINT is base's orchestrator, which SOURCES it -- the exec fires mid-source and the watchdog never arms. Drop it; the orchestrator owns the final exec. Nothing was changed here."
   fi
   if grep -qE "${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"; then
-    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still sources a /usr/local/lib/base/ helper the orchestrator already sources, so it runs twice (a second per-start log, or a second watchdog). Drop the source line. Nothing was changed here."
+    _log_warn upgrade entrypoint_advisory "display=  script/entrypoint.sh still sources a /usr/local/lib/base/ helper the orchestrator already sources, so it runs twice (a second per-start log, or a second watchdog). Drop the source line. Nothing was changed here."
   fi
 }
 
