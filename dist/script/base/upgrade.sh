@@ -648,8 +648,22 @@ _upgrade() {
   # What is untracked BEFORE anything moves, so a rollback can tell the
   # user's own stray files (leave them) from the ones an aborted upgrade
   # created (remove them).
-  mapfile -t _UPGRADE_UNTRACKED_SNAPSHOT \
-    < <(git ls-files --others --exclude-standard)
+  #
+  # Captured into a variable rather than read from a process substitution,
+  # whose exit status bash discards: a failed `git ls-files` would leave
+  # the snapshot empty, and a later rollback would then sweep the user's
+  # own untracked files. A snapshot that cannot be taken stops the upgrade
+  # here, before anything is pulled (base#1384).
+  local _untracked_listing
+  if ! _untracked_listing="$(git ls-files --others --exclude-standard)"; then
+    _error upgrade_untracked_snapshot_failed \
+      "Could not list untracked files before the upgrade; nothing was changed"
+  fi
+  # Guarded: a here-string of an empty listing would still feed mapfile
+  # one empty line, recording "" as an untracked path.
+  if [[ -n "${_untracked_listing}" ]]; then
+    mapfile -t _UPGRADE_UNTRACKED_SNAPSHOT <<< "${_untracked_listing}"
+  fi
 
   # Step 1: subtree pull
   _log upgrade_step "Step 1/5: git subtree pull"

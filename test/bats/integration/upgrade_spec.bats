@@ -1312,6 +1312,60 @@ STUB
   assert [ -e zzz-upgrade-created ]
 }
 
+# _install_first_ls_files_fails <stub_dir> <marker>
+#   A `git` PATH shim that fails only the FIRST `git ls-files` call and
+#   forwards every other invocation to the real git. <marker> is a file
+#   the shim creates on that first call, so later calls -- the rollback's
+#   sweep among them -- enumerate normally.
+_install_first_ls_files_fails() {
+  local _stub_dir="$1"
+  local _marker="$2"
+  local _real_git
+  _real_git="$(command -v git)"
+  mkdir -p "${_stub_dir}"
+  cat > "${_stub_dir}/git" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1" == "ls-files" && ! -e "${_marker}" ]]; then
+  : > "${_marker}"
+  echo "git stub: first ls-files refused" >&2
+  exit 128
+fi
+exec "${_real_git}" "\$@"
+STUB
+  chmod +x "${_stub_dir}/git"
+}
+
+# why: The pre-upgrade snapshot is what tells a rollback the user's own
+# untracked files from the ones the upgrade created; a snapshot that
+# failed to enumerate would make a later rollback sweep the user's files,
+# so a failed snapshot must stop the upgrade before anything is pulled
+@test "upgrade.sh: a failed pre-upgrade untracked snapshot stops the upgrade before the pull (base#1384)" {
+  # A run that is not stopped would pull v0.9.7, fail its init.sh, and
+  # roll back -- sweeping every untracked file the empty snapshot missed.
+  _publish_failing_init 'exit 7'
+  cd "${DOWN_DIR}"
+  echo "user data" > mine.txt
+  local _stub_dir="${BATS_TEST_TMPDIR}/git_shim"
+  _install_first_ls_files_fails "${_stub_dir}" \
+    "${BATS_TEST_TMPDIR}/ls_files_failed_once"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json PATH="${_stub_dir}:${PATH}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure
+  assert [ -e mine.txt ]
+  [ "$(cat mine.txt)" = "user data" ]
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+  [[ "${output}" != *'Step 1/5: git subtree pull'* ]]
+  [[ "${output}" != *'"body":"upgrade_rollback"'* ]]
+  local _last
+  _last="$(printf '%s\n' "${output}" | grep -F '"severity_text":"ERROR"' | tail -n 1)"
+  [[ "${_last}" == *'"body":"upgrade_untracked_snapshot_failed"'* ]]
+}
+
 # why: Aborting a conflicted pull's merge puts back a repo nothing was
 # committed to; it is not a rollback, and a successful abort ends on
 # upgrade_subtree_pull_failed with no upgrade_rollback record
