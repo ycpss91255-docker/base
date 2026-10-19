@@ -535,6 +535,24 @@ _seed_entry() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# _seed_conflicting_v098
+#   Publish a v0.9.8 that changes .base/dist/script/docker/wrapper/setup.sh
+#   and commit a different edit to the same file downstream, so
+#   `git subtree pull ... v0.9.8` stops on a conflicted merge. Run from
+#   DOWN_DIR.
+_seed_conflicting_v098() {
+  printf '#!/usr/bin/env bash\nexit 0\n# upstream edit\n' \
+    > "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh"
+  echo "v0.9.8" > "${TMPL_WORK}/.version"
+  git -C "${TMPL_WORK}" commit -qam "v0.9.8"
+  git -C "${TMPL_WORK}" tag v0.9.8
+  git -C "${TMPL_WORK}" push -q "${TMPL_BARE}" v0.9.8
+
+  printf '#!/usr/bin/env bash\nexit 0\n# downstream edit\n' \
+    > .base/dist/script/docker/wrapper/setup.sh
+  git commit -qam "local edit inside .base"
+}
+
 # why: A conflicting pull aborts its own merge instead of leaving a
 # mid-merge tree
 @test "upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)" {
@@ -549,16 +567,7 @@ _seed_entry() {
   #
   # Fixture: a template version that CHANGES a file the downstream also
   # changed, which is what git-subtree's merge cannot resolve.
-  printf '#!/usr/bin/env bash\nexit 0\n# upstream edit\n' \
-    > "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh"
-  echo "v0.9.8" > "${TMPL_WORK}/.version"
-  git -C "${TMPL_WORK}" commit -qam "v0.9.8"
-  git -C "${TMPL_WORK}" tag v0.9.8
-  git -C "${TMPL_WORK}" push -q "${TMPL_BARE}" v0.9.8
-
-  printf '#!/usr/bin/env bash\nexit 0\n# downstream edit\n' \
-    > .base/dist/script/docker/wrapper/setup.sh
-  git commit -qam "local edit inside .base"
+  _seed_conflicting_v098
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
 
@@ -627,21 +636,23 @@ _assert_fatal_body() {
 
 # ── Rollback on destructive subtree pull ────────────────────────────────────
 
-# why: Destructive-FF rollback
-@test "upgrade.sh rolls back when git-subtree does a destructive fast-forward" {
-  cd "${DOWN_DIR}"
-
-  # Install a git-subtree stub that simulates the Jetson v0.9.7 failure
-  # mode: fetches the tag, then hard-resets HEAD to FETCH_HEAD (which
-  # has template content at REPO ROOT, not under .base). The
-  # resulting working tree loses .base/.version and template-prefixed
-  # files.
-  #
-  # `git subtree` resolves via GIT_EXEC_PATH (default /usr/lib/git-core),
-  # NOT PATH, so a plain PATH-prepended stub is ignored. We point
-  # GIT_EXEC_PATH at our stub dir; the stub forwards non-`pull`
-  # subcommands back to the distro location for any incidental use.
-  local _stub_dir="${BATS_TEST_TMPDIR}/stub_bin"
+# _install_destructive_ff_stub <stub_dir> [after_reset_cmd]
+#   Write a git-subtree stub into <stub_dir> that simulates the Jetson
+#   v0.9.7 failure mode: fetches the tag, then hard-resets HEAD to
+#   FETCH_HEAD (which has template content at REPO ROOT, not under .base).
+#   The resulting working tree loses .base/.version and template-prefixed
+#   files.
+#
+#   `git subtree` resolves via GIT_EXEC_PATH (default /usr/lib/git-core),
+#   NOT PATH, so a plain PATH-prepended stub is ignored. Callers point
+#   GIT_EXEC_PATH at <stub_dir>; the stub forwards non-`pull` subcommands
+#   back to the distro location for any incidental use.
+#
+#   <after_reset_cmd>, when given, runs in the stub after its reset, so a
+#   caller can leave the repo in a state the rescue reset then trips on.
+_install_destructive_ff_stub() {
+  local _stub_dir="$1"
+  local _after="${2:-}"
   mkdir -p "${_stub_dir}"
   cat > "${_stub_dir}/git-subtree" <<'STUB'
 #!/usr/bin/env bash
@@ -667,7 +678,18 @@ done
 git fetch "${_remote}" "${_ref}" >/dev/null 2>&1
 git reset --hard FETCH_HEAD >/dev/null 2>&1
 STUB
+  printf '%s\n' "${_after}" >> "${_stub_dir}/git-subtree"
   chmod +x "${_stub_dir}/git-subtree"
+}
+
+# why: Destructive-FF rollback
+@test "upgrade.sh rolls back when git-subtree does a destructive fast-forward" {
+  cd "${DOWN_DIR}"
+
+  # Stub git-subtree's `pull` into the Jetson v0.9.7 destructive
+  # fast-forward (see _install_destructive_ff_stub).
+  local _stub_dir="${BATS_TEST_TMPDIR}/stub_bin"
+  _install_destructive_ff_stub "${_stub_dir}"
 
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
@@ -879,6 +901,156 @@ _publish_failing_init() {
   rm -f "$(git rev-parse --git-dir)/index.lock"
 
   _assert_upgrade_transcript_finalized 1
+}
+
+# ── A rollback event reports a restore that happened (base#1369) ────────────
+#
+# upgrade_rollback is the record a log filter reads as "the repo was put
+# back". So it is logged only once the restore has succeeded; a restore
+# that fails logs upgrade_rollback_failed and no upgrade_rollback at all.
+# Each arm runs with LOG_FORMAT=json and reads the records' bodies.
+
+# _assert_rollback_only_after_restore <output>
+#   At least one upgrade_rollback record, and every one of them is the
+#   "repo restored to pre-upgrade state" report: none was logged on the
+#   way into a restore that had not happened yet.
+_assert_rollback_only_after_restore() {
+  local _recs
+  _recs="$(printf '%s\n' "$1" | grep -F '"body":"upgrade_rollback"' || true)"
+  [ -n "${_recs}" ] || { echo "no upgrade_rollback record in: $1" >&2; return 1; }
+  if printf '%s\n' "${_recs}" | grep -vF 'repo restored to pre-upgrade state' | grep -q .; then
+    echo "upgrade_rollback logged before the restore: ${_recs}" >&2
+    return 1
+  fi
+}
+
+# _assert_rollback_failed_not_rollback <output>
+#   An upgrade_rollback_failed record and no upgrade_rollback record.
+_assert_rollback_failed_not_rollback() {
+  [[ "$1" == *'"body":"upgrade_rollback_failed"'* ]] \
+    || { echo "no upgrade_rollback_failed record in: $1" >&2; return 1; }
+  [[ "$1" != *'"body":"upgrade_rollback"'* ]] \
+    || { echo "upgrade_rollback logged for a failed restore: $1" >&2; return 1; }
+}
+
+# _install_failing_merge_abort <stub_dir>
+#   A `git` PATH shim that fails `git merge --abort` and forwards every
+#   other invocation to the real git.
+_install_failing_merge_abort() {
+  local _stub_dir="$1"
+  local _real_git
+  _real_git="$(command -v git)"
+  mkdir -p "${_stub_dir}"
+  cat > "${_stub_dir}/git" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1" == "merge" && "\$2" == "--abort" ]]; then
+  exit 128
+fi
+exec "${_real_git}" "\$@"
+STUB
+  chmod +x "${_stub_dir}/git"
+}
+
+# why: A rollback record logged before the rescue reset runs claims a
+# restore that has not happened; the exit rollback logs it only after
+@test "upgrade.sh: a post-pull rollback logs upgrade_rollback only once the repo is restored (base#1369)" {
+  _publish_failing_init 'exit 7'
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 7
+  _assert_rollback_only_after_restore "${output}"
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+}
+
+# why: The integrity-check rollback is the second restore path; it too
+# logs upgrade_rollback only after the reset has put the repo back
+@test "upgrade.sh: an integrity-check rollback logs upgrade_rollback only once the repo is restored (base#1369)" {
+  cd "${DOWN_DIR}"
+  local _stub_dir="${BATS_TEST_TMPDIR}/stub_bin"
+  _install_destructive_ff_stub "${_stub_dir}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json GIT_EXEC_PATH="${_stub_dir}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_rollback_only_after_restore "${output}"
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+}
+
+# why: When the exit rollback's reset fails, the tree is not restored, so
+# the log carries upgrade_rollback_failed and no upgrade_rollback
+@test "upgrade.sh: a failed post-pull reset logs upgrade_rollback_failed, never upgrade_rollback (base#1369)" {
+  _publish_failing_init 'touch "$(git rev-parse --git-dir)/index.lock"; exit 7'
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_rollback_failed_not_rollback "${output}"
+  [ "$(git rev-parse HEAD)" != "${_pre_head}" ]
+  rm -f "$(git rev-parse --git-dir)/index.lock"
+}
+
+# why: The integrity-check rollback's reset can fail the same way; the
+# stub leaves an index.lock after its destructive reset so the rescue
+# reset cannot run
+@test "upgrade.sh: a failed integrity-check reset logs upgrade_rollback_failed, never upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+  local _stub_dir="${BATS_TEST_TMPDIR}/stub_bin"
+  _install_destructive_ff_stub "${_stub_dir}" \
+    'touch "$(git rev-parse --git-dir)/index.lock"'
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json GIT_EXEC_PATH="${_stub_dir}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_rollback_failed_not_rollback "${output}"
+  [ "$(git rev-parse HEAD)" != "${_pre_head}" ]
+  rm -f "$(git rev-parse --git-dir)/index.lock"
+}
+
+# why: Aborting a conflicted pull's merge puts back a repo nothing was
+# committed to; it is not a rollback, and a successful abort ends on
+# upgrade_subtree_pull_failed with no upgrade_rollback record
+@test "upgrade.sh: an aborted conflicting pull logs upgrade_subtree_pull_failed, never upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+  _seed_conflicting_v098
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.8
+  assert_failure
+  [[ "${output}" != *'"body":"upgrade_rollback"'* ]]
+  local _last
+  _last="$(printf '%s\n' "${output}" | grep -F '"severity_text":"ERROR"' | tail -n 1)"
+  [[ "${_last}" == *'"body":"upgrade_subtree_pull_failed"'* ]]
+  assert [ ! -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]
+}
+
+# why: A merge abort that fails leaves the tree mid-merge; the log says
+# upgrade_rollback_failed and claims no rollback
+@test "upgrade.sh: a failed merge abort logs upgrade_rollback_failed, never upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+  _seed_conflicting_v098
+  local _stub_dir="${BATS_TEST_TMPDIR}/git_shim"
+  _install_failing_merge_abort "${_stub_dir}"
+
+  run env LOG_FORMAT=json PATH="${_stub_dir}:${PATH}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.8
+  assert_failure
+  _assert_rollback_failed_not_rollback "${output}"
+  # The tree really is still mid-merge -- the record above is the truth.
+  assert [ -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]
 }
 
 # ──walk-up self-location resolves --prefix to the subtree basename ─────
