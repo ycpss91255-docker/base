@@ -73,6 +73,12 @@ _seed_template_remote() {
   cp /source/dist/script/docker/lib/_lib.sh "${TMPL_WORK}/dist/script/docker/lib/_lib.sh"
   cp /source/dist/script/docker/lib/i18n.sh "${TMPL_WORK}/dist/script/docker/lib/i18n.sh"
   cp /source/dist/script/docker/lib/* "${TMPL_WORK}/dist/script/docker/lib/"
+  # transcript.sh repoints log/<verb>/latest.log through runtime/logrotate.sh
+  # (sourced when present), so the fake remote ships it for the transcript
+  # arms below to observe latest.log at all (base#1371).
+  mkdir -p "${TMPL_WORK}/dist/script/docker/runtime"
+  cp /source/dist/script/docker/runtime/logrotate.sh \
+    "${TMPL_WORK}/dist/script/docker/runtime/logrotate.sh"
   chmod +x "${TMPL_WORK}/dist/script/base/init.sh" \
            "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh" \
            "${TMPL_WORK}/dist/script/base/upgrade.sh"
@@ -678,6 +684,82 @@ INIT
   [ ! -e "half_written_wrapper.sh" ]
   run git status --porcelain
   assert_output ""
+}
+
+# ── Both outcomes finalize the upgrade transcript (base#1371) ──────────────
+#
+# upgrade.sh records its run under log/upgrade/ through transcript.sh, whose
+# single EXIT handler appends the closing line, strips the raw capture into
+# <ts>.log and repoints latest.log. A run that leaves only <ts>.log.raw, no
+# closing line, or latest.log naming an older run has lost the record of
+# exactly the run someone is going to look up.
+#
+# The self-test runner exports WRAPPER_TRANSCRIPT=false for every spec, so
+# these arms switch it back on for the one upgrade run they observe; the log/
+# tree lands in the throwaway DOWN_DIR fixture, never in /source.
+
+# _assert_upgrade_transcript_finalized <expected_exit_code>
+#   The newest log/upgrade/*.log ends with `transcript_complete
+#   exit_code=<code> duration=..`, no raw capture is left behind, and
+#   latest.log points at that file.
+_assert_upgrade_transcript_finalized() {
+  local _code="$1"
+  local _dir="${DOWN_DIR}/log/upgrade"
+  assert [ -d "${_dir}" ]
+  run find "${_dir}" -name '*.raw'
+  assert_output ""
+  local _f
+  _f="$(find "${_dir}" -maxdepth 1 -type f -name '*.log' | sort | tail -n1)"
+  assert [ -n "${_f}" ]
+  run tail -n1 "${_f}"
+  assert_output --regexp "transcript_complete exit_code=${_code} duration=[0-9]+s"
+  assert [ -L "${_dir}/latest.log" ]
+  assert_equal "$(readlink "${_dir}/latest.log")" "$(basename "${_f}")"
+}
+
+@test "upgrade.sh: a successful upgrade finalizes its transcript (base#1371)" {
+  cd "${DOWN_DIR}"
+
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Done! Upgraded to v0.9.7"
+
+  _assert_upgrade_transcript_finalized 0
+}
+
+@test "upgrade.sh: a rolled-back upgrade restores the repo AND finalizes its transcript (base#1371)" {
+  # Same failing v0.9.7 as the post-pull rollback arm above: init.sh fails
+  # after the subtree pull has committed, so the rollback fires.
+  cat > "${TMPL_WORK}/dist/script/base/init.sh" <<'INIT'
+#!/usr/bin/env bash
+exit 1
+INIT
+  chmod +x "${TMPL_WORK}/dist/script/base/init.sh"
+  git -C "${TMPL_WORK}" add -A
+  git -C "${TMPL_WORK}" commit -q -m "v0.9.7 whose init.sh fails"
+  git -C "${TMPL_WORK}" tag -f v0.9.7 >/dev/null 2>&1
+  git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
+
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure
+  assert_output --partial "Rolling back"
+  assert_output --partial "upgrade aborted"
+  local _rc="${status}"
+
+  # Rollback still restores the repo...
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+
+  # ...and the transcript records the failing exit code the caller saw.
+  _assert_upgrade_transcript_finalized "${_rc}"
 }
 
 # ──walk-up self-location resolves --prefix to the subtree basename ─────
