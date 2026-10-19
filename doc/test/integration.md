@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **223 tests**.
+Integration specs under `test/bats/integration/`: **225 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -422,7 +422,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (48)
+### test/bats/integration/upgrade_spec.bats (50)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -481,6 +481,8 @@ run.
 | `upgrade.sh: a failed integrity-check cleanup logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The integrity-check rollback runs the same sweep; a failed removal there must not end on upgrade_rollback either |
 | `upgrade.sh: a failed untracked-file enumeration logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The sweep cannot remove files it never enumerated; when listing the untracked files fails, the rollback has not restored the tree and must end on upgrade_rollback_failed, never upgrade_rollback |
 | `upgrade.sh: a failed pre-upgrade untracked snapshot stops the upgrade before the pull (base#1384)` | The pre-upgrade snapshot is what tells a rollback the user's own untracked files from the ones the upgrade created; a snapshot that failed to enumerate would make a later rollback sweep the user's files, so a failed snapshot must stop the upgrade before anything is pulled |
+| `upgrade.sh: a rollback removes upgrade-created files whose names git quotes (base#1381)` | An aborted upgrade's files must all go, including those whose names git quotes; otherwise the rollback reports a restore that left them behind |
+| `upgrade.sh: a rollback keeps the user's own untracked files whose names git quotes (base#1381)` | The snapshot and the sweep must agree on a quoted name, or a rollback deletes a file the user made before the upgrade started |
 | `upgrade.sh: an aborted conflicting pull logs upgrade_subtree_pull_failed, never upgrade_rollback (base#1369)` | Aborting a conflicted pull's merge puts back a repo nothing was committed to; it is not a rollback, and a successful abort ends on upgrade_subtree_pull_failed with no upgrade_rollback record |
 | `upgrade.sh: a failed merge abort logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | A merge abort that fails leaves the tree mid-merge; the log says upgrade_rollback_failed and claims no rollback |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
