@@ -1055,3 +1055,37 @@ _assert_record() {
   _assert_record "${output}" 'WARNING: .base/dist/setup.toml changed upstream' INFO upgrade_setup_conf_drift
   refute_output --partial '"body":"upgrade_started"'
 }
+
+# ── missing subtree root (base#1382) ────────────────────────────────────────
+#
+# The walk-up that finds the subtree root runs before the logger is sourced,
+# so its failure used to print a bare `upgrade.sh: cannot locate subtree
+# root ...` line that a LOG_FORMAT=json consumer cannot parse. Both arms run
+# a fixture copy of upgrade.sh in a temp dir with no `.version` above it,
+# never the live tree (base#1075).
+
+# why: With the logger reachable (dist/script/docker/lib/ beside the copy)
+# the failure must be a structured ERROR record naming the registered event
+@test "upgrade.sh: a missing subtree root emits upgrade_subtree_root_not_found under LOG_FORMAT=json (base#1382)" {
+  local _fx="${TEMP_DIR}/nosubtree/dist/script"
+  mkdir -p "${_fx}"
+  cp -R /source/dist/script/base /source/dist/script/docker "${_fx}/"
+  run env LOG_FORMAT=json bash "${_fx}/base/upgrade.sh" 2>&1
+  assert_failure 1
+  local _line
+  _line="$(printf '%s\n' "${output}" | grep -F '"body":"upgrade_subtree_root_not_found"')"
+  [ -n "${_line}" ] || { echo "no upgrade_subtree_root_not_found record in: ${output}" >&2; return 1; }
+  [[ "${_line}" == *'"severity_text":"ERROR"'* ]] || { echo "severity: ${_line}" >&2; return 1; }
+  [[ "${_line}" == *'cannot locate subtree root'* ]] || { echo "display: ${_line}" >&2; return 1; }
+}
+
+# why: The issue's own repro copies upgrade.sh alone, so log.sh is missing
+# too; the failure must still name the registered event and exit 1
+@test "upgrade.sh: a lone copy with no logger still names upgrade_subtree_root_not_found and exits 1 (base#1382)" {
+  local _fx="${TEMP_DIR}/lone"
+  mkdir -p "${_fx}"
+  cp /source/dist/script/base/upgrade.sh "${_fx}/"
+  run env LOG_FORMAT=json bash "${_fx}/upgrade.sh" 2>&1
+  assert_failure 1
+  assert_output --partial '"body":"upgrade_subtree_root_not_found"'
+}
