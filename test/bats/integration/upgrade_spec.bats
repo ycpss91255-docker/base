@@ -575,6 +575,56 @@ _seed_entry() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# ── Fatal-error event bodies ────────────────────────────────────────────────
+
+# _assert_fatal_body <output> <body>
+#   The run's ERROR record (LOG_FORMAT=json) carries <body>, and no record
+#   claims upgrade_rollback: these paths never pulled, so nothing was
+#   rolled back (base#1369).
+_assert_fatal_body() {
+  local _line
+  _line="$(printf '%s\n' "$1" | grep -F '"severity_text":"ERROR"' | head -n 1)"
+  [ -n "${_line}" ] || { echo "no ERROR record in: $1" >&2; return 1; }
+  [[ "${_line}" == *"\"body\":\"$2\""* ]] || { echo "body: ${_line}" >&2; return 1; }
+  [[ "$1" != *'"body":"upgrade_rollback"'* ]] || { echo "rollback logged: $1" >&2; return 1; }
+}
+
+# why: A log filtered for rollbacks must not see one on every network
+# failure; a fetch failure under --check logs a fetch-failure body
+@test "upgrade.sh --check: an unreachable remote logs upgrade_fetch_failed, not upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE=/nonexistent/repo.git \
+      ./.base/dist/script/base/upgrade.sh --check
+  assert_failure
+  _assert_fatal_body "${output}" upgrade_fetch_failed
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
+# why: The bare upgrade resolves the latest tag first; failing that fetch
+# pulled nothing, so it is a fetch failure, not a rollback
+@test "upgrade.sh (no version): an unreachable remote logs upgrade_fetch_failed, not upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE=/nonexistent/repo.git \
+      ./.base/dist/script/base/upgrade.sh
+  assert_failure
+  _assert_fatal_body "${output}" upgrade_fetch_failed
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
+# why: A typo on the command line is an argument error; logging it as a
+# rollback reports a repo restore that never happened
+@test "upgrade.sh: an unknown argument logs upgrade_unknown_arg, not upgrade_rollback (base#1369)" {
+  cd "${DOWN_DIR}"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh --bogus
+  assert_failure
+  _assert_fatal_body "${output}" upgrade_unknown_arg
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
 # ── Rollback on destructive subtree pull ────────────────────────────────────
 
 # why: Destructive-FF rollback
