@@ -6044,7 +6044,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (196)
+### test/bats/unit/setup_cmd_spec.bats (201)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6144,12 +6144,17 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `main remove rejects unknown section` | - |
 | `main remove preserves comments + remaining keys` | - |
 | `main add then remove round-trips` | - |
-| `add then remove environment.env gives back a byte-identical setup.toml (base#1363)` | - |
-| `add then remove network.port gives back a byte-identical setup.toml (base#1363)` | - |
-| `remove of an existing key changes only that key's line (base#1363)` | - |
-| `repeated add/remove rounds do not grow setup.toml (base#1363)` | - |
-| `SETUP_CONF_HASH is unchanged by an environment.env add/remove round trip (base#1363)` | - |
-| `SETUP_CONF_HASH is unchanged by a network.port add/remove round trip (base#1363)` | - |
+| `add then remove environment.env gives back a byte-identical setup.toml (base#1363)` | the issue's own reproduction: a table `add` creates has to go again with its last key, and no other line of a shipped-shaped file may move. |
+| `add then remove network.port gives back a byte-identical setup.toml (base#1363)` | the `[[...]]` half of the round trip; the only case where the emptied `ports = []` declaration has to come back in its own place. |
+| `remove of an existing key changes only that key's line (base#1363)` | pins the in-place guarantee without `add` in the loop, so a writer that only undoes its own appends cannot pass by luck. |
+| `repeated add/remove rounds do not grow setup.toml (base#1363)` | the symptom operators saw: each call added a line, so a file drifted further with every round instead of settling. |
+| `SETUP_CONF_HASH is unchanged by an environment.env add/remove round trip (base#1363)` | the hash is over file bytes, so this is what turns a cosmetic diff into a false drift report on the next build. |
+| `SETUP_CONF_HASH is unchanged by a network.port add/remove round trip (base#1363)` | the same drift guarantee for the `[[...]]` path, which rewrites through a different branch of the writer. |
+| `add then remove environment.env keeps the file's trailing blank line (base#1363)` | review round 1 found dropping the created table took every blank line before it, the file's own trailing one included; the first fixture ended without one and could not see it. |
+| `add then remove network.port keeps the blank line after a [[...]] block at the end of the file (base#1363)` | the end-of-file `[[...]]` path dropped every blank line held before a removed block; only a file ending in a block plus a blank line reaches it. |
+| `add then remove environment.env keeps an empty [environment] table that was already there (base#1363)` | `add` writes the same bytes with or without an empty [environment] already present, so only the header note it writes tells them apart; without this case deleting every emptied table passes. |
+| `add then remove environment.env keeps an empty [environment] table whose header carries a comment (base#1363)` | the mid-file variant with the user's own header comment, which an indiscriminate table drop also deleted. |
+| `SETUP_CONF_HASH is unchanged by a round trip on a file ending in a blank line (base#1363)` | ties the trailing-blank fix to the drift report it would otherwise trigger. |
 | `main add validates env_kv format` | - |
 | `main add free-form image rule accepts arbitrary string` | - |
 | `help: add/remove describe array entries, not <list>_N keys (base#1354)` | the help is where an operator learns what `add` writes; it named a `<list>_N` key setup.toml never holds, so the file they then open shows a `[[...]]` entry the help never mentioned. |

@@ -1392,36 +1392,60 @@ _wsc_emit_blanks() {
 
 # _wsc_end_table
 #
+# _wsc_end_table [eof]
+#
 # Close the `[table]` whose keys are in scope: append its added keys and
-# emptied-array declarations, put back the blank line that separates
-# appended keys from the next header when the file had none, and drop
-# the table -- header and the blank lines before it -- when this save
-# removed a key from it and left nothing under the header. A table
-# whose last key `setup remove` takes is one that `setup add` created,
-# so an add/remove round trip gives back the file it started from
-# (base#1363). A table that had no key to remove is kept as it is.
+# emptied-array declarations, and -- unless the file ends here [eof] --
+# put back the blank line that separates appended keys from the next
+# header when the file had none.
+#
+# Then drop the table when this save removed a key from it, left nothing
+# under the header, and the header carries _CONF_ADD_TABLE_NOTE, the
+# comment `setup add` writes on a table it creates. Only the note tells
+# such a table apart from an empty one the file already held: `add`
+# gives back the same bytes for a file without `[environment]` and for
+# one ending in an empty `[environment]` (base#1363). What goes is the
+# header and ONE blank line, the one `add` put before it (or, with none
+# before it, the one after it); every other blank line stays.
 _wsc_end_table() {
   local _nw_before="${__wsc_nw}" _keep
   _wsc_flush_scalars "${__current}"
-  if (( __wsc_nw > _nw_before && __wsc_blank == 0 )); then
+  if [[ "${1-}" != eof ]] && (( __wsc_nw > _nw_before && __wsc_blank == 0 )); then
     __wsc_blank=1
   fi
-  if (( __wsc_tbl_removed && __wsc_nw == __wsc_tbl_nw )); then
+  if (( __wsc_tbl_removed && __wsc_tbl_noted && __wsc_nw == __wsc_tbl_nw )); then
     _keep="$(head -c "${__wsc_tbl_off}" "${_out}"; printf x)"
     printf '%s' "${_keep%x}" > "${_out}"
+    if (( !__wsc_tbl_sep && __wsc_blank > 0 )); then
+      __wsc_blank=$(( __wsc_blank - 1 ))
+    fi
   fi
   __wsc_tbl_removed=0
 }
 
-# _wsc_begin_table
+# _wsc_begin_table <header-line>
 #
 # Note where the table about to be written starts: the size of the
-# output before the blank lines held back ahead of its header, and how
-# many lines will have been written once the header is.
+# output before the last blank line held back ahead of its header (the
+# others are written now, so dropping the table cannot take them), how
+# many lines will have been written once the header is, whether one
+# blank line separates it from what came before, and whether its header
+# carries _CONF_ADD_TABLE_NOTE.
 _wsc_begin_table() {
+  __wsc_tbl_sep=0
+  if (( __wsc_blank > 0 )); then
+    __wsc_blank=$(( __wsc_blank - 1 ))
+    _wsc_emit_blanks
+    __wsc_blank=1
+    __wsc_tbl_sep=1
+  fi
   __wsc_tbl_off="$(wc -c < "${_out}")"
   __wsc_tbl_nw=$(( __wsc_nw + 1 ))
   __wsc_tbl_removed=0
+  __wsc_tbl_noted=0
+  if (( __toml )) && [[ "${1-}" == *"] ${_CONF_ADD_TABLE_NOTE}" ]]; then
+    __wsc_tbl_noted=1
+  fi
 }
 
 # _wsc_refuse_ws_slot_move <dst>
@@ -1709,10 +1733,11 @@ _write_setup_conf() {
   # __wsc_nw: non-blank lines written so far; __wsc_tbl_*: where the
   # current `[table]` started and whether this save removed a key of it
   # (see _wsc_end_table).
-  local __wsc_blank=0 __wsc_nw=0 __wsc_tbl_off=0 __wsc_tbl_nw=0 __wsc_tbl_removed=0 __eof_blank=0
-  # __wsc_tail_removed: the last thing read was a removed `[[...]]` block,
-  # so the blank lines held back before it separated nothing.
-  local __wsc_tail_removed=0
+  local __wsc_blank=0 __wsc_nw=0 __wsc_tbl_off=0 __wsc_tbl_nw=0 __wsc_tbl_removed=0
+  local __wsc_tbl_sep=0 __wsc_tbl_noted=0
+  # __wsc_tail_removed: the last thing read was a removed `[[...]]` block;
+  # __wsc_skip_blank: blank lines that ended it, read and not written.
+  local __wsc_tail_removed=0 __wsc_skip_blank=0
   : > "${_out}"
   for __line in "${__tpl_lines[@]}"; do
     # The root-key region ends at the first table header, so that is the
@@ -1764,6 +1789,7 @@ _write_setup_conf() {
           __emitted[${__nskey}]=1
           __aot_skip=1
           __wsc_tail_removed=1
+          __wsc_skip_blank=0
           continue
         fi
         _wsc_emit "${__line}"
@@ -1798,11 +1824,16 @@ _write_setup_conf() {
       else
         __current="${__raw}"
       fi
-      _wsc_begin_table
+      _wsc_begin_table "${__line}"
       _wsc_emit "${__line}"
       continue
     fi
     if (( __aot_skip == 1 )); then
+      if [[ -z "${__line}" ]]; then
+        __wsc_skip_blank=$(( __wsc_skip_blank + 1 ))
+      else
+        __wsc_skip_blank=0
+      fi
       continue
     fi
     if (( __aot_skip == 2 )) && _conf_is_kv_line "${__line}"; then
@@ -1851,11 +1882,15 @@ _write_setup_conf() {
   if [[ -n "${__current}" ]]; then
     # No header follows, so no separator is owed to one: the file keeps
     # the trailing blank lines it had.
-    __eof_blank="${__wsc_blank}"
-    _wsc_end_table
-    __wsc_blank="${__eof_blank}"
+    _wsc_end_table eof
   fi
-  (( __wsc_tail_removed )) && __wsc_blank=0
+  # A removed `[[...]]` block that ended the file goes with ONE blank
+  # line next to it -- the one before it when there is one -- and the
+  # file keeps every other blank line it ended with (base#1363).
+  if (( __wsc_tail_removed )); then
+    __wsc_blank=$(( __wsc_blank + __wsc_skip_blank ))
+    (( __wsc_blank > 0 )) && __wsc_blank=$(( __wsc_blank - 1 ))
+  fi
   _wsc_emit_blanks
   if [[ -n "${__aot_cur}" ]]; then
     _wsc_flush_aot "${__aot_cur}" eof
@@ -2004,7 +2039,7 @@ _write_setup_conf() {
 # Single-key upsert (used by setup.sh for WS_PATH writeback)
 # ════════════════════════════════════════════════════════════════════
 
-# _upsert_conf_value <file> <section> <key> <value>
+# _upsert_conf_value <file> <section> <key> <value> [<note>]
 #
 # Updates the given key's value within the given section in-place,
 # preserving all other content. If the key does not exist under the
@@ -2015,11 +2050,15 @@ _write_setup_conf() {
 # its kind -- replaced in place when it exists, appended after the last
 # block of that kind (or at the end of the file when there is none)
 # when it does not.
+#
+# <note>: a comment for the header of a TOML table this creates
+# (`setup add` passes _CONF_ADD_TABLE_NOTE).
 _upsert_conf_value() {
   local _file="${1:?}"
   local _section="${2:?}"
   local _key="${3:?}"
   local _value="${4-}"
+  local _note="${5-}"
 
   [[ -f "${_file}" ]] || { _log_err conf conf_upsert_file_missing "display=_upsert_conf_value: file missing: ${_file}"; return 1; }
 
@@ -2060,7 +2099,7 @@ _upsert_conf_value() {
   if (( __toml )) && _conf_toml_aot_slot "${_section}" "${_key}" __aot_path __aot_n; then
     _conf_toml_upsert_aot "${_file}" "${_tmp}" "${__aot_path}" "${__aot_n}" "${_value}"
   else
-    _conf_upsert_scalar "${_file}" "${_tmp}" "${__toml}" "${_section}" "${_key}" "${_value}"
+    _conf_upsert_scalar "${_file}" "${_tmp}" "${__toml}" "${_section}" "${_key}" "${_value}" "${_note}"
   fi
 
   # THE COMMIT GATE, for a TOML destination: promote the rewrite only once
@@ -2272,14 +2311,23 @@ _conf_commit_toml() {
   return 1
 }
 
-# _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value>
+# _CONF_ADD_TABLE_NOTE
+#
+# The comment `setup add` writes on the header of a table it creates.
+# `setup remove` drops a table again only when its header carries it, so
+# an add/remove round trip gives back the file it started from without
+# deleting an empty table the file already held (base#1363).
+_CONF_ADD_TABLE_NOTE="# added by setup add; removed with its last entry"
+
+# _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value> [<note>]
 #
 # The scalar half of _upsert_conf_value: rewrite <src> into <dst> with
 # `<section>.<key>` set. A `[[...]]` header ends the section's scope
 # like a `[...]` one does, so an appended key lands inside its table.
+# A TOML table this creates gets <note> as a comment on its header.
 _conf_upsert_scalar() {
   local _src="${1:?}" _dst="${2:?}" _toml="${3:?}"
-  local _section="${4:?}" _key="${5:?}" _value="${6-}"
+  local _section="${4:?}" _key="${5:?}" _value="${6-}" _note="${7-}"
 
   local __line __hline __current="" __raw __rest __kv __hdr
   local __matched=0 __in_sect=0 __sect_found=0
@@ -2341,6 +2389,7 @@ _conf_upsert_scalar() {
   # Section not found at all → append new section + key
   if (( !__sect_found )); then
     _conf_fmt_header "${_toml}" "${_section}" __hdr
+    (( _toml )) && [[ -n "${_note}" ]] && __hdr+=" ${_note}"
     printf '\n%s\n%s\n' "${__hdr}" "${__kv}" >> "${_dst}"
   fi
 }

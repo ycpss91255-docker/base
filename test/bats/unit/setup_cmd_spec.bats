@@ -1506,6 +1506,8 @@ _conf_hash_of() {
   grep '^SETUP_CONF_HASH=' "$1/.env.generated"
 }
 
+# why: the issue's own reproduction: a table `add` creates has to go again with
+# its last key, and no other line of a shipped-shaped file may move.
 @test "add then remove environment.env gives back a byte-identical setup.toml (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
@@ -1520,6 +1522,8 @@ _conf_hash_of() {
   assert_output ""
 }
 
+# why: the `[[...]]` half of the round trip; the only case where the emptied
+# `ports = []` declaration has to come back in its own place.
 @test "add then remove network.port gives back a byte-identical setup.toml (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
@@ -1532,6 +1536,8 @@ _conf_hash_of() {
   assert_output ""
 }
 
+# why: pins the in-place guarantee without `add` in the loop, so a writer that
+# only undoes its own appends cannot pass by luck.
 @test "remove of an existing key changes only that key's line (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   printf '\n[environment]\nenv_1 = "A=1"\nenv_2 = "B=2"\n' \
@@ -1547,6 +1553,8 @@ _conf_hash_of() {
   assert_output ""
 }
 
+# why: the symptom operators saw: each call added a line, so a file drifted
+# further with every round instead of settling.
 @test "repeated add/remove rounds do not grow setup.toml (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   local _lines _i
@@ -1560,6 +1568,8 @@ _conf_hash_of() {
   done
 }
 
+# why: the hash is over file bytes, so this is what turns a cosmetic diff into
+# a false drift report on the next build.
 @test "SETUP_CONF_HASH is unchanged by an environment.env add/remove round trip (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   run main apply --base-path "${TEMP_DIR}"
@@ -1575,6 +1585,8 @@ _conf_hash_of() {
   assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
 }
 
+# why: the same drift guarantee for the `[[...]]` path, which rewrites through
+# a different branch of the writer.
 @test "SETUP_CONF_HASH is unchanged by a network.port add/remove round trip (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   run main apply --base-path "${TEMP_DIR}"
@@ -1604,6 +1616,9 @@ _assert_roundtrip() {
   assert_output ""
 }
 
+# why: review round 1 found dropping the created table took every blank line
+# before it, the file's own trailing one included; the first fixture
+# ended without one and could not see it.
 @test "add then remove environment.env keeps the file's trailing blank line (base#1363)" {
   # The [environment] table `add` appends goes again with its key, and
   # only the one blank line `add` put before it goes with it: the blank
@@ -1613,6 +1628,8 @@ _assert_roundtrip() {
   _assert_roundtrip environment.env FOO=bar
 }
 
+# why: the end-of-file `[[...]]` path dropped every blank line held before a
+# removed block; only a file ending in a block plus a blank line reaches it.
 @test "add then remove network.port keeps the blank line after a [[...]] block at the end of the file (base#1363)" {
   # The added [[network.ports]] block lands after the one the file ends
   # with; removing it must not take the trailing blank line along.
@@ -1623,6 +1640,9 @@ _assert_roundtrip() {
   _assert_roundtrip network.port 8080:8080
 }
 
+# why: `add` writes the same bytes with or without an empty [environment]
+# already present, so only the header note it writes tells them apart;
+# without this case deleting every emptied table passes.
 @test "add then remove environment.env keeps an empty [environment] table that was already there (base#1363)" {
   # `remove` drops only a table `add` created; one the file already held,
   # empty, stays as it was.
@@ -1631,6 +1651,8 @@ _assert_roundtrip() {
   _assert_roundtrip environment.env FOO=bar
 }
 
+# why: the mid-file variant with the user's own header comment, which an
+# indiscriminate table drop also deleted.
 @test "add then remove environment.env keeps an empty [environment] table whose header carries a comment (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   sed -i 's/^\[logging\]$/[environment] # host interfaces\n\n[logging]/' \
@@ -1639,6 +1661,8 @@ _assert_roundtrip() {
   _assert_roundtrip environment.env FOO=bar
 }
 
+# why: ties the trailing-blank fix to the drift report it would otherwise
+# trigger.
 @test "SETUP_CONF_HASH is unchanged by a round trip on a file ending in a blank line (base#1363)" {
   _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
   printf '\n' >> "${TEMP_DIR}/setup.toml"
