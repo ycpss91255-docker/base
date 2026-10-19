@@ -66,8 +66,8 @@ setup() {
   run _warn_if_deploy_word_ambiguous deploy
   assert_success
   assert_output --partial "GPU"
-  assert_output --partial "setup.sh deploy"
-  assert_output --partial "setup-tui gpu"
+  assert_output --partial "just docker setup deploy"
+  assert_output --partial "just docker setup-tui gpu"
 }
 
 @test "the gpu spelling is silent -- the alias is the way out of the notice (#879)" {

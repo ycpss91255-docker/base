@@ -835,7 +835,7 @@ EOF
   assert_output --partial "network     : host"
   assert_output --partial "TZ=Asia/Taipei"
   # Customize hint
-  assert_output --partial "./setup_tui.sh"
+  assert_output --partial "just docker setup-tui"
 }
 
 # _summary_entries <output>
@@ -1188,7 +1188,7 @@ EOF
   run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
   assert_success
   assert_output --partial "setup.toml not found"
-  assert_output --partial "./setup_tui.sh"
+  assert_output --partial "just docker setup-tui"
 }
 
 # why: Color migration via _log_plain
@@ -1371,7 +1371,7 @@ EOF
   run bash -c "source ${LIB}; _LANG=zh-TW; FILE_PATH='${_fp}'; _print_config_summary build"
   assert_success
   assert_output --partial "找不到 setup.toml"
-  assert_output --partial "./build.sh --setup"
+  assert_output --partial "just docker build --setup"
 }
 
 # why: base#1177 put a `GPU_CAPABILITIES` array in the lib tree and

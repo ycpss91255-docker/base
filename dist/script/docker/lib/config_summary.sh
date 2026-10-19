@@ -132,14 +132,14 @@ _lib_msg() {
     ja:privileged)           echo "特権" ;;
     *:privileged)            echo "privileged" ;;
     # Hints / errors
-    zh-TW:conf_missing)      echo "(找不到 setup.toml — 執行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
-    zh-CN:conf_missing)      echo "(找不到 setup.toml — 运行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
-    ja:conf_missing)         echo "(setup.toml が見つかりません — ./setup_tui.sh または ./%s.sh --setup を実行してください)" ;;
-    *:conf_missing)          echo "(setup.toml not found — run ./setup_tui.sh or ./%s.sh --setup)" ;;
-    zh-TW:conf_empty)        echo "(setup.toml 沒有 section 覆寫 — 全部使用模板預設值；./setup_tui.sh 或 edit setup.toml)" ;;
-    zh-CN:conf_empty)        echo "(setup.toml 没有 section 覆写 — 全部使用模板默认值；./setup_tui.sh 或 edit setup.toml)" ;;
-    ja:conf_empty)           echo "(setup.toml にセクション上書きがありません — 全てテンプレート既定値を使用；./setup_tui.sh または edit setup.toml)" ;;
-    *:conf_empty)            echo "(setup.toml has no section overrides — using template defaults; run ./setup_tui.sh or edit setup.toml)" ;;
+    zh-TW:conf_missing)      echo "(找不到 setup.toml — 執行 just docker setup-tui 或 just docker %s --setup)" ;;
+    zh-CN:conf_missing)      echo "(找不到 setup.toml — 运行 just docker setup-tui 或 just docker %s --setup)" ;;
+    ja:conf_missing)         echo "(setup.toml が見つかりません — just docker setup-tui または just docker %s --setup を実行してください)" ;;
+    *:conf_missing)          echo "(setup.toml not found — run just docker setup-tui or just docker %s --setup)" ;;
+    zh-TW:conf_empty)        echo "(setup.toml 沒有 section 覆寫 — 全部使用模板預設值；just docker setup-tui 或 edit setup.toml)" ;;
+    zh-CN:conf_empty)        echo "(setup.toml 没有 section 覆写 — 全部使用模板默认值；just docker setup-tui 或 edit setup.toml)" ;;
+    ja:conf_empty)           echo "(setup.toml にセクション上書きがありません — 全てテンプレート既定値を使用；just docker setup-tui または edit setup.toml)" ;;
+    *:conf_empty)            echo "(setup.toml has no section overrides — using template defaults; run just docker setup-tui or edit setup.toml)" ;;
     zh-TW:customize)         echo "自訂" ;;
     zh-CN:customize)         echo "自定义" ;;
     ja:customize)            echo "カスタマイズ" ;;
@@ -359,7 +359,7 @@ _print_config_summary() {
   printf "[%s]   TZ=%s  apt_ubuntu=%s  apt_debian=%s\n" "${_tag}" \
     "${TZ:--}" "${APT_MIRROR_UBUNTU:--}" "${APT_MIRROR_DEBIAN:--}"
 
-  printf "[%s] %s: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.toml\n" \
+  printf "[%s] %s: just docker setup-tui  |  just docker %s --setup  |  edit setup.toml\n" \
     "${_tag}" "$(_lib_msg customize)" "${_tag}"
   _summary_print "${_tag}" dim "${_line}"
 }

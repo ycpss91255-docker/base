@@ -1018,9 +1018,22 @@ _derived_check_drift_keys() {
 #     (`e.g. just docker run -d`). A comment block a blank line separates
 #     from its recipe is not shown by `just --list` (base#1326 detaches
 #     rationale that way on purpose) and stays maintainer prose.
-#   - retired ROOT WRAPPER paths (`./setup.sh`, `./stop.sh`) are a separate
-#     question with a separate population -- the names init.sh deletes on
-#     sight -- and they are not derived here.
+#   - a wrapper named as if it sat at the consumer's repo root
+#     (`./build.sh`, `./setup.sh set ...`, a formatted `./%s.sh`) is its own
+#     rule (base#1357): a consumer has no such file -- init.sh links each
+#     wrapper in as ./script/<name>.sh -- so the instruction answers itself
+#     with "No such file or directory". The names are init.sh's own
+#     `_symlink ... "script/<name>.sh"` lines, read rather than listed, and
+#     the repair handed over is the `<namespace> <recipe>` whose body runs
+#     that script. Unlike a `just` invocation the name is judged quoted or
+#     bare, because the shipped log strings spell it bare ("Run ./build.sh
+#     test to verify"). Judged where figure 5 judges text -- non-comment
+#     shell lines and the heredoc bodies written out, plus every line of a
+#     shipped template -- except a wrapper's own usage() (`usage`,
+#     `_usage`, `_setup_msg_usage`, ...), whose --help describes the
+#     script being invoked and is a separate wording decision, and the
+#     legacy INI reference dist/.setup.conf. Both exclusions are base#1357's
+#     stated scope.
 #
 # Dispatchable is not the same as doing what the text says (base#1355). A
 # bare `just docker setup` dispatches -- it reaches wrapper/setup.sh -- and
@@ -1335,6 +1348,141 @@ _derived_just_candidate() {
     _djc_out="${_first} ${_second}"
   fi
   return 0
+}
+
+# The shipped templates the root-wrapper rule does not judge (base#1357):
+# the legacy INI reference, whose worked examples are out of its scope.
+readonly -a _DERIVED_FIGURES_ROOT_WRAPPER_EXEMPT=(
+  'dist/.setup.conf'
+)
+
+# A shell function whose body is a wrapper's own --help text: a name ending
+# in `usage` (base#1357). Group 1 is the indentation its closing brace
+# carries.
+readonly _DERIVED_FIGURES_USAGE_FN_RE='^([[:space:]]*)(function[[:space:]]+)?[A-Za-z0-9_]*usage[[:space:]]*\(\)[[:space:]]*\{?[[:space:]]*$'
+
+# _derived_root_wrappers <out_var> -- the consumer ./script/<name>.sh names
+# init.sh links in (base#1357), one per element. Returns non-zero when
+# init.sh is missing or links none: an empty set would pass every
+# root-relative name.
+_derived_root_wrappers() {
+  local -n _drw_out="$1"
+  _drw_out=()
+  local _init="${REPO_ROOT}/${_DERIVED_FIGURES_INIT_SH}"
+  [[ -f "${_init}" ]] || return 1
+  local _line
+  local _link_re='_symlink[[:space:]]+"\.\./\$\{TEMPLATE_REL\}/[^"]+"[[:space:]]+"script/([A-Za-z0-9_-]+)\.sh"'
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ${_link_re} ]] || continue
+    _drw_out+=( "${BASH_REMATCH[1]}" )
+  done < "${_init}"
+  [[ "${#_drw_out[@]}" -gt 0 ]]
+}
+
+# _derived_wrapper_repairs <out_assoc_var> -- for each script a module
+# recipe forwards to, the `just <namespace> <recipe>` a consumer types for
+# it (base#1357). A recipe named after its script wins over one that merely
+# runs it first (`start` runs build.sh before run.sh).
+_derived_wrapper_repairs() {
+  local -n _dwr_out="$1"
+  _dwr_out=()
+  local _entry="${REPO_ROOT}/${_DERIVED_FIGURES_ENTRY_JUSTFILE}"
+  [[ -f "${_entry}" ]] || return 0
+  local _consumer_root
+  _consumer_root="$(dirname "$(dirname "${_entry}")")"
+  local _ns _path _recipe _script
+  while read -r _ns _path; do
+    [[ -n "${_ns}" && -n "${_path}" ]] || continue
+    [[ -f "${_consumer_root}/${_path}" ]] || continue
+    while read -r _recipe _script; do
+      [[ -n "${_script}" ]] || continue
+      if [[ ! -v "_dwr_out[${_script}]" \
+        || "${_recipe}" == "${_script}" \
+        || "${_recipe}" == "${_script//_/-}" ]]; then
+        _dwr_out["${_script}"]="just ${_ns} ${_recipe}"
+      fi
+    done < <(_derived_recipe_scripts "${_consumer_root}/${_path}")
+  done < <(_derived_entry_modules "${_entry}")
+  return 0
+}
+
+# _derived_scan_root_wrappers <file> <rel> <mode> <wrappers_var>
+#   <repairs_var>
+#
+# Report every `./<wrapper>.sh` -- or the formatted `./%s.sh` -- in <file>
+# that names a wrapper as if it sat at the consumer's repo root (base#1357).
+# <mode> is `script` (skip `#` lines outside a heredoc body, and the body of
+# a usage() function) or `template` (judge every line). Prints one
+# violation per hit and returns the count.
+_derived_scan_root_wrappers() {
+  local _file="$1" _rel="$2" _mode="$3"
+  local -n _dsrw_names="$4"
+  local -n _dsrw_repairs="$5"
+  local _violations=0
+
+  local _alt _name
+  _alt='%s'
+  for _name in "${_dsrw_names[@]}"; do
+    _alt+="|${_name}"
+  done
+  # Not after a path character, so ./script/build.sh and ../build.sh are
+  # not read as ./build.sh; not followed by a name character, so
+  # ./build.sh.bak is not. A dot that is not followed by a name character
+  # is sentence punctuation ("Delegating to ./build.sh..."), not a suffix.
+  local _re="(^|[^A-Za-z0-9_./-])(\\./(${_alt})\\.sh)([^A-Za-z0-9_.-]|\\.+([^A-Za-z0-9_-]|\$)|\$)"
+
+  local _heredoc_end='' _heredoc_tabs=0 _cmp _usage_end=''
+  local _lineno=0 _line _rest _hit _which _repair
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    if [[ -n "${_heredoc_end}" ]]; then
+      _cmp="${_line}"
+      if [[ "${_heredoc_tabs}" -eq 1 ]]; then
+        while [[ "${_cmp}" == $'\t'* ]]; do _cmp="${_cmp#$'\t'}"; done
+      fi
+      if [[ "${_cmp}" == "${_heredoc_end}" ]]; then
+        _heredoc_end=''
+        continue
+      fi
+    elif [[ "${_mode}" != 'template' ]]; then
+      # Inside a usage() body only its closing brace matters; a heredoc
+      # opener there is still tracked so its body cannot end the function.
+      if [[ -n "${_usage_end}" ]]; then
+        [[ "${_line}" == "${_usage_end}" ]] && _usage_end=''
+      elif [[ "${_line}" =~ ${_DERIVED_FIGURES_USAGE_FN_RE} ]]; then
+        _usage_end="${BASH_REMATCH[1]}}"
+        continue
+      elif [[ "${_line}" =~ ^[[:space:]]*# ]]; then
+        continue
+      fi
+      if [[ "${_line}" =~ ${_DERIVED_FIGURES_HEREDOC_RE} ]]; then
+        _heredoc_end="${BASH_REMATCH[3]}"
+        _heredoc_tabs=0
+        [[ -n "${BASH_REMATCH[2]}" ]] && _heredoc_tabs=1
+      fi
+    fi
+    # A heredoc inside a usage() body is that usage text too.
+    [[ -n "${_usage_end}" ]] && continue
+
+    _rest="${_line}"
+    while [[ "${_rest}" =~ ${_re} ]]; do
+      _hit="${BASH_REMATCH[2]}"
+      _which="${BASH_REMATCH[3]}"
+      _rest="${_rest#*"${_hit}"}"
+      if [[ "${_which}" == '%s' ]]; then
+        _repair="the 'just <namespace> <recipe>' that runs it, or ./script/<name>.sh"
+      elif [[ -v "_dsrw_repairs[${_which}]" ]]; then
+        _repair="'${_dsrw_repairs[${_which}]}' (or ./script/${_which}.sh)"
+      else
+        _repair="./script/${_which}.sh"
+      fi
+      printf "%s:%s: tells the user to run '%s', and a consumer's repo root has no such file -- init.sh links the wrapper in as ./script/<name>.sh; name %s\n" \
+        "${_rel}" "${_lineno}" "${_hit}" "${_repair}"
+      _violations=$(( _violations + 1 ))
+    done
+  done < "${_file}"
+
+  return "${_violations}"
 }
 
 # _derived_scan_just_literals <file> <rel> <commands_var_name> [template]
@@ -1814,12 +1962,42 @@ _run_derived_figures() {
     _violations=$(( _violations + _hits ))
   done
 
+  # Figure 5, root-relative wrapper names (base#1357). The wrapper set is
+  # init.sh's links; an empty set would pass every root-relative name.
+  local -a _root_wrappers=()
+  if ! _derived_root_wrappers _root_wrappers; then
+    _die ci_derived_figures \
+      "read no 'script/<name>.sh' links out of ${_DERIVED_FIGURES_INIT_SH} -- which wrappers a consumer reaches only under ./script/ cannot be derived, so a root-relative ./<wrapper>.sh would pass unseen."
+    return 1
+  fi
+  local -A _wrapper_repairs=()
+  _derived_wrapper_repairs _wrapper_repairs
+  for _file in "${_shipped_surfaces[@]}"; do
+    _hits=0
+    _derived_scan_root_wrappers \
+      "${_file}" "${_file#"${REPO_ROOT}"/}" script _root_wrappers \
+      _wrapper_repairs || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done
+  local _exempt
+  for _tmpl in "${_DERIVED_FIGURES_SHIPPED_TEMPLATES[@]}"; do
+    [[ -f "${REPO_ROOT}/${_tmpl}" ]] || continue
+    for _exempt in "${_DERIVED_FIGURES_ROOT_WRAPPER_EXEMPT[@]}"; do
+      [[ "${_tmpl}" == "${_exempt}" ]] && continue 2
+    done
+    _hits=0
+    _derived_scan_root_wrappers \
+      "${REPO_ROOT}/${_tmpl}" "${_tmpl}" template _root_wrappers \
+      _wrapper_repairs || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_derived_figures \
-      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The GPU capability names are _VALID_GPU_CAPABILITIES. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach, and a bare call of a recipe whose linked wrapper answers no argument with usage only prints help. Fix the prose, not the predicate."
+      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The GPU capability names are _VALID_GPU_CAPABILITIES. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach, and a bare call of a recipe whose linked wrapper answers no argument with usage only prints help. A wrapper init.sh links in is ./script/<name>.sh in the consumer, never ./<name>.sh. Fix the prose, not the predicate."
     return 1
   fi
   echo "derived-figure lint: clean"

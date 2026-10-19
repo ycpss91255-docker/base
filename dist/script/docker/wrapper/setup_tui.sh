@@ -289,7 +289,7 @@ _TUI_MSG_EN[err.invalid_tmpfs]="Invalid tmpfs mount (expected <path>[:<option>[,
 _TUI_MSG_EN[err.invalid_cgroup_rule]="Invalid cgroup rule (expected: <c|b|a> <major>:<minor|*> <r|w|m>)"
 _TUI_MSG_EN[err.invalid_gpu_count]="Invalid GPU count (expected 'all' or a positive integer)"
 _TUI_MSG_EN[err.invalid_runtime]="Invalid runtime (expected 'auto', 'nvidia', or 'off')"
-_TUI_MSG_EN[err.unrepresentable_gpu_capabilities]=$'The GPU capability list was LEFT ALONE and this page did not edit it.\n\nYour configuration names a capability the validator does not accept, so\nthis screen has no row for it and confirming the checklist would replace\nyour list with whatever the rows said. Nothing was written.\n\nFix the value in setup.toml (or setup.local.toml) and reopen this page,\nor set it from the command line:\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_EN[err.unrepresentable_gpu_capabilities]=$'The GPU capability list was LEFT ALONE and this page did not edit it.\n\nYour configuration names a capability the validator does not accept, so\nthis screen has no row for it and confirming the checklist would replace\nyour list with whatever the rows said. Nothing was written.\n\nFix the value in setup.toml (or setup.local.toml) and reopen this page,\nor set it from the command line:\n  just docker setup set deploy.gpu_capabilities "<names>"'
 _TUI_MSG_EN[err.empty_gpu_capabilities]=$'No capability was selected, so the list was LEFT ALONE.\n\nAn empty capability list is not something the generator can carry: it\nreserves the GPU and requests nothing, and compose.yaml generation\naborts on it. Nothing was written, so your previous list still stands.\n\nTo stop reserving a GPU at all, set GPU mode to `off` on the first\nscreen of this page -- that is the setting that means "no GPU".'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_EN[main.lifecycle]="container restart policy"
@@ -344,7 +344,7 @@ _TUI_MSG_EN[saved.shadowed]="These sections are also defined in %s, which wins h
 _TUI_MSG_EN[lang.invalid.title]="Language fallback"
 _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to English (en).\n\nValid values:\n  en      English\n  zh-TW   Traditional Chinese (Taiwan)\n  zh-CN   Simplified Chinese\n  ja      Japanese'
 _TUI_MSG_EN[deploy.ambiguous.title]="Two meanings of 'deploy'"
-_TUI_MSG_EN[deploy.ambiguous.body]=$'You opened the [deploy] section editor.\n\n[deploy] configures GPU reservation ONLY -- the section is named after\nCompose\'s `deploy:` key, not after deployment.\n\nThe field-deploy bundle is a different command:\n  ./setup.sh deploy      (just docker setup deploy)\n\nThe unambiguous name for THIS editor is `gpu`:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
+_TUI_MSG_EN[deploy.ambiguous.body]=$'You opened the [deploy] section editor.\n\n[deploy] configures GPU reservation ONLY -- the section is named after\nCompose\'s `deploy:` key, not after deployment.\n\nThe field-deploy bundle is a different command:\n  just docker setup deploy\n\nThe unambiguous name for THIS editor is `gpu`:\n  just docker setup-tui gpu'
 _TUI_MSG_EN[saved]="Saved to %s. Regenerating .env / .env.generated / compose.yaml..."
 
 
@@ -536,7 +536,7 @@ _TUI_MSG_ZH_TW[err.invalid_tmpfs]="tmpfs 掛載格式錯誤（預期 <path>[:<op
 _TUI_MSG_ZH_TW[err.invalid_cgroup_rule]="Cgroup 規則格式錯誤（預期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_TW[err.invalid_gpu_count]="GPU 數量格式錯誤（預期 'all' 或正整數）"
 _TUI_MSG_ZH_TW[err.invalid_runtime]="runtime 值不合法（預期 'auto'、'nvidia' 或 'off'）"
-_TUI_MSG_ZH_TW[err.unrepresentable_gpu_capabilities]=$'GPU 功能清單「未被改動」，本頁沒有編輯它。\n\n你的設定中有一個驗證器不接受的功能名稱，因此本畫面沒有對應的選項；\n若確認這份勾選清單，你的清單會被畫面上的選項取代。目前未寫入任何\n內容。\n\n請修正 setup.toml（或 setup.local.toml）中的值後重新開啟本頁，或改\n用命令列設定：\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_ZH_TW[err.unrepresentable_gpu_capabilities]=$'GPU 功能清單「未被改動」，本頁沒有編輯它。\n\n你的設定中有一個驗證器不接受的功能名稱，因此本畫面沒有對應的選項；\n若確認這份勾選清單，你的清單會被畫面上的選項取代。目前未寫入任何\n內容。\n\n請修正 setup.toml（或 setup.local.toml）中的值後重新開啟本頁，或改\n用命令列設定：\n  just docker setup set deploy.gpu_capabilities "<names>"'
 _TUI_MSG_ZH_TW[err.empty_gpu_capabilities]=$'沒有勾選任何功能，因此功能清單「未被改動」。\n\n空的功能清單不是產生器能處理的設定：它會保留 GPU 卻不要求任何功能，\ncompose.yaml 的產生會因此中止。目前未寫入任何內容，你原本的清單仍然\n有效。\n\n若要完全不保留 GPU，請在本頁第一個畫面把 GPU 模式設為 `off` —— 那才\n是代表「不使用 GPU」的設定。'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_TW[main.lifecycle]="容器重啟策略"
@@ -589,7 +589,7 @@ _TUI_MSG_ZH_TW[local.layer.title]="工作樹層級覆寫生效中"
 _TUI_MSG_ZH_TW[local.layer.body]=$'本機會讀取 %s，其優先序高於 <repo>/setup.toml。\n\n它定義的區段：%s\n\n在這些區段中，它會覆寫自己列出的 key，並整體取代自己宣告的清單。\n本編輯器顯示的是「實際生效」的值，已包含該層。儲存仍然寫入\n<repo>/setup.toml（CI 與其他 checkout 使用的共用值），因此對上述\n區段的修改在本機可能不會生效。'
 _TUI_MSG_ZH_TW[saved.shadowed]="下列區段同時定義於 %s，在本機由該檔勝出：%s"
 _TUI_MSG_ZH_TW[deploy.ambiguous.title]="「deploy」的兩種意思"
-_TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
+_TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  just docker setup deploy\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  just docker setup-tui gpu'
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env / .env.generated / compose.yaml..."
 
 
@@ -805,7 +805,7 @@ _TUI_MSG_ZH_CN[err.invalid_log_local_path]=$'local_path 格式错误\n  - 不可
 _TUI_MSG_ZH_CN[err.invalid_cgroup_rule]="Cgroup 规则格式错误（预期：<c|b|a> <major>:<minor|*> <r|w|m>）"
 _TUI_MSG_ZH_CN[err.invalid_gpu_count]="GPU 数量格式错误（预期 'all' 或正整数）"
 _TUI_MSG_ZH_CN[err.invalid_runtime]="runtime 值不合法（预期 'auto'、'nvidia' 或 'off'）"
-_TUI_MSG_ZH_CN[err.unrepresentable_gpu_capabilities]=$'GPU 功能清单「未被改动」，本页没有编辑它。\n\n你的配置中有一个验证器不接受的功能名称，因此本界面没有对应的选项；\n若确认这份勾选清单，你的清单会被界面上的选项取代。目前未写入任何\n内容。\n\n请修正 setup.toml（或 setup.local.toml）中的值后重新打开本页，或改\n用命令行设置：\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_ZH_CN[err.unrepresentable_gpu_capabilities]=$'GPU 功能清单「未被改动」，本页没有编辑它。\n\n你的配置中有一个验证器不接受的功能名称，因此本界面没有对应的选项；\n若确认这份勾选清单，你的清单会被界面上的选项取代。目前未写入任何\n内容。\n\n请修正 setup.toml（或 setup.local.toml）中的值后重新打开本页，或改\n用命令行设置：\n  just docker setup set deploy.gpu_capabilities "<names>"'
 _TUI_MSG_ZH_CN[err.empty_gpu_capabilities]=$'没有勾选任何功能，因此功能清单「未被改动」。\n\n空的功能清单不是生成器能处理的配置：它会预留 GPU 却不要求任何功能，\ncompose.yaml 的生成会因此中止。目前未写入任何内容，你原本的清单仍然\n有效。\n\n若要完全不预留 GPU，请在本页第一个界面把 GPU 模式设为 `off` —— 那才\n是代表「不使用 GPU」的设置。'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_ZH_CN[main.lifecycle]="容器重启策略"
@@ -829,7 +829,7 @@ _TUI_MSG_ZH_CN[local.layer.title]="工作树级覆写生效中"
 _TUI_MSG_ZH_CN[local.layer.body]=$'本机会读取 %s，其优先级高于 <repo>/setup.toml。\n\n它定义的区段：%s\n\n在这些区段中，它会覆写自己列出的 key，并整体替换自己声明的列表。\n本编辑器显示的是「实际生效」的值，已包含该层。保存仍然写入\n<repo>/setup.toml（CI 与其他 checkout 使用的共用值），因此对上述\n区段的修改在本机可能不会生效。'
 _TUI_MSG_ZH_CN[saved.shadowed]="下列区段同时定义于 %s，在本机由该文件胜出：%s"
 _TUI_MSG_ZH_CN[deploy.ambiguous.title]="「deploy」的两种意思"
-_TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本编辑器没有歧义的名称是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
+_TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  just docker setup deploy\n\n本编辑器没有歧义的名称是 `gpu`：\n  just docker setup-tui gpu'
 _TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env / .env.generated / compose.yaml..."
 
 
@@ -1045,7 +1045,7 @@ _TUI_MSG_JA[err.invalid_log_local_path]=$'local_path が不正\n  - 空または
 _TUI_MSG_JA[err.invalid_cgroup_rule]="Cgroup ルール形式が不正（<c|b|a> <major>:<minor|*> <r|w|m> を期待）"
 _TUI_MSG_JA[err.invalid_gpu_count]="GPU 数が不正（'all' または正の整数を期待）"
 _TUI_MSG_JA[err.invalid_runtime]="無効な runtime（'auto'、'nvidia'、'off' のいずれか）"
-_TUI_MSG_JA[err.unrepresentable_gpu_capabilities]=$'GPU ケイパビリティ一覧は「変更されていません」。このページは編集\nしませんでした。\n\n設定にバリデータが受け付けないケイパビリティ名が含まれているため、\nこの画面には対応する行がありません。チェックリストを確定すると、\n一覧が画面の行の内容で置き換えられてしまいます。何も書き込んで\nいません。\n\nsetup.toml（または setup.local.toml）の値を修正してこのページを開き\n直すか、コマンドラインから設定してください:\n  ./setup.sh set deploy.gpu_capabilities "<names>"'
+_TUI_MSG_JA[err.unrepresentable_gpu_capabilities]=$'GPU ケイパビリティ一覧は「変更されていません」。このページは編集\nしませんでした。\n\n設定にバリデータが受け付けないケイパビリティ名が含まれているため、\nこの画面には対応する行がありません。チェックリストを確定すると、\n一覧が画面の行の内容で置き換えられてしまいます。何も書き込んで\nいません。\n\nsetup.toml（または setup.local.toml）の値を修正してこのページを開き\n直すか、コマンドラインから設定してください:\n  just docker setup set deploy.gpu_capabilities "<names>"'
 _TUI_MSG_JA[err.empty_gpu_capabilities]=$'ケイパビリティが一つも選択されていないため、一覧は「変更されて\nいません」。\n\n空のケイパビリティ一覧はジェネレータが扱える設定ではありません。\nGPU を予約しながら何も要求しない状態になり、compose.yaml の生成が\n中断します。何も書き込んでいないので、以前の一覧がそのまま有効です。\n\nGPU の予約自体をやめる場合は、このページ最初の画面で GPU モードを\n`off` にしてください。それが「GPU を使わない」設定です。'
 # [lifecycle] restart policy page (fast-follow of)
 _TUI_MSG_JA[main.lifecycle]="コンテナ再起動ポリシー"
@@ -1069,7 +1069,7 @@ _TUI_MSG_JA[local.layer.title]="ワークツリー単位の上書きが有効"
 _TUI_MSG_JA[local.layer.body]=$'このマシンでは %s が <repo>/setup.toml より優先して読まれます。\n\nそれが定義するセクション: %s\n\nこれらのセクションでは、記載された key を上書きし、宣言した配列は\n全体を置き換えます。このエディタが表示するのはその層を含む「実効」\n値です。保存先は <repo>/setup.toml（CI と他のチェックアウトが使う\n共有の値）なので、上記セクションへの変更はこのマシンでは効かない\nことがあります。'
 _TUI_MSG_JA[saved.shadowed]="次のセクションは %s にも定義されており、ここではそちらが優先されます: %s"
 _TUI_MSG_JA[deploy.ambiguous.title]="「deploy」の二つの意味"
-_TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  ./setup.sh deploy      (just docker setup deploy)\n\nこのエディタの曖昧でない名前は `gpu` です:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
+_TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  just docker setup deploy\n\nこのエディタの曖昧でない名前は `gpu` です:\n  just docker setup-tui gpu'
 _TUI_MSG_JA[saved]="%s に保存しました。.env / .env.generated / compose.yaml を再生成中..."
 
 
@@ -3352,7 +3352,7 @@ main() {
           # rather than as an unknown argument, because the name IS
           # valid everywhere else (`setup.sh set`, the conf file) and
           # "unknown argument" would send the reader looking for a typo.
-          printf "[tui] %s has no TUI editor; set it with ./setup.sh set %s.<key> <value>\n" \
+          printf "[tui] %s has no TUI editor; set it with just docker setup set %s.<key> <value>\n" \
             "${1}" "${1}" >&2
           exit 2
         else

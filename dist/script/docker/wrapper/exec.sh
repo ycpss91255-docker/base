@@ -46,10 +46,10 @@ _msg_errors() {
 
 _msg_hints() {
   case "${_LANG}:${1:?}" in
-    zh-TW:start)  echo "請先以 './run.sh' 啟動。" ;;
-    zh-CN:start)  echo "请先以 './run.sh' 启动。" ;;
-    ja:start)     echo "まず './run.sh' で起動してください。" ;;
-    *:start)      echo "Start it first with './run.sh'." ;;
+    zh-TW:start)  echo "請先以 'just docker run' 啟動。" ;;
+    zh-CN:start)  echo "请先以 'just docker run' 启动。" ;;
+    ja:start)     echo "まず 'just docker run' で起動してください。" ;;
+    *:start)      echo "Start it first with 'just docker run'." ;;
   esac
 }
 

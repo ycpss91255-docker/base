@@ -192,14 +192,14 @@ teardown() {
 @test "exec.sh prints start hint when container not running" {
   run bash "${SANDBOX}/exec.sh"
   assert_failure
-  assert_output --partial "./run.sh"
+  assert_output --partial "just docker run"
 }
 
 @test "exec.sh --lang zh-TW start hint translates" {
   run bash "${SANDBOX}/exec.sh" --lang zh-TW
   assert_failure
   assert_output --partial "請先以"
-  assert_output --partial "./run.sh"
+  assert_output --partial "just docker run"
 }
 
 @test "exec.sh --dry-run bypasses container-running check" {

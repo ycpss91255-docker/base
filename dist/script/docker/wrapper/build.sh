@@ -57,10 +57,10 @@ _msg_errors() {
     zh-CN:no_env)       echo "setup 未生成 .env.generated。" ;;
     ja:no_env)          echo "setup が .env.generated を生成しませんでした。" ;;
     *:no_env)           echo "setup did not produce .env.generated." ;;
-    zh-TW:rerun_setup)  echo "請改以 './build.sh --setup' 重新執行以開啟編輯器。" ;;
-    zh-CN:rerun_setup)  echo "请改以 './build.sh --setup' 重新运行以打开编辑器。" ;;
-    ja:rerun_setup)     echo "'./build.sh --setup' で再実行してエディタを開いてください。" ;;
-    *:rerun_setup)      echo "Re-run with './build.sh --setup' to open the editor." ;;
+    zh-TW:rerun_setup)  echo "請改以 'just docker build --setup' 重新執行以開啟編輯器。" ;;
+    zh-CN:rerun_setup)  echo "请改以 'just docker build --setup' 重新运行以打开编辑器。" ;;
+    ja:rerun_setup)     echo "'just docker build --setup' で再実行してエディタを開いてください。" ;;
+    *:rerun_setup)      echo "Re-run with 'just docker build --setup' to open the editor." ;;
     zh-TW:unknown_flag) echo "無法識別的選項（目標名稱不以 - 開頭；可用選項見 --help）" ;;
     zh-CN:unknown_flag) echo "无法识别的选项（目标名称不以 - 开头；可用选项见 --help）" ;;
     ja:unknown_flag)    echo "認識できないオプション（ターゲット名は - で始まりません。オプション一覧は --help）" ;;

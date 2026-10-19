@@ -1485,3 +1485,215 @@ _append() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Figure 5, widened: a wrapper named as if it sat at the repo root
+# (base#1357)
+# ════════════════════════════════════════════════════════════════════
+#
+# A consumer's repo root has no build.sh, run.sh or setup.sh: init.sh links
+# each wrapper in as ./script/<name>.sh, and the root offers `just docker
+# <recipe>`. Text that tells the consumer to type `./build.sh` answers
+# itself with "No such file or directory". Which names are wrappers is read
+# from init.sh's `_symlink ... "script/<name>.sh"` lines, not from a list.
+#
+# A wrapper's own `usage()` text describes the script being invoked and is
+# a separate wording decision, and a source comment is maintainer prose, so
+# neither is judged.
+
+# why: The live defect in a printed message -- the rerun_setup hint and the
+# upgrade next step name a root-level ./build.sh the consumer does not have
+@test "_run_derived_figures: FAILS on a root-relative wrapper in a shipped message string (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    *:rerun_setup)      echo \"Re-run with './build.sh --setup' to open the editor.\" ;;"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: The same name with no quote around it, inside a double-quoted log
+# string -- upgrade.sh's "Run ./build.sh test to verify" -- is the same
+# instruction, so the rule cannot stop at quoted spans
+@test "_run_derived_figures: FAILS on an unquoted root-relative wrapper in a log string (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '  _log "  1. Run ./build.sh test to verify"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: The repair is handed over, as figure 5 does for a top-level recipe:
+# the recipe whose body runs ./script/build.sh is what the consumer types
+@test "_run_derived_figures: the root-relative wrapper violation names the consumer spelling (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '  _log "  1. Run ./build.sh test to verify"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"just docker build"* ]]
+}
+
+# why: The generated compose.yaml header and README Quick Start are heredoc
+# bodies written into the consumer's repo; a `#` line there is not
+# maintainer prose
+@test "_run_derived_figures: FAILS on a root-relative wrapper in a written-out heredoc (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '_emit_header() {' \
+    "  cat <<'HEADER'" \
+    '# Edit setup.toml instead. Regenerate via ./build.sh --setup.' \
+    'HEADER' \
+    '}'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:4:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: The shipped Dockerfile's comments are copied into the consumer's
+# Dockerfile and read there
+@test "_run_derived_figures: FAILS on a root-relative wrapper in a shipped template comment (base#1357)" {
+  _append 'dist/dockerfile/Dockerfile' \
+    '# to regenerate compose.yaml, then `./build.sh -t <stage>`.'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/dockerfile/Dockerfile:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: A sentence can end right after the name -- run.sh's delegating
+# message was "Delegating to ./build.sh..." -- and the ellipsis or full stop
+# is punctuation, not part of the name, so it is the same instruction
+@test "_run_derived_figures: FAILS on a root-relative wrapper followed by an ellipsis (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    *:delegating)        echo "Delegating to ./build.sh..." ;;'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: A full stop after the name ends the sentence the same way; the
+# instruction it carries is still ./build.sh
+@test "_run_derived_figures: FAILS on a root-relative wrapper ending a sentence (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '  _log "  1. Then verify the image with ./build.sh."'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+  [[ "${output}" == *"./build.sh"* ]]
+}
+
+# why: A dot followed by a name character is a filename suffix: ./build.sh.bak
+# is another file, not the wrapper
+@test "_run_derived_figures: a suffixed file name is not a root-relative wrapper (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    *:backup)            echo "Saved the old copy as ./build.sh.bak" ;;'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The config summary formats the wrapper name in: `./%s.sh --setup`
+# prints ./build.sh or ./run.sh, so a placeholder in the name's place is
+# the same root-relative instruction
+@test "_run_derived_figures: FAILS on a formatted root-relative wrapper name (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '  printf "[%s] %s: ./%s.sh --setup  |  edit setup.toml\n" "${_tag}" "${_c}" "${_tag}"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:2:"* ]]
+}
+
+# why: Which names are wrappers is derived from init.sh's links: a name
+# init.sh does not link is not knowable as a wrapper, and linking it makes
+# the same text the violation with no edit to the driver
+@test "_run_derived_figures: the root-wrapper set is derived from init.sh's links (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    *:stop_hint)          echo \"Stop it with './stop.sh'.\" ;;"
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  printf '%s\n' \
+    '_more_links() {' \
+    '  _symlink "../${TEMPLATE_REL}/dist/script/docker/wrapper/stop.sh" "script/stop.sh"' \
+    '}' >> "${SCRATCH}/dist/script/base/init.sh"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"./stop.sh"* ]]
+}
+
+# why: The consumer-runnable spellings must pass, or the text would have no
+# repair: the `just docker` recipe and the ./script/<name>.sh path both run
+# from the repo root
+@test "_run_derived_figures: PASSES on just docker and ./script/<name>.sh spellings (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    *:rerun_setup)      echo \"Re-run with 'just docker build --setup' to open the editor.\" ;;" \
+    '  _log "  1. Run ./script/build.sh test to verify"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: A wrapper's own --help describes the script being invoked; its
+# Usage line is out of scope (base#1357) and must not be reported
+@test "_run_derived_figures: a wrapper's usage() text is not judged for root-relative names (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    'usage() {' \
+    "  cat >&2 <<'EOF'" \
+    'Usage: ./build.sh [-h] [TARGET]' \
+    'EOF' \
+    '  exit 0' \
+    '}'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: A source comment is maintainer prose, as it is for the rest of
+# figure 5
+@test "_run_derived_figures: a root-relative wrapper in a source comment is not an instruction (base#1357)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '# The wrapper used to be invoked as ./build.sh before base#1357.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The legacy INI reference dist/.setup.conf is out of scope for this
+# rule (base#1357)
+@test "_run_derived_figures: the legacy .setup.conf is not judged for root-relative names (base#1357)" {
+  _append 'dist/.setup.conf' \
+    '#   1. (Recommended) ./setup.sh set network.mode bridge'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The acceptance criterion on the text base actually ships: every site
+# base#1357 names, through a COPY in the scratch tree (base#1075), names
+# only commands a consumer can run from its repo root
+@test "_run_derived_figures: the shipped sites name no root-relative wrapper (base#1357)" {
+  local _rel
+  for _rel in \
+    dist/dockerfile/Dockerfile \
+    dist/script/docker/lib/compose_emit.sh \
+    dist/script/docker/lib/config_summary.sh \
+    dist/script/docker/lib/wrapper.sh \
+    dist/script/docker/wrapper/build.sh \
+    dist/script/docker/wrapper/run.sh \
+    dist/script/docker/wrapper/exec.sh \
+    dist/script/docker/wrapper/setup.sh \
+    dist/script/docker/wrapper/setup_tui.sh \
+    dist/script/base/init.sh \
+    dist/script/base/upgrade.sh \
+    dist/script/justfile \
+    dist/script/docker/justfile.docker \
+    dist/script/base/justfile.base \
+    dist/script/template/justfile.template; do
+    mkdir -p "$(dirname "${SCRATCH}/${_rel}")"
+    cp "/source/${_rel}" "${SCRATCH}/${_rel}"
+  done
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}

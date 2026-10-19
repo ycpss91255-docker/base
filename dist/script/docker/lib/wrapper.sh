@@ -81,23 +81,23 @@ _wrapper_msg() {
     *:project_renamed)
       echo "Compose project name updated: '%s' -> '%s' (nothing existed under the old name)." ;;
     zh-TW:project_rename_deferred)
-      echo "compose 專案 '%s' 底下仍有容器，此 checkout 先維持該名稱；解析出的新名稱 '%s' 會在 './stop.sh' 之後生效。" ;;
+      echo "compose 專案 '%s' 底下仍有容器，此 checkout 先維持該名稱；解析出的新名稱 '%s' 會在 'just docker stop' 之後生效。" ;;
     zh-CN:project_rename_deferred)
-      echo "compose 项目 '%s' 下仍有容器，此 checkout 先维持该名称；解析出的新名称 '%s' 会在 './stop.sh' 之后生效。" ;;
+      echo "compose 项目 '%s' 下仍有容器，此 checkout 先维持该名称；解析出的新名称 '%s' 会在 'just docker stop' 之后生效。" ;;
     ja:project_rename_deferred)
-      echo "compose プロジェクト '%s' にコンテナが残っているため、この checkout は同じ名前のままにします。解決された新しい名前 '%s' は './stop.sh' の後に有効になります。" ;;
+      echo "compose プロジェクト '%s' にコンテナが残っているため、この checkout は同じ名前のままにします。解決された新しい名前 '%s' は 'just docker stop' の後に有効になります。" ;;
     *:project_rename_deferred)
-      echo "Compose project '%s' still has containers, so this checkout stays on that name; the resolved name '%s' takes effect after './stop.sh'." ;;
+      echo "Compose project '%s' still has containers, so this checkout stays on that name; the resolved name '%s' takes effect after 'just docker stop'." ;;
     # %s: the RECORDED project name, then the RESOLVED one. Volumes only:
     # `stop` will NOT clear this one, so it must not be advertised.
     zh-TW:project_rename_deferred_volumes)
-      echo "compose 專案 '%s' 底下仍有具名 volume,此 checkout 先維持該名稱。改用解析出的新名稱 '%s' 會讓那些 volume 變成沒有任何 wrapper 找得到的孤兒,而 './stop.sh' 不會刪除它們;請先用 'docker volume ls --filter label=com.docker.compose.project=%s' 檢視並搬移或刪除,或以 setup.toml 的 [project] name 固定目前名稱。" ;;
+      echo "compose 專案 '%s' 底下仍有具名 volume,此 checkout 先維持該名稱。改用解析出的新名稱 '%s' 會讓那些 volume 變成沒有任何 wrapper 找得到的孤兒,而 'just docker stop' 不會刪除它們;請先用 'docker volume ls --filter label=com.docker.compose.project=%s' 檢視並搬移或刪除,或以 setup.toml 的 [project] name 固定目前名稱。" ;;
     zh-CN:project_rename_deferred_volumes)
-      echo "compose 项目 '%s' 下仍有具名 volume,此 checkout 先维持该名称。改用解析出的新名称 '%s' 会让那些 volume 变成没有任何 wrapper 找得到的孤儿,而 './stop.sh' 不会删除它们;请先用 'docker volume ls --filter label=com.docker.compose.project=%s' 查看并搬移或删除,或以 setup.toml 的 [project] name 固定目前名称。" ;;
+      echo "compose 项目 '%s' 下仍有具名 volume,此 checkout 先维持该名称。改用解析出的新名称 '%s' 会让那些 volume 变成没有任何 wrapper 找得到的孤儿,而 'just docker stop' 不会删除它们;请先用 'docker volume ls --filter label=com.docker.compose.project=%s' 查看并搬移或删除,或以 setup.toml 的 [project] name 固定目前名称。" ;;
     ja:project_rename_deferred_volumes)
-      echo "compose プロジェクト '%s' に名前付きボリュームが残っているため、この checkout は同じ名前のままにします。解決された新しい名前 '%s' に切り替えると、それらはどの wrapper からも辿れない孤児になり、'./stop.sh' では削除されません。'docker volume ls --filter label=com.docker.compose.project=%s' で確認して移動または削除するか、setup.toml の [project] name で現在の名前を固定してください。" ;;
+      echo "compose プロジェクト '%s' に名前付きボリュームが残っているため、この checkout は同じ名前のままにします。解決された新しい名前 '%s' に切り替えると、それらはどの wrapper からも辿れない孤児になり、'just docker stop' では削除されません。'docker volume ls --filter label=com.docker.compose.project=%s' で確認して移動または削除するか、setup.toml の [project] name で現在の名前を固定してください。" ;;
     *:project_rename_deferred_volumes)
-      echo "Compose project '%s' still holds named volumes, so this checkout stays on that name. Adopting the resolved name '%s' would leave them as orphans no wrapper addresses, and './stop.sh' does not remove them: list them with 'docker volume ls --filter label=com.docker.compose.project=%s', then move or remove them -- or pin the current name with [project] name in setup.toml." ;;
+      echo "Compose project '%s' still holds named volumes, so this checkout stays on that name. Adopting the resolved name '%s' would leave them as orphans no wrapper addresses, and 'just docker stop' does not remove them: list them with 'docker volume ls --filter label=com.docker.compose.project=%s', then move or remove them -- or pin the current name with [project] name in setup.toml." ;;
     zh-TW:project_rename_probe_failed)
       echo "無法向 daemon 查詢 compose 專案 '%s' 底下的容器，因此延後改名為 '%s'。" ;;
     zh-CN:project_rename_probe_failed)
