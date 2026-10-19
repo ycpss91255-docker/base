@@ -466,6 +466,9 @@ EOF
 # failed. The declaration is therefore a decision the writers RE-MAKE,
 # not a line they copy: dropped on the way through, written back only
 # while the list is still empty. Remove-then-add has to be a round trip.
+# The add leaves it only as a comment, behind _CONF_ADD_DECL_NOTE, so the
+# remove that empties the list again can put it back where it stood
+# (base#1363).
 @test "_upsert_conf_value: refilling an emptied array drops the empty-array declaration" {
   cat > "${CONF}" << 'EOF'
 volumes = []
@@ -477,10 +480,15 @@ EOF
   _upsert_conf_value "${CONF}" build arg_1 'BAZ=qux'
   _upsert_conf_value "${CONF}" volumes mount_1 '/a:/b'
 
-  run grep -F 'args = []' "${CONF}"
+  # No live declaration is left; each stays only as the retired comment.
+  run grep -Fx 'args = []' "${CONF}"
   assert_failure
-  run grep -F 'volumes = []' "${CONF}"
+  run grep -Fx 'volumes = []' "${CONF}"
   assert_failure
+  run grep -Fx "${_CONF_ADD_DECL_NOTE}args = []" "${CONF}"
+  assert_success
+  run grep -Fx "${_CONF_ADD_DECL_NOTE}volumes = []" "${CONF}"
+  assert_success
 
   run toml_bridge_parse "${CONF}" --kv
   assert_success
@@ -553,8 +561,11 @@ args = [ ]  # intentionally cleared
 EOF
   _upsert_conf_value "${CONF}" build arg_1 'BAZ=qux'
 
-  run grep -F 'args = [' "${CONF}"
+  # Only the retired comment carries it now, annotation included.
+  run grep -E '^[[:space:]]*args[[:space:]]*=' "${CONF}"
   assert_failure
+  run grep -Fx "${_CONF_ADD_DECL_NOTE}args = [ ]  # intentionally cleared" "${CONF}"
+  assert_success
   run toml_bridge_parse "${CONF}" --kv
   assert_success
   assert_line 'build	arg_1	BAZ=qux'

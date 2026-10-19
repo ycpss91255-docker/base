@@ -1060,9 +1060,10 @@ _conf_toml_empty_array_decl() {
   # the one who writes down why. Matched as the bare two characters, the
   # annotated spelling was copied through and the next added entry landed
   # beside a key already bound to an array: the unreadable file again,
-  # reached by annotating the decision the declaration records. (The
-  # annotation is not carried onto the declaration written back; the
-  # alternative on this path is a file nothing can parse.)
+  # reached by annotating the decision the declaration records. (A
+  # declaration the writers re-create carries no annotation; only one
+  # `setup add` retired behind _CONF_ADD_DECL_NOTE comes back as it was
+  # spelled.)
   [[ "${_ctea_v}" =~ ^\[[[:space:]]*\][[:space:]]*(#.*)?$ ]] || return 1
   _conf_line_key "${_line}" _ctea_k
   _ctea_cand="${_table:+${_table}.}${_ctea_k}"
@@ -1293,6 +1294,7 @@ _wsc_flush_scalars() {
     _conf_fmt_kv "${__toml}" "${__ovk_key}" "${__override[${__ovk}]}" __kv
     printf '%s\n' "${__kv}" >> "${_out}"
     __emitted[${__ovk}]=1
+    __wsc_nw=$(( __wsc_nw + 1 ))
   done
   # This is also where <section>'s key scope ends, so it is where an
   # emptied array belonging to <section> gets its explicit declaration.
@@ -1330,6 +1332,21 @@ _wsc_flush_aot() {
   done < <(printf '%s\n' "${_pending[@]}" | sort -n -k1,1)
 }
 
+# _wsc_close_aot <path>
+#
+# Append <path>'s added blocks where the walk leaves its run of
+# `[[<path>]]` blocks for a header. With blank lines held back (see
+# _wsc_emit) the separator before the header is still to come, so the
+# blocks go in `eof` shape (blank line first) and land ahead of it;
+# with none held back they go in `boundary` shape (blank line after).
+_wsc_close_aot() {
+  if (( __wsc_blank > 0 )); then
+    _wsc_flush_aot "${1}" eof
+  else
+    _wsc_flush_aot "${1}" boundary
+  fi
+}
+
 # _wsc_flush_empty_arrays <table>
 #
 # Declare, as `<key> = []`, each array path this rewrite leaves with no
@@ -1346,7 +1363,90 @@ _wsc_flush_empty_arrays() {
     _conf_toml_key "${__fea_k}" __fea_k
     printf '%s = []\n' "${__fea_k}" >> "${_out}"
     __aot_empty_done["${__fea_p}"]=1
+    __wsc_nw=$(( __wsc_nw + 1 ))
   done
+}
+
+# _wsc_emit <line>
+#
+# Write one non-blank line of the walk: the blank lines held back before
+# it first, then the line. Blank lines are held back so that what a
+# table's end appends (added keys, emptied-array declarations) lands
+# after the table's last line and before the blank lines that separate
+# it from the next header, not after them (base#1363).
+_wsc_emit() {
+  _wsc_emit_blanks
+  printf '%s\n' "${1}" >> "${_out}"
+  __wsc_nw=$(( __wsc_nw + 1 ))
+  __wsc_tail_removed=0
+}
+
+# _wsc_emit_blanks
+#
+# Write the blank lines the walk is holding back.
+_wsc_emit_blanks() {
+  while (( __wsc_blank > 0 )); do
+    printf '\n' >> "${_out}"
+    __wsc_blank=$(( __wsc_blank - 1 ))
+  done
+}
+
+# _wsc_end_table
+#
+# _wsc_end_table [eof]
+#
+# Close the `[table]` whose keys are in scope: append its added keys and
+# emptied-array declarations, and -- unless the file ends here [eof] --
+# put back the blank line that separates appended keys from the next
+# header when the file had none.
+#
+# Then drop the table when this save removed a key from it, left nothing
+# under the header, and the header carries _CONF_ADD_TABLE_NOTE, the
+# comment `setup add` writes on a table it creates. Only the note tells
+# such a table apart from an empty one the file already held: `add`
+# gives back the same bytes for a file without `[environment]` and for
+# one ending in an empty `[environment]` (base#1363). What goes is the
+# header and ONE blank line, the one `add` put before it (or, with none
+# before it, the one after it); every other blank line stays.
+_wsc_end_table() {
+  local _nw_before="${__wsc_nw}" _keep
+  _wsc_flush_scalars "${__current}"
+  if [[ "${1-}" != eof ]] && (( __wsc_nw > _nw_before && __wsc_blank == 0 )); then
+    __wsc_blank=1
+  fi
+  if (( __wsc_tbl_removed && __wsc_tbl_noted && __wsc_nw == __wsc_tbl_nw )); then
+    _keep="$(head -c "${__wsc_tbl_off}" "${_out}"; printf x)"
+    printf '%s' "${_keep%x}" > "${_out}"
+    if (( !__wsc_tbl_sep && __wsc_blank > 0 )); then
+      __wsc_blank=$(( __wsc_blank - 1 ))
+    fi
+  fi
+  __wsc_tbl_removed=0
+}
+
+# _wsc_begin_table <header-line>
+#
+# Note where the table about to be written starts: the size of the
+# output before the last blank line held back ahead of its header (the
+# others are written now, so dropping the table cannot take them), how
+# many lines will have been written once the header is, whether one
+# blank line separates it from what came before, and whether its header
+# carries _CONF_ADD_TABLE_NOTE.
+_wsc_begin_table() {
+  __wsc_tbl_sep=0
+  if (( __wsc_blank > 0 )); then
+    __wsc_blank=$(( __wsc_blank - 1 ))
+    _wsc_emit_blanks
+    __wsc_blank=1
+    __wsc_tbl_sep=1
+  fi
+  __wsc_tbl_off="$(wc -c < "${_out}")"
+  __wsc_tbl_nw=$(( __wsc_nw + 1 ))
+  __wsc_tbl_removed=0
+  __wsc_tbl_noted=0
+  if (( __toml )) && [[ "${1-}" == *"] ${_CONF_ADD_TABLE_NOTE}" ]]; then
+    __wsc_tbl_noted=1
+  fi
 }
 
 # _wsc_refuse_ws_slot_move <dst>
@@ -1512,7 +1612,7 @@ _write_setup_conf() {
   # new entries of that kind are appended so the array stays in order.
   local -A __aot_of=() __aot_idx_of=() __aot_total=() __aot_seen=()
   local -A __aot_empty=() __aot_empty_done=() __aot_declared_empty=()
-  local __root_decls_flushed=0 __eap=""
+  local __root_decls_flushed=0 __eap="" __decl=""
   local __ovk __ovk_sect __ovk_key __p __n __hline
   if (( __toml )); then
     for __ovk in "${!__override[@]}"; do
@@ -1630,6 +1730,15 @@ _write_setup_conf() {
   # the current block: 0 copy, 1 drop (removed), 2 drop its key lines
   # (replaced, the new fields already written).
   local __current="" __aot_cur="" __aot_skip=0 __nskey __raw __rest __hdr __kv __fields
+  # __wsc_blank: blank lines read and not yet written (see _wsc_emit);
+  # __wsc_nw: non-blank lines written so far; __wsc_tbl_*: where the
+  # current `[table]` started and whether this save removed a key of it
+  # (see _wsc_end_table).
+  local __wsc_blank=0 __wsc_nw=0 __wsc_tbl_off=0 __wsc_tbl_nw=0 __wsc_tbl_removed=0
+  local __wsc_tbl_sep=0 __wsc_tbl_noted=0
+  # __wsc_tail_removed: the last thing read was a removed `[[...]]` block;
+  # __wsc_skip_blank: blank lines that ended it, read and not written.
+  local __wsc_tail_removed=0 __wsc_skip_blank=0
   : > "${_out}"
   for __line in "${__tpl_lines[@]}"; do
     # The root-key region ends at the first table header, so that is the
@@ -1649,13 +1758,12 @@ _write_setup_conf() {
     if (( __toml )) && [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       if [[ -n "${__current}" ]]; then
-        _wsc_flush_scalars "${__current}"
-        printf '\n' >> "${_out}"
+        _wsc_end_table
         __current=""
       fi
       if [[ -n "${__aot_cur}" && "${__aot_cur}" != "${__p}" ]] \
          && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
-        _wsc_flush_aot "${__aot_cur}" boundary
+        _wsc_close_aot "${__aot_cur}"
       fi
       __aot_cur="${__p}"
       __aot_seen["${__p}"]=$(( ${__aot_seen["${__p}"]:-0} + 1 ))
@@ -1681,18 +1789,20 @@ _write_setup_conf() {
           # `_setup_remove`'s header carries one level up.
           __emitted[${__nskey}]=1
           __aot_skip=1
+          __wsc_tail_removed=1
+          __wsc_skip_blank=0
           continue
         fi
-        printf '%s\n' "${__line}" >> "${_out}"
+        _wsc_emit "${__line}"
         if [[ -n "${__override[${__nskey}]+x}" ]]; then
           _conf_toml_aot_fields "${__p}" "${__override[${__nskey}]}" __fields
-          printf '%s\n' "${__fields}" >> "${_out}"
+          _wsc_emit "${__fields}"
           __emitted[${__nskey}]=1
           __aot_skip=2
         fi
         continue
       fi
-      printf '%s\n' "${__line}" >> "${_out}"
+      _wsc_emit "${__line}"
       continue
     fi
     if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
@@ -1702,13 +1812,11 @@ _write_setup_conf() {
       # Flush not-yet-emitted overrides belonging to the section we are
       # about to leave (those are "added" keys with no template line).
       if [[ -n "${__current}" ]]; then
-        _wsc_flush_scalars "${__current}"
-        # Separate appended keys from the next section header with a blank line
-        printf '\n' >> "${_out}"
+        _wsc_end_table
       fi
       if [[ -n "${__aot_cur}" ]] \
          && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
-        _wsc_flush_aot "${__aot_cur}" boundary
+        _wsc_close_aot "${__aot_cur}"
       fi
       __aot_cur=""
       __aot_skip=0
@@ -1717,25 +1825,54 @@ _write_setup_conf() {
       else
         __current="${__raw}"
       fi
-      printf '%s\n' "${__line}" >> "${_out}"
+      _wsc_begin_table "${__line}"
+      _wsc_emit "${__line}"
       continue
     fi
     if (( __aot_skip == 1 )); then
+      if [[ -z "${__line}" ]]; then
+        __wsc_skip_blank=$(( __wsc_skip_blank + 1 ))
+      else
+        __wsc_skip_blank=0
+      fi
       continue
     fi
     if (( __aot_skip == 2 )) && _conf_is_kv_line "${__line}"; then
       continue
     fi
-    if [[ -z "${__line}" || "${__line}" =~ ^[[:space:]]*# ]]; then
-      printf '%s\n' "${__line}" >> "${_out}"
+    if [[ -z "${__line}" ]]; then
+      __wsc_blank=$(( __wsc_blank + 1 ))
       continue
     fi
-    # An explicit empty-array declaration is re-decided, never copied:
-    # the flushes write one back for every path still empty, so copying
-    # it here would duplicate the key when the path is still empty and
-    # leave a key TOML refuses to extend when an override refills it.
+    # A declaration `setup add` retired (see _CONF_ADD_DECL_NOTE) comes
+    # back, as it was spelled and where it stood, once this rewrite
+    # leaves its list empty; until then the comment is copied.
+    if (( __toml )) && [[ -z "${__aot_cur}" \
+          && "${__line}" == "${_CONF_ADD_DECL_NOTE}"* ]]; then
+      __decl="${__line#"${_CONF_ADD_DECL_NOTE}"}"
+      if _conf_toml_empty_array_decl "${__decl}" "${__current}" __eap \
+         && [[ -n "${__aot_empty[${__eap}]:-}" \
+               && -z "${__aot_empty_done[${__eap}]:-}" ]]; then
+        _wsc_emit "${__decl}"
+        __aot_empty_done["${__eap}"]=1
+        continue
+      fi
+    fi
+    if [[ "${__line}" =~ ^[[:space:]]*# ]]; then
+      _wsc_emit "${__line}"
+      continue
+    fi
+    # An explicit empty-array declaration is re-decided: it is kept, in
+    # its place, while the path is still empty, and dropped when an
+    # override refills it (TOML refuses to extend a key already bound to
+    # an array). Kept where it stands, the file's own order of `x = []`
+    # lines survives a rewrite that does not touch them (base#1363).
     if (( __toml )) && [[ -z "${__aot_cur}" ]] \
        && _conf_toml_empty_array_decl "${__line}" "${__current}" __eap; then
+      if [[ -n "${__aot_empty[${__eap}]:-}" && -z "${__aot_empty_done[${__eap}]:-}" ]]; then
+        _wsc_emit "${__line}"
+        __aot_empty_done["${__eap}"]=1
+      fi
       continue
     fi
     if [[ -n "${__current}" && "${__line}" == *=* ]]; then
@@ -1743,22 +1880,33 @@ _write_setup_conf() {
       __nskey="${__current}.${__rest}"
       if [[ -n "${__removed[${__nskey}]+x}" ]]; then
         __emitted[${__nskey}]=1
+        __wsc_tbl_removed=1
         continue
       fi
       if [[ -n "${__override[${__nskey}]+x}" ]]; then
         _conf_fmt_kv "${__toml}" "${__rest}" "${__override[${__nskey}]}" __kv
-        printf '%s\n' "${__kv}" >> "${_out}"
+        _wsc_emit "${__kv}"
         __emitted[${__nskey}]=1
         continue
       fi
     fi
-    printf '%s\n' "${__line}" >> "${_out}"
+    _wsc_emit "${__line}"
   done
 
   # Flush leftovers belonging to the final section / final block kind
   if [[ -n "${__current}" ]]; then
-    _wsc_flush_scalars "${__current}"
+    # No header follows, so no separator is owed to one: the file keeps
+    # the trailing blank lines it had.
+    _wsc_end_table eof
   fi
+  # A removed `[[...]]` block that ended the file goes with ONE blank
+  # line next to it -- the one before it when there is one -- and the
+  # file keeps every other blank line it ended with (base#1363).
+  if (( __wsc_tail_removed )); then
+    __wsc_blank=$(( __wsc_blank + __wsc_skip_blank ))
+    (( __wsc_blank > 0 )) && __wsc_blank=$(( __wsc_blank - 1 ))
+  fi
+  _wsc_emit_blanks
   if [[ -n "${__aot_cur}" ]]; then
     _wsc_flush_aot "${__aot_cur}" eof
   fi
@@ -1906,7 +2054,7 @@ _write_setup_conf() {
 # Single-key upsert (used by setup.sh for WS_PATH writeback)
 # ════════════════════════════════════════════════════════════════════
 
-# _upsert_conf_value <file> <section> <key> <value>
+# _upsert_conf_value <file> <section> <key> <value> [<note>]
 #
 # Updates the given key's value within the given section in-place,
 # preserving all other content. If the key does not exist under the
@@ -1917,11 +2065,15 @@ _write_setup_conf() {
 # its kind -- replaced in place when it exists, appended after the last
 # block of that kind (or at the end of the file when there is none)
 # when it does not.
+#
+# <note>: a comment for the header of a TOML table this creates
+# (`setup add` passes _CONF_ADD_TABLE_NOTE).
 _upsert_conf_value() {
   local _file="${1:?}"
   local _section="${2:?}"
   local _key="${3:?}"
   local _value="${4-}"
+  local _note="${5-}"
 
   [[ -f "${_file}" ]] || { _log_err conf conf_upsert_file_missing "display=_upsert_conf_value: file missing: ${_file}"; return 1; }
 
@@ -1962,7 +2114,7 @@ _upsert_conf_value() {
   if (( __toml )) && _conf_toml_aot_slot "${_section}" "${_key}" __aot_path __aot_n; then
     _conf_toml_upsert_aot "${_file}" "${_tmp}" "${__aot_path}" "${__aot_n}" "${_value}"
   else
-    _conf_upsert_scalar "${_file}" "${_tmp}" "${__toml}" "${_section}" "${_key}" "${_value}"
+    _conf_upsert_scalar "${_file}" "${_tmp}" "${__toml}" "${_section}" "${_key}" "${_value}" "${_note}"
   fi
 
   # THE COMMIT GATE, for a TOML destination: promote the rewrite only once
@@ -2174,14 +2326,33 @@ _conf_commit_toml() {
   return 1
 }
 
-# _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value>
+# _CONF_ADD_TABLE_NOTE
+#
+# The comment `setup add` writes on the header of a table it creates.
+# `setup remove` drops a table again only when its header carries it, so
+# an add/remove round trip gives back the file it started from without
+# deleting an empty table the file already held (base#1363).
+_CONF_ADD_TABLE_NOTE="# added by setup add; removed with its last entry"
+
+# _CONF_ADD_DECL_NOTE
+#
+# The prefix `setup add` puts in front of an empty-array declaration
+# (`ports = []`) it has to retire because it gives the list an entry.
+# The declaration stays on its line as a comment, spelling and inline
+# comment included, and the rewrite that leaves the list empty again
+# writes it back from there, so an add/remove round trip gives back the
+# file it started from (base#1363).
+_CONF_ADD_DECL_NOTE="# setup remove restores this once the list is empty: "
+
+# _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value> [<note>]
 #
 # The scalar half of _upsert_conf_value: rewrite <src> into <dst> with
 # `<section>.<key>` set. A `[[...]]` header ends the section's scope
 # like a `[...]` one does, so an appended key lands inside its table.
+# A TOML table this creates gets <note> as a comment on its header.
 _conf_upsert_scalar() {
   local _src="${1:?}" _dst="${2:?}" _toml="${3:?}"
-  local _section="${4:?}" _key="${5:?}" _value="${6-}"
+  local _section="${4:?}" _key="${5:?}" _value="${6-}" _note="${7-}"
 
   local __line __hline __current="" __raw __rest __kv __hdr
   local __matched=0 __in_sect=0 __sect_found=0
@@ -2243,6 +2414,7 @@ _conf_upsert_scalar() {
   # Section not found at all → append new section + key
   if (( !__sect_found )); then
     _conf_fmt_header "${_toml}" "${_section}" __hdr
+    (( _toml )) && [[ -n "${_note}" ]] && __hdr+=" ${_note}"
     printf '\n%s\n%s\n' "${__hdr}" "${__kv}" >> "${_dst}"
   fi
 }
@@ -2348,7 +2520,11 @@ _conf_toml_upsert_aot() {
          && [[ "${__eap}" == "${_path}" ]]; then
       # This write gives the array an entry, so the declaration that said
       # it had none cannot stay: TOML refuses to extend a key already
-      # bound to an array, and the whole file would stop parsing.
+      # bound to an array, and the whole file would stop parsing. It
+      # stays, commented out behind _CONF_ADD_DECL_NOTE, where it stood,
+      # so the remove that empties the list again puts back these exact
+      # bytes in this place (base#1363).
+      printf '%s%s\n' "${_CONF_ADD_DECL_NOTE}" "${__line}" >> "${_dst}"
       continue
     fi
     printf '%s\n' "${__line}" >> "${_dst}"

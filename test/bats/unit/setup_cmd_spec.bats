@@ -1440,6 +1440,313 @@ EOF
   assert_output "NEW=val"
 }
 
+# ── remove gives back the file add started from (base#1363) ───────────
+#
+# `remove` rewrites setup.toml in place, so it must touch only the entry
+# it removes: no blank line added at a table boundary, every `x = []`
+# declaration left where and in the order it was, and a table that `add`
+# created dropped again once its last key goes. Otherwise an add-then-
+# remove round trip leaves a different file, and SETUP_CONF_HASH reports
+# drift for a configuration that did not change. The fixture is shaped
+# like the shipped setup.toml: several tables, `[[...]]` arrays, and more
+# than one `x = []` in one table. Every case runs in ${TEMP_DIR}, never
+# the live tree (base#1075).
+
+# _write_roundtrip_fixture <file>
+#   Write a setup.toml shaped like the shipped one, with no [environment]
+#   table, so `add environment.env` has to create it.
+_write_roundtrip_fixture() {
+  cat > "$1" <<'EOF'
+# setup.toml -- round-trip fixture (base#1363)
+
+[project]
+name = ""
+
+[[image.rules]]
+rule = "prefix:docker_"
+
+[[image.rules]]
+rule = "@basename"
+
+[build]
+target_arch = ""
+network = "auto"
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[deploy]
+gpu_mode = "auto"
+gpu_count = "all"
+
+[network]
+mode = "host"
+ipc = "host"
+ports = []
+
+[security]
+privileged = false
+cap_add = []
+cap_drop = []
+security_opt = []
+
+[resources]
+shm_size = ""
+
+[logging]
+driver = "json-file"
+max_file = 3
+EOF
+}
+
+# _conf_hash_of <dir>
+#   Print the SETUP_CONF_HASH line `apply` wrote into <dir>/.env.generated.
+_conf_hash_of() {
+  grep '^SETUP_CONF_HASH=' "$1/.env.generated"
+}
+
+# why: the issue's own reproduction: a table `add` creates has to go again with
+# its last key, and no other line of a shipped-shaped file may move.
+@test "add then remove environment.env gives back a byte-identical setup.toml (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  # The [environment] table `add` created goes with its last key, and no
+  # other line moves: the diff is empty.
+  run diff -u "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+# why: the `[[...]]` half of the round trip; the only case where the emptied
+# `ports = []` declaration has to come back in its own place.
+@test "add then remove network.port gives back a byte-identical setup.toml (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  run main add network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run diff -u "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+# why: pins the in-place guarantee without `add` in the loop, so a writer that
+# only undoes its own appends cannot pass by luck.
+@test "remove of an existing key changes only that key's line (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n[environment]\nenv_1 = "A=1"\nenv_2 = "B=2"\n' \
+    >> "${TEMP_DIR}/setup.toml"
+  # Expected: the same file with the env_2 line gone and nothing else --
+  # blank lines, `ports = []` and the three [security] declarations in
+  # their order all stay put.
+  grep -vFx 'env_2 = "B=2"' "${TEMP_DIR}/setup.toml" > "${TEMP_DIR}/want.toml"
+  run main remove environment.env_2 --base-path "${TEMP_DIR}"
+  assert_success
+  run diff -u "${TEMP_DIR}/want.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+# why: the symptom operators saw: each call added a line, so a file drifted
+# further with every round instead of settling.
+@test "repeated add/remove rounds do not grow setup.toml (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  local _lines _i
+  _lines="$(wc -l < "${TEMP_DIR}/setup.toml")"
+  for _i in 1 2 3; do
+    run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+    assert_success
+    run main remove environment.env FOO=bar --base-path "${TEMP_DIR}"
+    assert_success
+    assert_equal "$(wc -l < "${TEMP_DIR}/setup.toml")" "${_lines}"
+  done
+}
+
+# why: the hash is over file bytes, so this is what turns a cosmetic diff into
+# a false drift report on the next build.
+@test "SETUP_CONF_HASH is unchanged by an environment.env add/remove round trip (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  local _before
+  _before="$(_conf_hash_of "${TEMP_DIR}")"
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
+}
+
+# why: the same drift guarantee for the `[[...]]` path, which rewrites through
+# a different branch of the writer.
+@test "SETUP_CONF_HASH is unchanged by a network.port add/remove round trip (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  local _before
+  _before="$(_conf_hash_of "${TEMP_DIR}")"
+  run main add network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
+}
+
+# _assert_roundtrip <section.list> <value>
+#   Run `add` then `remove` of <value> on ${TEMP_DIR}/setup.toml and
+#   assert the file is byte-identical to what it was before the add.
+_assert_roundtrip() {
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  run main add "$1" "$2" --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove "$1" "$2" --base-path "${TEMP_DIR}"
+  assert_success
+  run diff -u "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+# why: review round 1 found dropping the created table took every blank line
+# before it, the file's own trailing one included; the first fixture
+# ended without one and could not see it.
+@test "add then remove environment.env keeps the file's trailing blank line (base#1363)" {
+  # The [environment] table `add` appends goes again with its key, and
+  # only the one blank line `add` put before it goes with it: the blank
+  # line the file already ended with stays.
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n' >> "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip environment.env FOO=bar
+}
+
+# why: the end-of-file `[[...]]` path dropped every blank line held before a
+# removed block; only a file ending in a block plus a blank line reaches it.
+@test "add then remove network.port keeps the blank line after a [[...]] block at the end of the file (base#1363)" {
+  # The added [[network.ports]] block lands after the one the file ends
+  # with; removing it must not take the trailing blank line along.
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  sed -i '/^ports = \[\]$/d' "${TEMP_DIR}/setup.toml"
+  printf '\n[[network.ports]]\nhost = "80"\ncontainer = "80"\n\n' \
+    >> "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip network.port 8080:8080
+}
+
+# why: `add` writes the same bytes with or without an empty [environment]
+# already present, so only the header note it writes tells them apart;
+# without this case deleting every emptied table passes.
+@test "add then remove environment.env keeps an empty [environment] table that was already there (base#1363)" {
+  # `remove` drops only a table `add` created; one the file already held,
+  # empty, stays as it was.
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n[environment]\n' >> "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip environment.env FOO=bar
+}
+
+# why: the mid-file variant with the user's own header comment, which an
+# indiscriminate table drop also deleted.
+@test "add then remove environment.env keeps an empty [environment] table whose header carries a comment (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  sed -i 's/^\[logging\]$/[environment] # host interfaces\n\n[logging]/' \
+    "${TEMP_DIR}/setup.toml"
+  grep -qFx '[environment] # host interfaces' "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip environment.env FOO=bar
+}
+
+# why: ties the trailing-blank fix to the drift report it would otherwise
+# trigger.
+@test "SETUP_CONF_HASH is unchanged by a round trip on a file ending in a blank line (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n' >> "${TEMP_DIR}/setup.toml"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  local _before
+  _before="$(_conf_hash_of "${TEMP_DIR}")"
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
+}
+
+# _move_ports_decl <file> <decl-line>
+#   Replace the fixture's trailing `ports = []` in [network] with
+#   <decl-line>, placed BEFORE `ipc = "host"`, so the declaration is no
+#   longer where a writer that re-creates it at the table's end would put
+#   it back.
+_move_ports_decl() {
+  local _f="$1" _decl="$2"
+  grep -vFx 'ports = []' "${_f}" > "${_f}.tmp"
+  awk -v d="${_decl}" '$0 == "ipc = \"host\"" { print d } { print }' \
+    "${_f}.tmp" > "${_f}"
+  rm -f "${_f}.tmp"
+  grep -qFx -- "${_decl}" "${_f}"
+}
+
+# why: review round 2 found remove re-created an emptied `ports = []` at the
+# end of [network], after `ipc`, so a declaration the file kept anywhere
+# else moved; the first fixture put it last and could not see that.
+@test "add then remove network.port keeps an empty-array declaration before another key in place (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports = []'
+  _assert_roundtrip network.port 8080:8080
+}
+
+# why: the declaration came back canonically spelled, so an operator's note on
+# why the list is empty, and their own spacing, were lost by a round trip.
+@test "add then remove network.port keeps an empty-array declaration's comment and spacing (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports  =  [ ]   # nothing published'
+  _assert_roundtrip network.port 8080:8080
+}
+
+# why: the declaration has to survive a remove that leaves the list non-empty,
+# or only a single-entry round trip gives the file back.
+@test "add two network.port entries then remove both keeps the declaration in place (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports = []  # host networking'
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  run main add network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main add network.port 9090:9090 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 9090:9090 --base-path "${TEMP_DIR}"
+  assert_success
+  run diff -u "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+# why: ties the moved, annotated declaration to the drift report a changed
+# byte would trigger.
+@test "SETUP_CONF_HASH is unchanged by a network.port round trip with a moved, annotated declaration (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports = [ ]  # nothing published'
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  local _before
+  _before="$(_conf_hash_of "${TEMP_DIR}")"
+  run main add network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
+}
+
 @test "main add validates env_kv format" {
   : > "${TEMP_DIR}/setup.toml"
   run main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"

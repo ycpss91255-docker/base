@@ -1181,13 +1181,13 @@ _setup_add() {
       fi
     done
     [[ "${_mown}" == "${_mval}" ]] && continue
-    if ! _upsert_conf_value "${_conf}" "${_section}" "${_list}_${_mi}" "${_mval}"; then
+    if ! _upsert_conf_value "${_conf}" "${_section}" "${_list}_${_mi}" "${_mval}" "${_CONF_ADD_TABLE_NOTE}"; then
       _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_list}_${_mi}" "section=${_section}" "key=${_list}_${_mi}"
       return 2
     fi
   done
 
-  if ! _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}"; then
+  if ! _upsert_conf_value "${_conf}" "${_section}" "${_new_key}" "${_value}" "${_CONF_ADD_TABLE_NOTE}"; then
     _log_err setup conf_write_failed "display=$(_setup_msg errors invalid_value): ${_section}.${_new_key}" "section=${_section}" "key=${_new_key}"
     return 2
   fi
