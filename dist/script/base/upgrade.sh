@@ -350,6 +350,14 @@ _abort_failed_subtree_pull() {
   _error "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
 }
 
+# _upgrade_dfm_ran_file_cleanup
+#   An _atexit callback removing the file the Step 3 init.sh writes to
+#   record that it ran the Dockerfile migration dispatcher (base#1372).
+_upgrade_dfm_ran_file_cleanup() {
+  [[ -n "${_UPGRADE_DFM_RAN_FILE:-}" ]] && rm -f -- "${_UPGRADE_DFM_RAN_FILE}"
+  return 0
+}
+
 # _upgrade_exit_rollback
 #   An _atexit callback (transcript.sh owns the single EXIT trap, so this
 #   never installs or clears one -- base#1371). Armed the moment the
@@ -645,7 +653,14 @@ _upgrade() {
   # when upgrading from <v0.30.0, init.sh's stale-removal loop
   # migrates the seven root *.sh symlinks into the script/ subfolder.
   _log upgrade_step "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
-  "./${TEMPLATE_REL}/dist/script/base/init.sh"
+  # The pulled init.sh runs the Dockerfile migration dispatcher itself
+  # (its _migrate_dockerfile) and records that it did in this file, so
+  # Step 5 does not run the same dispatcher a second time and print every
+  # notice twice (base#1372).
+  _UPGRADE_DFM_RAN_FILE="$(mktemp)"
+  _atexit _upgrade_dfm_ran_file_cleanup
+  _BASE_DFM_RAN_FILE="${_UPGRADE_DFM_RAN_FILE}" \
+    "./${TEMPLATE_REL}/dist/script/base/init.sh"
 
   # Step 4: update main.yaml @tag references
   _log upgrade_step "Step 4/5: update workflow @tag references"
@@ -724,11 +739,21 @@ _upgrade() {
   # force-rewrite) where structure is missing or ambiguous. Adding the next
   # fanout breakage is a new {detect, transform} pair in the lib, not another
   # branch here.
+  #
+  # The dispatcher runs here only when the Step 3 init.sh did not already
+  # run it. The patches are idempotent, but the warnings, the ENTRYPOINT
+  # advisory and the summary line are not: a second pass printed each of
+  # them again (base#1372). An init.sh that predates the record, or one
+  # with no _migrate_dockerfile, leaves the file empty and this pass runs.
   _log upgrade_step "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
   local _dockerfile="${REPO_ROOT}/Dockerfile"
-  # shellcheck disable=SC1091
-  source "${SUBTREE_ROOT}/dist/script/docker/lib/dockerfile_migrate.sh"
-  apply_migrations "${_dockerfile}"
+  if [[ -s "${_UPGRADE_DFM_RAN_FILE}" ]]; then
+    _log upgrade_step "  (already applied by the Step 3 init.sh run)"
+  else
+    # shellcheck disable=SC1091
+    source "${SUBTREE_ROOT}/dist/script/docker/lib/dockerfile_migrate.sh"
+    apply_migrations "${_dockerfile}"
+  fi
   # Stage any files the migrations rewrote (Dockerfile + the sibling
   # entrypoint, when present) so they land in the same commit below.
   [[ -f "${_dockerfile}" ]] && git add "${_dockerfile}"

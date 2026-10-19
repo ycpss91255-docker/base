@@ -1303,13 +1303,20 @@ _init_existing_repo() {
 #   this is the only place a new heal reaches a consumer upgrading FROM an
 #   old release rather than one already on the new one.
 #
-#   Every migration is idempotent, so the current upgrade.sh running the
-#   same dispatcher again at its own Step 5 is a no-op. It is also what
-#   makes `just base init` a repair command for a repo that has ALREADY
-#   taken a bad upgrade, where the version check short-circuits before any
-#   migration would run.
+#   Every migration is idempotent, but its notices are not: a second
+#   dispatcher pass prints every warning, the ENTRYPOINT advisory and the
+#   summary line again (base#1372). So when the upgrade.sh driving this run
+#   names a file in _BASE_DFM_RAN_FILE, this records there that the
+#   dispatcher ran, and that upgrade.sh skips its own Step 5 pass. An
+#   older upgrade.sh sets no such file and runs its own patch step as it
+#   always did. This call is also what makes `just base init` a repair
+#   command for a repo that has ALREADY taken a bad upgrade, where the
+#   version check short-circuits before any migration would run.
 _migrate_dockerfile() {
   apply_migrations "${REPO_ROOT}/Dockerfile"
+  if [[ -n "${_BASE_DFM_RAN_FILE:-}" ]]; then
+    printf 'ran\n' > "${_BASE_DFM_RAN_FILE}"
+  fi
 }
 
 # _stage_resync_output
