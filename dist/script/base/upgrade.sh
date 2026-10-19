@@ -12,11 +12,64 @@
 # Exit codes (base#1370):
 #   --check       0 up to date, or local is ahead of the latest tag
 #                 1 an update is available
-#                 2 the check itself failed (e.g. the remote could not be
-#                   fetched); `just base update` exits with this code
+#                 2 the check itself failed -- any fatal error, e.g. the
+#                   remote could not be fetched, a sourced helper is
+#                   missing, WRAPPER_TRANSCRIPT was refused; a code above 2
+#                   from a failing command passes through unchanged.
+#                   `just base update` exits with this code
 #   normal run    0 upgraded (or nothing to do); non-zero on failure
 
 set -euo pipefail
+
+# --check exit status (base#1370). --check reserves 1 for "update
+# available", which _check records in _UPGRADE_UPDATE_AVAILABLE just before
+# it returns 1. Every other exit 1 of a --check run -- _error, a sourced
+# helper that is missing, the transcript setup refusing WRAPPER_TRANSCRIPT,
+# a command stopping the script under set -e -- is the check failing, and
+# leaves as 2 so a caller that tolerates 1 (the `just base update` recipe)
+# still sees it. Codes above 1 pass through. A normal run is not remapped.
+# The remap is installed before anything else can fail: as a plain EXIT
+# trap here, then as an _atexit callback once transcript.sh (which owns
+# the EXIT trap from then on) is loaded.
+_UPGRADE_CHECK_MODE=""
+for _upgrade_arg in "$@"; do
+  [[ "${_upgrade_arg}" == "--check" ]] && _UPGRADE_CHECK_MODE=1
+done
+unset _upgrade_arg
+readonly _UPGRADE_CHECK_MODE
+_UPGRADE_UPDATE_AVAILABLE=""
+
+# _upgrade_check_status <rc>
+#   Print the status a --check run leaves with when it is exiting with <rc>.
+_upgrade_check_status() {
+  if [[ "$1" == 1 && -z "${_UPGRADE_UPDATE_AVAILABLE}" ]]; then
+    printf '2'
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# _upgrade_check_exit_early
+#   EXIT trap until transcript.sh takes the trap over (see above).
+_upgrade_check_exit_early() {
+  local _rc=$?
+  exit "$(_upgrade_check_status "${_rc}")"
+}
+
+# _upgrade_check_exit_atexit
+#   The same remap as an _atexit callback, which reads the exiting status
+#   from _ATEXIT_STATUS and may only change it via _atexit_set_exit_code.
+_upgrade_check_exit_atexit() {
+  local _rc
+  _rc="$(_upgrade_check_status "${_ATEXIT_STATUS}")"
+  if [[ "${_rc}" != "${_ATEXIT_STATUS}" ]]; then
+    _atexit_set_exit_code "${_rc}"
+  fi
+}
+
+if [[ -n "${_UPGRADE_CHECK_MODE}" ]]; then
+  trap '_upgrade_check_exit_early' EXIT
+fi
 
 # upgrade.sh lives deep in the subtree (.base/dist/script/base/upgrade.sh,
 # relocated in  ADR-00000011 §8 / ADR-00000006). Walk up from the
@@ -28,16 +81,6 @@ set -euo pipefail
 # without code changes.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly SCRIPT_DIR
-# Exit code of a fatal error. --check reserves 1 for "update available", so
-# a check that fails exits 2 and a caller that tolerates 1 (the
-# `just base update` recipe) still sees the failure (base#1370). A normal
-# run keeps 1.
-_UPGRADE_FATAL_RC=1
-for _upgrade_arg in "$@"; do
-  [[ "${_upgrade_arg}" == "--check" ]] && _UPGRADE_FATAL_RC=2
-done
-unset _upgrade_arg
-readonly _UPGRADE_FATAL_RC
 SUBTREE_ROOT="${SCRIPT_DIR}"
 while [[ "${SUBTREE_ROOT}" != "/" ]]; do
   [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/dist" ]] && break
@@ -45,7 +88,7 @@ while [[ "${SUBTREE_ROOT}" != "/" ]]; do
 done
 [[ -f "${SUBTREE_ROOT}/.version" ]] || {
   echo "upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}" >&2
-  exit "${_UPGRADE_FATAL_RC}"
+  exit 1
 }
 readonly SUBTREE_ROOT
 REPO_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
@@ -76,13 +119,20 @@ source "${SUBTREE_ROOT}/dist/script/docker/lib/_lib.sh"
 # shellcheck disable=SC1091
 source "${SUBTREE_ROOT}/dist/script/docker/lib/template_guard.sh"
 
+# Hand the --check exit remap to transcript.sh's EXIT trap (base#1370).
+# _atexit installs that trap now, replacing the early one above, so the
+# remap also covers the transcript setup refusing WRAPPER_TRANSCRIPT.
+if [[ -n "${_UPGRADE_CHECK_MODE}" ]]; then
+  _atexit _upgrade_check_exit_atexit
+fi
+
 cd "${REPO_ROOT}"
 
 # _log <event> <message...>
 #   INFO line under the upgrade service; <event> is the registered body
 #   (log-events.txt) naming what the line reports (base#1364).
 _log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
-_error() { _log_err upgrade upgrade_rollback "display=$*"; exit "${_UPGRADE_FATAL_RC}"; }
+_error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
 # once the upgrade is past everything that can fail; a non-empty
@@ -445,6 +495,7 @@ _check() {
 
   if [[ "${local_ver}" == "unknown" ]]; then
     _log upgrade_available "Update available: ${local_ver} →${latest_ver}"
+    _UPGRADE_UPDATE_AVAILABLE=1
     return 1
   fi
 
@@ -452,7 +503,9 @@ _check() {
   _semver_cmp "${local_ver}" "${latest_ver}" || _cmp=$?
   case "${_cmp}" in
     0) _log upgrade_up_to_date "Already up to date."; return 0 ;;
-    1) _log upgrade_available "Update available: ${local_ver} →${latest_ver}"; return 1 ;;
+    1) _log upgrade_available "Update available: ${local_ver} →${latest_ver}"
+       _UPGRADE_UPDATE_AVAILABLE=1
+       return 1 ;;
     2) _log upgrade_ahead_of_latest "Local is ahead of latest stable (prerelease or local-only tag)."; return 0 ;;
   esac
 }
@@ -930,7 +983,8 @@ Arguments:
 
 Exit codes:
   --check       0 up to date (or local is ahead of the latest tag),
-                1 update available, 2 the check failed (e.g. fetch error)
+                1 update available, 2 the check failed (any fatal error,
+                e.g. a fetch error); a code above 2 passes through
   normal run    0 upgraded or nothing to do, non-zero on failure
   just base update exits 0 for the first two --check results and with the
   check's own code when the check fails.
@@ -980,7 +1034,7 @@ main() {
   # "this is the template source, not a consumer" -- proceeding would
   # subtree-pull into base's PARENT dir. After --help (which must work
   # anywhere), before any mutation. Same helper init.sh uses.
-  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit "${_UPGRADE_FATAL_RC}"
+  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit 1
 
   [[ ! -d "${TEMPLATE_REL}" ]] && \
     _error "${TEMPLATE_REL}/ not found. Run from repo root."
