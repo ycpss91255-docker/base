@@ -69,8 +69,8 @@ _error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
 # once the upgrade is past everything that can fail; a non-empty
-# _UPGRADE_PRE_HEAD is what tells the exit trap there is a pull to undo.
-# Deliberately NOT readonly -- clearing them is how the trap is disarmed.
+# _UPGRADE_PRE_HEAD is what tells the exit rollback there is a pull to undo.
+# Deliberately NOT readonly -- clearing them is how the rollback is disarmed.
 _UPGRADE_PRE_HEAD=""
 _UPGRADE_UNTRACKED_SNAPSHOT=()
 
@@ -174,7 +174,7 @@ _verify_subtree_intact() {
 _rollback_subtree_pull() {
   local _pre_head="$1"
   _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
-  _restore_pre_upgrade_state "${_pre_head}"
+  _restore_pre_upgrade_state "${_pre_head}" || exit 1
   _error "upgrade aborted; repo restored to pre-upgrade state"
 }
 
@@ -189,22 +189,27 @@ _rollback_subtree_pull() {
 #   already untracked before the upgrade are removed, so a file the user
 #   had lying around is never collateral.
 #
-#   Disarms the exit-trap rollback on the way in: this IS the rollback, and
-#   the caller's subsequent _error must not re-enter it.
+#   Disarms the exit rollback on the way in by clearing _UPGRADE_PRE_HEAD:
+#   this IS the rollback, and the caller's subsequent _error must not
+#   re-enter it. It never touches the EXIT trap itself -- that trap is
+#   transcript.sh's, and clearing it skips the transcript finalize
+#   (base#1371).
 #
-#   Exits (does not return) when the rescue reset itself fails. Do NOT
-#   swallow that with `|| true`: this runs when the tree is already
-#   damaged, and the user must hear the truth -- a still-broken tree --
-#   rather than a reassuring 'restored' message they might push on top of.
+#   Returns 1 when the rescue reset itself fails, and each caller turns
+#   that into a non-zero exit. Do NOT swallow it with `|| true`: this runs
+#   when the tree is already damaged, and the user must hear the truth --
+#   a still-broken tree -- rather than a reassuring 'restored' message they
+#   might push on top of. It returns rather than exits because the exit
+#   rollback runs it from inside an _atexit callback, where `exit` would
+#   skip the transcript finalize.
 _restore_pre_upgrade_state() {
   local _pre_head="${1:?"${FUNCNAME[0]}: missing pre_head"}"
   _UPGRADE_PRE_HEAD=""
-  trap - EXIT
 
   _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
   if ! git reset --hard "${_pre_head}" >/dev/null 2>&1; then
     _log_err upgrade upgrade_rollback_failed "display=rollback FAILED -- could not reset to ${_pre_head:0:12}; manual recovery required (working tree is NOT restored)." "commit=${_pre_head:0:12}"
-    exit 1
+    return 1
   fi
   _remove_untracked_since_snapshot
 }
@@ -248,13 +253,13 @@ _was_untracked_before_upgrade() {
 # _abort_failed_subtree_pull <rc> <target_ver>
 #   Clean up after a `git subtree pull` that did not complete, then abort.
 #
-#   This is the pre-trap sibling of _restore_pre_upgrade_state, and it is
-#   deliberately narrower. The trap undoes a pull that COMMITTED; there is
-#   no commit to undo here, so the only state to clear is an in-progress
-#   merge -- which `git merge --abort` restores exactly, HEAD, index and
-#   working tree together.
+#   This is the pre-arm sibling of _restore_pre_upgrade_state, and it is
+#   deliberately narrower. The exit rollback undoes a pull that COMMITTED;
+#   there is no commit to undo here, so the only state to clear is an
+#   in-progress merge -- which `git merge --abort` restores exactly, HEAD,
+#   index and working tree together.
 #
-#   Aborting is safe for the same reason the trap's rollback is: git-subtree
+#   Aborting is safe for the same reason the exit rollback is: git-subtree
 #   refuses to run against a dirty tree, so every change the merge left is
 #   one this run made. A failure with no merge in progress (a bad tag, an
 #   unreachable remote) has nothing to clean and falls straight through.
@@ -278,11 +283,13 @@ _abort_failed_subtree_pull() {
   _error "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
 }
 
-# _upgrade_exit_trap
-#   Armed the moment the subtree pull has COMMITTED, disarmed once the
-#   upgrade has finished everything that can fail. In between, the repo is
-#   mid-flight: the new subtree is already in the history, but the resync
-#   that makes it usable has not run.
+# _upgrade_exit_rollback
+#   An _atexit callback (transcript.sh owns the single EXIT trap, so this
+#   never installs or clears one -- base#1371). Armed the moment the
+#   subtree pull has COMMITTED, disarmed once the upgrade has finished
+#   everything that can fail. In between, the repo is mid-flight: the new
+#   subtree is already in the history, but the resync that makes it usable
+#   has not run.
 #
 #   Leaving that state behind is what turned a missing file into a repo
 #   that claimed a version it never reached -- .version bumped, commit
@@ -294,16 +301,23 @@ _abort_failed_subtree_pull() {
 #   git-subtree refuses to run against a dirty tree, so nothing the user
 #   had in flight can exist at this point -- every change present is one
 #   this run made.
-_upgrade_exit_trap() {
-  local _status=$?
-  trap - EXIT
+#
+#   Disarmed by state, not by trap: the callback stays registered and does
+#   nothing once _UPGRADE_PRE_HEAD is empty. The exit status comes from
+#   _ATEXIT_STATUS, and a failed rescue asks for its code through
+#   _atexit_set_exit_code -- never `exit`, which would skip the transcript
+#   finalize that runs after the callbacks.
+_upgrade_exit_rollback() {
+  local _status="${_ATEXIT_STATUS:-0}"
   if (( _status == 0 )) || [[ -z "${_UPGRADE_PRE_HEAD}" ]]; then
-    exit "${_status}"
+    return 0
   fi
   _log_err upgrade upgrade_rollback "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
-  _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"
-  _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
-  exit "${_status}"
+  if _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"; then
+    _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
+  else
+    _atexit_set_exit_code 1
+  fi
 }
 
 # ── Get versions ─────────────────────────────────────────────────────────────
@@ -527,11 +541,11 @@ _upgrade() {
   # Step 1: subtree pull
   _log upgrade_step "Step 1/5: git subtree pull"
   # Guarded rather than left to `set -e`: the pull is the ONE step that can
-  # fail while the exit trap below is still unarmed, and its characteristic
-  # failure (a conflict against a hand-edited .base/) leaves a merge in
-  # progress. Aborting under `set -e` there would hand the user a tree
-  # mid-merge that nothing in this run put back -- discovered one run later
-  # by _require_clean_merge_state, on a state they never chose.
+  # fail while the exit rollback below is still unarmed, and its
+  # characteristic failure (a conflict against a hand-edited .base/) leaves
+  # a merge in progress. Aborting under `set -e` there would hand the user
+  # a tree mid-merge that nothing in this run put back -- discovered one run
+  # later by _require_clean_merge_state, on a state they never chose.
   local _pull_rc=0
   git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
@@ -541,10 +555,10 @@ _upgrade() {
   fi
 
   # The pull has landed a COMMIT. Everything from here is recoverable only
-  # by undoing it, so arm the rollback now -- see _upgrade_exit_trap for
+  # by undoing it, so arm the rollback now -- see _upgrade_exit_rollback for
   # why doing so is safe exactly at this point and not before.
   _UPGRADE_PRE_HEAD="${_pre_head}"
-  trap _upgrade_exit_trap EXIT
+  _atexit _upgrade_exit_rollback
 
   # Step 2: post-pull integrity check (rolls back on corruption)
   _log upgrade_step "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
@@ -672,7 +686,6 @@ COMMIT
   # BEFORE the drift warnings below -- they are advisory, and an upgrade
   # that landed must not be undone because a warning tripped.
   _UPGRADE_PRE_HEAD=""
-  trap - EXIT
 
   # Post-pull: warn when the upstream config baseline moved so the
   # user can reconcile <repo>/config/ (seeded by init.sh, user-owned

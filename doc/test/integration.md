@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **198 tests**.
+Integration specs under `test/bats/integration/`: **202 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -422,7 +422,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (23)
+### test/bats/integration/upgrade_spec.bats (27)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -458,6 +458,10 @@ run.
 | `upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)` | A conflicting pull aborts its own merge instead of leaving a mid-merge tree |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
+| `upgrade.sh: a successful upgrade finalizes its transcript (base#1371)` | - |
+| `upgrade.sh: a rolled-back upgrade restores the repo AND finalizes its transcript (base#1371)` | - |
+| `upgrade.sh: a rolled-back upgrade keeps the failing step's own exit code (base#1371)` | The rollback reads the exit status the transcript handler hands it rather than its own; with a failing step that exits 1, a rollback that always reported 1 would be indistinguishable, so the step exits 7 and the caller and the transcript must both carry 7 |
+| `upgrade.sh: a failed rescue reset says so, exits 1 and still finalizes its transcript (base#1371)` | A rescue reset that cannot run is the one rollback outcome where an `exit` inside the exit-time callback would skip the transcript finalize, and where a "restored" message would tell the user a still-broken tree is safe to build on; init.sh leaves an index.lock behind so the reset fails |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
 | `upgrade.sh names a vendored edit on a path upstream did not touch (#1092)` | A squashed subtree pull reports a hand edit only where upstream touched the same path, so an edit to a path base shipped identically across the interval rides through the upgrade with no conflict and no message; the one real instance in the org sat in a vendored tree across seven releases and an upgrade before a byte-exact census found it, and silence is what invariant 2 exists to forbid |

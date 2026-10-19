@@ -73,6 +73,12 @@ _seed_template_remote() {
   cp /source/dist/script/docker/lib/_lib.sh "${TMPL_WORK}/dist/script/docker/lib/_lib.sh"
   cp /source/dist/script/docker/lib/i18n.sh "${TMPL_WORK}/dist/script/docker/lib/i18n.sh"
   cp /source/dist/script/docker/lib/* "${TMPL_WORK}/dist/script/docker/lib/"
+  # transcript.sh repoints log/<verb>/latest.log through runtime/logrotate.sh
+  # (sourced when present), so the fake remote ships it for the transcript
+  # arms below to observe latest.log at all (base#1371).
+  mkdir -p "${TMPL_WORK}/dist/script/docker/runtime"
+  cp /source/dist/script/docker/runtime/logrotate.sh \
+    "${TMPL_WORK}/dist/script/docker/runtime/logrotate.sh"
   chmod +x "${TMPL_WORK}/dist/script/base/init.sh" \
            "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh" \
            "${TMPL_WORK}/dist/script/base/upgrade.sh"
@@ -616,11 +622,16 @@ STUB
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
 
-  run env GIT_EXEC_PATH="${_stub_dir}" \
+  # Transcript capture on (the runner exports WRAPPER_TRANSCRIPT=false):
+  # this rollback runs straight from the integrity check rather than from
+  # the exit rollback, and must leave the transcript finalized all the
+  # same (base#1371).
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      GIT_EXEC_PATH="${_stub_dir}" \
       TEMPLATE_REMOTE="file://${TMPL_BARE}" \
       ./.base/dist/script/base/upgrade.sh v0.9.7
 
-  assert_failure
+  assert_failure 1
   assert_output --partial "integrity check failed"
   # R1+ detects destructive FF via subtree dir missing, ahead of the
   # later .version / version-mismatch checks. The legacy assertion against
@@ -636,6 +647,9 @@ STUB
   [ "$(cat .base/.version)" = "v0.9.5" ]
   [ -f ".base/dist/script/docker/wrapper/setup.sh" ]
   [ -f "README.md" ]
+
+  # ...and the transcript of the aborted run is finalized, not left raw.
+  _assert_upgrade_transcript_finalized 1
 }
 
 # ── A failed step leaves the repo unchanged, not half-upgraded ──────────────
@@ -678,6 +692,143 @@ INIT
   [ ! -e "half_written_wrapper.sh" ]
   run git status --porcelain
   assert_output ""
+}
+
+# ── Both outcomes finalize the upgrade transcript (base#1371) ──────────────
+#
+# upgrade.sh records its run under log/upgrade/ through transcript.sh, whose
+# single EXIT handler appends the closing line, strips the raw capture into
+# <ts>.log and repoints latest.log. A run that leaves only <ts>.log.raw, no
+# closing line, or latest.log naming an older run has lost the record of
+# exactly the run someone is going to look up.
+#
+# The self-test runner exports WRAPPER_TRANSCRIPT=false for every spec, so
+# these arms switch it back on for the one upgrade run they observe; the log/
+# tree lands in the throwaway DOWN_DIR fixture, never in /source.
+
+# _assert_upgrade_transcript_finalized <expected_exit_code>
+#   The newest log/upgrade/*.log ends with `transcript_complete
+#   exit_code=<code> duration=..`, no raw capture is left behind, and
+#   latest.log points at that file.
+_assert_upgrade_transcript_finalized() {
+  local _code="$1"
+  local _dir="${DOWN_DIR}/log/upgrade"
+  assert [ -d "${_dir}" ]
+  run find "${_dir}" -name '*.raw'
+  assert_output ""
+  local _f
+  _f="$(find "${_dir}" -maxdepth 1 -type f -name '*.log' | sort | tail -n1)"
+  assert [ -n "${_f}" ]
+  run tail -n1 "${_f}"
+  assert_output --regexp "transcript_complete exit_code=${_code} duration=[0-9]+s"
+  assert [ -L "${_dir}/latest.log" ]
+  assert_equal "$(readlink "${_dir}/latest.log")" "$(basename "${_f}")"
+}
+
+@test "upgrade.sh: a successful upgrade finalizes its transcript (base#1371)" {
+  cd "${DOWN_DIR}"
+
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Done! Upgraded to v0.9.7"
+
+  _assert_upgrade_transcript_finalized 0
+}
+
+@test "upgrade.sh: a rolled-back upgrade restores the repo AND finalizes its transcript (base#1371)" {
+  # Same failing v0.9.7 as the post-pull rollback arm above: init.sh fails
+  # after the subtree pull has committed, so the rollback fires.
+  cat > "${TMPL_WORK}/dist/script/base/init.sh" <<'INIT'
+#!/usr/bin/env bash
+exit 1
+INIT
+  chmod +x "${TMPL_WORK}/dist/script/base/init.sh"
+  git -C "${TMPL_WORK}" add -A
+  git -C "${TMPL_WORK}" commit -q -m "v0.9.7 whose init.sh fails"
+  git -C "${TMPL_WORK}" tag -f v0.9.7 >/dev/null 2>&1
+  git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
+
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure
+  assert_output --partial "Rolling back"
+  assert_output --partial "upgrade aborted"
+  local _rc="${status}"
+
+  # Rollback still restores the repo...
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+
+  # ...and the transcript records the failing exit code the caller saw.
+  _assert_upgrade_transcript_finalized "${_rc}"
+}
+
+# _publish_failing_init <body>
+#   Re-tag v0.9.7 in the template with an init.sh whose body is <body>, so
+#   the upgrade fails at Step 3, after the subtree pull has committed.
+_publish_failing_init() {
+  printf '#!/usr/bin/env bash\n%s\n' "$1" \
+    > "${TMPL_WORK}/dist/script/base/init.sh"
+  chmod +x "${TMPL_WORK}/dist/script/base/init.sh"
+  git -C "${TMPL_WORK}" add -A
+  git -C "${TMPL_WORK}" commit -q -m "v0.9.7 whose init.sh fails"
+  git -C "${TMPL_WORK}" tag -f v0.9.7 >/dev/null 2>&1
+  git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
+}
+
+# why: The rollback reads the exit status the transcript handler hands it
+# rather than its own; with a failing step that exits 1, a rollback that
+# always reported 1 would be indistinguishable, so the step exits 7 and the
+# caller and the transcript must both carry 7
+@test "upgrade.sh: a rolled-back upgrade keeps the failing step's own exit code (base#1371)" {
+  _publish_failing_init 'exit 7'
+
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 7
+  assert_output --partial "(exit 7)"
+  assert_output --partial "upgrade aborted; repo restored to pre-upgrade state"
+
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+  _assert_upgrade_transcript_finalized 7
+}
+
+# why: A rescue reset that cannot run is the one rollback outcome where an
+# `exit` inside the exit-time callback would skip the transcript finalize,
+# and where a "restored" message would tell the user a still-broken tree is
+# safe to build on; init.sh leaves an index.lock behind so the reset fails
+@test "upgrade.sh: a failed rescue reset says so, exits 1 and still finalizes its transcript (base#1371)" {
+  _publish_failing_init 'touch "$(git rev-parse --git-dir)/index.lock"; exit 7'
+
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env -u FILE_PATH WRAPPER_TRANSCRIPT=true \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  assert_output --partial "rollback FAILED"
+  refute_output --partial "repo restored to pre-upgrade state"
+
+  # The tree really is not restored -- the message above is the truth.
+  [ "$(git rev-parse HEAD)" != "${_pre_head}" ]
+  rm -f "$(git rev-parse --git-dir)/index.lock"
+
+  _assert_upgrade_transcript_finalized 1
 }
 
 # ──walk-up self-location resolves --prefix to the subtree basename ─────
