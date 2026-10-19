@@ -67,7 +67,7 @@ cd "${REPO_ROOT}"
 _log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
 # _error <event> <message...>
 #   Fatal: ERROR line under the upgrade service, then exit 1. <event> is
-#   the registered body naming what failed; only a path that really
+#   the registered body naming what failed; only a path that has already
 #   restored the repo passes upgrade_rollback (base#1369).
 _error() { local _ev="$1"; shift; _log_err upgrade "${_ev}" "display=$*"; exit 1; }
 
@@ -177,7 +177,9 @@ _verify_subtree_intact() {
 
 _rollback_subtree_pull() {
   local _pre_head="$1"
-  _log_err upgrade upgrade_rollback "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
+  # upgrade_rollback_started, not upgrade_rollback: the restore has not
+  # run yet, and may fail (base#1369).
+  _log_err upgrade upgrade_rollback_started "display=Likely cause: git-subtree fast-forwarded destructively or pulled wrong tag."
   _restore_pre_upgrade_state "${_pre_head}" || exit 1
   _error upgrade_rollback "upgrade aborted; repo restored to pre-upgrade state"
 }
@@ -210,7 +212,7 @@ _restore_pre_upgrade_state() {
   local _pre_head="${1:?"${FUNCNAME[0]}: missing pre_head"}"
   _UPGRADE_PRE_HEAD=""
 
-  _log_info upgrade upgrade_rollback "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
+  _log_info upgrade upgrade_rollback_started "display=Rolling back to ${_pre_head:0:12} ..." "commit=${_pre_head:0:12}"
   if ! git reset --hard "${_pre_head}" >/dev/null 2>&1; then
     _log_err upgrade upgrade_rollback_failed "display=rollback FAILED -- could not reset to ${_pre_head:0:12}; manual recovery required (working tree is NOT restored)." "commit=${_pre_head:0:12}"
     return 1
@@ -270,6 +272,9 @@ _was_untracked_before_upgrade() {
 #
 #   A rescue that itself fails is reported, never swallowed: the user is
 #   holding a mid-merge tree either way, and must hear which one it is.
+#   Neither outcome logs upgrade_rollback: nothing was committed, so there
+#   is no upgrade to roll back, and the abort is reported only once it has
+#   succeeded (base#1369).
 _abort_failed_subtree_pull() {
   local _rc="${1:?"${FUNCNAME[0]}: missing rc"}"
   local _target="${2:?"${FUNCNAME[0]}: missing target_ver"}"
@@ -277,11 +282,11 @@ _abort_failed_subtree_pull() {
   _git_dir="$(git rev-parse --git-dir)"
 
   if [[ -e "${_git_dir}/MERGE_HEAD" ]]; then
-    _log_err upgrade upgrade_rollback "display=subtree pull left a conflicted merge in progress; aborting it so the repo is not left mid-merge." "status=${_rc}"
     if ! git merge --abort >/dev/null 2>&1; then
-      _log_err upgrade upgrade_rollback_failed "display=could not abort the merge; the tree is still mid-merge — resolve it or run 'git merge --abort' by hand before retrying."
+      _log_err upgrade upgrade_rollback_failed "display=subtree pull left a conflicted merge in progress and it could not be aborted; the tree is still mid-merge — resolve it or run 'git merge --abort' by hand before retrying." "status=${_rc}"
       exit 1
     fi
+    _log_warn upgrade upgrade_merge_aborted "display=subtree pull left a conflicted merge in progress; aborted it so the repo is not left mid-merge." "status=${_rc}"
   fi
 
   _error upgrade_subtree_pull_failed "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
@@ -316,7 +321,7 @@ _upgrade_exit_rollback() {
   if (( _status == 0 )) || [[ -z "${_UPGRADE_PRE_HEAD}" ]]; then
     return 0
   fi
-  _log_err upgrade upgrade_rollback "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
+  _log_err upgrade upgrade_rollback_started "display=upgrade failed after the subtree pull had committed (exit ${_status}); undoing it so the repo is not left claiming a version it never reached." "status=${_status}"
   if _restore_pre_upgrade_state "${_UPGRADE_PRE_HEAD}"; then
     _log_err upgrade upgrade_rollback "display=upgrade aborted; repo restored to pre-upgrade state"
   else

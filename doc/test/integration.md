@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **202 tests**.
+Integration specs under `test/bats/integration/`: **211 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -422,7 +422,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (27)
+### test/bats/integration/upgrade_spec.bats (36)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -456,12 +456,21 @@ run.
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)` | A conflicting pull aborts its own merge instead of leaving a mid-merge tree |
+| `upgrade.sh --check: an unreachable remote logs upgrade_fetch_failed, not upgrade_rollback (base#1369)` | A log filtered for rollbacks must not see one on every network failure; a fetch failure under --check logs a fetch-failure body |
+| `upgrade.sh (no version): an unreachable remote logs upgrade_fetch_failed, not upgrade_rollback (base#1369)` | The bare upgrade resolves the latest tag first; failing that fetch pulled nothing, so it is a fetch failure, not a rollback |
+| `upgrade.sh: an unknown argument logs upgrade_unknown_arg, not upgrade_rollback (base#1369)` | A typo on the command line is an argument error; logging it as a rollback reports a repo restore that never happened |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh: a successful upgrade finalizes its transcript (base#1371)` | - |
 | `upgrade.sh: a rolled-back upgrade restores the repo AND finalizes its transcript (base#1371)` | - |
 | `upgrade.sh: a rolled-back upgrade keeps the failing step's own exit code (base#1371)` | The rollback reads the exit status the transcript handler hands it rather than its own; with a failing step that exits 1, a rollback that always reported 1 would be indistinguishable, so the step exits 7 and the caller and the transcript must both carry 7 |
 | `upgrade.sh: a failed rescue reset says so, exits 1 and still finalizes its transcript (base#1371)` | A rescue reset that cannot run is the one rollback outcome where an `exit` inside the exit-time callback would skip the transcript finalize, and where a "restored" message would tell the user a still-broken tree is safe to build on; init.sh leaves an index.lock behind so the reset fails |
+| `upgrade.sh: a post-pull rollback logs upgrade_rollback only once the repo is restored (base#1369)` | A rollback record logged before the rescue reset runs claims a restore that has not happened; the exit rollback logs it only after |
+| `upgrade.sh: an integrity-check rollback logs upgrade_rollback only once the repo is restored (base#1369)` | The integrity-check rollback is the second restore path; it too logs upgrade_rollback only after the reset has put the repo back |
+| `upgrade.sh: a failed post-pull reset logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | When the exit rollback's reset fails, the tree is not restored, so the log carries upgrade_rollback_failed and no upgrade_rollback |
+| `upgrade.sh: a failed integrity-check reset logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The integrity-check rollback's reset can fail the same way; the stub leaves an index.lock after its destructive reset so the rescue reset cannot run |
+| `upgrade.sh: an aborted conflicting pull logs upgrade_subtree_pull_failed, never upgrade_rollback (base#1369)` | Aborting a conflicted pull's merge puts back a repo nothing was committed to; it is not a rollback, and a successful abort ends on upgrade_subtree_pull_failed with no upgrade_rollback record |
+| `upgrade.sh: a failed merge abort logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | A merge abort that fails leaves the tree mid-merge; the log says upgrade_rollback_failed and claims no rollback |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
 | `upgrade.sh names a vendored edit on a path upstream did not touch (#1092)` | A squashed subtree pull reports a hand edit only where upstream touched the same path, so an edit to a path base shipped identically across the interval rides through the upgrade with no conflict and no message; the one real instance in the org sat in a vendored tree across seven releases and an upgrade before a byte-exact census found it, and silence is what invariant 2 exists to forbid |
