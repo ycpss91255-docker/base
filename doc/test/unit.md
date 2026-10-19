@@ -6102,9 +6102,9 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `remove --local removes from the local layer (#893)` | - |
 | `add warns when the local layer shadows the section it appends to (#893)` | - |
 | `set rejects an unknown section with non-zero exit + Unknown section stderr` | - |
-| `set refuses an unknown key up front and leaves setup.toml untouched (base#1374)` | - |
-| `set --local refuses an unknown key and leaves setup.local.toml untouched (base#1374)` | - |
-| `set still accepts a known key (base#1374)` | - |
+| `set refuses an unknown key up front and leaves setup.toml untouched (base#1374)` | the issue's `set` half. `set deploy.gpu_cuont 1` wrote a key no reader reads, and only the next `apply` refused it as apply_unknown_key; the refusal belongs before the write, in apply's terms, with the file left byte-identical. |
+| `set --local refuses an unknown key and leaves setup.local.toml untouched (base#1374)` | --local writes setup.local.toml instead; this pins that the refusal leaves that file byte-identical too, not only setup.toml. |
+| `set still accepts a known key (base#1374)` | the guard's false-positive side: a schema key and a free-form build.tz, which has no validator, must both still be written. |
 | `set rejects an invalid gpu_count value` | - |
 | `set rejects an invalid mount string` | - |
 | `set rejects an invalid cgroup_rule` | - |
@@ -6141,10 +6141,10 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `main add bootstraps setup.conf empty when missing (#174)` | - |
 | `main add picks max+1 even with gap from prior remove` | - |
 | `main add rejects unknown section` | - |
-| `main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)` | - |
-| `main add --local refuses an unknown family and leaves setup.local.toml untouched (base#1374)` | - |
-| `main add refuses an unknown family under a logging.<svc> sub-section (base#1374)` | - |
-| `main add still accepts the known families (base#1374)` | - |
+| `main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)` | the issue's own reproduction. The family is `build.arg`; `build.args` appended `args_1` to [build], which only the next `apply` refused as apply_unknown_key. The refusal belongs before the write, in apply's terms. |
+| `main add --local refuses an unknown family and leaves setup.local.toml untouched (base#1374)` | --local writes setup.local.toml instead; this pins that the refusal leaves that file byte-identical too, not only setup.toml. |
+| `main add refuses an unknown family under a logging.<svc> sub-section (base#1374)` | the dotted [logging.<svc>] spelling splits at the rightmost dot; this pins that the family check covers that per-service sub-section as well. |
+| `main add still accepts the known families (base#1374)` | the guard's false-positive side: a family is judged by its `_1` slot, and every shipped family must still resolve that way. |
 | `main add writes no dotted key into [logging] for a logging.<svc> spec (#955)` | - |
 | `main add rejects invalid mount value` | - |
 | `main add rejects missing list / value` | - |

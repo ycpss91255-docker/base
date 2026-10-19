@@ -576,10 +576,10 @@ EOF
   assert_output --partial "Unknown section"
 }
 
+# why: the issue's `set` half. `set deploy.gpu_cuont 1` wrote a key no reader
+# reads, and only the next `apply` refused it as apply_unknown_key; the refusal
+# belongs before the write, in apply's terms, with the file left byte-identical.
 @test "set refuses an unknown key up front and leaves setup.toml untouched (base#1374)" {
-  # `set deploy.gpu_cuont 1` wrote a key no reader reads; the next
-  # `apply` then refused it as apply_unknown_key. The refusal belongs
-  # here, before the write, in the same terms apply uses.
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
   run main set deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
@@ -590,6 +590,8 @@ EOF
   assert_success
 }
 
+# why: --local writes setup.local.toml instead; this pins that the refusal
+# leaves that file byte-identical too, not only setup.toml.
 @test "set --local refuses an unknown key and leaves setup.local.toml untouched (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   printf '[deploy]\ngpu_count = "1"\n' > "${TEMP_DIR}/setup.local.toml"
@@ -601,6 +603,8 @@ EOF
   assert_success
 }
 
+# why: the guard's false-positive side: a schema key and a free-form
+# build.tz, which has no validator, must both still be written.
 @test "set still accepts a known key (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set deploy.gpu_count 1 --base-path "${TEMP_DIR}"
@@ -1248,10 +1252,10 @@ EOF
   assert_output --partial "Unknown section"
 }
 
+# why: the issue's own reproduction. The family is `build.arg`; `build.args`
+# appended `args_1` to [build], which only the next `apply` refused as
+# apply_unknown_key. The refusal belongs before the write, in apply's terms.
 @test "main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)" {
-  # The family is `build.arg`; `build.args` appended `args_1` to [build],
-  # which the next `apply` refused as apply_unknown_key. The refusal
-  # belongs here, before the write, in the same terms apply uses.
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
   run main add build.args MYARG=1 --base-path "${TEMP_DIR}"
@@ -1262,6 +1266,8 @@ EOF
   assert_success
 }
 
+# why: --local writes setup.local.toml instead; this pins that the refusal
+# leaves that file byte-identical too, not only setup.toml.
 @test "main add --local refuses an unknown family and leaves setup.local.toml untouched (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   printf '[deploy]\ngpu_count = "1"\n' > "${TEMP_DIR}/setup.local.toml"
@@ -1273,6 +1279,8 @@ EOF
   assert_success
 }
 
+# why: the dotted [logging.<svc>] spelling splits at the rightmost dot; this
+# pins that the family check covers that per-service sub-section as well.
 @test "main add refuses an unknown family under a logging.<svc> sub-section (base#1374)" {
   cat > "${TEMP_DIR}/setup.toml" <<'TOML'
 [logging]
@@ -1289,6 +1297,8 @@ TOML
   assert_success
 }
 
+# why: the guard's false-positive side: a family is judged by its `_1` slot,
+# and every shipped family must still resolve that way.
 @test "main add still accepts the known families (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main add build.arg MYARG=1 --base-path "${TEMP_DIR}"
