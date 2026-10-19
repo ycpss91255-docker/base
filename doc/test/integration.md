@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **225 tests**.
+Integration specs under `test/bats/integration/`: **226 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -422,7 +422,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (50)
+### test/bats/integration/upgrade_spec.bats (51)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -467,6 +467,7 @@ run.
 | `upgrade.sh: an unknown argument logs upgrade_unknown_arg, not upgrade_rollback (base#1369)` | A typo on the command line is an argument error; logging it as a rollback reports a repo restore that never happened |
 | `upgrade.sh: --lang with no value logs upgrade_arg_missing_value (base#1369)` | `--lang` with no value is an argument error too; it used to die through a bare `${2:?}` expansion that logged no event at all |
 | `upgrade.sh: a tree that is not a git repository logs upgrade_not_a_git_repo (base#1369)` | A downstream tree copied without its .git dies on the merge-state preflight's `git rev-parse --git-dir`; under set -e that used to leave only git's own stderr and no event naming what failed |
+| `upgrade.sh: a repo with no commits logs upgrade_no_commits (base#1385)` | A downstream tree in a repo with no commits yet (git init, unborn HEAD) passed the merge-state preflight and then died under set -e on `git rev-parse HEAD` with only git's own stderr and no event |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh: a successful upgrade finalizes its transcript (base#1371)` | - |

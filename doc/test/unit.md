@@ -8689,7 +8689,7 @@ overlay; writes no override)
 | `the migration scan reports a migration injected into upgrade.sh (base#1110)` | Driving the rule red by hand, as a test, so it can never pass by never firing. The injected function is added to a copy of the REAL file through the REAL scanner, so this arm fails the moment the detector stops detecting -- which is the failure the two arms above cannot tell from success |
 | `the migration scan reads the 'function name' spelling too (base#1110)` | The `function name {` spelling is the one an author reaching for a way around a name rule would find first, and a scanner that only read `name() {` would report the file clean with a migration sitting in it |
 
-### test/bats/unit/upgrade_spec.bats (55)
+### test/bats/unit/upgrade_spec.bats (56)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -8735,6 +8735,7 @@ back is in upgrade_migration_reachability_spec.bats.
 | `_require_clean_merge_state succeeds in clean repo` | Happy path |
 | `_require_clean_merge_state fails when MERGE_HEAD exists` | Mid-merge guard |
 | `_require_clean_merge_state fails when rebase-merge dir exists` | Mid-rebase guard |
+| `_require_clean_merge_state fails in a repo with no commits (base#1385)` | A repo with no commits (unborn HEAD) is refused by name in preflight rather than dying later on `git rev-parse HEAD` (base#1385) |
 | `_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)` | R1+ happy path |
 | `_verify_subtree_intact rolls back when .base/.version is missing` | - |
 | `_verify_subtree_intact rolls back when .base/ dir is missing (#477 destructive-FF detector)` | - |

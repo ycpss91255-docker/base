@@ -267,11 +267,20 @@ teardown() {
 
 # ── _require_clean_merge_state ──────────────────────────────────────────────
 
+# Helper: an empty repo with one commit, since _require_clean_merge_state
+# refuses a repo with no commits (base#1385)
+_mk_committed_repo() {
+  local _dir="$1"
+  mkdir -p "${_dir}"
+  git -C "${_dir}" init -q
+  git -C "${_dir}" -c user.email=t@t -c user.name=t \
+      commit -q --allow-empty -m "initial"
+}
+
 # why: Happy path
 @test "_require_clean_merge_state succeeds in clean repo" {
   local _git_dir="${TEMP_DIR}/clean"
-  mkdir -p "${_git_dir}"
-  git -C "${_git_dir}" init -q
+  _mk_committed_repo "${_git_dir}"
   run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _require_clean_merge_state"
   assert_success
 }
@@ -279,8 +288,7 @@ teardown() {
 # why: Mid-merge guard
 @test "_require_clean_merge_state fails when MERGE_HEAD exists" {
   local _git_dir="${TEMP_DIR}/midmerge"
-  mkdir -p "${_git_dir}"
-  git -C "${_git_dir}" init -q
+  _mk_committed_repo "${_git_dir}"
   touch "${_git_dir}/.git/MERGE_HEAD"
   run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _require_clean_merge_state"
   assert_failure
@@ -290,12 +298,22 @@ teardown() {
 # why: Mid-rebase guard
 @test "_require_clean_merge_state fails when rebase-merge dir exists" {
   local _git_dir="${TEMP_DIR}/midrebase"
-  mkdir -p "${_git_dir}"
-  git -C "${_git_dir}" init -q
+  _mk_committed_repo "${_git_dir}"
   mkdir -p "${_git_dir}/.git/rebase-merge"
   run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _require_clean_merge_state"
   assert_failure
   assert_output --partial "rebase-merge present"
+}
+
+# why: A repo with no commits (unborn HEAD) is refused by name in
+# preflight rather than dying later on `git rev-parse HEAD` (base#1385)
+@test "_require_clean_merge_state fails in a repo with no commits (base#1385)" {
+  local _git_dir="${TEMP_DIR}/unborn"
+  mkdir -p "${_git_dir}"
+  git -C "${_git_dir}" init -q
+  run bash -c "cd '${_git_dir}' && source '${HARNESS}' && _require_clean_merge_state"
+  assert_failure
+  assert_output --partial "upgrade_no_commits"
 }
 
 # ── _verify_subtree_intact ──────────────────────────────────────────────────

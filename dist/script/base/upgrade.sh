@@ -218,11 +218,16 @@ _require_git_identity() {
 #   progress; our subtree merge would be conflated with the user's
 #   in-flight operation. Also the first git call that needs a repository,
 #   so a tree with no .git is refused here by name rather than dying
-#   under set -e with only git's stderr (base#1369).
+#   under set -e with only git's stderr (base#1369). A repo with no
+#   commits yet (unborn HEAD) is refused here too, before the later
+#   `git rev-parse HEAD` dies the same way (base#1385).
 _require_clean_merge_state() {
   local _git_dir _state
   if ! _git_dir="$(git rev-parse --git-dir 2>/dev/null)"; then
     _error upgrade_not_a_git_repo "$(pwd -P) is not inside a git repository; run the upgrade from the root of the repo's git checkout."
+  fi
+  if ! git rev-parse --verify --quiet HEAD >/dev/null; then
+    _error upgrade_no_commits "$(pwd -P) is in a git repository with no commits yet; commit the repo once before upgrading."
   fi
   for _state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
     if [[ -e "${_git_dir}/${_state}" ]]; then
