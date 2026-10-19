@@ -1376,7 +1376,7 @@ STUB
 # why: An aborted upgrade's files must all go, including those whose names
 # git quotes; otherwise the rollback reports a restore that left them behind
 @test "upgrade.sh: a rollback removes upgrade-created files whose names git quotes (base#1381)" {
-  _publish_failing_init $'touch "tab\there" "new\nline" "caf\xc3\xa9-\xe6\x96\x87" plain-created; exit 7'
+  _publish_failing_init $'touch "tab\there" "new\nline" "caf\xc3\xa9-\xe6\x96\x87" \'q"uote\' \'back\\slash\' plain-created; exit 7'
   cd "${DOWN_DIR}"
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
@@ -1389,6 +1389,8 @@ STUB
   assert [ ! -e $'tab\there' ]
   assert [ ! -e $'new\nline' ]
   assert [ ! -e $'caf\xc3\xa9-\xe6\x96\x87' ]
+  assert [ ! -e 'q"uote' ]
+  assert [ ! -e 'back\slash' ]
   [ -z "$(git ls-files -z --others --exclude-standard | tr -d '\0')" ]
 }
 
