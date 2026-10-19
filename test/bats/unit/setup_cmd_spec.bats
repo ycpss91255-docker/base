@@ -214,11 +214,11 @@ EOF
 [network]
 mode = "host"
 EOF
-  run main set network.privileged true --base-path "${TEMP_DIR}"
+  run main set network.ipc host --base-path "${TEMP_DIR}"
   assert_success
-  run main show network.privileged --base-path "${TEMP_DIR}"
+  run main show network.ipc --base-path "${TEMP_DIR}"
   assert_success
-  assert_output "true"
+  assert_output "host"
 }
 
 @test "set creates section + key when section is absent" {
@@ -728,7 +728,9 @@ EOF
 # why: The only case that reaches `set`'s conf_write_failed branch, and the
 # reason base#1220 found that branch emitting an unregistered id. A FREE-FORM
 # key is the shape that gets there: it is not in the schema registry, so
-# _schema_validate accepts any value and the newline refusal happens at the
+# _schema_validate accepts any value. It must still be a key a reader reads
+# (base#1374 refuses any other before the write), so it is build.tz, one of
+# the free-form keys _setup_known_key admits and the newline refusal happens at the
 # writer sink instead. The case above names the same defect and cannot see
 # it -- its key is typed, so validation intercepts the value first and that
 # case stays green with the writer's guard deleted. What is asserted here is
@@ -738,18 +740,18 @@ EOF
 # so the refutation beside them is what pins the registry half
 @test "set reports the write failure for a key validation does not intercept" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[network]
-freeform_note = "clean"
+[build]
+tz = "clean"
 EOF
-  run main set network.freeform_note $'a\nb' --base-path "${TEMP_DIR}"
+  run main set build.tz $'a\nb' --base-path "${TEMP_DIR}"
   assert_failure
   # The writer's refusal, and the set-level diagnostic naming the key --
   # both are what the registry's own complaint would have replaced.
   assert_output --partial "refusing newline-bearing key/value"
-  assert_output --partial "network.freeform_note"
+  assert_output --partial "build.tz"
   refute_output --partial "unregistered log body"
   # The original clean value is untouched and no orphan line was written.
-  run grep -c '^freeform_note = "clean"$' "${TEMP_DIR}/setup.toml"
+  run grep -c '^tz = "clean"$' "${TEMP_DIR}/setup.toml"
   assert_output "1"
 }
 
@@ -1299,13 +1301,17 @@ TOML
   assert_success
 }
 
-@test "main add binds a logging.<svc> spec to the sub-section, not the parent (#955)" {
+@test "main add writes no dotted key into [logging] for a logging.<svc> spec (#955)" {
   # `add` derived <section>/<list> with its own dot-split instead of
   # asking _conf_split_nskey, so `logging.web.<list>` split at the FIRST
   # dot: section `logging`, list `web.<list>`. That is the same
   # misrouting _write_setup_conf was fixed for -- the slot was appended
   # to the parent [logging] block as a bogus dotted key `web.<list>_N`,
   # which no reader ever resolves back to the [logging.web] service.
+  # No list family is read under [logging.<svc>], so since base#1374
+  # `add` refuses the spec before writing; the split rule itself is
+  # pinned in conf_accessor_spec.bats. What stays pinned here is that
+  # neither the parent nor the sub-section gains a key.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
 driver = "json-file"
@@ -1314,23 +1320,22 @@ driver = "json-file"
 driver = "local"
 EOF
   run main add logging.web.tag alpha --base-path "${TEMP_DIR}"
-  assert_success
+  assert_failure
+  assert_output --partial "unknown key logging.web.tag"
 
-  # The slot lands in [logging.web] under its own list name ... (the
-  # writer emits TOML, so the value is a quoted basic string).
-  run grep -c '^tag_1 = "alpha"$' "${TEMP_DIR}/setup.toml"
-  assert_output "1"
-  # ... and no dotted key is injected anywhere.
+  # No dotted key is injected anywhere, and no slot is written.
   run grep -c '^web\.tag' "${TEMP_DIR}/setup.toml"
   assert_output "0"
-  # The parent section keeps exactly its own key.
+  run grep -c '^tag_1' "${TEMP_DIR}/setup.toml"
+  assert_output "0"
+  # The parent section keeps exactly its own key ...
   local -a _pk=() _pv=()
   _parse_ini_section "${TEMP_DIR}/setup.toml" "logging" _pk _pv
   [[ "${_pk[*]}" == "driver" ]]
-  # ... and the sub-section now carries both.
+  # ... and so does the sub-section.
   local -a _sk=() _sv=()
   _parse_ini_section "${TEMP_DIR}/setup.toml" "logging.web" _sk _sv
-  [[ "${_sk[*]}" == "driver tag_1" ]]
+  [[ "${_sk[*]}" == "driver" ]]
 }
 
 @test "main add rejects invalid mount value" {

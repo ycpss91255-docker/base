@@ -430,6 +430,15 @@ _setup_set() {
     return 2
   fi
 
+  # A key no reader reads is refused before the write, in the terms
+  # apply's _setup_conf_check_known uses for it (base#1374).
+  if ! _setup_known_key "${_section}" "${_key}"; then
+    _log_err setup conf_unknown_key \
+      "display=[setup] set: unknown key ${_section}.${_key}; no reader reads it, so the default would apply instead. Fix the spelling" \
+      "table=${_section}" "key=${_key}"
+    return 2
+  fi
+
   if ! _setup_validate_kv "${_section}" "${_key}" "${_value}"; then
     _log_err setup conf_invalid_value "display=$(_setup_msg errors invalid_value): ${_section}.${_key} = ${_value}" "section=${_section}" "key=${_key}" "value=${_value}"
     return 2
@@ -1038,6 +1047,16 @@ _setup_add() {
 
   if ! _setup_known_section "${_section}"; then
     _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
+    return 2
+  fi
+
+  # A family is judged by the row its first entry would take, as apply
+  # judges an empty array, so a family no reader reads is refused before
+  # the write instead of at the next apply (base#1374).
+  if ! _setup_known_key "${_section}" "${_list}_1"; then
+    _log_err setup conf_unknown_key \
+      "display=[setup] add: unknown key ${_section}.${_list}; no reader reads it, so the default would apply instead. Fix the spelling" \
+      "table=${_section}" "key=${_list}"
     return 2
   fi
 
