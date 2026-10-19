@@ -783,9 +783,11 @@ _publish_failing_init() {
   git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
 }
 
+# why: The rollback reads the exit status the transcript handler hands it
+# rather than its own; with a failing step that exits 1, a rollback that
+# always reported 1 would be indistinguishable, so the step exits 7 and the
+# caller and the transcript must both carry 7
 @test "upgrade.sh: a rolled-back upgrade keeps the failing step's own exit code (base#1371)" {
-  # 7, not 1: an exit rollback that always reported 1 would pass an arm
-  # whose failing step happens to exit 1.
   _publish_failing_init 'exit 7'
 
   cd "${DOWN_DIR}"
@@ -804,11 +806,11 @@ _publish_failing_init() {
   _assert_upgrade_transcript_finalized 7
 }
 
+# why: A rescue reset that cannot run is the one rollback outcome where an
+# `exit` inside the exit-time callback would skip the transcript finalize,
+# and where a "restored" message would tell the user a still-broken tree is
+# safe to build on; init.sh leaves an index.lock behind so the reset fails
 @test "upgrade.sh: a failed rescue reset says so, exits 1 and still finalizes its transcript (base#1371)" {
-  # init.sh leaves an index.lock behind and fails, so the rollback's own
-  # `git reset --hard` cannot run. A failed rescue is where an `exit` from
-  # inside the exit rollback would skip the transcript finalize, and where
-  # a "restored" message would be untrue.
   _publish_failing_init 'touch "$(git rev-parse --git-dir)/index.lock"; exit 7'
 
   cd "${DOWN_DIR}"
