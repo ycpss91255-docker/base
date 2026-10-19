@@ -576,6 +576,39 @@ EOF
   assert_output --partial "Unknown section"
 }
 
+@test "set refuses an unknown key up front and leaves setup.toml untouched (base#1374)" {
+  # `set deploy.gpu_cuont 1` wrote a key no reader reads; the next
+  # `apply` then refused it as apply_unknown_key. The refusal belongs
+  # here, before the write, in the same terms apply uses.
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
+  run main set deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "unknown key deploy.gpu_cuont"
+  assert_output --partial "no reader reads it"
+  run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
+  assert_success
+}
+
+@test "set --local refuses an unknown key and leaves setup.local.toml untouched (base#1374)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  printf '[deploy]\ngpu_count = "1"\n' > "${TEMP_DIR}/setup.local.toml"
+  cp "${TEMP_DIR}/setup.local.toml" "${TEMP_DIR}/setup.local.toml.before"
+  run main set --local deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "unknown key deploy.gpu_cuont"
+  run cmp "${TEMP_DIR}/setup.local.toml.before" "${TEMP_DIR}/setup.local.toml"
+  assert_success
+}
+
+@test "set still accepts a known key (base#1374)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  run main set deploy.gpu_count 1 --base-path "${TEMP_DIR}"
+  assert_success
+  run main set build.tz Asia/Taipei --base-path "${TEMP_DIR}"
+  assert_success
+}
+
 @test "set rejects an invalid gpu_count value" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
@@ -1211,6 +1244,59 @@ EOF
   assert_failure
   [[ "${status}" -eq 2 ]]
   assert_output --partial "Unknown section"
+}
+
+@test "main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)" {
+  # The family is `build.arg`; `build.args` appended `args_1` to [build],
+  # which the next `apply` refused as apply_unknown_key. The refusal
+  # belongs here, before the write, in the same terms apply uses.
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
+  run main add build.args MYARG=1 --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "unknown key build.args"
+  assert_output --partial "no reader reads it"
+  run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
+  assert_success
+}
+
+@test "main add --local refuses an unknown family and leaves setup.local.toml untouched (base#1374)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  printf '[deploy]\ngpu_count = "1"\n' > "${TEMP_DIR}/setup.local.toml"
+  cp "${TEMP_DIR}/setup.local.toml" "${TEMP_DIR}/setup.local.toml.before"
+  run main add --local build.args MYARG=1 --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "unknown key build.args"
+  run cmp "${TEMP_DIR}/setup.local.toml.before" "${TEMP_DIR}/setup.local.toml"
+  assert_success
+}
+
+@test "main add refuses an unknown family under a logging.<svc> sub-section (base#1374)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[logging]
+driver = "json-file"
+
+[logging.web]
+driver = "local"
+TOML
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
+  run main add logging.web.tags alpha --base-path "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "unknown key logging.web.tags"
+  run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
+  assert_success
+}
+
+@test "main add still accepts the known families (base#1374)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  run main add build.arg MYARG=1 --base-path "${TEMP_DIR}"
+  assert_success
+  run main add volumes.mount /tmp/a:/a --base-path "${TEMP_DIR}"
+  assert_success
+  run main add network.port 8080:80 --base-path "${TEMP_DIR}"
+  assert_success
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
 }
 
 @test "main add binds a logging.<svc> spec to the sub-section, not the parent (#955)" {
