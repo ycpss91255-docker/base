@@ -185,10 +185,14 @@ _require_git_identity() {
 # _require_clean_merge_state
 #   Refuse to start if a merge / rebase / cherry-pick / revert is in
 #   progress; our subtree merge would be conflated with the user's
-#   in-flight operation.
+#   in-flight operation. Also the first git call that needs a repository,
+#   so a tree with no .git is refused here by name rather than dying
+#   under set -e with only git's stderr (base#1369).
 _require_clean_merge_state() {
   local _git_dir _state
-  _git_dir="$(git rev-parse --git-dir)"
+  if ! _git_dir="$(git rev-parse --git-dir 2>/dev/null)"; then
+    _error upgrade_not_a_git_repo "$(pwd -P) is not inside a git repository; run the upgrade from the root of the repo's git checkout."
+  fi
   for _state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
     if [[ -e "${_git_dir}/${_state}" ]]; then
       _error upgrade_git_operation_in_progress "${_state} present in ${_git_dir} — resolve or abort it before upgrading."

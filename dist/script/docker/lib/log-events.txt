@@ -209,6 +209,7 @@ upgrade_config_drift
 upgrade_setup_conf_drift
 upgrade_git_identity_missing
 upgrade_git_operation_in_progress
+upgrade_not_a_git_repo
 upgrade_fetch_failed
 upgrade_downgrade_refused
 upgrade_base_not_found
