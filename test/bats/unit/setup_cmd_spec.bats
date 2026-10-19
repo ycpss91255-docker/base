@@ -1590,6 +1590,71 @@ _conf_hash_of() {
   assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
 }
 
+# _assert_roundtrip <section.list> <value>
+#   Run `add` then `remove` of <value> on ${TEMP_DIR}/setup.toml and
+#   assert the file is byte-identical to what it was before the add.
+_assert_roundtrip() {
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  run main add "$1" "$2" --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove "$1" "$2" --base-path "${TEMP_DIR}"
+  assert_success
+  run diff -u "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+@test "add then remove environment.env keeps the file's trailing blank line (base#1363)" {
+  # The [environment] table `add` appends goes again with its key, and
+  # only the one blank line `add` put before it goes with it: the blank
+  # line the file already ended with stays.
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n' >> "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip environment.env FOO=bar
+}
+
+@test "add then remove network.port keeps the blank line after a [[...]] block at the end of the file (base#1363)" {
+  # The added [[network.ports]] block lands after the one the file ends
+  # with; removing it must not take the trailing blank line along.
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  sed -i '/^ports = \[\]$/d' "${TEMP_DIR}/setup.toml"
+  printf '\n[[network.ports]]\nhost = "80"\ncontainer = "80"\n\n' \
+    >> "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip network.port 8080:8080
+}
+
+@test "add then remove environment.env keeps an empty [environment] table that was already there (base#1363)" {
+  # `remove` drops only a table `add` created; one the file already held,
+  # empty, stays as it was.
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n[environment]\n' >> "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip environment.env FOO=bar
+}
+
+@test "add then remove environment.env keeps an empty [environment] table whose header carries a comment (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  sed -i 's/^\[logging\]$/[environment] # host interfaces\n\n[logging]/' \
+    "${TEMP_DIR}/setup.toml"
+  grep -qFx '[environment] # host interfaces' "${TEMP_DIR}/setup.toml"
+  _assert_roundtrip environment.env FOO=bar
+}
+
+@test "SETUP_CONF_HASH is unchanged by a round trip on a file ending in a blank line (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  printf '\n' >> "${TEMP_DIR}/setup.toml"
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  local _before
+  _before="$(_conf_hash_of "${TEMP_DIR}")"
+  run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove environment.env FOO=bar --base-path "${TEMP_DIR}"
+  assert_success
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
+}
+
 @test "main add validates env_kv format" {
   : > "${TEMP_DIR}/setup.toml"
   run main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"
