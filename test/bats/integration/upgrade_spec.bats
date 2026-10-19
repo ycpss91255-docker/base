@@ -833,6 +833,8 @@ _assert_fatal_body() {
       ./.base/dist/script/base/upgrade.sh v0.9.7
   assert_failure 1
   _assert_fatal_body "${output}" upgrade_no_commits
+  # The refusal comes in preflight: no upgrade work is announced
+  refute_output --partial '"body":"upgrade_started"'
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
