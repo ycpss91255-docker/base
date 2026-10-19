@@ -2394,7 +2394,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (173)
+### test/bats/unit/dockerfile_migrate_spec.bats (177)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2582,6 +2582,10 @@ force-rewrite).
 | `apply_migrations says zero when nothing matched, in one line (base#1189)` | base#1189 -- the zero case is the one that was indistinguishable, and it must still be ONE line rather than sixteen |
 | `apply_migrations derives the total and the names from _MIGRATIONS (base#1189)` | base#1189 -- the numbers have to come from _MIGRATIONS as it ran, or the report is a second list that rots on the seventeenth |
 | `no QUIET reader exists on the migration path, so the report has no quiet mode (base#1189)` | base#1189 -- the gate asked for a QUIET=1 arm; there is no QUIET on this path, and saying so beats writing a vacuous one |
+| `apply_migrations: the no-Dockerfile skip is not logged as upgrade_started (base#1364)` | The skip line is the first one every consumer without a Dockerfile sees; under JSON it has to say "skipped", not "started" |
+| `apply_migrations: a 'Dockerfile patched' line is not logged as upgrade_started (base#1364)` | A patch line records a rewrite on disk; a log query for what an upgrade changed needs an event that says so |
+| `migration (entrypoint-orchestrator): the WARN notice is not logged as upgrade_started (base#1364)` | A WARN-severity advisory carrying an INFO-style "started" body is the mismatch the issue reports: the severity says warning, the event says nothing happened yet |
+| `dockerfile_migrate.sh: no log call uses the upgrade_started body (base#1364)` | The three runtime arms above sample the lib; this pins the rest of its ~27 log calls, none of which announces the upgrade |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -8677,7 +8681,7 @@ overlay; writes no override)
 | `the migration scan reports a migration injected into upgrade.sh (base#1110)` | Driving the rule red by hand, as a test, so it can never pass by never firing. The injected function is added to a copy of the REAL file through the REAL scanner, so this arm fails the moment the detector stops detecting -- which is the failure the two arms above cannot tell from success |
 | `the migration scan reads the 'function name' spelling too (base#1110)` | The `function name {` spelling is the one an author reaching for a way around a name rule would find first, and a scanner that only read `name() {` would report the file clean with a migration sitting in it |
 
-### test/bats/unit/upgrade_spec.bats (49)
+### test/bats/unit/upgrade_spec.bats (50)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -8760,6 +8764,7 @@ back is in upgrade_migration_reachability_spec.bats.
 | `_warn_subtree_local_drift says the comparison could not run rather than nothing (#1092)` | Recording the reason is only half of it -- the consumer has to be told, because an upgrade that printed nothing is exactly what they saw before this check existed |
 | `_warn_subtree_local_drift names each drifted path repo-relative (#1092)` | Naming the files is the whole requirement -- a count with no paths leaves the consumer exactly where the silence did -- and the path has to be repo-relative, which is what they type at the prompt, not the subtree-relative form the comparison works in |
 | `_warn_subtree_local_drift says nothing when no drift was recorded (#1092)` | Silence on a clean tree is the behaviour every consumer sees on every upgrade, so it is the one the reporter has to get right even though it prints nothing |
+| `upgrade.sh: upgrade_started is emitted only by the 'Upgrading:' line (base#1364)` | `upgrade_started` is the event for the one line that announces the upgrade ("Upgrading: X -> Y"). The generic _log helper stamped it on every line -- step markers, check results, the done banner and the config-drift WARNING -- so a JSON reader filtering on the event saw ~40 "started" records per run (base#1364) |
 
 ### test/bats/unit/upstream_spec.bats (9)
 

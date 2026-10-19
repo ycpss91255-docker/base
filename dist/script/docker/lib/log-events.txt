@@ -196,6 +196,23 @@ upgrade_rollback
 upgrade_rollback_failed
 upgrade_subtree_local_drift
 upgrade_subtree_local_drift_detail
+upgrade_version_check
+upgrade_available
+upgrade_up_to_date
+upgrade_ahead_of_latest
+upgrade_step
+upgrade_nothing_to_commit
+upgrade_config_drift
+upgrade_setup_conf_drift
+# lib/dockerfile_migrate.sh (emitted under the upgrade service; base#1364)
+dockerfile_migration_snapshot_failed
+dockerfile_migration_skipped
+dockerfile_patched
+entrypoint_patched
+dockerfile_unchanged
+dockerfile_needs_manual_fix
+dockerfile_entrypoint_advisory
+entrypoint_advisory
 
 # init.sh
 init_started
