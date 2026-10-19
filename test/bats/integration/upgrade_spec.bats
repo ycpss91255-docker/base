@@ -796,6 +796,26 @@ _assert_fatal_body() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# why: A downstream tree copied without its .git dies on the merge-state
+# preflight's `git rev-parse --git-dir`; under set -e that used to leave
+# only git's own stderr and no event naming what failed
+@test "upgrade.sh: a tree that is not a git repository logs upgrade_not_a_git_repo (base#1369)" {
+  local _copy="${BATS_TEST_TMPDIR}/no_git_copy"
+  cp -a "${DOWN_DIR}/." "${_copy}"
+  rm -rf "${_copy}/.git"
+  local _gitconfig="${BATS_TEST_TMPDIR}/identity.gitconfig"
+  printf '[user]\n\tname = Test\n\temail = test@example.com\n' > "${_gitconfig}"
+  cd "${_copy}"
+
+  run env LOG_FORMAT=json GIT_CONFIG_GLOBAL="${_gitconfig}" \
+      GIT_CEILING_DIRECTORIES="${BATS_TEST_TMPDIR}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_fatal_body "${output}" upgrade_not_a_git_repo
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
 # ── Rollback on destructive subtree pull ────────────────────────────────────
 
 # _install_destructive_ff_stub <stub_dir> [after_reset_cmd]
