@@ -8689,7 +8689,7 @@ overlay; writes no override)
 | `the migration scan reports a migration injected into upgrade.sh (base#1110)` | Driving the rule red by hand, as a test, so it can never pass by never firing. The injected function is added to a copy of the REAL file through the REAL scanner, so this arm fails the moment the detector stops detecting -- which is the failure the two arms above cannot tell from success |
 | `the migration scan reads the 'function name' spelling too (base#1110)` | The `function name {` spelling is the one an author reaching for a way around a name rule would find first, and a scanner that only read `name() {` would report the file clean with a migration sitting in it |
 
-### test/bats/unit/upgrade_spec.bats (53)
+### test/bats/unit/upgrade_spec.bats (55)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -8776,6 +8776,8 @@ back is in upgrade_migration_reachability_spec.bats.
 | `upgrade.sh: the real _log emits upgrade_started for 'Upgrading:' and its own body for step / done (base#1364)` | The source count above cannot see what the helper forwards. Run the real `_log` on the real call lines of _upgrade: the announcement has to emit upgrade_started and the step and done lines must not -- a helper that dropped its event argument for a fixed body would fail one side |
 | `upgrade.sh: _check logs upgrade_version_check / upgrade_up_to_date / upgrade_available through the real _log (base#1364)` | The check path is what `upgrade --check` prints on every run; its lines report a comparison, not a start |
 | `upgrade.sh: config / setup.toml drift lines log their drift body through the real _log (base#1364)` | The drift WARNING lines tell the consumer their config was NOT updated; logged as upgrade_started they read as the upgrade beginning |
+| `upgrade.sh: a missing subtree root emits upgrade_subtree_root_not_found under LOG_FORMAT=json (base#1382)` | With the logger reachable (dist/script/docker/lib/ beside the copy) the failure must be a structured ERROR record naming the registered event |
+| `upgrade.sh: a lone copy with no logger still names upgrade_subtree_root_not_found and exits 1 (base#1382)` | The issue's own repro copies upgrade.sh alone, so log.sh is missing too; the failure must still name the registered event and exit 1 |
 
 ### test/bats/unit/upstream_spec.bats (9)
 
