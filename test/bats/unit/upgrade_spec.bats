@@ -1068,7 +1068,8 @@ _assert_record() {
 # record that happens to carry the fragments) and require exactly one
 # ERROR / 17 record whose body is upgrade_subtree_root_not_found and whose
 # display names the script directory $2. $3 is "logger" when the record must
-# come from log.sh, which stamps code.filepath; the no-logger fallback omits it.
+# come from log.sh, which stamps code.filepath, and "fallback" when it must
+# be the hand-written no-logger record, which omits it.
 _assert_root_record() {
   python3 -c '
 import json, sys
@@ -1098,6 +1099,8 @@ for name, got, exp in checks:
 attrs = r.get("attributes") or {}
 if src == "logger" and "code.filepath" not in attrs:
     sys.exit("code.filepath missing: record did not come from log.sh: %r" % r)
+if src == "fallback" and "code.filepath" in attrs:
+    sys.exit("code.filepath present: want the no-logger fallback record: %r" % r)
 ' "$1" "$2" "$3"
 }
 
