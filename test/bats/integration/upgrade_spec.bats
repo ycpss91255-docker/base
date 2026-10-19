@@ -1088,6 +1088,48 @@ STUB
   assert [ ! -e zzz-upgrade-created ]
 }
 
+# _install_failing_ls_files <stub_dir> <marker>
+#   A `git` PATH shim that fails `git ls-files` once <marker> exists and
+#   forwards every other invocation to the real git. The marker lets the
+#   pre-upgrade snapshot enumerate normally and fails only the rollback's.
+_install_failing_ls_files() {
+  local _stub_dir="$1"
+  local _marker="$2"
+  local _real_git
+  _real_git="$(command -v git)"
+  mkdir -p "${_stub_dir}"
+  cat > "${_stub_dir}/git" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1" == "ls-files" && -e "${_marker}" ]]; then
+  echo "git stub: ls-files refused" >&2
+  exit 128
+fi
+exec "${_real_git}" "\$@"
+STUB
+  chmod +x "${_stub_dir}/git"
+}
+
+# why: The sweep cannot remove files it never enumerated; when listing the
+# untracked files fails, the rollback has not restored the tree and must
+# end on upgrade_rollback_failed, never upgrade_rollback
+@test "upgrade.sh: a failed untracked-file enumeration logs upgrade_rollback_failed, never upgrade_rollback (base#1369)" {
+  local _marker="${BATS_TEST_TMPDIR}/ls_files_fails"
+  _publish_failing_init "touch zzz-upgrade-created '${_marker}'; exit 7"
+  cd "${DOWN_DIR}"
+  local _stub_dir="${BATS_TEST_TMPDIR}/git_shim"
+  _install_failing_ls_files "${_stub_dir}" "${_marker}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json PATH="${_stub_dir}:${PATH}" \
+      TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 1
+  _assert_rollback_failed_not_rollback "${output}"
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  assert [ -e zzz-upgrade-created ]
+}
+
 # why: Aborting a conflicted pull's merge puts back a repo nothing was
 # committed to; it is not a rollback, and a successful abort ends on
 # upgrade_subtree_pull_failed with no upgrade_rollback record
