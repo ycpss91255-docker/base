@@ -86,8 +86,39 @@ while [[ "${SUBTREE_ROOT}" != "/" ]]; do
   [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/dist" ]] && break
   SUBTREE_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
 done
+# This failure comes before _lib.sh is sourced, so it reaches for log.sh
+# beside the script (dist/script/docker/lib/) to log the registered event.
+# A lone copy has no log.sh either; it then writes a minimal fallback record
+# by hand -- JSON unless LOG_FORMAT=text or stderr is a terminal -- so a
+# LOG_FORMAT=json reader still gets one it can parse (base#1382). That
+# record carries timestamp, severity, body, service.name, service.lang and
+# display only: no code.filepath, code.lineno, thread.id or trace context,
+# and the text form has no color and ignores log.sh's cached TTY state.
 [[ -f "${SUBTREE_ROOT}/.version" ]] || {
-  echo "upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}" >&2
+  _upgrade_no_root_msg="upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}"
+  if [[ -f "${SCRIPT_DIR}/../docker/lib/log.sh" ]]; then
+    # shellcheck source=dist/script/docker/lib/log.sh
+    source "${SCRIPT_DIR}/../docker/lib/log.sh"
+    _log_err upgrade upgrade_subtree_root_not_found \
+      "display=${_upgrade_no_root_msg}"
+  else
+    # Mirrors log.sh's LOG_FORMAT dispatch (text, json, auto = text on a TTY).
+    _upgrade_no_root_fmt="${LOG_FORMAT:-auto}"
+    _upgrade_no_root_ts="$(date -u '+%Y-%m-%dT%H:%M:%S.%6NZ')"
+    if [[ "${_upgrade_no_root_fmt}" == "text" ]] \
+       || { [[ "${_upgrade_no_root_fmt}" != "json" ]] && [[ -t 2 ]]; }; then
+      printf '%s [upgrade] ERROR: %s\n' \
+        "${_upgrade_no_root_ts}" "${_upgrade_no_root_msg}" >&2
+    else
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//\\/\\\\}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//\"/\\\"}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\n'/\\n}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\t'/\\t}"
+      _upgrade_no_root_msg="${_upgrade_no_root_msg//$'\r'/\\r}"
+      printf '{"timestamp":"%s","severity_text":"ERROR","severity_number":17,"body":"upgrade_subtree_root_not_found","attributes":{"service.name":"upgrade","service.lang":"bash","display":"%s"}}\n' \
+        "${_upgrade_no_root_ts}" "${_upgrade_no_root_msg}" >&2
+    fi
+  fi
   exit 1
 }
 readonly SUBTREE_ROOT

@@ -1055,3 +1055,73 @@ _assert_record() {
   _assert_record "${output}" 'WARNING: .base/dist/setup.toml changed upstream' INFO upgrade_setup_conf_drift
   refute_output --partial '"body":"upgrade_started"'
 }
+
+# ── missing subtree root (base#1382) ────────────────────────────────────────
+#
+# The walk-up that finds the subtree root runs before the logger is sourced,
+# so its failure used to print a bare `upgrade.sh: cannot locate subtree
+# root ...` line that a LOG_FORMAT=json consumer cannot parse. Both arms run
+# a fixture copy of upgrade.sh in a temp dir with no `.version` above it,
+# never the live tree (base#1075).
+
+# Parse every line of $1 as JSON (a substring match would pass a malformed
+# record that happens to carry the fragments) and require exactly one
+# ERROR / 17 record whose body is upgrade_subtree_root_not_found and whose
+# display names the script directory $2. $3 is "logger" when the record must
+# come from log.sh, which stamps code.filepath, and "fallback" when it must
+# be the hand-written no-logger record, which omits it.
+_assert_root_record() {
+  python3 -c '
+import json, sys
+out, sdir, src = sys.argv[1], sys.argv[2], sys.argv[3]
+recs = []
+for ln in out.splitlines():
+    if not ln.strip():
+        continue
+    try:
+        recs.append(json.loads(ln))
+    except ValueError as e:
+        sys.exit("not JSON: %r (%s)" % (ln, e))
+hits = [r for r in recs if r.get("body") == "upgrade_subtree_root_not_found"]
+if len(hits) != 1:
+    sys.exit("want 1 upgrade_subtree_root_not_found record, got %d in: %r" % (len(hits), out))
+r = hits[0]
+want = "upgrade.sh: cannot locate subtree root above " + sdir
+checks = [
+    ("severity_text", r.get("severity_text"), "ERROR"),
+    ("severity_number", r.get("severity_number"), 17),
+    ("display", (r.get("attributes") or {}).get("display"), want),
+    ("service.name", (r.get("attributes") or {}).get("service.name"), "upgrade"),
+]
+for name, got, exp in checks:
+    if got != exp:
+        sys.exit("%s: got %r, want %r in %r" % (name, got, exp, r))
+attrs = r.get("attributes") or {}
+if src == "logger" and "code.filepath" not in attrs:
+    sys.exit("code.filepath missing: record did not come from log.sh: %r" % r)
+if src == "fallback" and "code.filepath" in attrs:
+    sys.exit("code.filepath present: want the no-logger fallback record: %r" % r)
+' "$1" "$2" "$3"
+}
+
+# why: With the logger reachable (dist/script/docker/lib/ beside the copy)
+# the failure must be a structured ERROR record naming the registered event
+@test "upgrade.sh: a missing subtree root emits upgrade_subtree_root_not_found under LOG_FORMAT=json (base#1382)" {
+  local _fx="${TEMP_DIR}/nosubtree/dist/script"
+  mkdir -p "${_fx}"
+  cp -R /source/dist/script/base /source/dist/script/docker "${_fx}/"
+  run env LOG_FORMAT=json bash "${_fx}/base/upgrade.sh" 2>&1
+  assert_failure 1
+  _assert_root_record "${output}" "$(cd -- "${_fx}/base" && pwd -P)" logger
+}
+
+# why: The issue's own repro copies upgrade.sh alone, so log.sh is missing
+# too; the failure must still name the registered event and exit 1
+@test "upgrade.sh: a lone copy with no logger still names upgrade_subtree_root_not_found and exits 1 (base#1382)" {
+  local _fx="${TEMP_DIR}/lone"
+  mkdir -p "${_fx}"
+  cp /source/dist/script/base/upgrade.sh "${_fx}/"
+  run env LOG_FORMAT=json bash "${_fx}/upgrade.sh" 2>&1
+  assert_failure 1
+  _assert_root_record "${output}" "$(cd -- "${_fx}" && pwd -P)" fallback
+}
