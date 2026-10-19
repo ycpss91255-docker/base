@@ -213,6 +213,7 @@ upgrade_fetch_failed
 upgrade_downgrade_refused
 upgrade_base_not_found
 upgrade_unknown_arg
+upgrade_arg_missing_value
 # lib/dockerfile_migrate.sh (emitted under the upgrade service; base#1364)
 dockerfile_migration_snapshot_failed
 dockerfile_migration_skipped

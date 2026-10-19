@@ -1071,7 +1071,10 @@ main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --lang)
-        _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"
+        if [[ -z "${2:-}" ]]; then
+          _error upgrade_arg_missing_value "--lang requires a value (en|zh-TW|zh-CN|ja)"
+        fi
+        _LANG="$2"
         _sanitize_lang _LANG "upgrade"
         shift 2
         ;;
