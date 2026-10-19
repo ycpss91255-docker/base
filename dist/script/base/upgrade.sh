@@ -37,6 +37,7 @@ for _upgrade_arg in "$@"; do
   [[ "${_upgrade_arg}" == "--check" ]] && _UPGRADE_FATAL_RC=2
 done
 unset _upgrade_arg
+readonly _UPGRADE_FATAL_RC
 SUBTREE_ROOT="${SCRIPT_DIR}"
 while [[ "${SUBTREE_ROOT}" != "/" ]]; do
   [[ -f "${SUBTREE_ROOT}/.version" && -d "${SUBTREE_ROOT}/dist" ]] && break
@@ -44,7 +45,7 @@ while [[ "${SUBTREE_ROOT}" != "/" ]]; do
 done
 [[ -f "${SUBTREE_ROOT}/.version" ]] || {
   echo "upgrade.sh: cannot locate subtree root above ${SCRIPT_DIR}" >&2
-  exit "${_UPGRADE_FATAL_RC:-1}"
+  exit "${_UPGRADE_FATAL_RC}"
 }
 readonly SUBTREE_ROOT
 REPO_ROOT="$(cd -- "${SUBTREE_ROOT}/.." && pwd -P)"
@@ -81,7 +82,7 @@ cd "${REPO_ROOT}"
 #   INFO line under the upgrade service; <event> is the registered body
 #   (log-events.txt) naming what the line reports (base#1364).
 _log() { local _ev="$1"; shift; _log_info upgrade "${_ev}" "display=$*"; }
-_error() { _log_err upgrade upgrade_rollback "display=$*"; exit "${_UPGRADE_FATAL_RC:-1}"; }
+_error() { _log_err upgrade upgrade_rollback "display=$*"; exit "${_UPGRADE_FATAL_RC}"; }
 
 # Rollback state. Both are set just before the subtree pull and cleared
 # once the upgrade is past everything that can fail; a non-empty
@@ -979,7 +980,7 @@ main() {
   # "this is the template source, not a consumer" -- proceeding would
   # subtree-pull into base's PARENT dir. After --help (which must work
   # anywhere), before any mutation. Same helper init.sh uses.
-  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit "${_UPGRADE_FATAL_RC:-1}"
+  _assert_not_template_source "${SUBTREE_ROOT}" upgrade || exit "${_UPGRADE_FATAL_RC}"
 
   [[ ! -d "${TEMPLATE_REL}" ]] && \
     _error "${TEMPLATE_REL}/ not found. Run from repo root."
