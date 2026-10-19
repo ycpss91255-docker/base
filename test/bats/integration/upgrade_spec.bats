@@ -360,6 +360,64 @@ EOF
   diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.pip-orig"
 }
 
+# _publish_current_tree_as_v0_9_7
+#   Re-tag v0.9.7 as a copy of THIS working tree, so the upgrade's Step 3
+#   resync runs the real init.sh rather than the fixture's stub. The
+#   driver stays the current upgrade.sh the v0.9.5 fixture vendors, so
+#   both of the run's migration passes -- the one init.sh makes and the
+#   one at Step 5 -- are current code. Copied from /source into the
+#   fixture, never run against /source itself (base#1075).
+_publish_current_tree_as_v0_9_7() {
+  find "${TMPL_WORK}" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+  tar -C /source \
+    --exclude=./.git --exclude=./.prev-release \
+    --exclude=./coverage --exclude=./log \
+    -cf - . | tar -C "${TMPL_WORK}" -x -o -f -
+  echo "v0.9.7" > "${TMPL_WORK}/.version"
+  git -C "${TMPL_WORK}" add -A
+  git -C "${TMPL_WORK}" commit -q -m "v0.9.7 carrying the current tree"
+  git -C "${TMPL_WORK}" tag -f v0.9.7 >/dev/null 2>&1
+  git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
+}
+
+# _count_lines <needle>
+#   How many lines of ${output} contain <needle>, read off the output
+#   itself so "printed once" and "printed twice" are both visible.
+_count_lines() {
+  printf '%s\n' "${output}" | grep -cF -- "$1" || true
+}
+
+# why: One upgrade reaches the migration dispatcher twice -- through the
+# init.sh its Step 3 re-runs and again at its own Step 5 -- and every
+# notice the dispatcher prints came out on both passes. Each warning, the
+# ENTRYPOINT advisory and the summary line must print once per run
+@test "upgrade.sh prints each Dockerfile migration notice once per run (base#1372)" {
+  _publish_current_tree_as_v0_9_7
+
+  cd "${DOWN_DIR}"
+  mkdir -p config/pip
+  echo "numpy==1.26.4" > config/pip/requirements.txt
+  cat > Dockerfile <<'DOCKERFILE'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+ENTRYPOINT ["/entrypoint.sh"]
+DOCKERFILE
+  git add Dockerfile config
+  git commit -q -m "add Dockerfile (own ENTRYPOINT + populated requirements)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Done! Upgraded to v0.9.7"
+
+  # All three counted before any is asserted, so a failure shows every one.
+  local _counts
+  _counts="pip_unchanged=$(_count_lines "Dockerfile unchanged: retired CONFIG_DIR pip helper line kept")"
+  _counts+=" entrypoint_advisory=$(_count_lines "Dockerfile still runs the repo's own /entrypoint.sh")"
+  _counts+=" summary=$(_count_lines "Dockerfile migrations:")"
+  assert_equal "${_counts}" "pip_unchanged=1 entrypoint_advisory=1 summary=1"
+}
+
 # why: Re-run is no-op
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
