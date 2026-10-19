@@ -8,8 +8,68 @@
 #
 # Steady-state users call `just base upgrade [vX.Y.Z]`; the raw path above
 # is only for environments without `just`.
+#
+# Exit codes (base#1370):
+#   --check       0 up to date, or local is ahead of the latest tag
+#                 1 an update is available
+#                 2 the check itself failed -- any fatal error, e.g. the
+#                   remote could not be fetched, a sourced helper is
+#                   missing, WRAPPER_TRANSCRIPT was refused; a code above 2
+#                   from a failing command passes through unchanged.
+#                   `just base update` exits with this code
+#   normal run    0 upgraded (or nothing to do); non-zero on failure
 
 set -euo pipefail
+
+# --check exit status (base#1370). --check reserves 1 for "update
+# available", which _check records in _UPGRADE_UPDATE_AVAILABLE just before
+# it returns 1. Every other exit 1 of a --check run -- _error, a sourced
+# helper that is missing, the transcript setup refusing WRAPPER_TRANSCRIPT,
+# a command stopping the script under set -e -- is the check failing, and
+# leaves as 2 so a caller that tolerates 1 (the `just base update` recipe)
+# still sees it. Codes above 1 pass through. A normal run is not remapped.
+# The remap is installed before anything else can fail: as a plain EXIT
+# trap here, then as an _atexit callback once transcript.sh (which owns
+# the EXIT trap from then on) is loaded.
+_UPGRADE_CHECK_MODE=""
+for _upgrade_arg in "$@"; do
+  [[ "${_upgrade_arg}" == "--check" ]] && _UPGRADE_CHECK_MODE=1
+done
+unset _upgrade_arg
+readonly _UPGRADE_CHECK_MODE
+_UPGRADE_UPDATE_AVAILABLE=""
+
+# _upgrade_check_status <rc>
+#   Print the status a --check run leaves with when it is exiting with <rc>.
+_upgrade_check_status() {
+  if [[ "$1" == 1 && -z "${_UPGRADE_UPDATE_AVAILABLE}" ]]; then
+    printf '2'
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# _upgrade_check_exit_early
+#   EXIT trap until transcript.sh takes the trap over (see above).
+_upgrade_check_exit_early() {
+  local _rc=$?
+  exit "$(_upgrade_check_status "${_rc}")"
+}
+
+# _upgrade_check_exit_atexit
+#   The same remap as an _atexit callback, which reads the exiting status
+#   from _ATEXIT_STATUS and may only change it via _atexit_set_exit_code.
+_upgrade_check_exit_atexit() {
+  local _rc
+  _rc="$(_upgrade_check_status "${_ATEXIT_STATUS}")"
+  if [[ "${_rc}" != "${_ATEXIT_STATUS}" ]]; then
+    _atexit_set_exit_code "${_rc}"
+  fi
+}
+
+if [[ -n "${_UPGRADE_CHECK_MODE}" ]]; then
+  trap '_upgrade_check_exit_early' EXIT
+fi
 
 # upgrade.sh lives deep in the subtree (.base/dist/script/base/upgrade.sh,
 # relocated in  ADR-00000011 §8 / ADR-00000006). Walk up from the
@@ -58,6 +118,13 @@ source "${SUBTREE_ROOT}/dist/script/docker/lib/_lib.sh"
 # (mirroring init.sh) for the self-run guard _assert_not_template_source.
 # shellcheck disable=SC1091
 source "${SUBTREE_ROOT}/dist/script/docker/lib/template_guard.sh"
+
+# Hand the --check exit remap to transcript.sh's EXIT trap (base#1370).
+# _atexit installs that trap now, replacing the early one above, so the
+# remap also covers the transcript setup refusing WRAPPER_TRANSCRIPT.
+if [[ -n "${_UPGRADE_CHECK_MODE}" ]]; then
+  _atexit _upgrade_check_exit_atexit
+fi
 
 cd "${REPO_ROOT}"
 
@@ -314,6 +381,14 @@ _abort_failed_subtree_pull() {
   _error upgrade_subtree_pull_failed "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
 }
 
+# _upgrade_dfm_ran_file_cleanup
+#   An _atexit callback removing the file the Step 3 init.sh writes to
+#   record that it ran the Dockerfile migration dispatcher (base#1372).
+_upgrade_dfm_ran_file_cleanup() {
+  [[ -n "${_UPGRADE_DFM_RAN_FILE:-}" ]] && rm -f -- "${_UPGRADE_DFM_RAN_FILE}"
+  return 0
+}
+
 # _upgrade_exit_rollback
 #   An _atexit callback (transcript.sh owns the single EXIT trap, so this
 #   never installs or clears one -- base#1371). Armed the moment the
@@ -459,6 +534,7 @@ _check() {
 
   if [[ "${local_ver}" == "unknown" ]]; then
     _log upgrade_available "Update available: ${local_ver} →${latest_ver}"
+    _UPGRADE_UPDATE_AVAILABLE=1
     return 1
   fi
 
@@ -466,7 +542,9 @@ _check() {
   _semver_cmp "${local_ver}" "${latest_ver}" || _cmp=$?
   case "${_cmp}" in
     0) _log upgrade_up_to_date "Already up to date."; return 0 ;;
-    1) _log upgrade_available "Update available: ${local_ver} →${latest_ver}"; return 1 ;;
+    1) _log upgrade_available "Update available: ${local_ver} →${latest_ver}"
+       _UPGRADE_UPDATE_AVAILABLE=1
+       return 1 ;;
     2) _log upgrade_ahead_of_latest "Local is ahead of latest stable (prerelease or local-only tag)."; return 0 ;;
   esac
 }
@@ -606,7 +684,14 @@ _upgrade() {
   # when upgrading from <v0.30.0, init.sh's stale-removal loop
   # migrates the seven root *.sh symlinks into the script/ subfolder.
   _log upgrade_step "  (init.sh migrates root *.sh -> script/*.sh on upgrades from pre-v0.30.0)"
-  "./${TEMPLATE_REL}/dist/script/base/init.sh"
+  # The pulled init.sh runs the Dockerfile migration dispatcher itself
+  # (its _migrate_dockerfile) and records that it did in this file, so
+  # Step 5 does not run the same dispatcher a second time and print every
+  # notice twice (base#1372).
+  _UPGRADE_DFM_RAN_FILE="$(mktemp)"
+  _atexit _upgrade_dfm_ran_file_cleanup
+  _BASE_DFM_RAN_FILE="${_UPGRADE_DFM_RAN_FILE}" \
+    "./${TEMPLATE_REL}/dist/script/base/init.sh"
 
   # Step 4: update main.yaml @tag references
   _log upgrade_step "Step 4/5: update workflow @tag references"
@@ -685,11 +770,21 @@ _upgrade() {
   # force-rewrite) where structure is missing or ambiguous. Adding the next
   # fanout breakage is a new {detect, transform} pair in the lib, not another
   # branch here.
+  #
+  # The dispatcher runs here only when the Step 3 init.sh did not already
+  # run it. The patches are idempotent, but the warnings, the ENTRYPOINT
+  # advisory and the summary line are not: a second pass printed each of
+  # them again (base#1372). An init.sh that predates the record, or one
+  # with no _migrate_dockerfile, leaves the file empty and this pass runs.
   _log upgrade_step "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
   local _dockerfile="${REPO_ROOT}/Dockerfile"
-  # shellcheck disable=SC1091
-  source "${SUBTREE_ROOT}/dist/script/docker/lib/dockerfile_migrate.sh"
-  apply_migrations "${_dockerfile}"
+  if [[ -s "${_UPGRADE_DFM_RAN_FILE}" ]]; then
+    _log upgrade_step "  (already applied by the Step 3 init.sh run)"
+  else
+    # shellcheck disable=SC1091
+    source "${SUBTREE_ROOT}/dist/script/docker/lib/dockerfile_migrate.sh"
+    apply_migrations "${_dockerfile}"
+  fi
   # Stage any files the migrations rewrote (Dockerfile + the sibling
   # entrypoint, when present) so they land in the same commit below.
   [[ -f "${_dockerfile}" ]] && git add "${_dockerfile}"
@@ -941,6 +1036,14 @@ Arguments:
   --lang LANG   Message language (en|zh-TW|zh-CN|ja; default: auto-detect
                 from SETUP_LANG / \$LANG)
   -h, --help    Show this help
+
+Exit codes:
+  --check       0 up to date (or local is ahead of the latest tag),
+                1 update available, 2 the check failed (any fatal error,
+                e.g. a fetch error); a code above 2 passes through
+  normal run    0 upgraded or nothing to do, non-zero on failure
+  just base update exits 0 for the first two --check results and with the
+  check's own code when the check fails.
 
 Examples:
   just base upgrade                                          # upgrade to latest

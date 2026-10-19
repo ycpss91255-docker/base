@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **213 tests**.
+Integration specs under `test/bats/integration/`: **220 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -422,7 +422,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (38)
+### test/bats/integration/upgrade_spec.bats (45)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -449,10 +449,16 @@ run.
 | `upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)` | Subtree-only repos (no consumer Dockerfile) skip silently |
 | `upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)` | A second upgrade is a no-op on an already-migrated Dockerfile |
 | `upgrade.sh keeps the pip install when the repo ships real requirements (#956)` | Fanout guard: Step 5 must not delete a working dependency install |
+| `upgrade.sh prints each Dockerfile migration notice once per run (base#1372)` | One upgrade reaches the migration dispatcher twice -- through the init.sh its Step 3 re-runs and again at its own Step 5 -- and every notice the dispatcher prints came out on both passes. Each warning, the ENTRYPOINT advisory and the summary line must print once per run |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
 | `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
+| `upgrade.sh --check: a fetch failure exits 2 or above, not the 'update available' 1 (base#1370)` | A fatal --check error is not "update available" (base#1370) |
+| `just base update (downstream entry): a fetch failure exits non-zero with the check's own code (base#1370)` | Recipe propagates a failed check (skips w/o just, base#1370) |
+| `upgrade.sh --check: a refused WRAPPER_TRANSCRIPT exits 2 or above, not the 'update available' 1 (base#1370)` | Every fatal --check path, not only the fetch, exits >= 2 (base#1370) |
+| `upgrade.sh --check: a missing sourced helper exits 2 or above, not the 'update available' 1 (base#1370)` | A failure before any upgrade.sh code runs is still not "update available" (base#1370) |
+| `just base update (downstream entry): a refused WRAPPER_TRANSCRIPT exits non-zero (base#1370)` | Recipe propagates a check refused outside _error (skips w/o just, base#1370) |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)` | A conflicting pull aborts its own merge instead of leaving a mid-merge tree |
@@ -471,6 +477,7 @@ run.
 | `upgrade.sh: a failed integrity-check reset logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The integrity-check rollback's reset can fail the same way; the stub leaves an index.lock after its destructive reset so the rescue reset cannot run |
 | `upgrade.sh: a failed post-pull cleanup logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The reset can succeed and the sweep of upgrade-created files still fail; a failed removal followed by a successful one must not read as a restored repo, so the log carries upgrade_rollback_failed and no upgrade_rollback while the leftover file is still there |
 | `upgrade.sh: a failed integrity-check cleanup logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The integrity-check rollback runs the same sweep; a failed removal there must not end on upgrade_rollback either |
+| `upgrade.sh: a failed untracked-file enumeration logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | The sweep cannot remove files it never enumerated; when listing the untracked files fails, the rollback has not restored the tree and must end on upgrade_rollback_failed, never upgrade_rollback |
 | `upgrade.sh: an aborted conflicting pull logs upgrade_subtree_pull_failed, never upgrade_rollback (base#1369)` | Aborting a conflicted pull's merge puts back a repo nothing was committed to; it is not a rollback, and a successful abort ends on upgrade_subtree_pull_failed with no upgrade_rollback record |
 | `upgrade.sh: a failed merge abort logs upgrade_rollback_failed, never upgrade_rollback (base#1369)` | A merge abort that fails leaves the tree mid-merge; the log says upgrade_rollback_failed and claims no rollback |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |

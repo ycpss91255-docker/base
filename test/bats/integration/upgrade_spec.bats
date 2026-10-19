@@ -360,6 +360,64 @@ EOF
   diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.pip-orig"
 }
 
+# _publish_current_tree_as_v0_9_7
+#   Re-tag v0.9.7 as a copy of THIS working tree, so the upgrade's Step 3
+#   resync runs the real init.sh rather than the fixture's stub. The
+#   driver stays the current upgrade.sh the v0.9.5 fixture vendors, so
+#   both of the run's migration passes -- the one init.sh makes and the
+#   one at Step 5 -- are current code. Copied from /source into the
+#   fixture, never run against /source itself (base#1075).
+_publish_current_tree_as_v0_9_7() {
+  find "${TMPL_WORK}" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+  tar -C /source \
+    --exclude=./.git --exclude=./.prev-release \
+    --exclude=./coverage --exclude=./log \
+    -cf - . | tar -C "${TMPL_WORK}" -x -o -f -
+  echo "v0.9.7" > "${TMPL_WORK}/.version"
+  git -C "${TMPL_WORK}" add -A
+  git -C "${TMPL_WORK}" commit -q -m "v0.9.7 carrying the current tree"
+  git -C "${TMPL_WORK}" tag -f v0.9.7 >/dev/null 2>&1
+  git -C "${TMPL_WORK}" push -q -f "${TMPL_BARE}" v0.9.7
+}
+
+# _count_lines <needle>
+#   How many lines of ${output} contain <needle>, read off the output
+#   itself so "printed once" and "printed twice" are both visible.
+_count_lines() {
+  printf '%s\n' "${output}" | grep -cF -- "$1" || true
+}
+
+# why: One upgrade reaches the migration dispatcher twice -- through the
+# init.sh its Step 3 re-runs and again at its own Step 5 -- and every
+# notice the dispatcher prints came out on both passes. Each warning, the
+# ENTRYPOINT advisory and the summary line must print once per run
+@test "upgrade.sh prints each Dockerfile migration notice once per run (base#1372)" {
+  _publish_current_tree_as_v0_9_7
+
+  cd "${DOWN_DIR}"
+  mkdir -p config/pip
+  echo "numpy==1.26.4" > config/pip/requirements.txt
+  cat > Dockerfile <<'DOCKERFILE'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+ENTRYPOINT ["/entrypoint.sh"]
+DOCKERFILE
+  git add Dockerfile config
+  git commit -q -m "add Dockerfile (own ENTRYPOINT + populated requirements)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "Done! Upgraded to v0.9.7"
+
+  # All three counted before any is asserted, so a failure shows every one.
+  local _counts
+  _counts="pip_unchanged=$(_count_lines "Dockerfile unchanged: retired CONFIG_DIR pip helper line kept")"
+  _counts+=" entrypoint_advisory=$(_count_lines "Dockerfile still runs the repo's own /entrypoint.sh")"
+  _counts+=" summary=$(_count_lines "Dockerfile migrations:")"
+  assert_equal "${_counts}" "pip_unchanged=1 entrypoint_advisory=1 summary=1"
+}
+
 # why: Re-run is no-op
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
@@ -377,8 +435,9 @@ EOF
   cd "${DOWN_DIR}"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh --check
-  # _check exits 1 when an update is available (documented contract).
-  assert_failure
+  # _check exits 1 when an update is available (documented contract), and
+  # exactly 1: every other failure of --check exits 2 or above (base#1370).
+  assert_failure 1
   assert_output --partial "Local:  v0.9.5"
   assert_output --partial "Latest: v0.9.7"
   assert_output --partial "Update available"
@@ -441,6 +500,97 @@ _seed_entry() {
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" just base update
   assert_success
   assert_output --partial "Already up to date."
+}
+
+# why: A fatal --check error is not "update available" (base#1370)
+@test "upgrade.sh --check: a fetch failure exits 2 or above, not the 'update available' 1 (base#1370)" {
+  # --check exits 1 for "update available"; a check that could not run at
+  # all must not share that code, or every wrapper that tolerates 1 also
+  # swallows the failure (the v0.12 contract: codes >= 2 propagate).
+  cd "${DOWN_DIR}"
+
+  run env TEMPLATE_REMOTE="${BATS_TEST_TMPDIR}/nonexistent/repo.git" \
+    ./.base/dist/script/base/upgrade.sh --check
+  assert_output --partial "Could not fetch latest version"
+  (( status >= 2 )) \
+    || fail "a failed --check exited ${status}; 0 reads as up to date and 1 as update available"
+}
+
+# why: Recipe propagates a failed check (skips w/o just, base#1370)
+@test "just base update (downstream entry): a fetch failure exits non-zero with the check's own code (base#1370)" {
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
+  cd "${DOWN_DIR}"
+  _seed_entry
+
+  local _remote="${BATS_TEST_TMPDIR}/nonexistent/repo.git"
+  run env TEMPLATE_REMOTE="${_remote}" ./.base/dist/script/base/upgrade.sh --check
+  local _check_status="${status}"
+
+  run env TEMPLATE_REMOTE="${_remote}" just base update
+  assert_output --partial "Could not fetch latest version"
+  (( status != 0 )) \
+    || fail "just base update exited 0 although the version check could not fetch"
+  [[ "${status}" == "${_check_status}" ]] \
+    || fail "just base update exited ${status}; the failed check exited ${_check_status}"
+}
+
+# why: Every fatal --check path, not only the fetch, exits >= 2 (base#1370)
+@test "upgrade.sh --check: a refused WRAPPER_TRANSCRIPT exits 2 or above, not the 'update available' 1 (base#1370)" {
+  # The transcript setup refuses a value it cannot read and exits on its
+  # own, outside upgrade.sh's _error. The exit code a --check caller sees
+  # must still not read as "update available".
+  cd "${DOWN_DIR}"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" WRAPPER_TRANSCRIPT=invalid \
+    ./.base/dist/script/base/upgrade.sh --check
+  assert_output --partial "WRAPPER_TRANSCRIPT must be true or false"
+  (( status >= 2 )) \
+    || fail "a --check refused at transcript setup exited ${status}; 1 reads as update available"
+}
+
+# why: A failure before any upgrade.sh code runs is still not "update available" (base#1370)
+@test "upgrade.sh --check: a missing sourced helper exits 2 or above, not the 'update available' 1 (base#1370)" {
+  # upstream.sh is sourced at load, before _lib.sh and before main. A
+  # source that fails there stops the script under set -e; that exit is
+  # not one of _check's results either.
+  cd "${DOWN_DIR}"
+  rm -f .base/dist/script/base/upstream.sh
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+    ./.base/dist/script/base/upgrade.sh --check
+  assert_output --partial "upstream.sh"
+  (( status >= 2 )) \
+    || fail "a --check whose helper is missing exited ${status}; 1 reads as update available"
+}
+
+# why: Recipe propagates a check refused outside _error (skips w/o just, base#1370)
+@test "just base update (downstream entry): a refused WRAPPER_TRANSCRIPT exits non-zero (base#1370)" {
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
+  cd "${DOWN_DIR}"
+  _seed_entry
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" WRAPPER_TRANSCRIPT=invalid just base update
+  assert_output --partial "WRAPPER_TRANSCRIPT must be true or false"
+  (( status != 0 )) \
+    || fail "just base update exited 0 although the version check was refused"
 }
 
 # ── Legacy setup.conf auto-migration: NOT HERE any more ─────────────

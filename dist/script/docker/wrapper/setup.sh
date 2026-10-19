@@ -18,7 +18,8 @@
 #
 # All generated files are derived artifacts (gitignored). Source of truth is
 # setup.toml + system detection. WS_PATH is detected once and written back
-# to <repo>/setup.toml [volumes] mount_1; subsequent runs read mount_1.
+# to <repo>/setup.toml as the source of the first `[[volumes]]` entry;
+# subsequent runs read that entry.
 #
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
@@ -390,8 +391,9 @@ Apply-only options (ADR-00000036):
                         <base-path> rather than at DIR. The repo's own
                         configuration is not written by such a call -- an
                         apply that would have to (a first-time bootstrap,
-                        or a stale absolute [volumes] mount_1) is refused
-                        instead, and the plain `apply` settles it.
+                        or a stale absolute source in the first
+                        `[[volumes]]` entry) is refused instead, and the
+                        plain `apply` settles it.
 
 Outputs (apply only — both derived artifacts, gitignored):
   <output>/.env.generated   Resolved variables + SETUP_* drift metadata

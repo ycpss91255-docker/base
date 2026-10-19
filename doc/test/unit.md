@@ -6049,7 +6049,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (205)
+### test/bats/unit/setup_cmd_spec.bats (212)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6102,6 +6102,9 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `remove --local removes from the local layer (#893)` | - |
 | `add warns when the local layer shadows the section it appends to (#893)` | - |
 | `set rejects an unknown section with non-zero exit + Unknown section stderr` | - |
+| `set refuses an unknown key up front and leaves setup.toml untouched (base#1374)` | the issue's `set` half. `set deploy.gpu_cuont 1` wrote a key no reader reads, and only the next `apply` refused it as apply_unknown_key; the refusal belongs before the write, in apply's terms, with the file left byte-identical. |
+| `set --local refuses an unknown key and leaves setup.local.toml untouched (base#1374)` | --local writes setup.local.toml instead; this pins that the refusal leaves that file byte-identical too, not only setup.toml. |
+| `set still accepts a known key (base#1374)` | the guard's false-positive side: a schema key and a free-form build.tz, which has no validator, must both still be written. |
 | `set rejects an invalid gpu_count value` | - |
 | `set rejects an invalid mount string` | - |
 | `set rejects an invalid cgroup_rule` | - |
@@ -6115,7 +6118,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `add rejects an invalid capability (#560 schema unification)` | - |
 | `set rejects a malformed dotted key (no dot)` | - |
 | `set rejects a newline-bearing value rather than corrupting setup.conf (#688)` | - |
-| `set reports the write failure for a key validation does not intercept` | The only case that reaches `set`'s conf_write_failed branch, and the reason base#1220 found that branch emitting an unregistered id. A FREE-FORM key is the shape that gets there: it is not in the schema registry, so _schema_validate accepts any value and the newline refusal happens at the writer sink instead. The case above names the same defect and cannot see it -- its key is typed, so validation intercepts the value first and that case stays green with the writer's guard deleted. What is asserted here is POSITIVE and not only a refusal: the operator must READ the writer's complaint and `set`'s own diagnostic naming the key. An unregistered body makes lib/log.sh print its 'unregistered log body' refusal in their place, so the refutation beside them is what pins the registry half |
+| `set reports the write failure for a key validation does not intercept` | The only case that reaches `set`'s conf_write_failed branch, and the reason base#1220 found that branch emitting an unregistered id. A FREE-FORM key is the shape that gets there: it is not in the schema registry, so _schema_validate accepts any value. It must still be a key a reader reads (base#1374 refuses any other before the write), so it is build.tz, one of the free-form keys _setup_known_key admits and the newline refusal happens at the writer sink instead. The case above names the same defect and cannot see it -- its key is typed, so validation intercepts the value first and that case stays green with the writer's guard deleted. What is asserted here is POSITIVE and not only a refusal: the operator must READ the writer's complaint and `set`'s own diagnostic naming the key. An unregistered body makes lib/log.sh print its 'unregistered log body' refusal in their place, so the refutation beside them is what pins the registry half |
 | `set with no arguments fails clean (no shell error)` | - |
 | `set does NOT regenerate .env (mtime unchanged after set)` | - |
 | `show prints the value of a single key` | - |
@@ -6138,7 +6141,11 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `main add bootstraps setup.conf empty when missing (#174)` | - |
 | `main add picks max+1 even with gap from prior remove` | - |
 | `main add rejects unknown section` | - |
-| `main add binds a logging.<svc> spec to the sub-section, not the parent (#955)` | - |
+| `main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)` | the issue's own reproduction. The family is `build.arg`; `build.args` appended `args_1` to [build], which only the next `apply` refused as apply_unknown_key. The refusal belongs before the write, in apply's terms. |
+| `main add --local refuses an unknown family and leaves setup.local.toml untouched (base#1374)` | --local writes setup.local.toml instead; this pins that the refusal leaves that file byte-identical too, not only setup.toml. |
+| `main add refuses an unknown family under a logging.<svc> sub-section (base#1374)` | the dotted [logging.<svc>] spelling splits at the rightmost dot; this pins that the family check covers that per-service sub-section as well. |
+| `main add still accepts the known families (base#1374)` | the guard's false-positive side: a family is judged by its `_1` slot, and every shipped family must still resolve that way. |
+| `main add writes no dotted key into [logging] for a logging.<svc> spec (#955)` | - |
 | `main add rejects invalid mount value` | - |
 | `main add rejects missing list / value` | - |
 | `main add does not regen .env` | - |
@@ -6312,7 +6319,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (53)
+### test/bats/unit/setup_conf_spec.bats (54)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6341,6 +6348,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
 | `setup_tui.sh usage names the repo-root setup.toml in every language (#842)` | - |
 | `setup.sh usage describes the TOML-era apply, not the INI era, in every language (base#1326)` | - |
+| `setup.sh usage names the workspace bind as a setup.toml [[volumes]] entry, not [volumes] mount_1 (base#1373)` | setup.toml holds the workspace bind as the first `[[volumes]]` entry (source/target), not an INI `[volumes] mount_1` key; help that names the INI key sends the operator looking for a line the file never holds. |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
