@@ -305,6 +305,30 @@ EOF
   done
 }
 
+# why: setup.toml holds the workspace bind as the first `[[volumes]]`
+# entry (source/target), not an INI `[volumes] mount_1` key; help that
+# names the INI key sends the operator looking for a line the file never
+# holds.
+@test "setup.sh usage names the workspace bind as a setup.toml [[volumes]] entry, not [volumes] mount_1 (base#1373)" {
+  local _lang _flat
+  for _lang in zh-TW zh-CN ja en; do
+    run bash -c "
+      # shellcheck disable=SC1091
+      source /source/dist/script/docker/wrapper/setup.sh
+      _LANG='${_lang}' usage
+    "
+    assert_success
+    # Newlines and indentation folded to single spaces, so a statement
+    # wrapped across help lines is matched whole.
+    _flat="$(printf '%s' "${output}" | tr -s ' \n' '  ')"
+    [[ "${_flat}" != *'[volumes] mount_1'* ]]
+    [[ "${_flat}" == *'or a stale absolute source in the first `[[volumes]]` entry) is refused instead'* ]]
+  done
+  # The file header describes the same write-back in the same terms.
+  run grep -n 'mount_1' /source/dist/script/docker/wrapper/setup.sh
+  assert_failure
+}
+
 @test "no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)" {
   run grep -rn 'repo>/setup\.conf' /source/dist
   assert_failure
