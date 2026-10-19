@@ -6044,7 +6044,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (201)
+### test/bats/unit/setup_cmd_spec.bats (205)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6155,6 +6155,10 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `add then remove environment.env keeps an empty [environment] table that was already there (base#1363)` | `add` writes the same bytes with or without an empty [environment] already present, so only the header note it writes tells them apart; without this case deleting every emptied table passes. |
 | `add then remove environment.env keeps an empty [environment] table whose header carries a comment (base#1363)` | the mid-file variant with the user's own header comment, which an indiscriminate table drop also deleted. |
 | `SETUP_CONF_HASH is unchanged by a round trip on a file ending in a blank line (base#1363)` | ties the trailing-blank fix to the drift report it would otherwise trigger. |
+| `add then remove network.port keeps an empty-array declaration before another key in place (base#1363)` | review round 2 found remove re-created an emptied `ports = []` at the end of [network], after `ipc`, so a declaration the file kept anywhere else moved; the first fixture put it last and could not see that. |
+| `add then remove network.port keeps an empty-array declaration's comment and spacing (base#1363)` | the declaration came back canonically spelled, so an operator's note on why the list is empty, and their own spacing, were lost by a round trip. |
+| `add two network.port entries then remove both keeps the declaration in place (base#1363)` | the declaration has to survive a remove that leaves the list non-empty, or only a single-entry round trip gives the file back. |
+| `SETUP_CONF_HASH is unchanged by a network.port round trip with a moved, annotated declaration (base#1363)` | ties the moved, annotated declaration to the drift report a changed byte would trigger. |
 | `main add validates env_kv format` | - |
 | `main add free-form image rule accepts arbitrary string` | - |
 | `help: add/remove describe array entries, not <list>_N keys (base#1354)` | the help is where an operator learns what `add` writes; it named a `<list>_N` key setup.toml never holds, so the file they then open shows a `[[...]]` entry the help never mentioned. |

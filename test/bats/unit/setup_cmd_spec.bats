@@ -1679,6 +1679,74 @@ _assert_roundtrip() {
   assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
 }
 
+# _move_ports_decl <file> <decl-line>
+#   Replace the fixture's trailing `ports = []` in [network] with
+#   <decl-line>, placed BEFORE `ipc = "host"`, so the declaration is no
+#   longer where a writer that re-creates it at the table's end would put
+#   it back.
+_move_ports_decl() {
+  local _f="$1" _decl="$2"
+  grep -vFx 'ports = []' "${_f}" > "${_f}.tmp"
+  awk -v d="${_decl}" '$0 == "ipc = \"host\"" { print d } { print }' \
+    "${_f}.tmp" > "${_f}"
+  rm -f "${_f}.tmp"
+  grep -qFx -- "${_decl}" "${_f}"
+}
+
+# why: review round 2 found remove re-created an emptied `ports = []` at the
+# end of [network], after `ipc`, so a declaration the file kept anywhere
+# else moved; the first fixture put it last and could not see that.
+@test "add then remove network.port keeps an empty-array declaration before another key in place (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports = []'
+  _assert_roundtrip network.port 8080:8080
+}
+
+# why: the declaration came back canonically spelled, so an operator's note on
+# why the list is empty, and their own spacing, were lost by a round trip.
+@test "add then remove network.port keeps an empty-array declaration's comment and spacing (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports  =  [ ]   # nothing published'
+  _assert_roundtrip network.port 8080:8080
+}
+
+# why: the declaration has to survive a remove that leaves the list non-empty,
+# or only a single-entry round trip gives the file back.
+@test "add two network.port entries then remove both keeps the declaration in place (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports = []  # host networking'
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  run main add network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main add network.port 9090:9090 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 9090:9090 --base-path "${TEMP_DIR}"
+  assert_success
+  run diff -u "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output ""
+}
+
+# why: ties the moved, annotated declaration to the drift report a changed
+# byte would trigger.
+@test "SETUP_CONF_HASH is unchanged by a network.port round trip with a moved, annotated declaration (base#1363)" {
+  _write_roundtrip_fixture "${TEMP_DIR}/setup.toml"
+  _move_ports_decl "${TEMP_DIR}/setup.toml" 'ports = [ ]  # nothing published'
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  local _before
+  _before="$(_conf_hash_of "${TEMP_DIR}")"
+  run main add network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main remove network.port 8080:8080 --base-path "${TEMP_DIR}"
+  assert_success
+  run main apply --base-path "${TEMP_DIR}"
+  assert_success
+  assert_equal "$(_conf_hash_of "${TEMP_DIR}")" "${_before}"
+}
+
 @test "main add validates env_kv format" {
   : > "${TEMP_DIR}/setup.toml"
   run main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"
