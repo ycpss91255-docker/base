@@ -1366,6 +1366,52 @@ STUB
   [[ "${_last}" == *'"body":"upgrade_untracked_snapshot_failed"'* ]]
 }
 
+# ── Untracked names git quotes (base#1381) ──────────────────────────────────
+#
+# A line-oriented `git ls-files` C-quotes any path holding a tab, a newline,
+# a double quote, a backslash or (under the default core.quotepath) a
+# non-ASCII byte, so a sweep that reads it line by line hands `rm -f` a
+# name that does not exist and the real file stays.
+
+# why: An aborted upgrade's files must all go, including those whose names
+# git quotes; otherwise the rollback reports a restore that left them behind
+@test "upgrade.sh: a rollback removes upgrade-created files whose names git quotes (base#1381)" {
+  _publish_failing_init $'touch "tab\there" "new\nline" "caf\xc3\xa9-\xe6\x96\x87" plain-created; exit 7'
+  cd "${DOWN_DIR}"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 7
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  assert [ ! -e plain-created ]
+  assert [ ! -e $'tab\there' ]
+  assert [ ! -e $'new\nline' ]
+  assert [ ! -e $'caf\xc3\xa9-\xe6\x96\x87' ]
+  [ -z "$(git ls-files -z --others --exclude-standard | tr -d '\0')" ]
+}
+
+# why: The snapshot and the sweep must agree on a quoted name, or a rollback
+# deletes a file the user made before the upgrade started
+@test "upgrade.sh: a rollback keeps the user's own untracked files whose names git quotes (base#1381)" {
+  _publish_failing_init 'touch zzz-upgrade-created; exit 7'
+  cd "${DOWN_DIR}"
+  echo "tab" > $'mine\twith-tab'
+  echo "newline" > $'mine\nwith-newline'
+  echo "unicode" > $'mine-caf\xc3\xa9'
+  echo "quote" > 'mine"with\quote'
+
+  run env LOG_FORMAT=json TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_failure 7
+  assert [ ! -e zzz-upgrade-created ]
+  [ "$(cat $'mine\twith-tab')" = "tab" ]
+  [ "$(cat $'mine\nwith-newline')" = "newline" ]
+  [ "$(cat $'mine-caf\xc3\xa9')" = "unicode" ]
+  [ "$(cat 'mine"with\quote')" = "quote" ]
+}
+
 # why: Aborting a conflicted pull's merge puts back a repo nothing was
 # committed to; it is not a rollback, and a successful abort ends on
 # upgrade_subtree_pull_failed with no upgrade_rollback record
