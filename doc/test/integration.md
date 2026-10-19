@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **202 tests**.
+Integration specs under `test/bats/integration/`: **207 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -422,7 +422,7 @@ would restore the silence.
 | `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
 | `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
-### test/bats/integration/upgrade_spec.bats (27)
+### test/bats/integration/upgrade_spec.bats (32)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -453,6 +453,11 @@ run.
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
 | `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
+| `upgrade.sh --check: a fetch failure exits 2 or above, not the 'update available' 1 (base#1370)` | A fatal --check error is not "update available" (base#1370) |
+| `just base update (downstream entry): a fetch failure exits non-zero with the check's own code (base#1370)` | Recipe propagates a failed check (skips w/o just, base#1370) |
+| `upgrade.sh --check: a refused WRAPPER_TRANSCRIPT exits 2 or above, not the 'update available' 1 (base#1370)` | Every fatal --check path, not only the fetch, exits >= 2 (base#1370) |
+| `upgrade.sh --check: a missing sourced helper exits 2 or above, not the 'update available' 1 (base#1370)` | A failure before any upgrade.sh code runs is still not "update available" (base#1370) |
+| `just base update (downstream entry): a refused WRAPPER_TRANSCRIPT exits non-zero (base#1370)` | Recipe propagates a check refused outside _error (skips w/o just, base#1370) |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
 | `upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)` | A conflicting pull aborts its own merge instead of leaving a mid-merge tree |
