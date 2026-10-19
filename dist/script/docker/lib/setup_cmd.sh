@@ -66,6 +66,25 @@ _setup_known_key() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_refuse_unknown_key <verb> <section> <key>
+#
+# Log the refusal `set` and `add` give a key _setup_known_key does not
+# know, before anything is written (base#1374). The wording follows
+# apply's apply_unknown_key message, so the operator sees the same
+# terms whether the key is caught at write time or at apply time.
+# Always returns 2, the code both callers give a refused spec.
+# ════════════════════════════════════════════════════════════════════
+_setup_refuse_unknown_key() {
+  local _verb="${1:?"${FUNCNAME[0]}: missing verb"}"
+  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
+  local _key="${3:?"${FUNCNAME[0]}: missing key"}"
+  _log_err setup conf_unknown_key \
+    "display=[setup] ${_verb}: unknown key ${_section}.${_key}; no reader reads it, so the default would apply instead. Fix the spelling" \
+    "table=${_section}" "key=${_key}"
+  return 2
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_conf_check_known <base_path>
 #
 # Refuse a setup.toml chain that carries a table no reader knows or a
@@ -428,6 +447,12 @@ _setup_set() {
   if ! _setup_known_section "${_section}"; then
     _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
+  fi
+
+  # A key no reader reads is refused before the write (base#1374).
+  if ! _setup_known_key "${_section}" "${_key}"; then
+    _setup_refuse_unknown_key set "${_section}" "${_key}"
+    return
   fi
 
   if ! _setup_validate_kv "${_section}" "${_key}" "${_value}"; then
@@ -1039,6 +1064,14 @@ _setup_add() {
   if ! _setup_known_section "${_section}"; then
     _log_err setup conf_section_not_found "display=$(_setup_msg errors unknown_section): ${_section}" "section=${_section}"
     return 2
+  fi
+
+  # A family is judged by the row its first entry would take, as apply
+  # judges an empty array, so a family no reader reads is refused before
+  # the write instead of at the next apply (base#1374).
+  if ! _setup_known_key "${_section}" "${_list}_1"; then
+    _setup_refuse_unknown_key add "${_section}" "${_list}"
+    return
   fi
 
   if [[ -z "${_base_path}" ]]; then
