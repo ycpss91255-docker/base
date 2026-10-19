@@ -1331,6 +1331,21 @@ _wsc_flush_aot() {
   done < <(printf '%s\n' "${_pending[@]}" | sort -n -k1,1)
 }
 
+# _wsc_close_aot <path>
+#
+# Append <path>'s added blocks where the walk leaves its run of
+# `[[<path>]]` blocks for a header. With blank lines held back (see
+# _wsc_emit) the separator before the header is still to come, so the
+# blocks go in `eof` shape (blank line first) and land ahead of it;
+# with none held back they go in `boundary` shape (blank line after).
+_wsc_close_aot() {
+  if (( __wsc_blank > 0 )); then
+    _wsc_flush_aot "${1}" eof
+  else
+    _wsc_flush_aot "${1}" boundary
+  fi
+}
+
 # _wsc_flush_empty_arrays <table>
 #
 # Declare, as `<key> = []`, each array path this rewrite leaves with no
@@ -1722,11 +1737,7 @@ _write_setup_conf() {
       fi
       if [[ -n "${__aot_cur}" && "${__aot_cur}" != "${__p}" ]] \
          && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
-        if (( __wsc_blank > 0 )); then
-          _wsc_flush_aot "${__aot_cur}" eof
-        else
-          _wsc_flush_aot "${__aot_cur}" boundary
-        fi
+        _wsc_close_aot "${__aot_cur}"
       fi
       __aot_cur="${__p}"
       __aot_seen["${__p}"]=$(( ${__aot_seen["${__p}"]:-0} + 1 ))
@@ -1778,11 +1789,7 @@ _write_setup_conf() {
       fi
       if [[ -n "${__aot_cur}" ]] \
          && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
-        if (( __wsc_blank > 0 )); then
-          _wsc_flush_aot "${__aot_cur}" eof
-        else
-          _wsc_flush_aot "${__aot_cur}" boundary
-        fi
+        _wsc_close_aot "${__aot_cur}"
       fi
       __aot_cur=""
       __aot_skip=0
