@@ -1067,11 +1067,12 @@ _assert_record() {
 # Parse every line of $1 as JSON (a substring match would pass a malformed
 # record that happens to carry the fragments) and require exactly one
 # ERROR / 17 record whose body is upgrade_subtree_root_not_found and whose
-# display names the script directory $2.
+# display names the script directory $2. $3 is "logger" when the record must
+# come from log.sh, which stamps code.filepath; the no-logger fallback omits it.
 _assert_root_record() {
   python3 -c '
 import json, sys
-out, sdir = sys.argv[1], sys.argv[2]
+out, sdir, src = sys.argv[1], sys.argv[2], sys.argv[3]
 recs = []
 for ln in out.splitlines():
     if not ln.strip():
@@ -1094,7 +1095,10 @@ checks = [
 for name, got, exp in checks:
     if got != exp:
         sys.exit("%s: got %r, want %r in %r" % (name, got, exp, r))
-' "$1" "$2"
+attrs = r.get("attributes") or {}
+if src == "logger" and "code.filepath" not in attrs:
+    sys.exit("code.filepath missing: record did not come from log.sh: %r" % r)
+' "$1" "$2" "$3"
 }
 
 # why: With the logger reachable (dist/script/docker/lib/ beside the copy)
@@ -1105,7 +1109,7 @@ for name, got, exp in checks:
   cp -R /source/dist/script/base /source/dist/script/docker "${_fx}/"
   run env LOG_FORMAT=json bash "${_fx}/base/upgrade.sh" 2>&1
   assert_failure 1
-  _assert_root_record "${output}" "$(cd -- "${_fx}/base" && pwd -P)"
+  _assert_root_record "${output}" "$(cd -- "${_fx}/base" && pwd -P)" logger
 }
 
 # why: The issue's own repro copies upgrade.sh alone, so log.sh is missing
@@ -1116,5 +1120,5 @@ for name, got, exp in checks:
   cp /source/dist/script/base/upgrade.sh "${_fx}/"
   run env LOG_FORMAT=json bash "${_fx}/upgrade.sh" 2>&1
   assert_failure 1
-  _assert_root_record "${output}" "$(cd -- "${_fx}" && pwd -P)"
+  _assert_root_record "${output}" "$(cd -- "${_fx}" && pwd -P)" fallback
 }
