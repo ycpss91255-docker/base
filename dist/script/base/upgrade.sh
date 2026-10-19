@@ -233,9 +233,18 @@ _restore_pre_upgrade_state() {
 #   cleaned, and returns 1 if ANY removal failed: a later success must not
 #   hide an earlier failure, or the caller reports a restore that left
 #   files behind (base#1369).
+#
+#   The listing is captured before the loop rather than read from a
+#   process substitution, whose exit status bash discards: a failed
+#   `git ls-files` would otherwise enumerate nothing, remove nothing, and
+#   still return success (base#1369).
 _remove_untracked_since_snapshot() {
   local _path
   local _failed=0
+  local _listing
+  if ! _listing="$(git ls-files --others --exclude-standard)"; then
+    return 1
+  fi
   while IFS= read -r _path; do
     if [[ -z "${_path}" ]]; then
       continue
@@ -248,7 +257,7 @@ _remove_untracked_since_snapshot() {
     if ! rm -f -- "${REPO_ROOT:?}/${_path}"; then
       _failed=1
     fi
-  done < <(git ls-files --others --exclude-standard)
+  done <<< "${_listing}"
   return "${_failed}"
 }
 
