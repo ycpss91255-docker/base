@@ -443,6 +443,47 @@ _seed_entry() {
   assert_output --partial "Already up to date."
 }
 
+# why: A fatal --check error is not "update available" (base#1370)
+@test "upgrade.sh --check: a fetch failure exits 2 or above, not the 'update available' 1 (base#1370)" {
+  # --check exits 1 for "update available"; a check that could not run at
+  # all must not share that code, or every wrapper that tolerates 1 also
+  # swallows the failure (the v0.12 contract: codes >= 2 propagate).
+  cd "${DOWN_DIR}"
+
+  run env TEMPLATE_REMOTE="${BATS_TEST_TMPDIR}/nonexistent/repo.git" \
+    ./.base/dist/script/base/upgrade.sh --check
+  assert_output --partial "Could not fetch latest version"
+  (( status >= 2 )) \
+    || fail "a failed --check exited ${status}; 0 reads as up to date and 1 as update available"
+}
+
+# why: Recipe propagates a failed check (skips w/o just, base#1370)
+@test "just base update (downstream entry): a fetch failure exits non-zero with the check's own code (base#1370)" {
+  # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
+  # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
+  # a published test-tools tag older than the one that first shipped it.
+  # Dropping it from the image is NOT what this skip covers -- the
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
+  cd "${DOWN_DIR}"
+  _seed_entry
+
+  local _remote="${BATS_TEST_TMPDIR}/nonexistent/repo.git"
+  run env TEMPLATE_REMOTE="${_remote}" ./.base/dist/script/base/upgrade.sh --check
+  local _check_status="${status}"
+
+  run env TEMPLATE_REMOTE="${_remote}" just base update
+  assert_output --partial "Could not fetch latest version"
+  (( status != 0 )) \
+    || fail "just base update exited 0 although the version check could not fetch"
+  [[ "${status}" == "${_check_status}" ]] \
+    || fail "just base update exited ${status}; the failed check exited ${_check_status}"
+}
+
 # ── Legacy setup.conf auto-migration: NOT HERE any more ─────────────
 #
 # The relocation of a pre-relocation `config/docker/setup.conf` override
