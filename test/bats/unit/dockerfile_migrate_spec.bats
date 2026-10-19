@@ -3320,3 +3320,65 @@ EOF
   assert_equal "${status}" "1"
   assert_output ""
 }
+
+# ── log event bodies name what happened (base#1364) ─────────────────────────
+# Every migration notice used to carry the body `upgrade_started`, so a
+# JSON log reader filtering on the event could not tell a patch from a skip
+# from an advisory warning. `upgrade_started` belongs to the one line that
+# announces the upgrade (upgrade.sh); a migration line names its own event.
+
+# _json_bodies <output>
+#   Print the body of every JSON log record in <output>, one per line.
+_json_bodies() {
+  printf '%s\n' "$1" | grep -o '"body":"[^"]*"' | sed 's/^"body":"//; s/"$//'
+}
+
+# why: The skip line is the first one every consumer without a Dockerfile
+# sees; under JSON it has to say "skipped", not "started"
+@test "apply_migrations: the no-Dockerfile skip is not logged as upgrade_started (base#1364)" {
+  run bash -c "export LOG_FORMAT=json; $(_src); apply_migrations '${TEMP_DIR}/nope'"
+  assert_success
+  local _bodies
+  _bodies="$(_json_bodies "${output}")"
+  [ -n "${_bodies}" ]
+  run grep -Fx 'upgrade_started' <<< "${_bodies}"
+  assert_failure
+}
+
+# why: A patch line records a rewrite on disk; a log query for what an
+# upgrade changed needs an event that says so
+@test "apply_migrations: a 'Dockerfile patched' line is not logged as upgrade_started (base#1364)" {
+  cat > "${DF}" <<'EOT'
+FROM busybox AS lint
+COPY .base/downstream/script/docker/lib /lint/lib
+EOT
+  run bash -c "export LOG_FORMAT=json; $(_src); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial 'Dockerfile patched'
+  local _line
+  _line="$(printf '%s\n' "${output}" | grep -F 'Dockerfile patched')"
+  run grep -F '"body":"upgrade_started"' <<< "${_line}"
+  assert_failure
+}
+
+# why: A WARN-severity advisory carrying an INFO-style "started" body is the
+# mismatch the issue reports: the severity says warning, the event says
+# nothing happened yet
+@test "migration (entrypoint-orchestrator): the WARN notice is not logged as upgrade_started (base#1364)" {
+  _write_old_model_repo
+  run bash -c "export LOG_FORMAT=json; $(_src); _migrate_entrypoint_orchestrator_apply '${DF}' 2>&1"
+  assert_success
+  local _line
+  _line="$(printf '%s\n' "${output}" | grep -F '"severity_text":"WARN')"
+  [ -n "${_line}" ]
+  run grep -F '"body":"upgrade_started"' <<< "${_line}"
+  assert_failure
+}
+
+# why: The three runtime arms above sample the lib; this pins the rest of
+# its ~27 log calls, none of which announces the upgrade
+@test "dockerfile_migrate.sh: no log call uses the upgrade_started body (base#1364)" {
+  run grep -n 'upgrade_started' "${LIB}/dockerfile_migrate.sh"
+  assert_failure
+  assert_output ""
+}
