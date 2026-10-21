@@ -646,7 +646,7 @@ _restart_repo() {
   run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/msg'"
   assert_success
   assert_output --partial '"body":"lifecycle_restart_default_migrated"'
-  assert_output --partial 'test-tools-stage'
+  assert_output --partial "never to devel, a *-test stage or base's test-tools-stage"
 }
 
 # why: The rewrite goes through `_upsert_conf_value`, which lands it with
