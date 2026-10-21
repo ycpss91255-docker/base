@@ -304,8 +304,10 @@
   filenames from the `main.yaml` `_create_new_repo` actually writes, checks
   that each is a file under `.github/workflows/` that declares
   `workflow_call:`, and fails unless the list below names it; it also
-  fails unless every file there that declares `workflow_call:` is named, so
-  the two workers `init.sh` does not generate are held to the record too.
+  fails unless every regular file there that declares `workflow_call:` is
+  named, whatever its extension (`.yml` as well as `.yaml`), so the two
+  workers `init.sh` does not generate are held to the record too, and a
+  worker renamed to `.yml` off the record goes red.
 - **Amended:** 2026-10-06 by #1097 -- the 2026-09-06 amendment settled WHERE
   a migration across a base layout change belongs: the `init.sh` resync,
   never `upgrade.sh`. It did not say how such a migration knows whether it
