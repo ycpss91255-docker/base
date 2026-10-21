@@ -125,7 +125,8 @@ of stage the compose emitter gives a `restart:` policy to. Defined by
 callers so the rule has one definition: everything is deployable EXCEPT
 `devel` (it is the interactive shell), any `*-test` stage (it exists to
 run, assert and exit), `sys` / `devel-base` (build intermediates with no
-runnable service), and the legacy aliases `base` / `test`.
+runnable service), `test-tools-stage` (the template's tooling source for
+the `*-test` stages), and the legacy aliases `base` / `test`.
 _Avoid_: field stage (acceptable informally), production stage,
 runtime stage (that is one example name, not the category).
 

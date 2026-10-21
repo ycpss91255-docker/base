@@ -1304,6 +1304,30 @@ DOCK
   assert_output "0"
 }
 
+# why: The emitter is where the predicate turns into a restart: line; this
+# pins both sides, so a fix that drops the policy everywhere fails too
+@test "generate_compose_yaml omits restart: on base's test-tools-stage and keeps it on a deployable stage (#1325)" {
+  # Mirrors the template Dockerfile: test-tools-stage is a tooling stage
+  # pulled from TEST_TOOLS_IMAGE, runtime is the deployable one.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+ARG TEST_TOOLS_IMAGE=test-tools:local
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
+FROM devel AS devel-test
+DOCK
+  _gen_restart "unless-stopped"
+  # The test-tools-stage service is emitted, but carries no restart:.
+  run grep -n '^  test-tools-stage:' "${COMPOSE_OUT}"
+  assert_success
+  run awk '/^  test-tools-stage:/{f=1;next} /^  [^ ]/{f=0} f && /^    restart:/' "${COMPOSE_OUT}"
+  assert_output ""
+  # The deployable runtime service keeps its policy.
+  run awk '/^  runtime:/{f=1;next} /^  [^ ]/{f=0} f && /^    restart:/' "${COMPOSE_OUT}"
+  assert_output "    restart: unless-stopped"
+}
+
 @test "generate_compose_yaml emits restart: on a deployable stage that carries overrides (#840)" {
   # The standalone (no `extends: devel`) shape re-emits every inherited
   # field itself, so it needs its own restart: line.

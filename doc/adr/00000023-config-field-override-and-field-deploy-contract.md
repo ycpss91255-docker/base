@@ -125,6 +125,11 @@ legacy aliases `base` / `test` the v0.21.x transition still accepts. The
 formula above was the reasoning; the predicate is the rule, and PRD invariant
 8 now states it in full so prose and predicate cannot disagree.
 
+**Amendment (#1325): `test-tools-stage` is rejected too.** The template's
+`FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` only supplies the tooling
+the `*-test` stages copy in; it is no field service, so it gets neither a `restart:`
+policy nor a deploy bundle. Consumer-defined helper stages are left to #1157.
+
 ### 5. Per-stage tunability via `config/<component>/deploy.manifest`
 
 A component declares which of its config files are field-tunable in a

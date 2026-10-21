@@ -463,7 +463,7 @@ _vmigrate_lifecycle_restart_default_apply() {
   _upsert_conf_value "${_conf}" lifecycle restart "unless-stopped" || return 1
 
   _log_warn init lifecycle_restart_default_migrated \
-    "display=MIGRATION: [lifecycle] restart is now DEPLOY-scoped, and this repo arrived from before that change carrying the old template's literal 'no'. It has been rewritten to 'unless-stopped'. The key now applies to deployable stages and the field bundle only -- never to devel or a *-test stage -- and a field service is meant to auto-start again after a host reboot, which 'no' silently denied it. Set it back to 'no' in setup.toml if that is what you actually want; it will not be rewritten again." \
+    "display=MIGRATION: [lifecycle] restart is now DEPLOY-scoped, and this repo arrived from before that change carrying the old template's literal 'no'. It has been rewritten to 'unless-stopped'. The key now applies to deployable stages and the field bundle only -- never to devel, a *-test stage or base's test-tools-stage -- and a field service is meant to auto-start again after a host reboot, which 'no' silently denied it. Set it back to 'no' in setup.toml if that is what you actually want; it will not be rewritten again." \
     "path=${_conf}" "section=lifecycle" "key=restart" \
     "from=no" "to=unless-stopped"
 
