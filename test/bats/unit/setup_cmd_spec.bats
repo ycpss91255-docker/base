@@ -2702,6 +2702,73 @@ _R1270_MV_FAILS_ON_COMPOSE='
   _r1270_assert_no_stage "${TEMP_DIR}"
 }
 
+# why: base#1270 review round 2 -- an existing `.env.local` is never
+# rewritten, so it never reached the commit's type check. A directory
+# there let apply replace the other three files and report success over
+# an env-file set compose cannot read. It must refuse with the set intact.
+@test "apply refuses a .env.local that is a directory and leaves the previous set byte-identical (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated compose.yaml
+  rm -f "${TEMP_DIR}/.env.local"
+  mkdir "${TEMP_DIR}/.env.local"
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = "gpu compute"/' \
+    "${TEMP_DIR}/setup.toml"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial ".env.local"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated compose.yaml
+  [[ -d "${TEMP_DIR}/.env.local" ]] || fail ".env.local is no longer the directory"
+  [[ -z "$(ls -A "${TEMP_DIR}/.env.local")" ]] \
+    || fail "apply wrote into the .env.local directory"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 2 -- the same check on a first apply, with
+# a fifo: none of the other three files may appear
+@test "apply refuses a .env.local that is a fifo on a first apply and writes none of the other files (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  mkfifo "${TEMP_DIR}/.env.local"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial ".env.local"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_absent "${TEMP_DIR}" .env .env.generated compose.yaml
+  [[ -p "${TEMP_DIR}/.env.local" ]] || fail ".env.local is no longer the fifo"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 2 -- the check must not refuse an operator
+# `.env.local` compose can read: a symlink to a regular file is kept as
+# it is, link and contents, and apply succeeds
+@test "apply keeps a .env.local that is a symlink to a regular file and succeeds (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  printf 'OPERATOR_OVERRIDE=1\n' > "${BATS_TEST_TMPDIR}/operator.env"
+  ln -s "${BATS_TEST_TMPDIR}/operator.env" "${TEMP_DIR}/.env.local"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+
+  [[ -L "${TEMP_DIR}/.env.local" ]] || fail ".env.local is no longer the symlink"
+  [[ "$(readlink "${TEMP_DIR}/.env.local")" == "${BATS_TEST_TMPDIR}/operator.env" ]] \
+    || fail ".env.local points somewhere else"
+  [[ "$(cat "${BATS_TEST_TMPDIR}/operator.env")" == "OPERATOR_OVERRIDE=1" ]] \
+    || fail "apply rewrote the operator's .env.local"
+  [[ -f "${TEMP_DIR}/compose.yaml" ]] || fail "apply wrote no compose.yaml"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
 @test "[deploy] runtime = nvidia emits runtime: nvidia at service level" {
   # `runtime` is the permanent alias and is consulted only when the
   # effective config sets no canonical `gpu_runtime`. A [table] merges
