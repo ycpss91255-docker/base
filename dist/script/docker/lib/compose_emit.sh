@@ -1430,6 +1430,12 @@ generate_compose_yaml() {
   # to the output file's own directory is what keeps every existing caller
   # byte-identical: for them the two ARE the same directory.
   local _project_root="${32:-}"
+  # Where the bytes are WRITTEN, when that is not where the file will be
+  # read (base#1270). `apply` emits its set into a staging directory and
+  # moves it into place only once every emitter has succeeded; the
+  # content still answers for <out>'s directory, so a staged file is
+  # byte-identical to one written in place. Empty means <out>.
+  local _write_path="${33:-}"
 
   # Re-arm the ports-inert latch: one emit, at most one diagnostic, but a
   # second emit in the same process still reports.
@@ -1958,5 +1964,5 @@ networks:
     driver: bridge
 YAML
     fi
-  } > "${_out}"
+  } > "${_write_path:-${_out}}"
 }

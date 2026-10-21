@@ -175,6 +175,41 @@ _setup_conf_check_known() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_conf_key_origin <base_path> <section> <key> <outvar>
+#
+# Set <outvar> to the conf layer that decides <section>.<key>: the
+# topmost layer of _setup_conf_layers that names it. Empty when no layer
+# does (the reader's default applies). Used where a refusal has to name
+# the file an operator must edit, not just the key (base#1270).
+# ════════════════════════════════════════════════════════════════════
+_setup_conf_key_origin() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _want_sect="${2:?"${FUNCNAME[0]}: missing section"}"
+  local _want_key="${3:?"${FUNCNAME[0]}: missing key"}"
+  local -n _sko_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  _sko_out=""
+  local -a _sko_layers=()
+  _setup_conf_layers "${_base}" _sko_layers || return 1
+  local _n _i _layer
+  for (( _n = ${#_sko_layers[@]} - 1; _n >= 0; _n-- )); do
+    _layer="${_sko_layers[_n]}"
+    [[ -f "${_layer}" && "${_layer}" == *.toml ]] || continue
+    _conf_load_layers _SKO_CONF "${_layer}" || return 1
+    local -n _sko_es=_SKO_CONF__es
+    local -n _sko_k=_SKO_CONF__keys
+    for (( _i = 0; _i < ${#_sko_k[@]}; _i++ )); do
+      if [[ "${_sko_es[_i]}" == "${_want_sect}" \
+            && "${_sko_k[_i]}" == "${_want_key}" ]]; then
+        _sko_out="${_layer}"
+        unset -n _sko_es _sko_k
+        return 0
+      fi
+    done
+    unset -n _sko_es _sko_k
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_validate_kv <section> <key> <value>
 #
 # Thin adapter over the shared validation registry. The accept /
@@ -1766,22 +1801,28 @@ _setup_apply() {
   local _env_file="${_out_dir}/.env.generated"
   local _container_env_file="${_out_dir}/.env"
   local _env_local_file="${_out_dir}/.env.local"
+  # The cache the prior values are read from. Normally `.env.generated`;
+  # the legacy layout below reads it from `.env` instead.
+  local _prior_env_file="${_env_file}"
+  local _legacy_cache=0
 
   # Migrate a layout where .env WAS the cache: if no
   # .env.generated exists yet but .env carries the setup.sh auto-gen
-  # marker, it is a stale cache, not a user overlay. Back it up and
-  # promote it to .env.generated so the prior-values source below still
-  # resolves; write_env regenerates it and a fresh overlay is scaffolded.
+  # marker, it is a stale cache, not a user overlay. Its values are the
+  # prior values below; once the new set is committed it is backed up to
+  # `.env.bak` and replaced by the regenerated `.env` and `.env.generated`.
+  # Nothing is moved before then, so a refused apply leaves it as it was
+  # (base#1270).
   if [[ ! -f "${_env_file}" && -f "${_container_env_file}" ]] \
       && grep -q '^SETUP_CONF_HASH=' "${_container_env_file}" 2>/dev/null; then
-    cp -- "${_container_env_file}" "${_container_env_file}.bak"
-    mv -- "${_container_env_file}" "${_env_file}"
+    _prior_env_file="${_container_env_file}"
+    _legacy_cache=1
   fi
 
-  if [[ -f "${_env_file}" ]]; then
+  if [[ -f "${_prior_env_file}" ]]; then
     set -o allexport
     # shellcheck disable=SC1090
-    source "${_env_file}"
+    source "${_prior_env_file}"
     set +o allexport
   fi
 
@@ -2094,7 +2135,7 @@ _setup_apply() {
   # that one as "fresh checkout" is what would let the rename land
   # silently on exactly the repos that are mid-migration.
   local _project_name_recorded=""
-  _recorded_project_name "${_env_file}" _project_name_recorded
+  _recorded_project_name "${_prior_env_file}" _project_name_recorded
   _carry_project_name "${_project_name_recorded}" "${_project_name_resolved}" \
     "${_project_name_conf}" project_name project_name_pending
   # A CONFIGURED rename is taken at once (see _carry_project_name), which
@@ -2167,6 +2208,25 @@ _setup_apply() {
     return 0
   fi
 
+  # A [deploy] GPU key present but empty has no meaning the compose
+  # emitter can render, and reached it as a bare positional-parameter
+  # abort (base#1270). Refused here, before anything is written, naming
+  # the key and the layer that set it.
+  local _gk_key _gk_val _gk_file
+  for _gk_key in gpu_count gpu_capabilities; do
+    case "${_gk_key}" in
+      gpu_count)        _gk_val="${gpu_count}" ;;
+      gpu_capabilities) _gk_val="${gpu_caps}" ;;
+    esac
+    [[ -n "${_gk_val}" ]] && continue
+    _setup_conf_key_origin "${_base_path}" deploy "${_gk_key}" _gk_file \
+      || _gk_file=""
+    _log_err setup apply_conf_value_empty \
+      "display=[setup] apply: deploy.${_gk_key} is empty in ${_gk_file:-the configuration}; it needs a value. Set it or remove the line to take the default. Nothing was written" \
+      "file=${_gk_file}" "table=deploy" "key=${_gk_key}"
+    return 1
+  done
+
   # ── SSH X11 forwarding cookie rewrite ──
   # When the user is on an SSH X11 forward (`ssh -X` / `ssh -Y`),
   # rewrite their per-session cookie so libX11 inside the container
@@ -2189,7 +2249,25 @@ _setup_apply() {
 
   # ── Generate artifacts ──
   #
-  write_env "${_env_file}" \
+  # Staged (base#1270): every file of the set is written into a staging
+  # directory beside the output and moved into place only after every
+  # emitter has succeeded, so a refusal leaves the previous set exactly as
+  # it was -- or, on a first apply, no set at all. The staging directory
+  # sits inside the output directory so each move is a rename on one
+  # filesystem.
+  local _stage_dir
+  if ! _stage_dir="$(mktemp -d "${_out_dir}/.setup-apply.XXXXXX" 2>/dev/null)"; then
+    _log_err setup apply_output_unusable \
+      "display=[setup] apply: could not create a staging directory in ${_out_dir}; nothing was written" \
+      "path=${_out_dir}"
+    return 1
+  fi
+  local _stg_env_file="${_stage_dir}/.env.generated"
+  local _stg_container_env_file="${_stage_dir}/.env"
+  local _stg_env_local_file="${_stage_dir}/.env.local"
+  local _stg_compose_file="${_stage_dir}/compose.yaml"
+
+  write_env "${_stg_env_file}" \
     "${user_name}" "${user_group}" "${user_uid}" "${user_gid}" \
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
     "${image_name}" "${ws_path}" \
@@ -2203,7 +2281,8 @@ _setup_apply() {
     "${build_network}" \
     "${_ssh_x11_xauth}" \
     "${project_name}" \
-    "${project_name_pending}"
+    "${project_name_pending}" \
+    || { rm -rf -- "${_stage_dir}"; return 1; }
 
   # `.env`: the container-bound defaults, regenerated every apply. The
   # `[environment]` list and the [lifecycle] WATCHDOG_* block land here
@@ -2211,13 +2290,18 @@ _setup_apply() {
   # them (compose ranks `environment:` above `env_file`). `.env.generated`
   # is passed in as the interpolation source for `${VAR}` references,
   # which an env_file value would otherwise carry through literally.
-  write_container_env "${_container_env_file}" \
-    "${_env_str}" "${watchdog_env_str}" "${_env_file}"
+  write_container_env "${_stg_container_env_file}" \
+    "${_env_str}" "${watchdog_env_str}" "${_stg_env_file}" \
+    || { rm -rf -- "${_stage_dir}"; return 1; }
 
   # `.env.local`: the operator's overrides. Created once, never rewritten.
   # Created eagerly because the generated compose lists it in `env_file:`
-  # and compose fails the whole `up` on a missing env file.
-  _scaffold_env_local "${_env_local_file}"
+  # and compose fails the whole `up` on a missing env file. Staged only
+  # when the output has none, so an existing one is never touched.
+  if [[ ! -e "${_env_local_file}" ]]; then
+    _scaffold_env_local "${_stg_env_local_file}" \
+      || { rm -rf -- "${_stage_dir}"; return 1; }
+  fi
 
   local runtime_resolved=""
   _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
@@ -2247,7 +2331,21 @@ _setup_apply() {
     "${init}" \
     "${watchdog_env_str}" \
     "${_base_path}" \
-    || return $?
+    "${_stg_compose_file}" \
+    || { local _gcy_rc=$?; rm -rf -- "${_stage_dir}"; return "${_gcy_rc}"; }
+
+  # Every emitter succeeded: commit the set. The legacy cache is backed
+  # up first, then each staged file replaces its target by rename.
+  if (( _legacy_cache )); then
+    cp -- "${_container_env_file}" "${_container_env_file}.bak"
+  fi
+  mv -f -- "${_stg_env_file}" "${_env_file}"
+  mv -f -- "${_stg_container_env_file}" "${_container_env_file}"
+  if [[ -e "${_stg_env_local_file}" ]]; then
+    mv -- "${_stg_env_local_file}" "${_env_local_file}"
+  fi
+  mv -f -- "${_stg_compose_file}" "${_out_dir}/compose.yaml"
+  rm -rf -- "${_stage_dir}"
 
   # S7: runtime.env retired. Under the A2 model its purpose
   # is superseded -- [environment] defaults are baked into the runtime

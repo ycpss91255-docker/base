@@ -6049,7 +6049,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (212)
+### test/bats/unit/setup_cmd_spec.bats (214)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6196,6 +6196,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `set deploy.gpu_capabilities '' is refused and the conf is untouched (base#1267)` | base#1267 -- the refusal itself, plus the end state a `set` that reports success must not have produced. The before/after value comes from `_conf_get` over `_setup_conf_handle`, the readers' own view, rather than from a grep on the file, and the file is additionally held byte-identical because "refused" and "rewrote it anyway" are different outcomes |
 | `apply after the refused set still emits compose.yaml (base#1267)` | base#1267 -- what the refusal is FOR. The measured failure was not the stored empty string but the apply after it: `.env`, `.env.generated` and `.env.local` were written, then `generate_compose_yaml` aborted with a raw `parameter null or not set`, so no compose.yaml was produced at all. Asserted on the emitted artifact, through `apply`, so this stays a claim about the generator rather than about the gate that now guards it |
 | `set --local deploy.gpu_capabilities '' is refused and creates no local layer (base#1267)` | base#1267 -- `--local` is the same writer against a different file, so a gate that only closed the committed path would leave the hole open one flag away. The gitignored override must not even be CREATED by a refused set: `_setup_write_target` touches it into existence, and an empty setup.local.toml is itself a state the chain reports on |
+| `apply refused on an empty deploy.gpu_capabilities writes none of the four files (base#1270)` | A first apply refused over `gpu_capabilities = ""` leaves no `.env`, `.env.generated`, `.env.local` or `compose.yaml`, and the refusal names the key and its conf file rather than `6: parameter null or not set` (base#1270) |
+| `apply refused on an empty deploy.gpu_capabilities leaves the previous set byte-identical (base#1270)` | A refused apply over an existing set, operator `.env.local` edit included, leaves all four files byte-identical (base#1270) |
 | `[deploy] runtime = nvidia emits runtime: nvidia at service level` | - |
 | `[deploy] runtime = off omits runtime line entirely` | - |
 | `[gui] mode = off omits X11 / DISPLAY env from compose` | - |
