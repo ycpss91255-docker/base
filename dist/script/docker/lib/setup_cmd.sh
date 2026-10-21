@@ -1801,6 +1801,7 @@ _setup_apply() {
   local _env_file="${_out_dir}/.env.generated"
   local _container_env_file="${_out_dir}/.env"
   local _env_local_file="${_out_dir}/.env.local"
+  local _compose_file="${_out_dir}/compose.yaml"
   # The cache the prior values are read from. Normally `.env.generated`;
   # the legacy layout below reads it from `.env` instead.
   local _prior_env_file="${_env_file}"
@@ -2250,11 +2251,10 @@ _setup_apply() {
   # ── Generate artifacts ──
   #
   # Staged (base#1270): every file of the set is written into a staging
-  # directory beside the output and moved into place only after every
-  # emitter has succeeded, so a refusal leaves the previous set exactly as
-  # it was -- or, on a first apply, no set at all. The staging directory
-  # sits inside the output directory so each move is a rename on one
-  # filesystem.
+  # directory inside the output directory and moved into place only after
+  # every emitter has succeeded, so a refusal leaves the previous set
+  # exactly as it was -- or, on a first apply, no set at all. Staging
+  # inside the output directory keeps each move a rename on one filesystem.
   local _stage_dir
   if ! _stage_dir="$(mktemp -d "${_out_dir}/.setup-apply.XXXXXX" 2>/dev/null)"; then
     _log_err setup apply_output_unusable \
@@ -2307,10 +2307,11 @@ _setup_apply() {
   _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
 
   # Propagate generate_compose_yaml's exit explicitly: when sourced
-  # (no `set -e`) a hard-error return from the stage validator
-  # baseline collision / reserved-tag) would otherwise be swallowed
-  # and apply would print "updated" with a half-written compose.yaml.
-  generate_compose_yaml "${_out_dir}/compose.yaml" "${image_name}" \
+  # (no `set -e`) a hard-error return from the stage validator (baseline
+  # collision / reserved-tag) would otherwise be swallowed and apply
+  # would commit the staged set and print "updated". The content answers
+  # for _compose_file; the bytes go to the staged copy (last argument).
+  generate_compose_yaml "${_compose_file}" "${image_name}" \
     "${gui_enabled_eff}" "${gpu_enabled_eff}" \
     "${gpu_count}" "${gpu_caps}" \
     extra_volumes "${network_name}" \
@@ -2344,7 +2345,7 @@ _setup_apply() {
   if [[ -e "${_stg_env_local_file}" ]]; then
     mv -- "${_stg_env_local_file}" "${_env_local_file}"
   fi
-  mv -f -- "${_stg_compose_file}" "${_out_dir}/compose.yaml"
+  mv -f -- "${_stg_compose_file}" "${_compose_file}"
   rm -rf -- "${_stage_dir}"
 
   # S7: runtime.env retired. Under the A2 model its purpose
