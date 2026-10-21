@@ -320,12 +320,21 @@ REMOTE
   # Consumers' hand-maintained main.yaml also call workers init.sh never
   # generates (publish-worker.yaml, multi-distro-build-worker.yaml), so
   # every file that declares workflow_call: must be on the record too.
-  local _p
-  for _p in /source/.github/workflows/*.yaml; do
+  # Every regular file in the directory is scanned, not just *.yaml: GitHub
+  # also runs *.yml, and a worker renamed to .yml off the record would
+  # otherwise go unchecked.
+  local _p _found=0
+  for _p in /source/.github/workflows/* /source/.github/workflows/.[!.]*; do
+    [[ -f "${_p}" ]] || continue
     if grep -qE '^[[:space:]]*workflow_call:' "${_p}"; then
       _named+=("${_p##*/}")
+      _found=$((_found + 1))
     fi
   done
+  # The four workers ADR-00000006 records: fewer found means the scan
+  # itself missed them, not that the record is complete.
+  (( _found >= 4 )) \
+    || { echo "only ${_found} files under .github/workflows/ declare workflow_call:"; return 1; }
 
   # The record names each by its full path: a bare `build-worker.yaml`
   # would also match `multi-distro-build-worker.yaml`.
