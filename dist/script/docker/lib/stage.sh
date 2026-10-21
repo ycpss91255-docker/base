@@ -78,8 +78,10 @@ _validate_stage_name() {
 
 # _is_deployable_stage <stage>
 #
-# ADR-00000023 sec.4's stage-eligibility predicate, `deployable = not
-# devel and not *-test`, as one shared function. Returns 0 when <stage>
+# ADR-00000023 sec.4's stage-eligibility predicate as one shared
+# function. Its `deployable = not devel and not *-test` formula was the
+# reasoning; the exclusions below are the rule (PRD invariant 8), and
+# they reach past that formula. Returns 0 when <stage>
 # is a field-oriented stage, 1 otherwise (including an empty name).
 # Two callers share it, and must keep sharing it so the rule has exactly
 # one definition: the compose emitter (which `restart:` services get a
@@ -98,7 +100,7 @@ _validate_stage_name() {
 #     service at all -- there is nothing to deploy and nothing to keep
 #     alive, so a bundle built from one is simply broken;
 #   - `test-tools-stage` (the template's `FROM ${TEST_TOOLS_IMAGE}`)
-#     only supplies tooling that devel-test copies in -- it is no field
+#     only supplies the tooling the *-test stages COPY in -- no field
 #     service, so it gets no restart policy and no bundle (base#1325).
 #     Consumer-defined helper stages are not covered here (base#1157).
 # The legacy aliases the v0.21.x transition still accepts (`test` for
