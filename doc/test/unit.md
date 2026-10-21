@@ -6049,7 +6049,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (214)
+### test/bats/unit/setup_cmd_spec.bats (223)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6198,6 +6198,15 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `set --local deploy.gpu_capabilities '' is refused and creates no local layer (base#1267)` | base#1267 -- `--local` is the same writer against a different file, so a gate that only closed the committed path would leave the hole open one flag away. The gitignored override must not even be CREATED by a refused set: `_setup_write_target` touches it into existence, and an empty setup.local.toml is itself a state the chain reports on |
 | `apply refused on an empty deploy.gpu_capabilities writes none of the four files (base#1270)` | base#1270 -- a first-ever apply that is refused must leave none of the four files behind, and the refusal must name the key and the conf file it came from instead of a positional-parameter error |
 | `apply refused on an empty deploy.gpu_capabilities leaves the previous set byte-identical (base#1270)` | base#1270 -- a refused apply over an existing set must leave every one of the four files byte-identical, the operator's `.env.local` included: a refusal that rewrote half the set is the half-written bundle the issue reports |
+| `apply refused inside generate_compose_yaml on a first apply writes none of the four files (base#1270)` | base#1270 -- the emitters that run before generate_compose_yaml must write into staging, so a first apply refused inside the compose emitter leaves none of the four files (and no staging dir) |
+| `apply refused inside generate_compose_yaml leaves the previous set byte-identical (base#1270)` | base#1270 -- the same late refusal over an existing set must leave every one of the four files byte-identical |
+| `apply refused inside generate_compose_yaml leaves a legacy .env cache unpromoted (base#1270)` | base#1270 -- the legacy `.env`-is-the-cache promotion runs before the emitters; a late refusal must leave the legacy `.env` where it was and create neither `.env.generated` nor `.env.bak` |
+| `apply refuses a compose.yaml that is a directory and leaves the previous set byte-identical (base#1270)` | base#1270 review round 1 -- a `compose.yaml` that is a directory made the commit move the staged file INSIDE it, after the env files had already been replaced, and apply then reported success. A destination that is not a regular file is refused before anything is moved. |
+| `apply refuses a legacy promotion whose .env.bak is a directory and leaves .env as it was (base#1270)` | base#1270 review round 1 -- the legacy backup is part of the commit: a `.env.bak` that is a directory must refuse the apply before the legacy `.env` is replaced, not copy the cache into the directory |
+| `apply stops when the legacy .env backup cannot be written and leaves .env as it was (base#1270)` | base#1270 review round 1 -- a failed legacy backup copy was not checked, so the cache was replaced with no backup taken. It must stop the apply with the legacy `.env` untouched. |
+| `apply rolls back a commit that fails part-way and leaves the previous set byte-identical (base#1270)` | base#1270 review round 1 -- a move that fails part-way through the commit must put back what the earlier moves replaced, so the refusal still leaves the previous set byte-identical and reports failure |
+| `apply rolls back a commit that fails part-way on a first apply and leaves none of the four files (base#1270)` | base#1270 review round 1 -- the same part-way failure on a first apply must remove what the earlier moves created |
+| `apply rolls back a part-way commit over a legacy .env cache (base#1270)` | base#1270 review round 1 -- on the legacy layout the rollback must also undo the backup and the promotion: `.env` back to the legacy cache, no `.env.generated`, no `.env.bak` |
 | `[deploy] runtime = nvidia emits runtime: nvidia at service level` | - |
 | `[deploy] runtime = off omits runtime line entirely` | - |
 | `[gui] mode = off omits X11 / DISPLAY env from compose` | - |
