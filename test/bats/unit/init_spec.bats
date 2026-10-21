@@ -285,6 +285,65 @@ REMOTE
   assert_success
 }
 
+# why: the worker filename main.yaml names is a contract, not a
+# base-internal detail
+@test "_create_new_repo: the worker filenames main.yaml names are declared protocol-stable (base#1203)" {
+  # init.sh writes main.yaml ONCE and upgrade.sh Step 4 rewrites only the
+  # @ref of each `uses:` line, never the path, so the worker filename a
+  # consumer's main.yaml names is frozen in every bootstrapped repo -- the
+  # same unbounded window ADR-00000006's base#1111 amendment records for the
+  # monitor's run: path. Renaming a worker inside base strands every caller.
+  #
+  # The filenames are DERIVED from the generated file rather than restated,
+  # so a rename in the heredoc has to carry the record with it.
+  _source_init
+  _create_new_repo "main"
+  local _wf="${TMP_REPO}/.github/workflows/main.yaml"
+  local _adr=/source/doc/adr/00000006-upgrade-sh-path-contract.md
+
+  local -a _named=()
+  mapfile -t _named < <(sed -nE \
+    's#^[[:space:]]*uses: [^[:space:]]+/\.github/workflows/([^@[:space:]]+)@.*$#\1#p' \
+    "${_wf}")
+  (( ${#_named[@]} > 0 )) \
+    || { echo "the generated main.yaml names no worker"; return 1; }
+
+  local _f
+  for _f in "${_named[@]}"; do
+    # base really ships it as a reusable workflow.
+    [[ -f "/source/.github/workflows/${_f}" ]] \
+      || { echo "base ships no .github/workflows/${_f}"; return 1; }
+    grep -qE '^[[:space:]]*workflow_call:' "/source/.github/workflows/${_f}" \
+      || { echo "${_f} declares no workflow_call:"; return 1; }
+  done
+
+  # Consumers' hand-maintained main.yaml also call workers init.sh never
+  # generates (publish-worker.yaml, multi-distro-build-worker.yaml), so
+  # every file that declares workflow_call: must be on the record too.
+  # Every regular file in the directory is scanned, not just *.yaml: GitHub
+  # also runs *.yml, and a worker renamed to .yml off the record would
+  # otherwise go unchecked.
+  local _p _found=0
+  for _p in /source/.github/workflows/* /source/.github/workflows/.[!.]*; do
+    [[ -f "${_p}" ]] || continue
+    if grep -qE '^[[:space:]]*workflow_call:' "${_p}"; then
+      _named+=("${_p##*/}")
+      _found=$((_found + 1))
+    fi
+  done
+  # The four workers ADR-00000006 records: fewer found means the scan
+  # itself missed them, not that the record is complete.
+  (( _found >= 4 )) \
+    || { echo "only ${_found} files under .github/workflows/ declare workflow_call:"; return 1; }
+
+  # The record names each by its full path: a bare `build-worker.yaml`
+  # would also match `multi-distro-build-worker.yaml`.
+  for _f in "${_named[@]}"; do
+    grep -qF -- ".github/workflows/${_f}" "${_adr}" \
+      || { echo "ADR-00000006 does not name .github/workflows/${_f}"; return 1; }
+  done
+}
+
 # why: setup.conf rules drive IMAGE_NAME
 @test "_create_new_repo: does NOT generate .env.example (image name via setup.conf)" {
   _source_init
