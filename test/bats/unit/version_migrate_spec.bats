@@ -638,6 +638,17 @@ _restart_repo() {
   assert_output --partial 'init = true'
 }
 
+# why: The message states the deploy-scoped rule to the user, so it must
+# name every stage the rule excludes -- base's test-tools-stage included,
+# the stage _is_deployable_stage refuses alongside devel and *-test
+@test "_vmigrate_lifecycle_restart_default_apply names test-tools-stage as excluded (base#1325)" {
+  _restart_repo "${TEMP_DIR}/msg" '[lifecycle]' 'restart = "no"'
+  run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/msg'"
+  assert_success
+  assert_output --partial '"body":"lifecycle_restart_default_migrated"'
+  assert_output --partial 'test-tools-stage'
+}
+
 # why: The rewrite goes through `_upsert_conf_value`, which lands it with
 # `mv` from a 0600 `mktemp` sibling. Upgrading must not change the mode of
 # the user's committed setup.toml: a 0664 or 0644 one comes back at exactly

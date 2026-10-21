@@ -1725,6 +1725,16 @@ _stage_line_verdicts() {
   assert_failure
 }
 
+@test "_is_deployable_stage rejects base's test-tools-stage tooling stage (#1325)" {
+  # The template's `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` only
+  # supplies tooling to devel-test; it is no field service.
+  run _is_deployable_stage test-tools-stage
+  assert_failure
+  # A deployable stage keeps passing alongside it.
+  run _is_deployable_stage runtime
+  assert_success
+}
+
 # ────────────────────────────────────────────────────────────────────
 # Legacy deploy.runtime alias: per-stage vs global precedence
 #

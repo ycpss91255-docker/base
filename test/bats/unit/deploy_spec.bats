@@ -1108,7 +1108,7 @@ SH
 # why: stage eligibility (baseline)
 @test "_setup_deploy: refuses a template-baseline stage (#841)" {
   local _d _s
-  for _s in sys devel-base devel devel-test runtime-test; do
+  for _s in sys devel-base devel devel-test runtime-test test-tools-stage; do
     _d="$(mktemp -d)"
     _write_deploy_repo "${_d}"
     SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --stage "${_s}" --dry-run
