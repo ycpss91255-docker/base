@@ -1550,7 +1550,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (87)
+### test/bats/unit/compose_emit/gen_spec.bats (88)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED header,
 baseline workspace volume, network/ipc/privileged env-var references,
@@ -1645,6 +1645,7 @@ standalone shapes, absent on any `*-test` stage).
 | `generate_compose_yaml never emits restart: on the devel service (#840)` | - |
 | `generate_compose_yaml emits restart: on a deployable stage service (#840)` | - |
 | `generate_compose_yaml omits restart: on a *-test stage -- it exits by design (#840)` | - |
+| `generate_compose_yaml omits restart: on base's test-tools-stage and keeps it on a deployable stage (#1325)` | The emitter is where the predicate turns into a restart: line; this pins both sides, so a fix that drops the policy everywhere fails too |
 | `generate_compose_yaml emits restart: on a deployable stage that carries overrides (#840)` | - |
 | `generate_compose_yaml quotes an on-failure:N policy on the deployable stage (#840)` | - |
 | `generate_compose_yaml emits no restart: field at all for restart = no (#840)` | - |
@@ -6972,7 +6973,7 @@ the test that produces it, each case writes a one-test spec into
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
 | `the fail-open guard scan is an over-approximation, not a closed set` | A sample of what it misses, so the disclosure is never wider than the pattern |
 
-### test/bats/unit/stage_spec.bats (105)
+### test/bats/unit/stage_spec.bats (106)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name` (#215),
 `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main apply`
@@ -7096,6 +7097,7 @@ and asserts one verdict per site.
 | `_is_deployable_stage rejects every *-test stage -- they exit by design (#840)` | - |
 | `_is_deployable_stage rejects an empty stage name (#840)` | - |
 | `_is_deployable_stage rejects the build-intermediate baseline stages (#841)` | - |
+| `_is_deployable_stage rejects base's test-tools-stage tooling stage (#1325)` | The one predicate gates both restart: and deploy, so letting the tooling stage through gives it an auto-restart policy and a field bundle |
 | `_resolve_docker_flags: gpu_runtime wins over the legacy alias, as the global resolver does (#876)` | - |
 | `_resolve_docker_flags: legacy alias still applies when gpu_runtime is absent (#876)` | - |
 | `_resolve_docker_flags: an empty gpu_runtime does not shadow the legacy alias (#876)` | - |
@@ -8850,7 +8852,7 @@ never heard of it.
 | `the shipped [logging] defaults reach a bundle that configures nothing (base#1094)` | base#1094 item 5 -- the shipped template sets driver / max_size / max_file / compress, so "configure nothing" is not "no logging options": it is the template's bounds. Those are the ones that matter, because the repo that never thought about logging is the one whose device disk fills. This asserts the DEFAULT reaches the bundle, not just an explicitly configured value. |
 | `the bundle's logging block is the same block the dev compose emits (base#1094)` | base#1094 item 5 -- the defect was two emitters over one config disagreeing, so the assertion that holds the fix is agreement, not presence. Both tiers are handed the same _collect_logging result and their `logging:` blocks are compared line for line; a future change to one emitter's block that the other does not get fails here. |
 
-### test/bats/unit/version_migrate_spec.bats (32)
+### test/bats/unit/version_migrate_spec.bats (33)
 
 The version interval an upgrade crossed is what selects a version-bound
 migration, and every way of failing to read that interval ends in the same
@@ -8888,6 +8890,7 @@ upgrade shows one interval, not the arithmetic.
 | `the shipped set selects lifecycle_restart_default for a repo arriving from before v0.42.0 (base#1110)` | base#1110's whole defect was a migration no consumer could reach, so the one thing its new home has to prove is that a repo arriving from before v0.42.0 selects it -- read off the real shipped set, through the real interval resolver, not a probe standing in for it |
 | `the shipped set does NOT select lifecycle_restart_default for a repo already past v0.42.0 (base#1110)` | The fail-safe is the other half of the predicate and is as easy to lose as the firing half. Past the rescope a `no` cannot be told from a choice, so a repo whose interval STARTS at v0.42.0 must select nothing -- the arm that would go quiet if the version were ever re-pointed |
 | `_vmigrate_lifecycle_restart_default_apply rewrites the stale copied default (base#1110)` | The firing case, and the one no spec could reach before: the repo's own stale value is rewritten with no vendored template read at all |
+| `_vmigrate_lifecycle_restart_default_apply names test-tools-stage as excluded (base#1325)` | The message states the deploy-scoped rule to the user, so it must name every stage the rule excludes -- base's test-tools-stage included, the stage _is_deployable_stage refuses alongside devel and *-test |
 | `_vmigrate_lifecycle_restart_default_apply keeps setup.toml's exact mode under umask 077 (base#1356)` | The rewrite goes through `_upsert_conf_value`, which lands it with `mv` from a 0600 `mktemp` sibling. Upgrading must not change the mode of the user's committed setup.toml: a 0664 or 0644 one comes back at exactly that mode. umask 077 so only the file's own mode can pass (the base#1323 precedent). |
 | `_vmigrate_lifecycle_restart_default_apply is silent and inert on a second run (base#1110)` | The runner keeps no ledger and re-selects the same interval on a resync re-entered before the pull commits, so a second run that wrote again would be a second log line over an unchanged value -- idempotence is the migration's own job |
 | `_vmigrate_lifecycle_restart_default_apply leaves a chosen policy alone (base#1110)` | A repo that chose something else never had the stale default, and the migration touching it would be rewriting a policy somebody picked |

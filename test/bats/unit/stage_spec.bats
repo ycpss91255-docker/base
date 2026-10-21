@@ -1725,6 +1725,8 @@ _stage_line_verdicts() {
   assert_failure
 }
 
+# why: The one predicate gates both restart: and deploy, so letting the
+# tooling stage through gives it an auto-restart policy and a field bundle
 @test "_is_deployable_stage rejects base's test-tools-stage tooling stage (#1325)" {
   # The template's `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` only
   # supplies tooling to devel-test; it is no field service.

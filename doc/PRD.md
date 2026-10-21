@@ -279,7 +279,8 @@ downstream repo follows this. `_is_deployable_stage` (`lib/stage.sh`) is the
 one predicate that enforces it, and it rejects more than the two obvious
 cases: **`devel`** (the interactive shell), **any `*-test` stage** (it exists
 to run, assert and exit), **`sys` and `devel-base`** (build intermediates with
-no runnable service at all), and the legacy aliases `base` / `test`. The
+no runnable service at all), **`test-tools-stage`** (the template's tooling
+source for devel-test, not a field service), and the legacy aliases `base` / `test`. The
 invariant is whatever that predicate says -- stated here in full so the two
 cannot disagree.
 

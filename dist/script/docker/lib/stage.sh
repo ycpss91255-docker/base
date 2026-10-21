@@ -96,7 +96,11 @@ _validate_stage_name() {
 #     reacts to exit turns a green test run into a restart loop;
 #   - `sys` / `devel-base` are build intermediates with no runnable
 #     service at all -- there is nothing to deploy and nothing to keep
-#     alive, so a bundle built from one is simply broken.
+#     alive, so a bundle built from one is simply broken;
+#   - `test-tools-stage` (the template's `FROM ${TEST_TOOLS_IMAGE}`)
+#     only supplies tooling that devel-test copies in -- it is no field
+#     service, so it gets no restart policy and no bundle (base#1325).
+#     Consumer-defined helper stages are not covered here (base#1157).
 # The legacy aliases the v0.21.x transition still accepts (`test` for
 # `devel-test`, the bare service name it is emitted under, and `base`
 # for `devel-base`) are excluded alongside the names that replaced them.
@@ -108,6 +112,7 @@ _is_deployable_stage() {
   case "${_stage}" in
     devel|test|*-test) return 1 ;;
     sys|devel-base|base) return 1 ;;
+    test-tools-stage) return 1 ;;
   esac
   return 0
 }

@@ -1304,6 +1304,8 @@ DOCK
   assert_output "0"
 }
 
+# why: The emitter is where the predicate turns into a restart: line; this
+# pins both sides, so a fix that drops the policy everywhere fails too
 @test "generate_compose_yaml omits restart: on base's test-tools-stage and keeps it on a deployable stage (#1325)" {
   # Mirrors the template Dockerfile: test-tools-stage is a tooling stage
   # pulled from TEST_TOOLS_IMAGE, runtime is the deployable one.
