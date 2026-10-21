@@ -29,6 +29,9 @@ conf_local_override_unusable
 apply_output_unusable
 apply_unknown_table
 apply_unknown_key
+apply_conf_value_empty
+apply_commit_failed
+apply_rollback_incomplete
 apply_repo_conf_mutated
 apply_repo_conf_unsettled
 compose_relocated_root_unusable

@@ -2344,6 +2344,431 @@ EOF
   assert [ ! -f "$(_setup_conf_local_path "${TEMP_DIR}")" ]
 }
 
+# ── apply is atomic over its four artifacts (base#1270) ──────────────
+#
+# Measured on 0e7e0845: an apply over `gpu_capabilities = ""` wrote
+# `.env`, `.env.generated` and `.env.local`, then `generate_compose_yaml`
+# aborted on its `${6:?}` guard with bash's `6: parameter null or not set`,
+# leaving no compose.yaml. Both cases below drive the real `apply` over a
+# conf on disk and assert on the artifacts it leaves, not on a validator.
+
+# why: base#1270 -- a first-ever apply that is refused must leave none of
+# the four files behind, and the refusal must name the key and the conf
+# file it came from instead of a positional-parameter error
+@test "apply refused on an empty deploy.gpu_capabilities writes none of the four files (base#1270)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[deploy]
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = ""
+TOML
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  refute_output --partial "parameter null or not set"
+  assert_output --partial "deploy.gpu_capabilities"
+  assert_output --partial "${TEMP_DIR}/setup.toml"
+
+  local _f
+  for _f in .env .env.generated .env.local compose.yaml; do
+    [[ ! -e "${TEMP_DIR}/${_f}" ]] \
+      || fail "a refused first apply left ${_f} behind"
+  done
+}
+
+# why: base#1270 -- a refused apply over an existing set must leave every
+# one of the four files byte-identical, the operator's `.env.local`
+# included: a refusal that rewrote half the set is the half-written
+# bundle the issue reports
+@test "apply refused on an empty deploy.gpu_capabilities leaves the previous set byte-identical (base#1270)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[deploy]
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = "gpu"
+TOML
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  printf 'OPERATOR_OVERRIDE=1\n' >> "${TEMP_DIR}/.env.local"
+
+  local _f
+  mkdir -p "${TEMP_DIR}/before"
+  for _f in .env .env.generated .env.local compose.yaml; do
+    [[ -f "${TEMP_DIR}/${_f}" ]] || fail "the good apply produced no ${_f}"
+    cp -p "${TEMP_DIR}/${_f}" "${TEMP_DIR}/before/${_f}"
+  done
+
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = ""/' "${TEMP_DIR}/setup.toml"
+  grep -qx 'gpu_capabilities = ""' "${TEMP_DIR}/setup.toml" \
+    || fail "the fixture did not clear gpu_capabilities"
+
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_output --partial "deploy.gpu_capabilities"
+
+  for _f in .env .env.generated .env.local compose.yaml; do
+    cmp -s "${TEMP_DIR}/before/${_f}" "${TEMP_DIR}/${_f}" \
+      || fail "a refused apply changed ${_f}"
+  done
+}
+
+# ── a refusal INSIDE generate_compose_yaml, after the env emitters ran ─
+#
+# The two cases above are refused before any emitter runs, so they hold
+# even without staging. The cases below use valid [deploy] GPU values and
+# a Dockerfile stage named `latest` (a reserved tag namespace), which
+# `generate_compose_yaml` refuses only after `write_env`,
+# `write_container_env` and `_scaffold_env_local` have already written
+# their files. Only staging keeps those writes out of the output dir.
+
+# _r1270_conf <dir>
+#   Write the issue's [deploy] shape with VALID GPU values.
+_r1270_conf() {
+  cat > "$1/setup.toml" <<'TOML'
+[deploy]
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = "gpu"
+TOML
+}
+
+# _r1270_apply <dir> [<prelude>]
+#   Run the real `apply` over <dir> in a fresh shell. <prelude> is bash
+#   evaluated after setup.sh is sourced and before `main` runs, for the
+#   cases that make one filesystem operation fail.
+_r1270_apply() {
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    ${2:-}
+    main apply --base-path '$1' 2>&1
+  "
+}
+
+# _r1270_snapshot <dir> <into> <file>...
+_r1270_snapshot() {
+  local _d="$1" _into="$2" _f; shift 2
+  mkdir -p "${_into}"
+  for _f in "$@"; do
+    [[ -f "${_d}/${_f}" ]] || fail "the fixture has no ${_f}"
+    cp -p "${_d}/${_f}" "${_into}/${_f}"
+  done
+}
+
+# _r1270_assert_same <dir> <from> <file>...
+_r1270_assert_same() {
+  local _d="$1" _from="$2" _f; shift 2
+  for _f in "$@"; do
+    [[ -f "${_d}/${_f}" && ! -L "${_d}/${_f}" ]] \
+      || fail "a refused apply removed or replaced ${_f}"
+    cmp -s "${_from}/${_f}" "${_d}/${_f}" \
+      || fail "a refused apply changed ${_f}"
+  done
+}
+
+# _r1270_assert_absent <dir> <file>...
+_r1270_assert_absent() {
+  local _d="$1" _f; shift
+  for _f in "$@"; do
+    [[ ! -e "${_d}/${_f}" && ! -L "${_d}/${_f}" ]] \
+      || fail "a refused apply left ${_f} behind"
+  done
+}
+
+# _r1270_assert_no_stage <dir>
+#   No staging directory survives a refusal.
+_r1270_assert_no_stage() {
+  local _left
+  _left="$(find "$1" -maxdepth 1 -name '.setup-apply.*' -print)"
+  [[ -z "${_left}" ]] || fail "a refused apply left ${_left} behind"
+}
+
+# _r1270_legacy_env <dir>
+#   The pre-split layout: `.env` IS the cache (it carries the auto-gen
+#   marker) and there is no `.env.generated` yet.
+_r1270_legacy_env() {
+  printf 'IMAGE_NAME=legacycache\nSETUP_CONF_HASH=deadbeef\n' > "$1/.env"
+}
+
+_R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
+
+# why: base#1270 -- the emitters that run before generate_compose_yaml
+# must write into staging, so a first apply refused inside the compose
+# emitter leaves none of the four files (and no staging dir)
+@test "apply refused inside generate_compose_yaml on a first apply writes none of the four files (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "template-controlled image tag namespace; rename it: latest"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_absent "${TEMP_DIR}" .env .env.generated .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 -- the same late refusal over an existing set must leave
+# every one of the four files byte-identical
+@test "apply refused inside generate_compose_yaml leaves the previous set byte-identical (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+  printf 'OPERATOR_OVERRIDE=1\n' >> "${TEMP_DIR}/.env.local"
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated .env.local compose.yaml
+
+  # A changed conf, so a regenerated set would differ from the old one.
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = "gpu compute"/' \
+    "${TEMP_DIR}/setup.toml"
+  printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "template-controlled image tag namespace; rename it: latest"
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 -- the legacy `.env`-is-the-cache promotion runs before
+# the emitters; a late refusal must leave the legacy `.env` where it was
+# and create neither `.env.generated` nor `.env.bak`
+@test "apply refused inside generate_compose_yaml leaves a legacy .env cache unpromoted (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
+  _r1270_legacy_env "${TEMP_DIR}"
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "template-controlled image tag namespace; rename it: latest"
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+  _r1270_assert_absent "${TEMP_DIR}" .env.generated .env.bak .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 1 -- a `compose.yaml` that is a directory
+# made the commit move the staged file INSIDE it, after the env files had
+# already been replaced, and apply then reported success. A destination
+# that is not a regular file is refused before anything is moved.
+@test "apply refuses a compose.yaml that is a directory and leaves the previous set byte-identical (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated .env.local
+  rm -f "${TEMP_DIR}/compose.yaml"
+  mkdir "${TEMP_DIR}/compose.yaml"
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = "gpu compute"/' \
+    "${TEMP_DIR}/setup.toml"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial "compose.yaml"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated .env.local
+  [[ -d "${TEMP_DIR}/compose.yaml" ]] || fail "compose.yaml is no longer the directory"
+  [[ -z "$(ls -A "${TEMP_DIR}/compose.yaml")" ]] \
+    || fail "apply wrote into the compose.yaml directory"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 1 -- the legacy backup is part of the
+# commit: a `.env.bak` that is a directory must refuse the apply before
+# the legacy `.env` is replaced, not copy the cache into the directory
+@test "apply refuses a legacy promotion whose .env.bak is a directory and leaves .env as it was (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_legacy_env "${TEMP_DIR}"
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+  mkdir "${TEMP_DIR}/.env.bak"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial ".env.bak"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+  _r1270_assert_absent "${TEMP_DIR}" .env.generated .env.local compose.yaml
+  [[ -z "$(ls -A "${TEMP_DIR}/.env.bak")" ]] \
+    || fail "apply wrote into the .env.bak directory"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 1 -- a failed legacy backup copy was not
+# checked, so the cache was replaced with no backup taken. It must stop
+# the apply with the legacy `.env` untouched.
+@test "apply stops when the legacy .env backup cannot be written and leaves .env as it was (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_legacy_env "${TEMP_DIR}"
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+
+  _r1270_apply "${TEMP_DIR}" '
+    cp() { [[ "${*: -1}" == */.env.bak ]] && return 1; command cp "$@"; }
+  '
+  assert_failure
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+  _r1270_assert_absent "${TEMP_DIR}" .env.generated .env.bak .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# _R1270_MV_FAILS_ON_COMPOSE
+#   A prelude whose `mv` fails ONCE, on the first move whose destination
+#   is the output's compose.yaml -- i.e. part-way through the commit,
+#   after the env files have been moved into place.
+_R1270_MV_FAILS_ON_COMPOSE='
+  mv() {
+    if [[ "${*: -1}" == */compose.yaml && ! -e "${BATS_TEST_TMPDIR}/mv-failed" ]]; then
+      : > "${BATS_TEST_TMPDIR}/mv-failed"
+      return 1
+    fi
+    command mv "$@"
+  }
+'
+
+# why: base#1270 review round 1 -- a move that fails part-way through the
+# commit must put back what the earlier moves replaced, so the refusal
+# still leaves the previous set byte-identical and reports failure
+@test "apply rolls back a commit that fails part-way and leaves the previous set byte-identical (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+  printf 'OPERATOR_OVERRIDE=1\n' >> "${TEMP_DIR}/.env.local"
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated .env.local compose.yaml
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = "gpu compute"/' \
+    "${TEMP_DIR}/setup.toml"
+
+  export BATS_TEST_TMPDIR
+  _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
+  assert_failure
+  refute_output --partial "[setup] USER="
+  [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 1 -- the same part-way failure on a first
+# apply must remove what the earlier moves created
+@test "apply rolls back a commit that fails part-way on a first apply and leaves none of the four files (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+
+  export BATS_TEST_TMPDIR
+  _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
+  assert_failure
+  [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
+
+  _r1270_assert_absent "${TEMP_DIR}" .env .env.generated .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 1 -- on the legacy layout the rollback must
+# also undo the backup and the promotion: `.env` back to the legacy
+# cache, no `.env.generated`, no `.env.bak`
+@test "apply rolls back a part-way commit over a legacy .env cache (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_legacy_env "${TEMP_DIR}"
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+
+  export BATS_TEST_TMPDIR
+  _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
+  assert_failure
+  [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
+  _r1270_assert_absent "${TEMP_DIR}" .env.generated .env.bak .env.local compose.yaml
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 2 -- an existing `.env.local` is never
+# rewritten, so it never reached the commit's type check. A directory
+# there let apply replace the other three files and report success over
+# an env-file set compose cannot read. It must refuse with the set intact.
+@test "apply refuses a .env.local that is a directory and leaves the previous set byte-identical (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+  _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated compose.yaml
+  rm -f "${TEMP_DIR}/.env.local"
+  mkdir "${TEMP_DIR}/.env.local"
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = "gpu compute"/' \
+    "${TEMP_DIR}/setup.toml"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial ".env.local"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
+    .env .env.generated compose.yaml
+  [[ -d "${TEMP_DIR}/.env.local" ]] || fail ".env.local is no longer the directory"
+  [[ -z "$(ls -A "${TEMP_DIR}/.env.local")" ]] \
+    || fail "apply wrote into the .env.local directory"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 2 -- the same check on a first apply, with
+# a fifo: none of the other three files may appear
+@test "apply refuses a .env.local that is a fifo on a first apply and writes none of the other files (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  mkfifo "${TEMP_DIR}/.env.local"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_failure
+  assert_output --partial ".env.local"
+  refute_output --partial "[setup] USER="
+
+  _r1270_assert_absent "${TEMP_DIR}" .env .env.generated compose.yaml
+  [[ -p "${TEMP_DIR}/.env.local" ]] || fail ".env.local is no longer the fifo"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
+# why: base#1270 review round 2 -- the check must not refuse an operator
+# `.env.local` compose can read: a symlink to a regular file is kept as
+# it is, link and contents, and apply succeeds
+@test "apply keeps a .env.local that is a symlink to a regular file and succeeds (base#1270)" {
+  _r1270_conf "${TEMP_DIR}"
+  printf 'FROM ubuntu AS devel\n' > "${TEMP_DIR}/Dockerfile"
+  printf 'OPERATOR_OVERRIDE=1\n' > "${BATS_TEST_TMPDIR}/operator.env"
+  ln -s "${BATS_TEST_TMPDIR}/operator.env" "${TEMP_DIR}/.env.local"
+
+  _r1270_apply "${TEMP_DIR}"
+  assert_success
+
+  [[ -L "${TEMP_DIR}/.env.local" ]] || fail ".env.local is no longer the symlink"
+  [[ "$(readlink "${TEMP_DIR}/.env.local")" == "${BATS_TEST_TMPDIR}/operator.env" ]] \
+    || fail ".env.local points somewhere else"
+  [[ "$(cat "${BATS_TEST_TMPDIR}/operator.env")" == "OPERATOR_OVERRIDE=1" ]] \
+    || fail "apply rewrote the operator's .env.local"
+  [[ -f "${TEMP_DIR}/compose.yaml" ]] || fail "apply wrote no compose.yaml"
+  _r1270_assert_no_stage "${TEMP_DIR}"
+}
+
 @test "[deploy] runtime = nvidia emits runtime: nvidia at service level" {
   # `runtime` is the permanent alias and is consulted only when the
   # effective config sets no canonical `gpu_runtime`. A [table] merges

@@ -175,6 +175,41 @@ _setup_conf_check_known() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_conf_key_origin <base_path> <section> <key> <outvar>
+#
+# Set <outvar> to the conf layer that decides <section>.<key>: the
+# topmost layer of _setup_conf_layers that names it. Empty when no layer
+# does (the reader's default applies). Used where a refusal has to name
+# the file an operator must edit, not just the key (base#1270).
+# ════════════════════════════════════════════════════════════════════
+_setup_conf_key_origin() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local _want_sect="${2:?"${FUNCNAME[0]}: missing section"}"
+  local _want_key="${3:?"${FUNCNAME[0]}: missing key"}"
+  local -n _sko_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  _sko_out=""
+  local -a _sko_layers=()
+  _setup_conf_layers "${_base}" _sko_layers || return 1
+  local _n _i _layer
+  for (( _n = ${#_sko_layers[@]} - 1; _n >= 0; _n-- )); do
+    _layer="${_sko_layers[_n]}"
+    [[ -f "${_layer}" && "${_layer}" == *.toml ]] || continue
+    _conf_load_layers _SKO_CONF "${_layer}" || return 1
+    local -n _sko_es=_SKO_CONF__es
+    local -n _sko_k=_SKO_CONF__keys
+    for (( _i = 0; _i < ${#_sko_k[@]}; _i++ )); do
+      if [[ "${_sko_es[_i]}" == "${_want_sect}" \
+            && "${_sko_k[_i]}" == "${_want_key}" ]]; then
+        _sko_out="${_layer}"
+        unset -n _sko_es _sko_k
+        return 0
+      fi
+    done
+    unset -n _sko_es _sko_k
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_validate_kv <section> <key> <value>
 #
 # Thin adapter over the shared validation registry. The accept /
@@ -1563,6 +1598,105 @@ _setup_reset() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_apply_commit <stage_dir> <staged> <target> [<staged> <target>]...
+#
+# Move each staged file onto its target, as one unit (base#1270).
+# Returns 0 when every target now holds its staged file. Otherwise every
+# target is left as it was before the call and the return is non-zero:
+#
+#   - a target that exists and is not a regular file (a directory, a
+#     symlink, a fifo) is refused before anything is moved: `mv` onto a
+#     directory puts the file INSIDE it and still exits 0;
+#   - every existing target is copied into <stage_dir>/prev first, and a
+#     failed copy refuses before anything is moved;
+#   - a move that fails, or that does not leave a regular file at the
+#     target with the staged file gone, puts back every target the
+#     earlier moves replaced (or removes it, where there was none).
+#
+# Return 1: refused or rolled back; the caller removes <stage_dir>.
+# Return 2: a restore itself failed. The copies under <stage_dir>/prev
+# are then the only record of the previous set, the error names them,
+# and the caller must leave <stage_dir> in place.
+# ════════════════════════════════════════════════════════════════════
+_setup_apply_commit() {
+  local _sac_stage="${1:?"${FUNCNAME[0]}: missing stage dir"}"
+  shift
+  local -a _sac_src=() _sac_dst=() _sac_had=()
+  while (( $# >= 2 )); do
+    _sac_src+=("$1")
+    _sac_dst+=("$2")
+    shift 2
+  done
+  local _sac_n="${#_sac_dst[@]}" _i _d
+
+  for (( _i = 0; _i < _sac_n; _i++ )); do
+    _d="${_sac_dst[_i]}"
+    if [[ -L "${_d}" ]] || { [[ -e "${_d}" ]] && [[ ! -f "${_d}" ]]; }; then
+      _log_err setup apply_output_unusable \
+        "display=[setup] apply: ${_d} exists and is not a regular file; apply writes a regular file there. Move it aside and re-run. Nothing was written" \
+        "path=${_d}"
+      return 1
+    fi
+  done
+
+  local _sac_prev="${_sac_stage}/prev"
+  if ! mkdir -- "${_sac_prev}"; then
+    _log_err setup apply_commit_failed \
+      "display=[setup] apply: could not create ${_sac_prev} to hold the previous set; nothing was written" \
+      "path=${_sac_prev}"
+    return 1
+  fi
+  for (( _i = 0; _i < _sac_n; _i++ )); do
+    _d="${_sac_dst[_i]}"
+    _sac_had[_i]=0
+    [[ -e "${_d}" ]] || continue
+    if ! cp -p -- "${_d}" "${_sac_prev}/${_i}"; then
+      _log_err setup apply_commit_failed \
+        "display=[setup] apply: could not copy ${_d} aside before replacing it; nothing was written" \
+        "path=${_d}"
+      return 1
+    fi
+    _sac_had[_i]=1
+  done
+
+  local _sac_failed=-1
+  for (( _i = 0; _i < _sac_n; _i++ )); do
+    _d="${_sac_dst[_i]}"
+    if [[ -d "${_d}" ]] \
+        || ! mv -f -- "${_sac_src[_i]}" "${_d}" \
+        || [[ -L "${_d}" || ! -f "${_d}" || -e "${_sac_src[_i]}" ]]; then
+      _sac_failed="${_i}"
+      break
+    fi
+  done
+  (( _sac_failed < 0 )) && return 0
+
+  # Roll back the failed move and every one before it, newest first.
+  local -a _sac_lost=()
+  local _j
+  for (( _j = _sac_failed; _j >= 0; _j-- )); do
+    _d="${_sac_dst[_j]}"
+    if (( _sac_had[_j] )); then
+      if [[ -d "${_d}" ]] || ! mv -f -- "${_sac_prev}/${_j}" "${_d}"; then
+        _sac_lost+=("${_d}")
+      fi
+    elif [[ -L "${_d}" || -f "${_d}" ]]; then
+      rm -f -- "${_d}" || _sac_lost+=("${_d}")
+    fi
+  done
+  if (( ${#_sac_lost[@]} > 0 )); then
+    _log_err setup apply_rollback_incomplete \
+      "display=[setup] apply: could not move the new ${_sac_dst[_sac_failed]} into place, and could not restore ${_sac_lost[*]}; the previous files are in ${_sac_prev}, numbered in the order ${_sac_dst[*]}" \
+      "path=${_sac_dst[_sac_failed]}" "prev=${_sac_prev}"
+    return 2
+  fi
+  _log_err setup apply_commit_failed \
+    "display=[setup] apply: could not move the new ${_sac_dst[_sac_failed]} into place; the previous files were restored and nothing was changed" \
+    "path=${_sac_dst[_sac_failed]}"
+  return 1
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_apply
 #
 # Subcommand handler for `setup.sh apply`. Regenerates .env.generated +
@@ -1766,22 +1900,29 @@ _setup_apply() {
   local _env_file="${_out_dir}/.env.generated"
   local _container_env_file="${_out_dir}/.env"
   local _env_local_file="${_out_dir}/.env.local"
+  local _compose_file="${_out_dir}/compose.yaml"
+  # The cache the prior values are read from. Normally `.env.generated`;
+  # the legacy layout below reads it from `.env` instead.
+  local _prior_env_file="${_env_file}"
+  local _legacy_cache=0
 
   # Migrate a layout where .env WAS the cache: if no
   # .env.generated exists yet but .env carries the setup.sh auto-gen
-  # marker, it is a stale cache, not a user overlay. Back it up and
-  # promote it to .env.generated so the prior-values source below still
-  # resolves; write_env regenerates it and a fresh overlay is scaffolded.
+  # marker, it is a stale cache, not a user overlay. Its values are the
+  # prior values below; once the new set is committed it is backed up to
+  # `.env.bak` and replaced by the regenerated `.env` and `.env.generated`.
+  # Nothing is moved before then, so a refused apply leaves it as it was
+  # (base#1270).
   if [[ ! -f "${_env_file}" && -f "${_container_env_file}" ]] \
       && grep -q '^SETUP_CONF_HASH=' "${_container_env_file}" 2>/dev/null; then
-    cp -- "${_container_env_file}" "${_container_env_file}.bak"
-    mv -- "${_container_env_file}" "${_env_file}"
+    _prior_env_file="${_container_env_file}"
+    _legacy_cache=1
   fi
 
-  if [[ -f "${_env_file}" ]]; then
+  if [[ -f "${_prior_env_file}" ]]; then
     set -o allexport
     # shellcheck disable=SC1090
-    source "${_env_file}"
+    source "${_prior_env_file}"
     set +o allexport
   fi
 
@@ -2094,7 +2235,7 @@ _setup_apply() {
   # that one as "fresh checkout" is what would let the rename land
   # silently on exactly the repos that are mid-migration.
   local _project_name_recorded=""
-  _recorded_project_name "${_env_file}" _project_name_recorded
+  _recorded_project_name "${_prior_env_file}" _project_name_recorded
   _carry_project_name "${_project_name_recorded}" "${_project_name_resolved}" \
     "${_project_name_conf}" project_name project_name_pending
   # A CONFIGURED rename is taken at once (see _carry_project_name), which
@@ -2167,6 +2308,25 @@ _setup_apply() {
     return 0
   fi
 
+  # A [deploy] GPU key present but empty has no meaning the compose
+  # emitter can render, and reached it as a bare positional-parameter
+  # abort (base#1270). Refused here, before anything is written, naming
+  # the key and the layer that set it.
+  local _gk_key _gk_val _gk_file
+  for _gk_key in gpu_count gpu_capabilities; do
+    case "${_gk_key}" in
+      gpu_count)        _gk_val="${gpu_count}" ;;
+      gpu_capabilities) _gk_val="${gpu_caps}" ;;
+    esac
+    [[ -n "${_gk_val}" ]] && continue
+    _setup_conf_key_origin "${_base_path}" deploy "${_gk_key}" _gk_file \
+      || _gk_file=""
+    _log_err setup apply_conf_value_empty \
+      "display=[setup] apply: deploy.${_gk_key} is empty in ${_gk_file:-the configuration}; it needs a value. Set it or remove the line to take the default. Nothing was written" \
+      "file=${_gk_file}" "table=deploy" "key=${_gk_key}"
+    return 1
+  done
+
   # ── SSH X11 forwarding cookie rewrite ──
   # When the user is on an SSH X11 forward (`ssh -X` / `ssh -Y`),
   # rewrite their per-session cookie so libX11 inside the container
@@ -2189,7 +2349,36 @@ _setup_apply() {
 
   # ── Generate artifacts ──
   #
-  write_env "${_env_file}" \
+  # Staged (base#1270): every file of the set is written into a staging
+  # directory inside the output directory and moved into place only after
+  # every emitter has succeeded, so a refusal leaves the previous set
+  # exactly as it was -- or, on a first apply, no set at all. Staging
+  # inside the output directory keeps each move a rename on one filesystem.
+  #
+  # An existing `.env.local` is kept as it is and never staged, so the
+  # commit's type check never sees it. Check it here instead: compose
+  # reads it as an env file, so anything that does not resolve to a
+  # regular file (a directory, a fifo) is refused before any work. A
+  # symlink to a regular file is the operator's choice and is kept.
+  if [[ -e "${_env_local_file}" && ! -f "${_env_local_file}" ]]; then
+    _log_err setup apply_output_unusable \
+      "display=[setup] apply: ${_env_local_file} exists and is not a regular file; compose reads it as an env file. Move it aside and re-run. Nothing was written" \
+      "path=${_env_local_file}"
+    return 1
+  fi
+  local _stage_dir
+  if ! _stage_dir="$(mktemp -d "${_out_dir}/.setup-apply.XXXXXX" 2>/dev/null)"; then
+    _log_err setup apply_output_unusable \
+      "display=[setup] apply: could not create a staging directory in ${_out_dir}; nothing was written" \
+      "path=${_out_dir}"
+    return 1
+  fi
+  local _stg_env_file="${_stage_dir}/.env.generated"
+  local _stg_container_env_file="${_stage_dir}/.env"
+  local _stg_env_local_file="${_stage_dir}/.env.local"
+  local _stg_compose_file="${_stage_dir}/compose.yaml"
+
+  write_env "${_stg_env_file}" \
     "${user_name}" "${user_group}" "${user_uid}" "${user_gid}" \
     "${hardware}" "${docker_hub_user}" "${gpu_detected}" \
     "${image_name}" "${ws_path}" \
@@ -2203,7 +2392,8 @@ _setup_apply() {
     "${build_network}" \
     "${_ssh_x11_xauth}" \
     "${project_name}" \
-    "${project_name_pending}"
+    "${project_name_pending}" \
+    || { rm -rf -- "${_stage_dir}"; return 1; }
 
   # `.env`: the container-bound defaults, regenerated every apply. The
   # `[environment]` list and the [lifecycle] WATCHDOG_* block land here
@@ -2211,22 +2401,28 @@ _setup_apply() {
   # them (compose ranks `environment:` above `env_file`). `.env.generated`
   # is passed in as the interpolation source for `${VAR}` references,
   # which an env_file value would otherwise carry through literally.
-  write_container_env "${_container_env_file}" \
-    "${_env_str}" "${watchdog_env_str}" "${_env_file}"
+  write_container_env "${_stg_container_env_file}" \
+    "${_env_str}" "${watchdog_env_str}" "${_stg_env_file}" \
+    || { rm -rf -- "${_stage_dir}"; return 1; }
 
   # `.env.local`: the operator's overrides. Created once, never rewritten.
   # Created eagerly because the generated compose lists it in `env_file:`
-  # and compose fails the whole `up` on a missing env file.
-  _scaffold_env_local "${_env_local_file}"
+  # and compose fails the whole `up` on a missing env file. Staged only
+  # when the output has none, so an existing one is never touched.
+  if [[ ! -e "${_env_local_file}" ]]; then
+    _scaffold_env_local "${_stg_env_local_file}" \
+      || { rm -rf -- "${_stage_dir}"; return 1; }
+  fi
 
   local runtime_resolved=""
   _resolve_runtime "${gpu_runtime_mode}" runtime_resolved
 
   # Propagate generate_compose_yaml's exit explicitly: when sourced
-  # (no `set -e`) a hard-error return from the stage validator
-  # baseline collision / reserved-tag) would otherwise be swallowed
-  # and apply would print "updated" with a half-written compose.yaml.
-  generate_compose_yaml "${_out_dir}/compose.yaml" "${image_name}" \
+  # (no `set -e`) a hard-error return from the stage validator (baseline
+  # collision / reserved-tag) would otherwise be swallowed and apply
+  # would commit the staged set and print "updated". The content answers
+  # for _compose_file; the bytes go to the staged copy (last argument).
+  generate_compose_yaml "${_compose_file}" "${image_name}" \
     "${gui_enabled_eff}" "${gpu_enabled_eff}" \
     "${gpu_count}" "${gpu_caps}" \
     extra_volumes "${network_name}" \
@@ -2247,7 +2443,33 @@ _setup_apply() {
     "${init}" \
     "${watchdog_env_str}" \
     "${_base_path}" \
-    || return $?
+    "${_stg_compose_file}" \
+    || { local _gcy_rc=$?; rm -rf -- "${_stage_dir}"; return "${_gcy_rc}"; }
+
+  # Every emitter succeeded: commit the set as one unit. The legacy
+  # cache's backup is staged too, so it lands with the set or not at all.
+  local -a _commit=()
+  if (( _legacy_cache )); then
+    if ! cp -- "${_container_env_file}" "${_stage_dir}/.env.bak"; then
+      _log_err setup apply_commit_failed \
+        "display=[setup] apply: could not back up the legacy cache ${_container_env_file}; nothing was written" \
+        "path=${_container_env_file}"
+      rm -rf -- "${_stage_dir}"
+      return 1
+    fi
+    _commit+=("${_stage_dir}/.env.bak" "${_container_env_file}.bak")
+  fi
+  _commit+=("${_stg_env_file}" "${_env_file}")
+  _commit+=("${_stg_container_env_file}" "${_container_env_file}")
+  if [[ -e "${_stg_env_local_file}" ]]; then
+    _commit+=("${_stg_env_local_file}" "${_env_local_file}")
+  fi
+  _commit+=("${_stg_compose_file}" "${_compose_file}")
+  local _commit_rc=0
+  _setup_apply_commit "${_stage_dir}" "${_commit[@]}" || _commit_rc=$?
+  # On 2 the staging dir holds the only copy of the previous set.
+  (( _commit_rc == 2 )) || rm -rf -- "${_stage_dir}"
+  (( _commit_rc == 0 )) || return 1
 
   # S7: runtime.env retired. Under the A2 model its purpose
   # is superseded -- [environment] defaults are baked into the runtime
