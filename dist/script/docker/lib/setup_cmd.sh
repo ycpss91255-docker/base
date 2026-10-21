@@ -1598,6 +1598,105 @@ _setup_reset() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_apply_commit <stage_dir> <staged> <target> [<staged> <target>]...
+#
+# Move each staged file onto its target, as one unit (base#1270).
+# Returns 0 when every target now holds its staged file. Otherwise every
+# target is left as it was before the call and the return is non-zero:
+#
+#   - a target that exists and is not a regular file (a directory, a
+#     symlink, a fifo) is refused before anything is moved: `mv` onto a
+#     directory puts the file INSIDE it and still exits 0;
+#   - every existing target is copied into <stage_dir>/prev first, and a
+#     failed copy refuses before anything is moved;
+#   - a move that fails, or that does not leave a regular file at the
+#     target with the staged file gone, puts back every target the
+#     earlier moves replaced (or removes it, where there was none).
+#
+# Return 1: refused or rolled back; the caller removes <stage_dir>.
+# Return 2: a restore itself failed. The copies under <stage_dir>/prev
+# are then the only record of the previous set, the error names them,
+# and the caller must leave <stage_dir> in place.
+# ════════════════════════════════════════════════════════════════════
+_setup_apply_commit() {
+  local _sac_stage="${1:?"${FUNCNAME[0]}: missing stage dir"}"
+  shift
+  local -a _sac_src=() _sac_dst=() _sac_had=()
+  while (( $# >= 2 )); do
+    _sac_src+=("$1")
+    _sac_dst+=("$2")
+    shift 2
+  done
+  local _sac_n="${#_sac_dst[@]}" _i _d
+
+  for (( _i = 0; _i < _sac_n; _i++ )); do
+    _d="${_sac_dst[_i]}"
+    if [[ -L "${_d}" ]] || { [[ -e "${_d}" ]] && [[ ! -f "${_d}" ]]; }; then
+      _log_err setup apply_output_unusable \
+        "display=[setup] apply: ${_d} exists and is not a regular file; apply writes a regular file there. Move it aside and re-run. Nothing was written" \
+        "path=${_d}"
+      return 1
+    fi
+  done
+
+  local _sac_prev="${_sac_stage}/prev"
+  if ! mkdir -- "${_sac_prev}"; then
+    _log_err setup apply_commit_failed \
+      "display=[setup] apply: could not create ${_sac_prev} to hold the previous set; nothing was written" \
+      "path=${_sac_prev}"
+    return 1
+  fi
+  for (( _i = 0; _i < _sac_n; _i++ )); do
+    _d="${_sac_dst[_i]}"
+    _sac_had[_i]=0
+    [[ -e "${_d}" ]] || continue
+    if ! cp -p -- "${_d}" "${_sac_prev}/${_i}"; then
+      _log_err setup apply_commit_failed \
+        "display=[setup] apply: could not copy ${_d} aside before replacing it; nothing was written" \
+        "path=${_d}"
+      return 1
+    fi
+    _sac_had[_i]=1
+  done
+
+  local _sac_failed=-1
+  for (( _i = 0; _i < _sac_n; _i++ )); do
+    _d="${_sac_dst[_i]}"
+    if [[ -d "${_d}" ]] \
+        || ! mv -f -- "${_sac_src[_i]}" "${_d}" \
+        || [[ -L "${_d}" || ! -f "${_d}" || -e "${_sac_src[_i]}" ]]; then
+      _sac_failed="${_i}"
+      break
+    fi
+  done
+  (( _sac_failed < 0 )) && return 0
+
+  # Roll back the failed move and every one before it, newest first.
+  local -a _sac_lost=()
+  local _j
+  for (( _j = _sac_failed; _j >= 0; _j-- )); do
+    _d="${_sac_dst[_j]}"
+    if (( _sac_had[_j] )); then
+      if [[ -d "${_d}" ]] || ! mv -f -- "${_sac_prev}/${_j}" "${_d}"; then
+        _sac_lost+=("${_d}")
+      fi
+    elif [[ -L "${_d}" || -f "${_d}" ]]; then
+      rm -f -- "${_d}" || _sac_lost+=("${_d}")
+    fi
+  done
+  if (( ${#_sac_lost[@]} > 0 )); then
+    _log_err setup apply_rollback_incomplete \
+      "display=[setup] apply: could not move the new ${_sac_dst[_sac_failed]} into place, and could not restore ${_sac_lost[*]}; the previous files are in ${_sac_prev}, numbered in the order ${_sac_dst[*]}" \
+      "path=${_sac_dst[_sac_failed]}" "prev=${_sac_prev}"
+    return 2
+  fi
+  _log_err setup apply_commit_failed \
+    "display=[setup] apply: could not move the new ${_sac_dst[_sac_failed]} into place; the previous files were restored and nothing was changed" \
+    "path=${_sac_dst[_sac_failed]}"
+  return 1
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _setup_apply
 #
 # Subcommand handler for `setup.sh apply`. Regenerates .env.generated +
@@ -2335,18 +2434,30 @@ _setup_apply() {
     "${_stg_compose_file}" \
     || { local _gcy_rc=$?; rm -rf -- "${_stage_dir}"; return "${_gcy_rc}"; }
 
-  # Every emitter succeeded: commit the set. The legacy cache is backed
-  # up first, then each staged file replaces its target by rename.
+  # Every emitter succeeded: commit the set as one unit. The legacy
+  # cache's backup is staged too, so it lands with the set or not at all.
+  local -a _commit=()
   if (( _legacy_cache )); then
-    cp -- "${_container_env_file}" "${_container_env_file}.bak"
+    if ! cp -- "${_container_env_file}" "${_stage_dir}/.env.bak"; then
+      _log_err setup apply_commit_failed \
+        "display=[setup] apply: could not back up the legacy cache ${_container_env_file}; nothing was written" \
+        "path=${_container_env_file}"
+      rm -rf -- "${_stage_dir}"
+      return 1
+    fi
+    _commit+=("${_stage_dir}/.env.bak" "${_container_env_file}.bak")
   fi
-  mv -f -- "${_stg_env_file}" "${_env_file}"
-  mv -f -- "${_stg_container_env_file}" "${_container_env_file}"
+  _commit+=("${_stg_env_file}" "${_env_file}")
+  _commit+=("${_stg_container_env_file}" "${_container_env_file}")
   if [[ -e "${_stg_env_local_file}" ]]; then
-    mv -- "${_stg_env_local_file}" "${_env_local_file}"
+    _commit+=("${_stg_env_local_file}" "${_env_local_file}")
   fi
-  mv -f -- "${_stg_compose_file}" "${_compose_file}"
-  rm -rf -- "${_stage_dir}"
+  _commit+=("${_stg_compose_file}" "${_compose_file}")
+  local _commit_rc=0
+  _setup_apply_commit "${_stage_dir}" "${_commit[@]}" || _commit_rc=$?
+  # On 2 the staging dir holds the only copy of the previous set.
+  (( _commit_rc == 2 )) || rm -rf -- "${_stage_dir}"
+  (( _commit_rc == 0 )) || return 1
 
   # S7: runtime.env retired. Under the A2 model its purpose
   # is superseded -- [environment] defaults are baked into the runtime
