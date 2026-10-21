@@ -2344,6 +2344,82 @@ EOF
   assert [ ! -f "$(_setup_conf_local_path "${TEMP_DIR}")" ]
 }
 
+# ── apply is atomic over its four artifacts (base#1270) ──────────────
+#
+# Measured on 0e7e0845: an apply over `gpu_capabilities = ""` wrote
+# `.env`, `.env.generated` and `.env.local`, then `generate_compose_yaml`
+# aborted on its `${6:?}` guard with bash's `6: parameter null or not set`,
+# leaving no compose.yaml. Both cases below drive the real `apply` over a
+# conf on disk and assert on the artifacts it leaves, not on a validator.
+
+# why: base#1270 -- a first-ever apply that is refused must leave none of
+# the four files behind, and the refusal must name the key and the conf
+# file it came from instead of a positional-parameter error
+@test "apply refused on an empty deploy.gpu_capabilities writes none of the four files (base#1270)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[deploy]
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = ""
+TOML
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  refute_output --partial "parameter null or not set"
+  assert_output --partial "deploy.gpu_capabilities"
+  assert_output --partial "${TEMP_DIR}/setup.toml"
+
+  local _f
+  for _f in .env .env.generated .env.local compose.yaml; do
+    [[ ! -e "${TEMP_DIR}/${_f}" ]] \
+      || fail "a refused first apply left ${_f} behind"
+  done
+}
+
+# why: base#1270 -- a refused apply over an existing set must leave every
+# one of the four files byte-identical, the operator's `.env.local`
+# included: a refusal that rewrote half the set is the half-written
+# bundle the issue reports
+@test "apply refused on an empty deploy.gpu_capabilities leaves the previous set byte-identical (base#1270)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'TOML'
+[deploy]
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = "gpu"
+TOML
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  printf 'OPERATOR_OVERRIDE=1\n' >> "${TEMP_DIR}/.env.local"
+
+  local _f
+  mkdir -p "${TEMP_DIR}/before"
+  for _f in .env .env.generated .env.local compose.yaml; do
+    [[ -f "${TEMP_DIR}/${_f}" ]] || fail "the good apply produced no ${_f}"
+    cp -p "${TEMP_DIR}/${_f}" "${TEMP_DIR}/before/${_f}"
+  done
+
+  sed -i 's/^gpu_capabilities = "gpu"$/gpu_capabilities = ""/' "${TEMP_DIR}/setup.toml"
+  grep -qx 'gpu_capabilities = ""' "${TEMP_DIR}/setup.toml" \
+    || fail "the fixture did not clear gpu_capabilities"
+
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_failure
+  assert_output --partial "deploy.gpu_capabilities"
+
+  for _f in .env .env.generated .env.local compose.yaml; do
+    cmp -s "${TEMP_DIR}/before/${_f}" "${TEMP_DIR}/${_f}" \
+      || fail "a refused apply changed ${_f}"
+  done
+}
+
 @test "[deploy] runtime = nvidia emits runtime: nvidia at service level" {
   # `runtime` is the permanent alias and is consulted only when the
   # effective config sets no canonical `gpu_runtime`. A [table] merges
