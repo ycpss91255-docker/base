@@ -6049,7 +6049,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (223)
+### test/bats/unit/setup_cmd_spec.bats (226)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -6207,6 +6207,9 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply rolls back a commit that fails part-way and leaves the previous set byte-identical (base#1270)` | base#1270 review round 1 -- a move that fails part-way through the commit must put back what the earlier moves replaced, so the refusal still leaves the previous set byte-identical and reports failure |
 | `apply rolls back a commit that fails part-way on a first apply and leaves none of the four files (base#1270)` | base#1270 review round 1 -- the same part-way failure on a first apply must remove what the earlier moves created |
 | `apply rolls back a part-way commit over a legacy .env cache (base#1270)` | base#1270 review round 1 -- on the legacy layout the rollback must also undo the backup and the promotion: `.env` back to the legacy cache, no `.env.generated`, no `.env.bak` |
+| `apply refuses a .env.local that is a directory and leaves the previous set byte-identical (base#1270)` | base#1270 review round 2 -- an existing `.env.local` is never rewritten, so it never reached the commit's type check. A directory there let apply replace the other three files and report success over an env-file set compose cannot read. It must refuse with the set intact. |
+| `apply refuses a .env.local that is a fifo on a first apply and writes none of the other files (base#1270)` | base#1270 review round 2 -- the same check on a first apply, with a fifo: none of the other three files may appear |
+| `apply keeps a .env.local that is a symlink to a regular file and succeeds (base#1270)` | base#1270 review round 2 -- the check must not refuse an operator `.env.local` compose can read: a symlink to a regular file is kept as it is, link and contents, and apply succeeds |
 | `[deploy] runtime = nvidia emits runtime: nvidia at service level` | - |
 | `[deploy] runtime = off omits runtime line entirely` | - |
 | `[gui] mode = off omits X11 / DISPLAY env from compose` | - |

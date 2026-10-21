@@ -2354,6 +2354,18 @@ _setup_apply() {
   # every emitter has succeeded, so a refusal leaves the previous set
   # exactly as it was -- or, on a first apply, no set at all. Staging
   # inside the output directory keeps each move a rename on one filesystem.
+  #
+  # An existing `.env.local` is kept as it is and never staged, so the
+  # commit's type check never sees it. Check it here instead: compose
+  # reads it as an env file, so anything that does not resolve to a
+  # regular file (a directory, a fifo) is refused before any work. A
+  # symlink to a regular file is the operator's choice and is kept.
+  if [[ -e "${_env_local_file}" && ! -f "${_env_local_file}" ]]; then
+    _log_err setup apply_output_unusable \
+      "display=[setup] apply: ${_env_local_file} exists and is not a regular file; compose reads it as an env file. Move it aside and re-run. Nothing was written" \
+      "path=${_env_local_file}"
+    return 1
+  fi
   local _stage_dir
   if ! _stage_dir="$(mktemp -d "${_out_dir}/.setup-apply.XXXXXX" 2>/dev/null)"; then
     _log_err setup apply_output_unusable \
