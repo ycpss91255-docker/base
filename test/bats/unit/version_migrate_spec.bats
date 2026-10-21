@@ -638,9 +638,10 @@ _restart_repo() {
   assert_output --partial 'init = true'
 }
 
-# why: The message states the deploy-scoped rule to the user, so it must
-# name every stage the rule excludes -- base's test-tools-stage included,
-# the stage _is_deployable_stage refuses alongside devel and *-test
+# why: base's test-tools-stage became non-deployable in base#1325, so the
+# message that explains the deploy-scoped rule has to list it among the
+# stages the policy never reaches -- in the exclusion clause itself, since a
+# bare mention would also pass a message that says it receives the policy
 @test "_vmigrate_lifecycle_restart_default_apply names test-tools-stage as excluded (base#1325)" {
   _restart_repo "${TEMP_DIR}/msg" '[lifecycle]' 'restart = "no"'
   run bash -c "$(_src); _vmigrate_lifecycle_restart_default_apply '${TEMP_DIR}/msg'"
