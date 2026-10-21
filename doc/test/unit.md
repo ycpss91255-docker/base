@@ -3428,7 +3428,7 @@ the source INI where it was, writes no target, and says so
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (107)
+### test/bats/unit/init_spec.bats (108)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3449,6 +3449,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: main.yaml uses given ref in workflow @ref` | Ref threading |
 | `_create_new_repo: main.yaml falls back to @main when ref arg omitted` | Default ref |
 | `_create_new_repo: main.yaml falls back to @main when ref arg is empty` | Empty-string → `@main` |
+| `_create_new_repo: the worker filenames main.yaml names are declared protocol-stable (base#1203)` | the worker filename main.yaml names is a contract, not a base-internal detail |
 | `_create_new_repo: does NOT generate .env.example (image name via setup.conf)` | setup.conf rules drive IMAGE_NAME |
 | `_create_symlinks: places 7 wrapper symlinks under script/ (#330)` | 7 wrappers under script/ with ../ targets; justfile at root, no Makefile |
 | `_create_symlinks: places justfile at root with the direct .base/ target (#545)` | root justfile -> .base/script/docker/justfile |

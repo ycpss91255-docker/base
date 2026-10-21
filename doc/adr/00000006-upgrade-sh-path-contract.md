@@ -281,6 +281,31 @@
   unless the list below names that path, so a rename inside base that
   updates every code reference still goes red -- the only way to satisfy it
   is to decide, in this file, that the contract has changed.
+- **Amended:** 2026-10-21 by base#1203 -- the base#1111 amendment above
+  is not the only generated artifact with an unbounded window. `init.sh`'s
+  `_create_new_repo` writes `.github/workflows/main.yaml` once, and its
+  `uses:` lines name base's reusable workflows by filename:
+  `build-worker.yaml` and `release-worker.yaml`. `upgrade.sh` Step 4
+  rewrites only the `@ref` of each such line, never the path, so the
+  filename a consumer's `main.yaml` names is frozen in every repo ever
+  bootstrapped. A consumer's hand-maintained `main.yaml` also calls the two
+  workers `init.sh` never generates, `publish-worker.yaml` and
+  `multi-distro-build-worker.yaml`, and no upgrade rewrites those paths
+  either.
+
+  **The addition to the contract:** the filenames of base's own
+  `.github/workflows/` reusable workflows -- every file there that declares
+  `workflow_call:` -- are protocol-stable under the same unbounded-window
+  rule. Updating the `uses:` lines inside base updates only the generator,
+  which changes what the NEXT bootstrap writes. No worker is renamed by
+  this record, and Step 4's `@ref` rewrite stays as it is.
+
+  The guard reads this record. `init_spec.bats` derives the worker
+  filenames from the `main.yaml` `_create_new_repo` actually writes, checks
+  that each is a file under `.github/workflows/` that declares
+  `workflow_call:`, and fails unless the list below names it; it also
+  fails unless every file there that declares `workflow_call:` is named, so
+  the two workers `init.sh` does not generate are held to the record too.
 - **Amended:** 2026-10-06 by #1097 -- the 2026-09-06 amendment settled WHERE
   a migration across a base layout change belongs: the `init.sh` resync,
   never `upgrade.sh`. It did not say how such a migration knows whether it
@@ -462,6 +487,17 @@ re-checking #492's trigger checklist):
   cannot reach, so while the generated workflow exists this path may not
   move without leaving a forwarder behind, and the guard in
   `init_spec.bats` is what forces that decision to be taken here.
+- `.github/workflows/build-worker.yaml`,
+  `.github/workflows/release-worker.yaml`,
+  `.github/workflows/publish-worker.yaml` and
+  `.github/workflows/multi-distro-build-worker.yaml` -- base's reusable
+  workflows (each declares `workflow_call:`), named by filename in the
+  `uses:` lines of a consumer's `main.yaml`, which `init.sh` writes once
+  and `upgrade.sh` Step 4 rewrites only at the `@ref`. *(Added 2026-10-21
+  by base#1203.)* Their window is **unbounded** for the same reason as
+  `check-base-version.sh`: a rename strands every consumer that calls the
+  old filename, and the guard in `init_spec.bats` fails until this list
+  names every file that declares `workflow_call:`.
 
 "Protocol-stable" means: these are not free-to-refactor implementation
 details. A reorg may still move them, but only as a deliberate,
