@@ -310,25 +310,28 @@ REMOTE
 
   local _f
   for _f in "${_named[@]}"; do
-    # base really ships it as a reusable workflow ...
+    # base really ships it as a reusable workflow.
     [[ -f "/source/.github/workflows/${_f}" ]] \
       || { echo "base ships no .github/workflows/${_f}"; return 1; }
     grep -qE '^[[:space:]]*workflow_call:' "/source/.github/workflows/${_f}" \
       || { echo "${_f} declares no workflow_call:"; return 1; }
-    # ... and the contract record names it.
-    grep -qF -- "${_f}" "${_adr}" \
-      || { echo "ADR-00000006 does not name ${_f}"; return 1; }
   done
 
   # Consumers' hand-maintained main.yaml also call workers init.sh never
   # generates (publish-worker.yaml, multi-distro-build-worker.yaml), so
-  # every file that declares workflow_call: is on the record too.
+  # every file that declares workflow_call: must be on the record too.
   local _p
   for _p in /source/.github/workflows/*.yaml; do
-    grep -qE '^[[:space:]]*workflow_call:' "${_p}" || continue
-    _f="${_p##*/}"
-    grep -qF -- "${_f}" "${_adr}" \
-      || { echo "ADR-00000006 does not name ${_f}"; return 1; }
+    if grep -qE '^[[:space:]]*workflow_call:' "${_p}"; then
+      _named+=("${_p##*/}")
+    fi
+  done
+
+  # The record names each by its full path: a bare `build-worker.yaml`
+  # would also match `multi-distro-build-worker.yaml`.
+  for _f in "${_named[@]}"; do
+    grep -qF -- ".github/workflows/${_f}" "${_adr}" \
+      || { echo "ADR-00000006 does not name .github/workflows/${_f}"; return 1; }
   done
 }
 
