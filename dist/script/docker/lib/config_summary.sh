@@ -328,8 +328,18 @@ _print_config_summary() {
       local -a _pcs_secs=(image build deploy gui network security resources
                           environment tmpfs devices volumes)
       if [[ "${_conf}" == *.toml ]]; then
-        _summary_dump_entries "${_tag}" "${_pcs_secs[*]}" \
-          "$(toml_bridge_parse "${_conf}" --entries)"
+        # The bridge's status is read before its output is used: a file
+        # that failed to parse printed as an empty setup.toml section, with
+        # rc 0, tells the reader the run uses the template defaults when
+        # nothing was read (base#1398).
+        local _pcs_entries
+        if ! _pcs_entries="$(toml_bridge_parse "${_conf}" --entries)"; then
+          _log_err conf conf_toml_parse_failed \
+            "display=_print_config_summary: the TOML parse of ${_conf} failed; refusing to print it as an empty configuration" \
+            "path=${_conf}"
+          return 1
+        fi
+        _summary_dump_entries "${_tag}" "${_pcs_secs[*]}" "${_pcs_entries}"
       else
         for _sec in "${_pcs_secs[@]}"; do
           _content="$(_dump_conf_section "${_conf}" "${_sec}")"

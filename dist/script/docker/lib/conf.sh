@@ -221,6 +221,11 @@ _toml_tokenize() {
 # goes through the bridge (_toml_tokenize), which numbers array-of-
 # tables blocks back into the `<prefix>_N` keys this view speaks;
 # anything else through _ini_tokenize -- the rule _conf_load applies.
+#
+# Returns non-zero, with every out-array empty, when the tokenizer
+# refuses the file (a `.toml` the bridge could not parse): a broken
+# layer must not be handed to a caller as one with no keys (base#1398).
+# An absent file is still rc 0 with nothing loaded.
 _load_setup_conf_full() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
   local -n _lsf_sections="${2:?}"
@@ -234,9 +239,9 @@ _load_setup_conf_full() {
 
   local -a __lsf_s=() __lsf_es=() __lsf_k=() __lsf_v=()
   if [[ "${_file}" == *.toml ]]; then
-    _toml_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v
+    _toml_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v || return 1
   else
-    _ini_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v
+    _ini_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v || return 1
   fi
 
   local __lsf_i
