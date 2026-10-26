@@ -1570,3 +1570,50 @@ EOF
   refute_output --partial "command not found"
   refute_output --partial "_init_record_write"
 }
+
+# ── commit gate agrees with the loader (base#1397) ─────────────────────
+
+# why: The commit gate exists so a conversion the loader cannot read is
+#      never committed in place of the INI. It parsed in the bridge's
+#      default JSON mode, while the loader reads through `--kv`, which is
+#      stricter: `[x] volume = [{a = 1}]` is valid TOML, but `--kv`
+#      refuses an array of tables that no numbered family carries
+#      (base#1307). The gate committed such a file, and the next load
+#      failed on it. Driven at the gate itself, because the converter
+#      does not currently emit this shape -- the gate is what must hold
+#      whatever the converter emits.
+@test "_ini_to_toml_commit declines a candidate the --kv load refuses (base#1397)" {
+  printf '[x]\nvolume = [{a = 1}]\n' > "${TEMP_DIR}/setup.toml.tmp"
+  : > "${TEMP_DIR}/.setup.conf"
+  # JSON, because the text sink renders only the display line and the
+  # event name and reason are attributes.
+  run bash -c "export LOG_FORMAT=json; $(_src); _ini_to_toml_commit '${TEMP_DIR}/.setup.conf' '${TEMP_DIR}/setup.toml.tmp' '${TEMP_DIR}/setup.toml'"
+  assert_failure
+  assert_output --partial '"body":"ini_to_toml_migration_declined"'
+  assert_output --regexp '"reason":"[^"]*x\.volume'
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml.tmp" ]
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+}
+
+# why: The invariant behind the case above: for any candidate, the gate's
+#      verdict is the loader's verdict. A gate that accepts what
+#      `toml_bridge_merge --kv` refuses commits an unloadable file; one
+#      that refuses what the loader accepts blocks a good migration. One
+#      candidate of each kind, each compared verdict for verdict.
+@test "_ini_to_toml_commit's verdict is the --kv loader's verdict (base#1397)" {
+  local _n=0 _cand
+  for _cand in '[x]\nvolume = [{a = 1}]\n' '[gui]\nmode = "off"\n'; do
+    _n=$(( _n + 1 ))
+    mkdir -p "${TEMP_DIR}/${_n}"
+    printf "${_cand}" > "${TEMP_DIR}/${_n}/load.toml"
+    printf "${_cand}" > "${TEMP_DIR}/${_n}/setup.toml.tmp"
+    : > "${TEMP_DIR}/${_n}/.setup.conf"
+    run bash -c "$(_src); toml_bridge_merge --kv '${TEMP_DIR}/${_n}/load.toml' >/dev/null 2>&1"
+    local _load_rc="${status}"
+    run bash -c "$(_src); _ini_to_toml_commit '${TEMP_DIR}/${_n}/.setup.conf' '${TEMP_DIR}/${_n}/setup.toml.tmp' '${TEMP_DIR}/${_n}/setup.toml' >/dev/null 2>&1"
+    local _gate_rc="${status}"
+    printf 'candidate %d: load rc=%s gate rc=%s\n' "${_n}" "${_load_rc}" "${_gate_rc}" >&3
+    assert_equal "$(( _gate_rc == 0 ))" "$(( _load_rc == 0 ))"
+  done
+}
