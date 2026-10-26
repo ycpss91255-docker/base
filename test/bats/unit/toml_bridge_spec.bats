@@ -1962,6 +1962,61 @@ _bridge_refuses() {
   assert_line $'image\trule_1\tprefix:docker_'
 }
 
+# why: `--entries` (the config summary's read) skipped the same arrays
+# `--kv` refuses. A table's array of scalars reached `entries()`, whose
+# elements are not tables, so `[x] arr = ["a"]` printed nothing with
+# exit 0; and a root `[[install]]` printed rows as if it were a family.
+# Either way the summary showed a file the loader refuses as a valid
+# one. The refusal is the `--kv` one, naming the array's dotted path,
+# with nothing on stdout -- not even the `[build] x` row beside it
+# (base#1396).
+@test "toml-bridge: --entries refuses an array the spec has no family for (base#1396)" {
+  local _f="${BATS_TEST_TMPDIR}/entries_unknown.toml"
+
+  printf '[x]\narr = ["a"]\n' > "${_f}"
+  _bridge_refuses "x.arr" --entries < "${_f}"
+
+  printf '[[install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "install" --entries < "${_f}"
+
+  printf '[build]\nx = "1"\n\n[[build.install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "build.install" --entries < "${_f}"
+}
+
+# why: The control for the refusal above, derived from the writers' own
+# table of array homes as the `--kv` control is: every family the
+# writers produce still prints its `[[...]]` block under `--entries`, so
+# a refusal satisfied by refusing a known family fails here (base#1396).
+@test "toml-bridge: --entries still prints every array home the writers produce (base#1396)" {
+  # shellcheck disable=SC1090
+  source "${ROOT}/dist/script/docker/lib/conf.sh"
+  # shellcheck disable=SC1090
+  source "${ROOT}/dist/script/docker/lib/schema.sh"
+
+  local _sect _pair _path _fields _body=""
+  local -a _fams=() _paths=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _path="${_pair#*=}"
+      _conf_toml_aot_fields "${_path}" "A=B:C" _fields
+      _body+="[[${_path}]]"$'\n'"${_fields}"$'\n\n'
+      _paths+=("${_path}")
+    done
+  done
+  (( ${#_paths[@]} > 0 )) || fail "the family table named no array home"
+
+  local _f="${BATS_TEST_TMPDIR}/entries_every_home.toml"
+  printf '%s' "${_body}" > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --entries < "${_f}"
+  assert_success
+  assert_equal "${stderr}" ""
+  for _path in "${_paths[@]}"; do
+    assert_line --regexp $'^[^\t]+\t[0-9]+\t\\[\\['"${_path}"$'\\]\\]\t'
+  done
+}
+
 # why: `_emit_kv` handled a top-level array and a top-level table and had
 # no `else`, so a top-level SCALAR produced no row and no word. Measured
 # on main: `top = "v"` above `[gui] mode = "x"` printed `gui mode x` alone
