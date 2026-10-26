@@ -54,3 +54,32 @@ _summary_probe() {
   assert_output --partial '"body":"conf_toml_parse_failed"'
   refute_output --partial "unregistered log body"
 }
+
+# why: The empty-file hint is chosen by a header grep, and a malformed
+# file the grep does not recognise (`[gui` unclosed, or a bare unterminated
+# `mode = "off`) took that branch: it printed "no section overrides --
+# using template defaults" with rc 0 and never parsed the file. The parse
+# decides, not the grep (base#1398).
+@test "_print_config_summary refuses a malformed setup.toml with no recognised header (base#1398)" {
+  local _fp="${BATS_TEST_TMPDIR}" _bad
+
+  # A comments-only file parses to nothing: the empty hint, rc 0.
+  printf '# nothing set here\n' > "${_fp}/setup.toml"
+  _summary_probe "${_fp}"
+  assert_success
+  assert_output --partial "rc=0"
+  assert_output --partial "no section overrides"
+  refute_output --partial "conf_toml_parse_failed"
+
+  # toml-fixture-lint: allow the parser's refusal of these layers IS the assertion
+  for _bad in '[gui\nmode = "off"\n' 'mode = "off\n'; do
+    # shellcheck disable=SC2059  # the fixture is the format string
+    printf "${_bad}" > "${_fp}/setup.toml"
+    _summary_probe "${_fp}"
+    assert_success
+    assert_output --partial "rc=1"
+    assert_output --partial '"body":"conf_toml_parse_failed"'
+    refute_output --partial "no section overrides"
+    refute_output --partial "unregistered log body"
+  done
+}

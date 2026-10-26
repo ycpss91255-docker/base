@@ -930,27 +930,30 @@ EOF
   local _conf_sh=/source/dist/script/docker/lib/conf.sh
   local _probe
   _probe="source ${_conf_sh}
-declare -a s k v
+declare -a s=(stale_s) k=(stale_k) v=(stale_v)
 _load_setup_conf_full \"\$1\" s k v
-printf 'rc=%s sects=%s keys=%s\n' \"\$?\" \"\${#s[@]}\" \"\${#k[@]}\""
+printf 'rc=%s sects=%s keys=%s vals=%s\n' \"\$?\" \"\${#s[@]}\" \"\${#k[@]}\" \"\${#v[@]}\""
 
-  # A valid file: rc 0, with its key.
+  # Every out-array is seeded with a stale entry, so "nothing loaded"
+  # means the function emptied them, not that they were never touched.
+
+  # A valid file: rc 0, with its key and value and no stale entry.
   printf '[gui]\nmode = "off"\n' > "${TEMP_DIR}/valid.toml"
   run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/valid.toml"
   assert_success
-  assert_output --partial "rc=0 sects=1 keys=1"
+  assert_output --partial "rc=0 sects=1 keys=1 vals=1"
 
   # An absent file: rc 0, with nothing.
   run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/absent.toml"
   assert_success
-  assert_output --partial "rc=0 sects=0 keys=0"
+  assert_output --partial "rc=0 sects=0 keys=0 vals=0"
 
   # A malformed file: rc 1, nothing loaded, and the parse failure named.
   # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
   printf '[gui]\nmode = "off\n' > "${TEMP_DIR}/setup.toml"
   run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
   assert_success
-  assert_output --partial "rc=1 sects=0 keys=0"
+  assert_output --partial "rc=1 sects=0 keys=0 vals=0"
   assert_output --partial '"body":"conf_toml_parse_failed"'
   refute_output --partial "unregistered log body"
 }

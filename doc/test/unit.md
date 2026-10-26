@@ -1871,7 +1871,7 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
-### test/bats/unit/config_summary_spec.bats (1)
+### test/bats/unit/config_summary_spec.bats (2)
 
 Mirrors `lib/config_summary.sh`. `_print_config_summary` is the one screen a
 user reads before a build or a run, and it must not render a setup.toml that
@@ -1882,6 +1882,7 @@ empty setup.toml section and answer zero (base#1398).
 | Test | Description |
 |------|-------------|
 | `_print_config_summary refuses a setup.toml that cannot be parsed (base#1398)` | The summary is the screen a user reads before a build; an empty setup.toml section over a file that failed to parse tells them their configuration is the template defaults when nothing was read (base#1398). |
+| `_print_config_summary refuses a malformed setup.toml with no recognised header (base#1398)` | The empty-file hint is chosen by a header grep, and a malformed file the grep does not recognise (`[gui` unclosed, or a bare unterminated `mode = "off`) took that branch: it printed "no section overrides -- using template defaults" with rc 0 and never parsed the file. The parse decides, not the grep (base#1398). |
 
 ### test/bats/unit/coverage_badge_spec.bats (47)
 
