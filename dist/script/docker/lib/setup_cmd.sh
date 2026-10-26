@@ -1421,8 +1421,11 @@ _setup_remove() {
     return 1
   fi
 
+  # A layer that is there but cannot be parsed has already been reported
+  # by the tokenizer (conf_toml_parse_failed); searching its empty
+  # projection would add a false conf_key_not_found (base#1398).
   local -a _sects=() _keys=() _vals=()
-  _load_setup_conf_full "${_conf}" _sects _keys _vals
+  _load_setup_conf_full "${_conf}" _sects _keys _vals || return 1
 
   local _target_key="" _target_val="" _i
   if (( _have_value )); then

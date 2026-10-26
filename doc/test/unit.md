@@ -1871,6 +1871,19 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
+### test/bats/unit/config_summary_spec.bats (2)
+
+Mirrors `lib/config_summary.sh`. `_print_config_summary` is the one screen a
+user reads before a build or a run, and it must not render a setup.toml that
+could not be parsed as one that says nothing: it used to hand the bridge's
+empty stdout to the dump without looking at the bridge's status, print an
+empty setup.toml section and answer zero (base#1398).
+
+| Test | Description |
+|------|-------------|
+| `_print_config_summary refuses a setup.toml that cannot be parsed (base#1398)` | The summary is the screen a user reads before a build; an empty setup.toml section over a file that failed to parse tells them their configuration is the template defaults when nothing was read (base#1398). |
+| `_print_config_summary refuses a malformed setup.toml with no recognised header (base#1398)` | The empty-file hint is chosen by a header grep, and a malformed file the grep does not recognise (`[gui` unclosed, or a bare unterminated `mode = "off`) took that branch: it printed "no section overrides -- using template defaults" with rc 0 and never parsed the file. The parse decides, not the grep (base#1398). |
+
 ### test/bats/unit/coverage_badge_spec.bats (47)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
@@ -6337,7 +6350,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (54)
+### test/bats/unit/setup_conf_spec.bats (55)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6405,6 +6418,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_setup_conf_handle propagates the refusal of an unhonourable override (base#1087)` | And the readers built on the chain inherit that refusal, or the one that matters -- the merge every emitter resolves through -- would hand back a configuration assembled without the layer the caller named. |
 | `_setup_conf_chain_changed reports a layer the call created (base#1087)` | A chain that moved must be reported as moved, and one that did not must not -- the second half matters as much, because a detector that always fires would make every --output call refuse and the whole parameterised API unusable. |
 | `_setup_conf_chain_changed reports no change over an untouched chain (base#1087)` | - |
+| `_load_setup_conf_full answers non-zero with nothing loaded when the TOML parse fails (base#1398)` | The projection every key-level reader goes through. Without the refusal a malformed setup.toml loads as zero keys with success, so a broken file is indistinguishable from an empty one (base#1398). |
 
 ### test/bats/unit/setup_detect_spec.bats (53)
 
@@ -6471,7 +6485,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (136)
+### test/bats/unit/setup_spec.bats (137)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -6624,6 +6638,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply refuses a misspelt key in a --local-conf layer, naming that layer (base#1328)` | - |
 | `apply still accepts a per-stage key, [logging.<svc>] and a free-form reader key (base#1328)` | - |
 | `apply still accepts the free-form [build] named keys and lifts them into build args (base#1328)` | - |
+| `remove on an unparsable setup.toml reports the parse failure, not a missing key (base#1398)` | `remove` on a layer that is there but cannot be parsed must say the file is broken, not that the key is missing. _load_setup_conf_full used to answer zero over zero keys on a failed parse, so the key search ran over nothing and the operator was told `gui.mode` does not exist in a file that names it (base#1398). The file must also be left exactly as it was. |
 
 ### test/bats/unit/shell_metrics_spec.bats (59)
 
