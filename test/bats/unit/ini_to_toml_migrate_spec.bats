@@ -1606,8 +1606,8 @@ EOF
   for _cand in '[x]\nvolume = [{a = 1}]\n' '[gui]\nmode = "off"\n'; do
     _n=$(( _n + 1 ))
     mkdir -p "${TEMP_DIR}/${_n}"
-    printf "${_cand}" > "${TEMP_DIR}/${_n}/load.toml"
-    printf "${_cand}" > "${TEMP_DIR}/${_n}/setup.toml.tmp"
+    printf '%b' "${_cand}" > "${TEMP_DIR}/${_n}/load.toml"
+    cp -- "${TEMP_DIR}/${_n}/load.toml" "${TEMP_DIR}/${_n}/setup.toml.tmp"
     : > "${TEMP_DIR}/${_n}/.setup.conf"
     run bash -c "$(_src); toml_bridge_merge --kv '${TEMP_DIR}/${_n}/load.toml' >/dev/null 2>&1"
     local _load_rc="${status}"
