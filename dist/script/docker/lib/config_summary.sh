@@ -300,6 +300,21 @@ _print_config_summary() {
   # non-empty to stay readable. Order matches the TUI main menu so
   # the printout and setup_tui.sh layout mirror each other.
   if [[ -f "${_conf}" ]]; then
+    # Parse before anything is printed about the file. The empty-file
+    # hint below is chosen by a header grep, and a malformed file the
+    # grep does not recognise (`[gui` unclosed, a bare `mode = "off`)
+    # took that branch: "no section overrides" with rc 0 over a file
+    # nothing read. A failed parse is refused here whatever the grep
+    # would say; it is never printed as an empty configuration
+    # (base#1398).
+    local _pcs_entries=""
+    if [[ "${_conf}" == *.toml ]] \
+       && ! _pcs_entries="$(toml_bridge_parse "${_conf}" --entries)"; then
+      _log_err conf conf_toml_parse_failed \
+        "display=_print_config_summary: the TOML parse of ${_conf} failed; refusing to print it as an empty configuration" \
+        "path=${_conf}"
+      return 1
+    fi
     _summary_print "${_tag}" bold "setup.toml"
     # When the file exists but contains no [section] headers (empty file
     # / comments-only / whitespace-only), every section silently falls
@@ -321,24 +336,13 @@ _print_config_summary() {
       # first-time user reads before a build, while the scalars printed
       # with their TOML quotes still on. The parse is printed in the
       # file's own vocabulary (`[[build.args]]`, `key = ...`), never the
-      # KV view's `arg_N` names (base#1339). Loaded ONCE: each call is a
-      # bridge invocation, and eleven of them per summary is eleven
-      # `docker run`s.
+      # KV view's `arg_N` names (base#1339). Loaded ONCE, above: each
+      # call is a bridge invocation, and eleven of them per summary is
+      # eleven `docker run`s.
       local _sec _content _l
       local -a _pcs_secs=(image build deploy gui network security resources
                           environment tmpfs devices volumes)
       if [[ "${_conf}" == *.toml ]]; then
-        # The bridge's status is read before its output is used: a file
-        # that failed to parse printed as an empty setup.toml section, with
-        # rc 0, tells the reader the run uses the template defaults when
-        # nothing was read (base#1398).
-        local _pcs_entries
-        if ! _pcs_entries="$(toml_bridge_parse "${_conf}" --entries)"; then
-          _log_err conf conf_toml_parse_failed \
-            "display=_print_config_summary: the TOML parse of ${_conf} failed; refusing to print it as an empty configuration" \
-            "path=${_conf}"
-          return 1
-        fi
         _summary_dump_entries "${_tag}" "${_pcs_secs[*]}" "${_pcs_entries}"
       else
         for _sec in "${_pcs_secs[@]}"; do
