@@ -158,10 +158,16 @@ _toml_bridge_ensure_image() {
   _dockerfile="$(_toml_bridge_dockerfile)" || return 1
   _context="${_dockerfile%/*}"
 
+  # SPIKE ONLY (base#1395 slice 1): TOML_BRIDGE_SPIKE_LOG_STDERR=1 sends this
+  # record to stderr, so a first build inside $(toml_bridge_merge --kv ...)
+  # no longer becomes a KV row. Lets the cold baseline finish; the real fix
+  # is its own issue.
+  local _tb_fd=1
+  [[ "${TOML_BRIDGE_SPIKE_LOG_STDERR:-}" == "1" ]] && _tb_fd=2
   _log_info toml_bridge toml_bridge_building \
     "display=building the containerised TOML parser ${_image} from ${_dockerfile} -- the configuration format is TOML (ADR-00000037) and nothing reads it until the parser exists. Once per revision of the bridge: a later run whose build inputs are identical resolves this same tag and skips the build." \
     "image=${_image}" \
-    "path=${_dockerfile}"
+    "path=${_dockerfile}" >&"${_tb_fd}"
 
   _out="$(docker build -t "${_image}" -f "${_dockerfile}" "${_context}" 2>&1)" \
     || _rc=$?

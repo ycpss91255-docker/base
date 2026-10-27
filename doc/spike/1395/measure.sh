@@ -23,9 +23,17 @@
 #                                         each (engine cold i ms rc load1 load5)
 #        measure.sh outputs <mode>        one run; prints sha256 of the
 #                                         files apply wrote
+#        measure.sh rrcold <n> <mode>...  cold, interleaved and rotated
+#        measure.sh gate <mode>...        frozen clock, every file apply
+#                                         leaves, unfiltered: one manifest
+#                                         digest per mode
 #
 # Modes:
 #   current-docker   today: no batching, bridge forced through docker run
+#   current-docker-fixed
+#                    current-docker with the first-build log record on
+#                    stderr (TOML_BRIDGE_SPIKE_LOG_STDERR=1), so a cold
+#                    run completes; identical to current-docker warm
 #   batch-docker     Python bridge --batch, one docker run
 #   go-docker        Go prototype in a container (one docker run), views
 #                    served from the recorded Python --batch output
@@ -75,6 +83,8 @@ mode_env() {
   local _np="${WORK}/native-bin:${PATH}"
   case "${_m}" in
     current-docker) echo "TOML_BRIDGE_FORCE_DOCKER=1" ;;
+    current-docker-fixed)
+                    echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_SPIKE_LOG_STDERR=1" ;;
     batch-docker)   echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1" ;;
     go-docker)      echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1 TOML_BRIDGE_BATCH_GO=docker:${GO_PROTO} TOML_BRIDGE_BATCH_REPLAY=${WORK}/replay.batch" ;;
     go-native)      echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1 TOML_BRIDGE_BATCH_GO=native:${WORK}/setupgen TOML_BRIDGE_BATCH_REPLAY=${WORK}/replay.batch" ;;
@@ -96,7 +106,7 @@ apply_once() {
 make_cold() {
   local _m="$1" _tag
   case "${_m}" in
-    current-docker|batch-docker) _tag="$(bridge_tag)" ;;
+    current-docker|current-docker-fixed|batch-docker) _tag="$(bridge_tag)" ;;
     go-docker) _tag="$(go_tag)" ;;
     *) die "cold does not apply to ${_m}" ;;
   esac
@@ -175,21 +185,50 @@ cmd_run() {
 
 cmd_rr() {
   local _n="$1"; shift
-  local _m _r
+  local _m _r _k=$# _j _off
+  local -a _all=("$@") _order=()
   for _m in "$@"; do fresh_repo; apply_once "${_m}" "BUILDX_BUILDER=${BUILDER}"; done
   for (( _r = 1; _r <= _n; _r++ )); do
-    for _m in "$@"; do
+    # Balanced order: round r starts at mode (r-1) mod k, and every
+    # second round runs backwards, so no mode always follows the same one
+    # or always sits in the same position.
+    _order=()
+    _off=$(( (_r - 1) % _k ))
+    for (( _j = 0; _j < _k; _j++ )); do _order+=("${_all[(_off + _j) % _k]}"); done
+    if (( _r % 2 == 0 )); then
+      local -a _rev=()
+      for (( _j = _k - 1; _j >= 0; _j-- )); do _rev+=("${_order[_j]}"); done
+      _order=("${_rev[@]}")
+    fi
+    for _m in "${_order[@]}"; do
       cmd_run_one "${_m}" warm "${_r}"
+    done
+  done
+}
+
+# rrcold <n> <mode>... -- cold, interleaved and rotated like rr: before
+# every timed run the engine image and the builder cache are removed.
+cmd_rrcold() {
+  local _n="$1"; shift
+  local _r _j _k=$# _off _m
+  local -a _all=("$@")
+  for (( _r = 1; _r <= _n; _r++ )); do
+    _off=$(( (_r - 1) % _k ))
+    for (( _j = 0; _j < _k; _j++ )); do
+      _m="${_all[(_off + _j) % _k]}"
+      make_cold "${_m}"
+      cmd_run_one "${_m}" cold "${_r}" "BUILDX_BUILDER=${BUILDER}"
     done
   done
 }
 
 cmd_run_one() {
   local _m="$1" _temp="$2" _i="$3" _s _e _rc=0 _la _la5
+  shift 3
   fresh_repo
   read -r _la _la5 _ < /proc/loadavg
   _s="$(date +%s%N)"
-  apply_once "${_m}" || _rc=$?
+  apply_once "${_m}" "$@" || _rc=$?
   _e="$(date +%s%N)"
   printf '%s\t%s\t%d\t%d\t%d\t%s\t%s\n' "${_m}" "${_temp}" "${_i}" \
     $(( (_e - _s) / 1000000 )) "${_rc}" "${_la}" "${_la5}"
@@ -229,12 +268,44 @@ cmd_outputs() {
     done )
 }
 
+
+# gate <mode>... -- correctness lane, separate from timing. The clock is
+# frozen (a `date` shim on PATH answers for one fixed instant unless the
+# caller passes -d/-r), the fixture is fresh, and EVERY file apply leaves
+# in the repo dir is hashed with its mode. Nothing is filtered. Prints one
+# manifest digest per mode and the manifest of the first mode.
+cmd_gate() {
+  local _m _rc
+  mkdir -p -- "${WORK}/frozen"
+  printf '#!/bin/sh\nfor a in "$@"; do case "$a" in -d|-r|--date*|--reference*) exec /usr/bin/date "$@";; esac; done\nexec /usr/bin/date -d @1800000000 "$@"\n' \
+    > "${WORK}/frozen/date"
+  chmod +x "${WORK}/frozen/date"
+  for _m in "$@"; do
+    fresh_repo
+    _rc=0
+    # shellcheck disable=SC2046
+    env $(mode_env "${_m}") \
+      PATH="${WORK}/frozen:$(env $(mode_env "${_m}") bash -c 'echo "$PATH"')" \
+      bash "${BASE}/dist/script/docker/wrapper/setup.sh" apply --base-path "${REPO}" \
+      > "${WORK}/gate-${_m}.out" 2>&1 || _rc=$?
+    ( cd -- "${REPO}" && find . -type f -printf '%m %p\n' | sort -k2 \
+        | while read -r _mode _p; do printf '%s %s %s\n' "${_mode}" "$(sha256sum < "${_p}" | cut -c1-16)" "${_p}"; done ) \
+      > "${WORK}/gate-${_m}.manifest"
+    printf '%s rc=%s files=%s manifest=%s\n' "${_m}" "${_rc}" \
+      "$(wc -l < "${WORK}/gate-${_m}.manifest")" \
+      "$(sha256sum < "${WORK}/gate-${_m}.manifest" | cut -c1-16)"
+  done
+  sed 's/^/  /' "${WORK}/gate-${1}.manifest"
+}
+
 case "${1:-}" in
   setup) cmd_setup ;;
   count) cmd_count "${2:?mode}" ;;
   run) cmd_run "${2:?mode}" "${3:?warm|cold}" "${4:?n}" ;;
   rr) shift; cmd_rr "$@" ;;
+  rrcold) shift; cmd_rrcold "$@" ;;
+  gate) shift; cmd_gate "$@" ;;
   coldbuild) cmd_coldbuild "${2:?bridge|go}" "${3:?n}" ;;
   outputs) cmd_outputs "${2:?mode}" ;;
-  *) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,34p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac
