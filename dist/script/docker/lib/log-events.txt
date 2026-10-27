@@ -396,6 +396,7 @@ tui_list_labels_missing
 # tag, because nothing else in the production init path ever did)
 no_such_file
 merge_no_files
+merge_layer_not_regular
 toml_bridge_building
 toml_bridge_build_failed
 toml_bridge_unprovisionable

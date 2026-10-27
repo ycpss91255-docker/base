@@ -777,8 +777,8 @@ pgrep -f my_node
 """
 EOF
   cp "${CONF}" "${TEMP_DIR}/before.toml"
-  run _upsert_conf_value "${CONF}" lifecycle watchdog_check 'pgrep -f other'
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _upsert_conf_value "${CONF}" lifecycle watchdog_check 'pgrep -f other'
+  assert_refusal 1 conf_write_declined "file=${CONF}" target=lifecycle.watchdog_check
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success
   # Still the TOML it was. Asked in JSON mode, not `--kv`: this value
@@ -802,15 +802,15 @@ EOF
 # second parse of each case asserts.
 @test "_upsert_conf_value: an index with no 1-based slot is refused, not rerouted" {
   cp "${TPL}" "${CONF}"
-  run _upsert_conf_value "${CONF}" volumes mount_0 '/data:/data'
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _upsert_conf_value "${CONF}" volumes mount_0 '/data:/data'
+  assert_refusal 1 conf_write_index_rejected "file=${CONF}" section=volumes key=mount_0
   run toml_bridge_parse "${CONF}" --kv
   assert_success
   refute_line --regexp '^volumes	mount_1	.'
 
   cp "${TPL}" "${CONF}"
-  run _upsert_conf_value "${CONF}" volumes mount_01 '/pad:/pad'
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _upsert_conf_value "${CONF}" volumes mount_01 '/pad:/pad'
+  assert_refusal 1 conf_write_index_rejected "file=${CONF}" section=volumes key=mount_01
   run toml_bridge_parse "${CONF}" --kv
   assert_success
   refute_line --regexp '^volumes	mount_1	.'
@@ -825,8 +825,8 @@ EOF
 @test "_upsert_conf_value: a set into an inline table is refused by the parse gate" {
   printf 'resources = { shm_size = "64m" }\n' > "${CONF}"
   cp "${CONF}" "${TEMP_DIR}/before.toml"
-  run _upsert_conf_value "${CONF}" resources shm_size '128m'
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _upsert_conf_value "${CONF}" resources shm_size '128m'
+  assert_refusal 1 conf_write_declined "file=${CONF}" target=resources.shm_size
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success
 }
@@ -847,8 +847,8 @@ EOF
 @test "_write_setup_conf: a removal the rewrite did not make is refused, and the file is untouched" {
   printf 'resources = { shm_size = "64m" }\n' > "${CONF}"
   local -a _k=() _v=()
-  run _write_setup_conf "${CONF}" "${CONF}" _k _v "resources.shm_size"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _write_setup_conf "${CONF}" "${CONF}" _k _v "resources.shm_size"
+  assert_refusal 1 conf_write_not_applied "file=${CONF}" target=resources.shm_size
   run toml_bridge_parse "${CONF}" --kv
   assert_success
   assert_line $'resources\tshm_size\t64m'
@@ -867,8 +867,8 @@ EOF
 @test "_write_setup_conf: an array removal the rewrite did not make is refused" {
   printf '[build]\nargs = [{ key = "FOO", value = "bar" }]\n' > "${CONF}"
   local -a _k=() _v=()
-  run _write_setup_conf "${CONF}" "${CONF}" _k _v "build.arg_1"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _write_setup_conf "${CONF}" "${CONF}" _k _v "build.arg_1"
+  assert_refusal 1 conf_write_declined "file=${CONF}" target= "Cannot overwrite a value"
   run toml_bridge_parse "${CONF}" --kv
   assert_success
   assert_line $'build\targ_1\tFOO=bar'
@@ -924,10 +924,9 @@ target = "/data"
 EOF
   cp "${CONF}" "${TEMP_DIR}/before.toml"
   local -a _k=() _v=()
-  run _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
-  assert_failure
-  assert_output --partial 'volumes.mount_1'
-  assert_output --partial 'setup.sh set volumes.mount_1'
+  LOG_FORMAT=json run --separate-stderr _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
+  assert_refusal 1 conf_write_ws_slot_refused "file=${CONF}" key=volumes.mount_1
+  assert_stderr_contains 'setup.sh set volumes.mount_1'
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success
   run toml_bridge_parse "${CONF}" --kv
@@ -992,8 +991,8 @@ EOF
   printf '[[volumes]]\nsource = "/ws"\ntarget = "/work"\n' > "${CONF}"
   cp "${CONF}" "${TEMP_DIR}/before.toml"
   local -a _k=(volumes.mount_2) _v=(/srv/data:/data)
-  run _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _write_setup_conf "${CONF}" "${CONF}" _k _v "volumes.mount_1"
+  assert_refusal 1 conf_write_ws_slot_refused "file=${CONF}" key=volumes.mount_1
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success
 }
@@ -1041,10 +1040,8 @@ cap = "SYS_ADMIN"
 EOF
   cp "${CONF}" "${TEMP_DIR}/before.toml"
 
-  run _upsert_conf_value "${CONF}" security cap_add_1 'CHOWN'
-  assert_failure
-  assert_output --partial "WRITE DECLINED"
-  assert_output --partial "security.cap_add_1"
+  LOG_FORMAT=json run --separate-stderr _upsert_conf_value "${CONF}" security cap_add_1 'CHOWN'
+  assert_refusal 1 conf_write_declined "file=${CONF}" target=security.cap_add_1
 
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success
@@ -1095,9 +1092,8 @@ cap_drop_1 = "NET_RAW"
 EOF
   cp "${CONF}" "${TEMP_DIR}/before.toml"
 
-  run _upsert_conf_value "${CONF}" security cap_drop_1 'CHOWN'
-  assert_failure
-  assert_output --partial "WRITE DECLINED"
+  LOG_FORMAT=json run --separate-stderr _upsert_conf_value "${CONF}" security cap_drop_1 'CHOWN'
+  assert_refusal 1 conf_write_declined "file=${CONF}" target=security.cap_drop_1
 
   run diff -u "${TEMP_DIR}/before.toml" "${CONF}"
   assert_success

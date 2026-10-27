@@ -2045,18 +2045,24 @@ _assert_generated_untouched() {
   assert_success
 }
 
+# Run apply over TEMP_DIR with JSON logs and stdout/stderr apart, so a
+# refusal is judged by assert_refusal: exit status, empty stdout, event id
+# and its file/table/key attributes (base#1400). Extra args go to apply.
+_run_apply_refusal() {
+  run --separate-stderr env LOG_FORMAT=json bash -c '
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path "$@"
+  ' _ "${TEMP_DIR}" "$@"
+}
+
 @test "apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy2]
 x = "1"
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _run_apply_refusal
+  assert_refusal 1 apply_unknown_table "file=${TEMP_DIR}/setup.toml" "table=deploy2"
   _assert_generated_untouched
 }
 
@@ -2067,12 +2073,8 @@ EOF
 [deploy2]
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _run_apply_refusal
+  assert_refusal 1 apply_unknown_table "file=${TEMP_DIR}/setup.toml" "table=deploy2"
   _assert_generated_untouched
 }
 
@@ -2084,12 +2086,8 @@ EOF
 args = []
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy2|ERROR.*deploy2.*${TEMP_DIR}/setup\.toml"
+  _run_apply_refusal
+  assert_refusal 1 apply_unknown_table "file=${TEMP_DIR}/setup.toml" "table=deploy2"
   _assert_generated_untouched
 }
 
@@ -2105,12 +2103,8 @@ gpu_count = "1"
 args = []
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy\.args|ERROR.*deploy\.args.*${TEMP_DIR}/setup\.toml"
+  _run_apply_refusal
+  assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/setup.toml" "table=deploy" "key=args"
   _assert_generated_untouched
 }
 
@@ -2120,12 +2114,8 @@ EOF
 gpu_cuont = "1"
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/setup\.toml"
+  _run_apply_refusal
+  assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/setup.toml" "table=deploy" "key=gpu_cuont"
   _assert_generated_untouched
 }
 
@@ -2139,12 +2129,8 @@ EOF
 gpu_cuont = "1"
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/setup\.local\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/setup\.local\.toml"
+  _run_apply_refusal
+  assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/setup.local.toml" "table=deploy" "key=gpu_cuont"
   _assert_generated_untouched
 }
 
@@ -2158,12 +2144,8 @@ EOF
 gpu_cuont = "1"
 EOF
   _seed_generated_sentinels
-  run bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/override.toml' 2>&1
-  "
-  assert_failure
-  assert_line --regexp "ERROR.*${TEMP_DIR}/override\.toml.*deploy\.gpu_cuont|ERROR.*deploy\.gpu_cuont.*${TEMP_DIR}/override\.toml"
+  _run_apply_refusal --local-conf "${TEMP_DIR}/override.toml"
+  assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/override.toml" "table=deploy" "key=gpu_cuont"
   _assert_generated_untouched
 }
 
@@ -2230,11 +2212,10 @@ EOF
   printf '[gui]\nmode = "off\n' > "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
   export LOG_FORMAT=json
-  run main remove gui.mode --base-path "${TEMP_DIR}"
-  assert_failure 1
-  assert_output --partial '"body":"conf_toml_parse_failed"'
-  refute_output --partial '"body":"conf_key_not_found"'
-  refute_output --partial "unregistered log body"
+  run --separate-stderr main remove gui.mode --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_toml_parse_failed "path=${TEMP_DIR}/setup.toml"
+  [[ "${stderr}" != *'"body":"conf_key_not_found"'* ]] \
+    || fail "a parse failure was reported as a missing key: ${stderr}"
   run cmp "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
   assert_success
 }

@@ -1104,3 +1104,177 @@ lint_group_hits() {
     fi
     printf '%s\n' "${_members[@]}" | grep -cx -- "${_tool}" || true
 }
+
+# ── structured-log event ids (base#1400) ──────────────────────────────────────
+#
+# A refusal is identified by its event id, the `body` of the line lib/log.sh
+# writes, and only the JSON sink prints it: the text sink prints the
+# `display=` string in its place, and the specs that force LOG_FORMAT=text
+# can therefore not tell one refusal from another. Nor can a spec that
+# checks the status alone: an unregistered body is itself a fatal logger
+# error that answers 1 (lib/log.sh `_log_dispatch`), so a status-only test
+# passes when the refusal it meant has been replaced by a logger crash.
+#
+# The test-tools image has no jq, so the id is read with an anchored match
+# on the prefix `_log_emit_json` writes in a fixed order -- timestamp,
+# severity_text, severity_number, body. A body cannot carry a quote, so the
+# match cannot run into an attribute value that happens to spell `"body":`.
+
+# The prefix `_log_emit_json` writes, in that order, with the event id as
+# its one capture group.
+_LOG_EVENT_JSON_RE='^\{"timestamp":"[^"]*","severity_text":"[A-Z]+","severity_number":[0-9]+,"body":"([A-Za-z0-9_.-]+)"'
+
+# log_event_ids [<text>]
+#   Print the event id of every JSON log line in <text>, one per line, in
+#   the order they were logged. <text> defaults to `${stderr}` when
+#   `run --separate-stderr` set it, else to `${output}`.
+log_event_ids() {
+    local _text="${1-${stderr-${output-}}}"
+    local _line
+    while IFS= read -r _line; do
+        [[ "${_line}" =~ ${_LOG_EVENT_JSON_RE} ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+    done <<< "${_text}"
+    return 0
+}
+
+# log_event_line <id> [<text>]
+#   Print the first JSON log line in <text> (default as log_event_ids)
+#   whose event id is <id>; nothing when there is none.
+log_event_line() {
+    local _id="${1:?BUG: log_event_line expects an event id}"
+    local _text="${2-${stderr-${output-}}}"
+    local _line
+    while IFS= read -r _line; do
+        if [[ "${_line}" =~ ${_LOG_EVENT_JSON_RE} && "${BASH_REMATCH[1]}" == "${_id}" ]]; then
+            printf '%s\n' "${_line}"
+            return 0
+        fi
+    done <<< "${_text}"
+    return 0
+}
+
+# assert_log_event <id> [<text>]
+#   Fail unless <text> (default as log_event_ids) carries a JSON log line
+#   whose event id is <id>, naming the ids it does carry.
+assert_log_event() {
+    local _id="${1:?BUG: assert_log_event expects an event id}"
+    local _ids
+    _ids="$(log_event_ids "${2-${stderr-${output-}}}")"
+    grep -qxF -- "${_id}" <<< "${_ids}" \
+        || fail "expected log event '${_id}'; the events logged were: ${_ids:-<none>}"
+}
+
+# assert_refusal <status> <id> [<attribution>...]
+#   The five points every config-path refusal is held to (base#1400),
+#   after `run --separate-stderr`:
+#     1. the exact <status>, not merely a failure;
+#     2. an empty stdout -- a refusal writes nothing a caller could read
+#        as an answer, and that includes INFO progress events, which
+#        lib/log.sh routes to stdout. There is no relaxation: a verb that
+#        logs progress before it refuses fails here;
+#     3. a JSON log line whose event id is <id>;
+#     4. that same line naming every <attribution>. `<name>=<value>` must
+#        be the event's attribute <name> with exactly <value> (`file=`,
+#        `path=`, `key=`); anything else -- a path, a `<section>.<key>` --
+#        must appear somewhere in the line, which is where an event that
+#        carries its subject only in `display=` names it;
+#     5. no `unregistered log body` anywhere, which is the logger refusing
+#        the id in place of the refusal being tested.
+#   The command under test must log with LOG_FORMAT=json.
+assert_refusal() {
+    local _want="${1:?BUG: assert_refusal expects a status}"
+    local _id="${2:?BUG: assert_refusal expects an event id}"
+    shift 2
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_refusal needs \`run --separate-stderr\`: stdout and stderr are judged apart"
+    refute_output --partial "unregistered log body"
+    [[ "${stderr}" != *"unregistered log body"* ]] \
+        || fail "the logger refused an unregistered body: ${stderr}"
+    assert_equal "${status}" "${_want}"
+    [[ -z "${output}" ]] \
+        || fail "a refusal must leave stdout empty; it carried: ${output}"
+    assert_logged_event "${_id}" "$@"
+}
+
+# assert_logged_event <id> [<attribution>...]
+#   After `run --separate-stderr`: points 3 to 5 of assert_refusal alone --
+#   `${stderr}` carries a JSON log line whose event id is <id>, that line
+#   names every <attribution> (same forms as assert_refusal), and no
+#   `unregistered log body` appears. For a probe that reports on stdout
+#   by design, so the empty-stdout point does not apply and the caller
+#   asserts the report itself (base#1400).
+assert_logged_event() {
+    local _id="${1:?BUG: assert_logged_event expects an event id}"
+    shift
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_logged_event needs \`run --separate-stderr\`"
+    [[ "${stderr}" != *"unregistered log body"* ]] \
+        || fail "the logger refused an unregistered body: ${stderr}"
+    assert_log_event "${_id}" "${stderr}"
+    local _line _attr _name _value
+    _line="$(log_event_line "${_id}" "${stderr}")"
+    for _attr in "$@"; do
+        if [[ "${_attr}" =~ ^([a-z_.]+)=(.*)$ ]]; then
+            _name="${BASH_REMATCH[1]}"
+            _value="${BASH_REMATCH[2]}"
+            _value="${_value//\\/\\\\}"
+            _value="${_value//\"/\\\"}"
+            _value="${_value//$'\n'/\\n}"
+            _value="${_value//$'\t'/\\t}"
+            _value="${_value//$'\r'/\\r}"
+            [[ "${_line}" == *"\"${_name}\":\"${_value}\""* ]] \
+                || fail "event '${_id}' has no attribute ${_name}=${BASH_REMATCH[2]}: ${_line}"
+        else
+            [[ "${_line}" == *"${_attr}"* ]] \
+                || fail "event '${_id}' does not name '${_attr}': ${_line}"
+        fi
+    done
+}
+
+# assert_stderr_contains <text>...
+#   After `run --separate-stderr`: fail unless `${stderr}` carries every
+#   <text>. The stderr half of `assert_output --partial`, which bats-assert
+#   in the test-tools image does not ship.
+assert_stderr_contains() {
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_stderr_contains needs \`run --separate-stderr\`"
+    local _t
+    for _t in "$@"; do
+        [[ "${stderr}" == *"${_t}"* ]] \
+            || fail "stderr does not carry '${_t}': ${stderr}"
+    done
+}
+
+# refute_stderr_contains <text>...
+#   After `run --separate-stderr`: fail if `${stderr}` carries any <text>.
+refute_stderr_contains() {
+    [[ -n "${stderr+x}" ]] \
+        || fail "refute_stderr_contains needs \`run --separate-stderr\`"
+    local _t
+    for _t in "$@"; do
+        [[ "${stderr}" != *"${_t}"* ]] \
+            || fail "stderr carries '${_t}': ${stderr}"
+    done
+}
+
+# assert_bridge_refusal <status> <attribution>...
+#   A refusal made by a process that is not a lib/log.sh logger -- the
+#   Python toml-bridge parser, the bridge shim passing a parser's complaint
+#   through, a usage line -- held to every point of `assert_refusal` that
+#   such a process can meet (base#1400): the exact <status>, an empty
+#   stdout, no `unregistered log body`, and a stderr that names every
+#   <attribution>. It has no event id to assert because it writes no
+#   structured log line; a refusal that DOES log is asserted with
+#   `assert_refusal`, never with this.
+assert_bridge_refusal() {
+    local _want="${1:?BUG: assert_bridge_refusal expects a status}"
+    shift
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_bridge_refusal needs \`run --separate-stderr\`: stdout and stderr are judged apart"
+    refute_output --partial "unregistered log body"
+    [[ "${stderr}" != *"unregistered log body"* ]] \
+        || fail "the logger refused an unregistered body: ${stderr}"
+    assert_equal "${status}" "${_want}"
+    assert_equal "${output}" ""
+    assert_stderr_contains "$@"
+}

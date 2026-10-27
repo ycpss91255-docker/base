@@ -117,7 +117,9 @@ _setup_conf_check_known() {
   _setup_conf_layers "${_base}" _sck_layers || return 1
   local _layer _i _sect _key _bad=0
   for _layer in "${_sck_layers[@]}"; do
-    [[ -f "${_layer}" && "${_layer}" == *.toml ]] || continue
+    # `-e`: a directory or FIFO in a layer's place is refused by the load
+    # below, not skipped as an absent layer (base#1400).
+    [[ -e "${_layer}" && "${_layer}" == *.toml ]] || continue
     _conf_load_layers _SCK_CONF "${_layer}" || return 1
     local -n _sck_es=_SCK_CONF__es
     local -n _sck_k=_SCK_CONF__keys
@@ -2131,14 +2133,15 @@ _setup_apply() {
   # This used to test one literal directory, `config/app`, which no
   # repo in the org has -- so the test was always false, nothing was
   # mounted, and nothing said so. _report_config_components now states the
-  # outcome of every run, including the empty one.
+  # outcome of every run that commits a set, including the empty one. It
+  # is called after the commit, not here: its INFO lines go to stdout, and
+  # a refused apply provisioned nothing and leaves stdout empty (base#1400).
   local -a _cfg_components=()
   local _cfg_component
   _collect_config_components "${_base_path}" _cfg_components
   for _cfg_component in ${_cfg_components[@]+"${_cfg_components[@]}"}; do
     extra_volumes+=("./config/${_cfg_component}:$(_config_component_target "${_cfg_component}")")
   done
-  _report_config_components "${_base_path}" ${_cfg_components[@]+"${_cfg_components[@]}"}
 
   # ── [devices] device_* + cgroup_rule_* (from the shared resolver) ──
   local _devices_str="${_dctx[devices_str]}"
@@ -2473,6 +2476,8 @@ _setup_apply() {
   # On 2 the staging dir holds the only copy of the previous set.
   (( _commit_rc == 2 )) || rm -rf -- "${_stage_dir}"
   (( _commit_rc == 0 )) || return 1
+
+  _report_config_components "${_base_path}" ${_cfg_components[@]+"${_cfg_components[@]}"}
 
   # S7: runtime.env retired. Under the A2 model its purpose
   # is superseded -- [environment] defaults are baked into the runtime

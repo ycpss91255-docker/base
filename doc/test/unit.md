@@ -1736,6 +1736,27 @@ for the knobs the conf sets.
 | `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
 | `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
+### test/bats/unit/conf_abnormal_input_spec.bats (7)
+
+The bridge's own specs prove what the parser does with a file; they cannot
+prove what an operator gets. Between the two sit the shell reader, the
+merge, the emitters and the writeback, and each of them can turn an input
+the parser handled into a different .env, a partial output, or a
+configuration silently replaced by the template defaults. So each case here
+starts from a setup.toml on disk and ends at what `apply` wrote or refused
+-- CRLF line endings, a non-ASCII value, invalid UTF-8, a 1 MiB value, an
+unreadable layer, and a directory where the layer should be.
+
+| Test | Description |
+|------|-------------|
+| `CRLF line endings load the same rows and generate the same set as LF` | A file saved on Windows ends every line in CRLF. TOML allows it, and the configuration it describes is the same one -- so the shell reader must load the same rows and apply must generate the same set, with no `\r` carried into a value. |
+| `a non-ASCII value reaches .env and compose.yaml unchanged` | A value outside ASCII is a value like any other: it must reach the container env (.env) and the compose file byte for byte -- not escaped, not transliterated, not dropped. |
+| `invalid UTF-8 is refused with the file named and nothing generated` | Bytes that are not UTF-8 are not TOML, so the layer cannot be read. The refusal must name the file, and nothing of the generated set may be written -- a half-written set reads as a successful apply. |
+| `a 1 MiB value finishes within 60 s and generates what a short value does` | A value is not bounded by the reader, so a large one must neither hang apply nor come out different from a short one. Bound: 60 s, against about 3 s measured for a 1 MiB value in the test-tools image -- the margin is for a loaded CI runner, not for a slower algorithm. The bound is ENFORCED: apply runs under `timeout`, which kills it at 60 s and answers 124, so a hang fails the status check instead of hanging the suite. And each run's value is asserted present in .env, whole, before the two generated sets are compared -- a comparison alone passes an emitter that drops the entry from both runs. Skipped under kcov: the value goes into the bash trace, and in a coverage shard that trace reaches stdout as lines of up to 1 MiB, which hung shard 7/12 of CI run 40470315196. The bats-fragile job runs it plain. |
+| `an unreadable layer is refused with its status, event id and path` | A layer that is there and cannot be read is not an absent layer: a configuration replaced by the template defaults is the failure this must not become. Unreadability needs a user the mode applies to, so as root the case drops to `nobody` with su; without su it cannot be staged. |
+| `a directory in place of setup.toml is refused with its event id and path` | A directory where setup.toml should be is not an absent layer either. Measured before base#1400: apply logged conf_no_repo_conf ("using template defaults"), then conf_upsert_file_missing writing the workspace bind into it, and exited 0 with compose.yaml generated. It must be refused like any other layer that is there and cannot be read. |
+| `a FIFO in place of setup.toml is refused within a bound, with its event id and path` | A FIFO where setup.toml should be is there too, and unlike a directory it does not fail on open: open(2) on a FIFO blocks until a writer arrives, so an `-e` gate that hands it to the bridge hangs apply forever instead of refusing (review round 3 of base#1400). The bound makes the hang a failure instead of a wedged suite. |
+
 ### test/bats/unit/conf_accessor_spec.bats (35)
 
 Unit tests for the `conf.sh` opaque accessor interface (#564 / #563):
@@ -1813,6 +1834,40 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 | `_collect_logging: a header with a trailing comment still names its service` | The service SET was matched off the physical header text (`^\[logging\.<svc>\]$`), which is one of several ways TOML spells the same table. A trailing comment after the bracket is part of a VALID header -- the bridge reads `[logging.runtime] # rotation settings` as `logging.runtime` -- and the matcher saw nothing, so `_collect_logging` returned an empty per-service string and that service's driver, rotation and host-log mount settings were dropped out of the generated compose with nothing said. The set comes from the merged, parsed sections now, which is also the union across the chain this code was written to build. |
 | `_collect_logging: an inline table still names its service` | The other spelling, and the one no header matcher could ever see. `runtime = { max_size = "100m" }` inside `[logging]` is the same table as `[logging.runtime]` and the bridge emits it as the same section, so a reader that derives the set from the parse gets it for free while one that greps for a header cannot. |
+
+### test/bats/unit/conf_refusal_event_spec.bats (18)
+
+A refusal is identified by its event id, and only the JSON log sink prints
+one: the text sink prints the `display=` string instead, so the specs that
+force LOG_FORMAT=text cannot tell one refusal from another. A status-only
+check is weaker still -- an unregistered body is a fatal logger error that
+also answers 1, so it passes when the refusal it meant has been replaced by
+a logger crash. Each case here drives the real refusal with LOG_FORMAT=json
+and holds it to the five points of `assert_refusal` (test_helper.bash):
+exact status, empty stdout, the event id, the file and key it names, and no
+unregistered body. Where a failure can only be reached by faking the
+filesystem, the case says how it forces it.
+
+| Test | Description |
+|------|-------------|
+| `conf_toml_merge_failed: a malformed layer stops _conf_load_layers, naming the file` | A layer that does not parse must stop the load by name rather than hand back an empty configuration that reads as the template defaults. |
+| `conf_write_index_rejected: a set on mount_0 is refused, naming the file and the key` | An index of a numbered family with no 1-based slot would land the value in another block -- `mount_0` became the workspace bind. The writer refuses before any temp file exists. |
+| `conf_write_ws_slot_refused: setup remove volumes.mount_1 is refused, naming the file and the slot` | Removing slot 1 of [volumes] compacts the array and promotes the next mount into the workspace bind, so the remove verb refuses it. |
+| `conf_write_tmp_failed: _write_setup_conf refuses when its temp file cannot be created` | A temp file that cannot be created must stop the rewrite before the destination is touched. FORCED by shadowing `mktemp` with a shell function that fails: as root (the test-tools image) no directory mode stops a create, so a read-only directory cannot provoke it. |
+| `conf_write_not_applied: a removal the rewrite did not make is refused, naming the file and the key` | A removal the line writer cannot reach (an inline table) leaves a file the parse gate accepts with the value still in it; the save is refused instead of reported as done. |
+| `conf_write_mode_failed: _write_setup_conf refuses when the mode cannot be carried over` | The rewrite must take the destination's mode before it lands, or a user's setup.toml is left at 0600. FORCED by shadowing `chmod` with a shell function that fails: root's chmod does not fail on a real file. |
+| `conf_write_mv_failed: _write_setup_conf refuses when the final mv fails` | A failed final mv (a read-only mount) must be reported, the temp removed and the destination left alone. FORCED by shadowing `mv` with a shell function that fails: root can replace a file in any directory the test can create. |
+| `conf_upsert_file_missing: _upsert_conf_value refuses a file that is not there, naming it` | The per-key writer edits a file in place and has nothing to edit when the file is not there; it refuses, naming the path. |
+| `conf_write_declined: a set the reader would refuse is declined, naming the file and the key` | A rewrite the configuration reader refuses is not promoted. A family spelled as a table scalar gets an array block beside it from the writer, and the reader refuses a family carried both ways. |
+| `toml_bridge_unprovisionable: a subtree with no bridge Dockerfile refuses the read, naming the path` | With no shipped Dockerfile there is nothing to build the parser from, and guessing a tag would answer with another checkout's parser. |
+| `toml_bridge_build_failed: a failed parser build refuses the read, naming the Dockerfile` | A failed build stops the read with the builder's complaint rather than an empty stream, and the read's stdout -- the stream a caller collects as configuration rows -- carries nothing, not even the progress event announcing the build. FORCED with a `docker` stub on PATH that reports the image absent and fails the build. |
+| `no_such_file: toml_bridge_parse refuses a file that is not there, naming it` | A parse of a file that is not there answers before any parser runs. |
+| `merge_no_files: toml_bridge_merge refuses a call naming no layer` | A merge naming no layer at all is a caller mistake, not an empty configuration. |
+| `merge_layer_not_regular: toml_bridge_merge refuses a FIFO layer without opening it` | A layer that is there but is not a regular file (a FIFO, a device, a directory) is neither absent nor readable as TOML. A FIFO is the sharp case: open(2) blocks until a writer arrives, so the shim refuses it by name before the bridge ever opens it (review round 3 of base#1400). The bound turns a hang into a failure. |
+| `conf_local_override_unusable: apply --local-conf naming no file is refused, naming the path` | A --local-conf the call cannot honour must not resolve to the template defaults while the caller is told its parameters applied. |
+| `conf_unknown_key: setup set on a misspelt key is refused, naming the key` | `set` of a key no reader reads would write a value nothing applies; it is refused before anything is written (base#1374). |
+| `apply_unknown_table: apply refuses an unknown table, naming the file and the table` | A table no reader knows would have its settings dropped while apply reported success (base#1328). |
+| `compose_relocated_root_unusable: apply --output refuses a repo root carrying a colon, naming it` | A relocated set names the repo root inside short-form binds, where a colon is the field separator; what cannot be expressed is not written. |
 
 ### test/bats/unit/conf_toml_writer_spec.bats (42)
 
@@ -3748,6 +3803,30 @@ the bump rather than moving the coverage number by a plausible margin.
 |------|-------------|
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
+
+### test/bats/unit/kcov_trace_volume_spec.bats (3)
+
+Under kcov every line bash runs is traced, values included. In a coverage
+shard (jobs=4) that trace reaches the job's stdout, so a test that builds a
+1 MiB value writes single lines of up to 1 MiB of it. CI run 40470315196
+(coverage 7/12) stopped about 64 KiB into such a line and stayed silent for
+60 minutes until it was cancelled. Locally, with the CI image and a stdout
+reader that stops on lines over 64 KiB, kcov, the four bats workers and the
+test's bash all blocked in pipe_write and the shard never finished; skipping
+that one test under COVERAGE let the same shard pass. The test still runs in
+plain bats (the bats-fragile job runs every file carrying the skip guard),
+so nothing goes unrun.
+
+The rule is mechanical: a @test body that builds a value with `head -c N`, N
+over 65536 (one Linux pipe buffer), carries the kcov skip guard `[
+"${COVERAGE:-0}" = 1 ] && skip`. The scan is one awk pass, so it costs
+nothing under kcov.
+
+| Test | Description |
+|------|-------------|
+| `kcov trace volume: an unguarded 1 MiB value is reported` | The scan must find the construct it forbids, or a clean tree proves nothing. |
+| `kcov trace volume: a guarded value and a 64 KiB value pass` | The guard, and a value that fits in one pipe buffer, are both allowed: neither floods the shard's stdout. |
+| `kcov trace volume: no test in the repo builds an unguarded value past 64 KiB` | The repo's own bats trees hold no unguarded large value. |
 
 ### test/bats/unit/lib_spec.bats (75)
 

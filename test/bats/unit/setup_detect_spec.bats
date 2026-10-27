@@ -684,13 +684,14 @@ EOS
   chmod +x "${_bin}/xauth"
 
   PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
-    run bash -c "
+    run --separate-stderr bash -c "
+      export LOG_FORMAT=json
       source /source/dist/script/docker/wrapper/setup.sh
       _setup_ssh_x11_cookie '${TEMP_DIR}'
     "
-  assert_failure
-  assert_output --partial "empty cookie file"
-  assert_output --partial "XAUTHORITY left at host value"
+  assert_refusal 1 xauth_empty_cookie
+  assert_stderr_contains "empty cookie file"
+  assert_stderr_contains "XAUTHORITY left at host value"
 }
 
 @test "_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)" {
@@ -713,13 +714,14 @@ EOS
   chmod +x "${_bin}/xauth"
 
   PATH="${_bin}:${PATH}" DISPLAY="localhost:10.0" \
-    run bash -c "
+    run --separate-stderr bash -c "
+      export LOG_FORMAT=json
       source /source/dist/script/docker/wrapper/setup.sh
       _setup_ssh_x11_cookie '${TEMP_DIR}'
     "
-  assert_failure
-  assert_output --partial "cookie rewrite failed"
-  assert_output --partial "XAUTHORITY left at host value"
+  assert_refusal 1 xauth_rewrite_failed
+  assert_stderr_contains "cookie rewrite failed"
+  assert_stderr_contains "XAUTHORITY left at host value"
 }
 
 @test "_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)" {
@@ -728,7 +730,8 @@ EOS
   # builtin. Lets the function exercise its xauth-missing branch
   # without touching PATH (which would also break setup.sh's own
   # dirname / sed / etc. lookups during source).
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
     command() {
       if [[ \"\${1:-}\" == '-v' && \"\${2:-}\" == 'xauth' ]]; then
@@ -738,7 +741,7 @@ EOS
     }
     DISPLAY=localhost:10.0 _setup_ssh_x11_cookie '${TEMP_DIR}'
   "
-  assert_failure
-  assert_output --partial "xauth"
-  assert_output --partial "not in PATH"
+  assert_refusal 1 ssh_x11_no_xauth
+  assert_stderr_contains "xauth"
+  assert_stderr_contains "not in PATH"
 }

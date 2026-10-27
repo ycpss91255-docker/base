@@ -23,6 +23,8 @@
 # Dirty-input + error-path coverage (#689) pins the parser/accessor
 # contracts on hand-edited / malformed setup.conf:
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   # shellcheck source=dist/script/docker/lib/conf.sh
@@ -307,14 +309,13 @@ EOF
   # Force the writer's internal `mktemp "${_file}.XXXXXX"` to fail without
   # touching the real filesystem. The bare `mktemp -d`-style fixture call
   # above already ran, so override only for the writer invocation.
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/lib/conf.sh
-    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mktemp() { return 1; }
     _upsert_conf_value '${_f}' volumes mount_1 /c:/d
   "
-  assert_failure
-  assert_output --partial "cannot create temp file"
+  assert_refusal 1 conf_upsert_tmp_failed "file=${_f}"
   # The original file must survive completely unchanged (not truncated).
   run cat "${_f}"
   assert_output "${_orig}"
@@ -341,15 +342,14 @@ EOF
   local _orig
   _orig="$(cat "${_dst}")"
 
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/lib/conf.sh
-    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mktemp() { return 1; }
     declare -a _keys=() _values=()
     _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
-  assert_failure
-  assert_output --partial "cannot create temp file"
+  assert_refusal 1 conf_write_tmp_failed "file=${_dst}"
   # The destination must NOT be truncated by an in-place `: > dst`.
   run cat "${_dst}"
   assert_output "${_orig}"
@@ -380,14 +380,13 @@ EOF
   local _orig
   _orig="$(cat "${_f}")"
 
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/lib/conf.sh
-    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mv() { return 1; }
     _upsert_conf_value '${_f}' volumes mount_1 /c:/d
   "
-  assert_failure
-  assert_output --partial "could not replace"
+  assert_refusal 1 conf_upsert_mv_failed "file=${_f}"
   # The original file must survive completely unchanged.
   run cat "${_f}"
   assert_output "${_orig}"
@@ -418,15 +417,14 @@ EOF
   local _orig
   _orig="$(cat "${_dst}")"
 
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/lib/conf.sh
-    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mv() { return 1; }
     declare -a _keys=() _values=()
     _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
-  assert_failure
-  assert_output --partial "could not replace"
+  assert_refusal 1 conf_write_mv_failed "file=${_dst}"
   # The destination must survive completely unchanged.
   run cat "${_dst}"
   assert_output "${_orig}"
@@ -455,14 +453,13 @@ EOF
   local _orig
   _orig="$(cat "${_f}")"
 
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/lib/conf.sh
-    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     chmod() { return 1; }
     _upsert_conf_value '${_f}' network mode bridge
   "
-  assert_failure
-  assert_output --partial "could not give the rewrite"
+  assert_refusal 1 conf_upsert_mode_failed "file=${_f}"
   run cat "${_f}"
   assert_output "${_orig}"
   run stat -c '%a' "${_f}"
@@ -487,15 +484,14 @@ EOF
   local _orig
   _orig="$(cat "${_dst}")"
 
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/lib/conf.sh
-    _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     chmod() { return 1; }
     declare -a _keys=(network.mode) _values=(bridge)
     _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
-  assert_failure
-  assert_output --partial "could not give the rewrite"
+  assert_refusal 1 conf_write_mode_failed "file=${_dst}"
   run cat "${_dst}"
   assert_output "${_orig}"
   run stat -c '%a' "${_dst}"
@@ -737,8 +733,8 @@ cap_drop_1 = "NET_RAW"
 cap = "SYS_ADMIN"
 EOF
 
-  run _conf_load "${_f}" AMB
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _conf_load "${_f}" AMB
+  assert_refusal 1 conf_toml_parse_failed "path=${_f}"
 
   _conf_load "${_f}" AMB || true
   run _conf_get AMB security cap_drop_1
@@ -926,9 +922,8 @@ EOF
   local _s="stale" _k="stale"
 
   unset -f _schema_is_subsectioned
-  run _conf_split_nskey "logging.web.driver" _s _k
-  assert_failure
-  assert_output --partial "conf_subsection_registry_missing"
+  LOG_FORMAT=json run --separate-stderr _conf_split_nskey "logging.web.driver" _s _k
+  assert_refusal 1 conf_subsection_registry_missing nskey=logging.web.driver
 
   # Re-sourcing needs the guard cleared first: schema.sh returns at its
   # second line when _DOCKER_SCHEMA_SOURCED is set, so a bare `source`
@@ -940,7 +935,6 @@ EOF
   declare -F _schema_is_subsectioned > /dev/null
 
   unset SCHEMA_SUBSECTIONED
-  run _conf_split_nskey "logging.web.driver" _s _k
-  assert_failure
-  assert_output --partial "conf_subsection_registry_missing"
+  LOG_FORMAT=json run --separate-stderr _conf_split_nskey "logging.web.driver" _s _k
+  assert_refusal 1 conf_subsection_registry_missing nskey=logging.web.driver
 }

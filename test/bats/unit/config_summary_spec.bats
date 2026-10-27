@@ -17,13 +17,14 @@ setup() {
 # _summary_probe <file_path>
 #
 # Runs `_print_config_summary build` against <file_path>/setup.toml in a
-# fresh shell under LOG_FORMAT=json and prints its status last.
+# fresh shell under LOG_FORMAT=json; its status is the run's status, and
+# stdout and stderr are captured apart, so a refusal is judged by the
+# five points of `assert_refusal` (base#1400).
 _summary_probe() {
-  run env LOG_FORMAT=json bash -c "
+  run --separate-stderr env LOG_FORMAT=json bash -c "
     source ${LIB}
     FILE_PATH='${1}'
-    _print_config_summary build
-    printf 'rc=%s\n' \"\$?\""
+    _print_config_summary build"
 }
 
 # why: The summary is the screen a user reads before a build; an empty
@@ -36,23 +37,18 @@ _summary_probe() {
   printf '[gui]\nmode = "off"\n' > "${_fp}/setup.toml"
   _summary_probe "${_fp}"
   assert_success
-  assert_output --partial "rc=0"
   assert_output --partial "mode = off"
 
   # An absent file: rc 0.
   rm -f "${_fp}/setup.toml"
   _summary_probe "${_fp}"
   assert_success
-  assert_output --partial "rc=0"
 
   # A malformed file: rc 1, and the parse failure named by its event.
   # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
   printf '[gui]\nmode = "off\n' > "${_fp}/setup.toml"
   _summary_probe "${_fp}"
-  assert_success
-  assert_output --partial "rc=1"
-  assert_output --partial '"body":"conf_toml_parse_failed"'
-  refute_output --partial "unregistered log body"
+  assert_refusal 1 conf_toml_parse_failed "path=${_fp}/setup.toml"
 }
 
 # why: The empty-file hint is chosen by a header grep, and a malformed
@@ -67,19 +63,15 @@ _summary_probe() {
   printf '# nothing set here\n' > "${_fp}/setup.toml"
   _summary_probe "${_fp}"
   assert_success
-  assert_output --partial "rc=0"
   assert_output --partial "no section overrides"
-  refute_output --partial "conf_toml_parse_failed"
+  refute_stderr_contains "conf_toml_parse_failed"
 
   # toml-fixture-lint: allow the parser's refusal of these layers IS the assertion
   for _bad in '[gui\nmode = "off"\n' 'mode = "off\n'; do
     # shellcheck disable=SC2059  # the fixture is the format string
     printf "${_bad}" > "${_fp}/setup.toml"
     _summary_probe "${_fp}"
-    assert_success
-    assert_output --partial "rc=1"
-    assert_output --partial '"body":"conf_toml_parse_failed"'
-    refute_output --partial "no section overrides"
-    refute_output --partial "unregistered log body"
+    assert_refusal 1 conf_toml_parse_failed "path=${_fp}/setup.toml"
+    refute_stderr_contains "no section overrides"
   done
 }

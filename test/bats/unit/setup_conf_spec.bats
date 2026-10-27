@@ -838,18 +838,16 @@ EOF
 # the call would silently emit the template defaults while reporting
 # success. base#1092 / #1097 / #1119 / #1120 / #1223 are the same class.
 @test "_setup_conf_local_check refuses an override that names no file (base#1087)" {
-  run _setup_conf_local_check "${TEMP_DIR}/not-there.toml"
-  assert_failure
-  assert_output --partial "not-there.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_local_check "${TEMP_DIR}/not-there.toml"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/not-there.toml"
 }
 
 # why: A directory at the override path is the other way the layer cannot
 # be read, and it is not caught by an existence test alone.
 @test "_setup_conf_local_check refuses an override that is not a regular file (base#1087)" {
   mkdir -p "${TEMP_DIR}/a-dir.toml"
-  run _setup_conf_local_check "${TEMP_DIR}/a-dir.toml"
-  assert_failure
-  assert_output --partial "a-dir.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_local_check "${TEMP_DIR}/a-dir.toml"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/a-dir.toml"
 }
 
 # why: An unreadable file is the third way the layer cannot be honoured,
@@ -873,13 +871,11 @@ EOF
     chmod o+x "${TEMP_DIR}"
     su -s /bin/bash nobody -c "test -e '${_f}'" 2>/dev/null \
       || skip "nobody cannot traverse to ${TEMP_DIR} without widening a directory this test did not create"
-    run su -s /bin/bash nobody -c "${_probe}"
+    run --separate-stderr su -s /bin/bash nobody -c "${_probe}"
   else
-    run bash -c "${_probe}"
+    run --separate-stderr bash -c "${_probe}"
   fi
-  [ "${status}" -eq 1 ]
-  assert_output --partial '"body":"conf_local_override_unusable"'
-  assert_output --partial "not readable"
+  assert_refusal 1 conf_local_override_unusable "path=${_f}" "not readable"
 }
 
 # why: The check has to pass the honourable case, or the refusal above
@@ -909,9 +905,8 @@ EOF
   printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
   local -a _l=()
   _SETUP_CONF_LOCAL="${TEMP_DIR}/gone.toml"
-  run _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
-  assert_failure
-  assert_output --partial "gone.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/gone.toml"
 }
 
 # why: And the readers built on the chain inherit that refusal, or the one
@@ -920,9 +915,8 @@ EOF
 @test "_setup_conf_handle propagates the refusal of an unhonourable override (base#1087)" {
   printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
   _SETUP_CONF_LOCAL="${TEMP_DIR}/gone.toml"
-  run _setup_conf_handle "${TEMP_DIR}" _HX "${TEMP_DIR}/.base/dist"
-  assert_failure
-  assert_output --partial "gone.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_handle "${TEMP_DIR}" _HX "${TEMP_DIR}/.base/dist"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/gone.toml"
 }
 
 # why: A chain that moved must be reported as moved, and one that did not
@@ -986,9 +980,10 @@ printf 'rc=%s sects=%s keys=%s vals=%s\n' \"\$?\" \"\${#s[@]}\" \"\${#k[@]}\" \"
   # A malformed file: rc 1, nothing loaded, and the parse failure named.
   # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
   printf '[gui]\nmode = "off\n' > "${TEMP_DIR}/setup.toml"
-  run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
+  # The probe's own report is the only stdout; the refusal is judged on
+  # stderr, with the layer it names (base#1400).
+  run --separate-stderr env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
   assert_success
-  assert_output --partial "rc=1 sects=0 keys=0 vals=0"
-  assert_output --partial '"body":"conf_toml_parse_failed"'
-  refute_output --partial "unregistered log body"
+  assert_output "rc=1 sects=0 keys=0 vals=0"
+  assert_logged_event conf_toml_parse_failed "path=${TEMP_DIR}/setup.toml"
 }

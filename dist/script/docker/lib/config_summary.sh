@@ -253,6 +253,24 @@ _print_config_summary() {
   # does not use.
   local _proj="${PROJECT_NAME:-unknown}"
 
+  # Parse before anything is printed. The empty-file hint below is
+  # chosen by a header grep, and a malformed file the grep does not
+  # recognise (`[gui` unclosed, a bare `mode = "off`) took that branch:
+  # "no section overrides" with rc 0 over a file nothing read. A failed
+  # parse is refused whatever the grep would say; it is never printed as
+  # an empty configuration (base#1398). And it is refused before the
+  # first line of the summary, not after the Files / Identity /
+  # Variables blocks: a refusal that leaves half a summary on stdout
+  # reads as a summary (base#1400).
+  local _pcs_entries=""
+  if [[ -f "${_conf}" && "${_conf}" == *.toml ]] \
+     && ! _pcs_entries="$(toml_bridge_parse "${_conf}" --entries)"; then
+    _log_err conf conf_toml_parse_failed \
+      "display=_print_config_summary: the TOML parse of ${_conf} failed; refusing to print it as an empty configuration" \
+      "path=${_conf}"
+    return 1
+  fi
+
   _summary_print "${_tag}" dim  "${_line}"
   _summary_print "${_tag}" bold "$(_lib_msg files)"
   printf "[%s]   setup.toml   : %s\n"   "${_tag}" "${_conf}"
@@ -300,21 +318,6 @@ _print_config_summary() {
   # non-empty to stay readable. Order matches the TUI main menu so
   # the printout and setup_tui.sh layout mirror each other.
   if [[ -f "${_conf}" ]]; then
-    # Parse before anything is printed about the file. The empty-file
-    # hint below is chosen by a header grep, and a malformed file the
-    # grep does not recognise (`[gui` unclosed, a bare `mode = "off`)
-    # took that branch: "no section overrides" with rc 0 over a file
-    # nothing read. A failed parse is refused here whatever the grep
-    # would say; it is never printed as an empty configuration
-    # (base#1398).
-    local _pcs_entries=""
-    if [[ "${_conf}" == *.toml ]] \
-       && ! _pcs_entries="$(toml_bridge_parse "${_conf}" --entries)"; then
-      _log_err conf conf_toml_parse_failed \
-        "display=_print_config_summary: the TOML parse of ${_conf} failed; refusing to print it as an empty configuration" \
-        "path=${_conf}"
-      return 1
-    fi
     _summary_print "${_tag}" bold "setup.toml"
     # When the file exists but contains no [section] headers (empty file
     # / comments-only / whitespace-only), every section silently falls
