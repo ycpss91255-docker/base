@@ -2045,16 +2045,23 @@ _assert_generated_untouched() {
   assert_success
 }
 
+# Run apply over TEMP_DIR with JSON logs and stdout/stderr apart, so a
+# refusal is judged by assert_refusal: exit status, empty stdout, event id
+# and its file/table/key attributes (base#1400). Extra args go to apply.
+_run_apply_refusal() {
+  run --separate-stderr env LOG_FORMAT=json bash -c '
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path "$@"
+  ' _ "${TEMP_DIR}" "$@"
+}
+
 @test "apply refuses an unknown table in setup.toml, naming the file and the table (base#1328)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy2]
 x = "1"
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}'
-  "
+  _run_apply_refusal
   assert_refusal 1 apply_unknown_table "file=${TEMP_DIR}/setup.toml" "table=deploy2"
   _assert_generated_untouched
 }
@@ -2066,10 +2073,7 @@ EOF
 [deploy2]
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}'
-  "
+  _run_apply_refusal
   assert_refusal 1 apply_unknown_table "file=${TEMP_DIR}/setup.toml" "table=deploy2"
   _assert_generated_untouched
 }
@@ -2082,10 +2086,7 @@ EOF
 args = []
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}'
-  "
+  _run_apply_refusal
   assert_refusal 1 apply_unknown_table "file=${TEMP_DIR}/setup.toml" "table=deploy2"
   _assert_generated_untouched
 }
@@ -2102,10 +2103,7 @@ gpu_count = "1"
 args = []
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}'
-  "
+  _run_apply_refusal
   assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/setup.toml" "table=deploy" "key=args"
   _assert_generated_untouched
 }
@@ -2116,10 +2114,7 @@ EOF
 gpu_cuont = "1"
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}'
-  "
+  _run_apply_refusal
   assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/setup.toml" "table=deploy" "key=gpu_cuont"
   _assert_generated_untouched
 }
@@ -2134,10 +2129,7 @@ EOF
 gpu_cuont = "1"
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}'
-  "
+  _run_apply_refusal
   assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/setup.local.toml" "table=deploy" "key=gpu_cuont"
   _assert_generated_untouched
 }
@@ -2152,10 +2144,7 @@ EOF
 gpu_cuont = "1"
 EOF
   _seed_generated_sentinels
-  run --separate-stderr env LOG_FORMAT=json bash -c "
-    source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/override.toml'
-  "
+  _run_apply_refusal --local-conf "${TEMP_DIR}/override.toml"
   assert_refusal 1 apply_unknown_key "file=${TEMP_DIR}/override.toml" "table=deploy" "key=gpu_cuont"
   _assert_generated_untouched
 }
