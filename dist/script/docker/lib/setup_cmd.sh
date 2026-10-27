@@ -1828,6 +1828,12 @@ _setup_apply() {
 
   # A table or key no reader knows is refused before anything is
   # written, naming the layer it is in (base#1328).
+  # SPIKE ONLY (base#1395 slice 1): one engine call for every view below.
+  if [[ "${TOML_BRIDGE_BATCH:-}" == "1" ]]; then
+    local -a _spike_layers=()
+    _setup_conf_layers "${_base_path}" _spike_layers \
+      && toml_bridge_prefetch "${_spike_layers[@]}"
+  fi
   _setup_conf_check_known "${_base_path}" || return 1
 
   # Where the emitted set goes. The repo itself with no --output, which is

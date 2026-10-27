@@ -1,0 +1,50 @@
+# fixture A: template + repo layer identical to it (the timed fixture)
+engine=native views=11 mismatches=0
+engine=docker views=11 mismatches=0
+# fixture B: template + divergent repo layer + local layer with an unknown array
+## repo layer:
+##   [deploy]
+##   gpu_count = "2"
+##   runtime = "runc"
+##   
+##   ["stage:devel"]
+##   foo = "bar"
+##   
+##   [[volumes]]
+## local layer:
+##   [[typo]]
+##   x = 1
+ok	empty-families	setup.toml 	rc=0	bytes=0
+ok	merge-kv	setup.toml setup.toml setup.local.toml 	rc=1	bytes=0
+ok	merge-kv	setup.local.toml 	rc=1	bytes=0
+ok	merge-kv	setup.toml 	rc=0	bytes=856
+ok	empty-arrays	setup.toml 	rc=0	bytes=0
+ok	kv	setup.local.toml 	rc=1	bytes=0
+ok	kv	setup.toml 	rc=0	bytes=76
+ok	empty-arrays	setup.local.toml 	rc=0	bytes=0
+ok	merge-kv	setup.toml 	rc=0	bytes=76
+ok	empty-families	setup.toml 	rc=0	bytes=0
+ok	kv	setup.toml 	rc=0	bytes=856
+ok	empty-arrays	setup.toml 	rc=0	bytes=0
+ok	empty-families	setup.local.toml 	rc=0	bytes=0
+ok	tables	setup.toml 	rc=0	bytes=88
+ok	tables	setup.local.toml 	rc=0	bytes=5
+ok	tables	setup.toml 	rc=0	bytes=27
+engine=native views=16 mismatches=0
+ok	empty-families	setup.toml 	rc=0	bytes=0
+ok	merge-kv	setup.toml setup.toml setup.local.toml 	rc=1	bytes=0
+ok	merge-kv	setup.local.toml 	rc=1	bytes=0
+ok	merge-kv	setup.toml 	rc=0	bytes=856
+ok	empty-arrays	setup.toml 	rc=0	bytes=0
+ok	kv	setup.local.toml 	rc=1	bytes=0
+ok	kv	setup.toml 	rc=0	bytes=76
+ok	empty-arrays	setup.local.toml 	rc=0	bytes=0
+ok	merge-kv	setup.toml 	rc=0	bytes=76
+ok	empty-families	setup.toml 	rc=0	bytes=0
+ok	kv	setup.toml 	rc=0	bytes=856
+ok	empty-arrays	setup.toml 	rc=0	bytes=0
+ok	empty-families	setup.local.toml 	rc=0	bytes=0
+ok	tables	setup.toml 	rc=0	bytes=88
+ok	tables	setup.local.toml 	rc=0	bytes=5
+ok	tables	setup.toml 	rc=0	bytes=27
+engine=docker views=16 mismatches=0

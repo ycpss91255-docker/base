@@ -1,0 +1,9 @@
+current-docker rc=0 run=15 inspect=15 build=0 other=1
+batch-docker rc=0 run=1 inspect=1 build=0 other=1
+go-docker rc=0 run=1 inspect=1 build=0 other=1
+go-native rc=0 run=0 inspect=0 build=0 other=1
+floor rc=0 run=0 inspect=0 build=0 other=1
+current-native rc=0 run=0 inspect=0 build=0 other=1
+batch-native rc=0 run=0 inspect=0 build=0 other=1
+TOML_BRIDGE_BATCH=0 rc=0 native-calls=15       2 --empty-families      11 --merge       2 --tables 
+TOML_BRIDGE_BATCH=1 rc=0 native-calls=1       1 --batch 

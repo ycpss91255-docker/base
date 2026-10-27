@@ -1,0 +1,74 @@
+# results/warm-rr2.tsv
+mode	temp	n_ok	median_ms	p25	p75	min	max	rc!=0	fail_median_ms	load1_min	load1_max
+current-docker	warm	20	6139	5982	6987	5922	8716	0	-	2.17	4.56
+batch-docker	warm	20	698	686	728	669	1625	0	-	2.21	4.56
+go-docker	warm	20	671	656	689	644	1564	0	-	2.14	4.70
+go-native	warm	20	314	308	324	302	1080	0	-	2.14	4.70
+floor	warm	20	312	309	320	288	815	0	-	2.14	4.70
+current-native	warm	20	513	495	550	477	1074	0	-	2.14	4.70
+batch-native	warm	20	336	326	565	321	1088	0	-	2.17	4.70
+paired (a - b)	n	median_ms	p25	p75	median_pct_of_b	rounds_a_slower
+current-docker - batch-docker	20	5443	5287	6025	+772.2%	20/20
+batch-docker - go-docker	20	34	8	53	+5.1%	16/20
+go-docker - go-native	20	352	345	375	+113.2%	20/20
+current-native - batch-native	20	172	92	189	+52.4%	16/20
+batch-native - go-native	20	20	12	130	+6.7%	18/20
+batch-native - floor	20	20	14	259	+6.5%	18/20
+go-native - floor	20	4	-2	13	+1.3%	14/20
+
+# results/cold2.tsv
+mode	temp	n_ok	median_ms	p25	p75	min	max	rc!=0	fail_median_ms	load1_min	load1_max
+current-docker-fixed	cold	10	11524	11007	13260	10916	14993	0	-	2.23	4.96
+batch-docker	cold	10	5983	5852	6257	5554	6340	0	-	2.60	5.78
+go-docker	cold	10	8262	7454	9358	7415	10498	0	-	2.31	5.28
+current-docker	cold	0	-	-	-	-	-	10	7764	2.34	3.79
+paired (a - b)	n	median_ms	p25	p75	median_pct_of_b	rounds_a_slower
+current-docker-fixed - batch-docker	10	5638	5021	7432	+98.6%	10/10
+batch-docker - go-docker	10	-2156	-3271	-1640	-26.4%	0/10
+
+# results/warm-rr.tsv
+mode	temp	n_ok	median_ms	p25	p75	min	max	rc!=0	fail_median_ms	load1_min	load1_max
+current-docker	warm	15	6501	6091	7088	6050	8122	0	-	2.93	4.95
+batch-docker	warm	15	716	689	914	676	1519	0	-	3.01	4.57
+go-docker	warm	15	695	673	1015	654	1476	0	-	3.01	4.57
+go-native	warm	15	320	313	697	299	963	0	-	3.01	4.57
+floor	warm	15	323	315	555	289	964	0	-	3.01	4.57
+current-native	warm	15	531	504	869	484	1090	0	-	2.93	4.57
+batch-native	warm	15	340	333	518	316	957	0	-	2.93	4.57
+paired (a - b)	n	median_ms	p25	p75	median_pct_of_b	rounds_a_slower
+current-docker - batch-docker	15	5812	5365	6310	+779.8%	15/15
+batch-docker - go-docker	15	6	-129	55	+0.9%	8/15
+go-docker - go-native	15	382	347	513	+113.0%	14/15
+current-native - batch-native	15	173	167	204	+51.5%	14/15
+batch-native - go-native	15	23	10	121	+7.4%	12/15
+batch-native - floor	15	17	-48	37	+5.3%	11/15
+go-native - floor	15	0	-55	10	+0.0%	7/15
+
+# results/cold.tsv
+mode	temp	n_ok	median_ms	p25	p75	min	max	rc!=0	fail_median_ms	load1_min	load1_max
+current-docker	cold	0	-	-	-	-	-	10	8346	2.58	7.68
+batch-docker	cold	10	5880	5650	6219	5461	6897	0	-	2.42	6.74
+go-docker	cold	10	8586	8312	9020	7726	9695	0	-	2.39	6.40
+build-bridge	cold	10	5389	5190	5702	5095	8933	0	-	3.04	8.72
+build-go	cold	10	7450	7122	8369	7004	9085	0	-	2.96	8.18
+paired (a - b)	n	median_ms	p25	p75	median_pct_of_b	rounds_a_slower
+batch-docker - go-docker	10	-2540	-2983	-2288	-30.2%	0/10
+
+# results/warm-sequential.tsv
+mode	temp	n_ok	median_ms	p25	p75	min	max	rc!=0	fail_median_ms	load1_min	load1_max
+current-docker	warm	11	7541	7150	7979	6307	9214	0	-	2.00	2.63
+batch-docker	warm	11	703	685	725	680	1438	0	-	2.50	2.54
+go-docker	warm	11	688	675	704	661	1511	0	-	2.64	2.70
+go-native	warm	11	333	313	527	305	924	0	-	4.53	4.75
+floor	warm	11	938	444	986	314	1074	0	-	4.25	4.53
+current-native	warm	11	521	512	617	494	1139	0	-	3.98	4.07
+batch-native	warm	11	330	323	872	321	967	0	-	3.90	3.98
+paired (a - b)	n	median_ms	p25	p75	median_pct_of_b	rounds_a_slower
+current-docker - batch-docker	11	6622	6314	6866	+943.8%	11/11
+batch-docker - go-docker	11	12	-13	46	+1.8%	6/11
+go-docker - go-native	11	356	157	384	+114.8%	9/11
+current-native - batch-native	11	184	-351	281	+55.8%	8/11
+batch-native - go-native	11	8	-52	18	+2.6%	6/11
+batch-native - floor	11	-108	-652	-28	-24.3%	2/11
+go-native - floor	11	-424	-664	-62	-47.8%	1/11
+
