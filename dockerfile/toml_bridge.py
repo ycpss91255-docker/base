@@ -293,14 +293,14 @@ def _emit_array(section, key, items, out, root=False):
     skipped (_array_spec). The shell view has no way to carry it -- a
     numbered family is the only shape an array takes there -- and
     skipping it was measured to drop it with exit 0 and nothing said:
-    `[[install]]`
-    printed no row at all, `[[build.install]]` beside `[build] x = "1"`
-    printed only `build x 1`, and `[gui] list = ["a", "b"]` lost `list`
-    (base#1307). A misspelt family (`[[volume]]`) is the realistic way to
-    meet it, and its entries would vanish while the configuration loads.
-    Every array the writers and the converter produce is a key the spec
-    knows, so this refuses only a hand-written file. Called while rows
-    are still being collected, so a refusal leaves stdout empty.
+    `[[install]]` printed no row at all, `[[build.install]]` beside
+    `[build] x = "1"` printed only `build x 1`, and
+    `[gui] list = ["a", "b"]` lost `list` (base#1307). A misspelt family
+    (`[[volume]]`) is the realistic way to meet it, and its entries would
+    vanish while the configuration loads. Every array the writers and the
+    converter produce is a key the spec knows, so this refuses only a
+    hand-written file. Called while rows are still being collected, so a
+    refusal leaves stdout empty.
     """
     path = key if root else f"{section}.{key}"
     prefix, serializer, fields, also_read = _array_spec(path, key)
