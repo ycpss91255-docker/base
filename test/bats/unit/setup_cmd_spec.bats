@@ -3291,6 +3291,7 @@ DOCK
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
+  assert_success
   run grep -cE '^    restart: always$' "${TEMP_DIR}/compose.yaml"
   assert_output "1"
 
@@ -3299,6 +3300,7 @@ DOCK
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
+  assert_success
   run grep -cE '^    restart:' "${TEMP_DIR}/compose.yaml"
   assert_output "0"
 }
