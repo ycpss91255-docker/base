@@ -148,14 +148,23 @@ setup() {
   assert_failure
 }
 
+# _mock_docker_unreached
+#   A docker mock for a path that must never start the bridge: it says
+#   "docker was called" on stdout and fails, so a test that refutes that
+#   line (or asserts empty stdout) catches the shim reaching docker
+#   (base#1399).
+_mock_docker_unreached() {
+  create_mock_dir
+  mock_cmd "docker" 'echo "docker was called: $*"; exit 7'
+}
+
 # why: The refusal is a contract of its own, not just "something failed":
 # the caller sees status 1 and a `no_such_file` event, and the bridge is
 # never started. Without the guard the read still fails -- on the
 # redirect -- so only the exact status and the event id tell the guard
 # from its absence (base#1399).
 @test "toml-bridge: parse of a missing file returns 1 and logs no_such_file without running docker (base#1399)" {
-  create_mock_dir
-  mock_cmd "docker" 'echo "docker was called: $*"; exit 7'
+  _mock_docker_unreached
 
   run env LOG_FORMAT=json bash -c "
     source '${SHIM}'
@@ -644,8 +653,7 @@ exec /usr/local/bin/toml-bridge "$@"'
 # nothing to merge, and that is an empty configuration, not a failure
 # (base#1399). The bridge is not started at all.
 @test "toml-bridge: merge in which every layer is absent exits 0 with empty stdout (base#1399)" {
-  create_mock_dir
-  mock_cmd "docker" 'echo "docker was called: $*"; exit 7'
+  _mock_docker_unreached
 
   # shellcheck disable=SC1090
   source "${SHIM}"
@@ -661,8 +669,7 @@ exec /usr/local/bin/toml-bridge "$@"'
 # ones, and is refused: status 1 and a `merge_no_files` event, with or
 # without --kv (base#1399).
 @test "toml-bridge: merge with no file arguments returns 1 and logs merge_no_files (base#1399)" {
-  create_mock_dir
-  mock_cmd "docker" 'echo "docker was called: $*"; exit 0'
+  _mock_docker_unreached
 
   run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge"
   [ "${status}" -eq 1 ]
