@@ -1663,8 +1663,16 @@ EOF
         _named=$(( _named + 1 ))
       else
         # A root-level array: TOML refuses the document itself, and this
-        # check is owed no row for it.
-        refute_stderr_contains "numbered family"
+        # check is owed no row for it. The refusal must still BE that
+        # structural error, attributed to the `[[<path>]]` header that
+        # re-declares the `[<section>]` table -- line 4 of the fixture --
+        # and nothing else: an exit 1 with an empty stderr, or a Python
+        # traceback (a bridge that cannot import its parser exits 1
+        # too), is an unrelated failure, not this refusal (base#1400).
+        assert_equal "$(sed -n 4p "${_f}")" "[[${_path}]]"
+        refute_stderr_contains "numbered family" "Traceback"
+        [[ "${stderr}" =~ ^"toml-bridge: Cannot overwrite a value (at line 4, column "[0-9]+")"$ ]] \
+          || fail "[${_sect}] / [[${_path}]] is not refused as the TOML structural error at the [[${_path}]] header (line 4): ${stderr}"
         _structural=$(( _structural + 1 ))
       fi
     done
