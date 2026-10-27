@@ -267,30 +267,43 @@ def _check_transportable(section, key, value):
             raise SystemExit(1)
 
 
-def _emit_array(section, key, items, out, root=False):
-    """Collect an array of tables as numbered-key KV rows.
+def _array_spec(path, key):
+    """Return the _ARRAY_SPEC family of array <key>, or refuse it.
 
-    An array whose key _ARRAY_SPEC has no family for is REFUSED, not
-    skipped. The shell view has no way to carry it -- a numbered family
-    is the only shape an array takes there -- and skipping it was
-    measured to drop it with exit 0 and nothing said: `[[install]]`
-    printed no row at all, `[[build.install]]` beside `[build] x = "1"`
-    printed only `build x 1`, and `[gui] list = ["a", "b"]` lost `list`
-    (base#1307). A misspelt family (`[[volume]]`) is the realistic way to
-    meet it, and its entries would vanish while the configuration loads.
-    Every array the writers and the converter produce is a key the spec
-    knows, so this refuses only a hand-written file. Called while rows
-    are still being collected, so a refusal leaves stdout empty.
+    <path> is the array's dotted name as the file spells it, which the
+    refusal names. Both views go through here -- the KV view
+    (_emit_array) and the display view (_emit_entries) -- so a file one
+    of them refuses is never one the other prints (base#1396). Why an
+    unknown array is refused rather than skipped is in _emit_array.
     """
     spec = _ARRAY_SPEC.get(key)
-    path = key if root else f"{section}.{key}"
     if not spec:
         print(f"toml-bridge: {path} is an array, and no numbered family "
               f"of the shell view carries an array by that name, so "
               f"nothing would read it: check the spelling of the array "
               f"name, or remove it", file=sys.stderr)
         raise SystemExit(1)
-    prefix, serializer, fields, also_read = spec
+    return spec
+
+
+def _emit_array(section, key, items, out, root=False):
+    """Collect an array of tables as numbered-key KV rows.
+
+    An array whose key _ARRAY_SPEC has no family for is REFUSED, not
+    skipped (_array_spec). The shell view has no way to carry it -- a
+    numbered family is the only shape an array takes there -- and
+    skipping it was measured to drop it with exit 0 and nothing said:
+    `[[install]]` printed no row at all, `[[build.install]]` beside
+    `[build] x = "1"` printed only `build x 1`, and
+    `[gui] list = ["a", "b"]` lost `list` (base#1307). A misspelt family
+    (`[[volume]]`) is the realistic way to meet it, and its entries would
+    vanish while the configuration loads. Every array the writers and the
+    converter produce is a key the spec knows, so this refuses only a
+    hand-written file. Called while rows are still being collected, so a
+    refusal leaves stdout empty.
+    """
+    path = key if root else f"{section}.{key}"
+    prefix, serializer, fields, also_read = _array_spec(path, key)
     allowed = fields + also_read
     needs = _FIELD_NEEDS.get(key, {})
     for i, elem in enumerate(items, 1):
@@ -709,8 +722,12 @@ def _emit_entries(data, raw):
     header-only row, `<section>\t<n>\t<header>`, with no field or value
     column, so three entries with an empty middle one stay three blocks.
 
+    An array no numbered family carries is refused by name, as the KV
+    view refuses it (_array_spec): printing it would show a file the
+    loader refuses as a valid one (base#1396).
+
     Rows are collected before any is printed, so a refusal from
-    _check_transportable leaves stdout empty.
+    _array_spec or _check_transportable leaves stdout empty.
     """
     aot_pos, table_pos = _header_positions(raw)
     blocks = []
@@ -727,7 +744,8 @@ def _emit_entries(data, raw):
     def block(pos, section, header, fields):
         blocks.append((pos, len(blocks), section, header, fields))
 
-    def entries(section, path, items):
+    def entries(section, path, key, items):
+        _array_spec(path, key)
         found = aot_pos.get(path, [])
         exact = len(found) == len(items)
         for index, elem in enumerate(items):
@@ -741,7 +759,7 @@ def _emit_entries(data, raw):
 
     for section, node in data.items():
         if isinstance(node, list):
-            entries(section, section, node)
+            entries(section, section, section, node)
             continue
         if not isinstance(node, dict):
             continue
@@ -751,7 +769,7 @@ def _emit_entries(data, raw):
         def walk(prefix, table):
             for key, value in table.items():
                 if isinstance(value, list):
-                    arrays.append((f"{section}.{prefix}{key}", value))
+                    arrays.append((f"{section}.{prefix}{key}", key, value))
                 elif isinstance(value, dict):
                     walk(f"{prefix}{key}.", value)
                 else:
@@ -772,8 +790,8 @@ def _emit_entries(data, raw):
             block(pos, section, f"[{section}]", scalars)
         for path, _n, value in sorted(numbered, key=lambda r: r[:2]):
             block(pos, section, f"[[{path}]]", _entry_fields(path, value))
-        for path, items in arrays:
-            entries(section, path, items)
+        for path, key, items in arrays:
+            entries(section, path, key, items)
 
     rows = []
     for n, (_pos, _seq, section, header, fields) in enumerate(
