@@ -214,6 +214,19 @@ toml_bridge_parse() {
     return 1
   fi
 
+  # SPIKE ONLY (base#1395): answer a prefetched view from memory.
+  if (( $# == 1 )) && [[ "$1" == --kv || "$1" == --tables \
+        || "$1" == --empty-families || "$1" == --empty-arrays ]]; then
+    local _tb_abs _tb_key
+    if _tb_abs="$(_tb_batch_abs "${_file}")"; then
+      _tb_key="${1#--}"$'\x1f'"${_tb_abs}"
+      if _tb_batch_hit "${_tb_key}" "${_tb_abs}"; then
+        _tb_batch_emit "${_tb_key}"
+        return
+      fi
+    fi
+  fi
+
   if _toml_bridge_use_native; then
     toml-bridge "$@" < "${_file}"
     return
@@ -268,6 +281,16 @@ toml_bridge_merge() {
   done
   (( ${#_layers[@]} > 0 )) || return 0
 
+  # SPIKE ONLY (base#1395): answer a prefetched chain from memory.
+  if [[ -n "${_kv_flag}" ]]; then
+    local _tb_key="merge-kv"
+    for _file in "${_layers[@]}"; do _tb_key+=$'\x1f'"${_file}"; done
+    if _tb_batch_hit "${_tb_key}" "${_layers[@]}"; then
+      _tb_batch_emit "${_tb_key}"
+      return
+    fi
+  fi
+
   # Native path: call the bridge binary directly.
   if _toml_bridge_use_native; then
     local -a _args=("--merge")
@@ -289,4 +312,131 @@ toml_bridge_merge() {
   done
 
   docker "${_docker_args[@]}" "${_TOML_BRIDGE_RESOLVED}" "${_bridge_args[@]}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# SPIKE ONLY (base#1395 slice 1). Throwaway; this branch is never merged.
+#
+# toml_bridge_prefetch <layer>...
+#   With TOML_BRIDGE_BATCH=1, ask the engine ONCE for every view
+#   `setup apply` reads (the chain's merge --kv, and per layer merge --kv,
+#   --kv, --tables, --empty-families, --empty-arrays) and keep the answers
+#   in this shell. toml_bridge_parse / toml_bridge_merge then answer a
+#   request for one of those views from memory, as long as every file it
+#   names still has the size, mtime and inode it had at prefetch time.
+#   Anything else -- another file set, JSON mode, --entries, a changed
+#   file -- falls through to the live call, unchanged.
+#
+#   Engine, for measurement only:
+#     default                     the Python bridge --batch (native if on
+#                                 PATH, else one `docker run`)
+#     TOML_BRIDGE_BATCH_GO=native:<bin> | docker:<proto dir>
+#                                 run the Go prototype's `env` over the
+#                                 same layers (parse + merge + validate +
+#                                 render), then serve the views from
+#     TOML_BRIDGE_BATCH_REPLAY=<file>  a recorded Python --batch output.
+#                                 REPLAY alone is the zero-cost-engine
+#                                 floor. The Go prototype does not speak
+#                                 the bridge's view protocol, so its run
+#                                 measures the engine's cost, not its
+#                                 output.
+# ════════════════════════════════════════════════════════════════════
+declare -gA _TB_BATCH_OUT=() _TB_BATCH_ERR=() _TB_BATCH_RC=() _TB_BATCH_FSIG=()
+
+_tb_batch_abs() {
+  local _f="$1" _d
+  if [[ "${_f}" != /* ]]; then
+    _d="$(cd -- "$(dirname -- "${_f}")" && pwd -P)" || return 1
+    _f="${_d}/$(basename -- "${_f}")"
+  fi
+  printf '%s\n' "${_f}"
+}
+
+# _tb_batch_hit <key> <file>... -- true when <key> was prefetched and no
+# file it names has changed since.
+_tb_batch_hit() {
+  local _key="$1"; shift
+  [[ -n "${_TB_BATCH_RC[${_key}]+x}" ]] || return 1
+  local _f _sig
+  for _f in "$@"; do
+    [[ -n "${_TB_BATCH_FSIG[${_f}]+x}" ]] || return 1
+    _sig="$(stat -c '%s %.9Y %i' -- "${_f}" 2>/dev/null)" || return 1
+    [[ "${_sig}" == "${_TB_BATCH_FSIG[${_f}]}" ]] || return 1
+  done
+}
+
+_tb_batch_emit() {
+  local _key="$1"
+  printf '%s' "${_TB_BATCH_OUT[${_key}]}"
+  printf '%s' "${_TB_BATCH_ERR[${_key}]}" >&2
+  return "${_TB_BATCH_RC[${_key}]}"
+}
+
+_tb_batch_go_image() {
+  local _dir="$1" _hash _tag
+  _hash="$(cat "${_dir}/Dockerfile" "${_dir}"/go.mod "${_dir}"/go.sum "${_dir}"/*.go | sha256sum)"
+  _tag="spike-setupgen:${_hash:0:12}"
+  if ! docker image inspect "${_tag}" > /dev/null 2>&1; then
+    docker build -q -t "${_tag}" -f "${_dir}/Dockerfile" "${_dir}" > /dev/null 2>&1 \
+      || return 1
+  fi
+  printf '%s\n' "${_tag}"
+}
+
+toml_bridge_prefetch() {
+  [[ "${TOML_BRIDGE_BATCH:-}" == "1" ]] || return 0
+  local _f _out _rc=0
+  local -a _layers=() _mounts=()
+  for _f in "$@"; do
+    [[ -f "${_f}" ]] || continue
+    _f="$(_tb_batch_abs "${_f}")" || return 0
+    _layers+=("${_f}")
+    _mounts+=("-v" "${_f}:${_f}:ro")
+  done
+  (( ${#_layers[@]} > 0 )) || return 0
+
+  if [[ -n "${TOML_BRIDGE_BATCH_GO:-}" ]]; then
+    case "${TOML_BRIDGE_BATCH_GO}" in
+      native:*)
+        "${TOML_BRIDGE_BATCH_GO#native:}" env "${_layers[@]}" > /dev/null || return 0
+        ;;
+      docker:*)
+        local _gimg
+        _gimg="$(_tb_batch_go_image "${TOML_BRIDGE_BATCH_GO#docker:}")" || return 0
+        docker run --rm "${_mounts[@]}" "${_gimg}" env "${_layers[@]}" > /dev/null || return 0
+        ;;
+    esac
+  fi
+
+  if [[ -n "${TOML_BRIDGE_BATCH_REPLAY:-}" ]]; then
+    _out="$(cat -- "${TOML_BRIDGE_BATCH_REPLAY}")" || return 0
+  elif _toml_bridge_use_native; then
+    _out="$(toml-bridge --batch "${_layers[@]}")" || return 0
+  else
+    _toml_bridge_resolve_image || return 0
+    _out="$(docker run --rm "${_mounts[@]}" "${_TOML_BRIDGE_RESOLVED}" --batch "${_layers[@]}")" \
+      || return 0
+  fi
+
+  local _line _tag _key _vrc _no _ne _i _buf _ebuf
+  local -a _all=()
+  mapfile -t _all <<< "${_out}"
+  _i=0
+  while (( _i < ${#_all[@]} )); do
+    _line="${_all[_i]}"
+    (( _i++ )) || true
+    [[ -z "${_line}" ]] && continue
+    IFS=$'\t' read -r _tag _key _vrc _no _ne <<< "${_line}"
+    [[ "${_tag}" == $'\x1f'view ]] || return 0
+    _buf="" _ebuf=""
+    local _j
+    for (( _j = 0; _j < _no; _j++ )); do _buf+="${_all[_i++]}"$'\n'; done
+    for (( _j = 0; _j < _ne; _j++ )); do _ebuf+="${_all[_i++]}"$'\n'; done
+    _TB_BATCH_OUT[${_key}]="${_buf}"
+    _TB_BATCH_ERR[${_key}]="${_ebuf}"
+    _TB_BATCH_RC[${_key}]="${_vrc}"
+  done
+  for _f in "${_layers[@]}"; do
+    _TB_BATCH_FSIG[${_f}]="$(stat -c '%s %.9Y %i' -- "${_f}")"
+  done
 }

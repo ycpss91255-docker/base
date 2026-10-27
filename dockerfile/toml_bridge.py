@@ -996,11 +996,79 @@ def _merge_toml(paths):
     return merged
 
 
+# ── SPIKE ONLY (base#1395 slice 1): --batch ─────────────────────────────
+# Throwaway. Never merged. One invocation answers every view `setup apply`
+# asks for, so the shell pays one interpreter / container start instead of
+# fifteen. Each view runs the SAME emitter the single-view modes run, with
+# stdout and stderr captured, and is framed as
+#   \x1fview<TAB><key><TAB><rc><TAB><n-out-lines><TAB><n-err-lines>
+# followed by that many output lines, then that many stderr lines.
+# Keys: `merge-kv` + chain (the chain's --merge --kv), and per layer
+# `merge-kv`, `kv`, `tables`, `empty-families`, `empty-arrays`.
+def _batch_run(fn):
+    import contextlib
+    import io
+    out, err = io.StringIO(), io.StringIO()
+    rc = 0
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            fn()
+        except SystemExit as exc:
+            rc = exc.code if isinstance(exc.code, int) else 1
+    return rc, out.getvalue(), err.getvalue()
+
+
+def _batch_lines(text):
+    if not text:
+        return []
+    if text.endswith("\n"):
+        text = text[:-1]
+    return text.split("\n")
+
+
+def _batch_parse_one(path):
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    try:
+        return tomllib.loads(raw.decode())
+    except Exception as exc:
+        print(f"toml-bridge: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _batch(paths):
+    import os
+    present = [p for p in paths if os.path.isfile(p)]
+    views = [("merge-kv\x1f" + "\x1f".join(present),
+              lambda: _emit_kv(_merge_toml(present)))]
+    for p in present:
+        views.append(("merge-kv\x1f" + p,
+                      lambda p=p: _emit_kv(_merge_toml([p]))))
+        views.append(("kv\x1f" + p,
+                      lambda p=p: _emit_kv(_batch_parse_one(p))))
+        views.append(("tables\x1f" + p,
+                      lambda p=p: _emit_tables(_batch_parse_one(p))))
+        views.append(("empty-families\x1f" + p,
+                      lambda p=p: _emit_empty_families(_batch_parse_one(p))))
+        views.append(("empty-arrays\x1f" + p,
+                      lambda p=p: _emit_empty_arrays(_batch_parse_one(p))))
+    w = sys.stdout.write
+    for key, fn in views:
+        rc, out, err = _batch_run(fn)
+        ol, el = _batch_lines(out), _batch_lines(err)
+        w(f"\x1fview\t{key}\t{rc}\t{len(ol)}\t{len(el)}\n")
+        for line in ol + el:
+            w(line + "\n")
+
+
 def main():
     # The flags are REMOVED from the argument list rather than filtered by
     # a leading dash, so a file path is never mistaken for a flag and a
     # flag is never mistaken for a file.
     args = list(sys.argv[1:])
+    if args and args[0] == "--batch":
+        _batch(args[1:])
+        return
     kv_mode = "--kv" in args
     merge_mode = "--merge" in args
     empty_arrays_mode = "--empty-arrays" in args
