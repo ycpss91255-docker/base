@@ -155,7 +155,7 @@ EOF
   # toml-fixture-lint: allow bytes that are not UTF-8 are not TOML; the refusal IS the assertion
   printf '[environment]\nenv_1 = "GREETING=\xff\xfe"\n' > "${CONF}"
   _apply
-  assert_refusal --stdout-logs-only 1 conf_toml_merge_failed "${CONF}"
+  assert_refusal 1 conf_toml_merge_failed "${CONF}"
   _assert_nothing_generated
 }
 
@@ -217,7 +217,7 @@ EOF
   else
     run --separate-stderr bash -c "${_cmd}"
   fi
-  assert_refusal --stdout-logs-only 1 conf_toml_merge_failed "${CONF}"
+  assert_refusal 1 conf_toml_merge_failed "${CONF}"
   _assert_nothing_generated
 }
 
@@ -229,6 +229,6 @@ EOF
 @test "a directory in place of setup.toml is refused with its event id and path" {
   mkdir "${CONF}"
   _apply
-  assert_refusal --stdout-logs-only 1 conf_toml_merge_failed "${CONF}"
+  assert_refusal 1 conf_toml_merge_failed "${CONF}"
   _assert_nothing_generated
 }

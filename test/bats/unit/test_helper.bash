@@ -1164,15 +1164,14 @@ assert_log_event() {
         || fail "expected log event '${_id}'; the events logged were: ${_ids:-<none>}"
 }
 
-# assert_refusal [--stdout-logs-only] <status> <id> [<attribution>...]
+# assert_refusal <status> <id> [<attribution>...]
 #   The five points every config-path refusal is held to (base#1400),
 #   after `run --separate-stderr`:
 #     1. the exact <status>, not merely a failure;
 #     2. an empty stdout -- a refusal writes nothing a caller could read
-#        as an answer. --stdout-logs-only relaxes this for a verb whose
-#        stdout is its own progress log (`setup apply` logs INFO events
-#        there under LOG_FORMAT=json): every stdout line must then be a
-#        JSON log line, so no generated content got out;
+#        as an answer, and that includes INFO progress events, which
+#        lib/log.sh routes to stdout. There is no relaxation: a verb that
+#        logs progress before it refuses fails here;
 #     3. a JSON log line whose event id is <id>;
 #     4. that same line naming every <attribution>. `<name>=<value>` must
 #        be the event's attribute <name> with exactly <value> (`file=`,
@@ -1183,11 +1182,6 @@ assert_log_event() {
 #        the id in place of the refusal being tested.
 #   The command under test must log with LOG_FORMAT=json.
 assert_refusal() {
-    local _logs_only=0
-    if [[ "${1:-}" == "--stdout-logs-only" ]]; then
-        _logs_only=1
-        shift
-    fi
     local _want="${1:?BUG: assert_refusal expects a status}"
     local _id="${2:?BUG: assert_refusal expects an event id}"
     shift 2
@@ -1197,16 +1191,8 @@ assert_refusal() {
     [[ "${stderr}" != *"unregistered log body"* ]] \
         || fail "the logger refused an unregistered body: ${stderr}"
     assert_equal "${status}" "${_want}"
-    if (( _logs_only )); then
-        local _out_line
-        while IFS= read -r _out_line; do
-            [[ -z "${_out_line}" ]] && continue
-            [[ "${_out_line}" =~ ${_LOG_EVENT_JSON_RE} ]] \
-                || fail "stdout carries a line that is not a log event: ${_out_line}"
-        done <<< "${output}"
-    else
-        assert_equal "${output}" ""
-    fi
+    [[ -z "${output}" ]] \
+        || fail "a refusal must leave stdout empty; it carried: ${output}"
     assert_log_event "${_id}" "${stderr}"
     local _line _attr _name _value
     _line="$(log_event_line "${_id}" "${stderr}")"

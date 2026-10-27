@@ -327,6 +327,6 @@ _assert_conf_unchanged() {
     source '${SETUP_SH}'
     main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 compose_relocated_root_unusable "path=${_repo}"
+  assert_refusal 1 compose_relocated_root_unusable "path=${_repo}"
   assert [ ! -e "${TEMP_DIR}/inst-1/compose.yaml" ]
 }

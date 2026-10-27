@@ -2327,7 +2327,7 @@ TOML
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}'
   "
-  assert_refusal --stdout-logs-only 1 apply_conf_value_empty "file=${TEMP_DIR}/setup.toml" table=deploy key=gpu_capabilities
+  assert_refusal 1 apply_conf_value_empty "file=${TEMP_DIR}/setup.toml" table=deploy key=gpu_capabilities
   refute_stderr_contains "parameter null or not set"
 
   local _f
@@ -2371,7 +2371,7 @@ TOML
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}'
   "
-  assert_refusal --stdout-logs-only 1 apply_conf_value_empty "file=${TEMP_DIR}/setup.toml" table=deploy key=gpu_capabilities
+  assert_refusal 1 apply_conf_value_empty "file=${TEMP_DIR}/setup.toml" table=deploy key=gpu_capabilities
 
   for _f in .env .env.generated .env.local compose.yaml; do
     cmp -s "${TEMP_DIR}/before/${_f}" "${TEMP_DIR}/${_f}" \
@@ -2467,7 +2467,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 stage_reserved_tag stage=latest
+  assert_refusal 1 stage_reserved_tag stage=latest
   refute_output --partial "[setup] USER="
 
   _r1270_assert_absent "${TEMP_DIR}" .env .env.generated .env.local compose.yaml
@@ -2491,7 +2491,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 stage_reserved_tag stage=latest
+  assert_refusal 1 stage_reserved_tag stage=latest
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
     .env .env.generated .env.local compose.yaml
@@ -2508,7 +2508,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 stage_reserved_tag stage=latest
+  assert_refusal 1 stage_reserved_tag stage=latest
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
   _r1270_assert_absent "${TEMP_DIR}" .env.generated .env.bak .env.local compose.yaml
@@ -2532,7 +2532,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
     "${TEMP_DIR}/setup.toml"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/compose.yaml"
+  assert_refusal 1 apply_output_unusable "path=${TEMP_DIR}/compose.yaml"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
@@ -2554,7 +2554,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   mkdir "${TEMP_DIR}/.env.bak"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/.env.bak"
+  assert_refusal 1 apply_output_unusable "path=${TEMP_DIR}/.env.bak"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
@@ -2576,7 +2576,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   _r1270_apply "${TEMP_DIR}" '
     cp() { [[ "${*: -1}" == */.env.bak ]] && return 1; command cp "$@"; }
   '
-  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/.env"
+  assert_refusal 1 apply_commit_failed "path=${TEMP_DIR}/.env"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
@@ -2614,7 +2614,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
 
   export BATS_TEST_TMPDIR
   _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
-  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
+  assert_refusal 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
   refute_output --partial "[setup] USER="
   [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
 
@@ -2631,7 +2631,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
 
   export BATS_TEST_TMPDIR
   _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
-  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
+  assert_refusal 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
   [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
 
   _r1270_assert_absent "${TEMP_DIR}" .env .env.generated .env.local compose.yaml
@@ -2649,7 +2649,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
 
   export BATS_TEST_TMPDIR
   _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
-  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
+  assert_refusal 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
   [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
@@ -2674,7 +2674,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
     "${TEMP_DIR}/setup.toml"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/.env.local"
+  assert_refusal 1 apply_output_unusable "path=${TEMP_DIR}/.env.local"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
@@ -2693,7 +2693,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
   mkfifo "${TEMP_DIR}/.env.local"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/.env.local"
+  assert_refusal 1 apply_output_unusable "path=${TEMP_DIR}/.env.local"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_absent "${TEMP_DIR}" .env .env.generated compose.yaml
@@ -3713,7 +3713,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/nope.toml' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 conf_local_override_unusable "path=${TEMP_DIR}/nope.toml"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/nope.toml"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -3728,7 +3728,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/not-a-dir' -q
   "
-  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/not-a-dir"
+  assert_refusal 1 apply_output_unusable "path=${TEMP_DIR}/not-a-dir"
 }
 
 # why: "The repo is not mutated by a call" is a property of the whole
@@ -3747,7 +3747,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 apply_repo_conf_unsettled "path=${TEMP_DIR}/setup.toml"
+  assert_refusal 1 apply_repo_conf_unsettled "path=${TEMP_DIR}/setup.toml"
   assert_stderr_contains "without --output"
   # Refused AND put back: the bootstrap had already written the file by
   # the time the call could tell, so a refusal that only returned 1 would
@@ -3787,7 +3787,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main deploy --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --stage runtime --dry-run
   "
-  assert_refusal --stdout-logs-only 1 deploy_local_override_refused "file=${TEMP_DIR}/a.toml" sections=network
+  assert_refusal 1 deploy_local_override_refused "file=${TEMP_DIR}/a.toml" sections=network
 }
 
 # why: `build.context` was not the only repo-relative path in the emitted
@@ -3878,7 +3878,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' --print-resolved
   "
-  assert_refusal --stdout-logs-only 1 apply_repo_conf_unsettled "path=${TEMP_DIR}/setup.toml"
+  assert_refusal 1 apply_repo_conf_unsettled "path=${TEMP_DIR}/setup.toml"
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
 }
 
@@ -3894,7 +3894,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --local-conf= --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 conf_local_override_unusable path=
+  assert_refusal 1 conf_local_override_unusable path=
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -3905,7 +3905,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --output= -q
   "
-  assert_refusal --stdout-logs-only 1 apply_output_unusable path=
+  assert_refusal 1 apply_output_unusable path=
   assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
 }
 
@@ -3916,7 +3916,7 @@ DF
     source /source/dist/script/docker/wrapper/setup.sh
     main deploy --base-path '${TEMP_DIR}' --local-conf= --stage runtime --dry-run
   "
-  assert_refusal --stdout-logs-only 1 conf_local_override_unusable path=
+  assert_refusal 1 conf_local_override_unusable path=
 }
 
 # why: A bare relative `additional_contexts` source is a LOCAL path, not a
@@ -4090,7 +4090,7 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 compose_relocated_root_unusable "path=${_repo}"
+  assert_refusal 1 compose_relocated_root_unusable "path=${_repo}"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -4137,7 +4137,7 @@ PY
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/params' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 conf_local_override_unusable "path=${TEMP_DIR}/params"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/params"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -4285,7 +4285,7 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal --stdout-logs-only 1 compose_relocated_root_unusable "path=${_repo}"
+  assert_refusal 1 compose_relocated_root_unusable "path=${_repo}"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
