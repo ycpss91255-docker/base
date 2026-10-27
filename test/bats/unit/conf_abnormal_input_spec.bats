@@ -162,12 +162,19 @@ EOF
 # why: A value is not bounded by the reader, so a large one must neither
 # hang apply nor come out different from a short one. Bound: 60 s, against
 # about 3 s measured for a 1 MiB value in the test-tools image -- the
-# margin is for a loaded CI runner, not for a slower algorithm.
+# margin is for a loaded CI runner, not for a slower algorithm. The bound
+# is ENFORCED: apply runs under `timeout`, which kills it at 60 s and
+# answers 124, so a hang fails the status check instead of hanging the
+# suite. And each run's value is asserted present in .env, whole, before
+# the two generated sets are compared -- a comparison alone passes an
+# emitter that drops the entry from both runs.
 @test "a 1 MiB value finishes within 60 s and generates what a short value does" {
   local _short="abcdefgh"
   printf '[environment]\nenv_1 = "GREETING=%s"\n' "${_short}" > "${CONF}"
   _apply
   assert_success
+  run grep -cxF "GREETING='${_short}'" "${REPO}/.env"
+  assert_output "1"
   local _short_view
   _short_view="$(_generated_view "${REPO}")"
   _clear_generated
@@ -175,11 +182,19 @@ EOF
   local _big
   _big="$(head -c 1048576 /dev/zero | tr '\0' a)"
   printf '[environment]\nenv_1 = "GREETING=%s"\n' "${_big}" > "${CONF}"
-  local _t0="${SECONDS}"
-  _apply
-  local _took=$(( SECONDS - _t0 ))
+  run --separate-stderr timeout --kill-after=5 60 bash -c "
+    export LOG_FORMAT=json
+    source '${SETUP_SH}'
+    main apply --base-path '${REPO}'
+  "
+  (( status != 124 && status != 137 )) \
+    || fail "apply on a 1 MiB value was killed at the 60 s bound (status ${status})"
   assert_success
-  (( _took <= 60 )) || fail "apply took ${_took}s on a 1 MiB value; the bound is 60s"
+  # The expected line goes to grep as a pattern FILE: one 1 MiB argv
+  # string is past the kernel's per-argument limit (MAX_ARG_STRLEN).
+  printf "GREETING='%s'\n" "${_big}" > "${TEMP_DIR}/big.line"
+  run grep -cxF -f "${TEMP_DIR}/big.line" "${REPO}/.env"
+  assert_output "1"
   local _big_view
   _big_view="$(_generated_view "${REPO}")"
   assert_equal "${_big_view//"${_big}"/"${_short}"}" "${_short_view}"
