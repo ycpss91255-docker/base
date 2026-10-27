@@ -1736,7 +1736,7 @@ for the knobs the conf sets.
 | `_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)` | - |
 | `_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)` | - |
 
-### test/bats/unit/conf_abnormal_input_spec.bats (6)
+### test/bats/unit/conf_abnormal_input_spec.bats (7)
 
 The bridge's own specs prove what the parser does with a file; they cannot
 prove what an operator gets. Between the two sit the shell reader, the
@@ -1755,6 +1755,7 @@ unreadable layer, and a directory where the layer should be.
 | `a 1 MiB value finishes within 60 s and generates what a short value does` | A value is not bounded by the reader, so a large one must neither hang apply nor come out different from a short one. Bound: 60 s, against about 3 s measured for a 1 MiB value in the test-tools image -- the margin is for a loaded CI runner, not for a slower algorithm. The bound is ENFORCED: apply runs under `timeout`, which kills it at 60 s and answers 124, so a hang fails the status check instead of hanging the suite. And each run's value is asserted present in .env, whole, before the two generated sets are compared -- a comparison alone passes an emitter that drops the entry from both runs. |
 | `an unreadable layer is refused with its status, event id and path` | A layer that is there and cannot be read is not an absent layer: a configuration replaced by the template defaults is the failure this must not become. Unreadability needs a user the mode applies to, so as root the case drops to `nobody` with su; without su it cannot be staged. |
 | `a directory in place of setup.toml is refused with its event id and path` | A directory where setup.toml should be is not an absent layer either. Measured before base#1400: apply logged conf_no_repo_conf ("using template defaults"), then conf_upsert_file_missing writing the workspace bind into it, and exited 0 with compose.yaml generated. It must be refused like any other layer that is there and cannot be read. |
+| `a FIFO in place of setup.toml is refused within a bound, with its event id and path` | A FIFO where setup.toml should be is there too, and unlike a directory it does not fail on open: open(2) on a FIFO blocks until a writer arrives, so an `-e` gate that hands it to the bridge hangs apply forever instead of refusing (review round 3 of base#1400). The bound makes the hang a failure instead of a wedged suite. |
 
 ### test/bats/unit/conf_accessor_spec.bats (35)
 
@@ -1834,7 +1835,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging: a header with a trailing comment still names its service` | The service SET was matched off the physical header text (`^\[logging\.<svc>\]$`), which is one of several ways TOML spells the same table. A trailing comment after the bracket is part of a VALID header -- the bridge reads `[logging.runtime] # rotation settings` as `logging.runtime` -- and the matcher saw nothing, so `_collect_logging` returned an empty per-service string and that service's driver, rotation and host-log mount settings were dropped out of the generated compose with nothing said. The set comes from the merged, parsed sections now, which is also the union across the chain this code was written to build. |
 | `_collect_logging: an inline table still names its service` | The other spelling, and the one no header matcher could ever see. `runtime = { max_size = "100m" }` inside `[logging]` is the same table as `[logging.runtime]` and the bridge emits it as the same section, so a reader that derives the set from the parse gets it for free while one that greps for a header cannot. |
 
-### test/bats/unit/conf_refusal_event_spec.bats (17)
+### test/bats/unit/conf_refusal_event_spec.bats (18)
 
 A refusal is identified by its event id, and only the JSON log sink prints
 one: the text sink prints the `display=` string instead, so the specs that
@@ -1862,6 +1863,7 @@ filesystem, the case says how it forces it.
 | `toml_bridge_build_failed: a failed parser build refuses the read, naming the Dockerfile` | A failed build stops the read with the builder's complaint rather than an empty stream, and the read's stdout -- the stream a caller collects as configuration rows -- carries nothing, not even the progress event announcing the build. FORCED with a `docker` stub on PATH that reports the image absent and fails the build. |
 | `no_such_file: toml_bridge_parse refuses a file that is not there, naming it` | A parse of a file that is not there answers before any parser runs. |
 | `merge_no_files: toml_bridge_merge refuses a call naming no layer` | A merge naming no layer at all is a caller mistake, not an empty configuration. |
+| `merge_layer_not_regular: toml_bridge_merge refuses a FIFO layer without opening it` | A layer that is there but is not a regular file (a FIFO, a device, a directory) is neither absent nor readable as TOML. A FIFO is the sharp case: open(2) blocks until a writer arrives, so the shim refuses it by name before the bridge ever opens it (review round 3 of base#1400). The bound turns a hang into a failure. |
 | `conf_local_override_unusable: apply --local-conf naming no file is refused, naming the path` | A --local-conf the call cannot honour must not resolve to the template defaults while the caller is told its parameters applied. |
 | `conf_unknown_key: setup set on a misspelt key is refused, naming the key` | `set` of a key no reader reads would write a value nothing applies; it is refused before anything is written (base#1374). |
 | `apply_unknown_table: apply refuses an unknown table, naming the file and the table` | A table no reader knows would have its settings dropped while apply reported success (base#1328). |

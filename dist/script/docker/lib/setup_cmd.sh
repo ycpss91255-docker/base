@@ -117,8 +117,8 @@ _setup_conf_check_known() {
   _setup_conf_layers "${_base}" _sck_layers || return 1
   local _layer _i _sect _key _bad=0
   for _layer in "${_sck_layers[@]}"; do
-    # `-e`: a directory in a layer's place is judged and refused by the
-    # load below, not skipped as an absent layer (base#1400).
+    # `-e`: a directory or FIFO in a layer's place is refused by the load
+    # below, not skipped as an absent layer (base#1400).
     [[ -e "${_layer}" && "${_layer}" == *.toml ]] || continue
     _conf_load_layers _SCK_CONF "${_layer}" || return 1
     local -n _sck_es=_SCK_CONF__es
