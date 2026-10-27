@@ -911,3 +911,49 @@ EOF
   run _setup_conf_chain_changed _l _snap
   assert_failure
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _load_setup_conf_full -- a layer that is there but cannot be parsed
+#
+# _toml_tokenize refuses a failed parse (non-zero, arrays empty, the
+# conf_toml_parse_failed event). Its projection must carry that refusal
+# to its caller, not discard it and answer zero over zero keys: that is
+# a broken file reported as an empty one, and `setup remove` then says
+# the key is missing (base#1398). The valid and absent layers are pinned
+# in the same case so the refusal cannot be bought by failing them too.
+# ════════════════════════════════════════════════════════════════════
+
+# why: The projection every key-level reader goes through. Without the
+# refusal a malformed setup.toml loads as zero keys with success, so a
+# broken file is indistinguishable from an empty one (base#1398).
+@test "_load_setup_conf_full answers non-zero with nothing loaded when the TOML parse fails (base#1398)" {
+  local _conf_sh=/source/dist/script/docker/lib/conf.sh
+  local _probe
+  _probe="source ${_conf_sh}
+declare -a s=(stale_s) k=(stale_k) v=(stale_v)
+_load_setup_conf_full \"\$1\" s k v
+printf 'rc=%s sects=%s keys=%s vals=%s\n' \"\$?\" \"\${#s[@]}\" \"\${#k[@]}\" \"\${#v[@]}\""
+
+  # Every out-array is seeded with a stale entry, so "nothing loaded"
+  # means the function emptied them, not that they were never touched.
+
+  # A valid file: rc 0, with its key and value and no stale entry.
+  printf '[gui]\nmode = "off"\n' > "${TEMP_DIR}/valid.toml"
+  run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/valid.toml"
+  assert_success
+  assert_output --partial "rc=0 sects=1 keys=1 vals=1"
+
+  # An absent file: rc 0, with nothing.
+  run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/absent.toml"
+  assert_success
+  assert_output --partial "rc=0 sects=0 keys=0 vals=0"
+
+  # A malformed file: rc 1, nothing loaded, and the parse failure named.
+  # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
+  printf '[gui]\nmode = "off\n' > "${TEMP_DIR}/setup.toml"
+  run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_output --partial "rc=1 sects=0 keys=0 vals=0"
+  assert_output --partial '"body":"conf_toml_parse_failed"'
+  refute_output --partial "unregistered log body"
+}

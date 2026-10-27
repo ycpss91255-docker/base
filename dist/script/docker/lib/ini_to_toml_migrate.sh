@@ -194,6 +194,12 @@ _ini_to_toml_emit_aot() {
 # the source is gone, and a second opinion written here would be exactly
 # the drift the derived placement above exists to avoid.
 #
+# It parses in --kv mode, the mode the load reads setup.toml in
+# (conf.sh's toml_bridge_parse/toml_bridge_merge --kv). JSON mode
+# accepts files the load refuses, such as an array of tables under a key
+# no numbered family carries (base#1307); a gate in that mode commits a
+# file the next load cannot read, after the source is renamed (base#1397).
+#
 # An unavailable bridge reads as a refusal, not as a pass. That is the
 # safe direction: an unverified conversion whose source has been renamed
 # is the unrecoverable outcome, while a refusal costs the operator one
@@ -209,7 +215,7 @@ _ini_to_toml_commit() {
   local _toml="${3:?"${FUNCNAME[0]}: missing toml file"}"
 
   local _why=""
-  if _why="$(toml_bridge_parse "${_tmp}" 2>&1 >/dev/null)"; then
+  if _why="$(toml_bridge_parse "${_tmp}" --kv 2>&1 >/dev/null)"; then
     mv -f -- "${_tmp}" "${_toml}"
     return 0
   fi

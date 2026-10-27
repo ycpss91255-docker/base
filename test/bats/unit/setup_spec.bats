@@ -2218,3 +2218,23 @@ EOF
   run grep -x 'TZ=Europe/Berlin' "${TEMP_DIR}/.env.generated"
   assert_success
 }
+
+# why: `remove` on a layer that is there but cannot be parsed must say the
+#      file is broken, not that the key is missing. _load_setup_conf_full
+#      used to answer zero over zero keys on a failed parse, so the key
+#      search ran over nothing and the operator was told `gui.mode` does
+#      not exist in a file that names it (base#1398). The file must also be
+#      left exactly as it was.
+@test "remove on an unparsable setup.toml reports the parse failure, not a missing key (base#1398)" {
+  # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
+  printf '[gui]\nmode = "off\n' > "${TEMP_DIR}/setup.toml"
+  cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml"
+  export LOG_FORMAT=json
+  run main remove gui.mode --base-path "${TEMP_DIR}"
+  assert_failure 1
+  assert_output --partial '"body":"conf_toml_parse_failed"'
+  refute_output --partial '"body":"conf_key_not_found"'
+  refute_output --partial "unregistered log body"
+  run cmp "${TEMP_DIR}/before.toml" "${TEMP_DIR}/setup.toml"
+  assert_success
+}
