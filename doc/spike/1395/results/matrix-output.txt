@@ -1,0 +1,255 @@
+# probe-matrix.sh output
+# origin/main = f2a0fd1e7dcbbaf806e87590fb0c9759e8b94f93
+# bridge image = toml-bridge:c67e107678b7 (main toml_bridge.py mounted over it)
+# go = $SPIKE_WORK/setupgen
+[network]
+mode = "bridge"
+ipc = "private"
+
+[[network.ports]]
+host = 8080
+container = 80
+
+[deploy]
+gpu_mode = "auto"
+gpu_runtime = "auto"
+
+[gui]
+mode = "auto"
+
+==== 1. missing layer ====
+
+$ bridge --merge --kv $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/absent.toml
+network	mode	bridge
+network	ipc	private
+network	port_1	8080:80
+deploy	gpu_mode	auto
+deploy	gpu_runtime	auto
+gui	mode	auto
+[rc=0]
+
+$ bash -c source <(git -C '/home/yunchien/workspace/ycpss91255-docker/docker/base_ws/base-spike-1395' show 'f2a0fd1e7dcbbaf806e87590fb0c9759e8b94f93:dist/script/docker/lib/toml_bridge.sh' | sed 's|^_toml_bridge_dir=.*|_toml_bridge_dir=/home/yunchien/workspace/ycpss91255-docker/docker/base_ws/base-spike-1395/dist/script/docker/lib|'); TOML_BRIDGE_IMAGE=toml-bridge:c67e107678b7 toml_bridge_merge --kv '$SPIKE_WORK/probe/absent.toml'; echo "shim rc=$?"
+shim rc=0
+[rc=0]
+
+$ $SPIKE_WORK/setupgen env $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/absent.toml
+setupgen: $SPIKE_WORK/probe/absent.toml: cannot read: open $SPIKE_WORK/probe/absent.toml: no such file or directory
+[rc=1]
+
+==== 2. partial layer (one key of a table; arrays replace whole) ====
+[network]
+mode = "host"
+
+$ bridge --merge --kv $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/partial.toml
+network	mode	host
+network	ipc	private
+network	port_1	8080:80
+deploy	gpu_mode	auto
+deploy	gpu_runtime	auto
+gui	mode	auto
+[rc=0]
+
+$ $SPIKE_WORK/setupgen get network.ipc $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/partial.toml
+private
+[rc=0]
+
+$ $SPIKE_WORK/setupgen get --json network.ports $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/partial.toml
+[{"container":80,"host":8080}]
+[rc=0]
+[[network.ports]]
+host = 9090
+container = 90
+
+$ bridge --merge --kv $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/ports.toml
+network	mode	bridge
+network	ipc	private
+network	port_1	9090:90
+deploy	gpu_mode	auto
+deploy	gpu_runtime	auto
+gui	mode	auto
+[rc=0]
+
+$ $SPIKE_WORK/setupgen get --json network.ports $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/ports.toml
+[{"container":90,"host":9090}]
+[rc=0]
+
+==== 3. unknown array (a family _ARRAY_SPEC does not carry) ====
+[network]
+mode = "bridge"
+
+[[network.bogus]]
+x = 1
+
+$ bridge --kv
+toml-bridge: network.bogus is an array, and no numbered family of the shell view carries an array by that name, so nothing would read it: check the spelling of the array name, or remove it
+[rc=1]
+
+$ bridge
+{"network": {"mode": "bridge", "bogus": [{"x": 1}]}}[rc=0]
+
+$ bridge --entries
+toml-bridge: network.bogus is an array, and no numbered family of the shell view carries an array by that name, so nothing would read it: check the spelling of the array name, or remove it
+[rc=1]
+
+$ bridge --tables
+network
+[rc=0]
+
+$ bridge --empty-families
+[rc=0]
+
+$ $SPIKE_WORK/setupgen validate $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/unk.toml
+setupgen: $SPIKE_WORK/probe/unk.toml:4:3: unknown key "network.bogus"
+[rc=1]
+
+==== 4. legacy alias (deploy.runtime -> deploy.gpu_runtime) ====
+[deploy]
+runtime = "runc"
+
+$ bridge --merge --kv $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/legacy.toml
+network	mode	bridge
+network	ipc	private
+network	port_1	8080:80
+deploy	gpu_mode	auto
+deploy	runtime	runc
+gui	mode	auto
+[rc=0]
+[deploy]
+runtime = "runc"
+gpu_runtime = "nvidia"
+
+$ bridge --merge --kv $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/both.toml
+network	mode	bridge
+network	ipc	private
+network	port_1	8080:80
+deploy	gpu_mode	auto
+deploy	gpu_runtime	nvidia
+deploy	runtime	runc
+gui	mode	auto
+[rc=0]
+
+$ $SPIKE_WORK/setupgen validate $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/legacy.toml
+setupgen: $SPIKE_WORK/probe/legacy.toml:2:1: unknown key "deploy.runtime"
+[rc=1]
+
+==== 5. [stage:<name>] table ====
+[stage:devel]
+gpu = true
+
+$ bridge --kv
+toml-bridge: Expected ']' at the end of a table declaration (at line 1, column 7)
+[rc=1]
+["stage:devel"]
+gpu = true
+
+["stage:devel".deploy]
+runtime = "runc"
+
+$ bridge --kv
+stage:devel	gpu	true
+stage:devel.deploy	runtime	runc
+[rc=0]
+
+$ bridge --tables
+stage:devel
+stage:devel.deploy
+[rc=0]
+
+$ bridge --merge --kv $SPIKE_WORK/probe/stage.toml $SPIKE_WORK/probe/stage.toml
+stage:devel	gpu	true
+stage:devel.deploy	runtime	runc
+[rc=0]
+
+$ $SPIKE_WORK/setupgen validate $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/stage.toml
+setupgen: $SPIKE_WORK/probe/stage.toml:1:2: unknown key "stage:devel"
+setupgen: $SPIKE_WORK/probe/stage.toml:4:2: unknown key "stage:devel.deploy"
+[rc=1]
+
+==== 6. empty versus absent ====
+[network]
+ports = []
+
+$ bridge --kv
+[rc=0]
+
+$ bridge --empty-arrays
+network	network.ports
+[rc=0]
+
+$ bridge --empty-families
+network	port_1	network.ports
+[rc=0]
+
+$ bridge --merge --kv $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/empty.toml
+network	mode	bridge
+network	ipc	private
+deploy	gpu_mode	auto
+deploy	gpu_runtime	auto
+gui	mode	auto
+[rc=0]
+
+$ $SPIKE_WORK/setupgen get --json network.ports $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/empty.toml
+[]
+[rc=0]
+
+$ bridge --kv
+[rc=0]
+
+$ bridge --tables
+environment
+[rc=0]
+
+$ $SPIKE_WORK/setupgen get --json environment $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/envempty.toml
+{}
+[rc=0]
+
+$ $SPIKE_WORK/setupgen get --json environment $SPIKE_WORK/probe/base.toml
+setupgen: get: environment: not set
+[rc=3]
+
+==== 7. scalar type ====
+[network]
+mode = "bridge"
+
+[[network.ports]]
+host = 8080
+container = "80"
+
+[security]
+privileged = true
+
+[logging]
+max_file = 3
+max_size = 1.5
+
+$ bridge --kv
+network	mode	bridge
+network	port_1	8080:80
+security	privileged	true
+logging	max_file	3
+logging	max_size	1.5
+[rc=0]
+
+$ $SPIKE_WORK/setupgen validate $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/types.toml
+setupgen: $SPIKE_WORK/probe/types.toml:6:13: network.ports.container: cannot decode TOML string into struct field main.Port.Container of type int64
+[rc=1]
+[security]
+privileged = "yes"
+
+$ bridge --kv
+security	privileged	yes
+[rc=0]
+
+$ $SPIKE_WORK/setupgen validate $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/wrongtype.toml
+setupgen: $SPIKE_WORK/probe/wrongtype.toml:2:14: security.privileged: cannot decode TOML string into struct field main.Security.Privileged of type bool
+[rc=1]
+[project]
+name = 1979-05-27
+
+$ bridge --kv
+project	name	1979-05-27
+[rc=0]
+
+$ $SPIKE_WORK/setupgen validate $SPIKE_WORK/probe/base.toml $SPIKE_WORK/probe/date.toml
+setupgen: $SPIKE_WORK/probe/date.toml:2:8: project.name: cannot decode TOML local date into struct field main.Project.Name of type string
+[rc=1]

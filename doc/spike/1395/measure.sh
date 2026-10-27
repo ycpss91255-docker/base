@@ -13,6 +13,14 @@
 #        measure.sh run <mode> <warm|cold> <n>
 #                                         n timed runs, one TSV row each:
 #                                         mode temp run ms rc load1 load5
+#        measure.sh rr <n> <mode>...      warm, interleaved: n rounds, each
+#                                         round runs every mode once, so
+#                                         background load lands on all modes
+#                                         alike; same TSV rows
+#        measure.sh coldbuild <bridge|go> <n>
+#                                         n cold image builds alone, as the
+#                                         shim would run them: one TSV row
+#                                         each (engine cold i ms rc load1 load5)
 #        measure.sh outputs <mode>        one run; prints sha256 of the
 #                                         files apply wrote
 #
@@ -165,6 +173,49 @@ cmd_run() {
   done
 }
 
+cmd_rr() {
+  local _n="$1"; shift
+  local _m _r
+  for _m in "$@"; do fresh_repo; apply_once "${_m}" "BUILDX_BUILDER=${BUILDER}"; done
+  for (( _r = 1; _r <= _n; _r++ )); do
+    for _m in "$@"; do
+      cmd_run_one "${_m}" warm "${_r}"
+    done
+  done
+}
+
+cmd_run_one() {
+  local _m="$1" _temp="$2" _i="$3" _s _e _rc=0 _la _la5
+  fresh_repo
+  read -r _la _la5 _ < /proc/loadavg
+  _s="$(date +%s%N)"
+  apply_once "${_m}" || _rc=$?
+  _e="$(date +%s%N)"
+  printf '%s\t%s\t%d\t%d\t%d\t%s\t%s\n' "${_m}" "${_temp}" "${_i}" \
+    $(( (_e - _s) / 1000000 )) "${_rc}" "${_la}" "${_la5}"
+}
+
+cmd_coldbuild() {
+  local _e="$1" _n="$2" _i _tag _df _ctx _s _t _rc _la _la5
+  for (( _i = 1; _i <= _n; _i++ )); do
+    case "${_e}" in
+      bridge) make_cold batch-docker; _tag="$(bridge_tag)"
+              _df="${BASE}/dockerfile/Dockerfile.toml-bridge"; _ctx="${BASE}/dockerfile" ;;
+      go)     make_cold go-docker; _tag="$(go_tag)"
+              _df="${GO_PROTO}/Dockerfile"; _ctx="${GO_PROTO}" ;;
+      *) die "engine is bridge or go" ;;
+    esac
+    read -r _la _la5 _ < /proc/loadavg
+    _rc=0
+    _s="$(date +%s%N)"
+    BUILDX_BUILDER="${BUILDER}" docker build -q -t "${_tag}" -f "${_df}" "${_ctx}" \
+      > /dev/null 2>&1 || _rc=$?
+    _t="$(date +%s%N)"
+    printf '%s\tcold\t%d\t%d\t%d\t%s\t%s\n' "build-${_e}" "${_i}" \
+      $(( (_t - _s) / 1000000 )) "${_rc}" "${_la}" "${_la5}"
+  done
+}
+
 cmd_outputs() {
   local _m="$1" _rc=0
   fresh_repo
@@ -182,6 +233,8 @@ case "${1:-}" in
   setup) cmd_setup ;;
   count) cmd_count "${2:?mode}" ;;
   run) cmd_run "${2:?mode}" "${3:?warm|cold}" "${4:?n}" ;;
+  rr) shift; cmd_rr "$@" ;;
+  coldbuild) cmd_coldbuild "${2:?bridge|go}" "${3:?n}" ;;
   outputs) cmd_outputs "${2:?mode}" ;;
   *) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac
