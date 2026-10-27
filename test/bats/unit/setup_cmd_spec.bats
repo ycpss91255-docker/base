@@ -585,6 +585,9 @@ EOF
   run main set deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "unknown key deploy.gpu_cuont"
+  # A refused spec exits 2, the usage class, not the generic 1
+  # (base#1399).
+  [ "${status}" -eq 2 ]
   assert_output --partial "no reader reads it"
   run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
   assert_success
@@ -1261,6 +1264,8 @@ EOF
   run main add build.args MYARG=1 --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "unknown key build.args"
+  # Same usage class as `set` (base#1399).
+  [ "${status}" -eq 2 ]
   assert_output --partial "no reader reads it"
   run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
   assert_success

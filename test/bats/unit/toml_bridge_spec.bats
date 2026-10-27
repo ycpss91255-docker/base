@@ -148,6 +148,34 @@ setup() {
   assert_failure
 }
 
+# _mock_docker_unreached
+#   A docker mock for a path that must never start the bridge: it says
+#   "docker was called" on stdout and fails, so a test that refutes that
+#   line (or asserts empty stdout) catches the shim reaching docker
+#   (base#1399).
+_mock_docker_unreached() {
+  create_mock_dir
+  mock_cmd "docker" 'echo "docker was called: $*"; exit 7'
+}
+
+# why: The refusal is a contract of its own, not just "something failed":
+# the caller sees status 1 and a `no_such_file` event, and the bridge is
+# never started. Without the guard the read still fails -- on the
+# redirect -- so only the exact status and the event id tell the guard
+# from its absence (base#1399).
+@test "toml-bridge: parse of a missing file returns 1 and logs no_such_file without running docker (base#1399)" {
+  _mock_docker_unreached
+
+  run env LOG_FORMAT=json bash -c "
+    source '${SHIM}'
+    toml_bridge_parse '${BATS_TEST_TMPDIR}/absent.toml' --kv"
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"no_such_file"'
+  refute_output --partial "docker was called"
+
+  cleanup_mock_dir
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Seam 4: --kv output mode (conf.sh integration)
 # ════════════════════════════════════════════════════════════════════
@@ -580,6 +608,80 @@ setup() {
 
   cleanup_mock_dir
   rm -f "${base_toml}"
+}
+
+# _mock_docker_bridge
+#   A docker mock that records every argument it is given to DOCKER_ARGV
+#   and then runs the in-container bridge over the arguments after the
+#   image, so a merge's output is the bridge's own answer for exactly the
+#   layers the shim handed over.
+_mock_docker_bridge() {
+  export DOCKER_ARGV="${BATS_TEST_TMPDIR}/docker.argv"
+  : > "${DOCKER_ARGV}"
+  create_mock_dir
+  mock_cmd "docker" '
+printf "%s\n" "$@" >> "${DOCKER_ARGV}"
+shift 2
+while [[ "${1:-}" == "-v" ]]; do shift 2; done
+shift
+exec /usr/local/bin/toml-bridge "$@"'
+}
+
+# why: An absent optional layer is skipped, by owner decision (ADR-00000036
+# lets the caller select layers; base#1399): the merge of the remaining
+# layers succeeds with exactly their rows, and the absent path never
+# reaches the bridge.
+@test "toml-bridge: merge of [present, absent] exits 0 with exactly the present layer's rows (base#1399)" {
+  local _present="${BATS_TEST_TMPDIR}/present.toml"
+  local _absent="${BATS_TEST_TMPDIR}/absent.toml"
+  printf '[gui]\nmode = "x11"\n' > "${_present}"
+  _mock_docker_bridge
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${_present}" "${_absent}"
+  assert_success
+  assert_output "$(/usr/local/bin/toml-bridge --kv < "${_present}")"
+  assert_output "gui	mode	x11"
+  run grep -F "absent.toml" "${DOCKER_ARGV}"
+  assert_failure
+
+  cleanup_mock_dir
+}
+
+# why: The same rule at its limit: when every layer is absent there is
+# nothing to merge, and that is an empty configuration, not a failure
+# (base#1399). The bridge is not started at all.
+@test "toml-bridge: merge in which every layer is absent exits 0 with empty stdout (base#1399)" {
+  _mock_docker_unreached
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run --separate-stderr toml_bridge_merge --kv \
+    "${BATS_TEST_TMPDIR}/a.toml" "${BATS_TEST_TMPDIR}/b.toml"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+
+  cleanup_mock_dir
+}
+
+# why: Naming no layer at all is a different mistake from naming absent
+# ones, and is refused: status 1 and a `merge_no_files` event, with or
+# without --kv (base#1399).
+@test "toml-bridge: merge with no file arguments returns 1 and logs merge_no_files (base#1399)" {
+  _mock_docker_unreached
+
+  run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge"
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"merge_no_files"'
+  refute_output --partial "docker was called"
+
+  run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge --kv"
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"merge_no_files"'
+  refute_output --partial "docker was called"
+
+  cleanup_mock_dir
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1504,6 +1606,20 @@ _bridge_kv() {
   refute_output --partial $'lifecycle\twatchdog_check'
 }
 
+# why: _check_transportable refuses a carriage return in a value as it
+# refuses a newline, and names the key it found it under. The newline case
+# above did not pin the carriage return, so dropping it from the refused
+# set went unnoticed (base#1399).
+@test "toml-bridge: a carriage return in a value is refused, naming the key (base#1399)" {
+  local _f="${BATS_TEST_TMPDIR}/cr.toml"
+  printf '[lifecycle]\nwatchdog_check = "echo first\\recho second"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_failure
+  assert_output --partial "lifecycle.watchdog_check"
+  assert_output --partial "carriage return"
+  refute_output --partial $'lifecycle\twatchdog_check'
+}
+
 @test "toml-bridge: a tab in a key or a section name is refused" {
   local _f="${BATS_TEST_TMPDIR}/tabkey.toml"
   printf '[lifecycle]\n"a\\tb" = "v"\n' > "${_f}"
@@ -1960,6 +2076,61 @@ _bridge_refuses() {
   run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${ROOT}/dist/setup.toml"
   assert_success
   assert_line $'image\trule_1\tprefix:docker_'
+}
+
+# why: `--entries` (the config summary's read) skipped the same arrays
+# `--kv` refuses. A table's array of scalars reached `entries()`, whose
+# elements are not tables, so `[x] arr = ["a"]` printed nothing with
+# exit 0; and a root `[[install]]` printed rows as if it were a family.
+# Either way the summary showed a file the loader refuses as a valid
+# one. The refusal is the `--kv` one, naming the array's dotted path,
+# with nothing on stdout -- not even the `[build] x` row beside it
+# (base#1396).
+@test "toml-bridge: --entries refuses an array the spec has no family for (base#1396)" {
+  local _f="${BATS_TEST_TMPDIR}/entries_unknown.toml"
+
+  printf '[x]\narr = ["a"]\n' > "${_f}"
+  _bridge_refuses "x.arr" --entries < "${_f}"
+
+  printf '[[install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "install" --entries < "${_f}"
+
+  printf '[build]\nx = "1"\n\n[[build.install]]\nsource = "a"\n' > "${_f}"
+  _bridge_refuses "build.install" --entries < "${_f}"
+}
+
+# why: The control for the refusal above, derived from the writers' own
+# table of array homes as the `--kv` control is: every family the
+# writers produce still prints its `[[...]]` block under `--entries`, so
+# a refusal satisfied by refusing a known family fails here (base#1396).
+@test "toml-bridge: --entries still prints every array home the writers produce (base#1396)" {
+  # shellcheck disable=SC1090
+  source "${ROOT}/dist/script/docker/lib/conf.sh"
+  # shellcheck disable=SC1090
+  source "${ROOT}/dist/script/docker/lib/schema.sh"
+
+  local _sect _pair _path _fields _body=""
+  local -a _fams=() _paths=()
+  for _sect in "${SCHEMA_SECTIONS[@]}"; do
+    _fams=()
+    _conf_toml_aot_section "${_sect}" _fams || continue
+    for _pair in "${_fams[@]}"; do
+      _path="${_pair#*=}"
+      _conf_toml_aot_fields "${_path}" "A=B:C" _fields
+      _body+="[[${_path}]]"$'\n'"${_fields}"$'\n\n'
+      _paths+=("${_path}")
+    done
+  done
+  (( ${#_paths[@]} > 0 )) || fail "the family table named no array home"
+
+  local _f="${BATS_TEST_TMPDIR}/entries_every_home.toml"
+  printf '%s' "${_body}" > "${_f}"
+  run --separate-stderr python3 "${BRIDGE_PY}" --entries < "${_f}"
+  assert_success
+  assert_equal "${stderr}" ""
+  for _path in "${_paths[@]}"; do
+    assert_line --regexp $'^[^\t]+\t[0-9]+\t\\[\\['"${_path}"$'\\]\\]\t'
+  done
 }
 
 # why: `_emit_kv` handled a top-level array and a top-level table and had
