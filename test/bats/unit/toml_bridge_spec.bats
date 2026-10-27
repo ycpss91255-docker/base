@@ -166,12 +166,12 @@ _mock_docker_unreached() {
 @test "toml-bridge: parse of a missing file returns 1 and logs no_such_file without running docker (base#1399)" {
   _mock_docker_unreached
 
-  run env LOG_FORMAT=json bash -c "
+  # The mock answers on stdout, so the empty stdout assert_refusal
+  # demands is also the proof that docker was never reached.
+  run --separate-stderr env LOG_FORMAT=json bash -c "
     source '${SHIM}'
     toml_bridge_parse '${BATS_TEST_TMPDIR}/absent.toml' --kv"
-  [ "${status}" -eq 1 ]
-  assert_output --partial '"body":"no_such_file"'
-  refute_output --partial "docker was called"
+  assert_refusal 1 no_such_file "${BATS_TEST_TMPDIR}/absent.toml"
 
   cleanup_mock_dir
 }
@@ -671,15 +671,11 @@ exec /usr/local/bin/toml-bridge "$@"'
 @test "toml-bridge: merge with no file arguments returns 1 and logs merge_no_files (base#1399)" {
   _mock_docker_unreached
 
-  run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge"
-  [ "${status}" -eq 1 ]
-  assert_output --partial '"body":"merge_no_files"'
-  refute_output --partial "docker was called"
+  run --separate-stderr env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge"
+  assert_refusal 1 merge_no_files
 
-  run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge --kv"
-  [ "${status}" -eq 1 ]
-  assert_output --partial '"body":"merge_no_files"'
-  refute_output --partial "docker was called"
+  run --separate-stderr env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge --kv"
+  assert_refusal 1 merge_no_files
 
   cleanup_mock_dir
 }
@@ -1544,13 +1540,19 @@ toml_bridge_parse '${_toml}' --kv"
   create_mock_dir
   mock_cmd "docker" 'echo "bridge unavailable" >&2; exit 1'
 
-  run bash -c "source '${conf_sh}'
+  # JSON on stderr, so the refusal is judged by its event id and the
+  # layer it names rather than by its prose (base#1400).
+  run --separate-stderr env LOG_FORMAT=json bash -c "source '${conf_sh}'
 declare -a s es k v
 _toml_tokenize '${_toml}' s es k v
 printf 'rc=%s\n' \"\$?\""
   assert_success
-  assert_output --partial "rc=1"
-  assert_output --partial "refusing to report an empty configuration as a loaded one"
+  assert_output "rc=1"
+  [[ "${stderr}" != *"unregistered log body"* ]] \
+    || fail "the logger refused an unregistered body: ${stderr}"
+  assert_log_event conf_toml_parse_failed "${stderr}"
+  [[ "$(log_event_line conf_toml_parse_failed "${stderr}")" == *"\"path\":\"${_toml}\""* ]] \
+    || fail "conf_toml_parse_failed does not name the layer: ${stderr}"
 
   cleanup_mock_dir
 }
@@ -1610,11 +1612,8 @@ _bridge_kv() {
 @test "toml-bridge: a carriage return in a value is refused, naming the key (base#1399)" {
   local _f="${BATS_TEST_TMPDIR}/cr.toml"
   printf '[lifecycle]\nwatchdog_check = "echo first\\recho second"\n' > "${_f}"
-  run _bridge_kv "${_f}"
-  assert_failure
-  assert_output --partial "lifecycle.watchdog_check"
-  assert_output --partial "carriage return"
-  refute_output --partial $'lifecycle\twatchdog_check'
+  run --separate-stderr _bridge_kv "${_f}"
+  assert_bridge_refusal 1 "lifecycle.watchdog_check" "carriage return"
 }
 
 @test "toml-bridge: a tab in a key or a section name is refused" {

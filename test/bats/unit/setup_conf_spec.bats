@@ -866,13 +866,11 @@ EOF
     chmod o+x "${TEMP_DIR}"
     su -s /bin/bash nobody -c "test -e '${_f}'" 2>/dev/null \
       || skip "nobody cannot traverse to ${TEMP_DIR} without widening a directory this test did not create"
-    run su -s /bin/bash nobody -c "${_probe}"
+    run --separate-stderr su -s /bin/bash nobody -c "${_probe}"
   else
-    run bash -c "${_probe}"
+    run --separate-stderr bash -c "${_probe}"
   fi
-  [ "${status}" -eq 1 ]
-  assert_output --partial '"body":"conf_local_override_unusable"'
-  assert_output --partial "not readable"
+  assert_refusal 1 conf_local_override_unusable "path=${_f}" "not readable"
 }
 
 # why: The check has to pass the honourable case, or the refusal above
@@ -977,9 +975,14 @@ printf 'rc=%s sects=%s keys=%s vals=%s\n' \"\$?\" \"\${#s[@]}\" \"\${#k[@]}\" \"
   # A malformed file: rc 1, nothing loaded, and the parse failure named.
   # toml-fixture-lint: allow the parser's refusal of this layer IS the assertion
   printf '[gui]\nmode = "off\n' > "${TEMP_DIR}/setup.toml"
-  run env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
+  # The probe's own report is the only stdout; the refusal is judged on
+  # stderr, with the layer it names (base#1400).
+  run --separate-stderr env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
   assert_success
-  assert_output --partial "rc=1 sects=0 keys=0 vals=0"
-  assert_output --partial '"body":"conf_toml_parse_failed"'
-  refute_output --partial "unregistered log body"
+  assert_output "rc=1 sects=0 keys=0 vals=0"
+  [[ "${stderr}" != *"unregistered log body"* ]] \
+    || fail "the logger refused an unregistered body: ${stderr}"
+  assert_log_event conf_toml_parse_failed "${stderr}"
+  [[ "$(log_event_line conf_toml_parse_failed "${stderr}")" == *"\"path\":\"${TEMP_DIR}/setup.toml\""* ]] \
+    || fail "conf_toml_parse_failed does not name the layer: ${stderr}"
 }
