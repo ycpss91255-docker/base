@@ -141,20 +141,8 @@ EOF
   assert_equal "${_ambient}" "${_plain}"
 }
 
-# why: The TOML migration must not break the primary config-load path.
-@test "_load_setup_conf uses per-repo setup.toml when section present" {
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[gpu]
-mode = "force"
-EOF
-  local -a _k=() _v=()
-  _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
-  assert_equal "${_v[0]}" "force"
-}
-
 # why: The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template.
 @test "_load_setup_conf reads the per-repo override from repo-root setup.toml" {
-  # The tool-managed override lives at the repo root.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
 mode = "force"
