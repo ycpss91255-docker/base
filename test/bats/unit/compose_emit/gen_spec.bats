@@ -695,6 +695,21 @@ CONF
   assert_success
 }
 
+# why: `container:` names no container. _pid_mode_emits lets through
+# `host` and `container:<name>` with a non-empty name only, so the key is
+# omitted for the empty target as it is for private (base#1399).
+@test "generate_compose_yaml omits pid for container: with an empty target (base#1399)" {
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host" "container:"
+  run grep -F 'pid:' "${COMPOSE_OUT}"
+  assert_failure
+  run _pid_mode_emits "container:"
+  assert_failure
+  run _pid_mode_emits "container:db"
+  assert_success
+}
+
 # why: test service
 @test "generate_compose_yaml emits test service with profiles: [test]" {
   local _extras=()

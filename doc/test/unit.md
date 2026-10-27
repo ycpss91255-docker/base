@@ -1550,7 +1550,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (88)
+### test/bats/unit/compose_emit/gen_spec.bats (89)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED header,
 baseline workspace volume, network/ipc/privileged env-var references,
@@ -1606,6 +1606,7 @@ standalone shapes, absent on any `*-test` stage).
 | `generate_compose_yaml emits network_mode/ipc/privileged via env var` | env-var baked |
 | `generate_compose_yaml omits pid when default private` | pid omit |
 | `generate_compose_yaml emits pid env-var ref when host` | pid host |
+| `generate_compose_yaml omits pid for container: with an empty target (base#1399)` | `container:` names no container. _pid_mode_emits lets through `host` and `container:<name>` with a non-empty name only, so the key is omitted for the empty target as it is for private (base#1399). |
 | `generate_compose_yaml emits test service with profiles: [test]` | test service |
 | `generate_compose_yaml image field contains repo name` | Image name |
 | `generate_compose_yaml emits TZ build arg with Asia/Taipei default` | - |
@@ -6351,7 +6352,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (55)
+### test/bats/unit/setup_conf_spec.bats (56)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6413,6 +6414,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_compute_conf_hash follows the caller-supplied local layer (base#1087)` | Conf drift decides whether build.sh / run.sh reuse the artifacts of a previous generation. A layer that steers resolution but sits outside the hash lets a call reuse another call's compose.yaml, so the override has to reach _compute_conf_hash too -- which it does by construction only while that function derives its population from _setup_conf_layers. |
 | `_setup_conf_local_check refuses an override that names no file (base#1087)` | A parameterised API handed something it cannot honour must refuse. An override naming a file that is not there would otherwise resolve to an absent layer -- which the chain treats as "contributes nothing" -- and the call would silently emit the template defaults while reporting success. base#1092 / #1097 / #1119 / #1120 / #1223 are the same class. |
 | `_setup_conf_local_check refuses an override that is not a regular file (base#1087)` | A directory at the override path is the other way the layer cannot be read, and it is not caught by an existence test alone. |
+| `_setup_conf_local_check refuses an override it cannot read (base#1399)` | An unreadable file is the third way the layer cannot be honoured, and the only one an existence or a regular-file test lets through (base#1399). Root reads a mode-000 file anyway, so as root the check runs as `nobody`. `nobody` has to reach the file, but the only directory this test may widen is TEMP_DIR, which its setup created: the ones above it belong to the host, and widening them as root would outlive the fixture (base#1399 review round 1). So TEMP_DIR alone gets o+x, and the case is skipped -- saying why -- when no unprivileged user can be reached or when TEMP_DIR's parent does not let `nobody` through. |
 | `_setup_conf_local_check accepts a readable regular file (base#1087)` | The check has to pass the honourable case, or the refusal above would be satisfied by a function that refuses everything. |
 | `_setup_conf_local_path falls back to the per-worktree default (base#1087)` | With no override set, the chain is exactly what it was. The per-worktree default is the case every existing checkout is in, so it is pinned beside the override rather than left to the tests above. |
 | `_setup_conf_layers refuses an override that names no file, instead of resolving past it (base#1087)` | The chain's shipped header said there is no env var that relocates it, because such a lever "is a second, unchecked resolution path that silently wins over the real one" -- and the way it wins silently is by naming nothing: an absent layer contributes nothing, so the call would emit the template defaults. ADR-00000036 gives the layer an address, and this is the half that keeps the old objection answered: the resolver REFUSES an address it cannot honour rather than resolving past it. |
@@ -7641,7 +7643,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (89)
+### test/bats/unit/toml_bridge_spec.bats (94)
 
 | Test | Description |
 |------|-------------|
@@ -7653,6 +7655,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: shim converts TOML to JSON via docker run` | golden-path contract -- TOML in, JSON out, via docker run |
 | `toml-bridge: shim returns non-zero when docker run fails` | callers rely on non-zero exit to detect parse failures |
 | `toml-bridge: shim returns non-zero for missing file` | callers rely on non-zero exit for missing input before docker starts |
+| `toml-bridge: parse of a missing file returns 1 and logs no_such_file without running docker (base#1399)` | The refusal is a contract of its own, not just "something failed": the caller sees status 1 and a `no_such_file` event, and the bridge is never started. Without the guard the read still fails -- on the redirect -- so only the exact status and the event id tell the guard from its absence (base#1399). |
 | `toml-bridge: Python bridge script supports --kv output mode` | conf.sh needs line-oriented output to fill bash parallel arrays; JSON requires jq (not on host), so --kv emits section/key/value TSV |
 | `toml-bridge: shim KV mode passes --kv to docker run` | the shim must pass --kv to docker run so bash callers get TSV |
 | `toml-bridge: _toml_tokenize fills sections/keys/values from KV output` | _toml_tokenize is the drop-in replacement for _ini_tokenize -- it must fill the same 4 parallel arrays from bridge KV output |
@@ -7669,6 +7672,9 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: merge shim scalar key-level merge via --kv` | type-aware merge is the D4 core contract -- scalar keys within a [table] get key-level merge: upper layer overrides only the keys it defines, unmentioned keys inherit from the lower layer |
 | `toml-bridge: merge shim array replace for [[array of tables]]` | [[array of tables]] must be replaced wholesale by the upper layer -- per-element merge of ordered lists is broken (ADR-25 sec.3 rationale) |
 | `toml-bridge: merge shim skips missing files silently` | absent layers must be silently skipped so callers can pass the whole chain unconditionally (matching _conf_load_layers convention) |
+| `toml-bridge: merge of [present, absent] exits 0 with exactly the present layer's rows (base#1399)` | An absent optional layer is skipped, by owner decision (ADR-00000036 lets the caller select layers; base#1399): the merge of the remaining layers succeeds with exactly their rows, and the absent path never reaches the bridge. |
+| `toml-bridge: merge in which every layer is absent exits 0 with empty stdout (base#1399)` | The same rule at its limit: when every layer is absent there is nothing to merge, and that is an empty configuration, not a failure (base#1399). The bridge is not started at all. |
+| `toml-bridge: merge with no file arguments returns 1 and logs merge_no_files (base#1399)` | Naming no layer at all is a different mistake from naming absent ones, and is refused: status 1 and a `merge_no_files` event, with or without --kv (base#1399). |
 | `toml-bridge: _conf_load_layers merges .toml files via bridge` | _conf_load_layers must dispatch to toml_bridge_merge when all files are .toml, producing type-aware merge (key-level for tables, array replace for arrays) instead of bash section-replace |
 | `toml-bridge: _conf_load_layers uses INI path for .conf files` | the INI section-replace path must survive so existing .conf callers keep working -- mixed .conf/.toml chains also fall through to INI |
 | `toml-bridge: Python bridge script declares --merge flag` | the Python bridge must declare --merge mode so the shim can invoke it |
@@ -7699,6 +7705,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: _toml_tokenize answers non-zero when the parse fails` | The caller-visible half of "parser unavailability stops the run". `_toml_tokenize` read the bridge through a process substitution, which puts its exit status out of reach: a parse that failed read as a file with nothing in it, so the handle came back empty and every value fell back to its default. That is a total parser failure wearing the shape of a configuration that says nothing, and it is the same trap `_conf_load_layers` already names on its own merge. |
 | `toml-bridge: _toml_tokenize answers zero for a file that is not there` | An ABSENT file is still "contributes nothing", answered zero. The refusal above must not swallow the one case the loaders rely on to pass the whole layer chain unconditionally. |
 | `toml-bridge: a value the tab-separated view cannot carry is refused, not truncated` | THE KV STREAM IS THE INTERFACE, and it is line- and tab-delimited -- `_toml_tokenize` reads each row with `IFS=$'\t' read -r section key value`. A TOML value may legally contain both delimiters, and the bridge emitted them raw. Measured: `watchdog_check = "echo first\necho second"` produced a row whose value held a real newline, so the shell read `watchdog_check = echo first` and then took `echo second` as a SECTION of its own -- the watchdog running a TRUNCATED command with no parse failure anywhere. A tab inside a quoted key shifted the split the same way: `"a\tb" = "v"` arrived as key `a` with value `b<TAB>v`. The refusal is the answer the writers already give at the other end of the same pipe (`conf_upsert_newline_rejected`), so the two ends agree instead of the stream growing a second decoded dialect every assertion written against it would have to learn. |
+| `toml-bridge: a carriage return in a value is refused, naming the key (base#1399)` | _check_transportable refuses a carriage return in a value as it refuses a newline, and names the key it found it under. The newline case above did not pin the carriage return, so dropping it from the refused set went unnoticed (base#1399). |
 | `toml-bridge: a tab in a key or a section name is refused` | - |
 | `toml-bridge: a tab inside a VALUE is carried, not refused` | The control, and the line the rule is drawn on. The value is the LAST field, so `read` hands it the rest of the line intact -- a tab there survives, measured. Refusing it would reject a file the transport carries correctly, which is the opposite failure. |
 | `toml-bridge: a value's leading and trailing tabs survive both readers` | A tab inside a VALUE is deliberately carried by the transport -- the value is the last field, so the row holds it intact, and `_check_transportable` draws its line there rather than refusing a file the stream carries correctly. The READER then undid it: `IFS=$'\t' read -r a b c` strips a tab from the ends of a field and collapses runs of it, because a tab is IFS whitespace. Measured: `[environment] env_1 = "TOKEN=abc<TAB>"` loaded as `TOKEN=abc` and `"<TAB>LEAD=x"` as `LEAD=x`, silently changing a container value the writer had preserved. Both readers split at the first two tabs now and keep the rest byte for byte -- the single-file tokenizer and the merged-chain one, which is why this asserts through each. |

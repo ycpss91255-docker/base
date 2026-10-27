@@ -148,6 +148,34 @@ setup() {
   assert_failure
 }
 
+# _mock_docker_unreached
+#   A docker mock for a path that must never start the bridge: it says
+#   "docker was called" on stdout and fails, so a test that refutes that
+#   line (or asserts empty stdout) catches the shim reaching docker
+#   (base#1399).
+_mock_docker_unreached() {
+  create_mock_dir
+  mock_cmd "docker" 'echo "docker was called: $*"; exit 7'
+}
+
+# why: The refusal is a contract of its own, not just "something failed":
+# the caller sees status 1 and a `no_such_file` event, and the bridge is
+# never started. Without the guard the read still fails -- on the
+# redirect -- so only the exact status and the event id tell the guard
+# from its absence (base#1399).
+@test "toml-bridge: parse of a missing file returns 1 and logs no_such_file without running docker (base#1399)" {
+  _mock_docker_unreached
+
+  run env LOG_FORMAT=json bash -c "
+    source '${SHIM}'
+    toml_bridge_parse '${BATS_TEST_TMPDIR}/absent.toml' --kv"
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"no_such_file"'
+  refute_output --partial "docker was called"
+
+  cleanup_mock_dir
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Seam 4: --kv output mode (conf.sh integration)
 # ════════════════════════════════════════════════════════════════════
@@ -580,6 +608,80 @@ setup() {
 
   cleanup_mock_dir
   rm -f "${base_toml}"
+}
+
+# _mock_docker_bridge
+#   A docker mock that records every argument it is given to DOCKER_ARGV
+#   and then runs the in-container bridge over the arguments after the
+#   image, so a merge's output is the bridge's own answer for exactly the
+#   layers the shim handed over.
+_mock_docker_bridge() {
+  export DOCKER_ARGV="${BATS_TEST_TMPDIR}/docker.argv"
+  : > "${DOCKER_ARGV}"
+  create_mock_dir
+  mock_cmd "docker" '
+printf "%s\n" "$@" >> "${DOCKER_ARGV}"
+shift 2
+while [[ "${1:-}" == "-v" ]]; do shift 2; done
+shift
+exec /usr/local/bin/toml-bridge "$@"'
+}
+
+# why: An absent optional layer is skipped, by owner decision (ADR-00000036
+# lets the caller select layers; base#1399): the merge of the remaining
+# layers succeeds with exactly their rows, and the absent path never
+# reaches the bridge.
+@test "toml-bridge: merge of [present, absent] exits 0 with exactly the present layer's rows (base#1399)" {
+  local _present="${BATS_TEST_TMPDIR}/present.toml"
+  local _absent="${BATS_TEST_TMPDIR}/absent.toml"
+  printf '[gui]\nmode = "x11"\n' > "${_present}"
+  _mock_docker_bridge
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${_present}" "${_absent}"
+  assert_success
+  assert_output "$(/usr/local/bin/toml-bridge --kv < "${_present}")"
+  assert_output "gui	mode	x11"
+  run grep -F "absent.toml" "${DOCKER_ARGV}"
+  assert_failure
+
+  cleanup_mock_dir
+}
+
+# why: The same rule at its limit: when every layer is absent there is
+# nothing to merge, and that is an empty configuration, not a failure
+# (base#1399). The bridge is not started at all.
+@test "toml-bridge: merge in which every layer is absent exits 0 with empty stdout (base#1399)" {
+  _mock_docker_unreached
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run --separate-stderr toml_bridge_merge --kv \
+    "${BATS_TEST_TMPDIR}/a.toml" "${BATS_TEST_TMPDIR}/b.toml"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+
+  cleanup_mock_dir
+}
+
+# why: Naming no layer at all is a different mistake from naming absent
+# ones, and is refused: status 1 and a `merge_no_files` event, with or
+# without --kv (base#1399).
+@test "toml-bridge: merge with no file arguments returns 1 and logs merge_no_files (base#1399)" {
+  _mock_docker_unreached
+
+  run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge"
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"merge_no_files"'
+  refute_output --partial "docker was called"
+
+  run env LOG_FORMAT=json bash -c "source '${SHIM}'; toml_bridge_merge --kv"
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"merge_no_files"'
+  refute_output --partial "docker was called"
+
+  cleanup_mock_dir
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1501,6 +1603,20 @@ _bridge_kv() {
   assert_output --partial "newline"
   # Nothing of the configuration is emitted: the rows are collected
   # before any is printed, so a caller never sees a prefix of it.
+  refute_output --partial $'lifecycle\twatchdog_check'
+}
+
+# why: _check_transportable refuses a carriage return in a value as it
+# refuses a newline, and names the key it found it under. The newline case
+# above did not pin the carriage return, so dropping it from the refused
+# set went unnoticed (base#1399).
+@test "toml-bridge: a carriage return in a value is refused, naming the key (base#1399)" {
+  local _f="${BATS_TEST_TMPDIR}/cr.toml"
+  printf '[lifecycle]\nwatchdog_check = "echo first\\recho second"\n' > "${_f}"
+  run _bridge_kv "${_f}"
+  assert_failure
+  assert_output --partial "lifecycle.watchdog_check"
+  assert_output --partial "carriage return"
   refute_output --partial $'lifecycle\twatchdog_check'
 }
 
