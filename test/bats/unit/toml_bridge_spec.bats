@@ -348,10 +348,10 @@ _mock_docker_unreached() {
   local L="${BATS_TEST_TMPDIR}/lower.toml" U="${BATS_TEST_TMPDIR}/upper.toml"
   printf '[gui]\nmode = "auto"\nresolution = "1080p"\n' > "${L}"
   printf '[gui]\nmode = "wayland"\n' > "${U}"
-  export DOCKER_ARGV="${BATS_TEST_TMPDIR}/docker.argv"
+  local _argv="${BATS_TEST_TMPDIR}/transport.argv"
   create_mock_dir
   mock_cmd "docker" \
-    'printf "%s\n" "$@" > "${DOCKER_ARGV}"; printf "gui\tmode\tFROM-MOCK\n"'
+    "printf '%s\\n' \"\$@\" > '${_argv}'; printf 'gui\\tmode\\tFROM-MOCK\\n'"
 
   # shellcheck disable=SC1090
   source "${conf_sh}"
@@ -367,23 +367,24 @@ _mock_docker_unreached() {
   for _row in "${_cases[@]}"; do
     IFS='|' read -r _caller _flag _order <<<"${_row}"
     read -r _a _b <<<"${_order}"
-    : > "${DOCKER_ARGV}"
+    : > "${_argv}"
     if [[ "${_caller}" == "_conf_load_layers" ]]; then
       _conf_load_layers MHDL "${_a}" "${_b}"
       run _conf_get MHDL gui mode
+      _want="FROM-MOCK"
     else
       # shellcheck disable=SC2086
       run ${_caller} "${_a}" "${_b}"
+      _want=$'gui\tmode\tFROM-MOCK'
     fi
     assert_success
-    assert_output "$([[ "${_caller}" == _conf_load_layers ]] \
-      && echo FROM-MOCK || printf 'gui\tmode\tFROM-MOCK')"
+    assert_output "${_want}"
 
     _want="$(printf '%s\n' run --rm -v "${_a}:${_a}:ro" -v "${_b}:${_b}:ro" \
       "${TOML_BRIDGE_IMAGE}" --merge)"
     [[ "${_flag}" == "-" ]] || _want+=$'\n'"${_flag}"
     _want+=$'\n'"${_a}"$'\n'"${_b}"
-    run cat "${DOCKER_ARGV}"
+    run cat "${_argv}"
     assert_output "${_want}"
   done
 
