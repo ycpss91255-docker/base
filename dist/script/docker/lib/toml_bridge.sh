@@ -158,10 +158,12 @@ _toml_bridge_ensure_image() {
   _dockerfile="$(_toml_bridge_dockerfile)" || return 1
   _context="${_dockerfile%/*}"
 
+  # stderr, not the INFO default of stdout: the parse's stdout is the
+  # row stream its caller collects as configuration (base#1400).
   _log_info toml_bridge toml_bridge_building \
     "display=building the containerised TOML parser ${_image} from ${_dockerfile} -- the configuration format is TOML (ADR-00000037) and nothing reads it until the parser exists. Once per revision of the bridge: a later run whose build inputs are identical resolves this same tag and skips the build." \
     "image=${_image}" \
-    "path=${_dockerfile}"
+    "path=${_dockerfile}" >&2
 
   _out="$(docker build -t "${_image}" -f "${_dockerfile}" "${_context}" 2>&1)" \
     || _rc=$?
@@ -258,8 +260,10 @@ toml_bridge_merge() {
   # docker path exists for.
   local _file _dir
   local -a _layers=()
+  # `-e`, not `-f`: a directory in a layer's place is there, so the
+  # bridge refuses it by name instead of it counting as absent (base#1400).
   for _file in "$@"; do
-    [[ -f "${_file}" ]] || continue
+    [[ -e "${_file}" ]] || continue
     if [[ "${_file}" != /* ]]; then
       _dir="$(cd -- "$(dirname -- "${_file}")" && pwd -P)" || return 1
       _file="${_dir}/$(basename -- "${_file}")"

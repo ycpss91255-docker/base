@@ -543,8 +543,11 @@ _conf_load_layers() {
   local -a _cll_existing=()
   local _cll_all_toml=1
   local _cll_f
+  # A path that is there but is not a regular file (a directory) is a
+  # layer, not an absent one: it reaches the merge and is refused there,
+  # naming it, rather than being skipped as if missing (base#1400).
   for _cll_f in "$@"; do
-    [[ -f "${_cll_f}" ]] || continue
+    [[ -e "${_cll_f}" ]] || continue
     _cll_existing+=("${_cll_f}")
     [[ "${_cll_f}" == *.toml ]] || _cll_all_toml=0
   done
