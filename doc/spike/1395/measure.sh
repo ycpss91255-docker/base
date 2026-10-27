@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# measure.sh -- base#1395 slice 1 measurement harness. SPIKE ONLY.
+#
+# Times the same `setup apply` on the shipped template configuration
+# (dist/setup.toml copied into a fresh repo dir beside a two-stage
+# Dockerfile) under several engines, and prints one TSV row per run.
+#
+# usage: measure.sh setup                 build the native Go binary, the
+#                                         native-Python wrapper, the replay
+#                                         recording and the cold builder
+#        measure.sh count <mode>          one untimed run through a logging
+#                                         docker shim; prints the call mix
+#        measure.sh run <mode> <warm|cold> <n>
+#                                         n timed runs, one TSV row each:
+#                                         mode temp run ms rc load1 load5
+#        measure.sh outputs <mode>        one run; prints sha256 of the
+#                                         files apply wrote
+#
+# Modes:
+#   current-docker   today: no batching, bridge forced through docker run
+#   batch-docker     Python bridge --batch, one docker run
+#   go-docker        Go prototype in a container (one docker run), views
+#                    served from the recorded Python --batch output
+#   go-native        Go prototype binary run natively, same replay
+#   floor            replay only: the zero-cost-engine floor
+#   current-native   today, bridge on PATH (host Python + tomli): CI shape
+#   batch-native     --batch, bridge on PATH: CI shape, batched
+#
+# Cold = the engine image is absent AND the dedicated buildx builder
+# (`spike1395`, docker-container driver, default-load) has had its whole
+# cache pruned, so base layers are fetched again. Cold applies only to the
+# docker modes. Runs are sequential; nothing else is started meanwhile.
+set -uo pipefail
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+BASE="$(cd -- "${HERE}/../../.." && pwd -P)"
+WORK="${SPIKE_WORK:?set SPIKE_WORK to a scratch directory}"
+GO_PROTO="${HERE}/go-proto"
+GO_IMAGE_BUILDER="golang:1.27.2-alpine3.24"
+BUILDER="spike1395"
+REPO="${WORK}/repo"
+
+die() { printf 'measure.sh: %s\n' "$*" >&2; exit 2; }
+
+fresh_repo() {
+  rm -rf -- "${REPO}"
+  mkdir -p -- "${REPO}"
+  cp -- "${BASE}/dist/setup.toml" "${REPO}/setup.toml"
+  printf 'FROM alpine:3.22 AS devel\nRUN true\nFROM devel AS runtime\nCMD ["sleep","infinity"]\n' \
+    > "${REPO}/Dockerfile"
+}
+
+bridge_tag() {
+  bash -c 'source "$1/dist/script/docker/lib/toml_bridge.sh"; _toml_bridge_derive_image' _ "${BASE}"
+}
+
+go_tag() {
+  # The same derivation as _tb_batch_go_image, without its build.
+  local _h
+  _h="$(cat "${GO_PROTO}/Dockerfile" "${GO_PROTO}"/go.mod "${GO_PROTO}"/go.sum "${GO_PROTO}"/*.go | sha256sum)"
+  echo "spike-setupgen:${_h:0:12}"
+}
+
+# Environment for one mode, as `env` arguments.
+mode_env() {
+  local _m="$1"
+  local _np="${WORK}/native-bin:${PATH}"
+  case "${_m}" in
+    current-docker) echo "TOML_BRIDGE_FORCE_DOCKER=1" ;;
+    batch-docker)   echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1" ;;
+    go-docker)      echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1 TOML_BRIDGE_BATCH_GO=docker:${GO_PROTO} TOML_BRIDGE_BATCH_REPLAY=${WORK}/replay.batch" ;;
+    go-native)      echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1 TOML_BRIDGE_BATCH_GO=native:${WORK}/setupgen TOML_BRIDGE_BATCH_REPLAY=${WORK}/replay.batch" ;;
+    floor)          echo "TOML_BRIDGE_FORCE_DOCKER=1 TOML_BRIDGE_BATCH=1 TOML_BRIDGE_BATCH_REPLAY=${WORK}/replay.batch" ;;
+    current-native) echo "PATH=${_np}" ;;
+    batch-native)   echo "PATH=${_np} TOML_BRIDGE_BATCH=1" ;;
+    *) die "unknown mode ${_m}" ;;
+  esac
+}
+
+apply_once() {
+  local _m="$1"; shift
+  # shellcheck disable=SC2046  # mode_env is a word list on purpose
+  env $(mode_env "${_m}") "$@" \
+    bash "${BASE}/dist/script/docker/wrapper/setup.sh" apply --base-path "${REPO}" \
+    > "${WORK}/last-${_m}.out" 2>&1
+}
+
+make_cold() {
+  local _m="$1" _tag
+  case "${_m}" in
+    current-docker|batch-docker) _tag="$(bridge_tag)" ;;
+    go-docker) _tag="$(go_tag)" ;;
+    *) die "cold does not apply to ${_m}" ;;
+  esac
+  docker rmi -f "${_tag}" > /dev/null 2>&1 || true
+  docker buildx prune --builder "${BUILDER}" -af > /dev/null 2>&1 || die "prune failed"
+  docker image inspect "${_tag}" > /dev/null 2>&1 && die "${_tag} still present"
+  return 0
+}
+
+cmd_setup() {
+  mkdir -p -- "${WORK}/native-bin"
+  docker buildx inspect "${BUILDER}" > /dev/null 2>&1 \
+    || docker buildx create --name "${BUILDER}" --driver docker-container \
+         --driver-opt default-load=true > /dev/null || die "builder"
+  # Native Python: a venv with the bridge's own tomli pin.
+  if [[ ! -x "${WORK}/venv/bin/python" ]]; then
+    python3 -m venv "${WORK}/venv" && "${WORK}/venv/bin/pip" install -q tomli==2.4.1 || die "venv"
+  fi
+  printf '#!/bin/sh\nexec %q %q "$@"\n' "${WORK}/venv/bin/python" "${BASE}/dockerfile/toml_bridge.py" \
+    > "${WORK}/native-bin/toml-bridge"
+  chmod +x "${WORK}/native-bin/toml-bridge"
+  # Native Go: a static binary from the same sources the image builds.
+  docker run --rm -u "$(id -u):$(id -g)" -e GOCACHE=/tmp/gocache -e GOPATH=/tmp/gopath \
+    -e CGO_ENABLED=0 -v "${GO_PROTO}:/src:ro" -v "${WORK}:/out" -w /src "${GO_IMAGE_BUILDER}" \
+    go build -trimpath -ldflags "-s -w" -o /out/setupgen . || die "go build"
+  # Replay: the Python --batch answer for this exact chain and these paths.
+  fresh_repo
+  "${WORK}/native-bin/toml-bridge" --batch "${BASE}/dist/setup.toml" "${REPO}/setup.toml" \
+    > "${WORK}/replay.batch" || die "replay"
+  printf 'setup ok: %s\n' "${WORK}"
+}
+
+cmd_count() {
+  local _m="$1"
+  mkdir -p -- "${WORK}/shim"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "${DOCKER_LOG:?}"\nexec /usr/bin/docker "$@"\n' \
+    > "${WORK}/shim/docker"
+  chmod +x "${WORK}/shim/docker"
+  fresh_repo
+  : > "${WORK}/docker-${_m}.log"
+  local _rc=0
+  # shellcheck disable=SC2046
+  env $(mode_env "${_m}") DOCKER_LOG="${WORK}/docker-${_m}.log" \
+    PATH="${WORK}/shim:$(env $(mode_env "${_m}") bash -c 'echo "$PATH"')" \
+    bash "${BASE}/dist/script/docker/wrapper/setup.sh" apply --base-path "${REPO}" \
+    > "${WORK}/last-${_m}.out" 2>&1 || _rc=$?
+  printf '%s rc=%s run=%s inspect=%s build=%s other=%s\n' "${_m}" "${_rc}" \
+    "$(grep -c '^run ' "${WORK}/docker-${_m}.log")" \
+    "$(grep -c '^image inspect' "${WORK}/docker-${_m}.log")" \
+    "$(grep -c '^build ' "${WORK}/docker-${_m}.log")" \
+    "$(grep -vc '^run \|^image inspect\|^build ' "${WORK}/docker-${_m}.log")"
+}
+
+cmd_run() {
+  local _m="$1" _temp="$2" _n="$3" _i _s _e _rc _la
+  for (( _i = 1; _i <= _n; _i++ )); do
+    fresh_repo
+    local -a _extra=()
+    if [[ "${_temp}" == cold ]]; then
+      make_cold "${_m}"
+      _extra=("BUILDX_BUILDER=${BUILDER}")
+    else
+      # Warm: make sure the engine exists before the clock starts.
+      [[ "${_i}" == 1 ]] && { apply_once "${_m}" "BUILDX_BUILDER=${BUILDER}"; fresh_repo; }
+    fi
+    read -r _la _ < /proc/loadavg
+    local _la5; _la5="$(cut -d' ' -f2 /proc/loadavg)"
+    _rc=0
+    _s="$(date +%s%N)"
+    apply_once "${_m}" "${_extra[@]}" || _rc=$?
+    _e="$(date +%s%N)"
+    printf '%s\t%s\t%d\t%d\t%d\t%s\t%s\n' "${_m}" "${_temp}" "${_i}" \
+      $(( (_e - _s) / 1000000 )) "${_rc}" "${_la}" "${_la5}"
+  done
+}
+
+cmd_outputs() {
+  local _m="$1" _rc=0
+  fresh_repo
+  apply_once "${_m}" || _rc=$?
+  printf '%s rc=%s\n' "${_m}" "${_rc}"
+  ( cd -- "${REPO}" && for f in .env .env.generated compose.yaml; do
+      # The generation timestamp is the only line that varies by run
+      # (observed: diff of two runs); it is dropped before hashing.
+      printf '  %s %s\n' "$(grep -v -e '^# Auto-generated by setup.sh on' \
+        -e '^SETUP_TIMESTAMP=' "${f}" | sha256sum | cut -c1-16)" "${f}"
+    done )
+}
+
+case "${1:-}" in
+  setup) cmd_setup ;;
+  count) cmd_count "${2:?mode}" ;;
+  run) cmd_run "${2:?mode}" "${3:?warm|cold}" "${4:?n}" ;;
+  outputs) cmd_outputs "${2:?mode}" ;;
+  *) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 2 ;;
+esac
