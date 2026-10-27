@@ -3275,18 +3275,35 @@ EOF
   assert_output "1"
 }
 
-@test "[lifecycle] apply does not emit a restart: line for a malformed policy (#687)" {
-  # A hand-written invalid policy (bypassing the set-path validator) must
-  # not silently produce a bogus `restart: sometimes` in compose.yaml.
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[lifecycle]
-restart = "sometimes"
-EOF
+# why: a hand-written invalid policy (bypassing the set-path validator)
+# must not reach compose.yaml as a bogus `restart: sometimes`. The fixture
+# carries a deployable stage and first shows a valid policy IS emitted
+# there; without that, a fixture with no deployable stage emits no
+# `restart:` for any policy and the refutation below cannot fail. Each
+# apply's status is asserted before the grep that replaces it, so the
+# malformed case proves apply succeeds with the policy omitted.
+@test "[lifecycle] apply emits a valid restart policy and drops a malformed one (#687)" {
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel
+FROM devel AS runtime
+DOCK
+  printf '[lifecycle]\nrestart = "always"\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
-    grep -c 'restart: sometimes' '${TEMP_DIR}/compose.yaml' || true
   "
+  assert_success
+  run grep -cE '^    restart: always$' "${TEMP_DIR}/compose.yaml"
+  assert_output "1"
+
+  printf '[lifecycle]\nrestart = "sometimes"\n' > "${TEMP_DIR}/setup.toml"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+  "
+  assert_success
+  run grep -cE '^    restart:' "${TEMP_DIR}/compose.yaml"
   assert_output "0"
 }
 
