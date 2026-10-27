@@ -980,9 +980,5 @@ printf 'rc=%s sects=%s keys=%s vals=%s\n' \"\$?\" \"\${#s[@]}\" \"\${#k[@]}\" \"
   run --separate-stderr env LOG_FORMAT=json bash -c "${_probe}" _ "${TEMP_DIR}/setup.toml"
   assert_success
   assert_output "rc=1 sects=0 keys=0 vals=0"
-  [[ "${stderr}" != *"unregistered log body"* ]] \
-    || fail "the logger refused an unregistered body: ${stderr}"
-  assert_log_event conf_toml_parse_failed "${stderr}"
-  [[ "$(log_event_line conf_toml_parse_failed "${stderr}")" == *"\"path\":\"${TEMP_DIR}/setup.toml\""* ]] \
-    || fail "conf_toml_parse_failed does not name the layer: ${stderr}"
+  assert_logged_event conf_toml_parse_failed "path=${TEMP_DIR}/setup.toml"
 }

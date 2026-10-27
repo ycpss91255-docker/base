@@ -1193,6 +1193,23 @@ assert_refusal() {
     assert_equal "${status}" "${_want}"
     [[ -z "${output}" ]] \
         || fail "a refusal must leave stdout empty; it carried: ${output}"
+    assert_logged_event "${_id}" "$@"
+}
+
+# assert_logged_event <id> [<attribution>...]
+#   After `run --separate-stderr`: points 3 to 5 of assert_refusal alone --
+#   `${stderr}` carries a JSON log line whose event id is <id>, that line
+#   names every <attribution> (same forms as assert_refusal), and no
+#   `unregistered log body` appears. For a probe that reports on stdout
+#   by design, so the empty-stdout point does not apply and the caller
+#   asserts the report itself (base#1400).
+assert_logged_event() {
+    local _id="${1:?BUG: assert_logged_event expects an event id}"
+    shift
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_logged_event needs \`run --separate-stderr\`"
+    [[ "${stderr}" != *"unregistered log body"* ]] \
+        || fail "the logger refused an unregistered body: ${stderr}"
     assert_log_event "${_id}" "${stderr}"
     local _line _attr _name _value
     _line="$(log_event_line "${_id}" "${stderr}")"

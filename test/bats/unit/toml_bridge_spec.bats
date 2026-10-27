@@ -1548,11 +1548,7 @@ _toml_tokenize '${_toml}' s es k v
 printf 'rc=%s\n' \"\$?\""
   assert_success
   assert_output "rc=1"
-  [[ "${stderr}" != *"unregistered log body"* ]] \
-    || fail "the logger refused an unregistered body: ${stderr}"
-  assert_log_event conf_toml_parse_failed "${stderr}"
-  [[ "$(log_event_line conf_toml_parse_failed "${stderr}")" == *"\"path\":\"${_toml}\""* ]] \
-    || fail "conf_toml_parse_failed does not name the layer: ${stderr}"
+  assert_logged_event conf_toml_parse_failed "path=${_toml}"
 
   cleanup_mock_dir
 }
