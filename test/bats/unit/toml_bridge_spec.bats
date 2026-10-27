@@ -331,61 +331,62 @@ _mock_docker_unreached() {
   assert_success
 }
 
-# why: key-level merge for tables -- upper overrides only what it defines;
-#      keys absent from the upper layer must inherit from the lower layer
-@test "merge: scalar key-level merge overrides only defined keys" {
-  assert_spec_subject "${SHIM}" \
-    "the toml_bridge.sh bash shim (merge)"
+# why: TOML_BRIDGE_FORCE_DOCKER=1 and a mocked `docker` mean a merge here
+# can only observe the shim's TRANSPORT, never the merge: the argv handed
+# to `docker run` (one read-only mount per layer at its own path, the
+# pinned image, `--merge`, `--kv` passed through only when asked, the
+# layers in the caller's order) and the mock's rows returned unchanged,
+# to the caller and through _conf_load_layers to the accessor API. Six
+# tests used to restate this pairwise under merge-semantics names; the
+# merge itself is pinned against the real bridge in Seam 11 and in
+# setup_conf_spec.bats (base#1401).
+@test "toml-bridge: merge transport passes layers, mounts and --kv to docker run in caller order (base#1401)" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${SHIM}" "the toml_bridge.sh bash shim (merge transport)"
+  assert_spec_subject "${conf_sh}" "conf.sh _conf_load_layers TOML dispatch"
 
-  local lower="${BATS_TEST_TMPDIR}/lower.toml"
-  local upper="${BATS_TEST_TMPDIR}/upper.toml"
-  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n' > "${lower}"
-  printf '[gui]\nmode = "wayland"\n' > "${upper}"
-
+  local L="${BATS_TEST_TMPDIR}/lower.toml" U="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n' > "${L}"
+  printf '[gui]\nmode = "wayland"\n' > "${U}"
+  local _argv="${BATS_TEST_TMPDIR}/transport.argv"
   create_mock_dir
   mock_cmd "docker" \
-    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
-       printf "gui\tmode\twayland\ngui\tresolution\t1080p\n"
-     else
-       echo "EXPECTED --merge --kv" >&2; exit 1
-     fi'
+    "printf '%s\\n' \"\$@\" > '${_argv}'; printf 'gui\\tmode\\tFROM-MOCK\\n'"
 
   # shellcheck disable=SC1090
-  source "${SHIM}"
-  run toml_bridge_merge --kv "${lower}" "${upper}"
-  assert_success
-  assert_line --index 0 $'gui\tmode\twayland'
-  assert_line --index 1 $'gui\tresolution\t1080p'
+  source "${conf_sh}"
 
-  cleanup_mock_dir
-}
+  # caller | flag the bridge must see | layer order
+  local -a _cases=(
+    "toml_bridge_merge --kv|--kv|${L} ${U}"
+    "toml_bridge_merge|-|${L} ${U}"
+    "toml_bridge_merge --kv|--kv|${U} ${L}"
+    "_conf_load_layers|--kv|${L} ${U}"
+  )
+  local _row _caller _flag _order _a _b _want
+  for _row in "${_cases[@]}"; do
+    IFS='|' read -r _caller _flag _order <<<"${_row}"
+    read -r _a _b <<<"${_order}"
+    : > "${_argv}"
+    if [[ "${_caller}" == "_conf_load_layers" ]]; then
+      _conf_load_layers MHDL "${_a}" "${_b}"
+      run _conf_get MHDL gui mode
+      _want="FROM-MOCK"
+    else
+      # shellcheck disable=SC2086
+      run ${_caller} "${_a}" "${_b}"
+      _want=$'gui\tmode\tFROM-MOCK'
+    fi
+    assert_success
+    assert_output "${_want}"
 
-# why: array-of-tables replace -- the entire array from the highest layer
-#      that defines it wins (ADR-37 sec. Merge semantics)
-@test "merge: array of tables replaced entirely by upper layer" {
-  assert_spec_subject "${SHIM}" \
-    "the toml_bridge.sh bash shim (merge)"
-
-  local lower="${BATS_TEST_TMPDIR}/lower.toml"
-  local upper="${BATS_TEST_TMPDIR}/upper.toml"
-  printf '[[volumes]]\nsource = "/a"\ntarget = "/b"\n\n[[volumes]]\nsource = "/c"\ntarget = "/d"\n' > "${lower}"
-  printf '[[volumes]]\nsource = "/x"\ntarget = "/y"\n' > "${upper}"
-
-  create_mock_dir
-  mock_cmd "docker" \
-    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
-       printf "volumes\tsource\t/x\nvolumes\ttarget\t/y\n"
-     else
-       echo "EXPECTED --merge --kv" >&2; exit 1
-     fi'
-
-  # shellcheck disable=SC1090
-  source "${SHIM}"
-  run toml_bridge_merge --kv "${lower}" "${upper}"
-  assert_success
-  assert_line --index 0 $'volumes\tsource\t/x'
-  assert_line --index 1 $'volumes\ttarget\t/y'
-  assert_equal "${#lines[@]}" 2
+    _want="$(printf '%s\n' run --rm -v "${_a}:${_a}:ro" -v "${_b}:${_b}:ro" \
+      "${TOML_BRIDGE_IMAGE}" --merge)"
+    [[ "${_flag}" == "-" ]] || _want+=$'\n'"${_flag}"
+    _want+=$'\n'"${_a}"$'\n'"${_b}"
+    run cat "${_argv}"
+    assert_output "${_want}"
+  done
 
   cleanup_mock_dir
 }
@@ -484,107 +485,9 @@ _mock_docker_unreached() {
   cleanup_mock_dir
 }
 
-# why: _conf_load_layers with all-TOML layers must dispatch to the
-#      containerised merge so the accessor API reads the merged result
-@test "merge: _conf_load_layers dispatches to TOML merge for .toml layers" {
-  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
-  assert_spec_subject "${conf_sh}" \
-    "conf.sh _conf_load_layers TOML merge dispatch"
-
-  local lower="${BATS_TEST_TMPDIR}/lower.toml"
-  local upper="${BATS_TEST_TMPDIR}/upper.toml"
-  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n\n[network]\nnet = "host"\n' > "${lower}"
-  printf '[gui]\nmode = "wayland"\n' > "${upper}"
-
-  create_mock_dir
-  mock_cmd "docker" \
-    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
-       printf "gui\tmode\twayland\ngui\tresolution\t1080p\nnetwork\tnet\thost\n"
-     else
-       echo "EXPECTED --merge --kv" >&2; exit 1
-     fi'
-
-  # shellcheck disable=SC1090
-  source "${conf_sh}"
-  _conf_load_layers MHDL "${lower}" "${upper}"
-
-  run _conf_get MHDL gui mode
-  assert_success
-  assert_output "wayland"
-
-  run _conf_get MHDL gui resolution
-  assert_success
-  assert_output "1080p"
-
-  run _conf_get MHDL network net
-  assert_success
-  assert_output "host"
-
-  run _conf_sections MHDL
-  assert_success
-  assert_line --index 0 "gui"
-  assert_line --index 1 "network"
-
-  cleanup_mock_dir
-}
-
 # ════════════════════════════════════════════════════════════════════
 # Seam 6: toml_bridge_merge shim (D4 ADR-37 type-aware merge)
 # ════════════════════════════════════════════════════════════════════
-
-# why: type-aware merge is the D4 core contract -- scalar keys within a
-#      [table] get key-level merge: upper layer overrides only the keys it
-#      defines, unmentioned keys inherit from the lower layer
-@test "toml-bridge: merge shim scalar key-level merge via --kv" {
-  assert_spec_subject "${SHIM}" \
-    "the toml_bridge.sh bash shim (merge mode)"
-
-  local base_toml upper_toml
-  base_toml="$(mktemp --suffix=.toml)"
-  upper_toml="$(mktemp --suffix=.toml)"
-  printf '[gui]\nmode = "x11"\ntheme = "dark"\n' > "${base_toml}"
-  printf '[gui]\nmode = "wayland"\n' > "${upper_toml}"
-
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "gui\tmode\twayland\ngui\ttheme\tdark\n"'
-
-  # shellcheck disable=SC1090
-  source "${SHIM}"
-  run toml_bridge_merge --kv "${base_toml}" "${upper_toml}"
-  assert_success
-  assert_line "gui	mode	wayland"
-  assert_line "gui	theme	dark"
-
-  cleanup_mock_dir
-  rm -f "${base_toml}" "${upper_toml}"
-}
-
-# why: [[array of tables]] must be replaced wholesale by the upper layer --
-#      per-element merge of ordered lists is broken (ADR-25 sec.3 rationale)
-@test "toml-bridge: merge shim array replace for [[array of tables]]" {
-  assert_spec_subject "${SHIM}" \
-    "the toml_bridge.sh bash shim (merge array replace)"
-
-  local base_toml upper_toml
-  base_toml="$(mktemp --suffix=.toml)"
-  upper_toml="$(mktemp --suffix=.toml)"
-  printf '[[volumes]]\nmount = "/data"\n\n[[volumes]]\nmount = "/log"\n' > "${base_toml}"
-  printf '[[volumes]]\nmount = "/scratch"\n' > "${upper_toml}"
-
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "volumes\tmount\t/scratch\n"'
-
-  # shellcheck disable=SC1090
-  source "${SHIM}"
-  run toml_bridge_merge --kv "${base_toml}" "${upper_toml}"
-  assert_success
-  assert_output "volumes	mount	/scratch"
-
-  cleanup_mock_dir
-  rm -f "${base_toml}" "${upper_toml}"
-}
 
 # why: absent layers must be silently skipped so callers can pass the
 #      whole chain unconditionally (matching _conf_load_layers convention)
@@ -684,44 +587,6 @@ exec /usr/local/bin/toml-bridge "$@"'
 # Seam 7: _conf_load_layers TOML dispatch (D4 type-aware merge)
 # ════════════════════════════════════════════════════════════════════
 
-# why: _conf_load_layers must dispatch to toml_bridge_merge when all files
-#      are .toml, producing type-aware merge (key-level for tables, array
-#      replace for arrays) instead of bash section-replace
-@test "toml-bridge: _conf_load_layers merges .toml files via bridge" {
-  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
-  assert_spec_subject "${conf_sh}" \
-    "conf.sh _conf_load_layers TOML dispatch"
-
-  local base_toml upper_toml
-  base_toml="$(mktemp --suffix=.toml)"
-  upper_toml="$(mktemp --suffix=.toml)"
-  printf '[gui]\nmode = "x11"\ntheme = "dark"\n[network]\nnet = "bridge"\n' > "${base_toml}"
-  printf '[gui]\nmode = "wayland"\n' > "${upper_toml}"
-
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "gui\tmode\twayland\ngui\ttheme\tdark\nnetwork\tnet\tbridge\n"'
-
-  # shellcheck disable=SC1090
-  source "${conf_sh}"
-  _conf_load_layers MHDL "${base_toml}" "${upper_toml}"
-
-  run _conf_get MHDL gui mode
-  assert_success
-  assert_output "wayland"
-
-  run _conf_get MHDL gui theme
-  assert_success
-  assert_output "dark"
-
-  run _conf_get MHDL network net
-  assert_success
-  assert_output "bridge"
-
-  cleanup_mock_dir
-  rm -f "${base_toml}" "${upper_toml}"
-}
-
 # why: the INI section-replace path must survive so existing .conf callers
 #      keep working -- mixed .conf/.toml chains also fall through to INI
 @test "toml-bridge: _conf_load_layers uses INI path for .conf files" {
@@ -749,14 +614,6 @@ exec /usr/local/bin/toml-bridge "$@"'
   assert_output ""
 
   rm -f "${base_conf}" "${upper_conf}"
-}
-
-# why: the Python bridge must declare --merge mode so the shim can invoke it
-@test "toml-bridge: Python bridge script declares --merge flag" {
-  assert_spec_subject "${BRIDGE_PY}" \
-    "the Python bridge script (--merge mode declaration)"
-  run grep -- '--merge' "${BRIDGE_PY}"
-  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

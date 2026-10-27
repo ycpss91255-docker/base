@@ -6314,7 +6314,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `[security] privileged = false writes PRIVILEGED=false to .env` | - |
 | `[environment] apply does NOT execute a command-substitution env value (#687)` | - |
 | `[environment] apply emits an injection-style env value on a single line (#687)` | - |
-| `[lifecycle] apply does not emit a restart: line for a malformed policy (#687)` | - |
+| `[lifecycle] apply emits a valid restart policy and drops a malformed one (#687)` | a hand-written invalid policy (bypassing the set-path validator) must not reach compose.yaml as a bogus `restart: sometimes`. The fixture carries a deployable stage and first shows a valid policy IS emitted there; without that, a fixture with no deployable stage emits no `restart:` for any policy and the refutation below cannot fail. Each apply's status is asserted before the grep that replaces it, so the malformed case proves apply succeeds with the policy omitted. |
 | `[environment] apply carries an env value containing a colon-space into .env (#698)` | - |
 | `[environment] apply carries an env value with a leading flow indicator into .env (#698)` | - |
 | `[environment] apply carries an env value with an inline ' #' marker into .env (#698)` | - |
@@ -6407,7 +6407,7 @@ overwritten.
 | `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
 | `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
-### test/bats/unit/setup_conf_spec.bats (56)
+### test/bats/unit/setup_conf_spec.bats (55)
 
 Mirrors `lib/setup_conf.sh`. setup.toml merging (`_load_setup_conf` over the
 one effective configuration -- tables key-level and recursive, arrays
@@ -6429,7 +6429,6 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf does not resolve to an empty config when an ambient SETUP_CONF path is absent` | - |
 | `_setup_conf_handle ignores an ambient SETUP_CONF` | - |
 | `_compute_conf_hash ignores an ambient SETUP_CONF` | - |
-| `_load_setup_conf uses per-repo setup.toml when section present` | The TOML migration must not break the primary config-load path. |
 | `_load_setup_conf reads the per-repo override from repo-root setup.toml` | The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template. |
 | `_load_setup_conf merges a section key by key across the layers (ADR-00000037)` | ADR-00000037 settles the chain's rule for tables as key-level merge, unqualified, and amends the blanket section-replace it replaced. _load_setup_conf kept its own walk -- highest layer that defines the section supplies all of it -- while _setup_conf_handle went through the bridge merge and was key-level. `show` read one and the emitters read the other, so a repo could be told one configuration and built with another. One effective configuration, queried by both. |
 | `_load_setup_conf answers what the merged handle answers (ADR-00000037)` | the two readers must not be able to disagree. This asserts the agreement itself rather than one reader's answer, so a future change to either path that reintroduces a second precedence rule fails here -- which is the failure mode the split had, undetected, until `show` and the emitters were compared by hand. |
@@ -6440,7 +6439,7 @@ heredocs must advertise `setup.toml`, and no shipped text may still say
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
-| `_load_setup_conf replace strategy: per-repo section fully replaces template section` | - |
+| `_load_setup_conf merges a per-repo table key by key over the template's (ADR-00000037)` | the template is the chain's lowest layer, and ADR-00000037's key-level table merge applies to it too: a repo that moves one key of a template table inherits the template's other keys rather than blanking them. The template is a fixture so the inherited keys are this test's own and not whatever dist/setup.toml happens to ship. Under a section-replace merge only `mode` would come back, and the two inherited asserts fail. |
 | `_load_setup_conf: setup.local.toml overrides the per-repo section` | The local layer is the operator's per-worktree override; if it does not win, every worktree shares one config. |
 | `_load_setup_conf: setup.local.toml overrides the template for a section the repo omits` | A repo that skips a section still needs local override to reach through to the template default. |
 | `_load_setup_conf: a table merges key by key, an array is replaced whole` | the two halves of ADR-00000037's merge rule, in one section, at the reader the emitters go through. A table merges key by key, so a local layer that moves `mode` leaves `ipc` to the layer below instead of blanking it. An array is replaced ATOMICALLY, so the local layer's one port is the whole list: assembling one ordered list out of two layers would leave no way to remove an entry and would ask the author of the upper layer to know the highest index in a layer they cannot see. |
@@ -7698,7 +7697,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (94)
+### test/bats/unit/toml_bridge_spec.bats (88)
 
 | Test | Description |
 |------|-------------|
@@ -7718,21 +7717,15 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `toml-bridge: _conf_load still uses _ini_tokenize for .conf files` | the INI path must survive so callers using .conf files keep working |
 | `toml-bridge: Python bridge script supports --merge mode` | ADR-37 mandates type-aware merge: tables key-level, arrays replace; the Python bridge must accept --merge to drive this from bash |
 | `toml-bridge: bash shim defines toml_bridge_merge function` | the bash shim must expose a merge entry point for conf.sh layers |
-| `merge: scalar key-level merge overrides only defined keys` | key-level merge for tables -- upper overrides only what it defines; keys absent from the upper layer must inherit from the lower layer |
-| `merge: array of tables replaced entirely by upper layer` | array-of-tables replace -- the entire array from the highest layer that defines it wins (ADR-37 sec. Merge semantics) |
+| `toml-bridge: merge transport passes layers, mounts and --kv to docker run in caller order (base#1401)` | TOML_BRIDGE_FORCE_DOCKER=1 and a mocked `docker` mean a merge here can only observe the shim's TRANSPORT, never the merge: the argv handed to `docker run` (one read-only mount per layer at its own path, the pinned image, `--merge`, `--kv` passed through only when asked, the layers in the caller's order) and the mock's rows returned unchanged, to the caller and through _conf_load_layers to the accessor API. Six tests used to restate this pairwise under merge-semantics names; the merge itself is pinned against the real bridge in Seam 11 and in setup_conf_spec.bats (base#1401). |
 | `merge: mixed file with both table and array sections` | a real config has both table and array sections; the merge must apply the correct rule to each (key-level for tables, replace for arrays) in the same invocation |
 | `merge: empty upper layer preserves all lower keys` | an empty override layer (e.g. a local.toml with no sections) must not clobber the baseline -- every key from the lower layer survives |
 | `merge: missing section in upper inherits from lower` | a section defined only in the lower layer must survive untouched -- the upper layer's silence about a section is not a deletion |
-| `merge: _conf_load_layers dispatches to TOML merge for .toml layers` | _conf_load_layers with all-TOML layers must dispatch to the containerised merge so the accessor API reads the merged result |
-| `toml-bridge: merge shim scalar key-level merge via --kv` | type-aware merge is the D4 core contract -- scalar keys within a [table] get key-level merge: upper layer overrides only the keys it defines, unmentioned keys inherit from the lower layer |
-| `toml-bridge: merge shim array replace for [[array of tables]]` | [[array of tables]] must be replaced wholesale by the upper layer -- per-element merge of ordered lists is broken (ADR-25 sec.3 rationale) |
 | `toml-bridge: merge shim skips missing files silently` | absent layers must be silently skipped so callers can pass the whole chain unconditionally (matching _conf_load_layers convention) |
 | `toml-bridge: merge of [present, absent] exits 0 with exactly the present layer's rows (base#1399)` | An absent optional layer is skipped, by owner decision (ADR-00000036 lets the caller select layers; base#1399): the merge of the remaining layers succeeds with exactly their rows, and the absent path never reaches the bridge. |
 | `toml-bridge: merge in which every layer is absent exits 0 with empty stdout (base#1399)` | The same rule at its limit: when every layer is absent there is nothing to merge, and that is an empty configuration, not a failure (base#1399). The bridge is not started at all. |
 | `toml-bridge: merge with no file arguments returns 1 and logs merge_no_files (base#1399)` | Naming no layer at all is a different mistake from naming absent ones, and is refused: status 1 and a `merge_no_files` event, with or without --kv (base#1399). |
-| `toml-bridge: _conf_load_layers merges .toml files via bridge` | _conf_load_layers must dispatch to toml_bridge_merge when all files are .toml, producing type-aware merge (key-level for tables, array replace for arrays) instead of bash section-replace |
 | `toml-bridge: _conf_load_layers uses INI path for .conf files` | the INI section-replace path must survive so existing .conf callers keep working -- mixed .conf/.toml chains also fall through to INI |
-| `toml-bridge: Python bridge script declares --merge flag` | the Python bridge must declare --merge mode so the shim can invoke it |
 | `toml-bridge: Python _emit_kv has array serialization spec` | [[array of tables]] in TOML must become numbered-key KV lines (mount_1, arg_1, etc.) for backward compat with compose_emit.sh |
 | `toml-bridge: _emit_kv nested array produces numbered keys under parent section` | nested [[build.args]] array must serialize to arg_1, arg_2 lines under the parent section so compose_emit.sh sees the same format |
 | `toml-bridge: setup.toml template has all 15 sections` | the TOML template must mirror all 15 INI sections so the format migration is complete and no section is silently dropped |
