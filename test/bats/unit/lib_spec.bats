@@ -1084,6 +1084,22 @@ EOF
 EOF
 }
 
+# why: the summary reads `--entries`, which printed a file the loader
+# refuses as if it were valid: `[[build.install]]` beside `[build]` came
+# out as a `[build]` block and a `[[build.install]]` block. A refused
+# file shows no setup.toml rows at all -- not the half the bridge got
+# through before the array -- because the bridge refuses before it
+# prints anything (base#1396).
+@test "_print_config_summary prints no setup.toml rows for a file with an unknown array (base#1396)" {
+  local _fp="${BATS_TEST_TMPDIR}/unknown_array"
+  mkdir -p "${_fp}"
+  printf '[build]\nnetwork = "auto"\n\n[[build.install]]\nsource = "a"\n' \
+    > "${_fp}/setup.toml"
+  _summary_toml "${_fp}"
+  run _summary_entries "${output}"
+  assert_output ""
+}
+
 @test "_print_config_summary names an active setup.local.toml and its sections (#893)" {
   # A config layer nobody else can see must never be invisible in the run
   # that uses it: the summary is the one place the user is told which files

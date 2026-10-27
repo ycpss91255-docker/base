@@ -845,6 +845,36 @@ EOF
   assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/a-dir.toml"
 }
 
+# why: An unreadable file is the third way the layer cannot be honoured,
+# and the only one an existence or a regular-file test lets through
+# (base#1399). Root reads a mode-000 file anyway, so as root the check
+# runs as `nobody`. `nobody` has to reach the file, but the only
+# directory this test may widen is TEMP_DIR, which its setup created:
+# the ones above it belong to the host, and widening them as root would
+# outlive the fixture (base#1399 review round 1). So TEMP_DIR alone gets
+# o+x, and the case is skipped -- saying why -- when no unprivileged user
+# can be reached or when TEMP_DIR's parent does not let `nobody` through.
+@test "_setup_conf_local_check refuses an override it cannot read (base#1399)" {
+  local _f="${TEMP_DIR}/unreadable.toml"
+  printf '[gpu]\nmode = "force"\n' > "${_f}"
+  chmod 000 "${_f}"
+  local _probe="source /source/dist/script/docker/wrapper/setup.sh
+    LOG_FORMAT=json _setup_conf_local_check '${_f}'"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    su -s /bin/bash nobody -c true 2>/dev/null \
+      || skip "running as root and cannot drop to nobody, so no unreadable file can be staged"
+    chmod o+x "${TEMP_DIR}"
+    su -s /bin/bash nobody -c "test -e '${_f}'" 2>/dev/null \
+      || skip "nobody cannot traverse to ${TEMP_DIR} without widening a directory this test did not create"
+    run su -s /bin/bash nobody -c "${_probe}"
+  else
+    run bash -c "${_probe}"
+  fi
+  [ "${status}" -eq 1 ]
+  assert_output --partial '"body":"conf_local_override_unusable"'
+  assert_output --partial "not readable"
+}
+
 # why: The check has to pass the honourable case, or the refusal above
 # would be satisfied by a function that refuses everything.
 @test "_setup_conf_local_check accepts a readable regular file (base#1087)" {

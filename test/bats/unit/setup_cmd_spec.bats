@@ -577,6 +577,8 @@ EOF
 @test "set refuses an unknown key up front and leaves setup.toml untouched (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
+  # A refused spec exits 2, the usage class, not the generic 1
+  # (base#1399).
   LOG_FORMAT=json run --separate-stderr main set deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
   assert_refusal 2 conf_unknown_key table=deploy key=gpu_cuont
   assert_stderr_contains "no reader reads it"
@@ -1231,6 +1233,7 @@ EOF
 @test "main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
+  # Same usage class as `set` (base#1399).
   LOG_FORMAT=json run --separate-stderr main add build.args MYARG=1 --base-path "${TEMP_DIR}"
   assert_refusal 2 conf_unknown_key table=build key=args
   assert_stderr_contains "no reader reads it"
