@@ -833,18 +833,16 @@ EOF
 # the call would silently emit the template defaults while reporting
 # success. base#1092 / #1097 / #1119 / #1120 / #1223 are the same class.
 @test "_setup_conf_local_check refuses an override that names no file (base#1087)" {
-  run _setup_conf_local_check "${TEMP_DIR}/not-there.toml"
-  assert_failure
-  assert_output --partial "not-there.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_local_check "${TEMP_DIR}/not-there.toml"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/not-there.toml"
 }
 
 # why: A directory at the override path is the other way the layer cannot
 # be read, and it is not caught by an existence test alone.
 @test "_setup_conf_local_check refuses an override that is not a regular file (base#1087)" {
   mkdir -p "${TEMP_DIR}/a-dir.toml"
-  run _setup_conf_local_check "${TEMP_DIR}/a-dir.toml"
-  assert_failure
-  assert_output --partial "a-dir.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_local_check "${TEMP_DIR}/a-dir.toml"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/a-dir.toml"
 }
 
 # why: The check has to pass the honourable case, or the refusal above
@@ -874,9 +872,8 @@ EOF
   printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
   local -a _l=()
   _SETUP_CONF_LOCAL="${TEMP_DIR}/gone.toml"
-  run _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
-  assert_failure
-  assert_output --partial "gone.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/gone.toml"
 }
 
 # why: And the readers built on the chain inherit that refusal, or the one
@@ -885,9 +882,8 @@ EOF
 @test "_setup_conf_handle propagates the refusal of an unhonourable override (base#1087)" {
   printf '[gpu]\nmode = "off"\n' > "${TEMP_DIR}/setup.toml"
   _SETUP_CONF_LOCAL="${TEMP_DIR}/gone.toml"
-  run _setup_conf_handle "${TEMP_DIR}" _HX "${TEMP_DIR}/.base/dist"
-  assert_failure
-  assert_output --partial "gone.toml"
+  LOG_FORMAT=json run --separate-stderr _setup_conf_handle "${TEMP_DIR}" _HX "${TEMP_DIR}/.base/dist"
+  assert_refusal 1 conf_local_override_unusable "path=${TEMP_DIR}/gone.toml"
 }
 
 # why: A chain that moved must be reported as moved, and one that did not

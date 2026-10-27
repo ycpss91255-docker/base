@@ -40,9 +40,8 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 @test "main legacy flag-only invocation now errors (#49 Phase B-4 BREAKING)" {
   # `setup.sh --base-path X --lang Y` (no subcommand) used to alias to
   # apply. B-4 removes that; the user must type `apply` explicitly.
-  run main --base-path "${TEMP_DIR}" --lang en
-  assert_failure
-  assert_output --partial "Unknown subcommand"
+  LOG_FORMAT=json run --separate-stderr main --base-path "${TEMP_DIR}" --lang en
+  assert_refusal 1 conf_unknown_subcmd subcmd=--base-path
 }
 
 @test "main apply subcommand regenerates .env + compose.yaml" {
@@ -57,9 +56,8 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 }
 
 @test "main rejects unknown subcommand" {
-  run main bogus-subcommand
-  assert_failure
-  assert_output --partial "Unknown subcommand"
+  LOG_FORMAT=json run --separate-stderr main bogus-subcommand
+  assert_refusal 1 conf_unknown_subcmd subcmd=bogus-subcommand
 }
 
 @test "main check-drift returns 0 when .env missing (no-op)" {
@@ -102,9 +100,9 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 mode = "off"
 EOF
 
-  run main check-drift --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "drift detected"
+  LOG_FORMAT=json run --separate-stderr main check-drift --base-path "${TEMP_DIR}"
+  assert_refusal 1 env_drift_detail "detail=setup.toml modified since last setup"
+  assert_log_event env_drift_detected "${stderr}"
 }
 
 @test "check-drift prints WARN when per-repo setup.toml is missing (#186)" {
@@ -154,9 +152,8 @@ EOF
 }
 
 @test "main check-drift rejects unknown flag" {
-  run main check-drift --bogus
-  assert_failure
-  assert_output --partial "Unknown argument"
+  LOG_FORMAT=json run --separate-stderr main check-drift --bogus
+  assert_refusal 1 conf_unknown_arg arg=--bogus
 }
 
 @test "setup.sh check-drift via subprocess emits stderr + non-zero exit on drift" {
@@ -185,10 +182,10 @@ EOF
 mode = "off"
 EOF
 
-  run bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
+  LOG_FORMAT=json run --separate-stderr bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
     check-drift --base-path "${TEMP_DIR}/sandbox"
-  assert_failure
-  assert_output --partial "drift detected"
+  assert_refusal 1 env_drift_detail "detail=setup.toml modified since last setup"
+  assert_log_event env_drift_detected "${stderr}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -246,9 +243,8 @@ EOF
 
 @test "set project.name rejects a name docker compose would reject (#893)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set project.name "Not A Project" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set project.name "Not A Project" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=project key=name
 }
 
 @test "apply records the resolved project name in .env.generated (#893)" {
@@ -571,9 +567,8 @@ EOF
 
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set bogus.key value --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Unknown section"
+  LOG_FORMAT=json run --separate-stderr main set bogus.key value --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_section_not_found section=bogus
 }
 
 # why: the issue's `set` half. `set deploy.gpu_cuont 1` wrote a key no reader
@@ -582,10 +577,9 @@ EOF
 @test "set refuses an unknown key up front and leaves setup.toml untouched (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
-  run main set deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "unknown key deploy.gpu_cuont"
-  assert_output --partial "no reader reads it"
+  LOG_FORMAT=json run --separate-stderr main set deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_unknown_key table=deploy key=gpu_cuont
+  assert_stderr_contains "no reader reads it"
   run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
   assert_success
 }
@@ -596,9 +590,8 @@ EOF
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   printf '[deploy]\ngpu_count = "1"\n' > "${TEMP_DIR}/setup.local.toml"
   cp "${TEMP_DIR}/setup.local.toml" "${TEMP_DIR}/setup.local.toml.before"
-  run main set --local deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "unknown key deploy.gpu_cuont"
+  LOG_FORMAT=json run --separate-stderr main set --local deploy.gpu_cuont 1 --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_unknown_key table=deploy key=gpu_cuont
   run cmp "${TEMP_DIR}/setup.local.toml.before" "${TEMP_DIR}/setup.local.toml"
   assert_success
 }
@@ -615,37 +608,32 @@ EOF
 
 @test "set rejects an invalid gpu_count value" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=deploy key=gpu_count
 }
 
 @test "set rejects an invalid mount string" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=volumes key=mount_5
 }
 
 @test "set rejects an invalid cgroup_rule" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=devices key=cgroup_rule_1
 }
 
 @test "set rejects an invalid env_kv" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=environment key=env_5
 }
 
 @test "set rejects an invalid port mapping" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=network key=port_5
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -656,50 +644,44 @@ EOF
 
 @test "set rejects an invalid target_arch (#560 schema unification)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set build.target_arch sparc --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set build.target_arch sparc --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=build key=target_arch
 }
 
 @test "set rejects an invalid build network (#560 schema unification)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set build.network carrier-pigeon --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set build.network carrier-pigeon --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=build key=network
 }
 
 @test "set rejects an invalid gpu_runtime (#560 schema unification)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set deploy.gpu_runtime podman --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set deploy.gpu_runtime podman --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=deploy key=gpu_runtime
 }
 
 @test "set rejects an invalid network_name (#560 schema unification)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set network.network_name "-bad" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set network.network_name "-bad" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=network key=network_name
 }
 
 @test "set rejects an invalid device mount (#560 schema unification)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set devices.device_1 noslash --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set devices.device_1 noslash --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=devices key=device_1
 }
 
 @test "add rejects an invalid capability (#560 schema unification)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main add security.cap_add lowercase --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main add security.cap_add lowercase --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=security key=cap_add_1
 }
 
 @test "set rejects a malformed dotted key (no dot)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main set deploy_gpu_count all --base-path "${TEMP_DIR}"
+  assert_bridge_refusal 1 "Usage: setup.sh set"
 }
 
 @test "set rejects a newline-bearing value rather than corrupting setup.conf (#688)" {
@@ -718,8 +700,8 @@ EOF
 [environment]
 env_1 = "A=b"
 EOF
-  run main set environment.env_1 $'BAZ=qux\nmalicious_section_break' --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main set environment.env_1 $'BAZ=qux\nmalicious_section_break' --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=environment key=env_1
   # No orphan line: the corrupting payload must not reach the file.
   run grep -c 'malicious_section_break' "${TEMP_DIR}/setup.toml"
   assert_output "0"
@@ -747,23 +729,21 @@ EOF
 [build]
 tz = "clean"
 EOF
-  run main set build.tz $'a\nb' --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main set build.tz $'a\nb' --base-path "${TEMP_DIR}"
   # The writer's refusal, and the set-level diagnostic naming the key --
   # both are what the registry's own complaint would have replaced.
-  assert_output --partial "refusing newline-bearing key/value"
-  assert_output --partial "build.tz"
-  refute_output --partial "unregistered log body"
+  assert_refusal 2 conf_write_failed section=build key=tz
+  assert_log_event conf_upsert_newline_rejected "${stderr}"
   # The original clean value is untouched and no orphan line was written.
   run grep -c '^tz = "clean"$' "${TEMP_DIR}/setup.toml"
   assert_output "1"
 }
 
 @test "set with no arguments fails clean (no shell error)" {
-  run main set
-  assert_failure
-  refute_output --partial "unbound variable"
-  refute_output --partial "syntax error"
+  LOG_FORMAT=json run --separate-stderr main set
+  assert_bridge_refusal 1 "Usage: setup.sh set"
+  refute_stderr_contains "unbound variable"
+  refute_stderr_contains "syntax error"
 }
 
 @test "set does NOT regenerate .env (mtime unchanged after set)" {
@@ -886,11 +866,10 @@ driver = "json-file"
 [logging.web]
 driver = "local"
 EOF
-  run main show logging.drivr --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main show logging.drivr --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_key_not_found key=logging.drivr
   # Names the KEY the user typed, not the parent section: the error has
   # to point at the typo.
-  assert_output --partial "logging.drivr"
   # ... and reports it as the KEY kind. The spec `logging.drivr` is
   # embedded verbatim in BOTH candidate messages, so that token alone
   # cannot tell `conf_key_not_found` from a `conf_section_not_found`
@@ -898,10 +877,9 @@ EOF
   # name forbids. The error-kind display string is what separates them,
   # so pin it, and refute both section-flavoured strings the tree can
   # emit here (`section_not_found` and `unknown_section`).
-  assert_output --partial "Key not found"
-  refute_output --partial "Section not found"
-  refute_output --partial "Unknown section"
-  refute_output --partial "driver = json-file"
+  refute_stderr_contains "Section not found"
+  refute_stderr_contains "Unknown section"
+  refute_stderr_contains "driver = json-file"
 }
 
 @test "show returns non-zero on a missing key" {
@@ -909,9 +887,8 @@ EOF
 [network]
 mode = "host"
 EOF
-  run main show network.nope --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "not found"
+  LOG_FORMAT=json run --separate-stderr main show network.nope --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_key_not_found key=network.nope
 }
 
 @test "show falls back to template baseline when section absent in .local (#174)" {
@@ -931,14 +908,13 @@ EOF
 
 @test "show rejects an unknown section name" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main show bogus.key --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Unknown section"
+  LOG_FORMAT=json run --separate-stderr main show bogus.key --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_section_not_found section=bogus
 }
 
 @test "show with no arguments fails clean" {
-  run main show
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main show
+  assert_bridge_refusal 1 "Usage: setup.sh show"
 }
 
 @test "list with no arg prints every section header + key" {
@@ -1145,9 +1121,8 @@ EOF
 
 @test "list <section> rejects an unknown section" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main list bogus --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Unknown section"
+  LOG_FORMAT=json run --separate-stderr main list bogus --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_section_not_found section=bogus
 }
 
 @test "set / show / list run end-to-end via subprocess" {
@@ -1246,10 +1221,8 @@ EOF
 
 @test "main add rejects unknown section" {
   : > "${TEMP_DIR}/setup.toml"
-  run main add bogus.list /a:/a --base-path "${TEMP_DIR}"
-  assert_failure
-  [[ "${status}" -eq 2 ]]
-  assert_output --partial "Unknown section"
+  LOG_FORMAT=json run --separate-stderr main add bogus.list /a:/a --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_section_not_found section=bogus
 }
 
 # why: the issue's own reproduction. The family is `build.arg`; `build.args`
@@ -1258,10 +1231,9 @@ EOF
 @test "main add refuses an unknown family up front and leaves setup.toml untouched (base#1374)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
-  run main add build.args MYARG=1 --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "unknown key build.args"
-  assert_output --partial "no reader reads it"
+  LOG_FORMAT=json run --separate-stderr main add build.args MYARG=1 --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_unknown_key table=build key=args
+  assert_stderr_contains "no reader reads it"
   run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
   assert_success
 }
@@ -1272,9 +1244,8 @@ EOF
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   printf '[deploy]\ngpu_count = "1"\n' > "${TEMP_DIR}/setup.local.toml"
   cp "${TEMP_DIR}/setup.local.toml" "${TEMP_DIR}/setup.local.toml.before"
-  run main add --local build.args MYARG=1 --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "unknown key build.args"
+  LOG_FORMAT=json run --separate-stderr main add --local build.args MYARG=1 --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_unknown_key table=build key=args
   run cmp "${TEMP_DIR}/setup.local.toml.before" "${TEMP_DIR}/setup.local.toml"
   assert_success
 }
@@ -1290,9 +1261,8 @@ driver = "json-file"
 driver = "local"
 TOML
   cp "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml.before"
-  run main add logging.web.tags alpha --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "unknown key logging.web.tags"
+  LOG_FORMAT=json run --separate-stderr main add logging.web.tags alpha --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_unknown_key table=logging.web key=tags
   run cmp "${TEMP_DIR}/setup.toml.before" "${TEMP_DIR}/setup.toml"
   assert_success
 }
@@ -1329,9 +1299,8 @@ driver = "json-file"
 [logging.web]
 driver = "local"
 EOF
-  run main add logging.web.tag alpha --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "unknown key logging.web.tag"
+  LOG_FORMAT=json run --separate-stderr main add logging.web.tag alpha --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_unknown_key table=logging.web key=tag
 
   # No dotted key is injected anywhere, and no slot is written.
   run grep -c '^web\.tag' "${TEMP_DIR}/setup.toml"
@@ -1350,16 +1319,15 @@ EOF
 
 @test "main add rejects invalid mount value" {
   : > "${TEMP_DIR}/setup.toml"
-  run main add volumes.mount not-a-mount --base-path "${TEMP_DIR}"
-  assert_failure
-  [[ "${status}" -eq 2 ]]
+  LOG_FORMAT=json run --separate-stderr main add volumes.mount not-a-mount --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=volumes key=mount_1
 }
 
 @test "main add rejects missing list / value" {
-  run main add --base-path "${TEMP_DIR}"
-  assert_failure
-  run main add volumes.mount --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main add --base-path "${TEMP_DIR}"
+  assert_bridge_refusal 1 "Usage: setup.sh add"
+  LOG_FORMAT=json run --separate-stderr main add volumes.mount --base-path "${TEMP_DIR}"
+  assert_bridge_refusal 1 "Usage: setup.sh add"
 }
 
 @test "main add does not regen .env" {
@@ -1404,8 +1372,8 @@ EOF
   # `[volumes]` is the workspace bind by position: a removal that would
   # promote another mount into it is refused, not compacted, and
   # conf_toml_writer_spec carries that case.
-  run main show volumes.mount_3 --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main show volumes.mount_3 --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_key_not_found key=volumes.mount_3
   run main show volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
   assert_output "/a:/a"
@@ -1441,8 +1409,8 @@ EOF
   run main show volumes.mount_2 --base-path "${TEMP_DIR}"
   assert_success
   assert_output "/c:/c"
-  run main show volumes.mount_3 --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main show volumes.mount_3 --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_key_not_found key=volumes.mount_3
 }
 
 @test "main remove fails when key missing" {
@@ -1451,9 +1419,8 @@ EOF
 source = "/a"
 target = "/a"
 EOF
-  run main remove volumes.mount_99 --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "not found"
+  LOG_FORMAT=json run --separate-stderr main remove volumes.mount_99 --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_key_not_found key=volumes.mount_99
 }
 
 @test "main remove by value fails when no value matches" {
@@ -1462,17 +1429,14 @@ EOF
 source = "/a"
 target = "/a"
 EOF
-  run main remove volumes.mount /nonexistent:/x --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "not found"
+  LOG_FORMAT=json run --separate-stderr main remove volumes.mount /nonexistent:/x --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_key_not_found key=volumes.mount value=/nonexistent:/x
 }
 
 @test "main remove rejects unknown section" {
   : > "${TEMP_DIR}/setup.toml"
-  run main remove bogus.key --base-path "${TEMP_DIR}"
-  assert_failure
-  [[ "${status}" -eq 2 ]]
-  assert_output --partial "Unknown section"
+  LOG_FORMAT=json run --separate-stderr main remove bogus.key --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_section_not_found section=bogus
 }
 
 @test "main remove preserves comments + remaining keys" {
@@ -1850,9 +1814,8 @@ _move_ports_decl() {
 
 @test "main add validates env_kv format" {
   : > "${TEMP_DIR}/setup.toml"
-  run main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"
-  assert_failure
-  [[ "${status}" -eq 2 ]]
+  LOG_FORMAT=json run --separate-stderr main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=environment key=env_1
 }
 
 @test "main add free-form image rule accepts arbitrary string" {
@@ -2191,15 +2154,14 @@ EOF
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   # Bats runs without a controlling TTY — without --yes the handler
   # must refuse rather than silently destroy state.
-  run main reset --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main reset --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_reset_needs_yes
   refute [ -f "${TEMP_DIR}/setup.toml.bak" ]
 }
 
 @test "main reset rejects unknown flag" {
-  run main reset --bogus --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Unknown argument"
+  LOG_FORMAT=json run --separate-stderr main reset --bogus --base-path "${TEMP_DIR}"
+  assert_refusal 1 conf_unknown_arg arg=--bogus
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2298,9 +2260,8 @@ EOF
   _was="$(_conf_get _EFF_BEFORE deploy gpu_capabilities "")"
   [ -n "${_was}" ] || fail "the template resolves no gpu_capabilities, so this case would assert nothing"
 
-  run main set deploy.gpu_capabilities "" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value: deploy.gpu_capabilities ="
+  LOG_FORMAT=json run --separate-stderr main set deploy.gpu_capabilities "" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=deploy key=gpu_capabilities value=
 
   cmp -s "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/before.toml" \
     || fail "a refused set rewrote setup.toml"
@@ -2319,8 +2280,8 @@ EOF
 # claim about the generator rather than about the gate that now guards it
 @test "apply after the refused set still emits compose.yaml (base#1267)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set deploy.gpu_capabilities "" --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main set deploy.gpu_capabilities "" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=deploy key=gpu_capabilities value=
 
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -2338,9 +2299,8 @@ EOF
 # empty setup.local.toml is itself a state the chain reports on
 @test "set --local deploy.gpu_capabilities '' is refused and creates no local layer (base#1267)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set deploy.gpu_capabilities "" --local --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value: deploy.gpu_capabilities ="
+  LOG_FORMAT=json run --separate-stderr main set deploy.gpu_capabilities "" --local --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=deploy key=gpu_capabilities value=
   assert [ ! -f "$(_setup_conf_local_path "${TEMP_DIR}")" ]
 }
 
@@ -2362,14 +2322,13 @@ gpu_mode = "force"
 gpu_count = "all"
 gpu_capabilities = ""
 TOML
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}'
   "
-  assert_failure
-  refute_output --partial "parameter null or not set"
-  assert_output --partial "deploy.gpu_capabilities"
-  assert_output --partial "${TEMP_DIR}/setup.toml"
+  assert_refusal --stdout-logs-only 1 apply_conf_value_empty "file=${TEMP_DIR}/setup.toml" table=deploy key=gpu_capabilities
+  refute_stderr_contains "parameter null or not set"
 
   local _f
   for _f in .env .env.generated .env.local compose.yaml; do
@@ -2407,12 +2366,12 @@ TOML
   grep -qx 'gpu_capabilities = ""' "${TEMP_DIR}/setup.toml" \
     || fail "the fixture did not clear gpu_capabilities"
 
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' 2>&1
+    main apply --base-path '${TEMP_DIR}'
   "
-  assert_failure
-  assert_output --partial "deploy.gpu_capabilities"
+  assert_refusal --stdout-logs-only 1 apply_conf_value_empty "file=${TEMP_DIR}/setup.toml" table=deploy key=gpu_capabilities
 
   for _f in .env .env.generated .env.local compose.yaml; do
     cmp -s "${TEMP_DIR}/before/${_f}" "${TEMP_DIR}/${_f}" \
@@ -2445,10 +2404,11 @@ TOML
 #   evaluated after setup.sh is sourced and before `main` runs, for the
 #   cases that make one filesystem operation fail.
 _r1270_apply() {
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
     ${2:-}
-    main apply --base-path '$1' 2>&1
+    main apply --base-path '$1'
   "
 }
 
@@ -2507,8 +2467,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "template-controlled image tag namespace; rename it: latest"
+  assert_refusal --stdout-logs-only 1 stage_reserved_tag stage=latest
   refute_output --partial "[setup] USER="
 
   _r1270_assert_absent "${TEMP_DIR}" .env .env.generated .env.local compose.yaml
@@ -2532,8 +2491,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   printf '%s' "${_R1270_RESERVED_DOCKERFILE}" > "${TEMP_DIR}/Dockerfile"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "template-controlled image tag namespace; rename it: latest"
+  assert_refusal --stdout-logs-only 1 stage_reserved_tag stage=latest
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
     .env .env.generated .env.local compose.yaml
@@ -2550,8 +2508,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   _r1270_snapshot "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "template-controlled image tag namespace; rename it: latest"
+  assert_refusal --stdout-logs-only 1 stage_reserved_tag stage=latest
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
   _r1270_assert_absent "${TEMP_DIR}" .env.generated .env.bak .env.local compose.yaml
@@ -2575,8 +2532,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
     "${TEMP_DIR}/setup.toml"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "compose.yaml"
+  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/compose.yaml"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
@@ -2598,8 +2554,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   mkdir "${TEMP_DIR}/.env.bak"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial ".env.bak"
+  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/.env.bak"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
@@ -2621,7 +2576,7 @@ _R1270_RESERVED_DOCKERFILE=$'FROM ubuntu AS devel\nFROM devel AS latest\n'
   _r1270_apply "${TEMP_DIR}" '
     cp() { [[ "${*: -1}" == */.env.bak ]] && return 1; command cp "$@"; }
   '
-  assert_failure
+  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/.env"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
@@ -2659,7 +2614,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
 
   export BATS_TEST_TMPDIR
   _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
-  assert_failure
+  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
   refute_output --partial "[setup] USER="
   [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
 
@@ -2676,7 +2631,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
 
   export BATS_TEST_TMPDIR
   _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
-  assert_failure
+  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
   [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
 
   _r1270_assert_absent "${TEMP_DIR}" .env .env.generated .env.local compose.yaml
@@ -2694,7 +2649,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
 
   export BATS_TEST_TMPDIR
   _r1270_apply "${TEMP_DIR}" "${_R1270_MV_FAILS_ON_COMPOSE}"
-  assert_failure
+  assert_refusal --stdout-logs-only 1 apply_commit_failed "path=${TEMP_DIR}/compose.yaml"
   [[ -e "${BATS_TEST_TMPDIR}/mv-failed" ]] || fail "the injected mv failure never fired"
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" .env
@@ -2719,8 +2674,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
     "${TEMP_DIR}/setup.toml"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial ".env.local"
+  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/.env.local"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_same "${TEMP_DIR}" "${BATS_TEST_TMPDIR}/before" \
@@ -2739,8 +2693,7 @@ _R1270_MV_FAILS_ON_COMPOSE='
   mkfifo "${TEMP_DIR}/.env.local"
 
   _r1270_apply "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial ".env.local"
+  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/.env.local"
   refute_output --partial "[setup] USER="
 
   _r1270_assert_absent "${TEMP_DIR}" .env .env.generated compose.yaml
@@ -3073,9 +3026,8 @@ EOF
 # write and then emitted the value from a stale layer anyway.
 @test "[tmpfs] a tmpfs_1 carrying a newline is refused before it can reach compose.yaml (base#1095)" {
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
-  run main set tmpfs.tmpfs_1 "$(printf '/tmp\n      - /evil')" --base-path "${TEMP_DIR}"
-  assert_failure
-  assert_output --partial "Invalid value"
+  LOG_FORMAT=json run --separate-stderr main set tmpfs.tmpfs_1 "$(printf '/tmp\n      - /evil')" --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_invalid_value section=tmpfs key=tmpfs_1
 
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -3626,8 +3578,9 @@ EOF
 key = "KEEP"
 value = "yes"
 EOF
-  run main add build.arg NEW=value --local --base-path "${TEMP_DIR}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr main add build.arg NEW=value --local --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_write_failed section=build key=arg
+  assert_refusal 2 conf_toml_merge_failed "${TEMP_DIR}/setup.toml"
   # And the entry that was there is still there, byte for byte.
   run grep -c 'KEEP' "${TEMP_DIR}/setup.local.toml"
   assert_output "1"
@@ -3755,12 +3708,12 @@ DF
 # something it cannot honour must refuse.
 @test "apply --local-conf refuses a path that names no file (base#1087)" {
   _ppa_repo
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/nope.toml' --output '${TEMP_DIR}/inst-1' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/nope.toml' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_failure
-  assert_output --partial "nope.toml"
+  assert_refusal --stdout-logs-only 1 conf_local_override_unusable "path=${TEMP_DIR}/nope.toml"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -3770,12 +3723,12 @@ DF
 @test "apply --output refuses when the named directory cannot be created (base#1087)" {
   _ppa_repo
   : > "${TEMP_DIR}/not-a-dir"
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/not-a-dir' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/not-a-dir' -q
   "
-  assert_failure
-  assert_output --partial "not-a-dir"
+  assert_refusal --stdout-logs-only 1 apply_output_unusable "path=${TEMP_DIR}/not-a-dir"
 }
 
 # why: "The repo is not mutated by a call" is a property of the whole
@@ -3789,12 +3742,13 @@ DF
 FROM ubuntu:24.04 AS sys
 FROM sys AS devel
 DF
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_failure
-  assert_output --partial "without --output"
+  assert_refusal --stdout-logs-only 1 apply_repo_conf_unsettled "path=${TEMP_DIR}/setup.toml"
+  assert_stderr_contains "without --output"
   # Refused AND put back: the bootstrap had already written the file by
   # the time the call could tell, so a refusal that only returned 1 would
   # leave the repo changed anyway.
@@ -3828,12 +3782,12 @@ DF
 @test "deploy --local-conf routes the reproducibility refusal at the caller's file (base#1087)" {
   _ppa_repo
   printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/a.toml"
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main deploy --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --stage runtime --dry-run 2>&1
+    main deploy --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/a.toml' --stage runtime --dry-run
   "
-  assert_failure
-  assert_output --partial "a.toml"
+  assert_refusal --stdout-logs-only 1 deploy_local_override_refused "file=${TEMP_DIR}/a.toml" sections=network
 }
 
 # why: `build.context` was not the only repo-relative path in the emitted
@@ -3919,11 +3873,12 @@ EOF
 FROM ubuntu:24.04 AS sys
 FROM sys AS devel
 DF
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' --print-resolved 2>&1
+    main apply --base-path '${TEMP_DIR}' --output '${TEMP_DIR}/inst-1' --print-resolved
   "
-  assert_failure
+  assert_refusal --stdout-logs-only 1 apply_repo_conf_unsettled "path=${TEMP_DIR}/setup.toml"
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
 }
 
@@ -3934,32 +3889,34 @@ DF
 # that was SUPPLIED is validated on its value, not on its emptiness.
 @test "apply refuses an empty --local-conf= value (base#1087)" {
   _ppa_repo
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --local-conf= --output '${TEMP_DIR}/inst-1' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --local-conf= --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_failure
+  assert_refusal --stdout-logs-only 1 conf_local_override_unusable path=
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
 @test "apply refuses an empty --output= value instead of writing into the repo (base#1087)" {
   _ppa_repo
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --output= -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --output= -q
   "
-  assert_failure
+  assert_refusal --stdout-logs-only 1 apply_output_unusable path=
   assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
 }
 
 @test "deploy refuses an empty --local-conf= value (base#1087)" {
   _ppa_repo
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main deploy --base-path '${TEMP_DIR}' --local-conf= --stage runtime --dry-run 2>&1
+    main deploy --base-path '${TEMP_DIR}' --local-conf= --stage runtime --dry-run
   "
-  assert_failure
-  assert_output --partial "empty path"
+  assert_refusal --stdout-logs-only 1 conf_local_override_unusable path=
 }
 
 # why: A bare relative `additional_contexts` source is a LOCAL path, not a
@@ -4128,12 +4085,12 @@ EOF
   mkdir -p "${_repo}"
   cp /source/dist/setup.toml "${_repo}/setup.toml"
   printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_failure
-  assert_output --partial "repo:one"
+  assert_refusal --stdout-logs-only 1 compose_relocated_root_unusable "path=${_repo}"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -4175,12 +4132,12 @@ PY
 @test "apply --local-conf refuses a name the chain's parser would misread (base#1087)" {
   _ppa_repo
   printf '[gpu]\nmode = "force"\n' > "${TEMP_DIR}/params"
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/params' --output '${TEMP_DIR}/inst-1' -q 2>&1
+    main apply --base-path '${TEMP_DIR}' --local-conf '${TEMP_DIR}/params' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_failure
-  assert_output --partial "params"
+  assert_refusal --stdout-logs-only 1 conf_local_override_unusable "path=${TEMP_DIR}/params"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -4323,11 +4280,12 @@ EOF
   mkdir -p "${_repo}"
   cp /source/dist/setup.toml "${_repo}/setup.toml"
   printf 'FROM ubuntu:24.04 AS sys\nFROM sys AS devel\n' > "${_repo}/Dockerfile"
-  run bash -c "
+  run --separate-stderr bash -c "
+    export LOG_FORMAT=json
     source /source/dist/script/docker/wrapper/setup.sh
-    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q 2>&1
+    main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_failure
+  assert_refusal --stdout-logs-only 1 compose_relocated_root_unusable "path=${_repo}"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -4431,13 +4389,12 @@ EOF
   # and `refute_output --partial "Unknown section"` passes for the
   # wrong reason. That made this arm vacuous; a mutation caught it.
   unset SCHEMA_SUBSECTIONED
-  run _setup_show network.mode --base-path "${TEMP_DIR}"
-  assert_failure
-  # The renderer here is the human one, so the assertion is on the text
-  # rather than on the event body the JSON renderer would carry.
-  assert_output --partial "cannot split the namespace key network.mode"
-  # And NOT the fabricated one: under the old reading this printed
+  LOG_FORMAT=json run --separate-stderr _setup_show network.mode --base-path "${TEMP_DIR}"
+  assert_refusal 2 conf_subsection_registry_missing nskey=network.mode
+  # The refusal is judged by its event id; the message text travels in
+  # the JSON line's `display`, which is where the fabricated one would
+  # show. And NOT the fabricated one: under the old reading this printed
   # `Unknown section: network.mode`, sending the reader after a section
   # they never asked for.
-  refute_output --partial "Unknown section"
+  refute_stderr_contains "Unknown section"
 }

@@ -130,8 +130,8 @@ setup() {
 
   # shellcheck disable=SC1090
   source "${SHIM}"
-  run toml_bridge_parse "${toml_file}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr toml_bridge_parse "${toml_file}"
+  assert_bridge_refusal 1 "parse error"
 
   cleanup_mock_dir
   rm -f "${toml_file}"
@@ -144,8 +144,8 @@ setup() {
 
   # shellcheck disable=SC1090
   source "${SHIM}"
-  run toml_bridge_parse "/nonexistent/file.toml"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr toml_bridge_parse "/nonexistent/file.toml"
+  assert_refusal 1 no_such_file /nonexistent/file.toml
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1059,8 +1059,8 @@ EOF
   # The exact failure shape the botched merge produced: exit 1, stdout empty.
   toml_bridge_merge() { return 1; }
 
-  run _conf_load_layers FHDL "${toml_file}"
-  assert_failure
+  LOG_FORMAT=json run --separate-stderr _conf_load_layers FHDL "${toml_file}"
+  assert_refusal 1 conf_toml_merge_failed "${toml_file}"
 }
 
 # why: the shell view has no nesting -- a section is one flat name -- and
@@ -1419,10 +1419,9 @@ toml_bridge_parse '${_toml}' --kv"
   unset TOML_BRIDGE_IMAGE
   rm -f "${SUB}/dockerfile/Dockerfile.toml-bridge"
 
-  run bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
-  assert_failure
-  assert_output --partial "${SUB}/dockerfile/Dockerfile.toml-bridge"
-  refute_output --partial "toml-bridge:local"
+  LOG_FORMAT=json run --separate-stderr bash -c "source '${SUB_SHIM}'; _toml_bridge_derive_image"
+  assert_refusal 1 toml_bridge_unprovisionable "${SUB}/dockerfile/Dockerfile.toml-bridge"
+  refute_stderr_contains "toml-bridge:local"
 }
 
 # why: The caller-visible half of "parser unavailability stops the run".
@@ -1476,7 +1475,7 @@ printf 'rc=%s count=%s\n' \"\$?\" \"\${#k[@]}\""
 _bridge_kv() {
   TOML_BRIDGE_FORCE_DOCKER="" bash -c "
     source '${ROOT}/dist/script/docker/lib/toml_bridge.sh'
-    toml_bridge_parse '${1}' --kv" 2>&1
+    toml_bridge_parse '${1}' --kv"
 }
 
 # why: THE KV STREAM IS THE INTERFACE, and it is line- and tab-delimited
@@ -1495,10 +1494,8 @@ _bridge_kv() {
 @test "toml-bridge: a value the tab-separated view cannot carry is refused, not truncated" {
   local _f="${BATS_TEST_TMPDIR}/nl.toml"
   printf '[lifecycle]\nwatchdog_check = "echo first\\necho second"\n' > "${_f}"
-  run _bridge_kv "${_f}"
-  assert_failure
-  assert_output --partial "lifecycle.watchdog_check"
-  assert_output --partial "newline"
+  run --separate-stderr _bridge_kv "${_f}"
+  assert_bridge_refusal 1 "lifecycle.watchdog_check" "newline"
   # Nothing of the configuration is emitted: the rows are collected
   # before any is printed, so a caller never sees a prefix of it.
   refute_output --partial $'lifecycle\twatchdog_check'
@@ -1507,15 +1504,12 @@ _bridge_kv() {
 @test "toml-bridge: a tab in a key or a section name is refused" {
   local _f="${BATS_TEST_TMPDIR}/tabkey.toml"
   printf '[lifecycle]\n"a\\tb" = "v"\n' > "${_f}"
-  run _bridge_kv "${_f}"
-  assert_failure
-  assert_output --partial "key name"
-  assert_output --partial "tab"
+  run --separate-stderr _bridge_kv "${_f}"
+  assert_bridge_refusal 1 "key name" "tab"
 
   printf '["s\\tt"]\nk = "v"\n' > "${_f}"
-  run _bridge_kv "${_f}"
-  assert_failure
-  assert_output --partial "section name"
+  run --separate-stderr _bridge_kv "${_f}"
+  assert_bridge_refusal 1 "section name"
 }
 
 # why: The control, and the line the rule is drawn on. The value is the
@@ -1621,12 +1615,8 @@ cap_drop_1 = "NET_RAW"
 cap = "SYS_ADMIN"
 EOF
 
-  run python3 "${BRIDGE_PY}" --kv < "${_f}"
-  assert_failure
-  assert_output --partial "security.cap_drop_1"
-  assert_output --partial "cap_drop"
-  assert_output --partial "block 1"
-  assert_output --partial "[[security.cap_drop]]"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_bridge_refusal 1 "security.cap_drop_1" "cap_drop" "block 1" "[[security.cap_drop]]"
   # Nothing of the configuration is emitted: the refusal happens before a
   # single row is built, so a caller never reads a prefix of it as the
   # whole thing.
@@ -1648,11 +1638,8 @@ cap_add_1 = "NET_RAW"
 cap = "SYS_ADMIN"
 EOF
 
-  run python3 "${BRIDGE_PY}" --kv < "${_f}"
-  assert_failure
-  assert_output --partial "security.cap_add_1"
-  assert_output --partial "cap_add"
-  assert_output --partial "block 1"
+  run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+  assert_bridge_refusal 1 "security.cap_add_1" "cap_add" "block 1"
 }
 
 # why: THE DERIVED GATE, and the reason this is not three hand-written
@@ -1699,17 +1686,17 @@ EOF
       # toml-fixture-lint: allow the refusal of this body IS the assertion, and its names come from the family table at run time
       printf '[%s]\n%s_1 = "SCALAR"\n\n[[%s]]\nzz = "BLOCK"\n' \
         "${_sect}" "${_prefix}" "${_path}" > "${_f}"
-      run python3 "${BRIDGE_PY}" --kv < "${_f}"
-      assert_failure
+      run --separate-stderr python3 "${BRIDGE_PY}" --kv < "${_f}"
+      assert_bridge_refusal 1
       if [[ "${_path}" == *.* ]]; then
         # A table-hosted array: the collision is reachable, so the
         # refusal is ours and names the family.
-        assert_output --partial "numbered family '${_prefix}'"
+        assert_stderr_contains "numbered family '${_prefix}'"
         _named=$(( _named + 1 ))
       else
         # A root-level array: TOML refuses the document itself, and this
         # check is owed no row for it.
-        refute_output --partial "numbered family"
+        refute_stderr_contains "numbered family"
         _structural=$(( _structural + 1 ))
       fi
     done
@@ -1797,10 +1784,8 @@ EOF
   run python3 "${BRIDGE_PY}" --kv < "${_upper}"
   assert_success
 
-  run python3 "${BRIDGE_PY}" --merge --kv "${_lower}" "${_upper}"
-  assert_failure
-  assert_output --partial "security.cap_drop_1"
-  assert_output --partial "block 1"
+  run --separate-stderr python3 "${BRIDGE_PY}" --merge --kv "${_lower}" "${_upper}"
+  assert_bridge_refusal 1 "security.cap_drop_1" "block 1"
 }
 
 # ════════════════════════════════════════════════════════════════════

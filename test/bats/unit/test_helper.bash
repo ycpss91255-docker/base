@@ -1227,3 +1227,51 @@ assert_refusal() {
         fi
     done
 }
+
+# assert_stderr_contains <text>...
+#   After `run --separate-stderr`: fail unless `${stderr}` carries every
+#   <text>. The stderr half of `assert_output --partial`, which bats-assert
+#   in the test-tools image does not ship.
+assert_stderr_contains() {
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_stderr_contains needs \`run --separate-stderr\`"
+    local _t
+    for _t in "$@"; do
+        [[ "${stderr}" == *"${_t}"* ]] \
+            || fail "stderr does not carry '${_t}': ${stderr}"
+    done
+}
+
+# refute_stderr_contains <text>...
+#   After `run --separate-stderr`: fail if `${stderr}` carries any <text>.
+refute_stderr_contains() {
+    [[ -n "${stderr+x}" ]] \
+        || fail "refute_stderr_contains needs \`run --separate-stderr\`"
+    local _t
+    for _t in "$@"; do
+        [[ "${stderr}" != *"${_t}"* ]] \
+            || fail "stderr carries '${_t}': ${stderr}"
+    done
+}
+
+# assert_bridge_refusal <status> <attribution>...
+#   A refusal made by a process that is not a lib/log.sh logger -- the
+#   Python toml-bridge parser, the bridge shim passing a parser's complaint
+#   through, a usage line -- held to every point of `assert_refusal` that
+#   such a process can meet (base#1400): the exact <status>, an empty
+#   stdout, no `unregistered log body`, and a stderr that names every
+#   <attribution>. It has no event id to assert because it writes no
+#   structured log line; a refusal that DOES log is asserted with
+#   `assert_refusal`, never with this.
+assert_bridge_refusal() {
+    local _want="${1:?BUG: assert_bridge_refusal expects a status}"
+    shift
+    [[ -n "${stderr+x}" ]] \
+        || fail "assert_bridge_refusal needs \`run --separate-stderr\`: stdout and stderr are judged apart"
+    refute_output --partial "unregistered log body"
+    [[ "${stderr}" != *"unregistered log body"* ]] \
+        || fail "the logger refused an unregistered body: ${stderr}"
+    assert_equal "${status}" "${_want}"
+    assert_equal "${output}" ""
+    assert_stderr_contains "$@"
+}
