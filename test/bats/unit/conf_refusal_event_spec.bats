@@ -42,6 +42,20 @@ _seed_subtree_without_bridge_dockerfile() {
   SUB_LIB="${SUB}/dist/script/docker/lib"
 }
 
+# _snapshot_conf
+#   Keep a copy of ${CONF} as it is now, for _assert_conf_unchanged.
+_snapshot_conf() {
+  cp "${CONF}" "${TEMP_DIR}/before.toml"
+}
+
+# _assert_conf_unchanged
+#   ${CONF} is byte for byte what _snapshot_conf saw: the refusal wrote
+#   nothing into it.
+_assert_conf_unchanged() {
+  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
+  assert_success
+}
+
 # ════════════════════════════════════════════════════════════════════
 # conf.sh
 # ════════════════════════════════════════════════════════════════════
@@ -64,15 +78,14 @@ _seed_subtree_without_bridge_dockerfile() {
 # writer refuses before any temp file exists.
 @test "conf_write_index_rejected: a set on mount_0 is refused, naming the file and the key" {
   printf '[network]\nmode = "host"\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${LIB}/conf.sh'
     _upsert_conf_value '${CONF}' volumes mount_0 /a:/b
   "
   assert_refusal 1 conf_write_index_rejected "file=${CONF}" "volumes.mount_0"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: Removing slot 1 of [volumes] compacts the array and promotes the
@@ -80,15 +93,14 @@ _seed_subtree_without_bridge_dockerfile() {
 @test "conf_write_ws_slot_refused: setup remove volumes.mount_1 is refused, naming the file and the slot" {
   # shellcheck disable=SC2016  # the portable ${WS_PATH} form is literal
   printf '[[volumes]]\nsource = "${WS_PATH}"\ntarget = "/work"\n\n[[volumes]]\nsource = "/srv/data"\ntarget = "/data"\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${SETUP_SH}'
     main remove volumes.mount_1 --base-path '${TEMP_DIR}'
   "
   assert_refusal 2 conf_write_ws_slot_refused "file=${CONF}" "key=volumes.mount_1"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: A temp file that cannot be created must stop the rewrite before the
@@ -98,7 +110,7 @@ _seed_subtree_without_bridge_dockerfile() {
 @test "conf_write_tmp_failed: _write_setup_conf refuses when its temp file cannot be created" {
   [ "${COVERAGE:-0}" = 1 ] && skip "mktemp-failure stub is kcov-fragile (#613)"
   printf '[network]\nmode = "host"\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${LIB}/conf.sh'
@@ -107,8 +119,7 @@ _seed_subtree_without_bridge_dockerfile() {
     _write_setup_conf '${CONF}' '${CONF}' _k _v
   "
   assert_refusal 1 conf_write_tmp_failed "file=${CONF}"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: A removal the line writer cannot reach (an inline table) leaves a
@@ -116,7 +127,7 @@ _seed_subtree_without_bridge_dockerfile() {
 # refused instead of reported as done.
 @test "conf_write_not_applied: a removal the rewrite did not make is refused, naming the file and the key" {
   printf 'resources = { shm_size = "64m" }\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${LIB}/conf.sh'
@@ -124,8 +135,7 @@ _seed_subtree_without_bridge_dockerfile() {
     _write_setup_conf '${CONF}' '${CONF}' _k _v resources.shm_size
   "
   assert_refusal 1 conf_write_not_applied "file=${CONF}" "target=resources.shm_size"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: The rewrite must take the destination's mode before it lands, or a
@@ -134,7 +144,7 @@ _seed_subtree_without_bridge_dockerfile() {
 @test "conf_write_mode_failed: _write_setup_conf refuses when the mode cannot be carried over" {
   [ "${COVERAGE:-0}" = 1 ] && skip "chmod-failure stub is kcov-fragile (#613)"
   printf '[network]\nmode = "host"\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${LIB}/conf.sh'
@@ -143,8 +153,7 @@ _seed_subtree_without_bridge_dockerfile() {
     _write_setup_conf '${CONF}' '${CONF}' _k _v
   "
   assert_refusal 1 conf_write_mode_failed "file=${CONF}"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: A failed final mv (a read-only mount) must be reported, the temp
@@ -154,7 +163,7 @@ _seed_subtree_without_bridge_dockerfile() {
 @test "conf_write_mv_failed: _write_setup_conf refuses when the final mv fails" {
   [ "${COVERAGE:-0}" = 1 ] && skip "mv-failure stub is kcov-fragile (#613)"
   printf '[network]\nmode = "host"\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${LIB}/conf.sh'
@@ -163,8 +172,7 @@ _seed_subtree_without_bridge_dockerfile() {
     _write_setup_conf '${CONF}' '${CONF}' _k _v
   "
   assert_refusal 1 conf_write_mv_failed "file=${CONF}"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: The per-key writer edits a file in place and has nothing to edit
@@ -184,15 +192,14 @@ _seed_subtree_without_bridge_dockerfile() {
 # writer, and the reader refuses a family carried both ways.
 @test "conf_write_declined: a set the reader would refuse is declined, naming the file and the key" {
   printf '[security]\nprivileged = false\ncap_drop_1 = "NET_RAW"\n' > "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${LIB}/conf.sh'
     _upsert_conf_value '${CONF}' security cap_drop_1 CHOWN
   "
   assert_refusal 1 conf_write_declined "file=${CONF}" "target=security.cap_drop_1"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -284,15 +291,14 @@ _seed_subtree_without_bridge_dockerfile() {
 # it is refused before anything is written (base#1374).
 @test "conf_unknown_key: setup set on a misspelt key is refused, naming the key" {
   cp /source/dist/setup.toml "${CONF}"
-  cp "${CONF}" "${TEMP_DIR}/before.toml"
+  _snapshot_conf
   run --separate-stderr bash -c "
     export LOG_FORMAT=json
     source '${SETUP_SH}'
     main set deploy.gpu_cuont 1 --base-path '${TEMP_DIR}'
   "
   assert_refusal 2 conf_unknown_key "deploy.gpu_cuont"
-  run cmp "${TEMP_DIR}/before.toml" "${CONF}"
-  assert_success
+  _assert_conf_unchanged
 }
 
 # why: A table no reader knows would have its settings dropped while apply

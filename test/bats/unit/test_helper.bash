@@ -1120,21 +1120,19 @@ lint_group_hits() {
 # severity_text, severity_number, body. A body cannot carry a quote, so the
 # match cannot run into an attribute value that happens to spell `"body":`.
 
+# The prefix `_log_emit_json` writes, in that order, with the event id as
+# its one capture group.
+_LOG_EVENT_JSON_RE='^\{"timestamp":"[^"]*","severity_text":"[A-Z]+","severity_number":[0-9]+,"body":"([A-Za-z0-9_.-]+)"'
+
 # log_event_ids [<text>]
 #   Print the event id of every JSON log line in <text>, one per line, in
 #   the order they were logged. <text> defaults to `${stderr}` when
 #   `run --separate-stderr` set it, else to `${output}`.
 log_event_ids() {
-    local _text
-    if (( $# > 0 )); then
-        _text="${1}"
-    else
-        _text="${stderr-${output-}}"
-    fi
-    local _re='^\{"timestamp":"[^"]*","severity_text":"[A-Z]+","severity_number":[0-9]+,"body":"([A-Za-z0-9_.-]+)"'
+    local _text="${1-${stderr-${output-}}}"
     local _line
     while IFS= read -r _line; do
-        [[ "${_line}" =~ ${_re} ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+        [[ "${_line}" =~ ${_LOG_EVENT_JSON_RE} ]] && printf '%s\n' "${BASH_REMATCH[1]}"
     done <<< "${_text}"
     return 0
 }
@@ -1144,15 +1142,10 @@ log_event_ids() {
 #   whose event id is <id>; nothing when there is none.
 log_event_line() {
     local _id="${1:?BUG: log_event_line expects an event id}"
-    local _text
-    if (( $# > 1 )); then
-        _text="${2}"
-    else
-        _text="${stderr-${output-}}"
-    fi
+    local _text="${2-${stderr-${output-}}}"
     local _line
     while IFS= read -r _line; do
-        if [[ "$(log_event_ids "${_line}")" == "${_id}" ]]; then
+        if [[ "${_line}" =~ ${_LOG_EVENT_JSON_RE} && "${BASH_REMATCH[1]}" == "${_id}" ]]; then
             printf '%s\n' "${_line}"
             return 0
         fi
@@ -1166,11 +1159,7 @@ log_event_line() {
 assert_log_event() {
     local _id="${1:?BUG: assert_log_event expects an event id}"
     local _ids
-    if (( $# > 1 )); then
-        _ids="$(log_event_ids "${2}")"
-    else
-        _ids="$(log_event_ids)"
-    fi
+    _ids="$(log_event_ids "${2-${stderr-${output-}}}")"
     grep -qxF -- "${_id}" <<< "${_ids}" \
         || fail "expected log event '${_id}'; the events logged were: ${_ids:-<none>}"
 }
@@ -1212,7 +1201,7 @@ assert_refusal() {
         local _out_line
         while IFS= read -r _out_line; do
             [[ -z "${_out_line}" ]] && continue
-            [[ -n "$(log_event_ids "${_out_line}")" ]] \
+            [[ "${_out_line}" =~ ${_LOG_EVENT_JSON_RE} ]] \
                 || fail "stdout carries a line that is not a log event: ${_out_line}"
         done <<< "${output}"
     else
