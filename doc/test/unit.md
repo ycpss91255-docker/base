@@ -3804,6 +3804,30 @@ the bump rather than moving the coverage number by a plausible margin.
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
 
+### test/bats/unit/kcov_trace_volume_spec.bats (3)
+
+Under kcov every line bash runs is traced, values included. In a coverage
+shard (jobs=4) that trace reaches the job's stdout, so a test that builds a
+1 MiB value writes single lines of up to 1 MiB of it. CI run 40470315196
+(coverage 7/12) stopped about 64 KiB into such a line and stayed silent for
+60 minutes until it was cancelled. Locally, with the CI image and a stdout
+reader that stops on lines over 64 KiB, kcov, the four bats workers and the
+test's bash all blocked in pipe_write and the shard never finished; skipping
+that one test under COVERAGE let the same shard pass. The test still runs in
+plain bats (the bats-fragile job runs every file carrying the skip guard),
+so nothing goes unrun.
+
+The rule is mechanical: a @test body that builds a value with `head -c N`, N
+over 65536 (one Linux pipe buffer), carries the kcov skip guard `[
+"${COVERAGE:-0}" = 1 ] && skip`. The scan is one awk pass, so it costs
+nothing under kcov.
+
+| Test | Description |
+|------|-------------|
+| `kcov trace volume: an unguarded 1 MiB value is reported` | The scan must find the construct it forbids, or a clean tree proves nothing. |
+| `kcov trace volume: a guarded value and a 64 KiB value pass` | The guard, and a value that fits in one pipe buffer, are both allowed: neither floods the shard's stdout. |
+| `kcov trace volume: no test in the repo builds an unguarded value past 64 KiB` | The repo's own bats trees hold no unguarded large value. |
+
 ### test/bats/unit/lib_spec.bats (75)
 
 | Test | Description |
