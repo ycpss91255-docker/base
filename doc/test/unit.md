@@ -6259,7 +6259,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `[security] privileged = false writes PRIVILEGED=false to .env` | - |
 | `[environment] apply does NOT execute a command-substitution env value (#687)` | - |
 | `[environment] apply emits an injection-style env value on a single line (#687)` | - |
-| `[lifecycle] apply emits a valid restart policy and drops a malformed one (#687)` | a hand-written invalid policy (bypassing the set-path validator) must not reach compose.yaml as a bogus `restart: sometimes`. The fixture carries a deployable stage and first shows a valid policy IS emitted there; without that, a fixture with no deployable stage emits no `restart:` for any policy and the refutation below cannot fail. |
+| `[lifecycle] apply emits a valid restart policy and drops a malformed one (#687)` | a hand-written invalid policy (bypassing the set-path validator) must not reach compose.yaml as a bogus `restart: sometimes`. The fixture carries a deployable stage and first shows a valid policy IS emitted there; without that, a fixture with no deployable stage emits no `restart:` for any policy and the refutation below cannot fail. Each apply's status is asserted before the grep that replaces it, so the malformed case proves apply succeeds with the policy omitted. |
 | `[environment] apply carries an env value containing a colon-space into .env (#698)` | - |
 | `[environment] apply carries an env value with a leading flow indicator into .env (#698)` | - |
 | `[environment] apply carries an env value with an inline ' #' marker into .env (#698)` | - |

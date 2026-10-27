@@ -3279,7 +3279,9 @@ EOF
 # must not reach compose.yaml as a bogus `restart: sometimes`. The fixture
 # carries a deployable stage and first shows a valid policy IS emitted
 # there; without that, a fixture with no deployable stage emits no
-# `restart:` for any policy and the refutation below cannot fail.
+# `restart:` for any policy and the refutation below cannot fail. Each
+# apply's status is asserted before the grep that replaces it, so the
+# malformed case proves apply succeeds with the policy omitted.
 @test "[lifecycle] apply emits a valid restart policy and drops a malformed one (#687)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
