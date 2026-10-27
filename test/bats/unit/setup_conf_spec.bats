@@ -353,17 +353,34 @@ EOF
   assert_equal "${_v[0]}" "auto"
 }
 
-@test "_load_setup_conf replace strategy: per-repo section fully replaces template section" {
-  # Template [gpu] has mode+count+capabilities; per-repo only sets mode=off
+# why: the template is the chain's lowest layer, and ADR-00000037's
+# key-level table merge applies to it too: a repo that moves one key of a
+# template table inherits the template's other keys rather than blanking
+# them. The template is a fixture so the inherited keys are this test's own
+# and not whatever dist/setup.toml happens to ship. Under a section-replace
+# merge only `mode` would come back, and the two inherited asserts fail.
+@test "_load_setup_conf merges a per-repo table key by key over the template's (ADR-00000037)" {
+  mkdir -p "${TEMP_DIR}/tpl/script/docker/wrapper"
+  cat > "${TEMP_DIR}/tpl/setup.toml" <<'EOF'
+[gpu]
+mode = "auto"
+count = "all"
+capabilities = "gpu compute"
+EOF
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
 mode = "off"
 EOF
+  local _SETUP_SCRIPT_DIR="${TEMP_DIR}/tpl/script/docker/wrapper"
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
-  # Replace strategy: only "mode" -- no count, no capabilities inherited
-  assert_equal "${#_k[@]}" "1"
-  assert_equal "${_k[0]}" "mode"
+  local _got=""
+  _get_conf_value _k _v mode "<absent>" _got
+  assert_equal "${_got}" "off"
+  _get_conf_value _k _v count "<absent>" _got
+  assert_equal "${_got}" "all"
+  _get_conf_value _k _v capabilities "<absent>" _got
+  assert_equal "${_got}" "gpu compute"
 }
 
 # ════════════════════════════════════════════════════════════════════
