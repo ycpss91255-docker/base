@@ -232,3 +232,21 @@ EOF
   assert_refusal 1 conf_toml_merge_failed "${CONF}"
   _assert_nothing_generated
 }
+
+# why: A FIFO where setup.toml should be is there too, and unlike a
+# directory it does not fail on open: open(2) on a FIFO blocks until a
+# writer arrives, so an `-e` gate that hands it to the bridge hangs apply
+# forever instead of refusing (review round 3 of base#1400). The bound
+# makes the hang a failure instead of a wedged suite.
+@test "a FIFO in place of setup.toml is refused within a bound, with its event id and path" {
+  mkfifo "${CONF}"
+  run --separate-stderr timeout --kill-after=5 20 bash -c "
+    export LOG_FORMAT=json
+    source '${SETUP_SH}'
+    main apply --base-path '${REPO}'
+  "
+  (( status != 124 && status != 137 )) \
+    || fail "apply on a FIFO layer was killed at the 20 s bound (status ${status}): it blocked opening the FIFO"
+  assert_refusal 1 conf_toml_merge_failed "${CONF}"
+  _assert_nothing_generated
+}

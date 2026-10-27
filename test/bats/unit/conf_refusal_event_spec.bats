@@ -269,6 +269,23 @@ _assert_conf_unchanged() {
   assert_refusal 1 merge_no_files
 }
 
+# why: A layer that is there but is not a regular file (a FIFO, a device,
+# a directory) is neither absent nor readable as TOML. A FIFO is the sharp
+# case: open(2) blocks until a writer arrives, so the shim refuses it by
+# name before the bridge ever opens it (review round 3 of base#1400). The
+# bound turns a hang into a failure.
+@test "merge_layer_not_regular: toml_bridge_merge refuses a FIFO layer without opening it" {
+  mkfifo "${TEMP_DIR}/setup.toml"
+  run --separate-stderr timeout --kill-after=5 20 bash -c "
+    export LOG_FORMAT=json
+    source '${LIB}/toml_bridge.sh'
+    toml_bridge_merge --kv '${TEMP_DIR}/setup.toml'
+  "
+  (( status != 124 && status != 137 )) \
+    || fail "toml_bridge_merge on a FIFO was killed at the 20 s bound (status ${status})"
+  assert_refusal 1 merge_layer_not_regular "${TEMP_DIR}/setup.toml"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # setup_conf.sh / setup_cmd.sh / compose_emit.sh
 # ════════════════════════════════════════════════════════════════════
