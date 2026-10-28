@@ -14,7 +14,9 @@ setup() {
   # sha256sum + cut back the name derivations (_compute_test_tools_hash /
   # _compute_compose_project_name); without them a PATH-confined test would
   # exercise their fail-loud guard instead of the behaviour under test.
-  for _cmd in grep date cat printf sha256sum cut; do
+  # timeout wraps the compose run of the suite (base#1413), so a test that
+  # reaches that call needs the real one beside the mocked docker.
+  for _cmd in grep date cat printf sha256sum cut timeout; do
     local _path
     _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
   done
@@ -3009,7 +3011,7 @@ _kcov_slice_mock() {
     # bash -c string, where one ends the program.)
     COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -3653,7 +3655,7 @@ AWK
     # dispatch before the coverage branch is read.
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
       COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
-      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= \
+      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= \
       main --ci
   '
   assert_success

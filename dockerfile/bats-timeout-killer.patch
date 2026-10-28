@@ -1,0 +1,23 @@
+bats-timeout-killer.patch -- bats-core 1.13.0 keeps the BATS_TEST_TIMEOUT
+watchdog alive after a FAILING test (bats-core/bats-core issue 1206, open;
+v1.14.0 still carries the same `declare -r` line). bats_perform_test records the watchdog
+pid with `declare -r`, which is function-local; on the failure path the
+EXIT trap reads it after that scope is gone, finds it unset, and kills
+nothing. The watchdog then sleeps the whole timeout, and the bats run
+waits for it before it ends (base#1413). `readonly` makes the pid global,
+which is the change both open upstream fixes (bats-core PRs 1226 and
+1270) make. Only the diff below is applied (`git apply` skips this
+header). Drop the patch when a bats release carries the fix.
+
+diff --git a/libexec/bats-core/bats-exec-test b/libexec/bats-core/bats-exec-test
+--- a/libexec/bats-core/bats-exec-test
++++ b/libexec/bats-core/bats-exec-test
+@@ -335,7 +335,7 @@
+ 
+   if [[ -n "${BATS_TEST_TIMEOUT:-}" ]]; then
+     bats_start_timeout_countdown "$BATS_TEST_TIMEOUT"
+-    declare -r BATS_killer_pid=$!
++    readonly BATS_killer_pid=$!
+   fi
+   BATS_TEST_COMPLETED=
+   BATS_TEST_SKIPPED=${BATS_TEST_SKIPPED-}

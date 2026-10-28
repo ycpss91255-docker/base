@@ -1201,6 +1201,12 @@ jobs:
           echo "shard weights: $(grep -c . test/bats/.shard-weights) spec timings from compute-shards"
 
       - name: Run kcov coverage shard ${{ matrix.shard }}
+        # A step bound below the job's 60, so a hang the per-test bound
+        # misses (a stuck kcov merge, a wedged container) fails THIS step
+        # with its log, where the job bound cancels the job and names no
+        # step (base#1413). The slowest shard step across the last twelve
+        # successful self-test runs took 474 s; 15 min is about twice that.
+        timeout-minutes: 15
         run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}
 
       - name: Upload shard coverage artifact

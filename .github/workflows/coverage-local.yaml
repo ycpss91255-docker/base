@@ -92,6 +92,11 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Run the full suite as parallel kcov processes
+        # A step bound below the job's 90, so a hang fails THIS step with
+        # its log before the job bound cancels the job and names no step
+        # (base#1413). About twice the 34-minute control run measured
+        # above, plus room for the image build this step may do first.
+        timeout-minutes: 75
         env:
           JOBS: ${{ inputs.jobs }}
         # The mode, through the same entry an operator uses. No

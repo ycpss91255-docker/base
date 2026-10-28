@@ -370,5 +370,13 @@ COPY --from=just-runner /usr/local/bin/just /usr/local/bin/just
 # The mode is restored below because a context COPY preserves the
 # tracked 0644.
 COPY dockerfile/toml_bridge.py /usr/local/bin/toml-bridge
-RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats && \
+# bats is 1.13.0 PLUS ONE PATCH (dockerfile/bats-timeout-killer.patch):
+# with BATS_TEST_TIMEOUT set -- the driver sets it on every run
+# (base#1413) -- a failing test leaves its watchdog alive, and the run
+# waits out the whole timeout before it ends. The patch file says why.
+# Applied here rather than in the bats/bats stage, which has no git.
+COPY dockerfile/bats-timeout-killer.patch /tmp/bats-timeout-killer.patch
+RUN git -C /opt/bats apply /tmp/bats-timeout-killer.patch && \
+    rm /tmp/bats-timeout-killer.patch && \
+    ln -s /opt/bats/bin/bats /usr/local/bin/bats && \
     chmod +x /usr/local/bin/toml-bridge

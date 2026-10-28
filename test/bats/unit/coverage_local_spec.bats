@@ -374,7 +374,7 @@ _driver_prelude() {
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats \
       COVERAGE_LOCAL_JOBS=4 COVERAGE_SHARD= BATS_ONLY=1 \
       BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 BATS_FILE= \
-      BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= main --ci
   '
   assert_success
   assert_output --partial "PATH_RUNNER test/bats/unit/ci_spec.bats"
@@ -392,7 +392,7 @@ _driver_prelude() {
     _fix_permissions() { :; }
     COVERAGE=1 COVERAGE_LOCAL_JOBS=4 COVERAGE_PATH= COVERAGE_SHARD= \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= main --ci
   '
   assert_success
   assert_output --partial "PARALLEL_RUNNER 4"
@@ -417,7 +417,7 @@ _driver_prelude() {
 # forwarding lines rather than listed here, so a fourth selector arrives
 # with this demand already made of every fixture.
 # EVERY selector it forwards from the ambient environment, that is -- all
-# eleven, not the three whose names begin `COVERAGE_`. The prefix was the
+# twelve, not the three whose names begin `COVERAGE_`. The prefix was the
 # family the defect was found in, and a roster shaped like the cause of
 # one instance is the curation this rule was written to replace: it left
 # out `BATS_FILTER`, which the coverage branch itself reads through
@@ -447,7 +447,7 @@ _driver_prelude() {
     | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-[^}]*}".*/\1/p' \
     | sort -u)"
   _roster="$(tr '\n' ' ' <<< "${_names}")"
-  # Eleven today; the assertion is that there is a roster at all, not how
+  # Twelve today; the assertion is that there is a roster at all, not how
   # long it is -- and that BOTH families are in it, since a derivation that
   # silently went back to reading one prefix would still pass a bare
   # emptiness check.
