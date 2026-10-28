@@ -27,8 +27,9 @@
 #                       the plan carries that job's local command.
 #   plan  -> run        the mirror executes exactly the plan, in order, and
 #                       stops at the first red command.
-#   plan  -> report     the coverage floor the plan runs reads the shard
-#                       reports the coverage matrix actually writes.
+#   plan  -> report     the coverage verdict the plan runs reads the shard
+#                       reports the coverage matrix actually writes, and
+#                       is the verdict CI's coverage-gate job runs.
 #
 # Mode is derived on both sides, never declared: text is `kcov` when it
 # invokes script/test/test.sh in a mode that instruments (`--coverage`,
@@ -97,16 +98,19 @@ _attested_cmd() {
   awk -F'\t' -v j="${2}" '$1 == "attested" && $2 == j {print $3; exit}' <<<"${1}"
 }
 
-# _floor_cmd <table> -- the `&&`-joined part of the coverage-gate command
-# that runs the floor (coverage_gate.sh); empty when there is none.
-_floor_cmd() {
-  local _rest _part
-  _rest="$(_attested_cmd "${1}" coverage-gate)"
+# _parts <cmd> -- the `&&`-joined parts of <cmd>, one per line.
+_parts() {
+  local _rest="${1}" _part
   while [[ -n "${_rest}" ]]; do
     _part="${_rest%% && *}"
     [[ "${_part}" == "${_rest}" ]] && _rest="" || _rest="${_rest#* && }"
-    [[ "${_part}" == *coverage_gate.sh* ]] && { printf '%s\n' "${_part}"; return 0; }
+    printf '%s\n' "${_part}"
   done
+}
+
+# _gate_cmd <table> -- the mirror's attested coverage-gate command.
+_gate_cmd() {
+  _attested_cmd "${1}" coverage-gate
 }
 
 # _rollup_needs -- ci-rollup's needs, one per line.
@@ -671,14 +675,69 @@ $(cat "${SCRATCH}/ran")"
   assert_output --partial 'NOT RUN: just test acceptance (CI runs it on an amd64 runner; the docker daemon here is unknown)'
 }
 
+# why: The mirror ran coverage-gate as three steps of its own -- a floor
+# over the shard trees, the timings merge and a free-standing union check --
+# while CI's coverage-gate job reaches one verdict through
+# `coverage_gate.sh --verdict`. Two step lists are two verdicts that drift:
+# a check added to the verdict reached CI and never the mirror (base#1411).
+# So the leg must END with that verdict, run it exactly once, run no floor
+# or union check beside it, and read the manifest its own merge wrote --
+# the shape the hosted job has.
+@test "pre-PR mirror: the coverage-gate leg ends with the coverage verdict CI runs (base#1411)" {
+  local _table _cmd _last _merged _hosted _hosted_merged _verdict_manifest
+  _table="$(_mirror_table)" || return 1
+  _cmd="$(_gate_cmd "${_table}")"
+  [[ -n "${_cmd}" ]] || fail "the mirror attests coverage-gate by no command"
+  _last="$(_parts "${_cmd}" | tail -n1)"
+  [[ "${_last}" =~ ^bash\ \./script/test/drivers/coverage_gate\.sh\ --verdict\  ]] \
+    || fail "the mirror's coverage-gate leg does not end with coverage_gate.sh --verdict: ${_cmd}"
+  [[ "$(grep -o 'coverage_gate\.sh --verdict' <<<"${_cmd}" | wc -l)" -eq 1 ]] \
+    || fail "the mirror's coverage-gate leg does not run the verdict exactly once: ${_cmd}"
+  run grep -E -- '--coverage-union-check|coverage_gate\.sh --run-dirs' <<<"${_cmd}"
+  assert_failure
+  run grep -Ev -- 'coverage_gate\.sh --(verdict|merge-timings) ' <(_parts "${_cmd}")
+  assert_failure
+
+  # The verdict's manifest is the file this leg's own merge writes.
+  _merged="$(sed -nE 's/.*coverage_gate\.sh --merge-timings ([^ ]+) .*/\1/p' <<<"${_cmd}")"
+  _verdict_manifest="$(sed -nE 's/.*coverage_gate\.sh --verdict ([^ ]+) .*/\1/p' <<<"${_last}")"
+  [[ -n "${_merged}" && "${_verdict_manifest}" == "${_merged}" ]] \
+    || fail "the mirror's verdict reads [${_verdict_manifest}], not its merged timings [${_merged}]"
+
+  # CI's coverage-gate job reaches the same entry point the same way.
+  _hosted="$(yaml_job_lines "${WF}" coverage-gate)"
+  grep -q 'coverage_gate\.sh --verdict ' <<<"${_hosted}" \
+    || fail "CI's coverage-gate job runs no coverage_gate.sh --verdict"
+  _hosted_merged="$(grep -A1 -- '--merge-timings' <<<"${_hosted}" | tail -n1 | awk '{print $1}')"
+  grep -q "^ *manifest=${_hosted_merged}\$" <<<"${_hosted}" \
+    || fail "CI's verdict does not read its merged timings [${_hosted_merged}]"
+}
+
+# _whole_timings <file> [drop] -- a timings file naming every spec a full
+# coverage run covers, as a shard's coverage/timings.tsv names the specs it
+# ran. With [drop], the first spec is left out and its path printed.
+_whole_timings() {
+  run bash -c '
+    source /source/script/test/test.sh
+    _inv="$(_coverage_spec_inventory "${REPO_ROOT}")"
+    if [[ -n "${2}" ]]; then
+      sed -n "1p" <<< "${_inv}"
+      _inv="$(sed "1d" <<< "${_inv}")"
+    fi
+    mkdir -p "$(dirname "${1}")"
+    sed "s/^/1 /" <<< "${_inv}" > "${1}"
+  ' _ "${1}" "${2:-}"
+  assert_success
+}
+
 # why: The floor read coverage/cobertura.xml, which kcov never writes, so a
 # passing coverage run went red here and the system and acceptance legs after
-# it never ran.
-@test "pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)" {
-  local _table _floor _n
+# it never ran. The verdict reads each shard's report by the one rule the
+# hosted job reads them by.
+@test "pre-PR mirror: the coverage verdict reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)" {
+  local _table _cmd _n
   _table="$(_mirror_table)" || return 1
-  _floor="$(_floor_cmd "${_table}")"
-  [[ -n "${_floor}" ]] || fail "the mirror's coverage-gate command runs no coverage_gate.sh"
+  _cmd="$(_gate_cmd "${_table}")"
   ln -s /source/script "${SCRATCH}/script"
   # The layout kcov leaves when more than one command reported into a
   # shard's coverage/: a per-command report and the merged one. Only the
@@ -687,40 +746,46 @@ $(cat "${SCRATCH}/ran")"
     _make_report "${SCRATCH}/coverage-shards/${_n}/kcov-merged/cobertura.xml" 90
     _make_report "${SCRATCH}/coverage-shards/${_n}/bats.0123abcd/cobertura.xml" 10
   done
-  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
+  _whole_timings "${SCRATCH}/coverage-shards/1/timings.tsv"
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_cmd}"
   assert_success
   # Every shard counts: a second shard whose own file sits below the floor
   # pulls the merged rate red (the merge is a per-line union, so the file
   # has to be one the first shard did not cover).
   _make_report "${SCRATCH}/coverage-shards/2/kcov-merged/cobertura.xml" 10 other.sh
-  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_cmd}"
   assert_failure
 }
 
 # why: A single kcov command leaves only its own <command>.<hash> report and
-# no kcov-merged one; the floor must read that layout too.
-@test "pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)" {
-  local _table _floor
+# no kcov-merged one; the verdict must read that layout too.
+@test "pre-PR mirror: the coverage verdict reads a single kcov run's own report (base#1409)" {
+  local _table _cmd
   _table="$(_mirror_table)" || return 1
-  _floor="$(_floor_cmd "${_table}")"
-  [[ -n "${_floor}" ]] || fail "the mirror's coverage-gate command runs no coverage_gate.sh"
+  _cmd="$(_gate_cmd "${_table}")"
   ln -s /source/script "${SCRATCH}/script"
   _make_report "${SCRATCH}/coverage-shards/1/bats.0123abcd/cobertura.xml" 90
-  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
+  _whole_timings "${SCRATCH}/coverage-shards/1/timings.tsv"
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_cmd}"
   assert_success
 }
 
-# why: Report selection written once in the workflow and once in the mirror
-# is two rules that can disagree; one command run by both cannot.
-@test "pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)" {
-  local _table _floor
+# why: The union half is the one the floor cannot see -- a spec no shard
+# ran moves no ratio. Through the mirror's own leg, with the rate well
+# above the floor, a spec missing from every shard's timings must be red
+# and named, as CI's verdict names it (base#1411).
+@test "pre-PR mirror: the coverage verdict fails, naming the spec, when no shard ran it (base#1411)" {
+  local _table _cmd _dropped
   _table="$(_mirror_table)" || return 1
-  _floor="$(_attested_cmd "${_table}" coverage-gate)"
-  [[ "${_floor}" == *'coverage_gate.sh --run-dirs '* ]] \
-      || fail "the mirror's coverage-gate command does not use coverage_gate.sh --run-dirs: ${_floor}"
-  run yaml_job_lines "${WF}" coverage-gate
-  assert_success
-  assert_output --regexp 'run: bash \./script/test/drivers/coverage_gate\.sh --run-dirs '
+  _cmd="$(_gate_cmd "${_table}")"
+  ln -s /source/script "${SCRATCH}/script"
+  _make_report "${SCRATCH}/coverage-shards/1/kcov-merged/cobertura.xml" 90
+  _whole_timings "${SCRATCH}/coverage-shards/1/timings.tsv" drop
+  _dropped="${output}"
+  [[ -n "${_dropped}" ]]
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_cmd}"
+  assert_failure
+  assert_output --partial "${_dropped}"
 }
 
 # _make_report <path> <percent> [file] -- a one-file cobertura report at

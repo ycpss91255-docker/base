@@ -4647,7 +4647,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (27)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (28)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4670,8 +4670,9 @@ table -> workflow every ci-rollup need is attested or excluded, and an
 attested job's local command runs in CI's mode. table -> plan on every diff
 where CI's own `if:` gate runs a job, the plan carries that job's local
 command. plan -> run the mirror executes exactly the plan, in order, and
-stops at the first red command. plan -> report the coverage floor the plan
-runs reads the shard reports the coverage matrix actually writes.
+stops at the first red command. plan -> report the coverage verdict the plan
+runs reads the shard reports the coverage matrix actually writes, and is the
+verdict CI's coverage-gate job runs.
 
 Mode is derived on both sides, never declared: text is `kcov` when it
 invokes script/test/test.sh in a mode that instruments (`--coverage`,
@@ -4705,9 +4706,10 @@ local mode with it.
 | `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
 | `pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)` | CI runs `system` and amd64 `acceptance` on amd64 runners, and both build and run images for the daemon's own architecture. On an arm64 daemon `just test acceptance` measured arm64 and the mirror still reported the amd64 leg green (base#1409 review round 3). |
 | `pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)` | "cannot tell the daemon's arch" must not read as amd64. |
-| `pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
-| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
-| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
+| `pre-PR mirror: the coverage-gate leg ends with the coverage verdict CI runs (base#1411)` | The mirror ran coverage-gate as three steps of its own -- a floor over the shard trees, the timings merge and a free-standing union check -- while CI's coverage-gate job reaches one verdict through `coverage_gate.sh --verdict`. Two step lists are two verdicts that drift: a check added to the verdict reached CI and never the mirror (base#1411). So the leg must END with that verdict, run it exactly once, run no floor or union check beside it, and read the manifest its own merge wrote -- the shape the hosted job has. |
+| `pre-PR mirror: the coverage verdict reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. The verdict reads each shard's report by the one rule the hosted job reads them by. |
+| `pre-PR mirror: the coverage verdict reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the verdict must read that layout too. |
+| `pre-PR mirror: the coverage verdict fails, naming the spec, when no shard ran it (base#1411)` | The union half is the one the floor cannot see -- a spec no shard ran moves no ratio. Through the mirror's own leg, with the rate well above the floor, a spec missing from every shard's timings must be red and named, as CI's verdict names it (base#1411). |
 | `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: checks the just it runs against the pin in its own shell (base#1409)` | Moving every acceptance step into script/ci/acceptance.sh took the job's only `just` invocation out of its `run:` shells, which is all the tool provenance lint reads; the lint then saw no job reach any pinned tool and failed its demand floor. The job runs `just`, so its own shell asks that binary for its version and holds it to the pin. |
