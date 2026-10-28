@@ -2872,7 +2872,7 @@ SH
     # bash -c string, where one ends the program.)
     COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -3512,7 +3512,7 @@ AWK
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
       COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
       BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= \
-      main --ci
+      LINT_GROUP= main --ci
   '
   assert_success
   refute_output --partial "REACHED-FULL-RUNNER"
@@ -3644,6 +3644,62 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: base#1412. `--group` narrows `--lint` the way `--hadolint` does;
+# standalone it is a typo, and with a tool it asks for two narrowings of
+# one run. Both refuse before compose, so neither costs an image or runs
+# a lint the caller did not ask for.
+@test "main: --group without --lint, or beside a tool, dies before compose (base#1412)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --group 1/4
+  '
+  assert_failure
+  assert_output --partial "narrows --lint"
+  refute_output --partial "docker should not be called"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --lint --group 1/4 --shellcheck
+  '
+  assert_failure
+  assert_output --partial "two narrowings of --lint"
+  refute_output --partial "docker should not be called"
+}
+
+# why: base#1412. A malformed group spec is refused on the host, before
+# compose: it is a typo, and a typo should cost no image build.
+@test "main: --lint --group refuses a malformed spec before compose (base#1412)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --lint --group 9/4
+  '
+  assert_failure
+  assert_output --partial "lint group '9/4' is outside its own total"
+  refute_output --partial "docker should not be called"
+}
+
+# why: base#1412. LINT_GROUP is how the in-image lint-static job selects
+# its group; it has to reach `_run_lint_group`, whose refusal of an
+# out-of-range spec is the observable proof that the group branch, not the
+# whole-phase or single-tool branch, took the run.
+@test "main --ci: LINT_GROUP routes the lint-only run to one group (base#1412)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    LINT_ONLY=1 LINT_TOOL= LINT_GROUP=9/4 main --ci
+  '
+  assert_failure
+  assert_output --partial "lint group '9/4' is outside its own total"
+}
+
 # why: #692 LINT_TOOL validation
 @test "main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)" {
   run bash -c '
@@ -3698,12 +3754,9 @@ AWK
 # why: #864 host-direct primitive so a CI job can run the gate without
 # compose
 @test "main --doc-counts-only: runs the drift gate on the host, no compose (#864)" {
-  # CI-reachability guard. The lint phase runs in `just test`, but no CI job
-  # runs it: the GHA lint jobs are shellcheck (--shellcheck-only) and
-  # hadolint (--lint --hadolint), and every bats job passes BATS_ONLY=1,
-  # which skips the phase. So the gate needs a host-direct primitive the
-  # plain ubuntu-latest runner can call -- the same shape as
-  # --shellcheck-only. Docker must not be touched on this path.
+  # The host-direct arm is kept to time one driver; CI runs the gate with
+  # --lint --doc-counts inside the test-tools image instead (base#1412).
+  # Docker must not be touched on this path.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 

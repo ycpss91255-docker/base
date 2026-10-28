@@ -313,12 +313,12 @@
 # #615 + #677 + #710)
 #
 # - `shellcheck` job declared + `needs: [actionlint, classify]` + `if:
-# code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain
-# ubuntu-latest with no buildx (#376)
+# code_changed == 'true'` + runs `test.sh --lint --shellcheck` inside the
+# test-tools image (#376, base#1412)
 #
 # - `doc-counts` job declared + `needs: [actionlint, classify]` + runs
-# `test.sh --doc-counts-only` on plain ubuntu-latest with no buildx +
-# carries NO `code_changed` gate + is hard-mandatory in `ci-rollup` (#864)
+# `test.sh --lint --doc-counts` inside the test-tools image + carries NO
+# `code_changed` gate + is hard-mandatory in `ci-rollup` (#864, base#1412)
 #
 # - `hadolint` job declared + `needs: [actionlint, classify]` + `if:
 # code_changed == 'true'` + lints both template-owned Dockerfiles via
@@ -1136,10 +1136,20 @@ _builder_setups_out_of_step_with_their_consumer() {
 
 @test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {
   # Every job that rebuilds test-tools keys off the single classify output,
-  # not its own shallow-checkout diff. One env wiring per image job (6).
-  run code_grep -c 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
+  # not its own shallow-checkout diff. One env wiring per image job: the
+  # count is derived from the obtain calls rather than written down, so
+  # a job that joins the image (the lint jobs did, base#1412) is held to
+  # the same wiring with nothing here to update.
+  run code_grep -cF 'run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"' "${WF}"
   assert_success
-  assert_output '6'
+  local _image_jobs="${output}"
+  # Non-vacuity: the six bats/coverage/hadolint consumers predate the lint
+  # jobs joining them.
+  [ "${_image_jobs}" -ge 6 ] \
+    || fail "only ${_image_jobs} job(s) obtain the test-tools image; the obtain call did not match"
+  run code_grep -cF 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
+  assert_success
+  assert_output "${_image_jobs}"
 }
 
 # ── self-maintaining shard-weights cache (time-balanced partition) ──
@@ -1784,51 +1794,39 @@ YAML
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)" {
-  # Goal: ~30s feedback on a shellcheck regression, which is why the job
-  # takes neither buildx nor the test-tools image -- it keeps the cold
-  # start near zero. It no longer takes the runner's pre-installed
-  # binary either (base#1080): the two tests below pin how it obtains
-  # the declared one instead, for one tarball's worth of time.
+@test "self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)" {
+  # The job exists so a shellcheck regression surfaces without waiting for
+  # the bats suite. It runs the driver through the same in-image `--lint`
+  # path the local gate takes (base#1412); the parity specs further down
+  # pin the obtain / build / reclaim shape every lint job shares.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'runs-on: ubuntu-latest'
-  assert_output --partial './script/test/test.sh --shellcheck-only'
-  # No buildx setup / no docker pull / no compose run in this job.
-  refute_output --partial 'docker/setup-buildx-action'
-  refute_output --partial 'docker pull'
+  assert_output --partial './script/test/test.sh --lint --shellcheck'
 }
 
-# why: base#1080. The job used to run whatever `ubuntu-latest` shipped
-# pre-installed, so the local gate -- which runs v0.11.0 out of the
-# test-tools image -- could not predict this required check in either
-# direction, and which of the two binaries was stricter changed with
-# GitHub's runner-image release schedule rather than with a commit here.
-@test "self-test.yaml: shellcheck job installs the pinned ShellCheck rather than the runner's (#1080)" {
+# why: base#1080 made the runner install the pinned tarball so CI stopped
+# running whatever ubuntu-latest shipped. base#1412 moved the job into the
+# test-tools image, which carries the pin; a tarball install left behind
+# would be a second, unused route to the binary, and a runner-side
+# shellcheck is exactly what the image path exists to retire.
+@test "self-test.yaml: shellcheck job installs no shellcheck on the runner (base#1412)" {
   run yaml_job_lines "${WF}" shellcheck
   assert_success
-  assert_output --partial 'koalaman/shellcheck/releases/download'
+  # Non-vacuity: an absent job yields an empty block.
+  assert_output --partial './script/test/test.sh --lint --shellcheck'
+  refute_output --partial 'koalaman/shellcheck/releases/download'
+  refute_output --partial 'install -m 0755'
 }
 
-# why: One declaration, not a second copy of the number. The version comes
-# out of dockerfile/Dockerfile.test-tools through the same accessor the
-# release smoke step reads, so a bump moves both with nothing to remember.
-@test "self-test.yaml: shellcheck job reads the version from the declaration, it does not restate it (#1080)" {
+# why: One declaration, not a second copy of the number. The version lives
+# in dockerfile/Dockerfile.test-tools and reaches this job through the
+# image, so a version literal in the job would be a second place to forget.
+@test "self-test.yaml: shellcheck job does not restate a tool version (#1080)" {
   run yaml_job_lines "${WF}" shellcheck
   assert_success
-  assert_output --partial 'script/ci/test-tools-pins.sh'
-  # No version literal anywhere in the job: a literal that agreed with the
-  # Dockerfile today is a second place to forget tomorrow.
+  assert_output --partial './script/test/test.sh --lint --shellcheck'
   refute_output --regexp 'v?[0-9]+\.[0-9]+\.[0-9]+'
-}
-
-# why: Installing a tarball proves a download happened, not that the
-# binary on PATH is the pinned one -- a pre-installed shellcheck earlier
-# in PATH would keep the job green while nothing changed.
-@test "self-test.yaml: shellcheck job asserts the installed binary IS the pin (#1080)" {
-  run yaml_job_lines "${WF}" shellcheck
-  assert_success
-  assert_output --partial 'check SHELLCHECK_VERSION'
 }
 
 @test "self-test.yaml: declares doc-counts job (#864)" {
@@ -1836,18 +1834,16 @@ YAML
   assert_success
 }
 
-@test "self-test.yaml: doc-counts job runs test.sh --doc-counts-only on plain ubuntu-latest (#864)" {
+@test "self-test.yaml: doc-counts job runs test.sh --lint --doc-counts inside the test-tools image (#864, base#1412)" {
   # The generated doc/test catalogue has a gate, and it lives in the
   # `just test` lint phase -- which NO CI job runs: the lint jobs narrow to
-  # one tool and every bats job sets BATS_ONLY=1. This job is the CI half.
-  # Pure bash + diff, so no buildx / test-tools image, same cold-start cost
-  # as the shellcheck job.
+  # one tool and every bats job sets BATS_ONLY=1. This job is the CI half,
+  # and it runs the driver in the image the local gate uses (base#1412).
   run yaml_job_lines "${WF}" doc-counts
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial 'runs-on: ubuntu-latest'
-  assert_output --partial './script/test/test.sh --doc-counts-only'
-  refute_output --partial 'docker/setup-buildx-action'
+  assert_output --partial './script/test/test.sh --lint --doc-counts'
 }
 
 @test "self-test.yaml: doc-counts carries NO code_changed gate (#864)" {
@@ -1859,7 +1855,7 @@ YAML
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
-  assert_output --partial './script/test/test.sh --doc-counts-only'
+  assert_output --partial './script/test/test.sh --lint --doc-counts'
   # The gate form its sibling lint jobs use. Matching on that rather than
   # the bare word keeps the job's own comment (which explains WHY it is
   # ungated, and so names the gate) from satisfying the refutation.
@@ -1900,7 +1896,7 @@ YAML
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
-  assert_output --partial './script/test/test.sh --lint-group'
+  assert_output --partial './script/test/test.sh --lint --group'
   refute_output --partial 'if: needs.classify.outputs'
 }
 
@@ -2004,18 +2000,15 @@ YAML
 # ~twenty org-wide concurrent slots in the same second the coverage shards
 # -- the run's critical path -- asked for theirs. One job per GROUP is the
 # trade, and it is only a trade if the job still runs the same drivers the
-# local phase runs, host-direct on a plain runner, with one failing group
-# not cancelling its siblings.
+# local phase runs, in the same test-tools image (base#1412), with one
+# failing group not cancelling its siblings.
 @test "self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)" {
   run yaml_job_lines "${WF}" lint-static
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial 'fail-fast: false'
-  assert_output --partial './script/test/test.sh --lint-group'
-  # Still a plain runner running the same drivers: no buildx, no image.
-  refute_output --partial 'docker/setup-buildx-action'
-  refute_output --partial 'docker pull'
+  assert_output --partial './script/test/test.sh --lint --group'
 }
 
 # why: The anti-roster assertion, stated over the workflow rather than

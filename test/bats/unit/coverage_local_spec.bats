@@ -374,7 +374,7 @@ _driver_prelude() {
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats \
       COVERAGE_LOCAL_JOBS=4 COVERAGE_SHARD= BATS_ONLY=1 \
       BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 BATS_FILE= \
-      BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= main --ci
   '
   assert_success
   assert_output --partial "PATH_RUNNER test/bats/unit/ci_spec.bats"
@@ -392,7 +392,7 @@ _driver_prelude() {
     _fix_permissions() { :; }
     COVERAGE=1 COVERAGE_LOCAL_JOBS=4 COVERAGE_PATH= COVERAGE_SHARD= \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= main --ci
   '
   assert_success
   assert_output --partial "PARALLEL_RUNNER 4"

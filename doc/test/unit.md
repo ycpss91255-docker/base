@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (183)
+### test/bats/unit/ci_spec.bats (186)
 
 | Test | Description |
 |------|-------------|
@@ -1306,6 +1306,9 @@ between them can be asserted at all.
 | `main --bats-path + --coverage stays rejected: the fast loop is still kcov-free (#887)` | #523's refusal is intact; the combination is --coverage-path |
 | `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
 | `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
+| `main: --group without --lint, or beside a tool, dies before compose (base#1412)` | base#1412. `--group` narrows `--lint` the way `--hadolint` does; standalone it is a typo, and with a tool it asks for two narrowings of one run. Both refuse before compose, so neither costs an image or runs a lint the caller did not ask for. |
+| `main: --lint --group refuses a malformed spec before compose (base#1412)` | base#1412. A malformed group spec is refused on the host, before compose: it is a typo, and a typo should cost no image build. |
+| `main --ci: LINT_GROUP routes the lint-only run to one group (base#1412)` | base#1412. LINT_GROUP is how the in-image lint-static job selects its group; it has to reach `_run_lint_group`, whose refusal of an out-of-range spec is the observable proof that the group branch, not the whole-phase or single-tool branch, took the run. |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
 | `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
@@ -5695,7 +5698,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (129)
+### test/bats/unit/self_test_yaml_spec.bats (130)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5980,12 +5983,12 @@ integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 + #677
 #677 + #710)
 
 - `shellcheck` job declared + `needs: [actionlint, classify]` + `if:
-code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain
-ubuntu-latest with no buildx (#376)
+code_changed == 'true'` + runs `test.sh --lint --shellcheck` inside the
+test-tools image (#376, base#1412)
 
 - `doc-counts` job declared + `needs: [actionlint, classify]` + runs
-`test.sh --doc-counts-only` on plain ubuntu-latest with no buildx + carries
-NO `code_changed` gate + is hard-mandatory in `ci-rollup` (#864)
+`test.sh --lint --doc-counts` inside the test-tools image + carries NO
+`code_changed` gate + is hard-mandatory in `ci-rollup` (#864, base#1412)
 
 - `hadolint` job declared + `needs: [actionlint, classify]` + `if:
 code_changed == 'true'` + lints both template-owned Dockerfiles via
@@ -6095,23 +6098,24 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)` | - |
 | `self-test.yaml: declares shellcheck job (#376)` | - |
 | `self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)` | - |
-| `self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)` | - |
-| `self-test.yaml: shellcheck job installs the pinned ShellCheck rather than the runner's (#1080)` | base#1080. The job used to run whatever `ubuntu-latest` shipped pre-installed, so the local gate -- which runs v0.11.0 out of the test-tools image -- could not predict this required check in either direction, and which of the two binaries was stricter changed with GitHub's runner-image release schedule rather than with a commit here. |
-| `self-test.yaml: shellcheck job reads the version from the declaration, it does not restate it (#1080)` | One declaration, not a second copy of the number. The version comes out of dockerfile/Dockerfile.test-tools through the same accessor the release smoke step reads, so a bump moves both with nothing to remember. |
-| `self-test.yaml: shellcheck job asserts the installed binary IS the pin (#1080)` | Installing a tarball proves a download happened, not that the binary on PATH is the pinned one -- a pre-installed shellcheck earlier in PATH would keep the job green while nothing changed. |
+| `self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)` | - |
+| `self-test.yaml: shellcheck job installs no shellcheck on the runner (base#1412)` | base#1080 made the runner install the pinned tarball so CI stopped running whatever ubuntu-latest shipped. base#1412 moved the job into the test-tools image, which carries the pin; a tarball install left behind would be a second, unused route to the binary, and a runner-side shellcheck is exactly what the image path exists to retire. |
+| `self-test.yaml: shellcheck job does not restate a tool version (#1080)` | One declaration, not a second copy of the number. The version lives in dockerfile/Dockerfile.test-tools and reaches this job through the image, so a version literal in the job would be a second place to forget. |
 | `self-test.yaml: declares doc-counts job (#864)` | - |
-| `self-test.yaml: doc-counts job runs test.sh --doc-counts-only on plain ubuntu-latest (#864)` | - |
+| `self-test.yaml: doc-counts job runs test.sh --lint --doc-counts inside the test-tools image (#864, base#1412)` | - |
 | `self-test.yaml: doc-counts carries NO code_changed gate (#864)` | - |
 | `self-test.yaml: ci-rollup treats doc-counts as hard-mandatory, not SKIPPED-tolerant (#864)` | - |
 | `self-test.yaml: declares lint-static job (#866)` | - |
 | `self-test.yaml: lint-static carries NO code_changed gate (#866)` | - |
 | `self-test.yaml: ci-rollup treats lint-static as hard-mandatory, not SKIPPED-tolerant (#866)` | - |
 | `self-test.yaml: every lint the just test lint phase runs has a CI join (#866)` | - |
-| `self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)` | The shape itself. One job per DRIVER spent more runner startup than the drivers spent working, and took up to twenty of the free plan's ~twenty org-wide concurrent slots in the same second the coverage shards -- the run's critical path -- asked for theirs. One job per GROUP is the trade, and it is only a trade if the job still runs the same drivers the local phase runs, host-direct on a plain runner, with one failing group not cancelling its siblings. |
+| `self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)` | The shape itself. One job per DRIVER spent more runner startup than the drivers spent working, and took up to twenty of the free plan's ~twenty org-wide concurrent slots in the same second the coverage shards -- the run's critical path -- asked for theirs. One job per GROUP is the trade, and it is only a trade if the job still runs the same drivers the local phase runs, in the same test-tools image (base#1412), with one failing group not cancelling its siblings. |
 | `self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)` | The anti-roster assertion, stated over the workflow rather than over the partition. A matrix entry that NAMES a driver is the roster coming back: the day a driver is added it is not in the list, and nothing says so. Every entry must therefore be a position in the partition and nothing else -- and the positions must be a partition: one total shared by all of them, each index once, as many entries as the total. A matrix of ['1/4', '2/4'] would run half the lint phase and go green over it. |
 | `self-test.yaml: declares hadolint job (#376)` | - |
 | `self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |
+| `self-test.yaml: no job runs a lint through a host-direct test.sh arm (base#1412)` | base#1412. Locally the lint phase runs inside the test-tools image; in CI the shellcheck, doc-counts and lint-static jobs ran the same drivers on the ubuntu runner, so a lint could pass one gate and fail the other on the host's tools rather than on the code. The population is derived from the workflow and the flag list from test.sh, so a lint job added tomorrow, or a host arm added tomorrow, falls under the rule. |
+| `self-test.yaml: every lint job obtains the test-tools image and runs test.sh --lint in it (base#1412)` | base#1412, the positive half. Refusing the host arms alone would be satisfied by a lint job that stopped calling test.sh at all; the job has to reach the image the one way every image job does and run the lint through test.sh's in-container `--lint` path, as hadolint already does. |
 | `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | - |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
