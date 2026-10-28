@@ -14,6 +14,42 @@
 # tree. Function names + behaviour are byte-identical to the pre-split
 # monolith so every call site in test.sh's main is unchanged.
 
+# ── Per-test timeout ─────────────────────────────────────────────────────────
+
+# The plain-mode bound, in seconds, when PER_TEST_TIMEOUT is unset, and the
+# factor a kcov run widens it by. kcov traces every line a test executes,
+# so a test is slower under it; the kcov bound is the plain one times the
+# factor. Both numbers are ceilings for a HANG, not a budget for a slow
+# test: their job is to turn a test that never returns into a `not ok`
+# line that names it, where without them CI cancels the job and names
+# nothing and a local run blocks forever (base#1413).
+readonly _PER_TEST_TIMEOUT_DEFAULT=120
+readonly _PER_TEST_TIMEOUT_KCOV_FACTOR=3
+
+# _bats_test_timeout <plain|kcov> <out_var>
+#   Set <out_var> to the per-test bound (seconds) for a bats run in the
+#   given mode. The knob is PER_TEST_TIMEOUT (plain seconds); an inherited
+#   BATS_TEST_TIMEOUT is NOT read, because a driver run nested inside
+#   another bats run inherits the outer run's value, which belongs to the
+#   outer run's mode. Every bats run this driver starts takes its bound
+#   from here: plain runs through _bats_args_with_label, kcov runs through
+#   _coverage_parallel_launch.
+_bats_test_timeout() {
+  local _mode="${1:?BUG: _bats_test_timeout expects <plain|kcov>}"
+  local _out="${2:?BUG: _bats_test_timeout expects <out_var>}"
+  local _base="${PER_TEST_TIMEOUT:-${_PER_TEST_TIMEOUT_DEFAULT}}"
+  if ! [[ "${_base}" =~ ^[1-9][0-9]*$ ]]; then
+    _die ci_invalid_per_test_timeout \
+      "Invalid PER_TEST_TIMEOUT '${_base}'. Expected a positive decimal integer of seconds (default: ${_PER_TEST_TIMEOUT_DEFAULT})."
+  fi
+  case "${_mode}" in
+    plain) printf -v "${_out}" '%s' "${_base}" ;;
+    kcov)  printf -v "${_out}" '%s' "$(( _base * _PER_TEST_TIMEOUT_KCOV_FACTOR ))" ;;
+    *) _die ci_invalid_per_test_timeout \
+         "BUG: _bats_test_timeout got mode '${_mode}' (expected plain|kcov)." ;;
+  esac
+}
+
 # ── Bats tests ───────────────────────────────────────────────────────────────
 
 _bats_args_with_label() {
@@ -63,6 +99,12 @@ _bats_args_with_label() {
   # first-class shard units (ADR-00000015). Harmless when the target is a
   # file rather than a directory.
   _out_args=(--recursive)
+  # Every bats run is bounded per test (base#1413). Exported here, the
+  # helper every bats run in this driver goes through, so no path starts
+  # bats unbounded; a kcov runner then starts its bats with the wider kcov
+  # bound in _coverage_parallel_launch.
+  _bats_test_timeout plain BATS_TEST_TIMEOUT
+  export BATS_TEST_TIMEOUT
   if [[ "${_policy}" == "serial" ]]; then
     # Named apart from the parallel-not-installed fallback below: one is
     # a decision, the other an environment, and a reader of the run's
@@ -950,6 +992,10 @@ _coverage_parallel_launch() {
   # the others.
   local _exclude_path
   _exclude_path="$(_coverage_exclude_path)"
+  # The kcov bound, wider than the plain one the caller's
+  # _bats_args_with_label exported (base#1413).
+  local _kcov_timeout
+  _bats_test_timeout kcov _kcov_timeout
   local _i
   _cpl_pids=()
   for (( _i = 1; _i <= ${#_cpl_slices[@]}; _i++ )); do
@@ -961,7 +1007,7 @@ _coverage_parallel_launch() {
     # parser -- the trace-volume bound base#1060 measured -- inside every
     # slice, which is the cost this mode was built to remove.
     # shellcheck disable=SC2086
-    kcov \
+    BATS_TEST_TIMEOUT="${_kcov_timeout}" kcov \
       --include-path="${REPO_ROOT}" \
       --exclude-path="${_exclude_path}" \
       "${_work}/part-${_i}" \

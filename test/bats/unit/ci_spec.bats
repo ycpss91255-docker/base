@@ -14,7 +14,9 @@ setup() {
   # sha256sum + cut back the name derivations (_compute_test_tools_hash /
   # _compute_compose_project_name); without them a PATH-confined test would
   # exercise their fail-loud guard instead of the behaviour under test.
-  for _cmd in grep date cat printf sha256sum cut; do
+  # timeout wraps the compose run of the suite (base#1413), so a test that
+  # reaches that call needs the real one beside the mocked docker.
+  for _cmd in grep date cat printf sha256sum cut timeout; do
     local _path
     _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
   done

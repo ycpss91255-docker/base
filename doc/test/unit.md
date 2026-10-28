@@ -4484,6 +4484,32 @@ list of job names.
 | `obtain: delegate mode leaves the build to its caller (#1010)` | The mirror. In delegate mode the build is a later workflow step gated on the output, so performing it here would build the image twice. |
 | `workflows: no job obtains the rolling test-tools tag by hand (#1010)` | The structural half of the same defect, and the half that stops it recurring. While the decision was shell pasted into each consuming job, nothing could tell a job that probes from a job that does not -- no single copy looked wrong, and the one without a probe read like the others. A job that reaches the rolling tag without going through the script is that copy, whoever writes it next. |
 
+### test/bats/unit/per_test_timeout_spec.bats (7)
+
+Nothing in the repo set BATS_TEST_TIMEOUT, so one hung test was unbounded
+locally and, in CI, became a job-level cancellation that names no test
+(base#1413). The bound is a property of the DRIVER, not of a spec, so this
+spec runs the driver's real entries over a fixture tree and reads the value
+each fixture test actually saw -- in plain mode and under kcov, where
+tracing makes every test slower and the bound must be wider. A spec-text
+scan would pass a driver that sets the variable on one path and forgets
+another.
+
+The bound's knob is PER_TEST_TIMEOUT (seconds, plain mode); the driver
+derives the kcov bound from it. An INHERITED BATS_TEST_TIMEOUT is not the
+knob: a nested driver run (this spec, kcov_shard_concurrency_spec) inherits
+the outer run's value, which is the wrong mode's value.
+
+| Test | Description |
+|------|-------------|
+| `per-test timeout: every plain-mode driver entry runs its tests under one positive BATS_TEST_TIMEOUT` | The bound has to hold on EVERY path that starts bats, not on the one a reader happened to check: a plain path left unbounded is the local hang the issue names. Every plain entry's tests see the same positive integer, with nothing in the caller's environment setting it. |
+| `per-test timeout: every kcov driver entry runs its tests under one BATS_TEST_TIMEOUT wider than plain mode's` | kcov traces every line, so a test is slower under it and a bound sized for plain mode would fail a healthy test. Every kcov entry's tests see one positive integer, wider than the plain bound. |
+| `per-test timeout: PER_TEST_TIMEOUT sets the plain bound and an inherited BATS_TEST_TIMEOUT does not` | A nested driver run inherits the OUTER bats' BATS_TEST_TIMEOUT, and an outer plain run's value is the wrong one for a nested kcov run. The driver sets the bound from its own knob, PER_TEST_TIMEOUT, in both modes. |
+| `per-test timeout: a plain-mode test that outlives the bound fails and is reported by name` | The point of the bound is the REPORT: a hang must end as a failure that names the test, where today it ends as a job cancellation that names nothing (base#1413). |
+| `per-test timeout: a kcov-mode test that outlives the bound fails and is reported by name` | - |
+| `per-test timeout: each CI kcov step carries a timeout-minutes below its job's bound` | The job bound is the last resort, and when it fires GitHub cancels the job and names no step. A step bound below it turns a hang the per-test bound missed (a stuck kcov merge, a wedged container) into a failed STEP, with the step's log intact, before the job is cancelled. |
+| `per-test timeout: the local compose run of the suite is wrapped in timeout, ci and coverage` | Locally there is no job bound at all: `just test` and `just test coverage` run the suite in `docker compose run --rm`, and a hang there blocks the terminal forever. The compose run goes through `timeout`, in both the ci and the coverage dispatch. |
+
 ### test/bats/unit/pin_coverage_lint_spec.bats (67)
 
 | Test | Description |
