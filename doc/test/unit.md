@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (186)
+### test/bats/unit/ci_spec.bats (188)
 
 | Test | Description |
 |------|-------------|
@@ -1248,7 +1248,7 @@ between them can be asserted at all.
 | `_spec_weight: falls back to @test count when no SHARD_WEIGHTS_FILE is set (#724)` | - |
 | `_spec_weight: reads the default repo weights file when SHARD_WEIGHTS_FILE is unset (#733)` | - |
 | `_shard_unit_files: partitions by recorded time when SHARD_WEIGHTS_FILE is set (#724)` | - |
-| `_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)` | - |
+| `_junit_to_timings: emits <seconds> <repo-relative path> per testsuite, rounded and floored at 1 (#733, base#1410)` | - |
 | `_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)` | - |
 | `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
 | `_run_coverage: a full-suite run names every spec file, subfolders included (#952)` | - |
@@ -1270,11 +1270,13 @@ between them can be asserted at all.
 | `_bats_args_with_label: --jobs is a floor under the core count, never a multiple of it (#1068)` | the floor has to be a FLOOR. 32 is a knee and not a peak -- four interleaved reps per point on a 32-core host read 43.7s at 16 jobs against 26.5s / 25.8s / 25.7s at 32 / 64 / 128 -- so what a rule must guarantee is that it never lands BELOW the knee, which `k x cores` fails to do on any machine smaller than 32/k, the 4-core runner included. A large machine therefore gets exactly its cores, and the rule stays monotone so a bigger host is never handed less than a smaller one. This is the assertion that lets the constant be re-tuned without editing a test: never-below-the-machine, non-decreasing, and equal at the top name nothing the measurement picked. |
 | `_bats_args_with_label: an unreadable core count is labelled a fallback, not a reading (#1068)` | `nproc 2>/dev/null \|\| echo 4` printed `jobs=4` for a FAILED probe and for a genuine 4-core machine alike, so the run's own log could not say which had happened -- and on CI both readings were 4 at once. That is the shape the policy argument three lines up refuses. A FALLBACK is the right answer here where a `_die` is the right answer there: an unreadable POLICY is a caller's bug with no correct run to give it, while an unreadable CORE COUNT is an ENVIRONMENT -- the same kind as `parallel` missing from PATH, which this helper already falls back on and NAMES. So it falls back and says so, and what is pinned is the saying: the two labels must differ even when the two counts agree. |
 | `_bats_args_with_label: the metered policy holds a run at one job per core (#1068)` | every runner calls this helper, so the floor reaches all of them unless a policy says otherwise -- and for the kcov runners the measurement says otherwise. N bats jobs feed ONE single-threaded trace parser: raising a shard from 4 to 32 jobs is 1.75x and costs a REPRODUCIBLE hole, four runs at 16/32 jobs unioning to 31 lines short of the serial set (30 of them one region of wrapper/run.sh), ~0.45 points off the reported rate, where two runs at jobs=4 union to the serial set EXACTLY. Faster while losing lines is not an improvement for the runner whose output IS the line set, so `metered` is one job per core and no more -- until base#726 stops the parser being the drain. |
+| `_bats_args_with_label: the default floor is 32 and the cpu-bound floor is 8 (#1429)` | the shape tests above would pass a floor of 16 for the CPU-bound policy or 64 for the default, and either is a regression: 16 integration jobs on the 4-core hosted runner stretch the slowest test toward the per-test bound again, and a moved default floor changes every unit runner's concurrency (base#1429). So the specified counts are pinned here at representative core counts -- below, at and above each floor -- next to the shapes, and a re-tune is an edit to this table rather than a silent drift. |
+| `_run_integration_tests / _run_bats_path: an integration run is less oversubscribed than a unit run (#1429)` | the integration suite is not the workload the default floor was measured on. On the 4-core hosted runner it ran at `jobs=32 (floor, over 4 cores)` and tests crossed the 120 s per-test bound (base#1429). So the integration runner -- and a single-path run of an integration spec, which must schedule it the same way -- has to be LESS oversubscribed than the unit runner on a small machine, while the unit runner keeps its floor. The shape is asserted, and so are the counts on that runner: 32 for unit, 8 for integration. |
 | `_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)` | the shard is the kcov path CI runs eight of, and the one whose covered set the badge publishes. It has to DECLARE that it is metered rather than merely happen to sit at the core count today, or the next change to the default silently takes 0.45 points off the reported rate and puts a 31-line hole in wrapper/run.sh. |
 | `_run_coverage_path: a directory under kcov is metered too (#1068)` | `_run_coverage_path` is the driver's other kcov runner. It publishes no figure, but its whole purpose is to show what one spec covers under instrumentation, so oversubscribing it corrupts exactly the thing the person ran it to look at. |
-| `_run_coverage: a shard takes its slice count from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
+| `_run_coverage: a shard takes its slice count from COVERAGE_JOBS, not nproc (#1060, base#1410)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
 | `_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)` | `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the certificate is derived from what ran, not from the argument -- so such a run stamps scope=full, the only scope the release badge publishes, off a parallel measurement the full-suite branch declares serial precisely because it under-reports. `just test coverage 1/1` reaches it, and so does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix ["1/1"]. The policy must follow the walked set, so a slice that IS the suite is serial like the suite. |
-| `_run_coverage: with parallel absent a shard run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud, and the SHARD path is the one that asks. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
+| `_run_coverage: with parallel absent a shard still runs its COVERAGE_JOBS slices (#1060, base#1410)` | a shard's slices are independent kcov processes, none of which hands bats --jobs, so GNU parallel has no part in them -- and a shard is the same run on every host only if its slice count does not hang on what that host has installed (base#1410). Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper. |
 | `_run_coverage: a concurrent shard runs one kcov per serial bats slice, joined by --merge (base#1414)` | N bats jobs under ONE kcov share one trace pipe, and their records interleave: kcov credits only the first marker on a line and echoes the marker-less pieces to the step output (base#1414). A concurrent shard therefore runs one kcov per slice, each around a SERIAL bats, and joins the slices with `kcov --merge`; every shard spec runs in exactly one slice. |
 | `_run_coverage_path: a directory runs one kcov per serial bats slice, joined by --merge (base#1414)` | `_run_coverage_path` is the other kcov runner, and a directory path runs several specs at once, so it shares the pipe the same way (base#1414). It slices the same way: one kcov per serial bats slice, joined by `kcov --merge`. |
 | `_run_coverage_path: an empty directory prints the 1..0 plan and passes (base#1414)` | one kcov wrapped bats, and bats prints the TAP plan `1..0` for a directory with no specs. The sliced runner deals FILES, so an empty directory has no slice to run; it must still print that plan and pass, or an empty selection reads differently under the sliced shape (base#1414). |
@@ -2137,6 +2139,49 @@ workflow, whose shape the last section pins.
 | `coverage-local workflow: runs on the self-hosted GPU runner behind the fork guard` | the runner is the point -- an in-job parallel mode measured on a hosted two-core runner would prove nothing about the fat machine it was written for. And a job that can land on the org's self-hosted runner is arbitrary code execution on a shared workstation unless it carries the fork guard, which is what `self-hosted-guard` enforces for every job in this tree. Read off the CODE, comments dropped: this file's header spends a paragraph on why one self-hosted runner is not a PR gate, so the words "self-hosted" are in it whatever the job runs on -- a whole-file read answers the question with the prose that explains the answer. That is the rule the sibling `self-test.yaml` case already applies to `runs-on:`. |
 | `coverage-local workflow: drives test.sh --coverage-local` | the workflow has to drive the MODE, through the same entry an operator uses. A validation job that called `--coverage` would be a second, slower way of running what CI already runs and would never exercise the merge this issue is about. Read as the SET of modes the workflow invokes, off the code, because two things would otherwise pass a broken file: the header comment names `test.sh --coverage-local` twice, so a whole-file `--partial` stays green after the run step is switched back to the serial mode; and there are TWO invocations (with and without `--jobs`), so a `--partial` over either one is satisfied by the other. A set has neither hole -- and the `--jobs` branch matters most, because `--jobs` on the serial mode is an invocation the entry refuses outright. |
 | `self-test.yaml: the PR gate is unchanged -- no self-hosted runner, no local mode` | production must be untouched. The acceptance criterion is explicit that the PR gate keeps the hosted matrix, and the cheapest way for that to rot is a job quietly added to self-test.yaml on the way past. |
+
+### test/bats/unit/coverage_shard_parity_spec.bats (13)
+
+a local coverage shard and CI's shard of the same name were two different
+runs. Three inputs decide a shard, and each differed:
+
+1. The WEIGHTS. CI restores test/bats/.shard-weights from its cache
+(compute-shards) and hands every shard the same blob; a checkout has no such
+file (it is gitignored), so the local greedy-LPT partition fell back to
+`@test` counts and put different specs in shard N. 2. The weight KEY. A
+weight was recorded and looked up by spec BASENAME, and five basenames name
+two specs each (a unit and an integration spec): apk_mirror,
+init_existing_repo_signals, init_installed_paths, test_tools_pins, upgrade.
+Neither spec of a pair could carry its own runtime, and the union check
+could not tell one of them from the other. 3. The JOB COUNT. A shard deals
+its specs into one kcov slice per job, and the job count was `nproc` -- four
+on a hosted runner, 32 on a workstation -- so the same specs ran in
+different slices.
+
+Measured with bats 1.13.0 (the test-tools image), and what the bats mock
+below reproduces: a junit <testsuite name> is the spec path RELATIVE TO THE
+FIRST TARGET'S DIRECTORY when the spec is under it, and the absolute path
+otherwise. `bats --recursive unit/ integration/` names unit/sub/x_spec.bats
+`sub/x_spec.bats` and integration/y_spec.bats
+`/source/test/bats/integration/y_spec.bats`; with file targets unit/sub/x,
+integration/y it names them `x_spec.bats` and the absolute path. So a junit
+name is not a spec identity on its own.
+
+| Test | Description |
+|------|-------------|
+| `_spec_weight: two specs sharing a basename each read their own recorded seconds (base#1410)` | the five colliding basenames. Keyed by basename, the unit and the integration apk_mirror spec read the same line -- or, with the file written by path, neither line -- so the partition cannot place either by its own runtime. |
+| `_run_coverage: a full run records every spec's timing under its repo-relative path (base#1410)` | the writer half. The timings a run records ARE the next run's weights and the coverage-gate's run manifest, so they must name each spec by the path the partition and the inventory key on. The full run is handed two DIRECTORIES, so bats names the integration specs by absolute path and the foldered unit spec as `sub/...`. |
+| `_run_coverage: a shard records each walked spec's timing under its repo-relative path (base#1410)` | same as above for a shard, whose slices are handed FILES -- bats then names a spec under the first target's directory by its basename and every other one by absolute path. |
+| `_coverage_union_gap: names the integration spec of a colliding basename that no shard ran (base#1410)` | the reader half of the manifest. With both apk_mirror specs keyed by one basename, a matrix that ran only the unit one read as complete; keyed by path, the integration one is the spec named as unrun. |
+| `job count: a full coverage run stays one serial kcov under COVERAGE_JOBS (base#1410)` | the control. The full suite is one serial kcov whatever the override says -- COVERAGE_JOBS is the SHARD slice count, and the full run's serial policy carries its own measurement (bats.sh). |
+| `job count: a shard defaults to the hosted runner's four slices, not nproc (base#1410)` | the hosted value is the default, so a workstation's shard N/T is dealt into the slices a GitHub-hosted runner (four cores) deals it into -- not into one slice per local core. |
+| `job count: COVERAGE_JOBS sets a shard's kcov slice count (base#1410)` | the override is the knob CI sets explicitly and a developer may set to reproduce a different runner. |
+| `job count: main --coverage-shard forwards COVERAGE_JOBS, the hosted default when unset (base#1410)` | the host side. The container cannot see the host's intent unless the count crosses the compose boundary: `just test coverage N/T` says the hosted default out loud, and an ambient COVERAGE_JOBS (CI's) wins. |
+| `self-test.yaml: the coverage shard step passes COVERAGE_JOBS and the weights blob to test.sh (base#1410)` | CI must not lean on the runner's core count -- a self-hosted runner or a larger hosted SKU would silently re-slice every shard. |
+| `parity: the local --shard-weights path and the compute-shards path run the same spec list (base#1410)` | ONE decoder. The blob compute-shards publishes is what reaches the container on both paths -- CI's (an ambient SHARD_WEIGHTS_BLOB) and the local one (`--shard-weights <file>`, encoded the way compute-shards encodes) -- and the in-container dispatch turns it into the weights the partition reads BEFORE it runs the shard. Same weights file, same shard, same spec list; and the list is not the `@test`-count fallback, or the comparison would hold with no weights reaching the run at all. |
+| `parity: an explicitly empty weights file partitions by @test count, not by the checkout's .shard-weights (base#1410)` | an explicit EMPTY weights source is a source -- CI's cache-miss shard, which weighs by `@test` count. Encoded, an empty file is an empty blob; a shard that read "no blob" as "no source" would fall through to whatever test/bats/.shard-weights the checkout holds, and partition by timings CI never saw. So: the host forwards the empty blob, and a shard handed one partitions by `@test` count even beside a populated default file. |
+| `self-test.yaml: compute-shards uploads the weights it published as the shard-weights artifact (base#1410)` | the fetch half of the local path. A job output cannot be downloaded after the run; an artifact can (`gh run download <run> -n shard-weights`), so compute-shards publishes the exact file it encoded. |
+| `justfile: coverage takes an optional weights file and forwards it as --shard-weights (base#1410)` | the `just` entry. `just test coverage N/T <weights>` is the operator's form of the local path above. |
 
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
@@ -4646,7 +4691,7 @@ the local mode with it.
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
 
-### test/bats/unit/prev_release_gating_spec.bats (8)
+### test/bats/unit/prev_release_gating_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
@@ -4658,6 +4703,10 @@ the local mode with it.
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved` | the CI failure itself (base#1433): the shard compute-shards' blob hands the spec ran it with no .prev-release/ and failed every case. A gate that reads the checkout's weights passes every test above this section; this is one of the cases it fails. |
+| `prev-release gate: the shard a --shard-weights file gives the spec refuses to start when the tags cannot be resolved` | a local `--coverage-shard N/T --shard-weights` must reproduce CI's shard N/T fixture decision too, or the local repro of a CI shard diverges exactly where the CI form was fixed. |
+| `prev-release gate: a shard a CI weights blob takes the spec away from dispatches with no release tags` | the converse pin. Without it a gate that always answers yes for a coverage shard would pass the two refusal tests above while every shard again pays a tag fetch for a spec it does not run. |
+| `prev-release gate: a shard a --shard-weights file takes the spec away from dispatches with no release tags` | the converse pin for the local form; a gate that ignored --shard-weights and used the `@test` count would refuse here. |
 
 ### test/bats/unit/probe_test_tools_spec.bats (29)
 

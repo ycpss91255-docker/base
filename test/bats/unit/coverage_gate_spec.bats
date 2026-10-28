@@ -372,11 +372,11 @@ _make_multi_cobertura() {
 # ════════════════════════════════════════════════════════════════════
 # --merge-timings: aggregate per-shard runtime files into one weights file
 #
-# Each coverage shard uploads a `<seconds> <basename>` timings file
+# Each coverage shard uploads a `<seconds> <spec path>` timings file
 # (from _junit_to_timings). The coverage-gate job already downloads every
 # shard artifact, so it also merges the timings into one weights file that
 # the NEXT run restores as SHARD_WEIGHTS_FILE. A spec runs in exactly one
-# shard, so normally one entry per basename; the merge keeps the MAX as a
+# shard, so normally one entry per path; the merge keeps the MAX as a
 # defensive dedup and tolerates a shard that produced no file.
 # ════════════════════════════════════════════════════════════════════
 

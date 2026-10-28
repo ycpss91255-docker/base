@@ -211,13 +211,14 @@ _run_coverage_gate() {
 }
 
 # _merge_timings <out_file> <in_file>...
-#   Merge the per-shard `<seconds> <basename>` timings files (one per
-#   coverage shard, produced by _junit_to_timings) into one weights file at
-#   <out_file>, the SHARD_WEIGHTS_FILE the next run restores. A spec runs in
-#   exactly one shard, so normally one entry per basename; the MAX is kept
-#   as a defensive dedup. Non-existent inputs are skipped (a shard may have
-#   produced no file); no inputs yields an empty weights file. Output is
-#   sorted by basename so the cached weights are deterministic.
+#   Merge the per-shard `<seconds> <spec path>` timings files (one per
+#   coverage shard, produced by _junit_to_timings; repo-relative paths since
+#   base#1410) into one weights file at <out_file>, the SHARD_WEIGHTS_FILE
+#   the next run restores. A spec runs in exactly one shard, so normally one
+#   entry per path; the MAX is kept as a defensive dedup. Non-existent
+#   inputs are skipped (a shard may have produced no file); no inputs yields
+#   an empty weights file. Output is sorted by path so the cached weights
+#   are deterministic.
 _merge_timings() {
   local _out="${1:?BUG: _merge_timings expects <out_file> <in_file>...}"
   shift

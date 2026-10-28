@@ -935,11 +935,18 @@ Options:
                           smaller total. Rejected with --coverage-shard /
                           --coverage-path / --bats-path (#726)
   --coverage-shard N/T    Run kcov over coverage shard N of T (skip
-                          ShellCheck). Mirrors --bats-unit-shard's
-                          round-robin slice; integration runs on the last
-                          shard. Used by the coverage matrix in
-                          self-test.yaml (#615). Codecov merges the
-                          per-shard uploads into one project figure.
+      [--shard-weights F] ShellCheck). Used by the coverage matrix in
+                          self-test.yaml (#615). The partition weighs
+                          specs by F (`<seconds> <spec path>`, CI's
+                          shard-weights artifact), else by the ambient
+                          SHARD_WEIGHTS_BLOB, else by `@test` counts -- an
+                          empty F or blob included, as on CI's cache
+                          miss; never by the checkout's test/bats/
+                          .shard-weights. The shard runs as
+                          COVERAGE_JOBS kcov slices (default 4, the hosted
+                          runner's cores), so the same weights and N/T run
+                          the same specs in the same slices on any host
+                          (base#1410).
   --coverage-path PATH    Run ONE spec FILE or DIRECTORY (repo-root-
                           relative) under kcov via the coverage container:
                           the inner loop for a spec that is red under kcov
@@ -955,7 +962,7 @@ Options:
                           --bats-path (#887)
   --coverage-union-check FILE
                           Check the MERGED per-shard run manifest FILE
-                          (`<seconds> <basename>`, the file
+                          (`<seconds> <spec path>`, the file
                           `coverage_gate.sh --merge-timings` writes from
                           every coverage shard's coverage/timings.tsv)
                           against the inventory of what a full coverage
@@ -1165,6 +1172,35 @@ _prev_release_spec_in_shard() {
   _prev_release_spec_in_selection <<< "${_files}"
 }
 
+# _prev_release_spec_in_coverage_shard <n>/<total>
+#   _prev_release_spec_in_shard asked of the partition a kcov coverage
+#   shard runs: the one weighted by the forwarded SHARD_WEIGHTS_BLOB, which
+#   the container decodes before partitioning (_decode_shard_weights_blob)
+#   and so the host decodes too (base#1433). Asked of the checkout's
+#   weights instead, a shard whose blob moved the spec in ran it with no
+#   fixture, and the shard it moved out of paid for one it never read. An
+#   empty blob decodes to an empty file, the `@test`-count partition, as it
+#   does in the container. A blob that does not decode is answered YES, as
+#   an uncomputable partition is: the container refuses that blob anyway,
+#   and of the two guesses only "not needed" can end in a vacuous spec. A
+#   temp file that cannot be made is answered YES for the same reason; the
+#   caller runs this with errexit suspended, so an empty path would
+#   otherwise reach the decoder.
+_prev_release_spec_in_coverage_shard() {
+  local _spec="${1:?BUG: _prev_release_spec_in_coverage_shard expects <n>/<total>}"
+  local _wf="" _rc=0
+  if ! _wf="$(mktemp 2>/dev/null)" || [[ -z "${_wf}" ]]; then
+    return 0
+  fi
+  if ! _shard_weights_blob_to_file "${SHARD_WEIGHTS_BLOB:-}" "${_wf}"; then
+    rm -f "${_wf}"
+    return 0
+  fi
+  SHARD_WEIGHTS_FILE="${_wf}" _prev_release_spec_in_shard "${_spec}" || _rc=$?
+  rm -f "${_wf}"
+  return "${_rc}"
+}
+
 # _dispatch_needs_prev_release <coverage>
 #   Whether the compose dispatch about to run will execute that spec.
 #   <coverage> is _run_via_compose's own COVERAGE flag (0 / 1).
@@ -1204,7 +1240,7 @@ _dispatch_needs_prev_release() {
       return
     fi
     if [[ -n "${COVERAGE_SHARD:-}" ]]; then
-      _prev_release_spec_in_shard "${COVERAGE_SHARD}"
+      _prev_release_spec_in_coverage_shard "${COVERAGE_SHARD}"
       return
     fi
     return 0
@@ -1271,31 +1307,26 @@ _prepare_prev_release() {
 readonly _COVERAGE_HEAD_STAMP_REL="coverage/.head-sha"
 
 # The run manifest kcov's bats leaves next to the reports: `<seconds>
-# <basename>`, one line per spec FILE that actually ran (_junit_to_timings
-# in drivers/bats.sh, from bats' junit report). It exists to weigh the next
-# partition; it is reused here because it is the only local record of WHAT
-# was measured, written by the run rather than by its caller.
+# <repo-relative path>`, one line per spec FILE that actually ran
+# (_junit_to_timings in drivers/bats.sh, from bats' junit report). It exists
+# to weigh the next partition; it is reused here because it is the only
+# local record of WHAT was measured, written by the run rather than by its
+# caller.
 readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
 
-# _coverage_spec_inventory [root] -- print, one per line, the sorted unique
-# BASENAMES of every spec a full coverage run covers.
+# _coverage_spec_inventory [root] -- print, one per line, the sorted
+# root-relative PATHS of every spec a full coverage run covers.
 #
 # The pools and the file shape are NOT a second roster: both come from
 # _COVERAGE_FULL_SUITE_POOLS / _COVERAGE_SPEC_GLOB in drivers/bats.sh, the
 # same values _run_coverage builds its full-suite targets from and
 # _shard_unit_files partitions. The recursion is `bats --recursive`'s, so
-# the per-lib subfolders of ADR-00000015 count. Basenames, not paths, because
-# that is the key space the manifest is written in -- _junit_to_timings
-# reduces bats' junit `name=` to a basename so _spec_weight can read the
-# merged weights back.
-#
-# Two specs in different pools may share a basename (there are such pairs
-# here), so the inventory is smaller than the file count. That makes the
-# comparison below very slightly lenient: a measurement missing ONLY the
-# twin of a name it already carries would still compare equal. No
-# partition produces that set -- a shard is a fraction of the tree, not
-# the tree minus one file -- and the alternative, keying on paths, would
-# mean a second manifest format nothing else reads.
+# the per-lib subfolders of ADR-00000015 count. Paths, because that is the
+# key space the manifest is written in -- _junit_to_timings keys each
+# spec's timing on its repo-relative path so _spec_weight can read the
+# merged weights back. It keyed on basenames until base#1410, and five
+# basenames name two specs each, so a run missing one spec of such a pair
+# compared equal to the inventory.
 #
 # Empty is a FAILURE (return 1), not an empty set: an inventory that
 # enumerated nothing would make every manifest look complete.
@@ -1308,7 +1339,7 @@ _coverage_spec_inventory() {
   done
   (( ${#_dirs[@]} > 0 )) || return 1
   while IFS= read -r _f; do
-    _names+=("${_f##*/}")
+    _names+=("${_f#"${_root}/"}")
   done < <(find "${_dirs[@]}" -type f -name "${_COVERAGE_SPEC_GLOB}")
   (( ${#_names[@]} > 0 )) || return 1
   printf '%s\n' "${_names[@]}" | LC_ALL=C sort -u
@@ -1355,6 +1386,39 @@ _measured_coverage_scope() {
   printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
 }
 
+# _shard_weights_blob_to_file <blob> <file> -- write <blob>'s base64
+# decoding to <file>; non-zero when it does not decode. The one decoder for
+# the container's shard (_decode_shard_weights_blob) and the host's
+# fixture gate (_prev_release_spec_in_coverage_shard), so the two cannot
+# read one blob as two different weight sets (base#1433).
+_shard_weights_blob_to_file() {
+  local _blob="${1-}"
+  local _out="${2:?BUG: _shard_weights_blob_to_file expects <blob> <file>}"
+  printf '%s' "${_blob}" | base64 -d > "${_out}" 2>/dev/null
+}
+
+# _decode_shard_weights_blob <blob> -- decode a base64 weights blob (the
+# form compute-shards publishes) into a fresh file and export it as
+# SHARD_WEIGHTS_FILE, the weights _spec_weight reads (base#1410). A temp
+# file rather than ${REPO_ROOT}/test/bats/.shard-weights: inside the
+# container ${REPO_ROOT} is the mounted checkout. A blob that does not
+# decode is refused, not read as "no weights": that would re-partition the
+# shard by `@test` count while its siblings partition by seconds. An
+# EMPTY blob decodes to an empty file, which _spec_weight reads as "no
+# recorded seconds" for every spec: the `@test`-count partition CI's
+# cache-miss shards run.
+_decode_shard_weights_blob() {
+  local _blob="${1-}"
+  local _wf
+  _wf="$(mktemp)"
+  if ! _shard_weights_blob_to_file "${_blob}" "${_wf}"; then
+    rm -f "${_wf}"
+    _die ci_invalid_shard_weights_blob \
+      "SHARD_WEIGHTS_BLOB does not decode as base64; the shard would partition by different weights from its siblings, so it refuses to run."
+  fi
+  export SHARD_WEIGHTS_FILE="${_wf}"
+}
+
 # _coverage_union_gap <manifest> [root] -- print, one per line, the specs
 # the inventory names and <manifest> does NOT.
 #
@@ -1362,9 +1426,9 @@ _measured_coverage_scope() {
 # the file `coverage_gate.sh --merge-timings` writes from every shard's
 # coverage/timings.tsv, which is also the weights file the NEXT partition
 # reads. Same key space as _measured_coverage_scope above (`<seconds>
-# <basename>`), asked a different question -- that one reports how much of
-# the suite ONE run measured, this one names what the matrix as a whole
-# left out.
+# <repo-relative path>`), asked a different question -- that one reports
+# how much of the suite ONE run measured, this one names what the matrix as
+# a whole left out.
 #
 # WHY THE MATRIX CAN LEAVE A SPEC OUT. Greedy-LPT partitions the pool PER
 # WEIGHT SOURCE: each shard computes the whole partition and keeps its own
@@ -1373,9 +1437,9 @@ _measured_coverage_scope() {
 # hold a slice of a DIFFERENT partition, and their union is neither
 # exhaustive nor disjoint. Nothing else in the matrix can tell: a slice of
 # either partition is non-empty, so _shard_unit_files' empty-shard guard
-# stays quiet; the merge keys on basename, so a spec two shards both ran
-# reads as one entry; and the only trace left by a spec that ran NOWHERE is
-# the absence of its entry, which is what this prints.
+# stays quiet; the merge keys on the spec path, so a spec two shards both
+# ran reads as one entry; and the only trace left by a spec that ran
+# NOWHERE is the absence of its entry, which is what this prints.
 #
 # Empty output means every spec a full run covers was reported by some
 # shard. Returns 1, printing nothing, when there is nothing to compare --
@@ -2569,6 +2633,8 @@ _run_via_compose() {
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
     -e COVERAGE_PATH="${COVERAGE_PATH:-}" \
     -e COVERAGE_LOCAL_JOBS="${COVERAGE_LOCAL_JOBS:-}" \
+    -e COVERAGE_JOBS="${COVERAGE_JOBS:-}" \
+    -e SHARD_WEIGHTS_BLOB="${SHARD_WEIGHTS_BLOB:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_FRAGILE="${BATS_FRAGILE:-0}" \
@@ -2635,6 +2701,10 @@ main() {
   # Recorded rather than answered on the spot, for the same reason the
   # queries are -- see the dispatch below the flag-combination guards.
   local union_check=""
+  # `--shard-weights FILE` names the weights a coverage shard partitions by
+  # (base#1410): the file CI's compute-shards job restored and published,
+  # so the local shard N/T is CI's shard N/T.
+  local shard_weights=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2718,6 +2788,7 @@ main() {
       --coverage-local) mode="coverage"; coverage_local=1; shift ;;
       --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
+      --shard-weights) shard_weights="${2:?--shard-weights expects <weights-file>}"; shift 2 ;;
       --coverage-union-check) union_check="${2:?--coverage-union-check expects <manifest-file>}"; shift 2 ;;
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
@@ -2747,6 +2818,14 @@ main() {
   if [[ -n "${coverage_jobs}" && "${coverage_local}" != "1" ]]; then
     _die ci_jobs_without_coverage_local \
       "--jobs <n> sets the kcov process count of --coverage-local; it means nothing on its own (bare 'just test' already runs bats in parallel). Use './test.sh --coverage-local --jobs ${coverage_jobs}'."
+  fi
+
+  # `--shard-weights` narrows `--coverage-shard` the way `--jobs` narrows
+  # `--coverage-local`, and is refused on its own for the same reason: the
+  # weights decide a shard's partition, and nothing else reads them.
+  if [[ -n "${shard_weights}" && -z "${coverage_shard}" ]]; then
+    _die ci_shard_weights_without_shard \
+      "--shard-weights <file> sets the weights of --coverage-shard N/T; it means nothing on its own. Use './test.sh --coverage-shard N/T --shard-weights ${shard_weights}'."
   fi
 
   # The queries. They answer about this checkout and stop, minting nothing
@@ -2941,7 +3020,8 @@ main() {
     # coverage_badge_spec's "every coverage dispatch pins every selector
     # the container reads" demands the whole roster here for that reason.
     BATS_ONLY=1 COVERAGE_PATH="${coverage_path}" BATS_FILTER="${bats_filter}" \
-      COVERAGE_SHARD="" COVERAGE_LOCAL_JOBS="" _run_via_compose coverage 1
+      COVERAGE_SHARD="" COVERAGE_LOCAL_JOBS="" COVERAGE_JOBS="" \
+      SHARD_WEIGHTS_BLOB="" _run_via_compose coverage 1
     return 0
   fi
 
@@ -3051,6 +3131,18 @@ main() {
         # a question about how many cores to use, not about what to
         # measure. COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
+        #
+        # SHARD_WEIGHTS_BLOB is the weights the host forwarded (base#1410):
+        # the blob CI's compute-shards publishes, or a local
+        # `--shard-weights <file>` encoded the same way. It is decoded HERE,
+        # the one decoder for both paths, into the file _spec_weight reads.
+        # A shard decodes it even when it is EMPTY: an empty blob is CI's
+        # cache miss or an empty weights file, and both mean `@test` count.
+        # Left undecoded, _spec_weight would fall back to the checkout's
+        # test/bats/.shard-weights, a source CI's shards never read.
+        if [[ -n "${COVERAGE_SHARD:-}" ]]; then
+          _decode_shard_weights_blob "${SHARD_WEIGHTS_BLOB:-}"
+        fi
         if [[ -n "${COVERAGE_LOCAL_JOBS:-}" ]]; then
           _run_coverage_parallel "${COVERAGE_LOCAL_JOBS}"
         else
@@ -3120,8 +3212,28 @@ main() {
       # call site -- so a third selector added to that forwarder, or a
       # third mode wired to that container, arrives with its clearing
       # already demanded.
+      #
+      # A shard's slice count and its weights cross the compose boundary
+      # explicitly (base#1410), so the container runs the shard CI runs
+      # under the same name: COVERAGE_JOBS defaults to the hosted runner's
+      # count rather than this machine's cores, and the weights are the
+      # blob compute-shards publishes -- ambient on CI, encoded from
+      # `--shard-weights <file>` the same way (`base64 -w0`) locally. Only a
+      # shard partitions by them, so every other coverage run clears both.
+      local _cov_jobs="" _cov_blob=""
+      if [[ -n "${coverage_shard}" ]]; then
+        _cov_jobs="${COVERAGE_JOBS:-${_COVERAGE_JOBS_HOSTED_DEFAULT}}"
+        _cov_blob="${SHARD_WEIGHTS_BLOB:-}"
+        if [[ -n "${shard_weights}" ]]; then
+          [[ -f "${shard_weights}" && -r "${shard_weights}" ]] \
+            || _die ci_shard_weights_unreadable \
+                 "--shard-weights '${shard_weights}' is not a readable file. Fetch CI's with 'gh run download <run-id> -n shard-weights'."
+          _cov_blob="$(base64 -w0 < "${shard_weights}")"
+        fi
+      fi
       COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
         COVERAGE_LOCAL_JOBS="${coverage_local_jobs}" \
+        COVERAGE_JOBS="${_cov_jobs}" SHARD_WEIGHTS_BLOB="${_cov_blob}" \
         _run_via_compose coverage 1
       # The status is read AFTER the branch, never as `|| rc=$?`: a
       # command on the left of `||` runs with errexit suspended, and the
