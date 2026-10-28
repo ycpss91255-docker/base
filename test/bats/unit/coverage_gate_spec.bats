@@ -641,6 +641,46 @@ _verdict_contexts() {
     || fail "hosted binds manifest to [${output}], not the merged timings [${_merged}]"
 }
 
+# why: the hosted reports are an input too, and the text checks above
+# cannot see how its loop fills them. Run the hosted verdict step itself
+# over a laid-out set of downloaded shards, with the driver stubbed to
+# print its arguments: it must hand the verdict the manifest and exactly
+# ONE report from EVERY shard -- the kcov-merged one where it exists, else
+# the first one found. A loop that keeps only the last shard, or one that
+# passes a shard twice, judges a different run than the one the manifest
+# names.
+@test "coverage verdict parity: the hosted verdict receives exactly one report from every downloaded shard (base#1411)" {
+  local _work="${SCRATCH}/hosted-run" _s
+  _verdict_contexts
+  _run_blocks_matching "${SCRATCH}/hosted.yaml" \
+    'coverage_gate[.]sh[[:space:]]+--verdict' > "${SCRATCH}/hosted-verdict.sh"
+  [ -s "${SCRATCH}/hosted-verdict.sh" ] || fail "the hosted coverage-gate job has no run block with the verdict"
+
+  mkdir -p "${_work}/script/test/drivers"
+  printf '#!/usr/bin/env bash\nprintf "ARG %%s\\n" "$@"\n' \
+    > "${_work}/script/test/drivers/coverage_gate.sh"
+  # shard-0: a merged report beside a per-run one -> the merged one.
+  # shard-1: per-run reports only -> exactly one of them.
+  # shard-2: a merged report only.
+  for _s in coverage-shard-0/kcov-merged coverage-shard-0/run-a \
+            coverage-shard-1/run-a coverage-shard-1/run-b \
+            coverage-shard-2/kcov-merged; do
+    mkdir -p "${_work}/coverage-shards/${_s}"
+    : > "${_work}/coverage-shards/${_s}/cobertura.xml"
+  done
+
+  run bash -c 'cd "$1" && bash "$2"' _ "${_work}" "${SCRATCH}/hosted-verdict.sh"
+  assert_success
+  assert_line 'ARG --verdict'
+  assert_line 'ARG test/bats/.shard-weights'
+  [ "$(grep -c '^ARG .*cobertura\.xml$' <<<"${output}")" -eq 3 ] \
+    || fail "the hosted verdict does not receive exactly three reports: ${output}"
+  assert_line 'ARG ./coverage-shards/coverage-shard-0/kcov-merged/cobertura.xml'
+  [ "$(grep -c '^ARG \./coverage-shards/coverage-shard-1/run-[ab]/cobertura\.xml$' <<<"${output}")" -eq 1 ] \
+    || fail "the hosted verdict does not receive exactly one shard-1 report: ${output}"
+  assert_line 'ARG ./coverage-shards/coverage-shard-2/kcov-merged/cobertura.xml'
+}
+
 # why: the floor is an input too. The driver owns COVERAGE_MIN's default
 # (80); a value set in one context and not the others -- a step `env:`, an
 # inline assignment, a justfile `export` -- moves that context's floor

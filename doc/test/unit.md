@@ -2004,7 +2004,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 | `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
-### test/bats/unit/coverage_gate_spec.bats (30)
+### test/bats/unit/coverage_gate_spec.bats (31)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2048,6 +2048,7 @@ the file's lines to the denominator.
 | `coverage verdict parity: no context runs the floor or the union check outside the verdict (base#1411)` | one entry point means no second, partial verdict beside it. A bare floor-only gate call or a free-standing union check is the three-step- lists shape this issue removes. Read per INVOCATION, not per line: a floor-only call chained onto a permitted line must still be seen. |
 | `coverage verdict parity: the local recipe and the self-hosted step bind the same inputs (base#1411)` | an identical invocation over different inputs is a different verdict. Local and self-hosted both judge a run of this checkout from its coverage/ tree, so their whole verdict scripts must be the same text -- a manifest or report bound to anything else in one of them (a stale, complete manifest left by an older run) fails here. |
 | `coverage verdict parity: each verdict reads the manifest its own run wrote (base#1411)` | the manifest each verdict reads must be the one ITS run wrote. A local or self-hosted coverage run writes test.sh's run manifest; the hosted matrix's manifest is the file the --merge-timings step writes from the shards' timings. Bound to anything else, the union check judges some other run. |
+| `coverage verdict parity: the hosted verdict receives exactly one report from every downloaded shard (base#1411)` | the hosted reports are an input too, and the text checks above cannot see how its loop fills them. Run the hosted verdict step itself over a laid-out set of downloaded shards, with the driver stubbed to print its arguments: it must hand the verdict the manifest and exactly ONE report from EVERY shard -- the kcov-merged one where it exists, else the first one found. A loop that keeps only the last shard, or one that passes a shard twice, judges a different run than the one the manifest names. |
 | `coverage verdict parity: no context overrides the driver's COVERAGE_MIN (base#1411)` | the floor is an input too. The driver owns COVERAGE_MIN's default (80); a value set in one context and not the others -- a step `env:`, an inline assignment, a justfile `export` -- moves that context's floor while every invocation line stays identical. |
 
 ### test/bats/unit/coverage_handback_spec.bats (14)
