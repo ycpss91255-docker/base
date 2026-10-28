@@ -59,7 +59,8 @@ _bats_args_with_label() {
   # parallelism + fallback messaging stay in one place. Inputs:
   #   $1 = name of array var (e.g. _bats_args)
   #   $2 = name of label string var (e.g. _label)
-  #   $3 = jobs policy, `parallel` (default), `metered` or `serial`
+  #   $3 = jobs policy, `parallel` (default), `cpu-bound`, `metered` or
+  #        `serial`
   #   $4 = optional name of a var that receives the job count as a number
   #        (1 when the run is serial), for a caller that splits the run
   #        itself rather than passing the flag on -- the kcov runners,
@@ -75,10 +76,14 @@ _bats_args_with_label() {
   # its run may be concurrent but must not be OVERSUBSCRIBED, because
   # something downstream of bats does not scale with the job count --
   # today the two kcov runners, whose N bats jobs drain into one
-  # single-threaded trace parser. Declaring the policy HERE is the point:
-  # `--jobs` and its fallback message keep one writer, so a run that must
-  # not be parallel says so in the same vocabulary as one that cannot be,
-  # instead of quietly assembling a different command.
+  # single-threaded trace parser. It passes `cpu-bound` when its run is
+  # concurrent but its tests compute rather than wait, so the floor that
+  # keeps a waiting suite's pipe full only stretches each test's wall time
+  # toward the per-test bound -- today the integration suite (base#1429),
+  # which takes a lower floor, max(cores, 8). Declaring the policy HERE is
+  # the point: `--jobs` and its fallback message keep one writer, so a run
+  # that must not be parallel says so in the same vocabulary as one that
+  # cannot be, instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
   # through to the parallel branch is precisely the silent wrong answer
   # this argument exists to prevent. `${3-parallel}` and not `${3:-...}`,
@@ -90,9 +95,9 @@ _bats_args_with_label() {
   local _policy="${3-parallel}"
   local _jobs_out="${4-}"
   case "${_policy}" in
-    parallel|metered|serial) ;;
+    parallel|cpu-bound|metered|serial) ;;
     *) _die ci_invalid_jobs_policy \
-         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|metered|serial)." ;;
+         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|cpu-bound|metered|serial)." ;;
   esac
   # --recursive so a directory target descends into per-lib sub-folders
   # (test/bats/unit/<lib>/<subunit>_spec.bats); foldered specs are
@@ -149,6 +154,17 @@ _bats_args_with_label() {
     # shard on a constrained cpuset, interleaving the points so a single
     # slow rep cannot become the finding; do not multiply it.
     local _floor=32
+    # THE CPU-BOUND FLOOR IS 8 (base#1429). The integration suite is not
+    # the waiting workload the 32 above was measured on: on a 4-CPU cpuset
+    # its CPUs ran 92-96% busy at 8 jobs and above, and the full suite's
+    # wall time, three interleaved reps per point, was 74.5-77.4s at 4
+    # jobs, 57.8-60.7s at 8, 56.9-57.9s at 16 and 59.7-60.0s at 32, while
+    # its slowest test grew with the job count: 5.3-6.0s, 10.1-10.3s,
+    # 19.3-21.4s, 38.9-41.1s. Above 8 the extra jobs buy no throughput
+    # and only stretch each test toward the per-test bound (base#1413),
+    # which the hosted runner crossed at 32. Still a floor, not a multiple,
+    # for the reason above.
+    [[ "${_policy}" == "cpu-bound" ]] && _floor=8
     local _jobs _cores
     if _cores="$(nproc 2>/dev/null)" && [[ "${_cores}" =~ ^[1-9][0-9]*$ ]]; then
       if [[ "${_policy}" == "metered" ]]; then
@@ -225,7 +241,8 @@ _run_unit_tests() {
 _run_integration_tests() {
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
+  # cpu-bound: the integration suite computes rather than waits (base#1429).
+  _bats_args_with_label _bats_args _label cpu-bound
   echo "--- Running Bats Integration Tests (${_label}) ---"
   bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/integration/"
 }
@@ -247,7 +264,16 @@ _run_bats_path() {
   # (BATS_ONLY=1) and kcov is off so the loop stays fast.
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
+  # A path inside the integration suite is scheduled the way
+  # _run_integration_tests schedules that suite (base#1429), so a
+  # single-spec rerun of a CI failure runs at the same job count.
+  # A leading `./` is the same repo-root-relative path, so it is dropped
+  # before the match rather than spelled out as two more patterns.
+  local _policy=parallel _target="${BATS_FILE:-}"
+  case "${_target#./}" in
+    test/bats/integration|test/bats/integration/*) _policy=cpu-bound ;;
+  esac
+  _bats_args_with_label _bats_args _label "${_policy}"
   [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
   if [[ -n "${BATS_FILE:-}" ]]; then
     echo "--- Running Bats single path: ${BATS_FILE} (${_label}) ---"

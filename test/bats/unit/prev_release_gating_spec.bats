@@ -59,11 +59,23 @@ _mock_tagless_offline_git() {
 # and would out-rank the flag being exercised in the child -- in test.sh's
 # dispatch and in the container's alike.
 _dispatch() {
+  _dispatch_with_blob "" "$@"
+}
+
+# _dispatch with SHARD_WEIGHTS_BLOB set to <blob>: the form a CI coverage
+# shard runs in, where compute-shards' blob is ambient. Every other weights
+# source is cleared too, because a coverage run of this suite has already
+# decoded its own blob into SHARD_WEIGHTS_FILE (base#1433).
+_dispatch_with_blob() {
+  local _blob="${1}"
+  shift
   run env \
     -u COVERAGE -u COVERAGE_SHARD -u COVERAGE_PATH \
+    -u COVERAGE_LOCAL_JOBS -u COVERAGE_JOBS -u SHARD_WEIGHTS_FILE \
     -u BATS_ONLY -u BATS_UNIT_SHARD -u BATS_FRAGILE -u BATS_INTEGRATION \
     -u BATS_FILE -u BATS_FILTER \
     -u LINT_ONLY -u LINT_TOOL \
+    SHARD_WEIGHTS_BLOB="${_blob}" \
     bash /source/script/test/test.sh "$@"
 }
 
@@ -71,17 +83,52 @@ _dispatch() {
 # fixture-reading spec to. Asked of _shard_unit_files itself rather than
 # assumed: its pool is test/bats/{unit,integration}/**, so an integration
 # spec genuinely lands in one of the "unit" shards.
+#
+# [weights-file] is the weights the partition reads. Omitted, it is the
+# checkout's test/bats/.shard-weights, which a --bats-unit-shard reads on
+# both sides of the compose boundary. A coverage shard instead reads the
+# blob the host forwards, so its callers pass the file that blob encodes,
+# or an empty file for an empty blob (`@test` count).
 _shard_carrying_prev_release() {
   local _total="${1}"
+  local _wf="${2:-}"
   local _n
   for (( _n = 1; _n <= _total; _n++ )); do
-    if bash -c "source /source/script/test/test.sh; _shard_unit_files '${_n}/${_total}'" \
+    if SHARD_WEIGHTS_FILE="${_wf}" \
+        bash -c "source /source/script/test/test.sh; _shard_unit_files '${_n}/${_total}'" \
         | grep -qxF /source/test/bats/integration/prev_release_upgrade_spec.bats; then
       printf '%s\n' "${_n}"
       return 0
     fi
   done
   return 1
+}
+
+# An empty weights file: what an empty SHARD_WEIGHTS_BLOB decodes to, and
+# so the `@test`-count partition a coverage shard runs with no blob.
+_empty_weights() {
+  local _f="${BATS_TEST_TMPDIR}/empty.shard-weights"
+  : > "${_f}"
+  printf '%s\n' "${_f}"
+}
+
+# A weights file under which the 2-shard partition puts the fixture-reading
+# spec in the OTHER shard from the `@test`-count partition (base#1433).
+# Seconds dwarf every `@test` count, so the heaviest named spec takes shard
+# 1 and the next takes shard 2: name the spec alone to put it in 1, or
+# after a heavier spec to put it in 2.
+_weights_moving_prev_release() {
+  local _count_carrier="${1}"
+  local _f="${BATS_TEST_TMPDIR}/moving.shard-weights"
+  if [[ "${_count_carrier}" == "1" ]]; then
+    printf '%s\n' \
+      "2000000 test/bats/unit/ci_spec.bats" \
+      "1000000 test/bats/integration/prev_release_upgrade_spec.bats" > "${_f}"
+  else
+    printf '%s\n' \
+      "1000000 test/bats/integration/prev_release_upgrade_spec.bats" > "${_f}"
+  fi
+  printf '%s\n' "${_f}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -157,7 +204,7 @@ _shard_carrying_prev_release() {
 
 @test "prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved" {
   local _carrier
-  _carrier="$(_shard_carrying_prev_release 2)"
+  _carrier="$(_shard_carrying_prev_release 2 "$(_empty_weights)")"
   # An empty carrier would make the assertions below pass on a malformed
   # shard spec rather than on the fixture, so pin it first.
   assert [ -n "${_carrier}" ]
@@ -172,7 +219,7 @@ _shard_carrying_prev_release() {
 
 @test "prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE" {
   local _carrier
-  _carrier="$(_shard_carrying_prev_release 2)"
+  _carrier="$(_shard_carrying_prev_release 2 "$(_empty_weights)")"
   assert [ -n "${_carrier}" ]
   _mock_tagless_offline_git
 
@@ -182,9 +229,10 @@ _shard_carrying_prev_release() {
   # for it to read.
   run env \
     -u COVERAGE -u COVERAGE_PATH \
+    -u COVERAGE_LOCAL_JOBS -u COVERAGE_JOBS -u SHARD_WEIGHTS_FILE \
     -u BATS_ONLY -u BATS_UNIT_SHARD -u BATS_FRAGILE -u BATS_INTEGRATION \
     -u BATS_FILTER -u LINT_ONLY -u LINT_TOOL \
-    BATS_FILE=test/bats/unit/ci_spec.bats \
+    BATS_FILE=test/bats/unit/ci_spec.bats SHARD_WEIGHTS_BLOB="" \
     bash /source/script/test/test.sh --coverage-shard "${_carrier}/2"
   assert_failure
   assert_output --partial "stable release tags"
@@ -201,4 +249,85 @@ _shard_carrying_prev_release() {
   assert_output --partial "stable release tags"
 
   assert [ ! -f "${DOCKER_LOG}" ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A coverage shard asks with the weights its container partitions by
+# ════════════════════════════════════════════════════════════════════
+#
+# The container decodes the forwarded SHARD_WEIGHTS_BLOB and partitions by
+# it, so the host's question "does this shard run the spec?" has to be
+# asked of that same partition. Each test pins that the blob really moves
+# the spec before relying on it.
+
+# Sets _count_carrier, _blob_carrier and _weights for the tests below.
+_setup_moving_weights() {
+  _count_carrier="$(_shard_carrying_prev_release 2 "$(_empty_weights)")"
+  assert [ -n "${_count_carrier}" ]
+  _weights="$(_weights_moving_prev_release "${_count_carrier}")"
+  _blob_carrier="$(_shard_carrying_prev_release 2 "${_weights}")"
+  assert [ -n "${_blob_carrier}" ]
+  assert [ "${_blob_carrier}" != "${_count_carrier}" ]
+}
+
+# why: the CI failure itself (base#1433): the shard compute-shards' blob
+# hands the spec ran it with no .prev-release/ and failed every case. A
+# gate that reads the checkout's weights passes every test above this
+# section; this is one of the cases it fails.
+@test "prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved" {
+  local _count_carrier _blob_carrier _weights
+  _setup_moving_weights
+  _mock_tagless_offline_git
+
+  _dispatch_with_blob "$(base64 -w0 < "${_weights}")" \
+    --coverage-shard "${_blob_carrier}/2"
+  assert_failure
+  assert_output --partial "stable release tags"
+
+  assert [ ! -f "${DOCKER_LOG}" ]
+}
+
+# why: a local `--coverage-shard N/T --shard-weights` must reproduce CI's
+# shard N/T fixture decision too, or the local repro of a CI shard
+# diverges exactly where the CI form was fixed.
+@test "prev-release gate: the shard a --shard-weights file gives the spec refuses to start when the tags cannot be resolved" {
+  local _count_carrier _blob_carrier _weights
+  _setup_moving_weights
+  _mock_tagless_offline_git
+
+  _dispatch --coverage-shard "${_blob_carrier}/2" --shard-weights "${_weights}"
+  assert_failure
+  assert_output --partial "stable release tags"
+
+  assert [ ! -f "${DOCKER_LOG}" ]
+}
+
+# why: the converse pin. Without it a gate that always answers yes for a
+# coverage shard would pass the two refusal tests above while every shard
+# again pays a tag fetch for a spec it does not run.
+@test "prev-release gate: a shard a CI weights blob takes the spec away from dispatches with no release tags" {
+  local _count_carrier _blob_carrier _weights
+  _setup_moving_weights
+  _mock_tagless_offline_git
+
+  _dispatch_with_blob "$(base64 -w0 < "${_weights}")" \
+    --coverage-shard "${_count_carrier}/2"
+
+  assert [ -f "${DOCKER_LOG}" ]
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "COVERAGE_SHARD=${_count_carrier}/2"
+}
+
+# why: the converse pin for the local form; a gate that ignored
+# --shard-weights and used the `@test` count would refuse here.
+@test "prev-release gate: a shard a --shard-weights file takes the spec away from dispatches with no release tags" {
+  local _count_carrier _blob_carrier _weights
+  _setup_moving_weights
+  _mock_tagless_offline_git
+
+  _dispatch --coverage-shard "${_count_carrier}/2" --shard-weights "${_weights}"
+
+  assert [ -f "${DOCKER_LOG}" ]
+  run cat "${DOCKER_LOG}"
+  assert_output --partial "COVERAGE_SHARD=${_count_carrier}/2"
 }
