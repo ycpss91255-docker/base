@@ -2083,6 +2083,106 @@ YAML
   refute_output --partial 'hadolint/hadolint-action'
 }
 
+# ── lint parity: every lint job runs inside the test-tools image ──
+
+# _host_lint_flags -- the option arms of test.sh's `main` that run a lint
+# on the HOST (they set `host_lint=` or `host_lint_group=` and
+# short-circuit before any compose dispatch), one flag per line. Parsed,
+# never sourced, for the reason the _LINT_TOOLS guard above gives.
+_host_lint_flags() {
+  awk '
+    /^[[:space:]]+--[a-z0-9-]+\)[[:space:]]+host_lint(_group)?=/ {
+      flag = $1
+      sub(/\).*/, "", flag)
+      print flag
+    }
+  ' /source/script/test/test.sh | sort -u
+}
+
+# _test_sh_calls <job> -- the code lines of <job> that call test.sh.
+_test_sh_calls() {
+  yaml_job_lines "${WF}" "${1}" | grep -E 'script/test/test\.sh' || true
+}
+
+# why: base#1412. Locally the lint phase runs inside the test-tools image;
+# in CI the shellcheck, doc-counts and lint-static jobs ran the same
+# drivers on the ubuntu runner, so a lint could pass one gate and fail the
+# other on the host's tools rather than on the code. The population is
+# derived from the workflow and the flag list from test.sh, so a lint job
+# added tomorrow, or a host arm added tomorrow, falls under the rule.
+@test "self-test.yaml: no job runs a lint through a host-direct test.sh arm (base#1412)" {
+  assert_spec_subject /source/script/test/test.sh \
+      "the self-test dispatcher whose host-direct arms this spec reads"
+  local -a _flags=()
+  mapfile -t _flags < <(_host_lint_flags)
+  # Non-vacuity: the derivation has to see the arms CI used to take.
+  printf '%s\n' "${_flags[@]}" | grep -qx -- '--shellcheck-only' \
+    || fail "the host-arm derivation did not find --shellcheck-only (got: ${_flags[*]})"
+  printf '%s\n' "${_flags[@]}" | grep -qx -- '--lint-group' \
+    || fail "the host-arm derivation did not find --lint-group (got: ${_flags[*]})"
+
+  local _job _call _flag _bad=""
+  while IFS= read -r _job; do
+    while IFS= read -r _call; do
+      [ -n "${_call}" ] || continue
+      for _flag in "${_flags[@]}"; do
+        if [[ "${_call}" =~ (^|[[:space:]])${_flag}([[:space:]\"]|$) ]]; then
+          _bad+=$'\n'"  ${_job}: ${_flag}"
+        fi
+      done
+    done < <(_test_sh_calls "${_job}")
+  done < <(yaml_job_names "${WF}")
+  [ -z "${_bad}" ] \
+    || fail "these jobs run a lint on the ubuntu host instead of inside the test-tools image the local gate uses:${_bad}"
+}
+
+# why: base#1412, the positive half. Refusing the host arms alone would be
+# satisfied by a lint job that stopped calling test.sh at all; the job has
+# to reach the image the one way every image job does and run the lint
+# through test.sh's in-container `--lint` path, as hadolint already does.
+@test "self-test.yaml: every lint job obtains the test-tools image and runs test.sh --lint in it (base#1412)" {
+  local -a _flags=()
+  mapfile -t _flags < <(_host_lint_flags)
+  local _job _call _flag _is_lint
+  local -a _lint_jobs=()
+  while IFS= read -r _job; do
+    _is_lint=0
+    while IFS= read -r _call; do
+      [ -n "${_call}" ] || continue
+      [[ "${_call}" =~ (^|[[:space:]])--lint([[:space:]]|$) ]] && _is_lint=1
+      for _flag in "${_flags[@]}"; do
+        [[ "${_call}" =~ (^|[[:space:]])${_flag}([[:space:]\"]|$) ]] && _is_lint=1
+      done
+    done < <(_test_sh_calls "${_job}")
+    [ "${_is_lint}" -eq 0 ] || _lint_jobs+=("${_job}")
+  done < <(yaml_job_names "${WF}")
+
+  # Non-vacuity: the four lint jobs the workflow carries today.
+  for _job in shellcheck doc-counts lint-static hadolint; do
+    printf '%s\n' "${_lint_jobs[@]}" | grep -qx -- "${_job}" \
+      || fail "'${_job}' was not recognised as a lint job (found: ${_lint_jobs[*]})"
+  done
+
+  local _bad=""
+  for _job in "${_lint_jobs[@]}"; do
+    run yaml_job_lines "${WF}" "${_job}"
+    assert_success
+    [[ "${output}" == *'./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"'* ]] \
+      || _bad+=$'\n'"  ${_job}: does not obtain the test-tools image"
+    [[ "${output}" == *"if: steps.obtain.outputs.build_local == 'true'"* ]] \
+      || _bad+=$'\n'"  ${_job}: has no build step gated on build_local"
+    [[ "${output}" == *'./script/ci/reclaim.sh --run "${CI_RUN_KEY}"'* ]] \
+      || _bad+=$'\n'"  ${_job}: does not reclaim its run's docker artifacts"
+    while IFS= read -r _call; do
+      [ -n "${_call}" ] || continue
+      [[ "${_call}" =~ (^|[[:space:]])--lint([[:space:]]|$) ]] \
+        || _bad+=$'\n'"  ${_job}: calls test.sh without --lint:${_call}"
+    done < <(_test_sh_calls "${_job}")
+  done
+  [ -z "${_bad}" ] \
+    || fail "every lint job must run inside the test-tools image, as the local lint phase does:${_bad}"
+}
+
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
