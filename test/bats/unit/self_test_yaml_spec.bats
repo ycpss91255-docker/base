@@ -2126,8 +2126,16 @@ YAML
 #
 # The step SELECTION is by text -- every step whose `run:` names test.sh
 # -- and over-selecting is harmless, because the verdict is what the step
-# did. The boundary, stated: the recorder lives in test.sh, so a step that
-# sources a lint driver itself, without test.sh, is not seen here.
+# did. The boundaries, stated: the recorder lives in test.sh, so a step
+# that sources a lint driver itself, without test.sh, is not seen here;
+# and each step runs on its own, so state an earlier step leaves for a
+# later one ($GITHUB_ENV, $GITHUB_PATH, files) is not modelled, nor is a
+# step's `if:`. Those are the runner's to decide, so the runtime holds the
+# negative half there: test.sh's one lint dispatch refuses a CI runner's
+# host (GITHUB_ACTIONS=true; ci_spec pins it), and a host lint reached any
+# way this probe cannot see fails its CI job. For the positive half a
+# lint is credited only from a step the runner runs and minds whenever
+# its job runs (_lint_probe_gating_errors).
 
 # _lint_probe_root -- a copy of the checkout (minus coverage/, and with a
 # fresh one-commit git repository in place of .git, as a step on the
@@ -2639,6 +2647,30 @@ _lint_probe_selection_errors() {
   done <<< "${_probe}"
 }
 
+# _lint_probe_gating_errors <probe output> <workflow> <job> -- one line
+# per step of <job> that ran a lint in the image but may not run, or may
+# not gate, when its job does: a step-level `if:` (the runner skips the
+# step while the probe, which runs every step, credits it) or a
+# `continue-on-error` that is not `false` (the lint runs and its failure
+# is ignored). Nothing when every crediting step runs and gates. Which
+# lint a step runs is the probe's to say; this reads only whether the
+# runner runs that step and minds its result (base#1412 review round 7).
+_lint_probe_gating_errors() {
+  local _probe="${1}" _wf="${2}" _job="${3}" _i _if _coe
+  while IFS= read -r _i; do
+    [ -n "${_i}" ] || continue
+    _if="$(LP_J="${_job}" LP_I="${_i}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)] | has("if")' "${_wf}")"
+    [ "${_if}" = false ] \
+      || printf '  %s: step %s lints in the image under an `if:`, so a run can skip it\n' "${_job}" "${_i}"
+    _coe="$(LP_J="${_job}" LP_I="${_i}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)]["continue-on-error"] // false' "${_wf}")"
+    [ "${_coe}" = false ] \
+      || printf '  %s: step %s lints in the image with continue-on-error, so its failure fails nothing\n' "${_job}" "${_i}"
+  done < <(awk -F'\t' -v j="$(basename "${_wf}"):${_job}#" '
+      $1 == "image" && index($2, j) == 1 {
+        l = substr($2, length(j) + 1); sub(/[^0-9].*$/, "", l); print l
+      }' <<< "${_probe}" | sort -u)
+}
+
 # why: base#1412, the negative half. No step of any workflow may reach a
 # lint on the host: that is the parity the local gate and CI share, and
 # it is decided by what the step does when bash runs it, so no spelling
@@ -2745,6 +2777,9 @@ _lint_probe_selection_errors() {
     _lint_probe_selection_errors "${_probe}" self-test.yaml:doc-counts doc-counts
     _lint_probe_selection_errors "${_probe}" self-test.yaml:hadolint hadolint
     _lint_probe_selection_errors "${_probe}" self-test.yaml:lint-static '' group
+    for _job in shellcheck doc-counts lint-static hadolint; do
+      _lint_probe_gating_errors "${_probe}" "${WF}" "${_job}"
+    done
   )"
   [ -z "${_errs}" ] || _bad+=$'\n'"${_errs}"
   local -a _groups=()
@@ -2763,7 +2798,8 @@ _lint_probe_selection_errors() {
 # with the self-test.yaml run identity, whose one step runs the given
 # lines as a block scalar. Prints its path. With LP_FIXTURE_MATRIX set
 # to a flow mapping, the job carries it as `strategy.matrix`; with
-# LP_FIXTURE_ON set to a flow mapping, the workflow carries it as `on:`.
+# LP_FIXTURE_ON set to a flow mapping, the workflow carries it as `on:`;
+# with LP_FIXTURE_STEP_KEY set to a `key: value` line, the step carries it.
 _lint_probe_fixture() {
   local _wf="${BATS_TEST_TMPDIR}/fixture.yaml" _line
   {
@@ -2773,7 +2809,12 @@ _lint_probe_fixture() {
       'jobs:' '  lint:' '    runs-on: ubuntu-latest'
     [ -z "${LP_FIXTURE_MATRIX:-}" ] \
       || printf '%s\n' '    strategy:' "      matrix: ${LP_FIXTURE_MATRIX}"
-    printf '%s\n' '    steps:' '      - run: |'
+    printf '%s\n' '    steps:'
+    if [ -n "${LP_FIXTURE_STEP_KEY:-}" ]; then
+      printf '%s\n' "      - ${LP_FIXTURE_STEP_KEY}" '        run: |'
+    else
+      printf '%s\n' '      - run: |'
+    fi
     for _line in "$@"; do
       printf '          %s\n' "${_line}"
     done
@@ -2817,6 +2858,19 @@ _lint_probe_fixture() {
   assert_success
   refute_output --partial $'host\t'
   assert_output --partial $'image\tfixture.yaml:lint#0\ttest-tools:ci-1-1\tshellcheck|'
+  # The probe runs the step with GITHUB_ACTIONS=true, as the runner does.
+  # test.sh refuses a lint on a host that carries it, so the in-image lint
+  # works only while the compose call does not forward it (base#1412
+  # review round 7): it is in no recorded docker argument.
+  local -a _calls=()
+  mapfile -t _calls < <(find "${BATS_TEST_TMPDIR}/probe/fixture.yaml/lint" -path '*/docker/call.*' -type f)
+  (( ${#_calls[@]} > 0 )) || fail "the --lint step left no docker call to read"
+  run grep -l -a GITHUB_ACTIONS "${_calls[@]}"
+  assert_failure
+  assert_output ''
+  run yq -o json -I0 '.services.ci.environment' /source/compose.yaml
+  assert_success
+  refute_output --partial "GITHUB_ACTIONS"
 }
 
 # why: base#1412 review round 4. A matrix job runs its steps once per
@@ -2931,6 +2985,34 @@ _lint_probe_fixture() {
   run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
   assert_success
   assert_output --partial 'lints [] in the image, not [|2/2]'
+}
+
+# why: base#1412 review round 7. The probe runs every step, the runner
+# does not: a lint step under `if: false` is skipped on the runner yet
+# credited here, and one under `continue-on-error` runs without gating.
+# A crediting step has to run and gate whenever its job runs.
+@test "lint probe: an image lint in a step that may be skipped or ignored is not credited (base#1412)" {
+  local _root _wf _key
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  for _key in 'if: false' "if: \${{ github.event_name == 'push' }}" 'continue-on-error: true'; do
+    _wf="$(LP_FIXTURE_STEP_KEY="${_key}" _lint_probe_fixture './script/test/test.sh --lint --shellcheck')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    assert_output --partial $'image\tfixture.yaml:lint#0'
+    run _lint_probe_gating_errors "${output}" "${_wf}" lint
+    assert_success
+    assert_output --partial 'lint: step 0 lints in the image'
+  done
+
+  for _key in '' 'continue-on-error: false'; do
+    _wf="$(LP_FIXTURE_STEP_KEY="${_key}" _lint_probe_fixture './script/test/test.sh --lint --shellcheck')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    assert_output --partial $'image\tfixture.yaml:lint#0'
+    run _lint_probe_gating_errors "${output}" "${_wf}" lint
+    assert_success
+    assert_output ''
+  done
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {

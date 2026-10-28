@@ -4001,6 +4001,55 @@ AWK
   assert_output --partial "lint group '9/4' is outside its own total"
 }
 
+# why: base#1412 review round 7. CI lints inside the test-tools image, as
+# the local gate does. A reading of the workflow cannot see every way a
+# step reaches a host arm (a value an earlier step put in $GITHUB_ENV, a
+# step that runs only on some runs), so the one lint dispatch refuses a CI
+# runner's host itself. Every host entry point goes through it: the
+# --<tool>-only family, --hadolint-only, --lint-group and `--ci` run on
+# the host. None of them may reach a driver.
+@test "_run_lint_tool: every host lint entry point is refused on a CI runner (base#1412)" {
+  local _entry
+  local -a _entries=(
+    'main --doc-counts-only'
+    'main --hadolint-only'
+    'main --lint-group 1/4'
+    'LINT_ONLY=1 LINT_TOOL=doc-counts main --ci'
+    'LINT_ONLY=1 LINT_TOOL= LINT_GROUP= main --ci'
+  )
+  for _entry in "${_entries[@]}"; do
+    run env LOG_FORMAT=json bash -c '
+      source /source/script/test/test.sh
+      # Every driver the one dispatch names, read from its own body.
+      for _f in $(declare -f _run_lint_tool | grep -oE "\b_run_[a-z_]+" | sort -u | grep -vx _run_lint_tool); do
+        eval "${_f}() { echo REACHED-DRIVER; }"
+      done
+      [ "$(_run_doc_counts)" = REACHED-DRIVER ] && [ "$(_run_hadolint)" = REACHED-DRIVER ] \
+        || { echo "BUG: the drivers were not stubbed"; exit 0; }
+      export GITHUB_ACTIONS=true
+      '"${_entry}"'
+    '
+    assert_failure
+    assert_output --partial '"body":"ci_host_lint_on_runner"'
+    refute_output --partial "REACHED-DRIVER"
+  done
+}
+
+# why: base#1412 review round 7. The refusal is the runner's mark, not a
+# refusal of host arms: off a runner an operator still times one driver
+# with them.
+@test "_run_lint_tool: off a CI runner a host arm still reaches its driver (base#1412)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_doc_counts() { echo REACHED-DRIVER; }
+    unset GITHUB_ACTIONS
+    main --doc-counts-only
+  '
+  assert_success
+  assert_output --partial "REACHED-DRIVER"
+  refute_output --partial "ci_host_lint_on_runner"
+}
+
 # why: #692 LINT_TOOL validation
 @test "main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)" {
   run bash -c '

@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (191)
+### test/bats/unit/ci_spec.bats (193)
 
 | Test | Description |
 |------|-------------|
@@ -1314,6 +1314,8 @@ between them can be asserted at all.
 | `main: --group without --lint, or beside a tool, dies before compose (base#1412)` | base#1412. `--group` narrows `--lint` the way `--hadolint` does; standalone it is a typo, and with a tool it asks for two narrowings of one run. Both refuse before compose, so neither costs an image or runs a lint the caller did not ask for. |
 | `main: --lint --group refuses a malformed spec before compose (base#1412)` | base#1412. A malformed group spec is refused on the host, before compose: it is a typo, and a typo should cost no image build. |
 | `main --ci: LINT_GROUP routes the lint-only run to one group (base#1412)` | base#1412. LINT_GROUP is how the in-image lint-static job selects its group; it has to reach `_run_lint_group`, whose refusal of an out-of-range spec is the observable proof that the group branch, not the whole-phase or single-tool branch, took the run. |
+| `_run_lint_tool: every host lint entry point is refused on a CI runner (base#1412)` | base#1412 review round 7. CI lints inside the test-tools image, as the local gate does. A reading of the workflow cannot see every way a step reaches a host arm (a value an earlier step put in $GITHUB_ENV, a step that runs only on some runs), so the one lint dispatch refuses a CI runner's host itself. Every host entry point goes through it: the --<tool>-only family, --hadolint-only, --lint-group and `--ci` run on the host. None of them may reach a driver. |
+| `_run_lint_tool: off a CI runner a host arm still reaches its driver (base#1412)` | base#1412 review round 7. The refusal is the runner's mark, not a refusal of host arms: off a runner an operator still times one driver with them. |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
 | `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
@@ -5775,7 +5777,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (134)
+### test/bats/unit/self_test_yaml_spec.bats (135)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6197,6 +6199,7 @@ rolling tag itself (#697, #1010)
 | `lint probe: a host lint on any one matrix leg is seen (base#1412)` | base#1412 review round 4. A matrix job runs its steps once per leg, and a step can take a host arm on one leg only. Every leg the runner would run has to be run here: the cartesian product of the matrix's lists, less `exclude`, with `include` merged into the legs it matches or added as legs of its own. |
 | `lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)` | base#1412 review round 6. A step can branch on a value only the run has -- a `needs` output, an input -- and reading that value as empty ran one branch and never the other, so a host lint behind the other passed. A value the workflow declares (a boolean or choice input) is run under every value it takes; one nothing declares is not run under a guess but reported `unresolved`. |
 | `lint probe: a matrix leg that lints another leg's group is caught (base#1412)` | base#1412 review round 6. Every leg reaching the image is not every lint being run: a matrix whose legs all lint one group skips the others. The selection check holds each leg to its own group. |
+| `lint probe: an image lint in a step that may be skipped or ignored is not credited (base#1412)` | base#1412 review round 7. The probe runs every step, the runner does not: a lint step under `if: false` is skipped on the runner yet credited here, and one under `continue-on-error` runs without gating. A crediting step has to run and gate whenever its job runs. |
 | `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | - |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |

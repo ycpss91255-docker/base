@@ -451,8 +451,19 @@ _refuse_suppressed_errexit() {
 # under `|| _rc=$?` would disable errexit inside the whole driver and let
 # a failure sail past). `-E` is required because an ERR trap is not
 # inherited by shell functions, and every driver is one.
+#
+# A lint on a CI runner's own host is refused (base#1412): CI lints inside
+# the test-tools image, as the local gate does, so the two judge a commit
+# with the same tools. GITHUB_ACTIONS is the runner's mark, on hosted and
+# self-hosted runners alike, and _run_via_compose never forwards it, so
+# the in-image lint `--lint` starts does not carry it. Refusing HERE, at
+# the one dispatch every host arm reaches, holds however a workflow step
+# reaches a host arm -- its spelling, an earlier step's $GITHUB_ENV, a
+# value only the run has -- which a reading of the workflow cannot see.
 _run_lint_tool() {
   _refuse_suppressed_errexit "the lint dispatch for '${1:-}'"
+  [[ "${GITHUB_ACTIONS:-}" != true ]] || _die ci_host_lint_on_runner \
+    "the '${1:-}' lint was asked to run on this CI runner's host (GITHUB_ACTIONS=true). CI lints inside the test-tools image, as the local gate does, so both judge a commit with the same tools: run './script/test/test.sh --lint' (narrowed with --<tool> or --group N/T) instead of a host arm."
   _LINT_ACTIVE_TOOL="${1:-}"
   set -E
   trap '_lint_driver_failed "$?" "${BASH_COMMAND}"' ERR
@@ -860,7 +871,8 @@ Options:
                           also backs `just test metrics`); no CI job calls
                           them -- every self-test.yaml lint job runs --lint
                           inside the test-tools image, as the local gate
-                          does (base#1412). Available:
+                          does, and on a CI runner (GITHUB_ACTIONS=true)
+                          they refuse to run (base#1412). Available:
                             --shellcheck-only        (needs shellcheck in
                                                      PATH)
                             --issueref-only          pure bash
@@ -2930,14 +2942,13 @@ main() {
     return 0
   fi
 
-  # --hadolint-only short-circuits and runs the linter directly here (no
-  # compose), so hadolint must already be in PATH. It is the in-container
-  # primitive: callers run it from INSIDE the ci/test-tools image (which
-  # bakes hadolint in) -- the self-test.yaml hadolint job invokes it via
-  # `_run_via_compose ci`. _run_hadolint _die's with a clear message if the
-  # binary is missing (e.g. invoked on a bare host).
+  # --hadolint-only runs the linter directly here (no compose), so hadolint
+  # must already be in PATH; _run_hadolint _die's with a clear message if
+  # the binary is missing (e.g. invoked on a bare host). It is a host arm
+  # like the --<tool>-only family above, so it goes through the same one
+  # dispatch, which is where a CI runner's host is refused (base#1412).
   if [[ "${hadolint_only}" == "1" ]]; then
-    _run_hadolint
+    _run_lint_tool hadolint
     return 0
   fi
 
