@@ -2092,22 +2092,163 @@ _host_lint_flags() {
   ' /source/script/test/test.sh | sort -u
 }
 
-# _test_sh_calls <job> -- the code lines of <job> that call test.sh.
-_test_sh_calls() {
-  yaml_job_lines "${WF}" "${1}" | grep -E 'script/test/test\.sh' || true
+# _test_sh_argvs --json | --files <path>... -- every call to
+# script/test/test.sh in the shell it is given, one line per call:
+# `<label>\t<arg>\t<arg>...`, the arguments AS THE SHELL PASSES THEM --
+# quotes removed, a backslash-newline joined, a `#` comment dropped, the
+# call ending at the first unquoted `;` `&` `|` `(` `)` or newline, and a
+# `bash -c "..."` string read as the shell it is. `--json` reads yq's
+# `{job: [run, ...]}` on stdin and labels a call with its job; `--files`
+# reads each file as one script and labels a call with the path.
+#
+# A parser, not a line match: review round 1 of base#1412 showed a
+# whole-word regex over the job's lines passing
+# `test.sh --lint --shellcheck "--shellcheck-only"` (a quoted flag) and
+# missing a flag on a continuation line, while either one ran a lint on
+# the host. Python because the test-tools image carries it for
+# dockerfile/toml_bridge.py and its string handling keeps this short.
+_test_sh_argvs() {
+  python3 -I /dev/fd/3 "$@" 3<<'PY'
+import json
+import sys
+
+SCRIPT = "script/test/test.sh"
+
+
+def words(text):
+    out = []
+    cur = None
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\":
+            if i + 1 < n and text[i + 1] != "\n":
+                cur = (cur or "") + text[i + 1]
+            i += 2
+            continue
+        if c == "'":
+            end = text.find("'", i + 1)
+            end = n if end < 0 else end
+            cur = (cur or "") + text[i + 1:end]
+            i = end + 1
+            continue
+        if c == '"':
+            i += 1
+            buf = ""
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and i + 1 < n and text[i + 1] in '"\\$`\n':
+                    if text[i + 1] != "\n":
+                        buf += text[i + 1]
+                    i += 2
+                    continue
+                buf += text[i]
+                i += 1
+            cur = (cur or "") + buf
+            i += 1
+            continue
+        if c == "#" and cur is None:
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if c in " \t\r":
+            if cur is not None:
+                out.append(cur)
+            cur = None
+            i += 1
+            continue
+        if c in ";&|()\n":
+            if cur is not None:
+                out.append(cur)
+            cur = None
+            out.append(None)
+            i += 1
+            continue
+        cur = (cur or "") + c
+        i += 1
+    if cur is not None:
+        out.append(cur)
+    return out
+
+
+def calls(text):
+    toks = words(text)
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok is not None and (tok == SCRIPT or tok.endswith("/" + SCRIPT)):
+            argv = []
+            i += 1
+            while i < len(toks) and toks[i] is not None:
+                argv.append(toks[i])
+                i += 1
+            yield argv
+            continue
+        if tok is not None and SCRIPT in tok:
+            yield from calls(tok)
+        i += 1
+
+
+def emit(label, text):
+    for argv in calls(text):
+        flat = [a.replace("\t", " ").replace("\n", " ") for a in argv]
+        print("\t".join([label] + flat))
+
+
+if sys.argv[1] == "--json":
+    for job, runs in json.load(sys.stdin).items():
+        for run in runs or []:
+            emit(job, run)
+else:
+    for path in sys.argv[2:]:
+        with open(path, encoding="utf-8") as fh:
+            emit(path, fh.read())
+PY
 }
 
-# _host_arms_in_call <call> <flag>... -- the <flag>s that <call> passes as
-# a whole word, one per line. Shared by both parity specs so "does this
-# test.sh call take a host arm" is answered one way.
-_host_arms_in_call() {
-  local _call="${1}" _flag
-  shift
-  for _flag in "$@"; do
-    [[ "${_call}" =~ (^|[[:space:]])${_flag}([[:space:]\"]|$) ]] \
-      && printf '%s\n' "${_flag}"
+# _workflow_test_sh_argvs <workflow> -- _test_sh_argvs over every step
+# `run:` script of <workflow>, labelled by job. yq does the YAML (block
+# scalars folded, as the runner sees them); a yq failure is a BUG line and
+# a non-zero status, never an empty list that would read as "no calls".
+_workflow_test_sh_argvs() {
+  local _json _status=0
+  _json="$(yq -o=json \
+      '.jobs | map_values([(.steps // [])[] | select(has("run")) | .run])' \
+      "${1}" 2>&1)" || _status=$?
+  if [[ "${_status}" -ne 0 ]]; then
+    printf 'BUG: yq exited %s reading the run scripts of %s: %s\n' \
+        "${_status}" "${1}" "$(printf '%s' "${_json}" | tr '\n' ' ')"
+    return 1
+  fi
+  printf '%s' "${_json}" | _test_sh_argvs --json
+}
+
+# _argv_labels_passing <flag> -- of the _test_sh_argvs lines on stdin, the
+# label of every call that passes <flag> as one whole argument.
+_argv_labels_passing() {
+  local _flag="${1}" _arg
+  local -a _f=()
+  while IFS=$'\t' read -r -a _f; do
+    for _arg in "${_f[@]:1}"; do
+      [[ "${_arg}" != "${_flag}" ]] || { printf '%s\n' "${_f[0]}"; break; }
+    done
   done
   return 0
+}
+
+# _host_arm_calls <workflow> -- `<job>: <flag>` for every host-direct arm
+# (_host_lint_flags) a test.sh call in <workflow> passes. Shared by the
+# parity spec and its regression cases, so "does this call take a host
+# arm" is answered one way.
+_host_arm_calls() {
+  local _argvs _flag _job
+  _argvs="$(_workflow_test_sh_argvs "${1}")" \
+    || { printf '%s\n' "${_argvs}"; return 1; }
+  while IFS= read -r _flag; do
+    while IFS= read -r _job; do
+      printf '%s: %s\n' "${_job}" "${_flag}"
+    done < <(_argv_labels_passing "${_flag}" <<< "${_argvs}")
+  done < <(_host_lint_flags)
 }
 
 # why: base#1412. Locally the lint phase runs inside the test-tools image;
@@ -2127,17 +2268,72 @@ _host_arms_in_call() {
   printf '%s\n' "${_flags[@]}" | grep -qx -- '--lint-group' \
     || fail "the host-arm derivation did not find --lint-group (got: ${_flags[*]})"
 
-  local _job _call _flag _bad=""
-  while IFS= read -r _job; do
-    while IFS= read -r _call; do
-      [ -n "${_call}" ] || continue
-      while IFS= read -r _flag; do
-        _bad+=$'\n'"  ${_job}: ${_flag}"
-      done < <(_host_arms_in_call "${_call}" "${_flags[@]}")
-    done < <(_test_sh_calls "${_job}")
-  done < <(yaml_job_names "${WF}")
-  [ -z "${_bad}" ] \
-    || fail "these jobs run a lint on the ubuntu host instead of inside the test-tools image the local gate uses:${_bad}"
+  run _host_arm_calls "${WF}"
+  assert_success
+  [ -z "${output}" ] \
+    || fail "these jobs run a lint on the ubuntu host instead of inside the test-tools image the local gate uses:"$'\n'"${output}"
+}
+
+# _parity_fixture <run-yaml-line>... -- a one-job workflow (job `lint`)
+# whose one step runs the given lines, written verbatim under `steps:`.
+# Prints its path.
+_parity_fixture() {
+  local _wf="${BATS_TEST_TMPDIR}/parity.yaml" _line
+  {
+    printf 'on: push\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n'
+    for _line in "$@"; do
+      printf '%s\n' "${_line}"
+    done
+  } > "${_wf}"
+  printf '%s\n' "${_wf}"
+}
+
+# why: review round 1 of base#1412. Each of these runs a lint on the host,
+# and a whole-word match over the job's lines let the first three through:
+# the shell strips the quotes before test.sh sees the flag, and a
+# continuation line is part of the call it continues.
+@test "host-arm parity: a quoted, continued or bash -c host arm is still a host arm (base#1412)" {
+  local _wf
+  _wf="$(_parity_fixture \
+      '      - run: ./script/test/test.sh --lint --shellcheck "--shellcheck-only"')"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --shellcheck-only'
+
+  _wf="$(_parity_fixture \
+      "      - run: ./script/test/test.sh '--lint-group' 1/4")"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --lint-group'
+
+  _wf="$(_parity_fixture \
+      '      - run: |' \
+      '          ./script/test/test.sh --lint \' \
+      '            --doc-counts-only')"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --doc-counts-only'
+
+  _wf="$(_parity_fixture \
+      "      - run: bash -c './script/test/test.sh --issueref-only'")"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --issueref-only'
+}
+
+# why: the other direction. A parser that over-reads -- a flag in a
+# comment, in another command on the next line, or after `;` -- would
+# refuse a workflow that runs every lint in the image.
+@test "host-arm parity: a host arm that test.sh is not passed is not a host arm (base#1412)" {
+  local _wf
+  _wf="$(_parity_fixture \
+      '      - run: |' \
+      '          ./script/test/test.sh --lint --shellcheck # not --shellcheck-only' \
+      '          echo --doc-counts-only' \
+      '          ./script/test/test.sh --lint; echo --lint-group 1/4')"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output ''
 }
 
 # why: base#1412, the positive half. Refusing the host arms alone would be
@@ -2145,27 +2341,24 @@ _host_arms_in_call() {
 # to reach the image the one way every image job does and run the lint
 # through test.sh's in-container `--lint` path, as hadolint already does.
 @test "self-test.yaml: every lint job obtains the test-tools image and runs test.sh --lint in it (base#1412)" {
-  local -a _flags=()
-  mapfile -t _flags < <(_host_lint_flags)
-  local _job _call _is_lint
+  local _argvs
+  _argvs="$(_workflow_test_sh_argvs "${WF}")" || fail "${_argvs}"
   local -a _lint_jobs=()
-  while IFS= read -r _job; do
-    _is_lint=0
-    while IFS= read -r _call; do
-      [ -n "${_call}" ] || continue
-      [[ -z "$(_host_arms_in_call "${_call}" --lint "${_flags[@]}")" ]] \
-        || _is_lint=1
-    done < <(_test_sh_calls "${_job}")
-    [ "${_is_lint}" -eq 0 ] || _lint_jobs+=("${_job}")
-  done < <(yaml_job_names "${WF}")
+  mapfile -t _lint_jobs < <(
+    {
+      _argv_labels_passing --lint <<< "${_argvs}"
+      _host_arm_calls "${WF}" | sed 's/: .*//'
+    } | sort -u
+  )
 
   # Non-vacuity: the four lint jobs the workflow carries today.
+  local _job
   for _job in shellcheck doc-counts lint-static hadolint; do
     printf '%s\n' "${_lint_jobs[@]}" | grep -qx -- "${_job}" \
       || fail "'${_job}' was not recognised as a lint job (found: ${_lint_jobs[*]})"
   done
 
-  local _bad=""
+  local _bad="" _calls _with_lint
   for _job in "${_lint_jobs[@]}"; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
@@ -2175,14 +2368,125 @@ _host_arms_in_call() {
       || _bad+=$'\n'"  ${_job}: has no build step gated on build_local"
     [[ "${output}" == *'./script/ci/reclaim.sh --run "${CI_RUN_KEY}"'* ]] \
       || _bad+=$'\n'"  ${_job}: does not reclaim its run's docker artifacts"
-    while IFS= read -r _call; do
-      [ -n "${_call}" ] || continue
-      [[ "${_call}" =~ (^|[[:space:]])--lint([[:space:]]|$) ]] \
-        || _bad+=$'\n'"  ${_job}: calls test.sh without --lint:${_call}"
-    done < <(_test_sh_calls "${_job}")
+    # Every test.sh call the job makes passes --lint, counted on the
+    # parsed calls so a quoted or continued --lint counts as one.
+    _calls="$(awk -F'\t' -v j="${_job}" '$1 == j' <<< "${_argvs}" | wc -l)"
+    _with_lint="$(_argv_labels_passing --lint <<< "${_argvs}" | grep -cx -- "${_job}" || true)"
+    [ "${_calls}" -eq "${_with_lint}" ] \
+      || _bad+=$'\n'"  ${_job}: $((_calls - _with_lint)) of its ${_calls} test.sh call(s) do not pass --lint"
   done
   [ -z "${_bad}" ] \
     || fail "every lint job must run inside the test-tools image, as the local lint phase does:${_bad}"
+}
+
+# _HOST_LINT_ARM_REASONS -- base#1412's exception declaration. test.sh
+# keeps its host-direct lint arms (`--<tool>-only`, `--lint-group`), and
+# requirement 2 of base#1412 allows that only behind a NAMED reason a spec
+# checks. This is that list: `<arm glob>=<reason>`, first match wins, and
+# the spec below holds every arm _host_lint_flags derives to exactly one
+# entry and every reason to what it claims. The reasons:
+#
+#   timing          a person runs the arm by hand to time one driver or
+#                   one group (ADR-00000028 asks for the measurement
+#                   before a figure is written down). Claim checked: NO
+#                   workflow step and NO justfile recipe calls it.
+#   metrics-recipe  `just test metrics` runs it on the host, because the
+#                   population comes from the git index and a worktree's
+#                   `.git` file names a path outside the container's
+#                   mount (script/test/justfile.test). Not part of any
+#                   gate. Claim checked: the `metrics` recipe calls it and
+#                   NO workflow step does.
+_HOST_LINT_ARM_REASONS=(
+  '--shell-metrics-only=metrics-recipe'
+  '--nesting-depth-only=metrics-recipe'
+  '--function-length-only=metrics-recipe'
+  '--positional-params-only=metrics-recipe'
+  '--*-only=timing'
+  '--lint-group=timing'
+)
+
+# _host_arm_entry <flag> -- the first _HOST_LINT_ARM_REASONS entry whose
+# glob matches <flag>, whole; empty when none matches.
+_host_arm_entry() {
+  local _entry
+  for _entry in "${_HOST_LINT_ARM_REASONS[@]}"; do
+    # shellcheck disable=SC2053  # the entry's glob IS the pattern.
+    if [[ "${1}" == ${_entry%%=*} ]]; then
+      printf '%s\n' "${_entry}"
+      return 0
+    fi
+  done
+  return 0
+}
+
+# why: base#1412 requirement 2. The host arms were kept, and "kept for
+# timing" written in a comment is a claim nothing re-reads: an arm a CI
+# job or a recipe starts calling again would keep the comment true-looking
+# while the parity it describes is gone. Each arm is tied to a declared
+# reason here, and the reason is checked against who actually calls it.
+@test "test.sh: every host-direct lint arm is kept for a declared reason that holds (base#1412)" {
+  assert_spec_subject /source/script/test/justfile.test \
+      "the justfile whose metrics recipe the metrics-recipe reason names"
+  assert_spec_subject_dir /source/.github/workflows \
+      "the workflows no host arm may be called from"
+  local -a _flags=()
+  mapfile -t _flags < <(_host_lint_flags)
+  # Non-vacuity: both reasons' arms are present today.
+  printf '%s\n' "${_flags[@]}" | grep -qx -- '--shellcheck-only' \
+    || fail "the host-arm derivation did not find --shellcheck-only (got: ${_flags[*]})"
+  printf '%s\n' "${_flags[@]}" | grep -qx -- '--shell-metrics-only' \
+    || fail "the host-arm derivation did not find --shell-metrics-only (got: ${_flags[*]})"
+
+  # Who calls what: every workflow step, every justfile recipe, and the
+  # metrics recipe on its own.
+  local _wf _out _wf_argvs="" _just_argvs _metrics_argvs
+  for _wf in /source/.github/workflows/*.yaml /source/.github/workflows/*.yml; do
+    [ -f "${_wf}" ] || continue
+    _out="$(_workflow_test_sh_argvs "${_wf}")" || fail "${_out}"
+    _wf_argvs+="${_out}"$'\n'
+  done
+  local -a _justfiles=()
+  for _wf in /source/justfile /source/script/*/justfile.* \
+             /source/dist/script/justfile /source/dist/script/*/justfile.* \
+             /source/dist/script/*/skel/justfile.*; do
+    [ -f "${_wf}" ] && _justfiles+=("${_wf}")
+  done
+  [ "${#_justfiles[@]}" -gt 0 ] || fail "no justfile found under /source"
+  _just_argvs="$(_test_sh_argvs --files "${_justfiles[@]}")"
+  awk '/^metrics[ :]/{f=1; print; next} f && /^[^[:space:]]/{f=0} f' \
+      /source/script/test/justfile.test > "${BATS_TEST_TMPDIR}/metrics.just"
+  [ -s "${BATS_TEST_TMPDIR}/metrics.just" ] \
+    || fail "script/test/justfile.test has no metrics recipe, which the metrics-recipe reason names"
+  _metrics_argvs="$(_test_sh_argvs --files "${BATS_TEST_TMPDIR}/metrics.just")"
+
+  local _flag _reason _bad="" _entry _decided=""
+  for _flag in "${_flags[@]}"; do
+    _entry="$(_host_arm_entry "${_flag}")"
+    _decided+="${_entry}"$'\n'
+    _reason="${_entry#*=}"
+    [ -z "$(_argv_labels_passing "${_flag}" <<< "${_wf_argvs}")" ] \
+      || _bad+=$'\n'"  ${_flag}: a workflow step calls it, which no reason allows"
+    case "${_reason}" in
+      timing)
+        [ -z "$(_argv_labels_passing "${_flag}" <<< "${_just_argvs}")" ] \
+          || _bad+=$'\n'"  ${_flag}: declared 'timing', but a justfile recipe calls it" ;;
+      metrics-recipe)
+        [ -n "$(_argv_labels_passing "${_flag}" <<< "${_metrics_argvs}")" ] \
+          || _bad+=$'\n'"  ${_flag}: declared 'metrics-recipe', but the metrics recipe does not call it" ;;
+      '')
+        _bad+=$'\n'"  ${_flag}: no _HOST_LINT_ARM_REASONS entry names it" ;;
+      *)
+        _bad+=$'\n'"  ${_flag}: reason '${_reason}' is not one this spec can check" ;;
+    esac
+  done
+  # Every entry decides at least one arm, so the list cannot outlive the
+  # arms it names.
+  for _entry in "${_HOST_LINT_ARM_REASONS[@]}"; do
+    grep -qxF -- "${_entry}" <<< "${_decided}" \
+      || _bad+=$'\n'"  _HOST_LINT_ARM_REASONS entry '${_entry}' decides no arm"
+  done
+  [ -z "${_bad}" ] \
+    || fail "a host-direct test.sh arm is kept without a reason that holds (base#1412 requirement 2; declare it in _HOST_LINT_ARM_REASONS or remove the arm):${_bad}"
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
