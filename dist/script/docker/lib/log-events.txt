@@ -302,6 +302,9 @@ ci_coverage_evidence_not_erased
 ci_coverage_local_conflict
 ci_jobs_without_coverage_local
 ci_invalid_coverage_jobs
+ci_shard_weights_without_shard
+ci_shard_weights_unreadable
+ci_invalid_shard_weights_blob
 ci_invalid_jobs_policy
 ci_invalid_per_test_timeout
 ci_no_fragile_files

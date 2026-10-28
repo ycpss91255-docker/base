@@ -1091,7 +1091,7 @@ jobs:
         # The blob travels as a job output rather than being looked up
         # again: base64 so a job output carries it verbatim, and one output
         # so there is nothing per-shard left to diverge. Size is not a
-        # concern at this scale -- one line of `<seconds> <basename>` per
+        # concern at this scale -- one line of `<seconds> <spec path>` per
         # spec in the suite, a few KB base64'd against the 1 MB an output
         # takes -- and a blob too large or too damaged to decode fails the
         # shard loudly instead of quietly re-partitioning it.
@@ -1113,6 +1113,22 @@ jobs:
             printf 'blob=\n' >> "${GITHUB_OUTPUT}"
             echo "shard weights: cache miss -- every shard partitions by @test count, from the same absent source"
           fi
+
+      - name: Upload the published weights as the shard-weights artifact
+        # A job output cannot be fetched after the run; an artifact can. So
+        # the exact file encoded above is kept: fetched with
+        # `gh run download <run-id> -n shard-weights -D <dir>`, it is the
+        # file `just test coverage N/T <dir>/.shard-weights` partitions by,
+        # so the local shard is this run's shard (base#1410). Absent on a
+        # cache miss, where the shards weighed by `@test` count and so does
+        # a local run with no weights file.
+        uses: actions/upload-artifact@v7
+        with:
+          name: shard-weights
+          path: test/bats/.shard-weights
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
 
   coverage:
     # Sharded kcov coverage -- the PRIMARY unit gate and an ENFORCED PR gate
@@ -1210,30 +1226,6 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Write the single-sourced shard weights (time-balanced partition)
-        # The greedy-LPT partition (_shard_unit_files / _spec_weight) weights
-        # specs by recorded kcov seconds, and it is a partition of the suite
-        # only if every shard weighs them identically. So the blob is not
-        # looked up here: compute-shards restored it ONCE and handed it to
-        # the whole matrix, and this writes that one blob to the in-repo path
-        # _spec_weight reads by default -- the repo is mounted at /source, so
-        # the in-container coverage run picks it up with no -e plumbing.
-        #
-        # An empty output is the cache-miss case and is not an error: every
-        # shard then weighs by `@test` count, from the same absent source, so
-        # the partition still holds.
-        env:
-          SHARD_WEIGHTS_BLOB: ${{ needs.compute-shards.outputs.weights }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${SHARD_WEIGHTS_BLOB}" ]]; then
-            echo "no shard weights this run: partitioning by @test count, as every other shard does"
-            exit 0
-          fi
-          mkdir -p test/bats
-          printf '%s' "${SHARD_WEIGHTS_BLOB}" | base64 -d > test/bats/.shard-weights
-          echo "shard weights: $(grep -c . test/bats/.shard-weights) spec timings from compute-shards"
-
       - name: Run kcov coverage shard ${{ matrix.shard }}
         # A step bound below the job's 60, so a hang the per-test bound
         # misses (a stuck kcov merge, a wedged container) fails THIS step
@@ -1241,6 +1233,23 @@ jobs:
         # step (base#1413). The slowest shard step across the last twelve
         # successful self-test runs took 474 s; 15 min is about twice that.
         timeout-minutes: 15
+        # The greedy-LPT partition (_shard_unit_files / _spec_weight) weighs
+        # specs by recorded kcov seconds, and it is a partition of the suite
+        # only if every shard weighs them identically. So the blob is not
+        # looked up here: compute-shards restored it ONCE and handed it to
+        # the whole matrix, and test.sh forwards it into the container,
+        # which decodes it -- the same decoder a local
+        # `just test coverage N/T <weights>` reaches (base#1410). An empty
+        # blob is the cache-miss case: every shard then weighs by `@test`
+        # count, from the same absent source, so the partition still holds.
+        #
+        # COVERAGE_JOBS is the shard's kcov slice count, said explicitly
+        # rather than read off the runner's cores: the same shard dealt into
+        # a different number of slices is a different run (base#1410), and
+        # a self-hosted runner or a larger hosted SKU would re-slice it.
+        env:
+          COVERAGE_JOBS: 4
+          SHARD_WEIGHTS_BLOB: ${{ needs.compute-shards.outputs.weights }}
         run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}
 
       - name: Upload shard coverage artifact
@@ -1343,7 +1352,7 @@ jobs:
         #
         # EXHAUSTIVE is what it checks, and that is the half that decides
         # the figure. Disjointness is not observable here -- the merge keys
-        # on basename, so a spec two shards both ran reads back as one
+        # on the spec path, so a spec two shards both ran reads back as one
         # entry -- and it does not need to be: the reports are merged by
         # per-line UNION, so a line two shards both covered is counted
         # once. A spec that ran TWICE costs runtime; a spec that ran NOWHERE
