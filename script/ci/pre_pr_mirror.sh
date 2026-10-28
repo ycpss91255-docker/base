@@ -17,7 +17,9 @@
 #   ./script/ci/pre_pr_mirror.sh [--base <ref>]
 #       Run the plan for the diff <ref>...HEAD (default origin/main), in
 #       order, stopping at the first red command. Exit 0 only when every
-#       planned command was green.
+#       planned command was green; 1 on a red command; 3 when a planned
+#       command was printed as NOT RUN (an amd64 leg on a daemon that is not
+#       amd64, see below) and nothing was red.
 #   ./script/ci/pre_pr_mirror.sh --table
 #       Print the attested / excluded table, one TAB-separated line per
 #       required job:
@@ -65,6 +67,12 @@
 # on the job, so a gate written here that runs a job on fewer diffs than CI
 # does is red there.
 #
+# Architecture: `system` and the amd64 `acceptance` leg build and run
+# images for the docker daemon's own architecture, and CI runs both on
+# amd64 runners. On any other daemon -- or one whose architecture cannot
+# be read -- the run prints those two as NOT RUN instead of running them
+# for the wrong arch and calling the amd64 leg green (base#1409).
+#
 # Style: Google Shell Style Guide.
 
 set -euo pipefail
@@ -86,6 +94,10 @@ readonly _CMD_FLOOR='bash ./script/test/drivers/coverage_gate.sh --run-dirs cove
 readonly _CMD_UNION='./script/test/test.sh --coverage-union-check coverage/timings.tsv'
 readonly _CMD_SYSTEM='just test system'
 readonly _CMD_ACCEPTANCE='just test acceptance'
+
+# The planned commands that measure the daemon's own architecture, for jobs
+# CI runs on amd64 runners only (base#1409).
+readonly -a _AMD64_CMDS=("${_CMD_SYSTEM}" "${_CMD_ACCEPTANCE}")
 
 # _table -- what this mirror attests and what it leaves to CI, and why.
 #
@@ -189,23 +201,54 @@ _actionlint() {
   docker run --rm -v "${_MIRROR_ROOT}:/repo:ro" -w /repo "${img}" "${args[@]}"
 }
 
+# _daemon_arch -- the docker daemon's architecture as `docker info`
+# reports it (x86_64, aarch64, ...), or `unknown` when it cannot be read.
+_daemon_arch() {
+  local arch
+  arch="$(docker info --format '{{.Architecture}}' 2>/dev/null)" || arch=""
+  echo "${arch:-unknown}"
+}
+
+# _needs_amd64 <cmd> -- true when <cmd> is one of _AMD64_CMDS.
+_needs_amd64() {
+  local c
+  for c in "${_AMD64_CMDS[@]}"; do
+    [[ "$1" == "${c}" ]] && return 0
+  done
+  return 1
+}
+
 # _run <base> -- plan the diff <base>...HEAD and run it, first red stops.
 # --no-renames: with rename detection a move lists only its destination,
 # so a file moved from dist/ into doc/ read as doc-only and skipped the
 # jobs CI's pathspec diffs run for the removed source (base#1409).
 _run() {
-  local base="$1" diff cmd
+  local base="$1" diff cmd arch="" not_run=0
   diff="$(git -C "${_MIRROR_ROOT}" diff --no-renames --name-only "${base}...HEAD")" || {
     printf 'pre_pr_mirror: cannot diff %s...HEAD in %s\n' "${base}" "${_MIRROR_ROOT}" >&2
     return 2
   }
   while IFS= read -r cmd; do
+    if _needs_amd64 "${cmd}"; then
+      [[ -n "${arch}" ]] || arch="$(_daemon_arch)"
+      if [[ "${arch}" != x86_64 && "${arch}" != amd64 ]]; then
+        printf '\npre_pr_mirror: NOT RUN: %s (CI runs it on an amd64 runner; the docker daemon here is %s)\n' \
+          "${cmd}" "${arch}" >&2
+        not_run=$(( not_run + 1 ))
+        continue
+      fi
+    fi
     printf '\n==> pre-PR mirror: %s\n' "${cmd}"
     if ! (cd "${_MIRROR_ROOT}" && bash -c "${cmd}"); then
       printf 'pre_pr_mirror: RED at: %s\n' "${cmd}" >&2
       return 1
     fi
   done < <(printf '%s\n' "${diff}" | _plan)
+  if (( not_run )); then
+    printf '\npre_pr_mirror: NOT GREEN for %s...HEAD: %d planned command(s) not run, see NOT RUN above\n' \
+      "${base}" "${not_run}" >&2
+    return 3
+  fi
   printf '\npre_pr_mirror: every planned command was green for %s...HEAD\n' "${base}"
 }
 
