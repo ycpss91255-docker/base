@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (183)
+### test/bats/unit/ci_spec.bats (186)
 
 | Test | Description |
 |------|-------------|
@@ -1271,10 +1271,13 @@ between them can be asserted at all.
 | `_bats_args_with_label: an unreadable core count is labelled a fallback, not a reading (#1068)` | `nproc 2>/dev/null \|\| echo 4` printed `jobs=4` for a FAILED probe and for a genuine 4-core machine alike, so the run's own log could not say which had happened -- and on CI both readings were 4 at once. That is the shape the policy argument three lines up refuses. A FALLBACK is the right answer here where a `_die` is the right answer there: an unreadable POLICY is a caller's bug with no correct run to give it, while an unreadable CORE COUNT is an ENVIRONMENT -- the same kind as `parallel` missing from PATH, which this helper already falls back on and NAMES. So it falls back and says so, and what is pinned is the saying: the two labels must differ even when the two counts agree. |
 | `_bats_args_with_label: the metered policy holds a run at one job per core (#1068)` | every runner calls this helper, so the floor reaches all of them unless a policy says otherwise -- and for the kcov runners the measurement says otherwise. N bats jobs feed ONE single-threaded trace parser: raising a shard from 4 to 32 jobs is 1.75x and costs a REPRODUCIBLE hole, four runs at 16/32 jobs unioning to 31 lines short of the serial set (30 of them one region of wrapper/run.sh), ~0.45 points off the reported rate, where two runs at jobs=4 union to the serial set EXACTLY. Faster while losing lines is not an improvement for the runner whose output IS the line set, so `metered` is one job per core and no more -- until base#726 stops the parser being the drain. |
 | `_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)` | the shard is the kcov path CI runs eight of, and the one whose covered set the badge publishes. It has to DECLARE that it is metered rather than merely happen to sit at the core count today, or the next change to the default silently takes 0.45 points off the reported rate and puts a 31-line hole in wrapper/run.sh. |
-| `_run_coverage_path: one spec under kcov is metered too (#1068)` | `_run_coverage_path` is the driver's other kcov runner. It publishes no figure, but its whole purpose is to show what one spec covers under instrumentation, so oversubscribing it corrupts exactly the thing the person ran it to look at. |
-| `_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
+| `_run_coverage_path: a directory under kcov is metered too (#1068)` | `_run_coverage_path` is the driver's other kcov runner. It publishes no figure, but its whole purpose is to show what one spec covers under instrumentation, so oversubscribing it corrupts exactly the thing the person ran it to look at. |
+| `_run_coverage: a shard takes its slice count from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
 | `_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)` | `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the certificate is derived from what ran, not from the argument -- so such a run stamps scope=full, the only scope the release badge publishes, off a parallel measurement the full-suite branch declares serial precisely because it under-reports. `just test coverage 1/1` reaches it, and so does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix ["1/1"]. The policy must follow the walked set, so a slice that IS the suite is serial like the suite. |
 | `_run_coverage: with parallel absent a shard run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud, and the SHARD path is the one that asks. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
+| `_run_coverage: a concurrent shard runs one kcov per serial bats slice, joined by --merge (base#1414)` | N bats jobs under ONE kcov share one trace pipe, and their records interleave: kcov credits only the first marker on a line and echoes the marker-less pieces to the step output (base#1414). A concurrent shard therefore runs one kcov per slice, each around a SERIAL bats, and joins the slices with `kcov --merge`; every shard spec runs in exactly one slice. |
+| `_run_coverage_path: a directory runs one kcov per serial bats slice, joined by --merge (base#1414)` | `_run_coverage_path` is the other kcov runner, and a directory path runs several specs at once, so it shares the pipe the same way (base#1414). It slices the same way: one kcov per serial bats slice, joined by `kcov --merge`. |
+| `_run_coverage_path: an empty directory prints the 1..0 plan and passes (base#1414)` | one kcov wrapped bats, and bats prints the TAP plan `1..0` for a directory with no specs. The sliced runner deals FILES, so an empty directory has no slice to run; it must still print that plan and pass, or an empty selection reads differently under the sliced shape (base#1414). |
 | `drivers/bats.sh: --jobs is written in exactly one place, the shared helper (#1060)` | the defect was never a missing flag, it was a second place to write one -- _run_coverage assembled its own bats command, so what the helper decides never reached it. A guard on the FLAG rather than on one call site is what keeps a third hand-rolled invocation from appearing: the driver may name --jobs exactly once, in the helper's own body. |
 | `_run_system: its bats takes --jobs and the label from the shared helper (#1060)` | the system runner was the driver's OTHER hand-rolled bats command -- its own nproc probe, no --recursive, and nothing said when parallel was missing. It is the second copy the one-writer guard refuses, so it takes its arguments from the helper like everything else. It gets the FLOORED count like every other runner with no kcov in the loop (base#1068): its tests are the most subprocess-bound in the suite, so it is where oversubscription has the most to give. |
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
@@ -1752,7 +1755,7 @@ unreadable layer, and a directory where the layer should be.
 | `CRLF line endings load the same rows and generate the same set as LF` | A file saved on Windows ends every line in CRLF. TOML allows it, and the configuration it describes is the same one -- so the shell reader must load the same rows and apply must generate the same set, with no `\r` carried into a value. |
 | `a non-ASCII value reaches .env and compose.yaml unchanged` | A value outside ASCII is a value like any other: it must reach the container env (.env) and the compose file byte for byte -- not escaped, not transliterated, not dropped. |
 | `invalid UTF-8 is refused with the file named and nothing generated` | Bytes that are not UTF-8 are not TOML, so the layer cannot be read. The refusal must name the file, and nothing of the generated set may be written -- a half-written set reads as a successful apply. |
-| `a 1 MiB value finishes within 60 s and generates what a short value does` | A value is not bounded by the reader, so a large one must neither hang apply nor come out different from a short one. Bound: 60 s, against about 3 s measured for a 1 MiB value in the test-tools image -- the margin is for a loaded CI runner, not for a slower algorithm. The bound is ENFORCED: apply runs under `timeout`, which kills it at 60 s and answers 124, so a hang fails the status check instead of hanging the suite. And each run's value is asserted present in .env, whole, before the two generated sets are compared -- a comparison alone passes an emitter that drops the entry from both runs. Skipped under kcov: the value goes into the bash trace, and in a coverage shard that trace reaches stdout as lines of up to 1 MiB, which hung shard 7/12 of CI run 40470315196. The bats-fragile job runs it plain. |
+| `a 1 MiB value finishes within 60 s and generates what a short value does` | A value is not bounded by the reader, so a large one must neither hang apply nor come out different from a short one. Bound: 60 s, against about 3 s measured for a 1 MiB value in the test-tools image -- the margin is for a loaded CI runner, not for a slower algorithm. The bound is ENFORCED: apply runs under `timeout`, which kills it at 60 s and answers 124, so a hang fails the status check instead of hanging the suite. And each run's value is asserted present in .env, whole, before the two generated sets are compared -- a comparison alone passes an emitter that drops the entry from both runs. It runs under kcov as well as plain: the value goes into the bash trace, and a coverage shard whose concurrent jobs shared one kcov printed that trace as lines of up to 1 MiB, which hung shard 7/12 of CI run 40470315196. Each slice now has a kcov of its own (base#1414), so the test is not skipped there. |
 | `an unreadable layer is refused with its status, event id and path` | A layer that is there and cannot be read is not an absent layer: a configuration replaced by the template defaults is the failure this must not become. Unreadability needs a user the mode applies to, so as root the case drops to `nobody` with su; without su it cannot be staged. |
 | `a directory in place of setup.toml is refused with its event id and path` | A directory where setup.toml should be is not an absent layer either. Measured before base#1400: apply logged conf_no_repo_conf ("using template defaults"), then conf_upsert_file_missing writing the workspace bind into it, and exited 0 with compose.yaml generated. It must be refused like any other layer that is there and cannot be read. |
 | `a FIFO in place of setup.toml is refused within a bound, with its event id and path` | A FIFO where setup.toml should be is there too, and unlike a directory it does not fail on open: open(2) on a FIFO blocks until a writer arrives, so an `-e` gate that hands it to the bridge hangs apply forever instead of refusing (review round 3 of base#1400). The bound makes the hang a failure instead of a wedged suite. |
@@ -3804,29 +3807,27 @@ the bump rather than moving the coverage number by a plausible margin.
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
 
-### test/bats/unit/kcov_trace_volume_spec.bats (3)
+### test/bats/unit/kcov_shard_concurrency_spec.bats (3)
 
-Under kcov every line bash runs is traced, values included. In a coverage
-shard (jobs=4) that trace reaches the job's stdout, so a test that builds a
-1 MiB value writes single lines of up to 1 MiB of it. CI run 40470315196
-(coverage 7/12) stopped about 64 KiB into such a line and stayed silent for
-60 minutes until it was cancelled. Locally, with the CI image and a stdout
-reader that stops on lines over 64 KiB, kcov, the four bats workers and the
-test's bash all blocked in pipe_write and the shard never finished; skipping
-that one test under COVERAGE let the same shard pass. The test still runs in
-plain bats (the bats-fragile job runs every file carrying the skip guard),
-so nothing goes unrun.
-
-The rule is mechanical: a @test body that builds a value with `head -c N`, N
-over 65536 (one Linux pipe buffer), carries the kcov skip guard `[
-"${COVERAGE:-0}" = 1 ] && skip`. The scan is one awk pass, so it costs
-nothing under kcov.
+A coverage shard runs its specs concurrently, and the instrument must not
+notice. kcov's bash engine reads coverage out of the xtrace stream (PS4
+`kcov@${BASH_SOURCE}@${LINENO}@`), and every bash below one kcov traces into
+ONE pipe. musl bash writes a record over 1024 B as two writes (the body,
+then a lone newline), and no write over PIPE_BUF is atomic, so two traced
+processes writing at once interleave their records. kcov then credits only
+the first marker on a line -- the rest of the line's coverage is lost with
+every test green -- and echoes every marker-less line to its own stderr,
+which on CI is the step's output (base#1414). This spec is behavioural on
+purpose: it runs the REAL kcov through the driver's shard entry over a
+fixture tree, so it catches the defect however a future test builds its
+value, rather than scanning spec text for one way of building it. It
+replaces kcov_trace_volume_spec.bats.
 
 | Test | Description |
 |------|-------------|
-| `kcov trace volume: an unguarded 1 MiB value is reported` | The scan must find the construct it forbids, or a clean tree proves nothing. |
-| `kcov trace volume: a guarded value and a 64 KiB value pass` | The guard, and a value that fits in one pipe buffer, are both allowed: neither floods the shard's stdout. |
-| `kcov trace volume: no test in the repo builds an unguarded value past 64 KiB` | The repo's own bats trees hold no unguarded large value. |
+| `kcov shard fixture: the driver ran the four heavy specs concurrently and passed` | The shard must be concurrent and must finish green, or the two assertions below would compare a run that never raced, or nothing. The label is the driver's claim; the rendezvous is the proof -- all four specs were running at the same moment, so their slices overlapped. |
+| `kcov shard: a concurrent shard's kcov writes no stderr, and no output line reaches 1 KiB` | kcov echoes every marker-less trace line to its stderr, and on CI that stderr is the step's output -- megabyte lines a hosted runner masks at quadratic cost (base#1414). The fragments are not only the payload: a split record leaves a lone tail, and a multi-line record leaves lines of any length. So the assertion reads each slice's RAW stderr, not the bounded tail the driver replays, and admits 0 B of it; the driver's own output must also hold no line of 1 KiB or more. |
+| `kcov shard: a concurrent shard covers exactly the lines a serial run covers` | kcov credits only the FIRST marker on an interleaved line, so a shared pipe loses lines that ran with every test green. The concurrent shard's covered set must equal a serial run's, line for line. |
 
 ### test/bats/unit/lib_spec.bats (75)
 
