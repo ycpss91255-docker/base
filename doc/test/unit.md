@@ -2134,6 +2134,48 @@ workflow, whose shape the last section pins.
 | `coverage-local workflow: drives test.sh --coverage-local` | the workflow has to drive the MODE, through the same entry an operator uses. A validation job that called `--coverage` would be a second, slower way of running what CI already runs and would never exercise the merge this issue is about. Read as the SET of modes the workflow invokes, off the code, because two things would otherwise pass a broken file: the header comment names `test.sh --coverage-local` twice, so a whole-file `--partial` stays green after the run step is switched back to the serial mode; and there are TWO invocations (with and without `--jobs`), so a `--partial` over either one is satisfied by the other. A set has neither hole -- and the `--jobs` branch matters most, because `--jobs` on the serial mode is an invocation the entry refuses outright. |
 | `self-test.yaml: the PR gate is unchanged -- no self-hosted runner, no local mode` | production must be untouched. The acceptance criterion is explicit that the PR gate keeps the hosted matrix, and the cheapest way for that to rot is a job quietly added to self-test.yaml on the way past. |
 
+### test/bats/unit/coverage_shard_parity_spec.bats (12)
+
+a local coverage shard and CI's shard of the same name were two different
+runs. Three inputs decide a shard, and each differed:
+
+1. The WEIGHTS. CI restores test/bats/.shard-weights from its cache
+(compute-shards) and hands every shard the same blob; a checkout has no such
+file (it is gitignored), so the local greedy-LPT partition fell back to
+`@test` counts and put different specs in shard N. 2. The weight KEY. A
+weight was recorded and looked up by spec BASENAME, and five basenames name
+two specs each (a unit and an integration spec): apk_mirror,
+init_existing_repo_signals, init_installed_paths, test_tools_pins, upgrade.
+Neither spec of a pair could carry its own runtime, and the union check
+could not tell one of them from the other. 3. The JOB COUNT. A shard deals
+its specs into one kcov slice per job, and the job count was `nproc` -- four
+on a hosted runner, 32 on a workstation -- so the same specs ran in
+different slices.
+
+Measured with bats 1.13.0 (the test-tools image), and what the bats mock
+below reproduces: a junit <testsuite name> is the spec path RELATIVE TO THE
+FIRST TARGET'S DIRECTORY when the spec is under it, and the absolute path
+otherwise. `bats --recursive unit/ integration/` names unit/sub/x_spec.bats
+`sub/x_spec.bats` and integration/y_spec.bats
+`/source/test/bats/integration/y_spec.bats`; with file targets unit/sub/x,
+integration/y it names them `x_spec.bats` and the absolute path. So a junit
+name is not a spec identity on its own.
+
+| Test | Description |
+|------|-------------|
+| `_spec_weight: two specs sharing a basename each read their own recorded seconds (base#1410)` | the five colliding basenames. Keyed by basename, the unit and the integration apk_mirror spec read the same line -- or, with the file written by path, neither line -- so the partition cannot place either by its own runtime. |
+| `_run_coverage: a full run records every spec's timing under its repo-relative path (base#1410)` | the writer half. The timings a run records ARE the next run's weights and the coverage-gate's run manifest, so they must name each spec by the path the partition and the inventory key on. The full run is handed two DIRECTORIES, so bats names the integration specs by absolute path and the foldered unit spec as `sub/...`. |
+| `_run_coverage: a shard records each walked spec's timing under its repo-relative path (base#1410)` | same as above for a shard, whose slices are handed FILES -- bats then names a spec under the first target's directory by its basename and every other one by absolute path. |
+| `_coverage_union_gap: names the integration spec of a colliding basename that no shard ran (base#1410)` | the reader half of the manifest. With both apk_mirror specs keyed by one basename, a matrix that ran only the unit one read as complete; keyed by path, the integration one is the spec named as unrun. |
+| `job count: a full coverage run stays one serial kcov under COVERAGE_JOBS (base#1410)` | the control. The full suite is one serial kcov whatever the override says -- COVERAGE_JOBS is the SHARD slice count, and the full run's serial policy carries its own measurement (bats.sh). |
+| `job count: a shard defaults to the hosted runner's four slices, not nproc (base#1410)` | the hosted value is the default, so a workstation's shard N/T is dealt into the slices a GitHub-hosted runner (four cores) deals it into -- not into one slice per local core. |
+| `job count: COVERAGE_JOBS sets a shard's kcov slice count (base#1410)` | the override is the knob CI sets explicitly and a developer may set to reproduce a different runner. |
+| `job count: main --coverage-shard forwards COVERAGE_JOBS, the hosted default when unset (base#1410)` | the host side. The container cannot see the host's intent unless the count crosses the compose boundary: `just test coverage N/T` says the hosted default out loud, and an ambient COVERAGE_JOBS (CI's) wins. |
+| `self-test.yaml: the coverage shard step passes COVERAGE_JOBS and the weights blob to test.sh (base#1410)` | CI must not lean on the runner's core count -- a self-hosted runner or a larger hosted SKU would silently re-slice every shard. |
+| `parity: the local --shard-weights path and the compute-shards path run the same spec list (base#1410)` | ONE decoder. The blob compute-shards publishes is what reaches the container on both paths -- CI's (an ambient SHARD_WEIGHTS_BLOB) and the local one (`--shard-weights <file>`, encoded the way compute-shards encodes) -- and the in-container dispatch turns it into the weights the partition reads BEFORE it runs the shard. Same weights file, same shard, same spec list; and the list is not the `@test`-count fallback, or the comparison would hold with no weights reaching the run at all. |
+| `self-test.yaml: compute-shards uploads the weights it published as the shard-weights artifact (base#1410)` | the fetch half of the local path. A job output cannot be downloaded after the run; an artifact can (`gh run download <run> -n shard-weights`), so compute-shards publishes the exact file it encoded. |
+| `justfile: coverage takes an optional weights file and forwards it as --shard-weights (base#1410)` | the `just` entry. `just test coverage N/T <weights>` is the operator's form of the local path above. |
+
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
 Covers the "regenerate this artifact" hints stamped into what the deploy
