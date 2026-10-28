@@ -151,8 +151,10 @@
 # a path outside the container's bind mount, so `git ls-files` inside the
 # `ci` service fails for exactly the checkouts this repo develops in. The
 # lint would refuse rather than pass vacuously, which is correct and
-# useless. The CI join is the host-direct primitive, which is what the
-# `lint-static` matrix already uses for every pure-bash lint.
+# useless. No CI job runs it; `just test metrics` is its host-direct
+# entry point, and the arms it calls are the `metrics-recipe` entries of
+# _HOST_LINT_ARM_REASONS in test/bats/unit/self_test_yaml_spec.bats
+# (base#1412).
 #
 # ── NOT in the default gate, and what still blocks that ─────────────────────
 #
@@ -172,8 +174,9 @@
 # `.git` is a file pointing at a path outside it). Joining the lint phase
 # therefore means giving the phase a host-direct leg, not adding three
 # strings to a table. Until then the entry points are `just test metrics`
-# and `test.sh --<metric>-only`, the same host-direct shape CI's
-# lint-static jobs already run every pure-bash lint through.
+# and `test.sh --<metric>-only`, run by hand on the host. CI's lint jobs
+# run the in-container `--lint` path (base#1412), so a host-direct leg
+# would be the first CI lint that runs outside the image.
 #
 # ── The counting rules ───────────────────────────────────────────────────────
 #

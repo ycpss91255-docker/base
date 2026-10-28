@@ -588,8 +588,9 @@ _run_all_lint_tools() {
   _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
-# Run one group of the partition, host-direct. The CI join for the
-# grouped lint-static jobs.
+# Run one group of the partition. The CI lint-static jobs reach it inside
+# the test-tools image through `--lint --group N/T` (LINT_GROUP); the
+# host-direct `--lint-group N/T` reaches it to time a group (base#1412).
 #
 # `_run_lint_tools`, not a loop: the group has to report EVERY driver in
 # it that failed, in phase order, because the checks list no longer names
@@ -855,10 +856,11 @@ Options:
                           script/test/drivers/just_provenance.sh)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. Kept to
-                          time one driver; no CI job calls them -- every
-                          self-test.yaml lint job runs --lint inside the
-                          test-tools image, as the local gate does
-                          (base#1412). Available:
+                          time one driver (the --shell-metrics-only family
+                          also backs `just test metrics`); no CI job calls
+                          them -- every self-test.yaml lint job runs --lint
+                          inside the test-tools image, as the local gate
+                          does (base#1412). Available:
                             --shellcheck-only        (needs shellcheck in
                                                      PATH)
                             --issueref-only          pure bash
@@ -2776,26 +2778,29 @@ main() {
 
   # The host-direct lint primitives (`--<tool>-only`) short-circuit
   # before any mode dispatch and run ONE driver right here: no compose, no
-  # test-tools image. They are KEPT FOR ONE NAMED REASON, timing: they are
-  # how a person times one driver (`./script/test/test.sh --<tool>-only`),
-  # the measurement ADR-00000028 asks for before a figure is written down.
-  # They are NOT a CI join any more (base#1412). CI used to run its
-  # ShellCheck, doc-counts and lint-static jobs through these arms on the
-  # ubuntu runner while the local gate ran the same drivers inside the
-  # test-tools image, so one commit could be judged by two sets of tools.
-  # Every lint job now runs `--lint` inside the image, and
-  # self_test_yaml_spec refuses a workflow job that calls one of these
-  # arms (or `--lint-group` below) -- the spec reads the arm list from
-  # this dispatcher, so an arm added tomorrow falls under the same rule.
+  # test-tools image. They are NOT a CI join any more (base#1412). CI used
+  # to run its ShellCheck, doc-counts and lint-static jobs through these
+  # arms on the ubuntu runner while the local gate ran the same drivers
+  # inside the test-tools image, so one commit could be judged by two sets
+  # of tools. Every lint job now runs `--lint` inside the image.
+  #
+  # Each arm is kept only for a reason named in _HOST_LINT_ARM_REASONS in
+  # test/bats/unit/self_test_yaml_spec.bats: `timing` (a person times one
+  # driver, the measurement ADR-00000028 asks for) or `metrics-recipe`
+  # (`just test metrics` runs the shell-metrics arms on the host). That
+  # spec reads the arm list from this dispatcher, refuses an arm no entry
+  # names, and checks each reason against who calls the arm: no workflow
+  # step calls any of them, and no justfile recipe calls a timing arm.
   if [[ -n "${host_lint}" ]]; then
     _run_lint_tool "${host_lint}"
     return 0
   fi
 
-  # The grouped host-direct form, kept for the same timing reason: it
-  # times a whole group outside the image. The CI lint-static matrix runs
-  # its group with `--lint --group N/T` instead, inside the image
-  # (base#1412); the partition both read is the same `_lint_group_members`.
+  # The grouped host-direct form, kept for the `timing` reason the same
+  # declaration gives it: it times a whole group outside the image. The
+  # CI lint-static matrix runs its group with `--lint --group N/T`
+  # instead, inside the image (base#1412); the partition both read is the
+  # same `_lint_group_members`.
   if [[ -n "${host_lint_group}" ]]; then
     _run_lint_group "${host_lint_group}"
     return 0

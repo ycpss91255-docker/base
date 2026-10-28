@@ -80,9 +80,8 @@ default:
 #   condition for promoting it into the table.
 # (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container, so
 # a flag the table carries behaves exactly as it does under the bare
-# `lint`; the GHA lint jobs use the host-only
-# `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and
-# the lint-static matrix), which run the same drivers with no compose.
+# `lint`, and the GHA lint jobs (shellcheck, doc-counts, hadolint and the
+# lint-static matrix) run this same in-container `--lint` path (base#1412).
 # script/test/test.sh's _LINT_TOOLS table is the list of tools this phase
 # runs, and self_test_yaml_spec asserts every entry of it has a CI job.
 # ci_spec's "every flag the justfile advertises is backed by the tree"
@@ -127,8 +126,10 @@ lint *args:
 # recipe above. The population is derived from the git index, and a
 # `git worktree` checkout's `.git` is a FILE naming a path outside the
 # container's bind mount -- inside the container the lint would refuse
-# rather than measure. The driver is pure bash over the checkout, which
-# is the same shape the `lint-static` CI matrix already runs host-direct.
+# rather than measure. The driver is pure bash over the checkout. These
+# arms are the `metrics-recipe` entries of _HOST_LINT_ARM_REASONS in
+# test/bats/unit/self_test_yaml_spec.bats, which checks this recipe still
+# calls them and no workflow does (base#1412).
 #
 # just test metrics [nesting-depth|function-length|positional-params]
 metrics metric='':

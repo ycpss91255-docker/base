@@ -95,10 +95,10 @@
 # #377, #615). Adding sub-jobs (#377) to the rollup's `needs:` list becomes
 # a workflow-internal change with no branch-protection update required.
 #
-# 7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs on
-# plain ubuntu-latest with the pre-installed binary (no buildx, no
-# test-tools image, ~30s feedback on a regression) via `test.sh
-# --shellcheck-only`. `hadolint` uses `hadolint/hadolint-action@v3.1.0` to
+# 7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs
+# `test.sh --lint --shellcheck` inside the test-tools image, the binary
+# the local gate runs (base#1412; it ran the runner's own binary before
+# base#1080). `hadolint` uses `hadolint/hadolint-action@v3.1.0` to
 # lint `dockerfile/Dockerfile.example` + `dockerfile/Dockerfile.test-tools`
 # (both template-owned; downstream Dockerfile.example consumers inherit the
 # lint pass). Both gate on `needs.classify.outputs.code_changed == 'true'`
