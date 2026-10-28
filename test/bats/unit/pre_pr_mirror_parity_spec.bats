@@ -44,11 +44,16 @@ setup() {
   assert_spec_subject "${WF}" "base's own CI workflow, whose ci-rollup needs this spec reads"
 }
 
+# _require_mirror -- fail naming the gap when the mirror is not tracked here.
+_require_mirror() {
+  [[ -f "${MIRROR}" ]] || { fail "missing ${MIRROR}: the pre-PR mirror and its attested/excluded table are not tracked in this repo (base#1409)"; return 1; }
+}
+
 # _mirror_table -- the mirror's --table output, or a test failure naming why.
 # Called through a command substitution, which does not inherit errexit, so
 # every failure returns explicitly and every caller adds `|| return 1`.
 _mirror_table() {
-  [[ -f "${MIRROR}" ]] || { fail "missing ${MIRROR}: the pre-PR mirror and its attested/excluded table are not tracked in this repo (base#1409)"; return 1; }
+  _require_mirror || return 1
   local _out _status=0
   _out="$(bash "${MIRROR}" --table 2>&1)" || _status=$?
   [[ "${_status}" -eq 0 ]] || { fail "${MIRROR} --table exited ${_status}: ${_out}"; return 1; }
@@ -89,13 +94,9 @@ _local_mode() {
   _needs="$(_rollup_needs)" || return 1
   while IFS= read -r _job; do
     [[ -n "${_job}" ]] || continue
-    if awk -F'\t' -v j="${_job}" '$1 == "attested" && $2 == j && $3 != "" {f=1} END {exit !f}' <<<"${_table}"; then
-      continue
-    fi
-    if awk -F'\t' -v j="${_job}" '$1 == "excluded" && $2 == j && $3 != "" {f=1} END {exit !f}' <<<"${_table}"; then
-      continue
-    fi
-    _unclassified+=" ${_job}"
+    awk -F'\t' -v j="${_job}" \
+        '($1 == "attested" || $1 == "excluded") && $2 == j && $3 != "" {f=1} END {exit !f}' \
+        <<<"${_table}" || _unclassified+=" ${_job}"
   done <<<"${_needs}"
   [[ -z "${_unclassified}" ]] || fail "ci-rollup needs jobs the mirror neither attests nor excludes with a reason:${_unclassified}
 table:
@@ -138,7 +139,7 @@ ${_table}"
 }
 
 @test "pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)" {
-  [[ -f "${MIRROR}" ]] || fail "missing ${MIRROR} (base#1409)"
+  _require_mirror
   run bash "${MIRROR}" --plan <<<"compose.yaml"
   assert_success
   assert_line 'just test system'
@@ -146,7 +147,7 @@ ${_table}"
 }
 
 @test "pre-PR mirror: a diff system_paths.sh does not match plans neither system nor acceptance (base#1409)" {
-  [[ -f "${MIRROR}" ]] || fail "missing ${MIRROR} (base#1409)"
+  _require_mirror
   run bash "${MIRROR}" --plan <<<"test/bats/unit/bashrc_spec.bats"
   assert_success
   refute_line 'just test system'
@@ -155,14 +156,14 @@ ${_table}"
 }
 
 @test "pre-PR mirror: a diff touching shell sources plans the full kcov suite (base#1409)" {
-  [[ -f "${MIRROR}" ]] || fail "missing ${MIRROR} (base#1409)"
+  _require_mirror
   run bash "${MIRROR}" --plan <<<"script/ci/reclaim.sh"
   assert_success
   assert_line 'just test coverage'
 }
 
 @test "pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)" {
-  [[ -f "${MIRROR}" ]] || fail "missing ${MIRROR} (base#1409)"
+  _require_mirror
   run grep -n '\.claude/scripts/' "${MIRROR}"
   assert_failure
 }
