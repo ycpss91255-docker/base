@@ -2457,6 +2457,17 @@ _lint_probe_image_call() {
     grep -q "^ran"$'\t'"self-test.yaml:${_job}#" <<< "${output}" \
       || fail "the probe ran no step of self-test.yaml job '${_job}':"$'\n'"${output}"
   done
+  # Non-vacuity for the matrix: every lint-static leg was run, not only
+  # the first (base#1412 review round 4).
+  local _group
+  local -a _groups=()
+  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}")
+  (( ${#_groups[@]} > 1 )) \
+    || fail "self-test.yaml's lint-static has no multi-leg group matrix; this check has nothing to see"
+  for _group in "${_groups[@]}"; do
+    grep -qF "self-test.yaml:lint-static#" <<< "$(grep -F "\"group\":\"${_group}\"" <<< "${output}" | grep "^ran"$'\t')" \
+      || fail "the probe never ran lint-static's '${_group}' leg:"$'\n'"${output}"
+  done
   local _host
   _host="$(grep "^host"$'\t' <<< "${output}" || true)"
   [ -z "${_host}" ] \
