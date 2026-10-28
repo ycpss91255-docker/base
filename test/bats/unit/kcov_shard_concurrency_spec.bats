@@ -98,8 +98,11 @@ _make_fixture() {
         '[[ "$m" == *nomatch* ]] || :'
     } > "${_root}/lib/w${_i}.sh"
     chmod +x "${_root}/lib/w${_i}.sh"
-    sed "s/@N@/${_i}/g" > "${_root}/test/bats/unit/w${_i}_spec.bats" <<'SPEC'
-@test "w@N@" {
+    # The test line is printed rather than written in the here-doc, so no
+    # line of THIS file starts with the test keyword except its own tests.
+    {
+      printf '@test "w%s" {\n' "${_i}"
+      sed "s/@N@/${_i}/g" <<'SPEC'
   if [[ -n "${KCOV_RDV:-}" ]]; then
     : > "${KCOV_RDV}/w@N@"
     local _end=$(( SECONDS + 30 ))
@@ -112,8 +115,9 @@ _make_fixture() {
     done
   fi
   bash "${BATS_TEST_DIRNAME}/../../../lib/w@N@.sh"
-}
 SPEC
+      printf '}\n'
+    } > "${_root}/test/bats/unit/w${_i}_spec.bats"
   done
   : > "${_root}/test/bats/integration/ballast_spec.bats"
   for (( _l = 1; _l <= 20; _l++ )); do

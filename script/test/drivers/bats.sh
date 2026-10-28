@@ -726,17 +726,20 @@ _run_coverage() {
   # as two writes, so N jobs behind one kcov interleave their records:
   # kcov credits only the first marker on a line (covered lines are lost
   # with every test green) and echoes the marker-less pieces to the step
-  # output. A slice's pipe has one writer at a time.
+  # output. Slicing isolates the bats JOBS from one another: no two specs
+  # share a pipe. It does not isolate a spec from itself -- a test that
+  # runs traced children concurrently (a pipeline, a `&`) still writes
+  # them into its slice's one pipe, and base#1418 tracks that case.
   local -a _slices=()
   _coverage_round_robin _slices "${_njobs}" "${_targets[@]}"
   local _work
-  _work="$(_coverage_slice_workdir)"
+  _work="$(_coverage_parallel_workdir)"
   local -a _pids=()
   _coverage_parallel_launch _pids _slices "${_work}"
   local _rc=0
   _coverage_parallel_collect _pids "${_work}" || _rc=$?
   _coverage_parallel_merge "${_work}" "${#_slices[@]}"
-  rm -rf "${_work}"
+  [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]] || rm -rf "${_work}"
   return "${_rc}"
 }
 
@@ -776,8 +779,11 @@ _run_coverage() {
 
 # _coverage_parallel_workdir
 #   Echo the scratch root the slices write into. COVERAGE_LOCAL_WORKDIR
-#   names it explicitly, and it exists for ONE caller: a spec that has to
-#   point at one slice's output directory. It is deliberately not an
+#   names it explicitly -- and keeps it, since neither _run_coverage_parallel
+#   nor _run_coverage removes a named one -- and it exists for ONE kind of
+#   caller: a spec that has to read a slice's output (coverage_local_spec
+#   points at one slice's report; kcov_shard_concurrency_spec reads every
+#   shard slice's raw err-<i>, base#1414). It is deliberately not an
 #   operator knob -- `_run_via_compose` does not forward it and compose.yaml
 #   does not name it, so through the shipped entry this is always a fresh
 #   temp dir inside the `--rm` container, removed on the way out.

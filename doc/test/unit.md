@@ -3825,8 +3825,8 @@ replaces kcov_trace_volume_spec.bats.
 
 | Test | Description |
 |------|-------------|
-| `kcov shard fixture: the driver ran the four heavy specs concurrently and passed` | The shard must be concurrent and must finish green, or the two assertions below would compare a run that never raced, or nothing. |
-| `kcov shard: a concurrent shard emits no trace fragment and no line of 1 KiB` | kcov echoes every marker-less trace line to its stderr, and on CI that stderr is the step's output -- megabyte lines a hosted runner masks at quadratic cost (base#1414). A concurrent shard must emit none of the payload and no line of 1 KiB or more. |
+| `kcov shard fixture: the driver ran the four heavy specs concurrently and passed` | The shard must be concurrent and must finish green, or the two assertions below would compare a run that never raced, or nothing. The label is the driver's claim; the rendezvous is the proof -- all four specs were running at the same moment, so their slices overlapped. |
+| `kcov shard: a concurrent shard's kcov writes no stderr, and no output line reaches 1 KiB` | kcov echoes every marker-less trace line to its stderr, and on CI that stderr is the step's output -- megabyte lines a hosted runner masks at quadratic cost (base#1414). The fragments are not only the payload: a split record leaves a lone tail, and a multi-line record leaves lines of any length. So the assertion reads each slice's RAW stderr, not the bounded tail the driver replays, and admits 0 B of it; the driver's own output must also hold no line of 1 KiB or more. |
 | `kcov shard: a concurrent shard covers exactly the lines a serial run covers` | kcov credits only the FIRST marker on an interleaved line, so a shared pipe loses lines that ran with every test green. The concurrent shard's covered set must equal a serial run's, line for line. |
 
 ### test/bats/unit/lib_spec.bats (75)
