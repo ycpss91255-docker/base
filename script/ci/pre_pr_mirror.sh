@@ -42,20 +42,28 @@
 #   code changed      `just test coverage` -- the FULL kcov suite -- then the
 #                     coverage floor and the shard-union check over its
 #                     report, which is what `coverage` and `coverage-gate`
-#                     run in CI. "Code changed" is CI's own classify rule:
-#                     any path outside doc/**, README.md, LICENSE and
-#                     CONTEXT.md. The full suite is planned even for a
-#                     spec-only diff: it holds every shard a changed spec
-#                     can land in (the greedy partition depends on a
-#                     weights file a fresh checkout does not have, so
-#                     naming "the" shard locally would be a guess), and the
-#                     floor is a project rate no partial run can measure.
-#   system relevant   `just test system` and `just test acceptance` -- the
-#                     docker.sock image-lifecycle gate and the amd64
-#                     acceptance scaffold. Relevance is CI's own pathspec
-#                     list, read from script/ci/system_paths.sh, so the two
-#                     cannot disagree about which diff can change what they
-#                     observe.
+#                     run in CI; and `just test acceptance`, the amd64
+#                     acceptance scaffold. "Code changed" is CI's own
+#                     classify rule: any path outside doc/**, README.md,
+#                     LICENSE and CONTEXT.md, and it is the `if:` CI puts on
+#                     coverage, coverage-gate and acceptance. The full suite
+#                     is planned even for a spec-only diff: it holds every
+#                     shard a changed spec can land in (the greedy partition
+#                     depends on a weights file a fresh checkout does not
+#                     have, so naming "the" shard locally would be a guess),
+#                     and the floor is a project rate no partial run can
+#                     measure. The floor reads the report through
+#                     coverage_gate.sh --run-dirs, the command CI's
+#                     coverage-gate runs over its shard directories, so the
+#                     two pick the report kcov wrote by one rule.
+#   system relevant   `just test system` -- the docker.sock image-lifecycle
+#                     gate. Relevance is CI's own pathspec list, read from
+#                     script/ci/system_paths.sh, so the two cannot disagree
+#                     about which diff can change what it observes.
+#
+# The parity spec holds each gate to the job-level `if:` the workflow puts
+# on the job, so a gate written here that runs a job on fewer diffs than CI
+# does is red there.
 #
 # Style: Google Shell Style Guide.
 
@@ -67,21 +75,23 @@ _MIRROR_ROOT="$(cd -- "${_MIRROR_DIR}/../.." && pwd -P)"
 readonly _MIRROR_ROOT
 readonly _MIRROR_WORKFLOW="${_MIRROR_ROOT}/.github/workflows/self-test.yaml"
 
-# The local commands, spelled once: the table and the plan both print them,
-# and the parity spec reads the table's spelling to derive each one's mode.
+# The local commands, spelled once: the table and the plan both print them.
+# The parity spec derives each one's mode from what it runs (a `just test`
+# recipe is read as its body in justfile.test), and requires every planned
+# command to be what _run executes.
 readonly _CMD_ACTIONLINT='./script/ci/pre_pr_mirror.sh --actionlint'
 readonly _CMD_TEST='just test'
 readonly _CMD_COVERAGE='just test coverage'
-readonly _CMD_FLOOR='bash ./script/test/drivers/coverage_gate.sh coverage/cobertura.xml'
+readonly _CMD_FLOOR='bash ./script/test/drivers/coverage_gate.sh --run-dirs coverage'
 readonly _CMD_UNION='./script/test/test.sh --coverage-union-check coverage/timings.tsv'
 readonly _CMD_SYSTEM='just test system'
 readonly _CMD_ACCEPTANCE='just test acceptance'
 
 # _table -- what this mirror attests and what it leaves to CI, and why.
 #
-# Membership of `attested` is a claim about what the plan RUNS; adding a
-# job there without changing the plan is the one way to make the stamp lie
-# again. `excluded` is the honest way to narrow the claim, and only what no
+# Membership of `attested` is a claim about what the plan RUNS, on every
+# diff CI runs the job for; the parity spec checks the plan against each
+# job's `if:` gate and the run against the plan. `excluded` is the honest way to narrow the claim, and only what no
 # local machine can reproduce belongs in it.
 _table() {
   local t=$'\t'
@@ -94,7 +104,7 @@ _table() {
     "attested${t}bats-fragile${t}${_CMD_TEST}" \
     "attested${t}bats-integration${t}${_CMD_TEST}" \
     "attested${t}coverage${t}${_CMD_COVERAGE}" \
-    "attested${t}coverage-gate${t}${_CMD_COVERAGE} && ${_CMD_FLOOR} && ${_CMD_UNION}" \
+    "attested${t}coverage-gate${t}${_CMD_FLOOR} && ${_CMD_UNION}" \
     "attested${t}system${t}${_CMD_SYSTEM}" \
     "attested${t}acceptance${t}${_CMD_ACCEPTANCE}" \
     "excluded${t}acceptance/arm64${t}the native arm64 runner leg; a local run measures the host's own arch, and there is no local arm64 runner to stand in for it" \
@@ -151,7 +161,10 @@ _plan() {
     printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_FLOOR}" "${_CMD_UNION}"
   fi
   if (( system )); then
-    printf '%s\n' "${_CMD_SYSTEM}" "${_CMD_ACCEPTANCE}"
+    printf '%s\n' "${_CMD_SYSTEM}"
+  fi
+  if (( code )); then
+    printf '%s\n' "${_CMD_ACCEPTANCE}"
   fi
 }
 

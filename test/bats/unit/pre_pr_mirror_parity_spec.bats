@@ -239,6 +239,9 @@ ${_table}"
   [[ -z "${_stale}" ]] || fail "the mirror table names jobs ci-rollup does not need:${_stale}"
 }
 
+# why: The mode check stands on this classifier. Reading a command's spelling
+# instead of the recipe it runs let a coverage recipe turned plain pass, and
+# counting --coverage-union-check as kcov hid a real mode mismatch.
 @test "pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)" {
   # The classifier is what the mode check below stands on, so it is held to
   # the three readings the check must not get wrong.
@@ -254,6 +257,9 @@ ${_table}"
   assert_output unresolved
 }
 
+# why: A plain local run cannot attest a kcov CI job: specs that are red only
+# under kcov stay green locally. This is the check that keeps the stamp
+# measuring the same thing CI measures.
 @test "pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)" {
   local _table _job _cmd _ci _local _mismatch=""
   _table="$(_mirror_table)" || return 1
@@ -268,6 +274,9 @@ ${_table}"
   [[ -z "${_mismatch}" ]] || fail "attested jobs whose local leg runs in a different mode from CI:${_mismatch}"
 }
 
+# why: The plan's gates were hand-written and drifted from the workflow:
+# acceptance ran in CI on every code change and locally only on system paths.
+# Reading each job's own if: gate makes such a drift red here.
 @test "pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)" {
   local _table _job _cmd _gate _probe _path _fires _plan _part _rest _missing=""
   _table="$(_mirror_table)" || return 1
@@ -320,6 +329,8 @@ ${_table}"
   assert_line 'just test coverage'
 }
 
+# why: Without this the table and plan could claim a command the run never
+# executes, and every other check in this file would still pass.
 @test "pre-PR mirror: the run executes exactly the plan, in order (base#1409)" {
   _require_mirror
   local _base _want
@@ -340,6 +351,8 @@ ran:
 $(cat "${SCRATCH}/ran")"
 }
 
+# why: A mirror that carries on past a red command, or exits 0 after one,
+# stamps a green it did not earn.
 @test "pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)" {
   _require_mirror
   local _base
@@ -356,6 +369,9 @@ $(cat "${SCRATCH}/ran")"
   assert_output 'just test coverage'
 }
 
+# why: The floor read coverage/cobertura.xml, which kcov never writes, so a
+# passing coverage run went red here and the system and acceptance legs after
+# it never ran.
 @test "pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)" {
   local _table _floor
   _table="$(_mirror_table)" || return 1
@@ -371,6 +387,8 @@ $(cat "${SCRATCH}/ran")"
   assert_success
 }
 
+# why: A single kcov command leaves only its own <command>.<hash> report and
+# no kcov-merged one; the floor must read that layout too.
 @test "pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)" {
   local _table _floor
   _table="$(_mirror_table)" || return 1
@@ -382,6 +400,8 @@ $(cat "${SCRATCH}/ran")"
   assert_success
 }
 
+# why: Report selection written once in the workflow and once in the mirror
+# is two rules that can disagree; one command run by both cannot.
 @test "pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)" {
   local _table _floor
   _table="$(_mirror_table)" || return 1

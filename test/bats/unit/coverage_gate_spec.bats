@@ -411,6 +411,8 @@ _make_multi_cobertura() {
 # coverage` writes, so both pick reports by this one rule.
 # ════════════════════════════════════════════════════════════════════
 
+# why: Passing both the merged and the per-command report counts a run twice;
+# the merged one is the run's report when it exists.
 @test "coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)" {
   _make_cobertura "${SCRATCH}/coverage/kcov-merged/cobertura.xml" 90 100 merged.sh
   _make_cobertura "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 10 100 run.sh
@@ -420,6 +422,8 @@ _make_multi_cobertura() {
   refute_output --partial 'bats.0123abcd'
 }
 
+# why: A single-command kcov run writes no kcov-merged report, and the gate
+# must still find the one it did write.
 @test "coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)" {
   _make_cobertura "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 90 100
   run env COVERAGE_MIN=80 bash "${GATE}" --run-dirs "${SCRATCH}/coverage/"
@@ -427,6 +431,8 @@ _make_multi_cobertura() {
   assert_line "coverage report: ${SCRATCH}/coverage/bats.0123abcd/cobertura.xml"
 }
 
+# why: This is the CI shape -- one directory per shard -- and the union across
+# them is the project rate the floor gates.
 @test "coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)" {
   _make_cobertura "${SCRATCH}/shards/s1/kcov-merged/cobertura.xml" 30 100
   _make_cobertura "${SCRATCH}/shards/s1/bats.a/cobertura.xml" 30 100
@@ -438,6 +444,7 @@ _make_multi_cobertura() {
   assert_output --partial '45.00'
 }
 
+# why: No report must be red, not a vacuous pass over nothing.
 @test "coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)" {
   mkdir -p "${SCRATCH}/coverage"
   run bash "${GATE}" --run-dirs "${SCRATCH}/coverage" "${SCRATCH}/absent"

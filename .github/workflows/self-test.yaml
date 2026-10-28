@@ -1253,32 +1253,14 @@ jobs:
         # download-artifact lays each shard out under its own
         # ./coverage-shards/coverage-shard-<idx>/ subdir. kcov can write
         # BOTH a per-run AND a kcov-merged cobertura.xml inside one run's
-        # output, so pick EXACTLY ONE report per shard subdir (the merged
-        # one if present, else the first found) -- passing both to the gate
-        # would double-count that shard. The script then sums covered/valid
-        # across the one-per-shard set and emits the merged % to
-        # $GITHUB_STEP_SUMMARY.
-        run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-          reports=()
-          for shard_dir in ./coverage-shards/*/; do
-            merged="${shard_dir}kcov-merged/cobertura.xml"
-            if [[ -f "${merged}" ]]; then
-              reports+=("${merged}")
-              continue
-            fi
-            for xml in "${shard_dir}"**/cobertura.xml; do
-              reports+=("${xml}")
-              break
-            done
-          done
-          if [[ ${#reports[@]} -eq 0 ]]; then
-            echo "no cobertura.xml found under ./coverage-shards" >&2
-            exit 1
-          fi
-          printf 'coverage report: %s\n' "${reports[@]}"
-          bash ./script/test/drivers/coverage_gate.sh "${reports[@]}"
+        # output, so --run-dirs picks EXACTLY ONE report per shard subdir
+        # (the merged one if present, else the first found) -- passing both
+        # to the gate would double-count that shard. The pre-PR mirror runs
+        # the same command over the coverage/ tree `just test coverage`
+        # writes (base#1409), so the selection rule lives in the script,
+        # not here. The script then unions covered lines across the
+        # one-per-shard set and emits the merged % to $GITHUB_STEP_SUMMARY.
+        run: bash ./script/test/drivers/coverage_gate.sh --run-dirs ./coverage-shards/*/
 
       - name: Merge shard timings into the weights file
         # Each shard's artifact carries a timings.tsv (per-spec kcov seconds
@@ -1443,9 +1425,9 @@ jobs:
       - name: Scaffold a consumer and drive its just verbs (script/ci/acceptance.sh)
         # Every acceptance step -- the toml-bridge build, init.sh into a
         # run-keyed temp repo, the unpinned tooling build (base#1172), the
-        # test + devel stage builds, the runnability contract (#579), the
+        # test + devel stage builds, the runnability contract (base#579), the
         # foreground run, start, setup apply, a real prune, base update,
-        # base completions (#769) and template new (#785) -- lives in ONE
+        # base completions (base#769) and template new (base#785) -- lives in ONE
         # script, which `just test acceptance` runs too, so the pre-PR mirror
         # runs exactly what this job runs (base#1409). What stays above is
         # what only a runner has: the buildx driver, the run-scoped tooling

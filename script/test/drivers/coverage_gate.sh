@@ -236,17 +236,49 @@ _merge_timings() {
   ' "${_ins[@]}" | sort -k2,2 > "${_out}"
 }
 
-# Standalone CLI: when executed directly (CI: `bash coverage_gate.sh
-# coverage/*/cobertura.xml`), run the gate over the argument paths and
-# propagate its exit code. The `--merge-timings <out> <in>...` subcommand
-# aggregates per-shard timings instead (the coverage-gate job calls it after
-# downloading the shard artifacts). When sourced, this guard is false so
-# only the functions above are defined.
-if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
-  if [[ "${1:-}" == "--merge-timings" ]]; then
-    shift
-    _merge_timings "$@"
-  else
-    _coverage_gate_run "$@"
+# _coverage_gate_run_dirs <dir>... -- the gate over ONE report per kcov run
+# directory. kcov writes a run's report under <dir>/<command>.<hash>/
+# cobertura.xml, and a merged one under <dir>/kcov-merged/cobertura.xml
+# once more than one command reported into <dir>; neither layout puts a
+# cobertura.xml at <dir> itself. So: the merged report when there is one,
+# else the first cobertura.xml under <dir> -- never both, which would count
+# the run twice. A directory holding no report contributes nothing; no
+# report anywhere is a refusal. The coverage-gate job hands this every
+# downloaded shard directory and the pre-PR mirror hands it the coverage/
+# tree `just test coverage` writes (base#1409), so the two read reports by
+# this one rule.
+_coverage_gate_run_dirs() {
+  local _dir _first
+  local -a _reports=()
+  for _dir in "$@"; do
+    _dir="${_dir%/}"
+    if [[ -f "${_dir}/kcov-merged/cobertura.xml" ]]; then
+      _reports+=("${_dir}/kcov-merged/cobertura.xml")
+      continue
+    fi
+    _first="$(find "${_dir}" -type f -name cobertura.xml 2>/dev/null \
+      | LC_ALL=C sort | sed -n 1p)"
+    [[ -n "${_first}" ]] && _reports+=("${_first}")
+  done
+  if (( ${#_reports[@]} == 0 )); then
+    echo "coverage_gate: no cobertura.xml found under: $*" >&2
+    return 1
   fi
+  printf 'coverage report: %s\n' "${_reports[@]}"
+  _coverage_gate_run "${_reports[@]}"
+}
+
+# Standalone CLI: when executed directly, run the gate over the argument
+# paths and propagate its exit code. `--run-dirs <dir>...` picks one
+# report per kcov run directory first (the coverage-gate job and the
+# pre-PR mirror both call it). The `--merge-timings <out> <in>...`
+# subcommand aggregates per-shard timings instead (the coverage-gate job
+# calls it after downloading the shard artifacts). When sourced, this
+# guard is false so only the functions above are defined.
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  case "${1:-}" in
+    --merge-timings) shift; _merge_timings "$@" ;;
+    --run-dirs) shift; _coverage_gate_run_dirs "$@" ;;
+    *) _coverage_gate_run "$@" ;;
+  esac
 fi

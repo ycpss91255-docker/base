@@ -2040,10 +2040,10 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
-| `coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)` | - |
-| `coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)` | - |
-| `coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)` | - |
-| `coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)` | - |
+| `coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)` | Passing both the merged and the per-command report counts a run twice; the merged one is the run's report when it exists. |
+| `coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)` | A single-command kcov run writes no kcov-merged report, and the gate must still find the one it did write. |
+| `coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)` | This is the CI shape -- one directory per shard -- and the union across them is the project rate the floor gates. |
+| `coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)` | No report must be red, not a vacuous pass over nothing. |
 
 ### test/bats/unit/coverage_handback_spec.bats (14)
 
@@ -4598,17 +4598,17 @@ the local mode with it.
 | `pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)` | - |
 | `pre-PR mirror: only arm64 acceptance, classify, compute-shards and worker-selftest may be excluded (base#1409)` | - |
 | `pre-PR mirror: every table entry names a job ci-rollup needs (base#1409)` | - |
-| `pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)` | - |
-| `pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)` | - |
-| `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | - |
+| `pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)` | The mode check stands on this classifier. Reading a command's spelling instead of the recipe it runs let a coverage recipe turned plain pass, and counting --coverage-union-check as kcov hid a real mode mismatch. |
+| `pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)` | A plain local run cannot attest a kcov CI job: specs that are red only under kcov stay green locally. This is the check that keeps the stamp measuring the same thing CI measures. |
+| `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | The plan's gates were hand-written and drifted from the workflow: acceptance ran in CI on every code change and locally only on system paths. Reading each job's own if: gate makes such a drift red here. |
 | `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
 | `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
 | `pre-PR mirror: a diff touching shell sources plans the full kcov suite (base#1409)` | - |
-| `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | - |
-| `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | - |
-| `pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)` | - |
-| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | - |
-| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | - |
+| `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | Without this the table and plan could claim a command the run never executes, and every other check in this file would still pass. |
+| `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
+| `pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
+| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
+| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
 | `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
