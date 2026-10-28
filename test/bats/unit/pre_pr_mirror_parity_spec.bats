@@ -351,6 +351,33 @@ ran:
 $(cat "${SCRATCH}/ran")"
 }
 
+# why: Rename detection made the mirror's diff report only a move's
+# destination, so moving an unchanged file from dist/ into doc/ read as a
+# doc-only diff and skipped coverage, system and acceptance, while CI's
+# pathspec diffs see the removed source and run all three. diff.renames is
+# forced on so a user config that turns it off cannot hide the gap.
+@test "pre-PR mirror: a file moved from dist/ into doc/ plans what CI runs for the removed source (base#1409)" {
+  _require_mirror
+  local _base _want _missing=""
+  mkdir -p "${SCRATCH}/repo/dist"
+  seq 1 50 > "${SCRATCH}/repo/dist/notes.txt"
+  _base="$(_make_mirror_repo)"
+  mkdir -p "${SCRATCH}/repo/doc"
+  git -C "${SCRATCH}/repo" mv dist/notes.txt doc/notes.txt
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m move
+  _stub_bash ""
+  run env PATH="${SCRATCH}/bin:${PATH}" \
+      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true \
+      "$(command -v bash)" "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_success
+  for _want in 'just test coverage' 'just test system' 'just test acceptance'; do
+    grep -Fxq -- "${_want}" "${SCRATCH}/ran" || _missing+=" '${_want}'"
+  done
+  [[ -z "${_missing}" ]] || fail "a dist/ -> doc/ move skipped:${_missing}
+ran:
+$(cat "${SCRATCH}/ran")"
+}
+
 # why: A mirror that carries on past a red command, or exits 0 after one,
 # stamps a green it did not earn.
 @test "pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)" {
