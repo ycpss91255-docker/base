@@ -152,9 +152,8 @@
 # `ci` service fails for exactly the checkouts this repo develops in. The
 # lint would refuse rather than pass vacuously, which is correct and
 # useless. No CI job runs it; `just test metrics` is its host-direct
-# entry point, and the arms it calls are the `metrics-recipe` entries of
-# _HOST_LINT_ARM_REASONS in test/bats/unit/self_test_yaml_spec.bats
-# (base#1412).
+# entry point, and test/bats/unit/self_test_yaml_spec.bats checks that no
+# workflow step reaches a host lint arm by running each one (base#1412).
 #
 # ── NOT in the default gate, and what still blocks that ─────────────────────
 #

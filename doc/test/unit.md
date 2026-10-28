@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (186)
+### test/bats/unit/ci_spec.bats (189)
 
 | Test | Description |
 |------|-------------|
@@ -5699,7 +5699,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (134)
+### test/bats/unit/self_test_yaml_spec.bats (131)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6115,12 +6115,9 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: declares hadolint job (#376)` | - |
 | `self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |
-| `self-test.yaml: no job runs a lint through a host-direct test.sh arm (base#1412)` | base#1412. Locally the lint phase runs inside the test-tools image; in CI the shellcheck, doc-counts and lint-static jobs ran the same drivers on the ubuntu runner, so a lint could pass one gate and fail the other on the host's tools rather than on the code. The population is derived from the workflow and the flag list from test.sh, so a lint job added tomorrow, or a host arm added tomorrow, falls under the rule. |
-| `host-arm parity: a quoted, continued or bash -c host arm is still a host arm (base#1412)` | review round 1 of base#1412. Each of these runs a lint on the host, and a whole-word match over the job's lines let the first three through: the shell strips the quotes before test.sh sees the flag, and a continuation line is part of the call it continues. |
-| `host-arm parity: an ANSI-C or locale quoted host arm is still a host arm (base#1412)` | review round 2 of base#1412. Bash reads `$'...'` as ANSI-C quoting and `$"..."` as a double-quoted string, so test.sh receives the bare flag and takes the host driver; a parser that keeps the `$` sees `$--shellcheck-only` and lets the call through. |
-| `host-arm parity: a host arm that test.sh is not passed is not a host arm (base#1412)` | the other direction. A parser that over-reads -- a flag in a comment, in another command on the next line, or after `;` -- would refuse a workflow that runs every lint in the image. |
-| `self-test.yaml: every lint job obtains the test-tools image and runs test.sh --lint in it (base#1412)` | base#1412, the positive half. Refusing the host arms alone would be satisfied by a lint job that stopped calling test.sh at all; the job has to reach the image the one way every image job does and run the lint through test.sh's in-container `--lint` path, as hadolint already does. |
-| `test.sh: every host-direct lint arm is kept for a declared reason that holds (base#1412)` | base#1412 requirement 2. The host arms were kept, and "kept for timing" written in a comment is a claim nothing re-reads: an arm a CI job or a recipe starts calling again would keep the comment true-looking while the parity it describes is gone. Each arm is tied to a declared reason here, and the reason is checked against who actually calls it. |
+| `workflows: no step runs a lint on the host, whatever the spelling (base#1412)` | base#1412, the negative half. No step of any workflow may reach a lint on the host: that is the parity the local gate and CI share, and it is decided by what the step does when bash runs it, so no spelling of a host arm is invisible to it. |
+| `self-test.yaml: every lint job runs its lint inside the test-tools image (base#1412)` | base#1412, the positive half. Not linting on the host would also be satisfied by a lint job that stopped linting. Each lint job has to reach the image the one way every image job does and run its lint there: the probe has to see `compose run ... ci` with LINT_ONLY=1 under the workflow's own TEST_TOOLS_IMAGE, which is the image compose.yaml's `ci` service runs. |
+| `lint probe: a host lint is seen under every spelling, and --lint is not one (base#1412)` | the spellings that each got past the text parser this probe replaces (review rounds 1-3 of base#1412), plus the two host paths a parser of flags never modelled at all: `--ci` run on the host, and a host group. Every one of them must land in the host log, and the plain `--lint` form must not. |
 | `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | - |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |

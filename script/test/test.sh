@@ -2784,20 +2784,22 @@ main() {
   # inside the test-tools image, so one commit could be judged by two sets
   # of tools. Every lint job now runs `--lint` inside the image.
   #
-  # Each arm is kept only for a reason named in _HOST_LINT_ARM_REASONS in
-  # test/bats/unit/self_test_yaml_spec.bats: `timing` (a person times one
-  # driver, the measurement ADR-00000028 asks for) or `metrics-recipe`
-  # (`just test metrics` runs the shell-metrics arms on the host). That
-  # spec reads the arm list from this dispatcher, refuses an arm no entry
-  # names, and checks each reason against who calls the arm: no workflow
-  # step calls any of them, and no justfile recipe calls a timing arm.
+  # The arms are kept for one reason: they are operator entry points,
+  # never a gate. A person times one driver with them (the measurement
+  # ADR-00000028 asks for), base#1277 holds every tabled lint to having
+  # one, and `just test metrics` runs the shell-metrics arms on the host.
+  # That no CI step reaches one is checked by RUNNING the steps:
+  # test/bats/unit/self_test_yaml_spec.bats executes every workflow step
+  # that names test.sh against a copy of this file whose _run_lint_tool
+  # records instead of linting, so a host lint is seen whatever the
+  # spelling (base#1412).
   if [[ -n "${host_lint}" ]]; then
     _run_lint_tool "${host_lint}"
     return 0
   fi
 
-  # The grouped host-direct form, kept for the `timing` reason the same
-  # declaration gives it: it times a whole group outside the image. The
+  # The grouped host-direct form, kept for the same reason: it times a
+  # whole group outside the image, and no CI step reaches it. The
   # CI lint-static matrix runs its group with `--lint --group N/T`
   # instead, inside the image (base#1412); the partition both read is the
   # same `_lint_group_members`.

@@ -126,10 +126,10 @@ lint *args:
 # recipe above. The population is derived from the git index, and a
 # `git worktree` checkout's `.git` is a FILE naming a path outside the
 # container's bind mount -- inside the container the lint would refuse
-# rather than measure. The driver is pure bash over the checkout. These
-# arms are the `metrics-recipe` entries of _HOST_LINT_ARM_REASONS in
-# test/bats/unit/self_test_yaml_spec.bats, which checks this recipe still
-# calls them and no workflow does (base#1412).
+# rather than measure. The driver is pure bash over the checkout. No
+# workflow step reaches these arms, which
+# test/bats/unit/self_test_yaml_spec.bats checks by running every step
+# that names test.sh (base#1412).
 #
 # just test metrics [nesting-depth|function-length|positional-params]
 metrics metric='':
