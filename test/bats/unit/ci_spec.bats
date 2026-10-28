@@ -2330,6 +2330,9 @@ END"
   assert_failure
   assert_output --partial "DIE:"
   assert_output --partial "seriel"
+  # The refusal names every policy a caller may pass, the CPU-bound one
+  # included (base#1429), so the fix for a typo is in the message.
+  assert_output --partial "parallel|cpu-bound|metered|serial"
 }
 
 # why: an EMPTY policy is unreadable too, and it is the one a caller
@@ -2348,6 +2351,7 @@ END"
   assert_failure
   assert_output --partial "DIE:"
   assert_output --partial "jobs policy"
+  assert_output --partial "parallel|cpu-bound|metered|serial"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2406,6 +2410,9 @@ END"
     _bats_args_with_label _args _label
     printf "JOBS:%s\n" "$(_jobs_of "${_args[@]}")"
     printf "LABEL:%s\n" "${_label}"
+    _bats_args_with_label _args _label cpu-bound
+    printf "CPUJOBS:%s\n" "$(_jobs_of "${_args[@]}")"
+    printf "CPULABEL:%s\n" "${_label}"
   '
   assert_success
   local _jobs
@@ -2415,6 +2422,13 @@ END"
   # The label reports the count that was CHOSEN, next to the one that was
   # read, so the run's first line explains itself.
   assert_output --partial "LABEL:jobs=${_jobs}"
+  # The cpu-bound policy is floored too (base#1429): a lower floor, but
+  # still a floor, so a 4-core machine still runs more than 4 jobs.
+  local _cpu_jobs
+  _cpu_jobs="$(printf '%s\n' "${output}" | sed -n 's/^CPUJOBS://p')"
+  assert [ -n "${_cpu_jobs}" ]
+  assert [ "${_cpu_jobs}" -gt 4 ]
+  assert_output --partial "CPULABEL:jobs=${_cpu_jobs}"
 }
 
 # why: the floor has to be a FLOOR. 32 is a knee and not a peak -- four
@@ -2438,19 +2452,24 @@ END"
       for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
       printf "%s\n" "${_n}"
     }
-    for _c in 1 2 4 8 64 1000; do
-      printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
-      chmod +x "'"${MOCK_DIR}"'/nproc"
-      declare -a _args; declare _label
-      _bats_args_with_label _args _label
-      printf "%s %s\n" "${_c}" "$(_jobs_of "${_args[@]}")"
+    # Both floored policies: the default and the CPU-bound one (base#1429).
+    for _policy in parallel cpu-bound; do
+      for _c in 1 2 4 8 64 1000; do
+        printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
+        chmod +x "'"${MOCK_DIR}"'/nproc"
+        declare -a _args; declare _label
+        _bats_args_with_label _args _label "${_policy}" || exit 1
+        printf "%s %s %s\n" "${_policy}" "${_c}" "$(_jobs_of "${_args[@]}")"
+      done
     done
   '
   assert_success
   local _sweep="${output}"
 
-  local _cores _jobs _last=0
-  while read -r _cores _jobs; do
+  local _policy _cores _jobs _last=0 _prev_policy=""
+  while read -r _policy _cores _jobs; do
+    [[ "${_policy}" == "${_prev_policy}" ]] || _last=0
+    _prev_policy="${_policy}"
     assert [ -n "${_jobs}" ]
     # Never below the machine.
     assert [ "${_jobs}" -ge "${_cores}" ]
@@ -2459,9 +2478,11 @@ END"
     _last="${_jobs}"
   done <<< "${_sweep}"
 
-  # The biggest machine in the sweep gets EXACTLY its core count. A
-  # factor rule would hand it thousands of jobs; a floor cannot.
-  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == 1000 {print $2}')" = "1000" ]
+  # The biggest machine in the sweep gets EXACTLY its core count under
+  # either policy. A factor rule would hand it thousands of jobs; a floor
+  # cannot.
+  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == "parallel" && $2 == 1000 {print $3}')" = "1000" ]
+  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == "cpu-bound" && $2 == 1000 {print $3}')" = "1000" ]
 }
 
 # why: `nproc 2>/dev/null || echo 4` printed `jobs=4` for a FAILED probe
@@ -2488,26 +2509,33 @@ END"
       printf "%s\n" "${_n}"
     }
     declare -a _args; declare _label
-    _bats_args_with_label _args _label
+    _bats_args_with_label _args _label "${PROBE_POLICY}"
     printf "JOBS:%s\n" "$(_jobs_of "${_args[@]}")"
     printf "LABEL:%s\n" "${_label}"
   '
 
-  run bash -c "${_probe}"
-  # An environment, not a caller bug: the run still happens.
-  assert_success
-  local _guessed _guess_label
-  _guessed="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
-  _guess_label="$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')"
-  assert [ -n "${_guessed}" ]
+  # Both floored policies fall back the same way: the default and the
+  # CPU-bound one (base#1429).
+  local _policy
+  for _policy in parallel cpu-bound; do
+    export PROBE_POLICY="${_policy}"
+    mock_cmd "nproc" 'echo "nproc: cannot determine number of CPUs" >&2; exit 1'
+    run bash -c "${_probe}"
+    # An environment, not a caller bug: the run still happens.
+    assert_success
+    local _guessed _guess_label
+    _guessed="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
+    _guess_label="$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')"
+    assert [ -n "${_guessed}" ]
 
-  # Now a machine that genuinely HAS that many cores. Same count, and the
-  # label must not be the same sentence -- that is the whole defect.
-  mock_cmd "nproc" "echo ${_guessed}"
-  run bash -c "${_probe}"
-  assert_success
-  assert [ "$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')" = "${_guessed}" ]
-  refute [ "$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')" = "${_guess_label}" ]
+    # Now a machine that genuinely HAS that many cores. Same count, and the
+    # label must not be the same sentence -- that is the whole defect.
+    mock_cmd "nproc" "echo ${_guessed}"
+    run bash -c "${_probe}"
+    assert_success
+    assert [ "$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')" = "${_guessed}" ]
+    refute [ "$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')" = "${_guess_label}" ]
+  done
 }
 
 # why: every runner calls this helper, so the floor reaches all of them
@@ -2537,19 +2565,75 @@ END"
     declare -a _args; declare _label
     _bats_args_with_label _args _label
     printf "PARALLEL:%s\n" "$(_jobs_of "${_args[@]}")"
+    _bats_args_with_label _args _label cpu-bound
+    printf "CPUBOUND:%s\n" "$(_jobs_of "${_args[@]}")"
     _bats_args_with_label _args _label metered
     printf "METERED:%s\n" "$(_jobs_of "${_args[@]}")"
     printf "LABEL:%s\n" "${_label}"
   '
   assert_success
-  # Metered == the core count exactly; the default is above it.
+  # Metered == the core count exactly; both floored policies, the default
+  # and the CPU-bound one (base#1429), are above it.
   assert_output --partial "METERED:4"
-  local _par
+  local _par _cpu
   _par="$(printf '%s\n' "${output}" | sed -n 's/^PARALLEL://p')"
   assert [ "${_par}" -gt 4 ]
+  _cpu="$(printf '%s\n' "${output}" | sed -n 's/^CPUBOUND://p')"
+  assert [ -n "${_cpu}" ]
+  assert [ "${_cpu}" -gt 4 ]
   # And it says so, the way "serial by policy" does: a reader can tell a
   # decision from a machine that happens to have that many cores.
   assert_output --partial "metered"
+}
+
+# why: the integration suite is not the workload the default floor was
+# measured on. On the 4-core hosted runner it ran at
+# `jobs=32 (floor, over 4 cores)` and tests crossed the 120 s per-test
+# bound (base#1429). So the integration runner -- and a single-path run
+# of an integration spec, which must schedule it the same way -- has to be
+# LESS oversubscribed than the unit runner on a small machine, while the
+# unit runner keeps its floor. The shape is asserted, not the constants.
+@test "_run_integration_tests / _run_bats_path: an integration run is less oversubscribed than a unit run (#1429)" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  # 4 = the core count of the hosted runner the timeouts were seen on.
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_unit_tests
+    _run_integration_tests
+    BATS_FILE="test/bats/unit/ci_spec.bats" BATS_FILTER="" _run_bats_path
+    BATS_FILE="test/bats/integration/" BATS_FILTER="" _run_bats_path
+  '
+  assert_success
+
+  # One logged bats argv per run, in call order.
+  _jobs_of_line() {
+    sed -n "${1}p" "${_log}" | awk '{for (i = 1; i < NF; i++) if ($i == "--jobs") print $(i + 1)}'
+  }
+  local _unit _integ _path_unit _path_integ
+  _unit="$(_jobs_of_line 1)"
+  _integ="$(_jobs_of_line 2)"
+  _path_unit="$(_jobs_of_line 3)"
+  _path_integ="$(_jobs_of_line 4)"
+  assert [ -n "${_unit}" ]
+  assert [ -n "${_integ}" ]
+  assert [ -n "${_path_unit}" ]
+  assert [ -n "${_path_integ}" ]
+
+  # Never below the machine, on either runner.
+  assert [ "${_integ}" -ge 4 ]
+  # Less oversubscribed than the unit runner.
+  assert [ "${_integ}" -lt "${_unit}" ]
+  # A single-path run schedules its suite the way that suite's runner does.
+  assert [ "${_path_unit}" = "${_unit}" ]
+  assert [ "${_path_integ}" = "${_integ}" ]
 }
 
 # why: the shard is the kcov path CI runs eight of, and the one whose
