@@ -19,14 +19,29 @@
 #   --plan    reads the changed paths (one per line) on stdin and prints the
 #             commands the mirror would run for that diff, one per line.
 #
-# Mode is derived on both sides, never declared: a CI job is `kcov` when one
-# of its run lines invokes a `--coverage*` mode of script/test/test.sh, and a
-# local command is `kcov` when it is a `just test coverage` invocation.
-# Everything else is `plain`.
+# The claim is held link by link, so no link can be left out silently:
+#
+#   table -> workflow   every ci-rollup need is attested or excluded, and an
+#                       attested job's local command runs in CI's mode.
+#   table -> plan       on every diff where CI's own `if:` gate runs a job,
+#                       the plan carries that job's local command.
+#   plan  -> run        the mirror executes exactly the plan, in order, and
+#                       stops at the first red command.
+#   plan  -> report     the coverage floor the plan runs reads the report
+#                       `just test coverage` actually writes.
+#
+# Mode is derived on both sides, never declared: text is `kcov` when it
+# invokes script/test/test.sh in a mode that instruments (`--coverage`,
+# `--coverage-shard`, `--coverage-local`, `--coverage-path`); every other
+# mode, `--coverage-union-check` included, is `plain`. A CI job's text is
+# its run lines. A local `just test <recipe>` command's text is that
+# recipe's body in script/test/justfile.test, so a recipe that stops
+# instrumenting changes the local mode with it.
 
 bats_require_minimum_version 1.5.0
 
 MIRROR="/source/script/ci/pre_pr_mirror.sh"
+JUSTFILE_TEST="/source/script/test/justfile.test"
 
 # The only jobs (or matrix legs) the mirror may leave out. Each one is a
 # thing no local machine can reproduce: there is no local arm64 runner,
@@ -38,10 +53,22 @@ classify
 compute-shards
 worker-selftest"
 
+# Diffs whose classification is known, and the CI gates each one fires:
+# `code` is classify's code_changed (anything outside doc/**, README.md,
+# LICENSE, CONTEXT.md), `system` is system_relevant (script/ci/system_paths.sh).
+PROBES="doc/test/TEST.md|
+test/bats/unit/bashrc_spec.bats|code
+compose.yaml|code system"
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/self-test.yaml"
   assert_spec_subject "${WF}" "base's own CI workflow, whose ci-rollup needs this spec reads"
+  SCRATCH="$(mktemp -d)"
+}
+
+teardown() {
+  [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
 }
 
 # _require_mirror -- fail naming the gap when the mirror is not tracked here.
@@ -61,6 +88,23 @@ _mirror_table() {
   printf '%s\n' "${_out}"
 }
 
+# _attested_cmd <table> <job> -- the local command the table attests <job> by.
+_attested_cmd() {
+  awk -F'\t' -v j="${2}" '$1 == "attested" && $2 == j {print $3; exit}' <<<"${1}"
+}
+
+# _floor_cmd <table> -- the `&&`-joined part of the coverage-gate command
+# that runs the floor (coverage_gate.sh); empty when there is none.
+_floor_cmd() {
+  local _rest _part
+  _rest="$(_attested_cmd "${1}" coverage-gate)"
+  while [[ -n "${_rest}" ]]; do
+    _part="${_rest%% && *}"
+    [[ "${_part}" == "${_rest}" ]] && _rest="" || _rest="${_rest#* && }"
+    [[ "${_part}" == *coverage_gate.sh* ]] && { printf '%s\n' "${_part}"; return 0; }
+  done
+}
+
 # _rollup_needs -- ci-rollup's needs, one per line.
 _rollup_needs() {
   local _out _status=0
@@ -70,22 +114,93 @@ _rollup_needs() {
   printf '%s\n' "${_out}"
 }
 
-# _ci_mode <job> -- kcov when the job runs a --coverage* mode, else plain.
-_ci_mode() {
-  if yaml_job_lines "${WF}" "${1}" | grep -Eq 'test\.sh[^#]*--coverage'; then
+# _text_mode -- kcov when stdin invokes test.sh in an instrumenting mode.
+_text_mode() {
+  if grep -Eq 'test\.sh[^#]*--coverage(-shard|-local|-path)?([^-[:alnum:]]|$)'; then
     echo kcov
   else
     echo plain
   fi
 }
 
-# _local_mode <command> -- kcov for a `just test coverage` command, else plain.
+# _ci_mode <job> -- the mode of the job's own run lines.
+_ci_mode() {
+  yaml_job_lines "${WF}" "${1}" | _text_mode
+}
+
+# _recipe_body <recipe> -- the body of a recipe in ${JUSTFILE_TEST}.
+_recipe_body() {
+  awk -v r="${1}" '
+    $0 ~ "^" r "([[:space:]][^:]*)?:" {f=1; next}
+    f && /^[^[:space:]#]/ {f=0}
+    f' "${JUSTFILE_TEST}"
+}
+
+# _local_mode <command> -- kcov when any `&&`-joined part instruments. A
+# `just test [<recipe>]` part is read as the recipe it runs (no recipe is
+# `default`); an unknown recipe is `unresolved`, which matches no CI mode.
 _local_mode() {
-  if [[ "${1}" =~ ^just[[:space:]]+test[[:space:]]+coverage([[:space:]]|$) ]]; then
-    echo kcov
-  else
-    echo plain
-  fi
+  local _rest="${1}" _part _recipe _body _mode=plain
+  while [[ -n "${_rest}" ]]; do
+    _part="${_rest%% && *}"
+    [[ "${_part}" == "${_rest}" ]] && _rest="" || _rest="${_rest#* && }"
+    if [[ "${_part}" =~ ^just[[:space:]]+test([[:space:]]+([^[:space:]]+))? ]]; then
+      _recipe="${BASH_REMATCH[2]:-default}"
+      _body="$(_recipe_body "${_recipe}")"
+      [[ -n "${_body}" ]] || { echo "unresolved"; return 0; }
+      [[ "$(_text_mode <<<"${_body}")" == kcov ]] && _mode=kcov
+    else
+      [[ "$(_text_mode <<<"${_part}")" == kcov ]] && _mode=kcov
+    fi
+  done
+  echo "${_mode}"
+}
+
+# _ci_gate <job> -- `code`, `system` or `always`, read from the job's own
+# job-level `if:`; anything else is `unknown:<line>` so a new gate shape
+# fails loudly rather than reading as ungated.
+_ci_gate() {
+  local _if
+  _if="$(yaml_job_lines "${WF}" "${1}" | grep -E '^    if:' | head -n 1)"
+  case "${_if}" in
+    '') echo always ;;
+    *"needs.classify.outputs.code_changed == 'true'"*) echo code ;;
+    *"needs.classify.outputs.system_relevant == 'true'"*) echo system ;;
+    *) echo "unknown:${_if}" ;;
+  esac
+}
+
+# _make_mirror_repo -- a git repo holding a copy of the mirror and what it
+# reads, at ${SCRATCH}/repo, with one base commit; prints that commit.
+_make_mirror_repo() {
+  local _r="${SCRATCH}/repo"
+  mkdir -p "${_r}/script/ci" "${_r}/.github/workflows"
+  cp "${MIRROR}" /source/script/ci/system_paths.sh "${_r}/script/ci/"
+  cp "${WF}" "${_r}/.github/workflows/"
+  git -C "${_r}" init -q
+  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m base
+  git -C "${_r}" rev-parse HEAD
+}
+
+# _stub_bash <red-substring> -- a `bash` first on PATH that logs every
+# `bash -c <command>` the mirror executes to ${SCRATCH}/ran and exits 1
+# for a command containing <red-substring> (empty: none is red). Any
+# other invocation is handed to the real bash.
+_stub_bash() {
+  local _real
+  _real="$(command -v bash)"
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/bash" <<EOF
+#!${_real}
+if [[ "\${1:-}" == -c ]]; then
+  printf '%s\n' "\${2}" >> "${SCRATCH}/ran"
+  [[ -n "${1}" && "\${2}" == *"${1}"* ]] && exit 1
+  exit 0
+fi
+exec "${_real}" "\$@"
+EOF
+  chmod +x "${SCRATCH}/bin/bash"
 }
 
 @test "pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)" {
@@ -124,6 +239,21 @@ ${_table}"
   [[ -z "${_stale}" ]] || fail "the mirror table names jobs ci-rollup does not need:${_stale}"
 }
 
+@test "pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)" {
+  # The classifier is what the mode check below stands on, so it is held to
+  # the three readings the check must not get wrong.
+  run _text_mode <<<'./script/test/test.sh --coverage-union-check coverage/timings.tsv'
+  assert_output plain
+  run _text_mode <<<"      ./script/test/test.sh --coverage-shard '1/4'"
+  assert_output kcov
+  printf '%s\n' 'default:' '    ./script/test/test.sh' '' \
+      'coverage shard='"''"':' '    bats test/bats' > "${SCRATCH}/justfile.test"
+  JUSTFILE_TEST="${SCRATCH}/justfile.test" run _local_mode 'just test coverage'
+  assert_output plain
+  JUSTFILE_TEST="${SCRATCH}/justfile.test" run _local_mode 'just test absent'
+  assert_output unresolved
+}
+
 @test "pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)" {
   local _table _job _cmd _ci _local _mismatch=""
   _table="$(_mirror_table)" || return 1
@@ -138,6 +268,34 @@ ${_table}"
   [[ -z "${_mismatch}" ]] || fail "attested jobs whose local leg runs in a different mode from CI:${_mismatch}"
 }
 
+@test "pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)" {
+  local _table _job _cmd _gate _probe _path _fires _plan _part _rest _missing=""
+  _table="$(_mirror_table)" || return 1
+  while IFS= read -r _probe; do
+    _path="${_probe%%|*}"
+    _fires="${_probe#*|}"
+    _plan="$(bash "${MIRROR}" --plan <<<"${_path}")" || fail "--plan failed for ${_path}"
+    while IFS=$'\t' read -r _job _cmd; do
+      [[ -n "${_job}" ]] || continue
+      _gate="$(_ci_gate "${_job}")"
+      case "${_gate}" in
+        always) ;;
+        code|system) [[ " ${_fires} " == *" ${_gate} "* ]] || continue ;;
+        *) _missing+="
+  ${_job}: CI gate not recognised: ${_gate#unknown:}"; continue ;;
+      esac
+      _rest="${_cmd}"
+      while [[ -n "${_rest}" ]]; do
+        _part="${_rest%% && *}"
+        [[ "${_part}" == "${_rest}" ]] && _rest="" || _rest="${_rest#* && }"
+        grep -Fxq -- "${_part}" <<<"${_plan}" || _missing+="
+  ${_path}: CI runs ${_job} (gate ${_gate}), the plan omits: ${_part}"
+      done
+    done < <(awk -F'\t' '$1 == "attested" {print $2 "\t" $3}' <<<"${_table}")
+  done <<<"${PROBES}"
+  [[ -z "${_missing}" ]] || fail "the plan skips jobs CI runs for the same diff:${_missing}"
+}
+
 @test "pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)" {
   _require_mirror
   run bash "${MIRROR}" --plan <<<"compose.yaml"
@@ -146,12 +304,12 @@ ${_table}"
   assert_line 'just test acceptance'
 }
 
-@test "pre-PR mirror: a diff system_paths.sh does not match plans neither system nor acceptance (base#1409)" {
+@test "pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)" {
   _require_mirror
   run bash "${MIRROR}" --plan <<<"test/bats/unit/bashrc_spec.bats"
   assert_success
   refute_line 'just test system'
-  refute_line 'just test acceptance'
+  assert_line 'just test acceptance'
   assert_line --regexp '^just test coverage( |$)'
 }
 
@@ -160,6 +318,97 @@ ${_table}"
   run bash "${MIRROR}" --plan <<<"script/ci/reclaim.sh"
   assert_success
   assert_line 'just test coverage'
+}
+
+@test "pre-PR mirror: the run executes exactly the plan, in order (base#1409)" {
+  _require_mirror
+  local _base _want
+  _base="$(_make_mirror_repo)"
+  printf 'services: {}\n' > "${SCRATCH}/repo/compose.yaml"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
+  _want="$(bash "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --plan <<<"compose.yaml")"
+  _stub_bash ""
+  run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_success
+  [[ -f "${SCRATCH}/ran" ]] || fail "the mirror ran no command at all"
+  [[ "$(cat "${SCRATCH}/ran")" == "${_want}" ]] || fail "the mirror ran something other than its plan
+planned:
+${_want}
+ran:
+$(cat "${SCRATCH}/ran")"
+}
+
+@test "pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)" {
+  _require_mirror
+  local _base
+  _base="$(_make_mirror_repo)"
+  printf 'services: {}\n' > "${SCRATCH}/repo/compose.yaml"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
+  _stub_bash "just test coverage"
+  run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_failure
+  assert_output --partial 'RED at: just test coverage'
+  run tail -n 1 "${SCRATCH}/ran"
+  assert_output 'just test coverage'
+}
+
+@test "pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)" {
+  local _table _floor
+  _table="$(_mirror_table)" || return 1
+  _floor="$(_floor_cmd "${_table}")"
+  [[ -n "${_floor}" ]] || fail "the mirror's coverage-gate command runs no coverage_gate.sh"
+  ln -s /source/script "${SCRATCH}/script"
+  # The layout kcov leaves when more than one command reported into
+  # coverage/: a per-command report and the merged one. Only the merged
+  # one clears the floor, so reading the other is red.
+  _make_report "${SCRATCH}/coverage/kcov-merged/cobertura.xml" 90
+  _make_report "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 10
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
+  assert_success
+}
+
+@test "pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)" {
+  local _table _floor
+  _table="$(_mirror_table)" || return 1
+  _floor="$(_floor_cmd "${_table}")"
+  [[ -n "${_floor}" ]] || fail "the mirror's coverage-gate command runs no coverage_gate.sh"
+  ln -s /source/script "${SCRATCH}/script"
+  _make_report "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 90
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
+  assert_success
+}
+
+@test "pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)" {
+  local _table _floor
+  _table="$(_mirror_table)" || return 1
+  _floor="$(_attested_cmd "${_table}" coverage-gate)"
+  [[ "${_floor}" == *'coverage_gate.sh --run-dirs '* ]] \
+      || fail "the mirror's coverage-gate command does not use coverage_gate.sh --run-dirs: ${_floor}"
+  run yaml_job_lines "${WF}" coverage-gate
+  assert_success
+  assert_output --regexp 'run: bash \./script/test/drivers/coverage_gate\.sh --run-dirs '
+}
+
+# _make_report <path> <percent> -- a one-file cobertura report at <percent>.
+_make_report() {
+  local _i
+  mkdir -p "$(dirname "${1}")"
+  {
+    echo '<?xml version="1.0" ?>'
+    echo "<coverage lines-covered=\"${2}\" lines-valid=\"100\">"
+    echo '  <packages><package name="p"><classes>'
+    echo '  <class name="c" filename="thing.sh"><lines>'
+    for (( _i = 1; _i <= 100; _i++ )); do
+      echo "    <line number=\"${_i}\" hits=\"$(( _i <= ${2} ? 1 : 0 ))\"/>"
+    done
+    echo '  </lines></class>'
+    echo '  </classes></package></packages>'
+    echo '</coverage>'
+  } > "${1}"
 }
 
 @test "pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)" {
@@ -178,8 +427,7 @@ ${_table}"
 
 @test "acceptance job: just test acceptance runs the same script CI runs (base#1409)" {
   local _recipe
-  _recipe="$(awk '/^acceptance([[:space:]][^:]*)?:/{f=1; next} f && /^[^[:space:]#]/{f=0} f' \
-      /source/script/test/justfile.test)"
+  _recipe="$(_recipe_body acceptance)"
   [[ -n "${_recipe}" ]] || fail "script/test/justfile.test declares no acceptance recipe"
   grep -Fq './script/ci/acceptance.sh' <<<"${_recipe}" \
       || fail "the acceptance recipe does not run ./script/ci/acceptance.sh:

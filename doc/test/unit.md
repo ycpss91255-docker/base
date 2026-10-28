@@ -2004,7 +2004,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 | `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
-### test/bats/unit/coverage_gate_spec.bats (21)
+### test/bats/unit/coverage_gate_spec.bats (25)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2040,6 +2040,10 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+| `coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)` | - |
+| `coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)` | - |
+| `coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)` | - |
+| `coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)` | - |
 
 ### test/bats/unit/coverage_handback_spec.bats (14)
 
@@ -4555,7 +4559,7 @@ list of job names.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (10)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (17)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4572,20 +4576,39 @@ local command run for it> excluded<TAB><job>[/<leg>]<TAB><reason> --plan
 reads the changed paths (one per line) on stdin and prints the commands the
 mirror would run for that diff, one per line.
 
-Mode is derived on both sides, never declared: a CI job is `kcov` when one
-of its run lines invokes a `--coverage*` mode of script/test/test.sh, and a
-local command is `kcov` when it is a `just test coverage` invocation.
-Everything else is `plain`.
+The claim is held link by link, so no link can be left out silently:
+
+table -> workflow every ci-rollup need is attested or excluded, and an
+attested job's local command runs in CI's mode. table -> plan on every diff
+where CI's own `if:` gate runs a job, the plan carries that job's local
+command. plan -> run the mirror executes exactly the plan, in order, and
+stops at the first red command. plan -> report the coverage floor the plan
+runs reads the report `just test coverage` actually writes.
+
+Mode is derived on both sides, never declared: text is `kcov` when it
+invokes script/test/test.sh in a mode that instruments (`--coverage`,
+`--coverage-shard`, `--coverage-local`, `--coverage-path`); every other
+mode, `--coverage-union-check` included, is `plain`. A CI job's text is its
+run lines. A local `just test <recipe>` command's text is that recipe's body
+in script/test/justfile.test, so a recipe that stops instrumenting changes
+the local mode with it.
 
 | Test | Description |
 |------|-------------|
 | `pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)` | - |
 | `pre-PR mirror: only arm64 acceptance, classify, compute-shards and worker-selftest may be excluded (base#1409)` | - |
 | `pre-PR mirror: every table entry names a job ci-rollup needs (base#1409)` | - |
+| `pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)` | - |
 | `pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)` | - |
+| `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | - |
 | `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
-| `pre-PR mirror: a diff system_paths.sh does not match plans neither system nor acceptance (base#1409)` | - |
+| `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
 | `pre-PR mirror: a diff touching shell sources plans the full kcov suite (base#1409)` | - |
+| `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | - |
+| `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | - |
+| `pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)` | - |
+| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | - |
+| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | - |
 | `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
