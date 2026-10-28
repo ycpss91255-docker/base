@@ -52,7 +52,7 @@ teardown() {
     trap _test_exit_reclaim EXIT
     COVERAGE=1 COVERAGE_PATH= COVERAGE_SHARD= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= PER_TEST_TIMEOUT= main --ci
   '
   assert_failure
   assert [ -f "${_log}" ]
