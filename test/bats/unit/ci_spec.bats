@@ -1278,16 +1278,14 @@ _lines=""
 for _f in /source/test/bats/unit/**/*_spec.bats \
           /source/test/bats/integration/**/*_spec.bats; do
   [[ -e "${_f}" ]] || continue
-  _lines+="$(grep -cE '^@test' "${_f}" 2>/dev/null || true) $(basename -- "${_f}")"$'\n'
+  _lines+="$(grep -cE '^@test' "${_f}" 2>/dev/null || true) ${_f#/source/}"$'\n'
 done
-# _spec_weight keys on the BASENAME, so a basename carried by two specs
-# cannot be given a runtime of its own -- draw the heavy set from the
-# basenames that occur exactly once.
+# _spec_weight keys on the repo-relative PATH (base#1410), so every spec,
+# a shared basename included, can be given a runtime of its own.
 _heavy="$(printf '%s' "${_lines}" \
-  | awk '{ n[$2]++; c[$2] = $1 } END { for (b in n) if (n[b] == 1) print c[b], b }' \
   | sort -k1,1"${FIXTURE_ORDER}" -k2,2 \
   | awk -v k="${FIXTURE_HEAVY}" 'NR <= k { print $2 }')"
-# Heavy lines first: _spec_weight takes the FIRST match for a basename.
+# Heavy lines first: _spec_weight takes the FIRST match for a path.
 {
   printf '%s\n' "${_heavy}" | sed "s/^/${FIXTURE_WEIGHT} /"
   printf '%s' "${_lines}" | awk '{ print 1, $2 }'
@@ -1656,7 +1654,7 @@ $(_pool_denominator_audit)"
 # The shard partition (greedy LPT in _shard_unit_files) weights each spec
 # by RUNTIME, not `@test` count: equal-count specs of unequal duration
 # imbalance the shards otherwise. Weight source is a timings file (seconds
-# per spec basename) populated automatically from prior CI runs; a spec
+# per repo-relative spec path, base#1410) populated automatically from prior CI runs; a spec
 # absent from it (new spec / no data yet) falls back to its `@test` count.
 # ════════════════════════════════════════════════════════════════════
 
@@ -1664,8 +1662,8 @@ $(_pool_denominator_audit)"
   run bash -c '
     source /source/script/test/test.sh
     wf="${BATS_TEST_TMPDIR}/w.tsv"
-    printf "%s\n" "12 foo_spec.bats" "3 bar_spec.bats" > "${wf}"
-    SHARD_WEIGHTS_FILE="${wf}" _spec_weight "/any/path/foo_spec.bats"
+    printf "%s\n" "12 test/bats/unit/foo_spec.bats" "3 test/bats/unit/bar_spec.bats" > "${wf}"
+    SHARD_WEIGHTS_FILE="${wf}" _spec_weight "${REPO_ROOT}/test/bats/unit/foo_spec.bats"
   '
   assert_success
   assert_output "12"
@@ -1704,10 +1702,10 @@ $(_pool_denominator_audit)"
   run bash -c '
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/test/bats"
-    printf "%s\n" "42 foo_spec.bats" > "${REPO_ROOT}/test/bats/.shard-weights"
+    printf "%s\n" "42 test/bats/unit/foo_spec.bats" > "${REPO_ROOT}/test/bats/.shard-weights"
     source /source/script/test/drivers/bats.sh
     unset SHARD_WEIGHTS_FILE
-    _spec_weight "/any/path/foo_spec.bats"
+    _spec_weight "${REPO_ROOT}/test/bats/unit/foo_spec.bats"
   '
   assert_success
   assert_output "42"
@@ -1720,12 +1718,13 @@ $(_pool_denominator_audit)"
   run bash -c '
     source /source/script/test/test.sh
     specs=$(find "${REPO_ROOT}/test/bats/unit" -name "*_spec.bats" | sort)
-    heavy=$(printf "%s\n" "${specs}" | head -1 | xargs -n1 basename)
+    heavy=$(printf "%s\n" "${specs}" | head -1)
+    heavy="${heavy#"${REPO_ROOT}/"}"
     wf="${BATS_TEST_TMPDIR}/w.tsv"
     : > "${wf}"
     while IFS= read -r p; do
       [[ -n "${p}" ]] || continue
-      b=$(basename "${p}")
+      b="${p#"${REPO_ROOT}/"}"
       if [[ "${b}" == "${heavy}" ]]; then echo "100000 ${b}"; else echo "1 ${b}"; fi
     done <<< "${specs}" >> "${wf}"
     s1=$(SHARD_WEIGHTS_FILE="${wf}" _shard_unit_files 1/2 | grep -c .)
@@ -1743,34 +1742,35 @@ $(_pool_denominator_audit)"
 #
 # A coverage shard runs `kcov ... bats --report-formatter junit`, which
 # emits one <testsuite name=<spec> time=<sec>> per FILE. _junit_to_timings
-# turns that report into the `<seconds> <basename>` lines _spec_weight
-# reads, so the NEXT run's partition weights by real runtime instead of
+# turns that report into the `<seconds> <repo-relative path>` lines
+# _spec_weight reads (base#1410), so the NEXT run's partition weights by real runtime instead of
 # the @test-count fallback. Seconds round to the nearest whole, floored at
 # 1 so a sub-second spec still carries a non-zero LPT weight.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)" {
+@test "_junit_to_timings: emits <seconds> <repo-relative path> per testsuite, rounded and floored at 1 (#733, base#1410)" {
   run bash -c '
     source /source/script/test/test.sh
     xml="${BATS_TEST_TMPDIR}/report.xml"
     cat > "${xml}" <<EOF
 <?xml version="1.0"?>
 <testsuites time="3.6">
-  <testsuite name="test/bats/unit/foo_spec.bats" tests="2" time="2.4">
+  <testsuite name="foo_spec.bats" tests="2" time="2.4">
     <testcase classname="x" name="a" time="1.2"/>
   </testsuite>
-  <testsuite name="bar_spec.bats" tests="1" time="0.3">
+  <testsuite name="${REPO_ROOT}/test/bats/integration/bar_spec.bats" tests="1" time="0.3">
     <testcase classname="x" name="b" time="0.3"/>
   </testsuite>
 </testsuites>
 EOF
-    _junit_to_timings "${xml}"
+    _junit_to_timings "${xml}" "${REPO_ROOT}/test/bats/unit"
   '
   assert_success
-  # 2.4 -> 2; basename strips the path prefix
-  assert_line "2 foo_spec.bats"
-  # 0.3 rounds to 0 then floors to 1 (non-zero LPT weight)
-  assert_line "1 bar_spec.bats"
+  # 2.4 -> 2; a name relative to the first target joins that directory
+  assert_line "2 test/bats/unit/foo_spec.bats"
+  # 0.3 rounds to 0 then floors to 1 (non-zero LPT weight); an absolute
+  # name loses the repo-root prefix
+  assert_line "1 test/bats/integration/bar_spec.bats"
 }
 
 @test "_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)" {
@@ -1812,7 +1812,9 @@ SH
     cat "${REPO_ROOT}/coverage/timings.tsv"
   '
   assert_success
-  assert_output "4 mock_spec.bats"
+  # The full run's first target is the unit pool, so a junit name relative
+  # to it is a unit spec (base#1410).
+  assert_output "4 test/bats/unit/mock_spec.bats"
 }
 
 @test "_run_coverage: a full-suite run names every spec file, subfolders included (#952)" {
@@ -1869,10 +1871,10 @@ SH
     echo "SCOPE: $(_measured_coverage_scope "${BATS_TEST_TMPDIR}/repo")"
   '
   assert_success
-  assert_output --partial "1 a_spec.bats"
-  assert_output --partial "1 b_spec.bats"
-  assert_output --partial "1 c_spec.bats"
-  assert_output --partial "1 d_spec.bats"
+  assert_output --partial "1 test/bats/unit/a_spec.bats"
+  assert_output --partial "1 test/bats/unit/b_spec.bats"
+  assert_output --partial "1 test/bats/unit/sub/c_spec.bats"
+  assert_output --partial "1 test/bats/integration/d_spec.bats"
 
   # `e.bats` is the file shape half of the same question. The run hands
   # kcov two DIRECTORIES and `bats --recursive`, which executes every
@@ -1880,7 +1882,7 @@ SH
   # therefore names files an inventory keyed on the *_spec.bats
   # convention would not, and the scope comes out `partial n/n specs`:
   # unpublishable, and pointing at nothing.
-  assert_output --partial "1 e.bats"
+  assert_output --partial "1 test/bats/unit/e.bats"
 
   # The whole point: a complete manifest is what earns `full`, and it is
   # earned over a tree with a subfolder in it.
@@ -1940,8 +1942,8 @@ SH
 # computed from twelve independent reads, and their union was a partition
 # only if all twelve reads returned the same bytes. Nothing in CI could
 # see otherwise: every slice is non-empty (so the empty-shard guard never
-# fires), the merge keys on basename (so a spec measured twice reads as
-# one entry), and a spec measured NOWHERE leaves no entry at all.
+# fires), the merge keys on the spec path (so a spec measured twice reads
+# as one entry), and a spec measured NOWHERE leaves no entry at all.
 #
 # _coverage_union_gap is the detector. It compares the MERGED run
 # manifest -- what the shards between them reported running -- against
@@ -1977,8 +1979,9 @@ for _n in a b c d e f; do
     > "${_root}/test/bats/unit/${_n}_spec.bats"
 done
 _wf="${BATS_TEST_TMPDIR}/seconds.tsv"
-printf '%s\n' "10 a_spec.bats" "9 b_spec.bats" "8 c_spec.bats" \
-              "7 d_spec.bats" "6 e_spec.bats" "5 f_spec.bats" > "${_wf}"
+printf '%s\n' "10 test/bats/unit/a_spec.bats" "9 test/bats/unit/b_spec.bats" \
+  "8 test/bats/unit/c_spec.bats" "7 test/bats/unit/d_spec.bats" \
+  "6 test/bats/unit/e_spec.bats" "5 test/bats/unit/f_spec.bats" > "${_wf}"
 
 # One shard per PROCESS, each reading the weight source it was handed --
 # the independent per-shard cache lookups, in miniature.
@@ -1992,7 +1995,7 @@ for _src in ${SHARD_SOURCES}; do
       source /source/script/test/drivers/bats.sh
       _shard_unit_files "${1}"
     ' _ "${_i}/3" \
-    | sed 's|.*/|1 |' > "${BATS_TEST_TMPDIR}/timings-${_i}.tsv"
+    | sed "s|^${_root}/|1 |" > "${BATS_TEST_TMPDIR}/timings-${_i}.tsv"
   printf 'shard %s (%s): %s\n' "${_i}" "${_src}" \
     "$(tr '\n' ' ' < "${BATS_TEST_TMPDIR}/timings-${_i}.tsv")"
 done
@@ -2018,7 +2021,7 @@ PROGRAM
   # Shard 3 read the counts and took {c,f}; shards 1-2 read the seconds
   # and left d to the shard 3 that only a seconds-weighted partition has.
   assert_output --partial "GAP:
-d_spec.bats
+test/bats/unit/d_spec.bats
 END"
 }
 
@@ -2056,7 +2059,7 @@ END"
     mkdir -p "${_root}/test/bats/unit"
     printf "@test \"a\" { :; }\n" > "${_root}/test/bats/unit/a_spec.bats"
     : > "${BATS_TEST_TMPDIR}/empty.tsv"
-    printf "%s\n" "1 a_spec.bats" > "${BATS_TEST_TMPDIR}/full.tsv"
+    printf "%s\n" "1 test/bats/unit/a_spec.bats" > "${BATS_TEST_TMPDIR}/full.tsv"
     _coverage_union_gap "${BATS_TEST_TMPDIR}/empty.tsv" "${_root}" \
       && { echo "EMPTY-MANIFEST-ACCEPTED"; exit 1; }
     _coverage_union_gap "${BATS_TEST_TMPDIR}/missing.tsv" "${_root}" \
@@ -2618,11 +2621,11 @@ END"
 # why: the shard path and the full-suite path are the same function, and
 # the shard is the one CI runs eight of; a fix that reached only the
 # full-suite branch would leave the measured critical path untouched.
-@test "_run_coverage: a shard takes its slice count from the helper too (#1060)" {
+@test "_run_coverage: a shard takes its slice count from COVERAGE_JOBS, not nproc (#1060, base#1410)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
-  mock_cmd "nproc" 'echo 8'
+  mock_cmd "nproc" 'echo 2'
 
   run bash -c '
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
@@ -2636,13 +2639,13 @@ END"
       > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
     _die() { echo "DIE: $*"; exit 1; }
     source /source/script/test/drivers/bats.sh
-    _run_coverage 1/2
+    COVERAGE_JOBS=8 _run_coverage 1/2
   '
   assert_success
   assert_output --partial "jobs=8"
 
-  # The helper's count is the slice count (base#1414): eight kcov
-  # processes over a shard of more than eight specs.
+  # COVERAGE_JOBS is the slice count (base#1414, base#1410): eight kcov
+  # processes over a shard of more than eight specs, on two cores.
   run grep -vc '^--merge' "${_log}"
   assert_output "8"
 }
@@ -2692,12 +2695,12 @@ END"
   assert_output "1"
 }
 
-# why: the helper exists because parallelism has a fallback -- GNU
-# parallel absent means serial, said out loud, and the SHARD path is the
-# one that asks. Proven by CONFINING PATH so parallel is genuinely gone,
-# not by reading the helper: a hand-assembled command would keep working
-# here and say nothing.
-@test "_run_coverage: with parallel absent a shard run is serial and says so (#1060)" {
+# why: a shard's slices are independent kcov processes, none of which
+# hands bats --jobs, so GNU parallel has no part in them -- and a shard is
+# the same run on every host only if its slice count does not hang on what
+# that host has installed (base#1410). Proven by CONFINING PATH so parallel
+# is genuinely gone, not by reading the helper.
+@test "_run_coverage: with parallel absent a shard still runs its COVERAGE_JOBS slices (#1060, base#1410)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
 
   # A PATH of its OWN, not MOCK_DIR: the run is confined to it, and
@@ -2738,12 +2741,15 @@ SH
     _run_coverage 1/2
   '
   assert_success
-  assert_output --partial "serial"
-  assert_output --partial "parallel not in PATH"
+  assert_output --partial "metered to COVERAGE_JOBS"
+  refute_output --partial "parallel not in PATH"
 
   run cat "${_log}"
   assert_success
   refute_output --partial "--jobs"
+  # Two specs in shard 1/2, so the default four slices are capped at two.
+  run grep -vc '^--merge' "${_log}"
+  assert_output "2"
 }
 
 # _kcov_slice_mock <log>
@@ -3011,7 +3017,8 @@ _kcov_slice_mock() {
     # bash -c string, where one ends the program.)
     COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= \
+      COVERAGE_JOBS= SHARD_WEIGHTS_BLOB= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -3656,6 +3663,7 @@ AWK
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
       COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
       BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= \
+      COVERAGE_JOBS= SHARD_WEIGHTS_BLOB= \
       main --ci
   '
   assert_success

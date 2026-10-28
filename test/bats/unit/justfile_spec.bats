@@ -235,8 +235,9 @@ teardown() {
   assert_success
   run grep -nE '^[[:space:]]+\./script/test/test\.sh --coverage-path .*\{\{' "${_test_justfile}"
   assert_failure
-  # The shard argument of `coverage` stays optional (bare = full suite).
-  run grep -E "^coverage shard='':$" "${_test_justfile}"
+  # The shard argument of `coverage` stays optional (bare = full suite),
+  # and so does the weights file that follows it (base#1410).
+  run grep -E "^coverage shard='' weights='':$" "${_test_justfile}"
   assert_success
 }
 

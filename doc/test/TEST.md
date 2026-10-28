@@ -85,13 +85,15 @@ whole tree's denominator is not a project rate. Ask for a figure with
 
 **It does not consult the shard partition, and that is load-bearing.** The
 partition is greedy longest-processing-time bin-packing over per-spec weights
-read from `test/bats/.shard-weights`. CI restores that file from cache; a
-checkout does not have it, so `_spec_weight` falls back to `@test` counts and
-the local partition is a genuinely different one. Shard `<n>/<total>` therefore
-names different specs locally than it does in CI -- during #898 a spec sat in
-CI's shard 1/8 and the local 4/8, and a local `just test coverage 1/8` never
-ran the failing specs at all. Naming the path removes the question: the spec
-you name is the spec that runs, in both places.
+CI restores from cache and hands every shard as one blob. A shard reads only
+those weights -- `just test coverage <n>/<total> <weights>` names CI's file
+(the `shard-weights` artifact) -- and with no weights, or an empty file, it
+falls back to `@test` counts, as CI's cache-miss shards do; it never reads a
+checkout's `test/bats/.shard-weights`. Without CI's weights the local partition
+is a genuinely different one -- during #898 a spec sat in CI's shard 1/8 and
+the local 4/8, and a local `just test coverage 1/8` never ran the failing specs
+at all (base#1410). Naming the path removes the question: the spec you name is
+the spec that runs, in both places.
 
 `--bats-path` (`just test` has no recipe for it; use
 `./script/test/test.sh --bats-path <spec>`) remains the FAST loop -- no
