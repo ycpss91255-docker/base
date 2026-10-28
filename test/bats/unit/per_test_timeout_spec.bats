@@ -178,8 +178,9 @@ _one_value() {
 
 # why: kcov traces every line, so a test is slower under it and a bound
 # sized for plain mode would fail a healthy test. Every kcov entry's tests
-# see one positive integer, wider than the plain bound.
-@test "per-test timeout: every kcov driver entry runs its tests under one BATS_TEST_TIMEOUT wider than plain mode's" {
+# see one positive integer: the plain bound times the documented kcov
+# factor, 3 (_PER_TEST_TIMEOUT_KCOV_FACTOR in the driver).
+@test "per-test timeout: every kcov driver entry runs its tests under one BATS_TEST_TIMEOUT, three times plain mode's" {
   command -v kcov >/dev/null || \
     fail "no kcov in this image -- the coverage instrument whose bound this test reads is missing."
   local _plain _line _values _v _first=""
@@ -192,16 +193,21 @@ _one_value() {
     [[ -n "${_first}" ]] || _first="${_v}"
     [[ "${_v}" == "${_first}" ]] || \
       fail "kcov entry '${_line}' bounds a test at ${_v} s, another kcov entry at ${_first} s (base#1413)."
-    (( _v > _plain )) || \
-      fail "kcov entry '${_line}' bounds a test at ${_v} s, no wider than plain mode's ${_plain} s (base#1413)."
+    (( _v == _plain * 3 )) || \
+      fail "kcov entry '${_line}' bounds a test at ${_v} s, not plain mode's ${_plain} s times the documented kcov factor 3 (base#1413)."
   done < <(_kcov_entries)
 }
 
 # why: A nested driver run inherits the OUTER bats' BATS_TEST_TIMEOUT, and
 # an outer plain run's value is the wrong one for a nested kcov run. The
-# driver sets the bound from its own knob, PER_TEST_TIMEOUT, in both modes.
-@test "per-test timeout: PER_TEST_TIMEOUT sets the plain bound and an inherited BATS_TEST_TIMEOUT does not" {
-  local _values _default
+# driver sets the bound from its own knob, PER_TEST_TIMEOUT, in both modes:
+# plain runs see the knob itself, kcov runs see it times the documented
+# kcov factor (3, _PER_TEST_TIMEOUT_KCOV_FACTOR in the driver), and the
+# inherited value is ignored by both. Every kcov entry is probed with the
+# knob and a conflicting inherited value, so a kcov bound read off the
+# inherited value, or widened by anything but the factor, fails here.
+@test "per-test timeout: PER_TEST_TIMEOUT sets the plain bound and three times it under kcov, and an inherited BATS_TEST_TIMEOUT sets neither" {
+  local _values _default _line
   _default="$(_entry_values plain "_run_unit_tests")" || fail "${_default}"
   _default="$(_one_value "${_default}" "plain entry _run_unit_tests")" || fail "${_default}"
 
@@ -210,10 +216,19 @@ _one_value() {
   [[ "${_values}" == "${_default}" ]] || \
     fail "with BATS_TEST_TIMEOUT=7777 inherited, the plain run's tests saw '${_values}', not the driver's ${_default} (base#1413)."
 
-  DRIVER_ENV=(PER_TEST_TIMEOUT=5)
+  DRIVER_ENV=(PER_TEST_TIMEOUT=5 BATS_TEST_TIMEOUT=7777)
   _values="$(_probe knob _run_unit_tests)" || fail "${_values}"
   [[ "${_values}" == "5" ]] || \
-    fail "with PER_TEST_TIMEOUT=5, the plain run's tests saw '${_values}', expected 5 (base#1413)."
+    fail "with PER_TEST_TIMEOUT=5 and BATS_TEST_TIMEOUT=7777 inherited, the plain run's tests saw '${_values}', expected 5 (base#1413)."
+
+  command -v kcov >/dev/null || \
+    fail "no kcov in this image -- the coverage instrument whose bound this test reads is missing."
+  while IFS= read -r _line; do
+    DRIVER_ENV=(PER_TEST_TIMEOUT=5 BATS_TEST_TIMEOUT=7777)
+    _values="$(_entry_values knob-kcov "${_line}")" || fail "${_values}"
+    [[ "${_values}" == "15" ]] || \
+      fail "with PER_TEST_TIMEOUT=5 and BATS_TEST_TIMEOUT=7777 inherited, kcov entry '${_line}' tests saw '${_values}', expected 15 (5 x the kcov factor 3) (base#1413)."
+  done < <(_kcov_entries)
 }
 
 # _sleeper <tag> <entry...>
