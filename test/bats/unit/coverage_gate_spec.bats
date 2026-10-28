@@ -399,3 +399,132 @@ _make_multi_cobertura() {
   run cat "${SCRATCH}/w.tsv"
   [ -z "${output}" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# --verdict: the ONE coverage verdict every environment runs (base#1411)
+#
+# A coverage run decides something only through its verdict, and the
+# verdict is two checks, not one: the floor over the reports AND the
+# run-manifest union check (a spec that ran nowhere cannot lower a ratio,
+# so the floor alone cannot see it). `--verdict <manifest> <report>...`
+# runs both, so local, GitHub-hosted and self-hosted reach the same
+# verdict through the same entry point instead of three step lists.
+# ════════════════════════════════════════════════════════════════════
+
+# Write, at $1, a run manifest naming every spec in the live inventory --
+# what a whole-suite coverage run leaves in its timings file. With $2 set,
+# the first spec of the inventory is left out and its basename printed.
+_verdict_manifest() {
+  local _out="${1}" _drop="${2:-}"
+  run bash -c '
+    source /source/script/test/test.sh
+    if [[ -n "${2}" ]]; then
+      _coverage_spec_inventory "${REPO_ROOT}" | sed "1d" | sed "s/^/1 /" > "${1}"
+      _coverage_spec_inventory "${REPO_ROOT}" | sed -n "1p"
+    else
+      _coverage_spec_inventory "${REPO_ROOT}" | sed "s/^/1 /" > "${1}"
+    fi
+  ' _ "${_out}" "${_drop}"
+  assert_success
+}
+
+# why: the pass direction -- a whole manifest and a rate at the floor is
+# a green verdict, and the output carries BOTH halves' evidence.
+@test "coverage_gate --verdict: passes when the rate clears the floor and every spec ran (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 60 100
+  _verdict_manifest "${SCRATCH}/whole.tsv"
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/whole.tsv" "${SCRATCH}/a/cobertura.xml"
+  assert_success
+  assert_output --partial "60.00"
+  assert_output --partial "exhaustive"
+}
+
+# why: the half the floor cannot see. The rate is well above the floor,
+# so only the union check can turn this red, and it must name the spec.
+@test "coverage_gate --verdict: fails, naming the spec, when a spec ran nowhere though the rate passes (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 90 100
+  _verdict_manifest "${SCRATCH}/short.tsv" drop
+  local _dropped="${output}"
+  [ -n "${_dropped}" ]
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/short.tsv" "${SCRATCH}/a/cobertura.xml"
+  assert_failure
+  assert_output --partial "90.00"
+  assert_output --partial "${_dropped}"
+}
+
+# why: the floor half still decides -- a whole manifest does not rescue
+# a rate under COVERAGE_MIN.
+@test "coverage_gate --verdict: fails on a rate under the floor even when every spec ran (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 40 100
+  _verdict_manifest "${SCRATCH}/whole.tsv"
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/whole.tsv" "${SCRATCH}/a/cobertura.xml"
+  assert_failure
+  assert_output --partial "floor 50% -> FAIL"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Parity: local, GitHub-hosted and self-hosted run the SAME verdict
+# (base#1411). Each place that decides on a coverage run invokes the
+# verdict on exactly one code line, and the three lines are identical --
+# so a flag, a floor or a check added to one of them and not the others
+# fails here instead of drifting.
+# ════════════════════════════════════════════════════════════════════
+
+# Print the code lines (comments stripped, leading space trimmed) of $1
+# that invoke the verdict.
+_verdict_lines() {
+  sed '/^[[:space:]]*#/d' "${1}" \
+    | grep -E 'coverage_gate\.sh[[:space:]]+--verdict' \
+    | sed 's/^[[:space:]]*//'
+}
+
+# Print the body of recipe $2 in justfile $1 (header line excluded).
+_recipe_body() {
+  awk -v r="${2}" '
+    $0 ~ "^" r "( |:)" { inb = 1; next }
+    inb && /^[^[:space:]#]/ { exit }
+    inb { print }
+  ' "${1}"
+}
+
+@test "coverage verdict parity: hosted, self-hosted and the local recipe run one identical verdict line (base#1411)" {
+  local _hosted _selfhosted _local
+  _hosted="$(yaml_job_text /source/.github/workflows/self-test.yaml coverage-gate \
+    > "${SCRATCH}/hosted.yaml"; _verdict_lines "${SCRATCH}/hosted.yaml")"
+  _selfhosted="$(_verdict_lines /source/.github/workflows/coverage-local.yaml)"
+  _recipe_body /source/script/test/justfile.test coverage-gate > "${SCRATCH}/recipe.sh"
+  _local="$(_verdict_lines "${SCRATCH}/recipe.sh")"
+
+  [ -n "${_hosted}" ] || fail "self-test.yaml coverage-gate runs no coverage_gate.sh --verdict"
+  [ -n "${_selfhosted}" ] || fail "coverage-local.yaml runs no coverage_gate.sh --verdict"
+  [ -n "${_local}" ] || fail "no 'just test coverage-gate' recipe running coverage_gate.sh --verdict"
+  [ "$(grep -c . <<< "${_hosted}")" -eq 1 ] || fail "hosted runs the verdict more than once: ${_hosted}"
+  [ "$(grep -c . <<< "${_selfhosted}")" -eq 1 ] || fail "self-hosted runs the verdict more than once: ${_selfhosted}"
+  [ "$(grep -c . <<< "${_local}")" -eq 1 ] || fail "the recipe runs the verdict more than once: ${_local}"
+  [ "${_hosted}" == "${_selfhosted}" ] \
+    || fail "hosted [${_hosted}] and self-hosted [${_selfhosted}] verdicts differ"
+  [ "${_hosted}" == "${_local}" ] \
+    || fail "hosted [${_hosted}] and local [${_local}] verdicts differ"
+}
+
+# why: one entry point means no second, partial verdict beside it. A bare
+# floor-only gate call or a free-standing union check in either workflow is
+# the three-step-lists shape this issue removes.
+@test "coverage verdict parity: neither workflow runs the floor or the union check outside the verdict (base#1411)" {
+  local _wf
+  yaml_job_text /source/.github/workflows/self-test.yaml coverage-gate > "${SCRATCH}/hosted.yaml"
+  for _wf in "${SCRATCH}/hosted.yaml" /source/.github/workflows/coverage-local.yaml; do
+    run bash -c "sed '/^[[:space:]]*#/d' '${_wf}' \
+      | grep -E 'coverage_gate\.sh' \
+      | grep -vE 'coverage_gate\.sh[[:space:]]+--(verdict|merge-timings)'"
+    assert_failure
+    run bash -c "sed '/^[[:space:]]*#/d' '${_wf}' | grep -E -- '--coverage-union-check'"
+    assert_failure
+  done
+}
