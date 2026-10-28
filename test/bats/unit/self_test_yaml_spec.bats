@@ -389,6 +389,18 @@ _job_comments() {
   yaml_job_text "${WF}" "${1}" | only_comments
 }
 
+# _acceptance_code -- the code the acceptance job RUNS: its own code lines
+# plus those of script/ci/acceptance.sh, the script its steps moved into so
+# `just test acceptance` runs the same thing (base#1409). An assertion about
+# what the job does is an assertion about both; reading the job alone would
+# turn every one of them red on a move that changed no behaviour, and
+# reading the script alone would miss a step written back inline. A missing
+# script is a failure, not an empty half.
+_acceptance_code() {
+  yaml_job_lines "${WF}" acceptance || return 1
+  code_lines /source/script/ci/acceptance.sh
+}
+
 # ── actionlint job declared ────────────────────────────────────
 
 @test "self-test.yaml: declares actionlint job" {
@@ -516,10 +528,15 @@ _job_comments() {
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
+# why: a consumer reaches the container only through `just`, so a broken
+# container-ops justfile is invisible to an acceptance run that calls the
+# wrappers directly -- it would stay green on exactly the defect a consumer
+# hits first. Read over the job and script/ci/acceptance.sh together, so the
+# move into the script (base#1409) cannot drop a verb unseen.
 @test "self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)" {
   # A3: exercise the documented `just` entry points so a broken
   # container-ops justfile is caught (the user entry is just).
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'just docker build'
   assert_output --partial 'just docker run -d'
@@ -530,6 +547,10 @@ _job_comments() {
   refute_output --partial './script/stop.sh'
 }
 
+# why: the v0.41.0 user-args bug printed `initial` from whoami while the job
+# stayed green, because nothing compared the output. These literals are the
+# comparisons themselves; without them the job runs the steps and asserts
+# nothing.
 @test "self-test.yaml: acceptance asserts the runnability contract (#579)" {
   # A1: the job must ASSERT results, not just run steps. Covers the
   # five-point contract: configured user (not initial/root), container
@@ -541,7 +562,7 @@ _job_comments() {
   # exec` takes per-call argv, so the step spells the mount absolutely.
   # `~/work` occurs exactly once in the whole workflow, in the comment that
   # introduces point (4), which is what made the old assertion vacuous.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'USER_NAME'
   assert_output --partial '/entrypoint.sh'
@@ -576,17 +597,20 @@ _job_comments() {
   _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \
     /source/dist/dockerfile/Dockerfile | head -n1)"
   [[ -n "${_wired}" ]] || fail "no uncommented ENTRYPOINT in the shipped Dockerfile"
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial "\"\${path}\" != \"${_wired}\""
 }
 
+# why: every verb named here was once reachable only through --dry-run, which
+# exercises the argument parser and none of the effect. Dropping one of them
+# from the script is the regression this case catches.
 @test "self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)" {
   # Beyond the build/run -d/exec/stop core, the e2e must run each remaining
   # downstream verb with REAL execution (not --dry-run): the foreground run
   # variant, start (build + run), a real prune, an explicit setup re-run,
   # the base update check, and the base completions installer.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'just docker run id -un'
   assert_output --partial 'just docker start'
@@ -596,6 +620,9 @@ _job_comments() {
   assert_output --partial 'just base completions install'
 }
 
+# why: new.sh has unit coverage, but the recipe wiring and the consumer
+# symlink chain that resolve `just template new` are exercised nowhere else;
+# this is the only witness that the consumer can actually reach it.
 @test "self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)" {
   # Coverage gap: new.sh is unit-tested in isolation,
   # but the `just template new <name>` RECIPE -- the template module
@@ -605,12 +632,15 @@ _job_comments() {
   # (script/local/<name>/ + its registration), i.e. from the consumer's
   # chair (UAT). Placed here, not as a bats spec, because a faithful
   # exercise needs the init.sh-scaffolded consumer this job already builds.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'just template new'
   assert_output --partial 'script/local/'
 }
 
+# why: an undocumented gap reads as an oversight and gets "fixed" by a TUI
+# drive that hangs without a pseudo-TTY. The comment is the decision; the
+# refutation keeps anyone from invoking the TUI in a non-interactive job.
 @test "self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)" {
   # setup-tui is interactive (TUI); it stays covered by tui_spec and is
   # NOT driven for real in the e2e. The job must say so, and must not try
@@ -625,7 +655,7 @@ _job_comments() {
   run _job_comments acceptance
   assert_success
   assert_output --partial 'setup-tui'
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   refute_output --partial 'just docker setup-tui'
 }
@@ -779,6 +809,10 @@ _job_comments() {
   assert_output --partial '--local-build delegate'
 }
 
+# why: the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that
+# skips the obtain path builds against a stale or absent tooling image. This
+# step stays in the job when the rest moved into script/ci/acceptance.sh
+# (base#1409), because only a runner can obtain the run-scoped image.
 @test "self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
@@ -795,6 +829,10 @@ _job_comments() {
   assert_output --partial '${TEST_TOOLS_IMAGE}'
 }
 
+# why: with the docker-container driver the obtained image lives in buildx's
+# private store, and the consumer build's FROM falls through to a registry
+# pull that fails. The driver is runner setup, so it stays in the job, not in
+# the script `just test acceptance` shares (base#1409).
 @test "self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)" {
   # `./build.sh test` -> `docker compose build` whose `FROM
   # ${TEST_TOOLS_IMAGE}` resolves against the host docker daemon, not
@@ -2392,11 +2430,15 @@ YAML
     || fail "expected the ownership stamp on both the re-tag and the inline build in ${_obtain}, found ${output}"
 }
 
+# why: on a shared self-hosted host a fixed scaffold name makes two runs
+# share one image, container and network, and the loser silently tests the
+# winner's build. The run key in the name is also what reclaim.sh --run
+# proves ownership by, locally as well as in CI (base#1409).
 @test "self-test.yaml: the acceptance scaffold is keyed to the run (#900)" {
   # The scaffolded consumer's directory basename becomes IMAGE_NAME, which
   # is what the image tag, the container name and the compose project are
   # all built from -- so one unique directory name makes all three unique.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'REPO_NAME="e2e_test-ci-${CI_RUN_KEY}"'
   # The throwaway probe network `just docker prune` is asserted against is

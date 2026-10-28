@@ -16,9 +16,10 @@ sibling docs below.
 > in the `Self Test` CI job. System and smoke specs are catalogued here
 > too but are **not** part of it: System specs need host docker access
 > and are opt-in, and smoke specs are Dockerfile `test`-stage build-time
-> assertions, not self-tests. Acceptance is a CI-only level with no bats
-> specs by design: it drives a real scaffolded consumer + built image via
-> the host-driven `acceptance` job, not the mounted-`/source` sandbox
+> assertions, not self-tests. Acceptance is a host-driven level with no
+> bats specs by design: it drives a real scaffolded consumer + built image
+> via `script/ci/acceptance.sh` -- the `acceptance` job in CI, `just test
+> acceptance` locally -- not the mounted-`/source` sandbox
 > (see [acceptance.md](acceptance.md)).
 
 ## Test Docs by Level / Type
@@ -28,7 +29,7 @@ sibling docs below.
 | [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) |
-| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) |
+| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; host-driven via `script/ci/acceptance.sh` -- the `acceptance` job and `just test acceptance`, #785, base#1409) |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
 ## Running one spec: `just test bats-path`

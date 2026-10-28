@@ -1,4 +1,4 @@
-# Acceptance Tests (CI-only)
+# Acceptance Tests (host-driven)
 
 Acceptance specs under `test/bats/acceptance/`: **0 tests**.
 
@@ -24,6 +24,16 @@ realized in CI where those preconditions exist. `test/bats/acceptance/`
 therefore stays an intentional empty placeholder (`.gitkeep`, count 0)
 and is **not** part of the `just test` self-test suite (see
 [TEST.md](TEST.md)); it keeps the level x type grid visible in the tree.
+
+The job's steps live in one script,
+[`script/ci/acceptance.sh`](../../script/ci/acceptance.sh), and
+`just test acceptance` runs that same script on the host's own arch
+(base#1409). The job supplies what only a runner has -- the buildx driver,
+the run-scoped tooling image and the pinned `just` -- and the recipe supplies
+the local equivalents, so the pre-PR mirror
+([`script/ci/pre_pr_mirror.sh`](../../script/ci/pre_pr_mirror.sh)) runs
+the amd64 leg of this job instead of skipping it. The arm64 leg has no local
+counterpart unless the host is arm64.
 
 ## What the `acceptance` job verifies (consumer's chair)
 

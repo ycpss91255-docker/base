@@ -375,6 +375,47 @@ system:
     just docker build --target test-tools
     docker compose run --rm ci-system
 
+# lifecycle: RECLAIMS ITS OWN RUN. Like `system` it drives compose
+# directly (the tooling build) and so carries its own --orphan-projects
+# sweep and its own --await-project question; and it also reclaims every
+# artifact its run key names, below.
+#
+# just test acceptance -> the acceptance job's steps, on this host's arch
+# (base#1409): scaffold a synthesized downstream repo from this checkout
+# with init.sh and drive its `just` verbs from the consumer's chair. It runs
+# script/ci/acceptance.sh, the SAME script self-test.yaml's `acceptance`
+# job runs, so a green here and a green there are one claim. What the job
+# gets from its runner, this recipe provides: the tooling image (built
+# exactly as `system` builds it, and for the same reasons), and a run key.
+#
+# CI_RUN_KEY is minted per invocation as `<epoch>-<pid>`, the
+# `<digits>-<digits>` shape the workflow's key takes, because every name the
+# script creates -- scaffold directory, image, container, network, prune
+# probe -- embeds `ci-<key>`, and that is what script/ci/reclaim.sh --run
+# proves ownership by. The EXIT trap hands this run's artifacts back pass or
+# fail, and touches nothing another run owns: `--run` only, never the
+# age-based `--stale` sweep, which is a CI host's policy and not a recipe's.
+#
+# The arm64 leg of the CI matrix has no local counterpart unless the host
+# IS arm64; this recipe runs the host's arch. Needs network (`just base
+# update` checks the published tags) and the host docker daemon.
+acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CI_RUN_KEY="${CI_RUN_KEY:-$(date +%s)-$$}"
+    export CI_RUN_KEY
+    trap './script/ci/reclaim.sh --run "${CI_RUN_KEY}" || true; ./script/prune.sh --orphan-projects || true' EXIT
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
+    export COMPOSE_PROJECT_NAME
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
+    ./script/test/test.sh --await-project
+    just docker build --target test-tools
+    ./script/ci/acceptance.sh
+
 # just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
 # the way a downstream Dockerfile `-test` stage runs them: root-owned
 # COPYs into /lint + /smoke_test, a non-root user, and `RUN bats` at build

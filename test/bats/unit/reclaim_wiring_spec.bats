@@ -233,9 +233,10 @@ setup() {
 @test "just test system reclaims when it is done, pass or fail" {
   # --orphan-projects, not --reclaim: these recipes reclaim by themselves,
   # and the tag half is the half nothing may do unasked (see "retiring a
-  # tooling image is never automatic" above).
+  # tooling image is never automatic" above). Three recipes: system, smoke,
+  # and acceptance, which builds the tooling image the same way (base#1409).
   run grep -cF 'script/prune.sh --orphan-projects' "${JUSTTEST}"
-  assert_output "2"
+  assert_output "3"
   run grep -F 'script/prune.sh --reclaim' "${JUSTTEST}"
   assert_failure
 }
