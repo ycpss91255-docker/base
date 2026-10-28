@@ -2004,7 +2004,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 | `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
-### test/bats/unit/coverage_gate_spec.bats (21)
+### test/bats/unit/coverage_gate_spec.bats (26)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2040,6 +2040,11 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+| `coverage_gate --verdict: passes when the rate clears the floor and every spec ran (base#1411)` | the pass direction -- a whole manifest and a rate at the floor is a green verdict, and the output carries BOTH halves' evidence. |
+| `coverage_gate --verdict: fails, naming the spec, when a spec ran nowhere though the rate passes (base#1411)` | the half the floor cannot see. The rate is well above the floor, so only the union check can turn this red, and it must name the spec. |
+| `coverage_gate --verdict: fails on a rate under the floor even when every spec ran (base#1411)` | the floor half still decides -- a whole manifest does not rescue a rate under COVERAGE_MIN. |
+| `coverage verdict parity: hosted, self-hosted and the local recipe run one identical verdict line (base#1411)` | - |
+| `coverage verdict parity: neither workflow runs the floor or the union check outside the verdict (base#1411)` | one entry point means no second, partial verdict beside it. A bare floor-only gate call or a free-standing union check in either workflow is the three-step-lists shape this issue removes. |
 
 ### test/bats/unit/coverage_handback_spec.bats (14)
 
@@ -6068,7 +6073,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)` | The producer half of the single-source rule. A partition is a partition of the suite only when every shard weighed the specs the same way, so there is exactly ONE place the weights blob is fetched -- the job every shard already waits on. A second lookup anywhere is a second opportunity for the matrix to read two different blobs. |
 | `self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)` | The lookup being single is worth nothing unless its RESULT is what the shards partition by, so the restored blob leaves compute-shards as a declared job output. Undeclared, the expression below it resolves to the empty string and all twelve shards silently fall back to @test counts. |
 | `self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)` | The load-bearing case of base#1114. Twelve shards each looking the cache up for itself is twelve reads of a key whose newest entry changes on every main push: the exact key cannot hit while the shards run, so every shard fell through to the `shard-weights-` prefix, and a shard re-run after a later merge partitions against a NEWER blob than its siblings used. Each then keeps its slice of a different partition, every slice non-empty, and a spec can land in none of them. |
-| `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. |
+| `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. Since base#1411 the check runs inside the one coverage verdict (`coverage_gate.sh --verdict`), whose manifest is the merged weights file. |
 | `self-test.yaml: coverage-gate merges shard timings into the weights file (#733)` | - |
 | `self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)` | - |
 | `self-test.yaml: declares ci-rollup job (#337)` | - |

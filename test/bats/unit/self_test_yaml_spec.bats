@@ -1186,17 +1186,19 @@ _builder_setups_out_of_step_with_their_consumer() {
 # from the outside: coverage-gate already holds every shard's timings, so
 # it can say whether the twelve slices covered the suite it just published
 # a rate for. It must read the file the merge step wrote, so the order of
-# the two steps is part of the assertion.
+# the two steps is part of the assertion. Since base#1411 the check runs
+# inside the one coverage verdict (`coverage_gate.sh --verdict`), whose
+# manifest is the merged weights file.
 @test "self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)" {
   run yaml_job_lines "${WF}" coverage-gate
   assert_success
-  assert_output --partial '--coverage-union-check test/bats/.shard-weights'
+  assert_output --partial 'manifest=test/bats/.shard-weights'
 
   local _merge _check
   _merge="$(printf '%s\n' "${output}" \
     | awk '/--merge-timings/ { print NR; exit }')"
   _check="$(printf '%s\n' "${output}" \
-    | awk '/--coverage-union-check/ { print NR; exit }')"
+    | awk '/coverage_gate\.sh --verdict "\$\{manifest\}"/ { print NR; exit }')"
   [ -n "${_merge}" ]
   [ -n "${_check}" ]
   [ "${_check}" -gt "${_merge}" ]

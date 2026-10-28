@@ -3,8 +3,8 @@
 #
 # DUAL MODE: this file is both a sourced driver (test.sh sources it after
 # _lib.sh, so _log_* / _die are available, exposing _run_coverage_gate)
-# AND a standalone CLI (CI invokes `bash coverage_gate.sh <cobertura>...`
-# directly with the per-shard report paths). The standalone path
+# AND a standalone CLI (CI and `just test coverage-gate` invoke
+# `bash coverage_gate.sh --verdict <manifest> <cobertura>...` directly). The standalone path
 # re-implements the minimum logging it needs so it has no dependency on
 # the test.sh sourcing context.
 #
@@ -236,17 +236,55 @@ _merge_timings() {
   ' "${_ins[@]}" | sort -k2,2 > "${_out}"
 }
 
-# Standalone CLI: when executed directly (CI: `bash coverage_gate.sh
-# coverage/*/cobertura.xml`), run the gate over the argument paths and
-# propagate its exit code. The `--merge-timings <out> <in>...` subcommand
-# aggregates per-shard timings instead (the coverage-gate job calls it after
-# downloading the shard artifacts). When sourced, this guard is false so
-# only the functions above are defined.
-if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
-  if [[ "${1:-}" == "--merge-timings" ]]; then
-    shift
-    _merge_timings "$@"
-  else
-    _coverage_gate_run "$@"
+# _coverage_verdict <manifest> <report>... -- THE coverage verdict, the one
+# every environment that decides on a coverage run reaches (base#1411):
+# the GitHub-hosted coverage-gate job, the self-hosted coverage-local
+# workflow and `just test coverage-gate` all call `--verdict` with the
+# same arguments, so a check added here reaches all three at once.
+#
+# It is two checks, and both always run so one red run reports both:
+#   1. the floor: _coverage_gate_run over <report>... against COVERAGE_MIN;
+#   2. the union: `test.sh --coverage-union-check <manifest>`, which names
+#      every spec the run manifest lacks. The floor cannot see such a spec
+#      -- it contributes no lines to either side of the ratio.
+# The union half is test.sh's own check run as a process, not a copy of
+# it: test.sh sources this file, so sourcing test.sh from here would be
+# circular. Returns non-zero when either half fails (2 on a usage error).
+_coverage_verdict() {
+  if (( $# < 2 )); then
+    echo "coverage_gate: --verdict expects <manifest> <report>..." >&2
+    return 2
   fi
+  local _manifest="${1}"
+  shift
+  local _test_sh _floor_rc=0 _union_rc=0
+  _test_sh="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/test.sh"
+  _coverage_gate_run "$@" || _floor_rc=$?
+  bash "${_test_sh}" --coverage-union-check "${_manifest}" || _union_rc=$?
+  if (( _floor_rc != 0 )); then
+    return "${_floor_rc}"
+  fi
+  return "${_union_rc}"
+}
+
+# Standalone CLI: when executed directly, `--verdict <manifest> <report>...`
+# runs the whole coverage verdict (see _coverage_verdict); this is the form
+# every workflow and recipe uses. `--merge-timings <out> <in>...` aggregates
+# per-shard timings (the coverage-gate job calls it after downloading the
+# shard artifacts). Bare report paths run the floor alone. When sourced,
+# this guard is false so only the functions above are defined.
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  case "${1:-}" in
+    --merge-timings)
+      shift
+      _merge_timings "$@"
+      ;;
+    --verdict)
+      shift
+      _coverage_verdict "$@"
+      ;;
+    *)
+      _coverage_gate_run "$@"
+      ;;
+  esac
 fi

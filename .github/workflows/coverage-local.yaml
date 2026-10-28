@@ -124,19 +124,24 @@ jobs:
           cat "${stamp}"
           grep -qx 'scope=full' "${stamp}"
 
-      - name: Feed the merged report to the coverage gate
-        # The same gate the hosted matrix runs, over the ONE merged report
-        # this mode produces instead of over N shard artifacts. If the
-        # merge were a sum or an average rather than a union, this is where
-        # the number would disagree with the matrix's.
+      - name: Coverage verdict
+        # The ONE coverage verdict (base#1411): the hosted coverage-gate job
+        # and `just test coverage-gate` run the identical line below, and
+        # coverage_gate_spec.bats fails if they drift apart. The floor runs
+        # over the ONE merged report this mode produces instead of over N
+        # shard artifacts -- if the merge were a sum or an average rather
+        # than a union, this is where the number would disagree with the
+        # matrix's. The union check reads coverage/timings.tsv, the run
+        # manifest of the slices, and names any spec that ran in none.
         run: |
           set -euo pipefail
-          report=coverage/kcov-merged/cobertura.xml
-          if [[ ! -f "${report}" ]]; then
-            echo "no merged report at ${report}" >&2
+          manifest=coverage/timings.tsv
+          reports=(coverage/kcov-merged/cobertura.xml)
+          if [[ ! -f "${reports[0]}" ]]; then
+            echo "no merged report at ${reports[0]}" >&2
             exit 1
           fi
-          bash ./script/test/drivers/coverage_gate.sh "${report}"
+          bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${reports[@]}"
 
 # No reclaim step. `script/test/test.sh` arms an EXIT-trap sweep of
 # orphaned compose projects on every dispatch it makes, pass or fail, so

@@ -208,6 +208,31 @@ coverage-local jobs='':
       ./script/test/test.sh --coverage-local
     fi
 
+# just test coverage-gate -> the coverage verdict over the last
+# `just test coverage` / `just test coverage-local` run (base#1411).
+#
+# A coverage run decides nothing until its verdict runs, and the verdict
+# is two checks: the floor (COVERAGE_MIN, default 80) over the merged
+# report, and the run-manifest union check, which names every spec the
+# run did not walk -- a spec that ran nowhere cannot move a ratio, so the
+# floor alone cannot see it. The line that runs it is the SAME line the
+# hosted coverage-gate job and the self-hosted coverage-local workflow
+# run; coverage_gate_spec.bats fails if the three drift apart. A
+# `just test coverage <n>/<total>` slice fails the union check by design:
+# a slice is not the suite.
+#
+# It reads coverage/ and starts no container, so it runs on the host.
+coverage-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    manifest=coverage/timings.tsv
+    reports=(coverage/kcov-merged/cobertura.xml)
+    if [[ ! -f "${reports[0]}" ]]; then
+      echo "no merged report at ${reports[0]} -- run 'just test coverage' first" >&2
+      exit 1
+    fi
+    bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${reports[@]}"
+
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
 # trap that sweeps orphaned compose projects on every dispatch it arms,
 # pass or fail, and asks whether the previous run has let go of this
