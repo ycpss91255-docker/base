@@ -81,18 +81,18 @@ _stamp_head() {
 }
 
 # The run manifest a real coverage run leaves next to its reports:
-# `<seconds> <basename>`, one line per spec FILE bats actually ran
-# (_junit_to_timings, drivers/bats.sh). It is the only local record of
-# WHAT was measured, and the certificate's scope is derived from it rather
-# than from the flag the operator typed.
-#   $1 root  $2... spec basenames
+# `<seconds> <repo-relative path>`, one line per spec FILE bats actually
+# ran (_junit_to_timings, drivers/bats.sh; keyed by path since base#1410).
+# It is the only local record of WHAT was measured, and the certificate's
+# scope is derived from it rather than from the flag the operator typed.
+#   $1 root  $2... spec paths relative to test/bats (as _make_specs takes)
 _write_manifest() {
   local _root="${1}"; shift
   mkdir -p "${_root}/coverage"
   : > "${_root}/coverage/timings.tsv"
   local _b
   for _b in "$@"; do
-    printf '1 %s\n' "${_b}" >> "${_root}/coverage/timings.tsv"
+    printf '1 test/bats/%s\n' "${_b}" >> "${_root}/coverage/timings.tsv"
   done
 }
 
@@ -330,7 +330,7 @@ _make_cobertura() {
   _root="$(_make_release_tree 84 100)"
   rm -f "${_root}/coverage/.head-sha"
   _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats integration/c_spec.bats
-  _write_manifest "${_root}" a_spec.bats b_spec.bats c_spec.bats
+  _write_manifest "${_root}" unit/a_spec.bats unit/b_spec.bats integration/c_spec.bats
 
   # The producer half of the provenance pair: without a writer in the
   # coverage path the reader above would refuse every real release.
@@ -363,7 +363,7 @@ _make_cobertura() {
   # selector nobody has thought of) produces exactly this pair of inputs.
   # Derived from the measurement, the scope cannot be fooled by an input
   # the writer never sees.
-  _write_manifest "${_root}" a_spec.bats
+  _write_manifest "${_root}" unit/a_spec.bats
 
   run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
     _ "${_root}"
@@ -401,14 +401,14 @@ _make_cobertura() {
   # The tree already carries a full-suite stamp from an earlier run at the
   # same commit. Leaving it in place would let the next run's partial
   # reports inherit a certificate that says "whole suite".
-  _write_manifest "${_root}" a_spec.bats b_spec.bats
+  _write_manifest "${_root}" unit/a_spec.bats unit/b_spec.bats
   run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
     _ "${_root}"
   [ "${status}" -eq 0 ]
   run cat "${_root}/coverage/.head-sha"
   assert_output --partial "scope=full"
 
-  _write_manifest "${_root}" b_spec.bats
+  _write_manifest "${_root}" unit/b_spec.bats
   run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
     _ "${_root}"
   [ "${status}" -eq 0 ]
@@ -452,8 +452,7 @@ _make_cobertura() {
   while IFS= read -r _p; do
     [[ -n "${_p}" ]] && _dirs+=("/source/${_p}")
   done <<< "${_roster}"
-  _expected="$(find "${_dirs[@]}" -name "${_glob}" \
-    | sed 's#.*/##' | sort -u | grep -c .)"
+  _expected="$(find "${_dirs[@]}" -name "${_glob}" | grep -c .)"
   [ "${_n}" -eq "${_expected}" ]
   [ "${_n}" -gt 100 ]
 }
@@ -485,7 +484,7 @@ _make_cobertura() {
   local _root
   _root="$(_make_release_tree 84 100)"
   _stamp_head "${_root}" "full"
-  _write_manifest "${_root}" a_spec.bats
+  _write_manifest "${_root}" unit/a_spec.bats
 
   # The certificate is DERIVED from the run manifest, so the manifest is
   # part of the certificate and inherits its rule: it must never outlive
@@ -854,7 +853,7 @@ _make_cobertura() {
   rm -f "${_root}/coverage/.head-sha"
   _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats \
     unit/sub/c_spec.bats integration/d_spec.bats
-  _write_manifest "${_root}" a_spec.bats
+  _write_manifest "${_root}" unit/a_spec.bats
 
   # End to end over the real writer and the real reader, at ONE commit:
   # `just test coverage 1/4` leaves reports covering a QUARTER of the
@@ -899,7 +898,7 @@ _make_cobertura() {
   rm -f "${_root}/coverage/.head-sha"
   _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats \
     unit/sub/c_spec.bats integration/d_spec.bats
-  _write_manifest "${_root}" a_spec.bats
+  _write_manifest "${_root}" unit/a_spec.bats
   run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
     _ "${_root}"
   [ "${status}" -eq 0 ]

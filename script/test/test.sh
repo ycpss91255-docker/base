@@ -10,10 +10,12 @@
 #                             # (ADR-00000011 #3 min->max)
 #   ./test.sh --lint --shellcheck  # Only ShellCheck, via compose
 #   ./test.sh --lint --hadolint    # Only Hadolint, via compose
+#   ./test.sh --lint --group N/T   # One lint-static group, via compose (how
+#                             # self-test.yaml's lint-static matrix runs it;
+#                             # base#1412)
 #   ./test.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
-#                             # (used by self-test.yaml's dedicated shellcheck
-#                             # job,; plain ubuntu-latest runner with
-#                             # pre-installed shellcheck)
+#                             # (times one driver on the host; no CI job
+#                             # calls it -- base#1412)
 #   ./test.sh --<tool>-only     # Run ONE lint of the phase on the host, no
 #                             # compose: --shellcheck-only / --issueref-only
 #                             # / --adr-numbering-only /
@@ -449,8 +451,19 @@ _refuse_suppressed_errexit() {
 # under `|| _rc=$?` would disable errexit inside the whole driver and let
 # a failure sail past). `-E` is required because an ERR trap is not
 # inherited by shell functions, and every driver is one.
+#
+# A lint on a CI runner's own host is refused (base#1412): CI lints inside
+# the test-tools image, as the local gate does, so the two judge a commit
+# with the same tools. GITHUB_ACTIONS is the runner's mark, on hosted and
+# self-hosted runners alike, and _run_via_compose never forwards it, so
+# the in-image lint `--lint` starts does not carry it. Refusing HERE, at
+# the one dispatch every host arm reaches, holds however a workflow step
+# reaches a host arm -- its spelling, an earlier step's $GITHUB_ENV, a
+# value only the run has -- which a reading of the workflow cannot see.
 _run_lint_tool() {
   _refuse_suppressed_errexit "the lint dispatch for '${1:-}'"
+  [[ "${GITHUB_ACTIONS:-}" != true ]] || _die ci_host_lint_on_runner \
+    "the '${1:-}' lint was asked to run on this CI runner's host (GITHUB_ACTIONS=true). CI lints inside the test-tools image, as the local gate does, so both judge a commit with the same tools: run './script/test/test.sh --lint' (narrowed with --<tool> or --group N/T) instead of a host arm."
   _LINT_ACTIVE_TOOL="${1:-}"
   set -E
   trap '_lint_driver_failed "$?" "${BASH_COMMAND}"' ERR
@@ -586,8 +599,9 @@ _run_all_lint_tools() {
   _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
-# Run one group of the partition, host-direct. The CI join for the
-# grouped lint-static jobs.
+# Run one group of the partition. The CI lint-static jobs reach it inside
+# the test-tools image through `--lint --group N/T` (LINT_GROUP); the
+# host-direct `--lint-group N/T` reaches it to time a group (base#1412).
 #
 # `_run_lint_tools`, not a loop: the group has to report EVERY driver in
 # it that failed, in phase order, because the checks list no longer names
@@ -636,6 +650,9 @@ Options:
                           compose; the ci/test-tools image bakes in hadolint.
                           Narrow with --shellcheck / --hadolint (#650)
   --shellcheck            With --lint: run only ShellCheck (still via compose)
+  --group N/T             With --lint: run only lint group N of T of the
+                          lint-static partition (still via compose). The
+                          CI lint-static matrix runs this (base#1412)
   --hadolint              With --lint: run only Hadolint (still via compose)
   --issueref              With --lint: run only the issue-ref comment lint
                           (no transient #NNN in code comments; ADR-00000013)
@@ -849,18 +866,15 @@ Options:
                           be pinned; the marker grammar is documented in
                           script/test/drivers/just_provenance.sh)
   --<tool>-only           Run ONE lint from the phase directly on this
-                          host: no compose, no test-tools image. These are
-                          the CI join for the lint phase -- no CI job runs
-                          the phase itself (the lint jobs narrow to one
-                          tool, and every bats / coverage job sets
-                          BATS_ONLY=1 / COVERAGE=1, which skip it), so
-                          self-test.yaml runs the same drivers -- a
-                          dedicated job calls one of these, and a
-                          lint-static group calls --lint-group, which runs
-                          several. Available:
+                          host: no compose, no test-tools image. Kept to
+                          time one driver (the --shell-metrics-only family
+                          also backs `just test metrics`); no CI job calls
+                          them -- every self-test.yaml lint job runs --lint
+                          inside the test-tools image, as the local gate
+                          does, and on a CI runner (GITHUB_ACTIONS=true)
+                          they refuse to run (base#1412). Available:
                             --shellcheck-only        (needs shellcheck in
-                                                     PATH; ubuntu-latest
-                                                     ships it)
+                                                     PATH)
                             --issueref-only          pure bash
                             --adr-numbering-only     pure bash
                             --adr-structure-only     pure bash
@@ -884,7 +898,8 @@ Options:
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --lint-group N/T        Run lint group N of T directly on this host, no
-                          compose. The grouped CI join: the drivers are
+                          compose, to time a group; CI runs the same group
+                          with --lint --group N/T instead. The drivers are
                           split round-robin over the _LINT_TOOLS table
                           (minus the lints that carry their own job), so
                           adding a lint to the table puts it in a group
@@ -935,11 +950,18 @@ Options:
                           smaller total. Rejected with --coverage-shard /
                           --coverage-path / --bats-path (#726)
   --coverage-shard N/T    Run kcov over coverage shard N of T (skip
-                          ShellCheck). Mirrors --bats-unit-shard's
-                          round-robin slice; integration runs on the last
-                          shard. Used by the coverage matrix in
-                          self-test.yaml (#615). Codecov merges the
-                          per-shard uploads into one project figure.
+      [--shard-weights F] ShellCheck). Used by the coverage matrix in
+                          self-test.yaml (#615). The partition weighs
+                          specs by F (`<seconds> <spec path>`, CI's
+                          shard-weights artifact), else by the ambient
+                          SHARD_WEIGHTS_BLOB, else by `@test` counts -- an
+                          empty F or blob included, as on CI's cache
+                          miss; never by the checkout's test/bats/
+                          .shard-weights. The shard runs as
+                          COVERAGE_JOBS kcov slices (default 4, the hosted
+                          runner's cores), so the same weights and N/T run
+                          the same specs in the same slices on any host
+                          (base#1410).
   --coverage-path PATH    Run ONE spec FILE or DIRECTORY (repo-root-
                           relative) under kcov via the coverage container:
                           the inner loop for a spec that is red under kcov
@@ -955,7 +977,7 @@ Options:
                           --bats-path (#887)
   --coverage-union-check FILE
                           Check the MERGED per-shard run manifest FILE
-                          (`<seconds> <basename>`, the file
+                          (`<seconds> <spec path>`, the file
                           `coverage_gate.sh --merge-timings` writes from
                           every coverage shard's coverage/timings.tsv)
                           against the inventory of what a full coverage
@@ -1166,6 +1188,35 @@ _prev_release_spec_in_shard() {
   _prev_release_spec_in_selection <<< "${_files}"
 }
 
+# _prev_release_spec_in_coverage_shard <n>/<total>
+#   _prev_release_spec_in_shard asked of the partition a kcov coverage
+#   shard runs: the one weighted by the forwarded SHARD_WEIGHTS_BLOB, which
+#   the container decodes before partitioning (_decode_shard_weights_blob)
+#   and so the host decodes too (base#1433). Asked of the checkout's
+#   weights instead, a shard whose blob moved the spec in ran it with no
+#   fixture, and the shard it moved out of paid for one it never read. An
+#   empty blob decodes to an empty file, the `@test`-count partition, as it
+#   does in the container. A blob that does not decode is answered YES, as
+#   an uncomputable partition is: the container refuses that blob anyway,
+#   and of the two guesses only "not needed" can end in a vacuous spec. A
+#   temp file that cannot be made is answered YES for the same reason; the
+#   caller runs this with errexit suspended, so an empty path would
+#   otherwise reach the decoder.
+_prev_release_spec_in_coverage_shard() {
+  local _spec="${1:?BUG: _prev_release_spec_in_coverage_shard expects <n>/<total>}"
+  local _wf="" _rc=0
+  if ! _wf="$(mktemp 2>/dev/null)" || [[ -z "${_wf}" ]]; then
+    return 0
+  fi
+  if ! _shard_weights_blob_to_file "${SHARD_WEIGHTS_BLOB:-}" "${_wf}"; then
+    rm -f "${_wf}"
+    return 0
+  fi
+  SHARD_WEIGHTS_FILE="${_wf}" _prev_release_spec_in_shard "${_spec}" || _rc=$?
+  rm -f "${_wf}"
+  return "${_rc}"
+}
+
 # _dispatch_needs_prev_release <coverage>
 #   Whether the compose dispatch about to run will execute that spec.
 #   <coverage> is _run_via_compose's own COVERAGE flag (0 / 1).
@@ -1205,7 +1256,7 @@ _dispatch_needs_prev_release() {
       return
     fi
     if [[ -n "${COVERAGE_SHARD:-}" ]]; then
-      _prev_release_spec_in_shard "${COVERAGE_SHARD}"
+      _prev_release_spec_in_coverage_shard "${COVERAGE_SHARD}"
       return
     fi
     return 0
@@ -1272,31 +1323,26 @@ _prepare_prev_release() {
 readonly _COVERAGE_HEAD_STAMP_REL="coverage/.head-sha"
 
 # The run manifest kcov's bats leaves next to the reports: `<seconds>
-# <basename>`, one line per spec FILE that actually ran (_junit_to_timings
-# in drivers/bats.sh, from bats' junit report). It exists to weigh the next
-# partition; it is reused here because it is the only local record of WHAT
-# was measured, written by the run rather than by its caller.
+# <repo-relative path>`, one line per spec FILE that actually ran
+# (_junit_to_timings in drivers/bats.sh, from bats' junit report). It exists
+# to weigh the next partition; it is reused here because it is the only
+# local record of WHAT was measured, written by the run rather than by its
+# caller.
 readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
 
-# _coverage_spec_inventory [root] -- print, one per line, the sorted unique
-# BASENAMES of every spec a full coverage run covers.
+# _coverage_spec_inventory [root] -- print, one per line, the sorted
+# root-relative PATHS of every spec a full coverage run covers.
 #
 # The pools and the file shape are NOT a second roster: both come from
 # _COVERAGE_FULL_SUITE_POOLS / _COVERAGE_SPEC_GLOB in drivers/bats.sh, the
 # same values _run_coverage builds its full-suite targets from and
 # _shard_unit_files partitions. The recursion is `bats --recursive`'s, so
-# the per-lib subfolders of ADR-00000015 count. Basenames, not paths, because
-# that is the key space the manifest is written in -- _junit_to_timings
-# reduces bats' junit `name=` to a basename so _spec_weight can read the
-# merged weights back.
-#
-# Two specs in different pools may share a basename (there are such pairs
-# here), so the inventory is smaller than the file count. That makes the
-# comparison below very slightly lenient: a measurement missing ONLY the
-# twin of a name it already carries would still compare equal. No
-# partition produces that set -- a shard is a fraction of the tree, not
-# the tree minus one file -- and the alternative, keying on paths, would
-# mean a second manifest format nothing else reads.
+# the per-lib subfolders of ADR-00000015 count. Paths, because that is the
+# key space the manifest is written in -- _junit_to_timings keys each
+# spec's timing on its repo-relative path so _spec_weight can read the
+# merged weights back. It keyed on basenames until base#1410, and five
+# basenames name two specs each, so a run missing one spec of such a pair
+# compared equal to the inventory.
 #
 # Empty is a FAILURE (return 1), not an empty set: an inventory that
 # enumerated nothing would make every manifest look complete.
@@ -1309,7 +1355,7 @@ _coverage_spec_inventory() {
   done
   (( ${#_dirs[@]} > 0 )) || return 1
   while IFS= read -r _f; do
-    _names+=("${_f##*/}")
+    _names+=("${_f#"${_root}/"}")
   done < <(find "${_dirs[@]}" -type f -name "${_COVERAGE_SPEC_GLOB}")
   (( ${#_names[@]} > 0 )) || return 1
   printf '%s\n' "${_names[@]}" | LC_ALL=C sort -u
@@ -1356,6 +1402,39 @@ _measured_coverage_scope() {
   printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
 }
 
+# _shard_weights_blob_to_file <blob> <file> -- write <blob>'s base64
+# decoding to <file>; non-zero when it does not decode. The one decoder for
+# the container's shard (_decode_shard_weights_blob) and the host's
+# fixture gate (_prev_release_spec_in_coverage_shard), so the two cannot
+# read one blob as two different weight sets (base#1433).
+_shard_weights_blob_to_file() {
+  local _blob="${1-}"
+  local _out="${2:?BUG: _shard_weights_blob_to_file expects <blob> <file>}"
+  printf '%s' "${_blob}" | base64 -d > "${_out}" 2>/dev/null
+}
+
+# _decode_shard_weights_blob <blob> -- decode a base64 weights blob (the
+# form compute-shards publishes) into a fresh file and export it as
+# SHARD_WEIGHTS_FILE, the weights _spec_weight reads (base#1410). A temp
+# file rather than ${REPO_ROOT}/test/bats/.shard-weights: inside the
+# container ${REPO_ROOT} is the mounted checkout. A blob that does not
+# decode is refused, not read as "no weights": that would re-partition the
+# shard by `@test` count while its siblings partition by seconds. An
+# EMPTY blob decodes to an empty file, which _spec_weight reads as "no
+# recorded seconds" for every spec: the `@test`-count partition CI's
+# cache-miss shards run.
+_decode_shard_weights_blob() {
+  local _blob="${1-}"
+  local _wf
+  _wf="$(mktemp)"
+  if ! _shard_weights_blob_to_file "${_blob}" "${_wf}"; then
+    rm -f "${_wf}"
+    _die ci_invalid_shard_weights_blob \
+      "SHARD_WEIGHTS_BLOB does not decode as base64; the shard would partition by different weights from its siblings, so it refuses to run."
+  fi
+  export SHARD_WEIGHTS_FILE="${_wf}"
+}
+
 # _coverage_union_gap <manifest> [root] -- print, one per line, the specs
 # the inventory names and <manifest> does NOT.
 #
@@ -1363,9 +1442,9 @@ _measured_coverage_scope() {
 # the file `coverage_gate.sh --merge-timings` writes from every shard's
 # coverage/timings.tsv, which is also the weights file the NEXT partition
 # reads. Same key space as _measured_coverage_scope above (`<seconds>
-# <basename>`), asked a different question -- that one reports how much of
-# the suite ONE run measured, this one names what the matrix as a whole
-# left out.
+# <repo-relative path>`), asked a different question -- that one reports
+# how much of the suite ONE run measured, this one names what the matrix as
+# a whole left out.
 #
 # WHY THE MATRIX CAN LEAVE A SPEC OUT. Greedy-LPT partitions the pool PER
 # WEIGHT SOURCE: each shard computes the whole partition and keeps its own
@@ -1374,9 +1453,9 @@ _measured_coverage_scope() {
 # hold a slice of a DIFFERENT partition, and their union is neither
 # exhaustive nor disjoint. Nothing else in the matrix can tell: a slice of
 # either partition is non-empty, so _shard_unit_files' empty-shard guard
-# stays quiet; the merge keys on basename, so a spec two shards both ran
-# reads as one entry; and the only trace left by a spec that ran NOWHERE is
-# the absence of its entry, which is what this prints.
+# stays quiet; the merge keys on the spec path, so a spec two shards both
+# ran reads as one entry; and the only trace left by a spec that ran
+# NOWHERE is the absence of its entry, which is what this prints.
 #
 # Empty output means every spec a full run covers was reported by some
 # shard. Returns 1, printing nothing, when there is nothing to compare --
@@ -2258,6 +2337,14 @@ _residue_check() {
 readonly _PROJECT_WAIT_DEFAULT='2m'
 readonly _PROJECT_WAIT_POLL_SECONDS=2
 
+# The whole-run bound on the compose run of the suite (base#1413), a
+# `timeout` duration, one per service. Ceilings for a hang, not tuned
+# numbers: the ci service gets two hours, the coverage service -- whose
+# full-suite run is serial under kcov -- six, GitHub's own default job
+# bound. SUITE_TIMEOUT overrides both.
+readonly _SUITE_TIMEOUT_PLAIN='120m'
+readonly _SUITE_TIMEOUT_COVERAGE='360m'
+
 # _await_docker_project_networks <project> <checkout>
 #
 # The ids of the networks that carry BOTH proofs. Ids only: they are hex,
@@ -2478,6 +2565,34 @@ _run_via_compose() {
   # substitution inline in an argument would not abort the command).
   local _image
   _image="$(_resolve_test_tools_image)"
+  # The run is bounded as a whole (base#1413). Locally nothing else bounds
+  # it -- no job timeout -- so a hang the per-test bound cannot see (a
+  # wedged container, a stuck kcov merge) would block the terminal. The
+  # bound is a ceiling for a hang, not a budget: SUITE_TIMEOUT overrides
+  # it (a `timeout` duration), and the default is wider for the coverage
+  # service, whose full-suite run is serial under kcov. `--foreground`
+  # because compose may put the terminal in raw mode: without it the run
+  # is in a background process group, and a raw-mode change from there
+  # stops it on SIGTTOU until the bound fires. `-k` follows with SIGKILL
+  # if the TERM is not enough. The bound stops compose, not the container
+  # compose started: that one runs on until it ends or `just test stop`
+  # removes it, which the timeout message says. Resolved here, with the
+  # other refusals that mint nothing, so a bad value is refused before any
+  # compose call.
+  local _suite_timeout="${SUITE_TIMEOUT:-}"
+  if [[ -z "${_suite_timeout}" ]]; then
+    if [[ "${_service}" == "coverage" ]]; then
+      _suite_timeout="${_SUITE_TIMEOUT_COVERAGE}"
+    else
+      _suite_timeout="${_SUITE_TIMEOUT_PLAIN}"
+    fi
+  fi
+  if ! [[ "${_suite_timeout}" =~ ^[1-9][0-9]*[smhd]?$ ]]; then
+    _log_err ci ci_invalid_suite_timeout \
+      "display=SUITE_TIMEOUT '${_suite_timeout}' is not a duration (expected <N>, <N>s, <N>m, <N>h or <N>d)." \
+      "value=${_suite_timeout}"
+    return 1
+  fi
   # Ask whether the previous run has let go of this project's network
   # before asking compose to use it. ABOVE the arm, because a refusal here
   # mints nothing: the project it names already exists, and a sweep for
@@ -2527,12 +2642,15 @@ _run_via_compose() {
   # and wrote into the checkout has two things to say, and the second one
   # explains re-runs that disagree with each other.
   local _rc=0
-  docker compose -p "${_project}" \
+  timeout --foreground -k 60s "${_suite_timeout}" \
+    docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
     -e COVERAGE_PATH="${COVERAGE_PATH:-}" \
     -e COVERAGE_LOCAL_JOBS="${COVERAGE_LOCAL_JOBS:-}" \
+    -e COVERAGE_JOBS="${COVERAGE_JOBS:-}" \
+    -e SHARD_WEIGHTS_BLOB="${SHARD_WEIGHTS_BLOB:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_FRAGILE="${BATS_FRAGILE:-0}" \
@@ -2541,9 +2659,16 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
+    -e LINT_GROUP="${LINT_GROUP:-}" \
+    -e PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-}" \
     -e PIN_TRACKED_ROOT=/source \
     -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
     "${_service}" || _rc=$?
+  if (( _rc == 124 )); then
+    _log_err ci ci_suite_timeout \
+      "display=the ${_service} run did not finish within ${_suite_timeout} and was stopped (status ${_rc}). A test that hangs is bounded on its own and fails by name; a run that hits this bound hung outside any test. Stopping compose does not stop the container it started, so it may still be running: 'just test stop' removes it. Raise the bound with SUITE_TIMEOUT if the run was only slow." \
+      "service=${_service}" "timeout=${_suite_timeout}" "status=${_rc}"
+  fi
   if [[ -n "${_residue_before}" ]]; then
     _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
     rm -f "${_residue_before}"
@@ -2565,6 +2690,10 @@ main() {
   local hadolint_only=0
   local lint=0
   local lint_tool=""
+  # `--group N/T` narrows `--lint` to one group of the lint-static
+  # partition, run inside the test-tools image like every other `--lint`
+  # (base#1412). It is how the CI lint-static matrix runs its group.
+  local lint_group=""
   # The `--<tool>-only` host-direct primitives all set this one variable:
   # they are the same operation (run ONE lint driver on this host, no
   # compose) parameterised by tool, so they share one short-circuit rather
@@ -2593,6 +2722,10 @@ main() {
   # Recorded rather than answered on the spot, for the same reason the
   # queries are -- see the dispatch below the flag-combination guards.
   local union_check=""
+  # `--shard-weights FILE` names the weights a coverage shard partitions by
+  # (base#1410): the file CI's compute-shards job restored and published,
+  # so the local shard N/T is CI's shard N/T.
+  local shard_weights=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2630,6 +2763,7 @@ main() {
       --test-name-backtick) lint_tool="test-name-backtick"; shift ;;
       --log-event-registry) lint_tool="log-event-registry"; shift ;;
       --toml-fixture) lint_tool="toml-fixture"; shift ;;
+      --group) lint_group="${2:?--group expects <n>/<total>}"; shift 2 ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -2676,6 +2810,7 @@ main() {
       --coverage-local) mode="coverage"; coverage_local=1; shift ;;
       --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
+      --shard-weights) shard_weights="${2:?--shard-weights expects <weights-file>}"; shift 2 ;;
       --coverage-union-check) union_check="${2:?--coverage-union-check expects <manifest-file>}"; shift 2 ;;
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
@@ -2691,6 +2826,17 @@ main() {
     _die ci_lint_tool_without_lint \
       "--${lint_tool} narrows --lint; use './test.sh --lint --${lint_tool}' or '--${lint_tool}-only'."
   fi
+  # `--group` narrows `--lint` the same way, and naming a tool AND a group
+  # asks for two different narrowings of one run, so both are refused
+  # rather than one silently winning (base#1412).
+  if [[ -n "${lint_group}" && "${lint}" != "1" ]]; then
+    _die ci_lint_tool_without_lint \
+      "--group ${lint_group} narrows --lint; use './test.sh --lint --group ${lint_group}'."
+  fi
+  if [[ -n "${lint_group}" && -n "${lint_tool}" ]]; then
+    _die ci_lint_tool_without_lint \
+      "--group ${lint_group} and --${lint_tool} are two narrowings of --lint; pass one."
+  fi
 
   # `--jobs` narrows `--coverage-local` the same way, and is refused here
   # -- beside the other "flag with no partner" typo guard and AHEAD of
@@ -2705,6 +2851,14 @@ main() {
   if [[ -n "${coverage_jobs}" && "${coverage_local}" != "1" ]]; then
     _die ci_jobs_without_coverage_local \
       "--jobs <n> sets the kcov process count of --coverage-local; it means nothing on its own (bare 'just test' already runs bats in parallel). Use './test.sh --coverage-local --jobs ${coverage_jobs}'."
+  fi
+
+  # `--shard-weights` narrows `--coverage-shard` the way `--jobs` narrows
+  # `--coverage-local`, and is refused on its own for the same reason: the
+  # weights decide a shard's partition, and nothing else reads them.
+  if [[ -n "${shard_weights}" && -z "${coverage_shard}" ]]; then
+    _die ci_shard_weights_without_shard \
+      "--shard-weights <file> sets the weights of --coverage-shard N/T; it means nothing on its own. Use './test.sh --coverage-shard N/T --shard-weights ${shard_weights}'."
   fi
 
   # The queries. They answer about this checkout and stop, minting nothing
@@ -2758,63 +2912,62 @@ main() {
     return 0
   fi
 
-  # The host-direct lint primitives (`--shellcheck-only`,
-  # `--issueref-only`, `--adr-numbering-only`, `--adr-structure-only`,
-  # `--stale-setup-conf-only`, `--readme-sync-only`,
-  # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
-  # `--bash-source-guard-only`, `--derived-figures-only`,
-  # `--i18n-orphan-only`, `--early-close-reader-only`,
-  # `--errexit-bang-only`,
-  # `--self-hosted-guard-only`, `--tool-provenance-only`,
-  # `--changelog-entry-only`,
-  # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
-  # before any mode dispatch and run
-  # ONE driver right here: no compose, no test-tools image, no
-  # apt-install. It is how a DEDICATED CI job runs its one lint (and how
-  # a person times one driver); the grouped lint-static jobs reach the
-  # same drivers through `--lint-group` below. Either way a plain
-  # ubuntu-latest runner runs the SAME driver the local phase runs, so the
-  # local gate and the CI gate cannot drift apart. Every tool but shellcheck is pure
-  # bash over the checkout; shellcheck relies on the binary ubuntu-latest
-  # ships pre-installed. hadolint is deliberately absent: its binary
-  # exists only in the test-tools image, so its CI job uses
-  # `--lint --hadolint` inside that image instead.
+  # The host-direct lint primitives (`--<tool>-only`) short-circuit
+  # before any mode dispatch and run ONE driver right here: no compose, no
+  # test-tools image. They are NOT a CI join any more (base#1412). CI used
+  # to run its ShellCheck, doc-counts and lint-static jobs through these
+  # arms on the ubuntu runner while the local gate ran the same drivers
+  # inside the test-tools image, so one commit could be judged by two sets
+  # of tools. Every lint job now runs `--lint` inside the image.
+  #
+  # The arms are kept for one reason: they are operator entry points,
+  # never a gate. A person times one driver with them (the measurement
+  # ADR-00000028 asks for), base#1277 holds every tabled lint to having
+  # one, and `just test metrics` runs the shell-metrics arms on the host.
+  # That no CI step reaches one is checked by RUNNING the steps:
+  # test/bats/unit/self_test_yaml_spec.bats executes every workflow step
+  # that names test.sh against a copy of this file whose _run_lint_tool
+  # records instead of linting, so a host lint is seen whatever the
+  # spelling (base#1412).
   if [[ -n "${host_lint}" ]]; then
     _run_lint_tool "${host_lint}"
     return 0
   fi
 
-  # The grouped form of the same join (base#1071). One lint-static job per
-  # GROUP of the partition rather than per driver: 20 one-driver jobs spent
-  # more runner startup than they did work, and took 20 of the free plan's
-  # ~20 org-wide concurrent slots away from the coverage shards, which are
-  # the run's critical path. Which lint failed is still answerable -- the
-  # group enumerates every failing driver in its output (base#1059) instead
-  # of the checks list naming it.
+  # The grouped host-direct form, kept for the same reason: it times a
+  # whole group outside the image, and no CI step reaches it. The
+  # CI lint-static matrix runs its group with `--lint --group N/T`
+  # instead, inside the image (base#1412); the partition both read is the
+  # same `_lint_group_members`.
   if [[ -n "${host_lint_group}" ]]; then
     _run_lint_group "${host_lint_group}"
     return 0
   fi
 
-  # --hadolint-only short-circuits and runs the linter directly here (no
-  # compose), so hadolint must already be in PATH. It is the in-container
-  # primitive: callers run it from INSIDE the ci/test-tools image (which
-  # bakes hadolint in) -- the self-test.yaml hadolint job invokes it via
-  # `_run_via_compose ci`. _run_hadolint _die's with a clear message if the
-  # binary is missing (e.g. invoked on a bare host).
+  # --hadolint-only runs the linter directly here (no compose), so hadolint
+  # must already be in PATH; _run_hadolint _die's with a clear message if
+  # the binary is missing (e.g. invoked on a bare host). It is a host arm
+  # like the --<tool>-only family above, so it goes through the same one
+  # dispatch, which is where a CI runner's host is refused (base#1412).
   if [[ "${hadolint_only}" == "1" ]]; then
-    _run_hadolint
+    _run_lint_tool hadolint
     return 0
   fi
 
   # `--lint` runs the linters through the ci/test-tools container (it bakes
-  # in hadolint, absent on the host). LINT_ONLY=1 tells the in-container
-  # `--ci` path to run only the lint phase; LINT_TOOL narrows to one linter
-  # (empty = all). Even `--lint --shellcheck` runs in-container so its
-  # behaviour matches bare `just test lint`; the dedicated GHA shellcheck
-  # job uses the host-only `--shellcheck-only` path instead.
+  # in hadolint and the pinned shellcheck). LINT_ONLY=1 tells the
+  # in-container `--ci` path to run only the lint phase; LINT_TOOL narrows
+  # to one linter and LINT_GROUP to one group of the lint-static partition
+  # (both empty = all). This is the one path every CI lint job takes, as
+  # bare `just test lint` does locally, so the local gate and the CI gate
+  # run the same drivers on the same tools (base#1412).
+  #
+  # A group spec is validated HERE, on the host, before compose is started:
+  # a malformed spec is a typo, and it should cost no image.
   if [[ "${lint}" == "1" ]]; then
-    LINT_ONLY=1 LINT_TOOL="${lint_tool}" _run_via_compose ci 0
+    [[ -z "${lint_group}" ]] || _refuse_bad_lint_group "${lint_group}"
+    LINT_ONLY=1 LINT_TOOL="${lint_tool}" LINT_GROUP="${lint_group}" \
+      _run_via_compose ci 0
     return 0
   fi
 
@@ -2900,7 +3053,8 @@ main() {
     # coverage_badge_spec's "every coverage dispatch pins every selector
     # the container reads" demands the whole roster here for that reason.
     BATS_ONLY=1 COVERAGE_PATH="${coverage_path}" BATS_FILTER="${bats_filter}" \
-      COVERAGE_SHARD="" COVERAGE_LOCAL_JOBS="" _run_via_compose coverage 1
+      COVERAGE_SHARD="" COVERAGE_LOCAL_JOBS="" COVERAGE_JOBS="" \
+      SHARD_WEIGHTS_BLOB="" _run_via_compose coverage 1
     return 0
   fi
 
@@ -2959,8 +3113,12 @@ main() {
       # The test-tools image
       # already ships every tool (bats / shellcheck / hadolint / kcov), so
       # nothing is installed at runtime on any path.
+      # LINT_GROUP narrows to one group of the lint-static partition
+      # (base#1412), the in-image form of the CI lint-static matrix.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then
-        if [[ -z "${LINT_TOOL:-}" ]]; then
+        if [[ -n "${LINT_GROUP:-}" ]]; then
+          _run_lint_group "${LINT_GROUP}"
+        elif [[ -z "${LINT_TOOL:-}" ]]; then
           _run_all_lint_tools
         else
           _run_lint_tool "${LINT_TOOL}"
@@ -3010,6 +3168,18 @@ main() {
         # a question about how many cores to use, not about what to
         # measure. COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
+        #
+        # SHARD_WEIGHTS_BLOB is the weights the host forwarded (base#1410):
+        # the blob CI's compute-shards publishes, or a local
+        # `--shard-weights <file>` encoded the same way. It is decoded HERE,
+        # the one decoder for both paths, into the file _spec_weight reads.
+        # A shard decodes it even when it is EMPTY: an empty blob is CI's
+        # cache miss or an empty weights file, and both mean `@test` count.
+        # Left undecoded, _spec_weight would fall back to the checkout's
+        # test/bats/.shard-weights, a source CI's shards never read.
+        if [[ -n "${COVERAGE_SHARD:-}" ]]; then
+          _decode_shard_weights_blob "${SHARD_WEIGHTS_BLOB:-}"
+        fi
         if [[ -n "${COVERAGE_LOCAL_JOBS:-}" ]]; then
           _run_coverage_parallel "${COVERAGE_LOCAL_JOBS}"
         else
@@ -3079,8 +3249,28 @@ main() {
       # call site -- so a third selector added to that forwarder, or a
       # third mode wired to that container, arrives with its clearing
       # already demanded.
+      #
+      # A shard's slice count and its weights cross the compose boundary
+      # explicitly (base#1410), so the container runs the shard CI runs
+      # under the same name: COVERAGE_JOBS defaults to the hosted runner's
+      # count rather than this machine's cores, and the weights are the
+      # blob compute-shards publishes -- ambient on CI, encoded from
+      # `--shard-weights <file>` the same way (`base64 -w0`) locally. Only a
+      # shard partitions by them, so every other coverage run clears both.
+      local _cov_jobs="" _cov_blob=""
+      if [[ -n "${coverage_shard}" ]]; then
+        _cov_jobs="${COVERAGE_JOBS:-${_COVERAGE_JOBS_HOSTED_DEFAULT}}"
+        _cov_blob="${SHARD_WEIGHTS_BLOB:-}"
+        if [[ -n "${shard_weights}" ]]; then
+          [[ -f "${shard_weights}" && -r "${shard_weights}" ]] \
+            || _die ci_shard_weights_unreadable \
+                 "--shard-weights '${shard_weights}' is not a readable file. Fetch CI's with 'gh run download <run-id> -n shard-weights'."
+          _cov_blob="$(base64 -w0 < "${shard_weights}")"
+        fi
+      fi
       COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
         COVERAGE_LOCAL_JOBS="${coverage_local_jobs}" \
+        COVERAGE_JOBS="${_cov_jobs}" SHARD_WEIGHTS_BLOB="${_cov_blob}" \
         _run_via_compose coverage 1
       # The status is read AFTER the branch, never as `|| rc=$?`: a
       # command on the left of `||` runs with errexit suspended, and the

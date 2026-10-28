@@ -79,6 +79,8 @@ on:
     paths:
       - 'dockerfile/Dockerfile.test-tools'
       - 'dockerfile/toml_bridge.py'
+      - 'dockerfile/kcov-76bf685.patch'
+      - 'dockerfile/bats-timeout-killer.patch'
       - '.github/workflows/release-test-tools.yaml'
     tags:
       - 'v*'

@@ -372,11 +372,11 @@ _make_multi_cobertura() {
 # ════════════════════════════════════════════════════════════════════
 # --merge-timings: aggregate per-shard runtime files into one weights file
 #
-# Each coverage shard uploads a `<seconds> <basename>` timings file
+# Each coverage shard uploads a `<seconds> <spec path>` timings file
 # (from _junit_to_timings). The coverage-gate job already downloads every
 # shard artifact, so it also merges the timings into one weights file that
 # the NEXT run restores as SHARD_WEIGHTS_FILE. A spec runs in exactly one
-# shard, so normally one entry per basename; the merge keeps the MAX as a
+# shard, so normally one entry per path; the merge keeps the MAX as a
 # defensive dedup and tolerates a shard that produced no file.
 # ════════════════════════════════════════════════════════════════════
 
@@ -406,7 +406,7 @@ _make_multi_cobertura() {
 # A coverage run decides something only through its verdict, and the
 # verdict is two checks, not one: the floor over the reports AND the
 # run-manifest union check (a spec that ran nowhere cannot lower a ratio,
-# so the floor alone cannot see it). `--verdict <manifest> <report>...`
+# so the floor alone cannot see it). `--verdict <manifest> <run-dir>...`
 # runs both, so local, GitHub-hosted and self-hosted reach the same
 # verdict through the same entry point instead of three step lists.
 # ════════════════════════════════════════════════════════════════════
@@ -435,7 +435,7 @@ _verdict_manifest() {
   _verdict_manifest "${SCRATCH}/whole.tsv"
 
   run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
-    "${SCRATCH}/whole.tsv" "${SCRATCH}/a/cobertura.xml"
+    "${SCRATCH}/whole.tsv" "${SCRATCH}/a"
   assert_success
   assert_output --partial "60.00"
   assert_output --partial "exhaustive"
@@ -450,7 +450,7 @@ _verdict_manifest() {
   [ -n "${_dropped}" ]
 
   run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
-    "${SCRATCH}/short.tsv" "${SCRATCH}/a/cobertura.xml"
+    "${SCRATCH}/short.tsv" "${SCRATCH}/a"
   assert_failure
   assert_output --partial "90.00"
   assert_output --partial "${_dropped}"
@@ -463,7 +463,7 @@ _verdict_manifest() {
   _verdict_manifest "${SCRATCH}/whole.tsv"
 
   run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
-    "${SCRATCH}/whole.tsv" "${SCRATCH}/a/cobertura.xml"
+    "${SCRATCH}/whole.tsv" "${SCRATCH}/a"
   assert_failure
   assert_output --partial "floor 50% -> FAIL"
 }
@@ -479,7 +479,7 @@ _verdict_manifest() {
   [ -n "${_dropped}" ]
 
   run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
-    "${SCRATCH}/short.tsv" "${SCRATCH}/a/cobertura.xml"
+    "${SCRATCH}/short.tsv" "${SCRATCH}/a"
   assert_failure
   assert_output --partial "floor 50% -> FAIL"
   assert_output --partial "${_dropped}"
@@ -641,15 +641,15 @@ _verdict_contexts() {
     || fail "hosted binds manifest to [${output}], not the merged timings [${_merged}]"
 }
 
-# why: the hosted reports are an input too, and the text checks above
-# cannot see how its loop fills them. Run the hosted verdict step itself
-# over a laid-out set of downloaded shards, with the driver stubbed to
-# print its arguments: it must hand the verdict the manifest and exactly
-# ONE report from EVERY shard -- the kcov-merged one where it exists, else
-# the first one found. A loop that keeps only the last shard, or one that
-# passes a shard twice, judges a different run than the one the manifest
-# names.
-@test "coverage verdict parity: the hosted verdict receives exactly one report from every downloaded shard (base#1411)" {
+# why: the hosted run directories are an input too, and the text checks
+# above cannot see how its glob fills them. Run the hosted verdict step
+# itself over a laid-out set of downloaded shards, with the driver stubbed
+# to print its arguments: it must hand the verdict the manifest and EVERY
+# shard directory exactly once -- the driver then takes one report from
+# each (the --run-dirs tests pin that rule). A step that keeps only the
+# last shard, or passes a shard twice, judges a different run than the one
+# the manifest names.
+@test "coverage verdict parity: the hosted verdict receives every downloaded shard directory once (base#1411)" {
   local _work="${SCRATCH}/hosted-run" _s
   _verdict_contexts
   _run_blocks_matching "${SCRATCH}/hosted.yaml" \
@@ -659,26 +659,20 @@ _verdict_contexts() {
   mkdir -p "${_work}/script/test/drivers"
   printf '#!/usr/bin/env bash\nprintf "ARG %%s\\n" "$@"\n' \
     > "${_work}/script/test/drivers/coverage_gate.sh"
-  # shard-0: a merged report beside a per-run one -> the merged one.
-  # shard-1: per-run reports only -> exactly one of them.
-  # shard-2: a merged report only.
   for _s in coverage-shard-0/kcov-merged coverage-shard-0/run-a \
-            coverage-shard-1/run-a coverage-shard-1/run-b \
-            coverage-shard-2/kcov-merged; do
+            coverage-shard-1/run-a coverage-shard-2/kcov-merged; do
     mkdir -p "${_work}/coverage-shards/${_s}"
     : > "${_work}/coverage-shards/${_s}/cobertura.xml"
   done
+  # A merged timings file beside the shard directories is no shard.
+  : > "${_work}/coverage-shards/timings.tsv"
 
   run bash -c 'cd "$1" && bash "$2"' _ "${_work}" "${SCRATCH}/hosted-verdict.sh"
   assert_success
-  assert_line 'ARG --verdict'
-  assert_line 'ARG test/bats/.shard-weights'
-  [ "$(grep -c '^ARG .*cobertura\.xml$' <<<"${output}")" -eq 3 ] \
-    || fail "the hosted verdict does not receive exactly three reports: ${output}"
-  assert_line 'ARG ./coverage-shards/coverage-shard-0/kcov-merged/cobertura.xml'
-  [ "$(grep -c '^ARG \./coverage-shards/coverage-shard-1/run-[ab]/cobertura\.xml$' <<<"${output}")" -eq 1 ] \
-    || fail "the hosted verdict does not receive exactly one shard-1 report: ${output}"
-  assert_line 'ARG ./coverage-shards/coverage-shard-2/kcov-merged/cobertura.xml'
+  [ "${output}" == "$(printf 'ARG %s\n' --verdict test/bats/.shard-weights \
+      ./coverage-shards/coverage-shard-0/ ./coverage-shards/coverage-shard-1/ \
+      ./coverage-shards/coverage-shard-2/)" ] \
+    || fail "the hosted verdict does not receive the manifest and each shard directory once: ${output}"
 }
 
 # why: the floor is an input too. The driver owns COVERAGE_MIN's default
@@ -694,4 +688,56 @@ _verdict_contexts() {
     run grep -n 'COVERAGE_MIN' <(_code_lines "${_f}")
     assert_failure
   done
+}
+
+# ════════════════════════════════════════════════════════════════════
+# --run-dirs: one report per kcov run directory (base#1409)
+#
+# kcov writes a run's report under <out>/<command>.<hash>/cobertura.xml,
+# and a merged one under <out>/kcov-merged/cobertura.xml once more than
+# one command reported into <out>. Neither layout has a cobertura.xml at
+# <out> itself. The coverage-gate job hands this every downloaded shard
+# directory and the pre-PR mirror hands it the coverage/ tree `just test
+# coverage` writes, so both pick reports by this one rule.
+# ════════════════════════════════════════════════════════════════════
+
+# why: Passing both the merged and the per-command report counts a run twice;
+# the merged one is the run's report when it exists.
+@test "coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)" {
+  _make_cobertura "${SCRATCH}/coverage/kcov-merged/cobertura.xml" 90 100 merged.sh
+  _make_cobertura "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 10 100 run.sh
+  run env COVERAGE_MIN=80 bash "${GATE}" --run-dirs "${SCRATCH}/coverage"
+  assert_success
+  assert_line "coverage report: ${SCRATCH}/coverage/kcov-merged/cobertura.xml"
+  refute_output --partial 'bats.0123abcd'
+}
+
+# why: A single-command kcov run writes no kcov-merged report, and the gate
+# must still find the one it did write.
+@test "coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)" {
+  _make_cobertura "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 90 100
+  run env COVERAGE_MIN=80 bash "${GATE}" --run-dirs "${SCRATCH}/coverage/"
+  assert_success
+  assert_line "coverage report: ${SCRATCH}/coverage/bats.0123abcd/cobertura.xml"
+}
+
+# why: This is the CI shape -- one directory per shard -- and the union across
+# them is the project rate the floor gates.
+@test "coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)" {
+  _make_cobertura "${SCRATCH}/shards/s1/kcov-merged/cobertura.xml" 30 100
+  _make_cobertura "${SCRATCH}/shards/s1/bats.a/cobertura.xml" 30 100
+  _make_cobertura "${SCRATCH}/shards/s2/bats.b/cobertura.xml" 60 100
+  run env COVERAGE_MIN=40 bash "${GATE}" --run-dirs "${SCRATCH}/shards/s1/" "${SCRATCH}/shards/s2/"
+  assert_success
+  assert_line "coverage report: ${SCRATCH}/shards/s1/kcov-merged/cobertura.xml"
+  assert_line "coverage report: ${SCRATCH}/shards/s2/bats.b/cobertura.xml"
+  assert_output --partial '45.00'
+}
+
+# why: No report must be red, not a vacuous pass over nothing.
+@test "coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)" {
+  mkdir -p "${SCRATCH}/coverage"
+  run bash "${GATE}" --run-dirs "${SCRATCH}/coverage" "${SCRATCH}/absent"
+  assert_failure
+  assert_output --partial 'no cobertura.xml found'
 }

@@ -185,6 +185,8 @@ ci_project_wait_unreadable
 ci_project_wait
 ci_project_ready
 ci_project_wedged
+ci_suite_timeout
+ci_invalid_suite_timeout
 
 # hook.sh
 hook_not_executable
@@ -300,7 +302,11 @@ ci_coverage_evidence_not_erased
 ci_coverage_local_conflict
 ci_jobs_without_coverage_local
 ci_invalid_coverage_jobs
+ci_shard_weights_without_shard
+ci_shard_weights_unreadable
+ci_invalid_shard_weights_blob
 ci_invalid_jobs_policy
+ci_invalid_per_test_timeout
 ci_no_fragile_files
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
@@ -348,6 +354,7 @@ ci_no_hadolint
 ci_lint_tool_without_lint
 ci_unknown_lint_tool
 ci_bad_lint_group
+ci_host_lint_on_runner
 ci_lint_driver_failed
 ci_tooling_build_failed
 ci_lint_phase_failed

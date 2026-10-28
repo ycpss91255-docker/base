@@ -1,0 +1,27 @@
+kcov-76bf685.patch -- upstream kcov commit 76bf685 ("bash-engine: Don't
+print continuation lines of multi-line trace entries", SimonKagstrom/kcov
+issue 464), backported onto the v43 tag that dockerfile/Dockerfile.test-tools
+builds. Only the diff below is applied (`git apply` skips this header).
+
+With BASH_XTRACEFD the trace pipe carries trace output only, so a line
+with no `kcov@` marker is a piece of a trace record, not the script's own
+stderr; v43 echoes every such line to kcov's stderr (base#1414).
+
+diff --git a/src/engines/bash-engine.cc b/src/engines/bash-engine.cc
+index 2f76e04..0d32dbb 100644
+--- a/src/engines/bash-engine.cc
++++ b/src/engines/bash-engine.cc
+@@ -288,7 +288,12 @@ public:
+ 		size_t kcovStr = cur.find("kcov@");
+ 		if (kcovStr == std::string::npos)
+ 		{
+-			fprintf(stderr, "%s", cur.c_str());
++			// With BASH_XTRACEFD, the pipe only carries trace output. A line without
++			// a marker is part of a multi-line trace entry, or traced with a different
++			// PS4. Otherwise the pipe is also the script's stderr, and this may be the
++			// script's own output.
++			if (!m_bashSupportsXtraceFd)
++				fprintf(stderr, "%s", cur.c_str());
+ 			return true;
+ 		}
+ 		m_inputType = getInputType(cur);

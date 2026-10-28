@@ -211,13 +211,14 @@ _run_coverage_gate() {
 }
 
 # _merge_timings <out_file> <in_file>...
-#   Merge the per-shard `<seconds> <basename>` timings files (one per
-#   coverage shard, produced by _junit_to_timings) into one weights file at
-#   <out_file>, the SHARD_WEIGHTS_FILE the next run restores. A spec runs in
-#   exactly one shard, so normally one entry per basename; the MAX is kept
-#   as a defensive dedup. Non-existent inputs are skipped (a shard may have
-#   produced no file); no inputs yields an empty weights file. Output is
-#   sorted by basename so the cached weights are deterministic.
+#   Merge the per-shard `<seconds> <spec path>` timings files (one per
+#   coverage shard, produced by _junit_to_timings; repo-relative paths since
+#   base#1410) into one weights file at <out_file>, the SHARD_WEIGHTS_FILE
+#   the next run restores. A spec runs in exactly one shard, so normally one
+#   entry per path; the MAX is kept as a defensive dedup. Non-existent
+#   inputs are skipped (a shard may have produced no file); no inputs yields
+#   an empty weights file. Output is sorted by path so the cached weights
+#   are deterministic.
 _merge_timings() {
   local _out="${1:?BUG: _merge_timings expects <out_file> <in_file>...}"
   shift
@@ -236,14 +237,45 @@ _merge_timings() {
   ' "${_ins[@]}" | sort -k2,2 > "${_out}"
 }
 
-# _coverage_verdict <manifest> <report>... -- THE coverage verdict, the one
-# every environment that decides on a coverage run reaches (base#1411):
+# _coverage_gate_run_dirs <dir>... -- the gate over ONE report per kcov run
+# directory. kcov writes a run's report under <dir>/<command>.<hash>/
+# cobertura.xml, and a merged one under <dir>/kcov-merged/cobertura.xml
+# once more than one command reported into <dir>; neither layout puts a
+# cobertura.xml at <dir> itself. So: the merged report when there is one,
+# else the first cobertura.xml under <dir> -- never both, which would count
+# the run twice. A directory holding no report contributes nothing; no
+# report anywhere is a refusal. The coverage verdict below reads reports by
+# this one rule, whichever environment hands it the run directories.
+_coverage_gate_run_dirs() {
+  local _dir _first
+  local -a _reports=()
+  for _dir in "$@"; do
+    _dir="${_dir%/}"
+    if [[ -f "${_dir}/kcov-merged/cobertura.xml" ]]; then
+      _reports+=("${_dir}/kcov-merged/cobertura.xml")
+      continue
+    fi
+    _first="$(find "${_dir}" -type f -name cobertura.xml 2>/dev/null \
+      | LC_ALL=C sort | sed -n 1p)"
+    [[ -n "${_first}" ]] && _reports+=("${_first}")
+  done
+  if (( ${#_reports[@]} == 0 )); then
+    echo "coverage_gate: no cobertura.xml found under: $*" >&2
+    return 1
+  fi
+  printf 'coverage report: %s\n' "${_reports[@]}"
+  _coverage_gate_run "${_reports[@]}"
+}
+
+# _coverage_verdict <manifest> <run-dir>... -- THE coverage verdict, the
+# one every environment that decides on a coverage run reaches (base#1411):
 # the GitHub-hosted coverage-gate job, the self-hosted coverage-local
-# workflow and `just test coverage-gate` all call `--verdict` with the
-# same arguments, so a check added here reaches all three at once.
+# workflow and `just test coverage-gate` all call `--verdict` the same
+# way, so a check added here reaches all of them at once.
 #
 # It is two checks, and both always run so one red run reports both:
-#   1. the floor: _coverage_gate_run over <report>... against COVERAGE_MIN;
+#   1. the floor: _coverage_gate_run_dirs over <run-dir>... against
+#      COVERAGE_MIN -- one report per run directory, by the rule above;
 #   2. the union: `test.sh --coverage-union-check <manifest>`, which names
 #      every spec the run manifest lacks. The floor cannot see such a spec
 #      -- it contributes no lines to either side of the ratio.
@@ -252,14 +284,14 @@ _merge_timings() {
 # circular. Returns non-zero when either half fails (2 on a usage error).
 _coverage_verdict() {
   if (( $# < 2 )); then
-    echo "coverage_gate: --verdict expects <manifest> <report>..." >&2
+    echo "coverage_gate: --verdict expects <manifest> <run-dir>..." >&2
     return 2
   fi
   local _manifest="${1}"
   shift
   local _test_sh _floor_rc=0 _union_rc=0
   _test_sh="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/.." && pwd -P)/test.sh"
-  _coverage_gate_run "$@" || _floor_rc=$?
+  _coverage_gate_run_dirs "$@" || _floor_rc=$?
   bash "${_test_sh}" --coverage-union-check "${_manifest}" || _union_rc=$?
   if (( _floor_rc != 0 )); then
     return "${_floor_rc}"
@@ -267,24 +299,20 @@ _coverage_verdict() {
   return "${_union_rc}"
 }
 
-# Standalone CLI: when executed directly, `--verdict <manifest> <report>...`
-# runs the whole coverage verdict (see _coverage_verdict); this is the form
-# every workflow and recipe uses. `--merge-timings <out> <in>...` aggregates
-# per-shard timings (the coverage-gate job calls it after downloading the
-# shard artifacts). Bare report paths run the floor alone. When sourced,
-# this guard is false so only the functions above are defined.
+# Standalone CLI: when executed directly, `--verdict <manifest>
+# <run-dir>...` runs the whole coverage verdict (see _coverage_verdict);
+# this is the form every workflow and recipe uses. `--run-dirs <dir>...`
+# runs the floor alone over one report per run directory (the pre-PR
+# mirror's coverage-gate leg), and bare report paths run the floor alone
+# over those reports. `--merge-timings <out> <in>...` aggregates per-shard
+# timings (the coverage-gate job calls it ahead of the verdict to build
+# the run manifest). When sourced, this guard is false so only the
+# functions above are defined.
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   case "${1:-}" in
-    --merge-timings)
-      shift
-      _merge_timings "$@"
-      ;;
-    --verdict)
-      shift
-      _coverage_verdict "$@"
-      ;;
-    *)
-      _coverage_gate_run "$@"
-      ;;
+    --merge-timings) shift; _merge_timings "$@" ;;
+    --verdict) shift; _coverage_verdict "$@" ;;
+    --run-dirs) shift; _coverage_gate_run_dirs "$@" ;;
+    *) _coverage_gate_run "$@" ;;
   esac
 fi

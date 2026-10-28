@@ -95,10 +95,10 @@
 # #377, #615). Adding sub-jobs (#377) to the rollup's `needs:` list becomes
 # a workflow-internal change with no branch-protection update required.
 #
-# 7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs on
-# plain ubuntu-latest with the pre-installed binary (no buildx, no
-# test-tools image, ~30s feedback on a regression) via `test.sh
-# --shellcheck-only`. `hadolint` uses `hadolint/hadolint-action@v3.1.0` to
+# 7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs
+# `test.sh --lint --shellcheck` inside the test-tools image, the binary
+# the local gate runs (base#1412; it ran the runner's own binary before
+# base#1080). `hadolint` uses `hadolint/hadolint-action@v3.1.0` to
 # lint `dockerfile/Dockerfile.example` + `dockerfile/Dockerfile.test-tools`
 # (both template-owned; downstream Dockerfile.example consumers inherit the
 # lint pass). Both gate on `needs.classify.outputs.code_changed == 'true'`
@@ -313,12 +313,12 @@
 # #615 + #677 + #710)
 #
 # - `shellcheck` job declared + `needs: [actionlint, classify]` + `if:
-# code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain
-# ubuntu-latest with no buildx (#376)
+# code_changed == 'true'` + runs `test.sh --lint --shellcheck` inside the
+# test-tools image (#376, base#1412)
 #
 # - `doc-counts` job declared + `needs: [actionlint, classify]` + runs
-# `test.sh --doc-counts-only` on plain ubuntu-latest with no buildx +
-# carries NO `code_changed` gate + is hard-mandatory in `ci-rollup` (#864)
+# `test.sh --lint --doc-counts` inside the test-tools image + carries NO
+# `code_changed` gate + is hard-mandatory in `ci-rollup` (#864, base#1412)
 #
 # - `hadolint` job declared + `needs: [actionlint, classify]` + `if:
 # code_changed == 'true'` + lints both template-owned Dockerfiles via
@@ -387,6 +387,18 @@ _render_run_names() {
 # workflow SAYS rather than what it does.
 _job_comments() {
   yaml_job_text "${WF}" "${1}" | only_comments
+}
+
+# _acceptance_code -- the code the acceptance job RUNS: its own code lines
+# plus those of script/ci/acceptance.sh, the script its steps moved into so
+# `just test acceptance` runs the same thing (base#1409). An assertion about
+# what the job does is an assertion about both; reading the job alone would
+# turn every one of them red on a move that changed no behaviour, and
+# reading the script alone would miss a step written back inline. A missing
+# script is a failure, not an empty half.
+_acceptance_code() {
+  yaml_job_lines "${WF}" acceptance || return 1
+  code_lines /source/script/ci/acceptance.sh
 }
 
 # ── actionlint job declared ────────────────────────────────────
@@ -516,10 +528,15 @@ _job_comments() {
   assert_output --partial 'needs: [actionlint, classify]'
 }
 
+# why: a consumer reaches the container only through `just`, so a broken
+# container-ops justfile is invisible to an acceptance run that calls the
+# wrappers directly -- it would stay green on exactly the defect a consumer
+# hits first. Read over the job and script/ci/acceptance.sh together, so the
+# move into the script (base#1409) cannot drop a verb unseen.
 @test "self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)" {
   # A3: exercise the documented `just` entry points so a broken
   # container-ops justfile is caught (the user entry is just).
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'just docker build'
   assert_output --partial 'just docker run -d'
@@ -530,6 +547,10 @@ _job_comments() {
   refute_output --partial './script/stop.sh'
 }
 
+# why: the v0.41.0 user-args bug printed `initial` from whoami while the job
+# stayed green, because nothing compared the output. These literals are the
+# comparisons themselves; without them the job runs the steps and asserts
+# nothing.
 @test "self-test.yaml: acceptance asserts the runnability contract (#579)" {
   # A1: the job must ASSERT results, not just run steps. Covers the
   # five-point contract: configured user (not initial/root), container
@@ -541,7 +562,7 @@ _job_comments() {
   # exec` takes per-call argv, so the step spells the mount absolutely.
   # `~/work` occurs exactly once in the whole workflow, in the comment that
   # introduces point (4), which is what made the old assertion vacuous.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'USER_NAME'
   assert_output --partial '/entrypoint.sh'
@@ -576,17 +597,20 @@ _job_comments() {
   _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \
     /source/dist/dockerfile/Dockerfile | head -n1)"
   [[ -n "${_wired}" ]] || fail "no uncommented ENTRYPOINT in the shipped Dockerfile"
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial "\"\${path}\" != \"${_wired}\""
 }
 
+# why: every verb named here was once reachable only through --dry-run, which
+# exercises the argument parser and none of the effect. Dropping one of them
+# from the script is the regression this case catches.
 @test "self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)" {
   # Beyond the build/run -d/exec/stop core, the e2e must run each remaining
   # downstream verb with REAL execution (not --dry-run): the foreground run
   # variant, start (build + run), a real prune, an explicit setup re-run,
   # the base update check, and the base completions installer.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'just docker run id -un'
   assert_output --partial 'just docker start'
@@ -596,6 +620,9 @@ _job_comments() {
   assert_output --partial 'just base completions install'
 }
 
+# why: new.sh has unit coverage, but the recipe wiring and the consumer
+# symlink chain that resolve `just template new` are exercised nowhere else;
+# this is the only witness that the consumer can actually reach it.
 @test "self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)" {
   # Coverage gap: new.sh is unit-tested in isolation,
   # but the `just template new <name>` RECIPE -- the template module
@@ -605,12 +632,15 @@ _job_comments() {
   # (script/local/<name>/ + its registration), i.e. from the consumer's
   # chair (UAT). Placed here, not as a bats spec, because a faithful
   # exercise needs the init.sh-scaffolded consumer this job already builds.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'just template new'
   assert_output --partial 'script/local/'
 }
 
+# why: an undocumented gap reads as an oversight and gets "fixed" by a TUI
+# drive that hangs without a pseudo-TTY. The comment is the decision; the
+# refutation keeps anyone from invoking the TUI in a non-interactive job.
 @test "self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)" {
   # setup-tui is interactive (TUI); it stays covered by tui_spec and is
   # NOT driven for real in the e2e. The job must say so, and must not try
@@ -625,7 +655,7 @@ _job_comments() {
   run _job_comments acceptance
   assert_success
   assert_output --partial 'setup-tui'
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   refute_output --partial 'just docker setup-tui'
 }
@@ -779,6 +809,10 @@ _job_comments() {
   assert_output --partial '--local-build delegate'
 }
 
+# why: the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that
+# skips the obtain path builds against a stale or absent tooling image. This
+# step stays in the job when the rest moved into script/ci/acceptance.sh
+# (base#1409), because only a runner can obtain the run-scoped image.
 @test "self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
@@ -795,6 +829,10 @@ _job_comments() {
   assert_output --partial '${TEST_TOOLS_IMAGE}'
 }
 
+# why: with the docker-container driver the obtained image lives in buildx's
+# private store, and the consumer build's FROM falls through to a registry
+# pull that fails. The driver is runner setup, so it stays in the job, not in
+# the script `just test acceptance` shares (base#1409).
 @test "self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)" {
   # `./build.sh test` -> `docker compose build` whose `FROM
   # ${TEST_TOOLS_IMAGE}` resolves against the host docker daemon, not
@@ -1136,10 +1174,20 @@ _builder_setups_out_of_step_with_their_consumer() {
 
 @test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {
   # Every job that rebuilds test-tools keys off the single classify output,
-  # not its own shallow-checkout diff. One env wiring per image job (6).
-  run code_grep -c 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
+  # not its own shallow-checkout diff. One env wiring per image job: the
+  # count is derived from the obtain calls rather than written down, so
+  # a job that joins the image (the lint jobs did, base#1412) is held to
+  # the same wiring with nothing here to update.
+  run code_grep -cF 'run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"' "${WF}"
   assert_success
-  assert_output '6'
+  local _image_jobs="${output}"
+  # Non-vacuity: the six bats/coverage/hadolint consumers predate the lint
+  # jobs joining them.
+  [ "${_image_jobs}" -ge 6 ] \
+    || fail "only ${_image_jobs} job(s) obtain the test-tools image; the obtain call did not match"
+  run code_grep -cF 'TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}' "${WF}"
+  assert_success
+  assert_output "${_image_jobs}"
 }
 
 # ── self-maintaining shard-weights cache (time-balanced partition) ──
@@ -1178,8 +1226,9 @@ _builder_setups_out_of_step_with_their_consumer() {
   run yaml_job_lines "${WF}" coverage
   assert_success
   refute_output --partial 'actions/cache'
-  assert_output --partial 'needs.compute-shards.outputs.weights'
-  assert_output --partial 'test/bats/.shard-weights'
+  # The one blob reaches the shard's test.sh, which forwards it into the
+  # container that decodes it (base#1410).
+  assert_output --partial 'SHARD_WEIGHTS_BLOB: ${{ needs.compute-shards.outputs.weights }}'
 }
 
 # why: The detector half, and the one that would have caught the defect
@@ -1786,51 +1835,39 @@ YAML
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)" {
-  # Goal: ~30s feedback on a shellcheck regression, which is why the job
-  # takes neither buildx nor the test-tools image -- it keeps the cold
-  # start near zero. It no longer takes the runner's pre-installed
-  # binary either (base#1080): the two tests below pin how it obtains
-  # the declared one instead, for one tarball's worth of time.
+@test "self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)" {
+  # The job exists so a shellcheck regression surfaces without waiting for
+  # the bats suite. It runs the driver through the same in-image `--lint`
+  # path the local gate takes (base#1412); the parity specs further down
+  # pin the obtain / build / reclaim shape every lint job shares.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'runs-on: ubuntu-latest'
-  assert_output --partial './script/test/test.sh --shellcheck-only'
-  # No buildx setup / no docker pull / no compose run in this job.
-  refute_output --partial 'docker/setup-buildx-action'
-  refute_output --partial 'docker pull'
+  assert_output --partial './script/test/test.sh --lint --shellcheck'
 }
 
-# why: base#1080. The job used to run whatever `ubuntu-latest` shipped
-# pre-installed, so the local gate -- which runs v0.11.0 out of the
-# test-tools image -- could not predict this required check in either
-# direction, and which of the two binaries was stricter changed with
-# GitHub's runner-image release schedule rather than with a commit here.
-@test "self-test.yaml: shellcheck job installs the pinned ShellCheck rather than the runner's (#1080)" {
+# why: base#1080 made the runner install the pinned tarball so CI stopped
+# running whatever ubuntu-latest shipped. base#1412 moved the job into the
+# test-tools image, which carries the pin; a tarball install left behind
+# would be a second, unused route to the binary, and a runner-side
+# shellcheck is exactly what the image path exists to retire.
+@test "self-test.yaml: shellcheck job installs no shellcheck on the runner (base#1412)" {
   run yaml_job_lines "${WF}" shellcheck
   assert_success
-  assert_output --partial 'koalaman/shellcheck/releases/download'
+  # Non-vacuity: an absent job yields an empty block.
+  assert_output --partial './script/test/test.sh --lint --shellcheck'
+  refute_output --partial 'koalaman/shellcheck/releases/download'
+  refute_output --partial 'install -m 0755'
 }
 
-# why: One declaration, not a second copy of the number. The version comes
-# out of dockerfile/Dockerfile.test-tools through the same accessor the
-# release smoke step reads, so a bump moves both with nothing to remember.
-@test "self-test.yaml: shellcheck job reads the version from the declaration, it does not restate it (#1080)" {
+# why: One declaration, not a second copy of the number. The version lives
+# in dockerfile/Dockerfile.test-tools and reaches this job through the
+# image, so a version literal in the job would be a second place to forget.
+@test "self-test.yaml: shellcheck job does not restate a tool version (#1080)" {
   run yaml_job_lines "${WF}" shellcheck
   assert_success
-  assert_output --partial 'script/ci/test-tools-pins.sh'
-  # No version literal anywhere in the job: a literal that agreed with the
-  # Dockerfile today is a second place to forget tomorrow.
+  assert_output --partial './script/test/test.sh --lint --shellcheck'
   refute_output --regexp 'v?[0-9]+\.[0-9]+\.[0-9]+'
-}
-
-# why: Installing a tarball proves a download happened, not that the
-# binary on PATH is the pinned one -- a pre-installed shellcheck earlier
-# in PATH would keep the job green while nothing changed.
-@test "self-test.yaml: shellcheck job asserts the installed binary IS the pin (#1080)" {
-  run yaml_job_lines "${WF}" shellcheck
-  assert_success
-  assert_output --partial 'check SHELLCHECK_VERSION'
 }
 
 @test "self-test.yaml: declares doc-counts job (#864)" {
@@ -1838,18 +1875,16 @@ YAML
   assert_success
 }
 
-@test "self-test.yaml: doc-counts job runs test.sh --doc-counts-only on plain ubuntu-latest (#864)" {
+@test "self-test.yaml: doc-counts job runs test.sh --lint --doc-counts inside the test-tools image (#864, base#1412)" {
   # The generated doc/test catalogue has a gate, and it lives in the
   # `just test` lint phase -- which NO CI job runs: the lint jobs narrow to
-  # one tool and every bats job sets BATS_ONLY=1. This job is the CI half.
-  # Pure bash + diff, so no buildx / test-tools image, same cold-start cost
-  # as the shellcheck job.
+  # one tool and every bats job sets BATS_ONLY=1. This job is the CI half,
+  # and it runs the driver in the image the local gate uses (base#1412).
   run yaml_job_lines "${WF}" doc-counts
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial 'runs-on: ubuntu-latest'
-  assert_output --partial './script/test/test.sh --doc-counts-only'
-  refute_output --partial 'docker/setup-buildx-action'
+  assert_output --partial './script/test/test.sh --lint --doc-counts'
 }
 
 @test "self-test.yaml: doc-counts carries NO code_changed gate (#864)" {
@@ -1861,7 +1896,7 @@ YAML
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
-  assert_output --partial './script/test/test.sh --doc-counts-only'
+  assert_output --partial './script/test/test.sh --lint --doc-counts'
   # The gate form its sibling lint jobs use. Matching on that rather than
   # the bare word keeps the job's own comment (which explains WHY it is
   # ungated, and so names the gate) from satisfying the refutation.
@@ -1902,7 +1937,7 @@ YAML
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
-  assert_output --partial './script/test/test.sh --lint-group'
+  assert_output --partial './script/test/test.sh --lint --group'
   refute_output --partial 'if: needs.classify.outputs'
 }
 
@@ -2006,18 +2041,15 @@ YAML
 # ~twenty org-wide concurrent slots in the same second the coverage shards
 # -- the run's critical path -- asked for theirs. One job per GROUP is the
 # trade, and it is only a trade if the job still runs the same drivers the
-# local phase runs, host-direct on a plain runner, with one failing group
-# not cancelling its siblings.
+# local phase runs, in the same test-tools image (base#1412), with one
+# failing group not cancelling its siblings.
 @test "self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)" {
   run yaml_job_lines "${WF}" lint-static
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial 'fail-fast: false'
-  assert_output --partial './script/test/test.sh --lint-group'
-  # Still a plain runner running the same drivers: no buildx, no image.
-  refute_output --partial 'docker/setup-buildx-action'
-  refute_output --partial 'docker pull'
+  assert_output --partial './script/test/test.sh --lint --group'
 }
 
 # why: The anti-roster assertion, stated over the workflow rather than
@@ -2083,6 +2115,944 @@ YAML
   assert_output --partial 'Obtain the run-scoped test-tools image'
   # The inline action + its file/config args are gone (driver owns them).
   refute_output --partial 'hadolint/hadolint-action'
+}
+
+# ── lint parity: every lint job runs inside the test-tools image ──
+#
+# base#1412. Locally the lint phase runs inside the test-tools image; CI
+# ran the shellcheck, doc-counts and lint-static jobs on the ubuntu runner
+# through test.sh's host-direct arms, so one commit could be judged by
+# two sets of tools. The jobs now run `test.sh --lint`, and the guards
+# below decide "does this step lint on the host" by RUNNING the step, not
+# by reading its text.
+#
+# Why not read the text: three review rounds of base#1412 each found a
+# spelling a shell-text parser missed while bash still handed test.sh the
+# host flag -- a quoted flag, `$'...'` quoting, then a flag held in a
+# variable. Each fix was one more case in the parser, and the next
+# spelling was always there. Running the step asks bash, the one reader
+# whose answer is the runner's.
+#
+# How a step is run (_lint_probe):
+#
+#   * in a copy of the checkout whose test.sh differs in one place: its
+#     single lint dispatch point, _run_lint_tool, is replaced by a
+#     recorder defined at file scope, so it is in force whether a step
+#     executes test.sh or sources it and calls `main` itself. A step that
+#     reaches a lint on the host -- through any host arm, under any
+#     spelling, or through `--ci` itself -- leaves the tool's name in the
+#     host log;
+#   * once per matrix leg the runner would run (_lint_probe_legs), with
+#     `matrix.*` resolved from that leg, so a host arm taken on one leg
+#     only is still run;
+#   * within a leg, once per combination of the values each RUNTIME
+#     expression it uses takes (_lint_probe_bindings): a `needs` output,
+#     an input, a matrix key the leg has no value for. A step can branch
+#     on any of them, so none is guessed: their values come from the
+#     workflow (a choice or boolean input) or from the spec's declared
+#     table, and a step using one with neither is not run at all but
+#     reported `unresolved`, which the guard fails on;
+#   * with a `docker` stub first on PATH that records every call and the
+#     TEST_TOOLS_IMAGE it was made under, so a lint sent to the image
+#     leaves a `compose ... run ... ci` call carrying LINT_ONLY=1;
+#   * under `env -i` with only the workflow, job and step `env:` and the
+#     runner's own variables, with `${{ }}` resolved as _lint_probe_expr
+#     says, through bash WITHOUT errexit. The runner adds `-e`; leaving it
+#     off runs every command of the step even when an earlier one fails
+#     here for want of something only the runner has (a `needs` output, a
+#     downloaded artifact), so such a failure cannot hide a later host
+#     lint. Running more of the step than the runner would can only add
+#     observations, never remove one.
+#
+# The step SELECTION is by text -- every step whose `run:` names test.sh
+# -- and over-selecting is harmless, because the verdict is what the step
+# did. The boundaries, stated: the recorder lives in test.sh, so a step
+# that sources a lint driver itself, without test.sh, is not seen here;
+# and each step runs on its own, so state an earlier step leaves for a
+# later one ($GITHUB_ENV, $GITHUB_PATH, files) is not modelled, nor is a
+# step's `if:`. Those are the runner's to decide, so the runtime holds the
+# negative half there: test.sh's one lint dispatch refuses a CI runner's
+# host (GITHUB_ACTIONS=true; ci_spec pins it), and a host lint reached any
+# way this probe cannot see fails its CI job. For the positive half a
+# lint is credited only from a step the runner runs and minds whenever
+# its job runs (_lint_probe_gating_errors).
+
+# _lint_probe_root -- a copy of the checkout (minus coverage/, and with a
+# fresh one-commit git repository in place of .git, as a step on the
+# runner has a checkout) whose test.sh records a lint dispatch instead of
+# running it. Prints its path.
+#
+# The recorder goes at file scope just before test.sh's execute-only
+# guard: after every definition it replaces, and outside the guard, so a
+# step that sources test.sh gets it too (base#1412 review round 4 found
+# it inside the guard, where only an executed test.sh had it). Where it
+# landed is not trusted from the text: the copy is then run both ways --
+# executed with a host arm, and sourced with `main` called on a host arm
+# -- and each has to leave its tool in the host log. A copy that does not
+# is a BUG line, never a probe that silently records nothing.
+_lint_probe_root() {
+  local _root="${BATS_TEST_TMPDIR}/probe-root"
+  local _sh="${_root}/script/test/test.sh"
+  local _anchor='if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then'
+  local _rec="${BATS_TEST_TMPDIR}/probe-recorder.sh"
+  local _log="${BATS_TEST_TMPDIR}/probe-selfcheck.log" _way _cmd
+  mkdir -p "${_root}"
+  # A sibling test may write under /source while this copies it, which
+  # tar reports as a warning; what the probe needs is checked below. `-o`
+  # leaves the files to the user running the spec: git refuses a
+  # repository another user owns.
+  tar -C /source --exclude=./.git --exclude=./coverage -cf - . 2>/dev/null \
+    | tar -C "${_root}" -x -o -f -
+  git -C "${_root}" init -q \
+    && git -C "${_root}" add -A \
+    && git -C "${_root}" -c user.name=probe -c user.email=probe@invalid \
+         commit -qm probe \
+    || { echo "BUG: could not make the checkout copy a git repository"; return 1; }
+  [ -f "${_sh}" ] || { echo "BUG: the checkout copy has no ${_sh}"; return 1; }
+  grep -qxF -- "${_anchor}" "${_sh}" \
+    || { echo "BUG: test.sh has no execute-only guard '${_anchor}'; the recorder has nowhere to go"; return 1; }
+  # shellcheck disable=SC2016  # written into test.sh, expanded there.
+  printf '%s\n' \
+    '_run_lint_tool() { printf "%s\n" "${1:-}" >> "${LINT_PROBE_HOST_LOG:?}"; }' \
+    > "${_rec}"
+  # The LAST guard line: the one that calls main. Earlier copies of the
+  # same test (strict mode) come before definitions the recorder has to
+  # follow.
+  awk -v a="${_anchor}" -v f="${_rec}" '
+    { line[NR] = $0; if ($0 == a) last = NR }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (i == last) while ((getline l < f) > 0) print l
+        print line[i]
+      }
+    }
+  ' "${_sh}" > "${_sh}.probe"
+  mv "${_sh}.probe" "${_sh}"
+  chmod +x "${_sh}"
+  for _way in executed sourced; do
+    case "${_way}" in
+      executed) _cmd='./script/test/test.sh --doc-counts-only' ;;
+      sourced) _cmd='source ./script/test/test.sh; main --doc-counts-only' ;;
+    esac
+    : > "${_log}"
+    ( cd "${_root}" && env -i PATH="${PATH}" HOME="${HOME}" \
+        LINT_PROBE_HOST_LOG="${_log}" timeout 120 \
+        bash --noprofile --norc -c "${_cmd}" ) > /dev/null 2>&1 || true
+    [ "$(cat "${_log}")" = doc-counts ] \
+      || { echo "BUG: the probe's test.sh does not record a host lint when ${_way} ('${_cmd}' logged '$(cat "${_log}")')"; return 1; }
+  done
+  printf '%s\n' "${_root}"
+}
+
+# _lint_probe_legs <workflow> <job> -- the matrix legs the runner runs
+# for <job>, one compact JSON object per line; `{}` for a job with no
+# matrix. As GitHub expands `strategy.matrix`: the cartesian product of
+# its list-valued keys, less every leg an `exclude` entry matches, then
+# each `include` entry merged into every original leg whose original keys
+# it does not contradict, or added as a leg of its own when it fits none.
+# A key whose value is an expression (`${{ fromJSON(...) }}`) has no
+# values here and is left out of the legs; so is a matrix that is one
+# expression whole, which runs as the one leg `{}`.
+_lint_probe_legs() {
+  local _m _key _leg _value _entry _orig _k _fits _added
+  _m="$(LP_J="${2}" yq -o json -I0 '.jobs[strenv(LP_J)].strategy.matrix // {}' "${1}")"
+  if [ "$(yq -p json 'type' <<< "${_m}")" != '!!map' ]; then
+    printf '{}\n'
+    return 0
+  fi
+  local -a _keys=() _legs=() _next=() _values=() _entries=()
+  mapfile -t _keys < <(yq -p json -o json -I0 \
+      'to_entries | .[] | select(.key != "include" and .key != "exclude" and (.value | type) == "!!seq") | .key' \
+      <<< "${_m}")
+  if (( ${#_keys[@]} > 0 )); then
+    _legs=('{}')
+    for _key in "${_keys[@]}"; do
+      mapfile -t _values < <(LP_K="${_key}" yq -p json -o json -I0 \
+          '.[strenv(LP_K) | from_json][]' <<< "${_m}")
+      _next=()
+      for _leg in "${_legs[@]}"; do
+        for _value in "${_values[@]}"; do
+          _next+=("$(LP_K="${_key}" LP_V="${_value}" yq -p json -o json -I0 \
+              '.[strenv(LP_K) | from_json] = (strenv(LP_V) | from_json)' <<< "${_leg}")")
+        done
+      done
+      _legs=("${_next[@]}")
+    done
+    mapfile -t _entries < <(yq -p json -o json -I0 '(.exclude // [])[]' <<< "${_m}")
+    for _entry in "${_entries[@]}"; do
+      _next=()
+      for _leg in "${_legs[@]}"; do
+        [ "$(_lint_probe_leg_fits "${_leg}" "${_entry}" all)" = no ] \
+          && _next+=("${_leg}")
+      done
+      _legs=("${_next[@]}")
+    done
+  fi
+  _orig=${#_legs[@]}
+  local _original_keys
+  _original_keys="[$(IFS=,; printf '%s' "${_keys[*]}")]"
+  mapfile -t _entries < <(yq -p json -o json -I0 '(.include // [])[]' <<< "${_m}")
+  for _entry in "${_entries[@]}"; do
+    _added=0
+    for ((_k = 0; _k < _orig; _k++)); do
+      _fits="$(_lint_probe_leg_fits "${_legs[_k]}" "${_entry}" "${_original_keys}")"
+      [ "${_fits}" = yes ] || continue
+      _legs[_k]="$(LP_E="${_entry}" yq -p json -o json -I0 \
+          '. * (strenv(LP_E) | from_json)' <<< "${_legs[_k]}")"
+      _added=1
+    done
+    (( _added == 1 )) || _legs+=("${_entry}")
+  done
+  # No list key and no include: a job with no matrix, run once.
+  if (( ${#_keys[@]} == 0 && ${#_entries[@]} == 0 )); then
+    printf '{}\n'
+    return 0
+  fi
+  (( ${#_legs[@]} > 0 )) || return 0
+  printf '%s\n' "${_legs[@]}"
+}
+
+# _lint_probe_leg_fits <leg> <entry> <keys> -- `yes` when every key of
+# <entry> that <keys> names (a JSON array, or `all` for every key of the
+# entry) holds the same value in <leg>; `no` otherwise. For `exclude`
+# (all keys must match) and `include` (no original key contradicted).
+_lint_probe_leg_fits() {
+  local _k _want _have
+  local -a _ek=()
+  mapfile -t _ek < <(yq -p json -o json -I0 'keys | .[]' <<< "${2}")
+  for _k in "${_ek[@]}"; do
+    if [ "${3}" != all ]; then
+      LP_K="${_k}" LP_KS="${3}" yq -n -e \
+          '(strenv(LP_KS) | from_json) as $ks | (strenv(LP_K) | from_json) as $k | $ks | any_c(. == $k)' \
+          > /dev/null 2>&1 || continue
+    fi
+    _want="$(LP_K="${_k}" yq -p json -o json -I0 '.[strenv(LP_K) | from_json]' <<< "${2}")"
+    _have="$(LP_K="${_k}" yq -p json -o json -I0 '.[strenv(LP_K) | from_json]' <<< "${1}")"
+    [ "${_want}" = "${_have}" ] || { printf 'no\n'; return 0; }
+  done
+  printf 'yes\n'
+}
+
+# _lint_probe_static <expression> -- succeed when the probe knows the
+# value of <expression> without the run: `env.<name>` (the value resolved
+# so far, empty when the name is unset, as on the runner), the run
+# identity, and a `matrix.<path>` the leg being run (_LP_LEG) holds. Any
+# other expression is a RUNTIME value -- a `needs` output, an input, a
+# matrix key whose values come from an expression -- that a step can
+# branch on, so the probe never gives it a value of its own choosing:
+# _lint_probe_domain has to say which values it takes (base#1412 review
+# round 6 found an unknown expression read as empty, which ran one branch
+# of a step that branched on it and never the other).
+_lint_probe_static() {
+  case "${1}" in
+    env.*|github.run_id|github.run_attempt) return 0 ;;
+    matrix.*)
+      local _value="${_LP_LEG:-}" _seg
+      [ -n "${_value}" ] || _value='{}'
+      local -a _path=()
+      IFS=. read -r -a _path <<< "${1#matrix.}"
+      for _seg in "${_path[@]}"; do
+        _value="$(LP_K="${_seg}" yq -p json -o json -I0 \
+            '.[strenv(LP_K)] // null' <<< "${_value}")"
+      done
+      [ "${_value}" != null ] ;;
+    *) return 1 ;;
+  esac
+}
+
+# _lint_probe_declared_domain <workflow-file>:<job>:<expression> -- the
+# values a runtime expression takes, as a JSON array, for the ones the
+# workflow cannot say itself. Each entry names where its values come from.
+# A runtime expression neither listed here nor derivable from the workflow
+# (_lint_probe_domain) is reported `unresolved` and its step is not run,
+# which the no-host-lint guard fails on.
+_lint_probe_declared_domain() {
+  case "${1}" in
+    # compute-shards' gen step: `N/n` for n = vars.CI_SHARDS, 8 when the
+    # variable is unset. These are the legs at the default count; test.sh
+    # reads every `N/T` through one parser, so another T reaches the same
+    # dispatch.
+    self-test.yaml:coverage:matrix.shard)
+      printf '%s\n' '["1/8","2/8","3/8","4/8","5/8","6/8","7/8","8/8"]' ;;
+    # compute-shards' weights step: empty on a cache miss, else base64 of
+    # test/bats/.shard-weights (`<seconds> <spec>` lines).
+    self-test.yaml:coverage:needs.compute-shards.outputs.weights)
+      printf '%s\n' '["","MSB0ZXN0L2JhdHMvdW5pdC9jaV9zcGVjLmJhdHMK"]' ;;
+    # A free-text workflow_dispatch input: empty means nproc, else a count.
+    coverage-local.yaml:coverage-local:inputs.jobs)
+      printf '%s\n' '["","2"]' ;;
+    *) return 1 ;;
+  esac
+}
+
+# _lint_probe_domain <workflow> <job> <expression> -- the values a runtime
+# expression takes, as a JSON array; fail when nothing says. An
+# `inputs.<name>` of a `choice` input takes its options and of a
+# `boolean` input `true` and `false`, as the workflow declares them;
+# anything else comes from _lint_probe_declared_domain.
+_lint_probe_domain() {
+  local _wf="${1}" _job="${2}" _expr="${3}" _type
+  local _in='((.on.workflow_dispatch.inputs // {})[strenv(LP_N)] // (.on.workflow_call.inputs // {})[strenv(LP_N)] // {})'
+  if [[ "${_expr}" == inputs.* ]]; then
+    _type="$(LP_N="${_expr#inputs.}" yq "${_in}.type // \"\"" "${_wf}")"
+    case "${_type}" in
+      choice)
+        LP_N="${_expr#inputs.}" yq -o json -I0 "[${_in}.options[] | tostring]" "${_wf}"
+        return 0 ;;
+      boolean)
+        printf '%s\n' '["true","false"]'
+        return 0 ;;
+    esac
+  fi
+  _lint_probe_declared_domain "$(basename "${_wf}"):${_job}:${_expr}"
+}
+
+# _lint_probe_runtime_exprs <workflow> <job> <step index> -- every runtime
+# expression (not _lint_probe_static) in the workflow, job and step `env:`
+# and the step's `run:`, once each.
+_lint_probe_runtime_exprs() {
+  local _text _expr
+  local _re='\$\{\{[[:space:]]*([^}]*[^[:space:]}])[[:space:]]*\}\}'
+  _text="$(LP_J="${2}" LP_I="${3}" yq -o json -I0 \
+      '[.env, .jobs[strenv(LP_J)].env, .jobs[strenv(LP_J)].steps[env(LP_I)].env, .jobs[strenv(LP_J)].steps[env(LP_I)].run]' \
+      "${1}")"
+  while [[ "${_text}" =~ ${_re} ]]; do
+    _expr="${BASH_REMATCH[1]}"
+    _text="${_text#*"${BASH_REMATCH[0]}"}"
+    _lint_probe_static "${_expr}" || printf '%s\n' "${_expr}"
+  done | sort -u
+}
+
+# _lint_probe_bindings <workflow> <job> <expression>... -- every
+# combination of the expressions' _lint_probe_domain values, one JSON
+# object {expression: value} per line (`{}` for no expression). Fails,
+# after printing `unresolved<TAB><expression>` for each, when any
+# expression has no domain.
+_lint_probe_bindings() {
+  local _wf="${1}" _job="${2}" _expr _domain _b _v _missing=0
+  shift 2
+  local -a _out=('{}') _next=() _values=()
+  for _expr in "$@"; do
+    if ! _domain="$(_lint_probe_domain "${_wf}" "${_job}" "${_expr}")"; then
+      printf 'unresolved\t%s\n' "${_expr}"
+      _missing=1
+      continue
+    fi
+    mapfile -t _values < <(yq -p json -o json -I0 '.[]' <<< "${_domain}")
+    _next=()
+    for _b in "${_out[@]}"; do
+      for _v in "${_values[@]}"; do
+        _next+=("$(LP_K="${_expr}" LP_V="${_v}" yq -p json -o json -I0 \
+            '.[strenv(LP_K)] = (strenv(LP_V) | from_json)' <<< "${_b}")")
+      done
+    done
+    _out=("${_next[@]}")
+  done
+  (( _missing == 0 )) || return 1
+  printf '%s\n' "${_out[@]}"
+}
+
+# _lint_probe_expr <workflow> <job> <expression> -- the value a `${{ }}`
+# expression stands for in a probe run. A runtime expression takes the
+# value the binding being run (_LP_BIND, from _lint_probe_bindings) gives
+# it. `matrix.<key>[.<key>...]` is that path in the leg being run
+# (_LP_LEG, from _lint_probe_legs), `env.<name>` the value resolved so far
+# (_LP_ENV), and the run identity a fixed `1`. These only let the step
+# reach the dispatch it would reach on the runner; which legs and which
+# bindings exist is _lint_probe_legs's and _lint_probe_bindings's to say.
+_lint_probe_expr() {
+  local _expr="${3}" _seg _value
+  # Only a caller inside _lint_probe has an associative _LP_BIND; any other
+  # caller has no binding, and a `-v` on an indexed name would read the
+  # expression as arithmetic.
+  if [[ "$(declare -p _LP_BIND 2>/dev/null)" == 'declare -A'* ]] \
+      && [[ -v "_LP_BIND[${_expr}]" ]]; then
+    printf '%s' "${_LP_BIND[${_expr}]}"
+    return 0
+  fi
+  case "${_expr}" in
+    matrix.*)
+      _value="${_LP_LEG:-}"
+      [ -n "${_value}" ] || _value='{}'
+      local -a _path=()
+      IFS=. read -r -a _path <<< "${_expr#matrix.}"
+      for _seg in "${_path[@]}"; do
+        _value="$(LP_K="${_seg}" yq -p json -o json -I0 \
+            '.[strenv(LP_K)] // null' <<< "${_value}")"
+      done
+      yq -p json '. // ""' <<< "${_value}" ;;
+    env.*) printf '%s' "${_LP_ENV[${_expr#env.}]:-}" ;;
+    github.run_id | github.run_attempt) printf '1' ;;
+    *) ;;
+  esac
+}
+
+# _lint_probe_subst <workflow> <job> <text> -- <text> with every `${{ }}`
+# replaced by _lint_probe_expr.
+_lint_probe_subst() {
+  local _text="${3}" _out="" _value
+  local _re='\$\{\{[[:space:]]*([^}]*[^[:space:]}])[[:space:]]*\}\}'
+  while [[ "${_text}" =~ ${_re} ]]; do
+    _value="$(_lint_probe_expr "${1}" "${2}" "${BASH_REMATCH[1]}")"
+    _out+="${_text%%"${BASH_REMATCH[0]}"*}${_value}"
+    _text="${_text#*"${BASH_REMATCH[0]}"}"
+  done
+  printf '%s' "${_out}${_text}"
+}
+
+# _lint_probe_env <workflow> <yq path to an env: mapping> <job> -- fold that
+# mapping into _LP_ENV, values resolved. base64 carries a value across
+# the pipe whole, newlines included.
+_lint_probe_env() {
+  local _line _key _value
+  while IFS= read -r _line; do
+    [ -n "${_line}" ] || continue
+    _key="${_line%%=*}"
+    _value="$(printf '%s' "${_line#*=}" | base64 -d)"
+    _LP_ENV["${_key}"]="$(_lint_probe_subst "${1}" "${3}" "${_value}")"
+  done < <(yq "(${2} // {}) | to_entries | .[] | .key + \"=\" + (.value | tostring | @base64)" "${1}")
+}
+
+# _lint_probe <root> <workflow>... -- run every step whose `run:` names
+# test.sh, in <root> (from _lint_probe_root), and print what each did:
+#
+#   host<TAB><file>:<job>#<step><TAB><tool>
+#       the step reached _run_lint_tool on the host for <tool>;
+#   image<TAB><file>:<job>#<step><TAB><TEST_TOOLS_IMAGE><TAB><tool>|<group>
+#       the step ran `docker compose -f <root>/compose.yaml run ... ci`
+#       with LINT_ONLY=1, under that image, narrowed to that tool / group;
+#   ran<TAB><file>:<job>#<step><TAB><exit status>
+#       one per step run, so a caller can see the population is not empty;
+#   unresolved<TAB><file>:<job>#<step><TAB><expression>
+#       the step uses a runtime expression no domain is known for, so it
+#       was not run (_lint_probe_bindings).
+#
+# <step> is the step index, then ` matrix=<leg>` for a matrix leg and
+# ` with=<binding>` for a combination of runtime values.
+_lint_probe() {
+  local _root="${1}" _wf _job _i _label _run _wd _dir _call _k _status
+  local _LP_LEG _n _leg_label _bindings_out _b _expr
+  local -a _exprs=() _bindings=()
+  local -A _LP_BIND=()
+  shift
+  local _stub="${BATS_TEST_TMPDIR}/probe-bin"
+  mkdir -p "${_stub}"
+  cat > "${_stub}/docker" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\0' "${TEST_TOOLS_IMAGE:-}" "$@" \
+  > "$(mktemp "${LINT_PROBE_DOCKER_DIR:?}/call.XXXXXX")"
+exit 0
+STUB
+  chmod +x "${_stub}/docker"
+  local -a _a=() _envargs=()
+  local -A _LP_ENV=()
+  local -a _legs=()
+  for _wf in "$@"; do
+    while IFS= read -r _job; do
+      mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
+      while IFS= read -r _i; do
+        for _n in "${!_legs[@]}"; do
+          _LP_LEG="${_legs[_n]}"
+          _leg_label="$(basename "${_wf}"):${_job}#${_i}"
+          [ "${_LP_LEG}" = '{}' ] || _leg_label+=" matrix=${_LP_LEG}"
+          mapfile -t _exprs < <(_lint_probe_runtime_exprs "${_wf}" "${_job}" "${_i}")
+          if ! _bindings_out="$(_lint_probe_bindings "${_wf}" "${_job}" "${_exprs[@]}")"; then
+            # A runtime value with no known values: the step is not run
+            # under a guess. The line is the guard's to fail on.
+            while IFS=$'\t' read -r _k _expr; do
+              [ "${_k}" = unresolved ] \
+                && printf 'unresolved\t%s\t%s\n' "${_leg_label}" "${_expr}"
+            done <<< "${_bindings_out}"
+            continue
+          fi
+          mapfile -t _bindings <<< "${_bindings_out}"
+          for _b in "${!_bindings[@]}"; do
+            _LP_BIND=()
+            # Key and value as alternating base64 lines: base64 has no
+            # newline, so each reads back whole.
+            while IFS= read -r _k && IFS= read -r _expr; do
+              _LP_BIND["$(printf '%s' "${_k}" | base64 -d)"]="$(printf '%s' "${_expr}" | base64 -d)"
+            done < <(yq -p json 'to_entries | .[] | [(.key | @base64), (.value | tostring | @base64)] | .[]' <<< "${_bindings[_b]}")
+            _label="${_leg_label}"
+            [ "${_bindings[_b]}" = '{}' ] || _label+=" with=${_bindings[_b]}"
+            _dir="${BATS_TEST_TMPDIR}/probe/$(basename "${_wf}")/${_job//[^A-Za-z0-9.-]/_}/${_i}.${_n}.${_b}"
+            # A fresh directory per run: a call left by an earlier probe of
+            # the same step would be read as this run's.
+            rm -rf "${_dir}"
+            mkdir -p "${_dir}/docker"
+            : > "${_dir}/host"
+            _LP_ENV=()
+            _lint_probe_env "${_wf}" '.env' "${_job}"
+            _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].env" "${_job}"
+            _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].steps[${_i}].env" "${_job}"
+            _run="$(LP_J="${_job}" LP_I="${_i}" yq \
+                '.jobs[strenv(LP_J)].steps[env(LP_I)].run' "${_wf}")"
+            _run="$(_lint_probe_subst "${_wf}" "${_job}" "${_run}")"
+            _wd="$(LP_J="${_job}" LP_I="${_i}" yq \
+                '.jobs[strenv(LP_J)].steps[env(LP_I)]["working-directory"] // "."' "${_wf}")"
+            _envargs=(
+              PATH="${_stub}:${PATH}" HOME="${HOME}"
+              GITHUB_ACTIONS=true CI=true GITHUB_WORKSPACE="${_root}"
+              RUNNER_TEMP="${_dir}" GITHUB_OUTPUT="${_dir}/output"
+              GITHUB_ENV="${_dir}/env" GITHUB_STEP_SUMMARY="${_dir}/summary"
+              LINT_PROBE_HOST_LOG="${_dir}/host"
+              LINT_PROBE_DOCKER_DIR="${_dir}/docker"
+            )
+            for _k in "${!_LP_ENV[@]}"; do
+              _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )
+            done
+            _status=0
+            ( cd "${_root}/${_wd}" \
+              && env -i "${_envargs[@]}" timeout 120 \
+                   bash --noprofile --norc -o pipefail -c "${_run}" < /dev/null ) \
+              > "${_dir}/log" 2>&1 || _status=$?
+            printf 'ran\t%s\t%s\n' "${_label}" "${_status}"
+            while IFS= read -r _k; do
+              printf 'host\t%s\t%s\n' "${_label}" "${_k}"
+            done < "${_dir}/host"
+            for _call in "${_dir}"/docker/call.*; do
+              [ -f "${_call}" ] || continue
+              mapfile -d '' -t _a < "${_call}"
+              _lint_probe_image_call "${_root}" "${_label}" "${_a[@]}"
+            done
+          done
+        done
+      done < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps // [] | to_entries | .[]
+          | select(.value.run != null and (.value.run | test("test\\.sh"))) | .key' "${_wf}")
+    done < <(yaml_job_names "${_wf}")
+  done
+}
+
+# _lint_probe_image_call <root> <label> <image> <docker argv>... -- print
+# the `image` line for one recorded docker call when it is a lint run of
+# the `ci` service of <root>'s compose.yaml; nothing otherwise.
+_lint_probe_image_call() {
+  local _root="${1}" _label="${2}" _image="${3}"
+  shift 3
+  [[ "${1:-}" == compose && "${!#}" == ci ]] || return 0
+  local -a _argv=("$@")
+  local _k _run=0 _lint=0 _tool="" _group="" _file=""
+  for ((_k = 0; _k < ${#_argv[@]}; _k++)); do
+    case "${_argv[_k]}" in
+      run) _run=1 ;;
+      -f) _file="${_argv[_k + 1]:-}" ;;
+      -e)
+        case "${_argv[_k + 1]:-}" in
+          LINT_ONLY=1) _lint=1 ;;
+          LINT_TOOL=*) _tool="${_argv[_k + 1]#LINT_TOOL=}" ;;
+          LINT_GROUP=*) _group="${_argv[_k + 1]#LINT_GROUP=}" ;;
+        esac ;;
+    esac
+  done
+  (( _run == 1 && _lint == 1 )) || return 0
+  [[ "${_file}" == "${_root}/compose.yaml" ]] || return 0
+  printf 'image\t%s\t%s\t%s|%s\n' "${_label}" "${_image}" "${_tool}" "${_group}"
+}
+
+# _lint_probe_selection_errors <probe output> <file>:<job> <tool> [<key>]
+# -- one line per run of <job> (a leg, and a combination of runtime values)
+# whose image lints are not exactly `<tool>|<group>`, where <group> is the
+# leg's `matrix.<key>` (empty without <key>). Nothing when every run lints
+# its own selection. A job whose legs all lint one group, or that lints
+# nothing on one leg, is the image half of the parity done wrong: CI then
+# skips a lint the local gate runs (base#1412 review round 6).
+_lint_probe_selection_errors() {
+  local _probe="${1}" _job="${2}" _tool="${3}" _key="${4:-}"
+  local _kind _label _rest _run _leg _want _got
+  local -A _seen=()
+  while IFS=$'\t' read -r _kind _label _rest; do
+    [[ "${_kind}" == ran && "${_label}" == "${_job}#"* ]] || continue
+    # One run of the job: its label less the step index.
+    _run="${_label#"${_job}#"}"
+    _run="${_run#"${_run%%[!0-9]*}"}"
+    [ -z "${_seen[x${_run}]:-}" ] || continue
+    _seen["x${_run}"]=1
+    _want="${_tool}|"
+    if [ -n "${_key}" ]; then
+      _leg='{}'
+      if [[ "${_run}" == *" matrix="* ]]; then
+        _leg="${_run#* matrix=}"
+        _leg="${_leg%% with=*}"
+      fi
+      _want+="$(LP_K="${_key}" yq -p json '.[strenv(LP_K)] // ""' <<< "${_leg}")"
+    fi
+    _got="$(awk -F'\t' -v j="${_job}#" -v r="${_run}" '
+        $1 == "image" && index($2, j) == 1 {
+          l = substr($2, length(j) + 1); sub(/^[0-9]+/, "", l)
+          if (l == r) print $4
+        }' <<< "${_probe}" | sort -u)"
+    [ "${_got}" = "${_want}" ] \
+      || printf '  %s%s: lints [%s] in the image, not [%s]\n' \
+           "${_job}" "${_run}" "${_got//$'\n'/, }" "${_want}"
+  done <<< "${_probe}"
+}
+
+# _lint_probe_gating_errors <probe output> <workflow> <job> -- one line
+# per step of <job> that ran a lint in the image but may not run, or may
+# not gate, when its job does: a step-level `if:` (the runner skips the
+# step while the probe, which runs every step, credits it) or a
+# `continue-on-error` that is not `false` (the lint runs and its failure
+# is ignored). Nothing when every crediting step runs and gates. Which
+# lint a step runs is the probe's to say; this reads only whether the
+# runner runs that step and minds its result (base#1412 review round 7).
+_lint_probe_gating_errors() {
+  local _probe="${1}" _wf="${2}" _job="${3}" _i _if _coe
+  while IFS= read -r _i; do
+    [ -n "${_i}" ] || continue
+    _if="$(LP_J="${_job}" LP_I="${_i}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)] | has("if")' "${_wf}")"
+    [ "${_if}" = false ] \
+      || printf '  %s: step %s lints in the image under an `if:`, so a run can skip it\n' "${_job}" "${_i}"
+    _coe="$(LP_J="${_job}" LP_I="${_i}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)]["continue-on-error"] // false' "${_wf}")"
+    [ "${_coe}" = false ] \
+      || printf '  %s: step %s lints in the image with continue-on-error, so its failure fails nothing\n' "${_job}" "${_i}"
+  done < <(awk -F'\t' -v j="$(basename "${_wf}"):${_job}#" '
+      $1 == "image" && index($2, j) == 1 {
+        l = substr($2, length(j) + 1); sub(/[^0-9].*$/, "", l); print l
+      }' <<< "${_probe}" | sort -u)
+}
+
+# why: base#1412, the negative half. No step of any workflow may reach a
+# lint on the host: that is the parity the local gate and CI share, and
+# it is decided by what the step does when bash runs it, so no spelling
+# of a host arm is invisible to it.
+@test "workflows: no step runs a lint on the host, whatever the spelling (base#1412)" {
+  assert_spec_subject /source/script/test/test.sh \
+      "the dispatcher whose lint dispatch the probe records"
+  assert_spec_subject_dir /source/.github/workflows \
+      "the workflows whose test.sh steps the probe runs"
+  local _root
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  local -a _wfs=()
+  local _wf
+  for _wf in /source/.github/workflows/*.yaml /source/.github/workflows/*.yml; do
+    [ -f "${_wf}" ] && _wfs+=("${_wf}")
+  done
+  run _lint_probe "${_root}" "${_wfs[@]}"
+  assert_success
+  # Non-vacuity: the four lint jobs' steps were run.
+  local _job
+  for _job in shellcheck doc-counts lint-static hadolint; do
+    grep -q "^ran"$'\t'"self-test.yaml:${_job}#" <<< "${output}" \
+      || fail "the probe ran no step of self-test.yaml job '${_job}':"$'\n'"${output}"
+  done
+  # Non-vacuity for the matrix: every lint-static leg was run, not only
+  # the first (base#1412 review round 4).
+  local _group
+  local -a _groups=()
+  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}")
+  (( ${#_groups[@]} > 1 )) \
+    || fail "self-test.yaml's lint-static has no multi-leg group matrix; this check has nothing to see"
+  for _group in "${_groups[@]}"; do
+    grep -qF "self-test.yaml:lint-static#" <<< "$(grep -F "\"group\":\"${_group}\"" <<< "${output}" | grep "^ran"$'\t')" \
+      || fail "the probe never ran lint-static's '${_group}' leg:"$'\n'"${output}"
+  done
+  local _host
+  _host="$(grep "^host"$'\t' <<< "${output}" || true)"
+  [ -z "${_host}" ] \
+    || fail "these steps run a lint on the host instead of inside the test-tools image the local gate uses:"$'\n'"${_host}"
+  # A step on a runtime value the probe has no values for was not run, so
+  # its verdict is unknown, not clean (base#1412 review round 6).
+  local _unresolved
+  _unresolved="$(grep "^unresolved"$'\t' <<< "${output}" || true)"
+  [ -z "${_unresolved}" ] \
+    || fail "these steps use a runtime value the probe has no values for, so it did not run them; give each one its values in _lint_probe_declared_domain:"$'\n'"${_unresolved}"
+}
+
+# why: base#1412, the positive half. Not linting on the host would also be
+# satisfied by a lint job that stopped linting. Each lint job has to reach
+# the image the one way every image job does and run its lint there: the
+# probe has to see `compose run ... ci` with LINT_ONLY=1 under the
+# workflow's own TEST_TOOLS_IMAGE, which is the image compose.yaml's `ci`
+# service runs.
+@test "self-test.yaml: every lint job runs its lint inside the test-tools image (base#1412)" {
+  assert_spec_subject /source/compose.yaml \
+      "the compose file whose ci service the lint jobs run"
+  run yq '.services.ci.image' /source/compose.yaml
+  assert_success
+  [[ "${output}" == '${TEST_TOOLS_IMAGE'[:}]* ]] \
+    || fail "compose.yaml's ci service does not run \${TEST_TOOLS_IMAGE} (it reads '${output}'), so a call under that image is not a call in it"
+
+  local _root
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  run _lint_probe "${_root}" "${WF}"
+  assert_success
+  local _probe="${output}"
+  local -A _LP_ENV=()
+  _lint_probe_env "${WF}" '.env' ''
+  local _image="${_LP_ENV[TEST_TOOLS_IMAGE]:-}"
+  [ -n "${_image}" ] || fail "self-test.yaml declares no workflow-level TEST_TOOLS_IMAGE"
+
+  # The lint jobs: the four the workflow carries today, and any job the
+  # probe saw run a lint in the image.
+  local -a _jobs=()
+  mapfile -t _jobs < <(
+    {
+      printf '%s\n' shellcheck doc-counts lint-static hadolint
+      awk -F'\t' '$1 == "image" { sub(/^self-test\.yaml:/, "", $2); sub(/#.*/, "", $2); print $2 }' <<< "${_probe}"
+    } | sort -u
+  )
+  local _job _bad="" _seen
+  for _job in "${_jobs[@]}"; do
+    _seen="$(awk -F'\t' -v j="self-test.yaml:${_job}#" \
+        '$1 == "image" && index($2, j) == 1 { print $3 }' <<< "${_probe}" | sort -u)"
+    [ -n "${_seen}" ] \
+      || { _bad+=$'\n'"  ${_job}: no step ran a lint through compose's ci service"; continue; }
+    [ "${_seen}" = "${_image}" ] \
+      || _bad+=$'\n'"  ${_job}: ran its lint under TEST_TOOLS_IMAGE '${_seen//$'\n'/, }', not the workflow's '${_image}'"
+    run yaml_job_lines "${WF}" "${_job}"
+    assert_success
+    [[ "${output}" == *'./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"'* ]] \
+      || _bad+=$'\n'"  ${_job}: does not obtain the test-tools image"
+    [[ "${output}" == *"if: steps.obtain.outputs.build_local == 'true'"* ]] \
+      || _bad+=$'\n'"  ${_job}: has no build step gated on build_local"
+    [[ "${output}" == *'./script/ci/reclaim.sh --run "${CI_RUN_KEY}"'* ]] \
+      || _bad+=$'\n'"  ${_job}: does not reclaim its run's docker artifacts"
+  done
+  # Each run lints its own selection, so the jobs together lint what the
+  # local gate does (base#1412 review round 6): the single-tool jobs their
+  # tool, and every lint-static leg its own group of one whole partition.
+  local _errs
+  _errs="$(
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:shellcheck shellcheck
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:doc-counts doc-counts
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:hadolint hadolint
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:lint-static '' group
+    for _job in shellcheck doc-counts lint-static hadolint; do
+      _lint_probe_gating_errors "${_probe}" "${WF}" "${_job}"
+    done
+  )"
+  [ -z "${_errs}" ] || _bad+=$'\n'"${_errs}"
+  local -a _groups=()
+  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}" | sort -t/ -n -k1,1)
+  local _want_groups="" _n
+  for ((_n = 1; _n <= ${#_groups[@]}; _n++)); do
+    _want_groups+="${_n}/${#_groups[@]}"$'\n'
+  done
+  [ "$(printf '%s\n' "${_groups[@]}")" = "${_want_groups%$'\n'}" ] \
+    || _bad+=$'\n'"  lint-static: its matrix groups '${_groups[*]}' are not one whole partition 1/T..T/T"
+  [ -z "${_bad}" ] \
+    || fail "every lint job must run inside the test-tools image, as the local lint phase does:${_bad}"
+}
+
+# _lint_probe_fixture <run line>... -- a one-job workflow (job `lint`)
+# with the self-test.yaml run identity, whose one step runs the given
+# lines as a block scalar. Prints its path. With LP_FIXTURE_MATRIX set
+# to a flow mapping, the job carries it as `strategy.matrix`; with
+# LP_FIXTURE_ON set to a flow mapping, the workflow carries it as `on:`;
+# with LP_FIXTURE_STEP_KEY set to a `key: value` line, the step carries it.
+_lint_probe_fixture() {
+  local _wf="${BATS_TEST_TMPDIR}/fixture.yaml" _line
+  {
+    printf '%s\n' "on: ${LP_FIXTURE_ON:-push}" 'env:' \
+      '  TEST_TOOLS_IMAGE: test-tools:ci-${{ github.run_id }}-${{ github.run_attempt }}' \
+      '  COMPOSE_PROJECT_NAME: base-ci-${{ github.run_id }}-${{ github.run_attempt }}' \
+      'jobs:' '  lint:' '    runs-on: ubuntu-latest'
+    [ -z "${LP_FIXTURE_MATRIX:-}" ] \
+      || printf '%s\n' '    strategy:' "      matrix: ${LP_FIXTURE_MATRIX}"
+    printf '%s\n' '    steps:'
+    if [ -n "${LP_FIXTURE_STEP_KEY:-}" ]; then
+      printf '%s\n' "      - ${LP_FIXTURE_STEP_KEY}" '        run: |'
+    else
+      printf '%s\n' '      - run: |'
+    fi
+    for _line in "$@"; do
+      printf '          %s\n' "${_line}"
+    done
+  } > "${_wf}"
+  printf '%s\n' "${_wf}"
+}
+
+# why: the spellings that each got past the text parser this probe
+# replaces (review rounds 1-3 of base#1412), plus the two host paths a
+# parser of flags never modelled at all: `--ci` run on the host, and a
+# host group. Every one of them must land in the host log, and the plain
+# `--lint` form must not.
+@test "lint probe: a host lint is seen under every spelling, and --lint is not one (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  local -a _cases=(
+    './script/test/test.sh --lint --shellcheck "--shellcheck-only"'
+    "./script/test/test.sh --lint --shellcheck \$'--shellcheck-only'"
+    './script/test/test.sh $"--doc-counts-only"'
+    'HOST_LINT=--shellcheck-only'$'\n''./script/test/test.sh --lint --shellcheck "$HOST_LINT"'
+    './script/test/test.sh --lint \'$'\n''  --issueref-only'
+    "bash -c './script/test/test.sh --issueref-only'"
+    './script/test/test.sh --lint-group 1/4'
+    'LINT_ONLY=1 LINT_TOOL=doc-counts ./script/test/test.sh --ci'
+    'source ./script/test/test.sh'$'\n''main --doc-counts-only'
+    '. ./script/test/test.sh && main --lint-group 1/4'
+  )
+  local _case
+  local -a _lines=()
+  for _case in "${_cases[@]}"; do
+    mapfile -t _lines <<< "${_case}"
+    _wf="$(_lint_probe_fixture "${_lines[@]}")"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    grep -q "^host"$'\tfixture.yaml:lint#0\t' <<< "${output}" \
+      || fail "the probe did not see this step lint on the host:"$'\n'"${_case}"$'\n'"probe:"$'\n'"${output}"
+  done
+
+  _wf="$(_lint_probe_fixture './script/test/test.sh --lint --shellcheck')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  refute_output --partial $'host\t'
+  assert_output --partial $'image\tfixture.yaml:lint#0\ttest-tools:ci-1-1\tshellcheck|'
+  # The probe runs the step with GITHUB_ACTIONS=true, as the runner does.
+  # test.sh refuses a lint on a host that carries it, so the in-image lint
+  # works only while the compose call does not forward it (base#1412
+  # review round 7): it is in no recorded docker argument.
+  local -a _calls=()
+  mapfile -t _calls < <(find "${BATS_TEST_TMPDIR}/probe/fixture.yaml/lint" -path '*/docker/call.*' -type f)
+  (( ${#_calls[@]} > 0 )) || fail "the --lint step left no docker call to read"
+  run grep -l -a GITHUB_ACTIONS "${_calls[@]}"
+  assert_failure
+  assert_output ''
+  run yq -o json -I0 '.services.ci.environment' /source/compose.yaml
+  assert_success
+  refute_output --partial "GITHUB_ACTIONS"
+}
+
+# why: base#1412 review round 4. A matrix job runs its steps once per
+# leg, and a step can take a host arm on one leg only. Every leg the
+# runner would run has to be run here: the cartesian product of the
+# matrix's lists, less `exclude`, with `include` merged into the legs it
+# matches or added as legs of its own.
+@test "lint probe: a host lint on any one matrix leg is seen (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  local -a _matrices=(
+    "{group: ['1/4', '2/4']}"
+    "{group: ['1/4', '2/4'], os: [a, b], exclude: [{group: '1/4', os: b}]}"
+    "{include: [{group: '1/4'}, {group: '2/4'}]}"
+    "{group: ['1/4'], include: [{group: '2/4'}]}"
+  )
+  local _m
+  for _m in "${_matrices[@]}"; do
+    _wf="$(LP_FIXTURE_MATRIX="${_m}" _lint_probe_fixture \
+        'if [ "${{ matrix.group }}" = 2/4 ]; then ./script/test/test.sh --doc-counts-only; fi')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    grep -q "^host"$'\tfixture.yaml:lint#0'".*"$'\tdoc-counts$' <<< "${output}" \
+      || fail "the probe did not run the 2/4 leg of matrix ${_m}:"$'\n'"${output}"
+  done
+
+  # Excluded legs are not run: a host arm only on an excluded leg is not
+  # a host lint the runner performs.
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/4', '2/4'], exclude: [{group: '2/4'}]}" \
+      _lint_probe_fixture \
+      'if [ "${{ matrix.group }}" = 2/4 ]; then ./script/test/test.sh --doc-counts-only; fi')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  refute_output --partial $'host\t'
+  [ "$(grep -c "^ran"$'\t' <<< "${output}")" -eq 1 ] \
+    || fail "an exclude left one leg, but the probe ran another count:"$'\n'"${output}"
+}
+
+# why: base#1412 review round 6. A step can branch on a value only the
+# run has -- a `needs` output, an input -- and reading that value as empty
+# ran one branch and never the other, so a host lint behind the other
+# passed. A value the workflow declares (a boolean or choice input) is run
+# under every value it takes; one nothing declares is not run under a
+# guess but reported `unresolved`.
+@test "lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+
+  _wf="$(_lint_probe_fixture \
+      'if [ "${{ needs.classify.outputs.code_changed }}" = true ]; then' \
+      '  ./script/test/test.sh --doc-counts-only' \
+      'else' \
+      '  ./script/test/test.sh --lint --doc-counts' \
+      'fi')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  assert_output --partial $'unresolved\tfixture.yaml:lint#0\tneeds.classify.outputs.code_changed'
+  refute_output --partial $'ran\t'
+
+  local _on _case
+  local -a _ons=(
+    '{workflow_dispatch: {inputs: {mode: {type: boolean}}}}|true'
+    '{workflow_dispatch: {inputs: {mode: {type: choice, options: [a, b]}}}}|b'
+    '{workflow_call: {inputs: {mode: {type: boolean}}}}|true'
+  )
+  for _case in "${_ons[@]}"; do
+    _on="${_case%|*}"
+    _wf="$(LP_FIXTURE_ON="${_on}" _lint_probe_fixture \
+        'if [ "${{ inputs.mode }}" = '"${_case##*|}"' ]; then' \
+        '  ./script/test/test.sh --doc-counts-only' \
+        'else' \
+        '  ./script/test/test.sh --lint --doc-counts' \
+        'fi')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    grep -q "^host"$'\t'"fixture.yaml:lint#0 with=.*"$'\t'"doc-counts$" <<< "${output}" \
+      || fail "the probe did not run the host branch of on: ${_on}:"$'\n'"${output}"
+    grep -q "^image"$'\t'"fixture.yaml:lint#0 with=.*"$'\t'"doc-counts|$" <<< "${output}" \
+      || fail "the probe did not run the image branch of on: ${_on}:"$'\n'"${output}"
+  done
+}
+
+# why: base#1412 review round 6. Every leg reaching the image is not every
+# lint being run: a matrix whose legs all lint one group skips the others.
+# The selection check holds each leg to its own group.
+@test "lint probe: a matrix leg that lints another leg's group is caught (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/2', '2/2']}" _lint_probe_fixture \
+      './script/test/test.sh --lint --group 1/2')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
+  assert_success
+  assert_output --partial '"group":"2/2"'
+  assert_output --partial 'lints [|1/2] in the image, not [|2/2]'
+  refute_output --partial '"group":"1/2"'
+
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/2', '2/2']}" _lint_probe_fixture \
+      './script/test/test.sh --lint --group "${{ matrix.group }}"')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
+  assert_success
+  assert_output ''
+
+  # A leg that lints nothing in the image is caught too.
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/2', '2/2']}" _lint_probe_fixture \
+      'if [ "${{ matrix.group }}" = 1/2 ]; then ./script/test/test.sh --lint --group 1/2; fi')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
+  assert_success
+  assert_output --partial 'lints [] in the image, not [|2/2]'
+}
+
+# why: base#1412 review round 7. The probe runs every step, the runner
+# does not: a lint step under `if: false` is skipped on the runner yet
+# credited here, and one under `continue-on-error` runs without gating.
+# A crediting step has to run and gate whenever its job runs.
+@test "lint probe: an image lint in a step that may be skipped or ignored is not credited (base#1412)" {
+  local _root _wf _key
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  for _key in 'if: false' "if: \${{ github.event_name == 'push' }}" 'continue-on-error: true'; do
+    _wf="$(LP_FIXTURE_STEP_KEY="${_key}" _lint_probe_fixture './script/test/test.sh --lint --shellcheck')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    assert_output --partial $'image\tfixture.yaml:lint#0'
+    run _lint_probe_gating_errors "${output}" "${_wf}" lint
+    assert_success
+    assert_output --partial 'lint: step 0 lints in the image'
+  done
+
+  for _key in '' 'continue-on-error: false'; do
+    _wf="$(LP_FIXTURE_STEP_KEY="${_key}" _lint_probe_fixture './script/test/test.sh --lint --shellcheck')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    assert_output --partial $'image\tfixture.yaml:lint#0'
+    run _lint_probe_gating_errors "${output}" "${_wf}" lint
+    assert_success
+    assert_output ''
+  done
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
@@ -2394,11 +3364,15 @@ YAML
     || fail "expected the ownership stamp on both the re-tag and the inline build in ${_obtain}, found ${output}"
 }
 
+# why: on a shared self-hosted host a fixed scaffold name makes two runs
+# share one image, container and network, and the loser silently tests the
+# winner's build. The run key in the name is also what reclaim.sh --run
+# proves ownership by, locally as well as in CI (base#1409).
 @test "self-test.yaml: the acceptance scaffold is keyed to the run (#900)" {
   # The scaffolded consumer's directory basename becomes IMAGE_NAME, which
   # is what the image tag, the container name and the compose project are
   # all built from -- so one unique directory name makes all three unique.
-  run yaml_job_lines "${WF}" acceptance
+  run _acceptance_code
   assert_success
   assert_output --partial 'REPO_NAME="e2e_test-ci-${CI_RUN_KEY}"'
   # The throwaway probe network `just docker prune` is asserted against is

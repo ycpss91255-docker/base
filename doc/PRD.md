@@ -656,7 +656,7 @@ the delay is however long it takes for one of them to be edited alone.
 per tool, so "adding a tool is a new driver + a folder, the dispatcher is
 untouched". That ADR says nothing about CI. The entry points are written
 in `.github/workflows/self-test.yaml`, where every `lint-static` matrix
-entry runs `./script/test/test.sh --<tool>-only` and the hadolint job's
+entry runs `./script/test/test.sh --lint --group N/T` and the hadolint job's
 comment states the property in those terms: "this job now runs the SAME
 driver ... that `just test` runs locally ... so local `just test` and this
 CI job can never drift". What makes the "many entry points" half hold

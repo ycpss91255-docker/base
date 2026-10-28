@@ -16,9 +16,10 @@ sibling docs below.
 > in the `Self Test` CI job. System and smoke specs are catalogued here
 > too but are **not** part of it: System specs need host docker access
 > and are opt-in, and smoke specs are Dockerfile `test`-stage build-time
-> assertions, not self-tests. Acceptance is a CI-only level with no bats
-> specs by design: it drives a real scaffolded consumer + built image via
-> the host-driven `acceptance` job, not the mounted-`/source` sandbox
+> assertions, not self-tests. Acceptance is a host-driven level with no
+> bats specs by design: it drives a real scaffolded consumer + built image
+> via `script/ci/acceptance.sh` -- the `acceptance` job in CI, `just test
+> acceptance` locally -- not the mounted-`/source` sandbox
 > (see [acceptance.md](acceptance.md)).
 
 ## Test Docs by Level / Type
@@ -28,7 +29,7 @@ sibling docs below.
 | [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) |
-| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) |
+| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; host-driven via `script/ci/acceptance.sh` -- the `acceptance` job and `just test acceptance`, #785, base#1409) |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
 ## Running one spec: `just test bats-path`
@@ -85,13 +86,15 @@ whole tree's denominator is not a project rate. Ask for a figure with
 
 **It does not consult the shard partition, and that is load-bearing.** The
 partition is greedy longest-processing-time bin-packing over per-spec weights
-read from `test/bats/.shard-weights`. CI restores that file from cache; a
-checkout does not have it, so `_spec_weight` falls back to `@test` counts and
-the local partition is a genuinely different one. Shard `<n>/<total>` therefore
-names different specs locally than it does in CI -- during #898 a spec sat in
-CI's shard 1/8 and the local 4/8, and a local `just test coverage 1/8` never
-ran the failing specs at all. Naming the path removes the question: the spec
-you name is the spec that runs, in both places.
+CI restores from cache and hands every shard as one blob. A shard reads only
+those weights -- `just test coverage <n>/<total> <weights>` names CI's file
+(the `shard-weights` artifact) -- and with no weights, or an empty file, it
+falls back to `@test` counts, as CI's cache-miss shards do; it never reads a
+checkout's `test/bats/.shard-weights`. Without CI's weights the local partition
+is a genuinely different one -- during #898 a spec sat in CI's shard 1/8 and
+the local 4/8, and a local `just test coverage 1/8` never ran the failing specs
+at all (base#1410). Naming the path removes the question: the spec you name is
+the spec that runs, in both places.
 
 `--bats-path` (`just test` has no recipe for it; use
 `./script/test/test.sh --bats-path <spec>`) remains the FAST loop -- no
@@ -196,7 +199,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `canonical-ignore-sync` | base's own root `.dockerignore` carries a line for every entry `_canonical_dockerignore_entries` emits -- the block is headed as a copy of that function, so both sides are derived and compared rather than the copy being re-synchronised by hand. One-directional: extras are allowed, and presence is a whole line (the `grep -qxF` the shipped sync applies) | `lint-static` (one group) | ungated |
 
 `lint-static` is a matrix of GROUPS, not of lints (base#1071): each entry is a
-position (`1/4` ... `4/4`) and `test.sh --lint-group N/T` computes which lints
+position (`1/4` ... `4/4`) and `test.sh --lint --group N/T` computes which lints
 fall in it from `_LINT_TOOLS`, so a lint added to that table joins a group with
 no workflow edit -- and the row here is kept true by a guard rather than by
 somebody remembering (see below). The trade is the checks list: a
@@ -207,10 +210,9 @@ failed in it, because the phase enumerates rather than stopping at the first
 It is ungated because two of the lints it runs (`adr-numbering`,
 `readme-sync`) are breakable by a change `classify` scores as doc-only -- a
 `code_changed` gate would skip them on exactly the PR they exist to catch.
-Every lint but `hadolint` runs host-direct on a plain runner over the
-checkout; the hadolint binary exists only in the test-tools image, so it keeps
-its own job, as do `shellcheck` and `doc-counts`, whose results `ci-rollup`
-reads by name.
+Every lint job runs inside the test-tools image, the one the local `just test`
+lint phase uses (base#1412). `hadolint` keeps its own job, as do `shellcheck`
+and `doc-counts`, whose results `ci-rollup` reads by name.
 
 Adding a lint to `_LINT_TOOLS` without giving it a CI job fails the
 completeness guard in `test/bats/unit/self_test_yaml_spec.bats`. That guard,
@@ -467,7 +469,7 @@ speak and whether they can stop you:
 | Entry point | When | Blocking? |
 |-------------|------|-----------|
 | `just test` lint phase (`just test lint --doc-counts`) | every local full gate | **yes** -- this is the gate |
-| the `doc-counts` CI job (`test.sh --doc-counts-only`) | every CI run, ungated (a hand-edited count is a doc-only change) | **yes** -- same driver, hard-mandatory in `ci-rollup` |
+| the `doc-counts` CI job (`test.sh --lint --doc-counts`) | every CI run, ungated (a hand-edited count is a doc-only change) | **yes** -- same driver, hard-mandatory in `ci-rollup` |
 | `just test sync-docs-check` | on demand | yes, but only if a human runs it |
 | harness repo `.claude/hooks/check_test_md_drift.sh` (PostToolUse) | seconds after the Edit that caused the drift, in an interactive session only | no -- advisory |
 

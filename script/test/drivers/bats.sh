@@ -14,6 +14,42 @@
 # tree. Function names + behaviour are byte-identical to the pre-split
 # monolith so every call site in test.sh's main is unchanged.
 
+# ── Per-test timeout ─────────────────────────────────────────────────────────
+
+# The plain-mode bound, in seconds, when PER_TEST_TIMEOUT is unset, and the
+# factor a kcov run widens it by. kcov traces every line a test executes,
+# so a test is slower under it; the kcov bound is the plain one times the
+# factor. Both numbers are ceilings for a HANG, not a budget for a slow
+# test: their job is to turn a test that never returns into a `not ok`
+# line that names it, where without them CI cancels the job and names
+# nothing and a local run blocks forever (base#1413).
+readonly _PER_TEST_TIMEOUT_DEFAULT=120
+readonly _PER_TEST_TIMEOUT_KCOV_FACTOR=3
+
+# _bats_test_timeout <plain|kcov> <out_var>
+#   Set <out_var> to the per-test bound (seconds) for a bats run in the
+#   given mode. The knob is PER_TEST_TIMEOUT (plain seconds); an inherited
+#   BATS_TEST_TIMEOUT is NOT read, because a driver run nested inside
+#   another bats run inherits the outer run's value, which belongs to the
+#   outer run's mode. Every bats run this driver starts takes its bound
+#   from here: plain runs through _bats_args_with_label, kcov runs through
+#   _coverage_parallel_launch.
+_bats_test_timeout() {
+  local _mode="${1:?BUG: _bats_test_timeout expects <plain|kcov>}"
+  local _out="${2:?BUG: _bats_test_timeout expects <out_var>}"
+  local _base="${PER_TEST_TIMEOUT:-${_PER_TEST_TIMEOUT_DEFAULT}}"
+  if ! [[ "${_base}" =~ ^[1-9][0-9]*$ ]]; then
+    _die ci_invalid_per_test_timeout \
+      "Invalid PER_TEST_TIMEOUT '${_base}'. Expected a positive decimal integer of seconds (default: ${_PER_TEST_TIMEOUT_DEFAULT})."
+  fi
+  case "${_mode}" in
+    plain) printf -v "${_out}" '%s' "${_base}" ;;
+    kcov)  printf -v "${_out}" '%s' "$(( _base * _PER_TEST_TIMEOUT_KCOV_FACTOR ))" ;;
+    *) _die ci_invalid_per_test_timeout \
+         "BUG: _bats_test_timeout got mode '${_mode}' (expected plain|kcov)." ;;
+  esac
+}
+
 # ── Bats tests ───────────────────────────────────────────────────────────────
 
 _bats_args_with_label() {
@@ -23,7 +59,12 @@ _bats_args_with_label() {
   # parallelism + fallback messaging stay in one place. Inputs:
   #   $1 = name of array var (e.g. _bats_args)
   #   $2 = name of label string var (e.g. _label)
-  #   $3 = jobs policy, `parallel` (default), `metered` or `serial`
+  #   $3 = jobs policy, `parallel` (default), `cpu-bound`, `metered` or
+  #        `serial`
+  #   $4 = optional name of a var that receives the job count as a number
+  #        (1 when the run is serial), for a caller that splits the run
+  #        itself rather than passing the flag on -- the kcov runners,
+  #        which run one kcov per slice (base#1414)
   # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
   # there's no shared filesystem state between tests — safe to run
   # concurrently. When parallel is missing (earlier alpine test-tools
@@ -35,10 +76,14 @@ _bats_args_with_label() {
   # its run may be concurrent but must not be OVERSUBSCRIBED, because
   # something downstream of bats does not scale with the job count --
   # today the two kcov runners, whose N bats jobs drain into one
-  # single-threaded trace parser. Declaring the policy HERE is the point:
-  # `--jobs` and its fallback message keep one writer, so a run that must
-  # not be parallel says so in the same vocabulary as one that cannot be,
-  # instead of quietly assembling a different command.
+  # single-threaded trace parser. It passes `cpu-bound` when its run is
+  # concurrent but its tests compute rather than wait, so the floor that
+  # keeps a waiting suite's pipe full only stretches each test's wall time
+  # toward the per-test bound -- today the integration suite (base#1429),
+  # which takes a lower floor, max(cores, 8). Declaring the policy HERE is
+  # the point: `--jobs` and its fallback message keep one writer, so a run
+  # that must not be parallel says so in the same vocabulary as one that
+  # cannot be, instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
   # through to the parallel branch is precisely the silent wrong answer
   # this argument exists to prevent. `${3-parallel}` and not `${3:-...}`,
@@ -48,21 +93,29 @@ _bats_args_with_label() {
   local -n _out_args="$1"
   local -n _out_label="$2"
   local _policy="${3-parallel}"
+  local _jobs_out="${4-}"
   case "${_policy}" in
-    parallel|metered|serial) ;;
+    parallel|cpu-bound|metered|serial) ;;
     *) _die ci_invalid_jobs_policy \
-         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|metered|serial)." ;;
+         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|cpu-bound|metered|serial)." ;;
   esac
   # --recursive so a directory target descends into per-lib sub-folders
   # (test/bats/unit/<lib>/<subunit>_spec.bats); foldered specs are
   # first-class shard units (ADR-00000015). Harmless when the target is a
   # file rather than a directory.
   _out_args=(--recursive)
+  # Every bats run is bounded per test (base#1413). Exported here, the
+  # helper every bats run in this driver goes through, so no path starts
+  # bats unbounded; a kcov runner then starts its bats with the wider kcov
+  # bound in _coverage_parallel_launch.
+  _bats_test_timeout plain BATS_TEST_TIMEOUT
+  export BATS_TEST_TIMEOUT
   if [[ "${_policy}" == "serial" ]]; then
     # Named apart from the parallel-not-installed fallback below: one is
     # a decision, the other an environment, and a reader of the run's
     # first line has to be able to tell which one they are looking at.
     _out_label="serial by policy"
+    [[ -z "${_jobs_out}" ]] || printf -v "${_jobs_out}" '%s' 1
     return 0
   fi
   if command -v parallel >/dev/null 2>&1; then
@@ -101,6 +154,17 @@ _bats_args_with_label() {
     # shard on a constrained cpuset, interleaving the points so a single
     # slow rep cannot become the finding; do not multiply it.
     local _floor=32
+    # THE CPU-BOUND FLOOR IS 8 (base#1429). The integration suite is not
+    # the waiting workload the 32 above was measured on: on a 4-CPU cpuset
+    # its CPUs ran 92-96% busy at 8 jobs and above, and the full suite's
+    # wall time, three interleaved reps per point, was 74.5-77.4s at 4
+    # jobs, 57.8-60.7s at 8, 56.9-57.9s at 16 and 59.7-60.0s at 32, while
+    # its slowest test grew with the job count: 5.3-6.0s, 10.1-10.3s,
+    # 19.3-21.4s, 38.9-41.1s. Above 8 the extra jobs buy no throughput
+    # and only stretch each test toward the per-test bound (base#1413),
+    # which the hosted runner crossed at 32. Still a floor, not a multiple,
+    # for the reason above.
+    [[ "${_policy}" == "cpu-bound" ]] && _floor=8
     local _jobs _cores
     if _cores="$(nproc 2>/dev/null)" && [[ "${_cores}" =~ ^[1-9][0-9]*$ ]]; then
       if [[ "${_policy}" == "metered" ]]; then
@@ -113,7 +177,9 @@ _bats_args_with_label() {
         # Faster while losing lines is not an improvement for the runner
         # whose output IS the line set. Revisit when one kcov process per
         # slice (base#726) stops the parser being the shared drain, and
-        # re-run the line-set comparison in the same change.
+        # re-run the line-set comparison in the same change. The kcov
+        # runners now run one kcov per slice (base#1414) and take this
+        # count as their slice count; the count itself is unchanged.
         #
         # THE METER IS ONLY AS GOOD AS THE COUNT. `nproc` reports the CPUs
         # this process may be SCHEDULED on -- an affinity mask -- and not a
@@ -158,8 +224,10 @@ _bats_args_with_label() {
     fi
     _out_args+=(--jobs "${_jobs}")
   else
+    _jobs=1
     _out_label="serial; parallel not in PATH"
   fi
+  [[ -z "${_jobs_out}" ]] || printf -v "${_jobs_out}" '%s' "${_jobs}"
 }
 
 _run_unit_tests() {
@@ -173,7 +241,8 @@ _run_unit_tests() {
 _run_integration_tests() {
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
+  # cpu-bound: the integration suite computes rather than waits (base#1429).
+  _bats_args_with_label _bats_args _label cpu-bound
   echo "--- Running Bats Integration Tests (${_label}) ---"
   bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/integration/"
 }
@@ -195,7 +264,16 @@ _run_bats_path() {
   # (BATS_ONLY=1) and kcov is off so the loop stays fast.
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
+  # A path inside the integration suite is scheduled the way
+  # _run_integration_tests schedules that suite (base#1429), so a
+  # single-spec rerun of a CI failure runs at the same job count.
+  # A leading `./` is the same repo-root-relative path, so it is dropped
+  # before the match rather than spelled out as two more patterns.
+  local _policy=parallel _target="${BATS_FILE:-}"
+  case "${_target#./}" in
+    test/bats/integration|test/bats/integration/*) _policy=cpu-bound ;;
+  esac
+  _bats_args_with_label _bats_args _label "${_policy}"
   [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
   if [[ -n "${BATS_FILE:-}" ]]; then
     echo "--- Running Bats single path: ${BATS_FILE} (${_label}) ---"
@@ -208,25 +286,29 @@ _run_bats_path() {
 
 # _spec_weight <spec_path>
 #   Echo the partition weight for a spec: its recorded runtime in whole
-#   seconds from SHARD_WEIGHTS_FILE (lines `<seconds> <basename>`, populated
-#   automatically from prior CI runs) when present, else a fallback of the
-#   spec's `@test` count -- so a new spec with no recorded time still gets a
-#   proportional weight until CI records its real runtime. Keeping the
-#   fallback in the SAME function lets _shard_unit_files stay weight-source
-#   agnostic (greedy LPT regardless of whether the unit is seconds or count).
+#   seconds from SHARD_WEIGHTS_FILE (lines `<seconds> <repo-relative path>`,
+#   populated automatically from prior CI runs) when present, else a
+#   fallback of the spec's `@test` count -- so a new spec with no recorded
+#   time still gets a proportional weight until CI records its real runtime.
+#   Keeping the fallback in the SAME function lets _shard_unit_files stay
+#   weight-source agnostic (greedy LPT regardless of whether the unit is
+#   seconds or count).
+#
+#   The key is the spec's path relative to ${REPO_ROOT}, not its basename
+#   (base#1410): five basenames name a unit AND an integration spec each,
+#   and keyed by basename neither spec of a pair could carry its own
+#   runtime.
 _spec_weight() {
   local _spec="${1:?BUG: _spec_weight expects a spec path}"
-  local _base
-  _base="$(basename -- "${_spec}")"
-  # Weight source: SHARD_WEIGHTS_FILE when set (tests), else the canonical
-  # in-repo path the CI cache restores to. The container mounts the repo at
-  # ${REPO_ROOT}, so dropping the restored weights there means the in-
-  # container coverage run reads them with no -e plumbing; a missing file
-  # (first run / evicted cache / local run) drops to the @test-count fallback.
+  local _key="${_spec#"${REPO_ROOT:-}/"}"
+  # Weight source: SHARD_WEIGHTS_FILE when set (tests, and the in-container
+  # coverage dispatch, which decodes the SHARD_WEIGHTS_BLOB the host
+  # forwarded into one), else the in-repo path. A missing file drops to the
+  # @test-count fallback.
   local _wf="${SHARD_WEIGHTS_FILE:-${REPO_ROOT:-}/test/bats/.shard-weights}"
   if [[ -n "${_wf}" && -f "${_wf}" ]]; then
     local _secs
-    _secs="$(awk -v b="${_base}" '$2 == b { print $1; f=1; exit } END { exit !f }' \
+    _secs="$(awk -v k="${_key}" '$2 == k { print $1; f=1; exit } END { exit !f }' \
       "${_wf}" 2>/dev/null)" \
       && { printf '%s\n' "${_secs}"; return 0; }
   fi
@@ -235,30 +317,54 @@ _spec_weight() {
   printf '%s\n' "${_c:-0}"
 }
 
-# _junit_to_timings <junit_xml>
-#   Emit `<seconds> <basename>` (one line per <testsuite>) from a bats
-#   junit report, so a coverage shard can record the real kcov-mode
-#   runtime of each spec FILE in the form _spec_weight reads back. bats
+# _junit_to_timings <junit_xml> [<base_dir>]
+#   Emit `<seconds> <repo-relative path>` (one line per <testsuite>) from a
+#   bats junit report, so a coverage run records the real kcov-mode runtime
+#   of each spec FILE in the form _spec_weight reads back. bats
 #   `--report-formatter junit` writes one <testsuite name=<spec> time=<sec>>
 #   per file; we round the seconds to the nearest whole, floored at 1 so a
 #   sub-second spec still carries a non-zero greedy-LPT weight. Attribute
 #   order-independent. The <testsuites> root (plural) is skipped. A missing
 #   file is a no-op (return 0) so first-run / no-report paths degrade to the
 #   @test-count fallback in _spec_weight.
+#
+#   A junit name is not a spec identity on its own (base#1410). bats 1.13.0
+#   names a spec under the FIRST target's directory relative to that
+#   directory, and every other spec by its absolute path. <base_dir> is that
+#   directory: a relative name is joined onto it, and the ${REPO_ROOT}/
+#   prefix is then stripped from every name.
 _junit_to_timings() {
   local _xml="${1:?BUG: _junit_to_timings expects a junit xml path}"
+  local _base="${2:-}"
   [[ -f "${_xml}" ]] || return 0
-  awk '
+  awk -v base="${_base%/}" -v root="${REPO_ROOT:-}/" '
     /<testsuite[ >]/ {
       name = ""; t = ""
       if (match($0, /name="[^"]*"/)) { name = substr($0, RSTART + 6, RLENGTH - 7) }
       if (match($0, /time="[^"]*"/)) { t = substr($0, RSTART + 6, RLENGTH - 7) }
       if (name == "") next
-      n = split(name, p, "/"); base = p[n]
+      if (substr(name, 1, 1) != "/" && base != "") name = base "/" name
+      if (root != "/" && substr(name, 1, length(root)) == root) {
+        name = substr(name, length(root) + 1)
+      }
       s = int(t + 0.5); if (s < 1) s = 1
-      print s, base
+      print s, name
     }
   ' "${_xml}"
+}
+
+# _junit_base_dir <first_target>
+#   Echo the directory bats names a junit <testsuite> relative to for a run
+#   whose first target is <first_target>: the target itself when it is a
+#   directory, its dirname when it is a file (base#1410). Builtins only: a
+#   kcov runner may run with a PATH that holds kcov and bats alone.
+_junit_base_dir() {
+  local _t="${1%/}"
+  if [[ -d "${_t}" ]]; then
+    printf '%s\n' "${_t}"
+  else
+    printf '%s\n' "${_t%/*}"
+  fi
 }
 
 # The pools a coverage run covers, repo-root-relative and in the order the
@@ -396,9 +502,12 @@ _fragile_unit_files() {
   # what keeps the skipped tests from going unrun. `-l` is the whole of the
   # granularity: a file is selected for one guarded test and bats then runs
   # all of it, so the unguarded tests in it run here as well as under kcov.
-  # Computed at runtime by grepping for the skip guard so it self-maintains:
-  # a NEW fragile-skip in a 10th file is picked up
-  # automatically (a spec asserts the set). The regex is line-anchored on
+  # Computed at runtime by grepping for the skip guard so it self-maintains
+  # both ways: a NEW fragile-skip in a file not yet in the set is picked
+  # up automatically, and a file whose last guard is removed leaves the
+  # set -- conf_abnormal_input_spec.bats left it when its 1 MiB test was
+  # unskipped (base#1414), so the bats-fragile job no longer runs it (a
+  # spec asserts the set). The regex is line-anchored on
   # leading whitespace + the literal bracket so a COMMENT that merely
   # mentions the guard (e.g. this driver's own spec) is NOT matched.
   # _die's on an empty match (the guard pattern changed or the fragile
@@ -488,11 +597,10 @@ _coverage_exclude_path() {
 #   bats' pass/fail output and kcov's exit status.
 #
 #   Target selection is the caller's path, verbatim. It never consults
-#   _shard_unit_files, so the greedy-LPT partition and the recorded
-#   weights file (restored from cache on CI, absent locally, so the two
-#   partitions genuinely differ) cannot change what runs. `just test
-#   coverage <n>/<total>` locally does NOT run the same specs CI's shard
-#   <n> runs; this does.
+#   _shard_unit_files, so neither the greedy-LPT partition nor the
+#   recorded weights can change what runs. (`just test coverage
+#   <n>/<total> <weights>` runs CI's shard <n> when handed the weights CI
+#   partitioned by, base#1410.)
 #
 #   BATS_FILTER, when set, narrows further to matching test names (bats
 #   -f), so one @test can be put under kcov rather than one file.
@@ -504,25 +612,75 @@ _run_coverage_path() {
   # parser is the drain again. This mode publishes no figure, but showing
   # what one spec covers under instrumentation is its entire purpose --
   # oversubscribing it corrupts the thing it was run to look at.
-  _bats_args_with_label _bats_args _label metered
-  [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
+  local _njobs
+  _bats_args_with_label _bats_args _label metered _njobs
+  local -a _extra=()
+  [[ -n "${BATS_FILTER:-}" ]] && _extra=(-f "${BATS_FILTER}")
+
+  echo "--- Running one spec under kcov: ${_path} (${_label}) ---"
+  echo "    instrumentation only -- no coverage figure is produced and" \
+       "nothing is written to ${REPO_ROOT}/coverage"
+
+  # One kcov per serial bats slice, as _run_coverage runs a shard
+  # (base#1414): a directory's specs are dealt into one slice per job, and
+  # a single file is one slice.
+  local -a _files=()
+  if [[ -d "${REPO_ROOT}/${_path}" ]]; then
+    mapfile -t _files < <(find "${REPO_ROOT}/${_path}" -type f -name '*.bats' | LC_ALL=C sort)
+  else
+    _files=("${REPO_ROOT}/${_path}")
+  fi
+  if (( ${#_files[@]} == 0 )); then
+    # The TAP plan bats prints for a directory with no specs, so an empty
+    # selection reads the same as it did under one kcov.
+    echo "1..0"
+    return 0
+  fi
+  local -a _slices=()
+  _coverage_round_robin _slices "${_njobs}" "${_files[@]}"
 
   # Container-local scratch, never the mounted checkout. Removed below
   # whether the spec passed or failed.
   local _report_dir
-  _report_dir="$(mktemp -d)"
-  echo "--- Running one spec under kcov: ${_path} (${_label}) ---"
-  echo "    instrumentation only -- no coverage figure is produced and" \
-       "nothing is written to ${REPO_ROOT}/coverage"
+  _report_dir="$(_coverage_slice_workdir)"
+  local -a _pids=()
+  _coverage_parallel_launch _pids _slices "${_report_dir}" "${_extra[@]}"
   local _rc=0
-  kcov \
-    --include-path="${REPO_ROOT}" \
-    --exclude-path="$(_coverage_exclude_path)" \
-    "${_report_dir}" \
-    bats "${_bats_args[@]}" "${REPO_ROOT}/${_path}" \
-    || _rc=$?
+  _coverage_parallel_collect _pids "${_report_dir}" || _rc=$?
+  # Joined with `kcov --merge` as a shard is; a failed merge fails a run
+  # whose slices passed (kcov names its own error). The merged report
+  # stays in the throwaway dir.
+  local _i
+  local -a _parts=()
+  for (( _i = 1; _i <= ${#_slices[@]}; _i++ )); do
+    _parts+=("${_report_dir}/part-${_i}")
+  done
+  local _mrc=0
+  kcov --merge "${_report_dir}/merged" "${_parts[@]}" || _mrc=$?
+  (( _mrc == 0 || _rc != 0 )) || _rc="${_mrc}"
   rm -rf "${_report_dir}"
   return "${_rc}"
+}
+
+# The kcov slice count of a coverage shard when COVERAGE_JOBS is unset: the
+# core count of the GitHub-hosted runner the CI matrix runs on (base#1410).
+readonly _COVERAGE_JOBS_HOSTED_DEFAULT=4
+
+# _coverage_shard_jobs <out_var>
+#   Set <out_var> to the kcov slice count of a coverage shard: COVERAGE_JOBS,
+#   or _COVERAGE_JOBS_HOSTED_DEFAULT when it is unset or empty. A shard's
+#   slices are part of what the shard IS, so the count is a setting the
+#   host forwards (CI sets it explicitly) rather than `nproc` of whichever
+#   machine runs it (base#1410). Refuses anything but a positive decimal
+#   integer, for the reason _run_coverage_parallel does.
+_coverage_shard_jobs() {
+  local _out="${1:?BUG: _coverage_shard_jobs expects <out_var>}"
+  local _n="${COVERAGE_JOBS:-${_COVERAGE_JOBS_HOSTED_DEFAULT}}"
+  if ! [[ "${_n}" =~ ^[1-9][0-9]*$ ]]; then
+    _die ci_invalid_coverage_jobs \
+      "Invalid COVERAGE_JOBS '${_n}'. Expected a positive decimal integer (default: ${_COVERAGE_JOBS_HOSTED_DEFAULT}, the hosted runner's core count)."
+  fi
+  printf -v "${_out}" '%s' "${_n}"
 }
 
 _run_coverage() {
@@ -554,11 +712,6 @@ _run_coverage() {
   # then falls as the shard count rises. coverage_gate.sh's own header
   # carries the measurement.
   local _shard_spec="${1:-}"
-
-  # Shared with _run_coverage_path: both runners must instrument the same
-  # tree, or a failure seen here would not reproduce there.
-  local _exclude_path
-  _exclude_path="$(_coverage_exclude_path)"
 
   # kcov WRAPS bats, so this is a bats run like every other one in this
   # driver and takes its arguments from the same helper. It was assembled
@@ -593,6 +746,12 @@ _run_coverage() {
   #     scope=full and feeds the release badge, and a figure that drifts
   #     by a point between runs of the same tree is not a figure.
   #
+  # Both measurements above, and the two paragraphs below, were taken
+  # when N bats jobs ran under ONE kcov. That shape is gone: each job is
+  # now a serial bats under a kcov of its own (see the run below,
+  # base#1414). The job count each branch declares is kept as the slice
+  # count.
+  #
   # THE COST, so it is not rediscovered: N parallel bats jobs feed their
   # trace streams to ONE kcov process, whose parser is single-threaded.
   # It keeps up at shard volume, mostly, and does not at full-suite
@@ -618,12 +777,12 @@ _run_coverage() {
   # exactly. The dropout stops being scatter and becomes a reproducible
   # blind spot. Faster while losing lines is not an improvement here.
   local -a _bats_args
-  local _label
+  local _label _njobs
 
   local -a _targets=()
   local _pool
   if [[ -z "${_shard_spec}" ]]; then
-    _bats_args_with_label _bats_args _label serial
+    _bats_args_with_label _bats_args _label serial _njobs
     echo "--- Running Tests with Kcov Coverage (full suite; ${_label}) ---"
     # The pools, from the one roster the inventory reads too -- so what
     # the certificate is measured against is what the run walked.
@@ -655,7 +814,15 @@ _run_coverage() {
           == "$(_coverage_pool_files)" ]]; then
       _policy=serial
     fi
-    _bats_args_with_label _bats_args _label "${_policy}"
+    _bats_args_with_label _bats_args _label "${_policy}" _njobs
+    if [[ "${_policy}" == "metered" ]]; then
+      # The slice count is COVERAGE_JOBS, not this machine's cores
+      # (base#1410): the same shard dealt into a different number of
+      # slices is a different run, so a workstation's shard N/T and CI's
+      # shard N/T would not be comparable.
+      _coverage_shard_jobs _njobs
+      _label="jobs=${_njobs} (metered to COVERAGE_JOBS; default ${_COVERAGE_JOBS_HOSTED_DEFAULT}, the hosted runner's cores)"
+    fi
     echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}; ${_label}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
@@ -666,23 +833,37 @@ _run_coverage() {
 
   # Capture each spec FILE's real kcov-mode runtime via bats' junit report
   # (one <testsuite time=...> per file) and convert it to coverage/timings.tsv
-  # (`<seconds> <basename>`). The coverage-gate job merges every shard's
-  # timings into the SHARD_WEIGHTS_FILE the NEXT run restores, so the
-  # partition self-balances by real time (greedy LPT, ADR-00000008). The
-  # junit report goes to a temp dir (only timings.tsv needs uploading); kcov's
-  # exit code (the actual test result) is preserved so a failing shard fails.
-  local _junit_dir
-  _junit_dir="$(mktemp -d)"
+  # (`<seconds> <repo-relative path>`, base#1410). The coverage-gate job
+  # merges every shard's timings into the SHARD_WEIGHTS_FILE the NEXT run
+  # restores, so the partition self-balances by real time (greedy LPT,
+  # ADR-00000008). Each slice's junit report goes to the scratch dir and
+  # _coverage_parallel_merge joins them into timings.tsv (only that file
+  # needs uploading); the worst slice's kcov exit code (the actual test
+  # result) is returned, so a failing shard fails.
+  #
+  # ONE KCOV PER SLICE (base#1414). The job count the policy chose is kept,
+  # but no bats under kcov runs concurrent jobs: the targets are dealt into
+  # that many slices, each slice is a SERIAL bats under its own kcov, and
+  # `kcov --merge` joins the slice reports into ${REPO_ROOT}/coverage --
+  # the _run_coverage_parallel shape. Every bash below one kcov traces into
+  # that kcov's one pipe, and musl bash writes a trace record over 1024 B
+  # as two writes, so N jobs behind one kcov interleave their records:
+  # kcov credits only the first marker on a line (covered lines are lost
+  # with every test green) and echoes the marker-less pieces to the step
+  # output. Slicing isolates the bats JOBS from one another: no two specs
+  # share a pipe. It does not isolate a spec from itself -- a test that
+  # runs traced children concurrently (a pipeline, a `&`) still writes
+  # them into its slice's one pipe, and base#1418 tracks that case.
+  local -a _slices=()
+  _coverage_round_robin _slices "${_njobs}" "${_targets[@]}"
+  local _work
+  _work="$(_coverage_parallel_workdir)"
+  local -a _pids=()
+  _coverage_parallel_launch _pids _slices "${_work}"
   local _rc=0
-  kcov \
-    --include-path="${REPO_ROOT}" \
-    --exclude-path="${_exclude_path}" \
-    "${REPO_ROOT}/coverage" \
-    bats "${_bats_args[@]}" --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
-    || _rc=$?
-  _junit_to_timings "${_junit_dir}/report.xml" \
-    > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
-  rm -rf "${_junit_dir}"
+  _coverage_parallel_collect _pids "${_work}" || _rc=$?
+  _coverage_parallel_merge "${_work}" "${#_slices[@]}"
+  [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]] || rm -rf "${_work}"
   return "${_rc}"
 }
 
@@ -701,8 +882,9 @@ _run_coverage() {
 # per traced process and is single-threaded, so N parallel bats jobs under
 # ONE kcov all feed one parser. base#1060 measured where that starts to cost
 # accuracy and found a BOUNDARY, not a blanket: a shard's covered set
-# survives it -- `_run_coverage` above runs a shard's bats parallel for that
-# reason -- and the full suite's does not, which is why the same function
+# survived it -- until base#1414 measured lines lost there too, and
+# `_run_coverage` above now runs a shard as slices of this shape -- and the
+# full suite's did not, which is why the same function
 # declares `serial` on the full-suite branch. What is lost there is trace,
 # not execution, so the bound is trace VOLUME through the one parser.
 #
@@ -721,8 +903,11 @@ _run_coverage() {
 
 # _coverage_parallel_workdir
 #   Echo the scratch root the slices write into. COVERAGE_LOCAL_WORKDIR
-#   names it explicitly, and it exists for ONE caller: a spec that has to
-#   point at one slice's output directory. It is deliberately not an
+#   names it explicitly -- and keeps it, since neither _run_coverage_parallel
+#   nor _run_coverage removes a named one -- and it exists for ONE kind of
+#   caller: a spec that has to read a slice's output (coverage_local_spec
+#   points at one slice's report; kcov_shard_concurrency_spec reads every
+#   shard slice's raw err-<i>, base#1414). It is deliberately not an
 #   operator knob -- `_run_via_compose` does not forward it and compose.yaml
 #   does not name it, so through the shipped entry this is always a fresh
 #   temp dir inside the `--rm` container, removed on the way out.
@@ -738,7 +923,58 @@ _coverage_parallel_workdir() {
     printf '%s\n' "${COVERAGE_LOCAL_WORKDIR}"
     return 0
   fi
-  mktemp -d
+  _coverage_slice_workdir
+}
+
+# _coverage_slice_workdir
+#   Echo a fresh scratch dir for kcov slice reports, mode 0755 rather than
+#   mktemp's 0700. kcov puts its bash helper (the BASH_ENV script) under the
+#   report dir, and a spec that drops to `nobody` (su) cannot read it from
+#   under a 0700 parent, so that bash runs untraced and the lines it runs
+#   are not counted (base#1414).
+_coverage_slice_workdir() {
+  local _d
+  _d="$(mktemp -d)" || return 1
+  chmod 0755 "${_d}" || return 1
+  printf '%s\n' "${_d}"
+}
+
+# _coverage_round_robin <out_array_name> <n> <target>...
+#   Deal the targets into <n> slices round-robin (<n> capped at the target
+#   count), each slice a newline-separated list. One kcov runs per slice
+#   (base#1414).
+_coverage_round_robin() {
+  local -n _crr_out="${1:?BUG: _coverage_round_robin expects <out_array_name>}"
+  local _n="${2:?BUG: _coverage_round_robin expects <n>}"
+  shift 2
+  (( _n > $# )) && _n=$#
+  (( _n < 1 )) && _n=1
+  _crr_out=()
+  local _i=0 _f
+  for _f in "$@"; do
+    _crr_out[_i % _n]+="${_f}"$'\n'
+    _i=$(( _i + 1 ))
+  done
+}
+
+# _coverage_stderr_replay <file>
+#   Replay a BOUNDED view of one slice's stderr (kcov's and bats'): its
+#   size, then its last _COVERAGE_STDERR_TAIL_LINES lines, each cut to
+#   _COVERAGE_STDERR_LINE_MAX bytes (base#1414). A slice's stderr goes to a
+#   file, so it never stalls its writer; the tail keeps a real error
+#   readable, and no line of it reaches the step output at full length.
+_COVERAGE_STDERR_TAIL_LINES=40
+_COVERAGE_STDERR_LINE_MAX=512
+_coverage_stderr_replay() {
+  local _f="${1:?BUG: _coverage_stderr_replay expects <file>}"
+  [[ -s "${_f}" ]] || return 0
+  local _bytes _lines
+  _bytes="$(wc -c < "${_f}" | tr -d ' ')"
+  _lines="$(wc -l < "${_f}" | tr -d ' ')"
+  echo "    stderr: ${_bytes} bytes, ${_lines} lines; the last ${_COVERAGE_STDERR_TAIL_LINES}, each cut to ${_COVERAGE_STDERR_LINE_MAX} bytes:"
+  tail -n "${_COVERAGE_STDERR_TAIL_LINES}" "${_f}" \
+    | LC_ALL=C cut -b "1-${_COVERAGE_STDERR_LINE_MAX}" \
+    | sed 's/^/    | /'
 }
 
 # _run_coverage_parallel <jobs>
@@ -819,24 +1055,37 @@ _coverage_parallel_slices() {
   done
 }
 
-# _coverage_parallel_launch <pids_array_name> <slices_array_name> <workdir>
+# _coverage_parallel_launch <pids_array_name> <slices_array_name> <workdir> [bats-arg]...
 #   Start one background kcov per slice, each writing its report to
-#   <workdir>/part-<i>, its junit report to <workdir>/junit-<i> and its
-#   combined output to <workdir>/log-<i>. Fills the pids array in slice
-#   order.
+#   <workdir>/part-<i>, its junit report to <workdir>/junit-<i>, its
+#   stdout to <workdir>/log-<i> and its stderr to <workdir>/err-<i>
+#   (base#1414). Extra arguments go to every slice's bats (e.g.
+#   `-f <filter>`). Fills the pids array in slice order.
 _coverage_parallel_launch() {
   local -n _cpl_pids="${1:?BUG: _coverage_parallel_launch expects <pids_array_name>}"
   local -n _cpl_slices="${2:?BUG: _coverage_parallel_launch expects <slices_array_name>}"
   local _work="${3:?BUG: _coverage_parallel_launch expects <workdir>}"
-  # Shared with the serial runner and the single-spec runner: all three must
-  # instrument the same tree, or a figure produced here would not be
-  # comparable with the one the matrix produces.
+  shift 3
+  local -a _cpl_extra=("$@")
+  # The one instrumenting kcov call every coverage runner in this driver goes
+  # through -- the shard / full-suite runner, the single-spec runner and
+  # the local parallel runner (base#1414) -- so all three instrument the
+  # same tree, and a failure or figure seen through one is comparable with
+  # the others.
   local _exclude_path
   _exclude_path="$(_coverage_exclude_path)"
+  # The kcov bound, wider than the plain one the caller's
+  # _bats_args_with_label exported (base#1413).
+  local _kcov_timeout
+  _bats_test_timeout kcov _kcov_timeout
   local _i
   _cpl_pids=()
   for (( _i = 1; _i <= ${#_cpl_slices[@]}; _i++ )); do
     mkdir -p "${_work}/junit-${_i}"
+    # The directory this slice's junit names are relative to, read back by
+    # _coverage_parallel_merge to key each timing on its repo-relative path
+    # (base#1410).
+    _junit_base_dir "${_cpl_slices[_i - 1]%%$'\n'*}" > "${_work}/base-${_i}"
     # Word-split intentional: one bats target per slice file. Each slice's
     # bats is SERIAL, and that is the mode's whole shape: the cores come from
     # separate kcov processes, each with its own parser. Handing a slice's
@@ -844,13 +1093,13 @@ _coverage_parallel_launch() {
     # parser -- the trace-volume bound base#1060 measured -- inside every
     # slice, which is the cost this mode was built to remove.
     # shellcheck disable=SC2086
-    kcov \
+    BATS_TEST_TIMEOUT="${_kcov_timeout}" kcov \
       --include-path="${REPO_ROOT}" \
       --exclude-path="${_exclude_path}" \
       "${_work}/part-${_i}" \
-      bats --recursive --report-formatter junit \
+      bats --recursive "${_cpl_extra[@]}" --report-formatter junit \
         --output "${_work}/junit-${_i}" ${_cpl_slices[_i - 1]} \
-      > "${_work}/log-${_i}" 2>&1 &
+      > "${_work}/log-${_i}" 2> "${_work}/err-${_i}" &
     _cpl_pids+=("$!")
   done
 }
@@ -872,6 +1121,7 @@ _coverage_parallel_collect() {
     wait "${_cpc_pids[_i - 1]}" || _prc=$?
     echo "--- coverage slice ${_i}/${_jobs} (exit ${_prc}) ---"
     cat "${_work}/log-${_i}" 2>/dev/null || true
+    _coverage_stderr_replay "${_work}/err-${_i}"
     (( _prc == 0 )) || _rc="${_prc}"
   done
   return "${_rc}"
@@ -931,7 +1181,8 @@ _coverage_parallel_merge() {
   # reason this mode exists.
   {
     for (( _i = 1; _i <= _jobs; _i++ )); do
-      _junit_to_timings "${_work}/junit-${_i}/report.xml"
+      _junit_to_timings "${_work}/junit-${_i}/report.xml" \
+        "$(< "${_work}/base-${_i}")"
     done
   } | LC_ALL=C sort -k2,2 > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
 }

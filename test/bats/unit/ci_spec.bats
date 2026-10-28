@@ -14,7 +14,9 @@ setup() {
   # sha256sum + cut back the name derivations (_compute_test_tools_hash /
   # _compute_compose_project_name); without them a PATH-confined test would
   # exercise their fail-loud guard instead of the behaviour under test.
-  for _cmd in grep date cat printf sha256sum cut; do
+  # timeout wraps the compose run of the suite (base#1413), so a test that
+  # reaches that call needs the real one beside the mocked docker.
+  for _cmd in grep date cat printf sha256sum cut timeout; do
     local _path
     _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
   done
@@ -1276,16 +1278,14 @@ _lines=""
 for _f in /source/test/bats/unit/**/*_spec.bats \
           /source/test/bats/integration/**/*_spec.bats; do
   [[ -e "${_f}" ]] || continue
-  _lines+="$(grep -cE '^@test' "${_f}" 2>/dev/null || true) $(basename -- "${_f}")"$'\n'
+  _lines+="$(grep -cE '^@test' "${_f}" 2>/dev/null || true) ${_f#/source/}"$'\n'
 done
-# _spec_weight keys on the BASENAME, so a basename carried by two specs
-# cannot be given a runtime of its own -- draw the heavy set from the
-# basenames that occur exactly once.
+# _spec_weight keys on the repo-relative PATH (base#1410), so every spec,
+# a shared basename included, can be given a runtime of its own.
 _heavy="$(printf '%s' "${_lines}" \
-  | awk '{ n[$2]++; c[$2] = $1 } END { for (b in n) if (n[b] == 1) print c[b], b }' \
   | sort -k1,1"${FIXTURE_ORDER}" -k2,2 \
   | awk -v k="${FIXTURE_HEAVY}" 'NR <= k { print $2 }')"
-# Heavy lines first: _spec_weight takes the FIRST match for a basename.
+# Heavy lines first: _spec_weight takes the FIRST match for a path.
 {
   printf '%s\n' "${_heavy}" | sed "s/^/${FIXTURE_WEIGHT} /"
   printf '%s' "${_lines}" | awk '{ print 1, $2 }'
@@ -1654,7 +1654,7 @@ $(_pool_denominator_audit)"
 # The shard partition (greedy LPT in _shard_unit_files) weights each spec
 # by RUNTIME, not `@test` count: equal-count specs of unequal duration
 # imbalance the shards otherwise. Weight source is a timings file (seconds
-# per spec basename) populated automatically from prior CI runs; a spec
+# per repo-relative spec path, base#1410) populated automatically from prior CI runs; a spec
 # absent from it (new spec / no data yet) falls back to its `@test` count.
 # ════════════════════════════════════════════════════════════════════
 
@@ -1662,8 +1662,8 @@ $(_pool_denominator_audit)"
   run bash -c '
     source /source/script/test/test.sh
     wf="${BATS_TEST_TMPDIR}/w.tsv"
-    printf "%s\n" "12 foo_spec.bats" "3 bar_spec.bats" > "${wf}"
-    SHARD_WEIGHTS_FILE="${wf}" _spec_weight "/any/path/foo_spec.bats"
+    printf "%s\n" "12 test/bats/unit/foo_spec.bats" "3 test/bats/unit/bar_spec.bats" > "${wf}"
+    SHARD_WEIGHTS_FILE="${wf}" _spec_weight "${REPO_ROOT}/test/bats/unit/foo_spec.bats"
   '
   assert_success
   assert_output "12"
@@ -1702,10 +1702,10 @@ $(_pool_denominator_audit)"
   run bash -c '
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/test/bats"
-    printf "%s\n" "42 foo_spec.bats" > "${REPO_ROOT}/test/bats/.shard-weights"
+    printf "%s\n" "42 test/bats/unit/foo_spec.bats" > "${REPO_ROOT}/test/bats/.shard-weights"
     source /source/script/test/drivers/bats.sh
     unset SHARD_WEIGHTS_FILE
-    _spec_weight "/any/path/foo_spec.bats"
+    _spec_weight "${REPO_ROOT}/test/bats/unit/foo_spec.bats"
   '
   assert_success
   assert_output "42"
@@ -1718,12 +1718,13 @@ $(_pool_denominator_audit)"
   run bash -c '
     source /source/script/test/test.sh
     specs=$(find "${REPO_ROOT}/test/bats/unit" -name "*_spec.bats" | sort)
-    heavy=$(printf "%s\n" "${specs}" | head -1 | xargs -n1 basename)
+    heavy=$(printf "%s\n" "${specs}" | head -1)
+    heavy="${heavy#"${REPO_ROOT}/"}"
     wf="${BATS_TEST_TMPDIR}/w.tsv"
     : > "${wf}"
     while IFS= read -r p; do
       [[ -n "${p}" ]] || continue
-      b=$(basename "${p}")
+      b="${p#"${REPO_ROOT}/"}"
       if [[ "${b}" == "${heavy}" ]]; then echo "100000 ${b}"; else echo "1 ${b}"; fi
     done <<< "${specs}" >> "${wf}"
     s1=$(SHARD_WEIGHTS_FILE="${wf}" _shard_unit_files 1/2 | grep -c .)
@@ -1741,34 +1742,35 @@ $(_pool_denominator_audit)"
 #
 # A coverage shard runs `kcov ... bats --report-formatter junit`, which
 # emits one <testsuite name=<spec> time=<sec>> per FILE. _junit_to_timings
-# turns that report into the `<seconds> <basename>` lines _spec_weight
-# reads, so the NEXT run's partition weights by real runtime instead of
+# turns that report into the `<seconds> <repo-relative path>` lines
+# _spec_weight reads (base#1410), so the NEXT run's partition weights by real runtime instead of
 # the @test-count fallback. Seconds round to the nearest whole, floored at
 # 1 so a sub-second spec still carries a non-zero LPT weight.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)" {
+@test "_junit_to_timings: emits <seconds> <repo-relative path> per testsuite, rounded and floored at 1 (#733, base#1410)" {
   run bash -c '
     source /source/script/test/test.sh
     xml="${BATS_TEST_TMPDIR}/report.xml"
     cat > "${xml}" <<EOF
 <?xml version="1.0"?>
 <testsuites time="3.6">
-  <testsuite name="test/bats/unit/foo_spec.bats" tests="2" time="2.4">
+  <testsuite name="foo_spec.bats" tests="2" time="2.4">
     <testcase classname="x" name="a" time="1.2"/>
   </testsuite>
-  <testsuite name="bar_spec.bats" tests="1" time="0.3">
+  <testsuite name="${REPO_ROOT}/test/bats/integration/bar_spec.bats" tests="1" time="0.3">
     <testcase classname="x" name="b" time="0.3"/>
   </testsuite>
 </testsuites>
 EOF
-    _junit_to_timings "${xml}"
+    _junit_to_timings "${xml}" "${REPO_ROOT}/test/bats/unit"
   '
   assert_success
-  # 2.4 -> 2; basename strips the path prefix
-  assert_line "2 foo_spec.bats"
-  # 0.3 rounds to 0 then floors to 1 (non-zero LPT weight)
-  assert_line "1 bar_spec.bats"
+  # 2.4 -> 2; a name relative to the first target joins that directory
+  assert_line "2 test/bats/unit/foo_spec.bats"
+  # 0.3 rounds to 0 then floors to 1 (non-zero LPT weight); an absolute
+  # name loses the repo-root prefix
+  assert_line "1 test/bats/integration/bar_spec.bats"
 }
 
 @test "_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)" {
@@ -1810,7 +1812,9 @@ SH
     cat "${REPO_ROOT}/coverage/timings.tsv"
   '
   assert_success
-  assert_output "4 mock_spec.bats"
+  # The full run's first target is the unit pool, so a junit name relative
+  # to it is a unit spec (base#1410).
+  assert_output "4 test/bats/unit/mock_spec.bats"
 }
 
 @test "_run_coverage: a full-suite run names every spec file, subfolders included (#952)" {
@@ -1824,14 +1828,21 @@ SH
   # nothing to point at.
   #
   # So bats runs for real here. kcov is replaced by a shim that drops its
-  # own flags and the report directory and execs the command it wraps,
-  # which leaves the genuine
+  # own flags, leaves a report in the report directory (a slice with no
+  # report is refused, base#1414) and execs the command it wraps, which
+  # leaves the genuine
   # `bats --recursive --report-formatter junit --output DIR <dirs>` --
-  # the invocation whose output _junit_to_timings has to parse.
+  # the invocation whose output _junit_to_timings has to parse. The
+  # `--merge` that joins the slices is answered with a merged report.
   mock_cmd "kcov" '
+    if [ "$1" = "--merge" ]; then
+      mkdir -p "$2/kcov-merged" && : > "$2/kcov-merged/cobertura.xml"
+      exit 0
+    fi
     while [ $# -gt 0 ]; do
       case "$1" in --*) shift ;; *) break ;; esac
     done
+    mkdir -p "$1/bats" && : > "$1/bats/cobertura.xml"
     shift
     exec "$@"'
 
@@ -1860,10 +1871,10 @@ SH
     echo "SCOPE: $(_measured_coverage_scope "${BATS_TEST_TMPDIR}/repo")"
   '
   assert_success
-  assert_output --partial "1 a_spec.bats"
-  assert_output --partial "1 b_spec.bats"
-  assert_output --partial "1 c_spec.bats"
-  assert_output --partial "1 d_spec.bats"
+  assert_output --partial "1 test/bats/unit/a_spec.bats"
+  assert_output --partial "1 test/bats/unit/b_spec.bats"
+  assert_output --partial "1 test/bats/unit/sub/c_spec.bats"
+  assert_output --partial "1 test/bats/integration/d_spec.bats"
 
   # `e.bats` is the file shape half of the same question. The run hands
   # kcov two DIRECTORIES and `bats --recursive`, which executes every
@@ -1871,7 +1882,7 @@ SH
   # therefore names files an inventory keyed on the *_spec.bats
   # convention would not, and the scope comes out `partial n/n specs`:
   # unpublishable, and pointing at nothing.
-  assert_output --partial "1 e.bats"
+  assert_output --partial "1 test/bats/unit/e.bats"
 
   # The whole point: a complete manifest is what earns `full`, and it is
   # earned over a tree with a subfolder in it.
@@ -1888,9 +1899,7 @@ SH
   # that points at nothing. So there is ONE roster, and this reads the
   # run's targets back against it.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -1933,8 +1942,8 @@ SH
 # computed from twelve independent reads, and their union was a partition
 # only if all twelve reads returned the same bytes. Nothing in CI could
 # see otherwise: every slice is non-empty (so the empty-shard guard never
-# fires), the merge keys on basename (so a spec measured twice reads as
-# one entry), and a spec measured NOWHERE leaves no entry at all.
+# fires), the merge keys on the spec path (so a spec measured twice reads
+# as one entry), and a spec measured NOWHERE leaves no entry at all.
 #
 # _coverage_union_gap is the detector. It compares the MERGED run
 # manifest -- what the shards between them reported running -- against
@@ -1970,8 +1979,9 @@ for _n in a b c d e f; do
     > "${_root}/test/bats/unit/${_n}_spec.bats"
 done
 _wf="${BATS_TEST_TMPDIR}/seconds.tsv"
-printf '%s\n' "10 a_spec.bats" "9 b_spec.bats" "8 c_spec.bats" \
-              "7 d_spec.bats" "6 e_spec.bats" "5 f_spec.bats" > "${_wf}"
+printf '%s\n' "10 test/bats/unit/a_spec.bats" "9 test/bats/unit/b_spec.bats" \
+  "8 test/bats/unit/c_spec.bats" "7 test/bats/unit/d_spec.bats" \
+  "6 test/bats/unit/e_spec.bats" "5 test/bats/unit/f_spec.bats" > "${_wf}"
 
 # One shard per PROCESS, each reading the weight source it was handed --
 # the independent per-shard cache lookups, in miniature.
@@ -1985,7 +1995,7 @@ for _src in ${SHARD_SOURCES}; do
       source /source/script/test/drivers/bats.sh
       _shard_unit_files "${1}"
     ' _ "${_i}/3" \
-    | sed 's|.*/|1 |' > "${BATS_TEST_TMPDIR}/timings-${_i}.tsv"
+    | sed "s|^${_root}/|1 |" > "${BATS_TEST_TMPDIR}/timings-${_i}.tsv"
   printf 'shard %s (%s): %s\n' "${_i}" "${_src}" \
     "$(tr '\n' ' ' < "${BATS_TEST_TMPDIR}/timings-${_i}.tsv")"
 done
@@ -2011,7 +2021,7 @@ PROGRAM
   # Shard 3 read the counts and took {c,f}; shards 1-2 read the seconds
   # and left d to the shard 3 that only a seconds-weighted partition has.
   assert_output --partial "GAP:
-d_spec.bats
+test/bats/unit/d_spec.bats
 END"
 }
 
@@ -2049,7 +2059,7 @@ END"
     mkdir -p "${_root}/test/bats/unit"
     printf "@test \"a\" { :; }\n" > "${_root}/test/bats/unit/a_spec.bats"
     : > "${BATS_TEST_TMPDIR}/empty.tsv"
-    printf "%s\n" "1 a_spec.bats" > "${BATS_TEST_TMPDIR}/full.tsv"
+    printf "%s\n" "1 test/bats/unit/a_spec.bats" > "${BATS_TEST_TMPDIR}/full.tsv"
     _coverage_union_gap "${BATS_TEST_TMPDIR}/empty.tsv" "${_root}" \
       && { echo "EMPTY-MANIFEST-ACCEPTED"; exit 1; }
     _coverage_union_gap "${BATS_TEST_TMPDIR}/missing.tsv" "${_root}" \
@@ -2124,9 +2134,7 @@ END"
   # _shard_unit_files. mock_cmd already PREPENDS MOCK_DIR to PATH, so the
   # kcov + bats mocks win while the real coreutils stay reachable.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2166,7 +2174,7 @@ END"
   # into the time-balanced pool, so a shard kcov's individual spec FILES
   # (unit + integration mixed) and the whole integration DIR is never a
   # target (which would re-cover all integration on one shard).
-  mock_cmd "kcov" 'exit 0'
+  _kcov_slice_mock "${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2200,9 +2208,7 @@ END"
 # why: #615 local full-coverage path
 @test "_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2275,9 +2281,7 @@ END"
 # omission is what this issue is about.
 @test "_run_coverage: the full-suite run declares serial, and kcov gets no --jobs (#1060)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   # parallel IS present and nproc DOES answer: the run must still come
   # out serial, or the policy is not being declared, merely unreachable.
   mock_cmd "parallel" 'exit 0'
@@ -2303,9 +2307,13 @@ END"
   run cat "${_log}"
   assert_success
   refute_output --partial "--jobs"
-  # --recursive still comes from the helper, so the directory targets
+  # --recursive still reaches the wrapped bats, so the directory targets
   # descend into the per-lib subfolders (ADR-00000015).
   assert_output --partial "--recursive"
+  # Serial is ONE slice: one kcov around one bats, then the merge
+  # (base#1414).
+  run grep -vc '^--merge' "${_log}"
+  assert_output "1"
 }
 
 # why: an unreadable policy must not resolve to a default that silently
@@ -2322,6 +2330,9 @@ END"
   assert_failure
   assert_output --partial "DIE:"
   assert_output --partial "seriel"
+  # The refusal names every policy a caller may pass, the CPU-bound one
+  # included (base#1429), so the fix for a typo is in the message.
+  assert_output --partial "parallel|cpu-bound|metered|serial"
 }
 
 # why: an EMPTY policy is unreadable too, and it is the one a caller
@@ -2340,6 +2351,7 @@ END"
   assert_failure
   assert_output --partial "DIE:"
   assert_output --partial "jobs policy"
+  assert_output --partial "parallel|cpu-bound|metered|serial"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -2370,8 +2382,10 @@ END"
 #
 # So these tests assert the SHAPE -- never below the cores, ABOVE them
 # when the machine is small, EQUAL to them when it is large,
-# non-decreasing in between -- and never the constant, which is a figure
-# measured on two machines on one day and will be re-derived.
+# non-decreasing in between. The constants are figures measured on a few
+# machines and will be re-derived, so ONE table test pins them (base#1429):
+# a shape alone passes a floor moved to 16 or 64, and a re-tune should be
+# an edit to that table rather than a drift no test notices.
 # ════════════════════════════════════════════════════════════════════
 
 # why: `nproc` names how many things a machine can COMPUTE at once, and
@@ -2398,6 +2412,9 @@ END"
     _bats_args_with_label _args _label
     printf "JOBS:%s\n" "$(_jobs_of "${_args[@]}")"
     printf "LABEL:%s\n" "${_label}"
+    _bats_args_with_label _args _label cpu-bound
+    printf "CPUJOBS:%s\n" "$(_jobs_of "${_args[@]}")"
+    printf "CPULABEL:%s\n" "${_label}"
   '
   assert_success
   local _jobs
@@ -2407,6 +2424,13 @@ END"
   # The label reports the count that was CHOSEN, next to the one that was
   # read, so the run's first line explains itself.
   assert_output --partial "LABEL:jobs=${_jobs}"
+  # The cpu-bound policy is floored too (base#1429): a lower floor, but
+  # still a floor, so a 4-core machine still runs more than 4 jobs.
+  local _cpu_jobs
+  _cpu_jobs="$(printf '%s\n' "${output}" | sed -n 's/^CPUJOBS://p')"
+  assert [ -n "${_cpu_jobs}" ]
+  assert [ "${_cpu_jobs}" -gt 4 ]
+  assert_output --partial "CPULABEL:jobs=${_cpu_jobs}"
 }
 
 # why: the floor has to be a FLOOR. 32 is a knee and not a peak -- four
@@ -2430,19 +2454,24 @@ END"
       for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
       printf "%s\n" "${_n}"
     }
-    for _c in 1 2 4 8 64 1000; do
-      printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
-      chmod +x "'"${MOCK_DIR}"'/nproc"
-      declare -a _args; declare _label
-      _bats_args_with_label _args _label
-      printf "%s %s\n" "${_c}" "$(_jobs_of "${_args[@]}")"
+    # Both floored policies: the default and the CPU-bound one (base#1429).
+    for _policy in parallel cpu-bound; do
+      for _c in 1 2 4 8 64 1000; do
+        printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
+        chmod +x "'"${MOCK_DIR}"'/nproc"
+        declare -a _args; declare _label
+        _bats_args_with_label _args _label "${_policy}" || exit 1
+        printf "%s %s %s\n" "${_policy}" "${_c}" "$(_jobs_of "${_args[@]}")"
+      done
     done
   '
   assert_success
   local _sweep="${output}"
 
-  local _cores _jobs _last=0
-  while read -r _cores _jobs; do
+  local _policy _cores _jobs _last=0 _prev_policy=""
+  while read -r _policy _cores _jobs; do
+    [[ "${_policy}" == "${_prev_policy}" ]] || _last=0
+    _prev_policy="${_policy}"
     assert [ -n "${_jobs}" ]
     # Never below the machine.
     assert [ "${_jobs}" -ge "${_cores}" ]
@@ -2451,9 +2480,11 @@ END"
     _last="${_jobs}"
   done <<< "${_sweep}"
 
-  # The biggest machine in the sweep gets EXACTLY its core count. A
-  # factor rule would hand it thousands of jobs; a floor cannot.
-  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == 1000 {print $2}')" = "1000" ]
+  # The biggest machine in the sweep gets EXACTLY its core count under
+  # either policy. A factor rule would hand it thousands of jobs; a floor
+  # cannot.
+  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == "parallel" && $2 == 1000 {print $3}')" = "1000" ]
+  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == "cpu-bound" && $2 == 1000 {print $3}')" = "1000" ]
 }
 
 # why: `nproc 2>/dev/null || echo 4` printed `jobs=4` for a FAILED probe
@@ -2480,26 +2511,41 @@ END"
       printf "%s\n" "${_n}"
     }
     declare -a _args; declare _label
-    _bats_args_with_label _args _label
+    _bats_args_with_label _args _label "${PROBE_POLICY}"
     printf "JOBS:%s\n" "$(_jobs_of "${_args[@]}")"
     printf "LABEL:%s\n" "${_label}"
   '
 
-  run bash -c "${_probe}"
-  # An environment, not a caller bug: the run still happens.
-  assert_success
-  local _guessed _guess_label
-  _guessed="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
-  _guess_label="$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')"
-  assert [ -n "${_guessed}" ]
+  # Both floored policies fall back the same way: the default and the
+  # CPU-bound one (base#1429).
+  local _policy
+  for _policy in parallel cpu-bound; do
+    export PROBE_POLICY="${_policy}"
+    mock_cmd "nproc" 'echo "nproc: cannot determine number of CPUs" >&2; exit 1'
+    run bash -c "${_probe}"
+    # An environment, not a caller bug: the run still happens.
+    assert_success
+    local _guessed _guess_label
+    _guessed="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
+    _guess_label="$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')"
+    assert [ -n "${_guessed}" ]
+    # The fallback is the policy's own floor, not one shared number: a
+    # CPU-bound run that lost its core count must not fall back to the
+    # default floor the hosted runner timed out under (base#1429).
+    if [[ "${_policy}" == "cpu-bound" ]]; then
+      assert [ "${_guessed}" = "8" ]
+    else
+      assert [ "${_guessed}" = "32" ]
+    fi
 
-  # Now a machine that genuinely HAS that many cores. Same count, and the
-  # label must not be the same sentence -- that is the whole defect.
-  mock_cmd "nproc" "echo ${_guessed}"
-  run bash -c "${_probe}"
-  assert_success
-  assert [ "$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')" = "${_guessed}" ]
-  refute [ "$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')" = "${_guess_label}" ]
+    # Now a machine that genuinely HAS that many cores. Same count, and the
+    # label must not be the same sentence -- that is the whole defect.
+    mock_cmd "nproc" "echo ${_guessed}"
+    run bash -c "${_probe}"
+    assert_success
+    assert [ "$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')" = "${_guessed}" ]
+    refute [ "$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')" = "${_guess_label}" ]
+  done
 }
 
 # why: every runner calls this helper, so the floor reaches all of them
@@ -2529,19 +2575,130 @@ END"
     declare -a _args; declare _label
     _bats_args_with_label _args _label
     printf "PARALLEL:%s\n" "$(_jobs_of "${_args[@]}")"
+    _bats_args_with_label _args _label cpu-bound
+    printf "CPUBOUND:%s\n" "$(_jobs_of "${_args[@]}")"
     _bats_args_with_label _args _label metered
     printf "METERED:%s\n" "$(_jobs_of "${_args[@]}")"
     printf "LABEL:%s\n" "${_label}"
   '
   assert_success
-  # Metered == the core count exactly; the default is above it.
+  # Metered == the core count exactly; both floored policies, the default
+  # and the CPU-bound one (base#1429), are above it.
   assert_output --partial "METERED:4"
-  local _par
+  local _par _cpu
   _par="$(printf '%s\n' "${output}" | sed -n 's/^PARALLEL://p')"
   assert [ "${_par}" -gt 4 ]
+  _cpu="$(printf '%s\n' "${output}" | sed -n 's/^CPUBOUND://p')"
+  assert [ -n "${_cpu}" ]
+  assert [ "${_cpu}" -gt 4 ]
   # And it says so, the way "serial by policy" does: a reader can tell a
   # decision from a machine that happens to have that many cores.
   assert_output --partial "metered"
+}
+
+# why: the shape tests above would pass a floor of 16 for the CPU-bound
+# policy or 64 for the default, and either is a regression: 16
+# integration jobs on the 4-core hosted runner stretch the slowest test
+# toward the per-test bound again, and a moved default floor changes
+# every unit runner's concurrency (base#1429). So the specified counts
+# are pinned here at representative core counts -- below, at and above
+# each floor -- next to the shapes, and a re-tune is an edit to this
+# table rather than a silent drift.
+@test "_bats_args_with_label: the default floor is 32 and the cpu-bound floor is 8 (#1429)" {
+  mock_cmd "parallel" 'exit 0'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _jobs_of() {
+      local _p="" _n="" _x
+      for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
+      printf "%s\n" "${_n}"
+    }
+    for _policy in parallel cpu-bound metered; do
+      for _c in 1 4 8 16 32 64; do
+        printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
+        chmod +x "'"${MOCK_DIR}"'/nproc"
+        declare -a _args; declare _label
+        _bats_args_with_label _args _label "${_policy}" || exit 1
+        printf "%s %s %s\n" "${_policy}" "${_c}" "$(_jobs_of "${_args[@]}")"
+      done
+    done
+  '
+  assert_success
+  assert_output "parallel 1 32
+parallel 4 32
+parallel 8 32
+parallel 16 32
+parallel 32 32
+parallel 64 64
+cpu-bound 1 8
+cpu-bound 4 8
+cpu-bound 8 8
+cpu-bound 16 16
+cpu-bound 32 32
+cpu-bound 64 64
+metered 1 1
+metered 4 4
+metered 8 8
+metered 16 16
+metered 32 32
+metered 64 64"
+}
+
+# why: the integration suite is not the workload the default floor was
+# measured on. On the 4-core hosted runner it ran at
+# `jobs=32 (floor, over 4 cores)` and tests crossed the 120 s per-test
+# bound (base#1429). So the integration runner -- and a single-path run
+# of an integration spec, which must schedule it the same way -- has to be
+# LESS oversubscribed than the unit runner on a small machine, while the
+# unit runner keeps its floor. The shape is asserted, and so are the
+# counts on that runner: 32 for unit, 8 for integration.
+@test "_run_integration_tests / _run_bats_path: an integration run is less oversubscribed than a unit run (#1429)" {
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  # 4 = the core count of the hosted runner the timeouts were seen on.
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_unit_tests
+    _run_integration_tests
+    BATS_FILE="test/bats/unit/ci_spec.bats" BATS_FILTER="" _run_bats_path
+    BATS_FILE="test/bats/integration/" BATS_FILTER="" _run_bats_path
+  '
+  assert_success
+
+  # One logged bats argv per run, in call order.
+  _jobs_of_line() {
+    sed -n "${1}p" "${_log}" | awk '{for (i = 1; i < NF; i++) if ($i == "--jobs") print $(i + 1)}'
+  }
+  local _unit _integ _path_unit _path_integ
+  _unit="$(_jobs_of_line 1)"
+  _integ="$(_jobs_of_line 2)"
+  _path_unit="$(_jobs_of_line 3)"
+  _path_integ="$(_jobs_of_line 4)"
+  assert [ -n "${_unit}" ]
+  assert [ -n "${_integ}" ]
+  assert [ -n "${_path_unit}" ]
+  assert [ -n "${_path_integ}" ]
+
+  # Never below the machine, on either runner.
+  assert [ "${_integ}" -ge 4 ]
+  # Less oversubscribed than the unit runner.
+  assert [ "${_integ}" -lt "${_unit}" ]
+  # And at the specified counts: the unit runner keeps its floor of 32,
+  # the integration runner takes the CPU-bound floor of 8 (base#1429).
+  assert [ "${_unit}" = "32" ]
+  assert [ "${_integ}" = "8" ]
+  # A single-path run schedules its suite the way that suite's runner does.
+  assert [ "${_path_unit}" = "${_unit}" ]
+  assert [ "${_path_integ}" = "${_integ}" ]
 }
 
 # why: the shard is the kcov path CI runs eight of, and the one whose
@@ -2551,9 +2708,7 @@ END"
 # and puts a 31-line hole in wrapper/run.sh.
 @test "_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
   mock_cmd "nproc" 'echo 4'
 
@@ -2561,7 +2716,7 @@ END"
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
              "${REPO_ROOT}/test/bats/integration"
-    for _n in a b c d; do
+    for _n in a b c d e f g h j k l m n o p q; do
       printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
         > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
     done
@@ -2574,56 +2729,58 @@ END"
   assert_success
   assert_output --partial "metered"
 
+  # The metered count is the SLICE count since base#1414: four cores, four
+  # kcov processes over a shard of more than four specs, and no bats
+  # under any of them runs jobs of its own.
+  run grep -vc '^--merge' "${_log}"
+  assert_output "4"
   run cat "${_log}"
-  assert_success
-  assert_output --partial "--jobs 4"
+  refute_output --partial "--jobs"
 }
 
 # why: `_run_coverage_path` is the driver's other kcov runner. It
 # publishes no figure, but its whole purpose is to show what one spec
 # covers under instrumentation, so oversubscribing it corrupts exactly
 # the thing the person ran it to look at.
-@test "_run_coverage_path: one spec under kcov is metered too (#1068)" {
+@test "_run_coverage_path: a directory under kcov is metered too (#1068)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
   mock_cmd "nproc" 'echo 4'
 
   run bash -c '
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/test/bats/unit"
-    printf "@test \"t1\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/b_spec.bats"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
     _die() { echo "DIE: $*"; exit 1; }
     source /source/script/test/drivers/bats.sh
-    _run_coverage_path test/bats/unit/b_spec.bats
+    _run_coverage_path test/bats/unit
   '
   assert_success
   assert_output --partial "metered"
 
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "--jobs 4"
+  # Eight specs on four cores: four kcov slices, not eight (base#1414).
+  run grep -vc '^--merge' "${_log}"
+  assert_output "4"
 }
 
 # why: the shard path and the full-suite path are the same function, and
 # the shard is the one CI runs eight of; a fix that reached only the
 # full-suite branch would leave the measured critical path untouched.
-@test "_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)" {
+@test "_run_coverage: a shard takes its slice count from COVERAGE_JOBS, not nproc (#1060, base#1410)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
-  mock_cmd "nproc" 'echo 8'
+  mock_cmd "nproc" 'echo 2'
 
   run bash -c '
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
              "${REPO_ROOT}/test/bats/integration"
-    for _n in a b c d; do
+    for _n in a b c d e f g h j k l m n o p q r s t u; do
       printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
         > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
     done
@@ -2631,14 +2788,15 @@ END"
       > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
     _die() { echo "DIE: $*"; exit 1; }
     source /source/script/test/drivers/bats.sh
-    _run_coverage 1/2
+    COVERAGE_JOBS=8 _run_coverage 1/2
   '
   assert_success
   assert_output --partial "jobs=8"
 
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "--jobs 8"
+  # COVERAGE_JOBS is the slice count (base#1414, base#1410): eight kcov
+  # processes over a shard of more than eight specs, on two cores.
+  run grep -vc '^--merge' "${_log}"
+  assert_output "8"
 }
 
 # why: `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the
@@ -2651,9 +2809,7 @@ END"
 # suite is serial like the suite.
 @test "_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   # parallel IS present and nproc DOES answer: the run must still come out
   # serial, or the whole-suite case is not being asked.
   mock_cmd "parallel" 'exit 0'
@@ -2683,14 +2839,17 @@ END"
   # is why the policy had to change.
   assert_output --partial "a_spec.bats"
   assert_output --partial "i_spec.bats"
+  # Serial is one slice: one kcov around every spec (base#1414).
+  run grep -vc '^--merge' "${_log}"
+  assert_output "1"
 }
 
-# why: the helper exists because parallelism has a fallback -- GNU
-# parallel absent means serial, said out loud, and the SHARD path is the
-# one that asks. Proven by CONFINING PATH so parallel is genuinely gone,
-# not by reading the helper: a hand-assembled command would keep working
-# here and say nothing.
-@test "_run_coverage: with parallel absent a shard run is serial and says so (#1060)" {
+# why: a shard's slices are independent kcov processes, none of which
+# hands bats --jobs, so GNU parallel has no part in them -- and a shard is
+# the same run on every host only if its slice count does not hang on what
+# that host has installed (base#1410). Proven by CONFINING PATH so parallel
+# is genuinely gone, not by reading the helper.
+@test "_run_coverage: with parallel absent a shard still runs its COVERAGE_JOBS slices (#1060, base#1410)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
 
   # A PATH of its OWN, not MOCK_DIR: the run is confined to it, and
@@ -2703,13 +2862,18 @@ END"
     cat > "${_bin}/kcov" <<SH
 #!/bin/bash
 printf "%s\n" "\$*" >> "'"${_log}"'"
+[ "\$1" = "--merge" ] && exit 0
+for _a in "\$@"; do
+  case "\$_a" in -*) ;; *) mkdir -p "\$_a/bats"; : > "\$_a/bats/cobertura.xml"; break ;; esac
+done
 exit 0
 SH
     chmod +x "${_bin}/kcov"
     # The externals the shard run still reaches for -- the partition
-    # shells out to find / sort / awk / grep / basename. `parallel` is
-    # deliberately not among them: that absence IS the test.
-    for _c in mktemp rm find sort awk grep basename cat printf; do
+    # shells out to find / sort / awk / grep / basename, and the slices
+    # (base#1414) to mktemp / chmod / mkdir. `parallel` is deliberately
+    # not among them: that absence IS the test.
+    for _c in mktemp chmod mkdir rm find sort awk grep basename cat printf; do
       _p="$(command -v "${_c}")" && ln -sf "${_p}" "${_bin}/${_c}"
     done
 
@@ -2726,12 +2890,142 @@ SH
     _run_coverage 1/2
   '
   assert_success
-  assert_output --partial "serial"
-  assert_output --partial "parallel not in PATH"
+  assert_output --partial "metered to COVERAGE_JOBS"
+  refute_output --partial "parallel not in PATH"
 
   run cat "${_log}"
   assert_success
   refute_output --partial "--jobs"
+  # Two specs in shard 1/2, so the default four slices are capped at two.
+  run grep -vc '^--merge' "${_log}"
+  assert_output "2"
+}
+
+# _kcov_slice_mock <log>
+#   A kcov stand-in for the sliced shape (base#1414): it logs its argv one
+#   line per call and leaves the report a real kcov would, so a driver that
+#   refuses a slice with no report is not refused by the mock. `--merge`
+#   is logged the same way and writes the merged report.
+_kcov_slice_mock() {
+  local _log="${1}"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    if [ "${1}" = "--merge" ]; then
+      mkdir -p "${2}/kcov-merged"
+      printf "<coverage/>\n" > "${2}/kcov-merged/cobertura.xml"
+      exit 0
+    fi
+    _out=""
+    while [ $# -gt 0 ]; do
+      case "${1}" in
+        -*) shift ;;
+        *)  _out="${1}"; break ;;
+      esac
+    done
+    mkdir -p "${_out}/kcov-merged"
+    printf "<coverage/>\n" > "${_out}/kcov-merged/cobertura.xml"
+    exit 0'
+}
+
+# why: N bats jobs under ONE kcov share one trace pipe, and their records
+# interleave: kcov credits only the first marker on a line and echoes the
+# marker-less pieces to the step output (base#1414). A concurrent shard
+# therefore runs one kcov per slice, each around a SERIAL bats, and joins
+# the slices with `kcov --merge`; every shard spec runs in exactly one
+# slice.
+@test "_run_coverage: a concurrent shard runs one kcov per serial bats slice, joined by --merge (base#1414)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _kcov_slice_mock "${_log}"
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/2
+  '
+  assert_success
+  local _shard
+  _shard="$(printf '%s\n' "${output}" | sed -n 's|^  cov-shard:.*/||p' | LC_ALL=C sort)"
+  [[ -n "${_shard}" ]] || fail "the shard listed no specs: ${output}"
+
+  run cat "${_log}"
+  assert_success
+  local _wraps _merges
+  _wraps="$(grep -vc '^--merge' "${_log}" || true)"
+  _merges="$(grep -c '^--merge' "${_log}" || true)"
+  # More than one kcov, one merge, and no wrapped bats runs concurrently.
+  assert [ "${_wraps}" -gt 1 ]
+  assert [ "${_merges}" -eq 1 ]
+  refute_output --partial "--jobs"
+  # Every shard spec is in exactly one slice.
+  run bash -c "grep -v '^--merge' '${_log}' | grep -oE '[a-z]_spec\.bats' | LC_ALL=C sort"
+  assert_output "${_shard}"
+}
+
+# why: `_run_coverage_path` is the other kcov runner, and a directory path
+# runs several specs at once, so it shares the pipe the same way
+# (base#1414). It slices the same way: one kcov per serial bats slice,
+# joined by `kcov --merge`.
+@test "_run_coverage_path: a directory runs one kcov per serial bats slice, joined by --merge (base#1414)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _kcov_slice_mock "${_log}"
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/unit/dir"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/dir/${_n}_spec.bats"
+    done
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/unit/dir
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  local _wraps _merges
+  _wraps="$(grep -vc '^--merge' "${_log}" || true)"
+  _merges="$(grep -c '^--merge' "${_log}" || true)"
+  assert [ "${_wraps}" -gt 1 ]
+  assert [ "${_merges}" -eq 1 ]
+  refute_output --partial "--jobs"
+  run bash -c "grep -v '^--merge' '${_log}' | grep -oE '[a-z]_spec\.bats' | LC_ALL=C sort"
+  assert_output "$(printf '%s\n' a_spec.bats b_spec.bats c_spec.bats d_spec.bats)"
+}
+
+# why: one kcov wrapped bats, and bats prints the TAP plan `1..0` for a
+# directory with no specs. The sliced runner deals FILES, so an empty
+# directory has no slice to run; it must still print that plan and pass,
+# or an empty selection reads differently under the sliced shape
+# (base#1414).
+@test "_run_coverage_path: an empty directory prints the 1..0 plan and passes (base#1414)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _kcov_slice_mock "${_log}"
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/acceptance"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/acceptance
+  '
+  assert_success
+  assert_line "1..0"
+  [[ ! -e "${_log}" ]] || fail "kcov ran on an empty selection: $(cat "${_log}")"
 }
 
 # why: the defect was never a missing flag, it was a second place to
@@ -2872,7 +3166,8 @@ SH
     # bash -c string, where one ends the program.)
     COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= PER_TEST_TIMEOUT= \
+      COVERAGE_JOBS= SHARD_WEIGHTS_BLOB= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -3360,12 +3655,19 @@ AWK
   # the two runners must hand kcov the same paths.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
+  # Leaves the report a real slice kcov would, so the shard's merge does
+  # not refuse the slice (base#1414).
   mock_cmd "kcov" '
+    [ "$1" = "--merge" ] && exit 0
+    _out=""
     for _a in "$@"; do
       case "${_a}" in
         --include-path=*|--exclude-path=*) printf "%s\n" "${_a}" >> "'"${_log}"'" ;;
+        -*) ;;
+        *) [ -n "${_out}" ] || _out="${_a}" ;;
       esac
     done
+    mkdir -p "${_out}/bats" && : > "${_out}/bats/cobertura.xml"
     exit 0'
 
   run bash -c '
@@ -3491,9 +3793,7 @@ AWK
   # kcov's the whole suite and writes coverage/timings.tsv + the report
   # line into the mounted checkout.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -3511,7 +3811,8 @@ AWK
     # dispatch before the coverage branch is read.
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
       COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
-      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= \
+      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= PER_TEST_TIMEOUT= \
+      COVERAGE_JOBS= SHARD_WEIGHTS_BLOB= \
       main --ci
   '
   assert_success
@@ -3644,6 +3945,111 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: base#1412. `--group` narrows `--lint` the way `--hadolint` does;
+# standalone it is a typo, and with a tool it asks for two narrowings of
+# one run. Both refuse before compose, so neither costs an image or runs
+# a lint the caller did not ask for.
+@test "main: --group without --lint, or beside a tool, dies before compose (base#1412)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --group 1/4
+  '
+  assert_failure
+  assert_output --partial "narrows --lint"
+  refute_output --partial "docker should not be called"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --lint --group 1/4 --shellcheck
+  '
+  assert_failure
+  assert_output --partial "two narrowings of --lint"
+  refute_output --partial "docker should not be called"
+}
+
+# why: base#1412. A malformed group spec is refused on the host, before
+# compose: it is a typo, and a typo should cost no image build.
+@test "main: --lint --group refuses a malformed spec before compose (base#1412)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --lint --group 9/4
+  '
+  assert_failure
+  assert_output --partial "lint group '9/4' is outside its own total"
+  refute_output --partial "docker should not be called"
+}
+
+# why: base#1412. LINT_GROUP is how the in-image lint-static job selects
+# its group; it has to reach `_run_lint_group`, whose refusal of an
+# out-of-range spec is the observable proof that the group branch, not the
+# whole-phase or single-tool branch, took the run.
+@test "main --ci: LINT_GROUP routes the lint-only run to one group (base#1412)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    LINT_ONLY=1 LINT_TOOL= LINT_GROUP=9/4 main --ci
+  '
+  assert_failure
+  assert_output --partial "lint group '9/4' is outside its own total"
+}
+
+# why: base#1412 review round 7. CI lints inside the test-tools image, as
+# the local gate does. A reading of the workflow cannot see every way a
+# step reaches a host arm (a value an earlier step put in $GITHUB_ENV, a
+# step that runs only on some runs), so the one lint dispatch refuses a CI
+# runner's host itself. Every host entry point goes through it: the
+# --<tool>-only family, --hadolint-only, --lint-group and `--ci` run on
+# the host. None of them may reach a driver.
+@test "_run_lint_tool: every host lint entry point is refused on a CI runner (base#1412)" {
+  local _entry
+  local -a _entries=(
+    'main --doc-counts-only'
+    'main --hadolint-only'
+    'main --lint-group 1/4'
+    'LINT_ONLY=1 LINT_TOOL=doc-counts main --ci'
+    'LINT_ONLY=1 LINT_TOOL= LINT_GROUP= main --ci'
+  )
+  for _entry in "${_entries[@]}"; do
+    run env LOG_FORMAT=json bash -c '
+      source /source/script/test/test.sh
+      # Every driver the one dispatch names, read from its own body.
+      for _f in $(declare -f _run_lint_tool | grep -oE "\b_run_[a-z_]+" | sort -u | grep -vx _run_lint_tool); do
+        eval "${_f}() { echo REACHED-DRIVER; }"
+      done
+      [ "$(_run_doc_counts)" = REACHED-DRIVER ] && [ "$(_run_hadolint)" = REACHED-DRIVER ] \
+        || { echo "BUG: the drivers were not stubbed"; exit 0; }
+      export GITHUB_ACTIONS=true
+      '"${_entry}"'
+    '
+    assert_failure
+    assert_output --partial '"body":"ci_host_lint_on_runner"'
+    refute_output --partial "REACHED-DRIVER"
+  done
+}
+
+# why: base#1412 review round 7. The refusal is the runner's mark, not a
+# refusal of host arms: off a runner an operator still times one driver
+# with them.
+@test "_run_lint_tool: off a CI runner a host arm still reaches its driver (base#1412)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_doc_counts() { echo REACHED-DRIVER; }
+    unset GITHUB_ACTIONS
+    main --doc-counts-only
+  '
+  assert_success
+  assert_output --partial "REACHED-DRIVER"
+  refute_output --partial "ci_host_lint_on_runner"
+}
+
 # why: #692 LINT_TOOL validation
 @test "main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)" {
   run bash -c '
@@ -3698,12 +4104,9 @@ AWK
 # why: #864 host-direct primitive so a CI job can run the gate without
 # compose
 @test "main --doc-counts-only: runs the drift gate on the host, no compose (#864)" {
-  # CI-reachability guard. The lint phase runs in `just test`, but no CI job
-  # runs it: the GHA lint jobs are shellcheck (--shellcheck-only) and
-  # hadolint (--lint --hadolint), and every bats job passes BATS_ONLY=1,
-  # which skips the phase. So the gate needs a host-direct primitive the
-  # plain ubuntu-latest runner can call -- the same shape as
-  # --shellcheck-only. Docker must not be touched on this path.
+  # The host-direct arm is kept to time one driver; CI runs the gate with
+  # --lint --doc-counts inside the test-tools image instead (base#1412).
+  # Docker must not be touched on this path.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 

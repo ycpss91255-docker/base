@@ -92,6 +92,11 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Run the full suite as parallel kcov processes
+        # A step bound below the job's 90, so a hang fails THIS step with
+        # its log before the job bound cancels the job and names no step
+        # (base#1413). About twice the 34-minute control run measured
+        # above, plus room for the image build this step may do first.
+        timeout-minutes: 75
         env:
           JOBS: ${{ inputs.jobs }}
         # The mode, through the same entry an operator uses. No
@@ -137,12 +142,8 @@ jobs:
         run: |
           set -euo pipefail
           manifest=coverage/timings.tsv
-          reports=(coverage/kcov-merged/cobertura.xml)
-          if [[ ! -f "${reports[0]}" ]]; then
-            echo "no merged report at ${reports[0]} -- run a whole-suite coverage run first" >&2
-            exit 1
-          fi
-          bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${reports[@]}"
+          run_dirs=(coverage/)
+          bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${run_dirs[@]}"
 
 # No reclaim step. `script/test/test.sh` arms an EXIT-trap sweep of
 # orphaned compose projects on every dispatch it makes, pass or fail, so

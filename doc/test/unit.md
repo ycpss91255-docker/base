@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (183)
+### test/bats/unit/ci_spec.bats (193)
 
 | Test | Description |
 |------|-------------|
@@ -1248,7 +1248,7 @@ between them can be asserted at all.
 | `_spec_weight: falls back to @test count when no SHARD_WEIGHTS_FILE is set (#724)` | - |
 | `_spec_weight: reads the default repo weights file when SHARD_WEIGHTS_FILE is unset (#733)` | - |
 | `_shard_unit_files: partitions by recorded time when SHARD_WEIGHTS_FILE is set (#724)` | - |
-| `_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)` | - |
+| `_junit_to_timings: emits <seconds> <repo-relative path> per testsuite, rounded and floored at 1 (#733, base#1410)` | - |
 | `_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)` | - |
 | `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
 | `_run_coverage: a full-suite run names every spec file, subfolders included (#952)` | - |
@@ -1270,11 +1270,16 @@ between them can be asserted at all.
 | `_bats_args_with_label: --jobs is a floor under the core count, never a multiple of it (#1068)` | the floor has to be a FLOOR. 32 is a knee and not a peak -- four interleaved reps per point on a 32-core host read 43.7s at 16 jobs against 26.5s / 25.8s / 25.7s at 32 / 64 / 128 -- so what a rule must guarantee is that it never lands BELOW the knee, which `k x cores` fails to do on any machine smaller than 32/k, the 4-core runner included. A large machine therefore gets exactly its cores, and the rule stays monotone so a bigger host is never handed less than a smaller one. This is the assertion that lets the constant be re-tuned without editing a test: never-below-the-machine, non-decreasing, and equal at the top name nothing the measurement picked. |
 | `_bats_args_with_label: an unreadable core count is labelled a fallback, not a reading (#1068)` | `nproc 2>/dev/null \|\| echo 4` printed `jobs=4` for a FAILED probe and for a genuine 4-core machine alike, so the run's own log could not say which had happened -- and on CI both readings were 4 at once. That is the shape the policy argument three lines up refuses. A FALLBACK is the right answer here where a `_die` is the right answer there: an unreadable POLICY is a caller's bug with no correct run to give it, while an unreadable CORE COUNT is an ENVIRONMENT -- the same kind as `parallel` missing from PATH, which this helper already falls back on and NAMES. So it falls back and says so, and what is pinned is the saying: the two labels must differ even when the two counts agree. |
 | `_bats_args_with_label: the metered policy holds a run at one job per core (#1068)` | every runner calls this helper, so the floor reaches all of them unless a policy says otherwise -- and for the kcov runners the measurement says otherwise. N bats jobs feed ONE single-threaded trace parser: raising a shard from 4 to 32 jobs is 1.75x and costs a REPRODUCIBLE hole, four runs at 16/32 jobs unioning to 31 lines short of the serial set (30 of them one region of wrapper/run.sh), ~0.45 points off the reported rate, where two runs at jobs=4 union to the serial set EXACTLY. Faster while losing lines is not an improvement for the runner whose output IS the line set, so `metered` is one job per core and no more -- until base#726 stops the parser being the drain. |
+| `_bats_args_with_label: the default floor is 32 and the cpu-bound floor is 8 (#1429)` | the shape tests above would pass a floor of 16 for the CPU-bound policy or 64 for the default, and either is a regression: 16 integration jobs on the 4-core hosted runner stretch the slowest test toward the per-test bound again, and a moved default floor changes every unit runner's concurrency (base#1429). So the specified counts are pinned here at representative core counts -- below, at and above each floor -- next to the shapes, and a re-tune is an edit to this table rather than a silent drift. |
+| `_run_integration_tests / _run_bats_path: an integration run is less oversubscribed than a unit run (#1429)` | the integration suite is not the workload the default floor was measured on. On the 4-core hosted runner it ran at `jobs=32 (floor, over 4 cores)` and tests crossed the 120 s per-test bound (base#1429). So the integration runner -- and a single-path run of an integration spec, which must schedule it the same way -- has to be LESS oversubscribed than the unit runner on a small machine, while the unit runner keeps its floor. The shape is asserted, and so are the counts on that runner: 32 for unit, 8 for integration. |
 | `_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)` | the shard is the kcov path CI runs eight of, and the one whose covered set the badge publishes. It has to DECLARE that it is metered rather than merely happen to sit at the core count today, or the next change to the default silently takes 0.45 points off the reported rate and puts a 31-line hole in wrapper/run.sh. |
-| `_run_coverage_path: one spec under kcov is metered too (#1068)` | `_run_coverage_path` is the driver's other kcov runner. It publishes no figure, but its whole purpose is to show what one spec covers under instrumentation, so oversubscribing it corrupts exactly the thing the person ran it to look at. |
-| `_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
+| `_run_coverage_path: a directory under kcov is metered too (#1068)` | `_run_coverage_path` is the driver's other kcov runner. It publishes no figure, but its whole purpose is to show what one spec covers under instrumentation, so oversubscribing it corrupts exactly the thing the person ran it to look at. |
+| `_run_coverage: a shard takes its slice count from COVERAGE_JOBS, not nproc (#1060, base#1410)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
 | `_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)` | `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the certificate is derived from what ran, not from the argument -- so such a run stamps scope=full, the only scope the release badge publishes, off a parallel measurement the full-suite branch declares serial precisely because it under-reports. `just test coverage 1/1` reaches it, and so does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix ["1/1"]. The policy must follow the walked set, so a slice that IS the suite is serial like the suite. |
-| `_run_coverage: with parallel absent a shard run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud, and the SHARD path is the one that asks. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
+| `_run_coverage: with parallel absent a shard still runs its COVERAGE_JOBS slices (#1060, base#1410)` | a shard's slices are independent kcov processes, none of which hands bats --jobs, so GNU parallel has no part in them -- and a shard is the same run on every host only if its slice count does not hang on what that host has installed (base#1410). Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper. |
+| `_run_coverage: a concurrent shard runs one kcov per serial bats slice, joined by --merge (base#1414)` | N bats jobs under ONE kcov share one trace pipe, and their records interleave: kcov credits only the first marker on a line and echoes the marker-less pieces to the step output (base#1414). A concurrent shard therefore runs one kcov per slice, each around a SERIAL bats, and joins the slices with `kcov --merge`; every shard spec runs in exactly one slice. |
+| `_run_coverage_path: a directory runs one kcov per serial bats slice, joined by --merge (base#1414)` | `_run_coverage_path` is the other kcov runner, and a directory path runs several specs at once, so it shares the pipe the same way (base#1414). It slices the same way: one kcov per serial bats slice, joined by `kcov --merge`. |
+| `_run_coverage_path: an empty directory prints the 1..0 plan and passes (base#1414)` | one kcov wrapped bats, and bats prints the TAP plan `1..0` for a directory with no specs. The sliced runner deals FILES, so an empty directory has no slice to run; it must still print that plan and pass, or an empty selection reads differently under the sliced shape (base#1414). |
 | `drivers/bats.sh: --jobs is written in exactly one place, the shared helper (#1060)` | the defect was never a missing flag, it was a second place to write one -- _run_coverage assembled its own bats command, so what the helper decides never reached it. A guard on the FLAG rather than on one call site is what keeps a third hand-rolled invocation from appearing: the driver may name --jobs exactly once, in the helper's own body. |
 | `_run_system: its bats takes --jobs and the label from the shared helper (#1060)` | the system runner was the driver's OTHER hand-rolled bats command -- its own nproc probe, no --recursive, and nothing said when parallel was missing. It is the second copy the one-writer guard refuses, so it takes its arguments from the helper like everything else. It gets the FLOORED count like every other runner with no kcov in the loop (base#1068): its tests are the most subprocess-bound in the suite, so it is where oversubscription has the most to give. |
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
@@ -1306,6 +1311,11 @@ between them can be asserted at all.
 | `main --bats-path + --coverage stays rejected: the fast loop is still kcov-free (#887)` | #523's refusal is intact; the combination is --coverage-path |
 | `main: unknown option dies with ci_unknown_option (#692)` | #692 unknown-flag guard |
 | `main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)` | #692 narrowing-flag typo guard |
+| `main: --group without --lint, or beside a tool, dies before compose (base#1412)` | base#1412. `--group` narrows `--lint` the way `--hadolint` does; standalone it is a typo, and with a tool it asks for two narrowings of one run. Both refuse before compose, so neither costs an image or runs a lint the caller did not ask for. |
+| `main: --lint --group refuses a malformed spec before compose (base#1412)` | base#1412. A malformed group spec is refused on the host, before compose: it is a typo, and a typo should cost no image build. |
+| `main --ci: LINT_GROUP routes the lint-only run to one group (base#1412)` | base#1412. LINT_GROUP is how the in-image lint-static job selects its group; it has to reach `_run_lint_group`, whose refusal of an out-of-range spec is the observable proof that the group branch, not the whole-phase or single-tool branch, took the run. |
+| `_run_lint_tool: every host lint entry point is refused on a CI runner (base#1412)` | base#1412 review round 7. CI lints inside the test-tools image, as the local gate does. A reading of the workflow cannot see every way a step reaches a host arm (a value an earlier step put in $GITHUB_ENV, a step that runs only on some runs), so the one lint dispatch refuses a CI runner's host itself. Every host entry point goes through it: the --<tool>-only family, --hadolint-only, --lint-group and `--ci` run on the host. None of them may reach a driver. |
+| `_run_lint_tool: off a CI runner a host arm still reaches its driver (base#1412)` | base#1412 review round 7. The refusal is the runner's mark, not a refusal of host arms: off a runner an operator still times one driver with them. |
 | `main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)` | #692 LINT_TOOL validation |
 | `main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)` | #845 stale setup.conf lint reaches the CI gate |
 | `main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)` | #846 localized README sync lint reaches the CI gate |
@@ -1752,7 +1762,7 @@ unreadable layer, and a directory where the layer should be.
 | `CRLF line endings load the same rows and generate the same set as LF` | A file saved on Windows ends every line in CRLF. TOML allows it, and the configuration it describes is the same one -- so the shell reader must load the same rows and apply must generate the same set, with no `\r` carried into a value. |
 | `a non-ASCII value reaches .env and compose.yaml unchanged` | A value outside ASCII is a value like any other: it must reach the container env (.env) and the compose file byte for byte -- not escaped, not transliterated, not dropped. |
 | `invalid UTF-8 is refused with the file named and nothing generated` | Bytes that are not UTF-8 are not TOML, so the layer cannot be read. The refusal must name the file, and nothing of the generated set may be written -- a half-written set reads as a successful apply. |
-| `a 1 MiB value finishes within 60 s and generates what a short value does` | A value is not bounded by the reader, so a large one must neither hang apply nor come out different from a short one. Bound: 60 s, against about 3 s measured for a 1 MiB value in the test-tools image -- the margin is for a loaded CI runner, not for a slower algorithm. The bound is ENFORCED: apply runs under `timeout`, which kills it at 60 s and answers 124, so a hang fails the status check instead of hanging the suite. And each run's value is asserted present in .env, whole, before the two generated sets are compared -- a comparison alone passes an emitter that drops the entry from both runs. Skipped under kcov: the value goes into the bash trace, and in a coverage shard that trace reaches stdout as lines of up to 1 MiB, which hung shard 7/12 of CI run 40470315196. The bats-fragile job runs it plain. |
+| `a 1 MiB value finishes within 60 s and generates what a short value does` | A value is not bounded by the reader, so a large one must neither hang apply nor come out different from a short one. Bound: 60 s, against about 3 s measured for a 1 MiB value in the test-tools image -- the margin is for a loaded CI runner, not for a slower algorithm. The bound is ENFORCED: apply runs under `timeout`, which kills it at 60 s and answers 124, so a hang fails the status check instead of hanging the suite. And each run's value is asserted present in .env, whole, before the two generated sets are compared -- a comparison alone passes an emitter that drops the entry from both runs. It runs under kcov as well as plain: the value goes into the bash trace, and a coverage shard whose concurrent jobs shared one kcov printed that trace as lines of up to 1 MiB, which hung shard 7/12 of CI run 40470315196. Each slice now has a kcov of its own (base#1414), so the test is not skipped there. |
 | `an unreadable layer is refused with its status, event id and path` | A layer that is there and cannot be read is not an absent layer: a configuration replaced by the template defaults is the failure this must not become. Unreadability needs a user the mode applies to, so as root the case drops to `nobody` with su; without su it cannot be staged. |
 | `a directory in place of setup.toml is refused with its event id and path` | A directory where setup.toml should be is not an absent layer either. Measured before base#1400: apply logged conf_no_repo_conf ("using template defaults"), then conf_upsert_file_missing writing the workspace bind into it, and exited 0 with compose.yaml generated. It must be refused like any other layer that is there and cannot be read. |
 | `a FIFO in place of setup.toml is refused within a bound, with its event id and path` | A FIFO where setup.toml should be is there too, and unlike a directory it does not fail on open: open(2) on a FIFO blocks until a writer arrives, so an `-e` gate that hands it to the bridge hangs apply forever instead of refusing (review round 3 of base#1400). The bound makes the hang a failure instead of a wedged suite. |
@@ -2004,7 +2014,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 | `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
-### test/bats/unit/coverage_gate_spec.bats (31)
+### test/bats/unit/coverage_gate_spec.bats (35)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2048,8 +2058,12 @@ the file's lines to the denominator.
 | `coverage verdict parity: no context runs the floor or the union check outside the verdict (base#1411)` | one entry point means no second, partial verdict beside it. A bare floor-only gate call or a free-standing union check is the three-step- lists shape this issue removes. Read per INVOCATION, not per line: a floor-only call chained onto a permitted line must still be seen. |
 | `coverage verdict parity: the local recipe and the self-hosted step bind the same inputs (base#1411)` | an identical invocation over different inputs is a different verdict. Local and self-hosted both judge a run of this checkout from its coverage/ tree, so their whole verdict scripts must be the same text -- a manifest or report bound to anything else in one of them (a stale, complete manifest left by an older run) fails here. |
 | `coverage verdict parity: each verdict reads the manifest its own run wrote (base#1411)` | the manifest each verdict reads must be the one ITS run wrote. A local or self-hosted coverage run writes test.sh's run manifest; the hosted matrix's manifest is the file the --merge-timings step writes from the shards' timings. Bound to anything else, the union check judges some other run. |
-| `coverage verdict parity: the hosted verdict receives exactly one report from every downloaded shard (base#1411)` | the hosted reports are an input too, and the text checks above cannot see how its loop fills them. Run the hosted verdict step itself over a laid-out set of downloaded shards, with the driver stubbed to print its arguments: it must hand the verdict the manifest and exactly ONE report from EVERY shard -- the kcov-merged one where it exists, else the first one found. A loop that keeps only the last shard, or one that passes a shard twice, judges a different run than the one the manifest names. |
+| `coverage verdict parity: the hosted verdict receives every downloaded shard directory once (base#1411)` | the hosted run directories are an input too, and the text checks above cannot see how its glob fills them. Run the hosted verdict step itself over a laid-out set of downloaded shards, with the driver stubbed to print its arguments: it must hand the verdict the manifest and EVERY shard directory exactly once -- the driver then takes one report from each (the --run-dirs tests pin that rule). A step that keeps only the last shard, or passes a shard twice, judges a different run than the one the manifest names. |
 | `coverage verdict parity: no context overrides the driver's COVERAGE_MIN (base#1411)` | the floor is an input too. The driver owns COVERAGE_MIN's default (80); a value set in one context and not the others -- a step `env:`, an inline assignment, a justfile `export` -- moves that context's floor while every invocation line stays identical. |
+| `coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)` | Passing both the merged and the per-command report counts a run twice; the merged one is the run's report when it exists. |
+| `coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)` | A single-command kcov run writes no kcov-merged report, and the gate must still find the one it did write. |
+| `coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)` | This is the CI shape -- one directory per shard -- and the union across them is the project rate the floor gates. |
+| `coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)` | No report must be red, not a vacuous pass over nothing. |
 
 ### test/bats/unit/coverage_handback_spec.bats (14)
 
@@ -2124,7 +2138,7 @@ workflow, whose shape the last section pins.
 | `main: --coverage-local --jobs N overrides the nproc default` | the default is `nproc` and the flag has to beat it, or `--jobs` would be decoration on a machine whose core count the operator is deliberately not using (a shared workstation, a cgroup-limited shell). |
 | `main --ci: COVERAGE_PATH out-ranks COVERAGE_LOCAL_JOBS` | the branch order is the contract. COVERAGE_PATH is read FIRST because it is the one kcov mode that writes nothing into coverage/; letting a stale COVERAGE_LOCAL_JOBS out-rank it would turn a one-spec instrumentation loop into a whole-suite run against the checkout. |
 | `main --ci: COVERAGE_LOCAL_JOBS routes to the parallel runner, not the serial one` | without this the flag is inert -- the container would fall through to the serial `_run_coverage`, and the mode would be a rename of the run it was built to replace. |
-| `specs driving the in-container coverage entry pin every forwarded selector (#726)` | found by RUNNING the mode, not by reading it. `just test coverage-local` on the real tree turned ci_spec's "main --ci with COVERAGE=1 skips the lint phase" red, and the reason is the whole selector family, not this one member: the in-container dispatch reads COVERAGE_SHARD / COVERAGE_PATH / COVERAGE_LOCAL_JOBS out of the ENVIRONMENT, and a spec that drives that entry inherits whatever the container was started with. That spec pinned two of the three and stubbed `_run_coverage`; under `--coverage-local` the inherited COVERAGE_LOCAL_JOBS routed past the stub into the real parallel runner, so a unit test launched 32 nested kcov processes and failed. The rule is therefore not "clear COVERAGE_LOCAL_JOBS" -- that is this defect, not its class. It is: a block that drives the in-container coverage entry PINS EVERY selector the dispatch forwards, set or emptied, so the branch under test is the branch taken whichever run the suite is inside. The roster is read off `_run_via_compose`'s own forwarding lines rather than listed here, so a fourth selector arrives with this demand already made of every fixture. EVERY selector it forwards from the ambient environment, that is -- all eleven, not the three whose names begin `COVERAGE_`. The prefix was the family the defect was found in, and a roster shaped like the cause of one instance is the curation this rule was written to replace: it left out `BATS_FILTER`, which the coverage branch itself reads through `_run_coverage_path`, so a spec silently narrowed by an inherited filter would have been the same defect in a member the guard could not see. |
+| `specs driving the in-container coverage entry pin every forwarded selector (#726)` | found by RUNNING the mode, not by reading it. `just test coverage-local` on the real tree turned ci_spec's "main --ci with COVERAGE=1 skips the lint phase" red, and the reason is the whole selector family, not this one member: the in-container dispatch reads COVERAGE_SHARD / COVERAGE_PATH / COVERAGE_LOCAL_JOBS out of the ENVIRONMENT, and a spec that drives that entry inherits whatever the container was started with. That spec pinned two of the three and stubbed `_run_coverage`; under `--coverage-local` the inherited COVERAGE_LOCAL_JOBS routed past the stub into the real parallel runner, so a unit test launched 32 nested kcov processes and failed. The rule is therefore not "clear COVERAGE_LOCAL_JOBS" -- that is this defect, not its class. It is: a block that drives the in-container coverage entry PINS EVERY selector the dispatch forwards, set or emptied, so the branch under test is the branch taken whichever run the suite is inside. The roster is read off `_run_via_compose`'s own forwarding lines rather than listed here, so a fourth selector arrives with this demand already made of every fixture. EVERY selector it forwards from the ambient environment, that is -- all twelve, not the three whose names begin `COVERAGE_`. The prefix was the family the defect was found in, and a roster shaped like the cause of one instance is the curation this rule was written to replace: it left out `BATS_FILTER`, which the coverage branch itself reads through `_run_coverage_path`, so a spec silently narrowed by an inherited filter would have been the same defect in a member the guard could not see. |
 | `_run_coverage_parallel: launches one kcov per slice over an exhaustive, disjoint partition` | the whole claim of the mode. N kcov PROCESSES, each over one slice of the SHARED partition -- so the union of the slices is the suite and no spec is instrumented twice. A second partitioner would be a second roster; a partition that dropped a spec would report a coverage regression nobody caused. |
 | `_run_coverage_parallel: merges every slice's report into the repo coverage tree` | the merge is what turns N partial reports into the project figure, and it must name EVERY slice. A merge over a subset is the silent-loss case: it produces a valid report carrying a smaller line set, which reads as a regression rather than as the bug it is. |
 | `_run_coverage_parallel: a slice that produced no report fails the run instead of merging` | "cannot tell" resolves to refusing. A kcov that dies after its tests pass leaves an EMPTY output directory and a zero status, and merging the survivors would publish a smaller line set under a whole-suite certificate. The refusal is what makes a lost slice distinguishable from a coverage drop. |
@@ -2140,6 +2154,49 @@ workflow, whose shape the last section pins.
 | `coverage-local workflow: runs on the self-hosted GPU runner behind the fork guard` | the runner is the point -- an in-job parallel mode measured on a hosted two-core runner would prove nothing about the fat machine it was written for. And a job that can land on the org's self-hosted runner is arbitrary code execution on a shared workstation unless it carries the fork guard, which is what `self-hosted-guard` enforces for every job in this tree. Read off the CODE, comments dropped: this file's header spends a paragraph on why one self-hosted runner is not a PR gate, so the words "self-hosted" are in it whatever the job runs on -- a whole-file read answers the question with the prose that explains the answer. That is the rule the sibling `self-test.yaml` case already applies to `runs-on:`. |
 | `coverage-local workflow: drives test.sh --coverage-local` | the workflow has to drive the MODE, through the same entry an operator uses. A validation job that called `--coverage` would be a second, slower way of running what CI already runs and would never exercise the merge this issue is about. Read as the SET of modes the workflow invokes, off the code, because two things would otherwise pass a broken file: the header comment names `test.sh --coverage-local` twice, so a whole-file `--partial` stays green after the run step is switched back to the serial mode; and there are TWO invocations (with and without `--jobs`), so a `--partial` over either one is satisfied by the other. A set has neither hole -- and the `--jobs` branch matters most, because `--jobs` on the serial mode is an invocation the entry refuses outright. |
 | `self-test.yaml: the PR gate is unchanged -- no self-hosted runner, no local mode` | production must be untouched. The acceptance criterion is explicit that the PR gate keeps the hosted matrix, and the cheapest way for that to rot is a job quietly added to self-test.yaml on the way past. |
+
+### test/bats/unit/coverage_shard_parity_spec.bats (13)
+
+a local coverage shard and CI's shard of the same name were two different
+runs. Three inputs decide a shard, and each differed:
+
+1. The WEIGHTS. CI restores test/bats/.shard-weights from its cache
+(compute-shards) and hands every shard the same blob; a checkout has no such
+file (it is gitignored), so the local greedy-LPT partition fell back to
+`@test` counts and put different specs in shard N. 2. The weight KEY. A
+weight was recorded and looked up by spec BASENAME, and five basenames name
+two specs each (a unit and an integration spec): apk_mirror,
+init_existing_repo_signals, init_installed_paths, test_tools_pins, upgrade.
+Neither spec of a pair could carry its own runtime, and the union check
+could not tell one of them from the other. 3. The JOB COUNT. A shard deals
+its specs into one kcov slice per job, and the job count was `nproc` -- four
+on a hosted runner, 32 on a workstation -- so the same specs ran in
+different slices.
+
+Measured with bats 1.13.0 (the test-tools image), and what the bats mock
+below reproduces: a junit <testsuite name> is the spec path RELATIVE TO THE
+FIRST TARGET'S DIRECTORY when the spec is under it, and the absolute path
+otherwise. `bats --recursive unit/ integration/` names unit/sub/x_spec.bats
+`sub/x_spec.bats` and integration/y_spec.bats
+`/source/test/bats/integration/y_spec.bats`; with file targets unit/sub/x,
+integration/y it names them `x_spec.bats` and the absolute path. So a junit
+name is not a spec identity on its own.
+
+| Test | Description |
+|------|-------------|
+| `_spec_weight: two specs sharing a basename each read their own recorded seconds (base#1410)` | the five colliding basenames. Keyed by basename, the unit and the integration apk_mirror spec read the same line -- or, with the file written by path, neither line -- so the partition cannot place either by its own runtime. |
+| `_run_coverage: a full run records every spec's timing under its repo-relative path (base#1410)` | the writer half. The timings a run records ARE the next run's weights and the coverage-gate's run manifest, so they must name each spec by the path the partition and the inventory key on. The full run is handed two DIRECTORIES, so bats names the integration specs by absolute path and the foldered unit spec as `sub/...`. |
+| `_run_coverage: a shard records each walked spec's timing under its repo-relative path (base#1410)` | same as above for a shard, whose slices are handed FILES -- bats then names a spec under the first target's directory by its basename and every other one by absolute path. |
+| `_coverage_union_gap: names the integration spec of a colliding basename that no shard ran (base#1410)` | the reader half of the manifest. With both apk_mirror specs keyed by one basename, a matrix that ran only the unit one read as complete; keyed by path, the integration one is the spec named as unrun. |
+| `job count: a full coverage run stays one serial kcov under COVERAGE_JOBS (base#1410)` | the control. The full suite is one serial kcov whatever the override says -- COVERAGE_JOBS is the SHARD slice count, and the full run's serial policy carries its own measurement (bats.sh). |
+| `job count: a shard defaults to the hosted runner's four slices, not nproc (base#1410)` | the hosted value is the default, so a workstation's shard N/T is dealt into the slices a GitHub-hosted runner (four cores) deals it into -- not into one slice per local core. |
+| `job count: COVERAGE_JOBS sets a shard's kcov slice count (base#1410)` | the override is the knob CI sets explicitly and a developer may set to reproduce a different runner. |
+| `job count: main --coverage-shard forwards COVERAGE_JOBS, the hosted default when unset (base#1410)` | the host side. The container cannot see the host's intent unless the count crosses the compose boundary: `just test coverage N/T` says the hosted default out loud, and an ambient COVERAGE_JOBS (CI's) wins. |
+| `self-test.yaml: the coverage shard step passes COVERAGE_JOBS and the weights blob to test.sh (base#1410)` | CI must not lean on the runner's core count -- a self-hosted runner or a larger hosted SKU would silently re-slice every shard. |
+| `parity: the local --shard-weights path and the compute-shards path run the same spec list (base#1410)` | ONE decoder. The blob compute-shards publishes is what reaches the container on both paths -- CI's (an ambient SHARD_WEIGHTS_BLOB) and the local one (`--shard-weights <file>`, encoded the way compute-shards encodes) -- and the in-container dispatch turns it into the weights the partition reads BEFORE it runs the shard. Same weights file, same shard, same spec list; and the list is not the `@test`-count fallback, or the comparison would hold with no weights reaching the run at all. |
+| `parity: an explicitly empty weights file partitions by @test count, not by the checkout's .shard-weights (base#1410)` | an explicit EMPTY weights source is a source -- CI's cache-miss shard, which weighs by `@test` count. Encoded, an empty file is an empty blob; a shard that read "no blob" as "no source" would fall through to whatever test/bats/.shard-weights the checkout holds, and partition by timings CI never saw. So: the host forwards the empty blob, and a shard handed one partitions by `@test` count even beside a populated default file. |
+| `self-test.yaml: compute-shards uploads the weights it published as the shard-weights artifact (base#1410)` | the fetch half of the local path. A job output cannot be downloaded after the run; an artifact can (`gh run download <run> -n shard-weights`), so compute-shards publishes the exact file it encoded. |
+| `justfile: coverage takes an optional weights file and forwards it as --shard-weights (base#1410)` | the `just` entry. `just test coverage N/T <weights>` is the operator's form of the local path above. |
 
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
@@ -3814,29 +3871,27 @@ the bump rather than moving the coverage number by a plausible margin.
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
 
-### test/bats/unit/kcov_trace_volume_spec.bats (3)
+### test/bats/unit/kcov_shard_concurrency_spec.bats (3)
 
-Under kcov every line bash runs is traced, values included. In a coverage
-shard (jobs=4) that trace reaches the job's stdout, so a test that builds a
-1 MiB value writes single lines of up to 1 MiB of it. CI run 40470315196
-(coverage 7/12) stopped about 64 KiB into such a line and stayed silent for
-60 minutes until it was cancelled. Locally, with the CI image and a stdout
-reader that stops on lines over 64 KiB, kcov, the four bats workers and the
-test's bash all blocked in pipe_write and the shard never finished; skipping
-that one test under COVERAGE let the same shard pass. The test still runs in
-plain bats (the bats-fragile job runs every file carrying the skip guard),
-so nothing goes unrun.
-
-The rule is mechanical: a @test body that builds a value with `head -c N`, N
-over 65536 (one Linux pipe buffer), carries the kcov skip guard `[
-"${COVERAGE:-0}" = 1 ] && skip`. The scan is one awk pass, so it costs
-nothing under kcov.
+A coverage shard runs its specs concurrently, and the instrument must not
+notice. kcov's bash engine reads coverage out of the xtrace stream (PS4
+`kcov@${BASH_SOURCE}@${LINENO}@`), and every bash below one kcov traces into
+ONE pipe. musl bash writes a record over 1024 B as two writes (the body,
+then a lone newline), and no write over PIPE_BUF is atomic, so two traced
+processes writing at once interleave their records. kcov then credits only
+the first marker on a line -- the rest of the line's coverage is lost with
+every test green -- and echoes every marker-less line to its own stderr,
+which on CI is the step's output (base#1414). This spec is behavioural on
+purpose: it runs the REAL kcov through the driver's shard entry over a
+fixture tree, so it catches the defect however a future test builds its
+value, rather than scanning spec text for one way of building it. It
+replaces kcov_trace_volume_spec.bats.
 
 | Test | Description |
 |------|-------------|
-| `kcov trace volume: an unguarded 1 MiB value is reported` | The scan must find the construct it forbids, or a clean tree proves nothing. |
-| `kcov trace volume: a guarded value and a 64 KiB value pass` | The guard, and a value that fits in one pipe buffer, are both allowed: neither floods the shard's stdout. |
-| `kcov trace volume: no test in the repo builds an unguarded value past 64 KiB` | The repo's own bats trees hold no unguarded large value. |
+| `kcov shard fixture: the driver ran the four heavy specs concurrently and passed` | The shard must be concurrent and must finish green, or the two assertions below would compare a run that never raced, or nothing. The label is the driver's claim; the rendezvous is the proof -- all four specs were running at the same moment, so their slices overlapped. |
+| `kcov shard: a concurrent shard's kcov writes no stderr, and no output line reaches 1 KiB` | kcov echoes every marker-less trace line to its stderr, and on CI that stderr is the step's output -- megabyte lines a hosted runner masks at quadratic cost (base#1414). The fragments are not only the payload: a split record leaves a lone tail, and a multi-line record leaves lines of any length. So the assertion reads each slice's RAW stderr, not the bounded tail the driver replays, and admits 0 B of it; the driver's own output must also hold no line of 1 KiB or more. |
+| `kcov shard: a concurrent shard covers exactly the lines a serial run covers` | kcov credits only the FIRST marker on an interleaved line, so a shared pipe loses lines that ran with every test green. The concurrent shard's covered set must equal a serial run's, line for line. |
 
 ### test/bats/unit/lib_spec.bats (75)
 
@@ -4493,6 +4548,33 @@ list of job names.
 | `obtain: delegate mode leaves the build to its caller (#1010)` | The mirror. In delegate mode the build is a later workflow step gated on the output, so performing it here would build the image twice. |
 | `workflows: no job obtains the rolling test-tools tag by hand (#1010)` | The structural half of the same defect, and the half that stops it recurring. While the decision was shell pasted into each consuming job, nothing could tell a job that probes from a job that does not -- no single copy looked wrong, and the one without a probe read like the others. A job that reaches the rolling tag without going through the script is that copy, whoever writes it next. |
 
+### test/bats/unit/per_test_timeout_spec.bats (8)
+
+Nothing in the repo set BATS_TEST_TIMEOUT, so one hung test was unbounded
+locally and, in CI, became a job-level cancellation that names no test
+(base#1413). The bound is a property of the DRIVER, not of a spec, so this
+spec runs the driver's real entries over a fixture tree and reads the value
+each fixture test actually saw -- in plain mode and under kcov, where
+tracing makes every test slower and the bound must be wider. A spec-text
+scan would pass a driver that sets the variable on one path and forgets
+another.
+
+The bound's knob is PER_TEST_TIMEOUT (seconds, plain mode); the driver
+derives the kcov bound from it. An INHERITED BATS_TEST_TIMEOUT is not the
+knob: a nested driver run (this spec, kcov_shard_concurrency_spec) inherits
+the outer run's value, which is the wrong mode's value.
+
+| Test | Description |
+|------|-------------|
+| `per-test timeout: every plain-mode driver entry runs its tests under one positive BATS_TEST_TIMEOUT` | The bound has to hold on EVERY path that starts bats, not on the one a reader happened to check: a plain path left unbounded is the local hang the issue names. Every plain entry's tests see the same positive integer, with nothing in the caller's environment setting it. |
+| `per-test timeout: every kcov driver entry runs its tests under one BATS_TEST_TIMEOUT, three times plain mode's` | kcov traces every line, so a test is slower under it and a bound sized for plain mode would fail a healthy test. Every kcov entry's tests see one positive integer: the plain bound times the documented kcov factor, 3 (_PER_TEST_TIMEOUT_KCOV_FACTOR in the driver). |
+| `per-test timeout: PER_TEST_TIMEOUT sets the plain bound and three times it under kcov, and an inherited BATS_TEST_TIMEOUT sets neither` | A nested driver run inherits the OUTER bats' BATS_TEST_TIMEOUT, and an outer plain run's value is the wrong one for a nested kcov run. The driver sets the bound from its own knob, PER_TEST_TIMEOUT, in both modes: plain runs see the knob itself, kcov runs see it times the documented kcov factor (3, _PER_TEST_TIMEOUT_KCOV_FACTOR in the driver), and the inherited value is ignored by both. Every kcov entry is probed with the knob and a conflicting inherited value, so a kcov bound read off the inherited value, or widened by anything but the factor, fails here. |
+| `per-test timeout: a plain-mode test that outlives the bound fails and is reported by name` | The point of the bound is the REPORT: a hang must end as a failure that names the test, where today it ends as a job cancellation that names nothing (base#1413). |
+| `per-test timeout: a kcov-mode test that outlives the bound fails and is reported by name` | - |
+| `per-test timeout: each CI kcov step carries a timeout-minutes below its job's bound` | The job bound is the last resort, and when it fires GitHub cancels the job and names no step. A step bound below it turns a hang the per-test bound missed (a stuck kcov merge, a wedged container) into a failed STEP, with the step's log intact, before the job is cancelled. |
+| `per-test timeout: the local compose run of the suite is wrapped in timeout, ci and coverage` | Locally there is no job bound at all: `just test` and `just test coverage` run the suite in `docker compose run --rm`, and a hang there blocks the terminal forever. The compose run goes through `timeout`, in both the ci and the coverage dispatch. |
+| `per-test timeout: the local compose run forwards PER_TEST_TIMEOUT, ci and coverage` | PER_TEST_TIMEOUT is the documented knob, but `just test` and `just test coverage` read it on the HOST while the driver that honours it runs inside `docker compose run`. A dispatch that does not forward it leaves the override silently ignored on the user-facing path, while the knob tests above, which call the driver directly, still pass (base#1413). |
+
 ### test/bats/unit/pin_coverage_lint_spec.bats (67)
 
 | Test | Description |
@@ -4565,7 +4647,73 @@ list of job names.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/prev_release_gating_spec.bats (8)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (27)
+
+The pre-PR mirror attested "CI passed locally" while running the bats suite
+plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
+`system` and amd64 `acceptance` outright. A green stamp therefore said
+nothing about the jobs most likely to fail in CI. This spec pins the
+mirror's contract against the workflow itself, so a job added to
+`ci-rollup`'s `needs:` without a local counterpart fails `just test` instead
+of slipping past the stamp.
+
+The mirror is tracked at `script/ci/pre_pr_mirror.sh` and exposes:
+
+--table one TAB-separated line per required job: attested<TAB><job><TAB><the
+local command run for it> excluded<TAB><job>[/<leg>]<TAB><reason> --plan
+reads the changed paths (one per line) on stdin and prints the commands the
+mirror would run for that diff, one per line.
+
+The claim is held link by link, so no link can be left out silently:
+
+table -> workflow every ci-rollup need is attested or excluded, and an
+attested job's local command runs in CI's mode. table -> plan on every diff
+where CI's own `if:` gate runs a job, the plan carries that job's local
+command. plan -> run the mirror executes exactly the plan, in order, and
+stops at the first red command. plan -> report the coverage floor the plan
+runs reads the shard reports the coverage matrix actually writes.
+
+Mode is derived on both sides, never declared: text is `kcov` when it
+invokes script/test/test.sh in a mode that instruments (`--coverage`,
+`--coverage-shard`, `--coverage-local`, `--coverage-path`); every other
+mode, `--coverage-union-check` included, is `plain`. A CI job's text is its
+run lines. A local `just test <recipe>` command's text is that recipe's body
+in script/test/justfile.test, and a local `./script/ci/pre_pr_mirror.sh
+--<sub>` command's text is the body of the function the mirror dispatches
+<sub> to, so a recipe or a subcommand that stops instrumenting changes the
+local mode with it.
+
+| Test | Description |
+|------|-------------|
+| `pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)` | - |
+| `pre-PR mirror: only arm64 acceptance, classify, compute-shards and worker-selftest may be excluded (base#1409)` | - |
+| `pre-PR mirror: every table entry names a job ci-rollup needs (base#1409)` | - |
+| `pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)` | The mode check stands on this classifier. Reading a command's spelling instead of the recipe it runs let a coverage recipe turned plain pass, and counting --coverage-union-check as kcov hid a real mode mismatch. |
+| `pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)` | A plain local run cannot attest a kcov CI job: specs that are red only under kcov stay green locally. This is the check that keeps the stamp measuring the same thing CI measures. |
+| `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | The plan's gates were hand-written and drifted from the workflow: acceptance ran in CI on every code change and locally only on system paths. Reading each job's own if: gate makes such a drift red here. |
+| `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
+| `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
+| `pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)` | - |
+| `pre-PR mirror: the coverage matrix is the one compute-shards computes for the same CI_SHARDS (base#1409)` | The mirror ran the unsharded `just test coverage`, one serial kcov over the suite, while CI runs a matrix of weighted shards, each dealt into COVERAGE_JOBS concurrent kcov slices (base#1410, base#1414); a failure that only that shape produces passed the mirror and went red in CI (base#1409 landing review). The matrix the mirror runs is held to the matrix compute-shards computes from the same variable. |
+| `pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)` | The shard list alone proves nothing if each shard runs another command or slice count than CI's, or if one shard's tree carries another run's reports: a coverage run merges into whatever coverage/ holds, so the matrix carried earlier reports into every later shard and the floor read lines that shard never covered (base#1409 review round 10). |
+| `pre-PR mirror: a red coverage shard stops the matrix red (base#1409)` | A matrix that carried on past a red shard, or exited 0 after one, would hand the floor a matrix with a hole and stamp a green CI's coverage job would not give. |
+| `pre-PR mirror: an unreadable CI_SHARDS is a refusal, not a guessed matrix (base#1409)` | Falling back to compute-shards' default of 8 when the variable cannot be read would run another matrix than the one CI_SHARDS sets and attest the coverage job. |
+| `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | Without this the table and plan could claim a command the run never executes, and every other check in this file would still pass. |
+| `pre-PR mirror: a planned command that reads stdin does not cut the plan short (base#1409)` | The run read its plan from the stdin every planned command inherited, so the first command that drained stdin (`just test` in a real run) swallowed the rest of the plan; the mirror ran actionlint and `just test` only and still reported every planned command green (base#1409). |
+| `pre-PR mirror: a file moved from dist/ into doc/ plans what CI runs for the removed source (base#1409)` | Rename detection made the mirror's diff report only a move's destination, so moving an unchanged file from dist/ into doc/ read as a doc-only diff and skipped coverage, system and acceptance, while CI's pathspec diffs see the removed source and run all three. diff.renames is forced on so a user config that turns it off cannot hide the gap. |
+| `pre-PR mirror: a change to only a non-ASCII dist/ path plans what CI runs for it (base#1409)` | The mirror classified the diff by matching `git diff --name-only` text against the pathspecs, and git quotes a non-ASCII name in that text under core.quotePath, so a change to only dist/<non-ASCII>.sh read as a quoted string that matched no pathspec and skipped `system`, while CI's pathspec diff sees the real file and runs it (base#1409 review round 5). core.quotePath is forced on so a user config that turns it off cannot hide the gap. |
+| `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
+| `pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)` | CI runs `system` and amd64 `acceptance` on amd64 runners, and both build and run images for the daemon's own architecture. On an arm64 daemon `just test acceptance` measured arm64 and the mirror still reported the amd64 leg green (base#1409 review round 3). |
+| `pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)` | "cannot tell the daemon's arch" must not read as amd64. |
+| `pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
+| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
+| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
+| `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |
+| `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
+| `acceptance job: checks the just it runs against the pin in its own shell (base#1409)` | Moving every acceptance step into script/ci/acceptance.sh took the job's only `just` invocation out of its `run:` shells, which is all the tool provenance lint reads; the lint then saw no job reach any pinned tool and failed its demand floor. The job runs `just`, so its own shell asks that binary for its version and holds it to the pin. |
+| `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
+
+### test/bats/unit/prev_release_gating_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
@@ -4577,6 +4725,10 @@ list of job names.
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved` | the CI failure itself (base#1433): the shard compute-shards' blob hands the spec ran it with no .prev-release/ and failed every case. A gate that reads the checkout's weights passes every test above this section; this is one of the cases it fails. |
+| `prev-release gate: the shard a --shard-weights file gives the spec refuses to start when the tags cannot be resolved` | a local `--coverage-shard N/T --shard-weights` must reproduce CI's shard N/T fixture decision too, or the local repro of a CI shard diverges exactly where the CI form was fixed. |
+| `prev-release gate: a shard a CI weights blob takes the spec away from dispatches with no release tags` | the converse pin. Without it a gate that always answers yes for a coverage shard would pass the two refusal tests above while every shard again pays a tag fetch for a spec it does not run. |
+| `prev-release gate: a shard a --shard-weights file takes the spec away from dispatches with no release tags` | the converse pin for the local form; a gate that ignored --shard-weights and used the `@test` count would refuse here. |
 
 ### test/bats/unit/probe_test_tools_spec.bats (29)
 
@@ -4692,7 +4844,7 @@ here with no daemon.
 | `a quiescent project lets the dispatch through` | the pair to the case above: a guard that blocked the ordinary run would be caught here rather than by every developer. |
 | `test.sh --await-project answers for this checkout and exits` | it is a query, like --compose-project-name: the recipes that call it must not have it mint anything. |
 | `test.sh --await-project refuses when the project is still held` | the flag is only worth having if its verdict reaches the caller; a query that always exits 0 would let system and smoke run into the wedge. |
-| `system and smoke both ask before they build` | neither goes through the dispatcher, so neither inherits the question. They are the flows most likely to leave a container behind. |
+| `system, smoke and acceptance all ask before they build` | none of them goes through the dispatcher, so none inherits the question. They are the flows most likely to leave a container behind; acceptance joined them when it became a local recipe (base#1409). |
 
 ### test/bats/unit/prune_sh_spec.bats (41)
 
@@ -5705,7 +5857,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (129)
+### test/bats/unit/self_test_yaml_spec.bats (135)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5774,10 +5926,10 @@ conditionally-gated jobs (`shellcheck` / `hadolint` / `bats-unit` /
 to the rollup's `needs:` list becomes a workflow-internal change with no
 branch-protection update required.
 
-7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs on
-plain ubuntu-latest with the pre-installed binary (no buildx, no test-tools
-image, ~30s feedback on a regression) via `test.sh --shellcheck-only`.
-`hadolint` uses `hadolint/hadolint-action@v3.1.0` to lint
+7. **#376 ShellCheck + Hadolint dedicated jobs** — `shellcheck` runs
+`test.sh --lint --shellcheck` inside the test-tools image, the binary the
+local gate runs (base#1412; it ran the runner's own binary before
+base#1080). `hadolint` uses `hadolint/hadolint-action@v3.1.0` to lint
 `dockerfile/Dockerfile.example` + `dockerfile/Dockerfile.test-tools` (both
 template-owned; downstream Dockerfile.example consumers inherit the lint
 pass). Both gate on `needs.classify.outputs.code_changed == 'true'` so
@@ -5990,12 +6142,12 @@ integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 + #677
 #677 + #710)
 
 - `shellcheck` job declared + `needs: [actionlint, classify]` + `if:
-code_changed == 'true'` + runs `test.sh --shellcheck-only` on plain
-ubuntu-latest with no buildx (#376)
+code_changed == 'true'` + runs `test.sh --lint --shellcheck` inside the
+test-tools image (#376, base#1412)
 
 - `doc-counts` job declared + `needs: [actionlint, classify]` + runs
-`test.sh --doc-counts-only` on plain ubuntu-latest with no buildx + carries
-NO `code_changed` gate + is hard-mandatory in `ci-rollup` (#864)
+`test.sh --lint --doc-counts` inside the test-tools image + carries NO
+`code_changed` gate + is hard-mandatory in `ci-rollup` (#864, base#1412)
 
 - `hadolint` job declared + `needs: [actionlint, classify]` + `if:
 code_changed == 'true'` + lints both template-owned Dockerfiles via
@@ -6041,12 +6193,12 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)` | - |
 | `self-test.yaml: bats-integration job declares needs on actionlint AND classify (#377)` | - |
 | `self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)` | - |
-| `self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)` | - |
-| `self-test.yaml: acceptance asserts the runnability contract (#579)` | - |
+| `self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)` | a consumer reaches the container only through `just`, so a broken container-ops justfile is invisible to an acceptance run that calls the wrappers directly -- it would stay green on exactly the defect a consumer hits first. Read over the job and script/ci/acceptance.sh together, so the move into the script (base#1409) cannot drop a verb unseen. |
+| `self-test.yaml: acceptance asserts the runnability contract (#579)` | the v0.41.0 user-args bug printed `initial` from whoami while the job stayed green, because nothing compared the output. These literals are the comparisons themselves; without them the job runs the steps and asserts nothing. |
 | `self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)` | The acceptance job's `.Path` check is a runnability assertion only while the literal it compares against is the one the template's ENTRYPOINT names. Reading BOTH here, rather than remembering one, is what makes a move of the entry point fail in the local gate instead of on the CI-only acceptance matrix that `just test` cannot see |
-| `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | - |
-| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | - |
-| `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | - |
+| `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | every verb named here was once reachable only through --dry-run, which exercises the argument parser and none of the effect. Dropping one of them from the script is the regression this case catches. |
+| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | new.sh has unit coverage, but the recipe wiring and the consumer symlink chain that resolve `just template new` are exercised nowhere else; this is the only witness that the consumer can actually reach it. |
+| `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | an undocumented gap reads as an oversight and gets "fixed" by a TUI drive that hangs without a pseudo-TTY. The comment is the decision; the refutation keeps anyone from invoking the TUI in a non-interactive job. |
 | `self-test.yaml: acceptance runs as a native-runner matrix over amd64 + arm64 (#603)` | - |
 | `self-test.yaml: acceptance shards run on the matrix runner (#603)` | - |
 | `self-test.yaml: acceptance Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)` | - |
@@ -6062,8 +6214,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)` | - |
-| `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
-| `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
+| `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that skips the obtain path builds against a stale or absent tooling image. This step stays in the job when the rest moved into script/ci/acceptance.sh (base#1409), because only a runner can obtain the run-scoped image. |
+| `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | with the docker-container driver the obtained image lives in buildx's private store, and the consumer build's FROM falls through to a registry pull that fails. The driver is runner setup, so it stays in the job, not in the script `just test acceptance` shares (base#1409). |
 | `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
 | `self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)` | Five jobs set up a docker-container builder before anything has decided whether one is wanted, and the only step that wants one is skipped on every hot-path run. Measured on one run: nineteen jobs spent 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs whose build step was skipped every time -- the action pulls `moby/buildkit:buildx-stable-1` and starts a container, and the post step then removes a builder nothing touched. base is public, so the unit that matters is not a bill but the roughly twenty concurrent slots ADR-00000017 names as the throughput constraint. The ordering half of this guard is the hazard the fix itself introduces: a condition reading `steps.<id>.outputs` from a step that has not run yet is empty, so the setup is skipped on EVERY run and the consumer it was paired with builds with no builder behind it -- a failure that reads as a cache error rather than as a misplaced step. |
 | `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
@@ -6105,23 +6257,29 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)` | - |
 | `self-test.yaml: declares shellcheck job (#376)` | - |
 | `self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)` | - |
-| `self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)` | - |
-| `self-test.yaml: shellcheck job installs the pinned ShellCheck rather than the runner's (#1080)` | base#1080. The job used to run whatever `ubuntu-latest` shipped pre-installed, so the local gate -- which runs v0.11.0 out of the test-tools image -- could not predict this required check in either direction, and which of the two binaries was stricter changed with GitHub's runner-image release schedule rather than with a commit here. |
-| `self-test.yaml: shellcheck job reads the version from the declaration, it does not restate it (#1080)` | One declaration, not a second copy of the number. The version comes out of dockerfile/Dockerfile.test-tools through the same accessor the release smoke step reads, so a bump moves both with nothing to remember. |
-| `self-test.yaml: shellcheck job asserts the installed binary IS the pin (#1080)` | Installing a tarball proves a download happened, not that the binary on PATH is the pinned one -- a pre-installed shellcheck earlier in PATH would keep the job green while nothing changed. |
+| `self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)` | - |
+| `self-test.yaml: shellcheck job installs no shellcheck on the runner (base#1412)` | base#1080 made the runner install the pinned tarball so CI stopped running whatever ubuntu-latest shipped. base#1412 moved the job into the test-tools image, which carries the pin; a tarball install left behind would be a second, unused route to the binary, and a runner-side shellcheck is exactly what the image path exists to retire. |
+| `self-test.yaml: shellcheck job does not restate a tool version (#1080)` | One declaration, not a second copy of the number. The version lives in dockerfile/Dockerfile.test-tools and reaches this job through the image, so a version literal in the job would be a second place to forget. |
 | `self-test.yaml: declares doc-counts job (#864)` | - |
-| `self-test.yaml: doc-counts job runs test.sh --doc-counts-only on plain ubuntu-latest (#864)` | - |
+| `self-test.yaml: doc-counts job runs test.sh --lint --doc-counts inside the test-tools image (#864, base#1412)` | - |
 | `self-test.yaml: doc-counts carries NO code_changed gate (#864)` | - |
 | `self-test.yaml: ci-rollup treats doc-counts as hard-mandatory, not SKIPPED-tolerant (#864)` | - |
 | `self-test.yaml: declares lint-static job (#866)` | - |
 | `self-test.yaml: lint-static carries NO code_changed gate (#866)` | - |
 | `self-test.yaml: ci-rollup treats lint-static as hard-mandatory, not SKIPPED-tolerant (#866)` | - |
 | `self-test.yaml: every lint the just test lint phase runs has a CI join (#866)` | - |
-| `self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)` | The shape itself. One job per DRIVER spent more runner startup than the drivers spent working, and took up to twenty of the free plan's ~twenty org-wide concurrent slots in the same second the coverage shards -- the run's critical path -- asked for theirs. One job per GROUP is the trade, and it is only a trade if the job still runs the same drivers the local phase runs, host-direct on a plain runner, with one failing group not cancelling its siblings. |
+| `self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)` | The shape itself. One job per DRIVER spent more runner startup than the drivers spent working, and took up to twenty of the free plan's ~twenty org-wide concurrent slots in the same second the coverage shards -- the run's critical path -- asked for theirs. One job per GROUP is the trade, and it is only a trade if the job still runs the same drivers the local phase runs, in the same test-tools image (base#1412), with one failing group not cancelling its siblings. |
 | `self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)` | The anti-roster assertion, stated over the workflow rather than over the partition. A matrix entry that NAMES a driver is the roster coming back: the day a driver is added it is not in the list, and nothing says so. Every entry must therefore be a position in the partition and nothing else -- and the positions must be a partition: one total shared by all of them, each index once, as many entries as the total. A matrix of ['1/4', '2/4'] would run half the lint phase and go green over it. |
 | `self-test.yaml: declares hadolint job (#376)` | - |
 | `self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |
+| `workflows: no step runs a lint on the host, whatever the spelling (base#1412)` | base#1412, the negative half. No step of any workflow may reach a lint on the host: that is the parity the local gate and CI share, and it is decided by what the step does when bash runs it, so no spelling of a host arm is invisible to it. |
+| `self-test.yaml: every lint job runs its lint inside the test-tools image (base#1412)` | base#1412, the positive half. Not linting on the host would also be satisfied by a lint job that stopped linting. Each lint job has to reach the image the one way every image job does and run its lint there: the probe has to see `compose run ... ci` with LINT_ONLY=1 under the workflow's own TEST_TOOLS_IMAGE, which is the image compose.yaml's `ci` service runs. |
+| `lint probe: a host lint is seen under every spelling, and --lint is not one (base#1412)` | the spellings that each got past the text parser this probe replaces (review rounds 1-3 of base#1412), plus the two host paths a parser of flags never modelled at all: `--ci` run on the host, and a host group. Every one of them must land in the host log, and the plain `--lint` form must not. |
+| `lint probe: a host lint on any one matrix leg is seen (base#1412)` | base#1412 review round 4. A matrix job runs its steps once per leg, and a step can take a host arm on one leg only. Every leg the runner would run has to be run here: the cartesian product of the matrix's lists, less `exclude`, with `include` merged into the legs it matches or added as legs of its own. |
+| `lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)` | base#1412 review round 6. A step can branch on a value only the run has -- a `needs` output, an input -- and reading that value as empty ran one branch and never the other, so a host lint behind the other passed. A value the workflow declares (a boolean or choice input) is run under every value it takes; one nothing declares is not run under a guess but reported `unresolved`. |
+| `lint probe: a matrix leg that lints another leg's group is caught (base#1412)` | base#1412 review round 6. Every leg reaching the image is not every lint being run: a matrix whose legs all lint one group skips the others. The selection check holds each leg to its own group. |
+| `lint probe: an image lint in a step that may be skipped or ignored is not credited (base#1412)` | base#1412 review round 7. The probe runs every step, the runner does not: a lint step under `if: false` is skipped on the runner yet credited here, and one under `continue-on-error` runs without gating. A crediting step has to run and gate whenever its job runs. |
 | `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | - |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
@@ -6147,7 +6305,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: run identity is not a timestamp and not the commit SHA (#900)` | - |
 | `self-test.yaml: the run-scoped names come from ONE place, not per job (#900)` | - |
 | `self-test.yaml: the test-tools image every job builds carries the ownership label (#900)` | - |
-| `self-test.yaml: the acceptance scaffold is keyed to the run (#900)` | - |
+| `self-test.yaml: the acceptance scaffold is keyed to the run (#900)` | on a shared self-hosted host a fixed scaffold name makes two runs share one image, container and network, and the loser silently tests the winner's build. The run key in the name is also what reclaim.sh --run proves ownership by, locally as well as in CI (base#1409). |
 | `self-test.yaml: every job that puts an image in the host daemon tears it down (#900)` | - |
 | `self-test.yaml: teardown runs on failure too, not just on success (#900)` | - |
 | `self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)` | - |
