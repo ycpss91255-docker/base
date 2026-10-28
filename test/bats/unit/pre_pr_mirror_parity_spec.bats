@@ -368,6 +368,35 @@ ran:
 $(cat "${SCRATCH}/ran")"
 }
 
+# why: The run read its plan from the stdin every planned command
+# inherited, so the first command that drained stdin (`just test` in a real
+# run) swallowed the rest of the plan; the mirror ran actionlint
+# and `just test` only and still reported every planned command green
+# (base#1409).
+@test "pre-PR mirror: a planned command that reads stdin does not cut the plan short (base#1409)" {
+  _require_mirror
+  local _base _want
+  _base="$(_make_mirror_repo)"
+  printf 'services: {}\n' > "${SCRATCH}/repo/compose.yaml"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
+  _want="$(bash "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --plan <<<"compose.yaml")"
+  _stub_bash ""
+  # Every `bash -c` drains its stdin before it exits, as `just test` did.
+  sed -i 's|^  exit 0$|  cat >/dev/null; exit 0|' "${SCRATCH}/bin/bash"
+  grep -q 'cat >/dev/null; exit 0' "${SCRATCH}/bin/bash" \
+    || fail "the stub did not take the stdin-draining edit"
+  _stub_docker x86_64
+  run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_success
+  [[ "$(cat "${SCRATCH}/ran")" == "${_want}" ]] || fail "a command that read stdin cut the plan short
+planned:
+${_want}
+ran:
+$(cat "${SCRATCH}/ran")"
+}
+
 # why: Rename detection made the mirror's diff report only a move's
 # destination, so moving an unchanged file from dist/ into doc/ read as a
 # doc-only diff and skipped coverage, system and acceptance, while CI's

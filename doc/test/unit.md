@@ -4560,7 +4560,7 @@ list of job names.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (21)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (22)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4606,6 +4606,7 @@ the local mode with it.
 | `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
 | `pre-PR mirror: a diff touching shell sources plans the full kcov suite (base#1409)` | - |
 | `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | Without this the table and plan could claim a command the run never executes, and every other check in this file would still pass. |
+| `pre-PR mirror: a planned command that reads stdin does not cut the plan short (base#1409)` | The run read its plan from the stdin every planned command inherited, so the first command that drained stdin (`just test` in a real run) swallowed the rest of the plan; the mirror ran actionlint and `just test` only and still reported every planned command green (base#1409). |
 | `pre-PR mirror: a file moved from dist/ into doc/ plans what CI runs for the removed source (base#1409)` | Rename detection made the mirror's diff report only a move's destination, so moving an unchanged file from dist/ into doc/ read as a doc-only diff and skipped coverage, system and acceptance, while CI's pathspec diffs see the removed source and run all three. diff.renames is forced on so a user config that turns it off cannot hide the gap. |
 | `pre-PR mirror: a change to only a non-ASCII dist/ path plans what CI runs for it (base#1409)` | The mirror classified the diff by matching `git diff --name-only` text against the pathspecs, and git quotes a non-ASCII name in that text under core.quotePath, so a change to only dist/<non-ASCII>.sh read as a quoted string that matched no pathspec and skipped `system`, while CI's pathspec diff sees the real file and runs it (base#1409 review round 5). core.quotePath is forced on so a user config that turns it off cannot hide the gap. |
 | `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
