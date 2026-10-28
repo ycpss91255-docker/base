@@ -344,3 +344,47 @@ ROSTER
   done
   cleanup_mock_dir
 }
+
+# why: PER_TEST_TIMEOUT is the documented knob, but `just test` and `just
+# test coverage` read it on the HOST while the driver that honours it runs
+# inside `docker compose run`. A dispatch that does not forward it leaves
+# the override silently ignored on the user-facing path, while the knob
+# tests above, which call the driver directly, still pass (base#1413).
+@test "per-test timeout: the local compose run forwards PER_TEST_TIMEOUT, ci and coverage" {
+  create_mock_dir
+  local _cmd _path
+  for _cmd in grep date cat printf sha256sum cut; do
+    _path="$(command -v "${_cmd}" 2>/dev/null)" && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
+  done
+  local _log="${BATS_TEST_TMPDIR}/calls.log"
+  mock_cmd "docker" '
+    printf "docker %s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+  mock_cmd "timeout" '
+    while (( $# > 0 )); do
+      case "$1" in
+        -k|-s) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+      esac
+    done
+    shift
+    exec "$@"'
+
+  local _pair _service _cov
+  for _pair in "ci 0" "coverage 1"; do
+    : > "${_log}"
+    read -r _service _cov <<< "${_pair}"
+    run bash -c '
+      source /source/script/test/test.sh
+      export PATH="'"${MOCK_DIR}"'"
+      export PER_TEST_TIMEOUT=7
+      _run_via_compose '"${_service} ${_cov}"'
+    '
+    assert_success
+    run cat "${_log}"
+    assert_line --regexp "^docker compose .* run --rm .* -e PER_TEST_TIMEOUT=7 .* ${_service}\$"
+  done
+  cleanup_mock_dir
+}
