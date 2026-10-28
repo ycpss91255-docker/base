@@ -2097,6 +2097,19 @@ _test_sh_calls() {
   yaml_job_lines "${WF}" "${1}" | grep -E 'script/test/test\.sh' || true
 }
 
+# _host_arms_in_call <call> <flag>... -- the <flag>s that <call> passes as
+# a whole word, one per line. Shared by both parity specs so "does this
+# test.sh call take a host arm" is answered one way.
+_host_arms_in_call() {
+  local _call="${1}" _flag
+  shift
+  for _flag in "$@"; do
+    [[ "${_call}" =~ (^|[[:space:]])${_flag}([[:space:]\"]|$) ]] \
+      && printf '%s\n' "${_flag}"
+  done
+  return 0
+}
+
 # why: base#1412. Locally the lint phase runs inside the test-tools image;
 # in CI the shellcheck, doc-counts and lint-static jobs ran the same
 # drivers on the ubuntu runner, so a lint could pass one gate and fail the
@@ -2118,11 +2131,9 @@ _test_sh_calls() {
   while IFS= read -r _job; do
     while IFS= read -r _call; do
       [ -n "${_call}" ] || continue
-      for _flag in "${_flags[@]}"; do
-        if [[ "${_call}" =~ (^|[[:space:]])${_flag}([[:space:]\"]|$) ]]; then
-          _bad+=$'\n'"  ${_job}: ${_flag}"
-        fi
-      done
+      while IFS= read -r _flag; do
+        _bad+=$'\n'"  ${_job}: ${_flag}"
+      done < <(_host_arms_in_call "${_call}" "${_flags[@]}")
     done < <(_test_sh_calls "${_job}")
   done < <(yaml_job_names "${WF}")
   [ -z "${_bad}" ] \
@@ -2136,16 +2147,14 @@ _test_sh_calls() {
 @test "self-test.yaml: every lint job obtains the test-tools image and runs test.sh --lint in it (base#1412)" {
   local -a _flags=()
   mapfile -t _flags < <(_host_lint_flags)
-  local _job _call _flag _is_lint
+  local _job _call _is_lint
   local -a _lint_jobs=()
   while IFS= read -r _job; do
     _is_lint=0
     while IFS= read -r _call; do
       [ -n "${_call}" ] || continue
-      [[ "${_call}" =~ (^|[[:space:]])--lint([[:space:]]|$) ]] && _is_lint=1
-      for _flag in "${_flags[@]}"; do
-        [[ "${_call}" =~ (^|[[:space:]])${_flag}([[:space:]\"]|$) ]] && _is_lint=1
-      done
+      [[ -z "$(_host_arms_in_call "${_call}" --lint "${_flags[@]}")" ]] \
+        || _is_lint=1
     done < <(_test_sh_calls "${_job}")
     [ "${_is_lint}" -eq 0 ] || _lint_jobs+=("${_job}")
   done < <(yaml_job_names "${WF}")
