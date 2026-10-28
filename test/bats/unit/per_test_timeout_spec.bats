@@ -145,11 +145,11 @@ _entry_values() {
   _probe "${_tag}-${_argv[0]}" "${_argv[@]}"
 }
 
-# _one_value <values>
+# _one_value <values> <what>
 #   Print the single positive integer a run's tests all saw, or print what
-#   they saw instead and return 1. It returns rather than calling `fail`:
-#   it runs inside `$(...) || fail`, where errexit is off, so a `fail` in
-#   here would not stop it from printing the value anyway.
+#   they saw instead, naming <what>, and return 1. It returns rather than
+#   calling `fail`: it runs inside `$(...) || fail`, where errexit is off,
+#   so a `fail` in here would not stop it from printing the value anyway.
 _one_value() {
   local _values="${1}" _what="${2}"
   if [[ "${_values}" =~ ^[1-9][0-9]*$ ]]; then
@@ -327,10 +327,10 @@ ROSTER
     shift
     exec "$@"'
 
-  local _service _cov
-  for _service in "ci 0" "coverage 1"; do
+  local _pair _service _cov
+  for _pair in "ci 0" "coverage 1"; do
     : > "${_log}"
-    read -r _service _cov <<< "${_service}"
+    read -r _service _cov <<< "${_pair}"
     run bash -c '
       source /source/script/test/test.sh
       export PATH="'"${MOCK_DIR}"'"

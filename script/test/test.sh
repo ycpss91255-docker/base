@@ -2258,11 +2258,11 @@ readonly _PROJECT_WAIT_DEFAULT='2m'
 readonly _PROJECT_WAIT_POLL_SECONDS=2
 
 # The whole-run bound on the compose run of the suite (base#1413), a
-# `timeout` duration. Ceilings for a hang, not tuned numbers: the plain
-# service gets two hours, the coverage service -- whose full-suite run is
-# serial under kcov -- six, GitHub's own default job bound. SUITE_TIMEOUT
-# overrides both.
-readonly _SUITE_TIMEOUT_DEFAULT='120m'
+# `timeout` duration, one per service. Ceilings for a hang, not tuned
+# numbers: the ci service gets two hours, the coverage service -- whose
+# full-suite run is serial under kcov -- six, GitHub's own default job
+# bound. SUITE_TIMEOUT overrides both.
+readonly _SUITE_TIMEOUT_PLAIN='120m'
 readonly _SUITE_TIMEOUT_COVERAGE='360m'
 
 # _await_docker_project_networks <project> <checkout>
@@ -2496,14 +2496,15 @@ _run_via_compose() {
   # stops it on SIGTTOU until the bound fires. `-k` follows with SIGKILL
   # if the TERM is not enough. The bound stops compose, not the container
   # compose started: that one runs on until it ends or `just test stop`
-  # removes it, which the timeout message says. Resolved here, with the other refusals that
-  # mint nothing, so a bad value is refused before any compose call.
+  # removes it, which the timeout message says. Resolved here, with the
+  # other refusals that mint nothing, so a bad value is refused before any
+  # compose call.
   local _suite_timeout="${SUITE_TIMEOUT:-}"
   if [[ -z "${_suite_timeout}" ]]; then
     if [[ "${_service}" == "coverage" ]]; then
       _suite_timeout="${_SUITE_TIMEOUT_COVERAGE}"
     else
-      _suite_timeout="${_SUITE_TIMEOUT_DEFAULT}"
+      _suite_timeout="${_SUITE_TIMEOUT_PLAIN}"
     fi
   fi
   if ! [[ "${_suite_timeout}" =~ ^[1-9][0-9]*[smhd]?$ ]]; then
