@@ -414,15 +414,21 @@ _gen_shards() {
   [[ -z "${_diff}" ]] || fail "the mirror runs a different coverage matrix from CI:${_diff}"
 }
 
-# _fake_test_sh <red-shard> -- a script/test/test.sh in the mirror repo
-# that logs `<args> COVERAGE_JOBS=<v>` to ${SCRATCH}/shards, writes a
-# coverage/ tree naming the shard it ran, and exits 1 for <red-shard>.
+# _fake_test_sh <red-shard> -- a script/test/test.sh in the mirror repo.
+# `--clean-coverage` removes coverage/, as the real one does. Any other
+# call logs `<args> COVERAGE_JOBS=<v>` to ${SCRATCH}/shards, ADDS a file
+# naming its shard to coverage/ (a real coverage run merges into what is
+# there rather than emptying it), and exits 1 for <red-shard>.
 _fake_test_sh() {
   mkdir -p "${SCRATCH}/repo/script/test"
   cat > "${SCRATCH}/repo/script/test/test.sh" <<FAKE
 #!$(command -v bash)
+if [[ "\${1}" == --clean-coverage ]]; then
+  rm -rf coverage
+  exit 0
+fi
 printf '%s COVERAGE_JOBS=%s\n' "\$*" "\${COVERAGE_JOBS-<unset>}" >> "${SCRATCH}/shards"
-rm -rf coverage && mkdir -p coverage && printf '%s\n' "\${2}" > coverage/shard
+mkdir -p coverage && printf '%s\n' "\${2}" > "coverage/shard-\${2%%/*}"
 [[ "\${2}" == "${1}" ]] && exit 1
 exit 0
 FAKE
@@ -439,12 +445,17 @@ FAKE
   [[ -n "${_jobs}" ]] || fail "the coverage job sets no COVERAGE_JOBS"
   _make_mirror_repo >/dev/null
   _fake_test_sh ""
+  # An earlier run's report left in coverage/, as a real run leaves one.
+  mkdir -p "${SCRATCH}/repo/coverage"
+  printf 'stale\n' > "${SCRATCH}/repo/coverage/earlier-run"
   run env CI_SHARDS=3 bash "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --coverage-matrix
   assert_success
   for _n in 1 2 3; do
     _want+="--coverage-shard ${_n}/3 COVERAGE_JOBS=${_jobs}"$'\n'
-    run cat "${SCRATCH}/repo/coverage-shards/${_n}/shard"
-    assert_output "${_n}/3"
+    # Each shard's tree holds that shard's report and nothing else: CI
+    # runs every shard on a fresh checkout.
+    run ls -A "${SCRATCH}/repo/coverage-shards/${_n}"
+    assert_output "shard-${_n}"
   done
   [[ "$(cat "${SCRATCH}/shards")"$'\n' == "${_want}" ]] || fail "the matrix ran other shards than CI's
 want:

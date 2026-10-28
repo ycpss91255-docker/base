@@ -295,6 +295,15 @@ _coverage_jobs() {
 # each shard's coverage/ tree as coverage-shards/<n>/. The first red
 # shard stops the run: its report is incomplete, and the floor after it
 # would read a matrix with a hole.
+#
+# Each shard starts with no coverage/, as each CI shard starts on a fresh
+# checkout. A coverage run erases only the stamp and the run manifest
+# (_invalidate_coverage_head) and merges its slices into whatever
+# coverage/ already holds, so without this an earlier run's reports --
+# the previous shard's, or a `just test coverage` from last week -- ride
+# into this shard's tree and the floor reads lines this run never
+# covered. `--clean-coverage` is the removal `just test clean` runs: it
+# takes back a container-owned coverage/ that a host `rm` cannot.
 _coverage_matrix() {
   local jobs shard
   local -a shards=()
@@ -306,6 +315,7 @@ _coverage_matrix() {
   mkdir -p "${_SHARDS_DIR}"
   for shard in "${shards[@]}"; do
     printf '\n==> pre-PR mirror: coverage shard %s (COVERAGE_JOBS=%s)\n' "${shard}" "${jobs}"
+    ./script/test/test.sh --clean-coverage || return 1
     COVERAGE_JOBS="${jobs}" ./script/test/test.sh --coverage-shard "${shard}" || return 1
     cp -R coverage "${_SHARDS_DIR}/${shard%%/*}"
   done
