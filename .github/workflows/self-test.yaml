@@ -330,91 +330,60 @@ jobs:
           fi
 
   shellcheck:
-    # Dedicated ShellCheck job (#376). Still no buildx and no test-tools
-    # image -- one release tarball instead, so the job keeps the SHAPE it
-    # was split out for: a plain runner, one checkout, nothing pulled.
+    # Dedicated ShellCheck job (#376). The point of the split is that a
+    # ShellCheck regression surfaces without waiting for the bats suite;
+    # the `test` job passes --bats-only so the phase doesn't run twice,
+    # and local `just test` keeps the full pipeline.
     #
-    # What that shape costs is 43-67s, median ~60, over the last 22 `main`
-    # runs of the job BEFORE this change; the tarball adds a 2.5 MB
-    # download and an install to that, and nobody has measured the sum,
-    # because this shape has not run in CI yet. The number is written as a
-    # range with its sample for the reason ADR-00000028 gives: quoting the
-    # fastest of those runs would be a tuned constant that reads as a
-    # promise. The claim being made is about the shape, not the clock.
-    #
-    # The point of the split is unchanged: a shellcheck regression
-    # surfaces in about a minute instead of waiting for the full bats
-    # suite inside the `test` job. The `test` job passes --bats-only so
-    # the shellcheck phase doesn't run twice; local `just test` keeps the
-    # full pipeline.
-    #
-    # THE BINARY USED TO BE THE RUNNER'S (base#1080). "shellcheck is
-    # pre-installed, no image needed" was true and was the whole
-    # configuration, which made this required check the one place in the
-    # pipeline running a tool the tree never named. pin-coverage could not
-    # see it -- its question is "is every version this tree NAMES
-    # declared", and this job named none -- so the local gate, which runs
-    # v0.11.0 out of the test-tools image, could not predict CI in EITHER
-    # direction. The cheap direction is a red PR on a gate-green branch;
-    # the expensive one is silent, CI green on a finding the pinned
-    # version would have caught. And `ubuntu-latest` is rebuilt
-    # continuously, so which of the two is stricter changed with GitHub's
-    # release schedule rather than with a commit here.
+    # IT RUNS INSIDE THE TEST-TOOLS IMAGE (base#1412), as the local lint
+    # phase does. It used to run `--shellcheck-only` on the ubuntu runner:
+    # first with the runner's pre-installed binary (base#1080), then with
+    # the pinned release tarball installed on the runner. That made the
+    # binary agree, but the job still ran on a different host than the
+    # local gate -- a different bash, coreutils and environment -- so the
+    # same commit could still be judged by two sets of tools. The image
+    # brings the pinned SHELLCHECK_VERSION with it, which is the version
+    # the local gate runs.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install the pinned ShellCheck
-        # The version is READ from the one declaration, never restated
-        # here: script/ci/test-tools-pins.sh reads every
-        # `ARG <NAME>_VERSION=` out of dockerfile/Dockerfile.test-tools,
-        # and the release smoke step of release-test-tools.yaml reads the
-        # same accessor. A literal in this file that agreed with the
-        # Dockerfile today would be a second place to forget tomorrow.
-        #
-        # An empty read is a hard failure rather than an empty-string
-        # interpolation: that is the state a renamed ARG or a moved file
-        # produces, and a `download/.../shellcheck-.linux.x86_64.tar.xz`
-        # 404 would report as a network problem instead of as the pin
-        # having gone missing.
-        #
-        # The architecture comes from `uname -m`, which speaks the same
-        # spelling the release assets use (x86_64 / aarch64), so this step
-        # follows the runner rather than assuming the one label the job
-        # names today.
-        run: |
-          set -euo pipefail
-          version="$(./script/ci/test-tools-pins.sh roster \
-                       | awk -F'\t' '$1 == "SHELLCHECK_VERSION" { print $2 }')"
-          if [[ -z "${version}" ]]; then
-            echo "could not read SHELLCHECK_VERSION from the pin roster. The ARG declaration moved, or the accessor did. Refusing to install an unnamed version." >&2
-            exit 1
-          fi
-          arch="$(uname -m)"
-          url="https://github.com/koalaman/shellcheck/releases/download/${version}/shellcheck-${version}.linux.${arch}.tar.xz"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "${url}" | tar -xJ -C /tmp
-          sudo install -m 0755 "/tmp/shellcheck-${version}/shellcheck" /usr/local/bin/shellcheck
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        # The same obtain / build / reclaim shape as the hadolint job, which
+        # carries the reasoning for each step (base#1412).
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
-      - name: The binary on PATH must BE the pin
-        # Installing a tarball proves a download happened. It does not
-        # prove which shellcheck the next step resolves: the runner's
-        # pre-installed copy is still on this machine, and a PATH order or
-        # an install location that changed would put this job back on it
-        # with nothing red. So the question is asked of `shellcheck
-        # --version` itself, through the same comparison the published
-        # image is smoke-tested with.
-        run: |
-          set -euo pipefail
-          observed="$(shellcheck --version | sed -n 's/^version: /v/p')"
-          ./script/ci/test-tools-pins.sh check SHELLCHECK_VERSION "${observed}"
-          echo "shellcheck: ${observed}, which is the pin"
+      - name: Set up Docker Buildx
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
 
-      - name: Run ShellCheck
-        run: ./script/test/test.sh --shellcheck-only
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      - name: Run ShellCheck inside the test-tools image
+        run: ./script/test/test.sh --lint --shellcheck
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        continue-on-error: true
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   doc-counts:
     # Dedicated doc/test count drift gate (#864). doc/test/*.md figures and
@@ -423,24 +392,58 @@ jobs:
     #
     # Why a job of its own rather than a step in an existing one: the gate
     # lives in the `just test` lint phase, but NO CI job runs that phase --
-    # the two lint jobs narrow to one tool (--shellcheck-only,
+    # the two lint jobs narrow to one tool (--lint --shellcheck,
     # --lint --hadolint) and every bats job sets BATS_ONLY=1, which skips
     # it. So the local gate and the CI gate needed an explicit join, and
     # this is it, calling the same driver the lint phase calls.
     #
     # Ungated on purpose (no `if: code_changed`): the catalogue can also be
     # broken by editing doc/test/*.md by hand, which is not a code change.
-    # It is pure bash + diff on a plain runner, so it costs seconds and
-    # needs no buildx / test-tools image.
+    #
+    # Inside the test-tools image, like every lint job (base#1412): the
+    # driver is pure bash + diff, but "pure bash" on the ubuntu runner is
+    # the runner's bash, coreutils and diff, and the local gate runs it on
+    # the image's. One host for both gates is what makes a green local
+    # gate predict this job.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Run the doc/test count drift gate
-        run: ./script/test/test.sh --doc-counts-only
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        # The same obtain / build / reclaim shape as the hadolint job, which
+        # carries the reasoning for each step (base#1412).
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      - name: Run the doc/test count drift gate inside the test-tools image
+        run: ./script/test/test.sh --lint --doc-counts
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        continue-on-error: true
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   lint-static:
     # The rest of the `just test` lint phase (#866). doc-counts (#864) gave
@@ -648,7 +651,7 @@ jobs:
     # smallest G whose share falls under the floor -- and not as a tuned
     # constant. Re-measure before moving the number
     # (`./script/test/test.sh --<tool>-only` times one driver,
-    # `--lint-group N/T` times a whole group as CI runs it); a phase whose
+    # `--lint --group N/T` times a whole group as CI runs it); a phase whose
     # longest driver got faster wants fewer groups, not more.
     #
     # ONE JOB WAS REJECTED for the same arithmetic, not for the checks
@@ -665,16 +668,17 @@ jobs:
     # one group names all of its own failures in one round trip.
     # fail-fast: false keeps that true across groups as well as within one.
     #
-    # THE MEMBERSHIP IS NOT WRITTEN HERE. `--lint-group N/T` computes it
+    # THE MEMBERSHIP IS NOT WRITTEN HERE. `--lint --group N/T` computes it
     # from test.sh's _LINT_TOOLS table, so a lint added to the phase lands
     # in a group with this file untouched. A list of which driver goes in
     # which group would be a roster: correct the day it is written and
     # wrong the day the next driver is added, with a lint silently gating
-    # nothing and every check still green. Every driver here is pure bash
-    # over the checkout, so a plain runner runs them host-direct -- no
-    # buildx, no test-tools image, no compose. hadolint is NOT among them:
-    # its binary lives only in the test-tools image, so it keeps its own
-    # job, as do shellcheck and doc-counts, whose results ci-rollup reads
+    # nothing and every check still green. The group runs inside the
+    # test-tools image, as the local lint phase does (base#1412): these
+    # drivers are pure bash over the checkout, but on the ubuntu runner
+    # that is the runner's bash and coreutils, not the image's, and the
+    # two gates could then disagree about one commit. hadolint, shellcheck
+    # and doc-counts keep jobs of their own, whose results ci-rollup reads
     # by name.
     #
     # Ungated on purpose (no `if: code_changed`), like doc-counts: the
@@ -690,7 +694,7 @@ jobs:
     # dedicated job runs it or exactly one group holds it.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -699,10 +703,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Run lint group ${{ matrix.group }}
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        # The same obtain / build / reclaim shape as the hadolint job, which
+        # carries the reasoning for each step (base#1412).
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      - name: Run lint group ${{ matrix.group }} inside the test-tools image
         env:
           LINT_GROUP: ${{ matrix.group }}
-        run: ./script/test/test.sh --lint-group "${LINT_GROUP}"
+        run: ./script/test/test.sh --lint --group "${LINT_GROUP}"
+
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        continue-on-error: true
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   hadolint:
     # Dedicated Hadolint job (#376). Lints the two template-owned

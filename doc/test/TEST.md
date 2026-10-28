@@ -199,7 +199,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `canonical-ignore-sync` | base's own root `.dockerignore` carries a line for every entry `_canonical_dockerignore_entries` emits -- the block is headed as a copy of that function, so both sides are derived and compared rather than the copy being re-synchronised by hand. One-directional: extras are allowed, and presence is a whole line (the `grep -qxF` the shipped sync applies) | `lint-static` (one group) | ungated |
 
 `lint-static` is a matrix of GROUPS, not of lints (base#1071): each entry is a
-position (`1/4` ... `4/4`) and `test.sh --lint-group N/T` computes which lints
+position (`1/4` ... `4/4`) and `test.sh --lint --group N/T` computes which lints
 fall in it from `_LINT_TOOLS`, so a lint added to that table joins a group with
 no workflow edit -- and the row here is kept true by a guard rather than by
 somebody remembering (see below). The trade is the checks list: a
@@ -210,10 +210,9 @@ failed in it, because the phase enumerates rather than stopping at the first
 It is ungated because two of the lints it runs (`adr-numbering`,
 `readme-sync`) are breakable by a change `classify` scores as doc-only -- a
 `code_changed` gate would skip them on exactly the PR they exist to catch.
-Every lint but `hadolint` runs host-direct on a plain runner over the
-checkout; the hadolint binary exists only in the test-tools image, so it keeps
-its own job, as do `shellcheck` and `doc-counts`, whose results `ci-rollup`
-reads by name.
+Every lint job runs inside the test-tools image, the one the local `just test`
+lint phase uses (base#1412). `hadolint` keeps its own job, as do `shellcheck`
+and `doc-counts`, whose results `ci-rollup` reads by name.
 
 Adding a lint to `_LINT_TOOLS` without giving it a CI job fails the
 completeness guard in `test/bats/unit/self_test_yaml_spec.bats`. That guard,
@@ -470,7 +469,7 @@ speak and whether they can stop you:
 | Entry point | When | Blocking? |
 |-------------|------|-----------|
 | `just test` lint phase (`just test lint --doc-counts`) | every local full gate | **yes** -- this is the gate |
-| the `doc-counts` CI job (`test.sh --doc-counts-only`) | every CI run, ungated (a hand-edited count is a doc-only change) | **yes** -- same driver, hard-mandatory in `ci-rollup` |
+| the `doc-counts` CI job (`test.sh --lint --doc-counts`) | every CI run, ungated (a hand-edited count is a doc-only change) | **yes** -- same driver, hard-mandatory in `ci-rollup` |
 | `just test sync-docs-check` | on demand | yes, but only if a human runs it |
 | harness repo `.claude/hooks/check_test_md_drift.sh` (PostToolUse) | seconds after the Edit that caused the drift, in an interactive session only | no -- advisory |
 

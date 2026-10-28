@@ -10,10 +10,12 @@
 #                             # (ADR-00000011 #3 min->max)
 #   ./test.sh --lint --shellcheck  # Only ShellCheck, via compose
 #   ./test.sh --lint --hadolint    # Only Hadolint, via compose
+#   ./test.sh --lint --group N/T   # One lint-static group, via compose (how
+#                             # self-test.yaml's lint-static matrix runs it;
+#                             # base#1412)
 #   ./test.sh --shellcheck-only # Run ShellCheck only, no compose, no bats deps
-#                             # (used by self-test.yaml's dedicated shellcheck
-#                             # job,; plain ubuntu-latest runner with
-#                             # pre-installed shellcheck)
+#                             # (times one driver on the host; no CI job
+#                             # calls it -- base#1412)
 #   ./test.sh --<tool>-only     # Run ONE lint of the phase on the host, no
 #                             # compose: --shellcheck-only / --issueref-only
 #                             # / --adr-numbering-only /
@@ -449,8 +451,19 @@ _refuse_suppressed_errexit() {
 # under `|| _rc=$?` would disable errexit inside the whole driver and let
 # a failure sail past). `-E` is required because an ERR trap is not
 # inherited by shell functions, and every driver is one.
+#
+# A lint on a CI runner's own host is refused (base#1412): CI lints inside
+# the test-tools image, as the local gate does, so the two judge a commit
+# with the same tools. GITHUB_ACTIONS is the runner's mark, on hosted and
+# self-hosted runners alike, and _run_via_compose never forwards it, so
+# the in-image lint `--lint` starts does not carry it. Refusing HERE, at
+# the one dispatch every host arm reaches, holds however a workflow step
+# reaches a host arm -- its spelling, an earlier step's $GITHUB_ENV, a
+# value only the run has -- which a reading of the workflow cannot see.
 _run_lint_tool() {
   _refuse_suppressed_errexit "the lint dispatch for '${1:-}'"
+  [[ "${GITHUB_ACTIONS:-}" != true ]] || _die ci_host_lint_on_runner \
+    "the '${1:-}' lint was asked to run on this CI runner's host (GITHUB_ACTIONS=true). CI lints inside the test-tools image, as the local gate does, so both judge a commit with the same tools: run './script/test/test.sh --lint' (narrowed with --<tool> or --group N/T) instead of a host arm."
   _LINT_ACTIVE_TOOL="${1:-}"
   set -E
   trap '_lint_driver_failed "$?" "${BASH_COMMAND}"' ERR
@@ -586,8 +599,9 @@ _run_all_lint_tools() {
   _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
-# Run one group of the partition, host-direct. The CI join for the
-# grouped lint-static jobs.
+# Run one group of the partition. The CI lint-static jobs reach it inside
+# the test-tools image through `--lint --group N/T` (LINT_GROUP); the
+# host-direct `--lint-group N/T` reaches it to time a group (base#1412).
 #
 # `_run_lint_tools`, not a loop: the group has to report EVERY driver in
 # it that failed, in phase order, because the checks list no longer names
@@ -636,6 +650,9 @@ Options:
                           compose; the ci/test-tools image bakes in hadolint.
                           Narrow with --shellcheck / --hadolint (#650)
   --shellcheck            With --lint: run only ShellCheck (still via compose)
+  --group N/T             With --lint: run only lint group N of T of the
+                          lint-static partition (still via compose). The
+                          CI lint-static matrix runs this (base#1412)
   --hadolint              With --lint: run only Hadolint (still via compose)
   --issueref              With --lint: run only the issue-ref comment lint
                           (no transient #NNN in code comments; ADR-00000013)
@@ -849,18 +866,15 @@ Options:
                           be pinned; the marker grammar is documented in
                           script/test/drivers/just_provenance.sh)
   --<tool>-only           Run ONE lint from the phase directly on this
-                          host: no compose, no test-tools image. These are
-                          the CI join for the lint phase -- no CI job runs
-                          the phase itself (the lint jobs narrow to one
-                          tool, and every bats / coverage job sets
-                          BATS_ONLY=1 / COVERAGE=1, which skip it), so
-                          self-test.yaml runs the same drivers -- a
-                          dedicated job calls one of these, and a
-                          lint-static group calls --lint-group, which runs
-                          several. Available:
+                          host: no compose, no test-tools image. Kept to
+                          time one driver (the --shell-metrics-only family
+                          also backs `just test metrics`); no CI job calls
+                          them -- every self-test.yaml lint job runs --lint
+                          inside the test-tools image, as the local gate
+                          does, and on a CI runner (GITHUB_ACTIONS=true)
+                          they refuse to run (base#1412). Available:
                             --shellcheck-only        (needs shellcheck in
-                                                     PATH; ubuntu-latest
-                                                     ships it)
+                                                     PATH)
                             --issueref-only          pure bash
                             --adr-numbering-only     pure bash
                             --adr-structure-only     pure bash
@@ -884,7 +898,8 @@ Options:
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
   --lint-group N/T        Run lint group N of T directly on this host, no
-                          compose. The grouped CI join: the drivers are
+                          compose, to time a group; CI runs the same group
+                          with --lint --group N/T instead. The drivers are
                           split round-robin over the _LINT_TOOLS table
                           (minus the lints that carry their own job), so
                           adding a lint to the table puts it in a group
@@ -2643,6 +2658,7 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
+    -e LINT_GROUP="${LINT_GROUP:-}" \
     -e PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-}" \
     -e PIN_TRACKED_ROOT=/source \
     -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
@@ -2673,6 +2689,10 @@ main() {
   local hadolint_only=0
   local lint=0
   local lint_tool=""
+  # `--group N/T` narrows `--lint` to one group of the lint-static
+  # partition, run inside the test-tools image like every other `--lint`
+  # (base#1412). It is how the CI lint-static matrix runs its group.
+  local lint_group=""
   # The `--<tool>-only` host-direct primitives all set this one variable:
   # they are the same operation (run ONE lint driver on this host, no
   # compose) parameterised by tool, so they share one short-circuit rather
@@ -2742,6 +2762,7 @@ main() {
       --test-name-backtick) lint_tool="test-name-backtick"; shift ;;
       --log-event-registry) lint_tool="log-event-registry"; shift ;;
       --toml-fixture) lint_tool="toml-fixture"; shift ;;
+      --group) lint_group="${2:?--group expects <n>/<total>}"; shift 2 ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -2803,6 +2824,17 @@ main() {
   if [[ -n "${lint_tool}" && "${lint}" != "1" ]]; then
     _die ci_lint_tool_without_lint \
       "--${lint_tool} narrows --lint; use './test.sh --lint --${lint_tool}' or '--${lint_tool}-only'."
+  fi
+  # `--group` narrows `--lint` the same way, and naming a tool AND a group
+  # asks for two different narrowings of one run, so both are refused
+  # rather than one silently winning (base#1412).
+  if [[ -n "${lint_group}" && "${lint}" != "1" ]]; then
+    _die ci_lint_tool_without_lint \
+      "--group ${lint_group} narrows --lint; use './test.sh --lint --group ${lint_group}'."
+  fi
+  if [[ -n "${lint_group}" && -n "${lint_tool}" ]]; then
+    _die ci_lint_tool_without_lint \
+      "--group ${lint_group} and --${lint_tool} are two narrowings of --lint; pass one."
   fi
 
   # `--jobs` narrows `--coverage-local` the same way, and is refused here
@@ -2878,63 +2910,62 @@ main() {
     return 0
   fi
 
-  # The host-direct lint primitives (`--shellcheck-only`,
-  # `--issueref-only`, `--adr-numbering-only`, `--adr-structure-only`,
-  # `--stale-setup-conf-only`, `--readme-sync-only`,
-  # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
-  # `--bash-source-guard-only`, `--derived-figures-only`,
-  # `--i18n-orphan-only`, `--early-close-reader-only`,
-  # `--errexit-bang-only`,
-  # `--self-hosted-guard-only`, `--tool-provenance-only`,
-  # `--changelog-entry-only`,
-  # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
-  # before any mode dispatch and run
-  # ONE driver right here: no compose, no test-tools image, no
-  # apt-install. It is how a DEDICATED CI job runs its one lint (and how
-  # a person times one driver); the grouped lint-static jobs reach the
-  # same drivers through `--lint-group` below. Either way a plain
-  # ubuntu-latest runner runs the SAME driver the local phase runs, so the
-  # local gate and the CI gate cannot drift apart. Every tool but shellcheck is pure
-  # bash over the checkout; shellcheck relies on the binary ubuntu-latest
-  # ships pre-installed. hadolint is deliberately absent: its binary
-  # exists only in the test-tools image, so its CI job uses
-  # `--lint --hadolint` inside that image instead.
+  # The host-direct lint primitives (`--<tool>-only`) short-circuit
+  # before any mode dispatch and run ONE driver right here: no compose, no
+  # test-tools image. They are NOT a CI join any more (base#1412). CI used
+  # to run its ShellCheck, doc-counts and lint-static jobs through these
+  # arms on the ubuntu runner while the local gate ran the same drivers
+  # inside the test-tools image, so one commit could be judged by two sets
+  # of tools. Every lint job now runs `--lint` inside the image.
+  #
+  # The arms are kept for one reason: they are operator entry points,
+  # never a gate. A person times one driver with them (the measurement
+  # ADR-00000028 asks for), base#1277 holds every tabled lint to having
+  # one, and `just test metrics` runs the shell-metrics arms on the host.
+  # That no CI step reaches one is checked by RUNNING the steps:
+  # test/bats/unit/self_test_yaml_spec.bats executes every workflow step
+  # that names test.sh against a copy of this file whose _run_lint_tool
+  # records instead of linting, so a host lint is seen whatever the
+  # spelling (base#1412).
   if [[ -n "${host_lint}" ]]; then
     _run_lint_tool "${host_lint}"
     return 0
   fi
 
-  # The grouped form of the same join (base#1071). One lint-static job per
-  # GROUP of the partition rather than per driver: 20 one-driver jobs spent
-  # more runner startup than they did work, and took 20 of the free plan's
-  # ~20 org-wide concurrent slots away from the coverage shards, which are
-  # the run's critical path. Which lint failed is still answerable -- the
-  # group enumerates every failing driver in its output (base#1059) instead
-  # of the checks list naming it.
+  # The grouped host-direct form, kept for the same reason: it times a
+  # whole group outside the image, and no CI step reaches it. The
+  # CI lint-static matrix runs its group with `--lint --group N/T`
+  # instead, inside the image (base#1412); the partition both read is the
+  # same `_lint_group_members`.
   if [[ -n "${host_lint_group}" ]]; then
     _run_lint_group "${host_lint_group}"
     return 0
   fi
 
-  # --hadolint-only short-circuits and runs the linter directly here (no
-  # compose), so hadolint must already be in PATH. It is the in-container
-  # primitive: callers run it from INSIDE the ci/test-tools image (which
-  # bakes hadolint in) -- the self-test.yaml hadolint job invokes it via
-  # `_run_via_compose ci`. _run_hadolint _die's with a clear message if the
-  # binary is missing (e.g. invoked on a bare host).
+  # --hadolint-only runs the linter directly here (no compose), so hadolint
+  # must already be in PATH; _run_hadolint _die's with a clear message if
+  # the binary is missing (e.g. invoked on a bare host). It is a host arm
+  # like the --<tool>-only family above, so it goes through the same one
+  # dispatch, which is where a CI runner's host is refused (base#1412).
   if [[ "${hadolint_only}" == "1" ]]; then
-    _run_hadolint
+    _run_lint_tool hadolint
     return 0
   fi
 
   # `--lint` runs the linters through the ci/test-tools container (it bakes
-  # in hadolint, absent on the host). LINT_ONLY=1 tells the in-container
-  # `--ci` path to run only the lint phase; LINT_TOOL narrows to one linter
-  # (empty = all). Even `--lint --shellcheck` runs in-container so its
-  # behaviour matches bare `just test lint`; the dedicated GHA shellcheck
-  # job uses the host-only `--shellcheck-only` path instead.
+  # in hadolint and the pinned shellcheck). LINT_ONLY=1 tells the
+  # in-container `--ci` path to run only the lint phase; LINT_TOOL narrows
+  # to one linter and LINT_GROUP to one group of the lint-static partition
+  # (both empty = all). This is the one path every CI lint job takes, as
+  # bare `just test lint` does locally, so the local gate and the CI gate
+  # run the same drivers on the same tools (base#1412).
+  #
+  # A group spec is validated HERE, on the host, before compose is started:
+  # a malformed spec is a typo, and it should cost no image.
   if [[ "${lint}" == "1" ]]; then
-    LINT_ONLY=1 LINT_TOOL="${lint_tool}" _run_via_compose ci 0
+    [[ -z "${lint_group}" ]] || _refuse_bad_lint_group "${lint_group}"
+    LINT_ONLY=1 LINT_TOOL="${lint_tool}" LINT_GROUP="${lint_group}" \
+      _run_via_compose ci 0
     return 0
   fi
 
@@ -3080,8 +3111,12 @@ main() {
       # The test-tools image
       # already ships every tool (bats / shellcheck / hadolint / kcov), so
       # nothing is installed at runtime on any path.
+      # LINT_GROUP narrows to one group of the lint-static partition
+      # (base#1412), the in-image form of the CI lint-static matrix.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then
-        if [[ -z "${LINT_TOOL:-}" ]]; then
+        if [[ -n "${LINT_GROUP:-}" ]]; then
+          _run_lint_group "${LINT_GROUP}"
+        elif [[ -z "${LINT_TOOL:-}" ]]; then
           _run_all_lint_tools
         else
           _run_lint_tool "${LINT_TOOL}"
