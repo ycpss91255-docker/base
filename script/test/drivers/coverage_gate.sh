@@ -3,10 +3,10 @@
 #
 # DUAL MODE: this file is both a sourced driver (test.sh sources it after
 # _lib.sh, so _log_* / _die are available, exposing _run_coverage_gate)
-# AND a standalone CLI (CI invokes `bash coverage_gate.sh <cobertura>...`
-# directly with the per-shard report paths). The standalone path
-# re-implements the minimum logging it needs so it has no dependency on
-# the test.sh sourcing context.
+# AND a standalone CLI (CI and `just test coverage-gate` invoke
+# `bash coverage_gate.sh --verdict <manifest> <cobertura>...` directly).
+# The standalone path re-implements the minimum logging it needs so it
+# has no dependency on the test.sh sourcing context.
 #
 # WHY (ADR-00000008, self-hosted amendment): the repo is moving to the
 # company GitLab where Codecov is unavailable and uploading coverage to
@@ -244,10 +244,8 @@ _merge_timings() {
 # cobertura.xml at <dir> itself. So: the merged report when there is one,
 # else the first cobertura.xml under <dir> -- never both, which would count
 # the run twice. A directory holding no report contributes nothing; no
-# report anywhere is a refusal. The coverage-gate job hands this every
-# downloaded shard directory and the pre-PR mirror hands it the shard
-# trees its --coverage-matrix keeps (base#1409), so the two read reports
-# by this one rule.
+# report anywhere is a refusal. The coverage verdict below reads reports by
+# this one rule, whichever environment hands it the run directories.
 _coverage_gate_run_dirs() {
   local _dir _first
   local -a _reports=()
@@ -269,16 +267,52 @@ _coverage_gate_run_dirs() {
   _coverage_gate_run "${_reports[@]}"
 }
 
-# Standalone CLI: when executed directly, run the gate over the argument
-# paths and propagate its exit code. `--run-dirs <dir>...` picks one
-# report per kcov run directory first (the coverage-gate job and the
-# pre-PR mirror both call it). The `--merge-timings <out> <in>...`
-# subcommand aggregates per-shard timings instead (the coverage-gate job
-# calls it after downloading the shard artifacts). When sourced, this
-# guard is false so only the functions above are defined.
+# _coverage_verdict <manifest> <run-dir>... -- THE coverage verdict, the
+# one every environment that decides on a coverage run reaches (base#1411):
+# the GitHub-hosted coverage-gate job, the self-hosted coverage-local
+# workflow, `just test coverage-gate` and the pre-PR mirror's coverage-gate
+# leg all call `--verdict` the same way, so a check added here reaches all
+# of them at once.
+#
+# It is two checks, and both always run so one red run reports both:
+#   1. the floor: _coverage_gate_run_dirs over <run-dir>... against
+#      COVERAGE_MIN -- one report per run directory, by the rule above;
+#   2. the union: `test.sh --coverage-union-check <manifest>`, which names
+#      every spec the run manifest lacks. The floor cannot see such a spec
+#      -- it contributes no lines to either side of the ratio.
+# The union half is test.sh's own check run as a process, not a copy of
+# it: test.sh sources this file, so sourcing test.sh from here would be
+# circular. Returns non-zero when either half fails (2 on a usage error).
+_coverage_verdict() {
+  if (( $# < 2 )); then
+    echo "coverage_gate: --verdict expects <manifest> <run-dir>..." >&2
+    return 2
+  fi
+  local _manifest="${1}"
+  shift
+  local _test_sh _floor_rc=0 _union_rc=0
+  _test_sh="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/.." && pwd -P)/test.sh"
+  _coverage_gate_run_dirs "$@" || _floor_rc=$?
+  bash "${_test_sh}" --coverage-union-check "${_manifest}" || _union_rc=$?
+  if (( _floor_rc != 0 )); then
+    return "${_floor_rc}"
+  fi
+  return "${_union_rc}"
+}
+
+# Standalone CLI: when executed directly, `--verdict <manifest>
+# <run-dir>...` runs the whole coverage verdict (see _coverage_verdict);
+# this is the form every workflow, recipe and the pre-PR mirror use.
+# `--run-dirs <dir>...` runs the floor alone over one report per run
+# directory, and bare report paths run the floor alone over those reports.
+# `--merge-timings <out> <in>...` aggregates per-shard timings (the
+# coverage-gate job and the pre-PR mirror call it ahead of the verdict to
+# build the run manifest). When sourced, this guard is false so only the
+# functions above are defined.
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   case "${1:-}" in
     --merge-timings) shift; _merge_timings "$@" ;;
+    --verdict) shift; _coverage_verdict "$@" ;;
     --run-dirs) shift; _coverage_gate_run_dirs "$@" ;;
     *) _coverage_gate_run "$@" ;;
   esac

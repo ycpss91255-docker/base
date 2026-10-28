@@ -989,8 +989,9 @@ Options:
                           weights, and a spec that ran nowhere cannot
                           turn the coverage gate red by itself -- with a
                           ratio for a floor, dropping a well-covered spec
-                          can push the reported rate UP. What the
-                          coverage-gate job runs after the merge
+                          can push the reported rate UP. The union half
+                          of `coverage_gate.sh --verdict`, the one
+                          coverage verdict (base#1411)
   --test-tools-image      Print the local test-tools tag this checkout
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools together with
@@ -2898,9 +2899,10 @@ main() {
     esac
   fi
 
-  # A CHECK over a file, not a query and not a run: it reads the merged
-  # per-shard manifest the coverage-gate job just built and refuses when
-  # the matrix did not cover the suite. Deferred to here for the reason
+  # A CHECK over a file, not a query and not a run: it reads a run
+  # manifest (the coverage-gate job's merged per-shard one, or a local
+  # run's coverage/timings.tsv, via `coverage_gate.sh --verdict`,
+  # base#1411) and refuses when the run did not cover the suite. Deferred to here for the reason
   # above it -- a mid-loop exit would take the verdict before the guards
   # had run and before the rest of the command line had been read, so a
   # misspelt flag after it would never be reported. `return`, not `exit`:

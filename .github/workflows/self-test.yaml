@@ -1296,54 +1296,57 @@ jobs:
           pattern: coverage-shard-*
           path: ./coverage-shards
 
-      - name: Coverage floor gate
-        # COVERAGE_MIN defaults inside the script (just under the current
-        # measured rate so it does not false-fail today; ratchets up).
-        # download-artifact lays each shard out under its own
-        # ./coverage-shards/coverage-shard-<idx>/ subdir. kcov can write
-        # BOTH a per-run AND a kcov-merged cobertura.xml inside one run's
-        # output, so --run-dirs picks EXACTLY ONE report per shard subdir
-        # (the merged one if present, else the first found) -- passing both
-        # to the gate would double-count that shard. The pre-PR mirror runs
-        # the same command over the coverage/ tree `just test coverage`
-        # writes (base#1409), so the selection rule lives in the script,
-        # not here. The script then unions covered lines across the
-        # one-per-shard set and emits the merged % to $GITHUB_STEP_SUMMARY.
-        run: bash ./script/test/drivers/coverage_gate.sh --run-dirs ./coverage-shards/*/
-
       - name: Merge shard timings into the weights file
         # Each shard's artifact carries a timings.tsv (per-spec kcov seconds
         # from _junit_to_timings). Merge them all into one weights file so the
         # NEXT run's partition is time-balanced. Harmless on a first run with
         # no timings.tsv yet (yields an empty file -> @test-count fallback).
+        # The merged file is also the matrix's RUN MANIFEST, which the
+        # verdict below reads, so this runs first.
         run: |
           set -euo pipefail
           shopt -s nullglob
           bash ./script/test/drivers/coverage_gate.sh --merge-timings \
             test/bats/.shard-weights ./coverage-shards/*/timings.tsv
 
-      - name: Every spec ran in some shard
-        # The merged weights file is also the matrix's RUN MANIFEST: it
-        # names every spec some shard reported running. Comparing it against
-        # the inventory of what a full coverage run covers is the only check
-        # that can see a spec that ran NOWHERE -- the floor gate above
-        # cannot, because a missing spec contributes no lines to either side
-        # of a ratio, and dropping a well-covered one makes the reported
-        # rate go UP. This step used to echo the union's SIZE and compare it
-        # against nothing.
+      - name: Coverage verdict
+        # The ONE coverage verdict (base#1411): coverage-local.yaml and
+        # `just test coverage-gate` run the identical line below, and
+        # coverage_gate_spec.bats fails if they drift apart. It is two
+        # checks, both always run:
         #
-        # EXHAUSTIVE is what it checks, and that is the half that decides
-        # the figure. Disjointness is not observable here -- the merge keys
-        # on the spec path, so a spec two shards both ran reads back as one
-        # entry -- and it does not need to be: the reports are merged by
-        # per-line UNION, so a line two shards both covered is counted
-        # once. A spec that ran TWICE costs runtime; a spec that ran NOWHERE
-        # costs the gate its meaning.
+        # The floor. COVERAGE_MIN defaults inside the script.
+        # download-artifact lays each shard out under its own
+        # ./coverage-shards/coverage-shard-<idx>/ subdir, and the verdict
+        # takes those run directories: kcov can write BOTH a per-run AND a
+        # kcov-merged cobertura.xml inside one run's output, so the script
+        # picks EXACTLY ONE report per shard subdir (the merged one if
+        # present, else the first found) -- passing both would double-count
+        # that shard. The selection rule lives in the script, not here
+        # (base#1409). The reports are merged by per-line UNION and the rate
+        # goes to $GITHUB_STEP_SUMMARY.
         #
-        # It runs after the merge, which writes the file it reads, and ahead
-        # of the cache save, so a partition that did not cover the suite
-        # fails the job instead of seeding the next run's weights.
-        run: ./script/test/test.sh --coverage-union-check test/bats/.shard-weights
+        # Every spec ran in some shard. The merged weights file names every
+        # spec some shard reported running; comparing it against the
+        # inventory of what a full coverage run covers is the only check
+        # that can see a spec that ran NOWHERE -- the floor cannot, because
+        # a missing spec contributes no lines to either side of a ratio,
+        # and dropping a well-covered one makes the reported rate go UP.
+        # EXHAUSTIVE is what it checks. Disjointness is not observable here
+        # (the merge keys on the spec path, so a spec two shards both ran
+        # reads back as one entry) and does not need to be: the reports are
+        # merged by per-line union, so a spec that ran TWICE costs runtime
+        # while a spec that ran NOWHERE costs the gate its meaning.
+        #
+        # It runs ahead of the cache save, so a partition that did not
+        # cover the suite fails the job instead of seeding the next run's
+        # weights.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          manifest=test/bats/.shard-weights
+          run_dirs=(./coverage-shards/*/)
+          bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${run_dirs[@]}"
 
       - name: Save shard-weights cache (main-push only)
         # Only authoritative main-branch pushes refresh the shared weights;

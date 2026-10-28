@@ -2014,7 +2014,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 | `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
-### test/bats/unit/coverage_gate_spec.bats (25)
+### test/bats/unit/coverage_gate_spec.bats (35)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2050,6 +2050,16 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+| `coverage_gate --verdict: passes when the rate clears the floor and every spec ran (base#1411)` | the pass direction -- a whole manifest and a rate at the floor is a green verdict, and the output carries BOTH halves' evidence. |
+| `coverage_gate --verdict: fails, naming the spec, when a spec ran nowhere though the rate passes (base#1411)` | the half the floor cannot see. The rate is well above the floor, so only the union check can turn this red, and it must name the spec. |
+| `coverage_gate --verdict: fails on a rate under the floor even when every spec ran (base#1411)` | the floor half still decides -- a whole manifest does not rescue a rate under COVERAGE_MIN. |
+| `coverage_gate --verdict: reports both halves when the floor and the union check both fail (base#1411)` | both halves always run. With the rate under the floor AND a spec missing from the manifest, the output must carry the floor's FAIL and the union check's naming of the spec -- a wrapper that skips the union check once the floor has failed hides the missing spec until the rate is fixed and the next run turns red again. |
+| `coverage verdict parity: hosted, self-hosted and the local recipe run one identical verdict line (base#1411)` | the load-bearing parity check. Three copies of the verdict line are three verdicts as soon as one gains a flag or an argument the others lack; the hosted job, the self-hosted workflow and the recipe must each run the verdict exactly once, and by the identical line. |
+| `coverage verdict parity: no context runs the floor or the union check outside the verdict (base#1411)` | one entry point means no second, partial verdict beside it. A bare floor-only gate call or a free-standing union check is the three-step- lists shape this issue removes. Read per INVOCATION, not per line: a floor-only call chained onto a permitted line must still be seen. |
+| `coverage verdict parity: the local recipe and the self-hosted step bind the same inputs (base#1411)` | an identical invocation over different inputs is a different verdict. Local and self-hosted both judge a run of this checkout from its coverage/ tree, so their whole verdict scripts must be the same text -- a manifest or report bound to anything else in one of them (a stale, complete manifest left by an older run) fails here. |
+| `coverage verdict parity: each verdict reads the manifest its own run wrote (base#1411)` | the manifest each verdict reads must be the one ITS run wrote. A local or self-hosted coverage run writes test.sh's run manifest; the hosted matrix's manifest is the file the --merge-timings step writes from the shards' timings. Bound to anything else, the union check judges some other run. |
+| `coverage verdict parity: the hosted verdict receives every downloaded shard directory once (base#1411)` | the hosted run directories are an input too, and the text checks above cannot see how its glob fills them. Run the hosted verdict step itself over a laid-out set of downloaded shards, with the driver stubbed to print its arguments: it must hand the verdict the manifest and EVERY shard directory exactly once -- the driver then takes one report from each (the --run-dirs tests pin that rule). A step that keeps only the last shard, or passes a shard twice, judges a different run than the one the manifest names. |
+| `coverage verdict parity: no context overrides the driver's COVERAGE_MIN (base#1411)` | the floor is an input too. The driver owns COVERAGE_MIN's default (80); a value set in one context and not the others -- a step `env:`, an inline assignment, a justfile `export` -- moves that context's floor while every invocation line stays identical. |
 | `coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)` | Passing both the merged and the per-command report counts a run twice; the merged one is the run's report when it exists. |
 | `coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)` | A single-command kcov run writes no kcov-merged report, and the gate must still find the one it did write. |
 | `coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)` | This is the CI shape -- one directory per shard -- and the union across them is the project rate the floor gates. |
@@ -4637,7 +4647,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (27)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (28)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4660,8 +4670,9 @@ table -> workflow every ci-rollup need is attested or excluded, and an
 attested job's local command runs in CI's mode. table -> plan on every diff
 where CI's own `if:` gate runs a job, the plan carries that job's local
 command. plan -> run the mirror executes exactly the plan, in order, and
-stops at the first red command. plan -> report the coverage floor the plan
-runs reads the shard reports the coverage matrix actually writes.
+stops at the first red command. plan -> report the coverage verdict the plan
+runs reads the shard reports the coverage matrix actually writes, and is the
+verdict CI's coverage-gate job runs.
 
 Mode is derived on both sides, never declared: text is `kcov` when it
 invokes script/test/test.sh in a mode that instruments (`--coverage`,
@@ -4695,9 +4706,10 @@ local mode with it.
 | `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
 | `pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)` | CI runs `system` and amd64 `acceptance` on amd64 runners, and both build and run images for the daemon's own architecture. On an arm64 daemon `just test acceptance` measured arm64 and the mirror still reported the amd64 leg green (base#1409 review round 3). |
 | `pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)` | "cannot tell the daemon's arch" must not read as amd64. |
-| `pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
-| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
-| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
+| `pre-PR mirror: the coverage-gate leg ends with the coverage verdict CI runs (base#1411)` | The mirror ran coverage-gate as three steps of its own -- a floor over the shard trees, the timings merge and a free-standing union check -- while CI's coverage-gate job reaches one verdict through `coverage_gate.sh --verdict`. Two step lists are two verdicts that drift: a check added to the verdict reached CI and never the mirror (base#1411). So the leg must END with that verdict, run it exactly once, run no floor or union check beside it, and read the manifest its own merge wrote -- the shape the hosted job has. |
+| `pre-PR mirror: the coverage verdict reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. The verdict reads each shard's report by the one rule the hosted job reads them by. |
+| `pre-PR mirror: the coverage verdict reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the verdict must read that layout too. |
+| `pre-PR mirror: the coverage verdict fails, naming the spec, when no shard ran it (base#1411)` | The union half is the one the floor cannot see -- a spec no shard ran moves no ratio. Through the mirror's own leg, with the rate well above the floor, a spec missing from every shard's timings must be red and named, as CI's verdict names it (base#1411). |
 | `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: checks the just it runs against the pin in its own shell (base#1409)` | Moving every acceptance step into script/ci/acceptance.sh took the job's only `just` invocation out of its `run:` shells, which is all the tool provenance lint reads; the lint then saw no job reach any pinned tool and failed its demand floor. The job runs `just`, so its own shell asks that binary for its version and holds it to the pin. |
@@ -6220,7 +6232,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)` | The producer half of the single-source rule. A partition is a partition of the suite only when every shard weighed the specs the same way, so there is exactly ONE place the weights blob is fetched -- the job every shard already waits on. A second lookup anywhere is a second opportunity for the matrix to read two different blobs. |
 | `self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)` | The lookup being single is worth nothing unless its RESULT is what the shards partition by, so the restored blob leaves compute-shards as a declared job output. Undeclared, the expression below it resolves to the empty string and all twelve shards silently fall back to @test counts. |
 | `self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)` | The load-bearing case of base#1114. Twelve shards each looking the cache up for itself is twelve reads of a key whose newest entry changes on every main push: the exact key cannot hit while the shards run, so every shard fell through to the `shard-weights-` prefix, and a shard re-run after a later merge partitions against a NEWER blob than its siblings used. Each then keeps its slice of a different partition, every slice non-empty, and a spec can land in none of them. |
-| `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. |
+| `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. Since base#1411 the check runs inside the one coverage verdict (`coverage_gate.sh --verdict`), whose manifest is the merged weights file. |
 | `self-test.yaml: coverage-gate merges shard timings into the weights file (#733)` | - |
 | `self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)` | - |
 | `self-test.yaml: declares ci-rollup job (#337)` | - |

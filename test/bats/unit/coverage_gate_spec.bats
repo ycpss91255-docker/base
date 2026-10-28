@@ -401,6 +401,300 @@ _make_multi_cobertura() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# --verdict: the ONE coverage verdict every environment runs (base#1411)
+#
+# A coverage run decides something only through its verdict, and the
+# verdict is two checks, not one: the floor over the reports AND the
+# run-manifest union check (a spec that ran nowhere cannot lower a ratio,
+# so the floor alone cannot see it). `--verdict <manifest> <run-dir>...`
+# runs both, so local, GitHub-hosted and self-hosted reach the same
+# verdict through the same entry point instead of three step lists.
+# ════════════════════════════════════════════════════════════════════
+
+# Write, at $1, a run manifest naming every spec in the live inventory --
+# what a whole-suite coverage run leaves in its timings file. With $2 set,
+# the first spec of the inventory is left out and its basename printed.
+_verdict_manifest() {
+  local _out="${1}" _drop="${2:-}"
+  run bash -c '
+    source /source/script/test/test.sh
+    _inv="$(_coverage_spec_inventory "${REPO_ROOT}")"
+    if [[ -n "${2}" ]]; then
+      sed -n "1p" <<< "${_inv}"
+      _inv="$(sed "1d" <<< "${_inv}")"
+    fi
+    sed "s/^/1 /" <<< "${_inv}" > "${1}"
+  ' _ "${_out}" "${_drop}"
+  assert_success
+}
+
+# why: the pass direction -- a whole manifest and a rate at the floor is
+# a green verdict, and the output carries BOTH halves' evidence.
+@test "coverage_gate --verdict: passes when the rate clears the floor and every spec ran (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 60 100
+  _verdict_manifest "${SCRATCH}/whole.tsv"
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/whole.tsv" "${SCRATCH}/a"
+  assert_success
+  assert_output --partial "60.00"
+  assert_output --partial "exhaustive"
+}
+
+# why: the half the floor cannot see. The rate is well above the floor,
+# so only the union check can turn this red, and it must name the spec.
+@test "coverage_gate --verdict: fails, naming the spec, when a spec ran nowhere though the rate passes (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 90 100
+  _verdict_manifest "${SCRATCH}/short.tsv" drop
+  local _dropped="${output}"
+  [ -n "${_dropped}" ]
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/short.tsv" "${SCRATCH}/a"
+  assert_failure
+  assert_output --partial "90.00"
+  assert_output --partial "${_dropped}"
+}
+
+# why: the floor half still decides -- a whole manifest does not rescue
+# a rate under COVERAGE_MIN.
+@test "coverage_gate --verdict: fails on a rate under the floor even when every spec ran (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 40 100
+  _verdict_manifest "${SCRATCH}/whole.tsv"
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/whole.tsv" "${SCRATCH}/a"
+  assert_failure
+  assert_output --partial "floor 50% -> FAIL"
+}
+# why: both halves always run. With the rate under the floor AND a spec
+# missing from the manifest, the output must carry the floor's FAIL and
+# the union check's naming of the spec -- a wrapper that skips the union
+# check once the floor has failed hides the missing spec until the rate
+# is fixed and the next run turns red again.
+@test "coverage_gate --verdict: reports both halves when the floor and the union check both fail (base#1411)" {
+  _make_cobertura "${SCRATCH}/a/cobertura.xml" 40 100
+  _verdict_manifest "${SCRATCH}/short.tsv" drop
+  local _dropped="${output}"
+  [ -n "${_dropped}" ]
+
+  run env COVERAGE_MIN=50 bash "${GATE}" --verdict \
+    "${SCRATCH}/short.tsv" "${SCRATCH}/a"
+  assert_failure
+  assert_output --partial "floor 50% -> FAIL"
+  assert_output --partial "${_dropped}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Parity: local, GitHub-hosted and self-hosted run the SAME verdict
+# (base#1411). Each place that decides on a coverage run invokes the
+# verdict exactly once, with the same invocation, over inputs bound to
+# what that run produced, and under the driver's own COVERAGE_MIN -- so a
+# flag, a floor, an input or a check changed in one of them and not the
+# others fails here instead of drifting.
+# ════════════════════════════════════════════════════════════════════
+
+# Print the code lines of $1 (or stdin with "-"): comment and blank lines
+# dropped, leading space trimmed, backslash continuations joined so one
+# command reads as one line.
+_code_lines() {
+  sed -e '/^[[:space:]]*#/d' -e 's/^[[:space:]]*//' -e '/^$/d' "${1}" \
+    | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta'
+}
+
+# Print every coverage_gate.sh invocation in the code lines of $1, one per
+# line, as the script name plus the word that follows it (or the bare
+# name when nothing follows). Per invocation, not per line: two commands
+# chained on one line are two invocations.
+_gate_invocations() {
+  _code_lines "${1}" \
+    | grep -oE 'coverage_gate\.sh([[:space:]]+[^[:space:];&|)]+)?' || true
+}
+
+# Print the code lines of $1 that invoke the verdict.
+_verdict_lines() {
+  _code_lines "${1}" | grep -E 'coverage_gate\.sh[[:space:]]+--verdict'
+}
+
+# Print the body of recipe $2 in justfile $1 (header line excluded).
+_recipe_body() {
+  awk -v r="${2}" '
+    $0 ~ "^" r "( |:)" { inb = 1; next }
+    inb && /^[^[:space:]#]/ { exit }
+    inb { print }
+  ' "${1}"
+}
+
+# Print the body of every `run: |` block in $1 that matches ERE $2.
+_run_blocks_matching() {
+  awk -v ere="${2}" '
+    function flush() { if (buf ~ ere) printf "%s", buf; buf = ""; inb = 0 }
+    inb {
+      if (match($0, /[^[:space:]]/) && RSTART - 1 <= ind) { flush() }
+      else { buf = buf $0 "\n"; next }
+    }
+    /^[[:space:]]*run:[[:space:]]*\|/ {
+      match($0, /[^[:space:]]/); ind = RSTART - 1; inb = 1; buf = ""; next
+    }
+    END { if (inb) flush() }
+  ' "${1}"
+}
+
+# Print the value of every `<name>=` assignment in the code lines of $1.
+_assignments_of() {
+  _code_lines "${1}" | sed -n "s/^${2}=//p"
+}
+
+# Write the three verdict contexts under $SCRATCH: hosted.yaml (the
+# coverage-gate job), selfhosted.sh (coverage-local.yaml's verdict step)
+# and recipe.sh (the `just test coverage-gate` body).
+_verdict_contexts() {
+  yaml_job_text /source/.github/workflows/self-test.yaml coverage-gate \
+    > "${SCRATCH}/hosted.yaml"
+  _run_blocks_matching /source/.github/workflows/coverage-local.yaml \
+    'coverage_gate[.]sh[[:space:]]+--verdict' > "${SCRATCH}/selfhosted.sh"
+  _recipe_body /source/script/test/justfile.test coverage-gate \
+    > "${SCRATCH}/recipe.sh"
+}
+
+# why: the load-bearing parity check. Three copies of the verdict line are
+# three verdicts as soon as one gains a flag or an argument the others lack;
+# the hosted job, the self-hosted workflow and the recipe must each run the
+# verdict exactly once, and by the identical line.
+@test "coverage verdict parity: hosted, self-hosted and the local recipe run one identical verdict line (base#1411)" {
+  local _hosted _selfhosted _local _ctx
+  _verdict_contexts
+  _hosted="$(_verdict_lines "${SCRATCH}/hosted.yaml")"
+  _selfhosted="$(_verdict_lines "${SCRATCH}/selfhosted.sh")"
+  _local="$(_verdict_lines "${SCRATCH}/recipe.sh")"
+
+  [ -n "${_hosted}" ] || fail "self-test.yaml coverage-gate runs no coverage_gate.sh --verdict"
+  [ -n "${_selfhosted}" ] || fail "coverage-local.yaml runs no coverage_gate.sh --verdict"
+  [ -n "${_local}" ] || fail "no 'just test coverage-gate' recipe running coverage_gate.sh --verdict"
+  # Counted per invocation, so a second verdict chained onto the line
+  # counts as the second one it is.
+  for _ctx in hosted.yaml selfhosted.sh recipe.sh; do
+    [ "$(_gate_invocations "${SCRATCH}/${_ctx}" | grep -cE -- '--verdict$')" -eq 1 ] \
+      || fail "${_ctx} does not run the verdict exactly once: $(_gate_invocations "${SCRATCH}/${_ctx}")"
+  done
+  [ "${_hosted}" == "${_selfhosted}" ] \
+    || fail "hosted [${_hosted}] and self-hosted [${_selfhosted}] verdicts differ"
+  [ "${_hosted}" == "${_local}" ] \
+    || fail "hosted [${_hosted}] and local [${_local}] verdicts differ"
+}
+
+# why: one entry point means no second, partial verdict beside it. A bare
+# floor-only gate call or a free-standing union check is the three-step-
+# lists shape this issue removes. Read per INVOCATION, not per line: a
+# floor-only call chained onto a permitted line must still be seen.
+@test "coverage verdict parity: no context runs the floor or the union check outside the verdict (base#1411)" {
+  local _ctx _bad
+  _verdict_contexts
+  for _ctx in hosted.yaml selfhosted.sh recipe.sh; do
+    _bad="$(_gate_invocations "${SCRATCH}/${_ctx}" \
+      | grep -vxE 'coverage_gate\.sh[[:space:]]+--(verdict|merge-timings)' || true)"
+    [ -z "${_bad}" ] || fail "${_ctx} runs coverage_gate.sh outside the verdict: ${_bad}"
+    run grep -E -- '--coverage-union-check' <(_code_lines "${SCRATCH}/${_ctx}")
+    assert_failure
+  done
+  # The self-hosted workflow file as a whole, not only its verdict step.
+  _bad="$(_gate_invocations /source/.github/workflows/coverage-local.yaml \
+    | grep -vxE 'coverage_gate\.sh[[:space:]]+--verdict' || true)"
+  [ -z "${_bad}" ] || fail "coverage-local.yaml runs coverage_gate.sh outside the verdict: ${_bad}"
+  run grep -E -- '--coverage-union-check' <(_code_lines /source/.github/workflows/coverage-local.yaml)
+  assert_failure
+}
+
+# why: an identical invocation over different inputs is a different
+# verdict. Local and self-hosted both judge a run of this checkout from
+# its coverage/ tree, so their whole verdict scripts must be the same
+# text -- a manifest or report bound to anything else in one of them
+# (a stale, complete manifest left by an older run) fails here.
+@test "coverage verdict parity: the local recipe and the self-hosted step bind the same inputs (base#1411)" {
+  _verdict_contexts
+  [ -s "${SCRATCH}/selfhosted.sh" ] || fail "coverage-local.yaml has no run block with the verdict"
+  diff <(_code_lines "${SCRATCH}/selfhosted.sh") <(_code_lines "${SCRATCH}/recipe.sh") \
+    || fail "the self-hosted verdict step and 'just test coverage-gate' differ (diff above)"
+}
+
+# why: the manifest each verdict reads must be the one ITS run wrote. A
+# local or self-hosted coverage run writes test.sh's run manifest; the
+# hosted matrix's manifest is the file the --merge-timings step writes
+# from the shards' timings. Bound to anything else, the union check
+# judges some other run.
+@test "coverage verdict parity: each verdict reads the manifest its own run wrote (base#1411)" {
+  local _run_manifest _merged
+  _verdict_contexts
+  run bash -c 'source /source/script/test/test.sh; printf "%s" "${_COVERAGE_RUN_MANIFEST_REL}"'
+  assert_success
+  _run_manifest="${output}"
+  [ -n "${_run_manifest}" ]
+
+  run _assignments_of "${SCRATCH}/recipe.sh" manifest
+  [ "${output}" == "${_run_manifest}" ] \
+    || fail "the recipe binds manifest to [${output}], not the run manifest [${_run_manifest}]"
+  run _assignments_of "${SCRATCH}/selfhosted.sh" manifest
+  [ "${output}" == "${_run_manifest}" ] \
+    || fail "self-hosted binds manifest to [${output}], not the run manifest [${_run_manifest}]"
+
+  _merged="$(_code_lines "${SCRATCH}/hosted.yaml" \
+    | sed -nE 's/.*coverage_gate\.sh[[:space:]]+--merge-timings[[:space:]]+([^[:space:]]+).*/\1/p')"
+  [ -n "${_merged}" ] || fail "the hosted coverage-gate job merges no timings"
+  run _assignments_of "${SCRATCH}/hosted.yaml" manifest
+  [ "${output}" == "${_merged}" ] \
+    || fail "hosted binds manifest to [${output}], not the merged timings [${_merged}]"
+}
+
+# why: the hosted run directories are an input too, and the text checks
+# above cannot see how its glob fills them. Run the hosted verdict step
+# itself over a laid-out set of downloaded shards, with the driver stubbed
+# to print its arguments: it must hand the verdict the manifest and EVERY
+# shard directory exactly once -- the driver then takes one report from
+# each (the --run-dirs tests pin that rule). A step that keeps only the
+# last shard, or passes a shard twice, judges a different run than the one
+# the manifest names.
+@test "coverage verdict parity: the hosted verdict receives every downloaded shard directory once (base#1411)" {
+  local _work="${SCRATCH}/hosted-run" _s
+  _verdict_contexts
+  _run_blocks_matching "${SCRATCH}/hosted.yaml" \
+    'coverage_gate[.]sh[[:space:]]+--verdict' > "${SCRATCH}/hosted-verdict.sh"
+  [ -s "${SCRATCH}/hosted-verdict.sh" ] || fail "the hosted coverage-gate job has no run block with the verdict"
+
+  mkdir -p "${_work}/script/test/drivers"
+  printf '#!/usr/bin/env bash\nprintf "ARG %%s\\n" "$@"\n' \
+    > "${_work}/script/test/drivers/coverage_gate.sh"
+  for _s in coverage-shard-0/kcov-merged coverage-shard-0/run-a \
+            coverage-shard-1/run-a coverage-shard-2/kcov-merged; do
+    mkdir -p "${_work}/coverage-shards/${_s}"
+    : > "${_work}/coverage-shards/${_s}/cobertura.xml"
+  done
+  # A merged timings file beside the shard directories is no shard.
+  : > "${_work}/coverage-shards/timings.tsv"
+
+  run bash -c 'cd "$1" && bash "$2"' _ "${_work}" "${SCRATCH}/hosted-verdict.sh"
+  assert_success
+  [ "${output}" == "$(printf 'ARG %s\n' --verdict test/bats/.shard-weights \
+      ./coverage-shards/coverage-shard-0/ ./coverage-shards/coverage-shard-1/ \
+      ./coverage-shards/coverage-shard-2/)" ] \
+    || fail "the hosted verdict does not receive the manifest and each shard directory once: ${output}"
+}
+
+# why: the floor is an input too. The driver owns COVERAGE_MIN's default
+# (80); a value set in one context and not the others -- a step `env:`, an
+# inline assignment, a justfile `export` -- moves that context's floor
+# while every invocation line stays identical.
+@test "coverage verdict parity: no context overrides the driver's COVERAGE_MIN (base#1411)" {
+  local _f
+  for _f in /source/.github/workflows/self-test.yaml \
+            /source/.github/workflows/coverage-local.yaml \
+            /source/script/test/justfile.test \
+            /source/justfile; do
+    run grep -n 'COVERAGE_MIN' <(_code_lines "${_f}")
+    assert_failure
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════
 # --run-dirs: one report per kcov run directory (base#1409)
 #
 # kcov writes a run's report under <out>/<command>.<hash>/cobertura.xml,
