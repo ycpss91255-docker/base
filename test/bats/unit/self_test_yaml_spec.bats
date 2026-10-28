@@ -2095,9 +2095,10 @@ _host_lint_flags() {
 # _test_sh_argvs --json | --files <path>... -- every call to
 # script/test/test.sh in the shell it is given, one line per call:
 # `<label>\t<arg>\t<arg>...`, the arguments AS THE SHELL PASSES THEM --
-# quotes removed, a backslash-newline joined, a `#` comment dropped, the
-# call ending at the first unquoted `;` `&` `|` `(` `)` or newline, and a
-# `bash -c "..."` string read as the shell it is. `--json` reads yq's
+# quotes removed, `$'...'` escapes decoded and `$"..."` read as "...", a
+# backslash-newline joined, a `#` comment dropped, the call ending at the
+# first unquoted `;` `&` `|` `(` `)` or newline, and a `bash -c "..."`
+# string read as the shell it is. `--json` reads yq's
 # `{job: [run, ...]}` on stdin and labels a call with its job; `--files`
 # reads each file as one script and labels a call with the path.
 #
@@ -2105,7 +2106,9 @@ _host_lint_flags() {
 # whole-word regex over the job's lines passing
 # `test.sh --lint --shellcheck "--shellcheck-only"` (a quoted flag) and
 # missing a flag on a continuation line, while either one ran a lint on
-# the host. Python because the test-tools image carries it for
+# the host. Review round 2 showed the parser keeping the `$` of
+# `$'--shellcheck-only'`, an argument test.sh receives as the bare flag.
+# Python because the test-tools image carries it for
 # dockerfile/toml_bridge.py and its string handling keeps this short.
 _test_sh_argvs() {
   python3 -I /dev/fd/3 "$@" 3<<'PY'
@@ -2113,6 +2116,48 @@ import json
 import sys
 
 SCRIPT = "script/test/test.sh"
+
+SIMPLE = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f",
+          "n": "\n", "r": "\r", "t": "\t", "v": "\v", "\\": "\\",
+          "'": "'", '"': '"', "?": "?"}
+
+
+def ansi_c(text, i):
+    # Bash's $'...' body from index i: (decoded string, index past the
+    # closing quote).
+    out = ""
+    n = len(text)
+    while i < n and text[i] != "'":
+        if text[i] != "\\" or i + 1 >= n:
+            out += text[i]
+            i += 1
+            continue
+        e = text[i + 1]
+        i += 2
+        if e in SIMPLE:
+            out += SIMPLE[e]
+        elif e in "01234567":
+            j = i
+            while j < n and j - i < 2 and text[j] in "01234567":
+                j += 1
+            out += chr(int(e + text[i:j], 8) & 0xFF)
+            i = j
+        elif e in "xuU":
+            width = {"x": 2, "u": 4, "U": 8}[e]
+            j = i
+            while j < n and j - i < width and text[j] in "0123456789abcdefABCDEF":
+                j += 1
+            if j == i:
+                out += "\\" + e
+            else:
+                out += chr(int(text[i:j], 16))
+            i = j
+        elif e == "c" and i < n:
+            out += chr(ord(text[i].upper()) ^ 0x40)
+            i += 1
+        else:
+            out += "\\" + e
+    return out, i + 1
 
 
 def words(text):
@@ -2126,6 +2171,13 @@ def words(text):
             if i + 1 < n and text[i + 1] != "\n":
                 cur = (cur or "") + text[i + 1]
             i += 2
+            continue
+        if c == "$" and i + 1 < n and text[i + 1] == "'":
+            buf, i = ansi_c(text, i + 2)
+            cur = (cur or "") + buf
+            continue
+        if c == "$" and i + 1 < n and text[i + 1] == '"':
+            i += 1
             continue
         if c == "'":
             end = text.find("'", i + 1)
