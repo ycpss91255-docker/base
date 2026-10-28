@@ -3166,7 +3166,7 @@ _kcov_slice_mock() {
     # bash -c string, where one ends the program.)
     COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
-      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= \
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= PER_TEST_TIMEOUT= \
       COVERAGE_JOBS= SHARD_WEIGHTS_BLOB= main --ci
   '
   assert_success
@@ -3811,7 +3811,7 @@ AWK
     # dispatch before the coverage branch is read.
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
       COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
-      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= \
+      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= PER_TEST_TIMEOUT= \
       COVERAGE_JOBS= SHARD_WEIGHTS_BLOB= \
       main --ci
   '
@@ -3945,6 +3945,111 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: base#1412. `--group` narrows `--lint` the way `--hadolint` does;
+# standalone it is a typo, and with a tool it asks for two narrowings of
+# one run. Both refuse before compose, so neither costs an image or runs
+# a lint the caller did not ask for.
+@test "main: --group without --lint, or beside a tool, dies before compose (base#1412)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --group 1/4
+  '
+  assert_failure
+  assert_output --partial "narrows --lint"
+  refute_output --partial "docker should not be called"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --lint --group 1/4 --shellcheck
+  '
+  assert_failure
+  assert_output --partial "two narrowings of --lint"
+  refute_output --partial "docker should not be called"
+}
+
+# why: base#1412. A malformed group spec is refused on the host, before
+# compose: it is a typo, and a typo should cost no image build.
+@test "main: --lint --group refuses a malformed spec before compose (base#1412)" {
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"'"
+    main --lint --group 9/4
+  '
+  assert_failure
+  assert_output --partial "lint group '9/4' is outside its own total"
+  refute_output --partial "docker should not be called"
+}
+
+# why: base#1412. LINT_GROUP is how the in-image lint-static job selects
+# its group; it has to reach `_run_lint_group`, whose refusal of an
+# out-of-range spec is the observable proof that the group branch, not the
+# whole-phase or single-tool branch, took the run.
+@test "main --ci: LINT_GROUP routes the lint-only run to one group (base#1412)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    LINT_ONLY=1 LINT_TOOL= LINT_GROUP=9/4 main --ci
+  '
+  assert_failure
+  assert_output --partial "lint group '9/4' is outside its own total"
+}
+
+# why: base#1412 review round 7. CI lints inside the test-tools image, as
+# the local gate does. A reading of the workflow cannot see every way a
+# step reaches a host arm (a value an earlier step put in $GITHUB_ENV, a
+# step that runs only on some runs), so the one lint dispatch refuses a CI
+# runner's host itself. Every host entry point goes through it: the
+# --<tool>-only family, --hadolint-only, --lint-group and `--ci` run on
+# the host. None of them may reach a driver.
+@test "_run_lint_tool: every host lint entry point is refused on a CI runner (base#1412)" {
+  local _entry
+  local -a _entries=(
+    'main --doc-counts-only'
+    'main --hadolint-only'
+    'main --lint-group 1/4'
+    'LINT_ONLY=1 LINT_TOOL=doc-counts main --ci'
+    'LINT_ONLY=1 LINT_TOOL= LINT_GROUP= main --ci'
+  )
+  for _entry in "${_entries[@]}"; do
+    run env LOG_FORMAT=json bash -c '
+      source /source/script/test/test.sh
+      # Every driver the one dispatch names, read from its own body.
+      for _f in $(declare -f _run_lint_tool | grep -oE "\b_run_[a-z_]+" | sort -u | grep -vx _run_lint_tool); do
+        eval "${_f}() { echo REACHED-DRIVER; }"
+      done
+      [ "$(_run_doc_counts)" = REACHED-DRIVER ] && [ "$(_run_hadolint)" = REACHED-DRIVER ] \
+        || { echo "BUG: the drivers were not stubbed"; exit 0; }
+      export GITHUB_ACTIONS=true
+      '"${_entry}"'
+    '
+    assert_failure
+    assert_output --partial '"body":"ci_host_lint_on_runner"'
+    refute_output --partial "REACHED-DRIVER"
+  done
+}
+
+# why: base#1412 review round 7. The refusal is the runner's mark, not a
+# refusal of host arms: off a runner an operator still times one driver
+# with them.
+@test "_run_lint_tool: off a CI runner a host arm still reaches its driver (base#1412)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_doc_counts() { echo REACHED-DRIVER; }
+    unset GITHUB_ACTIONS
+    main --doc-counts-only
+  '
+  assert_success
+  assert_output --partial "REACHED-DRIVER"
+  refute_output --partial "ci_host_lint_on_runner"
+}
+
 # why: #692 LINT_TOOL validation
 @test "main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)" {
   run bash -c '
@@ -3999,12 +4104,9 @@ AWK
 # why: #864 host-direct primitive so a CI job can run the gate without
 # compose
 @test "main --doc-counts-only: runs the drift gate on the host, no compose (#864)" {
-  # CI-reachability guard. The lint phase runs in `just test`, but no CI job
-  # runs it: the GHA lint jobs are shellcheck (--shellcheck-only) and
-  # hadolint (--lint --hadolint), and every bats job passes BATS_ONLY=1,
-  # which skips the phase. So the gate needs a host-direct primitive the
-  # plain ubuntu-latest runner can call -- the same shape as
-  # --shellcheck-only. Docker must not be touched on this path.
+  # The host-direct arm is kept to time one driver; CI runs the gate with
+  # --lint --doc-counts inside the test-tools image instead (base#1412).
+  # Docker must not be touched on this path.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 

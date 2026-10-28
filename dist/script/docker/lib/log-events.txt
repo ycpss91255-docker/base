@@ -354,6 +354,7 @@ ci_no_hadolint
 ci_lint_tool_without_lint
 ci_unknown_lint_tool
 ci_bad_lint_group
+ci_host_lint_on_runner
 ci_lint_driver_failed
 ci_tooling_build_failed
 ci_lint_phase_failed
