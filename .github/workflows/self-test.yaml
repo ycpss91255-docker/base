@@ -1471,6 +1471,19 @@ jobs:
         with:
           just-version: ${{ steps.just-pin.outputs.version }}
 
+      - name: Check the just on PATH is the pin
+        # Naming the pin is not proof of the binary: ask the `just` the
+        # steps below will run, and compare it to the declaration. This is
+        # also the job's own record that it runs `just`: since base#1409
+        # every `just` verb lives in script/ci/acceptance.sh, and the tool
+        # provenance lint reads a job's `run:` shells, not the repo scripts
+        # they call.
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
       - name: Scaffold a consumer and drive its just verbs (script/ci/acceptance.sh)
         # Every acceptance step -- the toml-bridge build, init.sh into a
         # run-keyed temp repo, the unpinned tooling build (base#1172), the

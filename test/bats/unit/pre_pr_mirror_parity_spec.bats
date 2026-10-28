@@ -756,6 +756,18 @@ _make_report() {
   assert_output --regexp 'run: (bash )?\./script/ci/acceptance\.sh'
 }
 
+# why: Moving every acceptance step into script/ci/acceptance.sh took the
+# job's only `just` invocation out of its `run:` shells, which is all the
+# tool provenance lint reads; the lint then saw no job reach any pinned
+# tool and failed its demand floor. The job runs `just`, so its own shell
+# asks that binary for its version and holds it to the pin.
+@test "acceptance job: checks the just it runs against the pin in its own shell (base#1409)" {
+  run yaml_job_lines "${WF}" acceptance
+  assert_success
+  assert_line --regexp '^ +observed="\$\(just --version\)"$'
+  assert_line --regexp '^ +\./script/ci/test-tools-pins\.sh check JUST_VERSION "\$\{observed\}"$'
+}
+
 @test "acceptance job: just test acceptance runs the same script CI runs (base#1409)" {
   local _recipe
   _recipe="$(_recipe_body acceptance)"
