@@ -329,8 +329,14 @@ COVERAGE_JOBS=2 _run_coverage 1/2 >/dev/null 2>&1'
            on && /^[[:space:]]*- name:/ { exit }
            on { print }')"
   assert [ -n "${_step}" ]
-  run grep -E '^[[:space:]]+COVERAGE_JOBS: ' <<< "${_step}"
-  assert_success
+  # The value, not just the key: CI's slice count IS the local default, or
+  # `just test coverage N/T` deals the same specs into different slices.
+  local _ci_jobs _local_jobs
+  _ci_jobs="$(sed -nE 's/^[[:space:]]+COVERAGE_JOBS:[[:space:]]*"?([^"[:space:]]*)"?[[:space:]]*$/\1/p' <<< "${_step}")"
+  _local_jobs="$(bash -c "$(_driver_prelude)"'
+printf "%s\n" "${_COVERAGE_JOBS_HOSTED_DEFAULT}"')"
+  assert [ -n "${_local_jobs}" ]
+  assert_equal "${_ci_jobs}" "${_local_jobs}"
   run grep -F 'SHARD_WEIGHTS_BLOB: ${{ needs.compute-shards.outputs.weights }}' <<< "${_step}"
   assert_success
   run grep -F './script/test/test.sh --coverage-shard' <<< "${_step}"
@@ -417,14 +423,90 @@ COVERAGE_JOBS=2 _run_coverage 1/2 >/dev/null 2>&1'
   assert_equal "${_ran}" "${_want}"
 }
 
+# why: an explicit EMPTY weights source is a source -- CI's cache-miss
+# shard, which weighs by `@test` count. Encoded, an empty file is an empty
+# blob; a shard that read "no blob" as "no source" would fall through to
+# whatever test/bats/.shard-weights the checkout holds, and partition by
+# timings CI never saw. So: the host forwards the empty blob, and a shard
+# handed one partitions by `@test` count even beside a populated default
+# file.
+@test "parity: an explicitly empty weights file partitions by @test count, not by the checkout's .shard-weights (base#1410)" {
+  local _empty="${BATS_TEST_TMPDIR}/empty-weights"
+  : > "${_empty}"
+
+  # Host: the empty file crosses the compose boundary as an empty blob.
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mock_cmd "docker" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "id" 'echo 1000'
+  run env -u SHARD_WEIGHTS_BLOB bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --coverage-shard 2/3 --shard-weights "$1"
+  ' _ "${_empty}"
+  assert_success
+  run grep -o 'SHARD_WEIGHTS_BLOB=[^ ]*' "${_log}"
+  assert_output "SHARD_WEIGHTS_BLOB="
+
+  # A checkout whose default weights file would move specs between shards.
+  local _root
+  _root="$(_make_parity_root)"
+  printf '%s\n' "5000 test/bats/unit/alpha_spec.bats" \
+    "5000 test/bats/unit/u10_spec.bats" "5000 test/bats/unit/u11_spec.bats" \
+    > "${_root}/test/bats/.shard-weights"
+  # The partition of that checkout under whatever SHARD_WEIGHTS_FILE the
+  # caller's environment holds.
+  local _partition="${BATS_TEST_TMPDIR}/partition.sh"
+  printf '%s\n' 'REPO_ROOT="${BATS_TEST_TMPDIR}/pool"' \
+    '_die() { printf "DIE %s\n" "$*" >&2; exit 1; }' \
+    '_log_warn() { :; }' \
+    'source /source/script/test/drivers/bats.sh' \
+    '_shard_unit_files 2/3' > "${_partition}"
+
+  local _fallback _default
+  _fallback="$(SHARD_WEIGHTS_FILE="${_empty}" bash "${_partition}")"
+  _default="$(env -u SHARD_WEIGHTS_FILE bash "${_partition}")"
+  assert [ -n "${_fallback}" ]
+  assert [ "${_fallback}" != "${_default}" ]
+
+  # Container: the shard handed the empty blob partitions as CI's
+  # cache-miss shard does, not by the checkout's file.
+  run env -u SHARD_WEIGHTS_FILE bash -c '
+    source /source/script/test/test.sh
+    _run_coverage() { bash "${BATS_TEST_TMPDIR}/partition.sh"; }
+    _fix_permissions() { :; }
+    COVERAGE=1 COVERAGE_SHARD=2/3 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
+      COVERAGE_JOBS=4 SHARD_WEIGHTS_BLOB= \
+      BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= PER_TEST_TIMEOUT= main --ci
+  '
+  assert_success
+  assert_equal "$(grep -- '_spec\.bats$' <<< "${output}")" "${_fallback}"
+}
+
 # why: the fetch half of the local path. A job output cannot be
 # downloaded after the run; an artifact can (`gh run download <run> -n
 # shard-weights`), so compute-shards publishes the exact file it encoded.
 @test "self-test.yaml: compute-shards uploads the weights it published as the shard-weights artifact (base#1410)" {
-  run yaml_job_lines "${WF}" compute-shards
+  local _step
+  _step="$(yaml_job_lines "${WF}" compute-shards \
+    | awk '/^[[:space:]]*- name:/ { if (hit) { print blk; exit } blk = $0; next }
+           { blk = blk "\n" $0 }
+           /uses: actions\/upload-artifact/ { hit = 1 }
+           END { if (hit) print blk }')"
+  assert [ -n "${_step}" ]
+  run grep -E '^[[:space:]]+name: shard-weights[[:space:]]*$' <<< "${_step}"
   assert_success
-  assert_output --partial 'actions/upload-artifact'
-  assert_output --regexp 'name: shard-weights($|[^-])'
+  # The file the blob was encoded from, and a dotfile: upload-artifact
+  # skips hidden files unless told otherwise, so without the flag the
+  # artifact would be empty and there would be nothing to download.
+  run grep -E '^[[:space:]]+path: test/bats/\.shard-weights[[:space:]]*$' <<< "${_step}"
+  assert_success
+  run grep -E '^[[:space:]]+include-hidden-files: true[[:space:]]*$' <<< "${_step}"
+  assert_success
 }
 
 # why: the `just` entry. `just test coverage N/T <weights>` is the
