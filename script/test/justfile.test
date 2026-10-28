@@ -153,9 +153,14 @@ metrics metric='':
 # `just` path only.
 #
 # just test coverage -> full Kcov coverage (slow; local / release check).
-# just test coverage 1/4 -> kcov one matrix shard only, the same
-# slice the CI coverage matrix runs; handy to prove the sharded path
-# locally without the full ~8-12min serial kcov run.
+# just test coverage 1/4 -> kcov one matrix shard only; handy to prove the
+# sharded path locally without the full ~8-12min serial kcov run.
+# just test coverage 1/4 <weights> -> the shard CI ran as 1/4: <weights> is
+# the file CI partitioned by (`gh run download <run-id> -n shard-weights
+# -D <dir>` fetches it), forwarded as --shard-weights. A shard runs as
+# COVERAGE_JOBS kcov slices, default the hosted runner's 4, so the same
+# weights and the same N/T run the same specs in the same slices here and
+# on CI (base#1410).
 #
 # Both write into the same coverage/ tree, so the run stamps
 # coverage/.head-sha with the sha it measured AND its scope (`full`, or
@@ -167,10 +172,12 @@ metrics metric='':
 # every spec the run actually walked, not from the argument above: an
 # invocation cannot be trusted to describe a run that anything else --
 # an inherited COVERAGE_SHARD or COVERAGE_PATH, say -- has narrowed.
-coverage shard='':
+coverage shard='' weights='':
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -n '{{shard}}' ]]; then
+    if [[ -n '{{shard}}' && -n '{{weights}}' ]]; then
+      ./script/test/test.sh --coverage-shard '{{shard}}' --shard-weights '{{weights}}'
+    elif [[ -n '{{shard}}' ]]; then
       ./script/test/test.sh --coverage-shard '{{shard}}'
     else
       ./script/test/test.sh --coverage
@@ -197,8 +204,9 @@ coverage shard='':
 #
 # Prefer it over `just test coverage` on a machine with cores to spare --
 # the release path needs a full-scope run, and the serial one is on the
-# critical path of every release. `just test coverage <n>/<total>` remains
-# the way to prove ONE matrix slice locally.
+# critical path of every release. `just test coverage <n>/<total>
+# <weights>` remains the way to run ONE matrix slice locally -- the one CI
+# ran under that name, given CI's weights (base#1410).
 coverage-local jobs='':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -230,11 +238,10 @@ coverage-local jobs='':
 # one. The kcov report goes to a throwaway directory inside the container and
 # is deleted; what you get back is the RUN.
 #
-# The spec you name is the spec that runs -- no shard partition is consulted.
-# That matters locally: without test/bats/.shard-weights (CI restores it from
-# cache, a fresh checkout has none) the greedy-LPT partition differs from CI's,
-# so `just test coverage 1/8` here and shard 1/8 there are different spec sets.
-# This recipe means the same thing in both places.
+# The spec you name is the spec that runs -- no shard partition is consulted,
+# so neither the weights nor the shard count can change it. (A shard is
+# reproduced with `just test coverage <n>/<total> <weights>`, given the
+# weights CI partitioned by, base#1410.)
 #
 # The argument is REQUIRED (contrast `coverage shard=''`): a bare invocation
 # must name the missing spec, not silently kcov the whole suite.

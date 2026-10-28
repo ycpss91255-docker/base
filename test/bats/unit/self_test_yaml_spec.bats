@@ -1178,8 +1178,9 @@ _builder_setups_out_of_step_with_their_consumer() {
   run yaml_job_lines "${WF}" coverage
   assert_success
   refute_output --partial 'actions/cache'
-  assert_output --partial 'needs.compute-shards.outputs.weights'
-  assert_output --partial 'test/bats/.shard-weights'
+  # The one blob reaches the shard's test.sh, which forwards it into the
+  # container that decodes it (base#1410).
+  assert_output --partial 'SHARD_WEIGHTS_BLOB: ${{ needs.compute-shards.outputs.weights }}'
 }
 
 # why: The detector half, and the one that would have caught the defect
