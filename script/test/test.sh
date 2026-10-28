@@ -1172,6 +1172,30 @@ _prev_release_spec_in_shard() {
   _prev_release_spec_in_selection <<< "${_files}"
 }
 
+# _prev_release_spec_in_coverage_shard <n>/<total>
+#   _prev_release_spec_in_shard asked of the partition a kcov coverage
+#   shard runs: the one weighted by the forwarded SHARD_WEIGHTS_BLOB, which
+#   the container decodes before partitioning (_decode_shard_weights_blob)
+#   and so the host decodes too (base#1433). Asked of the checkout's
+#   weights instead, a shard whose blob moved the spec in ran it with no
+#   fixture, and the shard it moved out of paid for one it never read. An
+#   empty blob decodes to an empty file, the `@test`-count partition, as it
+#   does in the container. A blob that does not decode is answered YES, as
+#   an uncomputable partition is: the container refuses that blob anyway,
+#   and of the two guesses only "not needed" can end in a vacuous spec.
+_prev_release_spec_in_coverage_shard() {
+  local _spec="${1:?BUG: _prev_release_spec_in_coverage_shard expects <n>/<total>}"
+  local _wf _rc=0
+  _wf="$(mktemp)"
+  if ! _shard_weights_blob_to_file "${SHARD_WEIGHTS_BLOB:-}" "${_wf}"; then
+    rm -f "${_wf}"
+    return 0
+  fi
+  SHARD_WEIGHTS_FILE="${_wf}" _prev_release_spec_in_shard "${_spec}" || _rc=$?
+  rm -f "${_wf}"
+  return "${_rc}"
+}
+
 # _dispatch_needs_prev_release <coverage>
 #   Whether the compose dispatch about to run will execute that spec.
 #   <coverage> is _run_via_compose's own COVERAGE flag (0 / 1).
@@ -1211,7 +1235,7 @@ _dispatch_needs_prev_release() {
       return
     fi
     if [[ -n "${COVERAGE_SHARD:-}" ]]; then
-      _prev_release_spec_in_shard "${COVERAGE_SHARD}"
+      _prev_release_spec_in_coverage_shard "${COVERAGE_SHARD}"
       return
     fi
     return 0
@@ -1357,6 +1381,17 @@ _measured_coverage_scope() {
   printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
 }
 
+# _shard_weights_blob_to_file <blob> <file> -- write <blob>'s base64
+# decoding to <file>; non-zero when it does not decode. The one decoder for
+# the container's shard (_decode_shard_weights_blob) and the host's
+# fixture gate (_prev_release_spec_in_coverage_shard), so the two cannot
+# read one blob as two different weight sets (base#1433).
+_shard_weights_blob_to_file() {
+  local _blob="${1-}"
+  local _out="${2:?BUG: _shard_weights_blob_to_file expects <blob> <file>}"
+  printf '%s' "${_blob}" | base64 -d > "${_out}" 2>/dev/null
+}
+
 # _decode_shard_weights_blob <blob> -- decode a base64 weights blob (the
 # form compute-shards publishes) into a fresh file and export it as
 # SHARD_WEIGHTS_FILE, the weights _spec_weight reads (base#1410). A temp
@@ -1371,7 +1406,7 @@ _decode_shard_weights_blob() {
   local _blob="${1-}"
   local _wf
   _wf="$(mktemp)"
-  if ! printf '%s' "${_blob}" | base64 -d > "${_wf}" 2>/dev/null; then
+  if ! _shard_weights_blob_to_file "${_blob}" "${_wf}"; then
     rm -f "${_wf}"
     _die ci_invalid_shard_weights_blob \
       "SHARD_WEIGHTS_BLOB does not decode as base64; the shard would partition by different weights from its siblings, so it refuses to run."

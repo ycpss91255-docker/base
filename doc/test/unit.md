@@ -4628,7 +4628,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/prev_release_gating_spec.bats (8)
+### test/bats/unit/prev_release_gating_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
@@ -4640,6 +4640,10 @@ the outer run's value, which is the wrong mode's value.
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: the shard a --shard-weights file gives the spec refuses to start when the tags cannot be resolved` | - |
+| `prev-release gate: a shard a CI weights blob takes the spec away from dispatches with no release tags` | - |
+| `prev-release gate: a shard a --shard-weights file takes the spec away from dispatches with no release tags` | - |
 
 ### test/bats/unit/probe_test_tools_spec.bats (29)
 
