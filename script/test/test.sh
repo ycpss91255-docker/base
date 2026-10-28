@@ -939,8 +939,10 @@ Options:
                           self-test.yaml (#615). The partition weighs
                           specs by F (`<seconds> <spec path>`, CI's
                           shard-weights artifact), else by the ambient
-                          SHARD_WEIGHTS_BLOB, else by test/bats/.shard-
-                          weights or `@test` counts. The shard runs as
+                          SHARD_WEIGHTS_BLOB, else by `@test` counts -- an
+                          empty F or blob included, as on CI's cache
+                          miss; never by the checkout's test/bats/
+                          .shard-weights. The shard runs as
                           COVERAGE_JOBS kcov slices (default 4, the hosted
                           runner's cores), so the same weights and N/T run
                           the same specs in the same slices on any host
@@ -1361,9 +1363,12 @@ _measured_coverage_scope() {
 # file rather than ${REPO_ROOT}/test/bats/.shard-weights: inside the
 # container ${REPO_ROOT} is the mounted checkout. A blob that does not
 # decode is refused, not read as "no weights": that would re-partition the
-# shard by `@test` count while its siblings partition by seconds.
+# shard by `@test` count while its siblings partition by seconds. An
+# EMPTY blob decodes to an empty file, which _spec_weight reads as "no
+# recorded seconds" for every spec: the `@test`-count partition CI's
+# cache-miss shards run.
 _decode_shard_weights_blob() {
-  local _blob="${1:?BUG: _decode_shard_weights_blob expects <blob>}"
+  local _blob="${1-}"
   local _wf
   _wf="$(mktemp)"
   if ! printf '%s' "${_blob}" | base64 -d > "${_wf}" 2>/dev/null; then
@@ -3091,8 +3096,12 @@ main() {
         # the blob CI's compute-shards publishes, or a local
         # `--shard-weights <file>` encoded the same way. It is decoded HERE,
         # the one decoder for both paths, into the file _spec_weight reads.
-        if [[ -n "${SHARD_WEIGHTS_BLOB:-}" ]]; then
-          _decode_shard_weights_blob "${SHARD_WEIGHTS_BLOB}"
+        # A shard decodes it even when it is EMPTY: an empty blob is CI's
+        # cache miss or an empty weights file, and both mean `@test` count.
+        # Left undecoded, _spec_weight would fall back to the checkout's
+        # test/bats/.shard-weights, a source CI's shards never read.
+        if [[ -n "${COVERAGE_SHARD:-}" ]]; then
+          _decode_shard_weights_blob "${SHARD_WEIGHTS_BLOB:-}"
         fi
         if [[ -n "${COVERAGE_LOCAL_JOBS:-}" ]]; then
           _run_coverage_parallel "${COVERAGE_LOCAL_JOBS}"

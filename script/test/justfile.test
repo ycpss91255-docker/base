@@ -154,7 +154,9 @@ metrics metric='':
 #
 # just test coverage -> full Kcov coverage (slow; local / release check).
 # just test coverage 1/4 -> kcov one matrix shard only; handy to prove the
-# sharded path locally without the full ~8-12min serial kcov run.
+# sharded path locally without the full ~8-12min serial kcov run. With no
+# <weights> it partitions by `@test` count -- the partition CI's cache-miss
+# shards run -- never by a checkout's test/bats/.shard-weights.
 # just test coverage 1/4 <weights> -> the shard CI ran as 1/4: <weights> is
 # the file CI partitioned by (`gh run download <run-id> -n shard-weights
 # -D <dir>` fetches it), forwarded as --shard-weights. A shard runs as
