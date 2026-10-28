@@ -125,49 +125,45 @@ _table() {
     "excluded${t}worker-selftest${t}invokes base's reusable build-worker.yaml, which only a GitHub Actions runner can call"
 }
 
+# CI's code_changed pathspecs, as classify passes them to `git diff`:
+# everything outside the documentation allow-list.
+readonly -a _CODE_PATHSPECS=(':!doc/**' ':!README.md' ':!LICENSE' ':!CONTEXT.md')
+
 # _system_pathspecs -- CI's system_relevant pathspecs, one per line. Empty
-# on a failed read, which _plan treats as relevant (CI fails open the same
+# on a failed read, which _gates treats as relevant (CI fails open the same
 # way: "cannot tell" must not mean "skip the job").
 _system_pathspecs() {
   bash "${_MIRROR_ROOT}/script/ci/system_paths.sh" 2>/dev/null || true
 }
 
-# _matches_pathspec <path> <pathspec> -- a git pathspec of the two shapes
-# system_paths.sh emits: `<dir>/**` (anything under <dir>) or a literal
-# path. `**` becomes `*`, which in a [[ ]] pattern already spans `/`.
-_matches_pathspec() {
-  local path="$1" spec="$2"
-  # shellcheck disable=SC2053 # the right-hand side IS the glob
-  [[ "${path}" == ${spec//\*\*/*} ]]
+# _gates <repo> <diff-arg>... -- the CI gates the diff fires, one per line
+# (`code`, `system`), each decided by the `git diff --quiet ... --
+# <pathspecs>` classify itself runs, with the same pathspecs. Git matches
+# the pathspecs against the real names, so nothing here reads a printed
+# file name: an earlier version matched `git diff --name-only` text, and
+# that text dropped a move's source under rename detection and quoted a
+# non-ASCII name under core.quotePath, each one a diff CI gates in and
+# the mirror skipped (base#1409). A failing diff fires the gate, as the
+# `if git diff` form does in CI.
+_gates() {
+  local repo="$1" spec
+  shift
+  local -a specs=()
+  while IFS= read -r spec; do
+    [[ -n "${spec}" ]] && specs+=("${spec}")
+  done < <(_system_pathspecs)
+  git -C "${repo}" diff --quiet "$@" -- "${_CODE_PATHSPECS[@]}" || echo code
+  if (( ${#specs[@]} == 0 )) \
+      || ! git -C "${repo}" diff --quiet "$@" -- "${specs[@]}"; then
+    echo system
+  fi
 }
 
-# _is_code <path> -- CI's classify rule for code_changed: anything outside
-# the documentation pathspecs.
-_is_code() {
-  case "$1" in
-    doc/*|README.md|LICENSE|CONTEXT.md) return 1 ;;
-    *) return 0 ;;
-  esac
-}
-
-# _plan -- read changed paths on stdin, print the commands to run.
-_plan() {
-  local path spec code=0 system=0 specs
-  specs="$(_system_pathspecs)"
-  [[ -n "${specs}" ]] || system=1
-  while IFS= read -r path; do
-    [[ -n "${path}" ]] || continue
-    _is_code "${path}" && code=1
-    (( system )) && continue
-    while IFS= read -r spec; do
-      [[ -n "${spec}" ]] || continue
-      if _matches_pathspec "${path}" "${spec}"; then
-        system=1
-        break
-      fi
-    done <<< "${specs}"
-  done
-
+# _commands <gates> -- the commands to run for the gates _gates printed.
+_commands() {
+  local gates="$1" code=0 system=0
+  grep -qx code <<<"${gates}" && code=1
+  grep -qx system <<<"${gates}" && system=1
   printf '%s\n' "${_CMD_ACTIONLINT}" "${_CMD_TEST}"
   if (( code )); then
     printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_FLOOR}" "${_CMD_UNION}"
@@ -178,6 +174,25 @@ _plan() {
   if (( code )); then
     printf '%s\n' "${_CMD_ACCEPTANCE}"
   fi
+}
+
+# _plan -- read changed paths on stdin, print the commands to run. The
+# paths are staged as empty files into a throwaway repo and classified by
+# the same _gates the run uses, against the empty tree, so --plan and a
+# real run cannot disagree on which gate a path fires (base#1409).
+_plan() {
+  local tmp blob empty path gates
+  tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064 # expand ${tmp} now; it is local to _plan
+  trap "rm -rf '${tmp}'" EXIT
+  git init -q "${tmp}"
+  blob="$(git -C "${tmp}" hash-object -w --stdin </dev/null)"
+  empty="$(git -C "${tmp}" hash-object -t tree /dev/null)"
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] && printf '100644 %s\t%s\0' "${blob}" "${path}"
+  done | git -C "${tmp}" update-index -z --index-info
+  gates="$(_gates "${tmp}" --cached "${empty}")"
+  _commands "${gates}"
 }
 
 # _actionlint -- the actionlint job, image pin and suppressions read from
@@ -219,15 +234,15 @@ _needs_amd64() {
 }
 
 # _run <base> -- plan the diff <base>...HEAD and run it, first red stops.
-# --no-renames: with rename detection a move lists only its destination,
-# so a file moved from dist/ into doc/ read as doc-only and skipped the
-# jobs CI's pathspec diffs run for the removed source (base#1409).
+# The range is checked first, so a base that does not resolve is an error
+# rather than the fail-open "every gate fires" a failing diff gives.
 _run() {
-  local base="$1" diff cmd arch="" not_run=0
-  diff="$(git -C "${_MIRROR_ROOT}" diff --no-renames --name-only "${base}...HEAD")" || {
+  local base="$1" gates cmd arch="" not_run=0
+  if ! git -C "${_MIRROR_ROOT}" merge-base "${base}" HEAD >/dev/null 2>&1; then
     printf 'pre_pr_mirror: cannot diff %s...HEAD in %s\n' "${base}" "${_MIRROR_ROOT}" >&2
     return 2
-  }
+  fi
+  gates="$(_gates "${_MIRROR_ROOT}" "${base}...HEAD")"
   while IFS= read -r cmd; do
     if _needs_amd64 "${cmd}"; then
       [[ -n "${arch}" ]] || arch="$(_daemon_arch)"
@@ -243,7 +258,7 @@ _run() {
       printf 'pre_pr_mirror: RED at: %s\n' "${cmd}" >&2
       return 1
     fi
-  done < <(printf '%s\n' "${diff}" | _plan)
+  done < <(_commands "${gates}")
   if (( not_run )); then
     printf '\npre_pr_mirror: NOT GREEN for %s...HEAD: %d planned command(s) not run, see NOT RUN above\n' \
       "${base}" "${not_run}" >&2
