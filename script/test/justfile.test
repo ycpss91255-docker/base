@@ -216,8 +216,11 @@ coverage-local jobs='':
 # report, and the run-manifest union check, which names every spec the
 # run did not walk -- a spec that ran nowhere cannot move a ratio, so the
 # floor alone cannot see it. The line that runs it is the SAME line the
-# hosted coverage-gate job and the self-hosted coverage-local workflow
-# run; coverage_gate_spec.bats fails if the three drift apart. A
+# hosted coverage-gate job runs, the body below is the self-hosted
+# coverage-local workflow's verdict step verbatim, and the manifest is the
+# one test.sh's coverage run writes; coverage_gate_spec.bats fails if any
+# of that drifts. COVERAGE_MIN is the driver's own default here as in
+# both workflows. A
 # `just test coverage <n>/<total>` slice fails the union check by design:
 # a slice is not the suite.
 #
@@ -228,7 +231,7 @@ coverage-gate:
     manifest=coverage/timings.tsv
     reports=(coverage/kcov-merged/cobertura.xml)
     if [[ ! -f "${reports[0]}" ]]; then
-      echo "no merged report at ${reports[0]} -- run 'just test coverage' first" >&2
+      echo "no merged report at ${reports[0]} -- run a whole-suite coverage run first" >&2
       exit 1
     fi
     bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${reports[@]}"
