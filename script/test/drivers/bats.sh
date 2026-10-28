@@ -597,11 +597,6 @@ _run_coverage() {
   # carries the measurement.
   local _shard_spec="${1:-}"
 
-  # Shared with _run_coverage_path: both runners must instrument the same
-  # tree, or a failure seen here would not reproduce there.
-  local _exclude_path
-  _exclude_path="$(_coverage_exclude_path)"
-
   # kcov WRAPS bats, so this is a bats run like every other one in this
   # driver and takes its arguments from the same helper. It was assembled
   # by hand instead -- one of the two copies here that were (_run_system
@@ -716,9 +711,11 @@ _run_coverage() {
   # (one <testsuite time=...> per file) and convert it to coverage/timings.tsv
   # (`<seconds> <basename>`). The coverage-gate job merges every shard's
   # timings into the SHARD_WEIGHTS_FILE the NEXT run restores, so the
-  # partition self-balances by real time (greedy LPT, ADR-00000008). The
-  # junit report goes to a temp dir (only timings.tsv needs uploading); kcov's
-  # exit code (the actual test result) is preserved so a failing shard fails.
+  # partition self-balances by real time (greedy LPT, ADR-00000008). Each
+  # slice's junit report goes to the scratch dir and _coverage_parallel_merge
+  # joins them into timings.tsv (only that file needs uploading); the worst
+  # slice's kcov exit code (the actual test result) is returned, so a
+  # failing shard fails.
   #
   # ONE KCOV PER SLICE (base#1414). The job count the policy chose is kept,
   # but no bats under kcov runs concurrent jobs: the targets are dealt into
@@ -940,9 +937,11 @@ _coverage_parallel_launch() {
   local _work="${3:?BUG: _coverage_parallel_launch expects <workdir>}"
   shift 3
   local -a _cpl_extra=("$@")
-  # Shared with the serial runner and the single-spec runner: all three must
-  # instrument the same tree, or a figure produced here would not be
-  # comparable with the one the matrix produces.
+  # The one instrumenting kcov call every coverage runner in this driver goes
+  # through -- the shard / full-suite runner, the single-spec runner and
+  # the local parallel runner (base#1414) -- so all three instrument the
+  # same tree, and a failure or figure seen through one is comparable with
+  # the others.
   local _exclude_path
   _exclude_path="$(_coverage_exclude_path)"
   local _i
