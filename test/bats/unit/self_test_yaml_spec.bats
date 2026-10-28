@@ -2321,6 +2321,37 @@ _parity_fixture() {
   assert_output 'lint: --issueref-only'
 }
 
+# why: review round 2 of base#1412. Bash reads `$'...'` as ANSI-C quoting
+# and `$"..."` as a double-quoted string, so test.sh receives the bare
+# flag and takes the host driver; a parser that keeps the `$` sees
+# `$--shellcheck-only` and lets the call through.
+@test "host-arm parity: an ANSI-C or locale quoted host arm is still a host arm (base#1412)" {
+  local _wf
+  _wf="$(_parity_fixture \
+      "      - run: ./script/test/test.sh --lint --shellcheck \$'--shellcheck-only'")"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --shellcheck-only'
+
+  _wf="$(_parity_fixture \
+      "      - run: ./script/test/test.sh \$'\\x2d-lint-group' 1/4")"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --lint-group'
+
+  _wf="$(_parity_fixture \
+      "      - run: ./script/test/test.sh \$'--doc\\055counts\\x2donly'")"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --doc-counts-only'
+
+  _wf="$(_parity_fixture \
+      '      - run: ./script/test/test.sh $"--issueref-only"')"
+  run _host_arm_calls "${_wf}"
+  assert_success
+  assert_output 'lint: --issueref-only'
+}
+
 # why: the other direction. A parser that over-reads -- a flag in a
 # comment, in another command on the next line, or after `;` -- would
 # refuse a workflow that runs every lint in the image.

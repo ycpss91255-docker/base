@@ -5698,7 +5698,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (133)
+### test/bats/unit/self_test_yaml_spec.bats (134)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6116,6 +6116,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |
 | `self-test.yaml: no job runs a lint through a host-direct test.sh arm (base#1412)` | base#1412. Locally the lint phase runs inside the test-tools image; in CI the shellcheck, doc-counts and lint-static jobs ran the same drivers on the ubuntu runner, so a lint could pass one gate and fail the other on the host's tools rather than on the code. The population is derived from the workflow and the flag list from test.sh, so a lint job added tomorrow, or a host arm added tomorrow, falls under the rule. |
 | `host-arm parity: a quoted, continued or bash -c host arm is still a host arm (base#1412)` | review round 1 of base#1412. Each of these runs a lint on the host, and a whole-word match over the job's lines let the first three through: the shell strips the quotes before test.sh sees the flag, and a continuation line is part of the call it continues. |
+| `host-arm parity: an ANSI-C or locale quoted host arm is still a host arm (base#1412)` | review round 2 of base#1412. Bash reads `$'...'` as ANSI-C quoting and `$"..."` as a double-quoted string, so test.sh receives the bare flag and takes the host driver; a parser that keeps the `$` sees `$--shellcheck-only` and lets the call through. |
 | `host-arm parity: a host arm that test.sh is not passed is not a host arm (base#1412)` | the other direction. A parser that over-reads -- a flag in a comment, in another command on the next line, or after `;` -- would refuse a workflow that runs every lint in the image. |
 | `self-test.yaml: every lint job obtains the test-tools image and runs test.sh --lint in it (base#1412)` | base#1412, the positive half. Refusing the host arms alone would be satisfied by a lint job that stopped calling test.sh at all; the job has to reach the image the one way every image job does and run the lint through test.sh's in-container `--lint` path, as hadolint already does. |
 | `test.sh: every host-direct lint arm is kept for a declared reason that holds (base#1412)` | base#1412 requirement 2. The host arms were kept, and "kept for timing" written in a comment is a claim nothing re-reads: an arm a CI job or a recipe starts calling again would keep the comment true-looking while the parity it describes is gone. Each arm is tied to a declared reason here, and the reason is checked against who actually calls it. |
