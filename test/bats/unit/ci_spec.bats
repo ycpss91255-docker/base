@@ -2382,8 +2382,10 @@ END"
 #
 # So these tests assert the SHAPE -- never below the cores, ABOVE them
 # when the machine is small, EQUAL to them when it is large,
-# non-decreasing in between -- and never the constant, which is a figure
-# measured on two machines on one day and will be re-derived.
+# non-decreasing in between. The constants are figures measured on a few
+# machines and will be re-derived, so ONE table test pins them (base#1429):
+# a shape alone passes a floor moved to 16 or 64, and a re-tune should be
+# an edit to that table rather than a drift no test notices.
 # ════════════════════════════════════════════════════════════════════
 
 # why: `nproc` names how many things a machine can COMPUTE at once, and
@@ -2650,7 +2652,8 @@ metered 64 64"
 # bound (base#1429). So the integration runner -- and a single-path run
 # of an integration spec, which must schedule it the same way -- has to be
 # LESS oversubscribed than the unit runner on a small machine, while the
-# unit runner keeps its floor. The shape is asserted, not the constants.
+# unit runner keeps its floor. The shape is asserted, and so are the
+# counts on that runner: 32 for unit, 8 for integration.
 @test "_run_integration_tests / _run_bats_path: an integration run is less oversubscribed than a unit run (#1429)" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   mock_cmd "bats" '
