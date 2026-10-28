@@ -2527,6 +2527,14 @@ END"
     _guessed="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
     _guess_label="$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')"
     assert [ -n "${_guessed}" ]
+    # The fallback is the policy's own floor, not one shared number: a
+    # CPU-bound run that lost its core count must not fall back to the
+    # default floor the hosted runner timed out under (base#1429).
+    if [[ "${_policy}" == "cpu-bound" ]]; then
+      assert [ "${_guessed}" = "8" ]
+    else
+      assert [ "${_guessed}" = "32" ]
+    fi
 
     # Now a machine that genuinely HAS that many cores. Same count, and the
     # label must not be the same sentence -- that is the whole defect.
@@ -2586,6 +2594,56 @@ END"
   assert_output --partial "metered"
 }
 
+# why: the shape tests above would pass a floor of 16 for the CPU-bound
+# policy or 64 for the default, and either is a regression: 16
+# integration jobs on the 4-core hosted runner stretch the slowest test
+# toward the per-test bound again, and a moved default floor changes
+# every unit runner's concurrency (base#1429). So the specified counts
+# are pinned here at representative core counts -- below, at and above
+# each floor -- next to the shapes, and a re-tune is an edit to this
+# table rather than a silent drift.
+@test "_bats_args_with_label: the default floor is 32 and the cpu-bound floor is 8 (#1429)" {
+  mock_cmd "parallel" 'exit 0'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _jobs_of() {
+      local _p="" _n="" _x
+      for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
+      printf "%s\n" "${_n}"
+    }
+    for _policy in parallel cpu-bound metered; do
+      for _c in 1 4 8 16 32 64; do
+        printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
+        chmod +x "'"${MOCK_DIR}"'/nproc"
+        declare -a _args; declare _label
+        _bats_args_with_label _args _label "${_policy}" || exit 1
+        printf "%s %s %s\n" "${_policy}" "${_c}" "$(_jobs_of "${_args[@]}")"
+      done
+    done
+  '
+  assert_success
+  assert_output "parallel 1 32
+parallel 4 32
+parallel 8 32
+parallel 16 32
+parallel 32 32
+parallel 64 64
+cpu-bound 1 8
+cpu-bound 4 8
+cpu-bound 8 8
+cpu-bound 16 16
+cpu-bound 32 32
+cpu-bound 64 64
+metered 1 1
+metered 4 4
+metered 8 8
+metered 16 16
+metered 32 32
+metered 64 64"
+}
+
 # why: the integration suite is not the workload the default floor was
 # measured on. On the 4-core hosted runner it ran at
 # `jobs=32 (floor, over 4 cores)` and tests crossed the 120 s per-test
@@ -2631,6 +2689,10 @@ END"
   assert [ "${_integ}" -ge 4 ]
   # Less oversubscribed than the unit runner.
   assert [ "${_integ}" -lt "${_unit}" ]
+  # And at the specified counts: the unit runner keeps its floor of 32,
+  # the integration runner takes the CPU-bound floor of 8 (base#1429).
+  assert [ "${_unit}" = "32" ]
+  assert [ "${_integ}" = "8" ]
   # A single-path run schedules its suite the way that suite's runner does.
   assert [ "${_path_unit}" = "${_unit}" ]
   assert [ "${_path_integ}" = "${_integ}" ]
