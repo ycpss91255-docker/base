@@ -71,6 +71,17 @@ ARG ALPINE_VERSION=3.22
 # So 3.23 or later needs kcov's bash instrumentation solved first (see #946
 # for the analysis and `--bash-method=DEBUG` as the first lead to cost).
 # 3.22 stays on bash 5.2 and needs nothing.
+#
+# kcov is v43 PLUS ONE BACKPORTED UPSTREAM COMMIT, 76bf685
+# (dockerfile/kcov-76bf685.patch, applied in the kcov-builder stage). v43
+# writes every trace line that carries no `kcov@` marker to its own stderr:
+# the continuation lines of a multi-line trace record, and the pieces of
+# records torn apart by concurrent writers. On CI that stderr is the step
+# output, and a coverage shard printed megabytes of it (base#1414). The
+# commit is taken alone, NOT kcov master: master also carries d52c333,
+# which mis-parses `$'...\'...'` and drops every later line of the file
+# from the valid set. Drop the patch when a kcov release carries 76bf685
+# without that regression.
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
 # THE declaration of the `just` runner version, for this image and for
@@ -236,13 +247,25 @@ RUN case "${TARGETARCH}" in \
 # of every PR. kcov-on-musl was spiked for accuracy + stability: line-rate
 # and per-file covered counts matched the debian kcov baseline within <0.1%
 # (codecov threshold is 1%) and were bit-stable across repeated runs.
+#
+# The apk line retries: the Alpine `main` index fetch has failed
+# intermittently on this stage (base#1414), and a toolchain this size is
+# the longest fetch in the file. The loop stops at the first success and
+# fails the build after the last attempt.
 FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
-RUN apk add --no-cache \
+COPY dockerfile/kcov-76bf685.patch /tmp/kcov-76bf685.patch
+RUN for _try in 1 2 3 4; do \
+      apk add --no-cache \
         cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
-        zlib-dev python3 git && \
+        zlib-dev python3 git && break; \
+      [ "${_try}" -lt 4 ] || exit 1; \
+      echo "apk add failed (attempt ${_try} of 4); retrying in 10 s" >&2; \
+      sleep 10; \
+    done && \
     git clone --depth 1 -b "${KCOV_VERSION}" \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
+    git -C /tmp/kcov apply /tmp/kcov-76bf685.patch && \
     cmake -S /tmp/kcov -B /tmp/kcov/build && \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install
