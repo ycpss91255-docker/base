@@ -2105,6 +2105,13 @@ YAML
 #   * once per matrix leg the runner would run (_lint_probe_legs), with
 #     `matrix.*` resolved from that leg, so a host arm taken on one leg
 #     only is still run;
+#   * within a leg, once per combination of the values each RUNTIME
+#     expression it uses takes (_lint_probe_bindings): a `needs` output,
+#     an input, a matrix key the leg has no value for. A step can branch
+#     on any of them, so none is guessed: their values come from the
+#     workflow (a choice or boolean input) or from the spec's declared
+#     table, and a step using one with neither is not run at all but
+#     reported `unresolved`, which the guard fails on;
 #   * with a `docker` stub first on PATH that records every call and the
 #     TEST_TOOLS_IMAGE it was made under, so a lint sent to the image
 #     leaves a `compose ... run ... ci` call carrying LINT_ONLY=1;
@@ -2278,15 +2285,143 @@ _lint_probe_leg_fits() {
   printf 'yes\n'
 }
 
+# _lint_probe_static <expression> -- succeed when the probe knows the
+# value of <expression> without the run: `env.<name>` (the value resolved
+# so far, empty when the name is unset, as on the runner), the run
+# identity, and a `matrix.<path>` the leg being run (_LP_LEG) holds. Any
+# other expression is a RUNTIME value -- a `needs` output, an input, a
+# matrix key whose values come from an expression -- that a step can
+# branch on, so the probe never gives it a value of its own choosing:
+# _lint_probe_domain has to say which values it takes (base#1412 review
+# round 6 found an unknown expression read as empty, which ran one branch
+# of a step that branched on it and never the other).
+_lint_probe_static() {
+  case "${1}" in
+    env.*|github.run_id|github.run_attempt) return 0 ;;
+    matrix.*)
+      local _value="${_LP_LEG:-}" _seg
+      [ -n "${_value}" ] || _value='{}'
+      local -a _path=()
+      IFS=. read -r -a _path <<< "${1#matrix.}"
+      for _seg in "${_path[@]}"; do
+        _value="$(LP_K="${_seg}" yq -p json -o json -I0 \
+            '.[strenv(LP_K)] // null' <<< "${_value}")"
+      done
+      [ "${_value}" != null ] ;;
+    *) return 1 ;;
+  esac
+}
+
+# _lint_probe_declared_domain <workflow-file>:<job>:<expression> -- the
+# values a runtime expression takes, as a JSON array, for the ones the
+# workflow cannot say itself. Each entry names where its values come from.
+# A runtime expression neither listed here nor derivable from the workflow
+# (_lint_probe_domain) is reported `unresolved` and its step is not run,
+# which the no-host-lint guard fails on.
+_lint_probe_declared_domain() {
+  case "${1}" in
+    # compute-shards' gen step: `N/n` for n = vars.CI_SHARDS, 8 when the
+    # variable is unset. These are the legs at the default count; test.sh
+    # reads every `N/T` through one parser, so another T reaches the same
+    # dispatch.
+    self-test.yaml:coverage:matrix.shard)
+      printf '%s\n' '["1/8","2/8","3/8","4/8","5/8","6/8","7/8","8/8"]' ;;
+    # compute-shards' weights step: empty on a cache miss, else base64 of
+    # test/bats/.shard-weights (`<seconds> <spec>` lines).
+    self-test.yaml:coverage:needs.compute-shards.outputs.weights)
+      printf '%s\n' '["","MSB0ZXN0L2JhdHMvdW5pdC9jaV9zcGVjLmJhdHMK"]' ;;
+    # A free-text workflow_dispatch input: empty means nproc, else a count.
+    coverage-local.yaml:coverage-local:inputs.jobs)
+      printf '%s\n' '["","2"]' ;;
+    *) return 1 ;;
+  esac
+}
+
+# _lint_probe_domain <workflow> <job> <expression> -- the values a runtime
+# expression takes, as a JSON array; fail when nothing says. An
+# `inputs.<name>` of a `choice` input takes its options and of a
+# `boolean` input `true` and `false`, as the workflow declares them;
+# anything else comes from _lint_probe_declared_domain.
+_lint_probe_domain() {
+  local _wf="${1}" _job="${2}" _expr="${3}" _type
+  local _in='((.on.workflow_dispatch.inputs // {})[strenv(LP_N)] // (.on.workflow_call.inputs // {})[strenv(LP_N)] // {})'
+  if [[ "${_expr}" == inputs.* ]]; then
+    _type="$(LP_N="${_expr#inputs.}" yq "${_in}.type // \"\"" "${_wf}")"
+    case "${_type}" in
+      choice)
+        LP_N="${_expr#inputs.}" yq -o json -I0 "[${_in}.options[] | tostring]" "${_wf}"
+        return 0 ;;
+      boolean)
+        printf '%s\n' '["true","false"]'
+        return 0 ;;
+    esac
+  fi
+  _lint_probe_declared_domain "$(basename "${_wf}"):${_job}:${_expr}"
+}
+
+# _lint_probe_runtime_exprs <workflow> <job> <step index> -- every runtime
+# expression (not _lint_probe_static) in the workflow, job and step `env:`
+# and the step's `run:`, once each.
+_lint_probe_runtime_exprs() {
+  local _text _expr
+  local _re='\$\{\{[[:space:]]*([^}]*[^[:space:]}])[[:space:]]*\}\}'
+  _text="$(LP_J="${2}" LP_I="${3}" yq -o json -I0 \
+      '[.env, .jobs[strenv(LP_J)].env, .jobs[strenv(LP_J)].steps[env(LP_I)].env, .jobs[strenv(LP_J)].steps[env(LP_I)].run]' \
+      "${1}")"
+  while [[ "${_text}" =~ ${_re} ]]; do
+    _expr="${BASH_REMATCH[1]}"
+    _text="${_text#*"${BASH_REMATCH[0]}"}"
+    _lint_probe_static "${_expr}" || printf '%s\n' "${_expr}"
+  done | sort -u
+}
+
+# _lint_probe_bindings <workflow> <job> <expression>... -- every
+# combination of the expressions' _lint_probe_domain values, one JSON
+# object {expression: value} per line (`{}` for no expression). Fails,
+# after printing `unresolved<TAB><expression>` for each, when any
+# expression has no domain.
+_lint_probe_bindings() {
+  local _wf="${1}" _job="${2}" _expr _domain _b _v _missing=0
+  shift 2
+  local -a _out=('{}') _next=() _values=()
+  for _expr in "$@"; do
+    if ! _domain="$(_lint_probe_domain "${_wf}" "${_job}" "${_expr}")"; then
+      printf 'unresolved\t%s\n' "${_expr}"
+      _missing=1
+      continue
+    fi
+    mapfile -t _values < <(yq -p json -o json -I0 '.[]' <<< "${_domain}")
+    _next=()
+    for _b in "${_out[@]}"; do
+      for _v in "${_values[@]}"; do
+        _next+=("$(LP_K="${_expr}" LP_V="${_v}" yq -p json -o json -I0 \
+            '.[strenv(LP_K)] = (strenv(LP_V) | from_json)' <<< "${_b}")")
+      done
+    done
+    _out=("${_next[@]}")
+  done
+  (( _missing == 0 )) || return 1
+  printf '%s\n' "${_out[@]}"
+}
+
 # _lint_probe_expr <workflow> <job> <expression> -- the value a `${{ }}`
-# expression stands for in a probe run. `matrix.<key>[.<key>...]` is that
-# path in the leg being run (_LP_LEG, from _lint_probe_legs), `env.<name>`
-# the value resolved so far (_LP_ENV), and the run identity a fixed `1`;
-# anything else is empty, which is what the runner gives an absent context
-# value. These only let the step reach the dispatch it would reach on the
-# runner; which legs exist is _lint_probe_legs's to say.
+# expression stands for in a probe run. A runtime expression takes the
+# value the binding being run (_LP_BIND, from _lint_probe_bindings) gives
+# it. `matrix.<key>[.<key>...]` is that path in the leg being run
+# (_LP_LEG, from _lint_probe_legs), `env.<name>` the value resolved so far
+# (_LP_ENV), and the run identity a fixed `1`. These only let the step
+# reach the dispatch it would reach on the runner; which legs and which
+# bindings exist is _lint_probe_legs's and _lint_probe_bindings's to say.
 _lint_probe_expr() {
   local _expr="${3}" _seg _value
+  # Only a caller inside _lint_probe has an associative _LP_BIND; any other
+  # caller has no binding, and a `-v` on an indexed name would read the
+  # expression as arithmetic.
+  if [[ "$(declare -p _LP_BIND 2>/dev/null)" == 'declare -A'* ]] \
+      && [[ -v "_LP_BIND[${_expr}]" ]]; then
+    printf '%s' "${_LP_BIND[${_expr}]}"
+    return 0
+  fi
   case "${_expr}" in
     matrix.*)
       _value="${_LP_LEG:-}"
@@ -2339,10 +2474,18 @@ _lint_probe_env() {
 #       the step ran `docker compose -f <root>/compose.yaml run ... ci`
 #       with LINT_ONLY=1, under that image, narrowed to that tool / group;
 #   ran<TAB><file>:<job>#<step><TAB><exit status>
-#       one per step run, so a caller can see the population is not empty.
+#       one per step run, so a caller can see the population is not empty;
+#   unresolved<TAB><file>:<job>#<step><TAB><expression>
+#       the step uses a runtime expression no domain is known for, so it
+#       was not run (_lint_probe_bindings).
+#
+# <step> is the step index, then ` matrix=<leg>` for a matrix leg and
+# ` with=<binding>` for a combination of runtime values.
 _lint_probe() {
   local _root="${1}" _wf _job _i _label _run _wd _dir _call _k _status
-  local _LP_LEG _n
+  local _LP_LEG _n _leg_label _bindings_out _b _expr
+  local -a _exprs=() _bindings=()
+  local -A _LP_BIND=()
   shift
   local _stub="${BATS_TEST_TMPDIR}/probe-bin"
   mkdir -p "${_stub}"
@@ -2362,44 +2505,68 @@ STUB
       while IFS= read -r _i; do
         for _n in "${!_legs[@]}"; do
           _LP_LEG="${_legs[_n]}"
-          _label="$(basename "${_wf}"):${_job}#${_i}"
-          [ "${_LP_LEG}" = '{}' ] || _label+=" matrix=${_LP_LEG}"
-          _dir="${BATS_TEST_TMPDIR}/probe/$(basename "${_wf}")/${_job//[^A-Za-z0-9.-]/_}/${_i}.${_n}"
-          mkdir -p "${_dir}/docker"
-          : > "${_dir}/host"
-          _LP_ENV=()
-          _lint_probe_env "${_wf}" '.env' "${_job}"
-          _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].env" "${_job}"
-          _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].steps[${_i}].env" "${_job}"
-          _run="$(LP_J="${_job}" LP_I="${_i}" yq \
-              '.jobs[strenv(LP_J)].steps[env(LP_I)].run' "${_wf}")"
-          _run="$(_lint_probe_subst "${_wf}" "${_job}" "${_run}")"
-          _wd="$(LP_J="${_job}" LP_I="${_i}" yq \
-              '.jobs[strenv(LP_J)].steps[env(LP_I)]["working-directory"] // "."' "${_wf}")"
-          _envargs=(
-            PATH="${_stub}:${PATH}" HOME="${HOME}"
-            GITHUB_ACTIONS=true CI=true GITHUB_WORKSPACE="${_root}"
-            RUNNER_TEMP="${_dir}" GITHUB_OUTPUT="${_dir}/output"
-            GITHUB_ENV="${_dir}/env" GITHUB_STEP_SUMMARY="${_dir}/summary"
-            LINT_PROBE_HOST_LOG="${_dir}/host"
-            LINT_PROBE_DOCKER_DIR="${_dir}/docker"
-          )
-          for _k in "${!_LP_ENV[@]}"; do
-            _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )
-          done
-          _status=0
-          ( cd "${_root}/${_wd}" \
-            && env -i "${_envargs[@]}" timeout 120 \
-                 bash --noprofile --norc -o pipefail -c "${_run}" < /dev/null ) \
-            > "${_dir}/log" 2>&1 || _status=$?
-          printf 'ran\t%s\t%s\n' "${_label}" "${_status}"
-          while IFS= read -r _k; do
-            printf 'host\t%s\t%s\n' "${_label}" "${_k}"
-          done < "${_dir}/host"
-          for _call in "${_dir}"/docker/call.*; do
-            [ -f "${_call}" ] || continue
-            mapfile -d '' -t _a < "${_call}"
-            _lint_probe_image_call "${_root}" "${_label}" "${_a[@]}"
+          _leg_label="$(basename "${_wf}"):${_job}#${_i}"
+          [ "${_LP_LEG}" = '{}' ] || _leg_label+=" matrix=${_LP_LEG}"
+          mapfile -t _exprs < <(_lint_probe_runtime_exprs "${_wf}" "${_job}" "${_i}")
+          if ! _bindings_out="$(_lint_probe_bindings "${_wf}" "${_job}" "${_exprs[@]}")"; then
+            # A runtime value with no known values: the step is not run
+            # under a guess. The line is the guard's to fail on.
+            while IFS=$'\t' read -r _k _expr; do
+              [ "${_k}" = unresolved ] \
+                && printf 'unresolved\t%s\t%s\n' "${_leg_label}" "${_expr}"
+            done <<< "${_bindings_out}"
+            continue
+          fi
+          mapfile -t _bindings <<< "${_bindings_out}"
+          for _b in "${!_bindings[@]}"; do
+            _LP_BIND=()
+            # Key and value as alternating base64 lines: base64 has no
+            # newline, so each reads back whole.
+            while IFS= read -r _k && IFS= read -r _expr; do
+              _LP_BIND["$(printf '%s' "${_k}" | base64 -d)"]="$(printf '%s' "${_expr}" | base64 -d)"
+            done < <(yq -p json 'to_entries | .[] | [(.key | @base64), (.value | tostring | @base64)] | .[]' <<< "${_bindings[_b]}")
+            _label="${_leg_label}"
+            [ "${_bindings[_b]}" = '{}' ] || _label+=" with=${_bindings[_b]}"
+            _dir="${BATS_TEST_TMPDIR}/probe/$(basename "${_wf}")/${_job//[^A-Za-z0-9.-]/_}/${_i}.${_n}.${_b}"
+            # A fresh directory per run: a call left by an earlier probe of
+            # the same step would be read as this run's.
+            rm -rf "${_dir}"
+            mkdir -p "${_dir}/docker"
+            : > "${_dir}/host"
+            _LP_ENV=()
+            _lint_probe_env "${_wf}" '.env' "${_job}"
+            _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].env" "${_job}"
+            _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].steps[${_i}].env" "${_job}"
+            _run="$(LP_J="${_job}" LP_I="${_i}" yq \
+                '.jobs[strenv(LP_J)].steps[env(LP_I)].run' "${_wf}")"
+            _run="$(_lint_probe_subst "${_wf}" "${_job}" "${_run}")"
+            _wd="$(LP_J="${_job}" LP_I="${_i}" yq \
+                '.jobs[strenv(LP_J)].steps[env(LP_I)]["working-directory"] // "."' "${_wf}")"
+            _envargs=(
+              PATH="${_stub}:${PATH}" HOME="${HOME}"
+              GITHUB_ACTIONS=true CI=true GITHUB_WORKSPACE="${_root}"
+              RUNNER_TEMP="${_dir}" GITHUB_OUTPUT="${_dir}/output"
+              GITHUB_ENV="${_dir}/env" GITHUB_STEP_SUMMARY="${_dir}/summary"
+              LINT_PROBE_HOST_LOG="${_dir}/host"
+              LINT_PROBE_DOCKER_DIR="${_dir}/docker"
+            )
+            for _k in "${!_LP_ENV[@]}"; do
+              _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )
+            done
+            _status=0
+            ( cd "${_root}/${_wd}" \
+              && env -i "${_envargs[@]}" timeout 120 \
+                   bash --noprofile --norc -o pipefail -c "${_run}" < /dev/null ) \
+              > "${_dir}/log" 2>&1 || _status=$?
+            printf 'ran\t%s\t%s\n' "${_label}" "${_status}"
+            while IFS= read -r _k; do
+              printf 'host\t%s\t%s\n' "${_label}" "${_k}"
+            done < "${_dir}/host"
+            for _call in "${_dir}"/docker/call.*; do
+              [ -f "${_call}" ] || continue
+              mapfile -d '' -t _a < "${_call}"
+              _lint_probe_image_call "${_root}" "${_label}" "${_a[@]}"
+            done
           done
         done
       done < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps // [] | to_entries | .[]
@@ -2432,6 +2599,44 @@ _lint_probe_image_call() {
   (( _run == 1 && _lint == 1 )) || return 0
   [[ "${_file}" == "${_root}/compose.yaml" ]] || return 0
   printf 'image\t%s\t%s\t%s|%s\n' "${_label}" "${_image}" "${_tool}" "${_group}"
+}
+
+# _lint_probe_selection_errors <probe output> <file>:<job> <tool> [<key>]
+# -- one line per run of <job> (a leg, and a combination of runtime values)
+# whose image lints are not exactly `<tool>|<group>`, where <group> is the
+# leg's `matrix.<key>` (empty without <key>). Nothing when every run lints
+# its own selection. A job whose legs all lint one group, or that lints
+# nothing on one leg, is the image half of the parity done wrong: CI then
+# skips a lint the local gate runs (base#1412 review round 6).
+_lint_probe_selection_errors() {
+  local _probe="${1}" _job="${2}" _tool="${3}" _key="${4:-}"
+  local _kind _label _rest _run _leg _want _got
+  local -A _seen=()
+  while IFS=$'\t' read -r _kind _label _rest; do
+    [[ "${_kind}" == ran && "${_label}" == "${_job}#"* ]] || continue
+    # One run of the job: its label less the step index.
+    _run="${_label#"${_job}#"}"
+    _run="${_run#"${_run%%[!0-9]*}"}"
+    [ -z "${_seen[x${_run}]:-}" ] || continue
+    _seen["x${_run}"]=1
+    _want="${_tool}|"
+    if [ -n "${_key}" ]; then
+      _leg='{}'
+      if [[ "${_run}" == *" matrix="* ]]; then
+        _leg="${_run#* matrix=}"
+        _leg="${_leg%% with=*}"
+      fi
+      _want+="$(LP_K="${_key}" yq -p json '.[strenv(LP_K)] // ""' <<< "${_leg}")"
+    fi
+    _got="$(awk -F'\t' -v j="${_job}#" -v r="${_run}" '
+        $1 == "image" && index($2, j) == 1 {
+          l = substr($2, length(j) + 1); sub(/^[0-9]+/, "", l)
+          if (l == r) print $4
+        }' <<< "${_probe}" | sort -u)"
+    [ "${_got}" = "${_want}" ] \
+      || printf '  %s%s: lints [%s] in the image, not [%s]\n' \
+           "${_job}" "${_run}" "${_got//$'\n'/, }" "${_want}"
+  done <<< "${_probe}"
 }
 
 # why: base#1412, the negative half. No step of any workflow may reach a
@@ -2473,6 +2678,12 @@ _lint_probe_image_call() {
   _host="$(grep "^host"$'\t' <<< "${output}" || true)"
   [ -z "${_host}" ] \
     || fail "these steps run a lint on the host instead of inside the test-tools image the local gate uses:"$'\n'"${_host}"
+  # A step on a runtime value the probe has no values for was not run, so
+  # its verdict is unknown, not clean (base#1412 review round 6).
+  local _unresolved
+  _unresolved="$(grep "^unresolved"$'\t' <<< "${output}" || true)"
+  [ -z "${_unresolved}" ] \
+    || fail "these steps use a runtime value the probe has no values for, so it did not run them; give each one its values in _lint_probe_declared_domain:"$'\n'"${_unresolved}"
 }
 
 # why: base#1412, the positive half. Not linting on the host would also be
@@ -2525,6 +2736,25 @@ _lint_probe_image_call() {
     [[ "${output}" == *'./script/ci/reclaim.sh --run "${CI_RUN_KEY}"'* ]] \
       || _bad+=$'\n'"  ${_job}: does not reclaim its run's docker artifacts"
   done
+  # Each run lints its own selection, so the jobs together lint what the
+  # local gate does (base#1412 review round 6): the single-tool jobs their
+  # tool, and every lint-static leg its own group of one whole partition.
+  local _errs
+  _errs="$(
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:shellcheck shellcheck
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:doc-counts doc-counts
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:hadolint hadolint
+    _lint_probe_selection_errors "${_probe}" self-test.yaml:lint-static '' group
+  )"
+  [ -z "${_errs}" ] || _bad+=$'\n'"${_errs}"
+  local -a _groups=()
+  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}" | sort -t/ -n -k1,1)
+  local _want_groups="" _n
+  for ((_n = 1; _n <= ${#_groups[@]}; _n++)); do
+    _want_groups+="${_n}/${#_groups[@]}"$'\n'
+  done
+  [ "$(printf '%s\n' "${_groups[@]}")" = "${_want_groups%$'\n'}" ] \
+    || _bad+=$'\n'"  lint-static: its matrix groups '${_groups[*]}' are not one whole partition 1/T..T/T"
   [ -z "${_bad}" ] \
     || fail "every lint job must run inside the test-tools image, as the local lint phase does:${_bad}"
 }
@@ -2532,11 +2762,12 @@ _lint_probe_image_call() {
 # _lint_probe_fixture <run line>... -- a one-job workflow (job `lint`)
 # with the self-test.yaml run identity, whose one step runs the given
 # lines as a block scalar. Prints its path. With LP_FIXTURE_MATRIX set
-# to a flow mapping, the job carries it as `strategy.matrix`.
+# to a flow mapping, the job carries it as `strategy.matrix`; with
+# LP_FIXTURE_ON set to a flow mapping, the workflow carries it as `on:`.
 _lint_probe_fixture() {
   local _wf="${BATS_TEST_TMPDIR}/fixture.yaml" _line
   {
-    printf '%s\n' 'on: push' 'env:' \
+    printf '%s\n' "on: ${LP_FIXTURE_ON:-push}" 'env:' \
       '  TEST_TOOLS_IMAGE: test-tools:ci-${{ github.run_id }}-${{ github.run_attempt }}' \
       '  COMPOSE_PROJECT_NAME: base-ci-${{ github.run_id }}-${{ github.run_attempt }}' \
       'jobs:' '  lint:' '    runs-on: ubuntu-latest'
@@ -2622,6 +2853,84 @@ _lint_probe_fixture() {
   refute_output --partial $'host\t'
   [ "$(grep -c "^ran"$'\t' <<< "${output}")" -eq 1 ] \
     || fail "an exclude left one leg, but the probe ran another count:"$'\n'"${output}"
+}
+
+# why: base#1412 review round 6. A step can branch on a value only the
+# run has -- a `needs` output, an input -- and reading that value as empty
+# ran one branch and never the other, so a host lint behind the other
+# passed. A value the workflow declares (a boolean or choice input) is run
+# under every value it takes; one nothing declares is not run under a
+# guess but reported `unresolved`.
+@test "lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+
+  _wf="$(_lint_probe_fixture \
+      'if [ "${{ needs.classify.outputs.code_changed }}" = true ]; then' \
+      '  ./script/test/test.sh --doc-counts-only' \
+      'else' \
+      '  ./script/test/test.sh --lint --doc-counts' \
+      'fi')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  assert_output --partial $'unresolved\tfixture.yaml:lint#0\tneeds.classify.outputs.code_changed'
+  refute_output --partial $'ran\t'
+
+  local _on _case
+  local -a _ons=(
+    '{workflow_dispatch: {inputs: {mode: {type: boolean}}}}|true'
+    '{workflow_dispatch: {inputs: {mode: {type: choice, options: [a, b]}}}}|b'
+    '{workflow_call: {inputs: {mode: {type: boolean}}}}|true'
+  )
+  for _case in "${_ons[@]}"; do
+    _on="${_case%|*}"
+    _wf="$(LP_FIXTURE_ON="${_on}" _lint_probe_fixture \
+        'if [ "${{ inputs.mode }}" = '"${_case##*|}"' ]; then' \
+        '  ./script/test/test.sh --doc-counts-only' \
+        'else' \
+        '  ./script/test/test.sh --lint --doc-counts' \
+        'fi')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    grep -q "^host"$'\t'"fixture.yaml:lint#0 with=.*"$'\t'"doc-counts$" <<< "${output}" \
+      || fail "the probe did not run the host branch of on: ${_on}:"$'\n'"${output}"
+    grep -q "^image"$'\t'"fixture.yaml:lint#0 with=.*"$'\t'"doc-counts|$" <<< "${output}" \
+      || fail "the probe did not run the image branch of on: ${_on}:"$'\n'"${output}"
+  done
+}
+
+# why: base#1412 review round 6. Every leg reaching the image is not every
+# lint being run: a matrix whose legs all lint one group skips the others.
+# The selection check holds each leg to its own group.
+@test "lint probe: a matrix leg that lints another leg's group is caught (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/2', '2/2']}" _lint_probe_fixture \
+      './script/test/test.sh --lint --group 1/2')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
+  assert_success
+  assert_output --partial '"group":"2/2"'
+  assert_output --partial 'lints [|1/2] in the image, not [|2/2]'
+  refute_output --partial '"group":"1/2"'
+
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/2', '2/2']}" _lint_probe_fixture \
+      './script/test/test.sh --lint --group "${{ matrix.group }}"')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
+  assert_success
+  assert_output ''
+
+  # A leg that lints nothing in the image is caught too.
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/2', '2/2']}" _lint_probe_fixture \
+      'if [ "${{ matrix.group }}" = 1/2 ]; then ./script/test/test.sh --lint --group 1/2; fi')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  run _lint_probe_selection_errors "${output}" fixture.yaml:lint '' group
+  assert_success
+  assert_output --partial 'lints [] in the image, not [|2/2]'
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {

@@ -5775,7 +5775,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (132)
+### test/bats/unit/self_test_yaml_spec.bats (134)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6195,6 +6195,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: every lint job runs its lint inside the test-tools image (base#1412)` | base#1412, the positive half. Not linting on the host would also be satisfied by a lint job that stopped linting. Each lint job has to reach the image the one way every image job does and run its lint there: the probe has to see `compose run ... ci` with LINT_ONLY=1 under the workflow's own TEST_TOOLS_IMAGE, which is the image compose.yaml's `ci` service runs. |
 | `lint probe: a host lint is seen under every spelling, and --lint is not one (base#1412)` | the spellings that each got past the text parser this probe replaces (review rounds 1-3 of base#1412), plus the two host paths a parser of flags never modelled at all: `--ci` run on the host, and a host group. Every one of them must land in the host log, and the plain `--lint` form must not. |
 | `lint probe: a host lint on any one matrix leg is seen (base#1412)` | base#1412 review round 4. A matrix job runs its steps once per leg, and a step can take a host arm on one leg only. Every leg the runner would run has to be run here: the cartesian product of the matrix's lists, less `exclude`, with `include` merged into the legs it matches or added as legs of its own. |
+| `lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)` | base#1412 review round 6. A step can branch on a value only the run has -- a `needs` output, an input -- and reading that value as empty ran one branch and never the other, so a host lint behind the other passed. A value the workflow declares (a boolean or choice input) is run under every value it takes; one nothing declares is not run under a guess but reported `unresolved`. |
+| `lint probe: a matrix leg that lints another leg's group is caught (base#1412)` | base#1412 review round 6. Every leg reaching the image is not every lint being run: a matrix whose legs all lint one group skips the others. The selection check holds each leg to its own group. |
 | `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | - |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
