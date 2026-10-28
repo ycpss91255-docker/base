@@ -56,11 +56,13 @@
 #                     matrix, each run as the coverage job runs it: the same
 #                     shard count, the same `--coverage-shard <n>/<total>`
 #                     command and the same COVERAGE_JOBS kcov slices -- then
-#                     coverage-gate's three steps over the shard trees: the
-#                     floor (coverage_gate.sh --run-dirs, the command CI
-#                     runs over its downloaded shard directories), the
-#                     timings merge, and the shard-union check over the
-#                     merged manifest. And `just test acceptance`, the amd64
+#                     coverage-gate's two steps over the shard trees, as CI
+#                     runs them over its downloaded shard directories: the
+#                     timings merge into the run manifest, then the ONE
+#                     coverage verdict (coverage_gate.sh --verdict: the
+#                     floor and the shard-union check, base#1411) -- the
+#                     same entry point CI, the self-hosted workflow and
+#                     `just test coverage-gate` end with. And `just test acceptance`, the amd64
 #                     acceptance scaffold. "Code changed" is CI's own
 #                     classify rule: any path outside doc/**, README.md,
 #                     LICENSE and CONTEXT.md, and it is the `if:` CI puts on
@@ -116,9 +118,8 @@ readonly _MIRROR_WORKFLOW="${_MIRROR_ROOT}/.github/workflows/self-test.yaml"
 readonly _CMD_ACTIONLINT='./script/ci/pre_pr_mirror.sh --actionlint'
 readonly _CMD_TEST='just test'
 readonly _CMD_COVERAGE='./script/ci/pre_pr_mirror.sh --coverage-matrix'
-readonly _CMD_FLOOR='bash ./script/test/drivers/coverage_gate.sh --run-dirs coverage-shards/*/'
 readonly _CMD_MERGE='bash ./script/test/drivers/coverage_gate.sh --merge-timings coverage-shards/timings.tsv coverage-shards/*/timings.tsv'
-readonly _CMD_UNION='./script/test/test.sh --coverage-union-check coverage-shards/timings.tsv'
+readonly _CMD_VERDICT='bash ./script/test/drivers/coverage_gate.sh --verdict coverage-shards/timings.tsv coverage-shards/*/'
 
 # Where --coverage-matrix keeps each shard's coverage/ tree, as
 # coverage-gate's download step lays the shard artifacts out.
@@ -147,7 +148,7 @@ _table() {
     "attested${t}bats-fragile${t}${_CMD_TEST}" \
     "attested${t}bats-integration${t}${_CMD_TEST}" \
     "attested${t}coverage${t}${_CMD_COVERAGE}" \
-    "attested${t}coverage-gate${t}${_CMD_FLOOR} && ${_CMD_MERGE} && ${_CMD_UNION}" \
+    "attested${t}coverage-gate${t}${_CMD_MERGE} && ${_CMD_VERDICT}" \
     "attested${t}system${t}${_CMD_SYSTEM}" \
     "attested${t}acceptance${t}${_CMD_ACCEPTANCE}" \
     "excluded${t}acceptance/arm64${t}the native arm64 runner leg; a local run measures the host's own arch, and there is no local arm64 runner to stand in for it" \
@@ -197,7 +198,7 @@ _commands() {
   grep -qx system <<<"${gates}" && system=1
   printf '%s\n' "${_CMD_ACTIONLINT}" "${_CMD_TEST}"
   if (( code )); then
-    printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_FLOOR}" "${_CMD_MERGE}" "${_CMD_UNION}"
+    printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_MERGE}" "${_CMD_VERDICT}"
   fi
   if (( system )); then
     printf '%s\n' "${_CMD_SYSTEM}"

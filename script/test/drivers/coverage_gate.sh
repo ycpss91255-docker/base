@@ -270,8 +270,9 @@ _coverage_gate_run_dirs() {
 # _coverage_verdict <manifest> <run-dir>... -- THE coverage verdict, the
 # one every environment that decides on a coverage run reaches (base#1411):
 # the GitHub-hosted coverage-gate job, the self-hosted coverage-local
-# workflow and `just test coverage-gate` all call `--verdict` the same
-# way, so a check added here reaches all of them at once.
+# workflow, `just test coverage-gate` and the pre-PR mirror's coverage-gate
+# leg all call `--verdict` the same way, so a check added here reaches all
+# of them at once.
 #
 # It is two checks, and both always run so one red run reports both:
 #   1. the floor: _coverage_gate_run_dirs over <run-dir>... against
@@ -301,12 +302,12 @@ _coverage_verdict() {
 
 # Standalone CLI: when executed directly, `--verdict <manifest>
 # <run-dir>...` runs the whole coverage verdict (see _coverage_verdict);
-# this is the form every workflow and recipe uses. `--run-dirs <dir>...`
-# runs the floor alone over one report per run directory (the pre-PR
-# mirror's coverage-gate leg), and bare report paths run the floor alone
-# over those reports. `--merge-timings <out> <in>...` aggregates per-shard
-# timings (the coverage-gate job calls it ahead of the verdict to build
-# the run manifest). When sourced, this guard is false so only the
+# this is the form every workflow, recipe and the pre-PR mirror use.
+# `--run-dirs <dir>...` runs the floor alone over one report per run
+# directory, and bare report paths run the floor alone over those reports.
+# `--merge-timings <out> <in>...` aggregates per-shard timings (the
+# coverage-gate job and the pre-PR mirror call it ahead of the verdict to
+# build the run manifest). When sourced, this guard is false so only the
 # functions above are defined.
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   case "${1:-}" in
