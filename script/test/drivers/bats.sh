@@ -80,11 +80,10 @@ _bats_args_with_label() {
   # concurrent but its tests compute rather than wait, so the floor that
   # keeps a waiting suite's pipe full only stretches each test's wall time
   # toward the per-test bound -- today the integration suite (base#1429),
-  # which takes a lower floor, max(cores, 8).
-  # Declaring the policy HERE is the point:
-  # `--jobs` and its fallback message keep one writer, so a run that must
-  # not be parallel says so in the same vocabulary as one that cannot be,
-  # instead of quietly assembling a different command.
+  # which takes a lower floor, max(cores, 8). Declaring the policy HERE is
+  # the point: `--jobs` and its fallback message keep one writer, so a run
+  # that must not be parallel says so in the same vocabulary as one that
+  # cannot be, instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
   # through to the parallel branch is precisely the silent wrong answer
   # this argument exists to prevent. `${3-parallel}` and not `${3:-...}`,
@@ -268,11 +267,11 @@ _run_bats_path() {
   # A path inside the integration suite is scheduled the way
   # _run_integration_tests schedules that suite (base#1429), so a
   # single-spec rerun of a CI failure runs at the same job count.
-  local _policy=parallel
-  case "${BATS_FILE:-}" in
-    test/bats/integration|test/bats/integration/*|\
-    ./test/bats/integration|./test/bats/integration/*)
-      _policy=cpu-bound ;;
+  # A leading `./` is the same repo-root-relative path, so it is dropped
+  # before the match rather than spelled out as two more patterns.
+  local _policy=parallel _target="${BATS_FILE:-}"
+  case "${_target#./}" in
+    test/bats/integration|test/bats/integration/*) _policy=cpu-bound ;;
   esac
   _bats_args_with_label _bats_args _label "${_policy}"
   [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
