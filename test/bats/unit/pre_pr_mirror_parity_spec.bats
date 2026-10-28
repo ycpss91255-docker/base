@@ -396,6 +396,35 @@ ran:
 $(cat "${SCRATCH}/ran")"
 }
 
+# why: The mirror classified the diff by matching `git diff --name-only`
+# text against the pathspecs, and git quotes a non-ASCII name in that text
+# under core.quotePath, so a change to only dist/<non-ASCII>.sh read as a
+# quoted string that matched no pathspec and skipped `system`, while CI's
+# pathspec diff sees the real file and runs it (base#1409 review round 5).
+# core.quotePath is forced on so a user config that turns it off cannot
+# hide the gap.
+@test "pre-PR mirror: a change to only a non-ASCII dist/ path plans what CI runs for it (base#1409)" {
+  _require_mirror
+  local _base _want _missing=""
+  _base="$(_make_mirror_repo)"
+  mkdir -p "${SCRATCH}/repo/dist"
+  printf 'true\n' > "${SCRATCH}/repo/dist/"$'\xe6\xb8\xac\xe8\xa9\xa6'".sh"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m non-ascii
+  _stub_bash ""
+  _stub_docker x86_64
+  run env PATH="${SCRATCH}/bin:${PATH}" \
+      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true \
+      "$(command -v bash)" "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_success
+  for _want in 'just test coverage' 'just test system' 'just test acceptance'; do
+    grep -Fxq -- "${_want}" "${SCRATCH}/ran" || _missing+=" '${_want}'"
+  done
+  [[ -z "${_missing}" ]] || fail "a non-ASCII dist/ change skipped:${_missing}
+ran:
+$(cat "${SCRATCH}/ran")"
+}
+
 # why: A mirror that carries on past a red command, or exits 0 after one,
 # stamps a green it did not earn.
 @test "pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)" {
