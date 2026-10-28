@@ -167,12 +167,12 @@ EOF
 # answers 124, so a hang fails the status check instead of hanging the
 # suite. And each run's value is asserted present in .env, whole, before
 # the two generated sets are compared -- a comparison alone passes an
-# emitter that drops the entry from both runs. Skipped under kcov: the
-# value goes into the bash trace, and in a coverage shard that trace
-# reaches stdout as lines of up to 1 MiB, which hung shard 7/12 of CI run
-# 40470315196. The bats-fragile job runs it plain.
+# emitter that drops the entry from both runs. It runs under kcov as well
+# as plain: the value goes into the bash trace, and a coverage shard whose
+# concurrent jobs shared one kcov printed that trace as lines of up to
+# 1 MiB, which hung shard 7/12 of CI run 40470315196. Each slice now has a
+# kcov of its own (base#1414), so the test is not skipped there.
 @test "a 1 MiB value finishes within 60 s and generates what a short value does" {
-  [ "${COVERAGE:-0}" = 1 ] && skip "1 MiB trace floods the kcov shard's stdout (#1408)"
   local _short="abcdefgh"
   printf '[environment]\nenv_1 = "GREETING=%s"\n' "${_short}" > "${CONF}"
   _apply
