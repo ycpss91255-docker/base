@@ -2385,14 +2385,18 @@ _lint_probe_image_call() {
 
 # _lint_probe_fixture <run line>... -- a one-job workflow (job `lint`)
 # with the self-test.yaml run identity, whose one step runs the given
-# lines as a block scalar. Prints its path.
+# lines as a block scalar. Prints its path. With LP_FIXTURE_MATRIX set
+# to a flow mapping, the job carries it as `strategy.matrix`.
 _lint_probe_fixture() {
   local _wf="${BATS_TEST_TMPDIR}/fixture.yaml" _line
   {
     printf '%s\n' 'on: push' 'env:' \
       '  TEST_TOOLS_IMAGE: test-tools:ci-${{ github.run_id }}-${{ github.run_attempt }}' \
       '  COMPOSE_PROJECT_NAME: base-ci-${{ github.run_id }}-${{ github.run_attempt }}' \
-      'jobs:' '  lint:' '    runs-on: ubuntu-latest' '    steps:' '      - run: |'
+      'jobs:' '  lint:' '    runs-on: ubuntu-latest'
+    [ -z "${LP_FIXTURE_MATRIX:-}" ] \
+      || printf '%s\n' '    strategy:' "      matrix: ${LP_FIXTURE_MATRIX}"
+    printf '%s\n' '    steps:' '      - run: |'
     for _line in "$@"; do
       printf '          %s\n' "${_line}"
     done
@@ -2417,6 +2421,8 @@ _lint_probe_fixture() {
     "bash -c './script/test/test.sh --issueref-only'"
     './script/test/test.sh --lint-group 1/4'
     'LINT_ONLY=1 LINT_TOOL=doc-counts ./script/test/test.sh --ci'
+    'source ./script/test/test.sh'$'\n''main --doc-counts-only'
+    '. ./script/test/test.sh && main --lint-group 1/4'
   )
   local _case
   local -a _lines=()
@@ -2434,6 +2440,42 @@ _lint_probe_fixture() {
   assert_success
   refute_output --partial $'host\t'
   assert_output --partial $'image\tfixture.yaml:lint#0\ttest-tools:ci-1-1\tshellcheck|'
+}
+
+# why: base#1412 review round 4. A matrix job runs its steps once per
+# leg, and a step can take a host arm on one leg only. Every leg the
+# runner would run has to be run here: the cartesian product of the
+# matrix's lists, less `exclude`, with `include` merged into the legs it
+# matches or added as legs of its own.
+@test "lint probe: a host lint on any one matrix leg is seen (base#1412)" {
+  local _root _wf
+  _root="$(_lint_probe_root)" || fail "${_root}"
+  local -a _matrices=(
+    "{group: ['1/4', '2/4']}"
+    "{group: ['1/4', '2/4'], os: [a, b], exclude: [{group: '1/4', os: b}]}"
+    "{include: [{group: '1/4'}, {group: '2/4'}]}"
+    "{group: ['1/4'], include: [{group: '2/4'}]}"
+  )
+  local _m
+  for _m in "${_matrices[@]}"; do
+    _wf="$(LP_FIXTURE_MATRIX="${_m}" _lint_probe_fixture \
+        'if [ "${{ matrix.group }}" = 2/4 ]; then ./script/test/test.sh --doc-counts-only; fi')"
+    run _lint_probe "${_root}" "${_wf}"
+    assert_success
+    grep -q "^host"$'\tfixture.yaml:lint#0'".*"$'\tdoc-counts$' <<< "${output}" \
+      || fail "the probe did not run the 2/4 leg of matrix ${_m}:"$'\n'"${output}"
+  done
+
+  # Excluded legs are not run: a host arm only on an excluded leg is not
+  # a host lint the runner performs.
+  _wf="$(LP_FIXTURE_MATRIX="{group: ['1/4', '2/4'], exclude: [{group: '2/4'}]}" \
+      _lint_probe_fixture \
+      'if [ "${{ matrix.group }}" = 2/4 ]; then ./script/test/test.sh --doc-counts-only; fi')"
+  run _lint_probe "${_root}" "${_wf}"
+  assert_success
+  refute_output --partial $'host\t'
+  [ "$(grep -c "^ran"$'\t' <<< "${output}")" -eq 1 ] \
+    || fail "an exclude left one leg, but the probe ran another count:"$'\n'"${output}"
 }
 
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
