@@ -4632,7 +4632,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (22)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (26)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4656,15 +4656,17 @@ attested job's local command runs in CI's mode. table -> plan on every diff
 where CI's own `if:` gate runs a job, the plan carries that job's local
 command. plan -> run the mirror executes exactly the plan, in order, and
 stops at the first red command. plan -> report the coverage floor the plan
-runs reads the report `just test coverage` actually writes.
+runs reads the shard reports the coverage matrix actually writes.
 
 Mode is derived on both sides, never declared: text is `kcov` when it
 invokes script/test/test.sh in a mode that instruments (`--coverage`,
 `--coverage-shard`, `--coverage-local`, `--coverage-path`); every other
 mode, `--coverage-union-check` included, is `plain`. A CI job's text is its
 run lines. A local `just test <recipe>` command's text is that recipe's body
-in script/test/justfile.test, so a recipe that stops instrumenting changes
-the local mode with it.
+in script/test/justfile.test, and a local `./script/ci/pre_pr_mirror.sh
+--<sub>` command's text is the body of the function the mirror dispatches
+<sub> to, so a recipe or a subcommand that stops instrumenting changes the
+local mode with it.
 
 | Test | Description |
 |------|-------------|
@@ -4676,7 +4678,11 @@ the local mode with it.
 | `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | The plan's gates were hand-written and drifted from the workflow: acceptance ran in CI on every code change and locally only on system paths. Reading each job's own if: gate makes such a drift red here. |
 | `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
 | `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
-| `pre-PR mirror: a diff touching shell sources plans the full kcov suite (base#1409)` | - |
+| `pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)` | - |
+| `pre-PR mirror: the coverage matrix is the one compute-shards computes for the same CI_SHARDS (base#1409)` | The mirror ran the unsharded `just test coverage`, one serial kcov over the suite, while CI runs a matrix of weighted shards, each dealt into COVERAGE_JOBS concurrent kcov slices (base#1410, base#1414); a failure that only that shape produces passed the mirror and went red in CI (base#1409 landing review). The matrix the mirror runs is held to the matrix compute-shards computes from the same variable. |
+| `pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)` | - |
+| `pre-PR mirror: a red coverage shard stops the matrix red (base#1409)` | - |
+| `pre-PR mirror: an unreadable CI_SHARDS is a refusal, not a guessed matrix (base#1409)` | - |
 | `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | Without this the table and plan could claim a command the run never executes, and every other check in this file would still pass. |
 | `pre-PR mirror: a planned command that reads stdin does not cut the plan short (base#1409)` | The run read its plan from the stdin every planned command inherited, so the first command that drained stdin (`just test` in a real run) swallowed the rest of the plan; the mirror ran actionlint and `just test` only and still reported every planned command green (base#1409). |
 | `pre-PR mirror: a file moved from dist/ into doc/ plans what CI runs for the removed source (base#1409)` | Rename detection made the mirror's diff report only a move's destination, so moving an unchanged file from dist/ into doc/ read as a doc-only diff and skipped coverage, system and acceptance, while CI's pathspec diffs see the removed source and run all three. diff.renames is forced on so a user config that turns it off cannot hide the gap. |
@@ -4684,7 +4690,7 @@ the local mode with it.
 | `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
 | `pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)` | CI runs `system` and amd64 `acceptance` on amd64 runners, and both build and run images for the daemon's own architecture. On an arm64 daemon `just test acceptance` measured arm64 and the mirror still reported the amd64 leg green (base#1409 review round 3). |
 | `pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)` | "cannot tell the daemon's arch" must not read as amd64. |
-| `pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
+| `pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
 | `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
 | `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
 | `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |

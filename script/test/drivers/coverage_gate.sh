@@ -245,9 +245,9 @@ _merge_timings() {
 # else the first cobertura.xml under <dir> -- never both, which would count
 # the run twice. A directory holding no report contributes nothing; no
 # report anywhere is a refusal. The coverage-gate job hands this every
-# downloaded shard directory and the pre-PR mirror hands it the coverage/
-# tree `just test coverage` writes (base#1409), so the two read reports by
-# this one rule.
+# downloaded shard directory and the pre-PR mirror hands it the shard
+# trees its --coverage-matrix keeps (base#1409), so the two read reports
+# by this one rule.
 _coverage_gate_run_dirs() {
   local _dir _first
   local -a _reports=()

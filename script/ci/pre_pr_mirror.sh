@@ -32,6 +32,17 @@
 #       Run actionlint as the workflow's actionlint job does: the same
 #       image pin and the same `-ignore` suppressions, both read out of the
 #       workflow so a bump there cannot leave this behind.
+#   ./script/ci/pre_pr_mirror.sh --coverage-shards
+#       Print the coverage matrix CI fans out over, one `<n>/<total>` per
+#       line: compute-shards' own rule applied to the repo's CI_SHARDS
+#       variable (the CI_SHARDS environment variable, when set, stands in
+#       for it).
+#   ./script/ci/pre_pr_mirror.sh --coverage-matrix
+#       Run every shard of that matrix the way the coverage job runs one --
+#       `./script/test/test.sh --coverage-shard <n>/<total>` with the
+#       workflow's COVERAGE_JOBS -- and keep each shard's coverage/ tree as
+#       coverage-shards/<n>/, the layout coverage-gate downloads the shard
+#       artifacts into.
 #
 # What the plan runs, and why each gate is the one it is:
 #
@@ -41,23 +52,38 @@
 #                     subsets of exactly that, plain, in CI. Run on every
 #                     diff, because a superset costs a minute and a
 #                     classification this mirror got wrong would cost a PR.
-#   code changed      `just test coverage` -- the FULL kcov suite -- then the
-#                     coverage floor and the shard-union check over its
-#                     report, which is what `coverage` and `coverage-gate`
-#                     run in CI; and `just test acceptance`, the amd64
+#   code changed      `--coverage-matrix` -- every shard of CI's coverage
+#                     matrix, each run as the coverage job runs it: the same
+#                     shard count, the same `--coverage-shard <n>/<total>`
+#                     command and the same COVERAGE_JOBS kcov slices -- then
+#                     coverage-gate's three steps over the shard trees: the
+#                     floor (coverage_gate.sh --run-dirs, the command CI
+#                     runs over its downloaded shard directories), the
+#                     timings merge, and the shard-union check over the
+#                     merged manifest. And `just test acceptance`, the amd64
 #                     acceptance scaffold. "Code changed" is CI's own
 #                     classify rule: any path outside doc/**, README.md,
 #                     LICENSE and CONTEXT.md, and it is the `if:` CI puts on
-#                     coverage, coverage-gate and acceptance. The full suite
-#                     is planned even for a spec-only diff: it holds every
-#                     shard a changed spec can land in (the greedy partition
-#                     depends on a weights file a fresh checkout does not
-#                     have, so naming "the" shard locally would be a guess),
-#                     and the floor is a project rate no partial run can
-#                     measure. The floor reads the report through
-#                     coverage_gate.sh --run-dirs, the command CI's
-#                     coverage-gate runs over its shard directories, so the
-#                     two pick the report kcov wrote by one rule.
+#                     coverage, coverage-gate and acceptance. The whole
+#                     matrix is planned even for a spec-only diff: it holds
+#                     every shard a changed spec can land in, and the floor
+#                     is a project rate no partial run can measure.
+#
+#                     It is the matrix, not `just test coverage`: the
+#                     unsharded run is one serial kcov over the suite, and
+#                     CI never runs that shape. A shard is a weighted slice
+#                     of the suite dealt into COVERAGE_JOBS concurrent kcov
+#                     slices (base#1410, base#1414), so a failure that only
+#                     concurrent slices or a shard's membership produce
+#                     passed the unsharded run and went red in CI.
+#
+#                     Weights: each shard partitions by the ambient
+#                     SHARD_WEIGHTS_BLOB, as the coverage job does; unset,
+#                     that is CI's cache-miss partition (by `@test` count).
+#                     The blob a PR's run restores is whatever the newest
+#                     main run cached when the PR's run starts, which no
+#                     run before the push can read; export the blob of a
+#                     given CI run to reproduce that run's partition.
 #   system relevant   `just test system` -- the docker.sock image-lifecycle
 #                     gate. Relevance is CI's own pathspec list, read from
 #                     script/ci/system_paths.sh, so the two cannot disagree
@@ -89,9 +115,14 @@ readonly _MIRROR_WORKFLOW="${_MIRROR_ROOT}/.github/workflows/self-test.yaml"
 # command to be what _run executes.
 readonly _CMD_ACTIONLINT='./script/ci/pre_pr_mirror.sh --actionlint'
 readonly _CMD_TEST='just test'
-readonly _CMD_COVERAGE='just test coverage'
-readonly _CMD_FLOOR='bash ./script/test/drivers/coverage_gate.sh --run-dirs coverage'
-readonly _CMD_UNION='./script/test/test.sh --coverage-union-check coverage/timings.tsv'
+readonly _CMD_COVERAGE='./script/ci/pre_pr_mirror.sh --coverage-matrix'
+readonly _CMD_FLOOR='bash ./script/test/drivers/coverage_gate.sh --run-dirs coverage-shards/*/'
+readonly _CMD_MERGE='bash ./script/test/drivers/coverage_gate.sh --merge-timings coverage-shards/timings.tsv coverage-shards/*/timings.tsv'
+readonly _CMD_UNION='./script/test/test.sh --coverage-union-check coverage-shards/timings.tsv'
+
+# Where --coverage-matrix keeps each shard's coverage/ tree, as
+# coverage-gate's download step lays the shard artifacts out.
+readonly _SHARDS_DIR='coverage-shards'
 readonly _CMD_SYSTEM='just test system'
 readonly _CMD_ACCEPTANCE='just test acceptance'
 
@@ -116,12 +147,12 @@ _table() {
     "attested${t}bats-fragile${t}${_CMD_TEST}" \
     "attested${t}bats-integration${t}${_CMD_TEST}" \
     "attested${t}coverage${t}${_CMD_COVERAGE}" \
-    "attested${t}coverage-gate${t}${_CMD_FLOOR} && ${_CMD_UNION}" \
+    "attested${t}coverage-gate${t}${_CMD_FLOOR} && ${_CMD_MERGE} && ${_CMD_UNION}" \
     "attested${t}system${t}${_CMD_SYSTEM}" \
     "attested${t}acceptance${t}${_CMD_ACCEPTANCE}" \
     "excluded${t}acceptance/arm64${t}the native arm64 runner leg; a local run measures the host's own arch, and there is no local arm64 runner to stand in for it" \
     "excluded${t}classify${t}CI's own path classifier computing the other jobs' if: gates; the plan applies the same two rules itself, and there is no repo-content verdict to reproduce" \
-    "excluded${t}compute-shards${t}emits the partition the coverage matrix fans out over; the mirror runs that suite unsharded, so there is no partition to compute" \
+    "excluded${t}compute-shards${t}CI plumbing: it publishes the shard list and the cached weights blob; --coverage-shards applies its shard-count rule to the same CI_SHARDS, and the cache it restores is CI state no run before the push can read" \
     "excluded${t}worker-selftest${t}invokes base's reusable build-worker.yaml, which only a GitHub Actions runner can call"
 }
 
@@ -166,7 +197,7 @@ _commands() {
   grep -qx system <<<"${gates}" && system=1
   printf '%s\n' "${_CMD_ACTIONLINT}" "${_CMD_TEST}"
   if (( code )); then
-    printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_FLOOR}" "${_CMD_UNION}"
+    printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_FLOOR}" "${_CMD_MERGE}" "${_CMD_UNION}"
   fi
   if (( system )); then
     printf '%s\n' "${_CMD_SYSTEM}"
@@ -214,6 +245,70 @@ _actionlint() {
     [[ -n "${pat}" ]] && args+=(-ignore "${pat}")
   done < <(sed -n "s/.*-ignore[[:space:]]*'\\([^']*\\)'.*/\\1/p" "${_MIRROR_WORKFLOW}")
   docker run --rm -v "${_MIRROR_ROOT}:/repo:ro" -w /repo "${img}" "${args[@]}"
+}
+
+# _ci_shards_raw -- the CI_SHARDS value the coverage matrix is computed
+# from: the environment's CI_SHARDS when it is set (even empty, which is
+# CI's "variable unset"), else the repo's Actions variable. A variable that
+# cannot be read is a refusal, not compute-shards' default of 8: guessing
+# the count would run a different matrix and call it CI's.
+_ci_shards_raw() {
+  if [[ -v CI_SHARDS ]]; then
+    printf '%s\n' "${CI_SHARDS}"
+    return 0
+  fi
+  if ! (cd "${_MIRROR_ROOT}" && gh variable get CI_SHARDS) 2>/dev/null; then
+    printf 'pre_pr_mirror: cannot read the CI_SHARDS Actions variable with gh; set CI_SHARDS=<n> (empty: unset) to say which matrix CI runs\n' >&2
+    return 1
+  fi
+}
+
+# _coverage_shards -- the coverage matrix, one `<n>/<total>` per line.
+# The count rule is compute-shards' `gen` step, line for line; the parity
+# spec runs both over the same inputs.
+_coverage_shards() {
+  local raw n
+  raw="$(_ci_shards_raw)" || return 1
+  n="${raw:-8}"
+  [[ "${n}" =~ ^[0-9]+$ ]] || n=8
+  (( n < 1 )) && n=1
+  (( n > 12 )) && n=12
+  seq 1 "${n}" | sed "s|.*|&/${n}|"
+}
+
+# _coverage_jobs -- the COVERAGE_JOBS the coverage job sets on its shard
+# step, read from the workflow. None found is a refusal: the slice count
+# is part of what a shard is (base#1410).
+_coverage_jobs() {
+  local jobs
+  jobs="$(grep -m1 -oE '^[[:space:]]+COVERAGE_JOBS:[[:space:]]*[0-9]+' "${_MIRROR_WORKFLOW}")" || true
+  jobs="${jobs##*[^0-9]}"
+  if [[ -z "${jobs}" ]]; then
+    printf 'pre_pr_mirror: no COVERAGE_JOBS: <n> in %s; refusing to guess the shard slice count\n' \
+      "${_MIRROR_WORKFLOW}" >&2
+    return 1
+  fi
+  echo "${jobs}"
+}
+
+# _coverage_matrix -- run every shard as the coverage job does, keeping
+# each shard's coverage/ tree as coverage-shards/<n>/. The first red
+# shard stops the run: its report is incomplete, and the floor after it
+# would read a matrix with a hole.
+_coverage_matrix() {
+  local jobs shard
+  local -a shards=()
+  jobs="$(_coverage_jobs)" || return 1
+  mapfile -t shards < <(_coverage_shards)
+  (( ${#shards[@]} > 0 )) || return 1
+  cd "${_MIRROR_ROOT}"
+  rm -rf "${_SHARDS_DIR}"
+  mkdir -p "${_SHARDS_DIR}"
+  for shard in "${shards[@]}"; do
+    printf '\n==> pre-PR mirror: coverage shard %s (COVERAGE_JOBS=%s)\n' "${shard}" "${jobs}"
+    COVERAGE_JOBS="${jobs}" ./script/test/test.sh --coverage-shard "${shard}" || return 1
+    cp -R coverage "${_SHARDS_DIR}/${shard%%/*}"
+  done
 }
 
 # _daemon_arch -- the docker daemon's architecture as `docker info`
@@ -278,6 +373,8 @@ main() {
     --table) _table ;;
     --plan) _plan ;;
     --actionlint) _actionlint ;;
+    --coverage-shards) _coverage_shards ;;
+    --coverage-matrix) _coverage_matrix ;;
     --base) _run "${2:?--base expects a ref}" ;;
     '') _run origin/main ;;
     -h|--help) sed -n '2,/^# Style/p' "${BASH_SOURCE[0]:-$0}" | sed 's/^# \{0,1\}//' ;;

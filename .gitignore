@@ -1,4 +1,7 @@
 coverage/
+# The per-shard coverage trees the pre-PR mirror's --coverage-matrix keeps,
+# laid out as CI's coverage-gate downloads the shard artifacts.
+coverage-shards/
 .env
 .env.local
 /deploy/

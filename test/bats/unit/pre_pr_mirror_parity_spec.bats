@@ -27,20 +27,24 @@
 #                       the plan carries that job's local command.
 #   plan  -> run        the mirror executes exactly the plan, in order, and
 #                       stops at the first red command.
-#   plan  -> report     the coverage floor the plan runs reads the report
-#                       `just test coverage` actually writes.
+#   plan  -> report     the coverage floor the plan runs reads the shard
+#                       reports the coverage matrix actually writes.
 #
 # Mode is derived on both sides, never declared: text is `kcov` when it
 # invokes script/test/test.sh in a mode that instruments (`--coverage`,
 # `--coverage-shard`, `--coverage-local`, `--coverage-path`); every other
 # mode, `--coverage-union-check` included, is `plain`. A CI job's text is
 # its run lines. A local `just test <recipe>` command's text is that
-# recipe's body in script/test/justfile.test, so a recipe that stops
-# instrumenting changes the local mode with it.
+# recipe's body in script/test/justfile.test, and a local
+# `./script/ci/pre_pr_mirror.sh --<sub>` command's text is the body of the
+# function the mirror dispatches <sub> to, so a recipe or a subcommand
+# that stops instrumenting changes the local mode with it.
 
 bats_require_minimum_version 1.5.0
 
 MIRROR="/source/script/ci/pre_pr_mirror.sh"
+# The mirror's local counterpart of CI's coverage matrix.
+COVERAGE_MATRIX='./script/ci/pre_pr_mirror.sh --coverage-matrix'
 JUSTFILE_TEST="/source/script/test/justfile.test"
 
 # The only jobs (or matrix legs) the mirror may leave out. Each one is a
@@ -136,9 +140,23 @@ _recipe_body() {
     f' "${JUSTFILE_TEST}"
 }
 
+# _mirror_sub_body <--sub> -- the body of the function ${MIRROR}'s main
+# dispatches <--sub> to; empty when it dispatches none.
+_mirror_sub_body() {
+  local _fn
+  _fn="$(awk -v f="${1})" '$1 == f {print $2; exit}' "${MIRROR}")"
+  [[ -n "${_fn}" ]] || return 0
+  awk -v fn="${_fn}" '
+    $0 ~ "^" fn "\\(\\) \\{" {f=1; next}
+    f && /^}/ {f=0}
+    f' "${MIRROR}"
+}
+
 # _local_mode <command> -- kcov when any `&&`-joined part instruments. A
 # `just test [<recipe>]` part is read as the recipe it runs (no recipe is
-# `default`); an unknown recipe is `unresolved`, which matches no CI mode.
+# `default`), and a `./script/ci/pre_pr_mirror.sh --<sub>` part as the
+# function that subcommand runs; an unknown recipe or subcommand is
+# `unresolved`, which matches no CI mode.
 _local_mode() {
   local _rest="${1}" _part _recipe _body _mode=plain
   while [[ -n "${_rest}" ]]; do
@@ -147,6 +165,10 @@ _local_mode() {
     if [[ "${_part}" =~ ^just[[:space:]]+test([[:space:]]+([^[:space:]]+))? ]]; then
       _recipe="${BASH_REMATCH[2]:-default}"
       _body="$(_recipe_body "${_recipe}")"
+      [[ -n "${_body}" ]] || { echo "unresolved"; return 0; }
+      [[ "$(_text_mode <<<"${_body}")" == kcov ]] && _mode=kcov
+    elif [[ "${_part}" =~ ^\./script/ci/pre_pr_mirror\.sh[[:space:]]+(--[[:alnum:]-]+) ]]; then
+      _body="$(_mirror_sub_body "${BASH_REMATCH[1]}")"
       [[ -n "${_body}" ]] || { echo "unresolved"; return 0; }
       [[ "$(_text_mode <<<"${_body}")" == kcov ]] && _mode=kcov
     else
@@ -271,6 +293,17 @@ ${_table}"
   assert_output plain
   JUSTFILE_TEST="${SCRATCH}/justfile.test" run _local_mode 'just test absent'
   assert_output unresolved
+  # A mirror subcommand is read as the function it dispatches to.
+  printf '%s\n' '_cov() {' '  ./script/test/test.sh --coverage-shard "$1"' '}' \
+      '_lint() {' '  ./script/test/test.sh --lint' '}' \
+      'main() {' '  case "${1:-}" in' '    --cov) _cov ;;' '    --lint) _lint ;;' \
+      '  esac' '}' > "${SCRATCH}/mirror.sh"
+  MIRROR="${SCRATCH}/mirror.sh" run _local_mode './script/ci/pre_pr_mirror.sh --cov'
+  assert_output kcov
+  MIRROR="${SCRATCH}/mirror.sh" run _local_mode './script/ci/pre_pr_mirror.sh --lint'
+  assert_output plain
+  MIRROR="${SCRATCH}/mirror.sh" run _local_mode './script/ci/pre_pr_mirror.sh --absent'
+  assert_output unresolved
 }
 
 # why: A plain local run cannot attest a kcov CI job: specs that are red only
@@ -335,14 +368,109 @@ ${_table}"
   assert_success
   refute_line 'just test system'
   assert_line 'just test acceptance'
-  assert_line --regexp '^just test coverage( |$)'
+  assert_line "${COVERAGE_MATRIX}"
 }
 
-@test "pre-PR mirror: a diff touching shell sources plans the full kcov suite (base#1409)" {
+@test "pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)" {
   _require_mirror
   run bash "${MIRROR}" --plan <<<"script/ci/reclaim.sh"
   assert_success
-  assert_line 'just test coverage'
+  assert_line "${COVERAGE_MATRIX}"
+}
+
+# _gen_shards <CI_SHARDS> -- the shard list compute-shards' `gen` step
+# writes for that variable value, in the mirror's one-per-line form.
+_gen_shards() {
+  local _out="${SCRATCH}/gen.out" _script
+  _script="$(awk '
+    /^      - id: gen$/ {g=1; next}
+    g && /^      - / {g=0}
+    g && r {sub(/^          /, ""); print; next}
+    g && /^        run: \|$/ {r=1}' "${WF}")"
+  [[ -n "${_script}" ]] || { fail "compute-shards has no gen step run: block"; return 1; }
+  : > "${_out}"
+  CI_SHARDS="${1}" GITHUB_OUTPUT="${_out}" bash -c "${_script}" >/dev/null 2>&1 \
+      || { fail "compute-shards' gen step failed for CI_SHARDS='${1}'"; return 1; }
+  sed -n 's/^shards=\[\(.*\)\]$/\1/p' "${_out}" | tr ',' '\n' | tr -d '"'
+}
+
+# why: The mirror ran the unsharded `just test coverage`, one serial kcov
+# over the suite, while CI runs a matrix of weighted shards, each dealt
+# into COVERAGE_JOBS concurrent kcov slices (base#1410, base#1414); a
+# failure that only that shape produces passed the mirror and went red in
+# CI (base#1409 landing review). The matrix the mirror runs is held to the
+# matrix compute-shards computes from the same variable.
+@test "pre-PR mirror: the coverage matrix is the one compute-shards computes for the same CI_SHARDS (base#1409)" {
+  _require_mirror
+  local _v _ci _local _diff=""
+  for _v in '' 1 3 8 12 0 13 abc; do
+    _ci="$(_gen_shards "${_v}")" || return 1
+    [[ -n "${_ci}" ]] || fail "compute-shards' gen step wrote no shards for CI_SHARDS='${_v}'"
+    _local="$(CI_SHARDS="${_v}" bash "${MIRROR}" --coverage-shards)" \
+        || fail "--coverage-shards failed for CI_SHARDS='${_v}'"
+    [[ "${_ci}" == "${_local}" ]] || _diff+="
+  CI_SHARDS='${_v}': CI $(paste -sd' ' <<<"${_ci}"), mirror $(paste -sd' ' <<<"${_local}")"
+  done
+  [[ -z "${_diff}" ]] || fail "the mirror runs a different coverage matrix from CI:${_diff}"
+}
+
+# _fake_test_sh <red-shard> -- a script/test/test.sh in the mirror repo
+# that logs `<args> COVERAGE_JOBS=<v>` to ${SCRATCH}/shards, writes a
+# coverage/ tree naming the shard it ran, and exits 1 for <red-shard>.
+_fake_test_sh() {
+  mkdir -p "${SCRATCH}/repo/script/test"
+  cat > "${SCRATCH}/repo/script/test/test.sh" <<FAKE
+#!$(command -v bash)
+printf '%s COVERAGE_JOBS=%s\n' "\$*" "\${COVERAGE_JOBS-<unset>}" >> "${SCRATCH}/shards"
+rm -rf coverage && mkdir -p coverage && printf '%s\n' "\${2}" > coverage/shard
+[[ "\${2}" == "${1}" ]] && exit 1
+exit 0
+FAKE
+  chmod +x "${SCRATCH}/repo/script/test/test.sh"
+}
+
+@test "pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)" {
+  _require_mirror
+  local _jobs _want="" _n
+  run yaml_job_lines "${WF}" coverage
+  assert_success
+  assert_output --partial 'run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}'
+  _jobs="$(grep -oE 'COVERAGE_JOBS:[[:space:]]*[0-9]+' <<<"${output}" | grep -oE '[0-9]+$')"
+  [[ -n "${_jobs}" ]] || fail "the coverage job sets no COVERAGE_JOBS"
+  _make_mirror_repo >/dev/null
+  _fake_test_sh ""
+  run env CI_SHARDS=3 bash "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --coverage-matrix
+  assert_success
+  for _n in 1 2 3; do
+    _want+="--coverage-shard ${_n}/3 COVERAGE_JOBS=${_jobs}"$'\n'
+    run cat "${SCRATCH}/repo/coverage-shards/${_n}/shard"
+    assert_output "${_n}/3"
+  done
+  [[ "$(cat "${SCRATCH}/shards")"$'\n' == "${_want}" ]] || fail "the matrix ran other shards than CI's
+want:
+${_want}ran:
+$(cat "${SCRATCH}/shards")"
+}
+
+@test "pre-PR mirror: a red coverage shard stops the matrix red (base#1409)" {
+  _require_mirror
+  _make_mirror_repo >/dev/null
+  _fake_test_sh 2/3
+  run env CI_SHARDS=3 bash "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --coverage-matrix
+  assert_failure
+  run grep -c . "${SCRATCH}/shards"
+  assert_output 2
+}
+
+@test "pre-PR mirror: an unreadable CI_SHARDS is a refusal, not a guessed matrix (base#1409)" {
+  _require_mirror
+  mkdir -p "${SCRATCH}/bin"
+  printf '#!%s\nexit 1\n' "$(command -v bash)" > "${SCRATCH}/bin/gh"
+  chmod +x "${SCRATCH}/bin/gh"
+  run env -u CI_SHARDS PATH="${SCRATCH}/bin:${PATH}" bash "${MIRROR}" --coverage-shards
+  assert_failure
+  assert_output --partial 'cannot read the CI_SHARDS Actions variable'
+  refute_output --regexp '^[0-9]+/[0-9]+$'
 }
 
 # why: Without this the table and plan could claim a command the run never
@@ -417,7 +545,7 @@ $(cat "${SCRATCH}/ran")"
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true \
       "$(command -v bash)" "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
   assert_success
-  for _want in 'just test coverage' 'just test system' 'just test acceptance'; do
+  for _want in "${COVERAGE_MATRIX}" 'just test system' 'just test acceptance'; do
     grep -Fxq -- "${_want}" "${SCRATCH}/ran" || _missing+=" '${_want}'"
   done
   [[ -z "${_missing}" ]] || fail "a dist/ -> doc/ move skipped:${_missing}
@@ -446,7 +574,7 @@ $(cat "${SCRATCH}/ran")"
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true \
       "$(command -v bash)" "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
   assert_success
-  for _want in 'just test coverage' 'just test system' 'just test acceptance'; do
+  for _want in "${COVERAGE_MATRIX}" 'just test system' 'just test acceptance'; do
     grep -Fxq -- "${_want}" "${SCRATCH}/ran" || _missing+=" '${_want}'"
   done
   [[ -z "${_missing}" ]] || fail "a non-ASCII dist/ change skipped:${_missing}
@@ -463,14 +591,14 @@ $(cat "${SCRATCH}/ran")"
   printf 'services: {}\n' > "${SCRATCH}/repo/compose.yaml"
   git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
   git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
-  _stub_bash "just test coverage"
+  _stub_bash "${COVERAGE_MATRIX}"
   _stub_docker x86_64
   run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
       "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
   assert_failure
-  assert_output --partial 'RED at: just test coverage'
+  assert_output --partial "RED at: ${COVERAGE_MATRIX}"
   run tail -n 1 "${SCRATCH}/ran"
-  assert_output 'just test coverage'
+  assert_output "${COVERAGE_MATRIX}"
 }
 
 # why: CI runs `system` and amd64 `acceptance` on amd64 runners, and both
@@ -494,7 +622,7 @@ $(cat "${SCRATCH}/ran")"
     assert_output --partial "NOT RUN: ${_leg} (CI runs it on an amd64 runner; the docker daemon here is aarch64)"
     grep -Fxq -- "${_leg}" "${SCRATCH}/ran" && fail "the mirror ran ${_leg} on an aarch64 daemon"
   done
-  grep -Fxq -- 'just test coverage' "${SCRATCH}/ran" \
+  grep -Fxq -- "${COVERAGE_MATRIX}" "${SCRATCH}/ran" \
       || fail "the arch-neutral legs stopped running too: $(cat "${SCRATCH}/ran")"
 }
 
@@ -518,19 +646,27 @@ $(cat "${SCRATCH}/ran")"
 # why: The floor read coverage/cobertura.xml, which kcov never writes, so a
 # passing coverage run went red here and the system and acceptance legs after
 # it never ran.
-@test "pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)" {
-  local _table _floor
+@test "pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)" {
+  local _table _floor _n
   _table="$(_mirror_table)" || return 1
   _floor="$(_floor_cmd "${_table}")"
   [[ -n "${_floor}" ]] || fail "the mirror's coverage-gate command runs no coverage_gate.sh"
   ln -s /source/script "${SCRATCH}/script"
-  # The layout kcov leaves when more than one command reported into
-  # coverage/: a per-command report and the merged one. Only the merged
-  # one clears the floor, so reading the other is red.
-  _make_report "${SCRATCH}/coverage/kcov-merged/cobertura.xml" 90
-  _make_report "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 10
+  # The layout kcov leaves when more than one command reported into a
+  # shard's coverage/: a per-command report and the merged one. Only the
+  # merged one clears the floor, so reading the other is red.
+  for _n in 1 2; do
+    _make_report "${SCRATCH}/coverage-shards/${_n}/kcov-merged/cobertura.xml" 90
+    _make_report "${SCRATCH}/coverage-shards/${_n}/bats.0123abcd/cobertura.xml" 10
+  done
   run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
   assert_success
+  # Every shard counts: a second shard whose own file sits below the floor
+  # pulls the merged rate red (the merge is a per-line union, so the file
+  # has to be one the first shard did not cover).
+  _make_report "${SCRATCH}/coverage-shards/2/kcov-merged/cobertura.xml" 10 other.sh
+  run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
+  assert_failure
 }
 
 # why: A single kcov command leaves only its own <command>.<hash> report and
@@ -541,7 +677,7 @@ $(cat "${SCRATCH}/ran")"
   _floor="$(_floor_cmd "${_table}")"
   [[ -n "${_floor}" ]] || fail "the mirror's coverage-gate command runs no coverage_gate.sh"
   ln -s /source/script "${SCRATCH}/script"
-  _make_report "${SCRATCH}/coverage/bats.0123abcd/cobertura.xml" 90
+  _make_report "${SCRATCH}/coverage-shards/1/bats.0123abcd/cobertura.xml" 90
   run env COVERAGE_MIN=80 bash -c "cd '${SCRATCH}' && ${_floor}"
   assert_success
 }
@@ -559,7 +695,8 @@ $(cat "${SCRATCH}/ran")"
   assert_output --regexp 'run: bash \./script/test/drivers/coverage_gate\.sh --run-dirs '
 }
 
-# _make_report <path> <percent> -- a one-file cobertura report at <percent>.
+# _make_report <path> <percent> [file] -- a one-file cobertura report at
+# <percent> for [file] (default thing.sh).
 _make_report() {
   local _i
   mkdir -p "$(dirname "${1}")"
@@ -567,7 +704,7 @@ _make_report() {
     echo '<?xml version="1.0" ?>'
     echo "<coverage lines-covered=\"${2}\" lines-valid=\"100\">"
     echo '  <packages><package name="p"><classes>'
-    echo '  <class name="c" filename="thing.sh"><lines>'
+    echo "  <class name=\"c\" filename=\"${3:-thing.sh}\"><lines>"
     for (( _i = 1; _i <= 100; _i++ )); do
       echo "    <line number=\"${_i}\" hits=\"$(( _i <= ${2} ? 1 : 0 ))\"/>"
     done
