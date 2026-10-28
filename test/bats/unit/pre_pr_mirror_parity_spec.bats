@@ -203,6 +203,22 @@ EOF
   chmod +x "${SCRATCH}/bin/bash"
 }
 
+# _stub_docker <arch> -- a `docker` first on PATH whose `docker info`
+# reports a daemon of <arch> (empty: the daemon is unreachable and `info`
+# fails). Every other invocation succeeds and does nothing.
+_stub_docker() {
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/docker" <<EOF
+#!$(command -v bash)
+if [[ "\${1:-}" == info ]]; then
+  [[ -n "${1}" ]] || exit 1
+  printf '%s\n' "${1}"
+fi
+exit 0
+EOF
+  chmod +x "${SCRATCH}/bin/docker"
+}
+
 @test "pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)" {
   local _table _needs _job _unclassified=""
   _table="$(_mirror_table)" || return 1
@@ -340,6 +356,7 @@ ${_table}"
   git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
   _want="$(bash "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --plan <<<"compose.yaml")"
   _stub_bash ""
+  _stub_docker x86_64
   run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
       "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
   assert_success
@@ -366,6 +383,7 @@ $(cat "${SCRATCH}/ran")"
   git -C "${SCRATCH}/repo" mv dist/notes.txt doc/notes.txt
   git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m move
   _stub_bash ""
+  _stub_docker x86_64
   run env PATH="${SCRATCH}/bin:${PATH}" \
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true \
       "$(command -v bash)" "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
@@ -388,12 +406,55 @@ $(cat "${SCRATCH}/ran")"
   git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
   git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
   _stub_bash "just test coverage"
+  _stub_docker x86_64
   run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
       "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
   assert_failure
   assert_output --partial 'RED at: just test coverage'
   run tail -n 1 "${SCRATCH}/ran"
   assert_output 'just test coverage'
+}
+
+# why: CI runs `system` and amd64 `acceptance` on amd64 runners, and both
+# build and run images for the daemon's own architecture. On an arm64
+# daemon `just test acceptance` measured arm64 and the mirror still
+# reported the amd64 leg green (base#1409 review round 3).
+@test "pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)" {
+  _require_mirror
+  local _base _leg
+  _base="$(_make_mirror_repo)"
+  printf 'services: {}\n' > "${SCRATCH}/repo/compose.yaml"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
+  _stub_bash ""
+  _stub_docker aarch64
+  run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_failure 3
+  refute_output --partial 'every planned command was green'
+  for _leg in 'just test acceptance' 'just test system'; do
+    assert_output --partial "NOT RUN: ${_leg} (CI runs it on an amd64 runner; the docker daemon here is aarch64)"
+    grep -Fxq -- "${_leg}" "${SCRATCH}/ran" && fail "the mirror ran ${_leg} on an aarch64 daemon"
+  done
+  grep -Fxq -- 'just test coverage' "${SCRATCH}/ran" \
+      || fail "the arch-neutral legs stopped running too: $(cat "${SCRATCH}/ran")"
+}
+
+# why: "cannot tell the daemon's arch" must not read as amd64.
+@test "pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)" {
+  _require_mirror
+  local _base
+  _base="$(_make_mirror_repo)"
+  printf 'services: {}\n' > "${SCRATCH}/repo/compose.yaml"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m change
+  _stub_bash ""
+  _stub_docker ""
+  run env PATH="${SCRATCH}/bin:${PATH}" "$(command -v bash)" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_failure 3
+  refute_output --partial 'every planned command was green'
+  assert_output --partial 'NOT RUN: just test acceptance (CI runs it on an amd64 runner; the docker daemon here is unknown)'
 }
 
 # why: The floor read coverage/cobertura.xml, which kcov never writes, so a
