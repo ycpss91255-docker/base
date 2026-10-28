@@ -1057,7 +1057,7 @@ jobs:
         # The blob travels as a job output rather than being looked up
         # again: base64 so a job output carries it verbatim, and one output
         # so there is nothing per-shard left to diverge. Size is not a
-        # concern at this scale -- one line of `<seconds> <basename>` per
+        # concern at this scale -- one line of `<seconds> <spec path>` per
         # spec in the suite, a few KB base64'd against the 1 MB an output
         # takes -- and a blob too large or too damaged to decode fails the
         # shard loudly instead of quietly re-partitioning it.
@@ -1318,7 +1318,7 @@ jobs:
         #
         # EXHAUSTIVE is what it checks, and that is the half that decides
         # the figure. Disjointness is not observable here -- the merge keys
-        # on basename, so a spec two shards both ran reads back as one
+        # on the spec path, so a spec two shards both ran reads back as one
         # entry -- and it does not need to be: the reports are merged by
         # per-line UNION, so a line two shards both covered is counted
         # once. A spec that ran TWICE costs runtime; a spec that ran NOWHERE

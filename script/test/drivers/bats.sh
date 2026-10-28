@@ -807,13 +807,13 @@ _run_coverage() {
 
   # Capture each spec FILE's real kcov-mode runtime via bats' junit report
   # (one <testsuite time=...> per file) and convert it to coverage/timings.tsv
-  # (`<seconds> <repo-relative path>`, base#1410). The coverage-gate job merges every shard's
-  # timings into the SHARD_WEIGHTS_FILE the NEXT run restores, so the
-  # partition self-balances by real time (greedy LPT, ADR-00000008). Each
-  # slice's junit report goes to the scratch dir and _coverage_parallel_merge
-  # joins them into timings.tsv (only that file needs uploading); the worst
-  # slice's kcov exit code (the actual test result) is returned, so a
-  # failing shard fails.
+  # (`<seconds> <repo-relative path>`, base#1410). The coverage-gate job
+  # merges every shard's timings into the SHARD_WEIGHTS_FILE the NEXT run
+  # restores, so the partition self-balances by real time (greedy LPT,
+  # ADR-00000008). Each slice's junit report goes to the scratch dir and
+  # _coverage_parallel_merge joins them into timings.tsv (only that file
+  # needs uploading); the worst slice's kcov exit code (the actual test
+  # result) is returned, so a failing shard fails.
   #
   # ONE KCOV PER SLICE (base#1414). The job count the policy chose is kept,
   # but no bats under kcov runs concurrent jobs: the targets are dealt into

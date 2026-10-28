@@ -1276,10 +1276,11 @@ _prepare_prev_release() {
 readonly _COVERAGE_HEAD_STAMP_REL="coverage/.head-sha"
 
 # The run manifest kcov's bats leaves next to the reports: `<seconds>
-# <repo-relative path>`, one line per spec FILE that actually ran (_junit_to_timings
-# in drivers/bats.sh, from bats' junit report). It exists to weigh the next
-# partition; it is reused here because it is the only local record of WHAT
-# was measured, written by the run rather than by its caller.
+# <repo-relative path>`, one line per spec FILE that actually ran
+# (_junit_to_timings in drivers/bats.sh, from bats' junit report). It exists
+# to weigh the next partition; it is reused here because it is the only
+# local record of WHAT was measured, written by the run rather than by its
+# caller.
 readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
 
 # _coverage_spec_inventory [root] -- print, one per line, the sorted
@@ -1380,9 +1381,9 @@ _decode_shard_weights_blob() {
 # the file `coverage_gate.sh --merge-timings` writes from every shard's
 # coverage/timings.tsv, which is also the weights file the NEXT partition
 # reads. Same key space as _measured_coverage_scope above (`<seconds>
-# <repo-relative path>`), asked a different question -- that one reports how much of
-# the suite ONE run measured, this one names what the matrix as a whole
-# left out.
+# <repo-relative path>`), asked a different question -- that one reports
+# how much of the suite ONE run measured, this one names what the matrix as
+# a whole left out.
 #
 # WHY THE MATRIX CAN LEAVE A SPEC OUT. Greedy-LPT partitions the pool PER
 # WEIGHT SOURCE: each shard computes the whole partition and keeps its own
@@ -1392,8 +1393,8 @@ _decode_shard_weights_blob() {
 # exhaustive nor disjoint. Nothing else in the matrix can tell: a slice of
 # either partition is non-empty, so _shard_unit_files' empty-shard guard
 # stays quiet; the merge keys on the spec path, so a spec two shards both
-# ran reads as one entry; and the only trace left by a spec that ran NOWHERE is
-# the absence of its entry, which is what this prints.
+# ran reads as one entry; and the only trace left by a spec that ran
+# NOWHERE is the absence of its entry, which is what this prints.
 #
 # Empty output means every spec a full run covers was reported by some
 # shard. Returns 1, printing nothing, when there is nothing to compare --
