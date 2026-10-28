@@ -24,6 +24,10 @@ _bats_args_with_label() {
   #   $1 = name of array var (e.g. _bats_args)
   #   $2 = name of label string var (e.g. _label)
   #   $3 = jobs policy, `parallel` (default), `metered` or `serial`
+  #   $4 = optional name of a var that receives the job count as a number
+  #        (1 when the run is serial), for a caller that splits the run
+  #        itself rather than passing the flag on -- the kcov runners,
+  #        which run one kcov per slice (base#1414)
   # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
   # there's no shared filesystem state between tests — safe to run
   # concurrently. When parallel is missing (earlier alpine test-tools
@@ -48,6 +52,7 @@ _bats_args_with_label() {
   local -n _out_args="$1"
   local -n _out_label="$2"
   local _policy="${3-parallel}"
+  local _jobs_out="${4-}"
   case "${_policy}" in
     parallel|metered|serial) ;;
     *) _die ci_invalid_jobs_policy \
@@ -63,6 +68,7 @@ _bats_args_with_label() {
     # a decision, the other an environment, and a reader of the run's
     # first line has to be able to tell which one they are looking at.
     _out_label="serial by policy"
+    [[ -z "${_jobs_out}" ]] || printf -v "${_jobs_out}" '%s' 1
     return 0
   fi
   if command -v parallel >/dev/null 2>&1; then
@@ -113,7 +119,9 @@ _bats_args_with_label() {
         # Faster while losing lines is not an improvement for the runner
         # whose output IS the line set. Revisit when one kcov process per
         # slice (base#726) stops the parser being the shared drain, and
-        # re-run the line-set comparison in the same change.
+        # re-run the line-set comparison in the same change. The kcov
+        # runners now run one kcov per slice (base#1414) and take this
+        # count as their slice count; the count itself is unchanged.
         #
         # THE METER IS ONLY AS GOOD AS THE COUNT. `nproc` reports the CPUs
         # this process may be SCHEDULED on -- an affinity mask -- and not a
@@ -158,8 +166,10 @@ _bats_args_with_label() {
     fi
     _out_args+=(--jobs "${_jobs}")
   else
+    _jobs=1
     _out_label="serial; parallel not in PATH"
   fi
+  [[ -z "${_jobs_out}" ]] || printf -v "${_jobs_out}" '%s' "${_jobs}"
 }
 
 _run_unit_tests() {
@@ -396,9 +406,12 @@ _fragile_unit_files() {
   # what keeps the skipped tests from going unrun. `-l` is the whole of the
   # granularity: a file is selected for one guarded test and bats then runs
   # all of it, so the unguarded tests in it run here as well as under kcov.
-  # Computed at runtime by grepping for the skip guard so it self-maintains:
-  # a NEW fragile-skip in a 10th file is picked up
-  # automatically (a spec asserts the set). The regex is line-anchored on
+  # Computed at runtime by grepping for the skip guard so it self-maintains
+  # both ways: a NEW fragile-skip in a file not yet in the set is picked
+  # up automatically, and a file whose last guard is removed leaves the
+  # set -- conf_abnormal_input_spec.bats left it when its 1 MiB test was
+  # unskipped (base#1414), so the bats-fragile job no longer runs it (a
+  # spec asserts the set). The regex is line-anchored on
   # leading whitespace + the literal bracket so a COMMENT that merely
   # mentions the guard (e.g. this driver's own spec) is NOT matched.
   # _die's on an empty match (the guard pattern changed or the fragile
@@ -504,23 +517,52 @@ _run_coverage_path() {
   # parser is the drain again. This mode publishes no figure, but showing
   # what one spec covers under instrumentation is its entire purpose --
   # oversubscribing it corrupts the thing it was run to look at.
-  _bats_args_with_label _bats_args _label metered
-  [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
+  local _njobs
+  _bats_args_with_label _bats_args _label metered _njobs
+  local -a _extra=()
+  [[ -n "${BATS_FILTER:-}" ]] && _extra=(-f "${BATS_FILTER}")
+
+  echo "--- Running one spec under kcov: ${_path} (${_label}) ---"
+  echo "    instrumentation only -- no coverage figure is produced and" \
+       "nothing is written to ${REPO_ROOT}/coverage"
+
+  # One kcov per serial bats slice, as _run_coverage runs a shard
+  # (base#1414): a directory's specs are dealt into one slice per job, and
+  # a single file is one slice.
+  local -a _files=()
+  if [[ -d "${REPO_ROOT}/${_path}" ]]; then
+    mapfile -t _files < <(find "${REPO_ROOT}/${_path}" -type f -name '*.bats' | LC_ALL=C sort)
+  else
+    _files=("${REPO_ROOT}/${_path}")
+  fi
+  if (( ${#_files[@]} == 0 )); then
+    # The TAP plan bats prints for a directory with no specs, so an empty
+    # selection reads the same as it did under one kcov.
+    echo "1..0"
+    return 0
+  fi
+  local -a _slices=()
+  _coverage_round_robin _slices "${_njobs}" "${_files[@]}"
 
   # Container-local scratch, never the mounted checkout. Removed below
   # whether the spec passed or failed.
   local _report_dir
-  _report_dir="$(mktemp -d)"
-  echo "--- Running one spec under kcov: ${_path} (${_label}) ---"
-  echo "    instrumentation only -- no coverage figure is produced and" \
-       "nothing is written to ${REPO_ROOT}/coverage"
+  _report_dir="$(_coverage_slice_workdir)"
+  local -a _pids=()
+  _coverage_parallel_launch _pids _slices "${_report_dir}" "${_extra[@]}"
   local _rc=0
-  kcov \
-    --include-path="${REPO_ROOT}" \
-    --exclude-path="$(_coverage_exclude_path)" \
-    "${_report_dir}" \
-    bats "${_bats_args[@]}" "${REPO_ROOT}/${_path}" \
-    || _rc=$?
+  _coverage_parallel_collect _pids "${_report_dir}" || _rc=$?
+  # Joined with `kcov --merge` as a shard is; a failed merge fails a run
+  # whose slices passed (kcov names its own error). The merged report
+  # stays in the throwaway dir.
+  local _i
+  local -a _parts=()
+  for (( _i = 1; _i <= ${#_slices[@]}; _i++ )); do
+    _parts+=("${_report_dir}/part-${_i}")
+  done
+  local _mrc=0
+  kcov --merge "${_report_dir}/merged" "${_parts[@]}" || _mrc=$?
+  (( _mrc == 0 || _rc != 0 )) || _rc="${_mrc}"
   rm -rf "${_report_dir}"
   return "${_rc}"
 }
@@ -593,6 +635,12 @@ _run_coverage() {
   #     scope=full and feeds the release badge, and a figure that drifts
   #     by a point between runs of the same tree is not a figure.
   #
+  # Both measurements above, and the two paragraphs below, were taken
+  # when N bats jobs ran under ONE kcov. That shape is gone: each job is
+  # now a serial bats under a kcov of its own (see the run below,
+  # base#1414). The job count each branch declares is kept as the slice
+  # count.
+  #
   # THE COST, so it is not rediscovered: N parallel bats jobs feed their
   # trace streams to ONE kcov process, whose parser is single-threaded.
   # It keeps up at shard volume, mostly, and does not at full-suite
@@ -618,12 +666,12 @@ _run_coverage() {
   # exactly. The dropout stops being scatter and becomes a reproducible
   # blind spot. Faster while losing lines is not an improvement here.
   local -a _bats_args
-  local _label
+  local _label _njobs
 
   local -a _targets=()
   local _pool
   if [[ -z "${_shard_spec}" ]]; then
-    _bats_args_with_label _bats_args _label serial
+    _bats_args_with_label _bats_args _label serial _njobs
     echo "--- Running Tests with Kcov Coverage (full suite; ${_label}) ---"
     # The pools, from the one roster the inventory reads too -- so what
     # the certificate is measured against is what the run walked.
@@ -655,7 +703,7 @@ _run_coverage() {
           == "$(_coverage_pool_files)" ]]; then
       _policy=serial
     fi
-    _bats_args_with_label _bats_args _label "${_policy}"
+    _bats_args_with_label _bats_args _label "${_policy}" _njobs
     echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}; ${_label}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
@@ -671,18 +719,27 @@ _run_coverage() {
   # partition self-balances by real time (greedy LPT, ADR-00000008). The
   # junit report goes to a temp dir (only timings.tsv needs uploading); kcov's
   # exit code (the actual test result) is preserved so a failing shard fails.
-  local _junit_dir
-  _junit_dir="$(mktemp -d)"
+  #
+  # ONE KCOV PER SLICE (base#1414). The job count the policy chose is kept,
+  # but no bats under kcov runs concurrent jobs: the targets are dealt into
+  # that many slices, each slice is a SERIAL bats under its own kcov, and
+  # `kcov --merge` joins the slice reports into ${REPO_ROOT}/coverage --
+  # the _run_coverage_parallel shape. Every bash below one kcov traces into
+  # that kcov's one pipe, and musl bash writes a trace record over 1024 B
+  # as two writes, so N jobs behind one kcov interleave their records:
+  # kcov credits only the first marker on a line (covered lines are lost
+  # with every test green) and echoes the marker-less pieces to the step
+  # output. A slice's pipe has one writer at a time.
+  local -a _slices=()
+  _coverage_round_robin _slices "${_njobs}" "${_targets[@]}"
+  local _work
+  _work="$(_coverage_slice_workdir)"
+  local -a _pids=()
+  _coverage_parallel_launch _pids _slices "${_work}"
   local _rc=0
-  kcov \
-    --include-path="${REPO_ROOT}" \
-    --exclude-path="${_exclude_path}" \
-    "${REPO_ROOT}/coverage" \
-    bats "${_bats_args[@]}" --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
-    || _rc=$?
-  _junit_to_timings "${_junit_dir}/report.xml" \
-    > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
-  rm -rf "${_junit_dir}"
+  _coverage_parallel_collect _pids "${_work}" || _rc=$?
+  _coverage_parallel_merge "${_work}" "${#_slices[@]}"
+  rm -rf "${_work}"
   return "${_rc}"
 }
 
@@ -701,8 +758,9 @@ _run_coverage() {
 # per traced process and is single-threaded, so N parallel bats jobs under
 # ONE kcov all feed one parser. base#1060 measured where that starts to cost
 # accuracy and found a BOUNDARY, not a blanket: a shard's covered set
-# survives it -- `_run_coverage` above runs a shard's bats parallel for that
-# reason -- and the full suite's does not, which is why the same function
+# survived it -- until base#1414 measured lines lost there too, and
+# `_run_coverage` above now runs a shard as slices of this shape -- and the
+# full suite's did not, which is why the same function
 # declares `serial` on the full-suite branch. What is lost there is trace,
 # not execution, so the bound is trace VOLUME through the one parser.
 #
@@ -738,7 +796,58 @@ _coverage_parallel_workdir() {
     printf '%s\n' "${COVERAGE_LOCAL_WORKDIR}"
     return 0
   fi
-  mktemp -d
+  _coverage_slice_workdir
+}
+
+# _coverage_slice_workdir
+#   Echo a fresh scratch dir for kcov slice reports, mode 0755 rather than
+#   mktemp's 0700. kcov puts its bash helper (the BASH_ENV script) under the
+#   report dir, and a spec that drops to `nobody` (su) cannot read it from
+#   under a 0700 parent, so that bash runs untraced and the lines it runs
+#   are not counted (base#1414).
+_coverage_slice_workdir() {
+  local _d
+  _d="$(mktemp -d)" || return 1
+  chmod 0755 "${_d}" || return 1
+  printf '%s\n' "${_d}"
+}
+
+# _coverage_round_robin <out_array_name> <n> <target>...
+#   Deal the targets into <n> slices round-robin (<n> capped at the target
+#   count), each slice a newline-separated list. One kcov runs per slice
+#   (base#1414).
+_coverage_round_robin() {
+  local -n _crr_out="${1:?BUG: _coverage_round_robin expects <out_array_name>}"
+  local _n="${2:?BUG: _coverage_round_robin expects <n>}"
+  shift 2
+  (( _n > $# )) && _n=$#
+  (( _n < 1 )) && _n=1
+  _crr_out=()
+  local _i=0 _f
+  for _f in "$@"; do
+    _crr_out[_i % _n]+="${_f}"$'\n'
+    _i=$(( _i + 1 ))
+  done
+}
+
+# _coverage_stderr_replay <file>
+#   Replay a BOUNDED view of one slice's stderr (kcov's and bats'): its
+#   size, then its last _COVERAGE_STDERR_TAIL_LINES lines, each cut to
+#   _COVERAGE_STDERR_LINE_MAX bytes (base#1414). A slice's stderr goes to a
+#   file, so it never stalls its writer; the tail keeps a real error
+#   readable, and no line of it reaches the step output at full length.
+_COVERAGE_STDERR_TAIL_LINES=40
+_COVERAGE_STDERR_LINE_MAX=512
+_coverage_stderr_replay() {
+  local _f="${1:?BUG: _coverage_stderr_replay expects <file>}"
+  [[ -s "${_f}" ]] || return 0
+  local _bytes _lines
+  _bytes="$(wc -c < "${_f}" | tr -d ' ')"
+  _lines="$(wc -l < "${_f}" | tr -d ' ')"
+  echo "    stderr: ${_bytes} bytes, ${_lines} lines; the last ${_COVERAGE_STDERR_TAIL_LINES}, each cut to ${_COVERAGE_STDERR_LINE_MAX} bytes:"
+  tail -n "${_COVERAGE_STDERR_TAIL_LINES}" "${_f}" \
+    | LC_ALL=C cut -b "1-${_COVERAGE_STDERR_LINE_MAX}" \
+    | sed 's/^/    | /'
 }
 
 # _run_coverage_parallel <jobs>
@@ -819,15 +928,18 @@ _coverage_parallel_slices() {
   done
 }
 
-# _coverage_parallel_launch <pids_array_name> <slices_array_name> <workdir>
+# _coverage_parallel_launch <pids_array_name> <slices_array_name> <workdir> [bats-arg]...
 #   Start one background kcov per slice, each writing its report to
-#   <workdir>/part-<i>, its junit report to <workdir>/junit-<i> and its
-#   combined output to <workdir>/log-<i>. Fills the pids array in slice
-#   order.
+#   <workdir>/part-<i>, its junit report to <workdir>/junit-<i>, its
+#   stdout to <workdir>/log-<i> and its stderr to <workdir>/err-<i>
+#   (base#1414). Extra arguments go to every slice's bats (e.g.
+#   `-f <filter>`). Fills the pids array in slice order.
 _coverage_parallel_launch() {
   local -n _cpl_pids="${1:?BUG: _coverage_parallel_launch expects <pids_array_name>}"
   local -n _cpl_slices="${2:?BUG: _coverage_parallel_launch expects <slices_array_name>}"
   local _work="${3:?BUG: _coverage_parallel_launch expects <workdir>}"
+  shift 3
+  local -a _cpl_extra=("$@")
   # Shared with the serial runner and the single-spec runner: all three must
   # instrument the same tree, or a figure produced here would not be
   # comparable with the one the matrix produces.
@@ -848,9 +960,9 @@ _coverage_parallel_launch() {
       --include-path="${REPO_ROOT}" \
       --exclude-path="${_exclude_path}" \
       "${_work}/part-${_i}" \
-      bats --recursive --report-formatter junit \
+      bats --recursive "${_cpl_extra[@]}" --report-formatter junit \
         --output "${_work}/junit-${_i}" ${_cpl_slices[_i - 1]} \
-      > "${_work}/log-${_i}" 2>&1 &
+      > "${_work}/log-${_i}" 2> "${_work}/err-${_i}" &
     _cpl_pids+=("$!")
   done
 }
@@ -872,6 +984,7 @@ _coverage_parallel_collect() {
     wait "${_cpc_pids[_i - 1]}" || _prc=$?
     echo "--- coverage slice ${_i}/${_jobs} (exit ${_prc}) ---"
     cat "${_work}/log-${_i}" 2>/dev/null || true
+    _coverage_stderr_replay "${_work}/err-${_i}"
     (( _prc == 0 )) || _rc="${_prc}"
   done
   return "${_rc}"

@@ -1824,14 +1824,21 @@ SH
   # nothing to point at.
   #
   # So bats runs for real here. kcov is replaced by a shim that drops its
-  # own flags and the report directory and execs the command it wraps,
-  # which leaves the genuine
+  # own flags, leaves a report in the report directory (a slice with no
+  # report is refused, base#1414) and execs the command it wraps, which
+  # leaves the genuine
   # `bats --recursive --report-formatter junit --output DIR <dirs>` --
-  # the invocation whose output _junit_to_timings has to parse.
+  # the invocation whose output _junit_to_timings has to parse. The
+  # `--merge` that joins the slices is answered with a merged report.
   mock_cmd "kcov" '
+    if [ "$1" = "--merge" ]; then
+      mkdir -p "$2/kcov-merged" && : > "$2/kcov-merged/cobertura.xml"
+      exit 0
+    fi
     while [ $# -gt 0 ]; do
       case "$1" in --*) shift ;; *) break ;; esac
     done
+    mkdir -p "$1/bats" && : > "$1/bats/cobertura.xml"
     shift
     exec "$@"'
 
@@ -1888,9 +1895,7 @@ SH
   # that points at nothing. So there is ONE roster, and this reads the
   # run's targets back against it.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2124,9 +2129,7 @@ END"
   # _shard_unit_files. mock_cmd already PREPENDS MOCK_DIR to PATH, so the
   # kcov + bats mocks win while the real coreutils stay reachable.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2166,7 +2169,7 @@ END"
   # into the time-balanced pool, so a shard kcov's individual spec FILES
   # (unit + integration mixed) and the whole integration DIR is never a
   # target (which would re-cover all integration on one shard).
-  mock_cmd "kcov" 'exit 0'
+  _kcov_slice_mock "${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2200,9 +2203,7 @@ END"
 # why: #615 local full-coverage path
 @test "_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
@@ -2275,9 +2276,7 @@ END"
 # omission is what this issue is about.
 @test "_run_coverage: the full-suite run declares serial, and kcov gets no --jobs (#1060)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   # parallel IS present and nproc DOES answer: the run must still come
   # out serial, or the policy is not being declared, merely unreachable.
   mock_cmd "parallel" 'exit 0'
@@ -2303,9 +2302,13 @@ END"
   run cat "${_log}"
   assert_success
   refute_output --partial "--jobs"
-  # --recursive still comes from the helper, so the directory targets
+  # --recursive still reaches the wrapped bats, so the directory targets
   # descend into the per-lib subfolders (ADR-00000015).
   assert_output --partial "--recursive"
+  # Serial is ONE slice: one kcov around one bats, then the merge
+  # (base#1414).
+  run grep -vc '^--merge' "${_log}"
+  assert_output "1"
 }
 
 # why: an unreadable policy must not resolve to a default that silently
@@ -2551,9 +2554,7 @@ END"
 # and puts a 31-line hole in wrapper/run.sh.
 @test "_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
   mock_cmd "nproc" 'echo 4'
 
@@ -2561,7 +2562,7 @@ END"
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
              "${REPO_ROOT}/test/bats/integration"
-    for _n in a b c d; do
+    for _n in a b c d e f g h j k l m n o p q; do
       printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
         > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
     done
@@ -2574,48 +2575,50 @@ END"
   assert_success
   assert_output --partial "metered"
 
+  # The metered count is the SLICE count since base#1414: four cores, four
+  # kcov processes over a shard of more than four specs, and no bats
+  # under any of them runs jobs of its own.
+  run grep -vc '^--merge' "${_log}"
+  assert_output "4"
   run cat "${_log}"
-  assert_success
-  assert_output --partial "--jobs 4"
+  refute_output --partial "--jobs"
 }
 
 # why: `_run_coverage_path` is the driver's other kcov runner. It
 # publishes no figure, but its whole purpose is to show what one spec
 # covers under instrumentation, so oversubscribing it corrupts exactly
 # the thing the person ran it to look at.
-@test "_run_coverage_path: one spec under kcov is metered too (#1068)" {
+@test "_run_coverage_path: a directory under kcov is metered too (#1068)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
   mock_cmd "nproc" 'echo 4'
 
   run bash -c '
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/test/bats/unit"
-    printf "@test \"t1\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/b_spec.bats"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
     _die() { echo "DIE: $*"; exit 1; }
     source /source/script/test/drivers/bats.sh
-    _run_coverage_path test/bats/unit/b_spec.bats
+    _run_coverage_path test/bats/unit
   '
   assert_success
   assert_output --partial "metered"
 
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "--jobs 4"
+  # Eight specs on four cores: four kcov slices, not eight (base#1414).
+  run grep -vc '^--merge' "${_log}"
+  assert_output "4"
 }
 
 # why: the shard path and the full-suite path are the same function, and
 # the shard is the one CI runs eight of; a fix that reached only the
 # full-suite branch would leave the measured critical path untouched.
-@test "_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)" {
+@test "_run_coverage: a shard takes its slice count from the helper too (#1060)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "parallel" 'exit 0'
   mock_cmd "nproc" 'echo 8'
 
@@ -2623,7 +2626,7 @@ END"
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
              "${REPO_ROOT}/test/bats/integration"
-    for _n in a b c d; do
+    for _n in a b c d e f g h j k l m n o p q r s t u; do
       printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
         > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
     done
@@ -2636,9 +2639,10 @@ END"
   assert_success
   assert_output --partial "jobs=8"
 
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "--jobs 8"
+  # The helper's count is the slice count (base#1414): eight kcov
+  # processes over a shard of more than eight specs.
+  run grep -vc '^--merge' "${_log}"
+  assert_output "8"
 }
 
 # why: `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the
@@ -2651,9 +2655,7 @@ END"
 # suite is serial like the suite.
 @test "_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   # parallel IS present and nproc DOES answer: the run must still come out
   # serial, or the whole-suite case is not being asked.
   mock_cmd "parallel" 'exit 0'
@@ -2683,6 +2685,9 @@ END"
   # is why the policy had to change.
   assert_output --partial "a_spec.bats"
   assert_output --partial "i_spec.bats"
+  # Serial is one slice: one kcov around every spec (base#1414).
+  run grep -vc '^--merge' "${_log}"
+  assert_output "1"
 }
 
 # why: the helper exists because parallelism has a fallback -- GNU
@@ -2703,13 +2708,18 @@ END"
     cat > "${_bin}/kcov" <<SH
 #!/bin/bash
 printf "%s\n" "\$*" >> "'"${_log}"'"
+[ "\$1" = "--merge" ] && exit 0
+for _a in "\$@"; do
+  case "\$_a" in -*) ;; *) mkdir -p "\$_a/bats"; : > "\$_a/bats/cobertura.xml"; break ;; esac
+done
 exit 0
 SH
     chmod +x "${_bin}/kcov"
     # The externals the shard run still reaches for -- the partition
-    # shells out to find / sort / awk / grep / basename. `parallel` is
-    # deliberately not among them: that absence IS the test.
-    for _c in mktemp rm find sort awk grep basename cat printf; do
+    # shells out to find / sort / awk / grep / basename, and the slices
+    # (base#1414) to mktemp / chmod / mkdir. `parallel` is deliberately
+    # not among them: that absence IS the test.
+    for _c in mktemp chmod mkdir rm find sort awk grep basename cat printf; do
       _p="$(command -v "${_c}")" && ln -sf "${_p}" "${_bin}/${_c}"
     done
 
@@ -2838,6 +2848,27 @@ _kcov_slice_mock() {
   refute_output --partial "--jobs"
   run bash -c "grep -v '^--merge' '${_log}' | grep -oE '[a-z]_spec\.bats' | LC_ALL=C sort"
   assert_output "$(printf '%s\n' a_spec.bats b_spec.bats c_spec.bats d_spec.bats)"
+}
+
+# why: one kcov wrapped bats, and bats prints the TAP plan `1..0` for a
+# directory with no specs. The sliced runner deals FILES, so an empty
+# directory has no slice to run; it must still print that plan and pass,
+# or an empty selection reads differently under the sliced shape
+# (base#1414).
+@test "_run_coverage_path: an empty directory prints the 1..0 plan and passes (base#1414)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _kcov_slice_mock "${_log}"
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/acceptance"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/acceptance
+  '
+  assert_success
+  assert_line "1..0"
+  [[ ! -e "${_log}" ]] || fail "kcov ran on an empty selection: $(cat "${_log}")"
 }
 
 # why: the defect was never a missing flag, it was a second place to
@@ -3466,12 +3497,19 @@ AWK
   # the two runners must hand kcov the same paths.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
+  # Leaves the report a real slice kcov would, so the shard's merge does
+  # not refuse the slice (base#1414).
   mock_cmd "kcov" '
+    [ "$1" = "--merge" ] && exit 0
+    _out=""
     for _a in "$@"; do
       case "${_a}" in
         --include-path=*|--exclude-path=*) printf "%s\n" "${_a}" >> "'"${_log}"'" ;;
+        -*) ;;
+        *) [ -n "${_out}" ] || _out="${_a}" ;;
       esac
     done
+    mkdir -p "${_out}/bats" && : > "${_out}/bats/cobertura.xml"
     exit 0'
 
   run bash -c '
@@ -3597,9 +3635,7 @@ AWK
   # kcov's the whole suite and writes coverage/timings.tsv + the report
   # line into the mounted checkout.
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+  _kcov_slice_mock "${_log}"
   mock_cmd "bats" 'exit 0'
 
   run bash -c '
