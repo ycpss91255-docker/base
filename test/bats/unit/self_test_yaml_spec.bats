@@ -2096,9 +2096,14 @@ YAML
 #
 #   * in a copy of the checkout whose test.sh differs in one place: its
 #     single lint dispatch point, _run_lint_tool, is replaced by a
-#     recorder. A step that reaches a lint on the host -- through any
-#     host arm, under any spelling, or through `--ci` itself -- leaves
-#     the tool's name in the host log;
+#     recorder defined at file scope, so it is in force whether a step
+#     executes test.sh or sources it and calls `main` itself. A step that
+#     reaches a lint on the host -- through any host arm, under any
+#     spelling, or through `--ci` itself -- leaves the tool's name in the
+#     host log;
+#   * once per matrix leg the runner would run (_lint_probe_legs), with
+#     `matrix.*` resolved from that leg, so a host arm taken on one leg
+#     only is still run;
 #   * with a `docker` stub first on PATH that records every call and the
 #     TEST_TOOLS_IMAGE it was made under, so a lint sent to the image
 #     leaves a `compose ... run ... ci` call carrying LINT_ONLY=1;
@@ -2119,16 +2124,22 @@ YAML
 # _lint_probe_root -- a copy of the checkout (minus coverage/, and with a
 # fresh one-commit git repository in place of .git, as a step on the
 # runner has a checkout) whose test.sh records a lint dispatch instead of
-# running it. Prints its
-# path. The recorder is defined just before test.sh calls `main`, after
-# every definition it replaces; a test.sh that no longer makes that call
-# exactly once is a BUG line, never a probe that silently records
-# nothing.
+# running it. Prints its path.
+#
+# The recorder goes at file scope just before test.sh's execute-only
+# guard: after every definition it replaces, and outside the guard, so a
+# step that sources test.sh gets it too (base#1412 review round 4 found
+# it inside the guard, where only an executed test.sh had it). Where it
+# landed is not trusted from the text: the copy is then run both ways --
+# executed with a host arm, and sourced with `main` called on a host arm
+# -- and each has to leave its tool in the host log. A copy that does not
+# is a BUG line, never a probe that silently records nothing.
 _lint_probe_root() {
   local _root="${BATS_TEST_TMPDIR}/probe-root"
   local _sh="${_root}/script/test/test.sh"
-  local _anchor='  main "$@"'
+  local _anchor='if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then'
   local _rec="${BATS_TEST_TMPDIR}/probe-recorder.sh"
+  local _log="${BATS_TEST_TMPDIR}/probe-selfcheck.log" _way _cmd
   mkdir -p "${_root}"
   # A sibling test may write under /source while this copies it, which
   # tar reports as a warning; what the probe needs is checked below. `-o`
@@ -2142,34 +2153,150 @@ _lint_probe_root() {
          commit -qm probe \
     || { echo "BUG: could not make the checkout copy a git repository"; return 1; }
   [ -f "${_sh}" ] || { echo "BUG: the checkout copy has no ${_sh}"; return 1; }
-  [ "$(grep -cxF -- "${_anchor}" "${_sh}")" -eq 1 ] \
-    || { echo "BUG: test.sh no longer calls main exactly once as '${_anchor}'; the recorder has nowhere to go"; return 1; }
+  grep -qxF -- "${_anchor}" "${_sh}" \
+    || { echo "BUG: test.sh has no execute-only guard '${_anchor}'; the recorder has nowhere to go"; return 1; }
   # shellcheck disable=SC2016  # written into test.sh, expanded there.
   printf '%s\n' \
     '_run_lint_tool() { printf "%s\n" "${1:-}" >> "${LINT_PROBE_HOST_LOG:?}"; }' \
     > "${_rec}"
+  # The LAST guard line: the one that calls main. Earlier copies of the
+  # same test (strict mode) come before definitions the recorder has to
+  # follow.
   awk -v a="${_anchor}" -v f="${_rec}" '
-    $0 == a { while ((getline l < f) > 0) print l }
-    { print }
+    { line[NR] = $0; if ($0 == a) last = NR }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (i == last) while ((getline l < f) > 0) print l
+        print line[i]
+      }
+    }
   ' "${_sh}" > "${_sh}.probe"
   mv "${_sh}.probe" "${_sh}"
   chmod +x "${_sh}"
+  for _way in executed sourced; do
+    case "${_way}" in
+      executed) _cmd='./script/test/test.sh --doc-counts-only' ;;
+      sourced) _cmd='source ./script/test/test.sh; main --doc-counts-only' ;;
+    esac
+    : > "${_log}"
+    ( cd "${_root}" && env -i PATH="${PATH}" HOME="${HOME}" \
+        LINT_PROBE_HOST_LOG="${_log}" timeout 120 \
+        bash --noprofile --norc -c "${_cmd}" ) > /dev/null 2>&1 || true
+    [ "$(cat "${_log}")" = doc-counts ] \
+      || { echo "BUG: the probe's test.sh does not record a host lint when ${_way} ('${_cmd}' logged '$(cat "${_log}")')"; return 1; }
+  done
   printf '%s\n' "${_root}"
 }
 
+# _lint_probe_legs <workflow> <job> -- the matrix legs the runner runs
+# for <job>, one compact JSON object per line; `{}` for a job with no
+# matrix. As GitHub expands `strategy.matrix`: the cartesian product of
+# its list-valued keys, less every leg an `exclude` entry matches, then
+# each `include` entry merged into every original leg whose original keys
+# it does not contradict, or added as a leg of its own when it fits none.
+# A key whose value is an expression (`${{ fromJSON(...) }}`) has no
+# values here and is left out of the legs; so is a matrix that is one
+# expression whole, which runs as the one leg `{}`.
+_lint_probe_legs() {
+  local _m _key _leg _value _entry _orig _k _fits _added
+  _m="$(LP_J="${2}" yq -o json -I0 '.jobs[strenv(LP_J)].strategy.matrix // {}' "${1}")"
+  if [ "$(yq -p json 'type' <<< "${_m}")" != '!!map' ]; then
+    printf '{}\n'
+    return 0
+  fi
+  local -a _keys=() _legs=() _next=() _values=() _entries=()
+  mapfile -t _keys < <(yq -p json -o json -I0 \
+      'to_entries | .[] | select(.key != "include" and .key != "exclude" and (.value | type) == "!!seq") | .key' \
+      <<< "${_m}")
+  if (( ${#_keys[@]} > 0 )); then
+    _legs=('{}')
+    for _key in "${_keys[@]}"; do
+      mapfile -t _values < <(LP_K="${_key}" yq -p json -o json -I0 \
+          '.[strenv(LP_K) | from_json][]' <<< "${_m}")
+      _next=()
+      for _leg in "${_legs[@]}"; do
+        for _value in "${_values[@]}"; do
+          _next+=("$(LP_K="${_key}" LP_V="${_value}" yq -p json -o json -I0 \
+              '.[strenv(LP_K) | from_json] = (strenv(LP_V) | from_json)' <<< "${_leg}")")
+        done
+      done
+      _legs=("${_next[@]}")
+    done
+    mapfile -t _entries < <(yq -p json -o json -I0 '(.exclude // [])[]' <<< "${_m}")
+    for _entry in "${_entries[@]}"; do
+      _next=()
+      for _leg in "${_legs[@]}"; do
+        [ "$(_lint_probe_leg_fits "${_leg}" "${_entry}" all)" = no ] \
+          && _next+=("${_leg}")
+      done
+      _legs=("${_next[@]}")
+    done
+  fi
+  _orig=${#_legs[@]}
+  local _original_keys
+  _original_keys="[$(IFS=,; printf '%s' "${_keys[*]}")]"
+  mapfile -t _entries < <(yq -p json -o json -I0 '(.include // [])[]' <<< "${_m}")
+  for _entry in "${_entries[@]}"; do
+    _added=0
+    for ((_k = 0; _k < _orig; _k++)); do
+      _fits="$(_lint_probe_leg_fits "${_legs[_k]}" "${_entry}" "${_original_keys}")"
+      [ "${_fits}" = yes ] || continue
+      _legs[_k]="$(LP_E="${_entry}" yq -p json -o json -I0 \
+          '. * (strenv(LP_E) | from_json)' <<< "${_legs[_k]}")"
+      _added=1
+    done
+    (( _added == 1 )) || _legs+=("${_entry}")
+  done
+  # No list key and no include: a job with no matrix, run once.
+  if (( ${#_keys[@]} == 0 && ${#_entries[@]} == 0 )); then
+    printf '{}\n'
+    return 0
+  fi
+  (( ${#_legs[@]} > 0 )) || return 0
+  printf '%s\n' "${_legs[@]}"
+}
+
+# _lint_probe_leg_fits <leg> <entry> <keys> -- `yes` when every key of
+# <entry> that <keys> names (a JSON array, or `all` for every key of the
+# entry) holds the same value in <leg>; `no` otherwise. For `exclude`
+# (all keys must match) and `include` (no original key contradicted).
+_lint_probe_leg_fits() {
+  local _k _want _have
+  local -a _ek=()
+  mapfile -t _ek < <(yq -p json -o json -I0 'keys | .[]' <<< "${2}")
+  for _k in "${_ek[@]}"; do
+    if [ "${3}" != all ]; then
+      LP_K="${_k}" LP_KS="${3}" yq -n -e \
+          '(strenv(LP_KS) | from_json) as $ks | (strenv(LP_K) | from_json) as $k | $ks | any_c(. == $k)' \
+          > /dev/null 2>&1 || continue
+    fi
+    _want="$(LP_K="${_k}" yq -p json -o json -I0 '.[strenv(LP_K) | from_json]' <<< "${2}")"
+    _have="$(LP_K="${_k}" yq -p json -o json -I0 '.[strenv(LP_K) | from_json]' <<< "${1}")"
+    [ "${_want}" = "${_have}" ] || { printf 'no\n'; return 0; }
+  done
+  printf 'yes\n'
+}
+
 # _lint_probe_expr <workflow> <job> <expression> -- the value a `${{ }}`
-# expression stands for in a probe run. `matrix.<key>` is the key's first
-# value (one leg of the matrix is the shape every leg runs), `env.<name>`
+# expression stands for in a probe run. `matrix.<key>[.<key>...]` is that
+# path in the leg being run (_LP_LEG, from _lint_probe_legs), `env.<name>`
 # the value resolved so far (_LP_ENV), and the run identity a fixed `1`;
 # anything else is empty, which is what the runner gives an absent context
-# value. The verdict never depends on these: they only let the step reach
-# the dispatch it would reach on the runner.
+# value. These only let the step reach the dispatch it would reach on the
+# runner; which legs exist is _lint_probe_legs's to say.
 _lint_probe_expr() {
-  local _expr="${3}"
+  local _expr="${3}" _seg _value
   case "${_expr}" in
     matrix.*)
-      LP_J="${2}" LP_K="${_expr#matrix.}" yq \
-        '.jobs[strenv(LP_J)].strategy.matrix[strenv(LP_K)][0] // ""' "${1}" ;;
+      _value="${_LP_LEG:-}"
+      [ -n "${_value}" ] || _value='{}'
+      local -a _path=()
+      IFS=. read -r -a _path <<< "${_expr#matrix.}"
+      for _seg in "${_path[@]}"; do
+        _value="$(LP_K="${_seg}" yq -p json -o json -I0 \
+            '.[strenv(LP_K)] // null' <<< "${_value}")"
+      done
+      yq -p json '. // ""' <<< "${_value}" ;;
     env.*) printf '%s' "${_LP_ENV[${_expr#env.}]:-}" ;;
     github.run_id | github.run_attempt) printf '1' ;;
     *) ;;
@@ -2214,6 +2341,7 @@ _lint_probe_env() {
 #       one per step run, so a caller can see the population is not empty.
 _lint_probe() {
   local _root="${1}" _wf _job _i _label _run _wd _dir _call _k _status
+  local _LP_LEG _n
   shift
   local _stub="${BATS_TEST_TMPDIR}/probe-bin"
   mkdir -p "${_stub}"
@@ -2226,46 +2354,52 @@ STUB
   chmod +x "${_stub}/docker"
   local -a _a=() _envargs=()
   local -A _LP_ENV=()
+  local -a _legs=()
   for _wf in "$@"; do
     while IFS= read -r _job; do
+      mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
       while IFS= read -r _i; do
-        _label="$(basename "${_wf}"):${_job}#${_i}"
-        _dir="${BATS_TEST_TMPDIR}/probe/${_label//[^A-Za-z0-9.#-]/_}"
-        mkdir -p "${_dir}/docker"
-        : > "${_dir}/host"
-        _LP_ENV=()
-        _lint_probe_env "${_wf}" '.env' "${_job}"
-        _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].env" "${_job}"
-        _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].steps[${_i}].env" "${_job}"
-        _run="$(LP_J="${_job}" LP_I="${_i}" yq \
-            '.jobs[strenv(LP_J)].steps[env(LP_I)].run' "${_wf}")"
-        _run="$(_lint_probe_subst "${_wf}" "${_job}" "${_run}")"
-        _wd="$(LP_J="${_job}" LP_I="${_i}" yq \
-            '.jobs[strenv(LP_J)].steps[env(LP_I)]["working-directory"] // "."' "${_wf}")"
-        _envargs=(
-          PATH="${_stub}:${PATH}" HOME="${HOME}"
-          GITHUB_ACTIONS=true CI=true GITHUB_WORKSPACE="${_root}"
-          RUNNER_TEMP="${_dir}" GITHUB_OUTPUT="${_dir}/output"
-          GITHUB_ENV="${_dir}/env" GITHUB_STEP_SUMMARY="${_dir}/summary"
-          LINT_PROBE_HOST_LOG="${_dir}/host"
-          LINT_PROBE_DOCKER_DIR="${_dir}/docker"
-        )
-        for _k in "${!_LP_ENV[@]}"; do
-          _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )
-        done
-        _status=0
-        ( cd "${_root}/${_wd}" \
-          && env -i "${_envargs[@]}" timeout 120 \
-               bash --noprofile --norc -o pipefail -c "${_run}" ) \
-          > "${_dir}/log" 2>&1 || _status=$?
-        printf 'ran\t%s\t%s\n' "${_label}" "${_status}"
-        while IFS= read -r _k; do
-          printf 'host\t%s\t%s\n' "${_label}" "${_k}"
-        done < "${_dir}/host"
-        for _call in "${_dir}"/docker/call.*; do
-          [ -f "${_call}" ] || continue
-          mapfile -d '' -t _a < "${_call}"
-          _lint_probe_image_call "${_root}" "${_label}" "${_a[@]}"
+        for _n in "${!_legs[@]}"; do
+          _LP_LEG="${_legs[_n]}"
+          _label="$(basename "${_wf}"):${_job}#${_i}"
+          [ "${_LP_LEG}" = '{}' ] || _label+=" matrix=${_LP_LEG}"
+          _dir="${BATS_TEST_TMPDIR}/probe/$(basename "${_wf}")/${_job//[^A-Za-z0-9.-]/_}/${_i}.${_n}"
+          mkdir -p "${_dir}/docker"
+          : > "${_dir}/host"
+          _LP_ENV=()
+          _lint_probe_env "${_wf}" '.env' "${_job}"
+          _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].env" "${_job}"
+          _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].steps[${_i}].env" "${_job}"
+          _run="$(LP_J="${_job}" LP_I="${_i}" yq \
+              '.jobs[strenv(LP_J)].steps[env(LP_I)].run' "${_wf}")"
+          _run="$(_lint_probe_subst "${_wf}" "${_job}" "${_run}")"
+          _wd="$(LP_J="${_job}" LP_I="${_i}" yq \
+              '.jobs[strenv(LP_J)].steps[env(LP_I)]["working-directory"] // "."' "${_wf}")"
+          _envargs=(
+            PATH="${_stub}:${PATH}" HOME="${HOME}"
+            GITHUB_ACTIONS=true CI=true GITHUB_WORKSPACE="${_root}"
+            RUNNER_TEMP="${_dir}" GITHUB_OUTPUT="${_dir}/output"
+            GITHUB_ENV="${_dir}/env" GITHUB_STEP_SUMMARY="${_dir}/summary"
+            LINT_PROBE_HOST_LOG="${_dir}/host"
+            LINT_PROBE_DOCKER_DIR="${_dir}/docker"
+          )
+          for _k in "${!_LP_ENV[@]}"; do
+            _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )
+          done
+          _status=0
+          ( cd "${_root}/${_wd}" \
+            && env -i "${_envargs[@]}" timeout 120 \
+                 bash --noprofile --norc -o pipefail -c "${_run}" < /dev/null ) \
+            > "${_dir}/log" 2>&1 || _status=$?
+          printf 'ran\t%s\t%s\n' "${_label}" "${_status}"
+          while IFS= read -r _k; do
+            printf 'host\t%s\t%s\n' "${_label}" "${_k}"
+          done < "${_dir}/host"
+          for _call in "${_dir}"/docker/call.*; do
+            [ -f "${_call}" ] || continue
+            mapfile -d '' -t _a < "${_call}"
+            _lint_probe_image_call "${_root}" "${_label}" "${_a[@]}"
+          done
         done
       done < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps // [] | to_entries | .[]
           | select(.value.run != null and (.value.run | test("test\\.sh"))) | .key' "${_wf}")
