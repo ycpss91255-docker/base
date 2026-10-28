@@ -2734,6 +2734,112 @@ SH
   refute_output --partial "--jobs"
 }
 
+# _kcov_slice_mock <log>
+#   A kcov stand-in for the sliced shape (base#1414): it logs its argv one
+#   line per call and leaves the report a real kcov would, so a driver that
+#   refuses a slice with no report is not refused by the mock. `--merge`
+#   is logged the same way and writes the merged report.
+_kcov_slice_mock() {
+  local _log="${1}"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    if [ "${1}" = "--merge" ]; then
+      mkdir -p "${2}/kcov-merged"
+      printf "<coverage/>\n" > "${2}/kcov-merged/cobertura.xml"
+      exit 0
+    fi
+    _out=""
+    while [ $# -gt 0 ]; do
+      case "${1}" in
+        -*) shift ;;
+        *)  _out="${1}"; break ;;
+      esac
+    done
+    mkdir -p "${_out}/kcov-merged"
+    printf "<coverage/>\n" > "${_out}/kcov-merged/cobertura.xml"
+    exit 0'
+}
+
+# why: N bats jobs under ONE kcov share one trace pipe, and their records
+# interleave: kcov credits only the first marker on a line and echoes the
+# marker-less pieces to the step output (base#1414). A concurrent shard
+# therefore runs one kcov per slice, each around a SERIAL bats, and joins
+# the slices with `kcov --merge`; every shard spec runs in exactly one
+# slice.
+@test "_run_coverage: a concurrent shard runs one kcov per serial bats slice, joined by --merge (base#1414)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _kcov_slice_mock "${_log}"
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d e f g h; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/2
+  '
+  assert_success
+  local _shard
+  _shard="$(printf '%s\n' "${output}" | sed -n 's|^  cov-shard:.*/||p' | LC_ALL=C sort)"
+  [[ -n "${_shard}" ]] || fail "the shard listed no specs: ${output}"
+
+  run cat "${_log}"
+  assert_success
+  local _wraps _merges
+  _wraps="$(grep -vc '^--merge' "${_log}" || true)"
+  _merges="$(grep -c '^--merge' "${_log}" || true)"
+  # More than one kcov, one merge, and no wrapped bats runs concurrently.
+  assert [ "${_wraps}" -gt 1 ]
+  assert [ "${_merges}" -eq 1 ]
+  refute_output --partial "--jobs"
+  # Every shard spec is in exactly one slice.
+  run bash -c "grep -v '^--merge' '${_log}' | grep -oE '[a-z]_spec\.bats' | LC_ALL=C sort"
+  assert_output "${_shard}"
+}
+
+# why: `_run_coverage_path` is the other kcov runner, and a directory path
+# runs several specs at once, so it shares the pipe the same way
+# (base#1414). It slices the same way: one kcov per serial bats slice,
+# joined by `kcov --merge`.
+@test "_run_coverage_path: a directory runs one kcov per serial bats slice, joined by --merge (base#1414)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _kcov_slice_mock "${_log}"
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/unit/dir"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/dir/${_n}_spec.bats"
+    done
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/unit/dir
+  '
+  assert_success
+
+  run cat "${_log}"
+  assert_success
+  local _wraps _merges
+  _wraps="$(grep -vc '^--merge' "${_log}" || true)"
+  _merges="$(grep -c '^--merge' "${_log}" || true)"
+  assert [ "${_wraps}" -gt 1 ]
+  assert [ "${_merges}" -eq 1 ]
+  refute_output --partial "--jobs"
+  run bash -c "grep -v '^--merge' '${_log}' | grep -oE '[a-z]_spec\.bats' | LC_ALL=C sort"
+  assert_output "$(printf '%s\n' a_spec.bats b_spec.bats c_spec.bats d_spec.bats)"
+}
+
 # why: the defect was never a missing flag, it was a second place to
 # write one -- _run_coverage assembled its own bats command, so what the
 # helper decides never reached it. A guard on the FLAG rather than on one
