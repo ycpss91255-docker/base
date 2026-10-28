@@ -1182,11 +1182,16 @@ _prev_release_spec_in_shard() {
 #   empty blob decodes to an empty file, the `@test`-count partition, as it
 #   does in the container. A blob that does not decode is answered YES, as
 #   an uncomputable partition is: the container refuses that blob anyway,
-#   and of the two guesses only "not needed" can end in a vacuous spec.
+#   and of the two guesses only "not needed" can end in a vacuous spec. A
+#   temp file that cannot be made is answered YES for the same reason; the
+#   caller runs this with errexit suspended, so an empty path would
+#   otherwise reach the decoder.
 _prev_release_spec_in_coverage_shard() {
   local _spec="${1:?BUG: _prev_release_spec_in_coverage_shard expects <n>/<total>}"
-  local _wf _rc=0
-  _wf="$(mktemp)"
+  local _wf="" _rc=0
+  if ! _wf="$(mktemp 2>/dev/null)" || [[ -z "${_wf}" ]]; then
+    return 0
+  fi
   if ! _shard_weights_blob_to_file "${SHARD_WEIGHTS_BLOB:-}" "${_wf}"; then
     rm -f "${_wf}"
     return 0
