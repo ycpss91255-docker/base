@@ -418,12 +418,12 @@ _verdict_manifest() {
   local _out="${1}" _drop="${2:-}"
   run bash -c '
     source /source/script/test/test.sh
+    _inv="$(_coverage_spec_inventory "${REPO_ROOT}")"
     if [[ -n "${2}" ]]; then
-      _coverage_spec_inventory "${REPO_ROOT}" | sed "1d" | sed "s/^/1 /" > "${1}"
-      _coverage_spec_inventory "${REPO_ROOT}" | sed -n "1p"
-    else
-      _coverage_spec_inventory "${REPO_ROOT}" | sed "s/^/1 /" > "${1}"
+      sed -n "1p" <<< "${_inv}"
+      _inv="$(sed "1d" <<< "${_inv}")"
     fi
+    sed "s/^/1 /" <<< "${_inv}" > "${1}"
   ' _ "${_out}" "${_drop}"
   assert_success
 }
@@ -476,12 +476,14 @@ _verdict_manifest() {
 # fails here instead of drifting.
 # ════════════════════════════════════════════════════════════════════
 
-# Print the code lines (comments stripped, leading space trimmed) of $1
-# that invoke the verdict.
+# Print the code lines of $1: comment lines dropped, leading space trimmed.
+_code_lines() {
+  sed -e '/^[[:space:]]*#/d' -e 's/^[[:space:]]*//' "${1}"
+}
+
+# Print the code lines of $1 that invoke the verdict.
 _verdict_lines() {
-  sed '/^[[:space:]]*#/d' "${1}" \
-    | grep -E 'coverage_gate\.sh[[:space:]]+--verdict' \
-    | sed 's/^[[:space:]]*//'
+  _code_lines "${1}" | grep -E 'coverage_gate\.sh[[:space:]]+--verdict'
 }
 
 # Print the body of recipe $2 in justfile $1 (header line excluded).
@@ -495,8 +497,8 @@ _recipe_body() {
 
 @test "coverage verdict parity: hosted, self-hosted and the local recipe run one identical verdict line (base#1411)" {
   local _hosted _selfhosted _local
-  _hosted="$(yaml_job_text /source/.github/workflows/self-test.yaml coverage-gate \
-    > "${SCRATCH}/hosted.yaml"; _verdict_lines "${SCRATCH}/hosted.yaml")"
+  yaml_job_text /source/.github/workflows/self-test.yaml coverage-gate > "${SCRATCH}/hosted.yaml"
+  _hosted="$(_verdict_lines "${SCRATCH}/hosted.yaml")"
   _selfhosted="$(_verdict_lines /source/.github/workflows/coverage-local.yaml)"
   _recipe_body /source/script/test/justfile.test coverage-gate > "${SCRATCH}/recipe.sh"
   _local="$(_verdict_lines "${SCRATCH}/recipe.sh")"
@@ -520,11 +522,11 @@ _recipe_body() {
   local _wf
   yaml_job_text /source/.github/workflows/self-test.yaml coverage-gate > "${SCRATCH}/hosted.yaml"
   for _wf in "${SCRATCH}/hosted.yaml" /source/.github/workflows/coverage-local.yaml; do
-    run bash -c "sed '/^[[:space:]]*#/d' '${_wf}' \
-      | grep -E 'coverage_gate\.sh' \
-      | grep -vE 'coverage_gate\.sh[[:space:]]+--(verdict|merge-timings)'"
-    assert_failure
-    run bash -c "sed '/^[[:space:]]*#/d' '${_wf}' | grep -E -- '--coverage-union-check'"
+    _code_lines "${_wf}" > "${SCRATCH}/code.txt"
+    run grep -E 'coverage_gate\.sh' "${SCRATCH}/code.txt"
+    run grep -vE 'coverage_gate\.sh[[:space:]]+--(verdict|merge-timings)' <<< "${output}"
+    [ -z "${output}" ] || fail "${_wf} runs coverage_gate.sh outside the verdict: ${output}"
+    run grep -E -- '--coverage-union-check' "${SCRATCH}/code.txt"
     assert_failure
   done
 }

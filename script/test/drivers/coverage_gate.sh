@@ -4,9 +4,9 @@
 # DUAL MODE: this file is both a sourced driver (test.sh sources it after
 # _lib.sh, so _log_* / _die are available, exposing _run_coverage_gate)
 # AND a standalone CLI (CI and `just test coverage-gate` invoke
-# `bash coverage_gate.sh --verdict <manifest> <cobertura>...` directly). The standalone path
-# re-implements the minimum logging it needs so it has no dependency on
-# the test.sh sourcing context.
+# `bash coverage_gate.sh --verdict <manifest> <cobertura>...` directly).
+# The standalone path re-implements the minimum logging it needs so it
+# has no dependency on the test.sh sourcing context.
 #
 # WHY (ADR-00000008, self-hosted amendment): the repo is moving to the
 # company GitLab where Codecov is unavailable and uploading coverage to
@@ -258,7 +258,7 @@ _coverage_verdict() {
   local _manifest="${1}"
   shift
   local _test_sh _floor_rc=0 _union_rc=0
-  _test_sh="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/test.sh"
+  _test_sh="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/.." && pwd -P)/test.sh"
   _coverage_gate_run "$@" || _floor_rc=$?
   bash "${_test_sh}" --coverage-union-check "${_manifest}" || _union_rc=$?
   if (( _floor_rc != 0 )); then
