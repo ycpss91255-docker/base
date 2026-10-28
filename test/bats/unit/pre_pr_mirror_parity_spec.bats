@@ -389,7 +389,13 @@ _gen_shards() {
     g && /^        run: \|$/ {r=1}' "${WF}")"
   [[ -n "${_script}" ]] || { fail "compute-shards has no gen step run: block"; return 1; }
   : > "${_out}"
-  CI_SHARDS="${1}" GITHUB_OUTPUT="${_out}" bash -c "${_script}" >/dev/null 2>&1 \
+  # The step runs under the runner's plain bash, so it runs here without
+  # the instrumentation kcov exports when this spec is itself under kcov:
+  # kcov's BASH_ENV helper reads BASH_SOURCE, which `bash -c` leaves
+  # unset, and the step's own `set -u` aborts on it before its first line.
+  CI_SHARDS="${1}" GITHUB_OUTPUT="${_out}" \
+      env -u BASH_ENV -u BASH_XTRACEFD -u KCOV_BASH_XTRACEFD -u LD_PRELOAD \
+      bash -c "${_script}" >/dev/null 2>&1 \
       || { fail "compute-shards' gen step failed for CI_SHARDS='${1}'"; return 1; }
   sed -n 's/^shards=\[\(.*\)\]$/\1/p' "${_out}" | tr ',' '\n' | tr -d '"'
 }
@@ -435,6 +441,11 @@ FAKE
   chmod +x "${SCRATCH}/repo/script/test/test.sh"
 }
 
+# why: The shard list alone proves nothing if each shard runs another
+# command or slice count than CI's, or if one shard's tree carries another
+# run's reports: a coverage run merges into whatever coverage/ holds, so
+# the matrix carried earlier reports into every later shard and the floor
+# read lines that shard never covered (base#1409 review round 10).
 @test "pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)" {
   _require_mirror
   local _jobs _want="" _n
@@ -463,6 +474,9 @@ ${_want}ran:
 $(cat "${SCRATCH}/shards")"
 }
 
+# why: A matrix that carried on past a red shard, or exited 0 after one,
+# would hand the floor a matrix with a hole and stamp a green CI's
+# coverage job would not give.
 @test "pre-PR mirror: a red coverage shard stops the matrix red (base#1409)" {
   _require_mirror
   _make_mirror_repo >/dev/null
@@ -473,6 +487,9 @@ $(cat "${SCRATCH}/shards")"
   assert_output 2
 }
 
+# why: Falling back to compute-shards' default of 8 when the variable
+# cannot be read would run another matrix than the one CI_SHARDS sets and
+# attest the coverage job.
 @test "pre-PR mirror: an unreadable CI_SHARDS is a refusal, not a guessed matrix (base#1409)" {
   _require_mirror
   mkdir -p "${SCRATCH}/bin"
