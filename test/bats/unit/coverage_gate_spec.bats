@@ -557,6 +557,10 @@ _verdict_contexts() {
     > "${SCRATCH}/recipe.sh"
 }
 
+# why: the load-bearing parity check. Three copies of the verdict line are
+# three verdicts as soon as one gains a flag or an argument the others lack;
+# the hosted job, the self-hosted workflow and the recipe must each run the
+# verdict exactly once, and by the identical line.
 @test "coverage verdict parity: hosted, self-hosted and the local recipe run one identical verdict line (base#1411)" {
   local _hosted _selfhosted _local _ctx
   _verdict_contexts
