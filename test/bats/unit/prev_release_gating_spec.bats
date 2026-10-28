@@ -272,7 +272,8 @@ _setup_moving_weights() {
 
 # why: the CI failure itself (base#1433): the shard compute-shards' blob
 # hands the spec ran it with no .prev-release/ and failed every case. A
-# gate that reads the checkout's weights passes every other test here.
+# gate that reads the checkout's weights passes every test above this
+# section; this is one of the cases it fails.
 @test "prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved" {
   local _count_carrier _blob_carrier _weights
   _setup_moving_weights
