@@ -144,6 +144,9 @@ setup_file() {
   local _par="${BATS_FILE_TMPDIR}/par"
   _make_fixture "${_par}"
   mkdir -p "${BATS_FILE_TMPDIR}/rdv"
+  # A red run is recorded, not raised: setup_file stops at a failing
+  # command, and the tests below are what say WHY the run was red.
+  local _rc=0
   env -u BASH_ENV -u BASH_XTRACEFD -u KCOV_BASH_XTRACEFD -u LD_PRELOAD \
     PATH="${_bin}:${PATH}" REPO_ROOT="${_par}" \
     SHARD_WEIGHTS_FILE="${_par}/weights" \
@@ -153,20 +156,21 @@ setup_file() {
       _die() { echo "DIE: $*"; exit 1; }
       source /source/script/test/drivers/bats.sh
       _run_coverage 2/2
-    ' > "${BATS_FILE_TMPDIR}/par.out" 2>&1
-  echo "$?" > "${BATS_FILE_TMPDIR}/par.rc"
+    ' > "${BATS_FILE_TMPDIR}/par.out" 2>&1 || _rc=$?
+  echo "${_rc}" > "${BATS_FILE_TMPDIR}/par.rc"
 
   # The serial reference: the same four specs under one kcov, one at a
   # time, so no two traced processes ever share the pipe. No KCOV_RDV: one
   # serial bats cannot meet itself.
   local _ser="${BATS_FILE_TMPDIR}/ser"
   _make_fixture "${_ser}"
+  _rc=0
   env -u BASH_ENV -u BASH_XTRACEFD -u KCOV_BASH_XTRACEFD -u LD_PRELOAD \
     -u KCOV_RDV -u COVERAGE_LOCAL_WORKDIR \
     kcov --include-path="${_ser}/lib" "${_ser}/coverage" \
     bats "${_ser}"/test/bats/unit/w{1,2,3,4}_spec.bats \
-    > "${BATS_FILE_TMPDIR}/ser.out" 2>&1
-  echo "$?" > "${BATS_FILE_TMPDIR}/ser.rc"
+    > "${BATS_FILE_TMPDIR}/ser.out" 2>&1 || _rc=$?
+  echo "${_rc}" > "${BATS_FILE_TMPDIR}/ser.rc"
 }
 
 setup() {
@@ -248,7 +252,7 @@ ${_report}"
   assert_output "812"
   run comm -3 "${BATS_TEST_TMPDIR}/ser.lines" "${BATS_TEST_TMPDIR}/par.lines"
   if [[ -n "${output}" ]]; then
-    fail "the concurrent shard's covered set differs from the serial run's ($(wc -l < "${BATS_TEST_TMPDIR}/par.lines") vs 804 lines); serial-only lines are left-aligned, shard-only lines indented:
+    fail "the concurrent shard's covered set differs from the serial run's ($(wc -l < "${BATS_TEST_TMPDIR}/par.lines") vs 812 lines); serial-only lines are left-aligned, shard-only lines indented:
 $(printf '%s\n' "${output}" | head -40)"
   fi
 }
