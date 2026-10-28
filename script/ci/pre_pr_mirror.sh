@@ -190,9 +190,12 @@ _actionlint() {
 }
 
 # _run <base> -- plan the diff <base>...HEAD and run it, first red stops.
+# --no-renames: with rename detection a move lists only its destination,
+# so a file moved from dist/ into doc/ read as doc-only and skipped the
+# jobs CI's pathspec diffs run for the removed source (base#1409).
 _run() {
   local base="$1" diff cmd
-  diff="$(git -C "${_MIRROR_ROOT}" diff --name-only "${base}...HEAD")" || {
+  diff="$(git -C "${_MIRROR_ROOT}" diff --no-renames --name-only "${base}...HEAD")" || {
     printf 'pre_pr_mirror: cannot diff %s...HEAD in %s\n' "${base}" "${_MIRROR_ROOT}" >&2
     return 2
   }
