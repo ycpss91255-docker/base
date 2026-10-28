@@ -4640,10 +4640,10 @@ the outer run's value, which is the wrong mode's value.
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
-| `prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved` | - |
-| `prev-release gate: the shard a --shard-weights file gives the spec refuses to start when the tags cannot be resolved` | - |
-| `prev-release gate: a shard a CI weights blob takes the spec away from dispatches with no release tags` | - |
-| `prev-release gate: a shard a --shard-weights file takes the spec away from dispatches with no release tags` | - |
+| `prev-release gate: the shard a CI weights blob gives the spec refuses to start when the tags cannot be resolved` | the CI failure itself (base#1433): the shard compute-shards' blob hands the spec ran it with no .prev-release/ and failed every case. A gate that reads the checkout's weights passes every other test here. |
+| `prev-release gate: the shard a --shard-weights file gives the spec refuses to start when the tags cannot be resolved` | a local `--coverage-shard N/T --shard-weights` must reproduce CI's shard N/T fixture decision too, or the local repro of a CI shard diverges exactly where the CI form was fixed. |
+| `prev-release gate: a shard a CI weights blob takes the spec away from dispatches with no release tags` | the converse pin. Without it a gate that always answers yes for a coverage shard would pass the two refusal tests above while every shard again pays a tag fetch for a spec it does not run. |
+| `prev-release gate: a shard a --shard-weights file takes the spec away from dispatches with no release tags` | the converse pin for the local form; a gate that ignored --shard-weights and used the `@test` count would refuse here. |
 
 ### test/bats/unit/probe_test_tools_spec.bats (29)
 
