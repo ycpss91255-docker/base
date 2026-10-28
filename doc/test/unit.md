@@ -4560,7 +4560,7 @@ list of job names.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (18)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (20)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4608,6 +4608,8 @@ the local mode with it.
 | `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | Without this the table and plan could claim a command the run never executes, and every other check in this file would still pass. |
 | `pre-PR mirror: a file moved from dist/ into doc/ plans what CI runs for the removed source (base#1409)` | Rename detection made the mirror's diff report only a move's destination, so moving an unchanged file from dist/ into doc/ read as a doc-only diff and skipped coverage, system and acceptance, while CI's pathspec diffs see the removed source and run all three. diff.renames is forced on so a user config that turns it off cannot hide the gap. |
 | `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
+| `pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)` | CI runs `system` and amd64 `acceptance` on amd64 runners, and both build and run images for the daemon's own architecture. On an arm64 daemon `just test acceptance` measured arm64 and the mirror still reported the amd64 leg green (base#1409 review round 3). |
+| `pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)` | "cannot tell the daemon's arch" must not read as amd64. |
 | `pre-PR mirror: the coverage floor reads kcov-merged/cobertura.xml where just test coverage writes it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
 | `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
 | `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
