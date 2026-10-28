@@ -318,9 +318,10 @@ _await() {
   assert_output --partial "just test stop"
 }
 
-# why: neither goes through the dispatcher, so neither inherits the question.
-# They are the flows most likely to leave a container behind.
-@test "system and smoke both ask before they build" {
+# why: none of them goes through the dispatcher, so none inherits the
+# question. They are the flows most likely to leave a container behind;
+# acceptance joined them when it became a local recipe (base#1409).
+@test "system, smoke and acceptance all ask before they build" {
   run grep -cF -- './script/test/test.sh --await-project' /source/script/test/justfile.test
-  assert_output "2"
+  assert_output "3"
 }

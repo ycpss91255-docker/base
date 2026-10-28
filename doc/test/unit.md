@@ -2014,7 +2014,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 | `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
-### test/bats/unit/coverage_gate_spec.bats (21)
+### test/bats/unit/coverage_gate_spec.bats (25)
 
 Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
 self-hosted, CI-agnostic coverage-floor gate that replaces the removed
@@ -2050,6 +2050,10 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+| `coverage_gate --run-dirs: reads kcov-merged/cobertura.xml when the run has one (base#1409)` | Passing both the merged and the per-command report counts a run twice; the merged one is the run's report when it exists. |
+| `coverage_gate --run-dirs: reads the run's own report when kcov merged nothing (base#1409)` | A single-command kcov run writes no kcov-merged report, and the gate must still find the one it did write. |
+| `coverage_gate --run-dirs: takes one report from each directory and unions them (base#1409)` | This is the CI shape -- one directory per shard -- and the union across them is the project rate the floor gates. |
+| `coverage_gate --run-dirs: refuses when no directory holds a report (base#1409)` | No report must be red, not a vacuous pass over nothing. |
 
 ### test/bats/unit/coverage_handback_spec.bats (14)
 
@@ -4633,6 +4637,72 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (27)
+
+The pre-PR mirror attested "CI passed locally" while running the bats suite
+plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
+`system` and amd64 `acceptance` outright. A green stamp therefore said
+nothing about the jobs most likely to fail in CI. This spec pins the
+mirror's contract against the workflow itself, so a job added to
+`ci-rollup`'s `needs:` without a local counterpart fails `just test` instead
+of slipping past the stamp.
+
+The mirror is tracked at `script/ci/pre_pr_mirror.sh` and exposes:
+
+--table one TAB-separated line per required job: attested<TAB><job><TAB><the
+local command run for it> excluded<TAB><job>[/<leg>]<TAB><reason> --plan
+reads the changed paths (one per line) on stdin and prints the commands the
+mirror would run for that diff, one per line.
+
+The claim is held link by link, so no link can be left out silently:
+
+table -> workflow every ci-rollup need is attested or excluded, and an
+attested job's local command runs in CI's mode. table -> plan on every diff
+where CI's own `if:` gate runs a job, the plan carries that job's local
+command. plan -> run the mirror executes exactly the plan, in order, and
+stops at the first red command. plan -> report the coverage floor the plan
+runs reads the shard reports the coverage matrix actually writes.
+
+Mode is derived on both sides, never declared: text is `kcov` when it
+invokes script/test/test.sh in a mode that instruments (`--coverage`,
+`--coverage-shard`, `--coverage-local`, `--coverage-path`); every other
+mode, `--coverage-union-check` included, is `plain`. A CI job's text is its
+run lines. A local `just test <recipe>` command's text is that recipe's body
+in script/test/justfile.test, and a local `./script/ci/pre_pr_mirror.sh
+--<sub>` command's text is the body of the function the mirror dispatches
+<sub> to, so a recipe or a subcommand that stops instrumenting changes the
+local mode with it.
+
+| Test | Description |
+|------|-------------|
+| `pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)` | - |
+| `pre-PR mirror: only arm64 acceptance, classify, compute-shards and worker-selftest may be excluded (base#1409)` | - |
+| `pre-PR mirror: every table entry names a job ci-rollup needs (base#1409)` | - |
+| `pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)` | The mode check stands on this classifier. Reading a command's spelling instead of the recipe it runs let a coverage recipe turned plain pass, and counting --coverage-union-check as kcov hid a real mode mismatch. |
+| `pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)` | A plain local run cannot attest a kcov CI job: specs that are red only under kcov stay green locally. This is the check that keeps the stamp measuring the same thing CI measures. |
+| `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | The plan's gates were hand-written and drifted from the workflow: acceptance ran in CI on every code change and locally only on system paths. Reading each job's own if: gate makes such a drift red here. |
+| `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
+| `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
+| `pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)` | - |
+| `pre-PR mirror: the coverage matrix is the one compute-shards computes for the same CI_SHARDS (base#1409)` | The mirror ran the unsharded `just test coverage`, one serial kcov over the suite, while CI runs a matrix of weighted shards, each dealt into COVERAGE_JOBS concurrent kcov slices (base#1410, base#1414); a failure that only that shape produces passed the mirror and went red in CI (base#1409 landing review). The matrix the mirror runs is held to the matrix compute-shards computes from the same variable. |
+| `pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)` | The shard list alone proves nothing if each shard runs another command or slice count than CI's, or if one shard's tree carries another run's reports: a coverage run merges into whatever coverage/ holds, so the matrix carried earlier reports into every later shard and the floor read lines that shard never covered (base#1409 review round 10). |
+| `pre-PR mirror: a red coverage shard stops the matrix red (base#1409)` | A matrix that carried on past a red shard, or exited 0 after one, would hand the floor a matrix with a hole and stamp a green CI's coverage job would not give. |
+| `pre-PR mirror: an unreadable CI_SHARDS is a refusal, not a guessed matrix (base#1409)` | Falling back to compute-shards' default of 8 when the variable cannot be read would run another matrix than the one CI_SHARDS sets and attest the coverage job. |
+| `pre-PR mirror: the run executes exactly the plan, in order (base#1409)` | Without this the table and plan could claim a command the run never executes, and every other check in this file would still pass. |
+| `pre-PR mirror: a planned command that reads stdin does not cut the plan short (base#1409)` | The run read its plan from the stdin every planned command inherited, so the first command that drained stdin (`just test` in a real run) swallowed the rest of the plan; the mirror ran actionlint and `just test` only and still reported every planned command green (base#1409). |
+| `pre-PR mirror: a file moved from dist/ into doc/ plans what CI runs for the removed source (base#1409)` | Rename detection made the mirror's diff report only a move's destination, so moving an unchanged file from dist/ into doc/ read as a doc-only diff and skipped coverage, system and acceptance, while CI's pathspec diffs see the removed source and run all three. diff.renames is forced on so a user config that turns it off cannot hide the gap. |
+| `pre-PR mirror: a change to only a non-ASCII dist/ path plans what CI runs for it (base#1409)` | The mirror classified the diff by matching `git diff --name-only` text against the pathspecs, and git quotes a non-ASCII name in that text under core.quotePath, so a change to only dist/<non-ASCII>.sh read as a quoted string that matched no pathspec and skipped `system`, while CI's pathspec diff sees the real file and runs it (base#1409 review round 5). core.quotePath is forced on so a user config that turns it off cannot hide the gap. |
+| `pre-PR mirror: the run stops at the first red command and exits non-zero (base#1409)` | A mirror that carries on past a red command, or exits 0 after one, stamps a green it did not earn. |
+| `pre-PR mirror: on an arm64 daemon the amd64 legs are reported not run, never green (base#1409)` | CI runs `system` and amd64 `acceptance` on amd64 runners, and both build and run images for the daemon's own architecture. On an arm64 daemon `just test acceptance` measured arm64 and the mirror still reported the amd64 leg green (base#1409 review round 3). |
+| `pre-PR mirror: with no reachable daemon the amd64 legs are reported not run (base#1409)` | "cannot tell the daemon's arch" must not read as amd64. |
+| `pre-PR mirror: the coverage floor reads each shard's kcov-merged/cobertura.xml where the matrix keeps it (base#1409)` | The floor read coverage/cobertura.xml, which kcov never writes, so a passing coverage run went red here and the system and acceptance legs after it never ran. |
+| `pre-PR mirror: the coverage floor reads a single kcov run's own report (base#1409)` | A single kcov command leaves only its own <command>.<hash> report and no kcov-merged one; the floor must read that layout too. |
+| `pre-PR mirror: CI's coverage-gate picks reports with the same command the mirror runs (base#1409)` | Report selection written once in the workflow and once in the mirror is two rules that can disagree; one command run by both cannot. |
+| `pre-PR mirror: no message points at the stale .claude/scripts/ location (base#1409)` | - |
+| `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
+| `acceptance job: checks the just it runs against the pin in its own shell (base#1409)` | Moving every acceptance step into script/ci/acceptance.sh took the job's only `just` invocation out of its `run:` shells, which is all the tool provenance lint reads; the lint then saw no job reach any pinned tool and failed its demand floor. The job runs `just`, so its own shell asks that binary for its version and holds it to the pin. |
+| `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
+
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
 | Test | Description |
@@ -4764,7 +4834,7 @@ here with no daemon.
 | `a quiescent project lets the dispatch through` | the pair to the case above: a guard that blocked the ordinary run would be caught here rather than by every developer. |
 | `test.sh --await-project answers for this checkout and exits` | it is a query, like --compose-project-name: the recipes that call it must not have it mint anything. |
 | `test.sh --await-project refuses when the project is still held` | the flag is only worth having if its verdict reaches the caller; a query that always exits 0 would let system and smoke run into the wedge. |
-| `system and smoke both ask before they build` | neither goes through the dispatcher, so neither inherits the question. They are the flows most likely to leave a container behind. |
+| `system, smoke and acceptance all ask before they build` | none of them goes through the dispatcher, so none inherits the question. They are the flows most likely to leave a container behind; acceptance joined them when it became a local recipe (base#1409). |
 
 ### test/bats/unit/prune_sh_spec.bats (41)
 
@@ -6113,12 +6183,12 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)` | - |
 | `self-test.yaml: bats-integration job declares needs on actionlint AND classify (#377)` | - |
 | `self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)` | - |
-| `self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)` | - |
-| `self-test.yaml: acceptance asserts the runnability contract (#579)` | - |
+| `self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)` | a consumer reaches the container only through `just`, so a broken container-ops justfile is invisible to an acceptance run that calls the wrappers directly -- it would stay green on exactly the defect a consumer hits first. Read over the job and script/ci/acceptance.sh together, so the move into the script (base#1409) cannot drop a verb unseen. |
+| `self-test.yaml: acceptance asserts the runnability contract (#579)` | the v0.41.0 user-args bug printed `initial` from whoami while the job stayed green, because nothing compared the output. These literals are the comparisons themselves; without them the job runs the steps and asserts nothing. |
 | `self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)` | The acceptance job's `.Path` check is a runnability assertion only while the literal it compares against is the one the template's ENTRYPOINT names. Reading BOTH here, rather than remembering one, is what makes a move of the entry point fail in the local gate instead of on the CI-only acceptance matrix that `just test` cannot see |
-| `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | - |
-| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | - |
-| `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | - |
+| `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | every verb named here was once reachable only through --dry-run, which exercises the argument parser and none of the effect. Dropping one of them from the script is the regression this case catches. |
+| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | new.sh has unit coverage, but the recipe wiring and the consumer symlink chain that resolve `just template new` are exercised nowhere else; this is the only witness that the consumer can actually reach it. |
+| `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | an undocumented gap reads as an oversight and gets "fixed" by a TUI drive that hangs without a pseudo-TTY. The comment is the decision; the refutation keeps anyone from invoking the TUI in a non-interactive job. |
 | `self-test.yaml: acceptance runs as a native-runner matrix over amd64 + arm64 (#603)` | - |
 | `self-test.yaml: acceptance shards run on the matrix runner (#603)` | - |
 | `self-test.yaml: acceptance Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)` | - |
@@ -6134,8 +6204,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)` | - |
-| `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
-| `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
+| `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that skips the obtain path builds against a stale or absent tooling image. This step stays in the job when the rest moved into script/ci/acceptance.sh (base#1409), because only a runner can obtain the run-scoped image. |
+| `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | with the docker-container driver the obtained image lives in buildx's private store, and the consumer build's FROM falls through to a registry pull that fails. The driver is runner setup, so it stays in the job, not in the script `just test acceptance` shares (base#1409). |
 | `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
 | `self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)` | Five jobs set up a docker-container builder before anything has decided whether one is wanted, and the only step that wants one is skipped on every hot-path run. Measured on one run: nineteen jobs spent 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs whose build step was skipped every time -- the action pulls `moby/buildkit:buildx-stable-1` and starts a container, and the post step then removes a builder nothing touched. base is public, so the unit that matters is not a bill but the roughly twenty concurrent slots ADR-00000017 names as the throughput constraint. The ordering half of this guard is the hazard the fix itself introduces: a condition reading `steps.<id>.outputs` from a step that has not run yet is empty, so the setup is skipped on EVERY run and the consumer it was paired with builds with no builder behind it -- a failure that reads as a cache error rather than as a misplaced step. |
 | `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
@@ -6225,7 +6295,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: run identity is not a timestamp and not the commit SHA (#900)` | - |
 | `self-test.yaml: the run-scoped names come from ONE place, not per job (#900)` | - |
 | `self-test.yaml: the test-tools image every job builds carries the ownership label (#900)` | - |
-| `self-test.yaml: the acceptance scaffold is keyed to the run (#900)` | - |
+| `self-test.yaml: the acceptance scaffold is keyed to the run (#900)` | on a shared self-hosted host a fixed scaffold name makes two runs share one image, container and network, and the loser silently tests the winner's build. The run key in the name is also what reclaim.sh --run proves ownership by, locally as well as in CI (base#1409). |
 | `self-test.yaml: every job that puts an image in the host daemon tears it down (#900)` | - |
 | `self-test.yaml: teardown runs on failure too, not just on success (#900)` | - |
 | `self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)` | - |

@@ -1302,32 +1302,14 @@ jobs:
         # download-artifact lays each shard out under its own
         # ./coverage-shards/coverage-shard-<idx>/ subdir. kcov can write
         # BOTH a per-run AND a kcov-merged cobertura.xml inside one run's
-        # output, so pick EXACTLY ONE report per shard subdir (the merged
-        # one if present, else the first found) -- passing both to the gate
-        # would double-count that shard. The script then sums covered/valid
-        # across the one-per-shard set and emits the merged % to
-        # $GITHUB_STEP_SUMMARY.
-        run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-          reports=()
-          for shard_dir in ./coverage-shards/*/; do
-            merged="${shard_dir}kcov-merged/cobertura.xml"
-            if [[ -f "${merged}" ]]; then
-              reports+=("${merged}")
-              continue
-            fi
-            for xml in "${shard_dir}"**/cobertura.xml; do
-              reports+=("${xml}")
-              break
-            done
-          done
-          if [[ ${#reports[@]} -eq 0 ]]; then
-            echo "no cobertura.xml found under ./coverage-shards" >&2
-            exit 1
-          fi
-          printf 'coverage report: %s\n' "${reports[@]}"
-          bash ./script/test/drivers/coverage_gate.sh "${reports[@]}"
+        # output, so --run-dirs picks EXACTLY ONE report per shard subdir
+        # (the merged one if present, else the first found) -- passing both
+        # to the gate would double-count that shard. The pre-PR mirror runs
+        # the same command over the coverage/ tree `just test coverage`
+        # writes (base#1409), so the selection rule lives in the script,
+        # not here. The script then unions covered lines across the
+        # one-per-shard set and emits the merged % to $GITHUB_STEP_SUMMARY.
+        run: bash ./script/test/drivers/coverage_gate.sh --run-dirs ./coverage-shards/*/
 
       - name: Merge shard timings into the weights file
         # Each shard's artifact carries a timings.tsv (per-spec kcov seconds
@@ -1454,58 +1436,6 @@ jobs:
         # cannot serve it, and that driver has no GHA cache to lose.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline
 
-      - name: Build toml-bridge image (TOML config unification)
-        # NOT what makes the e2e repo work any more -- the shim provisions
-        # the bridge itself, under a content-digest tag, before the first
-        # TOML read. Kept, and pinned through the job-level
-        # TOML_BRIDGE_IMAGE above, so this job measures the scaffolded
-        # repo's lifecycle rather than a docker build inside it:
-        # a caller-pinned image is left alone by the shim, which is the
-        # same contract _ensure_test_tools_image honours. The provisioning
-        # path has its own coverage in the unit and integration tiers.
-        run: |
-          docker build -t toml-bridge:local \
-            -f dockerfile/Dockerfile.toml-bridge dockerfile
-
-      - name: Create temp repo and run init.sh
-        run: |
-          set -euo pipefail
-          TMP_ROOT="$(mktemp -d)"
-          # The scaffolded directory's BASENAME becomes IMAGE_NAME (the
-          # [image] @basename rule), and IMAGE_NAME is what the image tag
-          # (${DOCKER_HUB_USER}/${IMAGE_NAME}:<stage>), the container name
-          # (${USER_NAME}-${IMAGE_NAME}) and the compose project are all
-          # built from -- so keying this ONE name to the run makes all
-          # three unique. mktemp -d alone does not: it randomises the
-          # PARENT, which no docker name is derived from.
-          REPO_NAME="e2e_test-ci-${CI_RUN_KEY}"
-          REPO_DIR="${TMP_ROOT}/${REPO_NAME}"
-          mkdir -p "${REPO_DIR}/.base"
-
-          # Mirror current template into the synthetic repo. A real vendored
-          # subtree never carries `.git` (the consumer's `.git` lives at the
-          # repo root, outside the subtree); `cp -a` of the checkout copies
-          # its `.git`, which the self-run guard (ADR-00000011 sec.8) reads as
-          # "this is the base source". Strip it so `.base/` is a genuine
-          # subtree and init.sh runs.
-          cp -a "${GITHUB_WORKSPACE}/." "${REPO_DIR}/.base/"
-          rm -rf "${REPO_DIR}/.base/.git"
-
-          cd "${REPO_DIR}"
-          bash .base/dist/script/base/init.sh
-
-          # Sanity: verify symlinks resolve and core files exist.
-          # Post-#330: wrappers live under script/; #546: the root user
-          # entry is the justfile (the container-ops Makefile was retired).
-          test -L script/build.sh && test -L script/run.sh \
-            && test -L script/exec.sh && test -L script/stop.sh
-          test -L script/setup_tui.sh
-          test -L justfile
-          test -f Dockerfile && test -f compose.yaml && test -f setup.toml
-
-          echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
-          echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
-
       - name: Resolve the pinned just version
         id: just-pin
         # ONE declaration, read rather than restated: ARG JUST_VERSION in
@@ -1541,359 +1471,34 @@ jobs:
         with:
           just-version: ${{ steps.just-pin.outputs.version }}
 
-      - name: Build the consumer's own tooling image, nothing pinned (base#1172)
-        working-directory: ${{ env.REPO_DIR }}
-        # Every other build step here runs with TEST_TOOLS_IMAGE pinned by
-        # the workflow-level env, so build.sh skips its internal tooling
-        # build and none of them reach the path a downstream developer
-        # takes. Unset it so build.sh builds the version-scoped
-        # test-tools:<.base/.version> image itself, from the consumer's
-        # checkout, then run that image's toml-bridge and assert its
-        # exact output. The consumer root carries no
-        # dockerfile/toml_bridge.py -- only the vendored .base/ does --
-        # which the first check pins so this cannot pass vacuously.
+      - name: Check the just on PATH is the pin
+        # Naming the pin is not proof of the binary: ask the `just` the
+        # steps below will run, and compare it to the declaration. This is
+        # also the job's own record that it runs `just`: since base#1409
+        # every `just` verb lives in script/ci/acceptance.sh, and the tool
+        # provenance lint reads a job's `run:` shells, not the repo scripts
+        # they call.
         run: |
           set -euo pipefail
-          if [[ -e dockerfile/toml_bridge.py ]]; then
-            echo "ERROR: the scaffolded consumer carries dockerfile/toml_bridge.py at its root; this guard would pass vacuously"
-            exit 1
-          fi
-          env -u TEST_TOOLS_IMAGE just docker build test
-          ver="$(tr -d '[:space:]' < .base/.version)"
-          got="$(printf 'a = 1\n[t]\nb = "x"\n' \
-                   | docker run --rm -i --entrypoint toml-bridge "test-tools:${ver}")"
-          want='{"a": 1, "t": {"b": "x"}}'
-          echo "toml-bridge in test-tools:${ver}: ${got}"
-          if [[ "${got}" != "${want}" ]]; then
-            echo "ERROR: toml-bridge printed '${got}', expected '${want}'"
-            exit 1
-          fi
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
 
-      - name: Build test stage (just docker build test)
-        working-directory: ${{ env.REPO_DIR }}
-        # build.sh skips its internal test-tools build when TEST_TOOLS_IMAGE
-        # is set (#317 P2), and the workflow-level env sets it for every job.
-        # The pre-built image from the Obtain step above is already loaded
-        # into the host's docker daemon, so `docker compose build`'s
-        # Dockerfile.example `FROM ${TEST_TOOLS_IMAGE}` resolves locally
-        # without re-running the dockerfile/Dockerfile.test-tools build.
-        run: |
-          just docker build test
-
-      - name: Build devel stage (just docker build)
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          just docker build
-
-      - name: Run container detached and assert the runnability contract
-        working-directory: ${{ env.REPO_DIR }}
-        # A1 (#579): assert results, don't just run steps. The v0.41.0
-        # user-args bug made `whoami` print `initial` yet the job stayed
-        # green because nothing checked the output.
-        run: |
-          set -euo pipefail
-          # The configured user is host-detected by setup.sh and cached in
-          # .env.generated; read it rather than hardcoding the runner's.
-          # shellcheck disable=SC1091
-          source ./.env.generated
-          : "${USER_NAME:?USER_NAME missing from .env.generated}"
-          echo "configured USER_NAME=${USER_NAME}"
-
-          just docker run -d
-          just docker exec echo "just docker exec OK from CI"
-
-          # Derive the container name at runtime (compose names it
-          # ${USER_NAME}-${IMAGE_NAME}-<svc>; IMAGE_NAME is the scaffolded
-          # repo dir). Filtering by the run-scoped repo name avoids
-          # reconstructing the full host-detected name -- and, unlike the
-          # bare `e2e_test` it replaces, cannot read a CONCURRENT run's
-          # container as this run's.
-          cname="$(docker ps --filter "name=${REPO_NAME}" --filter 'status=running' \
-                     --format '{{.Names}}' | head -n1)"
-
-          # (2) container did NOT insta-exit (the entrypoint set -u class).
-          if [[ -z "${cname}" ]]; then
-            echo "ERROR: no running ${REPO_NAME} container after just docker run -d"
-            docker ps -a
-            exit 1
-          fi
-
-          # (1) the in-container user is the configured one, not the
-          # v0.41.0 'initial' bug nor 'root'.
-          who="$(just docker exec id -un | tr -d '\r' | tail -n1)"
-          echo "id -un inside container: ${who}"
-          if [[ "${who}" != "${USER_NAME}" ]]; then
-            echo "ERROR: container user '${who}' != configured '${USER_NAME}'"
-            exit 1
-          fi
-
-          # (3) the ENTRYPOINT actually ran -- the wired entry point is
-          # base's orchestrator at /usr/local/lib/base/entrypoint.sh
-          # (Dockerfile ENTRYPOINT
-          # ["/usr/local/lib/base/entrypoint.sh"]), which SOURCES the
-          # repo-owned bringup at /entrypoint.sh before it execs the
-          # workload (ADR-00000032). `.Path` therefore names the
-          # base-owned half; the bringup is not an entry point and never
-          # appears here.
-          path="$(docker inspect -f '{{.Path}}' "${cname}")"
-          echo "container Path: ${path}"
-          if [[ "${path}" != "/usr/local/lib/base/entrypoint.sh" ]]; then
-            echo "ERROR: container entrypoint '${path}' != /usr/local/lib/base/entrypoint.sh"
-            exit 1
-          fi
-
-          # (4) the ~/work workspace mount is present and writable inside.
-          # Use simple per-call argv (not `just docker exec bash -c '<compound>'`,
-          # whose quoting does not survive just's `{{args}}` splitting) and
-          # an absolute path (the mount lands at /home/${USER_NAME}/work).
-          work="/home/${USER_NAME}/work"
-          just docker exec test -d "${work}"
-          just docker exec touch "${work}/.e2e_probe"
-          just docker exec rm -f "${work}/.e2e_probe"
-
-      - name: Stop and assert full teardown (container + network gone)
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          set -euo pipefail
-          just docker stop
-          # (5a) no project container remains.
-          if docker ps -a --format '{{.Names}}' | grep -q "${REPO_NAME}"; then
-            echo "ERROR: a ${REPO_NAME} container remains after just docker stop"
-            docker ps -a
-            exit 1
-          fi
-          # (5b) the compose project's default network is gone. `compose
-          # up` creates ${DOCKER_HUB_USER}-${REPO_NAME}_default even under
-          # network_mode: host; `compose down` (run by stop.sh) removes it.
-          if docker network ls --format '{{.Name}}' | grep -q "${REPO_NAME}_default"; then
-            echo "ERROR: a ${REPO_NAME} project network remains after just docker stop"
-            docker network ls
-            exit 1
-          fi
-
-      # The steps below (#769) extend the runnability contract beyond the
-      # build / run -d / exec / stop core: each remaining downstream `just`
-      # verb is driven with REAL execution (not --dry-run) and asserted on a
-      # real effect (in-container output / regenerated artifact / removed
-      # resource / verdict line). setup-tui (the interactive TUI) is
-      # intentionally NOT exercised here -- driving it for real needs a
-      # pseudo-TTY; it stays covered by the unit tui_spec.
-      - name: Run foreground command variant and assert auto-cleanup (#386 / #769)
-        working-directory: ${{ env.REPO_DIR }}
-        # `just docker run <cmd>` (no -d) is the foreground command variant:
-        # it brings the devel service up, execs the CMD, then the #386
-        # auto-down tears the project down on exit. Assert BOTH the real
-        # in-container effect (the CMD ran as the configured user) AND that
-        # the foreground auto-cleanup removed the container + project network.
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC1091
-          source ./.env.generated
-          : "${USER_NAME:?USER_NAME missing from .env.generated}"
-
-          # QUIET=1 mutes the pre-run config summary so the captured stdout is
-          # the in-container `id -un` output. </dev/null guards against any
-          # stdin read.
-          who="$(QUIET=1 just docker run id -un </dev/null 2>/dev/null \
-                   | tr -d '\r' | tail -n1)"
-          echo "foreground run id -un: ${who}"
-          if [[ "${who}" != "${USER_NAME}" ]]; then
-            echo "ERROR: foreground run ran as '${who}', expected '${USER_NAME}'"
-            exit 1
-          fi
-
-          # #386 foreground auto-down: no container + no project network survive.
-          if docker ps -a --format '{{.Names}}' | grep -q "${REPO_NAME}"; then
-            echo "ERROR: foreground run left a ${REPO_NAME} container behind"
-            docker ps -a
-            exit 1
-          fi
-          if docker network ls --format '{{.Name}}' | grep -q "${REPO_NAME}_default"; then
-            echo "ERROR: foreground run left a ${REPO_NAME} project network behind"
-            docker network ls
-            exit 1
-          fi
-
-      - name: Build + run in one step via `just docker start` (#769)
-        working-directory: ${{ env.REPO_DIR }}
-        # `just docker start` is build (cached here) + a foreground `run` in
-        # one step (the recipe forwards no CMD, so the devel service comes up,
-        # the attached shell reads EOF from the non-interactive stdin and
-        # exits, then #386 auto-down cleans up). NOTE: the recipe is
-        # build-then-run, not a docker-native `start` of a stopped container.
-        # Assert the composite real effect: the devel image is present (build
-        # half ran) and nothing leaks (foreground run half cleaned up).
-        run: |
-          set -euo pipefail
-          just docker start </dev/null
-          if ! docker images --format '{{.Repository}}:{{.Tag}}' \
-               | grep -q "${REPO_NAME}"; then
-            echo "ERROR: just docker start did not leave a built ${REPO_NAME} image"
-            docker images
-            exit 1
-          fi
-          if docker ps -a --format '{{.Names}}' | grep -q "${REPO_NAME}"; then
-            echo "ERROR: just docker start left a container behind (auto-down failed)"
-            docker ps -a
-            exit 1
-          fi
-
-      - name: Regenerate derived artifacts via `just docker setup apply` (#769)
-        working-directory: ${{ env.REPO_DIR }}
-        # Explicit setup re-run: delete the two derived artifacts
-        # (.env.generated + compose.yaml) and assert `setup apply` regenerates
-        # them from setup.conf + host detection.
-        run: |
-          set -euo pipefail
-          test -f .env.generated && test -f compose.yaml
-          rm -f .env.generated compose.yaml
-          just docker setup apply
-          if [[ ! -f .env.generated || ! -f compose.yaml ]]; then
-            echo "ERROR: setup apply did not regenerate .env.generated + compose.yaml"
-            ls -la
-            exit 1
-          fi
-          grep -q 'services:' compose.yaml
-          # shellcheck disable=SC1091
-          source ./.env.generated
-          : "${USER_NAME:?regenerated .env.generated missing USER_NAME}"
-
-      - name: Real prune via `just docker prune` (#769)
-        working-directory: ${{ env.REPO_DIR }}
-        # Exercise a REAL prune (not --dry-run): create an unused throwaway
-        # network, then `just docker prune --networks` with a tiny `until`
-        # window and assert the wrapper's real `docker network prune`
-        # removed it.
+      - name: Scaffold a consumer and drive its just verbs (script/ci/acceptance.sh)
+        # Every acceptance step -- the toml-bridge build, init.sh into a
+        # run-keyed temp repo, the unpinned tooling build (base#1172), the
+        # test + devel stage builds, the runnability contract (base#579), the
+        # foreground run, start, setup apply, a real prune, base update,
+        # base completions (base#769) and template new (base#785) -- lives in ONE
+        # script, which `just test acceptance` runs too, so the pre-PR mirror
+        # runs exactly what this job runs (base#1409). What stays above is
+        # what only a runner has: the buildx driver, the run-scoped tooling
+        # image, and the pinned `just`.
         #
-        # The probe's NAME is run-scoped because two concurrent runs
-        # creating one fixed name is a hard failure ("network with name
-        # ... already exists"), not a silent share. The prune itself stays
-        # daemon-wide, and that is deliberate: `docker network prune`
-        # removes only networks with NO container attached at all (a
-        # STOPPED container still counts as a user), so the worst it can do
-        # to a sibling is delete an idle project network that compose
-        # recreates on its next invocation. That bounded blast radius is
-        # what separates it from an image / system prune, which must never
-        # run unscoped here.
-        run: |
-          set -euo pipefail
-          probe="e2e_prune_probe-ci-${CI_RUN_KEY}"
-          docker network create "${probe}" >/dev/null
-          # until=1s prunes networks created more than 1s ago; sleep so the
-          # probe qualifies deterministically.
-          sleep 2
-          just docker prune --networks --until 1s
-          if docker network ls --format '{{.Name}}' | grep -qx "${probe}"; then
-            echo "ERROR: just docker prune --networks did not remove the probe network"
-            docker network ls
-            exit 1
-          fi
-
-      - name: Check for base updates via `just base update` (#769)
-        working-directory: ${{ env.REPO_DIR }}
-        # `just base update` runs upgrade.sh --check against the published base
-        # tags (needs network). The recipe masks the apt-style "update
-        # available" exit 1 to 0, so assert a real verdict line appears rather
-        # than just trusting exit 0.
-        run: |
-          set -euo pipefail
-          out="$(just base update 2>&1)"
-          echo "${out}"
-          if ! echo "${out}" \
-               | grep -Eq 'Already up to date|Update available|Local is ahead'; then
-            echo "ERROR: just base update produced no version verdict"
-            exit 1
-          fi
-
-      - name: Install shell completions via `just base completions` (#769)
-        working-directory: ${{ env.REPO_DIR }}
-        env:
-          # Isolate the completion target dir so the assertion is hermetic and
-          # the installer never touches the runner's real HOME.
-          XDG_DATA_HOME: ${{ env.REPO_DIR }}/.xdg-data
-        run: |
-          set -euo pipefail
-          target="${XDG_DATA_HOME}/bash-completion/completions/just"
-          just base completions install --shell bash
-          if [[ ! -s "${target}" ]]; then
-            echo "ERROR: completions install wrote no (or empty) loader at ${target}"
-            exit 1
-          fi
-          grep -q 'JUST_COMPLETE' "${target}"
-          # The dynamic completer the loader invokes must itself emit non-empty
-          # completion output against the layered justfile.
-          comp="$(JUST_COMPLETE=bash just 2>/dev/null || true)"
-          if [[ -z "${comp}" ]]; then
-            echo "ERROR: 'just' produced no completion output"
-            exit 1
-          fi
-          # Round-trip: uninstall removes the loader.
-          just base completions uninstall --shell bash
-          if [[ -e "${target}" ]]; then
-            echo "ERROR: completions uninstall did not remove ${target}"
-            exit 1
-          fi
-
-      - name: Scaffold a repo-local command group via `just template new` (#785)
-        working-directory: ${{ env.REPO_DIR }}
-        # Acceptance coverage (#785 / QA item 10): `new.sh` is unit-tested in
-        # isolation, but the `just template new <name>` RECIPE -- the
-        # `template` namespace wiring and the consumer symlink chain that
-        # resolves it -- is exercised nowhere. Drive the REAL recipe in the
-        # scaffolded consumer and assert the produced consumer artifact: the
-        # scaffolded group dir + files, the registry entry, and that the new
-        # group is actually dispatchable through `just` afterwards (UAT).
-        run: |
-          set -euo pipefail
-          name="deploy"
-          # Guard against a false green: the group must not pre-exist.
-          if [[ -e "script/local/${name}" ]]; then
-            echo "ERROR: script/local/${name} already exists before scaffolding"
-            exit 1
-          fi
-
-          just template new "${name}"
-
-          # (1) the scaffolded group dir + its two files exist, and the
-          # command script is executable.
-          if [[ ! -f "script/local/${name}/justfile.${name}" \
-                || ! -x "script/local/${name}/${name}.sh" ]]; then
-            echo "ERROR: just template new did not scaffold script/local/${name}/"
-            ls -la "script/local/${name}" || true
-            exit 1
-          fi
-          # (2) __NAME__ placeholders were substituted (no leftover token).
-          if grep -RqF '__NAME__' "script/local/${name}/"; then
-            echo "ERROR: scaffolded files still contain the __NAME__ placeholder"
-            exit 1
-          fi
-          # (3) the group is registered in the repo-owned registry.
-          if ! grep -qF "mod? ${name} '${name}/justfile.${name}'" \
-               script/local/justfile.local; then
-            echo "ERROR: group '${name}' not registered in script/local/justfile.local"
-            cat script/local/justfile.local || true
-            exit 1
-          fi
-          # (4) the freshly-registered group resolves through the consumer
-          # entry: `just --list ${name}` lists the scaffolded module's
-          # example `hello` recipe (proves the module + registry wiring, no
-          # side effect).
-          if ! just --list "${name}" | grep -qw 'hello'; then
-            echo "ERROR: 'just --list ${name}' does not resolve the scaffolded module"
-            just --list "${name}" || true
-            just --list || true
-            exit 1
-          fi
-          # (5) the strongest consumer-chair assertion: actually RUN the
-          # scaffolded example recipe end-to-end -- it cd's into the module
-          # dir and execs the generated ./${name}.sh, whose __NAME__ was
-          # substituted, so the greeting must name the group.
-          out="$(just "${name}" hello)"
-          echo "${out}"
-          if [[ "${out}" != *"hello from the ${name} group"* ]]; then
-            echo "ERROR: 'just ${name} hello' did not run the scaffolded recipe"
-            exit 1
-          fi
+        # setup-tui (the interactive TUI) is intentionally NOT exercised:
+        # driving it for real needs a pseudo-TTY; it stays covered by the
+        # unit tui_spec.
+        run: ./script/ci/acceptance.sh
 
       # The scaffolded consumer's image / container / network carry no
       # ownership LABEL -- downstream tooling named them, base did not
