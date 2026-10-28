@@ -2257,6 +2257,14 @@ _residue_check() {
 readonly _PROJECT_WAIT_DEFAULT='2m'
 readonly _PROJECT_WAIT_POLL_SECONDS=2
 
+# The whole-run bound on the compose run of the suite (base#1413), a
+# `timeout` duration, one per service. Ceilings for a hang, not tuned
+# numbers: the ci service gets two hours, the coverage service -- whose
+# full-suite run is serial under kcov -- six, GitHub's own default job
+# bound. SUITE_TIMEOUT overrides both.
+readonly _SUITE_TIMEOUT_PLAIN='120m'
+readonly _SUITE_TIMEOUT_COVERAGE='360m'
+
 # _await_docker_project_networks <project> <checkout>
 #
 # The ids of the networks that carry BOTH proofs. Ids only: they are hex,
@@ -2477,6 +2485,34 @@ _run_via_compose() {
   # substitution inline in an argument would not abort the command).
   local _image
   _image="$(_resolve_test_tools_image)"
+  # The run is bounded as a whole (base#1413). Locally nothing else bounds
+  # it -- no job timeout -- so a hang the per-test bound cannot see (a
+  # wedged container, a stuck kcov merge) would block the terminal. The
+  # bound is a ceiling for a hang, not a budget: SUITE_TIMEOUT overrides
+  # it (a `timeout` duration), and the default is wider for the coverage
+  # service, whose full-suite run is serial under kcov. `--foreground`
+  # because compose may put the terminal in raw mode: without it the run
+  # is in a background process group, and a raw-mode change from there
+  # stops it on SIGTTOU until the bound fires. `-k` follows with SIGKILL
+  # if the TERM is not enough. The bound stops compose, not the container
+  # compose started: that one runs on until it ends or `just test stop`
+  # removes it, which the timeout message says. Resolved here, with the
+  # other refusals that mint nothing, so a bad value is refused before any
+  # compose call.
+  local _suite_timeout="${SUITE_TIMEOUT:-}"
+  if [[ -z "${_suite_timeout}" ]]; then
+    if [[ "${_service}" == "coverage" ]]; then
+      _suite_timeout="${_SUITE_TIMEOUT_COVERAGE}"
+    else
+      _suite_timeout="${_SUITE_TIMEOUT_PLAIN}"
+    fi
+  fi
+  if ! [[ "${_suite_timeout}" =~ ^[1-9][0-9]*[smhd]?$ ]]; then
+    _log_err ci ci_invalid_suite_timeout \
+      "display=SUITE_TIMEOUT '${_suite_timeout}' is not a duration (expected <N>, <N>s, <N>m, <N>h or <N>d)." \
+      "value=${_suite_timeout}"
+    return 1
+  fi
   # Ask whether the previous run has let go of this project's network
   # before asking compose to use it. ABOVE the arm, because a refusal here
   # mints nothing: the project it names already exists, and a sweep for
@@ -2526,7 +2562,8 @@ _run_via_compose() {
   # and wrote into the checkout has two things to say, and the second one
   # explains re-runs that disagree with each other.
   local _rc=0
-  docker compose -p "${_project}" \
+  timeout --foreground -k 60s "${_suite_timeout}" \
+    docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
@@ -2540,9 +2577,15 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
+    -e PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-}" \
     -e PIN_TRACKED_ROOT=/source \
     -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
     "${_service}" || _rc=$?
+  if (( _rc == 124 )); then
+    _log_err ci ci_suite_timeout \
+      "display=the ${_service} run did not finish within ${_suite_timeout} and was stopped (status ${_rc}). A test that hangs is bounded on its own and fails by name; a run that hits this bound hung outside any test. Stopping compose does not stop the container it started, so it may still be running: 'just test stop' removes it. Raise the bound with SUITE_TIMEOUT if the run was only slow." \
+      "service=${_service}" "timeout=${_suite_timeout}" "status=${_rc}"
+  fi
   if [[ -n "${_residue_before}" ]]; then
     _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
     rm -f "${_residue_before}"
