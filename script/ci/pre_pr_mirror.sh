@@ -243,7 +243,13 @@ _run() {
     return 2
   fi
   gates="$(_gates "${_MIRROR_ROOT}" "${base}...HEAD")"
-  while IFS= read -r cmd; do
+  # The plan is read in full before anything runs. Fed to the loop on
+  # stdin, it was also every planned command's stdin, and `just test`
+  # drained it: the run stopped after two commands and still reported
+  # every planned command green (base#1409).
+  local -a plan=()
+  mapfile -t plan < <(_commands "${gates}")
+  for cmd in "${plan[@]}"; do
     if _needs_amd64 "${cmd}"; then
       [[ -n "${arch}" ]] || arch="$(_daemon_arch)"
       if [[ "${arch}" != x86_64 && "${arch}" != amd64 ]]; then
@@ -258,7 +264,7 @@ _run() {
       printf 'pre_pr_mirror: RED at: %s\n' "${cmd}" >&2
       return 1
     fi
-  done < <(_commands "${gates}")
+  done
   if (( not_run )); then
     printf '\npre_pr_mirror: NOT GREEN for %s...HEAD: %d planned command(s) not run, see NOT RUN above\n' \
       "${base}" "${not_run}" >&2
