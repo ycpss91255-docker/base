@@ -19,7 +19,7 @@ Six output modes (`--kv`, `--empty-arrays`, `--tables`, `--empty-families`, `--e
 
 Two evaluations were run before this decision.
 
-**Speed and size (#1435; `rust-eval/final.md`, re-measured by an independent verifier at `01dee226`):**
+**Speed and size (the evaluation report on #1435, which lives outside this tree; re-measured by an independent verifier at `01dee226`):**
 
 - **Container start is the cost, not the parser.** One bridge call costs about 490 ms whatever the language (n=20): Python 494 ms, Rust 496 ms, Go 483 ms, and a bare `alpine cat` 500 ms. Native parse time of `setup.toml` is Python 24.6 ms, Rust 2.1 ms and Go 2.6 ms. Swapping the language therefore saves at most about 0.36 s of a `setup apply` that takes 9.8 to 10.2 s.
 - **The repeated calls are the waste.** One `setup apply` runs **16** bridge `docker run`s. Ten of them are the identical call `--merge --kv dist/setup.toml setup.toml`, so **9** are removable duplicates, worth about 4.4 s. Each call also runs a `docker image inspect` (0.39 to 0.52 s in total), because `conf.sh` calls the merge inside `$(...)` and the resolved-image memo does not survive the subshell.
@@ -29,7 +29,7 @@ Two evaluations were run before this decision.
 - **Equivalence of partial ports** on a 741-fixture corpus: Rust 702 identical, Go (BurntSushi) 704. Every error text differs: 0 of 35 error fixtures match. Both ports accept TOML 1.1 where `tomllib` accepts only 1.0. Go sorts the keys inside array-of-tables entries.
 - **Dependencies:** Go needs one module (BurntSushi/toml v1.6.0, a 2-line `go.sum`). Rust locks 20 crates besides the root and compiles 13 of them, and no existing pin resolver covers any of them.
 
-**Stability (#1395 comment; `stability-eval/`; 62 config bugs from this repo's history, two independent classification passes, verified fix diffs):**
+**Stability (the evaluation comment on #1395, outside this tree; 62 config bugs from this repo's history, two independent classification passes, verified fix diffs):**
 
 - **The design does the work, not the language.** Design D is one program that loads, merges, validates and emits the configuration, with a typed schema that refuses unknown keys. It fully prevents 10 of the 62 bugs and partly prevents 26. The other 26 (spec, TUI, migration, text drift) do not depend on the language.
 - **Earliest catch stage per language:**
