@@ -242,6 +242,10 @@ compose.yaml     <- from setup.toml (infrastructure)
 .env.generated   <- interpolation cache (unchanged)
 ```
 
+*Amended by ADR-00000039 (#1395, 2026-10-29): the parser and generator
+for base are the Go `config-gen`; toml-bridge remains for Python
+consumers.*
+
 **Containerised parsing.** TOML is parsed before `docker compose up`
 -- the parse results ARE its inputs. The parser runs in a dedicated
 container image (`toml-bridge`), not on the host: the host contract
