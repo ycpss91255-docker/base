@@ -364,7 +364,7 @@ _df_instructions() {
 
 # The cases the redpath plants, in the order it runs them, each with the
 # gate whose id it must produce; the unmodified control comes last.
-REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage"
+REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt"
 
 # _redpath_repo -- a scratch copy of what the redpath reads, at ${S}/repo,
 # with a recording stub in place of the runner. Call <n> of the stub writes
@@ -386,6 +386,7 @@ root=""; prev=""
 for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
 printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
+[[ -d "\${root}/dockerfile/config-gen" ]] && cp -a "\${root}/dockerfile/config-gen" "${S}/runner.\${n}.mod"
 cat "${S}/canned/\${n}.out" 2>/dev/null
 cat "${S}/canned/\${n}.err" >&2 2>/dev/null
 exit "\$(cat "${S}/canned/\${n}.rc" 2>/dev/null || echo 9)"
@@ -446,11 +447,11 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  assert_equal "$(cat "${S}/runner.n")" 7
-  assert_equal "$(grep -c . "${S}/runner.trees")" 7
+  assert_equal "$(cat "${S}/runner.n")" 8
+  assert_equal "$(grep -c . "${S}/runner.trees")" 8
   local _roots
   _roots="$(for _f in "${S}"/runner.*.argv; do awk 'p == "--root" {print} {p=$0}' "${_f}"; done)"
-  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 7
+  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 8
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
@@ -466,7 +467,7 @@ _run_redpath() {
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=vet reason=rc_zero gate=vet
-  assert_equal "$(cat "${S}/runner.n")" 7
+  assert_equal "$(cat "${S}/runner.n")" 8
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
@@ -542,10 +543,54 @@ _run_redpath() {
   assert_logged_event config_gen_redpath_case_failed case=race-fuzz reason=wrong_id gate=race
 }
 
+# why: A _test.go file is outside `go build`, so a syntax error there
+# passes the build stage and reaches the fmt gate first. gofmt then exits
+# non-zero instead of listing a file; a fmt RUN that let that status kill
+# it before printing its own id would report the case as a build failure,
+# and the fmt gate would be green on a file it never read (base#1462).
+@test "config_gen_redpath.sh: the fmt-parse case plants a _test.go file gofmt cannot parse and must produce the fmt gate's id (base#1462)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath
+  assert_success
+  local _new
+  _new="$(cd "${S}/runner.7.mod" && find . -type f | sort | comm -23 - <(cd /source/dockerfile/config-gen && find . -type f | sort))"
+  assert_equal "${_new}" "./cmd/config-gen/zz_parse_test.go"
+  # Unbalanced braces: no Go parser accepts the file.
+  local _open _close
+  _open="$(tr -cd '{' < "${S}/runner.7.mod/cmd/config-gen/zz_parse_test.go" | wc -c)"
+  _close="$(tr -cd '}' < "${S}/runner.7.mod/cmd/config-gen/zz_parse_test.go" | wc -c)"
+  (( _open != _close )) || fail "zz_parse_test.go balances its braces: $(cat "${S}/runner.7.mod/cmd/config-gen/zz_parse_test.go")"
+  # A build-failure record in place of the fmt id fails the case.
+  rm -rf "${S}"/runner.*
+  _gate_record config_gen_build_failed status=1 display=build > "${S}/canned/7.err"
+  _run_redpath
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=fmt-parse reason=wrong_id gate=fmt
+}
+
+# why: Go's automatic toolchain selection downloads and runs a compiler
+# other than the pinned image's when go.mod asks for a newer one;
+# ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the pinned
+# toolchain or fails. The test stage is FROM build, so one ENV in build,
+# ahead of its first RUN, covers every go command in both (base#1462).
+@test "Dockerfile.config-gen: the build stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  _df_instructions > "${S}/df"
+  run awk -F'\t' '$1 == "build" && $2 ~ /^(ENV|RUN) / {print $2; exit}' "${S}/df"
+  assert_success
+  assert_output 'ENV GOTOOLCHAIN=local'
+  run awk -F'\t' '/GOTOOLCHAIN/ && $2 != "ENV GOTOOLCHAIN=local" {print}' "${S}/df"
+  assert_success
+  assert_output ""
+  run awk -F'\t' '$2 ~ /^FROM / {print $2}' "${S}/df"
+  assert_line --regexp '^FROM build (AS|as) test$'
+}
+
 @test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '1\n' > "${S}/canned/7.rc"
+  printf '1\n' > "${S}/canned/8.rc"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_control_failed status=1
