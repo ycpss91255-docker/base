@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -23,6 +24,13 @@ func init() {
 	Register("test-panic", func(args []string, stdout, stderr io.Writer) error {
 		panic("test-panic")
 	})
+	// test-args echoes the arguments it was handed, so a dispatch that
+	// drops or mangles everything after the command name goes red
+	// (base#1462).
+	Register("test-args", func(args []string, stdout, stderr io.Writer) error {
+		_, err := fmt.Fprintf(stdout, "%d %q\n", len(args), args)
+		return err
+	})
 }
 
 func TestRunStatus(t *testing.T) {
@@ -38,6 +46,8 @@ func TestRunStatus(t *testing.T) {
 		{"success", []string{"test-ok"}, 0, "ok\n"},
 		{"command error", []string{"test-fail"}, 1, ""},
 		{"command panic", []string{"test-panic"}, 4, ""},
+		{"arguments after the name reach the command", []string{"test-args", "a", "-b", ""}, 0, "3 [\"a\" \"-b\" \"\"]\n"},
+		{"no arguments after the name", []string{"test-args"}, 0, "0 []\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

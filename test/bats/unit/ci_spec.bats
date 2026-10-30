@@ -4989,6 +4989,30 @@ _host_direct_lint_arms() {
   assert_line 'dockerfile/Dockerfile.config-gen'
 }
 
+# why: A list entry proves only that the name is spelled there. The real
+# hadolint, run by the real driver over a scratch copy of the tree with one
+# violation planted in Dockerfile.config-gen, must go red and name that
+# file; a driver that skipped it would lint the other Dockerfiles clean and
+# exit 0 (base#1462).
+@test "_run_hadolint: a violation planted in Dockerfile.config-gen fails the driver, naming the file (base#1462)" {
+  command -v hadolint >/dev/null 2>&1 \
+    || fail "hadolint is not on PATH; this spec runs in the test-tools image"
+  local _tree="${BATS_TEST_TMPDIR}/tree"
+  mkdir -p "${_tree}"
+  cp -R /source/script /source/dist /source/dockerfile "${_tree}/"
+  # The copy lints clean before the plant, so the red below is the plant's.
+  run bash -c 'set -e; source "$1/script/test/test.sh"; _run_hadolint' _ "${_tree}"
+  assert_success
+  # DL4000 (MAINTAINER is deprecated) is an error-level rule the shared
+  # config does not ignore.
+  printf 'MAINTAINER planted@example.invalid\n' >> "${_tree}/dockerfile/Dockerfile.config-gen"
+  run bash -c 'set -e; source "$1/script/test/test.sh"; _run_hadolint' _ "${_tree}"
+  assert_failure
+  # hadolint's own finding line, `<path>:<line> DL4000 ...`, not the
+  # driver's echo of the command it is about to run.
+  assert_output --regexp '/dockerfile/Dockerfile\.config-gen:[0-9]+ DL4000 '
+}
+
 # why: #650 one invocation per listed Dockerfile
 @test "_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)" {
   local _log="${BATS_TEST_TMPDIR}/hadolint.log"

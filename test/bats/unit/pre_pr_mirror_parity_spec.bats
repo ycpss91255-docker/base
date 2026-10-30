@@ -897,3 +897,57 @@ ${_recipe}"
   assert_success
   refute_line 'just test go'
 }
+
+# _stub_just_run <just-rc> -- run the mirror over a commit that touches only
+# the config generator, with a `bash` first on PATH that records every
+# planned command and hands each `just ...` one to the real bash, and a
+# recording `just` first on PATH that logs its argv, one `|`-joined line per
+# call, to ${SCRATCH}/just and exits <just-rc> for `test go` (0 otherwise).
+_stub_just_run() {
+  local _base _real
+  _real="$(command -v bash)"
+  _base="$(_make_mirror_repo)"
+  mkdir -p "${SCRATCH}/repo/dockerfile/config-gen/cmd/config-gen"
+  printf 'package main\n' > "${SCRATCH}/repo/dockerfile/config-gen/cmd/config-gen/main.go"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m config-gen
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/bash" <<STUB
+#!${_real}
+if [[ "\${1:-}" == -c ]]; then
+  printf '%s\n' "\${2}" >> "${SCRATCH}/ran"
+  [[ "\${2}" == 'just '* ]] && exec "${_real}" -c "\${2}"
+  exit 0
+fi
+exec "${_real}" "\$@"
+STUB
+  cat > "${SCRATCH}/bin/just" <<STUB
+#!${_real}
+(IFS='|'; printf '%s\n' "\$*") >> "${SCRATCH}/just"
+[[ "\$*" == 'test go' ]] && exit ${1}
+exit 0
+STUB
+  chmod +x "${SCRATCH}/bin/bash" "${SCRATCH}/bin/just"
+  _stub_docker x86_64
+  run env PATH="${SCRATCH}/bin:${PATH}" "${_real}" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+}
+
+# why: The plan naming `just test go` is a string; what CI attests is the
+# recipe `just` runs for argv `test go`, and that its red reaches the
+# mirror's own exit status (base#1462).
+@test "pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)" {
+  _require_mirror
+  _stub_just_run 0
+  assert_success
+  [[ -f "${SCRATCH}/just" ]] || fail "the mirror never called just"
+  run grep -cFx 'test|go' "${SCRATCH}/just"
+  assert_output 1
+
+  rm -rf "${SCRATCH:?}/repo" "${SCRATCH:?}/bin" "${SCRATCH}/ran" "${SCRATCH}/just"
+  _stub_just_run 1
+  assert_failure
+  assert_output --partial 'RED at: just test go'
+  run grep -cFx 'test|go' "${SCRATCH}/just"
+  assert_output 1
+}

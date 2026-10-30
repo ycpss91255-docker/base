@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (194)
+### test/bats/unit/ci_spec.bats (195)
 
 | Test | Description |
 |------|-------------|
@@ -1347,6 +1347,7 @@ between them can be asserted at all.
 | `_run_hadolint: lints every Dockerfile in the tree with the shared config` | #650 single-source Dockerfile list + config |
 | `_run_hadolint: the linted list is every Dockerfile the tree carries` | A Dockerfile added beside the others and never added to the list is a Dockerfile no lint pass names |
 | `_run_hadolint: lints dockerfile/Dockerfile.config-gen (base#1462)` | The config generator's Dockerfile is linted like every other one; ci_spec's equality above holds only once the file and the list entry land together (base#1462). |
+| `_run_hadolint: a violation planted in Dockerfile.config-gen fails the driver, naming the file (base#1462)` | A list entry proves only that the name is spelled there. The real hadolint, run by the real driver over a scratch copy of the tree with one violation planted in Dockerfile.config-gen, must go red and name that file; a driver that skipped it would lint the other Dockerfiles clean and exit 0 (base#1462). |
 | `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 one invocation per listed Dockerfile |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
@@ -4719,7 +4720,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (31)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (32)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4789,6 +4790,7 @@ local mode with it.
 | `pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)` | A gate read by substring took `<code gate> && false` -- a job that never runs -- for a code-gated job, so the plan check demanded a local command for it and the mirror attested a job CI never ran. |
 | `pre-PR mirror: config-gen is attested by exactly just test go (base#1462)` | config-gen joins ci-rollup's needs, so the mirror must run the same one command CI runs for it, and that command must resolve to a recipe. |
 | `pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)` | The config generator's sources are code paths; a diff touching only them must plan the Go gates, and a docs-only diff must not. |
+| `pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)` | The plan naming `just test go` is a string; what CI attests is the recipe `just` runs for argv `test go`, and that its red reaches the mirror's own exit status (base#1462). |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
