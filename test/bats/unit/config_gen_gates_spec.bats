@@ -295,6 +295,29 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: A --root with no directory after it, or an argument the runner does
+# not know, would otherwise run the gates on a tree the caller did not name
+# and report that verdict as theirs. Each is a usage refusal: status 2,
+# nothing on stdout, the argument named, and docker never reached.
+@test "config_gen_gates.sh: --root without a directory is refused as usage before docker (base#1462)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  run --separate-stderr env PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+      bash "${RUNNER}" --root
+  assert_refusal 2 config_gen_usage_invalid arg=--root
+  assert_equal "$(_docker_calls)" 0
+}
+
+@test "config_gen_gates.sh: an unknown argument is refused as usage before docker (base#1462)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  _run_runner --bogus
+  assert_refusal 2 config_gen_usage_invalid arg=--bogus
+  assert_equal "$(_docker_calls)" 0
+}
+
 # why: The build's own log is long and plain; without the id re-emitted as
 # an event the redpath, CI and a reader all have to scrape BuildKit output to
 # learn which gate went red, and docker's status is the run's verdict.
@@ -343,8 +366,8 @@ REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:cover
 # _redpath_repo -- a scratch copy of what the redpath reads, at ${S}/repo,
 # with a recording stub in place of the runner. Call <n> of the stub writes
 # its argv to ${S}/runner.<n>.argv, records whether its --root held a
-# config-gen tree, prints ${S}/canned/<n>.out on stdout and .err on stderr,
-# and exits .rc.
+# config-gen tree and the LOG_FORMAT it was handed (${S}/runner.formats),
+# prints ${S}/canned/<n>.out on stdout and .err on stderr, and exits .rc.
 _redpath_repo() {
   local _r="${S}/repo"
   mkdir -p "${_r}/script/test" "${_r}/dist/script/docker"
@@ -359,6 +382,7 @@ printf '%s\n' "\$@" > "${S}/runner.\${n}.argv"
 root=""; prev=""
 for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
+printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
 cat "${S}/canned/\${n}.out" 2>/dev/null
 cat "${S}/canned/\${n}.err" >&2 2>/dev/null
 exit "\$(cat "${S}/canned/\${n}.rc" 2>/dev/null || echo 9)"
@@ -371,9 +395,17 @@ EOF
   _canned_correct
 }
 
+# _gate_record <id> [attr=value...] -- the JSON log record the real runner
+# writes on stderr for <id>, made by the real logger.
+_gate_record() {
+  LOG_FORMAT=json bash -c 'source "$1"; shift; _log_err config-gen "$@"' _ \
+    /source/dist/script/docker/lib/log.sh "$@" 2>&1
+}
+
 # _canned_correct -- the runner answers each case as a correct gate would:
-# every earlier gate ok, then the case's own id and rc 1; the control is
-# all five ok and rc 0.
+# every earlier gate ok, the build log line naming the case's gate, then
+# the runner's own record of that gate id, and rc 1; the control is all
+# five ok and rc 0.
 _canned_correct() {
   local _all=(fmt vet lint race coverage) _case _gate _n=0 _g
   mkdir -p "${S}/canned"
@@ -385,7 +417,9 @@ _canned_correct() {
       [[ "${_g}" == "${_gate}" ]] && break
       printf 'gate=%s ok\n' "${_g}" >> "${S}/canned/${_n}.out"
     done
-    printf 'config_gen_gate_%s_failed\n' "${_gate}" > "${S}/canned/${_n}.err"
+    printf '#9 0.31 config_gen_gate_%s_failed\n' "${_gate}" > "${S}/canned/${_n}.err"
+    _gate_record "config_gen_gate_${_gate}_failed" "gate=${_gate}" status=1 \
+      "display=config-gen gate ${_gate} failed (docker exited 1)" >> "${S}/canned/${_n}.err"
     printf '1\n' > "${S}/canned/${_n}.rc"
   done
   _n=$(( _n + 1 ))
@@ -435,10 +469,53 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'config_gen_gate_vet_failed\n' > "${S}/canned/3.err"
+  _gate_record config_gen_gate_vet_failed gate=vet status=1 display=vet > "${S}/canned/3.err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=lint reason=wrong_id gate=lint
+}
+
+# why: The id a case must produce is the runner's own record of the gate
+# that went red. A substring scan over stderr would also accept the id
+# quoted inside unrelated text, a longer id that starts with it, or the
+# build log line the runner streams ahead of its verdict; each of those is
+# a run that did not report the planted gate.
+@test "config_gen_redpath.sh: the id only quoted in text or in the build log, with no record, is wrong_id (base#1462)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  printf 'unrelated: config_gen_gate_fmt_failed_extra\n#9 0.31 config_gen_gate_fmt_failed\n' > "${S}/canned/1.err"
+  printf 'unrelated: config_gen_gate_vet_failed\n' > "${S}/canned/2.err"
+  _run_redpath
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=fmt reason=wrong_id gate=fmt
+  grep -F '"body":"config_gen_redpath_case_failed"' <<<"${stderr}" | grep -F '"case":"vet"' | grep -qF '"reason":"wrong_id"' \
+    || fail "case vet passed on an id quoted in text: ${stderr}"
+}
+
+@test "config_gen_redpath.sh: a record whose body is a longer id, or another event naming the id, is wrong_id (base#1462)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _gate_record config_gen_gate_fmt_failed gate=fmt status=1 display=fmt \
+    | sed 's/"body":"config_gen_gate_fmt_failed"/"body":"config_gen_gate_fmt_failed_extra"/' > "${S}/canned/1.err"
+  grep -qF '"body":"config_gen_gate_fmt_failed_extra"' "${S}/canned/1.err" || fail "fixture: no suffixed body"
+  _gate_record config_gen_build_failed status=1 "display=not config_gen_gate_vet_failed" > "${S}/canned/2.err"
+  _run_redpath
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=fmt reason=wrong_id gate=fmt
+  grep -F '"body":"config_gen_redpath_case_failed"' <<<"${stderr}" | grep -F '"case":"vet"' | grep -qF '"reason":"wrong_id"' \
+    || fail "case vet passed on another event naming its id: ${stderr}"
+}
+
+# why: The verdict reads JSON records; a caller exporting LOG_FORMAT=text
+# would otherwise turn every case into wrong_id, or (with a looser parse)
+# into a scrape of display text.
+@test "config_gen_redpath.sh: runs the runner with JSON logging whatever the caller's LOG_FORMAT (base#1462)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" \
+      LOG_FORMAT=text timeout 60 bash "${S}/repo/script/test/config_gen_redpath.sh"
+  assert_success
+  assert_equal "$(sort -u "${S}/runner.formats")" json
 }
 
 @test "config_gen_redpath.sh: a case whose earlier gate printed no ok fails with reason earlier_gate_missing (base#1462)" {
@@ -453,7 +530,7 @@ _run_redpath() {
 @test "config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'config_gen_gate_coverage_failed\n' > "${S}/canned/5.err"
+  _gate_record config_gen_gate_coverage_failed gate=coverage status=1 display=coverage > "${S}/canned/5.err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=race-fuzz reason=wrong_id gate=race

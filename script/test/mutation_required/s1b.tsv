@@ -11,6 +11,8 @@ runner-docker-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_g
 runner-gate-id-reemit	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%"config_gen_gate_\${gate}_failed" "gate=\${gate}"%config_gen_build_failed "gate=${gate}"%' script/test/config_gen_gates.sh
 runner-binary-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if (( rc != 2 || bytes != 0 )); then%if (( bytes != 0 )); then%' script/test/config_gen_gates.sh
 runner-binary-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if (( rc != 2 || bytes != 0 )); then%if (( rc != 2 )); then%' script/test/config_gen_gates.sh
+runner-usage-missing-root	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/--root expects a directory"$/{n;s/exit 2/exit 0/}' script/test/config_gen_gates.sh
+runner-usage-unknown	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/usage: config_gen_gates.sh \[--root <dir>\]"$/{n;s/exit 2/exit 0/}' script/test/config_gen_gates.sh
 redpath-reentry	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if \[\[ -n "\${CONFIG_GEN_REDPATH_ACTIVE:-}" \]\]; then%if false; then%' script/test/config_gen_redpath.sh
 redpath-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%(( rc != 0 )) || { echo rc_zero; return 0; }%:%' script/test/config_gen_redpath.sh
 redpath-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%\[\[ "\${first}" == "config_gen_gate_\${gate}_failed" \]\] || { echo wrong_id; return 0; }%:%' script/test/config_gen_redpath.sh

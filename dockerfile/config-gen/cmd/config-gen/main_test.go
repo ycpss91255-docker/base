@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,43 @@ func TestRunStatus(t *testing.T) {
 			}
 			if got != 0 && stderr.Len() == 0 {
 				t.Fatalf("run(%q) = %d with nothing on stderr", c.args, got)
+			}
+		})
+	}
+}
+
+// TestUsageOnStderr pins what a usage refusal says, not only that it said
+// something: why it was refused, the usage line, and the registered names,
+// all on stderr (base#1462).
+func TestUsageOnStderr(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		why  string
+	}{
+		{"no arguments", nil, "no command given"},
+		{"unknown command", []string{"no-such-command"}, `unknown command "no-such-command"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if got := run(c.args, &stdout, &stderr); got != 2 {
+				t.Fatalf("run(%q) = %d, want 2", c.args, got)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("run(%q) stdout = %q, want empty", c.args, stdout.String())
+			}
+			want := "config-gen: " + c.why + "\nusage: config-gen <command> [args...]\ncommands: ["
+			if !strings.HasPrefix(stderr.String(), want) {
+				t.Fatalf("run(%q) stderr = %q, want it to start with %q", c.args, stderr.String(), want)
+			}
+			for _, name := range []string{"test-args", "test-fail", "test-ok", "test-panic"} {
+				if !strings.Contains(stderr.String(), name) {
+					t.Fatalf("run(%q) stderr = %q does not list the registered command %s", c.args, stderr.String(), name)
+				}
+			}
+			if !strings.HasSuffix(stderr.String(), "]\n") {
+				t.Fatalf("run(%q) stderr = %q does not end the command list", c.args, stderr.String())
 			}
 		})
 	}
