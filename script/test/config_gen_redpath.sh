@@ -139,6 +139,12 @@ _rp_copy() {
   printf '%s\n' "${dst}"
 }
 
+# _rp_gates <root> -- run the runner on <root>, its stdout to <root>.out
+# and its stderr to <root>.err; returns the runner's status.
+_rp_gates() {
+  bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
+}
+
 # _rp_verdict <rc> <out> <err> <gate> -- empty when the case went red as
 # planted, else the reason it did not.
 _rp_verdict() {
@@ -160,8 +166,7 @@ _rp_case() {
   local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}/dockerfile/config-gen"
-  bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${root}" \
-    >"${root}.out" 2>"${root}.err" || rc=$?
+  _rp_gates "${root}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
@@ -174,8 +179,7 @@ _rp_case() {
 _rp_control() {
   local root rc=0 g
   root="$(_rp_copy "${1}")"
-  bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${root}" \
-    >"${root}.out" 2>"${root}.err" || rc=$?
+  _rp_gates "${root}" || rc=$?
   if (( rc == 0 )); then
     for g in "${_RP_GATES[@]}"; do
       grep -qx "gate=${g} ok" "${root}.out" || rc=1
