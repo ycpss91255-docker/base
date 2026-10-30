@@ -4976,6 +4976,19 @@ _host_direct_lint_arms() {
   [[ "${_found}" == "${_listed}" ]]
 }
 
+# why: The config generator's Dockerfile is linted like every other one;
+# ci_spec's equality above holds only once the file and the list entry land
+# together (base#1462).
+@test "_run_hadolint: lints dockerfile/Dockerfile.config-gen (base#1462)" {
+  assert_spec_subject /source/dockerfile/Dockerfile.config-gen \
+      "the config generator's Dockerfile (base#1462)"
+  run bash -c '
+    source /source/script/test/test.sh
+    printf "%s\n" "${_HADOLINT_DOCKERFILES[@]}"'
+  assert_success
+  assert_line 'dockerfile/Dockerfile.config-gen'
+}
+
 # why: #650 one invocation per listed Dockerfile
 @test "_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)" {
   local _log="${BATS_TEST_TMPDIR}/hadolint.log"
