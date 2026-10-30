@@ -1649,12 +1649,14 @@ jobs:
     # pre-PR mirror run, so a green here and a green there are one claim.
     #
     # The job is compared WHOLE by self_test_yaml_spec.bats: its keys, its
-    # `if`, its steps (the checkout, acceptance's three just-pin steps
-    # byte for byte, and the one canonical step) and the workflow's own
-    # top-level and env keys above it. Anything that would change how bash
-    # starts `just test go` -- a step `shell:`, an `if:` on the step, a
-    # `continue-on-error`, a job or workflow `env:` such as BASH_ENV, a
-    # `defaults:` block -- fails that spec rather than leaving this job
+    # `if`, its steps (the checkout, the three just-pin steps byte for byte
+    # against literals the spec holds, which acceptance's copies are held
+    # to as well, and the one canonical step) and the workflow's own
+    # top-level and env keys above it. An edit to this workflow that would
+    # change how bash starts `just test go` -- a step `shell:`, an `if:` on
+    # the step, a `continue-on-error`, a job or workflow `env:` such as
+    # BASH_ENV, a `defaults:` block, a setup step that exports BASH_ENV
+    # through $GITHUB_ENV -- fails that spec rather than leaving this job
     # green with the gates unrun. Gated on code_changed, so ci-rollup
     # collapses its SKIPPED on a doc-only PR into a pass.
     runs-on: ubuntu-latest

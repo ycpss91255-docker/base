@@ -161,8 +161,9 @@ jobs:
     # The self-hosted leg of `just test go`: the SAME command the hosted
     # self-test `config-gen` job and the pre-PR mirror run (ADR-00000039).
     # self_test_yaml_spec.bats compares this job whole -- keys, `if`,
-    # runs-on, steps -- and this workflow's top-level keys, so nothing here
-    # can change how bash starts that command. Ten docker builds of a
+    # runs-on, steps, each step against a literal the spec holds -- and
+    # this workflow's top-level keys, so no edit to this workflow can
+    # change how bash starts that command. Ten docker builds of a
     # small module (measured on a green run, as the hosted job says); a
     # ceiling, not a budget.
     timeout-minutes: 30

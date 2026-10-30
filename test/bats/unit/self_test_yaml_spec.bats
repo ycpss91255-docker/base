@@ -3748,8 +3748,10 @@ ${_bad}"
 #
 #   workflow   the top-level key set, `defaults` absent, the env key set
 #   job        the key set, then the whole body (if, needs, runs-on, steps)
-#   steps      the whole list: checkout at depth 0, acceptance's three
-#              just-pin steps byte for byte, and {name, run: just test go}
+#   steps      the whole list: checkout at depth 0, the three just-pin
+#              steps byte for byte, and {name, run: just test go}, all
+#              literals here; acceptance's just-pin steps are held to the
+#              same literal
 #
 # Key sets are read in a yq call of their own. Measured on this tree: one
 # expression that reads `.defaults` and `keys` together reports `defaults`
@@ -3768,24 +3770,63 @@ CG_COV_LOCAL_TOP='["concurrency","jobs","name","on","permissions"]'
 CG_COV_LOCAL_ENV='[]'
 COV_LOCAL_WF="/source/.github/workflows/coverage-local.yaml"
 
+# _cg_just_pin_steps -- the three just-pin steps the config-gen jobs copy
+# from acceptance, canonical JSON. A literal, not a read of acceptance: a
+# setup step that exports a BASH_ENV which exits 0 through $GITHUB_ENV,
+# written into acceptance and config-gen alike, keeps the copies equal to
+# each other, so an expectation read from acceptance would move with them.
+_cg_just_pin_steps() {
+  yq -p yaml -o json -I0 'sort_keys(..)' <<'YAML'
+- name: Resolve the pinned just version
+  id: just-pin
+  run: |
+    set -euo pipefail
+    version="$(./dist/script/base/just-version.sh)"
+    echo "version=${version}" >> "${GITHUB_OUTPUT}"
+- name: Install just (container-ops entry point)
+  uses: extractions/setup-just@v4
+  with:
+    just-version: "${{ steps.just-pin.outputs.version }}"
+- name: Check the just on PATH is the pin
+  run: |
+    set -euo pipefail
+    observed="$(just --version)"
+    ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+    echo "just: ${observed}, which is the pin"
+YAML
+}
+
 # _cg_expected_steps -- the config-gen job's steps, canonical JSON: the
-# acceptance checkout with fetch-depth 0 (the classify base-ref diff and
-# the redpath's copies need history), acceptance's three just-pin steps as
-# they stand, and the one canonical step. Read from the REAL self-test.yaml
-# whatever file is under test, so a fixture cannot move its own expectation.
+# checkout with fetch-depth 0 (the classify base-ref diff and the
+# redpath's copies need history), the three just-pin steps, and the one
+# canonical step. Every step is a literal here, so no file under test can
+# move its own expectation.
 _cg_expected_steps() {
-  local _steps _n
-  _steps="$(CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" yq -o json -I0 '
-      [.jobs.acceptance.steps[] | select(.name == "Checkout") | . + {"with": {"fetch-depth": 0}}]
-      + [.jobs.acceptance.steps[] | select(
+  local _pin
+  _pin="$(_cg_just_pin_steps)" || return 1
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" yq -n -o json -I0 '
+      [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
+      + env(CG_PIN)
+      + [{"name": strenv(CG_NAME), "run": strenv(CG_RUN)}]
+      | sort_keys(..)'
+}
+
+# _cg_acceptance_just_pin_exact <file> -- acceptance's three just-pin steps
+# in <file>, in order, equal _cg_just_pin_steps. The workflow comments say
+# the parity spec holds the config-gen copies equal to acceptance's; this
+# is the acceptance half of that claim.
+_cg_acceptance_just_pin_exact() {
+  local _have _want
+  _want="$(_cg_just_pin_steps)" || return 1
+  _have="$(yq -o json -I0 '[.jobs.acceptance.steps[] | select(
             .name == "Resolve the pinned just version"
             or .name == "Install just (container-ops entry point)"
-            or .name == "Check the just on PATH is the pin")]
-      + [{"name": strenv(CG_NAME), "run": strenv(CG_RUN)}]
-      | sort_keys(..)' "${WF}")" || return 1
-  _n="$(yq -p json 'length' <<<"${_steps}")"
-  [[ "${_n}" == 5 ]] || { echo "BUG: built ${_n} expected steps from acceptance, not 5 -- a just-pin step was renamed: ${_steps}"; return 1; }
-  printf '%s\n' "${_steps}"
+            or .name == "Check the just on PATH is the pin")] | sort_keys(..)' "${1}")" || return 1
+  [[ "${_have}" == "${_want}" ]] \
+    || { echo "acceptance just-pin steps: ${1} has
+  ${_have}
+want
+  ${_want}"; return 1; }
 }
 
 # _cg_expected_job <self-test|coverage-local> -- the config-gen job less its
