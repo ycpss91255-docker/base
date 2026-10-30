@@ -1658,8 +1658,10 @@ jobs:
     # green with the gates unrun. Gated on code_changed, so ci-rollup
     # collapses its SKIPPED on a doc-only PR into a pass.
     runs-on: ubuntu-latest
-    # Seven docker builds of a small module (the gates once, then six
-    # planted cases and a control); a ceiling, not a budget.
+    # Ten docker builds of a small module, measured on a green run: the
+    # gates' test and final stages, one test-stage build for each of six
+    # planted cases, then the control's test and final; a ceiling, not a
+    # budget.
     timeout-minutes: 30
     steps:
       - name: Checkout

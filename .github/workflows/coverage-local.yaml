@@ -162,8 +162,9 @@ jobs:
     # self-test `config-gen` job and the pre-PR mirror run (ADR-00000039).
     # self_test_yaml_spec.bats compares this job whole -- keys, `if`,
     # runs-on, steps -- and this workflow's top-level keys, so nothing here
-    # can change how bash starts that command. Seven docker builds of a
-    # small module; a ceiling, not a budget.
+    # can change how bash starts that command. Ten docker builds of a
+    # small module (measured on a green run, as the hosted job says); a
+    # ceiling, not a budget.
     timeout-minutes: 30
     steps:
       - name: Checkout
