@@ -140,18 +140,25 @@ _rp_copy() {
 }
 
 # _rp_gates <root> -- run the runner on <root>, its stdout to <root>.out
-# and its stderr to <root>.err; returns the runner's status.
+# and its stderr to <root>.err; returns the runner's status. Its log is
+# JSON whatever the caller set, because _rp_verdict reads its records.
 _rp_gates() {
-  bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
+  LOG_FORMAT=json bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
 }
+
+# The runner's own record of the gate that went red: a whole JSON log line
+# from service config-gen whose body is exactly a gate id. The build log
+# streamed ahead of it, an id quoted inside other text and a longer id that
+# starts with one are none of them that record (base#1462).
+readonly _RP_GATE_RECORD_RE='^\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\{"service\.name":"config-gen",.*\}\}$'
 
 # _rp_verdict <rc> <out> <err> <gate> -- empty when the case went red as
 # planted, else the reason it did not.
 _rp_verdict() {
   local rc="${1}" out="${2}" err="${3}" gate="${4}" first g
   (( rc != 0 )) || { echo rc_zero; return 0; }
-  # grep exits 1 when nothing matched: no id at all is a wrong id.
-  first="$(grep -oE 'config_gen_gate_[a-z]+_failed' "${err}")" || first=""
+  # No record at all is a wrong id: first stays empty.
+  first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
   first="${first%%$'\n'*}"
   [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }
   for g in "${_RP_GATES[@]}"; do

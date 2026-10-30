@@ -16,6 +16,7 @@ runner-usage-unknown	script/test/config_gen_gates.sh	test/bats/unit/config_gen_g
 redpath-reentry	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if \[\[ -n "\${CONFIG_GEN_REDPATH_ACTIVE:-}" \]\]; then%if false; then%' script/test/config_gen_redpath.sh
 redpath-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%(( rc != 0 )) || { echo rc_zero; return 0; }%:%' script/test/config_gen_redpath.sh
 redpath-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%\[\[ "\${first}" == "config_gen_gate_\${gate}_failed" \]\] || { echo wrong_id; return 0; }%:%' script/test/config_gen_redpath.sh
+redpath-gate-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%"body":"(config_gen_gate_\[a-z\]+_failed)",%"body":"[^"]*(config_gen_gate_[a-z]+_failed)[^"]*",%' script/test/config_gen_redpath.sh
 redpath-earlier-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%grep -qx "gate=\${g} ok" "\${out}" || { echo earlier_gate_missing; return 0; }%:%' script/test/config_gen_redpath.sh
 redpath-control	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%_rp_control "\${scratch}" || failed=1%_rp_control "${scratch}" || true%' script/test/config_gen_redpath.sh
 coverage-list-failed	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%    || _refuse list_failed%    || true%' dockerfile/config-gen/gates/coverage.sh

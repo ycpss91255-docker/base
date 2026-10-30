@@ -309,6 +309,9 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: The catch-all branch is the one a typo reaches; a runner that
+# ignored an unknown flag would report on the default tree as if the
+# caller had asked for that run.
 @test "config_gen_gates.sh: an unknown argument is refused as usage before docker (base#1462)" {
   assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
   _root
@@ -492,6 +495,9 @@ _run_redpath() {
     || fail "case vet passed on an id quoted in text: ${stderr}"
 }
 
+# why: Even among JSON records only the body names the gate that went red;
+# a match on a body prefix, or on display text, would let an unrelated
+# event or a longer id stand in for the planted gate's record.
 @test "config_gen_redpath.sh: a record whose body is a longer id, or another event naming the id, is wrong_id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo

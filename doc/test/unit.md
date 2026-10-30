@@ -1969,7 +1969,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
 
-### test/bats/unit/config_gen_gates_spec.bats (19)
+### test/bats/unit/config_gen_gates_spec.bats (24)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -1999,11 +1999,16 @@ end-to-end proof that the planted defects go red.
 | `config_gen_gates.sh: a failing step stops the run with its status before docker, in lexical order (base#1462)` | A step that failed and was carried past would build an image from inputs that were never prepared, and report its gates as if they were. |
 | `config_gen_gates.sh: a context name outside [a-z0-9-] is refused before docker (base#1462)` | A context name is spliced into `--build-context <name>=<path>`; a name carrying `=` or a path separator would name another context or path. |
 | `config_gen_gates.sh: a --root that is missing or holds no Dockerfile.config-gen is refused (base#1462)` | A --root that is not a config-gen tree would build whatever sits there, or nothing, and still read as a verdict on the generator. |
+| `config_gen_gates.sh: --root without a directory is refused as usage before docker (base#1462)` | A --root with no directory after it, or an argument the runner does not know, would otherwise run the gates on a tree the caller did not name and report that verdict as theirs. Each is a usage refusal: status 2, nothing on stdout, the argument named, and docker never reached. |
+| `config_gen_gates.sh: an unknown argument is refused as usage before docker (base#1462)` | The catch-all branch is the one a typo reaches; a runner that ignored an unknown flag would report on the default tree as if the caller had asked for that run. |
 | `config_gen_gates.sh: a red gate propagates docker's status and re-emits the gate's id (base#1462)` | The build's own log is long and plain; without the id re-emitted as an event the redpath, CI and a reader all have to scrape BuildKit output to learn which gate went red, and docker's status is the run's verdict. |
 | `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
 | `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. |
 | `config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)` | A gate that never goes red is indistinguishable from a working one on a clean tree; each verdict below is a way a broken gate would otherwise pass the redpath. Every case is reported before the run fails. |
 | `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
+| `config_gen_redpath.sh: the id only quoted in text or in the build log, with no record, is wrong_id (base#1462)` | The id a case must produce is the runner's own record of the gate that went red. A substring scan over stderr would also accept the id quoted inside unrelated text, a longer id that starts with it, or the build log line the runner streams ahead of its verdict; each of those is a run that did not report the planted gate. |
+| `config_gen_redpath.sh: a record whose body is a longer id, or another event naming the id, is wrong_id (base#1462)` | Even among JSON records only the body names the gate that went red; a match on a body prefix, or on display text, would let an unrelated event or a longer id stand in for the planted gate's record. |
+| `config_gen_redpath.sh: runs the runner with JSON logging whatever the caller's LOG_FORMAT (base#1462)` | The verdict reads JSON records; a caller exporting LOG_FORMAT=text would otherwise turn every case into wrong_id, or (with a looser parse) into a scrape of display text. |
 | `config_gen_redpath.sh: a case whose earlier gate printed no ok fails with reason earlier_gate_missing (base#1462)` | - |
 | `config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)` | - |
 | `config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)` | - |
