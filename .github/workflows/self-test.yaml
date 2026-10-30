@@ -1637,6 +1637,61 @@ jobs:
       image_name: worker-selftest
       context_path: test/fixtures/build-worker
 
+  config-gen:
+    name: Config-gen Go gates (base#1462)
+    needs: [classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    # The config generator's Go gates (ADR-00000039): fmt, vet, lint, race
+    # and coverage in dockerfile/Dockerfile.config-gen's test stage, the
+    # binary's usage contract, then the redpath that plants one defect per
+    # gate and requires each to go red. All of it is ONE command, `just test
+    # go`, the same one the self-hosted coverage-local.yaml job and the
+    # pre-PR mirror run, so a green here and a green there are one claim.
+    #
+    # The job is compared WHOLE by self_test_yaml_spec.bats: its keys, its
+    # `if`, its steps (the checkout, acceptance's three just-pin steps
+    # byte for byte, and the one canonical step) and the workflow's own
+    # top-level and env keys above it. Anything that would change how bash
+    # starts `just test go` -- a step `shell:`, an `if:` on the step, a
+    # `continue-on-error`, a job or workflow `env:` such as BASH_ENV, a
+    # `defaults:` block -- fails that spec rather than leaving this job
+    # green with the gates unrun. Gated on code_changed, so ci-rollup
+    # collapses its SKIPPED on a doc-only PR into a pass.
+    runs-on: ubuntu-latest
+    # Seven docker builds of a small module (the gates once, then six
+    # planted cases and a control); a ceiling, not a budget.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Full history, as base#1462 specifies; the parity spec pins it.
+          fetch-depth: 0
+
+      - name: Resolve the pinned just version
+        id: just-pin
+        # Copied from the acceptance job, which carries the rationale; the
+        # parity spec holds the two equal.
+        run: |
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install just (container-ops entry point)
+        uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just-pin.outputs.version }}
+
+      - name: Check the just on PATH is the pin
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
+      - name: Run the config-gen gates
+        run: just test go
+
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
     # joins this `needs:` list so branch protection never needs to
@@ -1656,7 +1711,7 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # bats-integration / coverage / acceptance / system) carry
+    # bats-integration / coverage / acceptance / system / config-gen) carry
     # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
     # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
     # for those, otherwise doc-only PRs cannot merge.
@@ -1679,7 +1734,7 @@ jobs:
     # compute-shards failure cascaded into two skips and the required
     # check went green with the whole unit suite and the coverage floor
     # never run. A skipped shard computation is not a pass.
-    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, worker-selftest]
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1700,6 +1755,7 @@ jobs:
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
           WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
+          CONFIG_GEN_RESULT: ${{ needs.config-gen.result }}
           # A fork PR is the one run in which SKIPPED stops being
           # trustworthy. `worker-selftest` calls build-worker.yaml, whose
           # `build` job carries the same-repo guard; on a fork PR that job
@@ -1736,6 +1792,7 @@ jobs:
           echo "acceptance:       ${ACCEPTANCE_RESULT}"
           echo "system:           ${SYSTEM_RESULT}"
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
+          echo "config-gen:       ${CONFIG_GEN_RESULT}"
           fail=0
           # doc-counts, lint-static and compute-shards carry no `if:`
           # gate, so SKIPPED means a workflow bug, not an intentional
@@ -1753,7 +1810,7 @@ jobs:
                    "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
                    "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
                    "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
-                   "${WORKER_SELFTEST_RESULT}"; do
+                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
@@ -1781,7 +1838,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
+    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30

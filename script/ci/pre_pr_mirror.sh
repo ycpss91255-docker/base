@@ -63,10 +63,11 @@
 #                     floor and the shard-union check, base#1411) -- the
 #                     same entry point CI, the self-hosted workflow and
 #                     `just test coverage-gate` end with. And `just test acceptance`, the amd64
-#                     acceptance scaffold. "Code changed" is CI's own
+#                     acceptance scaffold, then `just test go`, the config
+#                     generator's Go gates (base#1462). "Code changed" is CI's own
 #                     classify rule: any path outside doc/**, README.md,
 #                     LICENSE and CONTEXT.md, and it is the `if:` CI puts on
-#                     coverage, coverage-gate and acceptance. The whole
+#                     coverage, coverage-gate, acceptance and config-gen. The whole
 #                     matrix is planned even for a spec-only diff: it holds
 #                     every shard a changed spec can land in, and the floor
 #                     is a project rate no partial run can measure.
@@ -126,6 +127,7 @@ readonly _CMD_VERDICT='bash ./script/test/drivers/coverage_gate.sh --verdict cov
 readonly _SHARDS_DIR='coverage-shards'
 readonly _CMD_SYSTEM='just test system'
 readonly _CMD_ACCEPTANCE='just test acceptance'
+readonly _CMD_GO='just test go'
 
 # The planned commands that measure the daemon's own architecture, for jobs
 # CI runs on amd64 runners only (base#1409).
@@ -151,6 +153,7 @@ _table() {
     "attested${t}coverage-gate${t}${_CMD_MERGE} && ${_CMD_VERDICT}" \
     "attested${t}system${t}${_CMD_SYSTEM}" \
     "attested${t}acceptance${t}${_CMD_ACCEPTANCE}" \
+    "attested${t}config-gen${t}${_CMD_GO}" \
     "excluded${t}acceptance/arm64${t}the native arm64 runner leg; a local run measures the host's own arch, and there is no local arm64 runner to stand in for it" \
     "excluded${t}classify${t}CI's own path classifier computing the other jobs' if: gates; the plan applies the same two rules itself, and there is no repo-content verdict to reproduce" \
     "excluded${t}compute-shards${t}CI plumbing: it publishes the shard list and the cached weights blob; --coverage-shards applies its shard-count rule to the same CI_SHARDS, and the cache it restores is CI state no run before the push can read" \
@@ -204,7 +207,7 @@ _commands() {
     printf '%s\n' "${_CMD_SYSTEM}"
   fi
   if (( code )); then
-    printf '%s\n' "${_CMD_ACCEPTANCE}"
+    printf '%s\n' "${_CMD_ACCEPTANCE}" "${_CMD_GO}"
   fi
 }
 

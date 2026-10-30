@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (193)
+### test/bats/unit/ci_spec.bats (194)
 
 | Test | Description |
 |------|-------------|
@@ -1346,6 +1346,7 @@ between them can be asserted at all.
 | `drivers: _run_shellcheck also lints the driver files themselves` | #650 driver self-shellcheck |
 | `_run_hadolint: lints every Dockerfile in the tree with the shared config` | #650 single-source Dockerfile list + config |
 | `_run_hadolint: the linted list is every Dockerfile the tree carries` | A Dockerfile added beside the others and never added to the list is a Dockerfile no lint pass names |
+| `_run_hadolint: lints dockerfile/Dockerfile.config-gen (base#1462)` | The config generator's Dockerfile is linted like every other one; ci_spec's equality above holds only once the file and the list entry land together (base#1462). |
 | `_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)` | #650 one invocation per listed Dockerfile |
 | `_run_hadolint: dies with a clear message when hadolint is absent` | #650 host-missing-binary guard |
 | `_run_hadolint: exits non-zero when hadolint fails on any Dockerfile` | #650 propagates lint failure |
@@ -1936,6 +1937,77 @@ docker interaction from inside the test.
 | `_upsert_conf_value: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | Both writers land the rewrite with `mv` from a `mktemp` sibling, and mktemp creates that sibling at 0600. setup.toml is the user's own committed file: a group-writable (0664) or world-readable (0644) one must come back at exactly that mode, not 0600. A restrictive umask (077) so a hardcoded mode or a umask-derived one cannot pass -- only the destination's own mode can (the base#1323 precedent). |
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
+
+### test/bats/unit/config_gen_coverage_spec.bats (12)
+
+The gate reads per-package profiles and passes a package at >= 90.0% of its
+statements. Every way that measurement can go missing -- go list failing or
+listing nothing, a test failing, a profile absent, carrying the wrong mode,
+a malformed line or a line from another package, a package with source files
+and no statements -- must be a refusal, because each one otherwise reads as
+"covered". The floor is an integer comparison so no float rounding moves a
+package across it.
+
+The script runs inside the golang image, which has no lib/log.sh, so its
+refusal is one exact stderr line rather than a JSON event; the runner
+re-emits the id as an event (config_gen_gates_spec.bats). A stub `go` on
+PATH answers `go list` and `go test` from canned files here.
+
+| Test | Description |
+|------|-------------|
+| `coverage.sh: a failing go list is refused with reason list_failed (base#1462)` | A list that failed is not a list of zero packages; reading it as one passes a module nobody measured. |
+| `coverage.sh: an empty package list is refused with reason no_packages (base#1462)` | - |
+| `coverage.sh: a failing package test is refused with reason test_failed (base#1462)` | - |
+| `coverage.sh: a missing profile is refused with reason profile_invalid (base#1462)` | The profile is the measurement; a test run that wrote none, or wrote one in another mode, has measured nothing this gate can read. |
+| `coverage.sh: a profile not in atomic mode is refused with reason profile_invalid (base#1462)` | - |
+| `coverage.sh: a malformed profile line is refused with reason profile_invalid (base#1462)` | - |
+| `coverage.sh: a profile line from another package is refused with reason profile_invalid (base#1462)` | A line attributed to another package, or to a subpackage, would add that package's statements to this one's ratio. |
+| `coverage.sh: zero statements with source files is refused with reason no_statements (base#1462)` | The issue's `[no statements]` rule: a package with source files and zero statements was not measured, while a package with no source files (tests or types moved elsewhere) has nothing to measure. |
+| `coverage.sh: zero statements with no source files passes (base#1462)` | - |
+| `coverage.sh: 899 of 1000 statements is refused with reason below_floor, 900 passes (base#1462)` | >= 90.0 exactly, as an integer comparison: 899/1000 is below and 900/1000 is not, and a red package is named even after a green one. |
+| `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
+| `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
+
+### test/bats/unit/config_gen_gates_spec.bats (19)
+
+ADR-00000039 makes the config generator one typed Go program, and S1b lands
+its skeleton. Nothing runs Go gates anywhere before this slice: `just test
+go` is not a recipe, no Dockerfile builds the module and no CI job calls it.
+This spec pins the pieces that make one command, `just test go`, run the
+same gates in every environment:
+
+dockerfile/Dockerfile.config-gen build, test and final (scratch) stages; the
+test stage runs fmt, vet, lint, race and coverage, one RUN each, in that
+order. script/test/config_gen_gates.sh the runner: steps seam, named build
+contexts, the docker build, the gate id re-emitted, and the binary contract.
+script/test/config_gen_redpath.sh one planted defect per gate plus an
+unmodified control, each run through the runner on a scratch copy. `go`
+recipe in justfile.test the runner, then the redpath.
+
+docker, just and the runner are stubbed here; the real `just test go` is the
+end-to-end proof that the planted defects go red.
+
+| Test | Description |
+|------|-------------|
+| `Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, one RUN each, in that order (base#1462)` | Each gate is its own RUN so a red names its gate: one RUN running all five would leave the first id as the only record and stop the later gates from reading as "never reached" rather than "passed". The order is the one the redpath's earlier_gate_missing check reads. |
+| `Dockerfile.config-gen: the coverage RUN runs gates/coverage.sh (base#1462)` | The coverage gate is a script so the >= 90% rule and its refusals can be tested on the host with a stub go; an inline awk in the RUN could not be. |
+| `Dockerfile.config-gen: declares build, test and a final stage FROM scratch (base#1462)` | The shipped stage holds only the binary; the runner's binary contract runs that stage, so a final stage built on the toolchain would let the contract pass on a binary nobody ships. |
+| `Dockerfile.config-gen: the golang trixie image and golangci-lint are tool-pin marked ARGs (base#1462)` | The pin-coverage lint and the tool-pin watch read the marker on the line above each version ARG; a pin with no marker is a version nothing watches. The race gate needs cgo and gcc, which the trixie image carries and alpine does not. |
+| `config_gen_gates.sh: a green run builds test then final, re-prints every gate ok and passes the binary contract (base#1462)` | The runner is the one command every environment calls; its whole green path is the test-stage build with the gates uncached, the final build and the binary contract, with each gate's ok line handed back. |
+| `config_gen_gates.sh: a step's context directory becomes a named build context, and none without one (base#1462)` | Without this a later slice's inputs would need a runner edit; the steps seam and named contexts are what keep the runner closed to them. |
+| `config_gen_gates.sh: a failing step stops the run with its status before docker, in lexical order (base#1462)` | A step that failed and was carried past would build an image from inputs that were never prepared, and report its gates as if they were. |
+| `config_gen_gates.sh: a context name outside [a-z0-9-] is refused before docker (base#1462)` | A context name is spliced into `--build-context <name>=<path>`; a name carrying `=` or a path separator would name another context or path. |
+| `config_gen_gates.sh: a --root that is missing or holds no Dockerfile.config-gen is refused (base#1462)` | A --root that is not a config-gen tree would build whatever sits there, or nothing, and still read as a verdict on the generator. |
+| `config_gen_gates.sh: a red gate propagates docker's status and re-emits the gate's id (base#1462)` | The build's own log is long and plain; without the id re-emitted as an event the redpath, CI and a reader all have to scrape BuildKit output to learn which gate went red, and docker's status is the run's verdict. |
+| `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
+| `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. |
+| `config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)` | A gate that never goes red is indistinguishable from a working one on a clean tree; each verdict below is a way a broken gate would otherwise pass the redpath. Every case is reported before the run fails. |
+| `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
+| `config_gen_redpath.sh: a case whose earlier gate printed no ok fails with reason earlier_gate_missing (base#1462)` | - |
+| `config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)` | - |
+| `config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)` | - |
+| `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |
+| `just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)` | The one command all four environments run. The order matters: the redpath on a tree whose gates are already red proves nothing, and `;` would run it after a red runner and report the redpath's status instead. |
 
 ### test/bats/unit/config_summary_spec.bats (2)
 
@@ -4647,7 +4719,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (28)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (31)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4714,6 +4786,9 @@ local mode with it.
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: checks the just it runs against the pin in its own shell (base#1409)` | Moving every acceptance step into script/ci/acceptance.sh took the job's only `just` invocation out of its `run:` shells, which is all the tool provenance lint reads; the lint then saw no job reach any pinned tool and failed its demand floor. The job runs `just`, so its own shell asks that binary for its version and holds it to the pin. |
 | `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
+| `pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)` | A gate read by substring took `<code gate> && false` -- a job that never runs -- for a code-gated job, so the plan check demanded a local command for it and the mirror attested a job CI never ran. |
+| `pre-PR mirror: config-gen is attested by exactly just test go (base#1462)` | config-gen joins ci-rollup's needs, so the mirror must run the same one command CI runs for it, and that command must resolve to a recipe. |
+| `pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)` | The config generator's sources are code paths; a diff touching only them must plan the Go gates, and a docs-only diff must not. |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
@@ -5859,7 +5934,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (135)
+### test/bats/unit/self_test_yaml_spec.bats (143)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6235,13 +6310,13 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. Since base#1411 the check runs inside the one coverage verdict (`coverage_gate.sh --verdict`), whose manifest is the merged weights file. |
 | `self-test.yaml: coverage-gate merges shard timings into the weights file (#733)` | - |
 | `self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)` | - |
-| `self-test.yaml: declares ci-rollup job (#337)` | - |
-| `self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)` | - |
-| `self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)` | - |
-| `self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)` | - |
-| `self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)` | - |
-| `self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)` | - |
-| `self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)` | - |
+| `self-test.yaml: declares ci-rollup job (#337)` | Branch protection requires ci-rollup alone; without the job every other check is advisory. |
+| `self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)` | A PR check outside ci-rollup's needs is one whose red never blocks a merge; the exact list is what makes adding or dropping one a reviewed edit. |
+| `self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)` | The sharded kcov run is the primary unit gate; out of the rollup, a kcov failure would merge. |
+| `self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)` | Without it a failed need skips the rollup, and branch protection reads a skipped required check as missing rather than red. |
+| `self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)` | A need the verify step never reads is waited on and then ignored: its failure turns nothing red. |
+| `self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)` | The gated jobs skip on doc-only PRs by design; without the tolerant loop those PRs could never merge. |
+| `self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)` | The ungated jobs never skip on purpose, so a SKIPPED there is a workflow bug the strict loop must not collapse into a pass. |
 | `self-test.yaml: ci-rollup treats compute-shards as hard-mandatory, not SKIPPED-tolerant (#1009)` | compute-shards carries no `if:` gate, so a SKIPPED there is a workflow bug and not a conditional job declining to run. It is also the one job whose FAILURE is otherwise invisible: coverage needs it and coverage-gate needs coverage, and both of those sit in the rollup's skipped-tolerant bucket, so putting compute-shards in the tolerant bucket too leaves the required check green with the entire unit suite and the coverage floor never run. |
 | `self-test.yaml: every job the workflow declares is named directly in ci-rollup's needs (#1009)` | This is the guard that makes the merge gate's roster DERIVED rather than hand-kept, and it is the recurrence #1009 asks to close: adding a job to the workflow used to update neither ci-rollup's needs nor any assertion, so the new job gated nothing and every existing test stayed green. Directly and not transitively, because ci-rollup runs under `if: always()` and reads each upstream's `.result`: GitHub reports a job whose need failed as SKIPPED, and SKIPPED is pass-equivalent in the tolerant bucket, so a job reached only through another is invisible to it. |
 | `self-test.yaml: ci-rollup inspects every job it needs, in exactly one result bucket (#1009)` | Joining `needs:` is only half a gate, so the guard above is not enough on its own. The rollup's verdict is the two loops over the `*_RESULT` variables: a job that is needed but compared in neither loop is waited for and then ignored, which is the same green as never having been needed, with a needs list that reads as correct. Exactly one bucket rather than at least one, because a variable in both is strict and tolerant at once. No pre-existing test caught a `*_RESULT` dropped from a loop. |
@@ -6256,7 +6331,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: worker-selftest drives the worker with a minimal fixture repo (#802)` | - |
 | `self-test.yaml: worker-selftest needs actionlint + classify and gates on system_relevant (#802)` | - |
 | `self-test.yaml: ci-rollup consumes worker-selftest as a SKIPPED-tolerant gate (#802)` | - |
-| `self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)` | - |
+| `self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)` | The tag path does not go through ci-rollup; a gate missing from release's needs is one a release can ship past. |
 | `self-test.yaml: declares shellcheck job (#376)` | - |
 | `self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)` | - |
@@ -6282,7 +6357,7 @@ rolling tag itself (#697, #1010)
 | `lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)` | base#1412 review round 6. A step can branch on a value only the run has -- a `needs` output, an input -- and reading that value as empty ran one branch and never the other, so a host lint behind the other passed. A value the workflow declares (a boolean or choice input) is run under every value it takes; one nothing declares is not run under a guess but reported `unresolved`. |
 | `lint probe: a matrix leg that lints another leg's group is caught (base#1412)` | base#1412 review round 6. Every leg reaching the image is not every lint being run: a matrix whose legs all lint one group skips the others. The selection check holds each leg to its own group. |
 | `lint probe: an image lint in a step that may be skipped or ignored is not credited (base#1412)` | base#1412 review round 7. The probe runs every step, the runner does not: a lint step under `if: false` is skipped on the runner yet credited here, and one under `continue-on-error` runs without gating. A crediting step has to run and gate whenever its job runs. |
-| `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | - |
+| `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | A tag produces the artifact users consume, so it must clear every gate a merge clears; the exact list makes a dropped gate a reviewed edit. |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
 | `self-test.yaml: the release body is assembled by a script that can refuse (#926)` | The extraction has to live somewhere a spec can drive it AND somewhere that can exit non-zero; inline in the workflow it was neither. This is what stops it drifting back into a `run:` block where a no-match is a silent success. |
@@ -6316,6 +6391,14 @@ rolling tag itself (#697, #1010)
 | `TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)` | One row named the CI job lint-static (i18n-orphan), which exists in no workflow -- lint-static is a group matrix, so the row sent a reader looking for a check that is not in the list |
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
+| `self-test.yaml: the config-gen job runs exactly just test go under an unmodified shell (base#1462)` | Nothing ran the Go gates in CI before base#1462. The hosted job is compared whole, so a spelling of the step that does not run `just test go` under a plain bash cannot pass for one that does. |
+| `coverage-local.yaml: the config-gen job runs exactly just test go on self-hosted behind the fork guard (base#1462)` | The self-hosted environment runs the same command; coverage-local.yaml is where self-hosted jobs live, behind the same fork guard. |
+| `config-gen: a BASH_ENV that exits 0 turns a red step body green under GitHub's run shell (base#1462)` | The premise of the workflow-env check, executed rather than asserted: GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail {0}`, and a BASH_ENV file that exits 0 ends that bash before the step body runs. |
+| `config-gen parity: every layer above the canonical step is compared exactly (base#1462)` | Each mutation below is a way the canonical step stays in the file while `just test go` does not run, or runs under a changed shell. The helper must refuse each one and name the layer, and must pass the unmutated fixture, so a red on the real file is the file and not the helper. Workflow env rows rule out checking only the job (BASH_ENV), a BASH_ENV deny-list (SHELLOPTS) and a subset check (a removed key). |
+| `config-gen parity: a workflow env added to coverage-local.yaml is refused (base#1462)` | coverage-local.yaml has no workflow env today, so it is checked on its own: a check of self-test.yaml alone would never see its frame. |
+| `self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)` | Branch protection requires ci-rollup alone; a config-gen job outside its needs, or whose result the step never reads, is a red nobody sees. The step is run, not grepped, for every need. |
+| `self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)` | config-gen is gated on code_changed, so on a doc-only diff it skips; the rollup must read that skip as a pass and a failure or cancel as red. |
+| `ci-rollup check: a need whose result no loop reads is caught (base#1462)` | The rollup check must see a need that is listed and keyed but left out of every loop, or it proves nothing about the next job added. |
 
 ### test/bats/unit/setup_cmd_spec.bats (226)
 

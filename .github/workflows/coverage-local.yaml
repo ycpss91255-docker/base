@@ -20,6 +20,11 @@ name: Coverage (local parallel kcov)
 # machine where the shard MATRIX buys nothing (one runner runs one job at a
 # time, so eight matrix entries run one after another).
 #
+# It also carries the self-hosted leg of the config generator's Go gates
+# (`config-gen`, base#1462): `just test go`, the one command the hosted
+# self-test job and the pre-PR mirror run too, on the machine kind the
+# hosted runners are not.
+#
 # -- Why it is manual ---------------------------------------------------
 #
 # `workflow_dispatch` only. A schedule or a push trigger would put a shared
@@ -144,6 +149,51 @@ jobs:
           manifest=coverage/timings.tsv
           run_dirs=(coverage/)
           bash ./script/test/drivers/coverage_gate.sh --verdict "${manifest}" "${run_dirs[@]}"
+
+  config-gen:
+    name: Config-gen Go gates on self-hosted (base#1462)
+    # The canonical fork guard, the same one coverage-local carries above:
+    # self_hosted_guard.sh requires it of every self-hosted-eligible job.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, gpu]
+    # The self-hosted leg of `just test go`: the SAME command the hosted
+    # self-test `config-gen` job and the pre-PR mirror run (ADR-00000039).
+    # self_test_yaml_spec.bats compares this job whole -- keys, `if`,
+    # runs-on, steps -- and this workflow's top-level keys, so nothing here
+    # can change how bash starts that command. Seven docker builds of a
+    # small module; a ceiling, not a budget.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the pinned just version
+        id: just-pin
+        # Copied from self-test.yaml's acceptance job, which carries the
+        # rationale; the parity spec holds the two equal.
+        run: |
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install just (container-ops entry point)
+        uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just-pin.outputs.version }}
+
+      - name: Check the just on PATH is the pin
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
+      - name: Run the config-gen gates
+        run: just test go
 
 # No reclaim step. `script/test/test.sh` arms an EXIT-trap sweep of
 # orphaned compose projects on every dispatch it makes, pass or fail, so

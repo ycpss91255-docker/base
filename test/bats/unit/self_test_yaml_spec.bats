@@ -1274,11 +1274,15 @@ _builder_setups_out_of_step_with_their_consumer() {
 
 # ── ci-rollup aggregator ───────────────────────────────────────
 
+# why: Branch protection requires ci-rollup alone; without the job every
+# other check is advisory.
 @test "self-test.yaml: declares ci-rollup job (#337)" {
   run code_grep -E '^  ci-rollup:' "${WF}"
   assert_success
 }
 
+# why: A PR check outside ci-rollup's needs is one whose red never blocks a
+# merge; the exact list is what makes adding or dropping one a reviewed edit.
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
   # hadolint + bats-fragile + bats-integration + coverage + acceptance
@@ -1291,11 +1295,16 @@ _builder_setups_out_of_step_with_their_consumer() {
   # matrix reads its shard list from, so its failure skips BOTH coverage
   # and coverage-gate, and a rollup that does not name it collapses that
   # double skip into a green required check.
+  #
+  # `config-gen` (the config generator's Go gates, base#1462) joins it the
+  # same way: a code-gated job whose red would otherwise be one nobody sees.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
+# why: The sharded kcov run is the primary unit gate; out of the rollup, a
+# kcov failure would merge.
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
   # kept coverage out of the rollup (main-only metric); (ADR-8)
   # reverses that — the sharded kcov gate joins the rollup so a kcov
@@ -1307,6 +1316,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial ', coverage,'
 }
 
+# why: Without it a failed need skips the rollup, and branch protection
+# reads a skipped required check as missing rather than red.
 @test "self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)" {
   # Without `if: always` the rollup would skip when any upstream
   # need failed, masking the failure as SKIPPED — branch protection
@@ -1316,6 +1327,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'if: always()'
 }
 
+# why: A need the verify step never reads is waited on and then ignored:
+# its failure turns nothing red.
 @test "self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)" {
   # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
   # to translate the parallel job graph into a single pass/fail signal.
@@ -1334,6 +1347,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'needs.system.result'
 }
 
+# why: The gated jobs skip on doc-only PRs by design; without the tolerant
+# loop those PRs could never merge.
 @test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)" {
   # every PR-check job has a job-level `if:` gate that may
   # cause it to skip on doc-only / non-system PRs (the old
@@ -1355,6 +1370,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial '[[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1'
 }
 
+# why: The ungated jobs never skip on purpose, so a SKIPPED there is a
+# workflow bug the strict loop must not collapse into a pass.
 @test "self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)" {
   # actionlint + classify + doc-counts + lint-static are hard-mandatory:
   # they carry no `if:` gate, so SKIPPED there indicates a workflow bug,
@@ -1809,6 +1826,8 @@ YAML
   assert_output --partial 'WORKER_SELFTEST_RESULT'
 }
 
+# why: The tag path does not go through ci-rollup; a gate missing from
+# release's needs is one a release can ship past.
 @test "self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)" {
   # Acceptance criterion: the System job is part of the required gate before
   # a tag. release fires on tag push only; if the worker self-test fails the
@@ -3055,6 +3074,8 @@ _lint_probe_fixture() {
   done
 }
 
+# why: A tag produces the artifact users consume, so it must clear every
+# gate a merge clears; the exact list makes a dropped gate a reviewed edit.
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
@@ -3065,9 +3086,12 @@ _lint_probe_fixture() {
   # (ADR-00000008), it was in ci-rollup but not here, and ci-rollup is not
   # a `needs:` of release -- so the one path that produces an artifact
   # users consume was the one path the floor did not gate.
+  #
+  # `config-gen` (base#1462) joins it for the same reason it joins
+  # ci-rollup: the tag path requires exactly what the merge gate requires.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {

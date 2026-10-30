@@ -413,3 +413,21 @@ dry_run_cmd
 summary_line
 section_header
 divider
+
+# script/test/config_gen_gates.sh and config_gen_redpath.sh (the config
+# generator's Go gates, base#1462). The five gate ids are printed by the
+# Dockerfile.config-gen test stage and re-emitted by the runner.
+config_gen_gate_fmt_failed
+config_gen_gate_vet_failed
+config_gen_gate_lint_failed
+config_gen_gate_race_failed
+config_gen_gate_coverage_failed
+config_gen_build_failed
+config_gen_step_failed
+config_gen_context_invalid
+config_gen_root_invalid
+config_gen_usage_invalid
+config_gen_binary_contract_failed
+config_gen_redpath_reentered
+config_gen_redpath_case_failed
+config_gen_redpath_control_failed
