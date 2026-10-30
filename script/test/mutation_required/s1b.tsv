@@ -28,3 +28,5 @@ coverage-no-statements	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/co
 coverage-below-floor	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%cov \* 10 >= stmts \* 9%cov * 10 >= stmts * 8%' dockerfile/config-gen/gates/coverage.sh
 spec-workflow-top-keys	test/bats/unit/self_test_yaml_spec.bats	test/bats/unit/self_test_yaml_spec.bats	sed -i 's%  \[\[ "\${_top}" == "\${2}" \]\] \\%  true \\%' test/bats/unit/self_test_yaml_spec.bats
 spec-workflow-env-keys	test/bats/unit/self_test_yaml_spec.bats	test/bats/unit/self_test_yaml_spec.bats	sed -i 's%  \[\[ "\${_env}" == "\${3}" \]\] \\%  true \\%' test/bats/unit/self_test_yaml_spec.bats
+coverage-no-packages	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%  \[\[ -n "\${listing}" \]\] || _refuse no_packages%  :%' dockerfile/config-gen/gates/coverage.sh
+coverage-profile-missing	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%  \[\[ -f "\${prof}" \]\] || _refuse profile_invalid "\${pkg}"%  :%' dockerfile/config-gen/gates/coverage.sh

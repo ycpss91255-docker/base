@@ -3970,6 +3970,59 @@ ${_bad}"
   [[ -z "${_bad}" ]] || fail "${_bad}"
 }
 
+# _cg_bash_env_setup_mutant <src> <job>... -- a copy of <src> whose
+# "Resolve the pinned just version" step, in each named job, also writes a
+# BASH_ENV that exits 0 into $GITHUB_ENV, so every later run: step of that
+# job exits 0 before its body. Prints the copy's path.
+_cg_bash_env_setup_mutant() {
+  local _src="${1}" _out="${BATS_TEST_TMPDIR}/bash-env-$(basename "${1}")" _job
+  shift
+  cp "${_src}" "${_out}"
+  export CG_PREEMPT=$'printf \'exit 0\\n\' > /tmp/preempt.sh\necho "BASH_ENV=/tmp/preempt.sh" >> "${GITHUB_ENV}"\n'
+  for _job in "$@"; do
+    CG_JOB="${_job}" yq -i '(.jobs[strenv(CG_JOB)].steps[]
+        | select(.name == "Resolve the pinned just version") | .run) += strenv(CG_PREEMPT)' "${_out}"
+  done
+  cmp -s "${_src}" "${_out}" && { echo "BUG: the BASH_ENV mutation changed nothing"; return 1; }
+  printf '%s\n' "${_out}"
+}
+
+# why: A setup step that exports a BASH_ENV which exits 0 through
+# $GITHUB_ENV turns `just test go` green unrun. Written into acceptance and
+# config-gen alike, the copies stay equal to each other, so an expectation
+# read from acceptance would move with them; the expectation must be the
+# spec's own literal, and acceptance must still equal it.
+@test "config-gen parity: a BASH_ENV exported by a setup step is refused even when acceptance carries it too (base#1462)" {
+  local _m _want
+  _m="$(_cg_bash_env_setup_mutant "${WF}" acceptance config-gen)" || fail "${_m}"
+  _want="$(WF="${_m}" _cg_expected_job self-test)" || fail "${_want}"
+  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  assert_failure
+  assert_output --partial 'config-gen job body'
+  run _cg_acceptance_just_pin_exact "${_m}"
+  assert_failure
+  assert_output --partial 'acceptance just-pin steps'
+}
+
+# why: The same mutation on the self-hosted copy, whose expectation is built
+# from the same steps.
+@test "config-gen parity: a BASH_ENV exported by a setup step on self-hosted is refused (base#1462)" {
+  local _m _want
+  _m="$(_cg_bash_env_setup_mutant "${COV_LOCAL_WF}" config-gen)" || fail "${_m}"
+  _want="$(_cg_expected_job coverage-local)" || fail "${_want}"
+  run _cg_parity "${_m}" "${_want}" "${CG_COV_LOCAL_TOP}" "${CG_COV_LOCAL_ENV}"
+  assert_failure
+  assert_output --partial 'config-gen job body'
+}
+
+# why: The config-gen job's just-pin steps are copies of acceptance's, and
+# the workflow comments say the parity spec holds them equal. With the
+# expectation a literal here, acceptance is held to the same literal.
+@test "self-test.yaml: acceptance's three just-pin steps equal the config-gen literal (base#1462)" {
+  run _cg_acceptance_just_pin_exact "${WF}"
+  assert_success
+}
+
 # ── ci-rollup honours config-gen, by running its verify step ─────────────────
 
 # _rollup_script <file> -- the run: of ci-rollup's Verify upstream jobs step.

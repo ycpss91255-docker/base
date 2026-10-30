@@ -5941,7 +5941,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (143)
+### test/bats/unit/self_test_yaml_spec.bats (146)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6403,6 +6403,9 @@ rolling tag itself (#697, #1010)
 | `config-gen: a BASH_ENV that exits 0 turns a red step body green under GitHub's run shell (base#1462)` | The premise of the workflow-env check, executed rather than asserted: GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail {0}`, and a BASH_ENV file that exits 0 ends that bash before the step body runs. |
 | `config-gen parity: every layer above the canonical step is compared exactly (base#1462)` | Each mutation below is a way the canonical step stays in the file while `just test go` does not run, or runs under a changed shell. The helper must refuse each one and name the layer, and must pass the unmutated fixture, so a red on the real file is the file and not the helper. Workflow env rows rule out checking only the job (BASH_ENV), a BASH_ENV deny-list (SHELLOPTS) and a subset check (a removed key). |
 | `config-gen parity: a workflow env added to coverage-local.yaml is refused (base#1462)` | coverage-local.yaml has no workflow env today, so it is checked on its own: a check of self-test.yaml alone would never see its frame. |
+| `config-gen parity: a BASH_ENV exported by a setup step is refused even when acceptance carries it too (base#1462)` | A setup step that exports a BASH_ENV which exits 0 through $GITHUB_ENV turns `just test go` green unrun. Written into acceptance and config-gen alike, the copies stay equal to each other, so an expectation read from acceptance would move with them; the expectation must be the spec's own literal, and acceptance must still equal it. |
+| `config-gen parity: a BASH_ENV exported by a setup step on self-hosted is refused (base#1462)` | The same mutation on the self-hosted copy, whose expectation is built from the same steps. |
+| `self-test.yaml: acceptance's three just-pin steps equal the config-gen literal (base#1462)` | The config-gen job's just-pin steps are copies of acceptance's, and the workflow comments say the parity spec holds them equal. With the expectation a literal here, acceptance is held to the same literal. |
 | `self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)` | Branch protection requires ci-rollup alone; a config-gen job outside its needs, or whose result the step never reads, is a red nobody sees. The step is run, not grepped, for every need. |
 | `self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)` | config-gen is gated on code_changed, so on a doc-only diff it skips; the rollup must read that skip as a pass and a failure or cancel as red. |
 | `ci-rollup check: a need whose result no loop reads is caught (base#1462)` | The rollup check must see a need that is listed and keyed but left out of every loop, or it proves nothing about the next job added. |
