@@ -304,13 +304,16 @@ echo alive"
 # why: a digest that fails, or that answers nothing, names no image; a
 #      tag built from it would be `config-gen:` with no identity. Both are
 #      refusals, never a literal or empty tag. The digest function is
-#      replaced in the resolving shell, so the guard is judged alone.
+#      replaced in the resolving shell, so the guard is judged alone. The
+#      failing stub still prints a well-formed digest: a pipeline under
+#      pipefail can emit one and answer non-zero, so the refusal must come
+#      from the status, not from the output being empty.
 @test "config-gen: a failed digest refuses with config_gen_unprovisionable" {
   _seed_cg_subtree
   _mock_docker present
 
   LOG_FORMAT=json run --separate-stderr bash -c "source '${CG}'
-_reclaim_tool_dockerfile_hash() { return 1; }
+_reclaim_tool_dockerfile_hash() { printf '%s\\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef; return 1; }
 config_gen_resolve"
   assert_refusal 1 config_gen_unprovisionable "path=${CG_DF}"
   assert_equal "$(_count_inspects)" "0"
