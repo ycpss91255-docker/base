@@ -1175,8 +1175,8 @@ _pin_read() {
       _current=""
       if [[ "${_file##*/}" == go.mod ]]; then
         if [[ -z "${_gm_version["${_target_no}"]+x}" ]]; then
-          printf '%s:%d: %s marker for %s targets a line that is not a require entry\n' \
-            "${_file}" "${_target_no}" "${_PIN_MARKER}" "${_name}" >&2
+          _log_err pin go_mod_pin_target_not_require "file=${_file}" "line=${_target_no}" "pin=${_name}" \
+            "display=go_mod_pin_target_not_require: ${_file}:${_target_no}: the ${_PIN_MARKER} marker for ${_name} targets a line that is not a require entry"
           return 1
         fi
         [[ "${_state}" == "${_PIN_STATE_IGNORE}" ]] || _current="${_gm_version["${_target_no}"]}"
