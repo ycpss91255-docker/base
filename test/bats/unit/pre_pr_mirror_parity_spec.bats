@@ -898,6 +898,24 @@ ${_recipe}"
   refute_line 'just test go'
 }
 
+# why: The mutation baseline (base#1464) is a script the 00-manifest step
+# runs inside `just test go`, and its spec is integration tier. A diff that
+# touches only one of the three must plan both, so the mirror runs the step
+# and the spec that pins it. The mirror sets no CONFIG_GEN_MUTATION_CONTEXT,
+# so it runs the pr default the spec proves.
+@test "pre-PR mirror: a mutation-baseline diff plans just test go and just test (base#1464)" {
+  _require_mirror
+  local _p
+  for _p in script/test/config_gen_mutation_targets.sh \
+            script/test/config_gen_steps/00-manifest.sh \
+            test/bats/integration/config_gen_mutation_targets_spec.bats; do
+    run bash "${MIRROR}" --plan <<<"${_p}"
+    assert_success
+    assert_line 'just test go'
+    assert_line 'just test'
+  done
+}
+
 # _stub_just_run <just-rc> -- run the mirror over a commit that touches only
 # the config generator, with a `bash` first on PATH that records every
 # planned command and hands each `just ...` one to the real bash, and a

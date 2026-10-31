@@ -332,6 +332,28 @@ setup() {
   [[ "${output}" == *'"thread.id":'* ]]
 }
 
+# why: code.filepath and code.lineno must name the code that logged the
+# event. They were read one frame too shallow, so every event was attributed
+# to the _log_<level> wrapper inside log.sh itself, and a check that a
+# refusal came from a given script could never pass or fail on it
+# (base#1464).
+@test "JSON code.filepath and code.lineno name the caller of _log_<level>, not log.sh (base#1464)" {
+  local _c="${BATS_TEST_TMPDIR}/caller.sh"
+  printf '%s\n' \
+    "source ${LOG_SH}" \
+    'f() {' \
+    '  _log_err setup env_regenerated ws_path=/in_f' \
+    '}' \
+    'f' \
+    '_log_info setup env_regenerated ws_path=/top' > "${_c}"
+  run --separate-stderr env LOG_FORMAT=json bash "${_c}"
+  assert_success
+  [[ "${stderr}" == *"\"code.filepath\":\"${_c}\",\"code.lineno\":3,"* ]] \
+    || fail "the function's event is not attributed to ${_c}:3: ${stderr}"
+  [[ "${output}" == *"\"code.filepath\":\"${_c}\",\"code.lineno\":6,"* ]] \
+    || fail "the top-level event is not attributed to ${_c}:6: ${output}"
+}
+
 @test "JSON output contains custom attributes" {
   run bash -c "source ${LOG_SH}; _log_info setup env_regenerated ws_path=/tmp conf_hash=abc123"
   assert_success

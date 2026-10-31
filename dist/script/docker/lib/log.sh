@@ -68,8 +68,12 @@ _log_emit_json() {
     IFS=- read -r _ trace_id span_id _ <<< "${TRACEPARENT}"
   fi
 
-  local caller_file="${BASH_SOURCE[2]:-unknown}"
-  local caller_line="${BASH_LINENO[1]:-0}"
+  # The stack here is _log_emit_json <- _log_dispatch <- _log_<level> <-
+  # the caller, so the caller's file is frame 3 and the line it called
+  # _log_<level> from is BASH_LINENO[2]; frame 2 is log.sh's own wrapper
+  # (base#1464).
+  local caller_file="${BASH_SOURCE[3]:-unknown}"
+  local caller_line="${BASH_LINENO[2]:-0}"
 
   local attrs=""
   attrs+="\"service.name\":\"$(_log_json_escape "${service}")\""
