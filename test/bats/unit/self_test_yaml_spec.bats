@@ -2545,7 +2545,7 @@ _lint_probe_env() {
 #   unresolved<TAB><file>:<job>#<step><TAB><expression>
 #       the step uses a runtime expression no domain is known for, so it
 #       was not run (_lint_probe_bindings);
-#   roster<TAB><file>:<job>#<step><TAB><exit status>
+#   roster<TAB><file>:<job>#<step><TAB><exit status><TAB><driver argv>
 #       the step ran the required-kill roster driver, once per run of it
 #       (only in a root from _roster_probe_root, whose driver records).
 #
@@ -2646,7 +2646,7 @@ STUB
               printf 'host\t%s\t%s\n' "${_label}" "${_k}"
             done < "${_dir}/host"
             while IFS= read -r _k; do
-              printf 'roster\t%s\t%s\n' "${_label}" "${_status}"
+              printf 'roster\t%s\t%s\t%s\n' "${_label}" "${_status}" "${_k}"
             done < "${_dir}/roster"
             for _call in "${_dir}"/docker/call.*; do
               [ -f "${_call}" ] || continue
@@ -4250,9 +4250,10 @@ _roster_runs() {
 }
 
 # why: The hosted environment. Every lint-static leg runs the roster
-# exactly once, with no `if:` and no continue-on-error, and a red roster
-# fails the step.
-@test "self-test.yaml: every lint-static leg runs the required-kill roster once, gated (base#1461)" {
+# exactly once, on its own shard (`--shard <its group>`, so the four legs
+# together probe every row), with no `if:` and no continue-on-error, and a
+# red roster fails the step.
+@test "self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)" {
   local _root
   _root="$(_roster_probe_root)" || fail "${_root}"
   LP_JOBS=lint-static LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
@@ -4267,6 +4268,8 @@ _roster_runs() {
       || fail "lint-static leg ${_group} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
     _st="$(cut -f3 <<< "${_runs}")"
     [ "${_st}" != 0 ] || fail "lint-static leg ${_group}: a red roster leaves its step green"
+    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_group} "* ]] \
+      || fail "lint-static leg ${_group} does not run the roster on shard ${_group}: $(cut -f4 <<< "${_runs}")"
   done
   run _lint_probe_gating_errors "${_probe}" "${WF}" lint-static roster
   assert_output ""
@@ -4285,6 +4288,8 @@ _roster_runs() {
   [ "$(grep -c . <<< "${_runs}" || true)" = 1 ] \
     || fail "coverage-local's config-gen job runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
   [ "$(cut -f3 <<< "${_runs}")" != 0 ] || fail "a red roster leaves coverage-local's step green"
+  [[ " $(cut -f4 <<< "${_runs}") " != *" --shard "* ]] \
+    || fail "coverage-local's config-gen job runs only a shard of the roster: $(cut -f4 <<< "${_runs}")"
   run _lint_probe_gating_errors "${_probe}" "${COV_LOCAL_WF}" config-gen roster
   assert_output ""
 }

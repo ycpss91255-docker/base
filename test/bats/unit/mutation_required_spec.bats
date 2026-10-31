@@ -742,6 +742,71 @@ STUB
   _runner_never_ran
 }
 
+# ── shards ──────────────────────────────────────────────────────────────────
+
+# _pinned_ids -- the ids of the rows the last run reported pinned, sorted.
+_pinned_ids() {
+  log_event_line mutation_required_pinned "${stderr}" \
+    | grep -oE '"id":"[^"]*"' | cut -d'"' -f4 | LC_ALL=C sort | tr '\n' ' '
+}
+
+# _three_rows -- three rows in one roster file, in the order one two three.
+_three_rows() {
+  _pin_row a.tsv one
+  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  _row a.tsv three lib/guard.sh test/bats/unit/guard_spec.bats 'drop_me=1' 'drop_me=2'
+  _commit_live
+}
+
+# why: The four hosted lint-static legs each run the roster. 168 rows probed
+# in full by every leg did not finish inside the job's 30 minutes (PR #1491,
+# run 41222344327: the roster step cancelled at 29 minutes on all four
+# legs), so a leg probes the rows of its own shard: row k (counted over
+# every roster file, from 0) belongs to shard (k mod <total>) + 1.
+@test "shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)" {
+  _three_rows
+  _run_mr --shard 1/2
+  assert_success
+  assert_equal "$(_pinned_ids)" "one three "
+  _run_mr --shard 2/2
+  assert_success
+  assert_equal "$(_pinned_ids)" "two "
+}
+
+# why: A shard only narrows what is probed; every row is still validated,
+# so an invalid row outside the shard still fails the run.
+@test "shards: an invalid row outside the shard is still refused (base#1461)" {
+  _three_rows
+  _row a.tsv four lib/guard.sh test/bats/unit/guard_spec.bats 'not in the file' 'x'
+  git -C "${LIVE}" add -A
+  git -C "${LIVE}" commit -q --no-verify -m four
+  _run_mr --shard 1/2
+  _assert_mr_refusal 1 mutation_required_row_invalid reason=old_not_found
+  _runner_never_ran
+}
+
+# why: A shard spec that is not <n>/<total> with 1 <= n <= total <= 99 is
+# refused before anything runs.
+@test "shards: a malformed --shard is refused (base#1461)" {
+  _three_rows
+  local _bad
+  for _bad in 0/2 3/2 2 a/b 1/0 1/100; do
+    _run_mr --shard "${_bad}"
+    _assert_mr_refusal 2 mutation_required_usage_invalid reason=shard_invalid "shard=${_bad}"
+  done
+  _run_mr --shard
+  _assert_mr_refusal 2 mutation_required_usage_invalid reason=shard_missing
+  _runner_never_ran
+}
+
+# why: A shard that selects no row would pass having probed nothing.
+@test "shards: a shard with no rows is refused as an empty roster (base#1461)" {
+  _three_rows
+  _run_mr --shard 4/4
+  _assert_mr_refusal 1 mutation_required_roster_empty shard=4/4
+  _runner_never_ran
+}
+
 # ── the sandbox ─────────────────────────────────────────────────────────────
 
 # why: The probe edits files and runs compose; in the live checkout that
