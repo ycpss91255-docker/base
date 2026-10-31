@@ -39,7 +39,9 @@
 # `<path>\t<64 hex digits>`; any other line is refused as file=<list>
 # reason=record, before any file of <src> is judged against it; and a
 # path listed twice in one list (00-manifest hashes each file once) is
-# refused as file=<list> reason=duplicate.
+# refused as file=<list> reason=duplicate; and a path the earlier list
+# already names (00-manifest puts each file in exactly one list) is
+# refused as file=<list> reason=dual, naming the list read second.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -54,6 +56,9 @@ export LC_ALL=C
 
 readonly _CGA_MOD='dockerfile/config-gen/'
 readonly _CGA_NONE='none: no-go-change'
+
+# Paths every list read so far names, for the one-list rule.
+declare -A _cga_listed=()
 
 # _cga_stale <file> <reason> -- refuse, rc 1.
 _cga_stale() {
@@ -116,7 +121,8 @@ _cga_body() {
 }
 
 # _cga_check <src> <list> -- refuse a <list> line that is not
-# `<path>\t<64 hex>` or whose path an earlier line names, then the first
+# `<path>\t<64 hex>` or whose path an earlier line names (duplicate) or
+# an earlier list names (dual), then the first
 # listed file whose sha256 in <src> differs from the one recorded, or
 # that <src> no longer holds.
 _cga_check() {
@@ -127,8 +133,12 @@ _cga_check() {
     [[ "${line}" =~ ${rec} ]] || _cga_stale "${list##*/}" record
     path="${line%%$'\t'*}"
     [[ -z "${seen["${path}"]+x}" ]] || _cga_stale "${list##*/}" duplicate
+    [[ -z "${_cga_listed["${path}"]+x}" ]] || _cga_stale "${list##*/}" dual
     seen["${path}"]=1
   done <"${list}"
+  for path in "${!seen[@]}"; do
+    _cga_listed["${path}"]=1
+  done
   while IFS=$'\t' read -r path want; do
     [[ -e "${src}/${path#"${_CGA_MOD}"}" || -L "${src}/${path#"${_CGA_MOD}"}" ]] ||
       _cga_stale "${path}" missing
