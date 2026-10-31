@@ -236,6 +236,31 @@ _passed() {
   [[ ! -e "${S}/go.calls" ]] || fail "go ran before the guard: $(cat "${S}/go.calls")"
 }
 
+# why: A record that exists but is empty, a record holding only a blank
+# line, and no argument at all deliver no root either. Each must stop at the
+# same guard as a missing file, before go runs; a check that only asks
+# whether the file exists passes the first two, and under set -u an unset
+# variable exits without the refusal line (base#1468). Without the guard
+# this listing reads reason=test_failed pkg=m/a.
+@test "coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)" {
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  printf '1\n' > "${S}/prof/m_a.rc"
+  : > "${S}/empty-record"
+  printf '\n' > "${S}/blank-record"
+  local _case
+  for _case in empty blank none; do
+    rm -f "${S}/go.calls"
+    case "${_case}" in
+      empty) _run_gate_with "${S}/empty-record" ;;
+      blank) _run_gate_with "${S}/blank-record" ;;
+      none) _run_gate_with ;;
+    esac
+    _refused corpus_root_missing ""
+    [[ ! -e "${S}/go.calls" ]] || fail "${_case}: go ran before the guard: $(cat "${S}/go.calls")"
+  done
+}
+
 # why: Validating the record and then dropping it leaves every go test with
 # an empty testcorpus root, which reads as test_failed in the real image. The
 # validated root has to reach each package's go test as one -ldflags -X
