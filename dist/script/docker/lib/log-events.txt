@@ -431,3 +431,6 @@ config_gen_binary_contract_failed
 config_gen_redpath_reentered
 config_gen_redpath_case_failed
 config_gen_redpath_control_failed
+config_gen_building
+config_gen_unprovisionable
+config_gen_docker_missing

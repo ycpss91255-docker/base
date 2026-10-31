@@ -1,0 +1,16 @@
+# s1h.tsv -- the mutations base#1466 (config-gen S1h, the shared tool-image
+# helper and config_gen_resolve) requires script/test/mutation-probe.sh to
+# report PINNED. One row per behaviour:
+# <id> TAB <subject> TAB <spec> TAB <mutation command>, the command run
+# from the repo root, as `mutation-probe.sh --subject <subject> --spec
+# <spec> --mutate <command>`. Each command edits exactly one line of its
+# subject.
+override-verbatim	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if \[\[ -n "\${!_override:-}" \]\]; then%  if false; then%' dist/script/docker/lib/tool_image.sh
+memo-early-return	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  \[\[ -n "\${!_memo:-}" \]\] \&\& return 0%  :%' dist/script/docker/lib/tool_image.sh
+memo-publish	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i '/^  printf -v "\${_memo}" .* "\${_image}"$/ s/.*/  :/' dist/script/docker/lib/tool_image.sh
+build-exit	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i '/"status=\${_rc}"/,/return 1/ s%  return 1%  exit 1%' dist/script/docker/lib/tool_image.sh
+build-fold	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  _out="\${_out//\$'"'"'\\n'"'"'/ }"%  :%' dist/script/docker/lib/tool_image.sh
+docker-missing	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if ! command -v docker > /dev/null 2>\&1; then%  if false; then%' dist/script/docker/lib/config_gen.sh
+unprovisionable-no-root	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if ! _dockerfile="\$(tool_image_dockerfile "\${_ns}")"; then%  if false; then%' dist/script/docker/lib/tool_image.sh
+unprovisionable-no-dockerfile	dist/script/docker/lib/tool_image.sh	test/bats/unit/tool_image_spec.bats	sed -i 's%  if \[\[ ! -f "\${_dockerfile}" \]\]; then%  if false; then%' dist/script/docker/lib/tool_image.sh
+unprovisionable-no-context	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if \[\[ ! -d "\${_context}" \]\]; then%  if false; then%' dist/script/docker/lib/tool_image.sh

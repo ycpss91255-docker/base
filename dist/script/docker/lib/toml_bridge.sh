@@ -54,14 +54,22 @@
 _toml_bridge_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_toml_bridge_dir}/log.sh"
-# The content-digest derivation, shared with the tooling tag and the image
-# retention policy rather than reimplemented (base#1169). Sourced after
-# log.sh, which it emits its refusals through.
-# shellcheck source=dist/script/docker/lib/project_reclaim.sh
-source "${_toml_bridge_dir}/project_reclaim.sh"
+# The resolve/ensure/build path, shared with the config generator
+# (base#1466). It sources project_reclaim.sh, whose digest derivation the
+# tag is taken with -- the SAME function the tooling tag and the image
+# retention policy use, not a second hashing rule (base#1169).
+# shellcheck source=dist/script/docker/lib/tool_image.sh
+source "${_toml_bridge_dir}/tool_image.sh"
 
-# The bridge's build inputs, relative to the subtree root.
+# The bridge's build inputs, relative to the subtree root. The build
+# context is the Dockerfile's OWN directory, which is what makes the
+# shipped copy buildable from a consumer at all: a context of the subtree
+# root would make the COPY path depend on the subtree's name, which is the
+# consumer's to choose.
 _TOML_BRIDGE_DOCKERFILE_REL="dockerfile/Dockerfile.toml-bridge"
+tool_image_define toml_bridge toml-bridge "${_toml_bridge_dir}" \
+  "${_TOML_BRIDGE_DOCKERFILE_REL}" dockerfile TOML_BRIDGE_IMAGE \
+  _TOML_BRIDGE_RESOLVED
 
 # The image the containerised path last resolved, so the resolution -- and
 # the build it may do -- happens once per shell. A global and not a
@@ -70,129 +78,37 @@ _TOML_BRIDGE_DOCKERFILE_REL="dockerfile/Dockerfile.toml-bridge"
 # read of the same file would build again.
 _TOML_BRIDGE_RESOLVED=""
 
-# _toml_bridge_subtree_root
-#   The subtree root the shipped build inputs sit under: the directory
-#   carrying the subtree markers `.version` + `dist/` above this lib.
-#   The same walk init.sh and upgrade.sh do, and for the same reason --
-#   the prefix is the consumer's to name, so nothing may spell `.base`.
-#
-#   Non-zero and silent when there is none: the caller turns that into
-#   the refusal, where the image it was trying to name can be said too.
-_toml_bridge_subtree_root() {
-  local _dir="${_toml_bridge_dir}"
-  while [[ "${_dir}" != "/" ]]; do
-    if [[ -f "${_dir}/.version" && -d "${_dir}/dist" ]]; then
-      printf '%s\n' "${_dir}"
-      return 0
-    fi
-    _dir="$(cd -- "${_dir}/.." && pwd -P)" || return 1
-  done
-  return 1
+# _toml_bridge_tool_image_display <kind> <image> <path> <rc> <out> <lib>
+#   The bridge's wording for each record tool_image.sh writes on its
+#   behalf. A failed build names the builder's output, already folded onto
+#   one line, and does not exit: the INI-to-TOML migration's commit gate
+#   reads an unavailable bridge as a declined conversion (base#1137).
+_toml_bridge_tool_image_display() {
+  case "$1" in
+    no_root)
+      printf '%s' "cannot name the containerised TOML parser: no subtree root (a directory carrying .version and dist/) above ${6}, so the shipped ${_TOML_BRIDGE_DOCKERFILE_REL} cannot be found. The configuration format is TOML (ADR-00000037) and nothing reads it without the parser, so this stops here rather than reporting an empty configuration as a loaded one." ;;
+    no_dockerfile)
+      printf '%s' "cannot build the containerised TOML parser: ${3} is missing from the vendored subtree. Re-run the upgrade so the subtree is complete, or pin a parser image with TOML_BRIDGE_IMAGE. The configuration format is TOML (ADR-00000037) and nothing reads it without the parser." ;;
+    no_context)
+      printf '%s' "cannot build the containerised TOML parser: its build context ${3} is missing from the vendored subtree. Re-run the upgrade so the subtree is complete, or pin a parser image with TOML_BRIDGE_IMAGE." ;;
+    unhashable)
+      printf '%s' "cannot name the containerised TOML parser: a build input of ${3} could not be resolved or read (the refusal above names it). A digest taken over the rest would name an image it does not describe." ;;
+    building)
+      printf '%s' "building the containerised TOML parser ${2} from ${3} -- the configuration format is TOML (ADR-00000037) and nothing reads it until the parser exists. Once per revision of the bridge: a later run whose build inputs are identical resolves this same tag and skips the build." ;;
+    build_failed)
+      printf '%s' "the containerised TOML parser ${2} could not be built from ${3} (docker build exited ${4}), so the configuration cannot be read and this stops here rather than falling back to the template defaults. Builder said: ${5}. Fix the cause and re-run, or pin a parser image with TOML_BRIDGE_IMAGE." ;;
+  esac
 }
 
-# _toml_bridge_dockerfile
-#   The shipped bridge Dockerfile, or non-zero when the subtree root
-#   cannot be found.
-_toml_bridge_dockerfile() {
-  local _root
-  _root="$(_toml_bridge_subtree_root)" || return 1
-  printf '%s/%s\n' "${_root}" "${_TOML_BRIDGE_DOCKERFILE_REL}"
-}
-
-# _toml_bridge_derive_image
-#   `toml-bridge:<12 hex>` over the bridge Dockerfile and every file it
-#   COPYs from its build context. Twelve digits for the reason the tooling
-#   tag takes twelve: the tag has to stay readable in `docker images`, and
-#   the collision surface is the handful of checkouts on one host.
-#
-#   Every way of not getting an answer is a refusal, never a fallback to a
-#   bare literal. A literal resolves to whatever a sibling checkout last
-#   built under that name, which is the collision the derivation exists to
-#   remove, and here it would also hand a configuration read a parser from
-#   another revision.
-_toml_bridge_derive_image() {
-  local _dockerfile _hash=""
-  if ! _dockerfile="$(_toml_bridge_dockerfile)"; then
-    _log_err toml_bridge toml_bridge_unprovisionable \
-      "display=cannot name the containerised TOML parser: no subtree root (a directory carrying .version and dist/) above ${_toml_bridge_dir}, so the shipped ${_TOML_BRIDGE_DOCKERFILE_REL} cannot be found. The configuration format is TOML (ADR-00000037) and nothing reads it without the parser, so this stops here rather than reporting an empty configuration as a loaded one." \
-      "lib=${_toml_bridge_dir}"
-    return 1
-  fi
-  if [[ ! -f "${_dockerfile}" ]]; then
-    _log_err toml_bridge toml_bridge_unprovisionable \
-      "display=cannot build the containerised TOML parser: ${_dockerfile} is missing from the vendored subtree. Re-run the upgrade so the subtree is complete, or pin a parser image with TOML_BRIDGE_IMAGE. The configuration format is TOML (ADR-00000037) and nothing reads it without the parser." \
-      "path=${_dockerfile}"
-    return 1
-  fi
-  if ! _hash="$(_reclaim_tool_dockerfile_hash "${_dockerfile}")" \
-    || [[ -z "${_hash}" ]]; then
-    _log_err toml_bridge toml_bridge_unprovisionable \
-      "display=cannot name the containerised TOML parser: a build input of ${_dockerfile} could not be resolved or read (the refusal above names it). A digest taken over the rest would name an image it does not describe." \
-      "path=${_dockerfile}"
-    return 1
-  fi
-  printf 'toml-bridge:%s\n' "${_hash:0:12}"
-}
-
-# _toml_bridge_ensure_image <image>
-#   Make <image> exist. Present is the whole answer -- the tag is keyed to
-#   its inputs, so a tag that is there was built from these inputs and a
-#   rebuild would be a cache hit under a different name for the same thing.
-#
-#   The build context is the Dockerfile's OWN directory, which is what
-#   makes the shipped copy buildable from a consumer at all: a context of
-#   the subtree root would make the COPY path depend on the subtree's name,
-#   which is the consumer's to choose.
-#
-#   A failed build is reported with the builder's own output folded onto
-#   one line -- it reaches the log as an attribute value, and the text sink
-#   renders a body on one line -- and answers non-zero. It does not exit:
-#   the INI-to-TOML migration's commit gate reads an unavailable bridge as
-#   a declined conversion (base#1137), and a hard exit here would turn
-#   that containment into a crash.
-_toml_bridge_ensure_image() {
-  local _image="${1:?"${FUNCNAME[0]}: missing image"}"
-  docker image inspect "${_image}" > /dev/null 2>&1 && return 0
-
-  local _dockerfile _context _out="" _rc=0
-  _dockerfile="$(_toml_bridge_dockerfile)" || return 1
-  _context="${_dockerfile%/*}"
-
-  # stderr, not the INFO default of stdout: the parse's stdout is the
-  # row stream its caller collects as configuration (base#1400).
-  _log_info toml_bridge toml_bridge_building \
-    "display=building the containerised TOML parser ${_image} from ${_dockerfile} -- the configuration format is TOML (ADR-00000037) and nothing reads it until the parser exists. Once per revision of the bridge: a later run whose build inputs are identical resolves this same tag and skips the build." \
-    "image=${_image}" \
-    "path=${_dockerfile}" >&2
-
-  _out="$(docker build -t "${_image}" -f "${_dockerfile}" "${_context}" 2>&1)" \
-    || _rc=$?
-  (( _rc == 0 )) && return 0
-
-  _log_err toml_bridge toml_bridge_build_failed \
-    "display=the containerised TOML parser ${_image} could not be built from ${_dockerfile} (docker build exited ${_rc}), so the configuration cannot be read and this stops here rather than falling back to the template defaults. Builder said: ${_out//$'\n'/ }. Fix the cause and re-run, or pin a parser image with TOML_BRIDGE_IMAGE." \
-    "image=${_image}" \
-    "path=${_dockerfile}" \
-    "status=${_rc}"
-  return 1
-}
-
-# _toml_bridge_resolve_image
-#   Set _TOML_BRIDGE_RESOLVED to the image the containerised path runs,
-#   provisioning it when it is this checkout's derived tag and is not
-#   there yet. Answers non-zero, having said why, when it cannot.
-_toml_bridge_resolve_image() {
-  if [[ -n "${TOML_BRIDGE_IMAGE:-}" ]]; then
-    _TOML_BRIDGE_RESOLVED="${TOML_BRIDGE_IMAGE}"
-    return 0
-  fi
-  [[ -n "${_TOML_BRIDGE_RESOLVED}" ]] && return 0
-  local _image
-  _image="$(_toml_bridge_derive_image)" || return 1
-  _toml_bridge_ensure_image "${_image}" || return 1
-  _TOML_BRIDGE_RESOLVED="${_image}"
-  return 0
-}
+# The bridge's provisioning steps, each the shared helper's for the
+# toml_bridge profile. _toml_bridge_resolve_image sets
+# _TOML_BRIDGE_RESOLVED and prints nothing; TOML_BRIDGE_IMAGE, when
+# non-empty, wins verbatim and is NOT provisioned.
+_toml_bridge_subtree_root() { tool_image_subtree_root toml_bridge; }
+_toml_bridge_dockerfile() { tool_image_dockerfile toml_bridge; }
+_toml_bridge_derive_image() { tool_image_derive toml_bridge; }
+_toml_bridge_ensure_image() { tool_image_ensure toml_bridge "${1:?"${FUNCNAME[0]}: missing image"}"; }
+_toml_bridge_resolve_image() { tool_image_resolve toml_bridge; }
 
 # _toml_bridge_use_native -- true when the bridge binary is installed
 # locally and the caller has not forced Docker mode.
