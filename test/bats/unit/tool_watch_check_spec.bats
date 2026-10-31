@@ -250,6 +250,46 @@ _reset_tree() {
   [[ "${stderr}" == *'upstream-release watch'* ]]
 }
 
+# why: An indirect requirement in a go.mod is refused by the reader
+# (base#1463); the watch must not read past it into a clean week.
+@test "watch: a go.mod with an indirect requirement exits 1, not 0 (base#1463)" {
+  _release owner/foo v1.0.0
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=v1.0.0'
+  printf '%s\n' 'module example.com/m' '' 'require golang.org/x/mod v0.21.0 // indirect' \
+    > "${SCRATCH}/tree/go.mod"
+  _check --report
+  assert_equal "${status}" 1
+  refute_output --partial 'CURRENT (1)'
+}
+
+# why: An unreadable tracked file used to print `Permission denied` and leave
+# the reader's status 0, so the watch reported the rest as a clean week
+# (base#1463). As root the run drops to nobody, the only user a mode-000
+# file applies to.
+@test "watch: an unreadable tracked file exits 1, not 0 (base#1463)" {
+  _release owner/foo v1.0.0
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=v1.0.0'
+  printf 'x\n' > "${SCRATCH}/tree/.a.txt"
+  _stage
+  chmod 000 "${SCRATCH}/tree/.a.txt"
+  local _cmd="export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*' PATH='${SCRATCH}/bin:${PATH}' PIN_REPO_ROOT='${SCRATCH}/tree' WATCH_GITHUB_API='${API}'; '${CHECK}' --report"
+  if (( EUID == 0 )); then
+    su -s /bin/bash nobody -c true 2>/dev/null \
+      || skip "running as root and cannot drop to nobody, so no unreadable file can be staged"
+    chmod -R a+rX "${SCRATCH}"
+    chmod 000 "${SCRATCH}/tree/.a.txt"
+    run su -s /bin/bash nobody -c "${_cmd}"
+  else
+    run bash -c "${_cmd}"
+  fi
+  assert_equal "${status}" 1
+  refute_output --partial 'CURRENT (1)'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Usage
 # ════════════════════════════════════════════════════════════════════
