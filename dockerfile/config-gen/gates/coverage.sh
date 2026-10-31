@@ -3,12 +3,16 @@
 # coverage.sh -- the coverage gate of the config generator's test stage
 # (base#1462). Run from the module root inside the golang image:
 #
-#   bash gates/coverage.sh
+#   bash gates/coverage.sh <corpus root record>
+#
+# The record is the one line the race RUN wrote,
+# <module>/internal/testcorpus.root=<dir> (base#1468).
 #
 # Every package `go list ./...` names must reach >= 90.0% of its
 # statements, measured from a profile of its own. Fail-closed: every way
 # the measurement can go missing is a refusal, never a pass.
 #
+#   corpus_root_missing the root record is missing or empty
 #   list_failed     go list exited non-zero
 #   no_packages     go list listed nothing
 #   test_failed     the package's go test exited non-zero
@@ -78,7 +82,9 @@ _judge() {
 }
 
 main() {
-  local listing dir pkg gofiles cgofiles i=0
+  local listing dir pkg gofiles cgofiles i=0 x=''
+  if [[ -f "${1:-}" ]]; then IFS= read -r x <"${1}" || true; fi
+  [[ -n "${x}" ]] || _refuse corpus_root_missing
   listing="$(go list -f '{{.ImportPath}}{{"\t"}}{{len .GoFiles}}{{"\t"}}{{len .CgoFiles}}' ./...)" \
     || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages

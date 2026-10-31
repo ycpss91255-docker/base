@@ -109,7 +109,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # package) and exits 1; its stdout ok line is replaced by this RUN's, so
 # the ok line is printed once.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    bash gates/coverage.sh > /dev/null; \
+    bash gates/coverage.sh /tmp/config-gen-corpus-root > /dev/null; \
     echo gate=coverage ok
 
 FROM scratch AS final
