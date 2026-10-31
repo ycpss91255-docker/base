@@ -26,7 +26,8 @@
 # status included, is refused as file=manifest reason=record. S1d writes
 # the marker only when no record exists, so the marker beside a change
 # record, or a second marker, is refused as file=manifest
-# reason=none_marker.
+# reason=none_marker. S1d always writes the marker or a record, so a
+# header with no body line is refused as file=manifest reason=body_empty.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -60,7 +61,7 @@ _cga_header() {
 # marker nor a change record: `<status>\t<path>` with status A, D, M or T,
 # or for a rename or copy
 # (R<score>, C<score>) `<status>\t<old>\t<new>`; and the marker beside a
-# record, in either order, or a second marker.
+# record, in either order, or a second marker; and a body with no line.
 _cga_body() {
   local line t=$'\t' marker=0 record=0
   local one="^[ADMT]${t}[^${t}]+$"
@@ -79,6 +80,7 @@ _cga_body() {
       [[ "${line}" =~ ${one} ]] || _cga_stale manifest record
     fi
   done < <(tail -n +2 -- "${1}")
+  ((record == 1 || marker == 1)) || _cga_stale manifest body_empty
 }
 
 # _cga_check <src> <list> -- refuse the first listed file whose sha256 in
