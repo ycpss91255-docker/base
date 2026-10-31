@@ -16,14 +16,16 @@
 #
 #   manifest bytes   TAB, LF and 0x20-0x7e only, as S1d writes it; any
 #                    other byte (a CR from a CRLF rewrite included) is
-#                    file=manifest reason=bytes.
+#                    file=manifest reason=bytes. Then the framing: every
+#                    line ends in LF, the last one included, and none is
+#                    empty; otherwise reason=malformed.
 #   manifest header  the first line must be S1d's header,
 #                    `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`;
 #                    any other is file=manifest reason=header.
 #   manifest body    every later line is the none marker `none: no-go-change`
 #                    or a change record `<status>\t<path>` (status A, D, M or
-#                    T; two paths for a rename or copy, R<score> or
-#                    C<score>); any other line, a wrong path count or
+#                    T; two paths for a rename or copy, R or C and git's
+#                    three-digit score, R088); any other line, a wrong path count or
 #                    another status included, is reason=record. S1d writes
 #                    the marker only when no record exists, so the marker
 #                    beside a record, or a second marker, is
@@ -35,7 +37,8 @@
 #                    C-quotes) is reason=path. All with file=manifest.
 #   each list        visible.sha256, then ignored.sha256. The same bytes
 #                    only (a NUL, which a text read would drop, is
-#                    reason=bytes); every line `<path>\t<64 hex digits>`
+#                    reason=bytes) and the same framing (reason=malformed;
+#                    an empty list, zero bytes, is S1d's no file); every line `<path>\t<64 hex digits>`
 #                    (reason=record); a path listed twice in one list is
 #                    reason=duplicate (00-manifest hashes each file once); a
 #                    path the earlier list already names is reason=dual
@@ -74,9 +77,17 @@ _cga_stale() {
 }
 
 # _cga_bytes <file> <name> -- refuse a byte other than TAB, LF or
-# 0x20-0x7e in <file>, naming it <name>.
+# 0x20-0x7e in <file> (bytes); then a non-empty <file> whose last byte is
+# not LF, or that holds an empty line (malformed). Every later read is a
+# line-at-a-time `read`, which never returns an unterminated last line to
+# the loop that judges it, so the framing is settled here, on the file,
+# before any line is judged.
 _cga_bytes() {
   ! grep -aq $'[^\t[:print:]]' -- "${1}" || _cga_stale "${2}" bytes
+  if [[ -s "${1}" ]]; then
+    [[ "$(tail -c 1 -- "${1}" | od -An -tx1)" == ' 0a' ]] || _cga_stale "${2}" malformed
+  fi
+  ! grep -aqx '' -- "${1}" || _cga_stale "${2}" malformed
 }
 
 # _cga_header <manifest> -- refuse a first line that is not S1d's header.
@@ -101,13 +112,14 @@ _cga_path() {
 
 # _cga_body <manifest> -- refuse a body line that is neither the none
 # marker nor a change record: `<status>\t<path>` with status A, D, M or T,
-# or `<status>\t<old>\t<new>` for a rename or copy (R<score>, C<score>);
+# or `<status>\t<old>\t<new>` for a rename or copy (R or C and git's
+# three-digit similarity score, R088, R100);
 # and the marker beside a record, in either order, or a second marker; and
 # a body with no line.
 _cga_body() {
   local line t=$'\t' marker=0 record=0
   local one="^[ADMT]${t}[^${t}]+$"
-  local two="^[RC][^${t}]*${t}[^${t}]+${t}[^${t}]+$"
+  local two="^[RC][0-9]{3}${t}[^${t}]+${t}[^${t}]+$"
   while IFS= read -r line; do
     if [[ "${line}" == "${_CGA_NONE}" ]]; then
       ((record == 0 && marker == 0)) || _cga_stale manifest none_marker
