@@ -33,7 +33,8 @@
 # header with no body line is refused as file=manifest reason=body_empty.
 # S1d writes a record path as git prints it, under the module prefix
 # `dockerfile/config-gen/`, so a record path holding a `..`, `.` or empty
-# segment, or outside that prefix, is refused as file=manifest reason=path.
+# segment, or outside that prefix, or holding a `"` (the quote of a name
+# git C-quotes), is refused as file=manifest reason=path.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -69,13 +70,14 @@ _cga_header() {
 }
 
 # _cga_path <path>... -- refuse a record path holding a `..`, `.` or
-# empty segment, or not under the module prefix.
+# empty segment, not under the module prefix, or holding a `"`.
 _cga_path() {
   local p
   for p in "$@"; do
     [[ "/${p}/" != */../* && "/${p}/" != */./* && "/${p}/" != *//* ]] ||
       _cga_stale manifest path
     [[ "${p}" == "${_CGA_MOD}"* ]] || _cga_stale manifest path
+    [[ "${p}" != *'"'* ]] || _cga_stale manifest path
   done
 }
 
