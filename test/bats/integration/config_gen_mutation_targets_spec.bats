@@ -464,8 +464,11 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/dest")"
   # _cgm_write_manifest <repo> <base> <header> <dest> [<line>...]
+  # Strict mode is turned on inside _w, not at the top of the bash -c
+  # string: under kcov a top-level command run with nounset on died with
+  # "BASH_SOURCE: unbound variable" before the writer was reached.
   run --separate-stderr env LOG_FORMAT=json bash -c \
-    'set -euo pipefail; source "$1"; shift; _cgm_write_manifest "$@"' _ \
+    'source "$1"; shift; _w() { set -euo pipefail; _cgm_write_manifest "$@"; }; _w "$@"' _ \
     "${CGM}" "${W}" "${M0}" "base=${M0} head=${F2} dirty=no context=pr" "${S}/dest/manifest"
   _assert_cgm_refusal 1 config_gen_mutation_none_beside_diff "base=${M0}" "path=${MOD}/"
   assert_equal "$(_snapshot "${S}/dest")" "${_before}"
@@ -482,7 +485,7 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/dest")"
   run --separate-stderr env LOG_FORMAT=json bash -c \
-    'set -euo pipefail; source "$1"; shift; _cgm_write_manifest "$@"' _ \
+    'source "$1"; shift; _w() { set -euo pipefail; _cgm_write_manifest "$@"; }; _w "$@"' _ \
     "${CGM}" "${W}" "${F2}" "base=${F2} head=${F2} dirty=yes context=pr" "${S}/dest/manifest"
   _assert_cgm_refusal 1 config_gen_mutation_none_beside_diff "base=${F2}" "path=${MOD}/"
   assert_equal "$(_snapshot "${S}/dest")" "${_before}"
