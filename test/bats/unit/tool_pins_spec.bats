@@ -669,6 +669,36 @@ _foo_pin() {
   _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
 }
 
+# _golang_pin -- the scratch config-gen Dockerfile with the golang pin
+# marker and the line under it, copied from dockerfile/Dockerfile.config-gen.
+_golang_pin() {
+  printf '%s\n' \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e' \
+    > "${SCRATCH}/dockerfile/Dockerfile.config-gen"
+}
+
+# why: The tidy runs on a copy of the module and its go.mod is compared,
+# by `go mod edit -json`, to the staged one before go.sum is taken; a tidy
+# that would also rewrite go.mod (container exit 3) is its own refusal,
+# not a failed tidy, and neither file is written (base#1440).
+@test "pins: --set on a go.mod require whose tidy would rewrite go.mod is go_sum_semantic (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 3
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_semantic
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
