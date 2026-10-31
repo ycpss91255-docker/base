@@ -336,3 +336,25 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=path"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # Canonical P holds no `"` or `\` (design §2 check 5; design §4 cycle 8,
+  # case "quoted name"): a path git would C-quote is not one S1d's
+  # record language can carry. A later step writes a record whose path,
+  # under the module prefix, holds the quote characters of a quoted name;
+  # the record has the one-path M shape and no empty, `.` or `..`
+  # segment, so only the quoted-name rule refuses it.
+  printf '%s\nM\t%s/"a".go\n' "${header}" "${MOD}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=path"
+  assert_equal "${stderr}" ""
+}
