@@ -355,16 +355,26 @@ _pins_go_minor() {
 # within the minor touches no go.mod.
 _pins_set_golang() {
   local _old_mm _new_mm _list _file _go_rec _go_ln _abs _repl _i _sum
-  local -a _abss=() _lns=() _repls=() _sums=()
+  local -a _abss=() _lns=() _repls=() _sums=() _recs=() _mods=()
   _old_mm="$(_pins_go_minor "${1}")"
   _new_mm="$(_pins_go_minor "${2}")"
   [[ -n "${_new_mm}" && "${_old_mm}" != "${_new_mm}" ]] || return 0
   _list="$(_pin_files "${PIN_REPO_ROOT}")" || return 1
+  # Every module's go line is read before any is staged: a module with no
+  # go line has none to move, so the bump is refused before docker runs.
   while IFS= read -r _file; do
     [[ "${_file##*/}" == go.mod ]] || continue
     _abs="${PIN_REPO_ROOT}/${_file}"
     _go_rec="$(_pin_go_mod_go_line "${_abs}")" || return 1
-    [[ -n "${_go_rec}" ]] || continue
+    if [[ -z "${_go_rec}" ]]; then
+      _pins_refuse "${_abs}" go_directive_missing "no go directive for the golang bump to move"
+      return 1
+    fi
+    _mods+=("${_abs}"); _recs+=("${_go_rec}")
+  done <<< "${_list}"
+  for _i in "${!_mods[@]}"; do
+    _abs="${_mods[_i]}"
+    _go_rec="${_recs[_i]}"
     _go_ln="${_go_rec%%$'\t'*}"
     _repl="$(_pin_go_mod_set_go_line "${_abs}" "${_go_ln}" "${_go_rec#*$'\t'}" "${_new_mm}")"
     if ! _pins_stage_go_mod "${_abs}" "${_go_ln}" "${_repl}" "${2}"; then
@@ -373,7 +383,7 @@ _pins_set_golang() {
     fi
     _abss+=("${_abs}"); _lns+=("${_go_ln}"); _repls+=("${_repl}")
     _sums+=("${_PINS_STAGED_SUM}")
-  done <<< "${_list}"
+  done
   for _i in "${!_abss[@]}"; do
     if ! _pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}"; then
       for _sum in "${_sums[@]:_i}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
