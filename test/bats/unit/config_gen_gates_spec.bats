@@ -624,14 +624,15 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  local _new
-  _new="$(cd "${S}/runner.$(_redpath_idx fmt-parse).mod" && find . -type f | sort | comm -23 - <(cd /source/dockerfile/config-gen && find . -type f | sort))"
+  local _mod _new
+  _mod="${S}/runner.$(_redpath_idx fmt-parse).mod"
+  _new="$(cd "${_mod}" && find . -type f | sort | comm -23 - <(cd /source/dockerfile/config-gen && find . -type f | sort))"
   assert_equal "${_new}" "./cmd/config-gen/zz_parse_test.go"
   # Unbalanced braces: no Go parser accepts the file.
   local _open _close
-  _open="$(tr -cd '{' < "${S}/runner.$(_redpath_idx fmt-parse).mod/cmd/config-gen/zz_parse_test.go" | wc -c)"
-  _close="$(tr -cd '}' < "${S}/runner.$(_redpath_idx fmt-parse).mod/cmd/config-gen/zz_parse_test.go" | wc -c)"
-  (( _open != _close )) || fail "zz_parse_test.go balances its braces: $(cat "${S}/runner.$(_redpath_idx fmt-parse).mod/cmd/config-gen/zz_parse_test.go")"
+  _open="$(tr -cd '{' < "${_mod}/cmd/config-gen/zz_parse_test.go" | wc -c)"
+  _close="$(tr -cd '}' < "${_mod}/cmd/config-gen/zz_parse_test.go" | wc -c)"
+  (( _open != _close )) || fail "zz_parse_test.go balances its braces: $(cat "${_mod}/cmd/config-gen/zz_parse_test.go")"
   # A build-failure record in place of the fmt id fails the case.
   rm -rf "${S}"/runner.*
   _gate_record config_gen_build_failed status=1 display=build > "${S}/canned/$(_redpath_idx fmt-parse).err"

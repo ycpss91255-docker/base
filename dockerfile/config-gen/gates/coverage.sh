@@ -12,14 +12,15 @@
 # statements, measured from a profile of its own. Fail-closed: every way
 # the measurement can go missing is a refusal, never a pass.
 #
-#   corpus_root_missing the root record is missing or empty
-#   list_failed     go list exited non-zero
-#   no_packages     go list listed nothing
-#   test_failed     the package's go test exited non-zero
-#   profile_invalid the profile is missing, is not `mode: atomic`, carries a
-#                   malformed line, or a line from any other package
-#   no_statements   zero statements in a package that has source files
-#   below_floor     covered * 10 < statements * 9
+#   corpus_root_missing  the root record is missing or empty
+#   list_failed          go list exited non-zero
+#   no_packages          go list listed nothing
+#   test_failed          the package's go test exited non-zero
+#   profile_invalid      the profile is missing, is not `mode: atomic`,
+#                        carries a malformed line, or a line from any other
+#                        package
+#   no_statements        zero statements in a package that has source files
+#   below_floor          covered * 10 < statements * 9
 #
 # A refusal is one line on stderr,
 #   config_gen_gate_coverage_failed reason=<reason> pkg=<import path>
