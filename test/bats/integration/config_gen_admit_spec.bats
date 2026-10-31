@@ -227,3 +227,25 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=body_empty"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline (LF line ends) is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # S1d writes the manifest with LF line ends and only TAB, LF and 0x20-0x7e
+  # bytes (design §2 check 2, bytes|malformed). A later step that rewrites
+  # every line end as CR LF puts a 0x0d byte on each line; the byte check
+  # runs before the header check, so the refusal names the byte, not the
+  # header that the CR also breaks.
+  local crlf
+  crlf="$(sed 's/$/\r/' "${S}/m/manifest")"
+  printf '%s\n' "${crlf}" > "${S}/m/manifest"
+  grep -q $'\r' "${S}/m/manifest" || fail "the fixture holds no CR byte"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=bytes"
+  assert_equal "${stderr}" ""
+}
