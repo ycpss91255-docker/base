@@ -1211,7 +1211,7 @@ _as_reader() {
   git -C "${SCRATCH}" add -A
   chmod 000 "${SCRATCH}/.a.txt"
   _as_reader "_pin_read '${SCRATCH}'"
-  assert_refusal 1 pin_file_unreadable "${SCRATCH}/.a.txt"
+  assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/.a.txt"
 }
 
 # why: _pin_uncovered walks the files itself, so it needs its own guard.
@@ -1221,8 +1221,7 @@ _as_reader() {
   git -C "${SCRATCH}" add -A
   chmod 000 "${SCRATCH}/.a.txt"
   _as_reader "_pin_uncovered '${SCRATCH}'"
-  assert_equal "${status}" 1
-  assert_logged_event pin_file_unreadable
+  assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/.a.txt"
 }
 
 # why: _pin_uncovered took `_pin_read | awk`'s status, and pipefail is off,

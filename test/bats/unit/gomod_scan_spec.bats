@@ -187,6 +187,14 @@ _gomod() {
   _refused module_arity_post module_arity 3
 }
 
+# why: The module argument is a word or a string; punctuation is none.
+# `module )` is a Go error (an unmatched close paren), and an arity count
+# alone takes `)` as the one argument and keeps reading (review round 4).
+@test "_pin_go_mod_scan: module ) is refused as module_path (base#1463)" {
+  _refused module_paren_pre module_path 2
+  _refused module_paren_post module_path 3
+}
+
 # why: An unquoted module path cannot hold a quote character.
 @test "_pin_go_mod_scan: module a'b is refused as module_quote (base#1463)" {
   _refused module_quote_pre module_quote 2
