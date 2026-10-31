@@ -93,8 +93,11 @@ _mr_decode() {
 # _mr_splice <mode> <file> -- with MR_OLD (and MR_NEW) in the environment:
 # mode `count` prints 0, 1 or 2 (two or more) occurrences of MR_OLD in
 # <file>; mode `apply` prints the file with its one occurrence replaced,
-# exit 3 unless there is exactly one. awk's index(), byte-wise: bash's own
-# `${s%%"$old"*}` is quadratic and took seconds on a 120 KB subject.
+# exit 3 unless there is exactly one. Occurrences are counted at every start
+# offset, so overlapping ones (`aa` in `aaa`) are two: the second search
+# resumes one byte past the first match's start, not past its end. awk's
+# index(), byte-wise: bash's own `${s%%"$old"*}` is quadratic and took
+# seconds on a 120 KB subject.
 _mr_splice() {
   local _mode="${1}" _file="${2}" _nonl=0
   if [[ -s "${_file}" ]] && [[ "$(tail -c 1 -- "${_file}" | wc -l)" -eq 0 ]]; then
@@ -107,17 +110,26 @@ _mr_splice() {
       o = ENVIRON["MR_OLD"]
       i = (o == "") ? 0 : index(s, o)
       if (i == 0) n = 0
-      else n = index(substr(s, i + length(o)), o) ? 2 : 1
+      else n = index(substr(s, i + 1), o) ? 2 : 1
       if (ENVIRON["MR_MODE"] == "count") { print n; exit 0 }
       if (n != 1) exit 3
       printf "%s%s%s", substr(s, 1, i - 1), ENVIRON["MR_NEW"], substr(s, i + length(o))
     }' "${_file}"
 }
 
-# _mr_apply <subject> <old-file> <new-file> -- the --apply mode.
+# _mr_has_nul <file> -- 0 when <file> carries a NUL byte. A shell value
+# cannot hold one (a command substitution drops it), so a NUL-bearing file
+# is one this driver cannot rewrite byte-exactly.
+_mr_has_nul() {
+  [[ "$(tr -d '\000' < "${1}" | wc -c)" != "$(wc -c < "${1}")" ]]
+}
+
+# _mr_apply <subject> <old-file> <new-file> -- the --apply mode. A subject
+# with a NUL byte is refused, not rewritten without it.
 _mr_apply() {
   local _subj="${1:-}" _oldf="${2:-}" _newf="${3:-}" _old='' _new='' _out
   [[ -n "${_subj}" && -f "${_subj}" && ! -L "${_subj}" ]] || return 1
+  ! _mr_has_nul "${_subj}" || return 1
   [[ -f "${_oldf}" && -f "${_newf}" ]] || return 1
   IFS= read -r -d '' _old < "${_oldf}" || true
   IFS= read -r -d '' _new < "${_newf}" || true
@@ -174,7 +186,7 @@ _mr_validate() {
   fi
   for _f in "${_files[@]+"${_files[@]}"}"; do
     _rel="${_MR_ROSTER_REL}/$(basename -- "${_f}")"
-    if [[ "$(tr -d '\000' < "${_f}" | wc -c)" != "$(wc -c < "${_f}")" ]]; then
+    if _mr_has_nul "${_f}"; then
       _mr_invalid "${_rel}:0" '' nul "the file carries a NUL byte"
       _bad=1
       continue
@@ -217,6 +229,11 @@ _mr_validate() {
       fi
       if [[ ! -f "${_root}/${_subj}" ]]; then
         _mr_invalid "${_loc}" "${_id}" subject_missing "no file ${_subj}"
+        _bad=1; continue
+      fi
+      if _mr_has_nul "${_root}/${_subj}"; then
+        _mr_invalid "${_loc}" "${_id}" subject_has_nul \
+          "${_subj} carries a NUL byte, which --apply cannot carry through a byte-exact edit"
         _bad=1; continue
       fi
       if [[ "${_spec}" != test/bats/* ]]; then

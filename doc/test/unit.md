@@ -4615,7 +4615,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/mutation_required_spec.bats (43)
+### test/bats/unit/mutation_required_spec.bats (48)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4643,6 +4643,7 @@ Every refusal holds assert_refusal's five points.
 | Test | Description |
 |------|-------------|
 | `roster: every committed row is a five-column row that --apply changes in exactly one region (base#1461)` | The roster already holds 76 rows from S1b, S1d and S1h in a four-column `sed -i` form, and the runner's contract is the declarative five-column one. Adopting them means every committed row is in that contract, applies through the runner's own --apply to exactly one changed region, and survives the runner's validation pass -- a contract that rejects or mis-splits the committed rows fails here, as does a roster that lost one of them on the way. |
+| `roster: each S1a seed row disables the guard it is named for (base#1461)` | A seed row names its subject, but what it must disable is one guard: setup_cmd.sh's refusal of a non-regular-file apply output and setup_conf.sh's refusal of a local layer not named *.toml. A row that mutated any other line of either file would still go red somewhere in the spec and read PINNED. So each seed's decoded <old> must be the `if` whose body logs that guard's refusal event, holding the guard's own test, and its decoded <new> must be the same `if` made never-true. |
 | `roster: the runner's validation pass accepts every committed row (base#1461)` | The runner's own validation over the committed roster, not the spec's re-reading of it: a contract the runner reads differently from the documented one (a lost empty <new>, a decoder that is not the three escapes) refuses a committed row here. |
 | `validation: an empty roster directory is refused (base#1461)` | A roster directory with no roster file is a gate that checks nothing; reading it as "every row PINNED" is the false green this runner exists to remove. |
 | `validation: roster files with no rows are refused (base#1461)` | The same false green one step later: roster files that carry only comments are zero rows. |
@@ -4654,6 +4655,8 @@ Every refusal holds assert_refusal's five points.
 | `validation: a subject path with .. is refused (base#1461)` | A subject that walks out of the root is one the sandbox does not hold and the probe must not write. |
 | `validation: an old that does not occur in the subject is refused (base#1461)` | <old> that is not in the subject changes no byte: the probe would refuse at run time, after every earlier row's baseline. |
 | `validation: an old that occurs twice is refused (base#1461)` | <old> that occurs twice is a row whose target is a guess. |
+| `validation: an old whose occurrences overlap is refused as ambiguous (base#1461)` | Occurrences that overlap are occurrences too: in `aaa` the old `aa` starts at two offsets, so which bytes the mutant changes is a guess. A count that resumes after the whole first match sees one. |
+| `validation: a subject that carries a NUL byte is refused (base#1461)` | A subject that carries a NUL byte cannot be edited byte-exactly by a shell (a command substitution drops the NUL), so the mutant would differ from the subject in bytes the row never named and could be read PINNED for a change nobody wrote. Refused before any baseline. |
 | `validation: a new equal to old is refused (base#1461)` | <new> equal to <old> changes no byte. |
 | `validation: an empty old is refused (base#1461)` | An empty <old> is everywhere and nowhere. |
 | `validation: a duplicate id in one file is refused (base#1461)` | Two rows with one id make a report that cannot say which row failed. |
@@ -4684,6 +4687,8 @@ Every refusal holds assert_refusal's five points.
 | `signals: TERM during a probe stops every child and exits 143 (base#1461)` | TERM, as a CI cancel sends it, is the same stop with status 143. |
 | `--apply: an old that does not occur leaves the file unchanged and fails (base#1461)` | A row is data, applied only by this fixed command; an <old> that is absent changes nothing and says so. |
 | `--apply: an old that occurs twice leaves the file unchanged and fails (base#1461)` | Two occurrences are a guess, refused the same way. |
+| `--apply: an old whose occurrences overlap leaves the file unchanged and fails (base#1461)` | Overlapping occurrences are two occurrences: --apply refuses them the way validation does, so neither path picks one. |
+| `--apply: a subject that carries a NUL byte is left unchanged and fails (base#1461)` | --apply is the one edit path; it refuses a NUL-bearing subject itself rather than rewriting it without the NUL. |
 | `--apply: the replacement is byte-exact and keeps the mode (base#1461)` | The edit is byte-exact -- quotes, $( ), backslashes and a missing final newline survive -- and the file keeps its mode. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (16)
@@ -4833,7 +4838,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (36)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (37)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4908,6 +4913,7 @@ local mode with it.
 | `test.sh: a no-flag run lints, then runs the roster, then runs bats (base#1461)` | The roster is one of the checks `just test` attests and the pre-PR mirror relies on that run; it runs on the host (it builds sandboxes and runs the probe, which drives compose itself), between the lint phase and bats, so the no-flag compose dispatch is split in two around it. |
 | `test.sh: a red roster fails the no-flag run before bats (base#1461)` | A red roster is a red `just test`, and bats does not run after it. |
 | `test.sh: --lint --group and --coverage do not run the roster (base#1461)` | The CI lint legs run the roster as a step of their own and the coverage modes are not the local gate; neither calls it a second time. |
+| `test.sh: --ci runs its in-container phases and not the roster (base#1461)` | `--ci` is the in-container dispatch every compose run lands in -- the two halves of the no-flag run among them -- so a roster call there would run it inside the test-tools container, once per half, and in every CI job that reaches it. The phases it does run are stubbed and printed, so the case proves the dispatch ran and still made no roster call. |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
