@@ -1176,12 +1176,16 @@ _as_reader() {
 }
 
 # why: A go.mod marker must target a line the scanner emitted; one aimed at
-# the go directive would be a pin with no requirement behind it.
-@test "_pin_read: a go.mod marker whose target is not a require entry fails (base#1463)" {
+# the go directive would be a pin with no requirement behind it. The refusal
+# is a registered event naming the file, the target line and the pin, and the
+# reader prints no partial table beside it.
+@test "_pin_read: a go.mod marker whose target is not a require entry is go_mod_pin_target_not_require (base#1463)" {
+  _one_good_pin
   _gomod 'module example.com/m' '' '// tool-pin: xgo github-release golang/go' 'go 1.27'
   git -C "${SCRATCH}" add -A
-  run _pin_read "${SCRATCH}"
-  assert_failure 1
+  LOG_FORMAT=json run --separate-stderr _pin_read "${SCRATCH}"
+  assert_refusal 1 go_mod_pin_target_not_require \
+    "file=dockerfile/config-gen/go.mod" "line=4" "pin=xgo"
 }
 
 # why: An indirect requirement is refused rather than silently passing.
