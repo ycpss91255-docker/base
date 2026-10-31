@@ -561,3 +561,136 @@ _rename_baseline() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=ignored.sha256 reason=malformed"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: an attribute value is one word, each byte outside ! to ~ and the % itself written as %XX (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched module is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  # The refusal line is read as space-separated key=value words, so a value
+  # holding a space, a LF or a byte past 0x7e would be cut or would end the
+  # line. Each name below is added after the baseline, so it is unlisted;
+  # the expected value is the name with those bytes, and the %, as %XX
+  # (uppercase hex), so no two names share a spelling.
+  local name want
+  while IFS='|' read -r name want; do
+    rm -f "${W}/${MOD}"/zz*
+    printf 'package a\n' > "${W}/${MOD}/$(printf '%b' "${name}")"
+    _run_admit
+    assert_equal "${status}" 1
+    assert_equal "${output}" "cg_event config_gen_manifest_stale file=${MOD}/${want} reason=unlisted"
+    assert_equal "${stderr}" ""
+  done <<'ROWS'
+zz a b.go|zz%20a%20b.go
+zz%20.go|zz%2520.go
+zz\nb.go|zz%0Ab.go
+zz\xc3\xa9.go|zz%C3%A9.go
+zz\tb.go|zz%09b.go
+ROWS
+}
+
+# ── each refusal through the runner ─────────────────────────────────────────
+#
+# why: The checker's line is not the contract a caller reads. The admit
+# RUN prints it into the BuildKit log, config_gen_gates.sh re-emits it as
+# a JSON record, and the redpath, CI and a reader all act on that record.
+# So every refusal the checker has is also run the whole way: the real
+# checker on the tampered fixture, its stdout placed in the log exactly as
+# the admit RUN prints it (observed from a real stale-header build on
+# golang:1.27.2-trixie: `#10 0.170 <line>`, then
+# `#10 0.170 config_gen_gate_admission_failed`), a docker stub that
+# prints that log and exits 1, and the real runner. Each row must give:
+# rc 1; nothing on stdout (admission is the first verdict, so no ok line
+# precedes it); exactly one JSON config_gen_manifest_stale record whose
+# .attributes.file and .attributes.reason are the row's; one JSON
+# config_gen_gate_admission_failed record with gate=admission; and no
+# "unregistered log body".
+
+# _tamper <case> -- change the fresh baseline (${S}/m, ${W}) the way <case>
+# says; print the expected `<file>|<reason>`.
+_tamper() {
+  local header vis sum
+  IFS= read -r header < "${S}/m/manifest"
+  IFS= read -r vis < "${S}/m/visible.sha256"
+  case "${1}" in
+    manifest-absent) rm "${S}/m/manifest"; echo 'manifest|absent' ;;
+    visible-absent) rm "${S}/m/visible.sha256"; echo 'visible.sha256|absent' ;;
+    ignored-absent) rm "${S}/m/ignored.sha256"; echo 'ignored.sha256|absent' ;;
+    manifest-bytes) printf '%s\r\nnone: no-go-change\r\n' "${header}" > "${S}/m/manifest"; echo 'manifest|bytes' ;;
+    manifest-malformed) printf '%s\nnone: no-go-change' "${header}" > "${S}/m/manifest"; echo 'manifest|malformed' ;;
+    manifest-header) printf '%s\nnone: no-go-change\n' "${header% context=*}" > "${S}/m/manifest"; echo 'manifest|header' ;;
+    manifest-record) printf '%s\nRgarbage\t%s/a.go\t%s/b.go\n' "${header}" "${MOD}" "${MOD}" > "${S}/m/manifest"; echo 'manifest|record' ;;
+    manifest-none-marker) printf '%s\nnone: no-go-change\nnone: no-go-change\n' "${header}" > "${S}/m/manifest"; echo 'manifest|none_marker' ;;
+    manifest-body-empty) printf '%s\n' "${header}" > "${S}/m/manifest"; echo 'manifest|body_empty' ;;
+    manifest-path) printf '%s\nM\t%s/../a.go\n' "${header}" "${MOD}" > "${S}/m/manifest"; echo 'manifest|path' ;;
+    visible-bytes) printf '%s\r\n' "${vis}" > "${S}/m/visible.sha256"; echo 'visible.sha256|bytes' ;;
+    visible-malformed) printf '%s' "${vis}" > "${S}/m/visible.sha256"; echo 'visible.sha256|malformed' ;;
+    visible-record) printf '%s\n' "${vis:0:${#vis}-1}" > "${S}/m/visible.sha256"; echo 'visible.sha256|record' ;;
+    visible-duplicate) printf '%s\n%s\n' "${vis}" "${vis}" > "${S}/m/visible.sha256"; echo 'visible.sha256|duplicate' ;;
+    ignored-dual) printf '%s\n' "${vis}" > "${S}/m/ignored.sha256"; echo 'ignored.sha256|dual' ;;
+    sha-mismatch) printf '// edited\n' >> "${W}/${MOD}/a.go"; echo "${MOD}/a.go|sha_mismatch" ;;
+    missing) rm "${W}/${MOD}/a.go"; echo "${MOD}/a.go|missing" ;;
+    not-regular) ln -s a.go "${W}/${MOD}/zz.go"; echo "${MOD}/zz.go|not_regular" ;;
+    unlisted) printf 'package a\n' > "${W}/${MOD}/zz.go"; echo "${MOD}/zz.go|unlisted" ;;
+    unlisted-space) printf 'package a\n' > "${W}/${MOD}/a b.go"; echo "${MOD}/a%20b.go|unlisted" ;;
+    *) fail "_tamper: no case ${1}" ;;
+  esac
+}
+
+# _admit_log <checker stdout> -- the admit RUN's plain-progress lines for a
+# refusal, as BuildKit printed them in the observed build.
+_admit_log() {
+  local line
+  printf '#10 [admit 1/1] RUN --mount=type=bind,from=mutation,target=/mutation     --mount=type=bind,target=/src     e=manifest_missing; g=admission;\n'
+  while IFS= read -r line; do
+    printf '#10 0.170 %s\n' "${line}"
+  done <<<"${1}"
+  printf '#10 0.170 config_gen_gate_admission_failed\n'
+  printf '#10 ERROR: process "/bin/bash -euo pipefail -c e=manifest_missing; g=admission;" did not complete successfully: exit code: 1\n'
+}
+
+# _runner_root -- ${S}/root, a tree the runner accepts, and a docker stub
+# first on PATH whose `build --target test` prints ${S}/build.log on
+# stderr and exits 1.
+_runner_root() {
+  mkdir -p "${S}/root/dockerfile/config-gen" "${S}/bin"
+  printf 'FROM scratch\n' > "${S}/root/dockerfile/Dockerfile.config-gen"
+  cat > "${S}/bin/docker" <<STUB
+#!$(command -v bash)
+cat "${S}/build.log" >&2
+exit 1
+STUB
+  chmod +x "${S}/bin/docker"
+}
+
+@test "config_gen_admit: every refusal reaches the runner as rc 1, no stdout, and JSON stale and admission records naming its file and reason (base#1465)" {
+  assert_spec_subject "${ADMIT}" "the config-gen admission checker (base#1465)"
+  local runner="/source/script/test/config_gen_gates.sh"
+  _runner_root
+  local c want got
+  for c in manifest-absent visible-absent ignored-absent manifest-bytes \
+    manifest-malformed manifest-header manifest-record manifest-none-marker \
+    manifest-body-empty manifest-path visible-bytes visible-malformed \
+    visible-record visible-duplicate ignored-dual sha-mismatch missing \
+    not-regular unlisted unlisted-space; do
+    rm -rf "${S}/w" "${S}/m"
+    _baseline
+    want="$(_tamper "${c}")"
+    run --separate-stderr bash "${ADMIT}" "${S}/m" "${W}/${MOD}"
+    assert_equal "${c}:${status}" "${c}:1"
+    assert_equal "${c}:${stderr}" "${c}:"
+    _admit_log "${output}" > "${S}/build.log"
+    run --separate-stderr env PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+      bash "${runner}" --root "${S}/root"
+    assert_equal "${c}:${status}" "${c}:1"
+    assert_equal "${c}:${output}" "${c}:"
+    [[ "${stderr}" != *"unregistered log body"* ]] || fail "${c}: unregistered log body: ${stderr}"
+    got="$(jq -rR 'fromjson? | select(.body == "config_gen_manifest_stale")
+      | .attributes.file + "|" + .attributes.reason' <<<"${stderr}")"
+    assert_equal "${c}:${got}" "${c}:${want}"
+    got="$(jq -rR 'fromjson? | select(.body == "config_gen_gate_admission_failed")
+      | .attributes.gate + "|" + .attributes.status' <<<"${stderr}")"
+    assert_equal "${c}:${got}" "${c}:admission|1"
+  done
+}
