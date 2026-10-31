@@ -221,7 +221,13 @@ Prose and .bats specs are exempt from the walk (script/watch/lib.sh says why), s
   fi
 
   local _uncovered
-  _uncovered="$(_pin_uncovered "${REPO_ROOT}")"
+  # A detector that could not read a file is not one that found nothing
+  # (base#1463): its status is the answer, not its empty output.
+  if ! _uncovered="$(_pin_uncovered "${REPO_ROOT}")"; then
+    _die ci_pin_coverage \
+      "the declaration detector could not read the tree (its complaint is above). A file it cannot read or a go.mod it refuses is a declaration nobody checked, so this is a failure rather than a clean run."
+    return 1
+  fi
   if [[ -n "${_uncovered}" ]]; then
     _die ci_pin_coverage \
       "a third-party version is declared with no tool-pin marker:

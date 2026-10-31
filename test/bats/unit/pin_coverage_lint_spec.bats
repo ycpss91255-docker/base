@@ -1114,6 +1114,143 @@ _one_good_pin() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# go.mod: the structural scanner decides what is declared (base#1463)
+# ════════════════════════════════════════════════════════════════════
+
+# _gomod <line>... -- config-gen's go.mod in the fixture tree.
+_gomod() {
+  mkdir -p "${SCRATCH}/dockerfile/config-gen"
+  printf '%s\n' "$@" > "${SCRATCH}/dockerfile/config-gen/go.mod"
+}
+
+# _as_reader <command> -- run <command> (bash, lib.sh sourced, JSON logs)
+# as a user a mode-000 file applies to: as root that is nobody via su, and
+# the case skips when su cannot drop. The tree is opened to nobody and git
+# is told the tree is safe, since its owner is someone else.
+_as_reader() {
+  local _unreadable="${2:-.a.txt}"
+  local _cmd="export LOG_FORMAT=json GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'; source /source/script/watch/lib.sh; ${1}"
+  if (( EUID == 0 )); then
+    su -s /bin/bash nobody -c true 2>/dev/null \
+      || skip "running as root and cannot drop to nobody, so no unreadable file can be staged"
+    chmod -R a+rX "${SCRATCH}"
+    chmod 000 "${SCRATCH}/${_unreadable}"
+    run --separate-stderr su -s /bin/bash nobody -c "${_cmd}"
+  else
+    run --separate-stderr bash -c "${_cmd}"
+  fi
+}
+
+# why: The base#1463 defect: no go.mod line was ever a declaration, so an
+# unmarked requirement passed. The line form fails naming its line.
+@test "_run_pin_coverage: FAILS on an unmarked go.mod require, line form (base#1463)" {
+  _one_good_pin
+  _gomod 'module example.com/m' '' 'require golang.org/x/mod v0.21.0'
+  _lint
+  assert_failure
+  assert_output --partial 'declared with no tool-pin marker'
+  assert_output --partial 'dockerfile/config-gen/go.mod:3'
+}
+
+# why: The block form is what `go get` writes; the entry's own line is the
+# one named, not the `require (` line.
+@test "_run_pin_coverage: FAILS on an unmarked go.mod require, block form after a comment (base#1463)" {
+  _one_good_pin
+  _gomod 'module example.com/m' '' 'require (' '	// c' '	golang.org/x/mod v0.21.0' ')'
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/config-gen/go.mod:5'
+}
+
+# why: In go.mod a marker is a `//` comment (a `#` is a Go syntax error), and
+# the version the table carries is the one the scanner read.
+@test "_run_pin_coverage: a // tool-pin: marker satisfies a go.mod require and the table carries its version (base#1463)" {
+  _gomod 'module example.com/m' '' 'require (' \
+    '	// tool-pin: xmod github-release golang/mod' \
+    '	golang.org/x/mod v0.21.0' ')'
+  _lint
+  assert_success
+  run _pin_read "${SCRATCH}"
+  assert_success
+  assert_output --partial "$(printf 'pinned\txmod\tgithub-release\tgolang/mod\t-\t-\tv0.21.0\tdockerfile/config-gen/go.mod\t5')"
+}
+
+# why: A go.mod marker must target a line the scanner emitted; one aimed at
+# the go directive would be a pin with no requirement behind it. The refusal
+# is a registered event naming the file, the target line and the pin, and the
+# reader prints no partial table beside it.
+@test "_pin_read: a go.mod marker whose target is not a require entry is go_mod_pin_target_not_require (base#1463)" {
+  _one_good_pin
+  _gomod 'module example.com/m' '' '// tool-pin: xgo github-release golang/go' 'go 1.27'
+  git -C "${SCRATCH}" add -A
+  LOG_FORMAT=json run --separate-stderr _pin_read "${SCRATCH}"
+  assert_refusal 1 go_mod_pin_target_not_require \
+    "file=dockerfile/config-gen/go.mod" "line=4" "pin=xgo"
+}
+
+# why: An indirect requirement is refused rather than silently passing.
+@test "_run_pin_coverage: FAILS on a go.mod // indirect require (base#1463)" {
+  _one_good_pin
+  _gomod 'module example.com/m' '' 'require golang.org/x/mod v0.21.0 // indirect'
+  _lint
+  assert_failure
+  assert_output --partial 'go_mod_indirect_requirement'
+}
+
+# why: A go.mod the scanner refuses -- here a malformed exclude ahead of a
+# valid require, which Go rejects -- fails the lint rather than passing it.
+@test "_run_pin_coverage: FAILS on a go.mod the scanner refuses (base#1463)" {
+  _one_good_pin
+  _gomod 'module example.com/m' 'exclude a' 'require a v1.0.0'
+  _lint
+  assert_failure
+  assert_output --partial 'go_mod_unsupported_syntax'
+}
+
+# why: An unreadable tracked file that sorts FIRST used to print
+# `Permission denied` and still return 0 from the reader; a guard that only
+# looks at the loop's last status would miss it.
+@test "_pin_read: an unreadable tracked file sorted first is pin_file_unreadable, rc 1 (base#1463)" {
+  _one_good_pin
+  printf 'x\n' > "${SCRATCH}/.a.txt"
+  git -C "${SCRATCH}" add -A
+  chmod 000 "${SCRATCH}/.a.txt"
+  _as_reader "_pin_read '${SCRATCH}'"
+  assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/.a.txt"
+}
+
+# why: The table used to be streamed as it was read, so an unreadable file sorted
+# AFTER a pinned one left that pin's record on stdout beside the refusal; a
+# caller reading stdout would get a partial table with the failure.
+@test "_pin_read: an unreadable tracked file after a pinned one leaves stdout empty (base#1463)" {
+  _one_good_pin
+  printf 'x\n' > "${SCRATCH}/zz.txt"
+  git -C "${SCRATCH}" add -A
+  chmod 000 "${SCRATCH}/zz.txt"
+  _as_reader "_pin_read '${SCRATCH}'" zz.txt
+  assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/zz.txt"
+}
+
+# why: _pin_uncovered walks the files itself, so it needs its own guard.
+@test "_pin_uncovered: an unreadable tracked file sorted first is pin_file_unreadable, rc 1 (base#1463)" {
+  _one_good_pin
+  printf 'x\n' > "${SCRATCH}/.a.txt"
+  git -C "${SCRATCH}" add -A
+  chmod 000 "${SCRATCH}/.a.txt"
+  _as_reader "_pin_uncovered '${SCRATCH}'"
+  assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/.a.txt"
+}
+
+# why: _pin_uncovered took `_pin_read | awk`'s status, and pipefail is off,
+# so a reader failure was masked by awk's 0.
+@test "_pin_uncovered: a _pin_read failure is its failure, not masked by the pipe (base#1463)" {
+  _dockerfile '# tool-pin:' 'ARG FOO_VERSION=1.0.0'
+  git -C "${SCRATCH}" add -A
+  run _pin_uncovered "${SCRATCH}"
+  assert_failure 1
+}
+
+# ════════════════════════════════════════════════════════════════════
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 

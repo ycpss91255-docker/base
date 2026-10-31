@@ -7,22 +7,26 @@
 #   ./script/test/config_gen_redpath.sh
 #
 # A gate that never fails is indistinguishable from a working one on a
-# clean tree. So for each case below this copies dockerfile/ and the steps
-# directory into a fresh scratch root, plants one defect there, and runs
-# ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
+# clean tree. So for each case below this copies dockerfile/, the steps
+# directory and what the steps read (script/watch, the log library, the
+# go.mod fixtures) into a fresh scratch root, plants one defect there, and
+# runs ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
 # its own gate's id first, and show every earlier gate ok -- the last is
 # what tells "this gate caught it" from "the build broke first". An
 # unmodified copy, the control, runs last and must pass all five gates, so
 # the reds are the defects' and not the copy's.
 #
-#   case       defect                                         gate
-#   fmt        a misformatted .go file                        fmt
-#   vet        fmt.Printf("%d", "x")                          vet
-#   lint       an unchecked os.Remove error                   lint
-#   race       two goroutines incrementing one int, joined    race
-#   race-fuzz  a Fuzz seed that fails                         race
-#   coverage   a package whose test covers 2 of 3 statements  coverage
-#   fmt-parse  a _test.go file gofmt cannot parse             fmt
+#   case           defect                                          gate
+#   fmt            a misformatted .go file                         fmt
+#   vet            fmt.Printf("%d", "x")                           vet
+#   lint           an unchecked os.Remove error                    lint
+#   race           two goroutines incrementing one int, joined     race
+#   race-fuzz      a Fuzz seed that fails                          race
+#   coverage       a package whose test covers 2 of 3 statements   coverage
+#   fmt-parse      a _test.go file gofmt cannot parse              fmt
+#   corpus-join    a test reading ../../testdata, not testcorpus   race
+#   corpus-helper  a non-test helper a test calls reads testdata   race
+#   corpus-var     a test spelling the path as "test"+"data"       race
 #
 # A refusal case plants a defect the build must refuse before any gate
 # runs: the run must exit exactly 1 with nothing on stdout, and stderr
@@ -75,6 +79,16 @@
 # build stage passes and the syntax error reaches the fmt gate, where
 # gofmt exits non-zero instead of listing a file.
 #
+# corpus-join reads the shared corpus by a joined relative path instead of
+# through internal/testcorpus. The race gate moves testdata out of the
+# module before the tests run, so that read finds nothing and the gate goes
+# red (base#1468). corpus-helper does the same read from a non-test helper
+# package that a test in another package calls, so the gate cannot key on
+# the test file's own source. corpus-var spells the directory name as the
+# constant expression "test" + "data", which the compiler folds; the
+# string testdata never appears in the planted source, so a scan of the
+# source text for it cannot be what turns the gate red.
+#
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
 # script -- and a nested entry is refused with config_gen_redpath_reentered
@@ -93,7 +107,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race)
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
@@ -230,6 +244,75 @@ func FuzzZz(f *testing.F) {
 }
 EOF
       ;;
+    corpus-join)
+      mkdir -p "${mod}/internal/zzjoin"
+      cat >"${mod}/internal/zzjoin/zzjoin_test.go" <<'EOF'
+package zzjoin
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestZzJoin(t *testing.T) {
+	if _, err := os.ReadFile(filepath.Join("..", "..", "testdata", "golden", "s1", "seed.golden")); err != nil {
+		t.Fatal(err)
+	}
+}
+EOF
+      ;;
+    corpus-helper)
+      mkdir -p "${mod}/internal/zzhelp" "${mod}/internal/zzhelpuser"
+      cat >"${mod}/internal/zzhelp/zzhelp.go" <<'EOF'
+// Package zzhelp is a planted helper that reads the shared corpus past
+// internal/testcorpus.
+package zzhelp
+
+import "os"
+
+// Seed returns the golden seed, read relative to the caller's package.
+func Seed() ([]byte, error) {
+	return os.ReadFile("../../testdata/golden/s1/seed.golden")
+}
+EOF
+      cat >"${mod}/internal/zzhelpuser/zzhelpuser_test.go" <<'EOF'
+package zzhelpuser
+
+import (
+	"testing"
+
+	"MODPATH/internal/zzhelp"
+)
+
+func TestZzHelpUser(t *testing.T) {
+	if _, err := zzhelp.Seed(); err != nil {
+		t.Fatal(err)
+	}
+}
+EOF
+      sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
+        "${mod}/internal/zzhelpuser/zzhelpuser_test.go"
+      ;;
+    corpus-var)
+      mkdir -p "${mod}/internal/zzvar"
+      cat >"${mod}/internal/zzvar/zzvar_test.go" <<'EOF'
+package zzvar
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestZzVar(t *testing.T) {
+	dir := "test" + "data"
+	if _, err := os.ReadFile(filepath.Join("..", "..", dir, "golden", "s1", "seed.golden")); err != nil {
+		t.Fatal(err)
+	}
+}
+EOF
+      ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
     coverage)
@@ -275,6 +358,13 @@ _rp_copy() {
   if [[ -d "${_RP_ROOT}/script/test/config_gen_steps" ]]; then
     cp -a "${_RP_ROOT}/script/test/config_gen_steps" "${dst}/script/test/"
   fi
+  # The go.mod oracle step (base#1463) runs the pin registry's scanner,
+  # with its logger, over the go.mod fixtures -- each read relative to the
+  # step's own root, so the copy carries all three. The logger and its
+  # event registry are the log.sh copy below.
+  mkdir -p "${dst}/test/fixtures"
+  cp -a "${_RP_ROOT}/script/watch" "${dst}/script/"
+  cp -a "${_RP_ROOT}/test/fixtures/gomod" "${dst}/test/fixtures/"
   cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" \
     "${_RP_ROOT}/script/test/config_gen_admit.sh" "${dst}/script/test/"
   cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \

@@ -78,6 +78,91 @@ _pins_value() {
   printf '%s\n' "${_current}"
 }
 
+# _pins_refuse <file> <reason> <text> -- the one refusal record of a bump
+# that leaves <file> as it was.
+_pins_refuse() {
+  _log_err pin pin_set_refused "file=${1}" "reason=${2}" \
+    "display=pin_set_refused: ${1}: ${3}; the file is left as it was"
+}
+
+# _pins_spliced_ok <file> <temp> <lineno> <new-line> <terminator>
+#
+# True when <temp> is <file> with line <lineno> replaced by <new-line> and
+# <terminator>, and every other byte identical: the bytes before the line,
+# the line itself, and everything after it, to the end of both files.
+_pins_spliced_ok() {
+  local _abs="${1}" _tmp="${2}" _n="${3}" _repl="${4}" _term="${5}"
+  local LC_ALL=C _pre _old _new
+  _pre="$(head -n "$(( _n - 1 ))" "${_abs}" | wc -c)" || return 1
+  _old="$(head -n "${_n}" "${_abs}" | wc -c)" || return 1
+  _old=$(( _old - _pre ))
+  _new=$(( ${#_repl} + ${#_term} ))
+  cmp -s -n "${_pre}" "${_abs}" "${_tmp}" || return 1
+  cmp -s -n "${_new}" <(printf '%s%s' "${_repl}" "${_term}") "${_tmp}" 0 "${_pre}" || return 1
+  cmp -s "${_abs}" "${_tmp}" "$(( _pre + _old ))" "$(( _pre + _new ))"
+}
+
+# _pins_commit <file> <lineno> <new-line>
+#
+# Replace line <lineno> of <file> with <new-line>, byte for byte, and
+# change nothing else; on any failure the file keeps its bytes and its mode
+# and no temp copy is left (base#1463).
+#
+# The new line is never handed to a tool that reads escapes: it went
+# through `awk -v repl=...` once, which turned a preserved `// x \n y`
+# comment into two lines (review round 3). It is spliced instead -- the
+# lines before it by `head`, the line by `printf '%s'`, the lines after it
+# by `tail` -- into a temp copy BESIDE the file, so the commit is one
+# rename on one filesystem. The copy is checked byte for byte against the
+# splice, given the file's mode (`mktemp` creates 0600, and a 0600
+# Dockerfile is a "permission denied" on the next local `just test`), and
+# only then moved over the file. A last line with no newline keeps having
+# none.
+#
+# A rename replaces the name it lands on, so a symlink (the write belongs
+# to whatever it points at) and a hard link (the other names would keep
+# the old version) are refused by name rather than split.
+_pins_commit() {
+  local _abs="${1}" _n="${2}" _repl="${3}" _tmp _term=$'\n' _nl
+  local LC_ALL=C
+  if [[ -L "${_abs}" ]]; then
+    _pins_refuse "${_abs}" symlink "a symlink; the bump rewrites only a file the tree holds itself"
+    return 1
+  fi
+  if [[ "$(stat -c '%h' -- "${_abs}")" != 1 ]]; then
+    _pins_refuse "${_abs}" hard_link "hard-linked; a rename would leave its other names on the old version"
+    return 1
+  fi
+  _nl="$(wc -l < "${_abs}")"
+  (( _n > _nl )) && _term=""
+  if ! _tmp="$(mktemp "${_abs%/*}/.${_abs##*/}.pins.XXXXXX")"; then
+    _pins_refuse "${_abs}" temp_create "no temp copy could be created beside it"
+    return 1
+  fi
+  if ! { head -n "$(( _n - 1 ))" "${_abs}" > "${_tmp}" \
+         && printf '%s%s' "${_repl}" "${_term}" >> "${_tmp}" \
+         && tail -n "+$(( _n + 1 ))" "${_abs}" >> "${_tmp}"; }; then
+    rm -f -- "${_tmp}"
+    _pins_refuse "${_abs}" write_failed "its temp copy could not be written"
+    return 1
+  fi
+  if ! _pins_spliced_ok "${_abs}" "${_tmp}" "${_n}" "${_repl}" "${_term}"; then
+    rm -f -- "${_tmp}"
+    _pins_refuse "${_abs}" check_failed "its temp copy is not the file with line ${_n} replaced"
+    return 1
+  fi
+  if ! chmod "$(stat -c '%a' -- "${_abs}")" "${_tmp}"; then
+    rm -f -- "${_tmp}"
+    _pins_refuse "${_abs}" mode_failed "its mode could not be carried onto the temp copy"
+    return 1
+  fi
+  if ! mv -f "${_tmp}" "${_abs}"; then
+    rm -f -- "${_tmp}"
+    _pins_refuse "${_abs}" commit_failed "the temp copy could not be renamed over it"
+    return 1
+  fi
+}
+
 # _pins_set <name> <version>
 #
 # Rewrite the pin's TARGET LINE, replacing the old version with the new one
@@ -109,7 +194,12 @@ _pins_set() {
   local _abs="${PIN_REPO_ROOT}/${_file}"
   local _old_line _new_line
   _old_line="$(awk -v n="${_line}" 'NR == n' "${_abs}")"
-  if [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+  if [[ "${_file##*/}" == go.mod ]]; then
+    # A go.mod pin is a require entry the scanner read, so the scanner
+    # rewrites it: the version token alone, located by the lexer
+    # (base#1463). Neither rewrite below matches `require <path> <ver>`.
+    _new_line="$(_pin_go_mod_set_line "${_abs}" "${_line}" "${_new}")" || return 1
+  elif [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
     local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}"
     local _quote="" _value _tail
     _value="$(_pin_rhs_value "${_rhs}")"
@@ -135,18 +225,7 @@ _pins_set() {
     return 1
   fi
 
-  # Write THROUGH the target rather than replacing it. `mktemp` creates
-  # 0600 and `mv` carries that mode onto the file it lands on, so a
-  # rewrite would leave the Dockerfile unreadable to the lint container's
-  # user -- invisible in the bump job (a fresh checkout, and git records
-  # 100644) and a "permission denied" on the next `just test` for anyone
-  # who runs `just watch bump` on their own machine.
-  local _tmp
-  _tmp="$(mktemp)"
-  awk -v n="${_line}" -v repl="${_new_line}" \
-    'NR == n { print repl; next } { print }' "${_abs}" > "${_tmp}"
-  cat -- "${_tmp}" > "${_abs}"
-  rm -f -- "${_tmp}"
+  _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
 
   local _check
   _check="$(_pins_value "${_name}")"

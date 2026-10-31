@@ -13,3 +13,8 @@
 # the series files and nothing else.
 doc/changelog/CHANGELOG.md merge=union
 doc/changelog/v[0-9]*.md merge=union
+
+# The go.mod oracle fixtures are byte-exact inputs: crlf.mod holds CRLF line
+# endings on purpose, and a checkout or commit that normalised them would
+# test a different file than Go measured (base#1463).
+test/fixtures/gomod/*.mod -text

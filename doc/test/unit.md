@@ -1227,7 +1227,7 @@ between them can be asserted at all.
 | `lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)` | The one shape the digits-only regex accepts and bash arithmetic rejects. `1/08` is a well-formed spec by every rule stated above and an INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw "value too great for base" from the shell itself and then refused for a reason that was not the reason -- a padded index reported as "outside its own total", a padded total as "asks for 08 groups". A spec is read in the base it is written in, and a padded one names the same group as its bare twin. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
-| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
+| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch. The required-kill roster the no-flag run calls between its lint and bats compose runs (base#1461) is stubbed: it builds real sandboxes, and pre_pr_mirror_parity_spec holds its order. |
 | `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch, and the count it is handed is FLOORED rather than equal to the core count -- `_run_tests` is one of the runners with no kcov in the loop, so there is no line set to move and nothing to hold it at the machine's size (base#1068). The assertion is `> the mocked cores`, not a number: it says WHICH SIDE of the policy this runner is on, which is the part a re-tune must not silently flip. |
 | `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
@@ -1939,7 +1939,7 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
-### test/bats/unit/config_gen_coverage_spec.bats (13)
+### test/bats/unit/config_gen_coverage_spec.bats (16)
 
 The gate reads per-package profiles and passes a package at >= 90.0% of its
 statements. Every way that measurement can go missing -- go list failing or
@@ -1968,9 +1968,12 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: 899 of 1000 statements is refused with reason below_floor, 900 passes (base#1462)` | >= 90.0 exactly, as an integer comparison: 899/1000 is below and 900/1000 is not, and a red package is named even after a green one. |
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
+| `coverage.sh: a missing corpus root record is refused with reason corpus_root_missing before go runs (base#1468)` | The race RUN writes the corpus root record and the coverage RUN must hand that root to every go test, or testcorpus.Glob fails with an empty root and the gate reads it as a package's test_failed. A record that never arrived is refused before go runs, under its own reason, so it cannot pass and cannot look like a later test failure (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
+| `coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)` | A record that exists but is empty, a record holding only a blank line, and no argument at all deliver no root either. Each must stop at the same guard as a missing file, before go runs; a check that only asks whether the file exists passes the first two, and under set -u an unset variable exits without the refusal line (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
+| `coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)` | Validating the record and then dropping it leaves every go test with an empty testcorpus root, which reads as test_failed in the real image. The validated root has to reach each package's go test as one -ldflags -X token (base#1468). The expected token is the record line verbatim. |
 | `coverage.sh: --measure records a declaration-only package as pkg 0 0 with rc 0 (base#1465)` | Under --measure the gate records counts and the per-package floor is judged by cg-gates ratchet (base#1465), so a declaration-only package is a measurement of zero, not a refusal. golang:1.27.2-trixie, run on a package holding only `type T struct{ X int }` and `const C = 1` plus one test, gave `ok m/a coverage: [no statements]`, rc 0, a profile of exactly `mode: atomic\n`, and `go list` GoFiles 1 -- the listing and profile here. |
 
-### test/bats/unit/config_gen_gates_spec.bats (28)
+### test/bats/unit/config_gen_gates_spec.bats (30)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2003,8 +2006,10 @@ end-to-end proof that the planted defects go red.
 | `config_gen_gates.sh: --root without a directory is refused as usage before docker (base#1462)` | A --root with no directory after it, or an argument the runner does not know, would otherwise run the gates on a tree the caller did not name and report that verdict as theirs. Each is a usage refusal: status 2, nothing on stdout, the argument named, and docker never reached. |
 | `config_gen_gates.sh: an unknown argument is refused as usage before docker (base#1462)` | The catch-all branch is the one a typo reaches; a runner that ignored an unknown flag would report on the default tree as if the caller had asked for that run. |
 | `config_gen_gates.sh: a red gate propagates docker's status and re-emits the gate's id (base#1462)` | The build's own log is long and plain; without the id re-emitted as an event the redpath, CI and a reader all have to scrape BuildKit output to learn which gate went red, and docker's status is the run's verdict. |
+| `config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)` | A coverage RUN that never got the corpus root record refuses with reason=corpus_root_missing and an empty pkg (base#1468). The runner must name the coverage gate from that printed refusal line, not from the RUN line BuildKit echoes, whose command text names gates/coverage.sh too: the echoed line alone is a build that failed before any gate. |
 | `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
 | `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. |
+| `config_gen_redpath.sh: each scratch root carries script/watch, the log library and the go.mod fixtures (base#1463)` | The go.mod oracle step (base#1463) runs the scanner from script/watch with the logger from dist/script/docker/lib over test/fixtures/gomod, all relative to its own root; a scratch copy without them turns every redpath case red on the step instead of on its gate. |
 | `config_gen_redpath.sh: every copy is a Git checkout run with context pr and no base override (base#1464)` | The redpath's copies run the real steps, and the 00-manifest step (base#1464) reads Git history: each copy must be a Git checkout with origin/main, and must run with context pr and no override whatever the caller inherited -- a CI main push exports main-push, and HEAD^1 does not exist in a one-commit copy. |
 | `config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)` | A gate that never goes red is indistinguishable from a working one on a clean tree; each verdict below is a way a broken gate would otherwise pass the redpath. Every case is reported before the run fails. |
 | `config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)` | A verdict RUN the build cache served prints no line, so a runner that excluded only `test` (or only `admit`) from the cache passes its first call and reports cache state on the next. The rerun case calls the runner twice on one unchanged copy and holds each call to the six ok lines exactly (base#1465). |
@@ -3460,6 +3465,118 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_managed_entries: appends without a spurious blank line (#876)` | - |
 | `_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)` | - |
 
+### test/bats/unit/gomod_oracle_spec.bats (8)
+
+_pin_go_mod_scan (script/watch/lib.sh) is a bash port of Go's modfile lexer.
+A port drifts silently, so script/test/config_gen_steps/ 20-gomod-oracle.sh
+runs `go mod edit -json` in the pinned golang image over every
+test/fixtures/gomod/*.mod and compares Go's verdict with the scanner's and
+with the class the fixture's first line declares:
+
+// class: supported Go rc 0, scanner rc 0, and both yield <name>.requires;
+// class: policy-refused <event> <reason> Go rc 0, scanner refuses with
+exactly that event and reason; // class: go-invalid [<event> <reason>] Go rc
+!= 0, scanner refuses.
+
+A missing header (or a `# class:` one) is go_mod_fixture_unclassified; a
+disagreement is go_mod_oracle_mismatch (file= class=); a Dockerfile with no
+golang pin is go_mod_oracle_pin_missing, before docker runs.
+
+The step reads its repo root from its own location, as every config-gen step
+does when the redpath runs it on a scratch copy. docker is stubbed here;
+`just test go` runs the real image. The stub's `docker run` prints
+${S}/run.out and exits ${S}/run.rc. run.out is the container's answer in the
+step's protocol: per fixture, one line
+
+fixture<TAB><name>.mod<TAB><go-rc>
+
+followed by one `require<TAB><path><TAB><version><TAB><indirect>` line per
+requirement Go read (the gomod-oracle helper's output for that file).
+
+| Test | Description |
+|------|-------------|
+| `20-gomod-oracle.sh: fixtures that agree with Go pass, in one offline run of the pinned golang image (base#1463)` | The agreeing case: one docker run, offline, in the pinned image, with Go's toolchain switching off, and a green step. |
+| `20-gomod-oracle.sh: a fixture with no class header is go_mod_fixture_unclassified (base#1463)` | A fixture with no class header carries no verdict to hold either side to, and a loop that skipped it would shrink the oracle silently. |
+| `20-gomod-oracle.sh: a '# class:' header is go_mod_fixture_unclassified (base#1463)` | `#` is not a go.mod comment; a `# class:` header is a typo, not a class. |
+| `20-gomod-oracle.sh: a supported fixture whose requires differ from Go's is go_mod_oracle_mismatch (base#1463)` | Go canonicalises; a supported fixture whose records differ from Go's is exactly the drift the oracle exists to catch. |
+| `20-gomod-oracle.sh: a policy-refused fixture Go rejects is go_mod_oracle_mismatch (base#1463)` | policy-refused means Go reads the file; a fixture Go rejects is misclassified and would hide a go-invalid case. |
+| `20-gomod-oracle.sh: a go-invalid fixture the scanner accepts is go_mod_oracle_mismatch (base#1463)` | The blocking point of the review: a file Go rejects must be one the scanner refuses. A go-invalid fixture the scanner reads is a mismatch, whatever the require lists say -- an oracle that only compared require lists would pass it. |
+| `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
+| `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
+
+### test/bats/unit/gomod_scan_spec.bats (47)
+
+config-gen's go.mod is a declaration site the pin registry cannot read.
+Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
+indirect` requirement passes the pin-coverage lint. The fix is a structural
+scanner in script/watch/lib.sh -- a bash port of Go's modfile lexer plus a
+verb state machine -- that emits one record per `require` entry and refuses,
+by name, every spelling it does not model.
+
+_pin_go_mod_scan <file> `lineno\tpath\tversion\tcomment` per entry; a
+refusal is rc 1, EMPTY stdout and one go_mod_unsupported_syntax (file= line=
+reason=) or go_mod_indirect_requirement. _pin_go_mod_version_ok <p> <v> 0
+only for a version Go keeps byte-identical. _pin_is_declaration <f> <l>
+[<n>] for go.mod, DECL only on a line number the scanner emitted; go.mod
+with no number is 2.
+
+The fixtures under test/fixtures/gomod/ carry Go's own verdict in their
+first line (`// class: supported|policy-refused|go-invalid [event reason]`),
+measured with `go mod edit -json` in the pinned golang image; the oracle
+step (script/test/config_gen_steps/20-gomod-oracle.sh) holds them to Go.
+This spec holds the SCANNER to the same headers, and pins each refusal by
+its reason so a guard that goes quiet fails here by name.
+
+| Test | Description |
+|------|-------------|
+| `_pin_go_mod_scan: a tab-indented block entry after a comment is one record on its own line (base#1463)` | The first red. A block entry after a comment line is the form a real `go get` writes, and a line regex or a scanner that loses block state after a comment misses it. One record, numbered by the entry's own line. |
+| `_pin_go_mod_scan: the line form is one record with an empty comment column (base#1463)` | The line form is the other spelling `go mod edit -require` writes. |
+| `_pin_go_mod_scan: an end-of-line comment is carried in the fourth column (base#1463)` | The comment column is where the marker grammar's `// tool-pin:` can ride on the entry itself; a scanner that drops it loses that. |
+| `_pin_go_mod_scan: every supported fixture yields exactly the requires Go reads (base#1463)` | Every supported fixture's records equal Go's, which the header measured and <name>.requires holds; this rules out a scanner that keeps quotes, drops a glued comment's entry, or rejects a hyphenated prerelease. |
+| `_pin_go_mod_scan: every policy-refused and go-invalid fixture is refused with its header's event, reason, file and line (base#1463)` | Every refused fixture is refused with the event and reason its header names, nothing on stdout, and the file and line attributed -- the full five-point assertion per fixture (review round 5). Several reasons (quote_escape among them) have no dedicated test, so a refusal that drops file= or line= for one of them must fail here. A scanner that streams records before a later refusal, or refuses for the wrong reason, too. |
+| `gomod fixtures: every fixture's first line is a class header (base#1463)` | The scanner's go.mod reader is a closed set: no fixture may sit outside the three classes, or the two loops above would skip it. |
+| `_pin_go_mod_scan: exclude is refused by name, line form before a require and block form after one (base#1463)` | Go rejects `exclude a` and the old design consumed exclude unread, so a valid require after it was emitted for a file Go refuses. exclude is now refused by name in any form: line and block, before and after a require. |
+| `_pin_go_mod_scan: retract is refused by name in the line, interval and block forms (base#1463)` | Same point for retract: its interval grammar is not ported, so every retract -- valid, unclosed or with a trailer -- is refused by name. |
+| `_pin_go_mod_scan: godebug is refused by name in the line and block forms (base#1463)` | Same point for godebug: `godebug foo` and `godebug a=1,b=2` are Go errors the old scanner skipped. |
+| `_pin_go_mod_scan: replace, tool and ignore are each refused by name (base#1463)` | replace, tool and ignore are three separate arms, each its own guard. |
+| `_pin_go_mod_scan: module with two arguments is refused as module_arity (base#1463)` | module takes exactly one argument; `module a b` is a Go error. |
+| `_pin_go_mod_scan: module ) is read as Go reads it, the require kept (base#1463)` | Review round 4 took `module )` for a Go error. The oracle step ran `go mod edit -json` on both fixtures and Go returned rc 0: its parser reads the `)` as the module path. So the scanner keeps the require on either side of it, as Go does, rather than refusing a file Go accepts. |
+| `_pin_go_mod_scan: module a'b is refused as module_quote (base#1463)` | An unquoted module path cannot hold a quote character. |
+| `_pin_go_mod_scan: a repeated module line is refused as module_repeated (base#1463)` | A second module line is a Go error wherever it sits. |
+| `_pin_go_mod_scan: go with two arguments is refused as go_arity (base#1463)` | go takes exactly one argument. |
+| `_pin_go_mod_scan: go abc is refused as go_version (base#1463)` | go's argument must match Go's GoVersionRE. |
+| `_pin_go_mod_scan: go 1.21RC1 is refused as go_version under a UTF-8 locale (base#1463)` | `[a-z]` in a UTF-8 locale can match upper case; Go's regexp never does. 1.21RC1 must be refused whatever the caller's locale. |
+| `_pin_go_mod_scan: a repeated go line is refused as go_repeated (base#1463)` | A second go line is a Go error wherever it sits. |
+| `_pin_go_mod_scan: toolchain with two arguments is refused as toolchain_arity (base#1463)` | toolchain takes exactly one argument. |
+| `_pin_go_mod_scan: toolchain gox is refused as toolchain_version (base#1463)` | toolchain's argument must match Go's ToolchainRE. |
+| `_pin_go_mod_scan: a quoted go or toolchain value is refused on its raw token (base#1463)` | Go matches GoVersionRE and ToolchainRE against the RAW token, so a quoted `"1.21"` or `"go1.21"` is an error to Go even though the string decodes to a valid value. The scanner checks the same raw spelling, never a decoded one (review round 3, base#1463). |
+| `_pin_go_mod_scan: a repeated toolchain line is refused as toolchain_repeated (base#1463)` | A second toolchain line is a Go error wherever it sits. |
+| `_pin_go_mod_scan: go 1.21rc1, toolchain go1.21.0-gccgo, module "a b" and no module line still emit the require (base#1463)` | The checks above must not be tighter than Go: a release candidate go version, a gccgo toolchain suffix, a quoted module path and a file with no module line at all are all files Go reads, and the require is emitted. |
+| `_pin_go_mod_scan: a backquoted string is refused as backquote (base#1463)` | Each of Go's lexer errors the scanner does not model is its own guard. |
+| `_pin_go_mod_scan: a /* comment is refused as c_comment (base#1463)` | Go refuses /* */ comments; the scanner must not read past one. |
+| `_pin_go_mod_scan: an unknown verb is refused as unknown_verb (base#1463)` | A verb outside the closed set -- here a typo of require -- is refused. |
+| `_pin_go_mod_scan: [, { and , in a require are each refused as punctuation (base#1463)` | [ { and , are tokens of their own in Go's lexer, never part of a word. |
+| `_pin_go_mod_scan: an unterminated block is refused with no partial record (base#1463)` | A block that never closes emits nothing, not the entries read so far. |
+| `_pin_go_mod_scan: an unterminated quote is refused as unterminated_quote (base#1463)` | A string that never closes on its line is a Go error. |
+| `_pin_go_mod_scan: a require with one or three words is refused as arity (base#1463)` | A require entry is exactly a path and a version. |
+| `_pin_go_mod_scan: a go, toolchain or module block is refused as block_form_verb (base#1463)` | module/go/toolchain are line-form only here (Go rejects go and toolchain blocks and accepts a module block the scanner does not model). |
+| `_pin_go_mod_scan: a byte outside tab, printable ASCII and a line-ending CR is refused as unsupported_byte (base#1463)` | The byte check runs on the FILE, before bash holds a line: a bash variable cannot carry a NUL, so a check on the read-in copy never sees one and `require a v1.0.0<NUL>`, which Go rejects, was emitted (review round 1). Non-ASCII, a NUL in or after an entry, a control byte and a CR that does not end its line are each refused, so a byte bash and Go read differently can only refuse, never emit a record. |
+| `_pin_go_mod_scan: CRLF line endings are read (base#1463)` | A CR that ends its line is how a CRLF go.mod is written and Go reads it; the byte check must not turn that into a refusal. |
+| `_pin_go_mod_scan: a tab inside a path or a comment is refused as record_tab (base#1463)` | A record is `lineno<TAB>path<TAB>version<TAB>comment`, so a tab inside a quoted path or a comment is a field separator to every reader of the record: `require "a<TAB>b" v1.0.0` read as path=a, version=b (review round 1). Whatever field carries it, line or block form, the entry is refused. |
+| `_pin_go_mod_scan: an empty quoted path is refused as path_empty (base#1463)` | An empty quoted path left two adjacent tabs in the record, and a tab-split `read` collapses them, so the reader took the comment for the version: `require "" v1.0.0 // note` listed as current=`// note` (review round 2, base#1463). Go itself drops a requirement with an empty path, so no record agrees with Go; line and block form are refused by name. |
+| `_pin_go_mod_record_fields: an empty field keeps its column (base#1463)` | A record is decoded by splitting on its tabs with every field kept, including an empty one, so no field can slide into its neighbour's column whatever the scanner emits (review round 2, base#1463). |
+| `_pin_go_mod_scan: text after an opening paren is refused as paren_trailer (base#1463)` | `(` must end its line; `require ( a v1.0.0` is a Go error. |
+| `_pin_go_mod_scan: a closing paren after an entry is refused as paren_not_alone (base#1463)` | `)` must stand alone on its line. |
+| `_pin_go_mod_scan: // indirect, //indirect and // indirect; ... are go_mod_indirect_requirement (base#1463)` | An indirect requirement is not this repo's declaration; it is refused by its own event in every spelling Go marks indirect. |
+| `_pin_go_mod_scan: an unreadable file is refused with pin_file_unreadable (base#1463)` | An unreadable go.mod is not an empty one. |
+| `_pin_go_mod_scan: a byte read that fails is refused with pin_file_unreadable (base#1463)` | The byte check reads the file a second way (od), and a read that fails there must refuse, not come back as "no bad byte" and let the file through unchecked. A stub od that fails stands in for that read. |
+| `_pin_go_mod_scan: a version Go rewrites or refuses is refused by its validator reason (base#1463)` | One witness per validator reason, through the scanner. |
+| `_pin_go_mod_scan: path major suffix, no suffix and invalid suffix each refuse by name (base#1463)` | The path-major rule has two arms (a /vN suffix and none) and an invalid-suffix arm; each is pinned separately. The huge major is compared as a string, so it cannot overflow into a pass. |
+| `_pin_go_mod_version_ok: accepts canonical versions and refuses ones Go would rewrite (base#1463)` | The validator is callable on its own, and answers 0 only for a version Go keeps exactly as written. |
+| `_pin_is_declaration: go.mod is DECL only on the line numbers the scanner emitted (base#1463)` | For go.mod the scanner, not a line shape, decides: DECL only on a line number it emitted, so a comment, module or go line is never one. |
+| `_pin_go_mod_set_line: refuses a line that is not a require entry and rewrites only the version token (base#1463)` | The bump rewrites only a line the scanner emitted; asked for the go directive it refuses rather than editing a line no pin can name, and on an entry it replaces the version token alone, not the same string in the comment (review round 2, base#1463). |
+| `_pin_is_declaration: go.mod with no line number is rc 2 (base#1463)` | A go.mod line with no line number cannot be answered from the scanner; it is a caller error (2), not a "no". |
+
 ### test/bats/unit/help_lang_spec.bats (20)
 
 --help / --lang coverage across the recipe-backing scripts (#655,
@@ -4617,6 +4734,91 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
+### test/bats/unit/mutation_required_spec.bats (57)
+
+Every shell refusal guard a config-gen slice adds is listed, with the
+mutation that disables it, in script/test/mutation_required/<slice>.tsv.
+Before this runner nothing read those files: a pinning test could be deleted
+with every gate green, because the only proof that the guard was pinned was
+a probe someone once ran by hand. The runner reads every row, validates ALL
+of them before any baseline runs, probes each row in a private sandbox copy
+through its own fixed --apply, and exits 0 only when every row is PINNED.
+
+Row contract, one for every roster file: <id> TAB <subject> TAB <spec> TAB
+<old> TAB <new> `#` lines and blank lines are skipped. <old> and <new> are
+decoded with exactly three escapes, `\\` `\t` `\n`; any other `\x` or a
+trailing `\` is reason=bad_escape. <old> must occur exactly once in
+<subject>; <new> may be empty (a deletion) and must differ from <old>.
+
+Seams the cases use: --root <dir> names the checkout whose roster is read
+(default: this checkout); MUTATION_PROBE_RUNNER is the probe's own runner
+override, so no case builds an image; MUTATION_REQUIRED_PROBE replaces the
+probe itself where a case needs a probe that lies; `docker` is a PATH stub
+that logs its argv and answers `ps` from MR_DOCKER_PS. --check validates the
+roster and runs nothing.
+
+Every refusal holds assert_refusal's five points.
+
+| Test | Description |
+|------|-------------|
+| `roster: every committed row is a five-column row that --apply changes in exactly one region (base#1461)` | The roster already holds 166 rows from S1b, S1c, S1d, S1g and S1h in a four-column `sed -i` form, and the runner's contract is the declarative five-column one. Adopting them means every committed row is in that contract, applies through the runner's own --apply to exactly one changed region, and survives the runner's validation pass -- a contract that rejects or mis-splits the committed rows fails here, as does a roster that lost one of them on the way. |
+| `roster: each S1a seed row disables the guard it is named for (base#1461)` | A seed row names its subject, but what it must disable is one guard: setup_cmd.sh's refusal of a non-regular-file apply output and setup_conf.sh's refusal of a local layer not named *.toml. A row that mutated any other line of either file would still go red somewhere in the spec and read PINNED. So each seed's decoded <old> must be the `if` whose body logs that guard's refusal event, holding the guard's own test, and its decoded <new> must be the same `if` made never-true. |
+| `roster: the runner's validation pass accepts every committed row (base#1461)` | The runner's own validation over the committed roster, not the spec's re-reading of it: a contract the runner reads differently from the documented one (a lost empty <new>, a decoder that is not the three escapes) refuses a committed row here. |
+| `validation: an empty roster directory is refused (base#1461)` | A roster directory with no roster file is a gate that checks nothing; reading it as "every row PINNED" is the false green this runner exists to remove. |
+| `validation: roster files with no rows are refused (base#1461)` | The same false green one step later: roster files that carry only comments are zero rows. |
+| `validation: a four-field row is refused before any baseline (base#1461)` | The committed rows are four columns wide in the sed form; a runner that took a four-field row would read the sed command as <old>. |
+| `validation: a six-field row is refused before any baseline (base#1461)` | A sixth field is a row whose fields are not where the reader thinks. |
+| `validation: a row whose subject does not exist is refused (base#1461)` | A row naming a subject that is not there would probe nothing. |
+| `validation: a row whose spec does not exist is refused (base#1461)` | A row naming a spec that is not there is a pinning test that was deleted -- the exact event the roster exists to catch. |
+| `validation: a spec outside test/bats is refused (base#1461)` | A spec path outside test/bats is not a spec the suite runs. |
+| `validation: a subject path with .. is refused (base#1461)` | A subject that walks out of the root is one the sandbox does not hold and the probe must not write. |
+| `validation: an old that does not occur in the subject is refused (base#1461)` | <old> that is not in the subject changes no byte: the probe would refuse at run time, after every earlier row's baseline. |
+| `validation: an old that occurs twice is refused (base#1461)` | <old> that occurs twice is a row whose target is a guess. |
+| `validation: an old whose occurrences overlap is refused as ambiguous (base#1461)` | Occurrences that overlap are occurrences too: in `aaa` the old `aa` starts at two offsets, so which bytes the mutant changes is a guess. A count that resumes after the whole first match sees one. |
+| `validation: a subject that carries a NUL byte is refused (base#1461)` | A subject that carries a NUL byte cannot be edited byte-exactly by a shell (a command substitution drops the NUL), so the mutant would differ from the subject in bytes the row never named and could be read PINNED for a change nobody wrote. Refused before any baseline. |
+| `validation: a new equal to old is refused (base#1461)` | <new> equal to <old> changes no byte. |
+| `validation: an empty old is refused (base#1461)` | An empty <old> is everywhere and nowhere. |
+| `validation: a duplicate id in one file is refused (base#1461)` | Two rows with one id make a report that cannot say which row failed. |
+| `validation: the same mutation in two roster files is refused (base#1461)` | The same mutation under two ids, in two files, counts one kill twice. |
+| `validation: an id outside [a-z0-9-] is refused (base#1461)` | Ids are the names the PR verdict tables and the reports use. |
+| `validation: an escape outside the three is refused (base#1461)` | Only three escapes exist. A decoder that kept `\q` raw, or ran printf %b over it, would apply a different byte string than the row says. |
+| `validation: a trailing backslash is refused (base#1461)` | A trailing backslash escapes nothing. |
+| `validation: two invalid rows are both reported (base#1461)` | Every invalid row is reported, not only the first, so one run names the whole repair. |
+| `escapes: a two-line old written with \n is applied as two lines (base#1461)` | `\n` joins two lines into one <old>: the shape S1d's base-origin-missing and S1h's build-exit need, because their one line occurs more than once. |
+| `escapes: \t is a TAB byte (base#1461)` | `\t` is a TAB byte; the column separator cannot appear raw. |
+| `escapes: \\n is a literal backslash then n (base#1461)` | `\\n` is a backslash then n -- S1h's build-fold line carries a literal backslash-n. A raw-literal reader looks for two backslashes. |
+| `escapes: an empty new deletes old (base#1461)` | An empty <new> deletes: S1d's redpath-git-copy removes a line. |
+| `verdict: a row the spec notices is reported pinned and the run passes (base#1461)` | The one green: every row PINNED, each reported with its row and id. |
+| `verdict: a row the spec does not notice fails as survived (base#1461)` | A row whose mutation the spec does not notice is a guard nothing pins. The probe calls a narrow green INCONCLUSIVE, and here that is a failure, never a pass. |
+| `verdict: a probe that exits 0 without its PINNED line is refused (base#1461)` | A probe that exits 0 without its PINNED line is not a PINNED probe; a check on the status alone would pass it. |
+| `verdict: a PINNED line over zero not ok is refused (base#1461)` | The PINNED line over zero `not ok` is a verdict with no witness; a grep for the bare word would pass it. |
+| `verdict: one survivor fails the run and no row is reported pinned (base#1461)` | Verdicts are published only after every row finished, and a failing run publishes no pass: a pinned row 1 inside a run whose row 2 survived says nothing that reads as green. |
+| `parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)` | 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time (default 4); a runner that only runs serially costs every gate the sum. |
+| `parallel: MUTATION_REQUIRED_JOBS=1 runs one row at a time (base#1461)` | The bound holds: JOBS=1 is one row at a time. |
+| `parallel: each probe's per-test bound is 120 s times MUTATION_REQUIRED_JOBS (base#1461)` | MUTATION_REQUIRED_JOBS suites share one machine, and each bats test in them is bounded by PER_TEST_TIMEOUT (default 120 s). On a hosted runner four concurrent probes pushed two self_test_yaml_spec tests past 120 s in a row's baseline (PR #1491, run 41226185346, lint-static 2/4), and the row was refused. Unless the caller set it, each probe gets 120 s per concurrent row. |
+| `parallel: a PER_TEST_TIMEOUT the caller set reaches the probe unchanged (base#1461)` | A bound the caller set is the caller's; it is passed through as is. |
+| `parallel: MUTATION_REQUIRED_JOBS=0 is refused (base#1461)` | A job count that is not 1..99 is refused before anything runs: 0 would run nothing and report the empty run. |
+| `parallel: MUTATION_REQUIRED_JOBS=abc is refused (base#1461)` | The same for a value that is not a number. |
+| `shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)` | The four hosted lint-static legs each run the roster. 168 rows probed in full by every leg did not finish inside the job's 30 minutes (PR #1491, run 41222344327: the roster step cancelled at 29 minutes on all four legs), so a leg probes the rows of its own shard: row k (counted over every roster file, from 0) belongs to shard (k mod <total>) + 1. |
+| `shards: an invalid row outside the shard is still refused (base#1461)` | A shard only narrows what is probed; every row is still validated, so an invalid row outside the shard still fails the run. |
+| `shards: a malformed --shard is refused (base#1461)` | A shard spec that is not <n>/<total> with 1 <= n <= total <= 99 is refused before anything runs. |
+| `shards: a shard with no rows is refused as an empty roster (base#1461)` | A shard that selects no row would pass having probed nothing. |
+| `sandbox: an inherited COMPOSE_PROJECT_NAME is not the sandbox's project (base#1461)` | The probe edits files and runs compose; in the live checkout that would race the developer's tree and its compose project. Each row runs in its own copy under its own project, derived from the copy's path by the copy's test.sh -- an inherited COMPOSE_PROJECT_NAME (the live checkout's) is not used, and teardown asks docker about the project the probe used. |
+| `sandbox: the sandbox directory the probe runs in is mode 755 (base#1461)` | The probe mounts the sandbox as the container's /source, and a spec that drops from root to nobody (an unreadable-file case) must still reach the files under it. mktemp -d makes the sandbox 0700, so every such spec went red at its baseline and the row was refused. |
+| `sandbox: two rows run under two distinct projects (base#1461)` | Two rows in flight at once are two sandboxes and two projects. |
+| `sandbox: an exported GIT_DIR and GIT_INDEX_FILE are not followed (base#1461)` | GIT_DIR / GIT_INDEX_FILE exported by a hook or a wrapper point every git call at another repository; the sandbox list must be the live one and the other repository must be left alone. |
+| `sandbox: a failing archive step fails the row and runs no probe (base#1461)` | A sandbox build step that fails leaves a partial copy; probing it would measure a different tree. Every step fails closed. |
+| `sandbox: a container still running at teardown holds the sandbox and fails the row (base#1461)` | A container of the sandbox's project still running after the probe is a run that may still write; the sandbox is kept, named, and the row fails rather than passes. |
+| `sandbox: teardown removes the networks of the sandbox's project (base#1461)` | Each sandbox's compose project gets its own network, and `docker compose run --rm` removes the container, not the network. The project reclaim spares a network for its 6h grace window, so a roster of 168 rows left one network per row: on a GitHub-hosted runner the daemon answered "all predefined address pools have been fully subnetted" and 139 rows were refused. Teardown removes the project's networks. |
+| `sandbox: a project network that cannot be removed fails the row (base#1461)` | A network that could not be removed is litter the next rows run into; the row fails, naming the step, rather than passing. |
+| `signals: INT during a probe stops every child and publishes no verdict (base#1461)` | Ctrl-C mid-run must stop the probe and its runner, not leave a suite running in a sandbox, and must publish no verdict. |
+| `signals: TERM during a probe stops every child and exits 143 (base#1461)` | TERM, as a CI cancel sends it, is the same stop with status 143. |
+| `--apply: an old that does not occur leaves the file unchanged and fails (base#1461)` | A row is data, applied only by this fixed command; an <old> that is absent changes nothing and says so. |
+| `--apply: an old that occurs twice leaves the file unchanged and fails (base#1461)` | Two occurrences are a guess, refused the same way. |
+| `--apply: an old whose occurrences overlap leaves the file unchanged and fails (base#1461)` | Overlapping occurrences are two occurrences: --apply refuses them the way validation does, so neither path picks one. |
+| `--apply: a subject that carries a NUL byte is left unchanged and fails (base#1461)` | --apply is the one edit path; it refuses a NUL-bearing subject itself rather than rewriting it without the NUL. |
+| `--apply: the replacement is byte-exact and keeps the mode (base#1461)` | The edit is byte-exact -- quotes, $( ), backslashes and a missing final newline survive -- and the file keeps its mode. |
+
 ### test/bats/unit/network_ports_inert_spec.bats (16)
 
 | Test | Description |
@@ -4692,7 +4894,7 @@ the outer run's value, which is the wrong mode's value.
 | `per-test timeout: the local compose run of the suite is wrapped in timeout, ci and coverage` | Locally there is no job bound at all: `just test` and `just test coverage` run the suite in `docker compose run --rm`, and a hang there blocks the terminal forever. The compose run goes through `timeout`, in both the ci and the coverage dispatch. |
 | `per-test timeout: the local compose run forwards PER_TEST_TIMEOUT, ci and coverage` | PER_TEST_TIMEOUT is the documented knob, but `just test` and `just test coverage` read it on the HOST while the driver that honours it runs inside `docker compose run`. A dispatch that does not forward it leaves the override silently ignored on the user-facing path, while the knob tests above, which call the driver directly, still pass (base#1413). |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (67)
+### test/bats/unit/pin_coverage_lint_spec.bats (77)
 
 | Test | Description |
 |------|-------------|
@@ -4761,10 +4963,20 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment` | The shell half of the same rule -- a major action ref hoisted for a marker is dotless by construction |
 | `_run_pin_coverage: a marked dotless version satisfies the detector` | The success path for the dotless rule, so the fix is a marker rather than an artificial dot |
 | `_run_pin_coverage: a bare integer is still not a version` | The stated cost of the v-prefix rule: a bare integer carries nothing that separates a release from a UID or a year |
+| `_run_pin_coverage: FAILS on an unmarked go.mod require, line form (base#1463)` | The base#1463 defect: no go.mod line was ever a declaration, so an unmarked requirement passed. The line form fails naming its line. |
+| `_run_pin_coverage: FAILS on an unmarked go.mod require, block form after a comment (base#1463)` | The block form is what `go get` writes; the entry's own line is the one named, not the `require (` line. |
+| `_run_pin_coverage: a // tool-pin: marker satisfies a go.mod require and the table carries its version (base#1463)` | In go.mod a marker is a `//` comment (a `#` is a Go syntax error), and the version the table carries is the one the scanner read. |
+| `_pin_read: a go.mod marker whose target is not a require entry is go_mod_pin_target_not_require (base#1463)` | A go.mod marker must target a line the scanner emitted; one aimed at the go directive would be a pin with no requirement behind it. The refusal is a registered event naming the file, the target line and the pin, and the reader prints no partial table beside it. |
+| `_run_pin_coverage: FAILS on a go.mod // indirect require (base#1463)` | An indirect requirement is refused rather than silently passing. |
+| `_run_pin_coverage: FAILS on a go.mod the scanner refuses (base#1463)` | A go.mod the scanner refuses -- here a malformed exclude ahead of a valid require, which Go rejects -- fails the lint rather than passing it. |
+| `_pin_read: an unreadable tracked file sorted first is pin_file_unreadable, rc 1 (base#1463)` | An unreadable tracked file that sorts FIRST used to print `Permission denied` and still return 0 from the reader; a guard that only looks at the loop's last status would miss it. |
+| `_pin_read: an unreadable tracked file after a pinned one leaves stdout empty (base#1463)` | The table used to be streamed as it was read, so an unreadable file sorted AFTER a pinned one left that pin's record on stdout beside the refusal; a caller reading stdout would get a partial table with the failure. |
+| `_pin_uncovered: an unreadable tracked file sorted first is pin_file_unreadable, rc 1 (base#1463)` | _pin_uncovered walks the files itself, so it needs its own guard. |
+| `_pin_uncovered: a _pin_read failure is its failure, not masked by the pipe (base#1463)` | _pin_uncovered took `_pin_read \| awk`'s status, and pipefail is off, so a reader failure was masked by awk's 0. |
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (33)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (37)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4836,6 +5048,10 @@ local mode with it.
 | `pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)` | The config generator's sources are code paths; a diff touching only them must plan the Go gates, and a docs-only diff must not. |
 | `pre-PR mirror: a mutation-baseline diff plans just test go and just test (base#1464)` | The mutation baseline (base#1464) is a script the 00-manifest step runs inside `just test go`, and its spec is integration tier. A diff that touches only one of the three must plan both, so the mirror runs the step and the spec that pins it. The mirror sets no CONFIG_GEN_MUTATION_CONTEXT, so it runs the pr default the spec proves. |
 | `pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)` | The plan naming `just test go` is a string; what CI attests is the recipe `just` runs for argv `test go`, and that its red reaches the mirror's own exit status (base#1462). |
+| `test.sh: a no-flag run lints, then runs the roster, then runs bats (base#1461)` | The roster is one of the checks `just test` attests and the pre-PR mirror relies on that run; it runs on the host (it builds sandboxes and runs the probe, which drives compose itself), between the lint phase and bats, so the no-flag compose dispatch is split in two around it. |
+| `test.sh: a red roster fails the no-flag run before bats (base#1461)` | A red roster is a red `just test`, and bats does not run after it. |
+| `test.sh: --lint --group and --coverage do not run the roster (base#1461)` | The CI lint legs run the roster as a step of their own and the coverage modes are not the local gate; neither calls it a second time. |
+| `test.sh: --ci runs its in-container phases and not the roster (base#1461)` | `--ci` is the in-container dispatch every compose run lands in -- the two halves of the no-flag run among them -- so a roster call there would run it inside the test-tools container, once per half, and in every CI job that reaches it. The phases it does run are stubbed and printed, so the case proves the dispatch ran and still made no roster call. |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
@@ -5981,7 +6197,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (147)
+### test/bats/unit/self_test_yaml_spec.bats (150)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6450,6 +6666,9 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)` | Branch protection requires ci-rollup alone; a config-gen job outside its needs, or whose result the step never reads, is a red nobody sees. The step is run, not grepped, for every need. |
 | `self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)` | config-gen is gated on code_changed, so on a doc-only diff it skips; the rollup must read that skip as a pass and a failure or cancel as red. |
 | `ci-rollup check: a need whose result no loop reads is caught (base#1462)` | The rollup check must see a need that is listed and keyed but left out of every loop, or it proves nothing about the next job added. |
+| `self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)` | The hosted environment. Every lint-static leg runs the roster exactly once, on its own shard (`--shard <its group>`, so the four legs together probe every row), with no `if:` and no continue-on-error, and a red roster fails the step. |
+| `coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)` | The self-hosted environment runs the same command beside `just test go`, gated the same way. |
+| `roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)` | The probe decides by execution. Each spelling that runs the driver is seen once, a step that does not run it is not seen, and the two ways a step can run it without gating -- `\|\| true` and an `if:` -- are caught. |
 
 ### test/bats/unit/setup_cmd_spec.bats (226)
 
@@ -8256,7 +8475,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (33)
+### test/bats/unit/tool_pins_spec.bats (48)
 
 | Test | Description |
 |------|-------------|
@@ -8285,6 +8504,21 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: --set keeps the trailing comment on the line it rewrites` | That trailing comment is where a "held at this version because" rationale lives -- the one sentence a reviewer of a bump most needs |
 | `pins: a trailing comment does not leak whitespace into the version` | A stray space does not stay local: it flows into the reported from, into the branch name a bump builds, and into whatever CI feeds from --value |
 | `pins: --set leaves the file's mode alone` | mktemp creates 0600 and mv carries that mode onto the file -- invisible in CI and a permission denied on the next local just test |
+| `pins: --set rewrites a go.mod require, line form, keeping its comment (base#1463)` | The reader registers a go.mod require as a pin (base#1463), so a bump must be able to rewrite it; the assignment and coordinate:version rewrites never match `require <path> <version>` (review round 2). The version token the scanner read is replaced in place: spacing and comment kept. |
+| `pins: --set rewrites a go.mod require, block form (base#1463)` | The block form is what `go get` writes; the entry has no verb on its line, so a rewrite keyed on `require` would miss it. |
+| `pins: --set rewrites a quoted go.mod version and keeps the quotes (base#1463)` | A quoted version is read without its quotes; the rewrite keeps them. |
+| `pins: --set refuses a go.mod version Go would rewrite and leaves the file alone (base#1463)` | A version Go would rewrite (`v0.22` -> `v0.22.0`) is refused before the file is touched, so a bump cannot write a pin the reader then refuses. |
+| `pins: --list refuses a go.mod require with an empty path (base#1463)` | An empty quoted path once shifted the comment into the version column, so --list printed current=`// note` with rc 0 (review round 2, base#1463). |
+| `pins: --set keeps a literal backslash in a go.mod comment byte for byte (base#1463)` | The rewritten line once went through `awk -v repl=...`, which expands backslash escapes, so a preserved comment holding `\n` was split into two lines and the go.mod corrupted before the read-back ran (review round 3, base#1463). The line is written byte for byte. |
+| `pins: --set keeps a literal backslash in a Dockerfile comment byte for byte (base#1463)` | The same awk carried every rewrite, so a Dockerfile comment with a backslash was mangled the same way (base#1463). |
+| `pins: --set on a last line with no final newline adds none (base#1463)` | The last line of a file with no final newline stays without one: the splice changes the version and nothing else (base#1463). |
+| `pins: --set refuses a symlinked destination and leaves its target alone (base#1463)` | A write through a symlink edits a file outside the tree the reader named; the bump refuses it by name and touches neither the link nor its target (base#1463). The reader takes only blobs from the index, so the link is the working-tree file under a path the index still records as a regular file -- staged first, then swapped for the link. |
+| `pins: --set refuses a hard-linked destination and leaves it alone (base#1463)` | Replacing one name of a hard-linked file splits the link and leaves the other name on the old version; refused by name (base#1463). |
+| `pins: --set that cannot create its temp copy leaves the file alone (base#1463)` | The temp copy lives beside the destination so the final mv is one rename; a directory that cannot hold it refuses before anything is written (base#1463). |
+| `pins: --set whose temp write fails leaves the file's bytes and mode alone (base#1463)` | The injected write failure: a temp copy that could not be written is never moved over the destination (base#1463). |
+| `pins: --set whose temp copy is not the exact splice leaves the file alone (base#1463)` | The temp copy is held to the splice before it lands: everything but the target line byte-identical, the target line exactly the new one. A write that exited 0 but lost the lines after the target (a `tail` that printed nothing) is refused, not moved into place (base#1463). |
+| `pins: --set that cannot carry the mode onto its temp copy leaves the file alone (base#1463)` | mktemp creates 0600; a copy whose mode could not be set to the destination's is not moved over it (base#1463). |
+| `pins: --set whose final rename fails leaves the file alone (base#1463)` | The rename is the commit; one that fails leaves the old file and no temp copy behind (base#1463). |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
 | `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |
@@ -8349,7 +8583,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool-version-watch: the bump is performed by the same script a human runs` | The scheduled path and the human path must be one script, or the bump CI proves is not the bump a person can reproduce |
 | `tool-version-watch: it runs on a reserved GitHub-hosted runner` | Both jobs check out and execute repository code, so a self-hosted runner would run it on hardware this repo does not control |
 
-### test/bats/unit/tool_watch_check_spec.bats (12)
+### test/bats/unit/tool_watch_check_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
@@ -8364,6 +8598,8 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `watch: a tree with nothing scannable in it exits 1` | A scan root of pure prose is the other way to reach an empty table, and it must not read as up to date either |
 | `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its matrix from this stdout, so an empty list with a zero status is precisely the silent clean week |
 | `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | The machine answer and the human report share one run, so a report line landing on stdout would corrupt the matrix |
+| `watch: a go.mod with an indirect requirement exits 1, not 0 (base#1463)` | An indirect requirement in a go.mod is refused by the reader (base#1463); the watch must not read past it into a clean week. |
+| `watch: an unreadable tracked file exits 1, not 0 (base#1463)` | An unreadable tracked file used to print `Permission denied` and leave the reader's status 0, so the watch reported the rest as a clean week (base#1463). As root the run drops to nobody, the only user a mode-000 file applies to. |
 | `watch: an unknown option is a usage error, distinct from both` | Exit 2 keeps a typo apart from 1 (nothing compared) and 10 (drift), which is what the workflow branches on |
 
 ### test/bats/unit/transcript_lnav_spec.bats (8)
