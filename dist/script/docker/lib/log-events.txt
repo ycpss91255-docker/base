@@ -443,3 +443,8 @@ config_gen_mutation_publish_failed
 # The admit stage's refusal of a build given no mutation context
 # (base#1465), re-emitted by config_gen_gates.sh.
 config_gen_manifest_missing
+# The admit stage's refusal of a module file changed after the baseline
+# (base#1465): the checker's stale event and the admission gate id, both
+# re-emitted by config_gen_gates.sh.
+config_gen_manifest_stale
+config_gen_gate_admission_failed

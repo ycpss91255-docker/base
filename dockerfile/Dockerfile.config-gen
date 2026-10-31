@@ -19,7 +19,11 @@
 #                that context sees the sentinel instead (base#1465).
 #   admit        no Go: refuses a build that got no mutation context, printing
 #                `cg_event config_gen_manifest_missing` on stderr, which the
-#                runner re-emits as that event; otherwise prints
+#                runner re-emits as that event; then runs the context's
+#                admit.sh (script/test/config_gen_admit.sh) over the module,
+#                which refuses a file changed after the baseline was written
+#                with `cg_event config_gen_manifest_stale file=... reason=...`
+#                and `config_gen_gate_admission_failed`; otherwise prints
 #                `gate=admission ok`. The test stage starts by copying its
 #                /admitted, so no gate runs before it passed.
 #   build        the module and its static binary
@@ -81,9 +85,13 @@ FROM ${GO_IMAGE} AS admit
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 # The id is spelled from ${e} in the RUN text, as the gate ids are, so
 # BuildKit's echo of the RUN line never carries the literal id.
+# The checker is the host's (the 01-admit step put it in the mutation
+# context); the module is only bound for it to read, never built here.
 RUN --mount=type=bind,from=mutation,target=/mutation \
-    e=manifest_missing; \
+    --mount=type=bind,target=/src \
+    e=manifest_missing; g=admission; \
     if [[ -e /mutation/no-mutation-context ]]; then echo "cg_event config_gen_${e}" >&2; exit 1; fi; \
+    bash /mutation/admit.sh /mutation /src || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=admission ok; \
     touch /admitted
 

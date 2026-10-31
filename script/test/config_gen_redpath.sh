@@ -107,7 +107,7 @@ EOF
       cat >"${root}/script/test/config_gen_steps/99-zz-stale-edit.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
 printf '\n// zz stale edit after the manifest\n' >>"${_root}/dockerfile/config-gen/cmd/config-gen/main.go"
 EOF
       ;;
@@ -196,7 +196,8 @@ EOF
 # _rp_copy <scratch> -- a fresh copy of what the runner reads; prints it.
 # The copy is a one-commit Git checkout whose origin/main is that commit,
 # so the 00-manifest step (base#1464) finds a base and lists the planted
-# defect as the change; the target script and the logger it sources come
+# defect as the change; the target script, the admission checker the
+# 01-admit step installs (base#1465) and the logger they source come
 # along.
 _rp_copy() {
   local dst
@@ -206,7 +207,8 @@ _rp_copy() {
   if [[ -d "${_RP_ROOT}/script/test/config_gen_steps" ]]; then
     cp -a "${_RP_ROOT}/script/test/config_gen_steps" "${dst}/script/test/"
   fi
-  cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" "${dst}/script/test/"
+  cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" \
+    "${_RP_ROOT}/script/test/config_gen_admit.sh" "${dst}/script/test/"
   cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \
     "${dst}/dist/script/docker/lib/"
   git -C "${dst}" init -q
