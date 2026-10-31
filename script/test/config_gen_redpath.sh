@@ -71,9 +71,10 @@
 # must exit exactly 1 with exactly the five pre-coverage ok lines on
 # stdout, the runner's JSON config_gen_gate_coverage_failed record, and its
 # JSON record of the case's config_gen_coverage_* event naming the row's
-# package (pkg) and fragment (file, empty when the event names none). cov-lowered lowers
-# a floor below the copy's own commit, its merge base: only a coverage RUN
-# that read floors.base through the mutation context can see that.
+# package (pkg) and fragment (file, empty when the event names none).
+# cov-lowered lowers a floor below the copy's own commit, its merge base:
+# only a coverage RUN that read floors.base through the mutation context
+# can see that.
 #
 # The rerun case (base#1465) plants nothing: it calls the runner twice in
 # a row on one unchanged copy. Each call must exit 0 and print exactly
