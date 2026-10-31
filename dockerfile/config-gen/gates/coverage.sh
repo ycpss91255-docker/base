@@ -33,6 +33,9 @@
 
 set -euo pipefail
 
+# _CG_X -- the validated corpus root record main read; _measure forwards it.
+_CG_X=''
+
 # _refuse <reason> [pkg] -- the one refusal line, then exit 1.
 _refuse() {
   printf 'config_gen_gate_coverage_failed reason=%s pkg=%s\n' "${1}" "${2:-}" >&2
@@ -44,7 +47,8 @@ _refuse() {
 _measure() {
   local dir="${1}" i="${2}" pkg="${3}" gofiles="${4}" cgofiles="${5}"
   local prof="${dir}/${i}.out" verdict
-  go test -covermode=atomic -coverprofile="${prof}" "${pkg}" >&2 \
+  go test -covermode=atomic -coverprofile="${prof}" "-ldflags=-X=${_CG_X}" \
+    "${pkg}" >&2 \
     || _refuse test_failed "${pkg}"
   [[ -f "${prof}" ]] || _refuse profile_invalid "${pkg}"
   verdict="$(_judge "${prof}" "${pkg}" "$(( gofiles + cgofiles ))")" \
@@ -85,6 +89,7 @@ main() {
   local listing dir pkg gofiles cgofiles i=0 x=''
   if [[ -f "${1:-}" ]]; then IFS= read -r x <"${1}" || true; fi
   [[ -n "${x}" ]] || _refuse corpus_root_missing
+  _CG_X="${x}"
   listing="$(go list -f '{{.ImportPath}}{{"\t"}}{{len .GoFiles}}{{"\t"}}{{len .CgoFiles}}' ./...)" \
     || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
