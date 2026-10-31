@@ -1215,7 +1215,7 @@ _as_reader() {
   assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/.a.txt"
 }
 
-# why: The table is streamed as it is read, so an unreadable file sorted
+# why: The table used to be streamed as it was read, so an unreadable file sorted
 # AFTER a pinned one left that pin's record on stdout beside the refusal; a
 # caller reading stdout would get a partial table with the failure.
 @test "_pin_read: an unreadable tracked file after a pinned one leaves stdout empty (base#1463)" {
