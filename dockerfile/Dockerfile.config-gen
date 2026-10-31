@@ -58,6 +58,14 @@ RUN case "${TARGETARCH}" in \
 # arch-literal-lint: allow-end
 
 FROM ${GO_IMAGE} AS build
+# ADR-00000039 lists GOTOOLCHAIN=local among the build flags: the pinned
+# image's toolchain or nothing, never one go fetches for a go.mod asking
+# for a newer Go. The golang image pinned today already sets it; this keeps
+# it set when GO_IMAGE is overridden or bumped to an image that does not.
+# The test stage is FROM build, so every gate inherits it. It sits above
+# SHELL because placed below it, hadolint reported SC3010 ([[ in POSIX sh)
+# on the test stage's fmt RUN.
+ENV GOTOOLCHAIN=local
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 WORKDIR /src
 COPY . .
@@ -70,7 +78,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # build cache is mounted only to save compile time; it is keyed on content.
 FROM build AS test
 COPY --from=tools /usr/local/bin/golangci-lint /usr/local/bin/golangci-lint
-RUN g=fmt; out="$(gofmt -l .)"; \
+# gofmt exits non-zero on a file it cannot parse (a _test.go syntax error
+# passes the build stage); that status must name this gate too, not end
+# the RUN under set -e before the id is printed.
+RUN g=fmt; out="$(gofmt -l .)" || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     if [[ -n "${out}" ]]; then printf 'gofmt -l: %s\n' "${out}" >&2; echo "config_gen_gate_${g}_failed" >&2; exit 1; fi; \
     echo gate=fmt ok
 RUN --mount=type=cache,target=/root/.cache/go-build \

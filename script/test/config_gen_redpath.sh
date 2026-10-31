@@ -22,6 +22,11 @@
 #   race       two goroutines incrementing one int, joined    race
 #   race-fuzz  a Fuzz seed that fails                         race
 #   coverage   a package whose test covers 2 of 3 statements  coverage
+#   fmt-parse  a _test.go file gofmt cannot parse             fmt
+#
+# fmt-parse plants in a _test.go file because go build skips those, so the
+# build stage passes and the syntax error reaches the fmt gate, where
+# gofmt exits non-zero instead of listing a file.
 #
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
@@ -41,7 +46,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt)
 
 # _rp_plant <case> <module dir> -- write the case's defect into the copy.
 _rp_plant() {
@@ -98,6 +103,8 @@ func FuzzZz(f *testing.F) {
 }
 EOF
       ;;
+    fmt-parse)
+      printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
     coverage)
       mkdir -p "${mod}/internal/zzcov"
       cat >"${mod}/internal/zzcov/zzcov.go" <<'EOF'

@@ -1969,7 +1969,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
 
-### test/bats/unit/config_gen_gates_spec.bats (24)
+### test/bats/unit/config_gen_gates_spec.bats (26)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2011,6 +2011,8 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: runs the runner with JSON logging whatever the caller's LOG_FORMAT (base#1462)` | The verdict reads JSON records; a caller exporting LOG_FORMAT=text would otherwise turn every case into wrong_id, or (with a looser parse) into a scrape of display text. |
 | `config_gen_redpath.sh: a case whose earlier gate printed no ok fails with reason earlier_gate_missing (base#1462)` | - |
 | `config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)` | - |
+| `config_gen_redpath.sh: the fmt-parse case plants a _test.go file gofmt cannot parse and must produce the fmt gate's id (base#1462)` | A _test.go file is outside `go build`, so a syntax error there passes the build stage and reaches the fmt gate first. gofmt then exits non-zero instead of listing a file; a fmt RUN that let that status kill it before printing its own id would report the case as a build failure, and the fmt gate would be green on a file it never read (base#1462). |
+| `Dockerfile.config-gen: the build stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)` | ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the pinned toolchain or fails, never one go fetches for a newer go.mod. The golang image pinned today sets it itself, but a GO_IMAGE override or bump need not. The test stage is FROM build, so one ENV in build, ahead of its first RUN, covers every go command in both (base#1462). |
 | `config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)` | - |
 | `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |
 | `just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)` | The one command all four environments run. The order matters: the redpath on a tree whose gates are already red proves nothing, and `;` would run it after a red runner and report the redpath's status instead. |

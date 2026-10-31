@@ -569,11 +569,11 @@ _run_redpath() {
   assert_logged_event config_gen_redpath_case_failed case=fmt-parse reason=wrong_id gate=fmt
 }
 
-# why: Go's automatic toolchain selection downloads and runs a compiler
-# other than the pinned image's when go.mod asks for a newer one;
-# ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the pinned
-# toolchain or fails. The test stage is FROM build, so one ENV in build,
-# ahead of its first RUN, covers every go command in both (base#1462).
+# why: ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the
+# pinned toolchain or fails, never one go fetches for a newer go.mod. The
+# golang image pinned today sets it itself, but a GO_IMAGE override or bump
+# need not. The test stage is FROM build, so one ENV in build, ahead of its
+# first RUN, covers every go command in both (base#1462).
 @test "Dockerfile.config-gen: the build stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   _df_instructions > "${S}/df"
