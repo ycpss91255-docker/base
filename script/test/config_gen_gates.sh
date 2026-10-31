@@ -20,10 +20,11 @@
 #                <name>=<path>`, so a later slice's inputs reach the build
 #                without an edit here. A name outside [a-z0-9-] is refused:
 #                it is spliced into that argument.
-#   2. gates     the Dockerfile's `test` stage, with --no-cache-filter test
-#                so every gate RUN executes. The build log streams to
-#                stderr; each `gate=<g> ok` it printed is re-printed on
-#                stdout, and on a red build the first
+#   2. gates     the Dockerfile's `test` stage, with --no-cache-filter
+#                admit,test so the admission RUN and every gate RUN execute
+#                on every call, an unchanged rerun included (base#1465).
+#                The build log streams to stderr; each `gate=<g> ok` it
+#                printed is re-printed on stdout, and on a red build the first
 #                `config_gen_gate_<g>_failed` is re-emitted as an event with
 #                gate=<g> and the run exits with docker's status. A red
 #                build with no gate id that printed an allowlisted
@@ -102,7 +103,7 @@ _cg_context_args() {
 _cg_gates() {
   local root="${1}" log="${2}" rc=0 gate event
   shift 2
-  docker build --progress=plain --no-cache-filter test --target test "$@" \
+  docker build --progress=plain --no-cache-filter admit,test --target test "$@" \
     -f "${root}/dockerfile/Dockerfile.config-gen" "${root}/dockerfile/config-gen" \
     >"${log}" 2>&1 || rc=$?
   cat "${log}" >&2

@@ -215,7 +215,7 @@ _df_instructions() {
   # from the config-gen Dockerfile and module context under --root.
   local _test
   _test="$(_argv_with --target test)" || fail "no docker call built --target test"
-  _argv_with --no-cache-filter test >/dev/null || fail "the test build does not pass --no-cache-filter test"
+  _argv_with --no-cache-filter admit,test >/dev/null || fail "the test build does not pass --no-cache-filter admit,test"
   run cat "${_test}"
   assert_line 'build'
   assert_line '--progress=plain'

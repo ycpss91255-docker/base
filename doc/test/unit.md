@@ -1969,7 +1969,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
 
-### test/bats/unit/config_gen_gates_spec.bats (27)
+### test/bats/unit/config_gen_gates_spec.bats (28)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2006,6 +2006,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. |
 | `config_gen_redpath.sh: every copy is a Git checkout run with context pr and no base override (base#1464)` | The redpath's copies run the real steps, and the 00-manifest step (base#1464) reads Git history: each copy must be a Git checkout with origin/main, and must run with context pr and no override whatever the caller inherited -- a CI main push exports main-push, and HEAD^1 does not exist in a one-commit copy. |
 | `config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)` | A gate that never goes red is indistinguishable from a working one on a clean tree; each verdict below is a way a broken gate would otherwise pass the redpath. Every case is reported before the run fails. |
+| `config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)` | A verdict RUN the build cache served prints no line, so a runner that excluded only `test` (or only `admit`) from the cache passes its first call and reports cache state on the next. The rerun case calls the runner twice on one unchanged copy and holds each call to the six ok lines exactly (base#1465). |
 | `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
 | `config_gen_redpath.sh: the id only quoted in text or in the build log, with no record, is wrong_id (base#1462)` | The id a case must produce is the runner's own record of the gate that went red. A substring scan over stderr would also accept the id quoted inside unrelated text, a longer id that starts with it, or the build log line the runner streams ahead of its verdict; each of those is a run that did not report the planted gate. |
 | `config_gen_redpath.sh: a record whose body is a longer id, or another event naming the id, is wrong_id (base#1462)` | Even among JSON records only the body names the gate that went red; a match on a body prefix, or on display text, would let an unrelated event or a longer id stand in for the planted gate's record. |

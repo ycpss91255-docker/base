@@ -3,7 +3,7 @@
 #
 # THE BUILD CONTEXT IS dockerfile/config-gen, the Go module itself:
 #
-#   docker build --progress=plain --no-cache-filter test --target test \
+#   docker build --progress=plain --no-cache-filter admit,test --target test \
 #     -f dockerfile/Dockerfile.config-gen dockerfile/config-gen
 #
 # Nobody runs that by hand in the normal case. script/test/config_gen_gates.sh
@@ -19,8 +19,9 @@
 #                that context sees the sentinel instead (base#1465).
 #   admit        no Go: refuses a build that got no mutation context, printing
 #                `cg_event config_gen_manifest_missing` on stderr, which the
-#                runner re-emits as that event. The test stage starts by
-#                copying its /admitted, so no gate runs before it passed.
+#                runner re-emits as that event; otherwise prints
+#                `gate=admission ok`. The test stage starts by copying its
+#                /admitted, so no gate runs before it passed.
 #   build        the module and its static binary
 #   test         the five gates, one RUN each, in this order: fmt, vet, lint,
 #                race, coverage. A gate that passes prints `gate=<g> ok`; one
@@ -83,6 +84,7 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 RUN --mount=type=bind,from=mutation,target=/mutation \
     e=manifest_missing; \
     if [[ -e /mutation/no-mutation-context ]]; then echo "cg_event config_gen_${e}" >&2; exit 1; fi; \
+    echo gate=admission ok; \
     touch /admitted
 
 FROM ${GO_IMAGE} AS build
@@ -100,8 +102,9 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/config-gen ./cmd/config-gen
 
-# The gates. The runner builds this stage with --no-cache-filter test, so
-# every RUN below executes on every run: a cached RUN prints nothing, and
+# The gates. The runner builds this stage with --no-cache-filter admit,test,
+# so admit's RUN and every RUN below execute on every run, two unchanged
+# runs in a row included (base#1465): a cached RUN prints nothing, and
 # the ok lines would then report cache state rather than a gate. The Go
 # build cache is mounted only to save compile time; it is keyed on content.
 FROM build AS test
