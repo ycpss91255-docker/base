@@ -474,8 +474,13 @@ _mr_worker() {
 
   _sbx="$(mktemp -d "${TMPDIR:-/tmp}/mutation-required.XXXXXX")" || {
     _mrw_res mutation_required_sandbox_failed step=mktemp rc=1; return 0; }
+  # chmod first: mktemp -d makes the sandbox 0700, and the probe mounts it
+  # as the container's /source, where a spec that drops from root to nobody
+  # could not reach a file under it -- its baseline went red and the row
+  # was refused (base#1461).
   # shellcheck disable=SC2016  # expanded by the sh that runs the step.
-  if ! { _mrw_step enumerate sh -c 'git -C "$1" ls-files -z --cached --others --exclude-standard > "$2"' \
+  if ! { _mrw_step chmod chmod 755 "${_sbx}" \
+    && _mrw_step enumerate sh -c 'git -C "$1" ls-files -z --cached --others --exclude-standard > "$2"' \
       _ "${_root}" "${_MRW_DIR}/list.all" \
     && _mrw_step enumerate sh -c 'git -C "$1" ls-files -z --deleted > "$2"' \
       _ "${_root}" "${_MRW_DIR}/list.del" \

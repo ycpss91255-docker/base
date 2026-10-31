@@ -4728,7 +4728,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/mutation_required_spec.bats (48)
+### test/bats/unit/mutation_required_spec.bats (49)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4792,6 +4792,7 @@ Every refusal holds assert_refusal's five points.
 | `parallel: MUTATION_REQUIRED_JOBS=0 is refused (base#1461)` | A job count that is not 1..99 is refused before anything runs: 0 would run nothing and report the empty run. |
 | `parallel: MUTATION_REQUIRED_JOBS=abc is refused (base#1461)` | The same for a value that is not a number. |
 | `sandbox: an inherited COMPOSE_PROJECT_NAME is not the sandbox's project (base#1461)` | The probe edits files and runs compose; in the live checkout that would race the developer's tree and its compose project. Each row runs in its own copy under its own project, derived from the copy's path by the copy's test.sh -- an inherited COMPOSE_PROJECT_NAME (the live checkout's) is not used, and teardown asks docker about the project the probe used. |
+| `sandbox: the sandbox directory the probe runs in is mode 755 (base#1461)` | The probe mounts the sandbox as the container's /source, and a spec that drops from root to nobody (an unreadable-file case) must still reach the files under it. mktemp -d makes the sandbox 0700, so every such spec went red at its baseline and the row was refused. |
 | `sandbox: two rows run under two distinct projects (base#1461)` | Two rows in flight at once are two sandboxes and two projects. |
 | `sandbox: an exported GIT_DIR and GIT_INDEX_FILE are not followed (base#1461)` | GIT_DIR / GIT_INDEX_FILE exported by a hook or a wrapper point every git call at another repository; the sandbox list must be the live one and the other repository must be left alone. |
 | `sandbox: a failing archive step fails the row and runs no probe (base#1461)` | A sandbox build step that fails leaves a partial copy; probing it would measure a different tree. Every step fails closed. |

@@ -759,8 +759,7 @@ STUB
 # why: The probe mounts the sandbox as the container's /source, and a spec
 # that drops from root to nobody (an unreadable-file case) must still reach
 # the files under it. mktemp -d makes the sandbox 0700, so every such spec
-# went red at its baseline and the row was refused; a checkout's own
-# directory is 0755.
+# went red at its baseline and the row was refused.
 @test "sandbox: the sandbox directory the probe runs in is mode 755 (base#1461)" {
   _pin_row a.tsv kill
   _commit_live
