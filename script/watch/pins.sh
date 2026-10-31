@@ -163,6 +163,92 @@ _pins_commit() {
   fi
 }
 
+# The pin that names the Go image a go.mod bump regenerates go.sum in.
+readonly _PINS_GOLANG_PIN=golang
+
+# Regenerate go.sum in the pinned golang image. The module arrives as a tar
+# on stdin, its paths relative to the module directory; stdout is moved to
+# fd 3 and the shell's own stdout to stderr, so `go` chatter (`all modules
+# verified`) never reaches the go.sum the caller captures.
+# shellcheck disable=SC2016 # expanded by the container's shell, not here.
+readonly _PINS_GO_SUM_SCRIPT='set -eu
+exec 3>&1 1>&2
+mkdir -p /tmp/w
+cd /tmp/w
+tar -xf -
+go mod tidy
+go mod verify
+cat go.sum >&3'
+
+# _pins_go_sum <image> <gomod> <staged-gomod> <out>
+#
+# Write to <out> the go.sum Go wants for the module whose go.mod is <gomod>
+# once its bytes are <staged-gomod>'s (base#1440): the module directory,
+# with the staged go.mod in place of the old one, is tidied and verified in
+# <image>. Nothing in the tree is written.
+_pins_go_sum() {
+  local _image="${1}" _gomod="${2}" _staged="${3}" _out="${4}"
+  local _mod="${_gomod%/*}" _dir _rc=0
+  _dir="$(mktemp -d)" || return 1
+  cp -- "${_staged}" "${_dir}/go.mod" || { rm -rf -- "${_dir}"; return 1; }
+  tar -cf - -C "${_mod}" --anchored --exclude=./go.mod . -C "${_dir}" go.mod \
+    | docker run --rm -i --user "$(id -u):$(id -g)" \
+        -e GOTOOLCHAIN=local -e HOME=/tmp -e GOCACHE=/tmp/gocache \
+        -e GOMODCACHE=/tmp/gomodcache -e GOFLAGS= \
+        --entrypoint /bin/sh "${_image}" -c "${_PINS_GO_SUM_SCRIPT}" \
+        > "${_out}" || _rc=$?
+  rm -rf -- "${_dir}"
+  return "${_rc}"
+}
+
+# _pins_set_go_mod <file> <lineno> <new-line>
+#
+# Commit a go.mod require bump together with the go.sum Go wants for it
+# (base#1440). The new go.sum is computed from the staged go.mod before
+# either file is touched; go.mod is committed first, then go.sum, each by a
+# rename of a copy beside it.
+_pins_set_go_mod() {
+  local _abs="${1}" _n="${2}" _repl="${3}" _record _image _term=$'\n'
+  local _state _gname _resolver _coord _pattern _skip _gfile _gline
+  local _sum="${_abs%/*}/go.sum" _staged _sumtmp
+  _record="$(_pins_record "${_PINS_GOLANG_PIN}")"
+  IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
+    _gfile _gline <<< "${_record}"
+  if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
+    _pins_commit "${_abs}" "${_n}" "${_repl}"
+    return
+  fi
+  (( _n > $(wc -l < "${_abs}") )) && _term=""
+  _staged="$(mktemp)" || return 1
+  { head -n "$(( _n - 1 ))" "${_abs}"; printf '%s%s' "${_repl}" "${_term}"
+    tail -n "+$(( _n + 1 ))" "${_abs}"; } > "${_staged}"
+  if ! _sumtmp="$(mktemp "${_sum%/*}/.go.sum.pins.XXXXXX")"; then
+    rm -f -- "${_staged}"
+    _pins_refuse "${_sum}" temp_create "no temp copy could be created beside it"
+    return 1
+  fi
+  if ! _pins_go_sum "${_image}" "${_abs}" "${_staged}" "${_sumtmp}"; then
+    rm -f -- "${_staged}" "${_sumtmp}"
+    _pins_refuse "${_abs}" go_sum_tidy "go mod tidy / go mod verify failed in ${_image%%@*}"
+    return 1
+  fi
+  rm -f -- "${_staged}"
+  if [[ -e "${_sum}" ]]; then
+    chmod "$(stat -c '%a' -- "${_sum}")" "${_sumtmp}"
+  else
+    chmod 644 "${_sumtmp}"
+  fi
+  if ! _pins_commit "${_abs}" "${_n}" "${_repl}"; then
+    rm -f -- "${_sumtmp}"
+    return 1
+  fi
+  if ! mv -f "${_sumtmp}" "${_sum}"; then
+    rm -f -- "${_sumtmp}"
+    _pins_refuse "${_sum}" commit_failed "the temp copy could not be renamed over it"
+    return 1
+  fi
+}
+
 # _pins_set <name> <version>
 #
 # Rewrite the pin's TARGET LINE, replacing the old version with the new one
@@ -225,7 +311,11 @@ _pins_set() {
     return 1
   fi
 
-  _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
+  if [[ "${_file##*/}" == go.mod ]]; then
+    _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
+  else
+    _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
+  fi
 
   local _check
   _check="$(_pins_value "${_name}")"
