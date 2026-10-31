@@ -3,6 +3,7 @@ package testcorpus
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -46,9 +47,11 @@ func callGlob(f *fakeTB, pattern string) (got []string, refused bool) {
 	return Glob(f, pattern), false
 }
 
-// An unset root is the build that skipped -ldflags -X: Glob must refuse
-// it rather than read whatever sits beside the package (base#1468).
-func TestGlobEmptyRoot(t *testing.T) {
+// An empty root makes Glob refuse rather than read whatever sits beside
+// the package (base#1468). This checks the refusal branch in process; the
+// configuration that leaves root empty, a build without -ldflags -X, is
+// TestGlobWithoutLinkerRoot.
+func TestGlobRefusesEmptyRoot(t *testing.T) {
 	saved := root
 	root = ""
 	t.Cleanup(func() { root = saved })
@@ -61,6 +64,59 @@ func TestGlobEmptyRoot(t *testing.T) {
 	if !strings.Contains(f.msg, "root is empty") {
 		t.Fatalf("Fatal message = %q, want it to contain %q", f.msg, "root is empty")
 	}
+}
+
+// noLinkerChildEnv marks the child process TestGlobWithoutLinkerRoot
+// starts; only that child runs TestGlobNoLinkerChild.
+const noLinkerChildEnv = "TESTCORPUS_NO_LINKER_CHILD"
+
+// A build without -ldflags -X must leave root empty, so Glob refuses it
+// (base#1468). The running binary was linked with -X, so this builds and
+// runs the package again in a child `go test` that is given no -ldflags
+// and no GOFLAGS, and never assigns root: whatever value the source gives
+// root is what the child sees. A nonempty initializer in source fails
+// here even though TestLinkerRoot, whose -X overrides it, still passes.
+func TestGlobWithoutLinkerRoot(t *testing.T) {
+	if os.Getenv(noLinkerChildEnv) == "1" {
+		t.Skip("running as the no-linker child")
+	}
+	cmd := exec.Command("go", "test", "-count=1", "-run", "^TestGlobNoLinkerChild$", "-v", ".")
+	cmd.Env = append(withoutEnv(os.Environ(), "GOFLAGS"), noLinkerChildEnv+"=1", "GOFLAGS=")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("no-linker child failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "--- PASS: TestGlobNoLinkerChild") {
+		t.Fatalf("no-linker child did not run TestGlobNoLinkerChild:\n%s", out)
+	}
+}
+
+// TestGlobNoLinkerChild runs only inside the child that
+// TestGlobWithoutLinkerRoot builds without -X. It leaves root as the
+// source set it and requires the empty-root refusal.
+func TestGlobNoLinkerChild(t *testing.T) {
+	if os.Getenv(noLinkerChildEnv) != "1" {
+		t.Skip("runs only as the child of TestGlobWithoutLinkerRoot")
+	}
+	f := &fakeTB{TB: t}
+	got, refused := callGlob(f, "corpus/s1/*.toml")
+	if !refused {
+		t.Fatalf("Glob(%q) in a build without -X returned %q, want a Fatal", "corpus/s1/*.toml", got)
+	}
+	if !strings.Contains(f.msg, "root is empty") {
+		t.Fatalf("Fatal message = %q, want it to contain %q", f.msg, "root is empty")
+	}
+}
+
+// withoutEnv returns env minus every entry for key.
+func withoutEnv(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, key+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // TestLinkerRoot runs against the root the build passed with -ldflags -X,
@@ -79,6 +135,11 @@ func TestLinkerRoot(t *testing.T) {
 // empty slice lets a table-driven test loop zero times and pass, and an
 // absolute or `..` pattern escapes the corpus root (base#1468). Each
 // message has to name the pattern so the failing caller is findable.
+//
+// The absolute and `..` patterns each resolve to the existing seed file
+// once joined to root, so without its own guard each would match and be
+// returned: neither the zero-match guard nor the malformed-pattern guard
+// can stand in for the containment guards.
 func TestGlobRefusesBadPattern(t *testing.T) {
 	saved := root
 	root = t.TempDir()
@@ -90,7 +151,13 @@ func TestGlobRefusesBadPattern(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, pattern := range []string{"corpus/s1/*.none", "/abs", "../x", "["} {
+	for _, pattern := range []string{
+		"corpus/s1/*.none",
+		"/corpus/s1/seed.toml",
+		"corpus/../corpus/s1/seed.toml",
+		"../" + filepath.Base(root) + "/corpus/s1/seed.toml",
+		"[",
+	} {
 		t.Run(pattern, func(t *testing.T) {
 			f := &fakeTB{TB: t}
 			got, refused := callGlob(f, pattern)
