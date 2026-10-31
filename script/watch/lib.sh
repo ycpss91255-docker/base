@@ -1436,7 +1436,8 @@ readonly _PIN_GO_DIRECTIVE_PIN=golang
 # Compare every tracked go.mod's `go` directive with the golang pin by
 # major.minor: the directive names the Go the module needs, the pin the Go
 # that builds it. A mismatch is go_mod_go_directive_mismatch (file= line=
-# go= golang=), rc 1, nothing on stdout (base#1440).
+# go= golang=), rc 1, nothing on stdout. A go.mod with no `go` line is a
+# mismatch named go=- line=0 (base#1440).
 _pin_go_directive_check() {
   local _root="${1}" _table _rec _list _file _go_rec _go_ln _go_ver
   local _image="" _tag _pin_mm _go_mm
@@ -1455,11 +1456,14 @@ _pin_go_directive_check() {
   while IFS= read -r _file; do
     [[ "${_file##*/}" == go.mod ]] || continue
     _go_rec="$(_pin_go_mod_go_line "${_root}/${_file}")" || return 1
-    [[ -n "${_go_rec}" ]] || continue
-    _go_ln="${_go_rec%%$'\t'*}"
-    _go_ver="${_go_rec#*$'\t'}"
-    [[ "${_go_ver}" =~ ^([0-9]+)\.([0-9]+) ]]
-    _go_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+    if [[ -n "${_go_rec}" ]]; then
+      _go_ln="${_go_rec%%$'\t'*}"
+      _go_ver="${_go_rec#*$'\t'}"
+      [[ "${_go_ver}" =~ ^([0-9]+)\.([0-9]+) ]]
+      _go_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+    else
+      _go_ln=0 _go_ver=- _go_mm=-
+    fi
     if [[ "${_go_mm}" != "${_pin_mm}" ]]; then
       _log_err pin go_mod_go_directive_mismatch "file=${_file}" "line=${_go_ln}" \
         "go=${_go_mm}" "golang=${_pin_mm}" \
