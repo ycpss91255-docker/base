@@ -17,8 +17,12 @@
 #   [--repo <dir>] <out-dir>     writes manifest, visible.sha256,
 #                                ignored.sha256; replaces <out-dir> whole
 #
-# Every refusal row holds the five points (assert_refusal) and checks that a
-# pre-seeded <out-dir> keeps its bytes, file list and mode.
+# Every refusal row holds the five points and names the script as the file
+# that logged it (_assert_cgm_refusal). Every refusal row that names an
+# existing <out-dir> -- a directory, a file or a symlink -- snapshots it
+# first (_snapshot: entries, types, modes and sha256 of every file) and
+# checks the snapshot is unchanged; the two usage rows that name no
+# existing <out-dir> (missing_out, repo_value) have nothing to snapshot.
 
 bats_require_minimum_version 1.5.0
 
@@ -114,6 +118,15 @@ _run_cgm() {
   run --separate-stderr env PATH="${S}/bin:${PATH}" LOG_FORMAT=json bash "${CGM}" "$@"
 }
 
+# _assert_cgm_refusal <status> <id> [<attribution>...] -- assert_refusal's
+# five points, plus code.filepath naming this script: a refusal logged by
+# another file (a sourced helper, the logger itself) is not this script's.
+_assert_cgm_refusal() {
+  local _st="${1}" _id="${2}"
+  shift 2
+  assert_refusal "${_st}" "${_id}" "$@" "code.filepath=${CGM}"
+}
+
 # _manifest_want <header> [<line>...] -- the manifest bytes expected.
 _manifest_want() {
   printf '%s\n' "$@"
@@ -207,7 +220,7 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_base_unreachable ref=origin/main reason=missing
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=origin/main reason=missing
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
   _no_scratch_left "${S}"
 }
@@ -222,10 +235,10 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   _run_cgm --repo "${S}/c" "${S}/out"
-  assert_refusal 1 config_gen_mutation_base_unreachable ref=origin/main reason=shallow
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=origin/main reason=shallow
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
   CONFIG_GEN_MUTATION_CONTEXT=main-push _run_cgm --repo "${S}/c" "${S}/out"
-  assert_refusal 1 config_gen_mutation_base_unreachable ref=HEAD^1 reason=shallow
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=HEAD^1 reason=shallow
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
   _no_scratch_left "${S}"
 }
@@ -240,7 +253,7 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   CONFIG_GEN_MUTATION_CONTEXT=main-push _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_base_unreachable ref=HEAD^1 reason=missing
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=HEAD^1 reason=missing
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
@@ -250,7 +263,7 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   CONFIG_GEN_MUTATION_BASE=deadbeef _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_base_unreachable ref=deadbeef reason=missing
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=deadbeef reason=missing
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
@@ -260,8 +273,48 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   CONFIG_GEN_MUTATION_BASE="${M1}" _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_base_unreachable "ref=${M1}" reason=not_ancestor
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable "ref=${M1}" reason=not_ancestor
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
+}
+
+# why: A repository with no commit has no HEAD to diff against; it is
+# refused by name before any base rule runs, in either context.
+@test "base: a repository with no commit (unborn HEAD) is refused as ref=HEAD, rc 1 (base#1464)" {
+  W="${S}/w"
+  git init -q "${W}"
+  mkdir -p "${W}/${MOD}"
+  printf 'new\n' > "${W}/${MOD}/a.go"
+  _seed_out "${S}/out"
+  local _before
+  _before="$(_snapshot "${S}/out")"
+  _run_cgm --repo "${W}" "${S}/out"
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=HEAD reason=missing
+  assert_equal "$(_snapshot "${S}/out")" "${_before}"
+  CONFIG_GEN_MUTATION_CONTEXT=main-push _run_cgm --repo "${W}" "${S}/out"
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=HEAD reason=missing
+  assert_equal "$(_snapshot "${S}/out")" "${_before}"
+  _no_scratch_left "${S}"
+}
+
+# why: origin/main from an unrelated history (a re-created remote, a wrong
+# fetch) has no merge-base with HEAD; merge-base exits 1 and printing an
+# empty base would diff against nothing.
+@test "base: an origin/main with no common ancestor is refused as no_merge_base, rc 1 (base#1464)" {
+  _stale_main
+  git -C "${W}" checkout -q --orphan other
+  git -C "${W}" rm -rq --cached .
+  local _o
+  _o="$(_commit "${W}" orphan unrelated.txt)"
+  git -C "${W}" checkout -q -f feat
+  git -C "${W}" update-ref refs/remotes/origin/main "${_o}"
+  git -C "${W}" branch -q -D other
+  _seed_out "${S}/out"
+  local _before
+  _before="$(_snapshot "${S}/out")"
+  _run_cgm --repo "${W}" "${S}/out"
+  _assert_cgm_refusal 1 config_gen_mutation_base_unreachable ref=origin/main reason=no_merge_base
+  assert_equal "$(_snapshot "${S}/out")" "${_before}"
+  _no_scratch_left "${S}"
 }
 
 # ── context, repository and usage refusals ──────────────────────────────────
@@ -272,7 +325,7 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   CONFIG_GEN_MUTATION_CONTEXT=push _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 2 config_gen_mutation_context_invalid context=push
+  _assert_cgm_refusal 2 config_gen_mutation_context_invalid context=push
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
@@ -284,7 +337,7 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   CONFIG_GEN_MUTATION_CONTEXT= _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 2 config_gen_mutation_context_invalid context=
+  _assert_cgm_refusal 2 config_gen_mutation_context_invalid context=
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
@@ -294,14 +347,14 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   _run_cgm --repo "${S}/plain" "${S}/out"
-  assert_refusal 2 config_gen_mutation_repo_invalid "repo=${S}/plain"
+  _assert_cgm_refusal 2 config_gen_mutation_repo_invalid "repo=${S}/plain"
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
 @test "usage: no <out-dir> is refused as missing_out, rc 2 (base#1464)" {
   _stale_main
   _run_cgm --repo "${W}"
-  assert_refusal 2 config_gen_mutation_usage_invalid reason=missing_out
+  _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=missing_out
 }
 
 @test "usage: a second positional argument is refused as extra_arg, rc 2 (base#1464)" {
@@ -310,14 +363,14 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   _run_cgm --repo "${W}" "${S}/out" "${S}/out2"
-  assert_refusal 2 config_gen_mutation_usage_invalid reason=extra_arg
+  _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=extra_arg
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
   [[ ! -e "${S}/out2" ]] || fail "the extra argument was created"
 }
 
 @test "usage: --repo without a value is refused as repo_value, rc 2 (base#1464)" {
   _run_cgm --repo
-  assert_refusal 2 config_gen_mutation_usage_invalid reason=repo_value
+  _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=repo_value
 }
 
 @test "usage: an unknown option is refused as unknown_option, rc 2 (base#1464)" {
@@ -326,22 +379,29 @@ _assert_manifest() {
   local _before
   _before="$(_snapshot "${S}/out")"
   _run_cgm --bogus --repo "${W}" "${S}/out"
-  assert_refusal 2 config_gen_mutation_usage_invalid reason=unknown_option
+  _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=unknown_option
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
 @test "usage: an <out-dir> that is a file or a symlink is refused as out_not_dir, rc 2 (base#1464)" {
   _stale_main
-  printf 'a file\n' > "${S}/file"
-  _run_cgm --repo "${W}" "${S}/file"
-  assert_refusal 2 config_gen_mutation_usage_invalid reason=out_not_dir
-  assert_equal "$(cat "${S}/file")" "a file"
+  # No trailing newline and mode 640: a rewrite, a truncation or a chmod
+  # each changes the snapshot of the directory holding the file.
+  mkdir -p "${S}/fdir"
+  printf 'a file' > "${S}/fdir/file"
+  chmod 640 "${S}/fdir/file"
+  local _fbefore
+  _fbefore="$(_snapshot "${S}/fdir")"
+  _run_cgm --repo "${W}" "${S}/fdir/file"
+  _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=out_not_dir
+  assert_equal "$(_snapshot "${S}/fdir")" "${_fbefore}"
+  _no_scratch_left "${S}/fdir"
   _seed_out "${S}/real"
   ln -s "${S}/real" "${S}/link"
   local _before
   _before="$(_snapshot "${S}/real")"
   _run_cgm --repo "${W}" "${S}/link"
-  assert_refusal 2 config_gen_mutation_usage_invalid reason=out_not_dir
+  _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=out_not_dir
   [[ -L "${S}/link" ]] || fail "the symlink was replaced"
   assert_equal "$(_snapshot "${S}/real")" "${_before}"
   _no_scratch_left "${S}"
@@ -378,7 +438,24 @@ _assert_manifest() {
   run --separate-stderr env LOG_FORMAT=json bash -c \
     'set -euo pipefail; source "$1"; shift; _cgm_write_manifest "$@"' _ \
     "${CGM}" "${W}" "${M0}" "base=${M0} head=${F2} dirty=no context=pr" "${S}/dest/manifest"
-  assert_refusal 1 config_gen_mutation_none_beside_diff "base=${M0}" "path=${MOD}/"
+  _assert_cgm_refusal 1 config_gen_mutation_none_beside_diff "base=${M0}" "path=${MOD}/"
+  assert_equal "$(_snapshot "${S}/dest")" "${_before}"
+}
+
+# why: The none re-check has two halves: a tracked diff and an untracked
+# module file. Here the module equals the base and only an untracked file
+# differs, so only the untracked half can refuse.
+@test "manifest: a none marker beside an untracked module file is refused, rc 1 (base#1464)" {
+  _stale_main
+  printf 'new\n' > "${W}/${MOD}/u.go"
+  mkdir -p "${S}/dest"
+  printf 'old\n' > "${S}/dest/manifest"
+  local _before
+  _before="$(_snapshot "${S}/dest")"
+  run --separate-stderr env LOG_FORMAT=json bash -c \
+    'set -euo pipefail; source "$1"; shift; _cgm_write_manifest "$@"' _ \
+    "${CGM}" "${W}" "${F2}" "base=${F2} head=${F2} dirty=yes context=pr" "${S}/dest/manifest"
+  _assert_cgm_refusal 1 config_gen_mutation_none_beside_diff "base=${F2}" "path=${MOD}/"
   assert_equal "$(_snapshot "${S}/dest")" "${_before}"
 }
 
@@ -473,6 +550,98 @@ _hash_line() {
   assert_equal "$(cat "${S}/out/ignored.sha256")" "$(_hash_line "${W}" "${MOD}/x.out")"
 }
 
+# ── path spelling ───────────────────────────────────────────────────────────
+
+# _odd_names -- on top of _stale_main, commit module files whose names need
+# quoting (control bytes, a quote, a backslash) or carry non-ASCII and a
+# space, and leave two such files untracked. The repository sets
+# core.quotePath=true, Git's default, so a script that let Git's own
+# quoting through would spell 測試 as octal escapes. Sets H.
+_odd_names() {
+  _stale_main
+  git -C "${W}" config core.quotePath true
+  local _n
+  for _n in $'t\tab.go' 'q"b\.go' $'n\nl.go' $'c\001.go' $'d\177.go' 'sp ace.go' '測試.go'; do
+    printf '%s\n' "${_n}" > "${W}/${MOD}/${_n}"
+  done
+  git -C "${W}" add -A
+  git -C "${W}" commit -q --no-verify -m odd
+  H="$(_rev "${W}" HEAD)"
+  printf 'u\n' > "${W}/${MOD}/"$'u\tv.go'
+  printf 'w\n' > "${W}/${MOD}/未.go"
+}
+
+# why: The review's finding: under Git's default quoting a non-ASCII name
+# came out of ls-files as an octal-escaped, double-quoted string, which is
+# no file on disk, so the hash files silently left it out while the run
+# succeeded. Paths are enumerated NUL-delimited and every path in all three
+# files is spelled one way: as is, unless it holds a control byte, a quote
+# or a backslash, which are C-quoted the way Git does with
+# core.quotePath=false. The expected lines are written out literally.
+@test "paths: names with control bytes, quotes, backslashes and non-ASCII are listed and hashed (base#1464)" {
+  _odd_names
+  CONFIG_GEN_MUTATION_BASE="${F2}" _run_cgm --repo "${W}" "${S}/out"
+  assert_success
+  _assert_manifest "${S}/out" "base=${F2} head=${H} dirty=yes context=pr" \
+    "A	\"${MOD}/c\\001.go\"" \
+    "A	\"${MOD}/d\\177.go\"" \
+    "A	\"${MOD}/n\\nl.go\"" \
+    "A	\"${MOD}/q\\\"b\\\\.go\"" \
+    "A	${MOD}/sp ace.go" \
+    "A	\"${MOD}/t\\tab.go\"" \
+    "A	${MOD}/測試.go" \
+    "A	\"${MOD}/u\\tv.go\"" \
+    "A	${MOD}/未.go"
+  # Raw name -> spelling, for every present module file.
+  local -a _raw=(a.go b.go c.go $'c\001.go' $'d\177.go' $'n\nl.go' 'q"b\.go' 'sp ace.go' $'t\tab.go' $'u\tv.go' '未.go' '測試.go')
+  local -a _say=(a.go b.go c.go '"c\001.go"' '"d\177.go"' '"n\nl.go"' '"q\"b\\.go"' 'sp ace.go' '"t\tab.go"' '"u\tv.go"' '未.go' '測試.go')
+  local _i _want=""
+  for _i in "${!_raw[@]}"; do
+    local _p="${MOD}/${_raw[_i]}" _q
+    case "${_say[_i]}" in
+      \"*) _q="\"${MOD}/${_say[_i]#\"}" ;;
+      *) _q="${MOD}/${_say[_i]}" ;;
+    esac
+    _want+="$(printf '%s\t%s' "${_q}" "$(sha256sum < "${W}/${_p}" | cut -d' ' -f1)")"$'\n'
+  done
+  assert_equal "$(LC_ALL=C sort "${S}/out/visible.sha256")" "$(printf '%s' "${_want}" | LC_ALL=C sort)"
+  assert_equal "$(wc -l < "${S}/out/visible.sha256" | tr -d ' ')" 12
+}
+
+# why: The spelling is the script's, not the caller's Git configuration:
+# the same tree under core.quotePath=false gives byte-identical files.
+@test "paths: the spelling does not depend on core.quotePath (base#1464)" {
+  _odd_names
+  CONFIG_GEN_MUTATION_BASE="${F2}" _run_cgm --repo "${W}" "${S}/q1"
+  assert_success
+  git -C "${W}" config core.quotePath false
+  CONFIG_GEN_MUTATION_BASE="${F2}" _run_cgm --repo "${W}" "${S}/q0"
+  assert_success
+  local _f
+  for _f in manifest visible.sha256 ignored.sha256; do
+    cmp "${S}/q1/${_f}" "${S}/q0/${_f}" || fail "${_f} differs with core.quotePath"
+  done
+}
+
+# why: An ignored file with an odd name is hashed into ignored.sha256 under
+# the same spelling, not dropped.
+@test "paths: an ignored file with a non-ASCII or tab name is hashed into ignored.sha256 (base#1464)" {
+  _stale_main
+  git -C "${W}" config core.quotePath true
+  printf '*.out\n' > "${W}/${MOD}/.gitignore"
+  git -C "${W}" add "${MOD}/.gitignore"
+  git -C "${W}" commit -q --no-verify -m ignore
+  printf 'i\n' > "${W}/${MOD}/忽略.out"
+  printf 'j\n' > "${W}/${MOD}/"$'x\ty.out'
+  _run_cgm --repo "${W}" "${S}/out"
+  assert_success
+  local _want
+  _want="$(printf '%s\t%s\n' \
+    "\"${MOD}/x\\ty.out\"" "$(sha256sum < "${W}/${MOD}/"$'x\ty.out' | cut -d' ' -f1)" \
+    "${MOD}/忽略.out" "$(sha256sum < "${W}/${MOD}/忽略.out" | cut -d' ' -f1)" | LC_ALL=C sort)"
+  assert_equal "$(LC_ALL=C sort "${S}/out/ignored.sha256")" "${_want}"
+}
+
 # ── publication ─────────────────────────────────────────────────────────────
 
 # why: A plain mv into an existing directory nests the new output inside the
@@ -541,7 +710,7 @@ EOF
   local _before
   _before="$(_snapshot "${S}/out")"
   MV_FAIL_AT=2 _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_publish_failed stage=install restored=yes
+  _assert_cgm_refusal 1 config_gen_mutation_publish_failed stage=install restored=yes
   [[ -d "${S}/out" ]] || fail "the destination is gone"
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
   assert_equal "$(stat -c %a "${S}/out")" 750
@@ -555,8 +724,20 @@ EOF
   local _before
   _before="$(_snapshot "${S}/out")"
   MV_FAIL_AT=1 _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_publish_failed stage=aside restored=n/a
+  _assert_cgm_refusal 1 config_gen_mutation_publish_failed stage=aside restored=n/a
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
+  _no_scratch_left "${S}"
+}
+
+# why: With no previous output there is nothing to restore; a failed
+# install must still refuse by name and leave neither the destination nor
+# any scratch behind.
+@test "publish: an install that fails with no previous output refuses and leaves nothing (base#1464)" {
+  _stale_main
+  _shim_mv
+  MV_FAIL_AT=1 _run_cgm --repo "${W}" "${S}/out"
+  _assert_cgm_refusal 1 config_gen_mutation_publish_failed stage=install restored=n/a "out=${S}/out"
+  [[ ! -e "${S}/out" ]] || fail "a destination appeared: $(ls -la "${S}/out")"
   _no_scratch_left "${S}"
 }
 
@@ -569,7 +750,7 @@ EOF
   local _before _line _backup
   _before="$(_snapshot "${S}/out")"
   MV_FAIL_AT=2,3 _run_cgm --repo "${W}" "${S}/out"
-  assert_refusal 1 config_gen_mutation_publish_failed stage=install restored=no
+  _assert_cgm_refusal 1 config_gen_mutation_publish_failed stage=install restored=no
   _line="$(log_event_line config_gen_mutation_publish_failed "${stderr}")"
   [[ "${_line}" =~ \"backup\":\"([^\"]+)\" ]] || fail "the event names no backup: ${_line}"
   _backup="${BASH_REMATCH[1]}"

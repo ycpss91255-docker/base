@@ -4273,7 +4273,7 @@ rather than reporting what it managed.
 | `_run_log_event_registry: DIES when no _log_ call site is read anywhere` | The blind-detector case, and the one that matters most: 271 direct call sites exist today, so zero means the detector stopped matching -- a renamed helper, a changed argument order -- and a blind detector reports every id registered |
 | `_run_log_event_registry: DIES when nothing forwards its first argument into a body slot` | The wrapper half is where two of base#1220's four hid, and it is the half that can vanish silently: with no forwarding wrapper found the scan shrinks to the direct call sites and the thirty-odd lint drivers' events leave the population without anything saying so |
 
-### test/bats/unit/log_spec.bats (69)
+### test/bats/unit/log_spec.bats (70)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
@@ -4357,6 +4357,7 @@ OK, error names body + file
 | `_log_color_enabled: NO_COLOR wins over _LOG_IS_TTY=0 (#605)` | - |
 | `_log_color_enabled: FORCE_COLOR wins over _LOG_IS_TTY=1 (#605)` | - |
 | `JSON output contains OTel fields` | - |
+| `JSON code.filepath and code.lineno name the caller of _log_<level>, not log.sh (base#1464)` | code.filepath and code.lineno must name the code that logged the event. They were read one frame too shallow, so every event was attributed to the _log_<level> wrapper inside log.sh itself, and a check that a refusal came from a given script could never pass or fail on it (base#1464). |
 | `JSON output contains custom attributes` | - |
 | `JSON severity_number: DEBUG=5 INFO=9 WARN=13 ERROR=17 FATAL=21` | - |
 | `_log_json_escape escapes a double-quote` | - |
