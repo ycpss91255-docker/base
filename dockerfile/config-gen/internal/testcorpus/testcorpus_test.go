@@ -2,8 +2,10 @@ package testcorpus
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -70,5 +72,34 @@ func TestLinkerRoot(t *testing.T) {
 	want := []string{filepath.Join(root, "corpus", "s1", "seed.toml")}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Glob(%q) = %q, want %q", "corpus/s1/*.toml", got, want)
+	}
+}
+
+// A pattern Glob cannot serve is a refusal, never an empty result: an
+// empty slice lets a table-driven test loop zero times and pass, and an
+// absolute or `..` pattern escapes the corpus root (base#1468). Each
+// message has to name the pattern so the failing caller is findable.
+func TestGlobRefusesBadPattern(t *testing.T) {
+	saved := root
+	root = t.TempDir()
+	t.Cleanup(func() { root = saved })
+	if err := os.MkdirAll(filepath.Join(root, "corpus", "s1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "corpus", "s1", "seed.toml"), []byte("x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, pattern := range []string{"corpus/s1/*.none", "/abs", "../x", "["} {
+		t.Run(pattern, func(t *testing.T) {
+			f := &fakeTB{TB: t}
+			got, refused := callGlob(f, pattern)
+			if !refused {
+				t.Fatalf("Glob(%q) returned %q, want a Fatal", pattern, got)
+			}
+			if !strings.Contains(f.msg, strconv.Quote(pattern)) {
+				t.Fatalf("Fatal message = %q, want it to name the pattern %q", f.msg, pattern)
+			}
+		})
 	}
 }
