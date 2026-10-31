@@ -440,3 +440,17 @@ config_gen_mutation_context_invalid
 config_gen_mutation_base_unreachable
 config_gen_mutation_none_beside_diff
 config_gen_mutation_publish_failed
+
+# script/test/drivers/mutation_required.sh (the required-kill roster runner,
+# base#1461) and the no-flag `just test` dispatch that runs it.
+mutation_required_usage_invalid
+mutation_required_roster_empty
+mutation_required_row_invalid
+mutation_required_jobs_invalid
+mutation_required_sandbox_failed
+mutation_required_survived
+mutation_required_probe_refused
+mutation_required_sandbox_held
+mutation_required_pinned
+mutation_required_interrupted
+ci_mutation_required_failed

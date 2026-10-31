@@ -3837,15 +3837,20 @@ _cg_mut_ctx() {
 # base-ref diff, the redpath's copies and the mutation baseline need
 # history), the three just-pin steps, and the one canonical step with its
 # CONFIG_GEN_MUTATION_CONTEXT env. Every step is a literal here, so no file
-# under test can move its own expectation.
+# under test can move its own expectation. The self-hosted job then runs the
+# required-kill roster (base#1461); the hosted job does not, because the
+# hosted lint-static legs run it.
 _cg_expected_steps() {
-  local _pin _ctx
+  local _pin _ctx _tail='[]'
   _pin="$(_cg_just_pin_steps)" || return 1
   _ctx="$(_cg_mut_ctx "${1}")" || { printf '%s\n' "${_ctx}"; return 1; }
-  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" yq -n -o json -I0 '
+  [[ "${1}" != coverage-local ]] \
+    || _tail='[{"name": "Run the required-kill mutation roster", "run": "just test mutation-required"}]'
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" CG_TAIL="${_tail}" yq -n -o json -I0 '
       [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
       + env(CG_PIN)
       + [{"name": strenv(CG_NAME), "env": {"CONFIG_GEN_MUTATION_CONTEXT": strenv(CG_CTX)}, "run": strenv(CG_RUN)}]
+      + env(CG_TAIL)
       | sort_keys(..)'
 }
 

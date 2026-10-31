@@ -733,6 +733,32 @@ jobs:
           LINT_GROUP: ${{ matrix.group }}
         run: ./script/test/test.sh --lint --group "${LINT_GROUP}"
 
+      # The required-kill mutation roster (base#1461), the hosted leg of the
+      # check the no-flag `just test` runs between lint and bats. Every leg
+      # runs it, ungated, through `just`; the just-pin steps are copied
+      # from the acceptance job, which carries their rationale.
+      - name: Resolve the pinned just version
+        id: just-pin
+        run: |
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install just (container-ops entry point)
+        uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just-pin.outputs.version }}
+
+      - name: Check the just on PATH is the pin
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
+      - name: Run the required-kill mutation roster
+        run: just test mutation-required
+
       - name: Reclaim this run's docker artifacts
         if: always()
         continue-on-error: true

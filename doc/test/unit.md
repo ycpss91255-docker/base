@@ -1227,7 +1227,7 @@ between them can be asserted at all.
 | `lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)` | The one shape the digits-only regex accepts and bash arithmetic rejects. `1/08` is a well-formed spec by every rule stated above and an INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw "value too great for base" from the shell itself and then refused for a reason that was not the reason -- a padded index reported as "outside its own total", a padded total as "asks for 08 groups". A spec is read in the base it is written in, and a padded one names the same group as its bare twin. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
-| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
+| `main: dispatches no-flag default to the ci service` | End-to-end default dispatch. The required-kill roster the no-flag run calls between its lint and bats compose runs (base#1461) is stubbed: it builds real sandboxes, and pre_pr_mirror_parity_spec holds its order. |
 | `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch, and the count it is handed is FLOORED rather than equal to the core count -- `_run_tests` is one of the runners with no kcov in the loop, so there is no line set to move and nothing to hold it at the machine's size (base#1068). The assertion is `> the mocked cores`, not a number: it says WHICH SIDE of the policy this runner is on, which is the part a re-tune must not silently flip. |
 | `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
@@ -4615,6 +4615,77 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
+### test/bats/unit/mutation_required_spec.bats (43)
+
+Every shell refusal guard a config-gen slice adds is listed, with the
+mutation that disables it, in script/test/mutation_required/<slice>.tsv.
+Before this runner nothing read those files: a pinning test could be deleted
+with every gate green, because the only proof that the guard was pinned was
+a probe someone once ran by hand. The runner reads every row, validates ALL
+of them before any baseline runs, probes each row in a private sandbox copy
+through its own fixed --apply, and exits 0 only when every row is PINNED.
+
+Row contract, one for every roster file: <id> TAB <subject> TAB <spec> TAB
+<old> TAB <new> `#` lines and blank lines are skipped. <old> and <new> are
+decoded with exactly three escapes, `\\` `\t` `\n`; any other `\x` or a
+trailing `\` is reason=bad_escape. <old> must occur exactly once in
+<subject>; <new> may be empty (a deletion) and must differ from <old>.
+
+Seams the cases use: --root <dir> names the checkout whose roster is read
+(default: this checkout); MUTATION_PROBE_RUNNER is the probe's own runner
+override, so no case builds an image; MUTATION_REQUIRED_PROBE replaces the
+probe itself where a case needs a probe that lies; `docker` is a PATH stub
+that logs its argv and answers `ps` from MR_DOCKER_PS. --check validates the
+roster and runs nothing.
+
+Every refusal holds assert_refusal's five points.
+
+| Test | Description |
+|------|-------------|
+| `roster: every committed row is a five-column row that --apply changes in exactly one region (base#1461)` | The roster already holds 76 rows from S1b, S1d and S1h in a four-column `sed -i` form, and the runner's contract is the declarative five-column one. Adopting them means every committed row is in that contract, applies through the runner's own --apply to exactly one changed region, and survives the runner's validation pass -- a contract that rejects or mis-splits the committed rows fails here, as does a roster that lost one of them on the way. |
+| `roster: the runner's validation pass accepts every committed row (base#1461)` | The runner's own validation over the committed roster, not the spec's re-reading of it: a contract the runner reads differently from the documented one (a lost empty <new>, a decoder that is not the three escapes) refuses a committed row here. |
+| `validation: an empty roster directory is refused (base#1461)` | A roster directory with no roster file is a gate that checks nothing; reading it as "every row PINNED" is the false green this runner exists to remove. |
+| `validation: roster files with no rows are refused (base#1461)` | The same false green one step later: roster files that carry only comments are zero rows. |
+| `validation: a four-field row is refused before any baseline (base#1461)` | The committed rows are four columns wide in the sed form; a runner that took a four-field row would read the sed command as <old>. |
+| `validation: a six-field row is refused before any baseline (base#1461)` | A sixth field is a row whose fields are not where the reader thinks. |
+| `validation: a row whose subject does not exist is refused (base#1461)` | A row naming a subject that is not there would probe nothing. |
+| `validation: a row whose spec does not exist is refused (base#1461)` | A row naming a spec that is not there is a pinning test that was deleted -- the exact event the roster exists to catch. |
+| `validation: a spec outside test/bats is refused (base#1461)` | A spec path outside test/bats is not a spec the suite runs. |
+| `validation: a subject path with .. is refused (base#1461)` | A subject that walks out of the root is one the sandbox does not hold and the probe must not write. |
+| `validation: an old that does not occur in the subject is refused (base#1461)` | <old> that is not in the subject changes no byte: the probe would refuse at run time, after every earlier row's baseline. |
+| `validation: an old that occurs twice is refused (base#1461)` | <old> that occurs twice is a row whose target is a guess. |
+| `validation: a new equal to old is refused (base#1461)` | <new> equal to <old> changes no byte. |
+| `validation: an empty old is refused (base#1461)` | An empty <old> is everywhere and nowhere. |
+| `validation: a duplicate id in one file is refused (base#1461)` | Two rows with one id make a report that cannot say which row failed. |
+| `validation: the same mutation in two roster files is refused (base#1461)` | The same mutation under two ids, in two files, counts one kill twice. |
+| `validation: an id outside [a-z0-9-] is refused (base#1461)` | Ids are the names the PR verdict tables and the reports use. |
+| `validation: an escape outside the three is refused (base#1461)` | Only three escapes exist. A decoder that kept `\q` raw, or ran printf %b over it, would apply a different byte string than the row says. |
+| `validation: a trailing backslash is refused (base#1461)` | A trailing backslash escapes nothing. |
+| `validation: two invalid rows are both reported (base#1461)` | Every invalid row is reported, not only the first, so one run names the whole repair. |
+| `escapes: a two-line old written with \n is applied as two lines (base#1461)` | `\n` joins two lines into one <old>: the shape S1d's base-origin-missing and S1h's build-exit need, because their one line occurs more than once. |
+| `escapes: \t is a TAB byte (base#1461)` | `\t` is a TAB byte; the column separator cannot appear raw. |
+| `escapes: \\n is a literal backslash then n (base#1461)` | `\\n` is a backslash then n -- S1h's build-fold line carries a literal backslash-n. A raw-literal reader looks for two backslashes. |
+| `escapes: an empty new deletes old (base#1461)` | An empty <new> deletes: S1d's redpath-git-copy removes a line. |
+| `verdict: a row the spec notices is reported pinned and the run passes (base#1461)` | The one green: every row PINNED, each reported with its row and id. |
+| `verdict: a row the spec does not notice fails as survived (base#1461)` | A row whose mutation the spec does not notice is a guard nothing pins. The probe calls a narrow green INCONCLUSIVE, and here that is a failure, never a pass. |
+| `verdict: a probe that exits 0 without its PINNED line is refused (base#1461)` | A probe that exits 0 without its PINNED line is not a PINNED probe; a check on the status alone would pass it. |
+| `verdict: a PINNED line over zero not ok is refused (base#1461)` | The PINNED line over zero `not ok` is a verdict with no witness; a grep for the bare word would pass it. |
+| `verdict: one survivor fails the run and no row is reported pinned (base#1461)` | Verdicts are published only after every row finished, and a failing run publishes no pass: a pinned row 1 inside a run whose row 2 survived says nothing that reads as green. |
+| `parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)` | 78 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time (default 4); a runner that only runs serially costs every gate the sum. |
+| `parallel: MUTATION_REQUIRED_JOBS=1 runs one row at a time (base#1461)` | The bound holds: JOBS=1 is one row at a time. |
+| `parallel: MUTATION_REQUIRED_JOBS=0 is refused (base#1461)` | A job count that is not 1..99 is refused before anything runs: 0 would run nothing and report the empty run. |
+| `parallel: MUTATION_REQUIRED_JOBS=abc is refused (base#1461)` | The same for a value that is not a number. |
+| `sandbox: an inherited COMPOSE_PROJECT_NAME is not the sandbox's project (base#1461)` | The probe edits files and runs compose; in the live checkout that would race the developer's tree and its compose project. Each row runs in its own copy under its own project, derived from the copy's path by the copy's test.sh -- an inherited COMPOSE_PROJECT_NAME (the live checkout's) is not used, and teardown asks docker about the project the probe used. |
+| `sandbox: two rows run under two distinct projects (base#1461)` | Two rows in flight at once are two sandboxes and two projects. |
+| `sandbox: an exported GIT_DIR and GIT_INDEX_FILE are not followed (base#1461)` | GIT_DIR / GIT_INDEX_FILE exported by a hook or a wrapper point every git call at another repository; the sandbox list must be the live one and the other repository must be left alone. |
+| `sandbox: a failing archive step fails the row and runs no probe (base#1461)` | A sandbox build step that fails leaves a partial copy; probing it would measure a different tree. Every step fails closed. |
+| `sandbox: a container still running at teardown holds the sandbox and fails the row (base#1461)` | A container of the sandbox's project still running after the probe is a run that may still write; the sandbox is kept, named, and the row fails rather than passes. |
+| `signals: INT during a probe stops every child and publishes no verdict (base#1461)` | Ctrl-C mid-run must stop the probe and its runner, not leave a suite running in a sandbox, and must publish no verdict. |
+| `signals: TERM during a probe stops every child and exits 143 (base#1461)` | TERM, as a CI cancel sends it, is the same stop with status 143. |
+| `--apply: an old that does not occur leaves the file unchanged and fails (base#1461)` | A row is data, applied only by this fixed command; an <old> that is absent changes nothing and says so. |
+| `--apply: an old that occurs twice leaves the file unchanged and fails (base#1461)` | Two occurrences are a guess, refused the same way. |
+| `--apply: the replacement is byte-exact and keeps the mode (base#1461)` | The edit is byte-exact -- quotes, $( ), backslashes and a missing final newline survive -- and the file keeps its mode. |
+
 ### test/bats/unit/network_ports_inert_spec.bats (16)
 
 | Test | Description |
@@ -4762,7 +4833,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (33)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (36)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4834,6 +4905,9 @@ local mode with it.
 | `pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)` | The config generator's sources are code paths; a diff touching only them must plan the Go gates, and a docs-only diff must not. |
 | `pre-PR mirror: a mutation-baseline diff plans just test go and just test (base#1464)` | The mutation baseline (base#1464) is a script the 00-manifest step runs inside `just test go`, and its spec is integration tier. A diff that touches only one of the three must plan both, so the mirror runs the step and the spec that pins it. The mirror sets no CONFIG_GEN_MUTATION_CONTEXT, so it runs the pr default the spec proves. |
 | `pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)` | The plan naming `just test go` is a string; what CI attests is the recipe `just` runs for argv `test go`, and that its red reaches the mirror's own exit status (base#1462). |
+| `test.sh: a no-flag run lints, then runs the roster, then runs bats (base#1461)` | The roster is one of the checks `just test` attests and the pre-PR mirror relies on that run; it runs on the host (it builds sandboxes and runs the probe, which drives compose itself), between the lint phase and bats, so the no-flag compose dispatch is split in two around it. |
+| `test.sh: a red roster fails the no-flag run before bats (base#1461)` | A red roster is a red `just test`, and bats does not run after it. |
+| `test.sh: --lint --group and --coverage do not run the roster (base#1461)` | The CI lint legs run the roster as a step of their own and the coverage modes are not the local gate; neither calls it a second time. |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
@@ -5979,7 +6053,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (147)
+### test/bats/unit/self_test_yaml_spec.bats (150)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6448,6 +6522,9 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)` | Branch protection requires ci-rollup alone; a config-gen job outside its needs, or whose result the step never reads, is a red nobody sees. The step is run, not grepped, for every need. |
 | `self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)` | config-gen is gated on code_changed, so on a doc-only diff it skips; the rollup must read that skip as a pass and a failure or cancel as red. |
 | `ci-rollup check: a need whose result no loop reads is caught (base#1462)` | The rollup check must see a need that is listed and keyed but left out of every loop, or it proves nothing about the next job added. |
+| `self-test.yaml: every lint-static leg runs the required-kill roster once, gated (base#1461)` | The hosted environment. Every lint-static leg runs the roster exactly once, with no `if:` and no continue-on-error, and a red roster fails the step. |
+| `coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)` | The self-hosted environment runs the same command beside `just test go`, gated the same way. |
+| `roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)` | The probe decides by execution. Each spelling that runs the driver is seen once, a step that does not run it is not seen, and the two ways a step can run it without gating -- `\|\| true` and an `if:` -- are caught. |
 
 ### test/bats/unit/setup_cmd_spec.bats (226)
 
