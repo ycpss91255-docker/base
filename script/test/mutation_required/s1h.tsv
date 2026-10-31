@@ -14,3 +14,5 @@ docker-missing	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_sp
 unprovisionable-no-root	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if ! _dockerfile="\$(tool_image_dockerfile "\${_ns}")"; then%  if false; then%' dist/script/docker/lib/tool_image.sh
 unprovisionable-no-dockerfile	dist/script/docker/lib/tool_image.sh	test/bats/unit/tool_image_spec.bats	sed -i 's%  if \[\[ ! -f "\${_dockerfile}" \]\]; then%  if false; then%' dist/script/docker/lib/tool_image.sh
 unprovisionable-no-context	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if \[\[ ! -d "\${_context}" \]\]; then%  if false; then%' dist/script/docker/lib/tool_image.sh
+unprovisionable-unhashable	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	sed -i 's%  if \[\[ -z "\${_hash}" \]\]; then%  if false; then%' dist/script/docker/lib/tool_image.sh
+digest-content	dist/script/docker/lib/project_reclaim.sh	test/bats/unit/config_gen_spec.bats	sed -i 's|    if ! cat -- "${_context%/}/${_r}"; then|    if ! true; then|' dist/script/docker/lib/project_reclaim.sh

@@ -156,8 +156,11 @@ tool_image_derive() {
       "path=${_context}"
     return 1
   fi
-  if ! _hash="$(_reclaim_tool_dockerfile_hash "${_dockerfile}" "${_context}")" \
-    || [[ -z "${_hash}" ]]; then
+  # A failed digest and an empty one are the same refusal: either way
+  # there is no identity to name the image by (base#1466).
+  _hash="$(_reclaim_tool_dockerfile_hash "${_dockerfile}" "${_context}")" \
+    || _hash=""
+  if [[ -z "${_hash}" ]]; then
     _log_err "${_ns}" "${_ns}_unprovisionable" \
       "$(_tool_image_display "${_ns}" unhashable "" "${_dockerfile}")" \
       "path=${_dockerfile}"

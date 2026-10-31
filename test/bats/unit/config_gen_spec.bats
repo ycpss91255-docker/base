@@ -249,6 +249,8 @@ printf '%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
     "first-line of builder second-line of builder"
 }
 
+# why: an exit would end the caller's shell along with the resolve; the
+#      line after the failed resolve still runs and owns stdout.
 @test "config-gen: a failed build does not exit the caller" {
   _seed_cg_subtree
   _mock_docker fail
@@ -277,6 +279,8 @@ echo alive"
   assert_refusal 1 config_gen_unprovisionable "lib=${_lib}"
 }
 
+# why: with no Dockerfile there is no digest to name the image by, and a
+#      build would fail later with a less useful message.
 @test "config-gen: a missing Dockerfile refuses with config_gen_unprovisionable" {
   _seed_cg_subtree
   _mock_docker present
@@ -286,6 +290,8 @@ echo alive"
   assert_refusal 1 config_gen_unprovisionable "path=${CG_DF}"
 }
 
+# why: the context is half of the digest and the whole of the build
+#      input; a missing one is refused before either is attempted.
 @test "config-gen: a missing build context refuses with config_gen_unprovisionable" {
   _seed_cg_subtree
   _mock_docker present
@@ -310,6 +316,8 @@ config_gen_resolve"
   assert_equal "$(_count_inspects)" "0"
 }
 
+# why: a digest that exits 0 with no output is the second way to have no
+#      identity; it must refuse the same as a failed one.
 @test "config-gen: an empty digest refuses with config_gen_unprovisionable" {
   _seed_cg_subtree
   _mock_docker present

@@ -145,6 +145,10 @@ printf '%s\n' \"\${_DEMO_RESOLVED}\""
   assert_output ""
 }
 
+# why: the memo variable is a profile field; a helper that memoised under
+#      a fixed name would make two tools share one slot. A second resolve
+#      in the same shell reads the profile's variable and asks docker
+#      nothing.
 @test "tool-image: the profile's memo variable holds the resolution for the shell" {
   _seed_demo_subtree
   _mock_docker present
@@ -170,6 +174,8 @@ tool_image_resolve demo"
     "DEMO-DISPLAY kind=build_failed"
 }
 
+# why: the event id is built from the ns, so every tool refuses under
+#      its own name, with the shim's display text and the missing path.
 @test "tool-image: a missing Dockerfile refuses as <ns>_unprovisionable" {
   _seed_demo_subtree
   _mock_docker present

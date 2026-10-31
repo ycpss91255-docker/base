@@ -2017,7 +2017,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |
 | `just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)` | The one command all four environments run. The order matters: the redpath on a tree whose gates are already red proves nothing, and `;` would run it after a red runner and report the redpath's status instead. |
 
-### test/bats/unit/config_gen_spec.bats (15)
+### test/bats/unit/config_gen_spec.bats (17)
 
 the config generator ships as a Go module under dockerfile/config-gen with
 dockerfile/Dockerfile.config-gen, and nothing on a consumer host builds it.
@@ -2033,7 +2033,7 @@ whole derivation runs inside the fixture. Unit level (ADR-00000018).
 | Test | Description |
 |------|-------------|
 | `config-gen: the tag is config-gen:<12 hex> of the Dockerfile and its context` | the identity rule shared with the bridge and the tooling tag (base#1169): one digest function, twelve hex, over the Dockerfile AND its build context dockerfile/config-gen. |
-| `config-gen: the tag follows a nested internal/**.go edit and a go.sum edit` | a tag keyed only on the Dockerfile, or only on the module's top level, would keep the old name after a Go edit: the build is skipped as already present and the run uses a stale generator. |
+| `config-gen: the tag follows a content edit of a nested internal/**.go and of go.sum` | a tag keyed only on the Dockerfile, or only on the module's top level, would keep the old name after a Go edit: the build is skipped as already present and the run uses a stale generator. Both files exist before the baseline and only their BYTES change, so a tag keyed on file names alone keeps its old value and fails here. |
 | `config-gen: the tag does not follow an edit outside dockerfile/config-gen` | the default context of _reclaim_tool_dockerfile_hash is the Dockerfile's directory, dockerfile/, which would key the tag on every sibling tool's inputs (measured: an edit of Dockerfile.toml-bridge moved it). The context is dockerfile/config-gen only. |
 | `config-gen: resolve memoises in the caller's shell: one inspect for three resolves` | the memo has to live in the caller's shell. A resolve that prints its answer is read through $(...), where no memo survives and each read inspects (and maybe builds) again. |
 | `config-gen: resolve publishes _CONFIG_GEN_RESOLVED, prints nothing, survives a re-source` | config_gen_resolve answers through the global, never on stdout, and sourcing the file again keeps the memo. |
@@ -2041,10 +2041,12 @@ whole derivation runs inside the fixture. Unit level (ADR-00000018).
 | `config-gen: CONFIG_GEN_IMAGE set but empty derives and inspects` | set-but-empty follows TOML_BRIDGE_IMAGE: it counts as unset, so the tag is derived and inspected. |
 | `config-gen: an absent image is built from dockerfile/config-gen at --target final` | the build context is dockerfile/config-gen (the Dockerfile's `COPY . .`), the shipped stage is `final`, and the build record goes to stderr: stdout is a caller's to read. |
 | `config-gen: a failed build refuses with config_gen_build_failed` | a failed build is a named refusal carrying the builder's output on one line, rc 1 -- and a return, not an exit, so the caller decides. |
-| `config-gen: a failed build does not exit the caller` | - |
+| `config-gen: a failed build does not exit the caller` | an exit would end the caller's shell along with the resolve; the line after the failed resolve still runs and owns stdout. |
 | `config-gen: no subtree root refuses with config_gen_unprovisionable` | with no subtree root above the lib there is nothing to build from; that is a refusal, never a fallback to a literal tag. |
-| `config-gen: a missing Dockerfile refuses with config_gen_unprovisionable` | - |
-| `config-gen: a missing build context refuses with config_gen_unprovisionable` | - |
+| `config-gen: a missing Dockerfile refuses with config_gen_unprovisionable` | with no Dockerfile there is no digest to name the image by, and a build would fail later with a less useful message. |
+| `config-gen: a missing build context refuses with config_gen_unprovisionable` | the context is half of the digest and the whole of the build input; a missing one is refused before either is attempted. |
+| `config-gen: a failed digest refuses with config_gen_unprovisionable` | a digest that fails, or that answers nothing, names no image; a tag built from it would be `config-gen:` with no identity. Both are refusals, never a literal or empty tag. The digest function is replaced in the resolving shell, so the guard is judged alone. |
+| `config-gen: an empty digest refuses with config_gen_unprovisionable` | a digest that exits 0 with no output is the second way to have no identity; it must refuse the same as a failed one. |
 | `config-gen: docker missing from PATH refuses with config_gen_docker_missing` | without docker the bridge path logs a build and then a build failure whose output is "command not found" -- nothing names the cause. config_gen_resolve names it. |
 | `config-gen: toml_bridge.sh and config_gen.sh in one shell keep separate tags and memos` | the two shims share one helper; their profiles and memos must not. |
 
@@ -8227,9 +8229,9 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool-image: the derived tag is keyed on the profile's context, not the Dockerfile's directory` | the context is a profile field used by the digest: the tag is `<repo>:` + 12 hex over the Dockerfile and <context_rel>, it follows an edit inside the context, and ignores one beside it. |
 | `tool-image: an absent image is built from the profile's context with its build args` | the same context field drives the build, and the build args sit between the -f and the context; the build record goes to stderr. |
 | `tool-image: the profile's override variable is used verbatim, with no docker call` | the override and memo are the profile's variables, not a tool's literal names: a non-empty override wins verbatim with no docker call, and the memo is the named global. |
-| `tool-image: the profile's memo variable holds the resolution for the shell` | - |
+| `tool-image: the profile's memo variable holds the resolution for the shell` | the memo variable is a profile field; a helper that memoised under a fixed name would make two tools share one slot. A second resolve in the same shell reads the profile's variable and asks docker nothing. |
 | `tool-image: a failed build carries the display callback text and returns 1` | the shim's display callback writes the text; the helper owns the event id, attributes and the folded builder output, and returns 1. |
-| `tool-image: a missing Dockerfile refuses as <ns>_unprovisionable` | - |
+| `tool-image: a missing Dockerfile refuses as <ns>_unprovisionable` | the event id is built from the ns, so every tool refuses under its own name, with the shim's display text and the missing path. |
 | `tool-image: the bridge with TOML_BRIDGE_IMAGE= derives and inspects` | TOML_BRIDGE_IMAGE set but empty counts as unset, as it does today: the bridge derives and inspects. Pinned here because the bridge now reaches the override through the helper. |
 | `tool-image: the toml_bridge wrapper and tool_image_derive toml_bridge agree` | the bridge's functions are wrappers over the helper, so the bridge and the helper name the same tag. |
 
