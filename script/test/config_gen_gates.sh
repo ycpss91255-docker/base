@@ -105,15 +105,25 @@ _cg_context_args() {
   done
 }
 
+# _cg_attr_ok <word> -- true when <word> is an allowed attribute. The
+# range in _CG_EVENT_ATTR_RE is a byte range only in the C locale: under
+# en_US.UTF-8 on the host, bash's [!-~] matched no
+# file=dockerfile/config-gen/... word at all, while the C-locale test-tools
+# container matched every one. The local LC_ALL ends with the function.
+_cg_attr_ok() {
+  local LC_ALL=C
+  [[ "${1}" =~ ${_CG_EVENT_ATTR_RE} ]]
+}
+
 # _cg_event <id and words> <rc> -- re-emit an allowlisted `cg_event` line
-# as the event <id>, keeping only the words _CG_EVENT_ATTR_RE allows.
+# as the event <id>, keeping only the words _cg_attr_ok allows.
 _cg_event() {
   local id word
   local -a words=() keep=()
   read -r -a words <<<"${1}"
   id="${words[0]}"
   for word in "${words[@]:1}"; do
-    [[ "${word}" =~ ${_CG_EVENT_ATTR_RE} ]] && keep+=("${word}")
+    _cg_attr_ok "${word}" && keep+=("${word}")
   done
   _log_err "${_CG_SERVICE}" "${id}" "${keep[@]}" "status=${2}" \
     "display=config-gen build refused with ${id}${keep[*]:+ (${keep[*]})} (docker exited ${2})"
