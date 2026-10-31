@@ -173,13 +173,16 @@ readonly _PINS_GOLANG_PIN=golang
 # on the module copy in /tmp/w; when it would also change go.mod (compared
 # by `go mod edit -json`, so spacing and comments do not count) the script
 # exits 3 and no go.sum is taken. A module the tidy leaves with no go.sum
-# (no dependencies) exits 5: that module has no go.sum (base#1440).
+# (no dependencies) exits 5: that module has no go.sum. An archive that
+# did not land as a module (no go.mod at the top of /tmp/w) exits 4
+# before anything runs (base#1440).
 # shellcheck disable=SC2016 # expanded by the container's shell, not here.
 readonly _PINS_GO_SUM_SCRIPT='set -eu
 exec 3>&1 1>&2
 mkdir -p /tmp/w
 cd /tmp/w
 tar -xf -
+test -f go.mod || exit 4
 cp go.mod /tmp/go.mod.staged
 go mod tidy
 go mod edit -json /tmp/go.mod.staged > /tmp/staged.json
@@ -252,6 +255,10 @@ _pins_set_go_mod() {
       return 1
     fi
     return 0
+  elif (( _rc == 4 )); then
+    rm -f -- "${_staged}" "${_sumtmp}"
+    _pins_refuse "${_abs}" go_sum_layout "the module archive sent to ${_image%%@*} has no go.mod at its top"
+    return 1
   elif (( _rc == 3 )); then
     rm -f -- "${_staged}" "${_sumtmp}"
     _pins_refuse "${_abs}" go_sum_semantic "go mod tidy in ${_image%%@*} would also rewrite it"
