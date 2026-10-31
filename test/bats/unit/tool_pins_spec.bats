@@ -16,6 +16,8 @@
 # Shape mirrors self_hosted_guard_lint_spec.bats: a controlled scratch
 # tree for the rules, and a final section that drives the REAL tree.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -407,6 +409,264 @@ _pins() {
   assert_success
   run stat -c '%a' "${SCRATCH}/dockerfile/Dockerfile.test-tools"
   assert_output '664'
+}
+
+# _gomod <line>... -- write the scratch config-gen go.mod.
+_gomod() {
+  mkdir -p "${SCRATCH}/dockerfile/config-gen"
+  printf '%s\n' "$@" > "${SCRATCH}/dockerfile/config-gen/go.mod"
+}
+
+# why: The reader registers a go.mod require as a pin (base#1463), so a bump
+# must be able to rewrite it; the assignment and coordinate:version rewrites
+# never match `require <path> <version>` (review round 2). The version token
+# the scanner read is replaced in place: spacing and comment kept.
+@test "pins: --set rewrites a go.mod require, line form, keeping its comment (base#1463)" {
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0 // held: v0.21.0 is the last for go 1.22'
+  _pins --set xmod v0.22.0
+  assert_success
+  run sed -n 6p "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output 'require golang.org/x/mod v0.22.0 // held: v0.21.0 is the last for go 1.22'
+  _pins --value xmod
+  assert_output v0.22.0
+}
+
+# why: The block form is what `go get` writes; the entry has no verb on its
+# line, so a rewrite keyed on `require` would miss it.
+@test "pins: --set rewrites a go.mod require, block form (base#1463)" {
+  _gomod 'module example.com/m' '' 'require (' \
+    '	// tool-pin: xmod github-release golang/mod' \
+    '	golang.org/x/mod v0.21.0' ')'
+  _pins --set xmod v0.22.0
+  assert_success
+  run sed -n 5p "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output $'\tgolang.org/x/mod v0.22.0'
+}
+
+# why: A quoted version is read without its quotes; the rewrite keeps them.
+@test "pins: --set rewrites a quoted go.mod version and keeps the quotes (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require "golang.org/x/mod" "v0.21.0"'
+  _pins --set xmod v0.22.0
+  assert_success
+  run sed -n 3p "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output 'require "golang.org/x/mod" "v0.22.0"'
+}
+
+# why: A version Go would rewrite (`v0.22` -> `v0.22.0`) is refused before
+# the file is touched, so a bump cannot write a pin the reader then refuses.
+@test "pins: --set refuses a go.mod version Go would rewrite and leaves the file alone (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _pins_json --set xmod v0.22
+  assert_refusal 1 pin_set_refused "file=${_f}" line=3 reason=version_noncanonical
+  _assert_unchanged "${_f}"
+}
+
+# why: An empty quoted path once shifted the comment into the version column,
+# so --list printed current=`// note` with rc 0 (review round 2, base#1463).
+@test "pins: --list refuses a go.mod require with an empty path (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: x github-release golang/mod' \
+    'require "" v1.0.0 // note'
+  _pins_json --list
+  assert_refusal 1 go_mod_unsupported_syntax \
+    "file=${SCRATCH}/dockerfile/config-gen/go.mod" line=3 reason=path_empty
+}
+
+# _pins_json <arg>... -- _pins with JSON logs and stdout and stderr judged
+# apart, for the refusal cases (assert_refusal). A command _stub put on
+# ${STUB_BIN} is first on pins.sh's PATH, and on nothing else's: bats'
+# own `run` needs a working mktemp.
+_pins_json() {
+  git -C "${SCRATCH}" add -A
+  _pins_json_unstaged "$@"
+}
+
+# _pins_json_unstaged <arg>... -- _pins_json without staging the tree.
+_pins_json_unstaged() {
+  run --separate-stderr env PATH="${STUB_BIN:+${STUB_BIN}:}${PATH}" \
+    PIN_REPO_ROOT="${SCRATCH}" LOG_FORMAT=json "${PINS}" "$@"
+}
+
+# _snapshot <file> -- record the file's bytes, its mode and its directory's
+# listing; _assert_unchanged <file> holds the file to that record.
+_snapshot() {
+  mkdir -p "${BATS_TEST_TMPDIR}/snap"
+  cp -- "${1}" "${BATS_TEST_TMPDIR}/snap/bytes"
+  stat -c '%a' -- "${1}" > "${BATS_TEST_TMPDIR}/snap/mode"
+  ls -A -- "$(dirname -- "${1}")" > "${BATS_TEST_TMPDIR}/snap/dir"
+}
+
+# _assert_unchanged <file> -- the bytes and the mode _snapshot recorded, and
+# no file left beside it (a refused bump leaves no temp copy behind).
+_assert_unchanged() {
+  cmp -s -- "${BATS_TEST_TMPDIR}/snap/bytes" "${1}" \
+    || fail "the bytes of ${1} changed: $(od -c -- "${1}" | head -n 20)"
+  assert_equal "$(stat -c '%a' -- "${1}")" "$(cat "${BATS_TEST_TMPDIR}/snap/mode")"
+  assert_equal "$(ls -A -- "$(dirname -- "${1}")")" "$(cat "${BATS_TEST_TMPDIR}/snap/dir")"
+}
+
+# _stub <command> <exit> -- a <command> on ${STUB_BIN} that prints nothing
+# and exits <exit>, standing in for a step of the commit that fails.
+_stub() {
+  STUB_BIN="${BATS_TEST_TMPDIR}/bin"
+  mkdir -p "${STUB_BIN}"
+  printf '#!/bin/sh\nexit %s\n' "${2}" > "${STUB_BIN}/${1}"
+  chmod +x "${STUB_BIN}/${1}"
+}
+
+# _foo_pin -- a Dockerfile pin with a line after it, mode 664, snapshotted.
+_foo_pin() {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.2.3' \
+    'RUN true'
+  chmod 664 "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _snapshot "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+}
+
+# why: The rewritten line once went through `awk -v repl=...`, which
+# expands backslash escapes, so a preserved comment holding `\n` was split
+# into two lines and the go.mod corrupted before the read-back ran (review
+# round 3, base#1463). The line is written byte for byte.
+@test "pins: --set keeps a literal backslash in a go.mod comment byte for byte (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0 // literal \n text \\ end' \
+    'require golang.org/x/net v0.30.0'
+  _pins --set xmod v0.22.0
+  assert_success
+  run cat "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output "$(printf '%s\n' 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.22.0 // literal \n text \\ end' \
+    'require golang.org/x/net v0.30.0')"
+  assert_equal "$(wc -l < "${SCRATCH}/dockerfile/config-gen/go.mod")" 4
+}
+
+# why: The same awk carried every rewrite, so a Dockerfile comment with a
+# backslash was mangled the same way (base#1463).
+@test "pins: --set keeps a literal backslash in a Dockerfile comment byte for byte (base#1463)" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.2.3  # held: C:\temp \t x' \
+    'RUN true'
+  _pins --set foo 1.3.0
+  assert_success
+  run cat "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_output "$(printf '%s\n' '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.3.0  # held: C:\temp \t x' 'RUN true')"
+}
+
+# why: The last line of a file with no final newline stays without one: the
+# splice changes the version and nothing else (base#1463).
+@test "pins: --set on a last line with no final newline adds none (base#1463)" {
+  printf '# tool-pin: foo github-release owner/foo\nARG FOO_VERSION=1.2.3' \
+    > "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _pins --set foo 1.3.0
+  assert_success
+  printf '# tool-pin: foo github-release owner/foo\nARG FOO_VERSION=1.3.0' \
+    > "${BATS_TEST_TMPDIR}/want"
+  cmp -- "${BATS_TEST_TMPDIR}/want" "${SCRATCH}/dockerfile/Dockerfile.test-tools" \
+    || fail "the rewrite did not keep the missing final newline: $(od -c -- "${SCRATCH}/dockerfile/Dockerfile.test-tools")"
+}
+
+# why: A write through a symlink edits a file outside the tree the reader
+# named; the bump refuses it by name and touches neither the link nor its
+# target (base#1463). The reader takes only blobs from the index, so the
+# link is the working-tree file under a path the index still records as
+# a regular file -- staged first, then swapped for the link.
+@test "pins: --set refuses a symlinked destination and leaves its target alone (base#1463)" {
+  local _t="${BATS_TEST_TMPDIR}/ext/target"
+  mkdir -p "${BATS_TEST_TMPDIR}/ext"
+  _dockerfile '# tool-pin: foo github-release owner/foo' 'ARG FOO_VERSION=1.2.3'
+  git -C "${SCRATCH}" add -A
+  mv "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${_t}"
+  chmod 664 "${_t}"
+  ln -s "${_t}" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _snapshot "${_t}"
+  _pins_json_unstaged --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=symlink
+  [[ -L "${SCRATCH}/dockerfile/Dockerfile.test-tools" ]] || fail "the symlink was replaced"
+  _assert_unchanged "${_t}"
+}
+
+# why: Replacing one name of a hard-linked file splits the link and leaves
+# the other name on the old version; refused by name (base#1463).
+@test "pins: --set refuses a hard-linked destination and leaves it alone (base#1463)" {
+  _foo_pin
+  ln "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/hardlink"
+  _pins_json --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=hard_link
+  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+}
+
+# why: The temp copy lives beside the destination so the final mv is one
+# rename; a directory that cannot hold it refuses before anything is
+# written (base#1463).
+@test "pins: --set that cannot create its temp copy leaves the file alone (base#1463)" {
+  _foo_pin
+  _stub mktemp 1
+  _pins_json --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=temp_create
+  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+}
+
+# why: The injected write failure: a temp copy that could not be written is
+# never moved over the destination (base#1463).
+@test "pins: --set whose temp write fails leaves the file's bytes and mode alone (base#1463)" {
+  _foo_pin
+  _stub head 1
+  _pins_json --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=write_failed
+  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+}
+
+# why: The temp copy is held to the splice before it lands: everything but
+# the target line byte-identical, the target line exactly the new one. A
+# write that exited 0 but lost the lines after the target (a `tail` that
+# printed nothing) is refused, not moved into place (base#1463).
+@test "pins: --set whose temp copy is not the exact splice leaves the file alone (base#1463)" {
+  _foo_pin
+  _stub tail 0
+  _pins_json --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=check_failed
+  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+}
+
+# why: mktemp creates 0600; a copy whose mode could not be set to the
+# destination's is not moved over it (base#1463).
+@test "pins: --set that cannot carry the mode onto its temp copy leaves the file alone (base#1463)" {
+  _foo_pin
+  _stub chmod 1
+  _pins_json --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=mode_failed
+  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+}
+
+# why: The rename is the commit; one that fails leaves the old file and no
+# temp copy behind (base#1463).
+@test "pins: --set whose final rename fails leaves the file alone (base#1463)" {
+  _foo_pin
+  _stub mv 1
+  _pins_json --set foo 1.3.0
+  assert_refusal 1 pin_set_refused \
+    "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=commit_failed
+  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
 }
 
 # ════════════════════════════════════════════════════════════════════

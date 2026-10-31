@@ -440,3 +440,18 @@ config_gen_mutation_context_invalid
 config_gen_mutation_base_unreachable
 config_gen_mutation_none_beside_diff
 config_gen_mutation_publish_failed
+
+# script/watch/lib.sh (the go.mod scanner of the pin registry) and
+# script/test/config_gen_steps/20-gomod-oracle.sh, which holds that scanner
+# to `go mod edit -json` (base#1463).
+go_mod_unsupported_syntax
+go_mod_indirect_requirement
+pin_file_unreadable
+go_mod_fixture_unclassified
+go_mod_oracle_mismatch
+go_mod_oracle_pin_missing
+go_mod_pin_target_not_require
+
+# script/watch/pins.sh --set and _pin_go_mod_set_line: a bump refused with
+# the file left as it was (base#1463).
+pin_set_refused
