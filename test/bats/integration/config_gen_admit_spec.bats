@@ -205,3 +205,25 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=none_marker"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a manifest holding the header and no body line is refused as body_empty (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline (header, then the marker
+  # alone) is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d writes the header, then the change records or, with no record,
+  # `none: no-go-change` (config_gen_mutation_targets.sh header: "or, with
+  # no line, `none: no-go-change`"), so it never writes a header alone
+  # (design §2, body_empty|none_marker|record). A later step that drops the
+  # body leaves a manifest that says neither "no Go changed" nor what did.
+  printf '%s\n' "${header}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=body_empty"
+  assert_equal "${stderr}" ""
+}
