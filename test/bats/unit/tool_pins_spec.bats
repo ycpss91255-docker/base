@@ -732,6 +732,28 @@ _golang_pin() {
   assert_equal "$(cat "${_log}")" ''
 }
 
+# why: A module whose tidied go.sum would be empty has none: measured in the
+# pinned golang image, `go mod tidy` on a dependency-free module exits 0 and
+# leaves no go.sum. The container says so with exit 5 (`test -f go.sum ||
+# exit 5`); the bump then commits go.mod and removes the go.sum that is
+# there, rather than refusing or keeping a stale one (base#1440).
+@test "pins: --set on a go.mod require whose tidy wants no go.sum removes go.sum (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0 // keep me'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  _stub docker 5
+  _pins_json --set xmod v0.22.0
+  assert_success
+  run sed -n 6p "${_f}"
+  assert_output 'require golang.org/x/mod v0.22.0 // keep me'
+  [[ ! -e "${_sum}" ]] || fail "go.sum is still there: $(cat "${_sum}")"
+  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" 'go.mod'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
