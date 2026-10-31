@@ -1437,7 +1437,8 @@ readonly _PIN_GO_DIRECTIVE_PIN=golang
 # major.minor: the directive names the Go the module needs, the pin the Go
 # that builds it. A mismatch is go_mod_go_directive_mismatch (file= line=
 # go= golang=), rc 1, nothing on stdout. A go.mod with no `go` line is a
-# mismatch named go=- line=0 (base#1440).
+# mismatch named go=- line=0. A tracked go.mod with no pinned golang image
+# is go_mod_golang_pin_missing (file=) (base#1440).
 _pin_go_directive_check() {
   local _root="${1}" _table _rec _list _file _go_rec _go_ln _go_ver
   local _image="" _tag _pin_mm _go_mm
@@ -1448,11 +1449,20 @@ _pin_go_directive_check() {
       _image="${_current}"
     fi
   done <<< "${_table}"
+  _list="$(_pin_files "${_root}")" || return 1
+  if [[ -z "${_image}" ]]; then
+    while IFS= read -r _file; do
+      [[ "${_file##*/}" == go.mod ]] || continue
+      _log_err pin go_mod_golang_pin_missing "file=${_file}" \
+        "display=go_mod_golang_pin_missing: ${_file}: no pinned ${_PIN_GO_DIRECTIVE_PIN} image to compare its go directive with"
+      return 1
+    done <<< "${_list}"
+    return 0
+  fi
   _tag="${_image%%@*}"
   _tag="${_tag##*:}"
   [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
   _pin_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
-  _list="$(_pin_files "${_root}")" || return 1
   while IFS= read -r _file; do
     [[ "${_file##*/}" == go.mod ]] || continue
     _go_rec="$(_pin_go_mod_go_line "${_root}/${_file}")" || return 1
