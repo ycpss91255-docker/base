@@ -818,6 +818,68 @@ STUB
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
+# _assert_set_refused_untouched <event> <line> <reason> <go.mod line>...
+#
+# `--set xmod v0.22.0` on a config-gen go.mod of those lines, under the
+# golang pin, with a go.sum beside it and a docker stub that logs every
+# call: refused by <event> at <line> for <reason>, docker never called,
+# go.mod and go.sum byte for byte as they were, and nothing left beside
+# them. A scanner refusal alone cannot show this: a bump path that went
+# around the reader would edit the requirement anyway.
+_assert_set_refused_untouched() {
+  local _event="${1}" _line="${2}" _reason="${3}"
+  shift 3
+  _golang_pin
+  _gomod "$@"
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 0
+  printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
+    > "${STUB_BIN}/docker"
+  : > "${_log}"
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 "${_event}" "file=${_f}" "line=${_line}" "reason=${_reason}"
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  assert_equal "$(cat "${_log}")" ''
+}
+
+# why: An indirect requirement is not a declaration this repo makes, so the
+# reader refuses it (base#1463); a bump of a marker on one is refused the
+# same way, before docker runs, and go.mod and go.sum keep every byte
+# (base#1440).
+@test "pins: --set on an indirect go.mod requirement is refused and changes no byte (base#1440)" {
+  _assert_set_refused_untouched go_mod_indirect_requirement 6 indirect \
+    'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0 // indirect'
+}
+
+# why: A replace directive decides which version builds, so bumping the
+# require it overrides would change nothing Go uses; refused by name, no
+# byte changed (base#1440).
+@test "pins: --set on a go.mod with a replace directive is refused and changes no byte (base#1440)" {
+  _assert_set_refused_untouched go_mod_unsupported_syntax 8 replace \
+    'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0' '' \
+    'replace golang.org/x/mod => golang.org/x/mod v0.20.0'
+}
+
+# why: A require block with no closing paren is a go.mod Go rejects; a bump
+# of an entry inside it is refused at the line that opens the block, no
+# byte changed (base#1440).
+@test "pins: --set on a go.mod with an unterminated require block is refused and changes no byte (base#1440)" {
+  _assert_set_refused_untouched go_mod_unsupported_syntax 5 unterminated_block \
+    'module example.com/m' '' 'go 1.27' '' 'require (' \
+    '	// tool-pin: xmod github-release golang/mod' \
+    '	golang.org/x/mod v0.21.0'
+}
+
 # why: A hard-linked go.mod is refused by name, like any hard-linked
 # destination (base#1463), and the refusal comes before the module is sent
 # to the golang image: a link check that ran only after staging would pay
@@ -893,6 +955,102 @@ STUB
   assert_refusal 1 pin_set_refused reason=commit_failed
   grep -qx failed "${_log}" || fail "no rename onto go.mod/go.sum was failed: $(cat "${_log}")"
   _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+}
+
+# _stub_fail_go_sum_then_go_mod <cmd>... -- each <cmd> (rm, mv) on
+# ${STUB_BIN}: the first call that names a file called go.sum fails, every
+# mv onto go.mod after that fails too, and any other call runs the real
+# command. So the go.sum step of a go.mod bump fails and so does the
+# rollback rename that would put go.mod back, whatever the backup is called.
+_stub_fail_go_sum_then_go_mod() {
+  local _log="${BATS_TEST_TMPDIR}/fail.log" _cmd _real
+  : > "${_log}"
+  for _cmd in "$@"; do
+    _real="$(command -v "${_cmd}")"
+    cat > "${STUB_BIN}/${_cmd}" <<STUB
+#!/bin/sh
+for _a; do
+  if [ "\${_a##*/}" = go.sum ] && ! grep -qx failed "${_log}"; then
+    echo failed >> "${_log}"
+    exit 1
+  fi
+done
+if [ "${_cmd}" = mv ] && grep -qx failed "${_log}"; then
+  for _d; do :; done
+  if [ "\${_d##*/}" = go.mod ]; then
+    echo go.mod >> "${_log}"
+    exit 1
+  fi
+fi
+exec "${_real}" "\$@"
+STUB
+    chmod +x "${STUB_BIN}/${_cmd}"
+  done
+}
+
+# _assert_rollback_failed_kept <go.mod> -- after a go.mod bump whose go.sum
+# step and go.mod rollback both failed: the refusal is rollback_failed for
+# go.mod, never a commit_failed claiming go.mod was put back; exactly one
+# copy beside go.mod holds the bytes _snapshot recorded, and the refusal
+# names it.
+_assert_rollback_failed_kept() {
+  local _f="${1}" _c
+  local -a _kept=()
+  assert_refusal 1 pin_set_refused "file=${_f}" reason=rollback_failed
+  grep -qx go.mod "${BATS_TEST_TMPDIR}/fail.log" \
+    || fail "no rollback rename onto go.mod was failed: $(cat "${BATS_TEST_TMPDIR}/fail.log")"
+  [[ "${stderr}" != *'put back'* ]] || fail "a refusal claims a file was put back: ${stderr}"
+  for _c in "${_f%/*}"/.go.mod*; do
+    if [[ -f "${_c}" ]] && cmp -s -- "${BATS_TEST_TMPDIR}/snap/bytes" "${_c}"; then
+      _kept+=("${_c}")
+    fi
+  done
+  (( ${#_kept[@]} == 1 )) \
+    || fail "not exactly one copy of the old go.mod beside it: $(ls -A -- "${_f%/*}")"
+  [[ "${stderr}" == *"${_kept[0]}"* ]] || fail "the refusal does not name ${_kept[0]}: ${stderr}"
+}
+
+# why: When the go.sum rename of a go.mod bump fails, go.mod is put back
+# from a copy; when that rename fails too, the tree holds the bumped go.mod
+# beside the old go.sum, and a refusal saying go.mod was put back is false.
+# The refusal is rollback_failed, it names the copy that still holds the old
+# go.mod, and that copy is kept (review round 1, base#1440).
+@test "pins: --set on a go.mod require whose go.sum rename and go.mod rollback fail is rollback_failed and keeps the copy (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  _snapshot "${_f}"
+  _stub docker 0
+  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
+    > "${STUB_BIN}/docker"
+  _stub_fail_go_sum_then_go_mod mv
+  _pins_json --set xmod v0.22.0
+  _assert_rollback_failed_kept "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+}
+
+# why: The same rollback on the other go.sum step: the tidied module wants
+# no go.sum (container exit 5), the old go.sum cannot be removed, and the
+# rename that would put go.mod back fails. rollback_failed, the copy named
+# and kept (review round 1, base#1440).
+@test "pins: --set on a go.mod require whose go.sum removal and go.mod rollback fail is rollback_failed and keeps the copy (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  _snapshot "${_f}"
+  _stub docker 5
+  _stub_fail_go_sum_then_go_mod rm mv
+  _pins_json --set xmod v0.22.0
+  _assert_rollback_failed_kept "${_f}"
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
