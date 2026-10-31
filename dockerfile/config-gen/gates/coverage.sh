@@ -4,6 +4,7 @@
 # (base#1462). Run from the module root inside the golang image:
 #
 #   bash gates/coverage.sh
+#   bash gates/coverage.sh --measure <file>
 #
 # Every package `go list ./...` names must reach >= 90.0% of its
 # statements, measured from a profile of its own. Fail-closed: every way
@@ -16,6 +17,12 @@
 #                   malformed line, or a line from any other package
 #   no_statements   zero statements in a package that has source files
 #   below_floor     covered * 10 < statements * 9
+#
+# --measure <file> (base#1465) judges no floor: it writes one line per
+# package, `<import path>\t<statements>\t<covered>`, to <file> and exits 0,
+# so a package with source files and no statements is `<pkg>\t0\t0`.
+# cg-gates ratchet judges those counts. Every refusal above except
+# no_statements and below_floor still applies.
 #
 # A refusal is one line on stderr,
 #   config_gen_gate_coverage_failed reason=<reason> pkg=<import path>
@@ -35,27 +42,33 @@ _refuse() {
   exit 1
 }
 
-# _measure <dir> <index> <import path> <gofiles> <cgofiles> -- run the
-# package's tests into its own atomic profile and judge it.
+# _measure <dir> <index> <import path> <gofiles> <cgofiles> <counts> --
+# run the package's tests into its own atomic profile and judge it, or,
+# when <counts> is 1, append `<pkg>\t<stmts>\t<covered>` to <dir>/measured.
 _measure() {
   local dir="${1}" i="${2}" pkg="${3}" gofiles="${4}" cgofiles="${5}"
-  local prof="${dir}/${i}.out" verdict
+  local counts="${6}" prof="${dir}/${i}.out" verdict
   go test -covermode=atomic -coverprofile="${prof}" "${pkg}" >&2 \
     || _refuse test_failed "${pkg}"
   [[ -f "${prof}" ]] || _refuse profile_invalid "${pkg}"
-  verdict="$(_judge "${prof}" "${pkg}" "$(( gofiles + cgofiles ))")" \
+  verdict="$(_judge "${prof}" "${pkg}" "$(( gofiles + cgofiles ))" "${counts}")" \
     || _refuse profile_invalid "${pkg}"
+  if (( counts )); then
+    printf '%s\t%s\n' "${pkg}" "${verdict}" >> "${dir}/measured"
+    return
+  fi
   [[ "${verdict}" == ok ]] || _refuse "${verdict}" "${pkg}"
 }
 
-# _judge <profile> <import path> <source files> -- print ok, no_statements
-# or below_floor; exit 1 when the profile is not a valid profile of <pkg>.
+# _judge <profile> <import path> <source files> <counts> -- print ok,
+# no_statements or below_floor, or `<stmts>\t<covered>` when <counts> is 1;
+# exit 1 when the profile is not a valid profile of <pkg>.
 # A block a profile repeats (one per test binary that ran it) counts once,
 # at its highest count. The floor is an integer comparison, so no float
 # rounding moves a package across it. An empty line carries no block and
 # is skipped; every other line must be a block of <pkg>.
 _judge() {
-  awk -v pkg="${2}" -v files="${3}" '
+  awk -v pkg="${2}" -v files="${3}" -v counts="${4}" '
     BEGIN {
       prefix = pkg "/"
       body = "^[^/]+\\.go:[0-9]+\\.[0-9]+,[0-9]+\\.[0-9]+ [0-9]+ [0-9]+$"
@@ -72,13 +85,18 @@ _judge() {
     END {
       if (NR == 0 || bad) exit 1
       for (k in n) { stmts += n[k]; if (c[k] > 0) cov += n[k] }
+      if (counts) { printf "%d\t%d\n", stmts, cov; exit 0 }
       if (stmts == 0) { print (files == 0 ? "ok" : "no_statements"); exit 0 }
       print (cov * 10 >= stmts * 9 ? "ok" : "below_floor")
     }' "${1}"
 }
 
 main() {
-  local listing dir pkg gofiles cgofiles i=0
+  local listing dir pkg gofiles cgofiles i=0 out="" counts=0
+  if [[ "${1:-}" == --measure ]]; then
+    out="${2:?usage: coverage.sh --measure <file>}"
+    counts=1
+  fi
   listing="$(go list -f '{{.ImportPath}}{{"\t"}}{{len .GoFiles}}{{"\t"}}{{len .CgoFiles}}' ./...)" \
     || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
@@ -88,8 +106,12 @@ main() {
   while IFS=$'\t' read -r pkg gofiles cgofiles; do
     [[ -n "${pkg}" ]] || continue
     i=$(( i + 1 ))
-    _measure "${dir}" "${i}" "${pkg}" "${gofiles}" "${cgofiles}"
+    _measure "${dir}" "${i}" "${pkg}" "${gofiles}" "${cgofiles}" "${counts}"
   done <<<"${listing}"
+  if (( counts )); then
+    cp "${dir}/measured" "${out}"
+    return
+  fi
   echo 'gate=coverage ok'
 }
 

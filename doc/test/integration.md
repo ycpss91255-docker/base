@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **269 tests**.
+Integration specs under `test/bats/integration/`: **284 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -78,7 +78,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
 
-### test/bats/integration/config_gen_admit_spec.bats (3)
+### test/bats/integration/config_gen_admit_spec.bats (18)
 
 The Dockerfile's admit stage runs this checker before any Go, to hold the
 build context to the host mutation baseline the 00-manifest step wrote
@@ -98,6 +98,21 @@ config_gen_manifest_stale file=<path> reason=<r> and nothing on stderr
 | `config_gen_admit: a symlink added to the module after the baseline is refused as not_regular (base#1465)` | - |
 | `config_gen_admit: a listed file deleted from the module after the baseline is refused as missing (base#1465)` | - |
 | `config_gen_admit: a manifest body line that is neither the none marker nor a change record is refused as record (base#1465)` | - |
+| `config_gen_admit: a change record whose path count does not match its status is refused as record (base#1465)` | - |
+| `config_gen_admit: a change record whose status is not one S1d writes (U) is refused as record (base#1465)` | - |
+| `config_gen_admit: a manifest body holding the none marker beside a change record is refused as none_marker (base#1465)` | - |
+| `config_gen_admit: a manifest body holding the none marker twice is refused as none_marker (base#1465)` | - |
+| `config_gen_admit: a manifest holding the header and no body line is refused as body_empty (base#1465)` | - |
+| `config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)` | - |
+| `config_gen_admit: a change record whose path holds a .. segment is refused as path (base#1465)` | - |
+| `config_gen_admit: a change record whose path holds a . segment is refused as path (base#1465)` | - |
+| `config_gen_admit: a change record whose path holds an empty segment (//) is refused as path (base#1465)` | - |
+| `config_gen_admit: a change record whose path is outside the dockerfile/config-gen/ prefix (config-genx/) is refused as path (base#1465)` | - |
+| `config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)` | - |
+| `config_gen_admit: a visible.sha256 line whose sha256 is not 64 hex digits (short hex) is refused as record (base#1465)` | - |
+| `config_gen_admit: a visible.sha256 path listed twice is refused as duplicate (base#1465)` | - |
+| `config_gen_admit: a path listed in both visible.sha256 and ignored.sha256 is refused as dual (base#1465)` | - |
+| `config_gen_admit: a visible.sha256 line holding a NUL byte is refused as bytes (base#1465)` | - |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 

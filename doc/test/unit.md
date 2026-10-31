@@ -1939,7 +1939,7 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
-### test/bats/unit/config_gen_coverage_spec.bats (12)
+### test/bats/unit/config_gen_coverage_spec.bats (13)
 
 The gate reads per-package profiles and passes a package at >= 90.0% of its
 statements. Every way that measurement can go missing -- go list failing or
@@ -1968,6 +1968,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: 899 of 1000 statements is refused with reason below_floor, 900 passes (base#1462)` | >= 90.0 exactly, as an integer comparison: 899/1000 is below and 900/1000 is not, and a red package is named even after a green one. |
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
+| `coverage.sh: --measure records a declaration-only package as pkg 0 0 with rc 0 (base#1465)` | Under --measure the gate records counts and the per-package floor is judged by cg-gates ratchet (base#1465), so a declaration-only package is a measurement of zero, not a refusal. golang:1.27.2-trixie, run on a package holding only `type T struct{ X int }` and `const C = 1` plus one test, gave `ok m/a coverage: [no statements]`, rc 0, a profile of exactly `mode: atomic\n`, and `go list` GoFiles 1 -- the listing and profile here. |
 
 ### test/bats/unit/config_gen_gates_spec.bats (28)
 
