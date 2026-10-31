@@ -249,11 +249,14 @@ _decode() {
       _work="${S}/adopt/${_n}"
       mkdir -p "${_work}/$(dirname "${_subj}")"
       cp -p "/source/${_subj}" "${_work}/${_subj}"
+      # The pristine copy is the diff baseline, not /source: a concurrent
+      # writer to the live tree must not supply half the verdict (base#965).
+      cp -p "${_work}/${_subj}" "${_work}/.orig"
       _decode "${_old}" > "${_work}/.old" || fail "row '${_id}': old carries an escape outside \\\\ \\t \\n"
       _decode "${_new}" > "${_work}/.new" || fail "row '${_id}': new carries an escape outside \\\\ \\t \\n"
       ( cd "${_work}" && bash "${MR}" --apply "${_subj}" .old .new ) \
         || fail "row '${_id}': --apply refused against /source/${_subj}"
-      _hunks="$(diff -U0 "/source/${_subj}" "${_work}/${_subj}" | grep -c '^@@' || true)"
+      _hunks="$(diff -U0 "${_work}/.orig" "${_work}/${_subj}" | grep -c '^@@' || true)"
       [[ "${_hunks}" == 1 ]] \
         || fail "row '${_id}': --apply changed ${_hunks} regions of ${_subj}, not one"
     done < "${_f}"
