@@ -7,9 +7,10 @@
 #   ./script/test/config_gen_redpath.sh
 #
 # A gate that never fails is indistinguishable from a working one on a
-# clean tree. So for each case below this copies dockerfile/ and the steps
-# directory into a fresh scratch root, plants one defect there, and runs
-# ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
+# clean tree. So for each case below this copies dockerfile/, the steps
+# directory and what the steps read (script/watch, the log library, the
+# go.mod fixtures) into a fresh scratch root, plants one defect there, and
+# runs ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
 # its own gate's id first, and show every earlier gate ok -- the last is
 # what tells "this gate caught it" from "the build broke first". An
 # unmodified copy, the control, runs last and must pass all five gates, so
@@ -143,6 +144,13 @@ _rp_copy() {
   if [[ -d "${_RP_ROOT}/script/test/config_gen_steps" ]]; then
     cp -a "${_RP_ROOT}/script/test/config_gen_steps" "${dst}/script/test/"
   fi
+  # The go.mod oracle step (base#1463) runs the pin registry's scanner,
+  # with its logger, over the go.mod fixtures -- each read relative to the
+  # step's own root, so the copy carries all three.
+  mkdir -p "${dst}/dist/script/docker" "${dst}/test/fixtures"
+  cp -a "${_RP_ROOT}/script/watch" "${dst}/script/"
+  cp -a "${_RP_ROOT}/dist/script/docker/lib" "${dst}/dist/script/docker/"
+  cp -a "${_RP_ROOT}/test/fixtures/gomod" "${dst}/test/fixtures/"
   printf '%s\n' "${dst}"
 }
 

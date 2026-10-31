@@ -73,6 +73,15 @@ if [[ -n "${_PIN_LIB_SOURCED:-}" ]]; then
 fi
 _PIN_LIB_SOURCED=1
 
+# The go.mod scanner and the readability guard refuse through the shared
+# logger (base#1463). A caller that already sourced it (test.sh through
+# _lib.sh) keeps its copy; a bare `source lib.sh` -- check.sh, pins.sh, a
+# spec -- brings it in from the dist tree beside this file.
+if ! declare -F _log_err >/dev/null; then
+  # shellcheck source=dist/script/docker/lib/log.sh
+  source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)/../../dist/script/docker/lib/log.sh"
+fi
+
 # ── Marker vocabulary ───────────────────────────────────────────────────────
 
 # The marker's opening token. One string, so the reader, the lint's
@@ -85,6 +94,10 @@ readonly _PIN_MARKER='tool-pin:'
 # rather than substring-matching is what lets the mechanism be documented
 # in the same trees it scans.
 readonly _PIN_MARKER_RE="^[[:space:]]*#+[[:space:]]*${_PIN_MARKER}"
+
+# In a go.mod a comment is `//` (a `#` line is a Go syntax error), so a
+# marker there is a `//` comment line opening with the token (base#1463).
+readonly _PIN_GO_MOD_MARKER_RE="^[[:space:]]*//[[:space:]]*${_PIN_MARKER}"
 
 # The three declaration states. `pinned` is comparable against upstream;
 # `unpinned` is reported as floating and never compared; `ignore` is "this
@@ -609,6 +622,297 @@ _pin_extract_value() {
   return 1
 }
 
+# ── go.mod: a structural scanner (base#1463) ───────────────────────────────
+#
+# config-gen's go.mod declares third-party versions the way no other file
+# here does: a `require` entry, alone on its line or inside a `require (`
+# block, with `//` comments. No line shape above can see one, and a line
+# regex would read the wrong thing out of a block, a quoted path or a glued
+# comment. So go.mod is read by a SCANNER: a bash port of the lexer in Go's
+# modfile package (words, `"` strings, `//` comments, the punctuation
+# `( ) [ ] { } ,`), plus a state machine over a CLOSED set of verbs.
+#
+# Every verb takes one of three paths, and there is no fourth:
+#
+#   require                emitted, after the entry and version checks;
+#   module, go, toolchain  held to the checks Go's own parser makes (one
+#                          argument, the value grammar, not repeated) and
+#                          never emitted;
+#   anything else          refused BY NAME (replace, tool, ignore, godebug,
+#                          exclude, retract) or as unknown_verb.
+#
+# So no directive anywhere in the file is skipped unread: a file Go rejects
+# for a malformed `exclude a` is refused here too, not read for the valid
+# require beside it. A spelling the port does not model is refused, never
+# guessed at, which is what keeps a drift between this port and Go on the
+# refusing side. script/test/config_gen_steps/20-gomod-oracle.sh holds the
+# scanner to `go mod edit -json` over test/fixtures/gomod/.
+
+# _pin_go_mod_refuse <line> <reason> -- the scanner's one refusal record,
+# for the file in the caller's `_gm_file`.
+_pin_go_mod_refuse() {
+  _log_err pin go_mod_unsupported_syntax "file=${_gm_file}" "line=${1}" "reason=${2}" \
+    "display=go_mod_unsupported_syntax: ${_gm_file}:${1}: go.mod syntax the pin registry does not read (${2})"
+}
+
+# _pin_go_mod_lex <line> <lineno> -- split one go.mod line into the
+# caller's `_gm_kind` (w word, s string, p punctuation), `_gm_text` and
+# `_gm_comment` (the `//` comment, or empty). Non-zero, with the refusal
+# logged, on a lexer error Go makes or a spelling the port does not model.
+# A token never spans lines in Go's lexer (a string stops at a newline, a
+# comment runs to one), so a line at a time is exact.
+_pin_go_mod_lex() {
+  local _s="${1}" _ln="${2}" _i=0 _j _n _c
+  # Printable ASCII and tab only: a Unicode difference between bash and
+  # Go can then only refuse, never emit a record Go reads differently.
+  local _bad=$'[^\t -~]'
+  local LC_ALL=C
+  _gm_kind=()
+  _gm_text=()
+  _gm_comment=""
+  _s="${_s%$'\r'}"
+  _n="${#_s}"
+  if [[ "${_s}" =~ ${_bad} ]]; then _pin_go_mod_refuse "${_ln}" non_ascii; return 1; fi
+  while (( _i < _n )); do
+    _c="${_s:_i:1}"
+    if [[ "${_c}" == ' ' || "${_c}" == $'\t' ]]; then
+      _i=$(( _i + 1 ))
+      continue
+    fi
+    if [[ "${_s:_i:2}" == '//' ]]; then
+      _gm_comment="${_s:_i}"
+      _gm_comment="${_gm_comment%"${_gm_comment##*[![:space:]]}"}"
+      return 0
+    fi
+    if [[ "${_s:_i:2}" == '/*' ]]; then _pin_go_mod_refuse "${_ln}" c_comment; return 1; fi
+    if [[ "${_c}" == '`' ]]; then _pin_go_mod_refuse "${_ln}" backquote; return 1; fi
+    case "${_c}" in
+      '(' | ')' | '[' | ']' | '{' | '}' | ',')
+        _gm_kind+=(p)
+        _gm_text+=("${_c}")
+        _i=$(( _i + 1 ))
+        continue
+        ;;
+    esac
+    _j=$(( _i + 1 ))
+    if [[ "${_c}" == '"' ]]; then
+      while (( _j < _n )) && [[ "${_s:_j:1}" != '"' ]]; do
+        if [[ "${_s:_j:1}" == "\\" ]]; then _pin_go_mod_refuse "${_ln}" quote_escape; return 1; fi
+        _j=$(( _j + 1 ))
+      done
+      if (( _j >= _n )); then _pin_go_mod_refuse "${_ln}" unterminated_quote; return 1; fi
+      _j=$(( _j + 1 ))
+      _gm_kind+=(s)
+      _gm_text+=("${_s:_i:_j-_i}")
+      _i="${_j}"
+      continue
+    fi
+    # A word runs to whitespace, punctuation or a comment, as Go's isIdent
+    # does. It also stops at `/*` and a backquote, so the checks at the top
+    # of the loop refuse those wherever they sit. A quote inside a word is
+    # a word character to the lexer and an error to the parser; the verb
+    # checks below refuse it.
+    while (( _j < _n )); do
+      _c="${_s:_j:1}"
+      case "${_c}" in
+        ' ' | $'\t' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '`') break ;;
+      esac
+      [[ "${_s:_j:2}" == '//' || "${_s:_j:2}" == '/*' ]] && break
+      _j=$(( _j + 1 ))
+    done
+    _gm_kind+=(w)
+    _gm_text+=("${_s:_i:_j-_i}")
+    _i="${_j}"
+  done
+  return 0
+}
+
+# _pin_go_mod_version_ok <path> <version>
+#
+# 0 only for a version Go keeps BYTE-IDENTICAL for <path>. Go canonicalises
+# (`v1.2` -> `v1.2.0`, `+meta` dropped) and special-cases `+incompatible`
+# and gopkg.in, so a record copied from the text would disagree with what
+# Go reads; each of those is refused by name instead. It splits rather
+# than matches one regex, so each rule is its own check. On refusal the
+# reason is left in _PIN_GO_MOD_REASON. The major is compared as a string,
+# so a huge one cannot overflow into a pass.
+_pin_go_mod_version_ok() {
+  local _path="${1}" _v="${2}" _core _pre="" _has_pre=0 _f _rest _id _major _last _dots
+  local LC_ALL=C
+  _PIN_GO_MOD_REASON=""
+  if [[ "${_v}" != v* ]]; then _PIN_GO_MOD_REASON=version_no_v; return 1; fi
+  if [[ "${_v}" == *+* ]]; then _PIN_GO_MOD_REASON=version_build; return 1; fi
+  _core="${_v#v}"
+  if [[ "${_core}" == *-* ]]; then
+    _has_pre=1
+    _pre="${_core#*-}"
+    _core="${_core%%-*}"
+  fi
+  _dots="${_core//[!.]/}"
+  if [[ "${#_dots}" -ne 2 ]]; then _PIN_GO_MOD_REASON=version_noncanonical; return 1; fi
+  _rest="${_core}."
+  while [[ -n "${_rest}" ]]; do
+    _f="${_rest%%.*}"
+    _rest="${_rest#*.}"
+    if [[ "${_f}" =~ ^0[0-9]+$ ]]; then _PIN_GO_MOD_REASON=version_leading_zero; return 1; fi
+    if [[ ! "${_f}" =~ ^(0|[1-9][0-9]*)$ ]]; then _PIN_GO_MOD_REASON=version_noncanonical; return 1; fi
+  done
+  if (( _has_pre )); then
+    _rest="${_pre}."
+    while [[ -n "${_rest}" ]]; do
+      _id="${_rest%%.*}"
+      _rest="${_rest#*.}"
+      if [[ -z "${_id}" ]]; then _PIN_GO_MOD_REASON=version_prerelease_empty; return 1; fi
+      if [[ "${_id}" =~ [^0-9A-Za-z-] ]]; then _PIN_GO_MOD_REASON=version_prerelease_charset; return 1; fi
+      if [[ "${_id}" =~ ^0[0-9]+$ ]]; then _PIN_GO_MOD_REASON=version_prerelease_zero; return 1; fi
+    done
+  fi
+  if [[ "${_path}" == gopkg.in/* ]]; then _PIN_GO_MOD_REASON=gopkg_in_path; return 1; fi
+  _major="${_core%%.*}"
+  _last=""
+  [[ "${_path}" == */* ]] && _last="${_path##*/}"
+  # module.SplitPathVersion: a final `/v<digits and dots>` is a major
+  # suffix; with a dot, a leading 0 or as /v1 it makes the path invalid.
+  if [[ "${_last}" =~ ^v[0-9.]+$ ]]; then
+    if [[ "${_last}" == *.* || "${_last}" == v0* || "${_last}" == v1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
+    if [[ "${_last#v}" != "${_major}" ]]; then _PIN_GO_MOD_REASON=path_major_mismatch; return 1; fi
+  elif [[ "${_major}" != 0 && "${_major}" != 1 ]]; then
+    _PIN_GO_MOD_REASON=path_major_mismatch
+    return 1
+  fi
+  return 0
+}
+
+# _pin_go_mod_unquote <kind> <text> -- a path or version token as Go reads
+# it: a string loses its quotes (escapes never reach here: the lexer
+# refuses them). Non-zero when a word holds a quote character, which Go
+# reserves ("unquoted string cannot contain quote").
+_pin_go_mod_unquote() {
+  if [[ "${1}" == s ]]; then
+    printf '%s' "${2:1:${#2}-2}"
+    return 0
+  fi
+  [[ "${2}" != *[\"\']* ]] || return 1
+  printf '%s' "${2}"
+}
+
+# _pin_go_mod_entry <lineno> <first> -- one require entry: the tokens of
+# the caller's `_gm_kind`/`_gm_text` from index <first>. Appends its record
+# to the caller's `_gm_out`; non-zero, refusal logged, otherwise.
+_pin_go_mod_entry() {
+  local _ln="${1}" _first="${2}" _k _path _ver _cm
+  local -a _f=()
+  for (( _k = _first; _k < ${#_gm_kind[@]}; _k++ )); do
+    if [[ "${_gm_kind[_k]}" == p ]]; then _pin_go_mod_refuse "${_ln}" punctuation; return 1; fi
+  done
+  if (( ${#_gm_kind[@]} - _first != 2 )); then _pin_go_mod_refuse "${_ln}" arity; return 1; fi
+  if ! _path="$(_pin_go_mod_unquote "${_gm_kind[_first]}" "${_gm_text[_first]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+  if ! _ver="$(_pin_go_mod_unquote "${_gm_kind[_first+1]}" "${_gm_text[_first+1]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+  if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
+  # modfile's isIndirect: the suffix comment's fields are exactly
+  # `indirect`, or open with `indirect;`.
+  _cm="${_gm_comment#//}"
+  IFS=$' \t\r' read -r -a _f <<< "${_cm}" || true
+  if [[ ( "${#_f[@]}" -eq 1 && "${_f[0]}" == indirect ) || ( "${#_f[@]}" -gt 1 && "${_f[0]}" == 'indirect;' ) ]]; then
+    _log_err pin go_mod_indirect_requirement "file=${_gm_file}" "line=${_ln}" reason=indirect \
+      "display=go_mod_indirect_requirement: ${_gm_file}:${_ln}: an indirect requirement is not a declaration this repo makes; drop it or make it direct"
+    return 1
+  fi
+  _gm_out+="${_ln}"$'\t'"${_path}"$'\t'"${_ver}"$'\t'"${_gm_comment}"$'\n'
+}
+
+# _pin_go_mod_scan <file>
+#
+# One `lineno<TAB>path<TAB>version<TAB>comment` record per require entry,
+# line form or block form, numbered by the entry's own line. The comment
+# column is the entry's `//` suffix comment, or empty.
+#
+# A file it does not read is refused: rc 1, NOTHING on stdout, and one
+# go_mod_unsupported_syntax (file= line= reason=), go_mod_indirect_requirement
+# or pin_file_unreadable. The whole file is scanned before any record is
+# printed, so a bad directive AFTER a require still refuses the file --
+# Go rejects such a file too.
+_pin_go_mod_scan() {
+  local _gm_file="${1}" _gm_out="" _gm_comment="" _ln=0 _line _in_block=0 _block_ln=0
+  local _seen_module=0 _seen_go=0 _seen_toolchain=0 _verb _k
+  local -a _gm_kind=() _gm_text=() _lines=()
+  local LC_ALL=C
+  if [[ ! -r "${_gm_file}" ]]; then
+    _log_err pin pin_file_unreadable "file=${_gm_file}" \
+      "display=pin_file_unreadable: ${_gm_file} cannot be read; an unreadable file is not one that declares nothing"
+    return 1
+  fi
+  mapfile -t _lines < "${_gm_file}"
+  for _line in "${_lines[@]}"; do
+    _ln=$(( _ln + 1 ))
+    _pin_go_mod_lex "${_line}" "${_ln}" || return 1
+    (( ${#_gm_kind[@]} > 0 )) || continue
+    if (( _in_block )); then
+      if [[ "${_gm_text[0]}" == ')' && "${_gm_kind[0]}" == p ]]; then
+        if (( ${#_gm_kind[@]} > 1 )); then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi
+        _in_block=0
+        continue
+      fi
+      for (( _k = 1; _k < ${#_gm_kind[@]}; _k++ )); do
+        if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi
+      done
+      _pin_go_mod_entry "${_ln}" 0 || return 1
+      continue
+    fi
+    # The verb is the first token's TEXT: a string keeps its quotes, so
+    # `"require"`, like a `(`, is no verb Go knows and is unknown_verb.
+    _verb="${_gm_text[0]}"
+    if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi
+    if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi
+    if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
+    if [[ "${_verb}" == godebug ]]; then _pin_go_mod_refuse "${_ln}" godebug; return 1; fi
+    if [[ "${_verb}" == exclude ]]; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
+    if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi
+    case "${_verb}" in
+      module | go | toolchain)
+        if [[ "${_gm_text[1]:-}" == '(' && "${_gm_kind[1]:-}" == p ]]; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi
+        ;;
+    esac
+    case "${_verb}" in
+      module)
+        if (( _seen_module )); then _pin_go_mod_refuse "${_ln}" module_repeated; return 1; fi
+        if (( ${#_gm_kind[@]} != 2 )); then _pin_go_mod_refuse "${_ln}" module_arity; return 1; fi
+        if [[ "${_gm_kind[1]}" == w && "${_gm_text[1]}" == *[\"\']* ]]; then _pin_go_mod_refuse "${_ln}" module_quote; return 1; fi
+        _seen_module=1
+        ;;
+      go)
+        if (( _seen_go )); then _pin_go_mod_refuse "${_ln}" go_repeated; return 1; fi
+        if (( ${#_gm_kind[@]} != 2 )); then _pin_go_mod_refuse "${_ln}" go_arity; return 1; fi
+        # modfile.GoVersionRE, matched on the raw token in the C locale.
+        if [[ ! "${_gm_text[1]}" =~ ^([1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?([a-z]+[0-9]+)?$ ]]; then _pin_go_mod_refuse "${_ln}" go_version; return 1; fi
+        _seen_go=1
+        ;;
+      toolchain)
+        if (( _seen_toolchain )); then _pin_go_mod_refuse "${_ln}" toolchain_repeated; return 1; fi
+        if (( ${#_gm_kind[@]} != 2 )); then _pin_go_mod_refuse "${_ln}" toolchain_arity; return 1; fi
+        # modfile.ToolchainRE, `^default$|^go1($|\.)`, on the raw token.
+        if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
+        _seen_toolchain=1
+        ;;
+      require)
+        if [[ "${_gm_text[1]:-}" == '(' && "${_gm_kind[1]:-}" == p ]]; then
+          if (( ${#_gm_kind[@]} > 2 )); then _pin_go_mod_refuse "${_ln}" paren_trailer; return 1; fi
+          _in_block=1
+          _block_ln="${_ln}"
+          continue
+        fi
+        _pin_go_mod_entry "${_ln}" 1 || return 1
+        ;;
+      *)
+        _pin_go_mod_refuse "${_ln}" unknown_verb
+        return 1
+        ;;
+    esac
+  done
+  if (( _in_block )); then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi
+  printf '%s' "${_gm_out}"
+}
+
 # _pin_read <repo-root>
 #
 # THE table. One TSV record per marker:
@@ -618,11 +922,19 @@ _pin_extract_value() {
 # Empty fields are written as `-` so the record always has nine columns and
 # `read` never collapses two of them. <line> is the TARGET line's number,
 # because that is the line a bump rewrites.
+#
+# A file it cannot read is pin_file_unreadable, rc 1: an unreadable file is
+# not one that declares nothing (base#1463). A go.mod is read through
+# _pin_go_mod_scan first, so a go.mod it refuses fails here; its markers are
+# `//` comment lines, a marker's target must be a require entry the scanner
+# emitted, and <current> is the version the scanner read.
 _pin_read() {
   local _root="${1}"
   local _file _abs _lineno _line _target _target_no _rest _list
   local _state _name _resolver _coord _pattern _skip _current
+  local _marker_re _comment_re _gm_records _gm_ln _gm_path _gm_ver _gm_cm
   local -a _fields=()
+  local -A _gm_version=()
 
   # Command substitution, not a process substitution feeding the loop: a
   # `< <(...)` redirection discards the producer's exit status, so a
@@ -633,12 +945,28 @@ _pin_read() {
 
   while IFS= read -r _file; do
     _abs="${_root}/${_file}"
+    if [[ ! -r "${_abs}" ]]; then
+      _log_err pin pin_file_unreadable "file=${_abs}" \
+        "display=pin_file_unreadable: ${_abs} cannot be read; an unreadable file is not one that declares nothing"
+      return 1
+    fi
+    _marker_re="${_PIN_MARKER_RE}"
+    _comment_re='^[[:space:]]*#'
+    _gm_version=()
+    if [[ "${_file##*/}" == go.mod ]]; then
+      _gm_records="$(_pin_go_mod_scan "${_abs}")" || return 1
+      while IFS=$'\t' read -r _gm_ln _gm_path _gm_ver _gm_cm; do
+        [[ -n "${_gm_ln}" ]] && _gm_version["${_gm_ln}"]="${_gm_ver}"
+      done <<< "${_gm_records}"
+      _marker_re="${_PIN_GO_MOD_MARKER_RE}"
+      _comment_re='^[[:space:]]*//'
+    fi
     _lineno=0
     _state=""
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _lineno=$(( _lineno + 1 ))
       if [[ -z "${_state}" ]]; then
-        [[ "${_line}" =~ ${_PIN_MARKER_RE} ]] || continue
+        [[ "${_line}" =~ ${_marker_re} ]] || continue
         _rest="${_line#*"${_PIN_MARKER}"}"
         # shellcheck disable=SC2206 # deliberate word-split of the marker body.
         _fields=(${_rest%%--*})
@@ -699,17 +1027,24 @@ _pin_read() {
       # blank nor another comment. A SECOND marker before that line is an
       # error, not a silent loss: both would otherwise claim one target
       # and only the first would ever be read.
-      if [[ "${_line}" =~ ${_PIN_MARKER_RE} ]]; then
+      if [[ "${_line}" =~ ${_marker_re} ]]; then
         printf '%s:%d: %s marker follows another with no target between them\n' \
           "${_file}" "${_lineno}" "${_PIN_MARKER}" >&2
         return 1
       fi
       [[ -z "${_line//[[:space:]]/}" ]] && continue
-      [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
+      [[ "${_line}" =~ ${_comment_re} ]] && continue
       _target="${_line}"
       _target_no="${_lineno}"
       _current=""
-      if [[ "${_state}" == "${_PIN_STATE_PINNED}" ]]; then
+      if [[ "${_file##*/}" == go.mod ]]; then
+        if [[ -z "${_gm_version["${_target_no}"]+x}" ]]; then
+          printf '%s:%d: %s marker for %s targets a line that is not a require entry\n' \
+            "${_file}" "${_target_no}" "${_PIN_MARKER}" "${_name}" >&2
+          return 1
+        fi
+        [[ "${_state}" == "${_PIN_STATE_IGNORE}" ]] || _current="${_gm_version["${_target_no}"]}"
+      elif [[ "${_state}" == "${_PIN_STATE_PINNED}" ]]; then
         if ! _current="$(_pin_extract_value "${_target}" "${_coord}")"; then
           printf '%s:%d: pin %s: no version for %s on its target line\n' \
             "${_file}" "${_target_no}" "${_name}" "${_coord}" >&2
@@ -774,7 +1109,7 @@ _pin_image_is_built() {
   [[ "${_line}" =~ ${_PIN_IMAGE_BUILT_RE}"${_tok}" ]]
 }
 
-# _pin_is_declaration <file> <line>
+# _pin_is_declaration <file> <line> [<lineno>]
 #
 # True when the line declares a third-party version this repo names and
 # dependabot cannot bump. See the shape table above for the forms and why
@@ -785,9 +1120,27 @@ _pin_image_is_built() {
 # scope -- because that is where the division of labour is real. Nothing
 # here asks what KIND of file it is otherwise: that question is what
 # quietly exempted the shapes and the contexts this detector kept missing.
+#
+# The one exception is go.mod (base#1463), where no line shape decides:
+# the line is a declaration exactly when <lineno> is one the go.mod scanner
+# emitted. _pin_uncovered hands over the records it already scanned
+# (`_pin_gomod_file` / `_pin_gomod_lines`, its locals); any other caller is
+# scanned here. A go.mod line with no <lineno>, or a go.mod the scanner
+# refuses, cannot be answered: 2.
 _pin_is_declaration() {
-  local _file="${1}" _line="${2}"
-  local _value _ref
+  local _file="${1}" _line="${2}" _lineno="${3:-}"
+  local _value _ref _emitted
+
+  if [[ "${_file##*/}" == go.mod ]]; then
+    [[ -n "${_lineno}" ]] || return 2
+    if [[ "${_pin_gomod_file:-}" == "${_file}" ]]; then
+      _emitted="${_pin_gomod_lines:-}"
+    else
+      _emitted="$(_pin_go_mod_scan "${_file}")" || return 2
+    fi
+    [[ $'\n'"${_emitted}" == *$'\n'"${_lineno}"$'\t'* ]] && return 0
+    return 1
+  fi
 
   [[ "${_line}" =~ ${_PIN_RELEASE_URL_RE} ]] && return 0
   if [[ "${_line}" == *clone* && "${_line}" =~ ${_PIN_CLONE_REF_RE} ]]; then
@@ -851,13 +1204,17 @@ _pin_is_declaration() {
 # second question with the first one's blind spots.
 _pin_uncovered() {
   local _root="${1}"
-  local _file _abs _lineno _line _key _covered_list _list
+  local _file _abs _lineno _line _key _covered_list _list _table
+  local _pin_gomod_file="" _pin_gomod_lines=""
   local -A _covered=()
 
   # Both producers run in a command substitution for the reason spelled
-  # out in _pin_read: a redirection would swallow their exit status.
-  _covered_list="$(_pin_read "${_root}" | awk -F'\t' '{print $8 ":" $9}')" \
-    || return 1
+  # out in _pin_read: a redirection would swallow their exit status. The
+  # reader's table is captured BEFORE awk reads it: pipefail is off here,
+  # so `_pin_read | awk` would answer with awk's 0 over a reader that
+  # failed (base#1463).
+  _table="$(_pin_read "${_root}")" || return 1
+  _covered_list="$(awk -F'\t' '{print $8 ":" $9}' <<< "${_table}")"
   _list="$(_pin_files "${_root}")" || return 1
 
   while IFS= read -r _key; do
@@ -866,11 +1223,16 @@ _pin_uncovered() {
 
   while IFS= read -r _file; do
     _abs="${_root}/${_file}"
+    _pin_gomod_file=""
+    if [[ "${_file##*/}" == go.mod ]]; then
+      _pin_gomod_lines="$(_pin_go_mod_scan "${_abs}")" || return 1
+      _pin_gomod_file="${_file}"
+    fi
     _lineno=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _lineno=$(( _lineno + 1 ))
       [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
-      if _pin_is_declaration "${_file}" "${_line}" \
+      if _pin_is_declaration "${_file}" "${_line}" "${_lineno}" \
          && [[ -z "${_covered["${_file}:${_lineno}"]:-}" ]]; then
         printf '%s:%d: %s\n' "${_file}" "${_lineno}" \
           "${_line#"${_line%%[![:space:]]*}"}"
