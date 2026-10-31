@@ -805,6 +805,55 @@ _golang_pin() {
   assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" "$(printf 'go.mod\ngo.sum')"
 }
 
+# why: go.mod and go.sum are committed as one: when the rename of the
+# second of the two fails, the first is rolled back, so the tree never
+# holds the bumped go.mod beside the old go.sum (or the new go.sum beside
+# the old go.mod). The mv stub passes every rename through to the real mv
+# except the first rename onto the go.mod/go.sum name not yet renamed onto,
+# so the failure lands on the second whichever order the commit uses, and
+# a rollback rename back onto the first name is let through. Both files
+# keep their bytes and no temp or backup copy is left (base#1440).
+@test "pins: --set on a go.mod require whose second rename fails leaves go.mod and go.sum alone (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  local _log="${BATS_TEST_TMPDIR}/mv.log" _real_mv
+  _real_mv="$(command -v mv)"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 0
+  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
+    > "${STUB_BIN}/docker"
+  : > "${_log}"
+  cat > "${STUB_BIN}/mv" <<STUB
+#!/bin/sh
+for _d; do :; done
+_b="\${_d##*/}"
+case "\${_b}" in
+  go.mod|go.sum)
+    if ! grep -qx failed "${_log}" && [ -s "${_log}" ] \\
+        && ! grep -qx "\${_b}" "${_log}"; then
+      echo failed >> "${_log}"
+      exit 1
+    fi
+    "${_real_mv}" "\$@" || exit \$?
+    grep -qx failed "${_log}" || echo "\${_b}" >> "${_log}"
+    exit 0 ;;
+esac
+exec "${_real_mv}" "\$@"
+STUB
+  chmod +x "${STUB_BIN}/mv"
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused reason=commit_failed
+  grep -qx failed "${_log}" || fail "no rename onto go.mod/go.sum was failed: $(cat "${_log}")"
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
