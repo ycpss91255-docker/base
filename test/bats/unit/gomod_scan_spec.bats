@@ -479,6 +479,20 @@ _gomod() {
   assert_failure 1
 }
 
+# why: The bump rewrites only a line the scanner emitted; asked for the go
+# directive it refuses rather than editing a line no pin can name, and on
+# an entry it replaces the version token alone, not the same string in the
+# comment (review round 2, base#1463).
+@test "_pin_go_mod_set_line: refuses a line that is not a require entry and rewrites only the version token (base#1463)" {
+  _gomod 'module example.com/m' 'go 1.27' 'require a v1.0.0 // v1.0.0 is held'
+  run --separate-stderr _pin_go_mod_set_line "${W}/go.mod" 2 v1.1.0
+  assert_failure 1
+  assert_output ''
+  run --separate-stderr _pin_go_mod_set_line "${W}/go.mod" 3 v1.1.0
+  assert_success
+  assert_output 'require a v1.1.0 // v1.0.0 is held'
+}
+
 # why: A go.mod line with no line number cannot be answered from the
 # scanner; it is a caller error (2), not a "no".
 @test "_pin_is_declaration: go.mod with no line number is rc 2 (base#1463)" {

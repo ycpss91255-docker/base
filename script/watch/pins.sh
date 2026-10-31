@@ -109,7 +109,12 @@ _pins_set() {
   local _abs="${PIN_REPO_ROOT}/${_file}"
   local _old_line _new_line
   _old_line="$(awk -v n="${_line}" 'NR == n' "${_abs}")"
-  if [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+  if [[ "${_file##*/}" == go.mod ]]; then
+    # A go.mod pin is a require entry the scanner read, so the scanner
+    # rewrites it: the version token alone, located by the lexer
+    # (base#1463). Neither rewrite below matches `require <path> <ver>`.
+    _new_line="$(_pin_go_mod_set_line "${_abs}" "${_line}" "${_new}")" || return 1
+  elif [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
     local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}"
     local _quote="" _value _tail
     _value="$(_pin_rhs_value "${_rhs}")"

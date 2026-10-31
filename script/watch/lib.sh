@@ -699,8 +699,10 @@ _pin_go_mod_opens_block() {
 }
 
 # _pin_go_mod_lex <line> <lineno> -- split one go.mod line into the
-# caller's `_gm_kind` (w word, s string, p punctuation), `_gm_text` and
-# `_gm_comment` (the `//` comment, or empty). Non-zero, with the refusal
+# caller's `_gm_kind` (w word, s string, p punctuation), `_gm_text`,
+# `_gm_start` (each token's byte offset in the line, which is how a bump
+# rewrites one token in place) and `_gm_comment` (the `//` comment, or
+# empty). Non-zero, with the refusal
 # logged, on a lexer error Go makes or a spelling the port does not model.
 # A token never spans lines in Go's lexer (a string stops at a newline, a
 # comment runs to one), so a line at a time is exact.
@@ -709,6 +711,7 @@ _pin_go_mod_lex() {
   local LC_ALL=C
   _gm_kind=()
   _gm_text=()
+  _gm_start=()
   _gm_comment=""
   # _pin_go_mod_bad_byte_line has already held the file's bytes to tab,
   # printable ASCII and a CR that ends its line, so the line is exactly
@@ -732,6 +735,7 @@ _pin_go_mod_lex() {
       '(' | ')' | '[' | ']' | '{' | '}' | ',')
         _gm_kind+=(p)
         _gm_text+=("${_c}")
+        _gm_start+=("${_i}")
         _i=$(( _i + 1 ))
         continue
         ;;
@@ -746,6 +750,7 @@ _pin_go_mod_lex() {
       _j=$(( _j + 1 ))
       _gm_kind+=(s)
       _gm_text+=("${_s:_i:_j-_i}")
+      _gm_start+=("${_i}")
       _i="${_j}"
       continue
     fi
@@ -764,6 +769,7 @@ _pin_go_mod_lex() {
     done
     _gm_kind+=(w)
     _gm_text+=("${_s:_i:_j-_i}")
+    _gm_start+=("${_i}")
     _i="${_j}"
   done
   return 0
@@ -850,6 +856,10 @@ _pin_go_mod_entry() {
   if (( ${#_gm_kind[@]} - _first != 2 )); then _pin_go_mod_refuse "${_ln}" arity; return 1; fi
   if ! _path="$(_pin_go_mod_unquote "${_gm_kind[_first]}" "${_gm_text[_first]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
   if ! _ver="$(_pin_go_mod_unquote "${_gm_kind[_first+1]}" "${_gm_text[_first+1]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+  # Go drops a requirement whose path is empty (`require "" v1.0.0` reads
+  # as no requirement at all), so no record of it agrees with Go (review
+  # round 2, base#1463).
+  if [[ -z "${_path}" ]]; then _pin_go_mod_refuse "${_ln}" path_empty; return 1; fi
   # The record's own separator: a tab inside a quoted path or a comment
   # would split one field into two for every reader of the record
   # (`require "a<TAB>b" v1.0.0` read as path=a, version=b; review round 1,
@@ -885,7 +895,7 @@ _pin_go_mod_entry() {
 _pin_go_mod_scan() {
   local _gm_file="${1}" _gm_out="" _gm_comment="" _ln=0 _line _in_block=0 _block_ln=0
   local _seen_module=0 _seen_go=0 _seen_toolchain=0 _verb _k _bad_ln
-  local -a _gm_kind=() _gm_text=() _lines=()
+  local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
   local LC_ALL=C
   if [[ ! -r "${_gm_file}" ]]; then
     _pin_refuse_unreadable "${_gm_file}"
@@ -967,6 +977,70 @@ _pin_go_mod_scan() {
   printf '%s' "${_gm_out}"
 }
 
+# _pin_go_mod_record_fields <record> -- split one _pin_go_mod_scan record
+# into the caller's `_gm_r_ln`, `_gm_r_path`, `_gm_r_ver` and `_gm_r_cm`.
+# It cuts at each tab rather than `IFS=$'\t' read`: tab is IFS whitespace,
+# so `read` folds two adjacent tabs into one and an empty field hands its
+# column to the next one -- `3<TAB><TAB>v1.0.0<TAB>// note` read as
+# version=`// note` (review round 2, base#1463).
+_pin_go_mod_record_fields() {
+  local _r="${1}"
+  _gm_r_ln="${_r%%$'\t'*}"
+  _r="${_r#*$'\t'}"
+  _gm_r_path="${_r%%$'\t'*}"
+  _r="${_r#*$'\t'}"
+  _gm_r_ver="${_r%%$'\t'*}"
+  _gm_r_cm="${_r#*$'\t'}"
+}
+
+# _pin_go_mod_set_line <file> <lineno> <version>
+#
+# Print line <lineno> of the go.mod <file> with the version of its require
+# entry replaced by <version>, everything else on the line byte for byte:
+# indentation, the path, a `//` comment (even one that repeats the old
+# version), and the quotes of a quoted version. The bump half of the
+# go.mod reader (base#1463).
+#
+# The line must be a require entry the scanner emits, and the token
+# replaced is the one the scanner read the version from, located by the
+# lexer's own offsets -- not a text substitution, which cannot tell the
+# version from the same string in the comment. <version> must be one
+# _pin_go_mod_version_ok keeps for the entry's path, so a bump never
+# writes a go.mod the reader would then refuse. rc 1, nothing on stdout,
+# otherwise.
+_pin_go_mod_set_line() {
+  local _gm_file="${1}" _want_ln="${2}" _new="${3}" _records _rec _line _last _tok
+  local _gm_r_ln="" _gm_r_path="" _gm_r_ver="" _gm_r_cm="" _gm_hit=0 _gm_comment=""
+  local -a _gm_kind=() _gm_text=() _gm_start=()
+  local LC_ALL=C
+  _records="$(_pin_go_mod_scan "${_gm_file}")" || return 1
+  while IFS= read -r _rec; do
+    [[ -n "${_rec}" ]] || continue
+    _pin_go_mod_record_fields "${_rec}"
+    if [[ "${_gm_r_ln}" == "${_want_ln}" ]]; then
+      _gm_hit=1
+      break
+    fi
+  done <<< "${_records}"
+  if (( ! _gm_hit )); then
+    printf '%s:%s: not a require entry the go.mod scanner reads\n' "${_gm_file}" "${_want_ln}" >&2
+    return 1
+  fi
+  if ! _pin_go_mod_version_ok "${_gm_r_path}" "${_new}"; then
+    printf '%s:%s: %s is not a version Go keeps as written for %s (%s)\n' \
+      "${_gm_file}" "${_want_ln}" "${_new}" "${_gm_r_path}" "${_PIN_GO_MOD_REASON}" >&2
+    return 1
+  fi
+  _line="$(awk -v n="${_want_ln}" 'NR == n' "${_gm_file}")"
+  _pin_go_mod_lex "${_line}" "${_want_ln}" || return 1
+  # The scanner held the entry to `[require] <path> <version>`, so the
+  # version is the line's last token.
+  _last=$(( ${#_gm_kind[@]} - 1 ))
+  _tok="${_new}"
+  [[ "${_gm_kind[_last]}" == s ]] && _tok="\"${_new}\""
+  printf '%s\n' "${_line:0:${_gm_start[_last]}}${_tok}${_line:$(( _gm_start[_last] + ${#_gm_text[_last]} ))}"
+}
+
 # _pin_read <repo-root>
 #
 # THE table. One TSV record per marker:
@@ -986,7 +1060,8 @@ _pin_read() {
   local _root="${1}"
   local _file _abs _lineno _line _target _target_no _rest _list
   local _state _name _resolver _coord _pattern _skip _current
-  local _marker_re _comment_re _gm_records _gm_ln _gm_path _gm_ver _gm_cm
+  local _marker_re _comment_re _gm_records _gm_rec
+  local _gm_r_ln _gm_r_path _gm_r_ver _gm_r_cm
   local -a _fields=()
   local -A _gm_version=()
 
@@ -1008,8 +1083,10 @@ _pin_read() {
     _gm_version=()
     if [[ "${_file##*/}" == go.mod ]]; then
       _gm_records="$(_pin_go_mod_scan "${_abs}")" || return 1
-      while IFS=$'\t' read -r _gm_ln _gm_path _gm_ver _gm_cm; do
-        [[ -n "${_gm_ln}" ]] && _gm_version["${_gm_ln}"]="${_gm_ver}"
+      while IFS= read -r _gm_rec; do
+        [[ -n "${_gm_rec}" ]] || continue
+        _pin_go_mod_record_fields "${_gm_rec}"
+        _gm_version["${_gm_r_ln}"]="${_gm_r_ver}"
       done <<< "${_gm_records}"
       _marker_re="${_PIN_GO_MOD_MARKER_RE}"
       _comment_re='^[[:space:]]*//'

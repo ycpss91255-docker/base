@@ -3497,7 +3497,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (42)
+### test/bats/unit/gomod_scan_spec.bats (45)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3554,6 +3554,8 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: a byte outside tab, printable ASCII and a line-ending CR is refused as unsupported_byte (base#1463)` | The byte check runs on the FILE, before bash holds a line: a bash variable cannot carry a NUL, so a check on the read-in copy never sees one and `require a v1.0.0<NUL>`, which Go rejects, was emitted (review round 1). Non-ASCII, a NUL in or after an entry, a control byte and a CR that does not end its line are each refused, so a byte bash and Go read differently can only refuse, never emit a record. |
 | `_pin_go_mod_scan: CRLF line endings are read (base#1463)` | A CR that ends its line is how a CRLF go.mod is written and Go reads it; the byte check must not turn that into a refusal. |
 | `_pin_go_mod_scan: a tab inside a path or a comment is refused as record_tab (base#1463)` | A record is `lineno<TAB>path<TAB>version<TAB>comment`, so a tab inside a quoted path or a comment is a field separator to every reader of the record: `require "a<TAB>b" v1.0.0` read as path=a, version=b (review round 1). Whatever field carries it, line or block form, the entry is refused. |
+| `_pin_go_mod_scan: an empty quoted path is refused as path_empty (base#1463)` | An empty quoted path left two adjacent tabs in the record, and a tab-split `read` collapses them, so the reader took the comment for the version: `require "" v1.0.0 // note` listed as current=`// note` (review round 2, base#1463). Go itself drops a requirement with an empty path, so no record agrees with Go; line and block form are refused by name. |
+| `_pin_go_mod_record_fields: an empty field keeps its column (base#1463)` | A record is decoded by splitting on its tabs with every field kept, including an empty one, so no field can slide into its neighbour's column whatever the scanner emits (review round 2, base#1463). |
 | `_pin_go_mod_scan: text after an opening paren is refused as paren_trailer (base#1463)` | `(` must end its line; `require ( a v1.0.0` is a Go error. |
 | `_pin_go_mod_scan: a closing paren after an entry is refused as paren_not_alone (base#1463)` | `)` must stand alone on its line. |
 | `_pin_go_mod_scan: // indirect, //indirect and // indirect; ... are go_mod_indirect_requirement (base#1463)` | An indirect requirement is not this repo's declaration; it is refused by its own event in every spelling Go marks indirect. |
@@ -3563,6 +3565,7 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: path major suffix, no suffix and invalid suffix each refuse by name (base#1463)` | The path-major rule has two arms (a /vN suffix and none) and an invalid-suffix arm; each is pinned separately. The huge major is compared as a string, so it cannot overflow into a pass. |
 | `_pin_go_mod_version_ok: accepts canonical versions and refuses ones Go would rewrite (base#1463)` | The validator is callable on its own, and answers 0 only for a version Go keeps exactly as written. |
 | `_pin_is_declaration: go.mod is DECL only on the line numbers the scanner emitted (base#1463)` | For go.mod the scanner, not a line shape, decides: DECL only on a line number it emitted, so a comment, module or go line is never one. |
+| `_pin_go_mod_set_line: refuses a line that is not a require entry and rewrites only the version token (base#1463)` | The bump rewrites only a line the scanner emitted; asked for the go directive it refuses rather than editing a line no pin can name, and on an entry it replaces the version token alone, not the same string in the comment (review round 2, base#1463). |
 | `_pin_is_declaration: go.mod with no line number is rc 2 (base#1463)` | A go.mod line with no line number cannot be answered from the scanner; it is a caller error (2), not a "no". |
 
 ### test/bats/unit/help_lang_spec.bats (20)
@@ -8367,7 +8370,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (33)
+### test/bats/unit/tool_pins_spec.bats (38)
 
 | Test | Description |
 |------|-------------|
@@ -8396,6 +8399,11 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: --set keeps the trailing comment on the line it rewrites` | That trailing comment is where a "held at this version because" rationale lives -- the one sentence a reviewer of a bump most needs |
 | `pins: a trailing comment does not leak whitespace into the version` | A stray space does not stay local: it flows into the reported from, into the branch name a bump builds, and into whatever CI feeds from --value |
 | `pins: --set leaves the file's mode alone` | mktemp creates 0600 and mv carries that mode onto the file -- invisible in CI and a permission denied on the next local just test |
+| `pins: --set rewrites a go.mod require, line form, keeping its comment (base#1463)` | The reader registers a go.mod require as a pin (base#1463), so a bump must be able to rewrite it; the assignment and coordinate:version rewrites never match `require <path> <version>` (review round 2). The version token the scanner read is replaced in place: spacing and comment kept. |
+| `pins: --set rewrites a go.mod require, block form (base#1463)` | The block form is what `go get` writes; the entry has no verb on its line, so a rewrite keyed on `require` would miss it. |
+| `pins: --set rewrites a quoted go.mod version and keeps the quotes (base#1463)` | A quoted version is read without its quotes; the rewrite keeps them. |
+| `pins: --set refuses a go.mod version Go would rewrite and leaves the file alone (base#1463)` | A version Go would rewrite (`v0.22` -> `v0.22.0`) is refused before the file is touched, so a bump cannot write a pin the reader then refuses. |
+| `pins: --list refuses a go.mod require with an empty path (base#1463)` | An empty quoted path once shifted the comment into the version column, so --list printed current=`// note` with rc 0 (review round 2, base#1463). |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
 | `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |
