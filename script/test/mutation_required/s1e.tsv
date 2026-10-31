@@ -1,0 +1,53 @@
+# s1e.tsv -- the mutations base#1465 (config-gen S1e, manifest admission)
+# requires script/test/mutation-probe.sh to report PINNED. One row per
+# shell refusal guard: the admission checker's, the runner's re-emission
+# of its event, step-output routing and cache filter, the Dockerfile admit
+# RUN's sentinel, missing-checker and checker-refusal guards, and the
+# redpath's verdicts on the refusal, stale and rerun cases.
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+admit-absent	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	|| _cga_stale "${f}" absent	|| true
+admit-encode	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	"$(_cga_enc "${1}")" "${2}"	"${1}" "${2}"
+admit-bytes	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	! grep -aq $'[^\\t[:print:]]' -- "${1}" || _cga_stale "${2}" bytes	true
+admit-final-lf	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	== ' 0a' ]] || _cga_stale "${2}" malformed	== ' 0a' ]] || true
+admit-empty-line	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	! grep -aqx '' -- "${1}" || _cga_stale "${2}" malformed	true
+admit-header	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    _cga_stale manifest header	    true
+admit-path-segment	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	]] ||\n      _cga_stale manifest path	]] ||\n      true
+admit-path-prefix	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${p}" == "${_CGA_MOD}"* ]] || _cga_stale manifest path	true
+admit-path-quote	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${p}" != *'"'* ]] || _cga_stale manifest path	true
+admit-one-status	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	local one="^[ADMT]${t}	local one="^[A-Z]${t}
+admit-two-score	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[RC][0-9]{3}	[RC][^${t}]*
+admit-two-shape	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${line}" =~ ${two} ]] || _cga_stale manifest record	true
+admit-marker-twice	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	((record == 0 && marker == 0)) || _cga_stale manifest none_marker	true
+admit-marker-after-record	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	((marker == 0)) || _cga_stale manifest none_marker	true
+admit-body-empty	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	((record == 1 || marker == 1)) || _cga_stale manifest body_empty	true
+admit-list-record	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${line}" =~ ${rec} ]] || _cga_stale "${name}" record	true
+admit-duplicate	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -z "${seen["${path}"]+x}" ]] || _cga_stale "${name}" duplicate	true
+admit-dual	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -z "${_cga_listed["${path}"]+x}" ]] || _cga_stale "${name}" dual	true
+admit-missing	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -e "${file}" || -L "${file}" ]] || _cga_stale "${path}" missing	true
+admit-sha-mismatch	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${got%% *}" == "${want}" ]] || _cga_stale "${path}" sha_mismatch	true
+admit-not-regular	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	]] ||\n      _cga_stale "${path}" not_regular	]] ||\n      true
+admit-unlisted	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -n "${listed["${path}"]+x}" ]] || _cga_stale "${path}" unlisted	true
+runner-event-reemit	script/test/config_gen_gates.sh	test/bats/integration/config_gen_admit_spec.bats	  [[ -z "${event}" ]] || _cg_event "${event}" "${rc}"	  true
+runner-event-attr	script/test/config_gen_gates.sh	test/bats/integration/config_gen_admit_spec.bats	_cg_attr_ok "${word}" && keep+=("${word}")	:
+runner-step-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	</dev/null >&2 || rc=$?	</dev/null || rc=$?
+runner-no-cache-test-only	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	--no-cache-filter admit,test --target test	--no-cache-filter test --target test
+runner-no-cache-admit-only	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	--no-cache-filter admit,test --target test	--no-cache-filter admit --target test
+dockerfile-sentinel	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	    if [[ -e /mutation/no-mutation-context ]]; then echo "cg_event config_gen_${e}" >&2; exit 1; fi; \\\n	
+dockerfile-checker-absent	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	    if [[ ! -f /mutation/admit.sh ]]; then echo "cg_event config_gen_${s} file=admit.sh reason=absent"; echo "config_gen_gate_${g}_failed" >&2; exit 1; fi; \\\n	
+dockerfile-checker-refusal	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	bash /mutation/admit.sh /mutation /src || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	bash /mutation/admit.sh /mutation /src || true
+redpath-refused-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}" out="${2}" err="${3}"\n  (( rc != 0 )) || { echo rc_zero; return 0; }	  local rc="${1}" out="${2}" err="${3}"\n  :
+redpath-refused-rc-not-one	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc == 1 )) || { echo rc_not_one; return 0; }	  :
+redpath-refused-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }	  :
+redpath-refused-unregistered	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }	  :
+redpath-refusal-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	grep -qE "$(_rp_event_record_re "${id}")" "${err}" || { echo wrong_id; return 0; }	:
+redpath-stale-go-parse	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  ! grep -qF 'go: errors parsing go.mod' "${err}" || { echo go_ran_before_admission; return 0; }	  :
+redpath-stale-go-step	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  ! grep -qE "${_RP_GO_STEP_RE}" "${err}" || { echo go_ran_before_admission; return 0; }	  :
+redpath-stale-gate-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo gate_record_missing; return 0; }	|| :
+redpath-stale-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ -n "${got}" ]] || { echo stale_record_missing; return 0; }	  :
+redpath-stale-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${got}" == "${file}|${reason}" ]] || { echo stale_detail_mismatch; return 0; }	  :
+redpath-rerun-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc == 0 )) || { echo rc_not_zero; return 0; }	  :
+redpath-rerun-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	printf '%s\\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }	:

@@ -5,7 +5,7 @@
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
 # written with the three escapes \\ \t \n. `just test mutation-required`
 # probes every row and passes only when each one is PINNED.
-runner-step-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null || rc=$?	    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null || true
+runner-step-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || rc=$?	    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || true
 runner-root-invalid	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	  if [[ ! -f "${root}/dockerfile/Dockerfile.config-gen" ]]; then	  if false; then
 runner-context-invalid	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    if [[ ! "${name}" =~ ^[a-z0-9-]+$ ]]; then	    if false; then
 runner-docker-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    >"${log}" 2>&1 || rc=$?	    >"${log}" 2>&1 || rc=1
@@ -15,7 +15,7 @@ runner-binary-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_g
 runner-usage-missing-root	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	          exit 2	          exit 0
 runner-usage-unknown	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>]"\n        exit 2	          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>]"\n        exit 0
 redpath-reentry	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  if [[ -n "${CONFIG_GEN_REDPATH_ACTIVE:-}" ]]; then	  if false; then
-redpath-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc != 0 )) || { echo rc_zero; return 0; }	  :
+redpath-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}" out="${2}" err="${3}" gate="${4}" first g\n  (( rc != 0 )) || { echo rc_zero; return 0; }	  local rc="${1}" out="${2}" err="${3}" gate="${4}" first g\n  :
 redpath-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }	  :
 redpath-gate-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	readonly _RP_GATE_RECORD_RE='^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$'	readonly _RP_GATE_RECORD_RE='^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"[^"]*(config_gen_gate_[a-z]+_failed)[^"]*",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$'
 redpath-earlier-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    grep -qx "gate=${g} ok" "${out}" || { echo earlier_gate_missing; return 0; }	    :
