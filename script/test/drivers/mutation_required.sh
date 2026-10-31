@@ -166,7 +166,7 @@ _mr_path_reason() {
 # fill _MR_ROWS_*. 0 when every row is valid and there is at least one.
 _mr_validate() {
   local _root="${1}" _dir="${1}/${_MR_ROSTER_REL}" _f _rel _line _n _bad=0
-  local _id _subj _spec _old _new _rest _reason _count _key
+  local _id _subj _spec _old _new _rest _reason _count _key _loc
   local -a _fl=() _files=()
   local -A _ids=() _tuples=()
   if [[ -d "${_dir}" ]]; then
@@ -182,6 +182,7 @@ _mr_validate() {
     _n=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _n=$(( _n + 1 ))
+      _loc="${_rel}:${_n}"
       [[ -z "${_line}" || "${_line}" == '#'* ]] && continue
       _fl=()
       _rest="${_line}"
@@ -192,70 +193,70 @@ _mr_validate() {
       _fl+=( "${_rest}" )
       _id="${_fl[0]}"
       if [[ "${_line}" == *$'\r'* ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" cr "the row carries a carriage return"
+        _mr_invalid "${_loc}" "${_id}" cr "the row carries a carriage return"
         _bad=1; continue
       fi
       if (( ${#_fl[@]} != 5 )); then
-        _mr_invalid "${_rel}:${_n}" "${_id}" field_count \
+        _mr_invalid "${_loc}" "${_id}" field_count \
           "${#_fl[@]} TAB-separated fields, the contract is <id> <subject> <spec> <old> <new>"
         _bad=1; continue
       fi
       _subj="${_fl[1]}"; _spec="${_fl[2]}"
       if [[ -z "${_id}" || -z "${_subj}" || -z "${_spec}" || -z "${_fl[3]}" ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" empty_field "id, subject, spec and old must be non-empty"
+        _mr_invalid "${_loc}" "${_id}" empty_field "id, subject, spec and old must be non-empty"
         _bad=1; continue
       fi
       if [[ ! "${_id}" =~ ^[a-z0-9-]+$ ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" id_invalid "an id is [a-z0-9-]+"
+        _mr_invalid "${_loc}" "${_id}" id_invalid "an id is [a-z0-9-]+"
         _bad=1; continue
       fi
       if _reason="$(_mr_path_reason "${_root}" "${_subj}")" \
         || _reason="$(_mr_path_reason "${_root}" "${_spec}")"; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" "${_reason}" "subject and spec are plain paths under the root"
+        _mr_invalid "${_loc}" "${_id}" "${_reason}" "subject and spec are plain paths under the root"
         _bad=1; continue
       fi
       if [[ ! -f "${_root}/${_subj}" ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" subject_missing "no file ${_subj}"
+        _mr_invalid "${_loc}" "${_id}" subject_missing "no file ${_subj}"
         _bad=1; continue
       fi
       if [[ "${_spec}" != test/bats/* ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" spec_not_under_test_bats "${_spec} is not a spec under test/bats/"
+        _mr_invalid "${_loc}" "${_id}" spec_not_under_test_bats "${_spec} is not a spec under test/bats/"
         _bad=1; continue
       fi
       if [[ ! -f "${_root}/${_spec}" ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" spec_missing "no spec ${_spec}: the pinning test is gone"
+        _mr_invalid "${_loc}" "${_id}" spec_missing "no spec ${_spec}: the pinning test is gone"
         _bad=1; continue
       fi
       if ! _old="$(_mr_decode "${_fl[3]}" && printf 'x')" \
         || ! _new="$(_mr_decode "${_fl[4]}" && printf 'x')"; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" bad_escape "old and new know only the escapes \\\\ \\t \\n"
+        _mr_invalid "${_loc}" "${_id}" bad_escape "old and new know only the escapes \\\\ \\t \\n"
         _bad=1; continue
       fi
       _old="${_old%x}"; _new="${_new%x}"
       if [[ "${_old}" == "${_new}" ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" new_equals_old "the mutation changes no byte"
+        _mr_invalid "${_loc}" "${_id}" new_equals_old "the mutation changes no byte"
         _bad=1; continue
       fi
       _count="$(MR_OLD="${_old}" _mr_splice count "${_root}/${_subj}")"
       if [[ "${_count}" == 0 ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" old_not_found "old does not occur in ${_subj}"
+        _mr_invalid "${_loc}" "${_id}" old_not_found "old does not occur in ${_subj}"
         _bad=1; continue
       elif [[ "${_count}" != 1 ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" old_ambiguous "old occurs more than once in ${_subj}"
+        _mr_invalid "${_loc}" "${_id}" old_ambiguous "old occurs more than once in ${_subj}"
         _bad=1; continue
       fi
       if [[ -n "${_ids["${_rel}|${_id}"]:-}" ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" duplicate_row "id ${_id} is also row ${_ids["${_rel}|${_id}"]}"
+        _mr_invalid "${_loc}" "${_id}" duplicate_row "id ${_id} is also row ${_ids["${_rel}|${_id}"]}"
         _bad=1; continue
       fi
       _key="${_subj}"$'\t'"${_spec}"$'\t'"${_fl[3]}"$'\t'"${_fl[4]}"
       if [[ -n "${_tuples["${_key}"]:-}" ]]; then
-        _mr_invalid "${_rel}:${_n}" "${_id}" duplicate_row "the same mutation is row ${_tuples["${_key}"]}"
+        _mr_invalid "${_loc}" "${_id}" duplicate_row "the same mutation is row ${_tuples["${_key}"]}"
         _bad=1; continue
       fi
-      _ids["${_rel}|${_id}"]="${_rel}:${_n}"
-      _tuples["${_key}"]="${_rel}:${_n}"
-      _MR_ROWS_LOC+=( "${_rel}:${_n}" )
+      _ids["${_rel}|${_id}"]="${_loc}"
+      _tuples["${_key}"]="${_loc}"
+      _MR_ROWS_LOC+=( "${_loc}" )
       _MR_ROWS_ID+=( "${_id}" )
       _MR_ROWS_SUBJ+=( "${_subj}" )
       _MR_ROWS_SPEC+=( "${_spec}" )
@@ -549,6 +550,11 @@ _mr_reap_one() {
   done
 }
 
+# _mr_row_err <event> <i> [<attr>=<value>]... -- one refusal about row <i>,
+# its location and id first. One line, event first: the shape
+# log_event_registry.sh reads as a forwarding wrapper.
+_mr_row_err() { _log_err "${_MR_SERVICE}" "${1}" "row=${_MR_ROWS_LOC[$2]}" "id=${_MR_ROWS_ID[$2]}" "${@:3}"; }
+
 # _mr_publish_interrupted -- the signal exit: no verdict, the held
 # sandboxes named.
 _mr_publish_interrupted() {
@@ -559,8 +565,7 @@ _mr_publish_interrupted() {
     mapfile -t _r < "${_MR_WORK}/row${_i}/res"
     _ev="${_r[0]}"
     if [[ "${_ev}" == mutation_required_sandbox_held ]]; then
-      _log_err "${_MR_SERVICE}" mutation_required_sandbox_held "row=${_MR_ROWS_LOC[_i]}" \
-        "id=${_MR_ROWS_ID[_i]}" "${_r[@]:1}" \
+      _mr_row_err mutation_required_sandbox_held "${_i}" "${_r[@]:1}" \
         "display=a container of the sandbox's project was still running (or docker could not be asked); the sandbox is kept"
     fi
   done
@@ -613,8 +618,7 @@ _mr_run() {
   # failing run publishes no pass.
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
     if [[ ! -f "${_MR_WORK}/row${_i}/res" ]]; then
-      _log_err "${_MR_SERVICE}" mutation_required_sandbox_failed "row=${_MR_ROWS_LOC[_i]}" \
-        "id=${_MR_ROWS_ID[_i]}" step=worker rc=unknown \
+      _mr_row_err mutation_required_sandbox_failed "${_i}" step=worker rc=unknown \
         "display=the worker for row ${_MR_ROWS_LOC[_i]} ended without a result"
       _fail=1
       continue
@@ -624,28 +628,25 @@ _mr_run() {
     case "${_ev}" in
       mutation_required_pinned) ;;
       mutation_required_survived)
-        _log_err "${_MR_SERVICE}" mutation_required_survived "row=${_MR_ROWS_LOC[_i]}" \
-          "id=${_MR_ROWS_ID[_i]}" "subject=${_MR_ROWS_SUBJ[_i]}" "spec=${_MR_ROWS_SPEC[_i]}" "${_r[@]:1}" \
+        _mr_row_err mutation_required_survived "${_i}" \
+          "subject=${_MR_ROWS_SUBJ[_i]}" "spec=${_MR_ROWS_SPEC[_i]}" "${_r[@]:1}" \
           "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}): ${_MR_ROWS_SPEC[_i]} stays green with the guard in ${_MR_ROWS_SUBJ[_i]} disabled -- nothing pins it"
         _fail=1 ;;
       mutation_required_probe_refused)
-        _log_err "${_MR_SERVICE}" mutation_required_probe_refused "row=${_MR_ROWS_LOC[_i]}" \
-          "id=${_MR_ROWS_ID[_i]}" "subject=${_MR_ROWS_SUBJ[_i]}" "spec=${_MR_ROWS_SPEC[_i]}" "${_r[@]:1}" \
+        _mr_row_err mutation_required_probe_refused "${_i}" \
+          "subject=${_MR_ROWS_SUBJ[_i]}" "spec=${_MR_ROWS_SPEC[_i]}" "${_r[@]:1}" \
           "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}): the probe gave no PINNED verdict a reader can check"
         _fail=1 ;;
       mutation_required_sandbox_failed)
-        _log_err "${_MR_SERVICE}" mutation_required_sandbox_failed "row=${_MR_ROWS_LOC[_i]}" \
-          "id=${_MR_ROWS_ID[_i]}" "${_r[@]:1}" \
+        _mr_row_err mutation_required_sandbox_failed "${_i}" "${_r[@]:1}" \
           "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}): the sandbox could not be built, so no probe ran"
         _fail=1 ;;
       mutation_required_sandbox_held)
-        _log_err "${_MR_SERVICE}" mutation_required_sandbox_held "row=${_MR_ROWS_LOC[_i]}" \
-          "id=${_MR_ROWS_ID[_i]}" "${_r[@]:1}" \
+        _mr_row_err mutation_required_sandbox_held "${_i}" "${_r[@]:1}" \
           "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}): a container of the sandbox's project was still running (or docker could not be asked); the sandbox is kept and the row fails"
         _fail=1 ;;
       *)
-        _log_err "${_MR_SERVICE}" mutation_required_probe_refused "row=${_MR_ROWS_LOC[_i]}" \
-          "id=${_MR_ROWS_ID[_i]}" rc=unknown \
+        _mr_row_err mutation_required_probe_refused "${_i}" rc=unknown \
           "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}): the worker wrote an unreadable result"
         _fail=1 ;;
     esac
