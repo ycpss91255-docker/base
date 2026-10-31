@@ -302,30 +302,32 @@ _pins_stage_go_mod() {
 # Commit the go.mod line change and the go.sum _pins_stage_go_mod computed
 # (base#1440): go.mod first, then go.sum, each by a rename of a copy beside
 # it. An empty <staged-sum> means the module wants no go.sum, so the one
-# that is there is removed.
+# that is there is removed. A failed go.sum step puts go.mod back.
 _pins_commit_go_mod() {
   local _abs="${1}" _n="${2}" _repl="${3}" _sumtmp="${4}"
   local _sum="${_abs%/*}/go.sum"
-  if [[ -z "${_sumtmp}" ]]; then
-    _pins_commit "${_abs}" "${_n}" "${_repl}" || return 1
-    if [[ -e "${_sum}" ]] && ! rm -f -- "${_sum}"; then
-      _pins_refuse "${_sum}" commit_failed "the go.sum the module no longer needs could not be removed"
-      return 1
-    fi
-    return 0
-  fi
-  # A copy of go.mod as it was, so a failed go.sum rename can put go.mod
-  # back and the tree never holds the new go.mod beside the old go.sum.
+  # A copy of go.mod as it was, so a failed go.sum rename or removal can
+  # put go.mod back and the tree never holds the new go.mod beside the old
+  # go.sum.
   local _bak
   if ! _bak="$(mktemp "${_abs%/*}/.go.mod.pins.bak.XXXXXX")" \
       || ! cp -p -- "${_abs}" "${_bak}"; then
-    rm -f -- "${_sumtmp}" ${_bak:+"${_bak}"}
+    rm -f -- ${_sumtmp:+"${_sumtmp}"} ${_bak:+"${_bak}"}
     _pins_refuse "${_abs}" temp_create "no backup copy could be created beside it"
     return 1
   fi
   if ! _pins_commit "${_abs}" "${_n}" "${_repl}"; then
-    rm -f -- "${_sumtmp}" "${_bak}"
+    rm -f -- ${_sumtmp:+"${_sumtmp}"} "${_bak}"
     return 1
+  fi
+  if [[ -z "${_sumtmp}" ]]; then
+    if [[ -e "${_sum}" ]] && ! rm -f -- "${_sum}"; then
+      mv -f "${_bak}" "${_abs}"
+      _pins_refuse "${_sum}" commit_failed "the go.sum the module no longer needs could not be removed; go.mod was put back"
+      return 1
+    fi
+    rm -f -- "${_bak}"
+    return 0
   fi
   if ! mv -f "${_sumtmp}" "${_sum}"; then
     rm -f -- "${_sumtmp}"
