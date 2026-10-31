@@ -754,6 +754,28 @@ _golang_pin() {
   assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" 'go.mod'
 }
 
+# why: The module goes to the container as a tar of paths relative to the
+# module directory, and the container script checks `test -f go.mod ||
+# exit 4` before it tidies. Exit 4 means the archive did not land as a
+# module (no go.mod at the top of /tmp/w): a layout fault, its own refusal
+# rather than a failed tidy, and neither file is written (base#1440).
+@test "pins: --set on a go.mod require whose module archive has no go.mod is go_sum_layout (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 4
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_layout
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
