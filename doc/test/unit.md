@@ -3497,7 +3497,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (46)
+### test/bats/unit/gomod_scan_spec.bats (47)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3526,13 +3526,14 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: the line form is one record with an empty comment column (base#1463)` | The line form is the other spelling `go mod edit -require` writes. |
 | `_pin_go_mod_scan: an end-of-line comment is carried in the fourth column (base#1463)` | The comment column is where the marker grammar's `// tool-pin:` can ride on the entry itself; a scanner that drops it loses that. |
 | `_pin_go_mod_scan: every supported fixture yields exactly the requires Go reads (base#1463)` | Every supported fixture's records equal Go's, which the header measured and <name>.requires holds; this rules out a scanner that keeps quotes, drops a glued comment's entry, or rejects a hyphenated prerelease. |
-| `_pin_go_mod_scan: every policy-refused and go-invalid fixture is refused with its header's event and reason (base#1463)` | Every refused fixture is refused with the event and reason its header names, and with nothing on stdout. A scanner that streams records before a later refusal, or refuses for the wrong reason, fails here. |
+| `_pin_go_mod_scan: every policy-refused and go-invalid fixture is refused with its header's event, reason, file and line (base#1463)` | Every refused fixture is refused with the event and reason its header names, nothing on stdout, and the file and line attributed -- the full five-point assertion per fixture (review round 5). Several reasons (quote_escape among them) have no dedicated test, so a refusal that drops file= or line= for one of them must fail here. A scanner that streams records before a later refusal, or refuses for the wrong reason, too. |
 | `gomod fixtures: every fixture's first line is a class header (base#1463)` | The scanner's go.mod reader is a closed set: no fixture may sit outside the three classes, or the two loops above would skip it. |
 | `_pin_go_mod_scan: exclude is refused by name, line form before a require and block form after one (base#1463)` | Go rejects `exclude a` and the old design consumed exclude unread, so a valid require after it was emitted for a file Go refuses. exclude is now refused by name in any form: line and block, before and after a require. |
 | `_pin_go_mod_scan: retract is refused by name in the line, interval and block forms (base#1463)` | Same point for retract: its interval grammar is not ported, so every retract -- valid, unclosed or with a trailer -- is refused by name. |
 | `_pin_go_mod_scan: godebug is refused by name in the line and block forms (base#1463)` | Same point for godebug: `godebug foo` and `godebug a=1,b=2` are Go errors the old scanner skipped. |
 | `_pin_go_mod_scan: replace, tool and ignore are each refused by name (base#1463)` | replace, tool and ignore are three separate arms, each its own guard. |
 | `_pin_go_mod_scan: module with two arguments is refused as module_arity (base#1463)` | module takes exactly one argument; `module a b` is a Go error. |
+| `_pin_go_mod_scan: module ) is read as Go reads it, the require kept (base#1463)` | Review round 4 took `module )` for a Go error. The oracle step ran `go mod edit -json` on both fixtures and Go returned rc 0: its parser reads the `)` as the module path. So the scanner keeps the require on either side of it, as Go does, rather than refusing a file Go accepts. |
 | `_pin_go_mod_scan: module a'b is refused as module_quote (base#1463)` | An unquoted module path cannot hold a quote character. |
 | `_pin_go_mod_scan: a repeated module line is refused as module_repeated (base#1463)` | A second module line is a Go error wherever it sits. |
 | `_pin_go_mod_scan: go with two arguments is refused as go_arity (base#1463)` | go takes exactly one argument. |
