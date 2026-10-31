@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **266 tests**.
+Integration specs under `test/bats/integration/`: **269 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -77,6 +77,27 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
+
+### test/bats/integration/config_gen_admit_spec.bats (3)
+
+The Dockerfile's admit stage runs this checker before any Go, to hold the
+build context to the host mutation baseline the 00-manifest step wrote
+(base#1464). Whatever reaches the build after that baseline and is not bound
+by it -- by name and by sha256 -- is compiled and judged by gates that never
+saw it in the manifest. Every row writes a real baseline with
+script/test/config_gen_mutation_targets.sh on a Git fixture, changes the
+module or the baseline the way a later step could, and runs the checker on
+the result; no row reads the checker's source.
+
+config_gen_admit.sh <mutation> <src> admitted: rc 0, nothing on stdout or
+stderr refused: rc 1, exactly one stdout line cg_event
+config_gen_manifest_stale file=<path> reason=<r> and nothing on stderr
+
+| Test | Description |
+|------|-------------|
+| `config_gen_admit: a symlink added to the module after the baseline is refused as not_regular (base#1465)` | - |
+| `config_gen_admit: a listed file deleted from the module after the baseline is refused as missing (base#1465)` | - |
+| `config_gen_admit: a manifest body line that is neither the none marker nor a change record is refused as record (base#1465)` | - |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 

@@ -19,7 +19,10 @@
 # a listed file <src> no longer holds (deleted after the baseline).
 # Before either, the manifest's first line must be S1d's header,
 # `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`; any other
-# first line is refused as file=manifest reason=header.
+# first line is refused as file=manifest reason=header. Every later line
+# must be the none marker `none: no-go-change` or a change record
+# `<status>\t<path>...`; any other body line is refused as
+# file=manifest reason=record.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -33,6 +36,7 @@ set -euo pipefail
 export LC_ALL=C
 
 readonly _CGA_MOD='dockerfile/config-gen/'
+readonly _CGA_NONE='none: no-go-change'
 
 # _cga_stale <file> <reason> -- refuse, rc 1.
 _cga_stale() {
@@ -46,6 +50,16 @@ _cga_header() {
   IFS= read -r line <"${1}" || true
   [[ "${line}" =~ ^base=${sha}\ head=${sha}\ dirty=(yes|no)\ context=(pr|main-push)$ ]] ||
     _cga_stale manifest header
+}
+
+# _cga_body <manifest> -- refuse a body line that is neither the none
+# marker nor a `<status>\t<path>` change record.
+_cga_body() {
+  local line
+  while IFS= read -r line; do
+    [[ "${line}" == "${_CGA_NONE}" || "${line}" == [^$'\t']*$'\t'?* ]] ||
+      _cga_stale manifest record
+  done < <(tail -n +2 -- "${1}")
 }
 
 # _cga_check <src> <list> -- refuse the first listed file whose sha256 in
@@ -82,6 +96,7 @@ main() {
   local mutation="${1:?usage: config_gen_admit.sh <mutation> <src>}"
   local src="${2:?usage: config_gen_admit.sh <mutation> <src>}"
   _cga_header "${mutation}/manifest"
+  _cga_body "${mutation}/manifest"
   _cga_check "${src}" "${mutation}/visible.sha256"
   _cga_check "${src}" "${mutation}/ignored.sha256"
   _cga_walk "${src}" "${mutation}/visible.sha256" "${mutation}/ignored.sha256"
