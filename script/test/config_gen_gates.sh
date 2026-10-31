@@ -14,8 +14,9 @@
 # In order:
 #   1. steps     every <dir>/script/test/config_gen_steps/*.sh, in C-locale
 #                glob order, run with CONFIG_GEN_CTX set to a fresh
-#                directory. The first step that fails stops the run with its
-#                status. Each directory a step leaves under CONFIG_GEN_CTX
+#                directory, its stdout sent to stderr (stdout carries only
+#                the ok lines below; base#1465). The first step that fails
+#                stops the run with its status. Each directory a step leaves under CONFIG_GEN_CTX
 #                becomes a named build context, `--build-context
 #                <name>=<path>`, so a later slice's inputs reach the build
 #                without an edit here. A name outside [a-z0-9-] is refused:
@@ -78,7 +79,7 @@ _cg_run_steps() {
     [[ -n "${step}" ]] || continue
     name="$(basename -- "${step}" .sh)"
     rc=0
-    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null || rc=$?
+    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || rc=$?
     if (( rc != 0 )); then
       _log_err "${_CG_SERVICE}" config_gen_step_failed "step=${name}" "status=${rc}" \
         "display=config-gen step ${name} exited ${rc}"
