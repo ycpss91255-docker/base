@@ -969,3 +969,62 @@ STUB
   run grep -cFx 'test|go' "${SCRATCH}/just"
   assert_output 1
 }
+
+# ── the required-kill roster in the no-flag `just test` (base#1461) ──────────
+#
+# The mirror attests the roster through `just test`, so the no-flag
+# test.sh main is where the roster has to run: on the host, after the lint
+# phase and before bats. Each case sources test.sh and stubs the two
+# dispatches, so what is asserted is the order main calls them in and what
+# a red roster stops.
+
+# _main_calls <roster-rc> <args>... -- run the sourced main with the compose
+# dispatch and the roster stubbed; each call prints one line. LINT_ONLY and
+# BATS_ONLY are cleared first: this suite itself runs under BATS_ONLY=1, and
+# an inherited value would read as main's own. Unset and 0 both print 0.
+_main_calls() {
+  local _rc="${1}"
+  shift
+  run env -u LINT_ONLY -u BATS_ONLY ROSTER_RC="${_rc}" bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
+    _run_via_compose() {
+      printf "compose %s lint=%s bats=%s\n" "$*" \
+        "$([[ "${LINT_ONLY:-0}" == 1 ]] && echo 1 || echo 0)" \
+        "$([[ "${BATS_ONLY:-0}" == 1 ]] && echo 1 || echo 0)"
+    }
+    _run_mutation_required() { printf "roster\n"; return "${ROSTER_RC}"; }
+    main "$@"
+  ' _ "$@"
+}
+
+# why: The roster is one of the checks `just test` attests and the pre-PR
+# mirror relies on that run; it runs on the host (it builds sandboxes and
+# runs the probe, which drives compose itself), between the lint phase and
+# bats, so the no-flag compose dispatch is split in two around it.
+@test "test.sh: a no-flag run lints, then runs the roster, then runs bats (base#1461)" {
+  _main_calls 0
+  assert_success
+  assert_equal "$(grep -E '^(compose|roster)' <<< "${output}")" "compose ci 0 lint=1 bats=0
+roster
+compose ci 0 lint=0 bats=1"
+}
+
+# why: A red roster is a red `just test`, and bats does not run after it.
+@test "test.sh: a red roster fails the no-flag run before bats (base#1461)" {
+  _main_calls 1
+  assert_failure
+  assert_line 'roster'
+  refute_line --partial 'bats=1'
+}
+
+# why: The CI lint legs run the roster as a step of their own and the
+# coverage modes are not the local gate; neither calls it a second time.
+@test "test.sh: --lint --group and --coverage do not run the roster (base#1461)" {
+  _main_calls 0 --lint --group 1/4
+  refute_line roster
+  assert_line --partial 'compose ci 0 lint=1'
+  _main_calls 0 --coverage
+  refute_line roster
+}
