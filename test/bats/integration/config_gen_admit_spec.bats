@@ -135,3 +135,23 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a change record whose status is not one S1d writes (U) is refused as record (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d's records carry A, D, M or T with one path, or R<score> or
+  # C<score> with two (design §2 body rule). U (unmerged) has the one-path
+  # shape but is none of these statuses, so a later step writing it is
+  # refused.
+  printf '%s\nU\t%s/a.go\n' "${header}" "${MOD}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
+  assert_equal "${stderr}" ""
+}
