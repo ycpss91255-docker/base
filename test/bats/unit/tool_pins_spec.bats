@@ -854,6 +854,56 @@ STUB
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
+# why: A golang minor bump moves the Go that builds every module, so the
+# `go` directive of each tracked go.mod moves with it, and each go.sum is
+# regenerated in the PROPOSED image, not the one being replaced: rewriting
+# the Dockerfile alone leaves every go.mod naming the old minor, which the
+# directive check then refuses. The docker stub stands in for the image: it
+# logs each call, answers a module that requires golang.org/x/mod with one
+# go.sum line, and a dependency-free module with exit 5 (tidy leaves no
+# go.sum, as measured in the pinned image). Both go.mod files end up with
+# `go 1.28`, m keeps a go.sum of the stub's line, m2 still has none, and
+# docker ran exactly twice, both times in golang:1.28.0-trixie (base#1440).
+@test "pins: --set golang to another minor rewrites every go.mod go line and go.sum in the proposed image (base#1440)" {
+  _golang_pin
+  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2"
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mkdir -p "${_m}" "${_m2}"
+  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
+    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
+  printf '%s\n' 'module example.com/m2' '' 'go 1.27' > "${_m2}/go.mod"
+  _stub docker 0
+  cat > "${STUB_BIN}/docker" <<STUB
+#!/bin/sh
+echo "docker \$*" >> "${_log}"
+cat > "${BATS_TEST_TMPDIR}/docker.in"
+if grep -aq 'golang.org/x/mod' "${BATS_TEST_TMPDIR}/docker.in"; then
+  printf 'golang.org/x/mod v0.21.0 h1:new=\n'
+  exit 0
+fi
+exit 5
+STUB
+  chmod +x "${STUB_BIN}/docker"
+  : > "${_log}"
+  _pins_json --set golang golang:1.28.0-trixie
+  assert_success
+  run sed -n 2p "${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  assert_output 'ARG GO_IMAGE=golang:1.28.0-trixie'
+  run sed -n 3p "${_m}/go.mod"
+  assert_output 'go 1.28'
+  run sed -n 3p "${_m2}/go.mod"
+  assert_output 'go 1.28'
+  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:new='
+  [[ ! -e "${_m2}/go.sum" ]] || fail "m2 gained a go.sum: $(cat "${_m2}/go.sum")"
+  assert_equal "$(wc -l < "${_log}")" 2
+  assert_equal "$(grep -c ' golang:1.28.0-trixie ' "${_log}")" 2
+  run grep -c '1\.27\.2' "${_log}"
+  assert_output 0
+  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
+  assert_equal "$(ls -A -- "${_m2}")" 'go.mod'
+}
+
 # why: A go.mod `go` directive names the Go a module needs; the golang pin
 # names the Go that builds it. Nothing compared the two, so `go 1.26` under
 # golang:1.27.2 passed the watch unseen. _pin_go_directive_check compares
