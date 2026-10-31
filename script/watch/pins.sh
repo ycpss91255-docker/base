@@ -169,14 +169,21 @@ readonly _PINS_GOLANG_PIN=golang
 # Regenerate go.sum in the pinned golang image. The module arrives as a tar
 # on stdin, its paths relative to the module directory; stdout is moved to
 # fd 3 and the shell's own stdout to stderr, so `go` chatter (`all modules
-# verified`) never reaches the go.sum the caller captures.
+# verified`) never reaches the go.sum the caller captures. The tidy runs
+# on the module copy in /tmp/w; when it would also change go.mod (compared
+# by `go mod edit -json`, so spacing and comments do not count) the script
+# exits 3 and no go.sum is taken.
 # shellcheck disable=SC2016 # expanded by the container's shell, not here.
 readonly _PINS_GO_SUM_SCRIPT='set -eu
 exec 3>&1 1>&2
 mkdir -p /tmp/w
 cd /tmp/w
 tar -xf -
+cp go.mod /tmp/go.mod.staged
 go mod tidy
+go mod edit -json /tmp/go.mod.staged > /tmp/staged.json
+go mod edit -json > /tmp/tidied.json
+cmp -s /tmp/staged.json /tmp/tidied.json || exit 3
 go mod verify
 cat go.sum >&3'
 
@@ -227,7 +234,13 @@ _pins_set_go_mod() {
     _pins_refuse "${_sum}" temp_create "no temp copy could be created beside it"
     return 1
   fi
-  if ! _pins_go_sum "${_image}" "${_abs}" "${_staged}" "${_sumtmp}"; then
+  local _rc=0
+  _pins_go_sum "${_image}" "${_abs}" "${_staged}" "${_sumtmp}" || _rc=$?
+  if (( _rc == 3 )); then
+    rm -f -- "${_staged}" "${_sumtmp}"
+    _pins_refuse "${_abs}" go_sum_semantic "go mod tidy in ${_image%%@*} would also rewrite it"
+    return 1
+  elif (( _rc != 0 )); then
     rm -f -- "${_staged}" "${_sumtmp}"
     _pins_refuse "${_abs}" go_sum_tidy "go mod tidy / go mod verify failed in ${_image%%@*}"
     return 1
