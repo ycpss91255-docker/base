@@ -818,6 +818,71 @@ STUB
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
+# _stub_chmod_fails_on_go_sum_copy -- a chmod on ${STUB_BIN} that fails
+# when it names the temp copy of go.sum (.go.sum.pins.*) and runs the real
+# chmod on anything else, so only the go.sum mode step of a bump fails.
+_stub_chmod_fails_on_go_sum_copy() {
+  local _real
+  _real="$(command -v chmod)"
+  mkdir -p "${STUB_BIN}"
+  cat > "${STUB_BIN}/chmod" <<STUB
+#!/bin/sh
+for _a; do
+  case "\${_a##*/}" in .go.sum.pins.*) exit 1 ;; esac
+done
+exec "${_real}" "\$@"
+STUB
+  "${_real}" +x "${STUB_BIN}/chmod"
+}
+
+# why: mktemp creates the go.sum copy 0600, and the bump gives it go.sum's
+# mode (or 644 for a new go.sum) before it is renamed. A chmod that fails
+# there was once unchecked, so the bump committed a 0600 go.sum; it is
+# mode_failed for go.sum, before either file is written, and no temp copy
+# is left beside them (review round 2, base#1440).
+@test "pins: --set on a go.mod require whose go.sum copy cannot take go.sum's mode is mode_failed and changes no byte (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}" "${_sum}"
+  _snapshot "${_f}"
+  _stub docker 0
+  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
+    > "${STUB_BIN}/docker"
+  _stub_chmod_fails_on_go_sum_copy
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  assert_equal "$(stat -c '%a' -- "${_sum}")" 664
+}
+
+# why: The same mode step for a module that has no go.sum yet: the new
+# go.sum would be committed 0600, so the bump is mode_failed and no go.sum
+# appears (review round 2, base#1440).
+@test "pins: --set on a go.mod require with no go.sum whose new go.sum cannot be given a mode is mode_failed and changes no byte (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 0
+  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
+    > "${STUB_BIN}/docker"
+  _stub_chmod_fails_on_go_sum_copy
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
+  _assert_unchanged "${_f}"
+  [[ ! -e "${_sum}" ]] || fail "a go.sum appeared: $(cat "${_sum}")"
+}
+
 # _assert_set_refused_untouched <event> <line> <reason> <go.mod line>...
 #
 # `--set xmod v0.22.0` on a config-gen go.mod of those lines, under the
