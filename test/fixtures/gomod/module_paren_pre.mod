@@ -1,3 +1,3 @@
-// class: go-invalid go_mod_unsupported_syntax module_path
+// class: supported
 module )
 require a v1.0.0

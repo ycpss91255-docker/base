@@ -187,12 +187,17 @@ _gomod() {
   _refused module_arity_post module_arity 3
 }
 
-# why: The module argument is a word or a string; punctuation is none.
-# `module )` is a Go error (an unmatched close paren), and an arity count
-# alone takes `)` as the one argument and keeps reading (review round 4).
-@test "_pin_go_mod_scan: module ) is refused as module_path (base#1463)" {
-  _refused module_paren_pre module_path 2
-  _refused module_paren_post module_path 3
+# why: Review round 4 took `module )` for a Go error. The oracle step ran
+# `go mod edit -json` on both fixtures and Go returned rc 0: its parser
+# reads the `)` as the module path. So the scanner keeps the require on
+# either side of it, as Go does, rather than refusing a file Go accepts.
+@test "_pin_go_mod_scan: module ) is read as Go reads it, the require kept (base#1463)" {
+  _scan module_paren_pre
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  _scan module_paren_post
+  assert_success
+  assert_output "$(printf '2\ta\tv1.0.0\t')"
 }
 
 # why: An unquoted module path cannot hold a quote character.
