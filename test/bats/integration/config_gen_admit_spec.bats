@@ -247,7 +247,7 @@ _run_admit() {
   assert_equal "${stderr}" ""
 }
 
-# why: 00-manifest writes TAB, LF and printable ASCII only; a CR from a
+# why: 00-manifest writes no control byte but TAB and LF; a CR from a
 # CRLF rewrite is a byte it never writes. (base#1465)
 @test "config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)" {
   _baseline
@@ -256,8 +256,8 @@ _run_admit() {
   assert_equal "${status}" 0
   assert_equal "${output}" ""
   assert_equal "${stderr}" ""
-  # S1d writes the manifest with LF line ends and only TAB, LF and 0x20-0x7e
-  # bytes (design §2 check 2, bytes|malformed). A later step that rewrites
+  # S1d writes the manifest with LF line ends and no control byte but TAB
+  # and LF (design §2 check 2, bytes|malformed). A later step that rewrites
   # every line end as CR LF puts a 0x0d byte on each line; the byte check
   # runs before the header check, so the refusal names the byte, not the
   # header that the CR also breaks.
@@ -367,8 +367,8 @@ _run_admit() {
   assert_equal "${stderr}" ""
 }
 
-# why: A double quote in a record path is the quoting of a name S1d
-# C-quotes, which admission does not read back. (base#1465)
+# why: S1d C-quotes a name holding a double quote, so a raw one in a
+# record path is a spelling S1d never writes. (base#1465)
 @test "config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)" {
   _baseline
   # The no-fire twin: the untouched baseline is admitted.
@@ -378,12 +378,11 @@ _run_admit() {
   assert_equal "${stderr}" ""
   local header
   IFS= read -r header < "${S}/m/manifest"
-  # Canonical P holds no `"` or `\` (design §2 check 5; design §4 cycle 8,
-  # case "quoted name"): a path git would C-quote is not one S1d's
-  # record language can carry. A later step writes a record whose path,
-  # under the module prefix, holds the quote characters of a quoted name;
-  # the record has the one-path M shape and no empty, `.` or `..`
-  # segment, so only the quoted-name rule refuses it.
+  # S1d C-quotes a name holding a `"` (design §4 cycle 8, case "quoted
+  # name"), so a raw `"` in a record path is a spelling S1d never writes.
+  # A later step writes a record whose path, under the module prefix,
+  # holds a raw `"`; the record has the one-path M shape and no empty,
+  # `.` or `..` segment, so only the spelling rule refuses it.
   printf '%s\nM\t%s/"a".go\n' "${header}" "${MOD}" > "${S}/m/manifest"
   _run_admit
   assert_equal "${status}" 1
@@ -479,8 +478,8 @@ _run_admit() {
   assert_equal "${status}" 0
   assert_equal "${output}" ""
   assert_equal "${stderr}" ""
-  # 00-manifest writes every mutation file with only TAB, LF and 0x20-0x7e
-  # bytes; any other byte is `bytes` (design §4 cycle 8, case "NUL"). A
+  # 00-manifest writes every mutation file with no control byte but TAB
+  # and LF; any other control byte is `bytes` (design §4 cycle 8, case "NUL"). A
   # later step puts a NUL between a.go's path and its TAB. Read as text,
   # the NUL is dropped and the line looks like the untouched one, so only
   # a byte check on the list itself refuses it, naming the list.

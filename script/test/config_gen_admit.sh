@@ -17,9 +17,10 @@
 #   presence         manifest, visible.sha256 and ignored.sha256 must each be
 #                    a regular file (00-manifest writes all three);
 #                    otherwise file=<it> reason=absent.
-#   manifest bytes   TAB, LF and 0x20-0x7e only, as S1d writes it; any
-#                    other byte (a CR from a CRLF rewrite included) is
-#                    file=manifest reason=bytes. Then the framing: every
+#   manifest bytes   no control byte but TAB and LF, as S1d writes it (a
+#                    byte past 0x7e is part of a name S1d keeps raw); any
+#                    other control byte (a CR from a CRLF rewrite, a DEL
+#                    included) is file=manifest reason=bytes. Then the framing: every
 #                    line ends in LF, the last one included, and none is
 #                    empty; otherwise reason=malformed.
 #   manifest header  the first line must be S1d's header,
@@ -33,19 +34,22 @@
 #                    the marker only when no record exists, so the marker
 #                    beside a record, or a second marker, is
 #                    reason=none_marker; it always writes one of them, so a
-#                    header alone is reason=body_empty. A record path is
-#                    printed as git prints it, under `dockerfile/config-gen/`,
-#                    so a path holding a `..`, `.` or empty segment, outside
-#                    that prefix, or holding a `"` (the quote of a name git
-#                    C-quotes) is reason=path. All with file=manifest.
+#                    header alone is reason=body_empty. A record path is in
+#                    S1d's spelling (below) and names a path under
+#                    `dockerfile/config-gen/`, so a spelling S1d does not
+#                    write, or a name holding a `..`, `.` or empty segment
+#                    or outside that prefix, is reason=path. All with
+#                    file=manifest.
 #   each list        visible.sha256, then ignored.sha256. The same bytes
 #                    only (a NUL, which a text read would drop, is
 #                    reason=bytes) and the same framing (reason=malformed;
-#                    an empty list, zero bytes, is S1d's no file); every line `<path>\t<64 hex digits>`
+#                    an empty list, zero bytes, is S1d's no file); every line
+#                    `<path>\t<64 hex digits>`, the path in S1d's spelling
 #                    (reason=record); a path listed twice in one list is
 #                    reason=duplicate (00-manifest hashes each file once); a
 #                    path the earlier list already names is reason=dual
-#                    (00-manifest puts each file in exactly one list). All with file=<list>, the list read
+#                    (00-manifest puts each file in exactly one list). All
+#                    with file=<list>, the list read
 #                    when the rule fired. Once a list's lines pass, a file
 #                    it names whose sha256 in <src> differs (edited after
 #                    the baseline) is reason=sha_mismatch, and one <src> no
@@ -56,11 +60,19 @@
 #                    neither list names (added after the baseline) is
 #                    reason=unlisted. Both with file=<path>.
 #
+# S1d's spelling (config_gen_mutation_targets.sh, base#1464): a name as
+# is, bytes past 0x7e included, unless it holds a control byte, a `"` or a
+# backslash; then C-quoted as git quotes with core.quotePath=false.
+# Admission reads a spelling back to the name on disk and accepts it only
+# when it is the one S1d writes for that name, so each name has exactly
+# one spelling here.
+#
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
 # which config_gen_gates.sh re-emits as that event, and the exit is 1.
-# <path> is written with each byte outside 0x21-0x7e, and the % itself, as
-# %XX, so a name holding a space or a LF stays one word of one line.
+# <path> is the name on disk, not its spelling, written with each byte
+# outside 0x21-0x7e, and the % itself, as %XX, so a name holding a space
+# or a LF stays one word of one line.
 #
 # Exit: 0 admitted; 1 refused or a missing argument.
 #
@@ -74,6 +86,9 @@ readonly _CGA_NONE='none: no-go-change'
 
 # Paths every list read so far names, for the one-list rule.
 declare -A _cga_listed=()
+# What _cga_quote and _cga_unquote set, so no call needs a subshell.
+_cga_q=''
+_cga_raw=''
 
 # _cga_enc <value> -- <value> as one word: each byte outside 0x21-0x7e,
 # and the % itself, written as %XX (uppercase hex), so the value holds no
@@ -98,14 +113,17 @@ _cga_stale() {
   exit 1
 }
 
-# _cga_bytes <file> <name> -- refuse a byte other than TAB, LF or
-# 0x20-0x7e in <file> (bytes); then a non-empty <file> whose last byte is
+# _cga_bytes <file> <name> -- refuse a control byte other than TAB and LF
+# (0x00-0x08, 0x0b-0x1f, 0x7f) in <file> (bytes); then a non-empty <file> whose last byte is
 # not LF, or that holds an empty line (malformed). Every later read is a
 # line-at-a-time `read`, which never returns an unterminated last line to
 # the loop that judges it, so the framing is settled here, on the file,
 # before any line is judged.
 _cga_bytes() {
-  ! grep -aq $'[^\t[:print:]]' -- "${1}" || _cga_stale "${2}" bytes
+  # A negated byte set, not [:print:]: in the C locale [:print:] holds no
+  # byte past 0x7e, and such a byte is a name S1d keeps raw. -a, so a NUL
+  # is a byte the set refuses, not a sign of a binary file.
+  ! grep -aq $'[^\t -~\x80-\xff]' -- "${1}" || _cga_stale "${2}" bytes
   if [[ -s "${1}" ]]; then
     [[ "$(tail -c 1 -- "${1}" | od -An -tx1)" == ' 0a' ]] || _cga_stale "${2}" malformed
   fi
@@ -120,15 +138,93 @@ _cga_header() {
     _cga_stale manifest header
 }
 
-# _cga_path <path>... -- refuse a record path holding a `..`, `.` or
-# empty segment, not under the module prefix, or holding a `"`.
+# _cga_quote <name> -- set _cga_q to S1d's spelling of <name>: the same
+# rule, case for case, as _cgm_quote in config_gen_mutation_targets.sh.
+_cga_quote() {
+  local p="${1}" q='' c i
+  case "${p}" in
+    *[[:cntrl:]\"\\]*) ;;
+    *)
+      _cga_q="${p}"
+      return 0
+      ;;
+  esac
+  for ((i = 0; i < ${#p}; i++)); do
+    c="${p:i:1}"
+    case "${c}" in
+      $'\a') q+='\a' ;;
+      $'\b') q+='\b' ;;
+      $'\t') q+='\t' ;;
+      $'\n') q+='\n' ;;
+      $'\v') q+='\v' ;;
+      $'\f') q+='\f' ;;
+      $'\r') q+='\r' ;;
+      '"') q+='\"' ;;
+      \\) q+="\\\\" ;;
+      [[:cntrl:]]) q+="$(printf '\\%03o' "'${c}")" ;;
+      *) q+="${c}" ;;
+    esac
+  done
+  _cga_q="\"${q}\""
+}
+
+# _cga_unquote <spelling> -- set _cga_raw to the name <spelling> reads
+# back to; rc 1 when it does not read back, or when S1d's spelling of
+# that name is not <spelling> (a quote S1d does not write, an octal escape
+# where it writes a named one, a raw byte it quotes).
+_cga_unquote() {
+  local s="${1}" raw='' c o i
+  if [[ "${s}" == '"'* ]]; then
+    ((${#s} >= 2)) && [[ "${s}" == *'"' ]] || return 1
+    s="${s:1:${#s}-2}"
+    for ((i = 0; i < ${#s}; i++)); do
+      c="${s:i:1}"
+      if [[ "${c}" != \\ ]]; then
+        raw+="${c}"
+        continue
+      fi
+      i=$((i + 1))
+      c="${s:i:1}"
+      case "${c}" in
+        a) raw+=$'\a' ;;
+        b) raw+=$'\b' ;;
+        t) raw+=$'\t' ;;
+        n) raw+=$'\n' ;;
+        v) raw+=$'\v' ;;
+        f) raw+=$'\f' ;;
+        r) raw+=$'\r' ;;
+        '"' | \\) raw+="${c}" ;;
+        [0-3])
+          o="${s:i:3}"
+          [[ "${o}" =~ ^[0-3][0-7][0-7]$ && "${o}" != 000 ]] || return 1
+          # printf -v, not $(...): a command substitution drops a
+          # trailing LF, which \012 would be.
+          printf -v c '%b' "\\${o}"
+          raw+="${c}"
+          i=$((i + 2))
+          ;;
+        *) return 1 ;;
+      esac
+    done
+  else
+    raw="${s}"
+  fi
+  _cga_raw="${raw}"
+  _cga_quote "${raw}"
+  [[ "${_cga_q}" == "${1}" ]]
+}
+
+# _cga_path <spelling>... -- refuse a record path not in S1d's spelling,
+# or naming a path that holds a `..`, `.` or empty segment or is not
+# under the module prefix.
 _cga_path() {
-  local p
-  for p in "$@"; do
+  local s p
+  for s in "$@"; do
+    _cga_unquote "${s}" || _cga_stale manifest path
+    p="${_cga_raw}"
     [[ "/${p}/" != */../* && "/${p}/" != */./* && "/${p}/" != *//* ]] ||
       _cga_stale manifest path
     [[ "${p}" == "${_CGA_MOD}"* ]] || _cga_stale manifest path
-    [[ "${p}" != *'"'* ]] || _cga_stale manifest path
   done
 }
 
@@ -174,6 +270,7 @@ _cga_check() {
   while IFS= read -r line; do
     [[ "${line}" =~ ${rec} ]] || _cga_stale "${name}" record
     path="${line%%$'\t'*}"
+    _cga_unquote "${path}" || _cga_stale "${name}" record
     [[ -z "${seen["${path}"]+x}" ]] || _cga_stale "${name}" duplicate
     [[ -z "${_cga_listed["${path}"]+x}" ]] || _cga_stale "${name}" dual
     seen["${path}"]=1
@@ -182,6 +279,9 @@ _cga_check() {
     _cga_listed["${path}"]=1
   done
   while IFS=$'\t' read -r path want; do
+    # Every spelling here already read back in the loop above.
+    _cga_unquote "${path}" || true
+    path="${_cga_raw}"
     file="${src}/${path#"${_CGA_MOD}"}"
     [[ -e "${file}" || -L "${file}" ]] || _cga_stale "${path}" missing
     got="$(sha256sum <"${file}" 2>/dev/null)" || got=''
@@ -203,7 +303,8 @@ _cga_walk() {
     path="${_CGA_MOD}${rel#./}"
     [[ -f "${src}/${rel}" && ! -L "${src}/${rel}" ]] ||
       _cga_stale "${path}" not_regular
-    [[ -n "${listed["${path}"]+x}" ]] || _cga_stale "${path}" unlisted
+    _cga_quote "${path}"
+    [[ -n "${listed["${_cga_q}"]+x}" ]] || _cga_stale "${path}" unlisted
   done < <(cd -- "${src}" && find . ! -type d -print0 | sort -z)
 }
 

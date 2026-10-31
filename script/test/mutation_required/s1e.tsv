@@ -11,13 +11,13 @@
 # probes every row and passes only when each one is PINNED.
 admit-absent	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	|| _cga_stale "${f}" absent	|| true
 admit-encode	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	"$(_cga_enc "${1}")" "${2}"	"${1}" "${2}"
-admit-bytes	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	! grep -aq $'[^\\t[:print:]]' -- "${1}" || _cga_stale "${2}" bytes	true
+admit-bytes	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	! grep -aq $'[^\\t -~\\x80-\\xff]' -- "${1}" || _cga_stale "${2}" bytes	true
 admit-final-lf	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	== ' 0a' ]] || _cga_stale "${2}" malformed	== ' 0a' ]] || true
 admit-empty-line	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	! grep -aqx '' -- "${1}" || _cga_stale "${2}" malformed	true
 admit-header	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    _cga_stale manifest header	    true
 admit-path-segment	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	]] ||\n      _cga_stale manifest path	]] ||\n      true
 admit-path-prefix	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${p}" == "${_CGA_MOD}"* ]] || _cga_stale manifest path	true
-admit-path-quote	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${p}" != *'"'* ]] || _cga_stale manifest path	true
+admit-path-spelling	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	_cga_unquote "${s}" || _cga_stale manifest path	_cga_unquote "${s}" || true
 admit-one-status	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	local one="^[ADMT]${t}	local one="^[A-Z]${t}
 admit-two-score	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[RC][0-9]{3}	[RC][^${t}]*
 admit-two-shape	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${line}" =~ ${two} ]] || _cga_stale manifest record	true
@@ -30,7 +30,11 @@ admit-dual	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admi
 admit-missing	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -e "${file}" || -L "${file}" ]] || _cga_stale "${path}" missing	true
 admit-sha-mismatch	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ "${got%% *}" == "${want}" ]] || _cga_stale "${path}" sha_mismatch	true
 admit-not-regular	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	]] ||\n      _cga_stale "${path}" not_regular	]] ||\n      true
-admit-unlisted	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -n "${listed["${path}"]+x}" ]] || _cga_stale "${path}" unlisted	true
+admit-unlisted	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	[[ -n "${listed["${_cga_q}"]+x}" ]] || _cga_stale "${path}" unlisted	true
+admit-list-spelling	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	_cga_unquote "${path}" || _cga_stale "${name}" record	_cga_unquote "${path}" || true
+admit-one-spelling	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	  [[ "${_cga_q}" == "${1}" ]]\n}	  true\n}
+admit-list-decode	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    path="${_cga_raw}"\n    file=	    file=
+admit-walk-spelling	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    _cga_quote "${path}"\n    [[ -n	    _cga_q="${path}"\n    [[ -n
 runner-event-reemit	script/test/config_gen_gates.sh	test/bats/integration/config_gen_admit_spec.bats	  [[ -z "${event}" ]] || _cg_event "${event}" "${rc}"	  true
 runner-event-attr	script/test/config_gen_gates.sh	test/bats/integration/config_gen_admit_spec.bats	_cg_attr_ok "${word}" && keep+=("${word}")	:
 runner-step-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	</dev/null >&2 || rc=$?	</dev/null || rc=$?

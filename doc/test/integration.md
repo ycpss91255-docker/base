@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **289 tests**.
+Integration specs under `test/bats/integration/`: **293 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -78,7 +78,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
 
-### test/bats/integration/config_gen_admit_spec.bats (23)
+### test/bats/integration/config_gen_admit_spec.bats (27)
 
 The Dockerfile's admit stage runs this checker before any Go, to hold the
 build context to the host mutation baseline the 00-manifest step wrote
@@ -103,12 +103,12 @@ config_gen_manifest_stale file=<path> reason=<r> and nothing on stderr
 | `config_gen_admit: a manifest body holding the none marker beside a change record is refused as none_marker (base#1465)` | S1d writes the none marker only when there is no change record, so the marker beside one is a contradiction. (base#1465) |
 | `config_gen_admit: a manifest body holding the none marker twice is refused as none_marker (base#1465)` | S1d writes the none marker at most once; a second copy is no manifest it wrote. (base#1465) |
 | `config_gen_admit: a manifest holding the header and no body line is refused as body_empty (base#1465)` | S1d always writes the marker or at least one record, so a header alone is a truncated manifest. (base#1465) |
-| `config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)` | 00-manifest writes TAB, LF and printable ASCII only; a CR from a CRLF rewrite is a byte it never writes. (base#1465) |
+| `config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)` | 00-manifest writes no control byte but TAB and LF; a CR from a CRLF rewrite is a byte it never writes. (base#1465) |
 | `config_gen_admit: a change record whose path holds a .. segment is refused as path (base#1465)` | A record path is the path git printed under the module; a .. segment names a file outside what it describes. (base#1465) |
 | `config_gen_admit: a change record whose path holds a . segment is refused as path (base#1465)` | git never prints a . segment, so a record holding one is not git's spelling of a path. (base#1465) |
 | `config_gen_admit: a change record whose path holds an empty segment (//) is refused as path (base#1465)` | git never prints an empty segment, so a record holding // is not git's spelling of a path. (base#1465) |
 | `config_gen_admit: a change record whose path is outside the dockerfile/config-gen/ prefix (config-genx/) is refused as path (base#1465)` | S1d diffs only the module, so every record path starts with dockerfile/config-gen/; a sibling directory sharing the prefix's letters is outside it. (base#1465) |
-| `config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)` | A double quote in a record path is the quoting of a name S1d C-quotes, which admission does not read back. (base#1465) |
+| `config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)` | S1d C-quotes a name holding a double quote, so a raw one in a record path is a spelling S1d never writes. (base#1465) |
 | `config_gen_admit: a visible.sha256 line whose sha256 is not 64 hex digits (short hex) is refused as record (base#1465)` | A list line is a path, a TAB and a 64-hex sha256; a shorter digest binds nothing and must be refused as the list's line. (base#1465) |
 | `config_gen_admit: a visible.sha256 path listed twice is refused as duplicate (base#1465)` | 00-manifest hashes each module file once, so a repeated path is a list it did not write. (base#1465) |
 | `config_gen_admit: a path listed in both visible.sha256 and ignored.sha256 is refused as dual (base#1465)` | 00-manifest puts each module file in exactly one list, so a path in both is a list it did not write. (base#1465) |
@@ -118,6 +118,10 @@ config_gen_manifest_stale file=<path> reason=<r> and nothing on stderr
 | `config_gen_admit: a sha256 list whose last record has no LF is refused as malformed (base#1465)` | The same framing rule holds for the lists: an unterminated last record is never read, and the disk walk would then blame the file it should have bound. (base#1465) |
 | `config_gen_admit: an attribute value is one word, each byte outside ! to ~ and the % itself written as %XX (base#1465)` | The refusal line is read as space-separated key=value words, so a value holding a space, a LF or a non-ASCII byte would be cut or end the line; %XX keeps it one word and unambiguous. (base#1465) |
 | `config_gen_admit: every refusal reaches the runner as rc 1, no stdout, and JSON stale and admission records naming its file and reason (base#1465)` | The checker's line is not the contract a caller reads: the admit RUN prints it into the BuildKit log and config_gen_gates.sh re-emits it as JSON, which the redpath, CI and a reader act on. So every refusal is also run through the real runner, from a log shaped as a real stale- header build printed it. (base#1465) |
+| `config_gen_admit: an unchanged baseline holding names S1d keeps raw (UTF-8, 0xff) or C-quotes (quote, backslash, TAB, LF, DEL) is admitted (base#1465)` | S1d keeps a UTF-8 name raw and C-quotes a name holding a quote, a backslash or a control byte; an unchanged module whose baseline holds both spellings, in the manifest and in visible.sha256, must be admitted. A checker that refuses a byte past 0x7e, or reads a quoted spelling as a literal path, refuses it as bytes, path, missing or unlisted. (base#1465) |
+| `config_gen_admit: a raw-kept or C-quoted name edited or deleted after the baseline is refused as sha_mismatch or missing naming the file (base#1465)` | The name a list line binds is the one its spelling decodes to; an edit or a deletion of a raw-kept or C-quoted name after the baseline is refused naming that file, not the spelling and not another reason. (base#1465) |
+| `config_gen_admit: a list or manifest path in a spelling S1d does not write is refused as record or path (base#1465)` | S1d spells each name one way; a list line in any other spelling of the same name -- quoted when S1d keeps it raw, an octal escape where S1d writes a named one, a raw byte S1d quotes -- is not S1d's line. (base#1465) |
+| `config_gen_admit: an unchanged baseline holding one untracked name per byte 0x01-0xff but / is admitted (base#1465)` | S1d's quoting rule and admission's reading of it must agree on every byte, not only on the few names a fixture picks: a byte the two class differently (quoted by one, raw to the other) refuses an unchanged module. One untracked file per byte 0x01-0xff but `/` runs every byte through both. (base#1465) |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 
