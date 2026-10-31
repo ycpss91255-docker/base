@@ -25,7 +25,7 @@
 #   fmt-parse      a _test.go file gofmt cannot parse              fmt
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
-#   corpus-var     a test reading a computed "test"+"data" path    race
+#   corpus-var     a test spelling the path as "test"+"data"       race
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -36,9 +36,10 @@
 # module before the tests run, so that read finds nothing and the gate goes
 # red (base#1468). corpus-helper does the same read from a non-test helper
 # package that a test in another package calls, so the gate cannot key on
-# the test file's own source. corpus-var builds the directory name at run
-# time, so no literal "testdata" appears in the planted source and a scan
-# of path text cannot be what turns the gate red.
+# the test file's own source. corpus-var spells the directory name as the
+# constant expression "test" + "data", which the compiler folds; the
+# string testdata never appears in the planted source, so a scan of the
+# source text for it cannot be what turns the gate red.
 #
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
