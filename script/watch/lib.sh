@@ -897,10 +897,8 @@ _pin_go_mod_scan() {
   local _seen_module=0 _seen_go=0 _seen_toolchain=0 _verb _k _bad_ln
   local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
   local LC_ALL=C
-  if [[ ! -r "${_gm_file}" ]]; then
-    _pin_refuse_unreadable "${_gm_file}"
-    return 1
-  fi
+  # The byte check is the first read of the file, so a file it cannot
+  # read -- unreadable, or an od that fails -- is refused here (base#1463).
   if ! _bad_ln="$(_pin_go_mod_bad_byte_line "${_gm_file}")"; then
     _pin_refuse_unreadable "${_gm_file}"
     return 1

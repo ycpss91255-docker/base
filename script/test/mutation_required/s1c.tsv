@@ -40,7 +40,6 @@ scan-paren-not-alone	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed
 scan-unknown-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/"${_ln}" unknown_verb$/{n;s/return 1/:/}' script/watch/lib.sh
 scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi%:; fi%' script/watch/lib.sh
 scan-indirect	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/_f\[0\]}" == indirect )/s/^  if .*; then$/  if false; then/' script/watch/lib.sh
-scan-unreadable	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if \[\[ ! -r "${_gm_file}" \]\]; then%if false; then%' script/watch/lib.sh
 scan-version-check	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then%if false; then%' script/watch/lib.sh
 scan-string-unquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/^_pin_go_mod_unquote() {/,/^}/s|printf .%s. "${2:1:${#2}-2}"|printf "%s" "${2}"|' script/watch/lib.sh
 version-version-no-v	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_no_v; return 1; fi%:; fi%' script/watch/lib.sh
