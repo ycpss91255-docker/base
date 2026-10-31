@@ -103,3 +103,34 @@ func TestGlobRefusesBadPattern(t *testing.T) {
 		})
 	}
 }
+
+// One basename names one corpus file across every slice: a.toml in both
+// corpus/s1 and corpus/s2 is refused even when the pattern matches only
+// s1, so the check cannot be scoped to the matched directory. The message
+// names both paths so the duplicate is findable (base#1468).
+func TestGlobRefusesRepeatedBasename(t *testing.T) {
+	saved := root
+	root = t.TempDir()
+	t.Cleanup(func() { root = saved })
+	s1 := filepath.Join(root, "corpus", "s1", "a.toml")
+	s2 := filepath.Join(root, "corpus", "s2", "a.toml")
+	for _, p := range []string{s1, s2} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x = 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f := &fakeTB{TB: t}
+	got, refused := callGlob(f, "corpus/s1/*.toml")
+	if !refused {
+		t.Fatalf("Glob(%q) with a.toml in s1 and s2 returned %q, want a Fatal", "corpus/s1/*.toml", got)
+	}
+	for _, p := range []string{s1, s2} {
+		if !strings.Contains(f.msg, p) {
+			t.Fatalf("Fatal message = %q, want it to name %q", f.msg, p)
+		}
+	}
+}
