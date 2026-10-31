@@ -754,6 +754,48 @@ _golang_pin() {
   assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" 'go.mod'
 }
 
+# why: When the tidied module wants no go.sum, removing the old go.sum is
+# part of the same commit as the go.mod bump: if that removal fails, go.mod
+# is put back, so the tree never holds the bumped go.mod beside the go.sum
+# of the old one. The rm and mv stubs fail the first call that names a file
+# called go.sum (whichever of the two the commit removes it with) and pass
+# every other call to the real command, so a rollback that renames go.sum
+# back is let through. Both files keep their bytes and no temp or backup
+# copy is left beside them (base#1440).
+@test "pins: --set on a go.mod require whose tidy wants no go.sum and whose go.sum removal fails leaves go.mod and go.sum alone (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  local _log="${BATS_TEST_TMPDIR}/gosum.log" _cmd _real
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 5
+  : > "${_log}"
+  for _cmd in rm mv; do
+    _real="$(command -v "${_cmd}")"
+    cat > "${STUB_BIN}/${_cmd}" <<STUB
+#!/bin/sh
+for _a; do
+  if [ "\${_a##*/}" = go.sum ] && ! grep -qx failed "${_log}"; then
+    echo failed >> "${_log}"
+    exit 1
+  fi
+done
+exec "${_real}" "\$@"
+STUB
+    chmod +x "${STUB_BIN}/${_cmd}"
+  done
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused reason=commit_failed
+  grep -qx failed "${_log}" || fail "no rm or mv of go.sum was failed"
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+}
+
 # why: The module goes to the container as a tar of paths relative to the
 # module directory, and the container script checks `test -f go.mod ||
 # exit 4` before it tidies. Exit 4 means the archive did not land as a
