@@ -411,28 +411,38 @@ _pins_set_golang() {
     fi
     _baks+=("${_bak}"); _sumbaks+=("${_sumbak}")
   done
-  local _failed=""
+  # A commit's refusal is held until the rollback is known: when a module
+  # cannot be put back, the refusal that leads is rollback_failed, never a
+  # commit_failed that says the file is left as it was.
+  local _failed="" _err="" _unrestored=""
   for _i in "${!_abss[@]}"; do
-    if ! _pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}"; then
+    if ! _err="$(_pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}" 2>&1)"; then
       for _sum in "${_sums[@]:_i+1}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
       _failed=1
       break
     fi
   done
-  [[ -n "${_failed}" ]] || _pins_commit "${_df}" "${_df_ln}" "${_df_repl}" || _failed=1
+  [[ -n "${_failed}" ]] || _err="$(_pins_commit "${_df}" "${_df_ln}" "${_df_repl}" 2>&1)" || _failed=1
   for _i in "${!_abss[@]}"; do
     _mod="${_abss[_i]%/*}"
     if [[ -n "${_failed}" ]]; then
-      mv -f -- "${_baks[_i]}" "${_abss[_i]}"
+      mv -f -- "${_baks[_i]}" "${_abss[_i]}" || _unrestored+="${_abss[_i]}"$'\t'"${_baks[_i]}"$'\n'
       if [[ -n "${_sumbaks[_i]}" ]]; then
-        mv -f -- "${_sumbaks[_i]}" "${_mod}/go.sum"
+        mv -f -- "${_sumbaks[_i]}" "${_mod}/go.sum" \
+          || _unrestored+="${_mod}/go.sum"$'\t'"${_sumbaks[_i]}"$'\n'
       else
-        rm -f -- "${_mod}/go.sum"
+        rm -f -- "${_mod}/go.sum" || _unrestored+="${_mod}/go.sum"$'\t-\n'
       fi
     else
       rm -f -- "${_baks[_i]}" ${_sumbaks[_i]:+"${_sumbaks[_i]}"}
     fi
   done
+  while IFS=$'\t' read -r _file _bak; do
+    [[ -n "${_file}" ]] || continue
+    _log_err pin pin_set_refused "file=${_file}" "reason=rollback_failed" \
+      "display=pin_set_refused: ${_file}: a commit failed and it could not be put back; its copy as it was is kept at ${_bak}"
+  done <<< "${_unrestored}"
+  [[ -z "${_err}" ]] || printf '%s\n' "${_err}" >&2
   [[ -z "${_failed}" ]]
 }
 
