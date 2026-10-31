@@ -63,13 +63,16 @@ runner-no-cache-test-only	script/test/config_gen_gates.sh	test/bats/unit/config_
 runner-no-cache-admit-only	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	--no-cache-filter admit,test --target test	--no-cache-filter admit --target test
 floors-base-header	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	^([0-9a-f]{40}|[0-9a-f]{64})$ ]] \\\n    || _cgf_refuse base_missing	^([0-9a-f]{40}|[0-9a-f]{64})$ ]] \\\n    || true
 floors-base-commit	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	"${base}^{commit}" >/dev/null \\\n    || _cgf_refuse base_missing	"${base}^{commit}" >/dev/null \\\n    || true
+floors-base-mktemp	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	"${out}/.floors.base.XXXXXX")" || _cgf_refuse git_failed	"${out}/.floors.base.XXXXXX")" || true
 floors-base-ls-tree	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	>"${_cgf_tmp}/dir" \\\n    || _cgf_refuse git_failed	>"${_cgf_tmp}/dir" \\\n    || true
 floors-base-absent	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	    printf 'absent\\n' >"${_cgf_tmp}/floors.base"	    : >"${_cgf_tmp}/floors.base"
 floors-base-not-tree	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	    [[ "${mode}" == 040000 && "${type}" == tree ]] || _cgf_refuse not_tree	    true
+floors-base-list-ls-tree	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	>"${_cgf_tmp}/list" \\\n      || _cgf_refuse git_failed	>"${_cgf_tmp}/list" \\\n      || true
 floors-base-fragment-name	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	        && "${name}" =~ ^[a-z0-9][a-z0-9-]*\\.txt$ ]] || _cgf_refuse fragment_invalid	        && true ]] || _cgf_refuse fragment_invalid
 floors-base-fragment-blob	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	      [[ "${type}" == blob && ( "${mode}" == 100644 || "${mode}" == 100755 ) \\	      [[ true \\
 floors-base-show	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	>>"${_cgf_tmp}/floors.base" \\\n        || _cgf_refuse git_failed	>>"${_cgf_tmp}/floors.base" \\\n        || true
 floors-base-final-lf	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	        || printf '\\n' >>"${_cgf_tmp}/floors.base"	        || true
+floors-base-mv	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	"${out}/floors.base" || _cgf_refuse git_failed	"${out}/floors.base" || true
 coverage-usage	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  if [[ "${1:-}" != --measure || -z "${2:-}" ]]; then	  if false; then
 redpath-exit-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}"\n  (( rc != 0 )) || { echo rc_zero; return 0; }	  local rc="${1}"\n  :
 redpath-refused-exit	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  refused_exit="$(_rp_exit_one "${rc}")"	  refused_exit=""

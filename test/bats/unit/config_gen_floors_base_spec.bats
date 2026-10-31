@@ -104,9 +104,10 @@ _kept() {
   local row reason
   for row in header-garbage:base_missing header-unknown:base_missing header-ref:base_missing not-tree:not_tree \
       bad-name:fragment_invalid subdir:fragment_invalid ls-tree-fails:git_failed \
+      list-ls-tree-fails:git_failed mktemp-fails:git_failed mv-fails:git_failed \
       second-show-fails:git_failed; do
     reason="${row#*:}"
-    rm -rf "${R}/${D}" "${S}/bin/git"
+    rm -rf "${R}/${D}" "${S}/bin/git" "${S}/bin/mktemp" "${S}/bin/mv"
     mkdir -p "${R}/${D}"
     printf 'a 95.0\n' > "${R}/${D}/s1e.txt"
     printf 'b 95.0\n' > "${R}/${D}/s1g.txt"
@@ -125,6 +126,26 @@ _kept() {
         _ctx
         printf '#!%s\n[[ "$*" == *ls-tree* ]] && exit 128\nexec %s "$@"\n' "$(command -v bash)" "$(command -v git)" > "${S}/bin/git"
         chmod +x "${S}/bin/git"
+        ;;
+      # Only the second ls-tree, the listing of coverage-floors.d, fails:
+      # the first, which finds the tree, succeeds. (base#1465)
+      list-ls-tree-fails)
+        _ctx
+        printf '#!%s\n[[ "$*" == *ls-tree*:dockerfile/* ]] && exit 128\nexec %s "$@"\n' "$(command -v bash)" "$(command -v git)" > "${S}/bin/git"
+        chmod +x "${S}/bin/git"
+        ;;
+      # mktemp makes and prints the scratch directory, then exits 1: a step
+      # that ignored the exit status would go on and publish. (base#1465)
+      mktemp-fails)
+        _ctx
+        printf '#!%s\n%s "$@"\nexit 1\n' "$(command -v bash)" "$(command -v mktemp)" > "${S}/bin/mktemp"
+        chmod +x "${S}/bin/mktemp"
+        ;;
+      # Only the rename over floors.base fails. (base#1465)
+      mv-fails)
+        _ctx
+        printf '#!%s\n[[ "$*" == *floors.base* ]] && exit 1\nexec %s "$@"\n' "$(command -v bash)" "$(command -v mv)" > "${S}/bin/mv"
+        chmod +x "${S}/bin/mv"
         ;;
       second-show-fails)
         _ctx
