@@ -42,7 +42,10 @@
 #
 # Style: Google Shell Style Guide.
 
-set -euo pipefail
+# Only set strict mode when running directly; when sourced, respect caller's settings
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
 
 _CGM_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _CGM_SCRIPT_DIR
