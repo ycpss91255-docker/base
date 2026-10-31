@@ -352,13 +352,21 @@ _pins_go_minor() {
 # and its go.sum regenerated in <new-image>, the image proposed, not the
 # one replaced (base#1440). Every module is staged before any is committed,
 # so a tidy that fails on one module leaves every module alone. A bump
-# within the minor touches no go.mod.
+# within the minor touches no go.mod. The Dockerfile line
+# <dockerfile>:<lineno> becomes <new-line> last; every module committed
+# before a failed commit, the Dockerfile's included, is put back from a
+# copy taken before the first commit, so the tree never holds a new go
+# line under the old golang pin.
 _pins_set_golang() {
   local _old_mm _new_mm _list _file _go_rec _go_ln _abs _repl _i _sum
+  local _df="${3}" _df_ln="${4}" _df_repl="${5}"
   local -a _abss=() _lns=() _repls=() _sums=() _recs=() _mods=()
   _old_mm="$(_pins_go_minor "${1}")"
   _new_mm="$(_pins_go_minor "${2}")"
-  [[ -n "${_new_mm}" && "${_old_mm}" != "${_new_mm}" ]] || return 0
+  if [[ -z "${_new_mm}" || "${_old_mm}" == "${_new_mm}" ]]; then
+    _pins_commit "${_df}" "${_df_ln}" "${_df_repl}"
+    return
+  fi
   _list="$(_pin_files "${PIN_REPO_ROOT}")" || return 1
   # Every module's go line is read before any is staged: a module with no
   # go line has none to move, so the bump is refused before docker runs.
@@ -384,12 +392,48 @@ _pins_set_golang() {
     _abss+=("${_abs}"); _lns+=("${_go_ln}"); _repls+=("${_repl}")
     _sums+=("${_PINS_STAGED_SUM}")
   done
+  # A copy of each go.mod and go.sum as it was; an empty entry means the
+  # module had no go.sum.
+  local -a _baks=() _sumbaks=()
+  local _bak _sumbak _mod
   for _i in "${!_abss[@]}"; do
-    if ! _pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}"; then
-      for _sum in "${_sums[@]:_i}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
+    _mod="${_abss[_i]%/*}"
+    _bak=""; _sumbak=""
+    if ! _bak="$(mktemp "${_mod}/.go.mod.pins.orig.XXXXXX")" \
+        || ! cp -p -- "${_abss[_i]}" "${_bak}" \
+        || { [[ -e "${_mod}/go.sum" ]] \
+             && { ! _sumbak="$(mktemp "${_mod}/.go.sum.pins.orig.XXXXXX")" \
+                  || ! cp -p -- "${_mod}/go.sum" "${_sumbak}"; }; }; then
+      rm -f -- ${_bak:+"${_bak}"} ${_sumbak:+"${_sumbak}"} "${_baks[@]}"
+      for _sum in "${_sumbaks[@]}" "${_sums[@]}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
+      _pins_refuse "${_abss[_i]}" temp_create "no backup copy could be created beside it"
       return 1
     fi
+    _baks+=("${_bak}"); _sumbaks+=("${_sumbak}")
   done
+  local _failed=""
+  for _i in "${!_abss[@]}"; do
+    if ! _pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}"; then
+      for _sum in "${_sums[@]:_i+1}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
+      _failed=1
+      break
+    fi
+  done
+  [[ -n "${_failed}" ]] || _pins_commit "${_df}" "${_df_ln}" "${_df_repl}" || _failed=1
+  for _i in "${!_abss[@]}"; do
+    _mod="${_abss[_i]%/*}"
+    if [[ -n "${_failed}" ]]; then
+      mv -f -- "${_baks[_i]}" "${_abss[_i]}"
+      if [[ -n "${_sumbaks[_i]}" ]]; then
+        mv -f -- "${_sumbaks[_i]}" "${_mod}/go.sum"
+      else
+        rm -f -- "${_mod}/go.sum"
+      fi
+    else
+      rm -f -- "${_baks[_i]}" ${_sumbaks[_i]:+"${_sumbaks[_i]}"}
+    fi
+  done
+  [[ -z "${_failed}" ]]
 }
 
 # _pins_set <name> <version>
@@ -457,8 +501,7 @@ _pins_set() {
   if [[ "${_file##*/}" == go.mod ]]; then
     _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
   elif [[ "${_name}" == "${_PINS_GOLANG_PIN}" ]]; then
-    _pins_set_golang "${_current}" "${_new}" || return 1
-    _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
+    _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
   else
     _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
   fi
