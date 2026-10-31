@@ -854,6 +854,23 @@ STUB
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
+# why: A go.mod `go` directive names the Go a module needs; the golang pin
+# names the Go that builds it. Nothing compared the two, so `go 1.26` under
+# golang:1.27.2 passed the watch unseen. _pin_go_directive_check compares
+# them by major.minor and refuses a mismatch by name, with both sides and
+# the directive's line (base#1440).
+@test "_pin_go_directive_check: go 1.26 under golang:1.27.2-trixie is go_mod_go_directive_mismatch (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.26'
+  git -C "${SCRATCH}" add -A
+  # shellcheck disable=SC1091
+  source /source/script/watch/lib.sh
+  export LOG_FORMAT=json
+  run --separate-stderr _pin_go_directive_check "${SCRATCH}"
+  assert_refusal 1 go_mod_go_directive_mismatch \
+    dockerfile/config-gen/go.mod go=1.26 golang=1.27 line=3
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
