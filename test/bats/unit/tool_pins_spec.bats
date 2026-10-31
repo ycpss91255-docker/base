@@ -859,9 +859,10 @@ STUB
 # regenerated in the PROPOSED image, not the one being replaced: rewriting
 # the Dockerfile alone leaves every go.mod naming the old minor, which the
 # directive check then refuses. The docker stub stands in for the image: it
-# logs each call, answers a module that requires golang.org/x/mod with one
-# go.sum line, and a dependency-free module with exit 5 (tidy leaves no
-# go.sum, as measured in the pinned image). Both go.mod files end up with
+# logs each call as one line (newlines in its arguments folded to spaces, so
+# the log counts calls), answers a module that requires golang.org/x/mod
+# with one go.sum line, and a dependency-free module with exit 5 (tidy
+# leaves no go.sum, as measured in the pinned image). Both go.mod files end up with
 # `go 1.28`, m keeps a go.sum of the stub's line, m2 still has none, and
 # docker ran exactly twice, both times in golang:1.28.0-trixie (base#1440).
 @test "pins: --set golang to another minor rewrites every go.mod go line and go.sum in the proposed image (base#1440)" {
@@ -876,7 +877,7 @@ STUB
   _stub docker 0
   cat > "${STUB_BIN}/docker" <<STUB
 #!/bin/sh
-echo "docker \$*" >> "${_log}"
+printf 'docker %s\n' "\$(printf '%s' "\$*" | tr '\n' ' ')" >> "${_log}"
 cat > "${BATS_TEST_TMPDIR}/docker.in"
 if grep -aq 'golang.org/x/mod' "${BATS_TEST_TMPDIR}/docker.in"; then
   printf 'golang.org/x/mod v0.21.0 h1:new=\n'
