@@ -1972,7 +1972,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)` | A record that exists but is empty, a record holding only a blank line, and no argument at all deliver no root either. Each must stop at the same guard as a missing file, before go runs; a check that only asks whether the file exists passes the first two, and under set -u an unset variable exits without the refusal line (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)` | Validating the record and then dropping it leaves every go test with an empty testcorpus root, which reads as test_failed in the real image. The validated root has to reach each package's go test as one -ldflags -X token (base#1468). The expected token is the record line verbatim. |
 
-### test/bats/unit/config_gen_gates_spec.bats (28)
+### test/bats/unit/config_gen_gates_spec.bats (29)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
