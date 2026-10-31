@@ -983,6 +983,62 @@ STUB
   assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
 }
 
+# why: A golang minor bump commits every go.mod, every go.sum and the
+# Dockerfile as one change. The Dockerfile is the last file renamed; when
+# that rename fails, a commit that has already put `go 1.28` and the new
+# go.sum into each module leaves them under a golang:1.27.2 pin, which the
+# directive check then refuses. The mv stub fails only the rename onto
+# Dockerfile.config-gen and passes every other rename to the real mv. The
+# bump is commit_failed, all five files keep their literal bytes, and no
+# temp or backup copy is left beside any of them (base#1440).
+@test "pins: --set golang to another minor whose Dockerfile rename fails leaves every file alone (base#1440)" {
+  _golang_pin
+  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2" _real_mv
+  local _df="${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  _real_mv="$(command -v mv)"
+  mkdir -p "${_m}" "${_m2}"
+  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
+    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
+  printf '%s\n' 'module example.com/m2' '' 'go 1.27' '' \
+    'require golang.org/x/text v0.20.0' > "${_m2}/go.mod"
+  printf 'golang.org/x/text v0.20.0 h1:old=\n' > "${_m2}/go.sum"
+  _stub docker 0
+  cat > "${STUB_BIN}/docker" <<STUB
+#!/bin/sh
+cat > "${BATS_TEST_TMPDIR}/docker.in"
+if grep -aq 'example.com/m2' "${BATS_TEST_TMPDIR}/docker.in"; then
+  printf 'golang.org/x/text v0.20.0 h1:new=\n'
+  exit 0
+fi
+printf 'golang.org/x/mod v0.21.0 h1:new=\n'
+STUB
+  chmod +x "${STUB_BIN}/docker"
+  cat > "${STUB_BIN}/mv" <<STUB
+#!/bin/sh
+for _d; do :; done
+case "\${_d##*/}" in
+  Dockerfile.config-gen) exit 1 ;;
+esac
+exec "${_real_mv}" "\$@"
+STUB
+  chmod +x "${STUB_BIN}/mv"
+  _pins_json --set golang golang:1.28.0-trixie
+  assert_refusal 1 pin_set_refused reason=commit_failed
+  assert_equal "$(cat "${_df}")" "$(printf '%s\n' \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e')"
+  assert_equal "$(cat "${_m}/go.mod")" "$(printf '%s\n' 'module example.com/m' '' \
+    'go 1.27' '' 'require golang.org/x/mod v0.21.0')"
+  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:old='
+  assert_equal "$(cat "${_m2}/go.mod")" "$(printf '%s\n' 'module example.com/m2' '' \
+    'go 1.27' '' 'require golang.org/x/text v0.20.0')"
+  assert_equal "$(cat "${_m2}/go.sum")" 'golang.org/x/text v0.20.0 h1:old='
+  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
+  assert_equal "$(ls -A -- "${_m2}")" "$(printf 'go.mod\ngo.sum')"
+  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
+}
+
 # why: A go.mod `go` directive names the Go a module needs; the golang pin
 # names the Go that builds it. Nothing compared the two, so `go 1.26` under
 # golang:1.27.2 passed the watch unseen. _pin_go_directive_check compares
