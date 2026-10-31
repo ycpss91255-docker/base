@@ -92,3 +92,4 @@ pins-commit-final-newline	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bat
 set-line-refusal-event	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|_log_err pin pin_set_refused "file=${_gm_file}" "line=${_want_ln}" reason=not_require_entry|printf "%s\\n" not_require_entry >\&2; : |' script/watch/lib.sh
 scan-go-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(\[1-9\]|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^([1-9]|' script/watch/lib.sh
 scan-toolchain-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(default|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^(default|' script/watch/lib.sh
+read-table-buffered	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's|      _table+="${_record}"|      printf "%s" "${_record}"|' script/watch/lib.sh
