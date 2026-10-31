@@ -183,3 +183,25 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=none_marker"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a manifest body holding the none marker twice is refused as none_marker (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline (header, then the marker
+  # once) is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d writes `none: no-go-change` as the one body line when no record
+  # exists (config_gen_mutation_targets.sh header: "or, with no line,
+  # `none: no-go-change`"), so the body is the one marker xor records
+  # (design §2, body_empty|none_marker|record). A second marker line is
+  # not a manifest S1d writes.
+  printf '%s\n%s\n%s\n' "${header}" 'none: no-go-change' 'none: no-go-change' > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=none_marker"
+  assert_equal "${stderr}" ""
+}
