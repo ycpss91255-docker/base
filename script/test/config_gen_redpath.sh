@@ -24,6 +24,18 @@
 #   coverage   a package whose test covers 2 of 3 statements  coverage
 #   fmt-parse  a _test.go file gofmt cannot parse             fmt
 #
+# A refusal case plants a defect the build must refuse before any gate
+# runs: the run must exit exactly 1 with nothing on stdout, and stderr
+# must carry the runner's JSON record of the case's event id and no
+# "unregistered log body" (base#1465).
+#
+#   case        defect                                         event
+#   no-context  a last step removes $CONFIG_GEN_CTX/mutation,  config_gen_manifest_missing
+#               so the build gets no mutation context
+#
+# CONFIG_GEN_REDPATH_ONLY, when set, is a space-separated list of case
+# names: only those cases run, then the control.
+#
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
 # gofmt exits non-zero instead of listing a file.
@@ -47,11 +59,22 @@ readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
 readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt)
+# <case>:<the event id the build must refuse it with> (base#1465).
+readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 
-# _rp_plant <case> <module dir> -- write the case's defect into the copy.
+# _rp_plant <case> <root> -- write the case's defect into the copy.
 _rp_plant() {
-  local mod="${2}" cmd="${2}/cmd/config-gen"
+  local root="${2}" mod="${2}/dockerfile/config-gen" cmd="${2}/dockerfile/config-gen/cmd/config-gen"
   case "${1}" in
+    no-context)
+      # Runs after every real step (C-locale glob order) and takes away the
+      # mutation context they wrote.
+      cat >"${root}/script/test/config_gen_steps/99-zz-no-context.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf -- "${CONFIG_GEN_CTX:?}/mutation"
+EOF
+      ;;
     fmt)
       printf 'package main\n\nfunc  zzFmt( ) {}\n' >"${cmd}/zz_fmt.go" ;;
     vet)
@@ -195,7 +218,7 @@ _rp_verdict() {
 _rp_case() {
   local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason
   root="$(_rp_copy "${scratch}")"
-  _rp_plant "${name}" "${root}/dockerfile/config-gen"
+  _rp_plant "${name}" "${root}"
   _rp_gates "${root}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
   [[ -z "${reason}" ]] && return 0
@@ -203,6 +226,45 @@ _rp_case() {
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=${reason}" "gate=${gate}" \
     "display=config-gen redpath case ${name} did not go red on gate ${gate}: ${reason}"
   return 1
+}
+
+# _rp_event_record_re <id> -- the runner's JSON record of <id>: a whole
+# log line from service config-gen whose body is exactly <id>.
+_rp_event_record_re() {
+  printf '^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"%s",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$' "${1}"
+}
+
+# _rp_refusal_verdict <rc> <out> <err> <id> -- empty when the build refused
+# the case as planted, else the reason it did not.
+_rp_refusal_verdict() {
+  local rc="${1}" out="${2}" err="${3}" id="${4}"
+  (( rc != 0 )) || { echo rc_zero; return 0; }
+  (( rc == 1 )) || { echo rc_not_one; return 0; }
+  [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }
+  ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  grep -qE "$(_rp_event_record_re "${id}")" "${err}" || { echo wrong_id; return 0; }
+}
+
+# _rp_refusal <scratch> <case> <id> -- run one refusal case; non-zero when
+# the build did not refuse it with <id>.
+_rp_refusal() {
+  local scratch="${1}" name="${2}" id="${3}" root rc=0 reason
+  root="$(_rp_copy "${scratch}")"
+  _rp_plant "${name}" "${root}"
+  _rp_gates "${root}" || rc=$?
+  reason="$(_rp_refusal_verdict "${rc}" "${root}.out" "${root}.err" "${id}")"
+  [[ -z "${reason}" ]] && return 0
+  cat "${root}.err" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=${reason}" "event=${id}" \
+    "display=config-gen redpath case ${name} was not refused with ${id}: ${reason}"
+  return 1
+}
+
+# _rp_selected <case> -- true unless CONFIG_GEN_REDPATH_ONLY is set and
+# does not name <case>.
+_rp_selected() {
+  [[ -z "${CONFIG_GEN_REDPATH_ONLY:-}" ]] && return 0
+  [[ " ${CONFIG_GEN_REDPATH_ONLY} " == *" ${1} "* ]]
 }
 
 # _rp_control <scratch> -- the unmodified copy must pass every gate.
@@ -229,16 +291,23 @@ main() {
     exit 1
   fi
   export CONFIG_GEN_REDPATH_ACTIVE=1
-  local scratch entry failed=0
+  local scratch entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
   trap "rm -rf '${scratch}'" EXIT
   for entry in "${_RP_CASES[@]}"; do
+    _rp_selected "${entry%%:*}" || continue
+    ran=$(( ran + 1 ))
     _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+  done
+  for entry in "${_RP_REFUSALS[@]}"; do
+    _rp_selected "${entry%%:*}" || continue
+    ran=$(( ran + 1 ))
+    _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
   done
   _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
-  echo "config-gen redpath: ${#_RP_CASES[@]} planted defects went red on their gates; the control passed"
+  echo "config-gen redpath: ${ran} planted defects went red or were refused; the control passed"
 }
 
 main "$@"
