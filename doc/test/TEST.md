@@ -443,6 +443,73 @@ recipe is wired into no gate and no CI job: it is an on-demand loop like
 `just test coverage-path`, and whether running it is required before a change
 lands is a policy question this recipe does not answer.
 
+## The required-kill roster: `just test mutation-required`
+
+```bash
+just test mutation-required            # probe every roster row
+just test mutation-required --check    # validate the roster, run nothing
+```
+
+`just test mutation-probe` answers when someone asks. The roster asks for
+them: every shell refusal guard a config-gen slice adds is listed, with the
+mutation that disables it, in `script/test/mutation_required/<slice>.tsv`,
+and `script/test/drivers/mutation_required.sh` probes every row on every
+run (base#1461). Without it a pinning test could be deleted with every gate
+green, because the only proof the guard was pinned was a probe someone once
+ran by hand.
+
+**One row contract for every file:**
+
+```text
+<id> TAB <subject> TAB <spec> TAB <old> TAB <new>
+```
+
+`#` lines and blank lines are skipped. `<id>` is `[a-z0-9-]+`; `<subject>`
+and `<spec>` are plain relative paths (no `..`, no symlink), and `<spec>`
+lives under `test/bats/`. `<old>` and `<new>` are literal text written with
+exactly three escapes -- `\\` is a backslash, `\t` a TAB, `\n` a newline;
+any other `\x`, or a trailing `\`, refuses the row. `<old>` must occur
+exactly once in `<subject>` (join a neighbouring line with `\n` when one line
+is not unique); `<new>` may be empty, which deletes `<old>`, and must differ
+from it. The row is data: the probe applies it only through the driver's own
+`--apply`, never as shell.
+
+**Every row is validated before any baseline runs**, and every invalid row
+is reported (`mutation_required_row_invalid`, `row=<file>:<line>`,
+`reason=`): a wrong field count, an empty field, a bad id, a path that is
+absolute, walks out with `..` or goes through a symlink, a missing subject
+or spec, a spec outside `test/bats/`, a bad escape, an `<old>` that is
+absent or ambiguous, `<new>` equal to `<old>`, a duplicate id in one file or
+the same mutation in two. A roster with no row is refused as
+`mutation_required_roster_empty`, never read as a pass.
+
+**Each row then runs in a sandbox of its own**: a `git ls-files` copy of the
+working tree (uncommitted edits included, every build step fail-closed),
+committed in a fresh repository, under the compose project the sandbox's own
+`test.sh --compose-project-name` derives from its path -- an inherited
+`COMPOSE_PROJECT_NAME` is not used. `MUTATION_REQUIRED_JOBS` rows (default
+4, 1 to 99) run at once, and each probe's per-test bound is
+`PER_TEST_TIMEOUT` as set, or 120 s times `MUTATION_REQUIRED_JOBS` when it is
+unset. A row passes only on probe exit 0 with its PINNED
+line over at least one `not ok`, and a clean teardown; INCONCLUSIVE and NOT
+PINNED are `mutation_required_survived`, anything else
+`mutation_required_probe_refused`, and a container of the sandbox's project
+still running keeps the sandbox and fails the row
+(`mutation_required_sandbox_held`). Nothing is published until every row has
+finished, and a failing run publishes no pass. The first INT / TERM is
+forwarded to every row's probe, which restores and stops; the run exits
+130 / 143 with no verdict.
+
+**Where it runs.** The no-flag `just test` runs it on the host after the
+lint phase and before bats, and a red roster stops the run before bats.
+Every hosted `lint-static` leg runs `just test mutation-required --shard
+<its group>` (row k of the roster, counted from 0, belongs to shard
+(k mod 4) + 1, so the four legs together probe every row; every leg still
+validates every row), and the self-hosted `config-gen` job in
+`coverage-local.yaml` runs the whole roster; each as a step of its own, with
+no `if:` and no `continue-on-error`. The pre-PR mirror covers it through
+`just test`. `--lint`, `--ci` and the coverage modes do not run it.
+
 ## Maintaining these docs
 
 Every figure and every catalogue section in this directory is derived from the

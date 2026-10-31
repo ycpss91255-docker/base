@@ -1,9 +1,10 @@
 # s1g.tsv -- the mutations base#1468 (config-gen S1g, the shared corpus API
 # and the corpus root record) requires script/test/mutation-probe.sh to
 # report PINNED. One row per behaviour:
-# <id> TAB <subject> TAB <spec> TAB <mutation command>, the command run
-# from the repo root, as `mutation-probe.sh --subject <subject> --spec
-# <spec> --mutate <command>`. Each command edits exactly one line of its
-# subject.
-corpus-root-guard	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%^  \[\[ -n "\${x}" \]\] || _refuse corpus_root_missing$%  :%' dockerfile/config-gen/gates/coverage.sh
-corpus-root-forward	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's% "-ldflags=-X=\${_CG_X}"%%' dockerfile/config-gen/gates/coverage.sh
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+corpus-root-guard	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  [[ -n "${x}" ]] || _refuse corpus_root_missing	  :
+corpus-root-forward	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  go test -covermode=atomic -coverprofile="${prof}" "-ldflags=-X=${_CG_X}" \\	  go test -covermode=atomic -coverprofile="${prof}" \\

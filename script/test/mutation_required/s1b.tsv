@@ -1,32 +1,33 @@
 # s1b.tsv -- the mutations base#1462 (config-gen S1b) requires
 # script/test/mutation-probe.sh to report PINNED. One row per behaviour:
-# <id> TAB <subject> TAB <spec> TAB <mutation command>, the command run
-# from the repo root, as `mutation-probe.sh --subject <subject> --spec
-# <spec> --mutate <command>`. Each command edits exactly one line of its
-# subject.
-runner-step-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%CONFIG_GEN_CTX="\${ctx}" bash "\${step}" </dev/null || rc=\$?%CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null || true%' script/test/config_gen_gates.sh
-runner-root-invalid	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if \[\[ ! -f "\${root}/dockerfile/Dockerfile\.config-gen" \]\]; then%if false; then%' script/test/config_gen_gates.sh
-runner-context-invalid	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if \[\[ ! "\${name}" =~ \^\[a-z0-9-\]+\$ \]\]; then%if false; then%' script/test/config_gen_gates.sh
-runner-docker-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%    >"\${log}" 2>\&1 || rc=\$?%    >"${log}" 2>\&1 || rc=1%' script/test/config_gen_gates.sh
-runner-gate-id-reemit	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%"config_gen_gate_\${gate}_failed" "gate=\${gate}"%config_gen_build_failed "gate=${gate}"%' script/test/config_gen_gates.sh
-runner-binary-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if (( rc != 2 || bytes != 0 )); then%if (( bytes != 0 )); then%' script/test/config_gen_gates.sh
-runner-binary-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if (( rc != 2 || bytes != 0 )); then%if (( rc != 2 )); then%' script/test/config_gen_gates.sh
-runner-usage-missing-root	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/--root expects a directory"$/{n;s/exit 2/exit 0/}' script/test/config_gen_gates.sh
-runner-usage-unknown	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/usage: config_gen_gates.sh \[--root <dir>\]"$/{n;s/exit 2/exit 0/}' script/test/config_gen_gates.sh
-redpath-reentry	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%if \[\[ -n "\${CONFIG_GEN_REDPATH_ACTIVE:-}" \]\]; then%if false; then%' script/test/config_gen_redpath.sh
-redpath-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%(( rc != 0 )) || { echo rc_zero; return 0; }%:%' script/test/config_gen_redpath.sh
-redpath-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%\[\[ "\${first}" == "config_gen_gate_\${gate}_failed" \]\] || { echo wrong_id; return 0; }%:%' script/test/config_gen_redpath.sh
-redpath-gate-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%"body":"(config_gen_gate_\[a-z\]+_failed)",%"body":"[^"]*(config_gen_gate_[a-z]+_failed)[^"]*",%' script/test/config_gen_redpath.sh
-redpath-earlier-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%grep -qx "gate=\${g} ok" "\${out}" || { echo earlier_gate_missing; return 0; }%:%' script/test/config_gen_redpath.sh
-redpath-control	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%_rp_control "\${scratch}" || failed=1%_rp_control "${scratch}" || true%' script/test/config_gen_redpath.sh
-coverage-list-failed	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%    || _refuse list_failed%    || true%' dockerfile/config-gen/gates/coverage.sh
-coverage-test-failed	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%    || _refuse test_failed "\${pkg}"%    || true%' dockerfile/config-gen/gates/coverage.sh
-coverage-profile-mode	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%if (\$0 != "mode: atomic") bad = 1%if (0) bad = 1%' dockerfile/config-gen/gates/coverage.sh
-coverage-profile-line	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%if (substr(\$0, length(prefix) + 1) !~ body) { bad = 1; next }%if (0) { bad = 1; next }%' dockerfile/config-gen/gates/coverage.sh
-coverage-profile-attribution	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%if (substr(\$0, 1, length(prefix)) != prefix) { bad = 1; next }%if (0) { bad = 1; next }%' dockerfile/config-gen/gates/coverage.sh
-coverage-no-statements	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%print (files == 0 ? "ok" : "no_statements")%print "ok"%' dockerfile/config-gen/gates/coverage.sh
-coverage-below-floor	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%cov \* 10 >= stmts \* 9%cov * 10 >= stmts * 8%' dockerfile/config-gen/gates/coverage.sh
-spec-workflow-top-keys	test/bats/unit/self_test_yaml_spec.bats	test/bats/unit/self_test_yaml_spec.bats	sed -i 's%  \[\[ "\${_top}" == "\${2}" \]\] \\%  true \\%' test/bats/unit/self_test_yaml_spec.bats
-spec-workflow-env-keys	test/bats/unit/self_test_yaml_spec.bats	test/bats/unit/self_test_yaml_spec.bats	sed -i 's%  \[\[ "\${_env}" == "\${3}" \]\] \\%  true \\%' test/bats/unit/self_test_yaml_spec.bats
-coverage-no-packages	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%  \[\[ -n "\${listing}" \]\] || _refuse no_packages%  :%' dockerfile/config-gen/gates/coverage.sh
-coverage-profile-missing	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	sed -i 's%  \[\[ -f "\${prof}" \]\] || _refuse profile_invalid "\${pkg}"%  :%' dockerfile/config-gen/gates/coverage.sh
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+runner-step-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null || rc=$?	    CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null || true
+runner-root-invalid	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	  if [[ ! -f "${root}/dockerfile/Dockerfile.config-gen" ]]; then	  if false; then
+runner-context-invalid	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    if [[ ! "${name}" =~ ^[a-z0-9-]+$ ]]; then	    if false; then
+runner-docker-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    >"${log}" 2>&1 || rc=$?	    >"${log}" 2>&1 || rc=1
+runner-gate-id-reemit	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    _log_err "${_CG_SERVICE}" "config_gen_gate_${gate}_failed" "gate=${gate}" "status=${rc}" \\	    _log_err "${_CG_SERVICE}" config_gen_build_failed "gate=${gate}" "status=${rc}" \\
+runner-binary-status	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	  if (( rc != 2 || bytes != 0 )); then	  if (( bytes != 0 )); then
+runner-binary-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	  if (( rc != 2 || bytes != 0 )); then	  if (( rc != 2 )); then
+runner-usage-missing-root	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	          exit 2	          exit 0
+runner-usage-unknown	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>]"\n        exit 2	          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>]"\n        exit 0
+redpath-reentry	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  if [[ -n "${CONFIG_GEN_REDPATH_ACTIVE:-}" ]]; then	  if false; then
+redpath-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc != 0 )) || { echo rc_zero; return 0; }	  :
+redpath-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }	  :
+redpath-gate-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	readonly _RP_GATE_RECORD_RE='^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$'	readonly _RP_GATE_RECORD_RE='^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"[^"]*(config_gen_gate_[a-z]+_failed)[^"]*",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$'
+redpath-earlier-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    grep -qx "gate=${g} ok" "${out}" || { echo earlier_gate_missing; return 0; }	    :
+redpath-control	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  _rp_control "${scratch}" || failed=1	  _rp_control "${scratch}" || true
+coverage-list-failed	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	    || _refuse list_failed	    || true
+coverage-test-failed	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	    || _refuse test_failed "${pkg}"	    || true
+coverage-profile-mode	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	    NR == 1 { if ($0 != "mode: atomic") bad = 1; next }	    NR == 1 { if (0) bad = 1; next }
+coverage-profile-line	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	      if (substr($0, length(prefix) + 1) !~ body) { bad = 1; next }	      if (0) { bad = 1; next }
+coverage-profile-attribution	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	      if (substr($0, 1, length(prefix)) != prefix) { bad = 1; next }	      if (0) { bad = 1; next }
+coverage-no-statements	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	      if (stmts == 0) { print (files == 0 ? "ok" : "no_statements"); exit 0 }	      if (stmts == 0) { print "ok"; exit 0 }
+coverage-below-floor	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	      print (cov * 10 >= stmts * 9 ? "ok" : "below_floor")	      print (cov * 10 >= stmts * 8 ? "ok" : "below_floor")
+spec-workflow-top-keys	test/bats/unit/self_test_yaml_spec.bats	test/bats/unit/self_test_yaml_spec.bats	  [[ "${_top}" == "${2}" ]] \\	  true \\
+spec-workflow-env-keys	test/bats/unit/self_test_yaml_spec.bats	test/bats/unit/self_test_yaml_spec.bats	  [[ "${_env}" == "${3}" ]] \\	  true \\
+coverage-no-packages	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  [[ -n "${listing}" ]] || _refuse no_packages	  :
+coverage-profile-missing	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  [[ -f "${prof}" ]] || _refuse profile_invalid "${pkg}"	  :

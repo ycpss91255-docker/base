@@ -694,7 +694,10 @@ jobs:
     # dedicated job runs it or exactly one group holds it.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, not 30: each leg also runs its shard of the required-kill roster
+    # (base#1461), measured at 13-20 minutes a shard on PR #1491's run
+    # 41226185346, on top of the lint group.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -732,6 +735,36 @@ jobs:
         env:
           LINT_GROUP: ${{ matrix.group }}
         run: ./script/test/test.sh --lint --group "${LINT_GROUP}"
+
+      # The required-kill mutation roster (base#1461), the hosted leg of the
+      # check the no-flag `just test` runs between lint and bats. Every leg
+      # runs it, ungated, through `just`, on the shard named by its group:
+      # the four legs together probe every row, and a full roster per leg
+      # did not finish inside this job's timeout. The just-pin steps are
+      # copied from the acceptance job, which carries their rationale.
+      - name: Resolve the pinned just version
+        id: just-pin
+        run: |
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install just (container-ops entry point)
+        uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just-pin.outputs.version }}
+
+      - name: Check the just on PATH is the pin
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
+      - name: Run the required-kill mutation roster (shard ${{ matrix.group }})
+        env:
+          ROSTER_SHARD: ${{ matrix.group }}
+        run: just test mutation-required --shard "${ROSTER_SHARD}"
 
       - name: Reclaim this run's docker artifacts
         if: always()

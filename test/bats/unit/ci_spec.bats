@@ -1064,7 +1064,9 @@ _all_group_members() {
   assert_output --partial " coverage"
 }
 
-# why: End-to-end default dispatch
+# why: End-to-end default dispatch. The required-kill roster the no-flag run
+# calls between its lint and bats compose runs (base#1461) is stubbed: it
+# builds real sandboxes, and pre_pr_mirror_parity_spec holds its order.
 @test "main: dispatches no-flag default to the ci service" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -1074,6 +1076,7 @@ _all_group_members() {
 
   run bash -c '
     source /source/script/test/test.sh
+    _run_mutation_required() { :; }
     export PATH="'"${MOCK_DIR}"'"
     main
   '
@@ -4387,6 +4390,11 @@ _UNSOURCED_DRIVER_FILES=(
   # it. Sourcing it into the dispatcher would buy nothing -- no
   # _LINT_TOOLS entry and no option arm reach _run_coverage_gate.
   coverage_gate.sh
+  # Executed, not sourced: the required-kill roster runner (base#1461) is
+  # a standalone program that re-executes itself once per row as a worker
+  # in its own process group; _run_mutation_required and the
+  # `mutation-required` recipe invoke it with bash.
+  mutation_required.sh
 )
 
 # Lint entry points _LINT_TOOLS deliberately does not carry, each with

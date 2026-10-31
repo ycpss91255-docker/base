@@ -347,6 +347,20 @@ bats-path spec *args:
 mutation-probe *args:
     ./script/test/mutation-probe.sh "$@"
 
+# The required-kill roster (base#1461): every row of
+# script/test/mutation_required/*.tsv names a shell refusal guard and the
+# mutation that disables it. All rows are validated before any baseline,
+# each is probed by mutation-probe.sh in a private sandbox copy under its
+# own compose project, and the recipe exits 0 only when every row is
+# PINNED. MUTATION_REQUIRED_JOBS (default 4) rows run at once. The no-flag
+# `just test` runs it between the lint phase and bats; the hosted
+# lint-static legs and the self-hosted config-gen job run this recipe.
+#
+#   just test mutation-required            # probe every row
+#   just test mutation-required --check    # validate the roster only
+mutation-required *args:
+    ./script/test/drivers/mutation_required.sh "$@"
+
 # Both `system` and `smoke` drive compose directly rather than through
 # test.sh's dispatcher, so neither is covered by test.sh's own end-of-run
 # reclaim -- each carries its own line. It is an EXIT trap, not a trailing
