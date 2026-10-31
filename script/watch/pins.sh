@@ -231,12 +231,21 @@ _pins_go_sum() {
 # _pins_set_go_mod <file> <lineno> <new-line> [<image>]
 #
 # Commit a go.mod line change together with the go.sum Go wants for it
-# (base#1440). The new go.sum is computed from the staged go.mod before
-# either file is touched; go.mod is committed first, then go.sum, each by a
-# rename of a copy beside it. The go.sum is computed in <image> when one is
-# given (a golang bump names the image it proposes), otherwise in the image
-# the golang pin names now.
+# (base#1440): _pins_stage_go_mod, then _pins_commit_go_mod.
 _pins_set_go_mod() {
+  _pins_stage_go_mod "${@}" || return 1
+  _pins_commit_go_mod "${1}" "${2}" "${3}" "${_PINS_STAGED_SUM}"
+}
+
+# _pins_stage_go_mod <file> <lineno> <new-line> [<image>]
+#
+# Compute, before any file is touched, the go.sum Go wants once the go.mod
+# line changes (base#1440), and leave its path in _PINS_STAGED_SUM: a temp
+# copy beside go.sum, or empty when the tidied module has no go.sum. The
+# go.sum is computed in <image> when one is given (a golang bump names the
+# image it proposes), otherwise in the image the golang pin names now.
+_PINS_STAGED_SUM=""
+_pins_stage_go_mod() {
   local _abs="${1}" _n="${2}" _repl="${3}" _image="${4:-}" _record _term=$'\n'
   local _state _gname _resolver _coord _pattern _skip _gfile _gline
   local _sum="${_abs%/*}/go.sum" _staged _sumtmp
@@ -262,14 +271,9 @@ _pins_set_go_mod() {
   local _rc=0
   _pins_go_sum "${_image}" "${_abs}" "${_staged}" "${_sumtmp}" || _rc=$?
   if (( _rc == 5 )); then
-    # The tidied module has no go.sum: go.mod is committed and the go.sum
-    # that is there is removed.
+    # The tidied module has no go.sum.
     rm -f -- "${_staged}" "${_sumtmp}"
-    _pins_commit "${_abs}" "${_n}" "${_repl}" || return 1
-    if [[ -e "${_sum}" ]] && ! rm -f -- "${_sum}"; then
-      _pins_refuse "${_sum}" commit_failed "the go.sum the module no longer needs could not be removed"
-      return 1
-    fi
+    _PINS_STAGED_SUM=""
     return 0
   elif (( _rc == 4 )); then
     rm -f -- "${_staged}" "${_sumtmp}"
@@ -289,6 +293,26 @@ _pins_set_go_mod() {
     chmod "$(stat -c '%a' -- "${_sum}")" "${_sumtmp}"
   else
     chmod 644 "${_sumtmp}"
+  fi
+  _PINS_STAGED_SUM="${_sumtmp}"
+}
+
+# _pins_commit_go_mod <file> <lineno> <new-line> <staged-sum>
+#
+# Commit the go.mod line change and the go.sum _pins_stage_go_mod computed
+# (base#1440): go.mod first, then go.sum, each by a rename of a copy beside
+# it. An empty <staged-sum> means the module wants no go.sum, so the one
+# that is there is removed.
+_pins_commit_go_mod() {
+  local _abs="${1}" _n="${2}" _repl="${3}" _sumtmp="${4}"
+  local _sum="${_abs%/*}/go.sum"
+  if [[ -z "${_sumtmp}" ]]; then
+    _pins_commit "${_abs}" "${_n}" "${_repl}" || return 1
+    if [[ -e "${_sum}" ]] && ! rm -f -- "${_sum}"; then
+      _pins_refuse "${_sum}" commit_failed "the go.sum the module no longer needs could not be removed"
+      return 1
+    fi
+    return 0
   fi
   # A copy of go.mod as it was, so a failed go.sum rename can put go.mod
   # back and the tree never holds the new go.mod beside the old go.sum.
@@ -326,9 +350,12 @@ _pins_go_minor() {
 # A golang bump to another minor moves the Go that builds every module, so
 # the `go` directive of every tracked go.mod is rewritten to the new minor
 # and its go.sum regenerated in <new-image>, the image proposed, not the
-# one replaced (base#1440). A bump within the minor touches no go.mod.
+# one replaced (base#1440). Every module is staged before any is committed,
+# so a tidy that fails on one module leaves every module alone. A bump
+# within the minor touches no go.mod.
 _pins_set_golang() {
-  local _old_mm _new_mm _list _file _go_rec _go_ln _abs _repl
+  local _old_mm _new_mm _list _file _go_rec _go_ln _abs _repl _i _sum
+  local -a _abss=() _lns=() _repls=() _sums=()
   _old_mm="$(_pins_go_minor "${1}")"
   _new_mm="$(_pins_go_minor "${2}")"
   [[ -n "${_new_mm}" && "${_old_mm}" != "${_new_mm}" ]] || return 0
@@ -340,8 +367,19 @@ _pins_set_golang() {
     [[ -n "${_go_rec}" ]] || continue
     _go_ln="${_go_rec%%$'\t'*}"
     _repl="$(_pin_go_mod_set_go_line "${_abs}" "${_go_ln}" "${_go_rec#*$'\t'}" "${_new_mm}")"
-    _pins_set_go_mod "${_abs}" "${_go_ln}" "${_repl}" "${2}" || return 1
+    if ! _pins_stage_go_mod "${_abs}" "${_go_ln}" "${_repl}" "${2}"; then
+      for _sum in "${_sums[@]}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
+      return 1
+    fi
+    _abss+=("${_abs}"); _lns+=("${_go_ln}"); _repls+=("${_repl}")
+    _sums+=("${_PINS_STAGED_SUM}")
   done <<< "${_list}"
+  for _i in "${!_abss[@]}"; do
+    if ! _pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}"; then
+      for _sum in "${_sums[@]:_i}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
+      return 1
+    fi
+  done
 }
 
 # _pins_set <name> <version>

@@ -3498,7 +3498,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (47)
+### test/bats/unit/gomod_scan_spec.bats (48)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3567,7 +3567,8 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: a version Go rewrites or refuses is refused by its validator reason (base#1463)` | One witness per validator reason, through the scanner. |
 | `_pin_go_mod_scan: path major suffix, no suffix and invalid suffix each refuse by name (base#1463)` | The path-major rule has two arms (a /vN suffix and none) and an invalid-suffix arm; each is pinned separately. The huge major is compared as a string, so it cannot overflow into a pass. |
 | `_pin_go_mod_version_ok: accepts canonical versions and refuses ones Go would rewrite (base#1463)` | The validator is callable on its own, and answers 0 only for a version Go keeps exactly as written. |
-| `_pin_is_declaration: go.mod is DECL only on the line numbers the scanner emitted (base#1463)` | For go.mod the scanner, not a line shape, decides: DECL only on a line number it emitted, so a comment, module or go line is never one. |
+| `_pin_is_declaration: go.mod is DECL only on the line numbers the scanner emitted (base#1463)` | For go.mod the scanner, not a line shape, decides: DECL only on a line number it emitted, so a comment or module line is never one. The `go` directive is the one other declaration (base#1440, next spec). |
+| `_pin_is_declaration: the go.mod go directive is DECL (base#1440)` | The `go` directive names the Go a module needs, and the golang pin names the Go that builds it, so the directive is a declaration the coverage lint must see covered. Before base#1440 it is rc 1, so nothing ever has to cover it. The module and toolchain lines stay rc 1: only the go directive joins the require entries. |
 | `_pin_go_mod_set_line: refuses a line that is not a require entry and rewrites only the version token (base#1463)` | The bump rewrites only a line the scanner emitted; asked for the go directive it refuses rather than editing a line no pin can name, and on an entry it replaces the version token alone, not the same string in the comment (review round 2, base#1463). |
 | `_pin_is_declaration: go.mod with no line number is rc 2 (base#1463)` | A go.mod line with no line number cannot be answered from the scanner; it is a caller error (2), not a "no". |
 
@@ -8377,7 +8378,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (56)
+### test/bats/unit/tool_pins_spec.bats (59)
 
 | Test | Description |
 |------|-------------|
@@ -8427,8 +8428,11 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: --set on a go.mod require whose module archive has no go.mod is go_sum_layout (base#1440)` | The module goes to the container as a tar of paths relative to the module directory, and the container script checks `test -f go.mod \|\| exit 4` before it tidies. Exit 4 means the archive did not land as a module (no go.mod at the top of /tmp/w): a layout fault, its own refusal rather than a failed tidy, and neither file is written (base#1440). |
 | `pins: --set on a hard-linked go.mod is hard_link before docker is called (base#1440)` | A hard-linked go.mod is refused by name, like any hard-linked destination (base#1463), and the refusal comes before the module is sent to the golang image: a link check that ran only after staging would pay for a tidy whose go.sum is then thrown away. Docker is never called, neither file is written and no temp copy is left beside them (base#1440). |
 | `pins: --set on a go.mod require whose second rename fails leaves go.mod and go.sum alone (base#1440)` | go.mod and go.sum are committed as one: when the rename of the second of the two fails, the first is rolled back, so the tree never holds the bumped go.mod beside the old go.sum (or the new go.sum beside the old go.mod). The mv stub passes every rename through to the real mv except the first rename onto the go.mod/go.sum name not yet renamed onto, so the failure lands on the second whichever order the commit uses, and a rollback rename back onto the first name is let through. Both files keep their bytes and no temp or backup copy is left (base#1440). |
+| `pins: --set golang to another minor rewrites every go.mod go line and go.sum in the proposed image (base#1440)` | A golang minor bump moves the Go that builds every module, so the `go` directive of each tracked go.mod moves with it, and each go.sum is regenerated in the PROPOSED image, not the one being replaced: rewriting the Dockerfile alone leaves every go.mod naming the old minor, which the directive check then refuses. The docker stub stands in for the image: it logs each call as one line (newlines in its arguments folded to spaces, so the log counts calls), answers a module that requires golang.org/x/mod with one go.sum line, and a dependency-free module with exit 5 (tidy leaves no go.sum, as measured in the pinned image). Both go.mod files end up with `go 1.28`, m keeps a go.sum of the stub's line, m2 still has none, and docker ran exactly twice, both times in golang:1.28.0-trixie (base#1440). |
+| `pins: --set golang to another minor whose second module's tidy fails leaves every file alone (base#1440)` | A golang minor bump is one change to the Dockerfile and every go.mod and go.sum it moves. Committing module m and then failing on m2 leaves m saying `go 1.28` under a golang:1.27.2 pin. A tidy that fails on the second module (the stub exits 1 for m2) is go_sum_tidy, and all five files keep their literal bytes, with no temp or backup copy left beside any of them (base#1440). |
 | `_pin_go_directive_check: go 1.26 under golang:1.27.2-trixie is go_mod_go_directive_mismatch (base#1440)` | A go.mod `go` directive names the Go a module needs; the golang pin names the Go that builds it. Nothing compared the two, so `go 1.26` under golang:1.27.2 passed the watch unseen. _pin_go_directive_check compares them by major.minor and refuses a mismatch by name, with both sides and the directive's line (base#1440). |
 | `_pin_go_directive_check: a go.mod with no go directive is go_mod_go_directive_mismatch go=- (base#1440)` | A go.mod with no `go` directive is not "nothing to compare": Go then assumes go 1.16 for the module, which no golang pin of this repo builds. Skipping the file let such a module pass the watch unseen, so it is a mismatch named with go=- and line=0 (base#1440). |
+| `_pin_go_directive_check: a go.mod with no golang pin is go_mod_golang_pin_missing (base#1440)` | With no golang pin there is no Go to compare a `go` directive with. Skipping the compare let a tree that dropped its golang pin pass the watch with every go.mod unchecked, so a tracked go.mod under no pinned golang image is go_mod_golang_pin_missing, named by file (base#1440). |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
 | `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |
@@ -8493,7 +8497,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool-version-watch: the bump is performed by the same script a human runs` | The scheduled path and the human path must be one script, or the bump CI proves is not the bump a person can reproduce |
 | `tool-version-watch: it runs on a reserved GitHub-hosted runner` | Both jobs check out and execute repository code, so a self-hosted runner would run it on hardware this repo does not control |
 
-### test/bats/unit/tool_watch_check_spec.bats (14)
+### test/bats/unit/tool_watch_check_spec.bats (15)
 
 | Test | Description |
 |------|-------------|
@@ -8509,6 +8513,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its matrix from this stdout, so an empty list with a zero status is precisely the silent clean week |
 | `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | The machine answer and the human report share one run, so a report line landing on stdout would corrupt the matrix |
 | `watch: a go.mod with an indirect requirement exits 1, not 0 (base#1463)` | An indirect requirement in a go.mod is refused by the reader (base#1463); the watch must not read past it into a clean week. |
+| `watch: a go 1.26 go.mod under golang:1.27.2 exits 1 before any resolver runs (base#1440)` | A go.mod `go` directive names the Go a module needs and the golang pin the Go that builds it; the watch compared neither, so `go 1.26` under golang:1.27.2 read as a clean week. The directive is checked against the pin before any upstream is asked: the run is refused by name with both sides and the directive's line, and no resolver is called (base#1440). |
 | `watch: an unreadable tracked file exits 1, not 0 (base#1463)` | An unreadable tracked file used to print `Permission denied` and leave the reader's status 0, so the watch reported the rest as a clean week (base#1463). As root the run drops to nobody, the only user a mode-000 file applies to. |
 | `watch: an unknown option is a usage error, distinct from both` | Exit 2 keeps a typo apart from 1 (nothing compared) and 10 (drift), which is what the workflow branches on |
 
