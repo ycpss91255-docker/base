@@ -102,6 +102,24 @@ _pins_spliced_ok() {
   cmp -s "${_abs}" "${_tmp}" "$(( _pre + _old ))" "$(( _pre + _new ))"
 }
 
+# _pins_writable <file>
+#
+# Refuse a <file> a rename cannot replace on its own: a symlink (the write
+# belongs to whatever it points at) and a hard link (the other names would
+# keep the old version) (base#1463). A caller that does work before its
+# commit asks this first, so the refusal costs nothing (base#1440).
+_pins_writable() {
+  local _abs="${1}"
+  if [[ -L "${_abs}" ]]; then
+    _pins_refuse "${_abs}" symlink "a symlink; the bump rewrites only a file the tree holds itself"
+    return 1
+  fi
+  if [[ "$(stat -c '%h' -- "${_abs}")" != 1 ]]; then
+    _pins_refuse "${_abs}" hard_link "hard-linked; a rename would leave its other names on the old version"
+    return 1
+  fi
+}
+
 # _pins_commit <file> <lineno> <new-line>
 #
 # Replace line <lineno> of <file> with <new-line>, byte for byte, and
@@ -125,14 +143,7 @@ _pins_spliced_ok() {
 _pins_commit() {
   local _abs="${1}" _n="${2}" _repl="${3}" _tmp _term=$'\n' _nl
   local LC_ALL=C
-  if [[ -L "${_abs}" ]]; then
-    _pins_refuse "${_abs}" symlink "a symlink; the bump rewrites only a file the tree holds itself"
-    return 1
-  fi
-  if [[ "$(stat -c '%h' -- "${_abs}")" != 1 ]]; then
-    _pins_refuse "${_abs}" hard_link "hard-linked; a rename would leave its other names on the old version"
-    return 1
-  fi
+  _pins_writable "${_abs}" || return 1
   _nl="$(wc -l < "${_abs}")"
   (( _n > _nl )) && _term=""
   if ! _tmp="$(mktemp "${_abs%/*}/.${_abs##*/}.pins.XXXXXX")"; then
@@ -234,6 +245,7 @@ _pins_set_go_mod() {
     _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PINS_GOLANG_PIN} image to regenerate go.sum in"
     return 1
   fi
+  _pins_writable "${_abs}" || return 1
   (( _n > $(wc -l < "${_abs}") )) && _term=""
   _staged="$(mktemp)" || return 1
   { head -n "$(( _n - 1 ))" "${_abs}"; printf '%s%s' "${_repl}" "${_term}"
