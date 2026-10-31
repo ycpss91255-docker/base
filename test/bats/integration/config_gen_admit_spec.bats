@@ -381,3 +381,26 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=record"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a visible.sha256 path listed twice is refused as duplicate (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # 00-manifest hashes each module file once, so a path repeated in one
+  # list is `duplicate` (design §2 check 5; design §4 cycle 8, case
+  # "duplicate"). A later step appends a second copy of a.go's line to
+  # visible.sha256. Each line is a well-formed `P\t<64 hex>` record and its
+  # sha256 still matches a.go on disk, so only the repeat rule refuses it,
+  # and the refusal names the list that holds the repeat.
+  local line
+  IFS= read -r line < "${S}/m/visible.sha256"
+  assert_equal "${line%%$'\t'*}" "${MOD}/a.go"
+  printf '%s\n' "${line}" >> "${S}/m/visible.sha256"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=duplicate"
+  assert_equal "${stderr}" ""
+}
