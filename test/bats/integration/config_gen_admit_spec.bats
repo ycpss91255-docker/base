@@ -313,3 +313,26 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=path"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a change record whose path is outside the dockerfile/config-gen/ prefix (config-genx/) is refused as path (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d runs `git diff --name-status -M <base> -- dockerfile/config-gen/`,
+  # so every record path it writes starts with the `dockerfile/config-gen/`
+  # prefix (design §2 check 5, canonical P; design §4 cycle 8, case
+  # "config-genx/"). A later step writes a record for a sibling directory
+  # whose name only begins with `config-gen`; the record has the one-path M
+  # shape and no empty, `.` or `..` segment, so only the prefix rule
+  # refuses it.
+  printf '%s\nM\tdockerfile/config-genx/a.go\n' "${header}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=path"
+  assert_equal "${stderr}" ""
+}
