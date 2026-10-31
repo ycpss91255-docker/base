@@ -14,7 +14,8 @@
 #
 # Every `<path>\t<sha256>` line of visible.sha256 and ignored.sha256 names
 # a module file as 00-manifest hashed it; a file in <src> whose sha256 now
-# differs (an edit after the baseline was written) is refused.
+# differs (an edit after the baseline was written) is refused, and so is
+# a file in <src> that neither list names (added after the baseline).
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -45,11 +46,27 @@ _cga_check() {
   done <"${list}"
 }
 
+# _cga_walk <src> <list>... -- refuse the first file on disk under <src>,
+# in byte order, that no <list> names.
+_cga_walk() {
+  local src="${1}" path rel
+  shift
+  local -A listed=()
+  while IFS=$'\t' read -r path _; do
+    listed["${path}"]=1
+  done < <(cat -- "$@")
+  while IFS= read -r -d '' rel; do
+    path="${_CGA_MOD}${rel#./}"
+    [[ -n "${listed["${path}"]+x}" ]] || _cga_stale "${path}" unlisted
+  done < <(cd -- "${src}" && find . -type f -print0 | sort -z)
+}
+
 main() {
   local mutation="${1:?usage: config_gen_admit.sh <mutation> <src>}"
   local src="${2:?usage: config_gen_admit.sh <mutation> <src>}"
   _cga_check "${src}" "${mutation}/visible.sha256"
   _cga_check "${src}" "${mutation}/ignored.sha256"
+  _cga_walk "${src}" "${mutation}/visible.sha256" "${mutation}/ignored.sha256"
 }
 
 main "$@"
