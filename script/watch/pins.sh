@@ -228,22 +228,26 @@ _pins_go_sum() {
   return "${_rc}"
 }
 
-# _pins_set_go_mod <file> <lineno> <new-line>
+# _pins_set_go_mod <file> <lineno> <new-line> [<image>]
 #
-# Commit a go.mod require bump together with the go.sum Go wants for it
+# Commit a go.mod line change together with the go.sum Go wants for it
 # (base#1440). The new go.sum is computed from the staged go.mod before
 # either file is touched; go.mod is committed first, then go.sum, each by a
-# rename of a copy beside it.
+# rename of a copy beside it. The go.sum is computed in <image> when one is
+# given (a golang bump names the image it proposes), otherwise in the image
+# the golang pin names now.
 _pins_set_go_mod() {
-  local _abs="${1}" _n="${2}" _repl="${3}" _record _image _term=$'\n'
+  local _abs="${1}" _n="${2}" _repl="${3}" _image="${4:-}" _record _term=$'\n'
   local _state _gname _resolver _coord _pattern _skip _gfile _gline
   local _sum="${_abs%/*}/go.sum" _staged _sumtmp
-  _record="$(_pins_record "${_PINS_GOLANG_PIN}")"
-  IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
-    _gfile _gline <<< "${_record}"
-  if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
-    _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PINS_GOLANG_PIN} image to regenerate go.sum in"
-    return 1
+  if [[ -z "${_image}" ]]; then
+    _record="$(_pins_record "${_PINS_GOLANG_PIN}")"
+    IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
+      _gfile _gline <<< "${_record}"
+    if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
+      _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PINS_GOLANG_PIN} image to regenerate go.sum in"
+      return 1
+    fi
   fi
   _pins_writable "${_abs}" || return 1
   (( _n > $(wc -l < "${_abs}") )) && _term=""
@@ -306,6 +310,38 @@ _pins_set_go_mod() {
     return 1
   fi
   rm -f -- "${_bak}"
+}
+
+# _pins_go_minor <image> -- the major.minor of a golang image's tag, or
+# nothing when the tag does not start with one.
+_pins_go_minor() {
+  local _tag="${1%%@*}"
+  _tag="${_tag##*:}"
+  [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
+  printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+# _pins_set_golang <old-image> <new-image>
+#
+# A golang bump to another minor moves the Go that builds every module, so
+# the `go` directive of every tracked go.mod is rewritten to the new minor
+# and its go.sum regenerated in <new-image>, the image proposed, not the
+# one replaced (base#1440). A bump within the minor touches no go.mod.
+_pins_set_golang() {
+  local _old_mm _new_mm _list _file _go_rec _go_ln _abs _repl
+  _old_mm="$(_pins_go_minor "${1}")"
+  _new_mm="$(_pins_go_minor "${2}")"
+  [[ -n "${_new_mm}" && "${_old_mm}" != "${_new_mm}" ]] || return 0
+  _list="$(_pin_files "${PIN_REPO_ROOT}")" || return 1
+  while IFS= read -r _file; do
+    [[ "${_file##*/}" == go.mod ]] || continue
+    _abs="${PIN_REPO_ROOT}/${_file}"
+    _go_rec="$(_pin_go_mod_go_line "${_abs}")" || return 1
+    [[ -n "${_go_rec}" ]] || continue
+    _go_ln="${_go_rec%%$'\t'*}"
+    _repl="$(_pin_go_mod_set_go_line "${_abs}" "${_go_ln}" "${_go_rec#*$'\t'}" "${_new_mm}")"
+    _pins_set_go_mod "${_abs}" "${_go_ln}" "${_repl}" "${2}" || return 1
+  done <<< "${_list}"
 }
 
 # _pins_set <name> <version>
@@ -372,6 +408,9 @@ _pins_set() {
 
   if [[ "${_file##*/}" == go.mod ]]; then
     _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
+  elif [[ "${_name}" == "${_PINS_GOLANG_PIN}" ]]; then
+    _pins_set_golang "${_current}" "${_new}" || return 1
+    _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
   else
     _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
   fi

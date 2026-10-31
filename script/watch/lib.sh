@@ -1440,6 +1440,16 @@ _pin_go_mod_go_line() {
   done
 }
 
+# _pin_go_mod_set_go_line <file> <lineno> <old-version> <new-version> --
+# print line <lineno> of the go.mod <file>, a `go` directive naming
+# <old-version>, with that version replaced by <new-version>; the spacing
+# and any comment are kept (base#1440).
+_pin_go_mod_set_go_line() {
+  local _line
+  _line="$(awk -v n="${2}" 'NR == n' "${1}")"
+  printf '%s\n' "${_line/"${3}"/"${4}"}"
+}
+
 # The pin whose image builds every go.mod module; its Go minor is the one
 # a module's `go` directive must name (base#1440).
 readonly _PIN_GO_DIRECTIVE_PIN=golang
