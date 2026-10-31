@@ -2,6 +2,8 @@ package testcorpus
 
 import (
 	"fmt"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -56,5 +58,17 @@ func TestGlobEmptyRoot(t *testing.T) {
 	}
 	if !strings.Contains(f.msg, "root is empty") {
 		t.Fatalf("Fatal message = %q, want it to contain %q", f.msg, "root is empty")
+	}
+}
+
+// TestLinkerRoot runs against the root the build passed with -ldflags -X,
+// not one set here, so a root fixed in source cannot satisfy it. The race
+// gate moves testdata/ (holding corpus/s1/seed.toml) to that root
+// (base#1468). A plain `go test` without -X fails here by design.
+func TestLinkerRoot(t *testing.T) {
+	got := Glob(t, "corpus/s1/*.toml")
+	want := []string{filepath.Join(root, "corpus", "s1", "seed.toml")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Glob(%q) = %q, want %q", "corpus/s1/*.toml", got, want)
 	}
 }
