@@ -3,19 +3,24 @@
 # coverage.sh -- the coverage gate of the config generator's test stage
 # (base#1462). Run from the module root inside the golang image:
 #
-#   bash gates/coverage.sh
+#   bash gates/coverage.sh <corpus root record>
+#
+# The record is the one line the race RUN wrote,
+# <module>/internal/testcorpus.root=<dir> (base#1468).
 #
 # Every package `go list ./...` names must reach >= 90.0% of its
 # statements, measured from a profile of its own. Fail-closed: every way
 # the measurement can go missing is a refusal, never a pass.
 #
-#   list_failed     go list exited non-zero
-#   no_packages     go list listed nothing
-#   test_failed     the package's go test exited non-zero
-#   profile_invalid the profile is missing, is not `mode: atomic`, carries a
-#                   malformed line, or a line from any other package
-#   no_statements   zero statements in a package that has source files
-#   below_floor     covered * 10 < statements * 9
+#   corpus_root_missing  the root record is missing or empty
+#   list_failed          go list exited non-zero
+#   no_packages          go list listed nothing
+#   test_failed          the package's go test exited non-zero
+#   profile_invalid      the profile is missing, is not `mode: atomic`,
+#                        carries a malformed line, or a line from any other
+#                        package
+#   no_statements        zero statements in a package that has source files
+#   below_floor          covered * 10 < statements * 9
 #
 # A refusal is one line on stderr,
 #   config_gen_gate_coverage_failed reason=<reason> pkg=<import path>
@@ -29,6 +34,9 @@
 
 set -euo pipefail
 
+# _CG_X -- the validated corpus root record main read; _measure forwards it.
+_CG_X=''
+
 # _refuse <reason> [pkg] -- the one refusal line, then exit 1.
 _refuse() {
   printf 'config_gen_gate_coverage_failed reason=%s pkg=%s\n' "${1}" "${2:-}" >&2
@@ -40,7 +48,8 @@ _refuse() {
 _measure() {
   local dir="${1}" i="${2}" pkg="${3}" gofiles="${4}" cgofiles="${5}"
   local prof="${dir}/${i}.out" verdict
-  go test -covermode=atomic -coverprofile="${prof}" "${pkg}" >&2 \
+  go test -covermode=atomic -coverprofile="${prof}" "-ldflags=-X=${_CG_X}" \
+    "${pkg}" >&2 \
     || _refuse test_failed "${pkg}"
   [[ -f "${prof}" ]] || _refuse profile_invalid "${pkg}"
   verdict="$(_judge "${prof}" "${pkg}" "$(( gofiles + cgofiles ))")" \
@@ -78,7 +87,10 @@ _judge() {
 }
 
 main() {
-  local listing dir pkg gofiles cgofiles i=0
+  local listing dir pkg gofiles cgofiles i=0 x=''
+  if [[ -f "${1:-}" ]]; then IFS= read -r x <"${1}" || true; fi
+  [[ -n "${x}" ]] || _refuse corpus_root_missing
+  _CG_X="${x}"
   listing="$(go list -f '{{.ImportPath}}{{"\t"}}{{len .GoFiles}}{{"\t"}}{{len .CgoFiles}}' ./...)" \
     || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
