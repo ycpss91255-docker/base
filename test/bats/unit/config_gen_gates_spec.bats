@@ -268,6 +268,22 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: The runner's stdout is its verdict: the ok lines it re-prints, which
+# the redpath compares byte for byte (an unchanged rerun must print exactly
+# the six ok lines, a refusal nothing at all; base#1465). A step's own
+# report (20-gomod-oracle prints `gomod-oracle: <n> fixture(s) agree ...`,
+# base#1463) is a log line, so it goes to stderr with the build log.
+@test "config_gen_gates.sh: a step's stdout goes to stderr, so stdout holds only the ok lines (base#1465)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  printf 'echo step-report\n' > "${S}/root/script/test/config_gen_steps/10-a.sh"
+  _run_runner
+  assert_success
+  assert_equal "${output}" "$(printf 'gate=%s ok\n' fmt vet lint race coverage)"
+  assert_stderr_contains step-report
+}
+
 # why: A context name is spliced into `--build-context <name>=<path>`; a name
 # carrying `=` or a path separator would name another context or path.
 @test "config_gen_gates.sh: a context name outside [a-z0-9-] is refused before docker (base#1462)" {
