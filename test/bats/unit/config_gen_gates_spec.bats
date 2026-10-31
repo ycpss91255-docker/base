@@ -683,6 +683,22 @@ _case_failures() {
   assert_equal "$(cat "${S}/runner.n")" "$(_redpath_control)"
 }
 
+# why: A red gate's build ends the way every refusal does, exit 1; a runner
+# that crashed with another status after logging the gate's id is not a gate
+# that went red, and must not pass the redpath (base#1465).
+@test "config_gen_redpath.sh: a gate case whose runner exited other than 1 fails with reason rc_not_one (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  local _rc
+  for _rc in 2 42; do
+    rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
+    _redpath_repo
+    printf '%s\n' "${_rc}" > "${S}/canned/vet.rc"
+    _run_redpath
+    assert_equal "${_rc}:${status}" "${_rc}:1"
+    assert_equal "${_rc}:$(_case_failures)" "${_rc}:vet|rc_not_one"
+  done
+}
+
 # why: A verdict RUN the build cache served prints no line, so a runner
 # that excluded only `test` (or only `admit`) from the cache passes its
 # first call and reports cache state on the next. The rerun case calls the
