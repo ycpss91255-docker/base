@@ -383,6 +383,22 @@ _pin_is_exempt_shape() {
   return 1
 }
 
+# _pin_absent <path> -- rc 0 iff the path is known not to exist: neither it
+# nor a dangling link is there, and its nearest existing ancestor is a
+# directory that can be searched, so the failed lookup is not a denied one.
+_pin_absent() {
+  local _p="${1}" _d
+  [[ -e "${_p}" || -L "${_p}" ]] && return 1
+  _d="${_p}"
+  while [[ ! -e "${_d}" ]]; do
+    case "${_d}" in
+      */*) _d="${_d%/*}"; [[ -n "${_d}" ]] || _d=/ ;;
+      *) _d=. ;;
+    esac
+  done
+  [[ -d "${_d}" && -x "${_d}" ]]
+}
+
 # _pin_tracked <repo-root>
 #
 # Print every file this repo TRACKS at <repo-root>, repo-root-relative,
@@ -412,6 +428,16 @@ _pin_is_exempt_shape() {
 # that can read modes: the carried list is filtered against the tree
 # instead. A rule enforced on one road is a verdict that depends on which
 # road the environment took.
+#
+# ── Only what the work tree still holds ─────────────────────────────────
+#
+# A tracked path the work tree no longer has is a deletion not yet
+# committed: it declares nothing, so it is left out on both roads. A
+# go.mod bump whose tidy wants no go.sum removes a tracked go.sum, and
+# the bump's own read-back would otherwise refuse the tree as
+# pin_file_unreadable (base#1440). A file that is there but cannot be
+# read is still refused, and so is one behind a directory that cannot be
+# searched: _pin_absent answers only when the lookup can tell.
 #
 # ── Where the answer comes from, and why it is never absent ─────────────
 #
@@ -445,6 +471,7 @@ _pin_tracked() {
       _mode="${_rec%% *}"
       [[ "${_mode}" == '100644' || "${_mode}" == '100755' ]] || continue
       _path="${_rec#*$'\t'}"
+      _pin_absent "${_root}/${_path}" && continue
       _found+=("${_path}")
     done < <(git -C "${_root}" ls-files -s -z)
   elif [[ "${PIN_TRACKED_ROOT:-}" == "${_root}" \
@@ -460,7 +487,8 @@ _pin_tracked() {
       # file that declares a pin yields a second record for that pin
       # under a second name, and the lint's duplicate-NAME check fails on
       # the repo's own declarations.
-      if [[ -n "${_path}" && ! -L "${_root}/${_path}" ]]; then
+      if [[ -n "${_path}" && ! -L "${_root}/${_path}" ]] \
+         && ! _pin_absent "${_root}/${_path}"; then
         _found+=("${_path}")
       fi
     done <<< "${PIN_TRACKED_FILES}"

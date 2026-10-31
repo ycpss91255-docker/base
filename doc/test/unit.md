@@ -8377,7 +8377,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (48)
+### test/bats/unit/tool_pins_spec.bats (51)
 
 | Test | Description |
 |------|-------------|
@@ -8421,6 +8421,9 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: --set whose temp copy is not the exact splice leaves the file alone (base#1463)` | The temp copy is held to the splice before it lands: everything but the target line byte-identical, the target line exactly the new one. A write that exited 0 but lost the lines after the target (a `tail` that printed nothing) is refused, not moved into place (base#1463). |
 | `pins: --set that cannot carry the mode onto its temp copy leaves the file alone (base#1463)` | mktemp creates 0600; a copy whose mode could not be set to the destination's is not moved over it (base#1463). |
 | `pins: --set whose final rename fails leaves the file alone (base#1463)` | The rename is the commit; one that fails leaves the old file and no temp copy behind (base#1463). |
+| `pins: --set on a go.mod require whose tidy would rewrite go.mod is go_sum_semantic (base#1440)` | The tidy runs on a copy of the module and its go.mod is compared, by `go mod edit -json`, to the staged one before go.sum is taken; a tidy that would also rewrite go.mod (container exit 3) is its own refusal, not a failed tidy, and neither file is written (base#1440). |
+| `pins: --set on a go.mod require with no golang pin is golang_pin_missing (base#1440)` | go.sum is regenerated in the image the golang pin names; with no golang pin there is no image to run, and committing the go.mod bump alone would leave go.sum stale, so the bump is refused before docker is called and neither file is written (base#1440). |
+| `pins: --set on a go.mod require whose tidy wants no go.sum removes go.sum (base#1440)` | A module whose tidied go.sum would be empty has none: measured in the pinned golang image, `go mod tidy` on a dependency-free module exits 0 and leaves no go.sum. The container says so with exit 5 (`test -f go.sum \|\| exit 5`); the bump then commits go.mod and removes the go.sum that is there, rather than refusing or keeping a stale one (base#1440). |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
 | `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |

@@ -172,7 +172,8 @@ readonly _PINS_GOLANG_PIN=golang
 # verified`) never reaches the go.sum the caller captures. The tidy runs
 # on the module copy in /tmp/w; when it would also change go.mod (compared
 # by `go mod edit -json`, so spacing and comments do not count) the script
-# exits 3 and no go.sum is taken.
+# exits 3 and no go.sum is taken. A module the tidy leaves with no go.sum
+# (no dependencies) exits 5: that module has no go.sum (base#1440).
 # shellcheck disable=SC2016 # expanded by the container's shell, not here.
 readonly _PINS_GO_SUM_SCRIPT='set -eu
 exec 3>&1 1>&2
@@ -185,6 +186,7 @@ go mod edit -json /tmp/go.mod.staged > /tmp/staged.json
 go mod edit -json > /tmp/tidied.json
 cmp -s /tmp/staged.json /tmp/tidied.json || exit 3
 go mod verify
+test -f go.sum || exit 5
 cat go.sum >&3'
 
 # _pins_go_sum <image> <gomod> <staged-gomod> <out>
@@ -240,7 +242,17 @@ _pins_set_go_mod() {
   fi
   local _rc=0
   _pins_go_sum "${_image}" "${_abs}" "${_staged}" "${_sumtmp}" || _rc=$?
-  if (( _rc == 3 )); then
+  if (( _rc == 5 )); then
+    # The tidied module has no go.sum: go.mod is committed and the go.sum
+    # that is there is removed.
+    rm -f -- "${_staged}" "${_sumtmp}"
+    _pins_commit "${_abs}" "${_n}" "${_repl}" || return 1
+    if [[ -e "${_sum}" ]] && ! rm -f -- "${_sum}"; then
+      _pins_refuse "${_sum}" commit_failed "the go.sum the module no longer needs could not be removed"
+      return 1
+    fi
+    return 0
+  elif (( _rc == 3 )); then
     rm -f -- "${_staged}" "${_sumtmp}"
     _pins_refuse "${_abs}" go_sum_semantic "go mod tidy in ${_image%%@*} would also rewrite it"
     return 1
