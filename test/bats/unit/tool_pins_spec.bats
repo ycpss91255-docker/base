@@ -887,6 +887,21 @@ STUB
     dockerfile/config-gen/go.mod go=- golang=1.27 line=0
 }
 
+# why: With no golang pin there is no Go to compare a `go` directive with.
+# Skipping the compare let a tree that dropped its golang pin pass the
+# watch with every go.mod unchecked, so a tracked go.mod under no pinned
+# golang image is go_mod_golang_pin_missing, named by file (base#1440).
+@test "_pin_go_directive_check: a go.mod with no golang pin is go_mod_golang_pin_missing (base#1440)" {
+  _foo_pin
+  _gomod 'module example.com/m' '' 'go 1.27'
+  git -C "${SCRATCH}" add -A
+  # shellcheck disable=SC1091
+  source /source/script/watch/lib.sh
+  export LOG_FORMAT=json
+  run --separate-stderr _pin_go_directive_check "${SCRATCH}"
+  assert_refusal 1 go_mod_golang_pin_missing dockerfile/config-gen/go.mod
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
