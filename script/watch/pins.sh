@@ -174,9 +174,6 @@ _pins_commit() {
   fi
 }
 
-# The pin that names the Go image a go.mod bump regenerates go.sum in.
-readonly _PINS_GOLANG_PIN=golang
-
 # Regenerate go.sum in the pinned golang image. The module arrives as a tar
 # on stdin, its paths relative to the module directory; stdout is moved to
 # fd 3 and the shell's own stdout to stderr, so `go` chatter (`all modules
@@ -250,11 +247,11 @@ _pins_stage_go_mod() {
   local _state _gname _resolver _coord _pattern _skip _gfile _gline
   local _sum="${_abs%/*}/go.sum" _staged _sumtmp
   if [[ -z "${_image}" ]]; then
-    _record="$(_pins_record "${_PINS_GOLANG_PIN}")"
+    _record="$(_pins_record "${_PIN_GO_DIRECTIVE_PIN}")"
     IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
       _gfile _gline <<< "${_record}"
     if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
-      _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PINS_GOLANG_PIN} image to regenerate go.sum in"
+      _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PIN_GO_DIRECTIVE_PIN} image to regenerate go.sum in"
       return 1
     fi
   fi
@@ -270,25 +267,20 @@ _pins_stage_go_mod() {
   fi
   local _rc=0
   _pins_go_sum "${_image}" "${_abs}" "${_staged}" "${_sumtmp}" || _rc=$?
-  if (( _rc == 5 )); then
-    # The tidied module has no go.sum.
-    rm -f -- "${_staged}" "${_sumtmp}"
-    _PINS_STAGED_SUM=""
-    return 0
-  elif (( _rc == 4 )); then
-    rm -f -- "${_staged}" "${_sumtmp}"
-    _pins_refuse "${_abs}" go_sum_layout "the module archive sent to ${_image%%@*} has no go.mod at its top"
-    return 1
-  elif (( _rc == 3 )); then
-    rm -f -- "${_staged}" "${_sumtmp}"
-    _pins_refuse "${_abs}" go_sum_semantic "go mod tidy in ${_image%%@*} would also rewrite it"
-    return 1
-  elif (( _rc != 0 )); then
-    rm -f -- "${_staged}" "${_sumtmp}"
-    _pins_refuse "${_abs}" go_sum_tidy "go mod tidy / go mod verify failed in ${_image%%@*}"
-    return 1
-  fi
   rm -f -- "${_staged}"
+  (( _rc == 0 )) || rm -f -- "${_sumtmp}"
+  case "${_rc}" in
+    0) ;;
+    5) # The tidied module has no go.sum.
+       _PINS_STAGED_SUM=""
+       return 0 ;;
+    4) _pins_refuse "${_abs}" go_sum_layout "the module archive sent to ${_image%%@*} has no go.mod at its top"
+       return 1 ;;
+    3) _pins_refuse "${_abs}" go_sum_semantic "go mod tidy in ${_image%%@*} would also rewrite it"
+       return 1 ;;
+    *) _pins_refuse "${_abs}" go_sum_tidy "go mod tidy / go mod verify failed in ${_image%%@*}"
+       return 1 ;;
+  esac
   if [[ -e "${_sum}" ]]; then
     chmod "$(stat -c '%a' -- "${_sum}")" "${_sumtmp}"
   else
@@ -338,16 +330,7 @@ _pins_commit_go_mod() {
   rm -f -- "${_bak}"
 }
 
-# _pins_go_minor <image> -- the major.minor of a golang image's tag, or
-# nothing when the tag does not start with one.
-_pins_go_minor() {
-  local _tag="${1%%@*}"
-  _tag="${_tag##*:}"
-  [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
-  printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
-}
-
-# _pins_set_golang <old-image> <new-image>
+# _pins_set_golang <old-image> <new-image> <dockerfile> <lineno> <new-line>
 #
 # A golang bump to another minor moves the Go that builds every module, so
 # the `go` directive of every tracked go.mod is rewritten to the new minor
@@ -363,8 +346,8 @@ _pins_set_golang() {
   local _old_mm _new_mm _list _file _go_rec _go_ln _abs _repl _i _sum
   local _df="${3}" _df_ln="${4}" _df_repl="${5}"
   local -a _abss=() _lns=() _repls=() _sums=() _recs=() _mods=()
-  _old_mm="$(_pins_go_minor "${1}")"
-  _new_mm="$(_pins_go_minor "${2}")"
+  _old_mm="$(_pin_go_minor "${1}")"
+  _new_mm="$(_pin_go_minor "${2}")"
   if [[ -z "${_new_mm}" || "${_old_mm}" == "${_new_mm}" ]]; then
     _pins_commit "${_df}" "${_df_ln}" "${_df_repl}"
     return
@@ -512,7 +495,7 @@ _pins_set() {
 
   if [[ "${_file##*/}" == go.mod ]]; then
     _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
-  elif [[ "${_name}" == "${_PINS_GOLANG_PIN}" ]]; then
+  elif [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" ]]; then
     _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
   else
     _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1

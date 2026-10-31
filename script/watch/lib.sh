@@ -1451,8 +1451,19 @@ _pin_go_mod_set_go_line() {
 }
 
 # The pin whose image builds every go.mod module; its Go minor is the one
-# a module's `go` directive must name (base#1440).
+# a module's `go` directive must name, and its image is the one pins.sh
+# regenerates go.sum in (base#1440).
 readonly _PIN_GO_DIRECTIVE_PIN=golang
+
+# _pin_go_minor <image-or-version> -- print the major.minor a golang image's
+# tag (`golang:1.27.2-trixie@sha256:...`) or a go directive's version
+# (`1.27rc1`) starts with, nothing when it starts with none (base#1440).
+_pin_go_minor() {
+  local _tag="${1%%@*}"
+  _tag="${_tag##*:}"
+  [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
+  printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
 
 # _pin_go_directive_check <repo-root>
 #
@@ -1463,8 +1474,8 @@ readonly _PIN_GO_DIRECTIVE_PIN=golang
 # mismatch named go=- line=0. A tracked go.mod with no pinned golang image
 # is go_mod_golang_pin_missing (file=) (base#1440).
 _pin_go_directive_check() {
-  local _root="${1}" _table _rec _list _file _go_rec _go_ln _go_ver
-  local _image="" _tag _pin_mm _go_mm
+  local _root="${1}" _table _list _file _go_rec _go_ln _go_ver
+  local _image="" _pin_mm _go_mm
   local _state _name _resolver _coord _pattern _skip _current _pfile _pline
   _table="$(_pin_read "${_root}")" || return 1
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip _current _pfile _pline; do
@@ -1482,18 +1493,15 @@ _pin_go_directive_check() {
     done <<< "${_list}"
     return 0
   fi
-  _tag="${_image%%@*}"
-  _tag="${_tag##*:}"
-  [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
-  _pin_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+  _pin_mm="$(_pin_go_minor "${_image}")"
+  [[ -n "${_pin_mm}" ]] || return 0
   while IFS= read -r _file; do
     [[ "${_file##*/}" == go.mod ]] || continue
     _go_rec="$(_pin_go_mod_go_line "${_root}/${_file}")" || return 1
     if [[ -n "${_go_rec}" ]]; then
       _go_ln="${_go_rec%%$'\t'*}"
       _go_ver="${_go_rec#*$'\t'}"
-      [[ "${_go_ver}" =~ ^([0-9]+)\.([0-9]+) ]]
-      _go_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+      _go_mm="$(_pin_go_minor "${_go_ver}")"
     else
       _go_ln=0 _go_ver=- _go_mm=-
     fi
