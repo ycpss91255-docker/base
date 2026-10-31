@@ -37,7 +37,9 @@
 # git C-quotes), is refused as file=manifest reason=path.
 # Every line of visible.sha256 and ignored.sha256 must be
 # `<path>\t<64 hex digits>`; any other line is refused as file=<list>
-# reason=record, before any file of <src> is judged against it.
+# reason=record, before any file of <src> is judged against it; and a
+# path listed twice in one list (00-manifest hashes each file once) is
+# refused as file=<list> reason=duplicate.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -114,13 +116,18 @@ _cga_body() {
 }
 
 # _cga_check <src> <list> -- refuse a <list> line that is not
-# `<path>\t<64 hex>`, then the first listed file whose sha256 in <src>
-# differs from the one recorded, or that <src> no longer holds.
+# `<path>\t<64 hex>` or whose path an earlier line names, then the first
+# listed file whose sha256 in <src> differs from the one recorded, or
+# that <src> no longer holds.
 _cga_check() {
   local src="${1}" list="${2}" path want got line
   local rec=$'^[^\t]+\t[0-9a-f]{64}$'
+  local -A seen=()
   while IFS= read -r line; do
     [[ "${line}" =~ ${rec} ]] || _cga_stale "${list##*/}" record
+    path="${line%%$'\t'*}"
+    [[ -z "${seen["${path}"]+x}" ]] || _cga_stale "${list##*/}" duplicate
+    seen["${path}"]=1
   done <"${list}"
   while IFS=$'\t' read -r path want; do
     [[ -e "${src}/${path#"${_CGA_MOD}"}" || -L "${src}/${path#"${_CGA_MOD}"}" ]] ||
