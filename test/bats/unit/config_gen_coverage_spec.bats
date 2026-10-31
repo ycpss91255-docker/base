@@ -210,3 +210,19 @@ _passed() {
   assert_line --regexp '^test .*-covermode=atomic .*m/a$'
   assert_line --regexp '^test .*-covermode=atomic .*m/b$'
 }
+
+# why: Under --measure the gate records counts and the per-package floor is
+# judged by cg-gates ratchet (base#1465), so a declaration-only package is a
+# measurement of zero, not a refusal. golang:1.27.2-trixie, run on a package
+# holding only `type T struct{ X int }` and `const C = 1` plus one test, gave
+# `ok m/a coverage: [no statements]`, rc 0, a profile of exactly
+# `mode: atomic\n`, and `go list` GoFiles 1 -- the listing and profile here.
+@test "coverage.sh: --measure records a declaration-only package as pkg 0 0 with rc 0 (base#1465)" {
+  _pkg m/a 1
+  _profile m/a
+  assert_spec_subject "${GATE}" "the config-gen coverage gate (base#1462)"
+  run --separate-stderr env PATH="${S}/bin:${PATH}" \
+    bash -c "cd '${S}/mod' && bash '${GATE}' --measure '${S}/measured'"
+  assert_equal "${status}" 0
+  assert_equal "$(od -An -c "${S}/measured" | tr -s ' ')" "$(printf 'm/a\t0\t0\n' | od -An -c | tr -s ' ')"
+}
