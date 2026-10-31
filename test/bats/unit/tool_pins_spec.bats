@@ -16,6 +16,8 @@
 # Shape mirrors self_hosted_guard_lint_spec.bats: a controlled scratch
 # tree for the rules, and a final section that drives the REAL tree.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -480,27 +482,36 @@ _gomod() {
 }
 
 # _pins_json <arg>... -- _pins with JSON logs and stdout and stderr judged
-# apart, for the refusal cases (assert_refusal).
+# apart, for the refusal cases (assert_refusal). A command _stub put on
+# ${STUB_BIN} is first on pins.sh's PATH, and on nothing else's: bats'
+# own `run` needs a working mktemp.
 _pins_json() {
   git -C "${SCRATCH}" add -A
-  PIN_REPO_ROOT="${SCRATCH}" LOG_FORMAT=json run --separate-stderr "${PINS}" "$@"
+  _pins_json_unstaged "$@"
+}
+
+# _pins_json_unstaged <arg>... -- _pins_json without staging the tree.
+_pins_json_unstaged() {
+  run --separate-stderr env PATH="${STUB_BIN:+${STUB_BIN}:}${PATH}" \
+    PIN_REPO_ROOT="${SCRATCH}" LOG_FORMAT=json "${PINS}" "$@"
 }
 
 # _snapshot <file> -- record the file's bytes, its mode and its directory's
 # listing; _assert_unchanged <file> holds the file to that record.
 _snapshot() {
-  cp -- "${1}" "${BATS_TEST_TMPDIR}/snap.bytes"
-  stat -c '%a' -- "${1}" > "${BATS_TEST_TMPDIR}/snap.mode"
-  ls -A -- "$(dirname -- "${1}")" > "${BATS_TEST_TMPDIR}/snap.dir"
+  mkdir -p "${BATS_TEST_TMPDIR}/snap"
+  cp -- "${1}" "${BATS_TEST_TMPDIR}/snap/bytes"
+  stat -c '%a' -- "${1}" > "${BATS_TEST_TMPDIR}/snap/mode"
+  ls -A -- "$(dirname -- "${1}")" > "${BATS_TEST_TMPDIR}/snap/dir"
 }
 
 # _assert_unchanged <file> -- the bytes and the mode _snapshot recorded, and
 # no file left beside it (a refused bump leaves no temp copy behind).
 _assert_unchanged() {
-  cmp -s -- "${BATS_TEST_TMPDIR}/snap.bytes" "${1}" \
+  cmp -s -- "${BATS_TEST_TMPDIR}/snap/bytes" "${1}" \
     || fail "the bytes of ${1} changed: $(od -c -- "${1}" | head -n 20)"
-  assert_equal "$(stat -c '%a' -- "${1}")" "$(cat "${BATS_TEST_TMPDIR}/snap.mode")"
-  assert_equal "$(ls -A -- "$(dirname -- "${1}")")" "$(cat "${BATS_TEST_TMPDIR}/snap.dir")"
+  assert_equal "$(stat -c '%a' -- "${1}")" "$(cat "${BATS_TEST_TMPDIR}/snap/mode")"
+  assert_equal "$(ls -A -- "$(dirname -- "${1}")")" "$(cat "${BATS_TEST_TMPDIR}/snap/dir")"
 }
 
 # _stub <command> <exit> -- a <command> on ${STUB_BIN} that prints nothing
@@ -570,14 +581,19 @@ _foo_pin() {
 
 # why: A write through a symlink edits a file outside the tree the reader
 # named; the bump refuses it by name and touches neither the link nor its
-# target (base#1463).
+# target (base#1463). The reader takes only blobs from the index, so the
+# link is the working-tree file under a path the index still records as
+# a regular file -- staged first, then swapped for the link.
 @test "pins: --set refuses a symlinked destination and leaves its target alone (base#1463)" {
-  local _t="${BATS_TEST_TMPDIR}/target"
-  printf '%s\n' '# tool-pin: foo github-release owner/foo' 'ARG FOO_VERSION=1.2.3' > "${_t}"
+  local _t="${BATS_TEST_TMPDIR}/ext/target"
+  mkdir -p "${BATS_TEST_TMPDIR}/ext"
+  _dockerfile '# tool-pin: foo github-release owner/foo' 'ARG FOO_VERSION=1.2.3'
+  git -C "${SCRATCH}" add -A
+  mv "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${_t}"
   chmod 664 "${_t}"
   ln -s "${_t}" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
   _snapshot "${_t}"
-  _pins_json --set foo 1.3.0
+  _pins_json_unstaged --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=symlink
   [[ -L "${SCRATCH}/dockerfile/Dockerfile.test-tools" ]] || fail "the symlink was replaced"
@@ -601,7 +617,7 @@ _foo_pin() {
 @test "pins: --set that cannot create its temp copy leaves the file alone (base#1463)" {
   _foo_pin
   _stub mktemp 1
-  PATH="${STUB_BIN}:${PATH}" _pins_json --set foo 1.3.0
+  _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=temp_create
   _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
@@ -612,7 +628,7 @@ _foo_pin() {
 @test "pins: --set whose temp write fails leaves the file's bytes and mode alone (base#1463)" {
   _foo_pin
   _stub head 1
-  PATH="${STUB_BIN}:${PATH}" _pins_json --set foo 1.3.0
+  _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=write_failed
   _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
@@ -625,7 +641,7 @@ _foo_pin() {
 @test "pins: --set whose temp copy is not the exact splice leaves the file alone (base#1463)" {
   _foo_pin
   _stub tail 0
-  PATH="${STUB_BIN}:${PATH}" _pins_json --set foo 1.3.0
+  _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=check_failed
   _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
@@ -636,7 +652,7 @@ _foo_pin() {
 @test "pins: --set that cannot carry the mode onto its temp copy leaves the file alone (base#1463)" {
   _foo_pin
   _stub chmod 1
-  PATH="${STUB_BIN}:${PATH}" _pins_json --set foo 1.3.0
+  _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=mode_failed
   _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
@@ -647,7 +663,7 @@ _foo_pin() {
 @test "pins: --set whose final rename fails leaves the file alone (base#1463)" {
   _foo_pin
   _stub mv 1
-  PATH="${STUB_BIN}:${PATH}" _pins_json --set foo 1.3.0
+  _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=commit_failed
   _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
