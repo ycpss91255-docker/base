@@ -404,3 +404,30 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=duplicate"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a path listed in both visible.sha256 and ignored.sha256 is refused as dual (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # 00-manifest puts each module file in exactly one list: visible.sha256
+  # for a file Git tracks or sees, ignored.sha256 for a file .gitignore
+  # hides. A path in both lists is `dual` (design §2 check 5; design §4
+  # cycle 8, case "dual"). A later step copies a.go's visible line into
+  # ignored.sha256. Each list is well-formed, holds the path once, and its
+  # sha256 still matches a.go on disk, so only the one-list rule refuses
+  # it, and the refusal names the list read second, which holds the repeat.
+  local line
+  IFS= read -r line < "${S}/m/visible.sha256"
+  assert_equal "${line%%$'\t'*}" "${MOD}/a.go"
+  if grep -q "^${MOD}/a.go"$'\t' "${S}/m/ignored.sha256"; then
+    fail "the baseline already lists a.go in ignored.sha256"
+  fi
+  printf '%s\n' "${line}" >> "${S}/m/ignored.sha256"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=ignored.sha256 reason=dual"
+  assert_equal "${stderr}" ""
+}
