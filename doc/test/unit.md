@@ -3497,7 +3497,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (41)
+### test/bats/unit/gomod_scan_spec.bats (42)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3558,6 +3558,7 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: a closing paren after an entry is refused as paren_not_alone (base#1463)` | `)` must stand alone on its line. |
 | `_pin_go_mod_scan: // indirect, //indirect and // indirect; ... are go_mod_indirect_requirement (base#1463)` | An indirect requirement is not this repo's declaration; it is refused by its own event in every spelling Go marks indirect. |
 | `_pin_go_mod_scan: an unreadable file is refused with pin_file_unreadable (base#1463)` | An unreadable go.mod is not an empty one. |
+| `_pin_go_mod_scan: a byte read that fails is refused with pin_file_unreadable (base#1463)` | The byte check reads the file a second way (od), and a read that fails there must refuse, not come back as "no bad byte" and let the file through unchecked. A stub od that fails stands in for that read. |
 | `_pin_go_mod_scan: a version Go rewrites or refuses is refused by its validator reason (base#1463)` | One witness per validator reason, through the scanner. |
 | `_pin_go_mod_scan: path major suffix, no suffix and invalid suffix each refuse by name (base#1463)` | The path-major rule has two arms (a /vN suffix and none) and an invalid-suffix arm; each is pinned separately. The huge major is compared as a string, so it cannot overflow into a pass. |
 | `_pin_go_mod_version_ok: accepts canonical versions and refuses ones Go would rewrite (base#1463)` | The validator is callable on its own, and answers 0 only for a version Go keeps exactly as written. |

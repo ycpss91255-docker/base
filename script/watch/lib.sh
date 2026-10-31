@@ -663,6 +663,35 @@ _pin_refuse_unreadable() {
     "display=pin_file_unreadable: ${1} cannot be read; an unreadable file is not one that declares nothing"
 }
 
+# _pin_go_mod_bad_byte_line <file> -- the line number of the file's first
+# byte outside tab, LF, printable ASCII and a CR directly before an LF (or
+# ending the file); nothing when there is none. rc 2 when od cannot read
+# the file, so a failed read is never taken for a clean one.
+#
+# It reads the FILE's bytes, not a line bash has read: a bash variable
+# cannot hold a NUL, so a check on the read-in copy never sees one, and
+# `require a v1.0.0<NUL>` -- which Go rejects -- read as a clean entry
+# (review round 1, base#1463). Every other byte is one bash and Go may read
+# differently, so it can only refuse, never emit a record.
+_pin_go_mod_bad_byte_line() {
+  local _bytes
+  _bytes="$(od -An -v -tu1 -- "${1}")" || return 2
+  awk '
+    BEGIN { ln = 1; cr = 0 }
+    {
+      for (i = 1; i <= NF; i++) {
+        b = $i + 0
+        if (cr && b != 10) { print ln; exit }
+        cr = 0
+        if (b == 10) { ln++; continue }
+        if (b == 13) { cr = 1; continue }
+        if (b == 9 || (b >= 32 && b <= 126)) continue
+        print ln
+        exit
+      }
+    }' <<< "${_bytes}"
+}
+
 # _pin_go_mod_opens_block -- true when the line in the caller's
 # `_gm_kind`/`_gm_text` is `<verb> (`, the block form.
 _pin_go_mod_opens_block() {
@@ -677,16 +706,15 @@ _pin_go_mod_opens_block() {
 # comment runs to one), so a line at a time is exact.
 _pin_go_mod_lex() {
   local _s="${1}" _ln="${2}" _i=0 _j _n _c
-  # Printable ASCII and tab only: a Unicode difference between bash and
-  # Go can then only refuse, never emit a record Go reads differently.
-  local _bad=$'[^\t -~]'
   local LC_ALL=C
   _gm_kind=()
   _gm_text=()
   _gm_comment=""
+  # _pin_go_mod_bad_byte_line has already held the file's bytes to tab,
+  # printable ASCII and a CR that ends its line, so the line is exactly
+  # those bytes and the CR is the only one left to drop.
   _s="${_s%$'\r'}"
   _n="${#_s}"
-  if [[ "${_s}" =~ ${_bad} ]]; then _pin_go_mod_refuse "${_ln}" non_ascii; return 1; fi
   while (( _i < _n )); do
     _c="${_s:_i:1}"
     if [[ "${_c}" == ' ' || "${_c}" == $'\t' ]]; then
@@ -814,7 +842,7 @@ _pin_go_mod_unquote() {
 # the caller's `_gm_kind`/`_gm_text` from index <first>. Appends its record
 # to the caller's `_gm_out`; non-zero, refusal logged, otherwise.
 _pin_go_mod_entry() {
-  local _ln="${1}" _first="${2}" _k _path _ver _cm
+  local _ln="${1}" _first="${2}" _k _path _ver _cm _rec _tabs
   local -a _f=()
   for (( _k = _first; _k < ${#_gm_kind[@]}; _k++ )); do
     if [[ "${_gm_kind[_k]}" == p ]]; then _pin_go_mod_refuse "${_ln}" punctuation; return 1; fi
@@ -822,6 +850,14 @@ _pin_go_mod_entry() {
   if (( ${#_gm_kind[@]} - _first != 2 )); then _pin_go_mod_refuse "${_ln}" arity; return 1; fi
   if ! _path="$(_pin_go_mod_unquote "${_gm_kind[_first]}" "${_gm_text[_first]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
   if ! _ver="$(_pin_go_mod_unquote "${_gm_kind[_first+1]}" "${_gm_text[_first+1]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+  # The record's own separator: a tab inside a quoted path or a comment
+  # would split one field into two for every reader of the record
+  # (`require "a<TAB>b" v1.0.0` read as path=a, version=b; review round 1,
+  # base#1463). So the record is built first and kept only when it has
+  # exactly its three separators, whichever field the tab rode in.
+  _rec="${_ln}"$'\t'"${_path}"$'\t'"${_ver}"$'\t'"${_gm_comment}"
+  _tabs="${_rec//[!$'\t']/}"
+  if (( ${#_tabs} != 3 )); then _pin_go_mod_refuse "${_ln}" record_tab; return 1; fi
   if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
   # modfile's isIndirect: the suffix comment's fields are exactly
   # `indirect`, or open with `indirect;`.
@@ -832,7 +868,7 @@ _pin_go_mod_entry() {
       "display=go_mod_indirect_requirement: ${_gm_file}:${_ln}: an indirect requirement is not a declaration this repo makes; drop it or make it direct"
     return 1
   fi
-  _gm_out+="${_ln}"$'\t'"${_path}"$'\t'"${_ver}"$'\t'"${_gm_comment}"$'\n'
+  _gm_out+="${_rec}"$'\n'
 }
 
 # _pin_go_mod_scan <file>
@@ -848,13 +884,18 @@ _pin_go_mod_entry() {
 # Go rejects such a file too.
 _pin_go_mod_scan() {
   local _gm_file="${1}" _gm_out="" _gm_comment="" _ln=0 _line _in_block=0 _block_ln=0
-  local _seen_module=0 _seen_go=0 _seen_toolchain=0 _verb _k
+  local _seen_module=0 _seen_go=0 _seen_toolchain=0 _verb _k _bad_ln
   local -a _gm_kind=() _gm_text=() _lines=()
   local LC_ALL=C
   if [[ ! -r "${_gm_file}" ]]; then
     _pin_refuse_unreadable "${_gm_file}"
     return 1
   fi
+  if ! _bad_ln="$(_pin_go_mod_bad_byte_line "${_gm_file}")"; then
+    _pin_refuse_unreadable "${_gm_file}"
+    return 1
+  fi
+  if [[ -n "${_bad_ln}" ]]; then _pin_go_mod_refuse "${_bad_ln}" unsupported_byte; return 1; fi
   mapfile -t _lines < "${_gm_file}"
   for _line in "${_lines[@]}"; do
     _ln=$(( _ln + 1 ))

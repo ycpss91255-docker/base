@@ -5,7 +5,11 @@
 # from the repo root, as `mutation-probe.sh --subject <subject> --spec
 # <spec> --mutate <command>`. Each command edits exactly one line of its
 # subject.
-scan-non-ascii	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" non_ascii; return 1; fi%:; fi%' script/watch/lib.sh
+scan-unsupported-byte	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if \[\[ -n "${_bad_ln}" \]\]; then _pin_go_mod_refuse "${_bad_ln}" unsupported_byte; return 1; fi%:%' script/watch/lib.sh
+scan-byte-nul	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (b == 9 || (b >= 32 \&\& b <= 126)) continue%if (b == 0 || b == 9 || (b >= 32 \&\& b <= 126)) continue%' script/watch/lib.sh
+scan-byte-stray-cr	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (cr \&\& b != 10) { print ln; exit }%if (0 \&\& cr \&\& b != 10) { print ln; exit }%' script/watch/lib.sh
+scan-byte-read-failure	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_bytes="$(od -An -v -tu1 -- "${1}")" || return 2%_bytes="$(od -An -v -tu1 -- "${1}")" || true%' script/watch/lib.sh
+scan-record-tab	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (( ${#_tabs} != 3 )); then _pin_go_mod_refuse "${_ln}" record_tab; return 1; fi%:%' script/watch/lib.sh
 scan-c-comment	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" c_comment; return 1; fi%:; fi%' script/watch/lib.sh
 scan-backquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" backquote; return 1; fi%:; fi%' script/watch/lib.sh
 scan-quote-escape	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" quote_escape; return 1; fi%:; fi%' script/watch/lib.sh

@@ -376,6 +376,18 @@ _gomod() {
   assert_refusal 1 pin_file_unreadable "file=${W}/go.mod"
 }
 
+# why: The byte check reads the file a second way (od), and a read that
+# fails there must refuse, not come back as "no bad byte" and let the file
+# through unchecked. A stub od that fails stands in for that read.
+@test "_pin_go_mod_scan: a byte read that fails is refused with pin_file_unreadable (base#1463)" {
+  _gomod 'module example.com/m' 'require a v1.0.0'
+  mkdir -p "${W}/bin"
+  printf '#!/bin/sh\nexit 1\n' > "${W}/bin/od"
+  chmod +x "${W}/bin/od"
+  PATH="${W}/bin:${PATH}" run --separate-stderr _pin_go_mod_scan "${W}/go.mod"
+  assert_refusal 1 pin_file_unreadable "file=${W}/go.mod"
+}
+
 # ── the version validator ───────────────────────────────────────────────────
 
 # why: One witness per validator reason, through the scanner.
