@@ -33,6 +33,16 @@
 #   no-context  a last step removes $CONFIG_GEN_CTX/mutation,  config_gen_manifest_missing
 #               so the build gets no mutation context
 #
+# A stale case (base#1465) changes the module after the 00-manifest step
+# wrote the host mutation baseline: admission must refuse it before any
+# gate, so the run exits exactly 1 with nothing on stdout, stderr carries
+# the runner's JSON config_gen_gate_admission_failed record and a JSON
+# config_gen_manifest_stale record whose attributes file and reason are
+# the case's, and no "unregistered log body".
+#
+#   case        change after 00                 file                                      reason
+#   stale-edit  a line appended to main.go      dockerfile/config-gen/cmd/config-gen/main.go  sha_mismatch
+#
 # The rerun case (base#1465) plants nothing: it calls the runner twice in
 # a row on one unchanged copy. Each call must exit 0 and print exactly
 #
@@ -69,11 +79,13 @@ readonly _RP_ROOT="${_RP_SCRIPT_DIR}/../.."
 source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 
 readonly _RP_SERVICE='config-gen'
-readonly -a _RP_GATES=(fmt vet lint race coverage)
+readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
 readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt)
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
+# <case>|<file>|<reason> the admission stale record must carry (base#1465).
+readonly -a _RP_STALE=('stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch')
 
 # _rp_plant <case> <root> -- write the case's defect into the copy.
 _rp_plant() {
@@ -86,6 +98,17 @@ _rp_plant() {
 #!/usr/bin/env bash
 set -euo pipefail
 rm -rf -- "${CONFIG_GEN_CTX:?}/mutation"
+EOF
+      ;;
+    stale-edit)
+      # Runs after 00-manifest (C-locale glob order), so the baseline holds
+      # main.go's sha256 from before this edit. The appended line is a
+      # comment: every gate would still pass on the edited file.
+      cat >"${root}/script/test/config_gen_steps/99-zz-stale-edit.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+printf '\n// zz stale edit after the manifest\n' >>"${_root}/dockerfile/config-gen/cmd/config-gen/main.go"
 EOF
       ;;
     fmt)
@@ -273,6 +296,38 @@ _rp_refusal() {
   return 1
 }
 
+# _rp_stale_verdict <rc> <out> <err> <file> <reason> -- empty when
+# admission refused the case with a stale record naming <file> and
+# <reason>, else the reason it did not.
+_rp_stale_verdict() {
+  local rc="${1}" out="${2}" err="${3}" file="${4}" reason="${5}" got
+  (( rc != 0 )) || { echo rc_zero; return 0; }
+  (( rc == 1 )) || { echo rc_not_one; return 0; }
+  [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }
+  ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  grep -qE "$(_rp_event_record_re config_gen_gate_admission_failed)" "${err}" || { echo gate_record_missing; return 0; }
+  got="$(jq -Rr 'fromjson? | select(type == "object" and .body == "config_gen_manifest_stale"
+    and .attributes."service.name" == "config-gen") | "\(.attributes.file)|\(.attributes.reason)"' "${err}")"
+  [[ -n "${got}" ]] || { echo stale_record_missing; return 0; }
+  [[ "${got}" == "${file}|${reason}" ]] || { echo stale_detail_mismatch; return 0; }
+}
+
+# _rp_stale <scratch> <case> <file> <reason> -- run one stale case;
+# non-zero when admission did not refuse it with <file> and <reason>.
+_rp_stale() {
+  local scratch="${1}" name="${2}" file="${3}" want="${4}" root rc=0 reason
+  root="$(_rp_copy "${scratch}")"
+  _rp_plant "${name}" "${root}"
+  _rp_gates "${root}" || rc=$?
+  reason="$(_rp_stale_verdict "${rc}" "${root}.out" "${root}.err" "${file}" "${want}")"
+  [[ -z "${reason}" ]] && return 0
+  cat "${root}.err" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=${reason}" \
+    "event=config_gen_manifest_stale" \
+    "display=config-gen redpath case ${name} was not refused as stale (file=${file} reason=${want}): ${reason}"
+  return 1
+}
+
 # The six lines each rerun call must print, typed from the issue's gate
 # list (base#1465), not derived from _RP_GATES.
 readonly _RP_RERUN_OUT='gate=admission ok
@@ -351,6 +406,13 @@ main() {
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
     _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+  done
+  local name file want
+  for entry in "${_RP_STALE[@]}"; do
+    IFS='|' read -r name file want <<<"${entry}"
+    _rp_selected "${name}" || continue
+    ran=$(( ran + 1 ))
+    _rp_stale "${scratch}" "${name}" "${file}" "${want}" || failed=1
   done
   if _rp_selected rerun; then
     ran=$(( ran + 1 ))
