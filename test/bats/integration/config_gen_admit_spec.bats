@@ -155,3 +155,31 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a manifest body holding the none marker beside a change record is refused as none_marker (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline (header, then the marker
+  # alone) is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d writes the marker only when no record exists (it refuses none
+  # beside a Go diff as config_gen_mutation_none_beside_diff), so the body
+  # is the one marker xor records (design §2, body_empty|none_marker|record).
+  # Each line here is well formed alone; together they say both "no Go
+  # changed" and "a.go changed".
+  printf '%s\n%s\nM\t%s/a.go\n' "${header}" 'none: no-go-change' "${MOD}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=none_marker"
+  assert_equal "${stderr}" ""
+  # The same pair with the record first.
+  printf '%s\nM\t%s/a.go\n%s\n' "${header}" "${MOD}" 'none: no-go-change' > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=none_marker"
+  assert_equal "${stderr}" ""
+}
