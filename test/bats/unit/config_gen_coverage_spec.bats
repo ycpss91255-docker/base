@@ -235,3 +235,20 @@ _passed() {
   _refused corpus_root_missing ""
   [[ ! -e "${S}/go.calls" ]] || fail "go ran before the guard: $(cat "${S}/go.calls")"
 }
+
+# why: Validating the record and then dropping it leaves every go test with
+# an empty testcorpus root, which reads as test_failed in the real image. The
+# validated root has to reach each package's go test as one -ldflags -X
+# token (base#1468). The expected token is the record line verbatim.
+@test "coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)" {
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  _pkg m/b 1
+  _profile m/b 'm/b/b.go:1.1,2.2 10 1'
+  _run_gate
+  _passed
+  run grep -c '^test ' "${S}/go.calls"
+  assert_output 2
+  run grep -c '^test \(.* \)\?-ldflags=-X=m/internal/testcorpus\.root=/r/testdata .*' "${S}/go.calls"
+  assert_output 2
+}
