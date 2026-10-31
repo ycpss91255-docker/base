@@ -1287,22 +1287,26 @@ _pin_image_is_built() {
 #
 # The one exception is go.mod (base#1463), where no line shape decides:
 # the line is a declaration exactly when <lineno> is one the go.mod scanner
-# emitted. _pin_uncovered hands over the records it already scanned
-# (`_pin_gomod_file` / `_pin_gomod_lines`, its locals); any other caller is
-# scanned here. A go.mod line with no <lineno>, or a go.mod the scanner
-# refuses, cannot be answered: 2.
+# emitted, or the `go` directive _pin_go_mod_go_line names (base#1440).
+# _pin_uncovered hands over the records it already scanned
+# (`_pin_gomod_file` / `_pin_gomod_lines` / `_pin_gomod_go`, its locals);
+# any other caller is scanned here. A go.mod line with no <lineno>, or a
+# go.mod the scanner refuses, cannot be answered: 2.
 _pin_is_declaration() {
   local _file="${1}" _line="${2}" _lineno="${3:-}"
-  local _value _ref _emitted
+  local _value _ref _emitted _go_rec
 
   if [[ "${_file##*/}" == go.mod ]]; then
     [[ -n "${_lineno}" ]] || return 2
     if [[ "${_pin_gomod_file:-}" == "${_file}" ]]; then
       _emitted="${_pin_gomod_lines:-}"
+      _go_rec="${_pin_gomod_go:-}"
     else
       _emitted="$(_pin_go_mod_scan "${_file}")" || return 2
+      _go_rec="$(_pin_go_mod_go_line "${_file}")" || return 2
     fi
     [[ $'\n'"${_emitted}" == *$'\n'"${_lineno}"$'\t'* ]] && return 0
+    [[ -n "${_go_rec}" && "${_go_rec%%$'\t'*}" == "${_lineno}" ]] && return 0
     return 1
   fi
 
@@ -1368,8 +1372,8 @@ _pin_is_declaration() {
 # second question with the first one's blind spots.
 _pin_uncovered() {
   local _root="${1}"
-  local _file _abs _lineno _line _key _covered_list _list _table
-  local _pin_gomod_file="" _pin_gomod_lines=""
+  local _file _abs _lineno _line _key _covered_list _list _table _golang_pinned
+  local _pin_gomod_file="" _pin_gomod_lines="" _pin_gomod_go=""
   local -A _covered=()
 
   # Both producers run in a command substitution for the reason spelled
@@ -1379,6 +1383,11 @@ _pin_uncovered() {
   # failed (base#1463).
   _table="$(_pin_read "${_root}")" || return 1
   _covered_list="$(awk -F'\t' '{print $8 ":" $9}' <<< "${_table}")"
+  # A go.mod `go` directive is covered by the pinned golang image, not by a
+  # marker of its own: that pin is the one _pin_go_directive_check compares
+  # it with (base#1440).
+  _golang_pinned="$(awk -F'\t' -v s="${_PIN_STATE_PINNED}" -v n="${_PIN_GO_DIRECTIVE_PIN}" \
+    '$1 == s && $2 == n { print 1; exit }' <<< "${_table}")"
   _list="$(_pin_files "${_root}")" || return 1
 
   while IFS= read -r _key; do
@@ -1390,7 +1399,11 @@ _pin_uncovered() {
     _pin_gomod_file=""
     if [[ "${_file##*/}" == go.mod ]]; then
       _pin_gomod_lines="$(_pin_go_mod_scan "${_abs}")" || return 1
+      _pin_gomod_go="$(_pin_go_mod_go_line "${_abs}")" || return 1
       _pin_gomod_file="${_file}"
+      if [[ -n "${_golang_pinned}" && -n "${_pin_gomod_go}" ]]; then
+        _covered["${_file}:${_pin_gomod_go%%$'\t'*}"]=1
+      fi
     fi
     _lineno=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
