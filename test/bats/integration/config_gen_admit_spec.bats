@@ -76,3 +76,19 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=${MOD}/zz.go reason=not_regular"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a listed file deleted from the module after the baseline is refused as missing (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched module is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # A later step deletes a.go, which visible.sha256 lists. Nothing is left
+  # to hash, so the refusal names the absence, not a differing sha256.
+  rm "${W}/${MOD}/a.go"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=${MOD}/a.go reason=missing"
+  assert_equal "${stderr}" ""
+}
