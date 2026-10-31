@@ -38,6 +38,9 @@
 #   MUTATION_REQUIRED_JOBS   rows probed at once, 1..99 (default 4).
 #   MUTATION_REQUIRED_PROBE  the probe to run (default: this checkout's
 #                            script/test/mutation-probe.sh).
+#   PER_TEST_TIMEOUT         passed to every probe as set; unset, it is 120
+#                            (bats.sh's default) times MUTATION_REQUIRED_JOBS,
+#                            since that many suites share the machine.
 #
 # Each row runs in its own worker process group: build the sandbox (a
 # `git ls-files` copy of the working tree, committed in a fresh repository,
@@ -798,6 +801,10 @@ main() {
       "display=MUTATION_REQUIRED_JOBS is ${_jobs}; it is a row count from 1 to 99"
     return 2
   fi
+  # Up to <jobs> suites share the machine; at 4, two self_test_yaml_spec
+  # tests ran past bats.sh's 120 s per-test bound in a row's baseline on a
+  # hosted runner and the row was refused (base#1461).
+  export PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-$(( 120 * 10#${_jobs} ))}"
   _mr_validate "${_root}" || return 1
   if [[ -n "${_MR_SIG}" ]]; then
     _mr_publish_interrupted

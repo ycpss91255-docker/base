@@ -4732,7 +4732,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/mutation_required_spec.bats (55)
+### test/bats/unit/mutation_required_spec.bats (57)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4793,6 +4793,8 @@ Every refusal holds assert_refusal's five points.
 | `verdict: one survivor fails the run and no row is reported pinned (base#1461)` | Verdicts are published only after every row finished, and a failing run publishes no pass: a pinned row 1 inside a run whose row 2 survived says nothing that reads as green. |
 | `parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)` | 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time (default 4); a runner that only runs serially costs every gate the sum. |
 | `parallel: MUTATION_REQUIRED_JOBS=1 runs one row at a time (base#1461)` | The bound holds: JOBS=1 is one row at a time. |
+| `parallel: each probe's per-test bound is 120 s times MUTATION_REQUIRED_JOBS (base#1461)` | MUTATION_REQUIRED_JOBS suites share one machine, and each bats test in them is bounded by PER_TEST_TIMEOUT (default 120 s). On a hosted runner four concurrent probes pushed two self_test_yaml_spec tests past 120 s in a row's baseline (PR #1491, run 41226185346, lint-static 2/4), and the row was refused. Unless the caller set it, each probe gets 120 s per concurrent row. |
+| `parallel: a PER_TEST_TIMEOUT the caller set reaches the probe unchanged (base#1461)` | A bound the caller set is the caller's; it is passed through as is. |
 | `parallel: MUTATION_REQUIRED_JOBS=0 is refused (base#1461)` | A job count that is not 1..99 is refused before anything runs: 0 would run nothing and report the empty run. |
 | `parallel: MUTATION_REQUIRED_JOBS=abc is refused (base#1461)` | The same for a value that is not a number. |
 | `shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)` | The four hosted lint-static legs each run the roster. 168 rows probed in full by every leg did not finish inside the job's 30 minutes (PR #1491, run 41222344327: the roster step cancelled at 29 minutes on all four legs), so a leg probes the rows of its own shard: row k (counted over every roster file, from 0) belongs to shard (k mod <total>) + 1. |

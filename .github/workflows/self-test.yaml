@@ -694,7 +694,10 @@ jobs:
     # dedicated job runs it or exactly one group holds it.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, not 30: each leg also runs its shard of the required-kill roster
+    # (base#1461), measured at 13-20 minutes a shard on PR #1491's run
+    # 41226185346, on top of the lint group.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -760,8 +763,8 @@ jobs:
 
       - name: Run the required-kill mutation roster (shard ${{ matrix.group }})
         env:
-          LINT_GROUP: ${{ matrix.group }}
-        run: just test mutation-required --shard "${LINT_GROUP}"
+          ROSTER_SHARD: ${{ matrix.group }}
+        run: just test mutation-required --shard "${ROSTER_SHARD}"
 
       - name: Reclaim this run's docker artifacts
         if: always()

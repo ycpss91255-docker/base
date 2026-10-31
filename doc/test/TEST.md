@@ -488,7 +488,9 @@ working tree (uncommitted edits included, every build step fail-closed),
 committed in a fresh repository, under the compose project the sandbox's own
 `test.sh --compose-project-name` derives from its path -- an inherited
 `COMPOSE_PROJECT_NAME` is not used. `MUTATION_REQUIRED_JOBS` rows (default
-4, 1 to 99) run at once. A row passes only on probe exit 0 with its PINNED
+4, 1 to 99) run at once, and each probe's per-test bound is
+`PER_TEST_TIMEOUT` as set, or 120 s times `MUTATION_REQUIRED_JOBS` when it is
+unset. A row passes only on probe exit 0 with its PINNED
 line over at least one `not ok`, and a clean teardown; INCONCLUSIVE and NOT
 PINNED are `mutation_required_survived`, anything else
 `mutation_required_probe_refused`, and a container of the sandbox's project
