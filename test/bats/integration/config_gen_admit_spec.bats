@@ -358,3 +358,26 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=path"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a visible.sha256 line whose sha256 is not 64 hex digits (short hex) is refused as record (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # A sha line is `P\t<64hex>` (design §2 check 5; design §4 cycle 8, case
+  # "short hex"). A later step cuts the last hex digit off a.go's line in
+  # visible.sha256. The line is checked as a line of the list, before the
+  # disk walk, so the refusal names the list, not a sha256 mismatch on
+  # a.go: 63 hex digits are no sha256 at all.
+  local path sha
+  IFS=$'\t' read -r path sha < "${S}/m/visible.sha256"
+  assert_equal "${path}" "${MOD}/a.go"
+  assert_equal "${#sha}" 64
+  printf '%s\t%s\n' "${path}" "${sha:0:63}" > "${S}/m/visible.sha256"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=record"
+  assert_equal "${stderr}" ""
+}
