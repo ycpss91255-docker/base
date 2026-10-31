@@ -3497,7 +3497,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (45)
+### test/bats/unit/gomod_scan_spec.bats (46)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3541,6 +3541,7 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: a repeated go line is refused as go_repeated (base#1463)` | A second go line is a Go error wherever it sits. |
 | `_pin_go_mod_scan: toolchain with two arguments is refused as toolchain_arity (base#1463)` | toolchain takes exactly one argument. |
 | `_pin_go_mod_scan: toolchain gox is refused as toolchain_version (base#1463)` | toolchain's argument must match Go's ToolchainRE. |
+| `_pin_go_mod_scan: a quoted go or toolchain value is refused on its raw token (base#1463)` | Go matches GoVersionRE and ToolchainRE against the RAW token, so a quoted `"1.21"` or `"go1.21"` is an error to Go even though the string decodes to a valid value. The scanner checks the same raw spelling, never a decoded one (review round 3, base#1463). |
 | `_pin_go_mod_scan: a repeated toolchain line is refused as toolchain_repeated (base#1463)` | A second toolchain line is a Go error wherever it sits. |
 | `_pin_go_mod_scan: go 1.21rc1, toolchain go1.21.0-gccgo, module "a b" and no module line still emit the require (base#1463)` | The checks above must not be tighter than Go: a release candidate go version, a gccgo toolchain suffix, a quoted module path and a file with no module line at all are all files Go reads, and the require is emitted. |
 | `_pin_go_mod_scan: a backquoted string is refused as backquote (base#1463)` | Each of Go's lexer errors the scanner does not model is its own guard. |
@@ -8370,7 +8371,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (38)
+### test/bats/unit/tool_pins_spec.bats (48)
 
 | Test | Description |
 |------|-------------|
@@ -8404,6 +8405,16 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: --set rewrites a quoted go.mod version and keeps the quotes (base#1463)` | A quoted version is read without its quotes; the rewrite keeps them. |
 | `pins: --set refuses a go.mod version Go would rewrite and leaves the file alone (base#1463)` | A version Go would rewrite (`v0.22` -> `v0.22.0`) is refused before the file is touched, so a bump cannot write a pin the reader then refuses. |
 | `pins: --list refuses a go.mod require with an empty path (base#1463)` | An empty quoted path once shifted the comment into the version column, so --list printed current=`// note` with rc 0 (review round 2, base#1463). |
+| `pins: --set keeps a literal backslash in a go.mod comment byte for byte (base#1463)` | The rewritten line once went through `awk -v repl=...`, which expands backslash escapes, so a preserved comment holding `\n` was split into two lines and the go.mod corrupted before the read-back ran (review round 3, base#1463). The line is written byte for byte. |
+| `pins: --set keeps a literal backslash in a Dockerfile comment byte for byte (base#1463)` | The same awk carried every rewrite, so a Dockerfile comment with a backslash was mangled the same way (base#1463). |
+| `pins: --set on a last line with no final newline adds none (base#1463)` | The last line of a file with no final newline stays without one: the splice changes the version and nothing else (base#1463). |
+| `pins: --set refuses a symlinked destination and leaves its target alone (base#1463)` | A write through a symlink edits a file outside the tree the reader named; the bump refuses it by name and touches neither the link nor its target (base#1463). The reader takes only blobs from the index, so the link is the working-tree file under a path the index still records as a regular file -- staged first, then swapped for the link. |
+| `pins: --set refuses a hard-linked destination and leaves it alone (base#1463)` | Replacing one name of a hard-linked file splits the link and leaves the other name on the old version; refused by name (base#1463). |
+| `pins: --set that cannot create its temp copy leaves the file alone (base#1463)` | The temp copy lives beside the destination so the final mv is one rename; a directory that cannot hold it refuses before anything is written (base#1463). |
+| `pins: --set whose temp write fails leaves the file's bytes and mode alone (base#1463)` | The injected write failure: a temp copy that could not be written is never moved over the destination (base#1463). |
+| `pins: --set whose temp copy is not the exact splice leaves the file alone (base#1463)` | The temp copy is held to the splice before it lands: everything but the target line byte-identical, the target line exactly the new one. A write that exited 0 but lost the lines after the target (a `tail` that printed nothing) is refused, not moved into place (base#1463). |
+| `pins: --set that cannot carry the mode onto its temp copy leaves the file alone (base#1463)` | mktemp creates 0600; a copy whose mode could not be set to the destination's is not moved over it (base#1463). |
+| `pins: --set whose final rename fails leaves the file alone (base#1463)` | The rename is the commit; one that fails leaves the old file and no temp copy behind (base#1463). |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
 | `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |

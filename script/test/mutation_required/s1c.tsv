@@ -80,3 +80,15 @@ set-line-not-entry	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -
 set-line-version-ok	script/watch/lib.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's%if ! _pin_go_mod_version_ok "${_gm_r_path}" "${_new}"; then%if false; then%' script/watch/lib.sh
 set-line-keeps-quotes	script/watch/lib.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's%\[\[ "${_gm_kind\[_last\]}" == s \]\] \&\& _tok=%false \&\& _tok=%' script/watch/lib.sh
 pins-set-gomod-dispatch	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's%if \[\[ "${_file##\*/}" == go.mod \]\]; then%if false; then%' script/watch/pins.sh
+pins-commit-symlink	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if \[\[ -L "${_abs}" \]\]; then|  if false; then|' script/watch/pins.sh
+pins-commit-hard-link	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if \[\[ "$(stat -c .%h. -- "${_abs}")" != 1 \]\]; then|  if false; then|' script/watch/pins.sh
+pins-commit-temp-create	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! _tmp="$(mktemp .*$|  if false; then|' script/watch/pins.sh
+pins-commit-write-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! { head -n |  if false \&\& { head -n |' script/watch/pins.sh
+pins-commit-check-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! _pins_spliced_ok |  if false \&\& _pins_spliced_ok |' script/watch/pins.sh
+pins-commit-mode-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! chmod |  if false \&\& chmod |' script/watch/pins.sh
+pins-commit-rename-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! mv -f |  if false \&\& mv -f |' script/watch/pins.sh
+pins-commit-no-escapes	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i "s|\&\& printf '%s%s' |\&\& printf '%b%s' |" script/watch/pins.sh
+pins-commit-final-newline	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  (( _n > _nl )).*$|  :|' script/watch/pins.sh
+set-line-refusal-event	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|_log_err pin pin_set_refused "file=${_gm_file}" "line=${_want_ln}" reason=not_require_entry|printf "%s\\n" not_require_entry >\&2; : |' script/watch/lib.sh
+scan-go-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(\[1-9\]|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^([1-9]|' script/watch/lib.sh
+scan-toolchain-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(default|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^(default|' script/watch/lib.sh
