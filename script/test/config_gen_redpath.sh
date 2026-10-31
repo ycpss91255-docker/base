@@ -41,7 +41,8 @@
 # the case's, and no "unregistered log body".
 #
 #   case        change after 00                 file                                      reason
-#   stale-edit  a line appended to main.go      dockerfile/config-gen/cmd/config-gen/main.go  sha_mismatch
+#   stale-edit     a line appended to main.go   dockerfile/config-gen/cmd/config-gen/main.go     sha_mismatch
+#   stale-new-pkg  a new package internal/zznew  dockerfile/config-gen/internal/zznew/zznew.go   unlisted
 #
 # The rerun case (base#1465) plants nothing: it calls the runner twice in
 # a row on one unchanged copy. Each call must exit 0 and print exactly
@@ -85,7 +86,10 @@ readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race covera
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
-readonly -a _RP_STALE=('stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch')
+readonly -a _RP_STALE=(
+  'stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch'
+  'stale-new-pkg|dockerfile/config-gen/internal/zznew/zznew.go|unlisted'
+)
 
 # _rp_plant <case> <root> -- write the case's defect into the copy.
 _rp_plant() {
@@ -109,6 +113,35 @@ EOF
 set -euo pipefail
 _root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
 printf '\n// zz stale edit after the manifest\n' >>"${_root}/dockerfile/config-gen/cmd/config-gen/main.go"
+EOF
+      ;;
+    stale-new-pkg)
+      # Runs after 00-manifest, so the baseline lists neither file. The
+      # package is fully covered by its own test: every gate would pass.
+      cat >"${root}/script/test/config_gen_steps/99-zz-stale-new-pkg.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+_pkg="${_root}/dockerfile/config-gen/internal/zznew"
+mkdir -p "${_pkg}"
+cat >"${_pkg}/zznew.go" <<'GO'
+// Package zznew is planted after the manifest.
+package zznew
+
+// One returns 1.
+func One() int { return 1 }
+GO
+cat >"${_pkg}/zznew_test.go" <<'GO'
+package zznew
+
+import "testing"
+
+func TestOne(t *testing.T) {
+	if One() != 1 {
+		t.Fatal("One() != 1")
+	}
+}
+GO
 EOF
       ;;
     fmt)
