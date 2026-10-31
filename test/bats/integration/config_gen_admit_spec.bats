@@ -750,3 +750,133 @@ STUB
     assert_equal "${c}:${got}" "${c}:admission|1"
   done
 }
+
+# ── the producer's path spelling ─────────────────────────────────────────────
+#
+# S1d spells every path one way in all three files (base#1464): as is --
+# UTF-8 or any other byte past 0x7e included -- unless it holds a control
+# byte, a double quote or a backslash, and then C-quoted as git does with
+# core.quotePath=false. Admission reads that spelling back to the name on
+# disk; it must neither refuse a name S1d keeps raw nor read a quoted
+# spelling as a literal path.
+
+# _names_baseline -- ${S}/w: a commit holding ${MOD}/a.go, ${MOD}/q"t.go
+# and ${MOD}/é1.go; then, in the work tree, q"t.go edited, é1.go renamed
+# to "é2.go, and untracked café.go, b\s.go, t<TAB>b.go, n<LF>l.go,
+# d<DEL>.go and x<0xff>.go; ${S}/m: the baseline S1d writes for that.
+_names_baseline() {
+  W="${S}/w"
+  git init -q "${W}"
+  mkdir -p "${W}/${MOD}"
+  printf 'package a\n' > "${W}/${MOD}/a.go"
+  printf 'package a // q\n' > "${W}/${MOD}/q\"t.go"
+  printf 'package a // e1\n' > "${W}/${MOD}/é1.go"
+  git -C "${W}" add -A
+  git -C "${W}" commit -q --no-verify -m base
+  git -C "${W}" update-ref refs/remotes/origin/main HEAD
+  printf '// edited\n' >> "${W}/${MOD}/q\"t.go"
+  git -C "${W}" mv "${MOD}/é1.go" "${MOD}/\"é2.go"
+  local n
+  for n in 'café.go' 'b\s.go' $'t\tb.go' $'n\nl.go' $'d\x7f.go' $'x\xff.go'; do
+    printf 'package a // %s\n' "${#n}" > "${W}/${MOD}/${n}"
+  done
+  CONFIG_GEN_MUTATION_CONTEXT=pr bash "${CGM}" --repo "${W}" "${S}/m" \
+    || fail "config_gen_mutation_targets.sh did not write the names baseline"
+}
+
+# why: S1d keeps a UTF-8 name raw and C-quotes a name holding a quote, a
+# backslash or a control byte; an unchanged module whose baseline holds
+# both spellings, in the manifest and in visible.sha256, must be admitted.
+# A checker that refuses a byte past 0x7e, or reads a quoted spelling as a
+# literal path, refuses it as bytes, path, missing or unlisted. (base#1465)
+@test "config_gen_admit: an unchanged baseline holding names S1d keeps raw (UTF-8, 0xff) or C-quotes (quote, backslash, TAB, LF, DEL) is admitted (base#1465)" {
+  _names_baseline
+  # The fixture holds each spelling, as S1d wrote it, in the manifest and
+  # in visible.sha256; otherwise the row proves nothing about it.
+  local sp
+  for sp in "M"$'\t'"\"${MOD}/q\\\"t.go\"" \
+    "R100"$'\t'"${MOD}/é1.go"$'\t'"\"${MOD}/\\\"é2.go\"" \
+    "A"$'\t'"${MOD}/café.go" "A"$'\t'"\"${MOD}/b\\\\s.go\"" \
+    "A"$'\t'"\"${MOD}/t\\tb.go\"" "A"$'\t'"\"${MOD}/n\\nl.go\"" \
+    "A"$'\t'"\"${MOD}/d\\177.go\"" "A"$'\t'"${MOD}/x"$'\xff'".go"; do
+    grep -qxF -- "${sp}" "${S}/m/manifest" || fail "manifest lacks: ${sp}"
+    grep -qF -- "${sp##*$'\t'}"$'\t' "${S}/m/visible.sha256" \
+      || fail "visible.sha256 lacks: ${sp##*$'\t'}"
+  done
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+}
+
+# why: The name a list line binds is the one its spelling decodes to; an
+# edit or a deletion of a raw-kept or C-quoted name after the baseline is
+# refused naming that file, not the spelling and not another reason.
+# (base#1465)
+@test "config_gen_admit: a raw-kept or C-quoted name edited or deleted after the baseline is refused as sha_mismatch or missing naming the file (base#1465)" {
+  _names_baseline
+  # The no-fire twin: the untouched module is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  local name want keep
+  while IFS='|' read -r name want; do
+    name="$(printf '%b' "${name}")"
+    keep="$(cat "${W}/${MOD}/${name}"; printf x)"
+    printf '// edited\n' >> "${W}/${MOD}/${name}"
+    _run_admit
+    assert_equal "${name}:${status}" "${name}:1"
+    assert_equal "${output}" "cg_event config_gen_manifest_stale file=${MOD}/${want} reason=sha_mismatch"
+    rm -- "${W}/${MOD}/${name}"
+    _run_admit
+    assert_equal "${name}:${status}" "${name}:1"
+    assert_equal "${output}" "cg_event config_gen_manifest_stale file=${MOD}/${want} reason=missing"
+    printf '%s' "${keep%x}" > "${W}/${MOD}/${name}"
+    _run_admit
+    assert_equal "${name}:${status}" "${name}:0"
+  done <<'ROWS'
+caf\xc3\xa9.go|caf%C3%A9.go
+x\xff.go|x%FF.go
+q"t.go|q"t.go
+b\\s.go|b\s.go
+t\tb.go|t%09b.go
+n\nl.go|n%0Al.go
+d\x7f.go|d%7F.go
+"\xc3\xa92.go|"%C3%A92.go
+ROWS
+}
+
+# why: S1d spells each name one way; a list line in any other spelling of
+# the same name -- quoted when S1d keeps it raw, an octal escape where S1d
+# writes a named one, a raw byte S1d quotes -- is not S1d's line.
+# (base#1465)
+@test "config_gen_admit: a list or manifest path in a spelling S1d does not write is refused as record or path (base#1465)" {
+  _names_baseline
+  _run_admit
+  assert_equal "${status}" 0
+  local vis man from to file reason LC_ALL=C
+  vis="$(cat "${S}/m/visible.sha256"; printf x)"
+  man="$(cat "${S}/m/manifest"; printf x)"
+  while IFS='|' read -r file from to reason; do
+    from="$(printf '%b' "${from}")"
+    to="$(printf '%b' "${to}")"
+    printf '%s' "${vis%x}" > "${S}/m/visible.sha256"
+    printf '%s' "${man%x}" > "${S}/m/manifest"
+    local t="${S}/m/${file}" body
+    body="$(cat "${t}"; printf x)"
+    [[ "${body}" == *"${from}"* ]] || fail "${file} lacks ${from}"
+    body="${body%x}"
+    printf '%s' "${body/"${from}"/"${to}"}" > "${t}"
+    _run_admit
+    assert_equal "${from}:${status}" "${from}:1"
+    assert_equal "${from}:${output}" "${from}:cg_event config_gen_manifest_stale file=${file} reason=${reason}"
+  done <<'ROWS'
+visible.sha256|dockerfile/config-gen/caf\xc3\xa9.go\t|"dockerfile/config-gen/caf\xc3\xa9.go"\t|record
+visible.sha256|"dockerfile/config-gen/t\\tb.go"|"dockerfile/config-gen/t\\011b.go"|record
+visible.sha256|"dockerfile/config-gen/q\\"t.go"|dockerfile/config-gen/q"t.go|record
+visible.sha256|"dockerfile/config-gen/d\\177.go"|"dockerfile/config-gen/d\x7f.go"|bytes
+visible.sha256|"dockerfile/config-gen/b\\\\s.go"|"dockerfile/config-gen/b\\s.go"|record
+manifest|"dockerfile/config-gen/n\\nl.go"|"dockerfile/config-gen/n\\012l.go"|path
+manifest|"dockerfile/config-gen/q\\"t.go"|"dockerfile/config-gen/q\\042t.go"|path
+ROWS
+}
