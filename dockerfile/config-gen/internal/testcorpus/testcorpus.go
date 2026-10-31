@@ -17,7 +17,8 @@ var root string
 // Glob returns the corpus files that match pattern under root, as sorted
 // paths joined to root. It calls t.Fatal when root was never set, when
 // pattern is absolute or has a `..` element, when pattern is malformed,
-// and when nothing matches, so a caller never loops over an empty result.
+// when nothing matches, so a caller never loops over an empty result, and
+// when one basename appears in more than one corpus/s*/ slice.
 func Glob(t testing.TB, pattern string) []string {
 	t.Helper()
 	if root == "" {
@@ -38,5 +39,24 @@ func Glob(t testing.TB, pattern string) []string {
 	if len(got) == 0 {
 		t.Fatalf("testcorpus: pattern %q matched no corpus file under %s", pattern, root)
 	}
+	refuseRepeatedBasename(t)
 	return got
+}
+
+// refuseRepeatedBasename calls t.Fatal, naming both paths, when two files
+// under root/corpus/s*/ share a basename (base#1468).
+func refuseRepeatedBasename(t testing.TB) {
+	t.Helper()
+	all, err := filepath.Glob(filepath.Join(root, "corpus", "s*", "*"))
+	if err != nil {
+		t.Fatalf("testcorpus: cannot list %s/corpus: %v", root, err)
+	}
+	seen := make(map[string]string, len(all))
+	for _, p := range all {
+		base := filepath.Base(p)
+		if first, ok := seen[base]; ok {
+			t.Fatalf("testcorpus: basename %q is repeated: %s and %s", base, first, p)
+		}
+		seen[base] = p
+	}
 }
