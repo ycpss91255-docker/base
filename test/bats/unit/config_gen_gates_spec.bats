@@ -748,6 +748,65 @@ _run_redpath() {
   assert_line --regexp '^FROM goenv (AS|as) test$'
 }
 
+# _admit_run <dir> -- run the Dockerfile's admit RUN as the build would,
+# under its SHELL (bash -euo pipefail -c), with its bind targets /mutation
+# and /src and its output /admitted mapped under <dir>; the --mount flags
+# are dropped, since <dir>/mutation and <dir>/src stand in for them.
+_admit_run() {
+  local _d="${1}" _cmd
+  _cmd="$(_df_instructions | awk -F'\t' '$1 == "admit" && $2 ~ /^RUN / {print $2}')"
+  [[ -n "${_cmd}" ]] || fail "the admit stage has no RUN"
+  _cmd="$(sed -E 's/^RUN //; s/--mount=[^ ]+ +//g' <<<"${_cmd}")"
+  _cmd="${_cmd//\/mutation/${_d}/mutation}"
+  _cmd="${_cmd//\/src/${_d}/src}"
+  _cmd="${_cmd//\/admitted/${_d}/admitted}"
+  run --separate-stderr bash -euo pipefail -c "${_cmd}"
+}
+
+# why: The admit RUN is the only place the sentinel and the checker's
+# verdict become the build's: it must refuse a build that got no mutation
+# context, refuse one whose context holds no checker (the 01-admit step did
+# not run) as a stale admit.sh, pass the checker's refusal line through on
+# stdout with the admission id after it, and write /admitted -- the file
+# the test stage copies before any gate -- only when the checker admitted
+# the module. Each is a separate refusal guard of the RUN, run here the way
+# BuildKit runs it, with no docker (base#1465).
+@test "Dockerfile.config-gen: the admit RUN refuses the sentinel, a missing checker and a checker refusal, and writes /admitted only on admission (base#1465)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  local _d="${S}/admit"
+  mkdir -p "${_d}/mutation" "${_d}/src"
+  # No mutation context: the build sees the placeholder's sentinel.
+  : > "${_d}/mutation/no-mutation-context"
+  _admit_run "${_d}"
+  assert_equal "${status}" 1
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" "cg_event config_gen_manifest_missing"
+  [[ ! -e "${_d}/admitted" ]] || fail "the sentinel build wrote /admitted"
+  rm "${_d}/mutation/no-mutation-context"
+  # A context with no checker in it.
+  _admit_run "${_d}"
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=admit.sh reason=absent"
+  assert_equal "${stderr}" "config_gen_gate_admission_failed"
+  [[ ! -e "${_d}/admitted" ]] || fail "a context with no checker wrote /admitted"
+  # A checker that refuses: its line is passed through, then the gate id.
+  printf 'printf "%%s\\n" "$*" > "%s/admit.args"\necho "cg_event config_gen_manifest_stale file=x reason=y"\nexit 1\n' \
+    "${_d}" > "${_d}/mutation/admit.sh"
+  _admit_run "${_d}"
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=x reason=y"
+  assert_equal "${stderr}" "config_gen_gate_admission_failed"
+  assert_equal "$(cat "${_d}/admit.args")" "${_d}/mutation ${_d}/src"
+  [[ ! -e "${_d}/admitted" ]] || fail "a refused checker wrote /admitted"
+  # A checker that admits.
+  printf 'exit 0\n' > "${_d}/mutation/admit.sh"
+  _admit_run "${_d}"
+  assert_equal "${status}" 0
+  assert_equal "${output}" "gate=admission ok"
+  assert_equal "${stderr}" ""
+  [[ -f "${_d}/admitted" ]] || fail "an admitted build wrote no /admitted"
+}
+
 @test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
