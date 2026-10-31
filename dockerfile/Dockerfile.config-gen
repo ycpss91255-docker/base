@@ -21,7 +21,10 @@
 #                base of admit, build and test
 #   admit        no Go: refuses a build that got no mutation context, printing
 #                `cg_event config_gen_manifest_missing` on stderr, which the
-#                runner re-emits as that event; then runs the context's
+#                runner re-emits as that event; refuses a context holding
+#                no admit.sh (the 01-admit step did not run) as
+#                `cg_event config_gen_manifest_stale file=admit.sh
+#                reason=absent`; then runs the context's
 #                admit.sh (script/test/config_gen_admit.sh) over the module,
 #                which refuses a file changed after the baseline was written
 #                with `cg_event config_gen_manifest_stale file=... reason=...`
@@ -105,8 +108,9 @@ FROM goenv AS admit
 # context); the module is only bound for it to read, never built here.
 RUN --mount=type=bind,from=mutation,target=/mutation \
     --mount=type=bind,target=/src \
-    e=manifest_missing; g=admission; \
+    e=manifest_missing; s=manifest_stale; g=admission; \
     if [[ -e /mutation/no-mutation-context ]]; then echo "cg_event config_gen_${e}" >&2; exit 1; fi; \
+    if [[ ! -f /mutation/admit.sh ]]; then echo "cg_event config_gen_${s} file=admit.sh reason=absent"; echo "config_gen_gate_${g}_failed" >&2; exit 1; fi; \
     bash /mutation/admit.sh /mutation /src || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=admission ok; \
     touch /admitted
