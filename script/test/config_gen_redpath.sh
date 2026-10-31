@@ -43,6 +43,15 @@
 #   case        change after 00                 file                                      reason
 #   stale-edit     a line appended to main.go   dockerfile/config-gen/cmd/config-gen/main.go     sha_mismatch
 #   stale-new-pkg  a new package internal/zznew  dockerfile/config-gen/internal/zznew/zznew.go   unlisted
+#   stale-gomod    a line go cannot parse        dockerfile/config-gen/go.mod                     sha_mismatch
+#                  appended to go.mod
+#
+# stale-gomod's go.mod makes every go command fail with go's own
+# "go: errors parsing go.mod". In any stale case, that line or a BuildKit
+# step header for a RUN that calls go (BuildKit prints the header when the
+# step starts, even one it then cancels) means some go ran on the snapshot
+# before admission refused it, and fails the case (reason
+# go_ran_before_admission).
 #
 # The rerun case (base#1465) plants nothing: it calls the runner twice in
 # a row on one unchanged copy. Each call must exit 0 and print exactly
@@ -89,6 +98,7 @@ readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 readonly -a _RP_STALE=(
   'stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch'
   'stale-new-pkg|dockerfile/config-gen/internal/zznew/zznew.go|unlisted'
+  'stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch'
 )
 
 # _rp_plant <case> <root> -- write the case's defect into the copy.
@@ -142,6 +152,16 @@ func TestOne(t *testing.T) {
 	}
 }
 GO
+EOF
+      ;;
+    stale-gomod)
+      # Runs after 00-manifest, so the baseline holds go.mod's sha256 from
+      # before this edit. go refuses to parse the appended directive.
+      cat >"${root}/script/test/config_gen_steps/99-zz-stale-gomod.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+printf '\nzzstale after the manifest\n' >>"${_root}/dockerfile/config-gen/go.mod"
 EOF
       ;;
     fmt)
@@ -331,6 +351,9 @@ _rp_refusal() {
   return 1
 }
 
+# A BuildKit step header for a RUN that calls a go subcommand.
+readonly _RP_GO_STEP_RE='^#[0-9]+ \[[^]]+\] RUN .*(^|[ ;])go (build|vet|test|mod|list|run|generate|install) '
+
 # _rp_stale_verdict <rc> <out> <err> <file> <reason> -- empty when
 # admission refused the case with a stale record naming <file> and
 # <reason>, else the reason it did not.
@@ -340,6 +363,8 @@ _rp_stale_verdict() {
   (( rc == 1 )) || { echo rc_not_one; return 0; }
   [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }
   ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  ! grep -qF 'go: errors parsing go.mod' "${err}" || { echo go_ran_before_admission; return 0; }
+  ! grep -qE "${_RP_GO_STEP_RE}" "${err}" || { echo go_ran_before_admission; return 0; }
   grep -qE "$(_rp_event_record_re config_gen_gate_admission_failed)" "${err}" || { echo gate_record_missing; return 0; }
   got="$(jq -Rr 'fromjson? | select(type == "object" and .body == "config_gen_manifest_stale"
     and .attributes."service.name" == "config-gen") | "\(.attributes.file)|\(.attributes.reason)"' "${err}")"
