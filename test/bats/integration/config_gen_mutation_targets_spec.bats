@@ -191,6 +191,9 @@ _assert_manifest() {
     "A	${MOD}/b.go" "A	${MOD}/c.go"
 }
 
+# why: GitHub merges this repo by squash, so the main-push run that matters
+# most sees a single-parent commit; HEAD^1 there must still list every
+# file the squash carried.
 @test "main-push: on main after a squash commit the base is HEAD^1 (base#1464)" {
   _stale_main
   git -C "${W}" checkout -q -B main "${M1}"
@@ -203,6 +206,8 @@ _assert_manifest() {
     "A	${MOD}/b.go" "A	${MOD}/c.go"
 }
 
+# why: The override is the escape hatch for a checkout shape neither rule
+# fits; once verified it must win over the context rule, or it is inert.
 @test "override: a verified ancestor CONFIG_GEN_MUTATION_BASE is the base (base#1464)" {
   _stale_main
   CONFIG_GEN_MUTATION_BASE="${F1}" _run_cgm --repo "${W}" "${S}/out"
@@ -213,6 +218,8 @@ _assert_manifest() {
 
 # ── base refusals: never "none" ─────────────────────────────────────────────
 
+# why: Without origin/main the pr rule has nothing to diff against; falling
+# back to HEAD would give an empty diff and a false "none".
 @test "base: a missing origin/main is refused as base_unreachable, rc 1 (base#1464)" {
   _stale_main
   git -C "${W}" update-ref -d refs/remotes/origin/main
@@ -243,6 +250,8 @@ _assert_manifest() {
   _no_scratch_left "${S}"
 }
 
+# why: A root commit has no HEAD^1; diffing against nothing would read as
+# "none" instead of naming the missing parent.
 @test "base: main-push on a root commit (no HEAD^1) is refused, rc 1 (base#1464)" {
   W="${S}/w"
   git init -q "${W}"
@@ -257,6 +266,8 @@ _assert_manifest() {
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
+# why: A mistyped override must not silently fall back to the context rule;
+# the caller asked for a specific base and gets a refusal naming it.
 @test "override: a CONFIG_GEN_MUTATION_BASE that is not a commit is refused, rc 1 (base#1464)" {
   _stale_main
   _seed_out "${S}/out"
@@ -267,6 +278,8 @@ _assert_manifest() {
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
+# why: A base off HEAD's history would diff in unrelated changes (origin's
+# other.go here) as if the PR had made them.
 @test "override: a CONFIG_GEN_MUTATION_BASE that is not an ancestor of HEAD is refused, rc 1 (base#1464)" {
   _stale_main
   _seed_out "${S}/out"
@@ -319,6 +332,8 @@ _assert_manifest() {
 
 # ── context, repository and usage refusals ──────────────────────────────────
 
+# why: A misspelled context in a workflow must fail loudly, not pick a rule;
+# each rule gives a wrong base in the other's checkout shape.
 @test "context: a value other than pr or main-push is refused, rc 2 (base#1464)" {
   _stale_main
   _seed_out "${S}/out"
@@ -341,6 +356,8 @@ _assert_manifest() {
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
+# why: Every base rule needs Git history; a non-repository is a caller error
+# (rc 2), distinct from an unreachable base (rc 1).
 @test "repo: a directory that is not a Git repository is refused, rc 2 (base#1464)" {
   mkdir -p "${S}/plain"
   _seed_out "${S}/out"
@@ -351,12 +368,16 @@ _assert_manifest() {
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
+# why: Without an <out-dir> there is nowhere to publish; refusing by name
+# keeps a caller from mistaking an empty run for a clean one.
 @test "usage: no <out-dir> is refused as missing_out, rc 2 (base#1464)" {
   _stale_main
   _run_cgm --repo "${W}"
   _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=missing_out
 }
 
+# why: An extra argument is a caller that meant something else; it must be
+# refused before anything is created at either path.
 @test "usage: a second positional argument is refused as extra_arg, rc 2 (base#1464)" {
   _stale_main
   _seed_out "${S}/out"
@@ -368,11 +389,15 @@ _assert_manifest() {
   [[ ! -e "${S}/out2" ]] || fail "the extra argument was created"
 }
 
+# why: A bare --repo must not consume the <out-dir> as the repository or
+# fall back to the current directory.
 @test "usage: --repo without a value is refused as repo_value, rc 2 (base#1464)" {
   _run_cgm --repo
   _assert_cgm_refusal 2 config_gen_mutation_usage_invalid reason=repo_value
 }
 
+# why: A misspelled option must not be taken as the <out-dir>, which would
+# then be replaced whole.
 @test "usage: an unknown option is refused as unknown_option, rc 2 (base#1464)" {
   _stale_main
   _seed_out "${S}/out"
@@ -383,6 +408,8 @@ _assert_manifest() {
   assert_equal "$(_snapshot "${S}/out")" "${_before}"
 }
 
+# why: Publication replaces <out-dir> whole; through a file or a symlink that
+# would destroy something the script never created, so both are refused.
 @test "usage: an <out-dir> that is a file or a symlink is refused as out_not_dir, rc 2 (base#1464)" {
   _stale_main
   # No trailing newline and mode 640: a rewrite, a truncation or a chmod
@@ -409,6 +436,8 @@ _assert_manifest() {
 
 # ── the none marker ─────────────────────────────────────────────────────────
 
+# why: The positive none case: a PR that touches no Go file must say so
+# explicitly, and untracked files outside the module must not count.
 @test "manifest: a change outside the module gives exactly the header and none: no-go-change (base#1464)" {
   _stale_main
   git -C "${W}" checkout -q -B main "${M1}"
@@ -476,6 +505,8 @@ _assert_manifest() {
     "R100	${MOD}/b.go	${MOD}/d.go"
 }
 
+# why: A deleted Go file still changes the generator; dropping D lines would
+# turn a delete-only PR into a false "none".
 @test "manifest: a delete is a D line (base#1464)" {
   _stale_main
   git -C "${W}" rm -q "${MOD}/a.go"
@@ -488,6 +519,8 @@ _assert_manifest() {
     "D	${MOD}/a.go"
 }
 
+# why: Local runs test the working tree, not HEAD; a staged edit must reach
+# the manifest and mark the run dirty.
 @test "dirty: a staged edit is dirty=yes and an M line (base#1464)" {
   _stale_main
   printf 'edit\n' >> "${W}/${MOD}/a.go"
@@ -498,6 +531,8 @@ _assert_manifest() {
     "M	${MOD}/a.go"
 }
 
+# why: An unstaged edit is the common local case; diffing the index alone
+# would miss it and report the tree clean.
 @test "dirty: an unstaged edit is dirty=yes and an M line (base#1464)" {
   _stale_main
   printf 'edit\n' >> "${W}/${MOD}/a.go"
@@ -507,6 +542,8 @@ _assert_manifest() {
     "M	${MOD}/a.go"
 }
 
+# why: A staged new file is in neither HEAD nor the base; only a diff
+# against the working tree lists it as an add.
 @test "dirty: a staged new file is dirty=yes and an A line (base#1464)" {
   _stale_main
   printf 'new\n' > "${W}/${MOD}/n.go"
@@ -517,6 +554,8 @@ _assert_manifest() {
     "A	${MOD}/n.go"
 }
 
+# why: git diff never shows an untracked file, so it is appended separately,
+# after the diff lines, keeping the line order stable.
 @test "dirty: an untracked file is dirty=yes and an A line after the diff lines (base#1464)" {
   _stale_main
   printf 'new\n' > "${W}/${MOD}/u.go"
@@ -533,6 +572,8 @@ _hash_line() {
   printf '%s\t%s\n' "${2}" "$(sha256sum "${1}/${2}" | cut -d' ' -f1)"
 }
 
+# why: The hash files let the container check it sees the host's tree; an
+# ignored file left out of both would hide a difference the build reads.
 @test "hashes: visible.sha256 covers tracked and untracked module files, ignored.sha256 the ignored ones (base#1464)" {
   _stale_main
   printf '*.out\n' > "${W}/${MOD}/.gitignore"
@@ -717,6 +758,8 @@ EOF
   _no_scratch_left "${S}"
 }
 
+# why: If the first rename fails nothing has moved yet; the refusal must name
+# that stage and leave the destination exactly as it was.
 @test "publish: an aside that fails leaves the destination untouched (base#1464)" {
   _stale_main
   _shim_mv
