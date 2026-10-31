@@ -1039,6 +1039,59 @@ STUB
   assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
 }
 
+# why: A golang minor bump whose last rename fails puts every module back
+# from the copies it took before the first commit. When one of those
+# restores fails too, the tree holds `go 1.28` in m2 under the old golang
+# pin and the copy is the only record of m2's go.mod as it was, so it must
+# stay, and the refusal must say the tree was NOT put back rather than
+# report an ordinary commit_failed. The mv stub fails the rename onto
+# Dockerfile.config-gen and, after it, every rename onto m2/go.mod (the
+# restore), and passes every other rename to the real mv. The bump is
+# rollback_failed, and a copy beside m2/go.mod still holds its literal
+# old bytes (base#1440).
+@test "pins: --set golang to another minor whose rollback fails is rollback_failed and keeps the backup (base#1440)" {
+  _golang_pin
+  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2" _real_mv _bak
+  _real_mv="$(command -v mv)"
+  mkdir -p "${_m}" "${_m2}"
+  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
+    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
+  printf '%s\n' 'module example.com/m2' '' 'go 1.27' '' \
+    'require golang.org/x/text v0.20.0' > "${_m2}/go.mod"
+  printf 'golang.org/x/text v0.20.0 h1:old=\n' > "${_m2}/go.sum"
+  _stub docker 0
+  cat > "${STUB_BIN}/docker" <<STUB
+#!/bin/sh
+cat > "${BATS_TEST_TMPDIR}/docker.in"
+if grep -aq 'example.com/m2' "${BATS_TEST_TMPDIR}/docker.in"; then
+  printf 'golang.org/x/text v0.20.0 h1:new=\n'
+  exit 0
+fi
+printf 'golang.org/x/mod v0.21.0 h1:new=\n'
+STUB
+  chmod +x "${STUB_BIN}/docker"
+  cat > "${STUB_BIN}/mv" <<STUB
+#!/bin/sh
+for _d; do :; done
+case "\${_d##*/}" in
+  Dockerfile.config-gen) : > "${BATS_TEST_TMPDIR}/df.failed"; exit 1 ;;
+esac
+if [ "\${_d}" = "${_m2}/go.mod" ] && [ -e "${BATS_TEST_TMPDIR}/df.failed" ]; then
+  exit 1
+fi
+exec "${_real_mv}" "\$@"
+STUB
+  chmod +x "${STUB_BIN}/mv"
+  _pins_json --set golang golang:1.28.0-trixie
+  assert_refusal 1 pin_set_refused reason=rollback_failed
+  run find "${_m2}" -maxdepth 1 -name '.go.mod.*'
+  assert_equal "$(printf '%s\n' "${output}" | grep -c .)" 1
+  _bak="${output}"
+  assert_equal "$(cat "${_bak}")" "$(printf '%s\n' 'module example.com/m2' '' \
+    'go 1.27' '' 'require golang.org/x/text v0.20.0')"
+}
+
 # why: A go.mod `go` directive names the Go a module needs; the golang pin
 # names the Go that builds it. Nothing compared the two, so `go 1.26` under
 # golang:1.27.2 passed the watch unseen. _pin_go_directive_check compares
