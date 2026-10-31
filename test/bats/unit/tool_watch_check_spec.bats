@@ -264,6 +264,35 @@ _reset_tree() {
   refute_output --partial 'CURRENT (1)'
 }
 
+# why: A go.mod `go` directive names the Go a module needs and the golang
+# pin the Go that builds it; the watch compared neither, so `go 1.26` under
+# golang:1.27.2 read as a clean week. The directive is checked against the
+# pin before any upstream is asked: the run is refused by name with both
+# sides and the directive's line, and no resolver is called (base#1440).
+@test "watch: a go 1.26 go.mod under golang:1.27.2 exits 1 before any resolver runs (base#1440)" {
+  local _log="${SCRATCH}/curl.log"
+  : > "${_log}"
+  printf '#!/bin/sh\necho "curl $*" >> %s\nexit 22\n' "${_log}" > "${SCRATCH}/bin/curl"
+  _release owner/foo v1.0.0
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=v1.0.0'
+  printf '%s\n' \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e' \
+    > "${SCRATCH}/tree/dockerfile/Dockerfile.config-gen"
+  mkdir -p "${SCRATCH}/tree/dockerfile/config-gen"
+  printf '%s\n' 'module example.com/m' '' 'go 1.26' \
+    > "${SCRATCH}/tree/dockerfile/config-gen/go.mod"
+  _stage
+  PATH="${SCRATCH}/bin:${PATH}" PIN_REPO_ROOT="${SCRATCH}/tree" LOG_FORMAT=json \
+    WATCH_GITHUB_API="${API}" run --separate-stderr "${CHECK}" --report
+  assert_refusal 1 go_mod_go_directive_mismatch \
+    file=dockerfile/config-gen/go.mod line=3 go=1.26 golang=1.27
+  [[ "${stderr}" == *'NOTHING was compared'* ]] || fail "no NOTHING was compared: ${stderr}"
+  assert_equal "$(cat "${_log}")" ''
+}
+
 # why: An unreadable tracked file used to print `Permission denied` and leave
 # the reader's status 0, so the watch reported the rest as a clean week
 # (base#1463). As root the run drops to nobody, the only user a mode-000
