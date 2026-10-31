@@ -102,7 +102,7 @@ _kept() {
 # floors. (base#1465)
 @test "05-floors-base: a base it cannot read is refused by reason, the old floors.base kept (base#1465)" {
   local row reason
-  for row in header-garbage:base_missing header-unknown:base_missing not-tree:not_tree \
+  for row in header-garbage:base_missing header-unknown:base_missing header-ref:base_missing not-tree:not_tree \
       bad-name:fragment_invalid subdir:fragment_invalid ls-tree-fails:git_failed \
       second-show-fails:git_failed; do
     reason="${row#*:}"
@@ -119,6 +119,8 @@ _kept() {
     case "${row%%:*}" in
       header-garbage) _ctx 'garbage' ;;
       header-unknown) _ctx "base=$(printf 'c%.0s' {1..40}) head=${BASE} dirty=no context=pr" ;;
+      # A ref name git resolves, but no commit id the producer writes.
+      header-ref) _ctx "base=HEAD head=${BASE} dirty=no context=pr" ;;
       ls-tree-fails)
         _ctx
         printf '#!%s\n[[ "$*" == *ls-tree* ]] && exit 128\nexec %s "$@"\n' "$(command -v bash)" "$(command -v git)" > "${S}/bin/git"

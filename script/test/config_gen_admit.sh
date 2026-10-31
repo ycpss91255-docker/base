@@ -96,7 +96,8 @@ _cga_framed() {
 
 # _cga_listed <sorted> <spelling> -- true when <sorted> lists <spelling>.
 _cga_listed() {
-  cut -f1 -- "${1}" | grep -qxF -- "${2}"
+  # grep -c reads its whole input, so cut never meets a closed pipe.
+  [[ "$(cut -f1 -- "${1}" | grep -cxF -- "${2}")" != 0 ]]
 }
 
 # _cga_lists <mutation> <src> -- step 2 of the header.
@@ -130,35 +131,28 @@ _cga_lists() {
   _cga_stale "$(_cga_name "${s}")" missing
 }
 
-# _cga_header <line> -- re-render line 1 through _cgm_header and print it,
-# or refuse.
+# _cga_header <line> -- re-render line 1 through _cgm_header, or refuse.
 _cga_header() {
-  local out
   local -a w=()
   IFS=' ' read -r -a w <<<"${1}"
   if (( ${#w[@]} != 4 )) || [[ "${w[0]}" != base=* || "${w[1]}" != head=* \
       || "${w[2]}" != dirty=* || "${w[3]}" != context=* ]]; then
     _cga_stale manifest header
   fi
-  out="$(_cgm_header "${w[0]#base=}" "${w[1]#head=}" "${w[2]#dirty=}" "${w[3]#context=}")" \
-    || exit 1
-  [[ "${out}" == "${1}" ]] || _cga_stale manifest header
-  printf '%s\n' "${out}"
+  _cgm_header "${w[0]#base=}" "${w[1]#head=}" "${w[2]#dirty=}" "${w[3]#context=}" || exit 1
 }
 
 # _cga_record <line> -- re-render a body line through _cgm_unquote and
-# _cgm_record and print it, or refuse.
+# _cgm_record, or refuse.
 _cga_record() {
-  local out s
+  local s
   local -a f=() raw=()
   IFS=$'\t' read -r -a f <<<"${1}"
   for s in "${f[@]:1}"; do
     _cgm_unquote "${s}" || _cga_stale manifest record
     raw+=("${_cgm_raw}")
   done
-  out="$(_cgm_record "${f[0]:-}" "${raw[@]}")" || exit 1
-  [[ "${out}" == "${1}" ]] || _cga_stale manifest record
-  printf '%s\n' "${out}"
+  _cgm_record "${f[0]:-}" "${raw[@]}" || exit 1
 }
 
 # _cga_manifest <mutation> -- step 3 of the header; writes the records it
@@ -185,8 +179,9 @@ _cga_manifest() {
     fi
   done <"${m}"
   (( marker == 1 || records > 0 )) || _cga_stale manifest body_empty
-  # A byte a line-at-a-time read drops (a NUL) leaves the lines equal and
-  # the files not.
+  # The rendering must be the file, byte for byte: a spelling, a field
+  # split or a line ending the constructors do not write, and a byte a
+  # line-at-a-time read drops (a NUL), all differ here.
   if ! cmp -s -- "${_CGA_TMP}/render" "${m}"; then
     head -n 1 -- "${_CGA_TMP}/render" | cmp -s - <(head -n 1 -- "${m}") \
       || _cga_stale manifest header

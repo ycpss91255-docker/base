@@ -381,6 +381,36 @@ _df_instructions() {
   true
 }
 
+# why: The coverage ratchet prints one cg_event line per refusal, and one
+# red build can carry several (a dropped fragment leaves a dropped and a
+# missing package); each must reach the runner's records, in log order,
+# before the gate's own, and an id outside the allowlist or a word outside
+# file|reason|pkg|other|line|floor|measured|base must not, so the build log
+# can never put an arbitrary body or attribute into them (base#1465).
+@test "config_gen_gates.sh: a red build re-emits every allowlisted cg_event line in log order with only its allowed words, then the gate id (base#1465)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  { _gate_log admission fmt vet lint race
+    printf '#12 [test 8/8] RUN g=coverage; bash gates/coverage.sh --measure /tmp/measured\n'
+    printf '#12 1.069 cg_event config_gen_coverage_floor_dropped pkg=internal/testcorpus x=1\n'
+    printf '#12 1.069 cg_event config_gen_coverage_floor_missing pkg=a%%20b\n'
+    printf '#12 1.069 cg_event config_gen_coverage_floor_bogus pkg=z\n'
+    printf '#12 1.069 cg_event config_gen_coverage_floor_below pkg=c measured=90.0 floor=95.0 display=spoof\n'
+    printf '#12 1.069 config_gen_gate_coverage_failed\n'; } > "${S}/build_test.err"
+  printf '1\n' > "${S}/build_test.rc"
+  _run_runner
+  assert_equal "${status}" 1
+  [[ "${stderr}" != *"unregistered log body"* ]] || fail "unregistered log body: ${stderr}"
+  assert_equal "$(jq -rR 'fromjson? | select(.attributes."service.name" == "config-gen")
+    | [.body, (.attributes | del(."service.name", ."service.lang", ."code.filepath", ."code.lineno",
+      ."thread.id", .display, .status) | to_entries | map(.key + "=" + .value) | join(" "))] | join(" ")' <<<"${stderr}")" \
+    "$(printf '%s\n' 'config_gen_coverage_floor_dropped pkg=internal/testcorpus' \
+      'config_gen_coverage_floor_missing pkg=a%20b' \
+      'config_gen_coverage_floor_below pkg=c measured=90.0 floor=95.0' \
+      'config_gen_gate_coverage_failed gate=coverage')"
+}
+
 # why: The final image is what ships. A binary that exits 0 with no
 # arguments, or writes usage to stdout, breaks the rc 2 / empty stdout
 # contract callers rely on, whatever the gates said.

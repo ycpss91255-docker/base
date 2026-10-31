@@ -232,6 +232,8 @@ _tamper() {
     add-twice) printf '%s\nA\t%s/a.go\nA\t%s/a.go\n' "${h}" "${P}" "${P}" > "${m}/manifest" ;;
     src-twice) printf '%s\nD\t%s/x.go\nR100\t%s/x.go\t%s/a.go\n' "${h}" "${P}" "${P}" "${P}" > "${m}/manifest" ;;
     tgt-twice) printf '%s\nM\t%s/a.go\nA\t%s/a.go\n' "${h}" "${P}" "${P}" > "${m}/manifest" ;;
+    src-twice-d) printf '%s\nR100\t%s/x.go\t%s/a.go\nD\t%s/x.go\n' "${h}" "${P}" "${P}" "${P}" > "${m}/manifest" ;;
+    tgt-twice-r) printf '%s\nM\t%s/a.go\nR100\t%s/x.go\t%s/a.go\n' "${h}" "${P}" "${P}" "${P}" > "${m}/manifest" ;;
     modify-over-src) printf '%s\nD\t%s/a.go\nM\t%s/a.go\n' "${h}" "${P}" "${P}" > "${m}/manifest" ;;
     add-over-src) printf '%s\nD\t%s/a.go\nA\t%s/a.go\n' "${h}" "${P}" "${P}" > "${m}/manifest" ;;
     header-mixed) printf 'base=%s head=%s dirty=no context=pr\nnone: no-go-change\n' "${H40}" "${H64}" > "${m}/manifest" ;;
@@ -299,6 +301,8 @@ delete-listed|manifest:presence
 add-twice|manifest:duplicate
 src-twice|manifest:presence
 tgt-twice|manifest:presence
+src-twice-d|manifest:presence
+tgt-twice-r|manifest:presence
 modify-over-src|manifest:presence
 add-over-src|admitted
 header-mixed|manifest:header

@@ -1693,11 +1693,12 @@ jobs:
     # green with the gates unrun. Gated on code_changed, so ci-rollup
     # collapses its SKIPPED on a doc-only PR into a pass.
     runs-on: ubuntu-latest
-    # Eleven docker builds of a small module, measured on a green run: the
-    # gates' test and final stages, one test-stage build for each of seven
-    # planted cases, then the control's test and final; a ceiling, not a
-    # budget.
-    timeout-minutes: 30
+    # 74 docker builds of a small module: the gates' test and final
+    # stages, then the redpath's 60 cases (base#1465 added the admission,
+    # producer-output and coverage-ratchet cases; most stop at the admit
+    # stage) and its control. The redpath alone took 10m06s on a local
+    # run; a ceiling, not a budget.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v7

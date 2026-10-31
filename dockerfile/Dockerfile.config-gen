@@ -25,17 +25,23 @@
 #                no admit.sh (the 01-admit step did not run) as
 #                `cg_event config_gen_manifest_stale file=admit.sh
 #                reason=absent`; then runs the context's
-#                admit.sh (script/test/config_gen_admit.sh) over the module,
-#                which refuses a file changed after the baseline was written
-#                with `cg_event config_gen_manifest_stale file=... reason=...`
+#                admit.sh (script/test/config_gen_admit.sh, beside the
+#                producer's constructor library) over the module, which
+#                refuses a file changed after the baseline was written, or
+#                a baseline the producer cannot write for the module, with
+#                `cg_event config_gen_manifest_stale file=... reason=...`
 #                and `config_gen_gate_admission_failed`; otherwise prints
 #                `gate=admission ok`. The test stage starts by copying its
 #                /admitted, so no gate runs before it passed.
-#   build        the module and its static binary
+#   build        the module and its static binary (cmd/config-gen only;
+#                cmd/cg-gates and internal/buildgate are built in test and
+#                never reach final)
 #   test         FROM goenv, not FROM build: a --target test build must run
 #                no go before admit passed (base#1465), and build's go build
 #                would otherwise run beside admit. Then the five gates, one
-#                RUN each, in this order: fmt, vet, lint, race, coverage. A
+#                RUN each, in this order: fmt, vet, lint, race, coverage
+#                (measured counts, then cg-gates ratchet against
+#                coverage-floors.d and the mutation context's floors.base). A
 #                gate that passes prints `gate=<g> ok`; one that fails prints
 #                `config_gen_gate_<g>_failed` on stderr and stops the build.
 #                Each is its own RUN so a red names its gate and the gates
@@ -156,11 +162,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       && CGO_ENABLED=1 go test -race -count=1 -ldflags="-X=$(cat /tmp/config-gen-corpus-root)" ./...; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=race ok
-# gates/coverage.sh prints its own refusal line (with the reason and the
-# package) and exits 1; its stdout ok line is replaced by this RUN's, so
-# the ok line is printed once.
+# The coverage gate: gates/coverage.sh measures every package's counts,
+# then cg-gates ratchet (built here, never shipped) judges them against
+# the coverage-floors.d fragments and the base's floors, floors.base, which
+# the 05-floors-base step wrote into the mutation context. The context is
+# bound, not copied, so the ratchet reads the floors.base admission's
+# context carried (base#1465). Each part prints its own refusal lines;
+# the id is spelled from ${g} so BuildKit's echo of the RUN carries none.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    bash gates/coverage.sh /tmp/config-gen-corpus-root > /dev/null; \
+    --mount=type=bind,from=mutation,target=/mutation \
+    g=coverage; { bash gates/coverage.sh --measure /tmp/measured /tmp/config-gen-corpus-root \
+      && go build -o /tmp/cg-gates ./cmd/cg-gates \
+      && /tmp/cg-gates ratchet --measured /tmp/measured --floors coverage-floors.d \
+        --base /mutation/floors.base --module "$(go list -m)"; } \
+      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
 
 FROM scratch AS final

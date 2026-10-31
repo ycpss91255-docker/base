@@ -184,6 +184,9 @@ readonly -a _RP_COVERAGE=(
 # _rp_stale_body <case> -- the shell a stale case's step runs, with _mod
 # (the module), _m (the mutation context), P (the module prefix), h (the
 # manifest's header line) and vis (visible.sha256's first line) set.
+# Each body is shell text the step runs, printed verbatim: nothing in it
+# expands here.
+# shellcheck disable=SC2016,SC2028
 _rp_stale_body() {
   case "${1}" in
     stale-edit)
@@ -285,6 +288,7 @@ _rp_green() {
     mkdir -p "${n}"
     for (( i = 1; i < 128; i++ )); do
       (( i == 0x2f )) && continue
+      # shellcheck disable=SC2059 # the byte is the format's \xHH escape
       name+="$(printf "\\x$(printf '%02x' "${i}")")"
     done
     printf 'x\n' >"${n}/café.txt"
@@ -747,7 +751,7 @@ _rp_coverage_verdict() {
   local rc="${1}" out="${2}" err="${3}" event="${4}" first
   (( rc != 0 )) || { echo rc_zero; return 0; }
   printf '%s\n' "${_RP_PRE_COVERAGE_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }
-  ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
   first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
   first="${first%%$'\n'*}"
   [[ "${first}" == config_gen_gate_coverage_failed ]] || { echo wrong_id; return 0; }

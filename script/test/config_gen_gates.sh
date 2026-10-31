@@ -28,11 +28,13 @@
 #                printed is re-printed on stdout, and on a red build the first
 #                `config_gen_gate_<g>_failed` is re-emitted as an event with
 #                gate=<g> and the run exits with docker's status. A red
-#                build that printed an allowlisted `cg_event <id>`
+#                build that printed allowlisted `cg_event <id>` lines
 #                (config_gen_manifest_missing: no mutation context;
 #                config_gen_manifest_stale: a module file changed after the
-#                baseline, with its file= and reason=; base#1465) re-emits
-#                <id> first, and the gate id after it when there is one.
+#                baseline, with its file= and reason=; the coverage
+#                ratchet's config_gen_coverage_* refusals; base#1465)
+#                re-emits each <id>, in log order, then the gate id when
+#                there is one.
 #   3. contract  the `final` stage is built and its binary run with no
 #                arguments: it must exit 2 with nothing on stdout.
 #
@@ -58,15 +60,16 @@ readonly _CG_SERVICE='config-gen'
 # followed by `reason=... pkg=...`.
 readonly _CG_OK_RE='^#[0-9]+ [0-9]+\.[0-9]+ gate=([a-z]+) ok$'
 readonly _CG_FAIL_RE='^#[0-9]+ [0-9]+\.[0-9]+ config_gen_gate_([a-z]+)_failed( .*)?$'
-# A refusal the build prints as `cg_event <id>` before any gate runs
-# (base#1465). Only an id named here is re-emitted, so the build log can
-# never put an arbitrary body into the runner's own records.
-readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale)( .*)?$'
+# A refusal the build prints as `cg_event <id>` (base#1465): admission's
+# before any gate, the coverage ratchet's inside the coverage gate. Only
+# an id named here is re-emitted, so the build log can never put an
+# arbitrary body into the runner's own records.
+readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale|config_gen_coverage_(fragment_invalid|floors_base_invalid|floors_dir_deleted|floor_(duplicate|missing|orphan|below|too_low|lowered|stale|none_misuse|dropped)))( .*)?$'
 # The attributes a re-emitted event may carry, each `<key>=<value>` whose
-# value is bytes 0x21-0x7e only: config_gen_admit.sh writes every other
-# byte, and the % itself, as %XX, so a value is one word and is kept here
-# verbatim, still encoded. Any other word on the line is dropped.
-readonly _CG_EVENT_ATTR_RE='^(file|reason)=[!-~]+$'
+# value is bytes 0x21-0x7e only: config_gen_admit.sh and cg-gates write
+# every other byte, and the % itself, as %XX, so a value is one word and is
+# kept here verbatim, still encoded. Any other word on the line is dropped.
+readonly _CG_EVENT_ATTR_RE='^(file|reason|pkg|other|line|floor|measured|base)=[!-~]+$'
 
 # _cg_run_steps <root> <ctx> -- run each step; the first red one ends the
 # run with its status.
@@ -133,7 +136,7 @@ _cg_event() {
 # its log to stderr, re-print the ok lines; on red re-emit the first gate
 # id and exit with docker's status.
 _cg_gates() {
-  local root="${1}" log="${2}" rc=0 gate event
+  local root="${1}" log="${2}" rc=0 gate event events
   shift 2
   docker build --progress=plain --no-cache-filter admit,test --target test "$@" \
     -f "${root}/dockerfile/Dockerfile.config-gen" "${root}/dockerfile/config-gen" \
@@ -143,13 +146,16 @@ _cg_gates() {
   (( rc == 0 )) && return 0
   gate="$(sed -nE "s/${_CG_FAIL_RE}/\\1/p" "${log}")"
   gate="${gate%%$'\n'*}"
-  event="$(sed -nE "s/${_CG_EVENT_RE}/\\1\\2/p" "${log}")"
-  event="${event%%$'\n'*}"
-  [[ -z "${event}" ]] || _cg_event "${event}" "${rc}"
+  events="$(sed -nE "/${_CG_EVENT_RE}/s/^#[0-9]+ [0-9]+\\.[0-9]+ cg_event //p" "${log}")"
+  if [[ -n "${events}" ]]; then
+    while IFS= read -r event; do
+      _cg_event "${event}" "${rc}"
+    done <<<"${events}"
+  fi
   if [[ -n "${gate}" ]]; then
     _log_err "${_CG_SERVICE}" "config_gen_gate_${gate}_failed" "gate=${gate}" "status=${rc}" \
       "display=config-gen gate ${gate} failed (docker exited ${rc})"
-  elif [[ -z "${event}" ]]; then
+  elif [[ -z "${events}" ]]; then
     _log_err "${_CG_SERVICE}" config_gen_build_failed "status=${rc}" \
       "display=config-gen test stage failed before any gate (docker exited ${rc})"
   fi
