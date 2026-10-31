@@ -339,6 +339,32 @@ _df_instructions() {
   true
 }
 
+# why: A coverage RUN that never got the corpus root record refuses with
+# reason=corpus_root_missing and an empty pkg (base#1468). The runner must
+# name the coverage gate from that printed refusal line, not from the RUN
+# line BuildKit echoes, whose command text names gates/coverage.sh too: the
+# echoed line alone is a build that failed before any gate.
+@test "config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  { _gate_log fmt vet lint race
+    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'
+    printf '#12 0.52 config_gen_gate_coverage_failed reason=corpus_root_missing pkg=\n'; } > "${S}/build_test.err"
+  printf '1\n' > "${S}/build_test.rc"
+  _run_runner
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_gate_coverage_failed gate=coverage
+  { _gate_log fmt vet lint race
+    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'; } > "${S}/build_test.err"
+  _run_runner
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_build_failed status=1
+  grep -qF '"body":"config_gen_gate_coverage_failed"' <<<"${stderr}" \
+    && fail "the echoed RUN line was read as the coverage gate's refusal: ${stderr}"
+  true
+}
+
 # why: The final image is what ships. A binary that exits 0 with no
 # arguments, or writes usage to stdout, breaks the rc 2 / empty stdout
 # contract callers rely on, whatever the gates said.
