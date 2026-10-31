@@ -71,8 +71,9 @@ floors-base-fragment-blob	script/test/config_gen_steps/05-floors-base.sh	test/ba
 floors-base-show	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	>>"${_cgf_tmp}/floors.base" \\\n        || _cgf_refuse git_failed	>>"${_cgf_tmp}/floors.base" \\\n        || true
 floors-base-final-lf	script/test/config_gen_steps/05-floors-base.sh	test/bats/unit/config_gen_floors_base_spec.bats	        || printf '\\n' >>"${_cgf_tmp}/floors.base"	        || true
 coverage-usage	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  if [[ "${1:-}" != --measure || -z "${2:-}" ]]; then	  if false; then
-redpath-refused-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}" out="${2}" err="${3}"\n  (( rc != 0 )) || { echo rc_zero; return 0; }	  local rc="${1}" out="${2}" err="${3}"\n  :
-redpath-refused-rc-not-one	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc == 1 )) || { echo rc_not_one; return 0; }	  :
+redpath-exit-rc-zero	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}"\n  (( rc != 0 )) || { echo rc_zero; return 0; }	  local rc="${1}"\n  :
+redpath-refused-exit	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  refused_exit="$(_rp_exit_one "${rc}")"	  refused_exit=""
+redpath-exit-rc-not-one	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc == 1 )) || { echo rc_not_one; return 0; }	  :
 redpath-refused-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }	  :
 redpath-refused-unregistered	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }	  :
 redpath-refusal-wrong-id	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	grep -qE "$(_rp_event_record_re "${id}")" "${err}" || { echo wrong_id; return 0; }	true
@@ -83,8 +84,9 @@ redpath-stale-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen
 redpath-stale-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${got}" == "${file}|${reason}" ]] || { echo stale_detail_mismatch; return 0; }	  :
 redpath-rerun-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc == 0 )) || { echo rc_not_zero; return 0; }	  :
 redpath-rerun-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	printf '%s\\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }	true
-redpath-coverage-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}" out="${2}" err="${3}" event="${4}" first\n  (( rc != 0 )) || { echo rc_zero; return 0; }	  local rc="${1}" out="${2}" err="${3}" event="${4}" first\n  :
+redpath-coverage-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  coverage_exit="$(_rp_exit_one "${rc}")"	  coverage_exit=""
 redpath-coverage-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	printf '%s\\n' "${_RP_PRE_COVERAGE_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }	true
 redpath-coverage-unregistered	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }	  :
 redpath-coverage-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${first}" == config_gen_gate_coverage_failed ]] || { echo wrong_id; return 0; }	  :
 redpath-coverage-event	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_record_missing; return 0; }	|| true
+redpath-coverage-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_detail_mismatch; return 0; }	|| true

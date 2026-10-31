@@ -68,9 +68,10 @@
 #
 # A coverage case (_RP_COVERAGE) changes a package or a floor so the
 # coverage ratchet (cmd/cg-gates ratchet, base#1465) refuses it: the run
-# must exit non-zero with exactly the five pre-coverage ok lines on
+# must exit exactly 1 with exactly the five pre-coverage ok lines on
 # stdout, the runner's JSON config_gen_gate_coverage_failed record, and its
-# JSON record of the case's config_gen_coverage_* event. cov-lowered lowers
+# JSON record of the case's config_gen_coverage_* event naming the row's
+# package (pkg) and fragment (file, empty when the event names none). cov-lowered lowers
 # a floor below the copy's own commit, its merge base: only a coverage RUN
 # that read floors.base through the mutation context can see that.
 #
@@ -170,15 +171,15 @@ readonly -a _RP_STALE=(
 # The green cases: each a git state whose baseline must be admitted
 # (base#1465).
 readonly -a _RP_GREENS=(names rename-recreate untrack rename-move untrack-ignored copies typechange)
-# <case>|<the coverage ratchet event the build must refuse it with>
-# (base#1465).
+# <case>|<the coverage ratchet event the build must refuse it with>|<its
+# pkg>|<its file, empty when the event names none> (base#1465).
 readonly -a _RP_COVERAGE=(
-  'cov-drop|config_gen_coverage_floor_below'
-  'cov-lowered|config_gen_coverage_floor_lowered'
-  'cov-stale|config_gen_coverage_floor_stale'
-  'cov-missing|config_gen_coverage_floor_missing'
-  'cov-duplicate|config_gen_coverage_floor_duplicate'
-  'cov-dropped|config_gen_coverage_floor_dropped'
+  'cov-drop|config_gen_coverage_floor_below|cmd/config-gen|'
+  'cov-lowered|config_gen_coverage_floor_lowered|internal/buildgate|'
+  'cov-stale|config_gen_coverage_floor_stale|internal/buildgate|'
+  'cov-missing|config_gen_coverage_floor_missing|internal/zzmiss|'
+  'cov-duplicate|config_gen_coverage_floor_duplicate|internal/testcorpus|s1g.txt'
+  'cov-dropped|config_gen_coverage_floor_dropped|internal/testcorpus|'
 )
 
 # _rp_stale_body <case> -- the shell a stale case's step runs, with _mod
@@ -582,11 +583,21 @@ _rp_gates() {
 # starts with one are none of them that record (base#1462).
 readonly _RP_GATE_RECORD_RE='^\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\{"service\.name":"config-gen",.*\}\}$'
 
-# _rp_verdict <rc> <out> <err> <gate> -- empty when the case went red as
-# planted, else the reason it did not.
-_rp_verdict() {
-  local rc="${1}" out="${2}" err="${3}" gate="${4}" first g
+# _rp_exit_one <rc> -- empty when a refused run exited exactly 1, the
+# status every refusal ends with; else rc_zero or rc_not_one. A runner that
+# crashed with another status is not a refusal, whatever it logged.
+_rp_exit_one() {
+  local rc="${1}"
   (( rc != 0 )) || { echo rc_zero; return 0; }
+  (( rc == 1 )) || { echo rc_not_one; return 0; }
+}
+
+# _rp_verdict <rc> <out> <err> <gate> -- empty when the case went red as
+# planted (exit exactly 1), else the reason it did not.
+_rp_verdict() {
+  local rc="${1}" out="${2}" err="${3}" gate="${4}" first g gate_exit
+  gate_exit="$(_rp_exit_one "${rc}")"
+  [[ -z "${gate_exit}" ]] || { echo "${gate_exit}"; return 0; }
   # No record at all is a wrong id: first stays empty.
   first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
   first="${first%%$'\n'*}"
@@ -618,13 +629,21 @@ _rp_event_record_re() {
   printf '^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"%s",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$' "${1}"
 }
 
+# _rp_event_detail <err> <id> <key> <key2> -- `<value>|<value2>` of each
+# runner record of <id> in <err>, one line per record, a missing attribute
+# empty.
+_rp_event_detail() {
+  jq -Rr --arg id "${2}" --arg a "${3}" --arg b "${4}" 'fromjson? | select(type == "object" and .body == $id
+    and .attributes."service.name" == "config-gen") | "\(.attributes[$a] // "")|\(.attributes[$b] // "")"' "${1}"
+}
+
 # _rp_refused_shape <rc> <out> <err> -- empty when the run ended the way
 # every refusal must (exit exactly 1, nothing on stdout, no "unregistered
 # log body" on stderr), else the reason it did not.
 _rp_refused_shape() {
-  local rc="${1}" out="${2}" err="${3}"
-  (( rc != 0 )) || { echo rc_zero; return 0; }
-  (( rc == 1 )) || { echo rc_not_one; return 0; }
+  local rc="${1}" out="${2}" err="${3}" refused_exit
+  refused_exit="$(_rp_exit_one "${rc}")"
+  [[ -z "${refused_exit}" ]] || { echo "${refused_exit}"; return 0; }
   [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }
   ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
 }
@@ -666,8 +685,7 @@ _rp_stale_verdict() {
   ! grep -qF 'go: errors parsing go.mod' "${err}" || { echo go_ran_before_admission; return 0; }
   ! grep -qE "${_RP_GO_STEP_RE}" "${err}" || { echo go_ran_before_admission; return 0; }
   grep -qE "$(_rp_event_record_re config_gen_gate_admission_failed)" "${err}" || { echo gate_record_missing; return 0; }
-  got="$(jq -Rr 'fromjson? | select(type == "object" and .body == "config_gen_manifest_stale"
-    and .attributes."service.name" == "config-gen") | "\(.attributes.file)|\(.attributes.reason)"' "${err}")"
+  got="$(_rp_event_detail "${err}" config_gen_manifest_stale file reason)"
   [[ -n "${got}" ]] || { echo stale_record_missing; return 0; }
   [[ "${got}" == "${file}|${reason}" ]] || { echo stale_detail_mismatch; return 0; }
 }
@@ -744,28 +762,32 @@ _rp_green_case() {
   return 1
 }
 
-# _rp_coverage_verdict <rc> <out> <err> <event> -- empty when the coverage
-# ratchet refused the case with <event> after exactly the five earlier ok
-# lines, else the reason it did not.
+# _rp_coverage_verdict <rc> <out> <err> <event> <pkg> <file> -- empty when
+# the coverage ratchet refused the case (exit exactly 1) with <event> naming
+# <pkg> and <file> after exactly the five earlier ok lines, else the reason
+# it did not.
 _rp_coverage_verdict() {
-  local rc="${1}" out="${2}" err="${3}" event="${4}" first
-  (( rc != 0 )) || { echo rc_zero; return 0; }
+  local rc="${1}" out="${2}" err="${3}" event="${4}" pkg="${5}" file="${6}" first coverage_exit
+  coverage_exit="$(_rp_exit_one "${rc}")"
+  [[ -z "${coverage_exit}" ]] || { echo "${coverage_exit}"; return 0; }
   printf '%s\n' "${_RP_PRE_COVERAGE_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }
   ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
   first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
   first="${first%%$'\n'*}"
   [[ "${first}" == config_gen_gate_coverage_failed ]] || { echo wrong_id; return 0; }
   grep -qE "$(_rp_event_record_re "${event}")" "${err}" || { echo event_record_missing; return 0; }
+  [[ "$(_rp_event_detail "${err}" "${event}" pkg file)" == "${pkg}|${file}" ]] || { echo event_detail_mismatch; return 0; }
 }
 
-# _rp_coverage <scratch> <case> <event> -- run one coverage case; non-zero
-# when the ratchet did not refuse it with <event>.
+# _rp_coverage <scratch> <case> <event> <pkg> <file> -- run one coverage
+# case; non-zero when the ratchet did not refuse it with <event> naming
+# <pkg> and <file>.
 _rp_coverage() {
   local root rc=0 reason
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
   _rp_gates "${root}" "${2}" || rc=$?
-  reason="$(_rp_coverage_verdict "${rc}" "${root}.out" "${root}.err" "${3}")"
+  reason="$(_rp_coverage_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" "event=${3}" \
@@ -818,7 +840,7 @@ main() {
     ran=$(( ran + 1 ))
     _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
   done
-  local name file want
+  local name file want pkg
   for entry in "${_RP_STALE[@]}"; do
     IFS='|' read -r name file want <<<"${entry}"
     _rp_selected "${name}" || continue
@@ -831,10 +853,10 @@ main() {
     _rp_green_case "${scratch}" "${name}" || failed=1
   done
   for entry in "${_RP_COVERAGE[@]}"; do
-    IFS='|' read -r name want <<<"${entry}"
+    IFS='|' read -r name want pkg file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_coverage "${scratch}" "${name}" "${want}" || failed=1
+    _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}" || failed=1
   done
   if _rp_selected rerun; then
     ran=$(( ran + 1 ))
