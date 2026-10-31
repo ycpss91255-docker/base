@@ -15,15 +15,16 @@
 # unmodified copy, the control, runs last and must pass all five gates, so
 # the reds are the defects' and not the copy's.
 #
-#   case         defect                                         gate
-#   fmt          a misformatted .go file                        fmt
-#   vet          fmt.Printf("%d", "x")                          vet
-#   lint         an unchecked os.Remove error                   lint
-#   race         two goroutines incrementing one int, joined    race
-#   race-fuzz    a Fuzz seed that fails                         race
-#   coverage     a package whose test covers 2 of 3 statements  coverage
-#   fmt-parse    a _test.go file gofmt cannot parse             fmt
-#   corpus-join  a test reading ../../testdata, not testcorpus  race
+#   case           defect                                          gate
+#   fmt            a misformatted .go file                         fmt
+#   vet            fmt.Printf("%d", "x")                           vet
+#   lint           an unchecked os.Remove error                    lint
+#   race           two goroutines incrementing one int, joined     race
+#   race-fuzz      a Fuzz seed that fails                          race
+#   coverage       a package whose test covers 2 of 3 statements   coverage
+#   fmt-parse      a _test.go file gofmt cannot parse              fmt
+#   corpus-join    a test reading ../../testdata, not testcorpus   race
+#   corpus-helper  a non-test helper a test calls reads testdata   race
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -32,7 +33,9 @@
 # corpus-join reads the shared corpus by a joined relative path instead of
 # through internal/testcorpus. The race gate moves testdata out of the
 # module before the tests run, so that read finds nothing and the gate goes
-# red (base#1468).
+# red (base#1468). corpus-helper does the same read from a non-test helper
+# package that a test in another package calls, so the gate cannot key on
+# the test file's own source.
 #
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
@@ -52,7 +55,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race)
 
 # _rp_plant <case> <module dir> -- write the case's defect into the copy.
 _rp_plant() {
@@ -126,6 +129,38 @@ func TestZzJoin(t *testing.T) {
 	}
 }
 EOF
+      ;;
+    corpus-helper)
+      mkdir -p "${mod}/internal/zzhelp" "${mod}/internal/zzhelpuser"
+      cat >"${mod}/internal/zzhelp/zzhelp.go" <<'EOF'
+// Package zzhelp is a planted helper that reads the shared corpus past
+// internal/testcorpus.
+package zzhelp
+
+import "os"
+
+// Seed returns the golden seed, read relative to the caller's package.
+func Seed() ([]byte, error) {
+	return os.ReadFile("../../testdata/golden/s1/seed.golden")
+}
+EOF
+      cat >"${mod}/internal/zzhelpuser/zzhelpuser_test.go" <<'EOF'
+package zzhelpuser
+
+import (
+	"testing"
+
+	"MODPATH/internal/zzhelp"
+)
+
+func TestZzHelpUser(t *testing.T) {
+	if _, err := zzhelp.Seed(); err != nil {
+		t.Fatal(err)
+	}
+}
+EOF
+      sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
+        "${mod}/internal/zzhelpuser/zzhelpuser_test.go"
       ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
