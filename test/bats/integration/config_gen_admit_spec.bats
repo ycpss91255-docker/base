@@ -459,3 +459,105 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=bytes"
   assert_equal "${stderr}" ""
 }
+
+# _rename_baseline -- ${S}/w with ${MOD}/a.go committed and then renamed to
+# ${MOD}/b.go in the work tree; ${S}/m: the baseline
+# config_gen_mutation_targets.sh writes for that (context pr), whose body
+# is git's own rename record, R<score>.
+_rename_baseline() {
+  _baseline
+  git -C "${W}" mv "${MOD}/a.go" "${MOD}/b.go"
+  rm -rf "${S}/m"
+  CONFIG_GEN_MUTATION_CONTEXT=pr bash "${CGM}" --repo "${W}" "${S}/m" \
+    || fail "config_gen_mutation_targets.sh did not write the rename baseline"
+}
+
+@test "config_gen_admit: a rename or copy record whose score is not three digits is refused as record (base#1465)" {
+  _rename_baseline
+  # The no-fire twin: S1d's own rename record is admitted. Its status is
+  # git's, `R` and a three-digit similarity score: git 2.x prints R088 for
+  # an 18-of-20-line rename and R100 for this one.
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  assert_equal "$(sed -n 2p "${S}/m/manifest")" "R100"$'\t'"${MOD}/a.go"$'\t'"${MOD}/b.go"
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # The same record with any other status word after R or C: no score,
+  # letters, too few or too many digits. Each keeps the two-path shape, so
+  # only the score grammar refuses it.
+  local st
+  for st in Rgarbage R R1 R58 R0580 Cxyz C C10 R10a; do
+    printf '%s\n%s\t%s/a.go\t%s/b.go\n' "${header}" "${st}" "${MOD}" "${MOD}" > "${S}/m/manifest"
+    _run_admit
+    assert_equal "${status}" 1
+    assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
+    assert_equal "${stderr}" ""
+  done
+}
+
+@test "config_gen_admit: a manifest whose last line has no LF is refused as malformed (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline ends in LF and is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  [[ "$(tail -c1 "${S}/m/manifest" | od -An -c | tr -d ' ')" == '\n' ]] \
+    || fail "the untouched manifest does not end in LF"
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d ends every line in LF. A line with no LF after it is a line a
+  # line-at-a-time read can drop, so the file is refused before any line
+  # is judged: an unterminated garbage line after the marker, and the
+  # untouched body with only its final LF removed.
+  printf '%s\nnone: no-go-change\ngarbage' "${header}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=malformed"
+  assert_equal "${stderr}" ""
+  printf '%s\nnone: no-go-change' "${header}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=malformed"
+  assert_equal "${stderr}" ""
+  # An empty line is no line S1d writes either.
+  printf '%s\n\nnone: no-go-change\n' "${header}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=malformed"
+  assert_equal "${stderr}" ""
+}
+
+@test "config_gen_admit: a sha256 list whose last record has no LF is refused as malformed (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched lists are admitted. ignored.sha256 is
+  # empty here (zero bytes, no line), which is S1d's spelling of no
+  # ignored file, so an empty list is not an unterminated one.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  assert_equal "$(wc -c < "${S}/m/ignored.sha256" | tr -d ' ')" 0
+  local line vis
+  IFS= read -r line < "${S}/m/visible.sha256"
+  vis="$(cat "${S}/m/visible.sha256")"
+  # visible.sha256 with its last record's LF removed.
+  printf '%s' "${vis}" > "${S}/m/visible.sha256"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=malformed"
+  assert_equal "${stderr}" ""
+  # visible.sha256 untouched, and ignored.sha256 holding one unterminated
+  # record for a file no list names -- a line-at-a-time read never sees it,
+  # and the disk walk would then refuse b.go as unlisted, naming the wrong
+  # cause.
+  printf '%s\n' "${vis}" > "${S}/m/visible.sha256"
+  printf 'package a\n' > "${W}/${MOD}/b.go"
+  printf '%s/b.go\t%s' "${MOD}" "$(sha256sum < "${W}/${MOD}/b.go" | cut -d' ' -f1)" > "${S}/m/ignored.sha256"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=ignored.sha256 reason=malformed"
+  assert_equal "${stderr}" ""
+}
