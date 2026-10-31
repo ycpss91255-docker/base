@@ -3796,18 +3796,37 @@ _cg_just_pin_steps() {
 YAML
 }
 
-# _cg_expected_steps -- the config-gen job's steps, canonical JSON: the
-# checkout with fetch-depth 0 (the classify base-ref diff and the
-# redpath's copies need history), the three just-pin steps, and the one
-# canonical step. Every step is a literal here, so no file under test can
-# move its own expectation.
+# The mutation context each workflow hands `just test go` (base#1464), as
+# base#1464 states it: the hosted job is main-push iff the event is a push
+# to refs/heads/main; the self-hosted workflow (workflow_dispatch only) iff
+# its ref is refs/heads/main. Local runs and the pre-PR mirror set nothing
+# and get pr.
+CG_MUT_CTX_SELF_TEST="\${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
+CG_MUT_CTX_COV_LOCAL="\${{ github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
+
+# _cg_mut_ctx <self-test|coverage-local> -- that workflow's literal.
+_cg_mut_ctx() {
+  case "${1}" in
+    self-test) printf '%s\n' "${CG_MUT_CTX_SELF_TEST}" ;;
+    coverage-local) printf '%s\n' "${CG_MUT_CTX_COV_LOCAL}" ;;
+    *) echo "BUG: _cg_mut_ctx ${1}"; return 1 ;;
+  esac
+}
+
+# _cg_expected_steps <self-test|coverage-local> -- the config-gen job's
+# steps, canonical JSON: the checkout with fetch-depth 0 (the classify
+# base-ref diff, the redpath's copies and the mutation baseline need
+# history), the three just-pin steps, and the one canonical step with its
+# CONFIG_GEN_MUTATION_CONTEXT env. Every step is a literal here, so no file
+# under test can move its own expectation.
 _cg_expected_steps() {
-  local _pin
+  local _pin _ctx
   _pin="$(_cg_just_pin_steps)" || return 1
-  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" yq -n -o json -I0 '
+  _ctx="$(_cg_mut_ctx "${1}")" || { printf '%s\n' "${_ctx}"; return 1; }
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" yq -n -o json -I0 '
       [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
       + env(CG_PIN)
-      + [{"name": strenv(CG_NAME), "run": strenv(CG_RUN)}]
+      + [{"name": strenv(CG_NAME), "env": {"CONFIG_GEN_MUTATION_CONTEXT": strenv(CG_CTX)}, "run": strenv(CG_RUN)}]
       | sort_keys(..)'
 }
 
@@ -3834,7 +3853,7 @@ want
 # fork guard its sibling job carries.
 _cg_expected_job() {
   local _steps _if
-  _steps="$(_cg_expected_steps)" || { printf '%s\n' "${_steps}"; return 1; }
+  _steps="$(_cg_expected_steps "${1}")" || { printf '%s\n' "${_steps}"; return 1; }
   case "${1}" in
     self-test)
       CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
@@ -3922,6 +3941,22 @@ _cg_fixture() {
   _want="$(_cg_expected_job coverage-local)" || fail "${_want}"
   run _cg_parity "${COV_LOCAL_WF}" "${_want}" "${CG_COV_LOCAL_TOP}" "${CG_COV_LOCAL_ENV}"
   assert_success
+}
+
+# why: The mutation baseline (base#1464) picks HEAD^1 on a main push and the
+# merge-base otherwise; a job that hands main-push to a PR run, or pr to a
+# main push, diffs against the wrong commit. Each workflow's expression is
+# read by yq from the step that runs `just test go` and compared to the
+# literal, independently of the whole-job comparison.
+@test "config-gen: each workflow hands just test go its CONFIG_GEN_MUTATION_CONTEXT expression (base#1464)" {
+  assert_spec_subject "${COV_LOCAL_WF}" "the self-hosted workflow"
+  local _expr='.jobs["config-gen"].steps[] | select(.run == "just test go") | .env.CONFIG_GEN_MUTATION_CONTEXT'
+  run yq "${_expr}" "${WF}"
+  assert_success
+  assert_output "${CG_MUT_CTX_SELF_TEST}"
+  run yq "${_expr}" "${COV_LOCAL_WF}"
+  assert_success
+  assert_output "${CG_MUT_CTX_COV_LOCAL}"
 }
 
 # why: The premise of the workflow-env check, executed rather than asserted:

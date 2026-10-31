@@ -135,22 +135,38 @@ EOF
 }
 
 # _rp_copy <scratch> -- a fresh copy of what the runner reads; prints it.
+# The copy is a one-commit Git checkout whose origin/main is that commit,
+# so the 00-manifest step (base#1464) finds a base and lists the planted
+# defect as the change; the target script and the logger it sources come
+# along.
 _rp_copy() {
   local dst
   dst="$(mktemp -d "${1}/root.XXXXXX")"
   cp -a "${_RP_ROOT}/dockerfile" "${dst}/"
-  mkdir -p "${dst}/script/test"
+  mkdir -p "${dst}/script/test" "${dst}/dist/script/docker/lib"
   if [[ -d "${_RP_ROOT}/script/test/config_gen_steps" ]]; then
     cp -a "${_RP_ROOT}/script/test/config_gen_steps" "${dst}/script/test/"
   fi
+  cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" "${dst}/script/test/"
+  cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \
+    "${dst}/dist/script/docker/lib/"
+  git -C "${dst}" init -q
+  git -C "${dst}" add -A
+  git -C "${dst}" -c user.name=config-gen-redpath -c user.email=config-gen-redpath@localhost \
+    commit -q --no-verify --no-gpg-sign -m "config-gen redpath copy"
+  git -C "${dst}" update-ref refs/remotes/origin/main HEAD
   printf '%s\n' "${dst}"
 }
 
 # _rp_gates <root> -- run the runner on <root>, its stdout to <root>.out
 # and its stderr to <root>.err; returns the runner's status. Its log is
 # JSON whatever the caller set, because _rp_verdict reads its records.
+# The mutation context is pr with no base override whatever the caller
+# inherited (base#1464): a CI main push exports main-push, and a
+# one-commit copy has no HEAD^1.
 _rp_gates() {
-  LOG_FORMAT=json bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
+  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
+    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
 }
 
 # The runner's own record of the gate that went red: a whole JSON log line

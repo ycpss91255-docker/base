@@ -1969,7 +1969,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
 
-### test/bats/unit/config_gen_gates_spec.bats (26)
+### test/bats/unit/config_gen_gates_spec.bats (27)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2004,6 +2004,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_gates.sh: a red gate propagates docker's status and re-emits the gate's id (base#1462)` | The build's own log is long and plain; without the id re-emitted as an event the redpath, CI and a reader all have to scrape BuildKit output to learn which gate went red, and docker's status is the run's verdict. |
 | `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
 | `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. |
+| `config_gen_redpath.sh: every copy is a Git checkout run with context pr and no base override (base#1464)` | The redpath's copies run the real steps, and the 00-manifest step (base#1464) reads Git history: each copy must be a Git checkout with origin/main, and must run with context pr and no override whatever the caller inherited -- a CI main push exports main-push, and HEAD^1 does not exist in a one-commit copy. |
 | `config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)` | A gate that never goes red is indistinguishable from a working one on a clean tree; each verdict below is a way a broken gate would otherwise pass the redpath. Every case is reported before the run fails. |
 | `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
 | `config_gen_redpath.sh: the id only quoted in text or in the build log, with no record, is wrong_id (base#1462)` | The id a case must produce is the runner's own record of the gate that went red. A substring scan over stderr would also accept the id quoted inside unrelated text, a longer id that starts with it, or the build log line the runner streams ahead of its verdict; each of those is a run that did not report the planted gate. |
@@ -4272,7 +4273,7 @@ rather than reporting what it managed.
 | `_run_log_event_registry: DIES when no _log_ call site is read anywhere` | The blind-detector case, and the one that matters most: 271 direct call sites exist today, so zero means the detector stopped matching -- a renamed helper, a changed argument order -- and a blind detector reports every id registered |
 | `_run_log_event_registry: DIES when nothing forwards its first argument into a body slot` | The wrapper half is where two of base#1220's four hid, and it is the half that can vanish silently: with no forwarding wrapper found the scan shrinks to the direct call sites and the thirty-odd lint drivers' events leave the population without anything saying so |
 
-### test/bats/unit/log_spec.bats (69)
+### test/bats/unit/log_spec.bats (70)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
 `LOG_FORMAT=auto|text|json` override, strict body enforcement (unregistered
@@ -4356,6 +4357,7 @@ OK, error names body + file
 | `_log_color_enabled: NO_COLOR wins over _LOG_IS_TTY=0 (#605)` | - |
 | `_log_color_enabled: FORCE_COLOR wins over _LOG_IS_TTY=1 (#605)` | - |
 | `JSON output contains OTel fields` | - |
+| `JSON code.filepath and code.lineno name the caller of _log_<level>, not log.sh (base#1464)` | code.filepath and code.lineno must name the code that logged the event. They were read one frame too shallow, so every event was attributed to the _log_<level> wrapper inside log.sh itself, and a check that a refusal came from a given script could never pass or fail on it (base#1464). |
 | `JSON output contains custom attributes` | - |
 | `JSON severity_number: DEBUG=5 INFO=9 WARN=13 ERROR=17 FATAL=21` | - |
 | `_log_json_escape escapes a double-quote` | - |
@@ -4760,7 +4762,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (32)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (33)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -4830,6 +4832,7 @@ local mode with it.
 | `pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)` | A gate read by substring took `<code gate> && false` -- a job that never runs -- for a code-gated job, so the plan check demanded a local command for it and the mirror attested a job CI never ran. |
 | `pre-PR mirror: config-gen is attested by exactly just test go (base#1462)` | config-gen joins ci-rollup's needs, so the mirror must run the same one command CI runs for it, and that command must resolve to a recipe. |
 | `pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)` | The config generator's sources are code paths; a diff touching only them must plan the Go gates, and a docs-only diff must not. |
+| `pre-PR mirror: a mutation-baseline diff plans just test go and just test (base#1464)` | The mutation baseline (base#1464) is a script the 00-manifest step runs inside `just test go`, and its spec is integration tier. A diff that touches only one of the three must plan both, so the mirror runs the step and the spec that pins it. The mirror sets no CONFIG_GEN_MUTATION_CONTEXT, so it runs the pr default the spec proves. |
 | `pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)` | The plan naming `just test go` is a string; what CI attests is the recipe `just` runs for argv `test go`, and that its red reaches the mirror's own exit status (base#1462). |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
@@ -5976,7 +5979,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (146)
+### test/bats/unit/self_test_yaml_spec.bats (147)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6435,6 +6438,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 | `self-test.yaml: the config-gen job runs exactly just test go under an unmodified shell (base#1462)` | Nothing ran the Go gates in CI before base#1462. The hosted job is compared whole, so a spelling of the step that does not run `just test go` under a plain bash cannot pass for one that does. |
 | `coverage-local.yaml: the config-gen job runs exactly just test go on self-hosted behind the fork guard (base#1462)` | The self-hosted environment runs the same command; coverage-local.yaml is where self-hosted jobs live, behind the same fork guard. |
+| `config-gen: each workflow hands just test go its CONFIG_GEN_MUTATION_CONTEXT expression (base#1464)` | The mutation baseline (base#1464) picks HEAD^1 on a main push and the merge-base otherwise; a job that hands main-push to a PR run, or pr to a main push, diffs against the wrong commit. Each workflow's expression is read by yq from the step that runs `just test go` and compared to the literal, independently of the whole-job comparison. |
 | `config-gen: a BASH_ENV that exits 0 turns a red step body green under GitHub's run shell (base#1462)` | The premise of the workflow-env check, executed rather than asserted: GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail {0}`, and a BASH_ENV file that exits 0 ends that bash before the step body runs. |
 | `config-gen parity: every layer above the canonical step is compared exactly (base#1462)` | Each mutation below is a way the canonical step stays in the file while `just test go` does not run, or runs under a changed shell. The helper must refuse each one and name the layer, and must pass the unmutated fixture, so a red on the real file is the file and not the helper. Workflow env rows rule out checking only the job (BASH_ENV), a BASH_ENV deny-list (SHELLOPTS) and a subset check (a removed key). |
 | `config-gen parity: a workflow env added to coverage-local.yaml is refused (base#1462)` | coverage-local.yaml has no workflow env today, so it is checked on its own: a check of self-test.yaml alone would never see its frame. |

@@ -195,6 +195,10 @@ jobs:
           echo "just: ${observed}, which is the pin"
 
       - name: Run the config-gen gates
+        # The mutation baseline (base#1464) diffs against HEAD^1 on a main
+        # push and against the merge-base with origin/main otherwise.
+        env:
+          CONFIG_GEN_MUTATION_CONTEXT: "${{ github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
         run: just test go
 
 # No reclaim step. `script/test/test.sh` arms an EXIT-trap sweep of
