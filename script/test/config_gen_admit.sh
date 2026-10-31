@@ -14,6 +14,9 @@
 #
 # The checks run in this order, and the first refusal ends the run:
 #
+#   presence         manifest, visible.sha256 and ignored.sha256 must each be
+#                    a regular file (00-manifest writes all three);
+#                    otherwise file=<it> reason=absent.
 #   manifest bytes   TAB, LF and 0x20-0x7e only, as S1d writes it; any
 #                    other byte (a CR from a CRLF rewrite included) is
 #                    file=manifest reason=bytes. Then the framing: every
@@ -56,6 +59,8 @@
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
 # which config_gen_gates.sh re-emits as that event, and the exit is 1.
+# <path> is written with each byte outside 0x21-0x7e, and the % itself, as
+# %XX, so a name holding a space or a LF stays one word of one line.
 #
 # Exit: 0 admitted; 1 refused or a missing argument.
 #
@@ -70,9 +75,26 @@ readonly _CGA_NONE='none: no-go-change'
 # Paths every list read so far names, for the one-list rule.
 declare -A _cga_listed=()
 
+# _cga_enc <value> -- <value> as one word: each byte outside 0x21-0x7e,
+# and the % itself, written as %XX (uppercase hex), so the value holds no
+# space or LF and no two values share a spelling.
+_cga_enc() {
+  local out='' h
+  # od, not printf "'c": bash's printf reads a byte past 0x7f as a signed
+  # char on some builds (the test-tools image printed %DFC3 for 0xc3).
+  for h in $(printf '%s' "${1}" | od -An -v -tx1); do
+    case "${h}" in
+      25) out+='%25' ;;
+      2[1-9a-f] | [3-6][0-9a-f] | 7[0-9a-e]) out+="$(printf '%b' "\\x${h}")" ;;
+      *) out+="%${h^^}" ;;
+    esac
+  done
+  printf '%s' "${out}"
+}
+
 # _cga_stale <file> <reason> -- refuse, rc 1.
 _cga_stale() {
-  printf 'cg_event config_gen_manifest_stale file=%s reason=%s\n' "${1}" "${2}"
+  printf 'cg_event config_gen_manifest_stale file=%s reason=%s\n' "$(_cga_enc "${1}")" "${2}"
   exit 1
 }
 
@@ -188,6 +210,10 @@ _cga_walk() {
 main() {
   local mutation="${1:?usage: config_gen_admit.sh <mutation> <src>}"
   local src="${2:?usage: config_gen_admit.sh <mutation> <src>}"
+  local f
+  for f in manifest visible.sha256 ignored.sha256; do
+    [[ -f "${mutation}/${f}" && ! -L "${mutation}/${f}" ]] || _cga_stale "${f}" absent
+  done
   _cga_bytes "${mutation}/manifest" manifest
   _cga_header "${mutation}/manifest"
   _cga_body "${mutation}/manifest"

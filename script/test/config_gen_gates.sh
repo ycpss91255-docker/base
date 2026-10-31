@@ -61,9 +61,11 @@ readonly _CG_FAIL_RE='^#[0-9]+ [0-9]+\.[0-9]+ config_gen_gate_([a-z]+)_failed( .
 # (base#1465). Only an id named here is re-emitted, so the build log can
 # never put an arbitrary body into the runner's own records.
 readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale)( .*)?$'
-# The attributes a re-emitted event may carry, each `<key>=<value>` with no
-# space in the value; any other word on the line is dropped.
-readonly _CG_EVENT_ATTR_RE='^(file|reason)=[^[:space:]]+$'
+# The attributes a re-emitted event may carry, each `<key>=<value>` whose
+# value is bytes 0x21-0x7e only: config_gen_admit.sh writes every other
+# byte, and the % itself, as %XX, so a value is one word and is kept here
+# verbatim, still encoded. Any other word on the line is dropped.
+readonly _CG_EVENT_ATTR_RE='^(file|reason)=[!-~]+$'
 
 # _cg_run_steps <root> <ctx> -- run each step; the first red one ends the
 # run with its status.
