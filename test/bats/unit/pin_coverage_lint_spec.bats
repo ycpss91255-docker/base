@@ -1128,12 +1128,13 @@ _gomod() {
 # the case skips when su cannot drop. The tree is opened to nobody and git
 # is told the tree is safe, since its owner is someone else.
 _as_reader() {
+  local _unreadable="${2:-.a.txt}"
   local _cmd="export LOG_FORMAT=json GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'; source /source/script/watch/lib.sh; ${1}"
   if (( EUID == 0 )); then
     su -s /bin/bash nobody -c true 2>/dev/null \
       || skip "running as root and cannot drop to nobody, so no unreadable file can be staged"
     chmod -R a+rX "${SCRATCH}"
-    chmod 000 "${SCRATCH}/.a.txt"
+    chmod 000 "${SCRATCH}/${_unreadable}"
     run --separate-stderr su -s /bin/bash nobody -c "${_cmd}"
   else
     run --separate-stderr bash -c "${_cmd}"
@@ -1212,6 +1213,18 @@ _as_reader() {
   chmod 000 "${SCRATCH}/.a.txt"
   _as_reader "_pin_read '${SCRATCH}'"
   assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/.a.txt"
+}
+
+# why: The table is streamed as it is read, so an unreadable file sorted
+# AFTER a pinned one left that pin's record on stdout beside the refusal; a
+# caller reading stdout would get a partial table with the failure.
+@test "_pin_read: an unreadable tracked file after a pinned one leaves stdout empty (base#1463)" {
+  _one_good_pin
+  printf 'x\n' > "${SCRATCH}/zz.txt"
+  git -C "${SCRATCH}" add -A
+  chmod 000 "${SCRATCH}/zz.txt"
+  _as_reader "_pin_read '${SCRATCH}'" zz.txt
+  assert_refusal 1 pin_file_unreadable "file=${SCRATCH}/zz.txt"
 }
 
 # why: _pin_uncovered walks the files itself, so it needs its own guard.
