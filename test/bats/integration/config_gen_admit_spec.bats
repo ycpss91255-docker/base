@@ -249,3 +249,24 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=bytes"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a change record whose path holds a .. segment is refused as path (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # S1d writes each record path as `git diff --name-status` prints it: the
+  # repo-relative path under dockerfile/config-gen/, with no empty, `.` or
+  # `..` segment (design §2 check 5, canonical P). A later step writes a
+  # record whose path climbs out of the module through `..`; the record has
+  # the one-path M shape, so only the path rule refuses it.
+  printf '%s\nM\t%s/../a.go\n' "${header}" "${MOD}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=path"
+  assert_equal "${stderr}" ""
+}
