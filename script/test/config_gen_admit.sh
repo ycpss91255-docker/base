@@ -35,7 +35,9 @@
 # `dockerfile/config-gen/`, so a record path holding a `..`, `.` or empty
 # segment, or outside that prefix, or holding a `"` (the quote of a name
 # git C-quotes), is refused as file=manifest reason=path.
-# Every line of visible.sha256 and ignored.sha256 must be
+# visible.sha256 and ignored.sha256 may hold only the same bytes; any
+# other byte (a NUL, which a text read would drop) is refused as
+# file=<list> reason=bytes. Every line of each list must be
 # `<path>\t<64 hex digits>`; any other line is refused as file=<list>
 # reason=record, before any file of <src> is judged against it; and a
 # path listed twice in one list (00-manifest hashes each file once) is
@@ -66,9 +68,10 @@ _cga_stale() {
   exit 1
 }
 
-# _cga_bytes <manifest> -- refuse a byte other than TAB, LF or 0x20-0x7e.
+# _cga_bytes <file> <name> -- refuse a byte other than TAB, LF or
+# 0x20-0x7e in <file>, naming it <name>.
 _cga_bytes() {
-  ! grep -aq $'[^\t[:print:]]' -- "${1}" || _cga_stale manifest bytes
+  ! grep -aq $'[^\t[:print:]]' -- "${1}" || _cga_stale "${2}" bytes
 }
 
 # _cga_header <manifest> -- refuse a first line that is not S1d's header.
@@ -129,6 +132,7 @@ _cga_check() {
   local src="${1}" list="${2}" path want got line
   local rec=$'^[^\t]+\t[0-9a-f]{64}$'
   local -A seen=()
+  _cga_bytes "${list}" "${list##*/}"
   while IFS= read -r line; do
     [[ "${line}" =~ ${rec} ]] || _cga_stale "${list##*/}" record
     path="${line%%$'\t'*}"
@@ -168,7 +172,7 @@ _cga_walk() {
 main() {
   local mutation="${1:?usage: config_gen_admit.sh <mutation> <src>}"
   local src="${2:?usage: config_gen_admit.sh <mutation> <src>}"
-  _cga_bytes "${mutation}/manifest"
+  _cga_bytes "${mutation}/manifest" manifest
   _cga_header "${mutation}/manifest"
   _cga_body "${mutation}/manifest"
   _cga_check "${src}" "${mutation}/visible.sha256"
