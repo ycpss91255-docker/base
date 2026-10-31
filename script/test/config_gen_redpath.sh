@@ -195,8 +195,14 @@ _rp_stale_body() {
       # The appended line is a comment: every gate would pass on it.
       echo 'printf "\n// zz stale edit after the manifest\n" >>"${_mod}/cmd/config-gen/main.go"' ;;
     stale-new-pkg)
-      # The package is fully covered by its own test: every gate would
-      # pass on it.
+      # The package is fully covered by its own test, but no coverage
+      # floor names it: the coverage ratchet refuses it as
+      # config_gen_coverage_floor_missing when it is planted before the
+      # manifest (cov-missing, the same source as internal/zzmiss).
+      # Admission must refuse it here first. No floor is planted with it:
+      # a floor appended to coverage-floors.d/s1e.txt after the manifest
+      # is refused first, as that file's sha_mismatch, so the case would
+      # no longer be about zznew.go. (base#1465)
       cat <<'STEP'
 mkdir -p "${_mod}/internal/zznew"
 printf '// Package zznew is planted after the manifest.\npackage zznew\n\n// One returns 1.\nfunc One() int { return 1 }\n' >"${_mod}/internal/zznew/zznew.go"
