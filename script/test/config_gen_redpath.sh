@@ -33,6 +33,19 @@
 #   no-context  a last step removes $CONFIG_GEN_CTX/mutation,  config_gen_manifest_missing
 #               so the build gets no mutation context
 #
+# The rerun case (base#1465) plants nothing: it calls the runner twice in
+# a row on one unchanged copy. Each call must exit 0 and print exactly
+#
+#   gate=admission ok
+#   gate=fmt ok
+#   gate=vet ok
+#   gate=lint ok
+#   gate=race ok
+#   gate=coverage ok
+#
+# on stdout, so a verdict RUN the second call took from the build cache
+# (it prints no line) fails the case instead of passing on cache state.
+#
 # CONFIG_GEN_REDPATH_ONLY, when set, is a space-separated list of case
 # names: only those cases run, then the control.
 #
@@ -260,6 +273,40 @@ _rp_refusal() {
   return 1
 }
 
+# The six lines each rerun call must print, typed from the issue's gate
+# list (base#1465), not derived from _RP_GATES.
+readonly _RP_RERUN_OUT='gate=admission ok
+gate=fmt ok
+gate=vet ok
+gate=lint ok
+gate=race ok
+gate=coverage ok'
+
+# _rp_rerun_verdict <rc> <out> -- empty when one rerun call passed with
+# exactly the six ok lines, else the reason it did not.
+_rp_rerun_verdict() {
+  local rc="${1}" out="${2}"
+  (( rc == 0 )) || { echo rc_not_zero; return 0; }
+  printf '%s\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }
+}
+
+# _rp_rerun <scratch> -- run the runner twice on one unchanged copy;
+# non-zero when either call did not pass with exactly the six ok lines.
+_rp_rerun() {
+  local root rc call reason
+  root="$(_rp_copy "${1}")"
+  for call in 1 2; do
+    rc=0
+    _rp_gates "${root}" || rc=$?
+    reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
+    [[ -z "${reason}" ]] && continue
+    cat "${root}.err" >&2
+    _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=rerun" "call=${call}" "reason=${reason}" \
+      "display=config-gen redpath case rerun: call ${call} of 2 did not print exactly the six ok lines: ${reason}"
+    return 1
+  done
+}
+
 # _rp_selected <case> -- true unless CONFIG_GEN_REDPATH_ONLY is set and
 # does not name <case>.
 _rp_selected() {
@@ -305,6 +352,10 @@ main() {
     ran=$(( ran + 1 ))
     _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
   done
+  if _rp_selected rerun; then
+    ran=$(( ran + 1 ))
+    _rp_rerun "${scratch}" || failed=1
+  fi
   _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
   echo "config-gen redpath: ${ran} planted defects went red or were refused; the control passed"

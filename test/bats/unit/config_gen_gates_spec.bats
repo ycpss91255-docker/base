@@ -412,8 +412,9 @@ _gate_record() {
 # every earlier gate ok, the build log line naming the case's gate, then
 # the runner's own record of that gate id, and rc 1; the no-context
 # refusal case (base#1465) is an empty stdout, the runner's record of
-# config_gen_manifest_missing and rc 1; the control is all five ok and
-# rc 0.
+# config_gen_manifest_missing and rc 1; the two rerun calls (base#1465)
+# are each the six ok lines, admission first, and rc 0; the control is
+# all five ok and rc 0.
 _canned_correct() {
   local _all=(fmt vet lint race coverage) _case _gate _n=0 _g
   mkdir -p "${S}/canned"
@@ -437,6 +438,12 @@ _canned_correct() {
   _gate_record config_gen_build_failed status=1 "display=no mutation context" \
     | sed 's/"body":"config_gen_build_failed"/"body":"config_gen_manifest_missing"/' > "${S}/canned/${_n}.err"
   printf '1\n' > "${S}/canned/${_n}.rc"
+  for _g in 1 2; do
+    _n=$(( _n + 1 ))
+    printf 'gate=%s ok\n' admission "${_all[@]}" > "${S}/canned/${_n}.out"
+    : > "${S}/canned/${_n}.err"
+    printf '0\n' > "${S}/canned/${_n}.rc"
+  done
   _n=$(( _n + 1 ))
   printf 'gate=%s ok\n' "${_all[@]}" > "${S}/canned/${_n}.out"
   : > "${S}/canned/${_n}.err"
@@ -458,11 +465,12 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  assert_equal "$(cat "${S}/runner.n")" 9
-  assert_equal "$(grep -c . "${S}/runner.trees")" 9
+  assert_equal "$(cat "${S}/runner.n")" 11
+  assert_equal "$(grep -c . "${S}/runner.trees")" 11
   local _roots
   _roots="$(for _f in "${S}"/runner.*.argv; do awk 'p == "--root" {print} {p=$0}' "${_f}"; done)"
-  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 9
+  # The two rerun calls share one copy; every other call has its own.
+  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 10
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
@@ -480,10 +488,10 @@ _run_redpath() {
       CONFIG_GEN_MUTATION_CONTEXT=main-push CONFIG_GEN_MUTATION_BASE=deadbeef \
       LOG_FORMAT=json timeout 60 bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_success
-  assert_equal "$(grep -c . "${S}/runner.mutenv")" 9
+  assert_equal "$(grep -c . "${S}/runner.mutenv")" 11
   assert_equal "$(grep -cvx 'ctx=pr base=' "${S}/runner.mutenv")" 0
-  assert_equal "$(grep -c . "${S}/runner.git")" 9
-  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 9
+  assert_equal "$(grep -c . "${S}/runner.git")" 11
+  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 11
 }
 
 # why: A gate that never goes red is indistinguishable from a working one on
@@ -496,7 +504,22 @@ _run_redpath() {
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=vet reason=rc_zero gate=vet
-  assert_equal "$(cat "${S}/runner.n")" 9
+  assert_equal "$(cat "${S}/runner.n")" 11
+}
+
+# why: A verdict RUN the build cache served prints no line, so a runner
+# that excluded only `test` (or only `admit`) from the cache passes its
+# first call and reports cache state on the next. The rerun case calls the
+# runner twice on one unchanged copy and holds each call to the six ok
+# lines exactly (base#1465).
+@test "config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/10.out"
+  _run_redpath
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
+  assert_equal "$(cat "${S}/runner.n")" 11
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
@@ -619,7 +642,7 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '1\n' > "${S}/canned/9.rc"
+  printf '1\n' > "${S}/canned/11.rc"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_control_failed status=1
