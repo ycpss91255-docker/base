@@ -95,29 +95,29 @@ config_gen_manifest_stale file=<path> reason=<r> and nothing on stderr
 
 | Test | Description |
 |------|-------------|
-| `config_gen_admit: a symlink added to the module after the baseline is refused as not_regular (base#1465)` | - |
-| `config_gen_admit: a listed file deleted from the module after the baseline is refused as missing (base#1465)` | - |
-| `config_gen_admit: a manifest body line that is neither the none marker nor a change record is refused as record (base#1465)` | - |
-| `config_gen_admit: a change record whose path count does not match its status is refused as record (base#1465)` | - |
-| `config_gen_admit: a change record whose status is not one S1d writes (U) is refused as record (base#1465)` | - |
-| `config_gen_admit: a manifest body holding the none marker beside a change record is refused as none_marker (base#1465)` | - |
-| `config_gen_admit: a manifest body holding the none marker twice is refused as none_marker (base#1465)` | - |
-| `config_gen_admit: a manifest holding the header and no body line is refused as body_empty (base#1465)` | - |
-| `config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)` | - |
-| `config_gen_admit: a change record whose path holds a .. segment is refused as path (base#1465)` | - |
-| `config_gen_admit: a change record whose path holds a . segment is refused as path (base#1465)` | - |
-| `config_gen_admit: a change record whose path holds an empty segment (//) is refused as path (base#1465)` | - |
-| `config_gen_admit: a change record whose path is outside the dockerfile/config-gen/ prefix (config-genx/) is refused as path (base#1465)` | - |
-| `config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)` | - |
-| `config_gen_admit: a visible.sha256 line whose sha256 is not 64 hex digits (short hex) is refused as record (base#1465)` | - |
-| `config_gen_admit: a visible.sha256 path listed twice is refused as duplicate (base#1465)` | - |
-| `config_gen_admit: a path listed in both visible.sha256 and ignored.sha256 is refused as dual (base#1465)` | - |
-| `config_gen_admit: a visible.sha256 line holding a NUL byte is refused as bytes (base#1465)` | - |
-| `config_gen_admit: a rename or copy record whose score is not three digits is refused as record (base#1465)` | - |
-| `config_gen_admit: a manifest whose last line has no LF is refused as malformed (base#1465)` | - |
-| `config_gen_admit: a sha256 list whose last record has no LF is refused as malformed (base#1465)` | - |
-| `config_gen_admit: an attribute value is one word, each byte outside ! to ~ and the % itself written as %XX (base#1465)` | - |
-| `config_gen_admit: every refusal reaches the runner as rc 1, no stdout, and JSON stale and admission records naming its file and reason (base#1465)` | - |
+| `config_gen_admit: a symlink added to the module after the baseline is refused as not_regular (base#1465)` | A symlink is no regular file, so no sha256 in either list binds what the build would follow through it; admission must refuse it by name. (base#1465) |
+| `config_gen_admit: a listed file deleted from the module after the baseline is refused as missing (base#1465)` | A file the baseline lists and the module no longer holds is a change the gates never see; the refusal must name the absence, not a sha256 mismatch. (base#1465) |
+| `config_gen_admit: a manifest body line that is neither the none marker nor a change record is refused as record (base#1465)` | S1d writes only the none marker or change records after the header; any other line means the manifest is not the one 00-manifest wrote. (base#1465) |
+| `config_gen_admit: a change record whose path count does not match its status is refused as record (base#1465)` | git gives A, D, M and T one path and a rename or copy two; a record with the wrong count is not a git record. (base#1465) |
+| `config_gen_admit: a change record whose status is not one S1d writes (U) is refused as record (base#1465)` | U has the record's shape but is no status 00-manifest emits, so a manifest carrying it was written by something else. (base#1465) |
+| `config_gen_admit: a manifest body holding the none marker beside a change record is refused as none_marker (base#1465)` | S1d writes the none marker only when there is no change record, so the marker beside one is a contradiction. (base#1465) |
+| `config_gen_admit: a manifest body holding the none marker twice is refused as none_marker (base#1465)` | S1d writes the none marker at most once; a second copy is no manifest it wrote. (base#1465) |
+| `config_gen_admit: a manifest holding the header and no body line is refused as body_empty (base#1465)` | S1d always writes the marker or at least one record, so a header alone is a truncated manifest. (base#1465) |
+| `config_gen_admit: a manifest whose lines end in CRLF is refused as bytes (base#1465)` | 00-manifest writes TAB, LF and printable ASCII only; a CR from a CRLF rewrite is a byte it never writes. (base#1465) |
+| `config_gen_admit: a change record whose path holds a .. segment is refused as path (base#1465)` | A record path is the path git printed under the module; a .. segment names a file outside what it describes. (base#1465) |
+| `config_gen_admit: a change record whose path holds a . segment is refused as path (base#1465)` | git never prints a . segment, so a record holding one is not git's spelling of a path. (base#1465) |
+| `config_gen_admit: a change record whose path holds an empty segment (//) is refused as path (base#1465)` | git never prints an empty segment, so a record holding // is not git's spelling of a path. (base#1465) |
+| `config_gen_admit: a change record whose path is outside the dockerfile/config-gen/ prefix (config-genx/) is refused as path (base#1465)` | S1d diffs only the module, so every record path starts with dockerfile/config-gen/; a sibling directory sharing the prefix's letters is outside it. (base#1465) |
+| `config_gen_admit: a change record whose path holds a double quote (a quoted name) is refused as path (base#1465)` | A double quote in a record path is the quoting of a name S1d C-quotes, which admission does not read back. (base#1465) |
+| `config_gen_admit: a visible.sha256 line whose sha256 is not 64 hex digits (short hex) is refused as record (base#1465)` | A list line is a path, a TAB and a 64-hex sha256; a shorter digest binds nothing and must be refused as the list's line. (base#1465) |
+| `config_gen_admit: a visible.sha256 path listed twice is refused as duplicate (base#1465)` | 00-manifest hashes each module file once, so a repeated path is a list it did not write. (base#1465) |
+| `config_gen_admit: a path listed in both visible.sha256 and ignored.sha256 is refused as dual (base#1465)` | 00-manifest puts each module file in exactly one list, so a path in both is a list it did not write. (base#1465) |
+| `config_gen_admit: a visible.sha256 line holding a NUL byte is refused as bytes (base#1465)` | A text read drops a NUL, so a line holding one would look untouched; only a byte check on the list refuses it. (base#1465) |
+| `config_gen_admit: a rename or copy record whose score is not three digits is refused as record (base#1465)` | git prints a rename or copy as R or C and a three-digit similarity score; any other status word is not git's record. (base#1465) |
+| `config_gen_admit: a manifest whose last line has no LF is refused as malformed (base#1465)` | Every check after the byte check reads line by line, and a line-at- a-time read hands an unterminated last line to no loop, so a garbage line without LF would pass unread. (base#1465) |
+| `config_gen_admit: a sha256 list whose last record has no LF is refused as malformed (base#1465)` | The same framing rule holds for the lists: an unterminated last record is never read, and the disk walk would then blame the file it should have bound. (base#1465) |
+| `config_gen_admit: an attribute value is one word, each byte outside ! to ~ and the % itself written as %XX (base#1465)` | The refusal line is read as space-separated key=value words, so a value holding a space, a LF or a non-ASCII byte would be cut or end the line; %XX keeps it one word and unambiguous. (base#1465) |
+| `config_gen_admit: every refusal reaches the runner as rc 1, no stdout, and JSON stale and admission records naming its file and reason (base#1465)` | The checker's line is not the contract a caller reads: the admit RUN prints it into the BuildKit log and config_gen_gates.sh re-emits it as JSON, which the redpath, CI and a reader act on. So every refusal is also run through the real runner, from a log shaped as a real stale- header build printed it. (base#1465) |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 
