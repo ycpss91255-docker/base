@@ -880,3 +880,27 @@ manifest|"dockerfile/config-gen/n\\nl.go"|"dockerfile/config-gen/n\\012l.go"|pat
 manifest|"dockerfile/config-gen/q\\"t.go"|"dockerfile/config-gen/q\\042t.go"|path
 ROWS
 }
+
+# why: S1d's quoting rule and admission's reading of it must agree on
+# every byte, not only on the few names a fixture picks: a byte the two
+# class differently (quoted by one, raw to the other) refuses an unchanged
+# module. One untracked file per byte 0x01-0xff but `/` runs every byte
+# through both. (base#1465)
+@test "config_gen_admit: an unchanged baseline holding one untracked name per byte 0x01-0xff but / is admitted (base#1465)" {
+  _baseline
+  local i b
+  for ((i = 1; i < 256; i++)); do
+    ((i != 0x2f)) || continue
+    printf -v b '%03o' "${i}"
+    printf -v b "\\${b}"
+    printf 'package a // %d\n' "${i}" > "${W}/${MOD}/b${b}.go"
+  done
+  rm -rf "${S}/m"
+  CONFIG_GEN_MUTATION_CONTEXT=pr bash "${CGM}" --repo "${W}" "${S}/m" \
+    || fail "config_gen_mutation_targets.sh did not write the baseline"
+  assert_equal "$(wc -l < "${S}/m/visible.sha256")" 255
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+}
