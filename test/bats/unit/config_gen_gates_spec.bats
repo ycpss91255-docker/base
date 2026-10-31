@@ -413,9 +413,9 @@ _gate_record() {
 # naming the case's gate, then the runner's own record of that gate id,
 # and rc 1; the no-context refusal case (base#1465) is an empty stdout,
 # the runner's record of config_gen_manifest_missing and rc 1; the
-# stale-edit, stale-new-pkg and stale-gomod cases (base#1465) are each an
-# empty stdout, the runner's records of config_gen_manifest_stale (the
-# case's file and reason) and config_gen_gate_admission_failed, and rc 1;
+# stale-edit, stale-new-pkg, stale-gomod and stale-header cases (base#1465)
+# are each an empty stdout, the runner's records of
+# config_gen_manifest_stale (the case's file and reason) and config_gen_gate_admission_failed, and rc 1;
 # the two rerun calls (base#1465) are each the six ok lines, admission first, and rc 0; the
 # control is the same six ok lines and rc 0.
 _canned_correct() {
@@ -442,11 +442,12 @@ _canned_correct() {
     | sed 's/"body":"config_gen_build_failed"/"body":"config_gen_manifest_missing"/' > "${S}/canned/${_n}.err"
   printf '1\n' > "${S}/canned/${_n}.rc"
   local _stale
-  for _stale in cmd/config-gen/main.go:sha_mismatch internal/zznew/zznew.go:unlisted \
-      go.mod:sha_mismatch; do
+  for _stale in dockerfile/config-gen/cmd/config-gen/main.go:sha_mismatch \
+      dockerfile/config-gen/internal/zznew/zznew.go:unlisted \
+      dockerfile/config-gen/go.mod:sha_mismatch manifest:header; do
     _n=$(( _n + 1 ))
     : > "${S}/canned/${_n}.out"
-    { _gate_record config_gen_manifest_stale "file=dockerfile/config-gen/${_stale%%:*}" \
+    { _gate_record config_gen_manifest_stale "file=${_stale%%:*}" \
         "reason=${_stale#*:}" status=1 "display=stale"
       _gate_record config_gen_gate_admission_failed gate=admission status=1 "display=admission"
     } > "${S}/canned/${_n}.err"
@@ -479,12 +480,12 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  assert_equal "$(cat "${S}/runner.n")" 14
-  assert_equal "$(grep -c . "${S}/runner.trees")" 14
+  assert_equal "$(cat "${S}/runner.n")" 15
+  assert_equal "$(grep -c . "${S}/runner.trees")" 15
   local _roots
   _roots="$(for _f in "${S}"/runner.*.argv; do awk 'p == "--root" {print} {p=$0}' "${_f}"; done)"
   # The two rerun calls share one copy; every other call has its own.
-  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 13
+  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 14
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
@@ -502,10 +503,10 @@ _run_redpath() {
       CONFIG_GEN_MUTATION_CONTEXT=main-push CONFIG_GEN_MUTATION_BASE=deadbeef \
       LOG_FORMAT=json timeout 60 bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_success
-  assert_equal "$(grep -c . "${S}/runner.mutenv")" 14
+  assert_equal "$(grep -c . "${S}/runner.mutenv")" 15
   assert_equal "$(grep -cvx 'ctx=pr base=' "${S}/runner.mutenv")" 0
-  assert_equal "$(grep -c . "${S}/runner.git")" 14
-  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 14
+  assert_equal "$(grep -c . "${S}/runner.git")" 15
+  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 15
 }
 
 # why: A gate that never goes red is indistinguishable from a working one on
@@ -518,7 +519,7 @@ _run_redpath() {
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=vet reason=rc_zero gate=vet
-  assert_equal "$(cat "${S}/runner.n")" 14
+  assert_equal "$(cat "${S}/runner.n")" 15
 }
 
 # why: A verdict RUN the build cache served prints no line, so a runner
@@ -529,11 +530,11 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/13.out"
+  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/14.out"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
-  assert_equal "$(cat "${S}/runner.n")" 14
+  assert_equal "$(cat "${S}/runner.n")" 15
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
@@ -659,7 +660,7 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '1\n' > "${S}/canned/14.rc"
+  printf '1\n' > "${S}/canned/15.rc"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_control_failed status=1

@@ -16,6 +16,9 @@
 # a module file as 00-manifest hashed it; a file in <src> whose sha256 now
 # differs (an edit after the baseline was written) is refused, and so is
 # a file in <src> that neither list names (added after the baseline).
+# Before either, the manifest's first line must be S1d's header,
+# `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`; any other
+# first line is refused as file=manifest reason=header.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -34,6 +37,14 @@ readonly _CGA_MOD='dockerfile/config-gen/'
 _cga_stale() {
   printf 'cg_event config_gen_manifest_stale file=%s reason=%s\n' "${1}" "${2}"
   exit 1
+}
+
+# _cga_header <manifest> -- refuse a first line that is not S1d's header.
+_cga_header() {
+  local line='' sha='([0-9a-f]{40}|[0-9a-f]{64})'
+  IFS= read -r line <"${1}" || true
+  [[ "${line}" =~ ^base=${sha}\ head=${sha}\ dirty=(yes|no)\ context=(pr|main-push)$ ]] ||
+    _cga_stale manifest header
 }
 
 # _cga_check <src> <list> -- refuse the first listed file whose sha256 in
@@ -64,6 +75,7 @@ _cga_walk() {
 main() {
   local mutation="${1:?usage: config_gen_admit.sh <mutation> <src>}"
   local src="${2:?usage: config_gen_admit.sh <mutation> <src>}"
+  _cga_header "${mutation}/manifest"
   _cga_check "${src}" "${mutation}/visible.sha256"
   _cga_check "${src}" "${mutation}/ignored.sha256"
   _cga_walk "${src}" "${mutation}/visible.sha256" "${mutation}/ignored.sha256"
