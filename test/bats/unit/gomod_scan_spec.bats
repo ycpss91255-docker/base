@@ -340,6 +340,33 @@ _gomod() {
   _refused tab_comment record_tab 3
 }
 
+# why: An empty quoted path left two adjacent tabs in the record, and a
+# tab-split `read` collapses them, so the reader took the comment for the
+# version: `require "" v1.0.0 // note` listed as current=`// note` (review
+# round 2, base#1463). Go itself drops a requirement with an empty path,
+# so no record agrees with Go; line and block form are refused by name.
+@test "_pin_go_mod_scan: an empty quoted path is refused as path_empty (base#1463)" {
+  _refused path_empty path_empty 3
+  _refused path_empty_block path_empty 4
+}
+
+# why: A record is decoded by splitting on its tabs with every field kept,
+# including an empty one, so no field can slide into its neighbour's
+# column whatever the scanner emits (review round 2, base#1463).
+@test "_pin_go_mod_record_fields: an empty field keeps its column (base#1463)" {
+  local _gm_r_ln _gm_r_path _gm_r_ver _gm_r_cm
+  _pin_go_mod_record_fields "$(printf '3\t\tv1.0.0\t// note')"
+  assert_equal "${_gm_r_ln}" 3
+  assert_equal "${_gm_r_path}" ""
+  assert_equal "${_gm_r_ver}" v1.0.0
+  assert_equal "${_gm_r_cm}" '// note'
+  _pin_go_mod_record_fields "$(printf '5\ta\tv1.0.0\t')"
+  assert_equal "${_gm_r_ln}" 5
+  assert_equal "${_gm_r_path}" a
+  assert_equal "${_gm_r_ver}" v1.0.0
+  assert_equal "${_gm_r_cm}" ""
+}
+
 # why: `(` must end its line; `require ( a v1.0.0` is a Go error.
 @test "_pin_go_mod_scan: text after an opening paren is refused as paren_trailer (base#1463)" {
   _refused paren_trailer paren_trailer 3

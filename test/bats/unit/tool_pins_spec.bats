@@ -409,6 +409,75 @@ _pins() {
   assert_output '664'
 }
 
+# _gomod <line>... -- write the scratch config-gen go.mod.
+_gomod() {
+  mkdir -p "${SCRATCH}/dockerfile/config-gen"
+  printf '%s\n' "$@" > "${SCRATCH}/dockerfile/config-gen/go.mod"
+}
+
+# why: The reader registers a go.mod require as a pin (base#1463), so a bump
+# must be able to rewrite it; the assignment and coordinate:version rewrites
+# never match `require <path> <version>` (review round 2). The version token
+# the scanner read is replaced in place: spacing and comment kept.
+@test "pins: --set rewrites a go.mod require, line form, keeping its comment (base#1463)" {
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0 // held: v0.21.0 is the last for go 1.22'
+  _pins --set xmod v0.22.0
+  assert_success
+  run sed -n 6p "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output 'require golang.org/x/mod v0.22.0 // held: v0.21.0 is the last for go 1.22'
+  _pins --value xmod
+  assert_output v0.22.0
+}
+
+# why: The block form is what `go get` writes; the entry has no verb on its
+# line, so a rewrite keyed on `require` would miss it.
+@test "pins: --set rewrites a go.mod require, block form (base#1463)" {
+  _gomod 'module example.com/m' '' 'require (' \
+    '	// tool-pin: xmod github-release golang/mod' \
+    '	golang.org/x/mod v0.21.0' ')'
+  _pins --set xmod v0.22.0
+  assert_success
+  run sed -n 5p "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output $'\tgolang.org/x/mod v0.22.0'
+}
+
+# why: A quoted version is read without its quotes; the rewrite keeps them.
+@test "pins: --set rewrites a quoted go.mod version and keeps the quotes (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require "golang.org/x/mod" "v0.21.0"'
+  _pins --set xmod v0.22.0
+  assert_success
+  run sed -n 3p "${SCRATCH}/dockerfile/config-gen/go.mod"
+  assert_output 'require "golang.org/x/mod" "v0.22.0"'
+}
+
+# why: A version Go would rewrite (`v0.22` -> `v0.22.0`) is refused before
+# the file is touched, so a bump cannot write a pin the reader then refuses.
+@test "pins: --set refuses a go.mod version Go would rewrite and leaves the file alone (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _before
+  _before="$(cat "${SCRATCH}/dockerfile/config-gen/go.mod")"
+  _pins --set xmod v0.22
+  assert_failure
+  assert_equal "$(cat "${SCRATCH}/dockerfile/config-gen/go.mod")" "${_before}"
+}
+
+# why: An empty quoted path once shifted the comment into the version column,
+# so --list printed current=`// note` with rc 0 (review round 2, base#1463).
+@test "pins: --list refuses a go.mod require with an empty path (base#1463)" {
+  _gomod 'module example.com/m' \
+    '// tool-pin: x github-release golang/mod' \
+    'require "" v1.0.0 // note'
+  _pins --list
+  assert_failure
+  refute_output --partial '// note'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
