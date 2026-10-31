@@ -111,3 +111,27 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a change record whose path count does not match its status is refused as record (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  # `git diff --name-status` gives A, D, M and T one path, and a rename or
+  # copy (R<score>, C<score>) two. A later step writes M with two paths.
+  printf '%s\nM\t%s/a.go\t%s/b.go\n' "${header}" "${MOD}" "${MOD}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
+  assert_equal "${stderr}" ""
+  # And R058 with one path, the other side of the same rule.
+  printf '%s\nR058\t%s/a.go\n' "${header}" "${MOD}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
+  assert_equal "${stderr}" ""
+}
