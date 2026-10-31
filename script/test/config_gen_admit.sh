@@ -23,7 +23,9 @@
 # must be the none marker `none: no-go-change` or a change record
 # `<status>\t<path>` (status A, D, M or T; two paths for a rename or copy,
 # R<score> or C<score>); any other body line, a wrong path count or another
-# status included, is refused as file=manifest reason=record.
+# status included, is refused as file=manifest reason=record. S1d writes
+# the marker only when no record exists, so the marker beside a change
+# record is refused as file=manifest reason=none_marker.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -56,13 +58,20 @@ _cga_header() {
 # _cga_body <manifest> -- refuse a body line that is neither the none
 # marker nor a change record: `<status>\t<path>` with status A, D, M or T,
 # or for a rename or copy
-# (R<score>, C<score>) `<status>\t<old>\t<new>`.
+# (R<score>, C<score>) `<status>\t<old>\t<new>`; and the marker beside a
+# record, in either order.
 _cga_body() {
-  local line t=$'\t'
+  local line t=$'\t' marker=0 record=0
   local one="^[ADMT]${t}[^${t}]+$"
   local two="^[RC][^${t}]*${t}[^${t}]+${t}[^${t}]+$"
   while IFS= read -r line; do
-    [[ "${line}" == "${_CGA_NONE}" ]] && continue
+    if [[ "${line}" == "${_CGA_NONE}" ]]; then
+      marker=1
+      ((record == 0)) || _cga_stale manifest none_marker
+      continue
+    fi
+    record=1
+    ((marker == 0)) || _cga_stale manifest none_marker
     if [[ "${line}" == [RC]* ]]; then
       [[ "${line}" =~ ${two} ]] || _cga_stale manifest record
     else
