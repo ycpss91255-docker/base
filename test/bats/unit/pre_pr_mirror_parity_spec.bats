@@ -63,7 +63,14 @@ worker-selftest"
 # LICENSE, CONTEXT.md), `system` is system_relevant (script/ci/system_paths.sh).
 PROBES="doc/test/TEST.md|
 test/bats/unit/bashrc_spec.bats|code
-compose.yaml|code system"
+compose.yaml|code system
+dockerfile/config-gen/cmd/config-gen/main.go|code system
+dockerfile/config-gen/testdata/x|code system"
+
+# The two job-level gates, as the strings classify's consumers spell them.
+# _ci_gate compares a job's whole `if:` against these, never a substring.
+CODE_GATE="needs.classify.outputs.code_changed == 'true'"
+SYSTEM_GATE="needs.classify.outputs.system_relevant == 'true'"
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -183,15 +190,22 @@ _local_mode() {
 }
 
 # _ci_gate <job> -- `code`, `system` or `always`, read from the job's own
-# job-level `if:`; anything else is `unknown:<line>` so a new gate shape
-# fails loudly rather than reading as ungated.
+# job-level `if:` as one value and compared whole against CODE_GATE /
+# SYSTEM_GATE; anything else is `unknown:<value>` so a new gate shape fails
+# loudly rather than reading as ungated. A substring match read
+# `<code gate> && false` as `code` (base#1462).
 _ci_gate() {
-  local _if
-  _if="$(yaml_job_lines "${WF}" "${1}" | grep -E '^    if:' | head -n 1)"
+  local _tag _if
+  _tag="$(LP_J="${1}" yq '.jobs[strenv(LP_J)].if | tag' "${WF}")"
+  case "${_tag}" in
+    '!!null') echo always; return 0 ;;
+    '!!str') ;;
+    *) echo "unknown:${_tag}"; return 0 ;;
+  esac
+  _if="$(LP_J="${1}" yq '.jobs[strenv(LP_J)].if' "${WF}")"
   case "${_if}" in
-    '') echo always ;;
-    *"needs.classify.outputs.code_changed == 'true'"*) echo code ;;
-    *"needs.classify.outputs.system_relevant == 'true'"*) echo system ;;
+    "${CODE_GATE}") echo code ;;
+    "${SYSTEM_GATE}") echo system ;;
     *) echo "unknown:${_if}" ;;
   esac
 }
@@ -840,4 +854,100 @@ _make_report() {
   grep -Fq './script/ci/acceptance.sh' <<<"${_recipe}" \
       || fail "the acceptance recipe does not run ./script/ci/acceptance.sh:
 ${_recipe}"
+}
+
+# ── config-gen: just test go is attested and planned (base#1462) ─────────────
+
+# why: A gate read by substring took `<code gate> && false` -- a job that
+# never runs -- for a code-gated job, so the plan check demanded a local
+# command for it and the mirror attested a job CI never ran.
+@test "pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)" {
+  local _wf="${SCRATCH}/self-test.yaml"
+  cp "${WF}" "${_wf}"
+  yq -i '.jobs.shellcheck.if += " && false"' "${_wf}"
+  WF="${_wf}" run _ci_gate shellcheck
+  assert_output "unknown:${CODE_GATE} && false"
+  WF="${_wf}" run _ci_gate hadolint
+  assert_output code
+  WF="${_wf}" run _ci_gate actionlint
+  assert_output always
+}
+
+# why: config-gen joins ci-rollup's needs, so the mirror must run the same
+# one command CI runs for it, and that command must resolve to a recipe.
+@test "pre-PR mirror: config-gen is attested by exactly just test go (base#1462)" {
+  local _table
+  _table="$(_mirror_table)" || return 1
+  run _attested_cmd "${_table}" config-gen
+  assert_output 'just test go'
+  run _local_mode 'just test go'
+  assert_output plain
+  run _ci_gate config-gen
+  assert_output code
+}
+
+# why: The config generator's sources are code paths; a diff touching only
+# them must plan the Go gates, and a docs-only diff must not.
+@test "pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)" {
+  _require_mirror
+  run bash "${MIRROR}" --plan <<<"dockerfile/config-gen/cmd/config-gen/main.go"
+  assert_success
+  assert_line 'just test go'
+  run bash "${MIRROR}" --plan <<<"doc/test/TEST.md"
+  assert_success
+  refute_line 'just test go'
+}
+
+# _stub_just_run <just-rc> -- run the mirror over a commit that touches only
+# the config generator, with a `bash` first on PATH that records every
+# planned command and hands each `just ...` one to the real bash, and a
+# recording `just` first on PATH that logs its argv, one `|`-joined line per
+# call, to ${SCRATCH}/just and exits <just-rc> for `test go` (0 otherwise).
+_stub_just_run() {
+  local _base _real
+  _real="$(command -v bash)"
+  _base="$(_make_mirror_repo)"
+  mkdir -p "${SCRATCH}/repo/dockerfile/config-gen/cmd/config-gen"
+  printf 'package main\n' > "${SCRATCH}/repo/dockerfile/config-gen/cmd/config-gen/main.go"
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t add -A
+  git -C "${SCRATCH}/repo" -c user.name=t -c user.email=t@t commit -q -m config-gen
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/bash" <<STUB
+#!${_real}
+if [[ "\${1:-}" == -c ]]; then
+  printf '%s\n' "\${2}" >> "${SCRATCH}/ran"
+  [[ "\${2}" == 'just '* ]] && exec "${_real}" -c "\${2}"
+  exit 0
+fi
+exec "${_real}" "\$@"
+STUB
+  cat > "${SCRATCH}/bin/just" <<STUB
+#!${_real}
+(IFS='|'; printf '%s\n' "\$*") >> "${SCRATCH}/just"
+[[ "\$*" == 'test go' ]] && exit ${1}
+exit 0
+STUB
+  chmod +x "${SCRATCH}/bin/bash" "${SCRATCH}/bin/just"
+  _stub_docker x86_64
+  run env PATH="${SCRATCH}/bin:${PATH}" "${_real}" \
+      "${SCRATCH}/repo/script/ci/pre_pr_mirror.sh" --base "${_base}"
+}
+
+# why: The plan naming `just test go` is a string; what CI attests is the
+# recipe `just` runs for argv `test go`, and that its red reaches the
+# mirror's own exit status (base#1462).
+@test "pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)" {
+  _require_mirror
+  _stub_just_run 0
+  assert_success
+  [[ -f "${SCRATCH}/just" ]] || fail "the mirror never called just"
+  run grep -cFx 'test|go' "${SCRATCH}/just"
+  assert_output 1
+
+  rm -rf "${SCRATCH:?}/repo" "${SCRATCH:?}/bin" "${SCRATCH}/ran" "${SCRATCH}/just"
+  _stub_just_run 1
+  assert_failure
+  assert_output --partial 'RED at: just test go'
+  run grep -cFx 'test|go' "${SCRATCH}/just"
+  assert_output 1
 }

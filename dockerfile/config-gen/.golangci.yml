@@ -1,0 +1,12 @@
+# golangci-lint configuration for the config generator (base#1462).
+#
+# Only the named linters run, so a golangci-lint bump cannot add a rule
+# set nobody chose. No exclusions: a finding is fixed, not silenced.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - exhaustive
+    - govet

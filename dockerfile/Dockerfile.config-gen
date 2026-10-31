@@ -1,0 +1,109 @@
+# Dockerfile.config-gen -- build, gate and ship the config generator
+# (ADR-00000039, base#1462).
+#
+# THE BUILD CONTEXT IS dockerfile/config-gen, the Go module itself:
+#
+#   docker build --progress=plain --no-cache-filter test --target test \
+#     -f dockerfile/Dockerfile.config-gen dockerfile/config-gen
+#
+# Nobody runs that by hand in the normal case. script/test/config_gen_gates.sh
+# (the runner `just test go` calls, in every environment) runs it, then
+# builds `final` and holds the binary to its usage contract.
+#
+# Stages:
+#   tools  golangci-lint, downloaded at a pinned version and checksum
+#   build  the module and its static binary
+#   test   the five gates, one RUN each, in this order: fmt, vet, lint,
+#          race, coverage. A gate that passes prints `gate=<g> ok`; one
+#          that fails prints `config_gen_gate_<g>_failed` on stderr and
+#          stops the build. Each is its own RUN so a red names its gate
+#          and the gates after it read as never reached, not as passed.
+#          The id is spelled from ${g} in the RUN text, so BuildKit's echo
+#          of the RUN line itself never carries a literal id the runner
+#          would read as a failure.
+#   final  FROM scratch: the binary alone, which is what ships.
+#
+# The race gate needs cgo and gcc, which the trixie golang image carries
+# and the alpine one does not.
+
+# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$
+ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e
+
+FROM ${GO_IMAGE} AS tools
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+# tool-pin: golangci-lint github-release golangci/golangci-lint
+ARG GOLANGCI_LINT_VERSION=v2.15.0
+# The release's own checksums file, per architecture. A bump of the
+# version above must bump both.
+ARG GOLANGCI_LINT_SHA256_AMD64=9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
+ARG GOLANGCI_LINT_SHA256_ARM64=b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998
+# arch-literal-lint: allow-begin -- the TARGETARCH-to-checksum mapping is
+# the one place the architecture names meet: golangci-lint publishes one
+# checksum per linux-<arch> asset, and the asset name itself is built from
+# ${TARGETARCH}. TARGETARCH is auto-populated by BuildKit; it carries no
+# default, which would shadow that (moby/buildkit#3403).
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      amd64) sum="${GOLANGCI_LINT_SHA256_AMD64}" ;; \
+      arm64) sum="${GOLANGCI_LINT_SHA256_ARM64}" ;; \
+      *) echo "no golangci-lint checksum for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    name="golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${TARGETARCH}"; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/golangci-lint.tar.gz \
+      "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${name}.tar.gz"; \
+    echo "${sum}  /tmp/golangci-lint.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/golangci-lint.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/${name}/golangci-lint" /usr/local/bin/golangci-lint; \
+    rm -rf /tmp/golangci-lint.tar.gz "/tmp/${name}"
+# arch-literal-lint: allow-end
+
+FROM ${GO_IMAGE} AS build
+# ADR-00000039 lists GOTOOLCHAIN=local among the build flags: the pinned
+# image's toolchain or nothing, never one go fetches for a go.mod asking
+# for a newer Go. The golang image pinned today already sets it; this keeps
+# it set when GO_IMAGE is overridden or bumped to an image that does not.
+# The test stage is FROM build, so every gate inherits it. It sits above
+# SHELL because placed below it, hadolint reported SC3010 ([[ in POSIX sh)
+# on the test stage's fmt RUN.
+ENV GOTOOLCHAIN=local
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/config-gen ./cmd/config-gen
+
+# The gates. The runner builds this stage with --no-cache-filter test, so
+# every RUN below executes on every run: a cached RUN prints nothing, and
+# the ok lines would then report cache state rather than a gate. The Go
+# build cache is mounted only to save compile time; it is keyed on content.
+FROM build AS test
+COPY --from=tools /usr/local/bin/golangci-lint /usr/local/bin/golangci-lint
+# gofmt exits non-zero on a file it cannot parse (a _test.go syntax error
+# passes the build stage); that status must name this gate too, not end
+# the RUN under set -e before the id is printed.
+RUN g=fmt; out="$(gofmt -l .)" || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
+    if [[ -n "${out}" ]]; then printf 'gofmt -l: %s\n' "${out}" >&2; echo "config_gen_gate_${g}_failed" >&2; exit 1; fi; \
+    echo gate=fmt ok
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    g=vet; go vet ./... || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
+    echo gate=vet ok
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/.cache/golangci-lint \
+    g=lint; golangci-lint run ./... || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
+    echo gate=lint ok
+# -count=1: a race is a property of one execution, so a cached pass must
+# not stand in for running the tests under the detector. This also runs
+# every Fuzz* seed corpus.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    g=race; CGO_ENABLED=1 go test -race -count=1 ./... || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
+    echo gate=race ok
+# gates/coverage.sh prints its own refusal line (with the reason and the
+# package) and exits 1; its stdout ok line is replaced by this RUN's, so
+# the ok line is printed once.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    bash gates/coverage.sh > /dev/null; \
+    echo gate=coverage ok
+
+FROM scratch AS final
+COPY --from=build /out/config-gen /config-gen
+ENTRYPOINT ["/config-gen"]

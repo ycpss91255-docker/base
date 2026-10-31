@@ -450,6 +450,24 @@ acceptance:
     just docker build --target test-tools
     ./script/ci/acceptance.sh
 
+# lifecycle: CREATES NO PROJECT. It runs plain `docker build` / `docker
+# run --rm` and no compose, so there is no compose project to reclaim; the
+# images it builds are build-cache layers plus one untagged final image.
+#
+# just test go -> the config generator's Go gates (ADR-00000039,
+# base#1462): fmt, vet, lint, race and coverage in
+# dockerfile/Dockerfile.config-gen's test stage, then the binary's usage
+# contract, through script/test/config_gen_gates.sh; then
+# script/test/config_gen_redpath.sh, which plants one defect per gate in a
+# scratch copy and requires each to go red on its own gate. The SAME
+# command runs in the hosted self-test `config-gen` job, the self-hosted
+# coverage-local `config-gen` job and the pre-PR mirror. The two lines run
+# in order and a red runner stops the recipe: a redpath over gates that
+# are already red proves nothing. Needs the host docker daemon.
+go:
+    ./script/test/config_gen_gates.sh
+    ./script/test/config_gen_redpath.sh
+
 # just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
 # the way a downstream Dockerfile `-test` stage runs them: root-owned
 # COPYs into /lint + /smoke_test, a non-root user, and `RUN bats` at build

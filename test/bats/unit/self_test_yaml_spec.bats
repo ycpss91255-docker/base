@@ -1274,11 +1274,15 @@ _builder_setups_out_of_step_with_their_consumer() {
 
 # ── ci-rollup aggregator ───────────────────────────────────────
 
+# why: Branch protection requires ci-rollup alone; without the job every
+# other check is advisory.
 @test "self-test.yaml: declares ci-rollup job (#337)" {
   run code_grep -E '^  ci-rollup:' "${WF}"
   assert_success
 }
 
+# why: A PR check outside ci-rollup's needs is one whose red never blocks a
+# merge; the exact list is what makes adding or dropping one a reviewed edit.
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
   # hadolint + bats-fragile + bats-integration + coverage + acceptance
@@ -1291,11 +1295,16 @@ _builder_setups_out_of_step_with_their_consumer() {
   # matrix reads its shard list from, so its failure skips BOTH coverage
   # and coverage-gate, and a rollup that does not name it collapses that
   # double skip into a green required check.
+  #
+  # `config-gen` (the config generator's Go gates, base#1462) joins it the
+  # same way: a code-gated job whose red would otherwise be one nobody sees.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
+# why: The sharded kcov run is the primary unit gate; out of the rollup, a
+# kcov failure would merge.
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
   # kept coverage out of the rollup (main-only metric); (ADR-8)
   # reverses that — the sharded kcov gate joins the rollup so a kcov
@@ -1307,6 +1316,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial ', coverage,'
 }
 
+# why: Without it a failed need skips the rollup, and branch protection
+# reads a skipped required check as missing rather than red.
 @test "self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)" {
   # Without `if: always` the rollup would skip when any upstream
   # need failed, masking the failure as SKIPPED — branch protection
@@ -1316,6 +1327,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'if: always()'
 }
 
+# why: A need the verify step never reads is waited on and then ignored:
+# its failure turns nothing red.
 @test "self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)" {
   # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
   # to translate the parallel job graph into a single pass/fail signal.
@@ -1334,6 +1347,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'needs.system.result'
 }
 
+# why: The gated jobs skip on doc-only PRs by design; without the tolerant
+# loop those PRs could never merge.
 @test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)" {
   # every PR-check job has a job-level `if:` gate that may
   # cause it to skip on doc-only / non-system PRs (the old
@@ -1355,6 +1370,8 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial '[[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1'
 }
 
+# why: The ungated jobs never skip on purpose, so a SKIPPED there is a
+# workflow bug the strict loop must not collapse into a pass.
 @test "self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)" {
   # actionlint + classify + doc-counts + lint-static are hard-mandatory:
   # they carry no `if:` gate, so SKIPPED there indicates a workflow bug,
@@ -1809,6 +1826,8 @@ YAML
   assert_output --partial 'WORKER_SELFTEST_RESULT'
 }
 
+# why: The tag path does not go through ci-rollup; a gate missing from
+# release's needs is one a release can ship past.
 @test "self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)" {
   # Acceptance criterion: the System job is part of the required gate before
   # a tag. release fires on tag push only; if the worker self-test fails the
@@ -3055,6 +3074,8 @@ _lint_probe_fixture() {
   done
 }
 
+# why: A tag produces the artifact users consume, so it must clear every
+# gate a merge clears; the exact list makes a dropped gate a reviewed edit.
 @test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
@@ -3065,9 +3086,12 @@ _lint_probe_fixture() {
   # (ADR-00000008), it was in ci-rollup but not here, and ci-rollup is not
   # a `needs:` of release -- so the one path that produces an artifact
   # users consume was the one path the floor did not gate.
+  #
+  # `config-gen` (base#1462) joins it for the same reason it joins
+  # ci-rollup: the tag path requires exactly what the merge gate requires.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3710,4 +3734,419 @@ ${_bad}"
   [[ -z "${_bad}" ]] || fail \
       "a bats-fragile rationale states the unit-suite size as a literal; it is ${_here} @test declarations today and nothing re-derives the text. Say what the figure is derived from, or drop it. Offending line(s):
 ${_bad}"
+}
+
+# ── config-gen: the Go gates job, in both workflows (base#1462) ──────────────
+#
+# `just test go` is the one command every environment runs for the config
+# generator's gates (ADR-00000039). A job that merely MENTIONS it is not a
+# job that runs it: an `if: false` on the step, a `shell:` that never starts
+# bash, a `continue-on-error`, a workflow-level BASH_ENV that exits 0 before
+# the step body runs -- each leaves the job green with the gates unrun. So
+# every layer above the canonical step is compared EXACTLY against literals
+# written here, never by substring:
+#
+#   workflow   the top-level key set, `defaults` absent, the env key set
+#   job        the key set, then the whole body (if, needs, runs-on, steps)
+#   steps      the whole list: checkout at depth 0, the three just-pin
+#              steps byte for byte, and {name, run: just test go}, all
+#              literals here; acceptance's just-pin steps are held to the
+#              same literal
+#
+# Key sets are read in a yq call of their own. Measured on this tree: one
+# expression that reads `.defaults` and `keys` together reports `defaults`
+# and `env` among coverage-local.yaml's keys, which it has neither of.
+#
+# A legitimate new workflow key or env var fails here until the literal is
+# updated; that friction is intended, and the message names file, layer
+# and key set.
+
+CG_CODE_IF="needs.classify.outputs.code_changed == 'true'"
+CG_STEP_NAME='Run the config-gen gates'
+CG_STEP_RUN='just test go'
+CG_SELF_TEST_TOP='["concurrency","env","jobs","name","on","permissions"]'
+CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_IMAGE"]'
+CG_COV_LOCAL_TOP='["concurrency","jobs","name","on","permissions"]'
+CG_COV_LOCAL_ENV='[]'
+COV_LOCAL_WF="/source/.github/workflows/coverage-local.yaml"
+
+# _cg_just_pin_steps -- the three just-pin steps the config-gen jobs copy
+# from acceptance, canonical JSON. A literal, not a read of acceptance: a
+# setup step that exports a BASH_ENV which exits 0 through $GITHUB_ENV,
+# written into acceptance and config-gen alike, keeps the copies equal to
+# each other, so an expectation read from acceptance would move with them.
+_cg_just_pin_steps() {
+  yq -p yaml -o json -I0 'sort_keys(..)' <<'YAML'
+- name: Resolve the pinned just version
+  id: just-pin
+  run: |
+    set -euo pipefail
+    version="$(./dist/script/base/just-version.sh)"
+    echo "version=${version}" >> "${GITHUB_OUTPUT}"
+- name: Install just (container-ops entry point)
+  uses: extractions/setup-just@v4
+  with:
+    just-version: "${{ steps.just-pin.outputs.version }}"
+- name: Check the just on PATH is the pin
+  run: |
+    set -euo pipefail
+    observed="$(just --version)"
+    ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+    echo "just: ${observed}, which is the pin"
+YAML
+}
+
+# _cg_expected_steps -- the config-gen job's steps, canonical JSON: the
+# checkout with fetch-depth 0 (the classify base-ref diff and the
+# redpath's copies need history), the three just-pin steps, and the one
+# canonical step. Every step is a literal here, so no file under test can
+# move its own expectation.
+_cg_expected_steps() {
+  local _pin
+  _pin="$(_cg_just_pin_steps)" || return 1
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" yq -n -o json -I0 '
+      [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
+      + env(CG_PIN)
+      + [{"name": strenv(CG_NAME), "run": strenv(CG_RUN)}]
+      | sort_keys(..)'
+}
+
+# _cg_acceptance_just_pin_exact <file> -- acceptance's three just-pin steps
+# in <file>, in order, equal _cg_just_pin_steps. The workflow comments say
+# the parity spec holds the config-gen copies equal to acceptance's; this
+# is the acceptance half of that claim.
+_cg_acceptance_just_pin_exact() {
+  local _have _want
+  _want="$(_cg_just_pin_steps)" || return 1
+  _have="$(yq -o json -I0 '[.jobs.acceptance.steps[] | select(
+            .name == "Resolve the pinned just version"
+            or .name == "Install just (container-ops entry point)"
+            or .name == "Check the just on PATH is the pin")] | sort_keys(..)' "${1}")" || return 1
+  [[ "${_have}" == "${_want}" ]] \
+    || { echo "acceptance just-pin steps: ${1} has
+  ${_have}
+want
+  ${_want}"; return 1; }
+}
+
+# _cg_expected_job <self-test|coverage-local> -- the config-gen job less its
+# free-text name and timeout, canonical JSON. coverage-local's `if` is the
+# fork guard its sibling job carries.
+_cg_expected_job() {
+  local _steps _if
+  _steps="$(_cg_expected_steps)" || { printf '%s\n' "${_steps}"; return 1; }
+  case "${1}" in
+    self-test)
+      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
+        '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest", "steps": env(CG_STEPS)} | sort_keys(..)' ;;
+    coverage-local)
+      _if="$(yq '.jobs["coverage-local"].if' "${COV_LOCAL_WF}")"
+      CG_IF="${_if}" CG_STEPS="${_steps}" yq -n -o json -I0 \
+        '{"if": strenv(CG_IF), "runs-on": ["self-hosted", "gpu"], "steps": env(CG_STEPS)} | sort_keys(..)' ;;
+    *) echo "BUG: _cg_expected_job ${1}"; return 1 ;;
+  esac
+}
+
+# _workflow_frame_exact <file> <top-keys-json> <env-keys-json> -- the layers
+# above every job: `defaults` absent, the top-level key set exactly
+# <top-keys-json>, and the workflow env key set exactly <env-keys-json>
+# (both sorted). An exact set, not a deny-list: BASH_ENV, ENV, SHELLOPTS,
+# BASHOPTS and PATH all change how a `run:` shell starts.
+_workflow_frame_exact() {
+  local _f="${1}" _top _env
+  [[ "$(yq '.defaults | tag' "${_f}")" == '!!null' ]] \
+    || { echo "workflow defaults: ${_f} sets a workflow-level defaults: block"; return 1; }
+  _top="$(yq -o json -I0 'keys | sort' "${_f}")"
+  [[ "${_top}" == "${2}" ]] \
+    || { echo "workflow top-level keys: ${_f} has ${_top}, want exactly ${2}"; return 1; }
+  _env="$(yq -o json -I0 '(.env // {}) | keys | sort' "${_f}")"
+  [[ "${_env}" == "${3}" ]] \
+    || { echo "workflow env keys: ${_f} has ${_env}, want exactly ${3}"; return 1; }
+}
+
+# _cg_job_exact <file> <expected-job-json> -- the config-gen job: its key
+# set is the expected keys plus name and timeout-minutes, name is a string,
+# timeout-minutes an int, and the rest equals <expected-job-json>.
+_cg_job_exact() {
+  local _f="${1}" _want="${2}" _tag _keys _wantkeys _have
+  _tag="$(yq '.jobs["config-gen"] | tag' "${_f}")"
+  [[ "${_tag}" == '!!map' ]] \
+    || { echo "config-gen job: ${_f} declares no config-gen job (it reads as ${_tag})"; return 1; }
+  _keys="$(yq -o json -I0 '.jobs["config-gen"] | keys | sort' "${_f}")"
+  _wantkeys="$(yq -p json -o json -I0 '. + {"name": "", "timeout-minutes": 0} | keys | sort' <<<"${_want}")"
+  [[ "${_keys}" == "${_wantkeys}" ]] \
+    || { echo "config-gen job keys: ${_f} has ${_keys}, want exactly ${_wantkeys}"; return 1; }
+  [[ "$(yq '.jobs["config-gen"].name | tag' "${_f}")" == '!!str' ]] \
+    || { echo "config-gen job name: ${_f} has a non-string name"; return 1; }
+  [[ "$(yq '.jobs["config-gen"]["timeout-minutes"] | tag' "${_f}")" == '!!int' ]] \
+    || { echo "config-gen job timeout-minutes: ${_f} has a non-integer timeout"; return 1; }
+  _have="$(yq -o json -I0 '.jobs["config-gen"] | del(.name) | del(.["timeout-minutes"]) | sort_keys(..)' "${_f}")"
+  [[ "${_have}" == "${_want}" ]] \
+    || { echo "config-gen job body: ${_f} has
+  ${_have}
+want
+  ${_want}"; return 1; }
+}
+
+# _cg_parity <file> <expected-job-json> <top-keys-json> <env-keys-json>
+_cg_parity() {
+  _workflow_frame_exact "${1}" "${3}" "${4}" || return 1
+  _cg_job_exact "${1}" "${2}"
+}
+
+# _cg_fixture <src> <self-test|coverage-local> -- a scratch copy of <src>
+# with the canonical config-gen job written in; prints its path.
+_cg_fixture() {
+  local _out="${BATS_TEST_TMPDIR}/fixture-${2}.yaml" _job
+  _job="$(_cg_expected_job "${2}")" || { printf '%s\n' "${_job}"; return 1; }
+  cp "${1}" "${_out}"
+  CG_JOB="${_job}" yq -i '.jobs["config-gen"] = (env(CG_JOB) + {"name": "Config-gen gates", "timeout-minutes": 30})' "${_out}"
+  printf '%s\n' "${_out}"
+}
+
+# why: Nothing ran the Go gates in CI before base#1462. The hosted job is
+# compared whole, so a spelling of the step that does not run `just test go`
+# under a plain bash cannot pass for one that does.
+@test "self-test.yaml: the config-gen job runs exactly just test go under an unmodified shell (base#1462)" {
+  local _want
+  _want="$(_cg_expected_job self-test)" || fail "${_want}"
+  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  assert_success
+}
+
+# why: The self-hosted environment runs the same command; coverage-local.yaml
+# is where self-hosted jobs live, behind the same fork guard.
+@test "coverage-local.yaml: the config-gen job runs exactly just test go on self-hosted behind the fork guard (base#1462)" {
+  assert_spec_subject "${COV_LOCAL_WF}" "the self-hosted workflow"
+  local _want
+  _want="$(_cg_expected_job coverage-local)" || fail "${_want}"
+  run _cg_parity "${COV_LOCAL_WF}" "${_want}" "${CG_COV_LOCAL_TOP}" "${CG_COV_LOCAL_ENV}"
+  assert_success
+}
+
+# why: The premise of the workflow-env check, executed rather than asserted:
+# GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail {0}`,
+# and a BASH_ENV file that exits 0 ends that bash before the step body runs.
+@test "config-gen: a BASH_ENV that exits 0 turns a red step body green under GitHub's run shell (base#1462)" {
+  local _body="${BATS_TEST_TMPDIR}/step.sh" _pre="${BATS_TEST_TMPDIR}/pre.sh"
+  printf 'echo canonical-ran\nfalse\n' > "${_body}"
+  printf 'echo preempted\nexit 0\n' > "${_pre}"
+  run env -u BASH_ENV bash --noprofile --norc -eo pipefail "${_body}"
+  assert_equal "${status}" 1
+  assert_output canonical-ran
+  run env BASH_ENV="${_pre}" bash --noprofile --norc -eo pipefail "${_body}"
+  assert_equal "${status}" 0
+  assert_output preempted
+}
+
+# _cg_fixture_must_fail <fixture> <top> <env> <want-job> <expr> <layer> --
+# apply <expr> to a copy of <fixture>; prints a complaint when the copy did
+# not change, when _cg_parity passed it, or when its message does not name
+# <layer>.
+_cg_fixture_must_fail() {
+  local _m="${BATS_TEST_TMPDIR}/mutant.yaml"
+  cp "${1}" "${_m}"
+  yq -i "${5}" "${_m}" || { echo "yq refused ${5}"; return 0; }
+  cmp -s "${1}" "${_m}" && { echo "${5}: the mutation changed nothing"; return 0; }
+  run _cg_parity "${_m}" "${4}" "${2}" "${3}"
+  if [[ "${status}" -eq 0 ]]; then
+    echo "${5}: passed the parity check"
+  elif [[ "${output}" != *"${6}"* ]]; then
+    echo "${5}: failed without naming '${6}': ${output}"
+  fi
+}
+
+# why: Each mutation below is a way the canonical step stays in the file
+# while `just test go` does not run, or runs under a changed shell. The
+# helper must refuse each one and name the layer, and must pass the
+# unmutated fixture, so a red on the real file is the file and not the
+# helper. Workflow env rows rule out checking only the job (BASH_ENV), a
+# BASH_ENV deny-list (SHELLOPTS) and a subset check (a removed key).
+@test "config-gen parity: every layer above the canonical step is compared exactly (base#1462)" {
+  local _fx _want _bad=""
+  _want="$(_cg_expected_job self-test)" || fail "${_want}"
+  _fx="$(_cg_fixture "${WF}" self-test)" || fail "${_fx}"
+  run _cg_parity "${_fx}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  assert_success
+  export CG_MULTI=$'just test \\\ngo\n'
+  local -a _rows=(
+    '.env.BASH_ENV = "/tmp/x"|workflow env keys'
+    '.env.SHELLOPTS = "x"|workflow env keys'
+    'del(.env.CI_RUN_KEY)|workflow env keys'
+    '.defaults.run.shell = "sh -c true {0}"|workflow defaults'
+    '.jobs["config-gen"].env.BASH_ENV = "/tmp/x"|config-gen job keys'
+    '.jobs["config-gen"].defaults.run.shell = "sh -c true {0}"|config-gen job keys'
+    '.jobs["config-gen"]["continue-on-error"] = true|config-gen job keys'
+    '.jobs["config-gen"].container = "alpine"|config-gen job keys'
+    '.jobs["config-gen"].if = false|config-gen job body'
+    '.jobs["config-gen"].if += " && false"|config-gen job body'
+    '.jobs["config-gen"].steps[-1].if = false|config-gen job body'
+    '.jobs["config-gen"].steps[-1].shell = "sh -c true {0}"|config-gen job body'
+    '.jobs["config-gen"].steps[-1]["continue-on-error"] = true|config-gen job body'
+    ".jobs[\"config-gen\"].steps[-1].run = \"just test 'go'\"|config-gen job body"
+    '.jobs["config-gen"].steps[-1].run = strenv(CG_MULTI)|config-gen job body'
+    '.jobs["config-gen"].steps += [{"name": "x", "run": "bash -c \"just test go\""}]|config-gen job body'
+  )
+  local _row _line
+  for _row in "${_rows[@]}"; do
+    _line="$(_cg_fixture_must_fail "${_fx}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" \
+        "${_want}" "${_row%|*}" "${_row##*|}")"
+    [[ -z "${_line}" ]] || _bad+="${_line}"$'\n'
+  done
+  [[ -z "${_bad}" ]] || fail "the parity check let a non-canonical config-gen through:
+${_bad}"
+}
+
+# why: coverage-local.yaml has no workflow env today, so it is checked on
+# its own: a check of self-test.yaml alone would never see its frame.
+@test "config-gen parity: a workflow env added to coverage-local.yaml is refused (base#1462)" {
+  assert_spec_subject "${COV_LOCAL_WF}" "the self-hosted workflow"
+  local _fx _want _bad
+  _want="$(_cg_expected_job coverage-local)" || fail "${_want}"
+  _fx="$(_cg_fixture "${COV_LOCAL_WF}" coverage-local)" || fail "${_fx}"
+  run _cg_parity "${_fx}" "${_want}" "${CG_COV_LOCAL_TOP}" "${CG_COV_LOCAL_ENV}"
+  assert_success
+  _bad="$(_cg_fixture_must_fail "${_fx}" "${CG_COV_LOCAL_TOP}" "${CG_COV_LOCAL_ENV}" \
+      "${_want}" '.env.BASH_ENV = "/tmp/x"' 'workflow top-level keys')"
+  [[ -z "${_bad}" ]] || fail "${_bad}"
+}
+
+# _cg_bash_env_setup_mutant <src> <job>... -- a copy of <src> whose
+# "Resolve the pinned just version" step, in each named job, also writes a
+# BASH_ENV that exits 0 into $GITHUB_ENV, so every later run: step of that
+# job exits 0 before its body. Prints the copy's path.
+_cg_bash_env_setup_mutant() {
+  local _src="${1}" _out="${BATS_TEST_TMPDIR}/bash-env-$(basename "${1}")" _job
+  shift
+  cp "${_src}" "${_out}"
+  export CG_PREEMPT=$'printf \'exit 0\\n\' > /tmp/preempt.sh\necho "BASH_ENV=/tmp/preempt.sh" >> "${GITHUB_ENV}"\n'
+  for _job in "$@"; do
+    CG_JOB="${_job}" yq -i '(.jobs[strenv(CG_JOB)].steps[]
+        | select(.name == "Resolve the pinned just version") | .run) += strenv(CG_PREEMPT)' "${_out}"
+  done
+  cmp -s "${_src}" "${_out}" && { echo "BUG: the BASH_ENV mutation changed nothing"; return 1; }
+  printf '%s\n' "${_out}"
+}
+
+# why: A setup step that exports a BASH_ENV which exits 0 through
+# $GITHUB_ENV turns `just test go` green unrun. Written into acceptance and
+# config-gen alike, the copies stay equal to each other, so an expectation
+# read from acceptance would move with them; the expectation must be the
+# spec's own literal, and acceptance must still equal it.
+@test "config-gen parity: a BASH_ENV exported by a setup step is refused even when acceptance carries it too (base#1462)" {
+  local _m _want
+  _m="$(_cg_bash_env_setup_mutant "${WF}" acceptance config-gen)" || fail "${_m}"
+  _want="$(WF="${_m}" _cg_expected_job self-test)" || fail "${_want}"
+  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  assert_failure
+  assert_output --partial 'config-gen job body'
+  run _cg_acceptance_just_pin_exact "${_m}"
+  assert_failure
+  assert_output --partial 'acceptance just-pin steps'
+}
+
+# why: The same mutation on the self-hosted copy, whose expectation is built
+# from the same steps.
+@test "config-gen parity: a BASH_ENV exported by a setup step on self-hosted is refused (base#1462)" {
+  local _m _want
+  _m="$(_cg_bash_env_setup_mutant "${COV_LOCAL_WF}" config-gen)" || fail "${_m}"
+  _want="$(_cg_expected_job coverage-local)" || fail "${_want}"
+  run _cg_parity "${_m}" "${_want}" "${CG_COV_LOCAL_TOP}" "${CG_COV_LOCAL_ENV}"
+  assert_failure
+  assert_output --partial 'config-gen job body'
+}
+
+# why: The config-gen job's just-pin steps are copies of acceptance's, and
+# the workflow comments say the parity spec holds them equal. With the
+# expectation a literal here, acceptance is held to the same literal.
+@test "self-test.yaml: acceptance's three just-pin steps equal the config-gen literal (base#1462)" {
+  run _cg_acceptance_just_pin_exact "${WF}"
+  assert_success
+}
+
+# ── ci-rollup honours config-gen, by running its verify step ─────────────────
+
+# _rollup_script <file> -- the run: of ci-rollup's Verify upstream jobs step.
+_rollup_script() {
+  yq '.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .run' "${1}"
+}
+
+# _rollup_result_keys <file> -- "<ENV_KEY> <job>" for every env entry of that
+# step whose value is exactly ${{ needs.<job>.result }}.
+_rollup_result_keys() {
+  yq '.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .env // {}
+      | to_entries | .[] | .key + " " + .value' "${1}" \
+    | sed -nE 's/^([A-Z0-9_]+) \$\{\{ needs\.([a-z0-9-]+)\.result \}\}$/\1 \2/p'
+}
+
+# _rollup_rc <file> [KEY=VALUE...] -- run the verify step under GitHub's
+# run shell, every result success unless overridden; prints its status.
+_rollup_rc() {
+  local _f="${1}" _script _k _j _rc=0
+  shift
+  local -a _env=()
+  _script="$(_rollup_script "${_f}")"
+  while read -r _k _j; do
+    [[ -n "${_k}" ]] && _env+=("${_k}=success")
+  done < <(_rollup_result_keys "${_f}")
+  env -i PATH="${PATH}" "${_env[@]}" IS_FORK_PR=false CODE_CHANGED=true "$@" \
+      bash --noprofile --norc -eo pipefail -c "${_script}" >/dev/null 2>&1 || _rc=$?
+  printf '%s\n' "${_rc}"
+}
+
+# _rollup_honours_every_need <file> -- ci-rollup's needs and its result env
+# match one to one, all-success passes, and each need's failure or
+# cancellation alone fails the step. Prints what does not hold.
+_rollup_honours_every_need() {
+  local _f="${1}" _needs _keyed _k _j _rc _bad=""
+  _needs="$(yaml_job_needs "${_f}" ci-rollup | sort)"
+  _keyed="$(_rollup_result_keys "${_f}" | awk '{print $2}' | sort)"
+  [[ "${_needs}" == "${_keyed}" ]] \
+    || _bad+="needs [$(paste -sd' ' <<<"${_needs}")] != result env [$(paste -sd' ' <<<"${_keyed}")]; "
+  _rc="$(_rollup_rc "${_f}")"
+  [[ "${_rc}" == 0 ]] || _bad+="all-success exits ${_rc}; "
+  while read -r _k _j; do
+    [[ -n "${_k}" ]] || continue
+    [[ "$(_rollup_rc "${_f}" "${_k}=failure")" != 0 ]] || _bad+="${_j} failure passes; "
+    [[ "$(_rollup_rc "${_f}" "${_k}=cancelled")" != 0 ]] || _bad+="${_j} cancelled passes; "
+  done < <(_rollup_result_keys "${_f}")
+  printf '%s' "${_bad}"
+}
+
+# why: Branch protection requires ci-rollup alone; a config-gen job outside
+# its needs, or whose result the step never reads, is a red nobody sees.
+# The step is run, not grepped, for every need.
+@test "self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)" {
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_success
+  assert_line config-gen
+  run _rollup_result_keys "${WF}"
+  assert_line 'CONFIG_GEN_RESULT config-gen'
+  run _rollup_honours_every_need "${WF}"
+  assert_output ""
+}
+
+# why: config-gen is gated on code_changed, so on a doc-only diff it skips;
+# the rollup must read that skip as a pass and a failure or cancel as red.
+@test "self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)" {
+  run _rollup_result_keys "${WF}"
+  assert_line 'CONFIG_GEN_RESULT config-gen'
+  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=success)" 0
+  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=skipped)" 0
+  [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=failure)" != 0 ]] || fail "ci-rollup passes a failed config-gen"
+  [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=cancelled)" != 0 ]] || fail "ci-rollup passes a cancelled config-gen"
+}
+
+# why: The rollup check must see a need that is listed and keyed but left
+# out of every loop, or it proves nothing about the next job added.
+@test "ci-rollup check: a need whose result no loop reads is caught (base#1462)" {
+  run _rollup_honours_every_need "${WF}"
+  assert_output ""
+  local _m="${BATS_TEST_TMPDIR}/rollup.yaml"
+  cp "${WF}" "${_m}"
+  yq -i '.jobs["ci-rollup"].needs += ["config-gen"]
+         | (.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .env.ZZ_CG_RESULT)
+             = "${{ needs.config-gen.result }}"' "${_m}"
+  run _rollup_honours_every_need "${_m}"
+  assert_output --partial 'config-gen failure passes'
 }
