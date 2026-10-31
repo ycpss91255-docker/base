@@ -1,0 +1,96 @@
+# s1c.tsv -- the mutations base#1463 (config-gen S1c, the go.mod scanner of
+# the pin registry and its Go oracle) requires script/test/mutation-probe.sh
+# to report PINNED. One row per behaviour:
+# <id> TAB <subject> TAB <spec> TAB <mutation command>, the command run
+# from the repo root, as `mutation-probe.sh --subject <subject> --spec
+# <spec> --mutate <command>`. Each command edits exactly one line of its
+# subject.
+scan-unsupported-byte	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if \[\[ -n "${_bad_ln}" \]\]; then _pin_go_mod_refuse "${_bad_ln}" unsupported_byte; return 1; fi%:%' script/watch/lib.sh
+scan-byte-nul	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (b == 9 || (b >= 32 \&\& b <= 126)) continue%if (b == 0 || b == 9 || (b >= 32 \&\& b <= 126)) continue%' script/watch/lib.sh
+scan-byte-stray-cr	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (cr \&\& b != 10) { print ln; exit }%if (0 \&\& cr \&\& b != 10) { print ln; exit }%' script/watch/lib.sh
+scan-byte-read-failure	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_bytes="$(od -An -v -tu1 -- "${1}")" || return 2%_bytes="$(od -An -v -tu1 -- "${1}")" || true%' script/watch/lib.sh
+scan-record-tab	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (( ${#_tabs} != 3 )); then _pin_go_mod_refuse "${_ln}" record_tab; return 1; fi%:%' script/watch/lib.sh
+scan-c-comment	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" c_comment; return 1; fi%:; fi%' script/watch/lib.sh
+scan-backquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" backquote; return 1; fi%:; fi%' script/watch/lib.sh
+scan-quote-escape	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" quote_escape; return 1; fi%:; fi%' script/watch/lib.sh
+scan-unterminated-quote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" unterminated_quote; return 1; fi%:; fi%' script/watch/lib.sh
+scan-punctuation	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" punctuation; return 1; fi%:; fi%' script/watch/lib.sh
+scan-replace	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" replace; return 1; fi%:; fi%' script/watch/lib.sh
+scan-tool	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" tool; return 1; fi%:; fi%' script/watch/lib.sh
+scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" ignore; return 1; fi%:; fi%' script/watch/lib.sh
+scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" godebug; return 1; fi%:; fi%' script/watch/lib.sh
+scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" exclude; return 1; fi%:; fi%' script/watch/lib.sh
+scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" retract; return 1; fi%:; fi%' script/watch/lib.sh
+scan-block-form-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi%:; fi%' script/watch/lib.sh
+scan-module-repeated	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" module_repeated; return 1; fi%:; fi%' script/watch/lib.sh
+scan-module-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" module_arity; return 1; fi%:; fi%' script/watch/lib.sh
+scan-module-quote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" module_quote; return 1; fi%:; fi%' script/watch/lib.sh
+scan-go-repeated	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" go_repeated; return 1; fi%:; fi%' script/watch/lib.sh
+scan-go-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" go_arity; return 1; fi%:; fi%' script/watch/lib.sh
+scan-go-version	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" go_version; return 1; fi%:; fi%' script/watch/lib.sh
+scan-toolchain-repeated	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" toolchain_repeated; return 1; fi%:; fi%' script/watch/lib.sh
+scan-toolchain-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" toolchain_arity; return 1; fi%:; fi%' script/watch/lib.sh
+scan-toolchain-version	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi%:; fi%' script/watch/lib.sh
+scan-paren-trailer	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" paren_trailer; return 1; fi%:; fi%' script/watch/lib.sh
+scan-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_ln}" arity; return 1; fi%:; fi%' script/watch/lib.sh
+scan-word-quote-path	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/_path="$(_pin_go_mod_unquote/s%then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi%then :; fi%' script/watch/lib.sh
+scan-word-quote-version	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/_ver="$(_pin_go_mod_unquote/s%then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi%then :; fi%' script/watch/lib.sh
+scan-paren-close-trailer	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/> 1 )); then _pin_go_mod_refuse/s%then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi%then :; fi%' script/watch/lib.sh
+scan-paren-not-alone	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/_gm_text\[_k\]}" == /s%then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi%then :; fi%' script/watch/lib.sh
+scan-unknown-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/"${_ln}" unknown_verb$/{n;s/return 1/:/}' script/watch/lib.sh
+scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi%:; fi%' script/watch/lib.sh
+scan-indirect	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/_f\[0\]}" == indirect )/s/^  if .*; then$/  if false; then/' script/watch/lib.sh
+scan-version-check	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then%if false; then%' script/watch/lib.sh
+scan-string-unquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/^_pin_go_mod_unquote() {/,/^}/s|printf .%s. "${2:1:${#2}-2}"|printf "%s" "${2}"|' script/watch/lib.sh
+version-version-no-v	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_no_v; return 1; fi%:; fi%' script/watch/lib.sh
+version-version-build	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_build; return 1; fi%:; fi%' script/watch/lib.sh
+version-version-leading-zero	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_leading_zero; return 1; fi%:; fi%' script/watch/lib.sh
+version-version-prerelease-empty	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_prerelease_empty; return 1; fi%:; fi%' script/watch/lib.sh
+version-version-prerelease-charset	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_prerelease_charset; return 1; fi%:; fi%' script/watch/lib.sh
+version-version-prerelease-zero	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=version_prerelease_zero; return 1; fi%:; fi%' script/watch/lib.sh
+version-gopkg-in-path	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=gopkg_in_path; return 1; fi%:; fi%' script/watch/lib.sh
+version-path-major-invalid	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=path_major_invalid; return 1; fi%:; fi%' script/watch/lib.sh
+version-noncanonical-count	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/-ne 2 \]\]; then _PIN_GO_MOD_REASON/s%_PIN_GO_MOD_REASON=version_noncanonical; return 1; fi%:; fi%' script/watch/lib.sh
+version-noncanonical-field	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/\[1-9\]\[0-9\]\*)\$ \]\]; then _PIN_GO_MOD_REASON/s%_PIN_GO_MOD_REASON=version_noncanonical; return 1; fi%:; fi%' script/watch/lib.sh
+version-major-suffix-mismatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%_PIN_GO_MOD_REASON=path_major_mismatch; return 1; fi%:; fi%' script/watch/lib.sh
+version-major-no-suffix-mismatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%  elif \[\[ "${_major}" != 0 && "${_major}" != 1 \]\]; then%  elif false; then%' script/watch/lib.sh
+decl-gomod-branch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/^_pin_is_declaration() {/,/^}/s%^  if \[\[ "\${_file##\*/}" == go.mod \]\]; then$%  if false; then%' script/watch/lib.sh
+decl-gomod-lineno	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%\[\[ -n "${_lineno}" \]\] || return 2%:%' script/watch/lib.sh
+decl-gomod-emitted	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '/"${_emitted}" == /s/.*/    return 0/' script/watch/lib.sh
+read-unreadable	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%if \[\[ ! -r "${_abs}" \]\]; then%if false; then%' script/watch/lib.sh
+read-gomod-refused	script/watch/lib.sh	test/bats/unit/tool_watch_check_spec.bats	sed -i 's%_gm_records="$(_pin_go_mod_scan "${_abs}")" || return 1%_gm_records="$(_pin_go_mod_scan "${_abs}")" || true%' script/watch/lib.sh
+read-gomod-target	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%if \[\[ -z "${_gm_version\["${_target_no}"\]+x}" \]\]; then%if false; then%' script/watch/lib.sh
+read-gomod-current	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%|| _current="${_gm_version\["${_target_no}"\]}"%|| _current=""%' script/watch/lib.sh
+uncovered-read-status	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%_table="$(_pin_read "${_root}")" || return 1%_table="$(_pin_read "${_root}")" || true%' script/watch/lib.sh
+uncovered-gomod-lineno	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%if _pin_is_declaration "${_file}" "${_line}" "${_lineno}"%if _pin_is_declaration "${_file}" "${_line}"%' script/watch/lib.sh
+oracle-pin-missing	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%if \[\[ -z "${image}" \]\]; then%if false; then%' script/test/config_gen_steps/20-gomod-oracle.sh
+oracle-unclassified	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%if \[\[ ! "${header}" =~ ${_GMO_HEADER_RE} \]\]; then%if false; then%' script/test/config_gen_steps/20-gomod-oracle.sh
+oracle-supported-verdict	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%if \[\[ "${go_rc}" != 0 || "${scan_rc}" != 0 ||%if false \&\& [[ "${go_rc}" != 0 || "${scan_rc}" != 0 ||%' script/test/config_gen_steps/20-gomod-oracle.sh
+oracle-policy-verdict	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%if \[\[ "${go_rc}" != 0 || "${scan_rc}" != 1 ||%if false \&\& [[ "${go_rc}" != 0 || "${scan_rc}" != 1 ||%' script/test/config_gen_steps/20-gomod-oracle.sh
+oracle-go-invalid-verdict	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%if \[\[ ! "${go_rc}" =~%if false \&\& [[ ! "${go_rc}" =~%' script/test/config_gen_steps/20-gomod-oracle.sh
+oracle-network-none	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's% --network none % %' script/test/config_gen_steps/20-gomod-oracle.sh
+oracle-gotoolchain-local	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%-e GOTOOLCHAIN=local %%' script/test/config_gen_steps/20-gomod-oracle.sh
+redpath-copies-watch	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/cp -a "${_RP_ROOT}\/script\/watch"/d' script/test/config_gen_redpath.sh
+redpath-copies-log-lib	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's|cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" |cp -a |' script/test/config_gen_redpath.sh
+redpath-copies-fixtures	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/cp -a "${_RP_ROOT}\/test\/fixtures\/gomod"/d' script/test/config_gen_redpath.sh
+scan-path-empty	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if \[\[ -z "${_path}" \]\]; then _pin_go_mod_refuse "${_ln}" path_empty; return 1; fi%:%' script/watch/lib.sh
+record-fields-keep-empty	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '0,/^  _gm_r_ln=/s%^  _gm_r_ln=.*%  IFS="\t" read -r _gm_r_ln _gm_r_path _gm_r_ver _gm_r_cm <<< "${_r}"; return 0%' script/watch/lib.sh
+set-line-not-entry	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if (( ! _gm_hit )); then%if false; then%' script/watch/lib.sh
+set-line-version-ok	script/watch/lib.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's%if ! _pin_go_mod_version_ok "${_gm_r_path}" "${_new}"; then%if false; then%' script/watch/lib.sh
+set-line-keeps-quotes	script/watch/lib.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's%\[\[ "${_gm_kind\[_last\]}" == s \]\] \&\& _tok=%false \&\& _tok=%' script/watch/lib.sh
+pins-set-gomod-dispatch	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's%if \[\[ "${_file##\*/}" == go.mod \]\]; then%if false; then%' script/watch/pins.sh
+pins-commit-symlink	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if \[\[ -L "${_abs}" \]\]; then|  if false; then|' script/watch/pins.sh
+pins-commit-hard-link	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if \[\[ "$(stat -c .%h. -- "${_abs}")" != 1 \]\]; then|  if false; then|' script/watch/pins.sh
+pins-commit-temp-create	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! _tmp="$(mktemp .*$|  if false; then|' script/watch/pins.sh
+pins-commit-write-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! { head -n |  if false \&\& { head -n |' script/watch/pins.sh
+pins-commit-check-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! _pins_spliced_ok |  if false \&\& _pins_spliced_ok |' script/watch/pins.sh
+pins-commit-mode-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! chmod |  if false \&\& chmod |' script/watch/pins.sh
+pins-commit-rename-failed	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  if ! mv -f |  if false \&\& mv -f |' script/watch/pins.sh
+pins-commit-no-escapes	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i "s|\&\& printf '%s%s' |\&\& printf '%b%s' |" script/watch/pins.sh
+pins-commit-final-newline	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	sed -i 's|^  (( _n > _nl )).*$|  :|' script/watch/pins.sh
+set-line-refusal-event	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|_log_err pin pin_set_refused "file=${_gm_file}" "line=${_want_ln}" reason=not_require_entry|printf "%s\\n" not_require_entry >\&2; : |' script/watch/lib.sh
+scan-go-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(\[1-9\]|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^([1-9]|' script/watch/lib.sh
+scan-toolchain-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(default|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^(default|' script/watch/lib.sh
+read-table-buffered	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's|      _table+="${_record}"|      printf "%s" "${_record}"|' script/watch/lib.sh
+reader-marker-target-guard	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%if \[\[ -z "${_gm_version\["${_target_no}"\]+x}" \]\]; then%if false; then%' script/watch/lib.sh
+reader-marker-target-event	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's|_log_err pin go_mod_pin_target_not_require "file=${_file}" "line=${_target_no}" "pin=${_name}" \\|printf "%s\\n" not_require_entry >\&2; : \\|' script/watch/lib.sh

@@ -428,6 +428,9 @@ _redpath_repo() {
   cp -a /source/dockerfile "${_r}/"
   cp -a /source/dist/script/docker/lib "${_r}/dist/script/docker/"
   cp -a /source/script/test/. "${_r}/script/test/"
+  cp -a /source/script/watch "${_r}/script/"
+  mkdir -p "${_r}/test/fixtures"
+  cp -a /source/test/fixtures/gomod "${_r}/test/fixtures/"
   cat > "${_r}/script/test/config_gen_gates.sh" <<EOF
 #!$(command -v bash)
 n=\$(( \$(cat "${S}/runner.n" 2>/dev/null || echo 0) + 1 ))
@@ -437,6 +440,9 @@ root=""; prev=""
 for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
 printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
+for p in script/watch/lib.sh dist/script/docker/lib/log.sh test/fixtures/gomod; do
+  [[ -e "\${root}/\${p}" ]] && printf '%s\n' "\${p}" >> "${S}/runner.\${n}.copied"
+done
 printf 'ctx=%s base=%s\n' "\${CONFIG_GEN_MUTATION_CONTEXT-unset}" "\${CONFIG_GEN_MUTATION_BASE+set}" >> "${S}/runner.mutenv"
 git -C "\${root}" rev-parse --verify -q 'refs/remotes/origin/main^{commit}' >> "${S}/runner.git" 2>/dev/null || echo nogit >> "${S}/runner.git"
 [[ -d "\${root}/dockerfile/config-gen" ]] && cp -a "\${root}/dockerfile/config-gen" "${S}/runner.\${n}.mod"
@@ -508,6 +514,22 @@ _run_redpath() {
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
+}
+
+# why: The go.mod oracle step (base#1463) runs the scanner from
+# script/watch with the logger from dist/script/docker/lib over
+# test/fixtures/gomod, all relative to its own root; a scratch copy without
+# them turns every redpath case red on the step instead of on its gate.
+@test "config_gen_redpath.sh: each scratch root carries script/watch, the log library and the go.mod fixtures (base#1463)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath
+  assert_success
+  local _n _want
+  _want="$(printf '%s\n' script/watch/lib.sh dist/script/docker/lib/log.sh test/fixtures/gomod)"
+  for _n in 1 2 3 4 5 6 7 8; do
+    assert_equal "$(cat "${S}/runner.${_n}.copied" 2>/dev/null)" "${_want}"
+  done
 }
 
 # why: The redpath's copies run the real steps, and the 00-manifest step
