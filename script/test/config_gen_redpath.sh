@@ -347,9 +347,9 @@ EOF
 # _rp_copy <scratch> -- a fresh copy of what the runner reads; prints it.
 # The copy is a one-commit Git checkout whose origin/main is that commit,
 # so the 00-manifest step (base#1464) finds a base and lists the planted
-# defect as the change; the target script, the admission checker the
-# 01-admit step installs (base#1465) and the logger they source come
-# along.
+# defect as the change; the target script, the constructor library it
+# sources, the admission checker the 01-admit step installs (base#1465)
+# and the logger they source come along.
 _rp_copy() {
   local dst
   dst="$(mktemp -d "${1}/root.XXXXXX")"
@@ -366,6 +366,7 @@ _rp_copy() {
   cp -a "${_RP_ROOT}/script/watch" "${dst}/script/"
   cp -a "${_RP_ROOT}/test/fixtures/gomod" "${dst}/test/fixtures/"
   cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" \
+    "${_RP_ROOT}/script/test/config_gen_mutation_lang.sh" \
     "${_RP_ROOT}/script/test/config_gen_admit.sh" "${dst}/script/test/"
   cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \
     "${dst}/dist/script/docker/lib/"
