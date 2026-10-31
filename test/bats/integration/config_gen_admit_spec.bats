@@ -649,8 +649,8 @@ ROWS
 # So every refusal the checker has is also run the whole way: the real
 # checker on the tampered fixture, its stdout placed in the log exactly as
 # the admit RUN prints it (observed from a real stale-header build on
-# golang:1.27.2-trixie: `#10 0.170 <line>`, then
-# `#10 0.170 config_gen_gate_admission_failed`), a docker stub that
+# golang:1.27.2-trixie: BuildKit's step number, `0.170`, the line; then
+# the same prefix and config_gen_gate_admission_failed), a docker stub that
 # prints that log and exits 1, and the real runner. Each row must give:
 # rc 1; nothing on stdout (admission is the first verdict, so no ok line
 # precedes it); exactly one JSON config_gen_manifest_stale record whose
