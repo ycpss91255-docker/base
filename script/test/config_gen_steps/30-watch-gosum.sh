@@ -11,14 +11,17 @@
 # The unit specs stub docker, so they never run the container script that
 # regenerates go.sum; only a real image can show that the go.sum a bump
 # commits is the one Go wants, with nothing else on it. So, per require
-# form, this builds a git-initialised scratch tree:
+# form -- `line` (`require <path> <version>`) and `block` (the entry inside
+# `require ( ... )`, the form `go get` writes) -- this builds a
+# git-initialised scratch tree:
 #
 #   dockerfile/Dockerfile.config-gen  the `# tool-pin: golang` marker and
 #                                     the line under it, copied from this
 #                                     checkout's file (never retyped);
 #   dockerfile/config-gen/go.mod      `go <major.minor of that pin>` and a
 #                                     marked BurntSushi/toml v1.5.0 require
-#                                     with odd spacing and a comment;
+#                                     in that form, with odd spacing and a
+#                                     comment;
 #   dockerfile/config-gen/main.go     importing toml, so tidy keeps it;
 #   dockerfile/config-gen/go.sum      the two v1.5.0 sum.golang.org lines;
 #
@@ -29,7 +32,8 @@
 #   - go.sum is byte for byte the two v1.6.0 lines sum.golang.org serves
 #     (lookup/github.com/!burnt!sushi/toml@v1.6.0), so a stale go.sum and
 #     a stray `all modules verified` on it both fail;
-#   - go.mod is its old bytes with v1.5.0 -> v1.6.0 and nothing else;
+#   - go.mod is its old bytes with v1.5.0 -> v1.6.0 and nothing else (so
+#     the block form is still a block, byte for byte);
 #   - `go build -mod=readonly ./...` passes in the pinned image.
 #
 # Refusals: a Dockerfile with no golang pin is watch_gosum_pin_missing,
@@ -109,6 +113,30 @@ go ${gover}
 require github.com/BurntSushi/toml   v1.6.0 // keep me
 "
       ;;
+    block)
+      gomod_old="module example.com/m
+
+go ${gover}
+
+require (
+	// tool-pin: toml github-release BurntSushi/toml
+	github.com/BurntSushi/toml   v1.5.0 // keep me
+)
+"
+      gomod_new="module example.com/m
+
+go ${gover}
+
+require (
+	// tool-pin: toml github-release BurntSushi/toml
+	github.com/BurntSushi/toml   v1.6.0 // keep me
+)
+"
+      ;;
+    *)
+      _wg_mismatch "${form}" form "no fixture for this require form"
+      return 1
+      ;;
   esac
 
   mod="${tree}/${mod_rel}"
@@ -154,7 +182,7 @@ require github.com/BurntSushi/toml   v1.6.0 // keep me
 
 main() {
   local pin_lines tag gover tmp form failed=0
-  local -a forms=(line)
+  local -a forms=(line block)
 
   pin_lines="$(_wg_pin_lines)"
   if [[ "${pin_lines}" != *$'\n'*=golang:* ]]; then
@@ -174,7 +202,7 @@ main() {
     _wg_case "${form}" "${pin_lines}" "${gover}" "${tmp}" || failed=1
   done
   (( failed == 0 )) || return 1
-  printf 'watch-gosum: a toml bump carries its go.sum in every require form\n'
+  printf 'watch-gosum: a toml bump carries its go.sum in each require form: %s\n' "${forms[*]}"
 }
 
 main "$@"
