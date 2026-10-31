@@ -438,7 +438,8 @@ _df_instructions() {
 # line each in the order it runs them (gate, refusal, stale, green,
 # coverage), read by sourcing the scratch copy: sourced, the redpath
 # defines its tables and runs nothing. <want> is the gate, the event id,
-# `<file>|<reason>`, empty, or the coverage event.
+# `<file>|<reason>`, empty, or `<event>|<pkg>|<file>` (file empty when the
+# event names none).
 _redpath_rows() {
   bash -c 'source "$1"
     for e in "${_RP_CASES[@]}"; do printf "gate|%s|%s\n" "${e%%:*}" "${e#*:}"; done
@@ -544,12 +545,13 @@ _ok_lines() {
 # config_gen_manifest_stale (the row's file and reason) and
 # config_gen_gate_admission_failed, rc 1; a green case, both rerun calls
 # and the control are the six ok lines and rc 0; a coverage case is the
-# five pre-coverage ok lines, the runner's records of the row's event and
+# five pre-coverage ok lines, the runner's records of the row's event
+# (naming the row's pkg, and its file when it has one) and
 # config_gen_gate_coverage_failed, rc 1.
 _canned_correct() {
-  local _kind _case _want _file _reason _c
+  local _kind _case _want _file _reason _extra _c
   mkdir -p "${S}/canned"
-  while IFS='|' read -r _kind _case _want _reason; do
+  while IFS='|' read -r _kind _case _want _reason _extra; do
     _c="${S}/canned/${_case}"
     case "${_kind}" in
       gate)
@@ -580,7 +582,7 @@ _canned_correct() {
         ;;
       coverage)
         _ok_lines coverage > "${_c}.out"
-        { _gate_record "${_want}" pkg=x status=1 "display=coverage event"
+        { _gate_record "${_want}" "pkg=${_reason}" ${_extra:+"file=${_extra}"} status=1 "display=coverage event"
           _gate_record config_gen_gate_coverage_failed gate=coverage status=1 "display=coverage"
         } > "${_c}.err"
         ;;
@@ -754,26 +756,49 @@ _case_failures() {
 }
 
 # why: A coverage case passes only when the ratchet refused it: after
-# exactly the five earlier gates, with the coverage gate's record and the
-# row's own event record. Each row breaks one part, which would otherwise
-# let a ratchet that never fired (or fired another rule) pass (base#1465).
+# exactly the five earlier gates, exiting exactly 1 like every refusal,
+# with the coverage gate's record and the row's own event record naming the
+# row's package (and file). Each row breaks one part, which would otherwise
+# let a runner that crashed with another status, a ratchet that never fired,
+# or one that fired the rule on another package or fragment pass (base#1465).
 @test "config_gen_redpath.sh: a coverage case missing any part of its contract fails with that part's reason (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  local _row _reason _c="${S}/canned/cov-lowered"
-  for _row in rc0 stdout unregistered gate event; do
+  local _row _reason _case _c
+  # Every coverage row names the package its event must carry.
+  _redpath_repo
+  assert_equal "$(_redpath_rows | awk -F'|' '$1 == "coverage" && $4 == ""')" ""
+  assert_equal "$(_redpath_rows | awk -F'|' '$1 == "coverage" && $2 == "cov-duplicate" { print $4 "|" $5 }')" \
+    "internal/testcorpus|s1g.txt"
+  for _row in rc0 rc2 rc42 stdout unregistered gate event pkg nopkg file; do
     rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
     _redpath_repo
+    _case=cov-lowered _c="${S}/canned/cov-lowered"
     case "${_row}" in
       rc0) printf '0\n' > "${_c}.rc"; _reason=rc_zero ;;
+      rc2) printf '2\n' > "${_c}.rc"; _reason=rc_not_one ;;
+      rc42) printf '42\n' > "${_c}.rc"; _reason=rc_not_one ;;
       stdout) _ok_lines "" > "${_c}.out"; _reason=stdout_mismatch ;;
       unregistered) printf 'FATAL: unregistered log body "x"\n' >> "${_c}.err"; _reason=unregistered_body ;;
       gate) sed -i 's/"body":"config_gen_gate_coverage_failed"/"body":"config_gen_gate_race_failed"/' "${_c}.err"; _reason=wrong_id ;;
       event) sed -i 's/"body":"config_gen_coverage_floor_lowered"/"body":"config_gen_coverage_floor_stale"/' "${_c}.err"
         _reason=event_record_missing ;;
+      pkg) sed -i '/"body":"config_gen_coverage_floor_lowered"/s#"pkg":"[^"]*"#"pkg":"internal/zz"#' "${_c}.err"
+        _reason=event_detail_mismatch ;;
+      nopkg) sed -i '/"body":"config_gen_coverage_floor_lowered"/s#"pkg":"[^"]*",##' "${_c}.err"
+        _reason=event_detail_mismatch ;;
+      file) _case=cov-duplicate _c="${S}/canned/cov-duplicate"
+        sed -i '/"body":"config_gen_coverage_floor_duplicate"/s#"file":"[^"]*"#"file":"s1z.txt"#' "${_c}.err"
+        _reason=event_detail_mismatch ;;
+    esac
+    # The planted change must have reached the canned event record.
+    case "${_row}" in
+      pkg) assert grep -q '"body":"config_gen_coverage_floor_lowered".*"pkg":"internal/zz"' "${_c}.err" ;;
+      nopkg) refute grep -q '"body":"config_gen_coverage_floor_lowered".*"pkg"' "${_c}.err" ;;
+      file) assert grep -q '"body":"config_gen_coverage_floor_duplicate".*"file":"s1z.txt"' "${_c}.err" ;;
     esac
     _run_redpath
     assert_equal "${_row}:${status}" "${_row}:1"
-    assert_equal "${_row}:$(_case_failures)" "${_row}:cov-lowered|${_reason}"
+    assert_equal "${_row}:$(_case_failures)" "${_row}:${_case}|${_reason}"
   done
 }
 
