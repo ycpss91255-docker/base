@@ -77,13 +77,13 @@ STUB
 # the spec as its last two arguments. Red (rc 1, one `not ok`) only while
 # lib/guard.sh differs from the sandbox's commit, so it goes red on mutated
 # bytes and nothing else; it records its pid, its COMPOSE_PROJECT_NAME, its
-# root and its start and end times, and the diff it saw.
+# root, the root's mode and its start and end times, and the diff it saw.
 _runner() {
   cat > "${S}/runner" <<'STUB'
 #!/usr/bin/env bash
 root="${@: -2:1}"
-printf 'start %s %s %s %s\n' "${EPOCHREALTIME}" "$$" "${root}" \
-  "${COMPOSE_PROJECT_NAME:-}" >> "${MR_RUNNER_LOG:?}"
+printf 'start %s %s %s %s %s\n' "${EPOCHREALTIME}" "$$" "${root}" \
+  "${COMPOSE_PROJECT_NAME:-}" "$(stat -c %a -- "${root}")" >> "${MR_RUNNER_LOG:?}"
 [[ -z "${MR_RUNNER_SLEEP:-}" ]] || sleep "${MR_RUNNER_SLEEP}"
 git -C "${root}" ls-files | LC_ALL=C sort > "${MR_DIFF_DIR}/files.$$"
 if git -C "${root}" diff --quiet -- lib/guard.sh; then
@@ -754,6 +754,19 @@ STUB
     || fail "teardown did not ask docker about ${_seen}: $(cat "${MR_DOCKER_LOG}")"
   awk '$1 == "start" { print $4 }' "${MR_RUNNER_LOG}" | grep -qvF "${LIVE}" \
     || fail "the probe ran in the live checkout"
+}
+
+# why: The probe mounts the sandbox as the container's /source, and a spec
+# that drops from root to nobody (an unreadable-file case) must still reach
+# the files under it. mktemp -d makes the sandbox 0700, so every such spec
+# went red at its baseline and the row was refused; a checkout's own
+# directory is 0755.
+@test "sandbox: the sandbox directory the probe runs in is mode 755 (base#1461)" {
+  _pin_row a.tsv kill
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(awk '$1 == "start" { print $6 }' "${MR_RUNNER_LOG}" | sort -u)" 755
 }
 
 # why: Two rows in flight at once are two sandboxes and two projects.
