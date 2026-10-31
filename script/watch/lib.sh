@@ -655,6 +655,20 @@ _pin_go_mod_refuse() {
     "display=go_mod_unsupported_syntax: ${_gm_file}:${1}: go.mod syntax the pin registry does not read (${2})"
 }
 
+# _pin_refuse_unreadable <file> -- the one record for a file the registry
+# cannot read, shared by the go.mod scanner and _pin_read: an unreadable
+# file is not one that declares nothing.
+_pin_refuse_unreadable() {
+  _log_err pin pin_file_unreadable "file=${1}" \
+    "display=pin_file_unreadable: ${1} cannot be read; an unreadable file is not one that declares nothing"
+}
+
+# _pin_go_mod_opens_block -- true when the line in the caller's
+# `_gm_kind`/`_gm_text` is `<verb> (`, the block form.
+_pin_go_mod_opens_block() {
+  [[ "${_gm_text[1]:-}" == '(' && "${_gm_kind[1]:-}" == p ]]
+}
+
 # _pin_go_mod_lex <line> <lineno> -- split one go.mod line into the
 # caller's `_gm_kind` (w word, s string, p punctuation), `_gm_text` and
 # `_gm_comment` (the `//` comment, or empty). Non-zero, with the refusal
@@ -838,8 +852,7 @@ _pin_go_mod_scan() {
   local -a _gm_kind=() _gm_text=() _lines=()
   local LC_ALL=C
   if [[ ! -r "${_gm_file}" ]]; then
-    _log_err pin pin_file_unreadable "file=${_gm_file}" \
-      "display=pin_file_unreadable: ${_gm_file} cannot be read; an unreadable file is not one that declares nothing"
+    _pin_refuse_unreadable "${_gm_file}"
     return 1
   fi
   mapfile -t _lines < "${_gm_file}"
@@ -870,7 +883,7 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi
     case "${_verb}" in
       module | go | toolchain)
-        if [[ "${_gm_text[1]:-}" == '(' && "${_gm_kind[1]:-}" == p ]]; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi
+        if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi
         ;;
     esac
     case "${_verb}" in
@@ -895,7 +908,7 @@ _pin_go_mod_scan() {
         _seen_toolchain=1
         ;;
       require)
-        if [[ "${_gm_text[1]:-}" == '(' && "${_gm_kind[1]:-}" == p ]]; then
+        if _pin_go_mod_opens_block; then
           if (( ${#_gm_kind[@]} > 2 )); then _pin_go_mod_refuse "${_ln}" paren_trailer; return 1; fi
           _in_block=1
           _block_ln="${_ln}"
@@ -946,8 +959,7 @@ _pin_read() {
   while IFS= read -r _file; do
     _abs="${_root}/${_file}"
     if [[ ! -r "${_abs}" ]]; then
-      _log_err pin pin_file_unreadable "file=${_abs}" \
-        "display=pin_file_unreadable: ${_abs} cannot be read; an unreadable file is not one that declares nothing"
+      _pin_refuse_unreadable "${_abs}"
       return 1
     fi
     _marker_re="${_PIN_MARKER_RE}"

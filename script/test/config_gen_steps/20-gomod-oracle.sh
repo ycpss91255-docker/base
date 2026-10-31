@@ -91,7 +91,7 @@ _gmo_mismatch() {
 
 main() {
   local image fx f name header tmp go_rc rc=0 failed=0
-  local kind a b c cur="" scan scan_rc event reason want got got_go
+  local kind a b c cur="" scan scan_rc event reason want got got_go got_scan
   local -a fixtures=()
   local -A class=() want_event=() want_reason=() go_status=() go_req=()
 
@@ -169,9 +169,10 @@ main() {
       supported)
         want="$(cat -- "${f%.mod}.requires" 2>/dev/null)" || want="(no ${name%.mod}.requires)"
         got_go="$(printf '%s' "${go_req["${name}"]:-}" | awk -F'\t' '$3 == "false" {print $1 "\t" $2} $3 != "false" {print "indirect:" $1}')"
-        if [[ "${go_rc}" != 0 || "${scan_rc}" != 0 || "${got_go}" != "${want}" || "$(cut -f2,3 <<< "${scan}")" != "${want}" ]]; then
+        got_scan="$(cut -f2,3 <<< "${scan}")"
+        if [[ "${go_rc}" != 0 || "${scan_rc}" != 0 || "${got_go}" != "${want}" || "${got_scan}" != "${want}" ]]; then
           _gmo_mismatch "${_GMO_FIXTURES_REL}/${name}" supported requires \
-            "${got}; Go read [${got_go//$'\n'/; }], the scanner read [$(cut -f2,3 <<< "${scan}" | paste -sd ';' -)], ${name%.mod}.requires holds [${want//$'\n'/; }]"
+            "${got}; Go read [${got_go//$'\n'/; }], the scanner read [${got_scan//$'\n'/; }], ${name%.mod}.requires holds [${want//$'\n'/; }]"
           failed=1
         fi
         ;;
