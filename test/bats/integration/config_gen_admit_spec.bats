@@ -92,3 +92,22 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=${MOD}/a.go reason=missing"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a manifest body line that is neither the none marker nor a change record is refused as record (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline (header, then the none marker)
+  # is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # A later step keeps the header and replaces the body with a line S1d
+  # never writes: no `none: no-go-change`, no `<status>\t<path>` record.
+  local header
+  IFS= read -r header < "${S}/m/manifest"
+  printf '%s\ngarbage\n' "${header}" > "${S}/m/manifest"
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=manifest reason=record"
+  assert_equal "${stderr}" ""
+}
