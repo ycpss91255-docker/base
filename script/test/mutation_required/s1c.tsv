@@ -72,7 +72,7 @@ oracle-go-invalid-verdict	script/test/config_gen_steps/20-gomod-oracle.sh	test/b
 oracle-network-none	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's% --network none % %' script/test/config_gen_steps/20-gomod-oracle.sh
 oracle-gotoolchain-local	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	sed -i 's%-e GOTOOLCHAIN=local %%' script/test/config_gen_steps/20-gomod-oracle.sh
 redpath-copies-watch	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/cp -a "${_RP_ROOT}\/script\/watch"/d' script/test/config_gen_redpath.sh
-redpath-copies-log-lib	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/cp -a "${_RP_ROOT}\/dist\/script\/docker\/lib"/d' script/test/config_gen_redpath.sh
+redpath-copies-log-lib	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's|cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" |cp -a |' script/test/config_gen_redpath.sh
 redpath-copies-fixtures	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '/cp -a "${_RP_ROOT}\/test\/fixtures\/gomod"/d' script/test/config_gen_redpath.sh
 scan-path-empty	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's%if \[\[ -z "${_path}" \]\]; then _pin_go_mod_refuse "${_ln}" path_empty; return 1; fi%:%' script/watch/lib.sh
 record-fields-keep-empty	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i '0,/^  _gm_r_ln=/s%^  _gm_r_ln=.*%  IFS="\t" read -r _gm_r_ln _gm_r_path _gm_r_ver _gm_r_cm <<< "${_r}"; return 0%' script/watch/lib.sh

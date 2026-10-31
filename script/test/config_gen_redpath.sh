@@ -150,10 +150,10 @@ _rp_copy() {
   fi
   # The go.mod oracle step (base#1463) runs the pin registry's scanner,
   # with its logger, over the go.mod fixtures -- each read relative to the
-  # step's own root, so the copy carries all three.
-  mkdir -p "${dst}/dist/script/docker" "${dst}/test/fixtures"
+  # step's own root, so the copy carries all three. The logger and its
+  # event registry are the log.sh copy below.
+  mkdir -p "${dst}/test/fixtures"
   cp -a "${_RP_ROOT}/script/watch" "${dst}/script/"
-  cp -a "${_RP_ROOT}/dist/script/docker/lib" "${dst}/dist/script/docker/"
   cp -a "${_RP_ROOT}/test/fixtures/gomod" "${dst}/test/fixtures/"
   cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" "${dst}/script/test/"
   cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \
