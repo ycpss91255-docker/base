@@ -425,7 +425,9 @@ _gomod() {
   _gomod 'module example.com/m' '' 'go 1.27' '' \
     '// tool-pin: xmod github-release golang/mod' \
     'require golang.org/x/mod v0.21.0 // held: v0.21.0 is the last for go 1.22'
-  _pins --set xmod v0.22.0
+  _golang_pin
+  _stub docker 0
+  _pins_json --set xmod v0.22.0
   assert_success
   run sed -n 6p "${SCRATCH}/dockerfile/config-gen/go.mod"
   assert_output 'require golang.org/x/mod v0.22.0 // held: v0.21.0 is the last for go 1.22'
@@ -439,7 +441,9 @@ _gomod() {
   _gomod 'module example.com/m' '' 'require (' \
     '	// tool-pin: xmod github-release golang/mod' \
     '	golang.org/x/mod v0.21.0' ')'
-  _pins --set xmod v0.22.0
+  _golang_pin
+  _stub docker 0
+  _pins_json --set xmod v0.22.0
   assert_success
   run sed -n 5p "${SCRATCH}/dockerfile/config-gen/go.mod"
   assert_output $'\tgolang.org/x/mod v0.22.0'
@@ -450,7 +454,9 @@ _gomod() {
   _gomod 'module example.com/m' \
     '// tool-pin: xmod github-release golang/mod' \
     'require "golang.org/x/mod" "v0.21.0"'
-  _pins --set xmod v0.22.0
+  _golang_pin
+  _stub docker 0
+  _pins_json --set xmod v0.22.0
   assert_success
   run sed -n 3p "${SCRATCH}/dockerfile/config-gen/go.mod"
   assert_output 'require "golang.org/x/mod" "v0.22.0"'
@@ -542,7 +548,9 @@ _foo_pin() {
     '// tool-pin: xmod github-release golang/mod' \
     'require golang.org/x/mod v0.21.0 // literal \n text \\ end' \
     'require golang.org/x/net v0.30.0'
-  _pins --set xmod v0.22.0
+  _golang_pin
+  _stub docker 0
+  _pins_json --set xmod v0.22.0
   assert_success
   run cat "${SCRATCH}/dockerfile/config-gen/go.mod"
   assert_output "$(printf '%s\n' 'module example.com/m' \

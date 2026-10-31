@@ -197,8 +197,12 @@ _pins_go_sum() {
   local _image="${1}" _gomod="${2}" _staged="${3}" _out="${4}"
   local _mod="${_gomod%/*}" _dir _rc=0
   _dir="$(mktemp -d)" || return 1
-  cp -- "${_staged}" "${_dir}/go.mod" || { rm -rf -- "${_dir}"; return 1; }
-  tar -cf - -C "${_mod}" --anchored --exclude=./go.mod . -C "${_dir}" go.mod \
+  # The module is copied and the staged go.mod laid over the copy, so the
+  # tar is plain `-C <dir> .`: busybox tar, the one in the test image, has
+  # no --anchored (base#1440).
+  { cp -R -- "${_mod}/." "${_dir}/" && cp -- "${_staged}" "${_dir}/go.mod"; } \
+    || { rm -rf -- "${_dir}"; return 1; }
+  tar -cf - -C "${_dir}" . \
     | docker run --rm -i --user "$(id -u):$(id -g)" \
         -e GOTOOLCHAIN=local -e HOME=/tmp -e GOCACHE=/tmp/gocache \
         -e GOMODCACHE=/tmp/gomodcache -e GOFLAGS= \
@@ -222,8 +226,8 @@ _pins_set_go_mod() {
   IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
     _gfile _gline <<< "${_record}"
   if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
-    _pins_commit "${_abs}" "${_n}" "${_repl}"
-    return
+    _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PINS_GOLANG_PIN} image to regenerate go.sum in"
+    return 1
   fi
   (( _n > $(wc -l < "${_abs}") )) && _term=""
   _staged="$(mktemp)" || return 1
