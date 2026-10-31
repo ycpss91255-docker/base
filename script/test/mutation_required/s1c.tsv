@@ -93,3 +93,5 @@ set-line-refusal-event	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	s
 scan-go-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(\[1-9\]|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^([1-9]|' script/watch/lib.sh
 scan-toolchain-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	sed -i 's|if \[\[ ! "${_gm_text\[1\]}" =~ ^(default|if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^(default|' script/watch/lib.sh
 read-table-buffered	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's|      _table+="${_record}"|      printf "%s" "${_record}"|' script/watch/lib.sh
+reader-marker-target-guard	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's%if \[\[ -z "${_gm_version\["${_target_no}"\]+x}" \]\]; then%if false; then%' script/watch/lib.sh
+reader-marker-target-event	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	sed -i 's|_log_err pin go_mod_pin_target_not_require "file=${_file}" "line=${_target_no}" "pin=${_name}" \\|printf "%s\\n" not_require_entry >\&2; : \\|' script/watch/lib.sh
