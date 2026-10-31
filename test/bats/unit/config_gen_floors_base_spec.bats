@@ -38,7 +38,7 @@ setup() {
 # _commit -- commit everything in ${R}; BASE is the new commit.
 _commit() {
   git -C "${R}" add -A
-  git -C "${R}" commit -q --no-verify -m c
+  git -C "${R}" commit -q --no-verify --allow-empty -m c
   BASE="$(git -C "${R}" rev-parse HEAD)"
 }
 
