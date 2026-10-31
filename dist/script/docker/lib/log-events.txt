@@ -440,3 +440,6 @@ config_gen_mutation_context_invalid
 config_gen_mutation_base_unreachable
 config_gen_mutation_none_beside_diff
 config_gen_mutation_publish_failed
+# The admit stage's refusal of a build given no mutation context
+# (base#1465), re-emitted by config_gen_gates.sh.
+config_gen_manifest_missing
