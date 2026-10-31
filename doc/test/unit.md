@@ -4732,7 +4732,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/mutation_required_spec.bats (49)
+### test/bats/unit/mutation_required_spec.bats (51)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4801,6 +4801,8 @@ Every refusal holds assert_refusal's five points.
 | `sandbox: an exported GIT_DIR and GIT_INDEX_FILE are not followed (base#1461)` | GIT_DIR / GIT_INDEX_FILE exported by a hook or a wrapper point every git call at another repository; the sandbox list must be the live one and the other repository must be left alone. |
 | `sandbox: a failing archive step fails the row and runs no probe (base#1461)` | A sandbox build step that fails leaves a partial copy; probing it would measure a different tree. Every step fails closed. |
 | `sandbox: a container still running at teardown holds the sandbox and fails the row (base#1461)` | A container of the sandbox's project still running after the probe is a run that may still write; the sandbox is kept, named, and the row fails rather than passes. |
+| `sandbox: teardown removes the networks of the sandbox's project (base#1461)` | Each sandbox's compose project gets its own network, and `docker compose run --rm` removes the container, not the network. The project reclaim spares a network for its 6h grace window, so a roster of 168 rows left one network per row: on a GitHub-hosted runner the daemon answered "all predefined address pools have been fully subnetted" and 139 rows were refused. Teardown removes the project's networks. |
+| `sandbox: a project network that cannot be removed fails the row (base#1461)` | A network that could not be removed is litter the next rows run into; the row fails, naming the step, rather than passing. |
 | `signals: INT during a probe stops every child and publishes no verdict (base#1461)` | Ctrl-C mid-run must stop the probe and its runner, not leave a suite running in a sandbox, and must publish no verdict. |
 | `signals: TERM during a probe stops every child and exits 143 (base#1461)` | TERM, as a CI cancel sends it, is the same stop with status 143. |
 | `--apply: an old that does not occur leaves the file unchanged and fails (base#1461)` | A row is data, applied only by this fixed command; an <old> that is absent changes nothing and says so. |

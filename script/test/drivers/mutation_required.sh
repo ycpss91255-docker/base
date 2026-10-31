@@ -446,7 +446,7 @@ _mr_worker() {
   local -a _verdict=()
 
   _mrw_teardown() {
-    local _ids _qrc=0
+    local _ids _qrc=0 _nets _nrc=0
     [[ -n "${_sbx}" ]] || return 0
     if [[ -z "${_name}" ]]; then
       rm -rf -- "${_sbx}"
@@ -455,6 +455,19 @@ _mr_worker() {
     _ids="$(timeout 30 docker ps -q --filter "label=com.docker.compose.project=${_name}" 2>/dev/null)" || _qrc=$?
     if (( _qrc == 0 )) && [[ -z "${_ids}" ]]; then
       rm -rf -- "${_sbx}"
+      # `compose run --rm` leaves the project's network behind, and the
+      # project reclaim spares it for its grace window: one network per row
+      # exhausted a hosted runner's address pools (base#1461).
+      _nets="$(timeout 30 docker network ls -q --filter "label=com.docker.compose.project=${_name}" 2>&1)" || _nrc=$?
+      if (( _nrc == 0 )) && [[ -n "${_nets}" ]]; then
+        # shellcheck disable=SC2086  # one id per word, ids carry no spaces.
+        _nets="$(timeout 30 docker network rm ${_nets} 2>&1)" || _nrc=$?
+      fi
+      if (( _nrc != 0 )); then
+        _mrw_res mutation_required_sandbox_failed step=network "rc=${_nrc}" \
+          "project=${_name}" "detail=${_nets}"
+        return 1
+      fi
       return 0
     fi
     _mrw_res mutation_required_sandbox_held "path=${_sbx}" "project=${_name}" \
