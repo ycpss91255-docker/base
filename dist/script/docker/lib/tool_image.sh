@@ -104,20 +104,25 @@ tool_image_subtree_root() {
   return 1
 }
 
+# _tool_image_under_root <ns> <rel>
+#   <rel> under the subtree root of <ns>, or non-zero when there is none.
+_tool_image_under_root() {
+  local _root
+  _root="$(tool_image_subtree_root "$1")" || return 1
+  printf '%s/%s\n' "${_root}" "$2"
+}
+
 # tool_image_dockerfile <ns>
 #   The shipped Dockerfile of <ns>, or non-zero when the subtree root
 #   cannot be found.
 tool_image_dockerfile() {
-  local _ns="${1:?"${FUNCNAME[0]}: missing ns"}" _root
-  _root="$(tool_image_subtree_root "${_ns}")" || return 1
-  printf '%s/%s\n' "${_root}" "${_TOOL_IMAGE_DOCKERFILE[${_ns}]}"
+  local _ns="${1:?"${FUNCNAME[0]}: missing ns"}"
+  _tool_image_under_root "${_ns}" "${_TOOL_IMAGE_DOCKERFILE[${_ns}]}"
 }
 
 # _tool_image_context <ns> -- the build context of <ns>, or non-zero.
 _tool_image_context() {
-  local _ns="$1" _root
-  _root="$(tool_image_subtree_root "${_ns}")" || return 1
-  printf '%s/%s\n' "${_root}" "${_TOOL_IMAGE_CONTEXT[${_ns}]}"
+  _tool_image_under_root "$1" "${_TOOL_IMAGE_CONTEXT[$1]}"
 }
 
 # tool_image_derive <ns>
