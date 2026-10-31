@@ -94,8 +94,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # -count=1: a race is a property of one execution, so a cached pass must
 # not stand in for running the tests under the detector. This also runs
 # every Fuzz* seed corpus.
+# The shared corpus is moved out of the module to a fresh temp directory
+# before the tests run, and only internal/testcorpus is told where it went
+# (-ldflags -X sets its unexported root). A test that reads testdata by any
+# other path finds nothing there and fails this gate (base#1468). The root
+# is also written to /tmp/config-gen-corpus-root for the later RUNs.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    g=race; CGO_ENABLED=1 go test -race -count=1 ./... || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
+    g=race; { tc="$(go list -m)/internal/testcorpus" && r="$(mktemp -d)" && mv testdata "${r}/" \
+      && printf '%s.root=%s\n' "${tc}" "${r}/testdata" >/tmp/config-gen-corpus-root \
+      && CGO_ENABLED=1 go test -race -count=1 -ldflags="-X=$(cat /tmp/config-gen-corpus-root)" ./...; } \
+      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=race ok
 # gates/coverage.sh prints its own refusal line (with the reason and the
 # package) and exits 1; its stdout ok line is replaced by this RUN's, so
