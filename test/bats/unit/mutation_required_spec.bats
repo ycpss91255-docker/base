@@ -221,7 +221,7 @@ _decode() {
 
 # ── the committed roster ────────────────────────────────────────────────────
 
-# why: The roster already holds 76 rows from S1b, S1d and S1h in a
+# why: The roster already holds 164 rows from S1b, S1c, S1d and S1h in a
 # four-column `sed -i` form, and the runner's contract is the declarative
 # five-column one. Adopting them means every committed row is in that
 # contract, applies through the runner's own --apply to exactly one changed
@@ -261,11 +261,13 @@ _decode() {
         || fail "row '${_id}': --apply changed ${_hunks} regions of ${_subj}, not one"
     done < "${_f}"
   done
-  (( _n >= 78 )) || fail "the roster has ${_n} rows; S1a's 2 seeds and the 76 of S1b, S1d and S1h are 78"
+  (( _n >= 166 )) || fail "the roster has ${_n} rows; S1a's 2 seeds and the 164 of S1b, S1c, S1d and S1h are 166"
   local _want
   for _want in \
     s1b:runner-step-status s1b:runner-usage-unknown s1b:redpath-control \
     s1b:coverage-profile-missing s1b:spec-workflow-env-keys \
+    s1c:scan-unsupported-byte s1c:oracle-pin-missing s1c:read-gomod-target \
+    s1c:pins-commit-final-newline s1c:reader-marker-target-event \
     s1d:base-pr-mergebase s1d:base-origin-missing s1d:base-main-push-missing \
     s1d:usage-unknown-option s1d:publish-restore-failed-keep \
     s1d:logger-caller-frame s1d:redpath-git-copy \
@@ -274,7 +276,7 @@ _decode() {
     [[ -n "${_ids[${_want}]:-}" ]] || fail "the roster lost row ${_want}"
   done
   local _c
-  for _c in s1b:26 s1d:38 s1h:12 s1a:2; do
+  for _c in s1b:26 s1c:88 s1d:38 s1h:12 s1a:2; do
     [[ "$(grep -cvE '^(#|$)' "/source/script/test/mutation_required/${_c%%:*}.tsv")" == "${_c##*:}" ]] \
       || fail "${_c%%:*}.tsv does not hold its ${_c##*:} rows"
   done
@@ -689,7 +691,7 @@ STUB
 
 # ── parallel rows ───────────────────────────────────────────────────────────
 
-# why: 78 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
+# why: 166 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
 # (default 4); a runner that only runs serially costs every gate the sum.
 @test "parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)" {
   _pin_row a.tsv one
