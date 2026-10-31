@@ -444,3 +444,7 @@ pin_file_unreadable
 go_mod_fixture_unclassified
 go_mod_oracle_mismatch
 go_mod_oracle_pin_missing
+
+# script/watch/pins.sh --set and _pin_go_mod_set_line: a bump refused with
+# the file left as it was (base#1463).
+pin_set_refused

@@ -1006,8 +1006,8 @@ _pin_go_mod_record_fields() {
 # lexer's own offsets -- not a text substitution, which cannot tell the
 # version from the same string in the comment. <version> must be one
 # _pin_go_mod_version_ok keeps for the entry's path, so a bump never
-# writes a go.mod the reader would then refuse. rc 1, nothing on stdout,
-# otherwise.
+# writes a go.mod the reader would then refuse. Otherwise rc 1, nothing on
+# stdout, and pin_set_refused (file= line= reason=).
 _pin_go_mod_set_line() {
   local _gm_file="${1}" _want_ln="${2}" _new="${3}" _records _rec _line _last _tok
   local _gm_r_ln="" _gm_r_path="" _gm_r_ver="" _gm_r_cm="" _gm_hit=0 _gm_comment=""
@@ -1023,12 +1023,13 @@ _pin_go_mod_set_line() {
     fi
   done <<< "${_records}"
   if (( ! _gm_hit )); then
-    printf '%s:%s: not a require entry the go.mod scanner reads\n' "${_gm_file}" "${_want_ln}" >&2
+    _log_err pin pin_set_refused "file=${_gm_file}" "line=${_want_ln}" reason=not_require_entry \
+      "display=pin_set_refused: ${_gm_file}:${_want_ln}: not a require entry the go.mod scanner reads; the file is left as it was"
     return 1
   fi
   if ! _pin_go_mod_version_ok "${_gm_r_path}" "${_new}"; then
-    printf '%s:%s: %s is not a version Go keeps as written for %s (%s)\n' \
-      "${_gm_file}" "${_want_ln}" "${_new}" "${_gm_r_path}" "${_PIN_GO_MOD_REASON}" >&2
+    _log_err pin pin_set_refused "file=${_gm_file}" "line=${_want_ln}" "reason=${_PIN_GO_MOD_REASON}" \
+      "display=pin_set_refused: ${_gm_file}:${_want_ln}: ${_new} is not a version Go keeps as written for ${_gm_r_path} (${_PIN_GO_MOD_REASON}); the file is left as it was"
     return 1
   fi
   _line="$(awk -v n="${_want_ln}" 'NR == n' "${_gm_file}")"
