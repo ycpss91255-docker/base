@@ -1000,7 +1000,7 @@ _assert_rollback_failed_kept() {
   assert_refusal 1 pin_set_refused "file=${_f}" reason=rollback_failed
   grep -qx go.mod "${BATS_TEST_TMPDIR}/fail.log" \
     || fail "no rollback rename onto go.mod was failed: $(cat "${BATS_TEST_TMPDIR}/fail.log")"
-  [[ "${stderr}" != *'put back'* ]] || fail "a refusal claims a file was put back: ${stderr}"
+  [[ "${stderr}" != *'was put back'* ]] || fail "a refusal claims a file was put back: ${stderr}"
   for _c in "${_f%/*}"/.go.mod*; do
     if [[ -f "${_c}" ]] && cmp -s -- "${BATS_TEST_TMPDIR}/snap/bytes" "${_c}"; then
       _kept+=("${_c}")

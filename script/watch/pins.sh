@@ -85,6 +85,14 @@ _pins_refuse() {
     "display=pin_set_refused: ${1}: ${3}; the file is left as it was"
 }
 
+# _pins_refuse_rollback <file> <copy> -- the refusal of a commit that
+# failed and could not be undone: <file> is NOT as it was, and <copy> still
+# holds its bytes from before the commit (base#1440).
+_pins_refuse_rollback() {
+  _log_err pin pin_set_refused "file=${1}" "reason=rollback_failed" \
+    "display=pin_set_refused: ${1}: a commit failed and it could not be put back; its copy as it was is kept at ${2}"
+}
+
 # _pins_spliced_ok <file> <temp> <lineno> <new-line> <terminator>
 #
 # True when <temp> is <file> with line <lineno> replaced by <new-line> and
@@ -289,45 +297,51 @@ _pins_stage_go_mod() {
   _PINS_STAGED_SUM="${_sumtmp}"
 }
 
-# _pins_commit_go_mod <file> <lineno> <new-line> <staged-sum>
+# _pins_commit_go_mod <file> <lineno> <new-line> <staged-sum> [held]
 #
 # Commit the go.mod line change and the go.sum _pins_stage_go_mod computed
 # (base#1440): go.mod first, then go.sum, each by a rename of a copy beside
 # it. An empty <staged-sum> means the module wants no go.sum, so the one
-# that is there is removed. A failed go.sum step puts go.mod back.
+# that is there is removed. A failed go.sum step puts go.mod back from a
+# copy taken before the commit; when that rename fails too, the refusal is
+# rollback_failed for go.mod and the copy is kept and named, never a
+# commit_failed saying go.mod was put back (review round 1). With `held`
+# the caller owns the rollback (it took its own copies), so no copy is
+# taken here and a failed go.sum step only says what failed.
 _pins_commit_go_mod() {
-  local _abs="${1}" _n="${2}" _repl="${3}" _sumtmp="${4}"
-  local _sum="${_abs%/*}/go.sum"
-  # A copy of go.mod as it was, so a failed go.sum rename or removal can
-  # put go.mod back and the tree never holds the new go.mod beside the old
-  # go.sum.
-  local _bak
-  if ! _bak="$(mktemp "${_abs%/*}/.go.mod.pins.bak.XXXXXX")" \
-      || ! cp -p -- "${_abs}" "${_bak}"; then
+  local _abs="${1}" _n="${2}" _repl="${3}" _sumtmp="${4}" _held="${5:-}"
+  local _sum="${_abs%/*}/go.sum" _bak="" _why=""
+  if [[ -z "${_held}" ]] && { ! _bak="$(mktemp "${_abs%/*}/.go.mod.pins.bak.XXXXXX")" \
+      || ! cp -p -- "${_abs}" "${_bak}"; }; then
     rm -f -- ${_sumtmp:+"${_sumtmp}"} ${_bak:+"${_bak}"}
     _pins_refuse "${_abs}" temp_create "no backup copy could be created beside it"
     return 1
   fi
   if ! _pins_commit "${_abs}" "${_n}" "${_repl}"; then
-    rm -f -- ${_sumtmp:+"${_sumtmp}"} "${_bak}"
+    rm -f -- ${_sumtmp:+"${_sumtmp}"} ${_bak:+"${_bak}"}
     return 1
   fi
   if [[ -z "${_sumtmp}" ]]; then
     if [[ -e "${_sum}" ]] && ! rm -f -- "${_sum}"; then
-      mv -f "${_bak}" "${_abs}"
-      _pins_refuse "${_sum}" commit_failed "the go.sum the module no longer needs could not be removed; go.mod was put back"
-      return 1
+      _why="the go.sum the module no longer needs could not be removed"
     fi
-    rm -f -- "${_bak}"
+  elif ! mv -f -- "${_sumtmp}" "${_sum}"; then
+    rm -f -- "${_sumtmp}"
+    _why="the temp copy could not be renamed over it"
+  fi
+  if [[ -z "${_why}" ]]; then
+    rm -f -- ${_bak:+"${_bak}"}
     return 0
   fi
-  if ! mv -f "${_sumtmp}" "${_sum}"; then
-    rm -f -- "${_sumtmp}"
-    mv -f "${_bak}" "${_abs}"
-    _pins_refuse "${_sum}" commit_failed "the temp copy could not be renamed over it; go.mod was put back"
-    return 1
+  if [[ -z "${_bak}" ]]; then
+    _pins_refuse "${_sum}" commit_failed "${_why}"
+  elif mv -f -- "${_bak}" "${_abs}"; then
+    _pins_refuse "${_sum}" commit_failed "${_why}; go.mod was put back"
+  else
+    _pins_refuse_rollback "${_abs}" "${_bak}"
+    _pins_refuse "${_sum}" commit_failed "${_why}"
   fi
-  rm -f -- "${_bak}"
+  return 1
 }
 
 # _pins_set_golang <old-image> <new-image> <dockerfile> <lineno> <new-line>
@@ -401,7 +415,7 @@ _pins_set_golang() {
   # commit_failed that says the file is left as it was.
   local _failed="" _err="" _unrestored=""
   for _i in "${!_abss[@]}"; do
-    if ! _err="$(_pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}" 2>&1)"; then
+    if ! _err="$(_pins_commit_go_mod "${_abss[_i]}" "${_lns[_i]}" "${_repls[_i]}" "${_sums[_i]}" held 2>&1)"; then
       for _sum in "${_sums[@]:_i+1}"; do [[ -z "${_sum}" ]] || rm -f -- "${_sum}"; done
       _failed=1
       break
@@ -424,8 +438,7 @@ _pins_set_golang() {
   done
   while IFS=$'\t' read -r _file _bak; do
     [[ -n "${_file}" ]] || continue
-    _log_err pin pin_set_refused "file=${_file}" "reason=rollback_failed" \
-      "display=pin_set_refused: ${_file}: a commit failed and it could not be put back; its copy as it was is kept at ${_bak}"
+    _pins_refuse_rollback "${_file}" "${_bak}"
   done <<< "${_unrestored}"
   [[ -z "${_err}" ]] || printf '%s\n' "${_err}" >&2
   [[ -z "${_failed}" ]]
