@@ -40,12 +40,12 @@
 # config_gen_manifest_stale record whose attributes file and reason are
 # the case's, and no "unregistered log body".
 #
-#   case        change after 00                 file                                      reason
-#   stale-edit     a line appended to main.go   dockerfile/config-gen/cmd/config-gen/main.go     sha_mismatch
-#   stale-new-pkg  a new package internal/zznew  dockerfile/config-gen/internal/zznew/zznew.go   unlisted
-#   stale-gomod    a line go cannot parse        dockerfile/config-gen/go.mod                     sha_mismatch
+#   case           change after 00               file                                           reason
+#   stale-edit     a line appended to main.go    dockerfile/config-gen/cmd/config-gen/main.go   sha_mismatch
+#   stale-new-pkg  a new package internal/zznew  dockerfile/config-gen/internal/zznew/zznew.go  unlisted
+#   stale-gomod    a line go cannot parse        dockerfile/config-gen/go.mod                   sha_mismatch
 #                  appended to go.mod
-#   stale-header   the manifest's header line   manifest                                         header
+#   stale-header   the manifest's header line    manifest                                       header
 #                  loses its context= field
 #
 # stale-gomod's go.mod makes every go command fail with go's own
@@ -340,14 +340,23 @@ _rp_event_record_re() {
   printf '^\\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"%s",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\\{"service\\.name":"config-gen",.*\\}\\}$' "${1}"
 }
 
-# _rp_refusal_verdict <rc> <out> <err> <id> -- empty when the build refused
-# the case as planted, else the reason it did not.
-_rp_refusal_verdict() {
-  local rc="${1}" out="${2}" err="${3}" id="${4}"
+# _rp_refused_shape <rc> <out> <err> -- empty when the run ended the way
+# every refusal must (exit exactly 1, nothing on stdout, no "unregistered
+# log body" on stderr), else the reason it did not.
+_rp_refused_shape() {
+  local rc="${1}" out="${2}" err="${3}"
   (( rc != 0 )) || { echo rc_zero; return 0; }
   (( rc == 1 )) || { echo rc_not_one; return 0; }
   [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }
   ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+}
+
+# _rp_refusal_verdict <rc> <out> <err> <id> -- empty when the build refused
+# the case as planted, else the reason it did not.
+_rp_refusal_verdict() {
+  local err="${3}" id="${4}" shape
+  shape="$(_rp_refused_shape "${1}" "${2}" "${err}")"
+  [[ -z "${shape}" ]] || { echo "${shape}"; return 0; }
   grep -qE "$(_rp_event_record_re "${id}")" "${err}" || { echo wrong_id; return 0; }
 }
 
@@ -373,11 +382,9 @@ readonly _RP_GO_STEP_RE='^#[0-9]+ \[[^]]+\] RUN .*(^|[ ;])go (build|vet|test|mod
 # admission refused the case with a stale record naming <file> and
 # <reason>, else the reason it did not.
 _rp_stale_verdict() {
-  local rc="${1}" out="${2}" err="${3}" file="${4}" reason="${5}" got
-  (( rc != 0 )) || { echo rc_zero; return 0; }
-  (( rc == 1 )) || { echo rc_not_one; return 0; }
-  [[ ! -s "${out}" ]] || { echo stdout_not_empty; return 0; }
-  ! grep -qF 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  local err="${3}" file="${4}" reason="${5}" shape got
+  shape="$(_rp_refused_shape "${1}" "${2}" "${err}")"
+  [[ -z "${shape}" ]] || { echo "${shape}"; return 0; }
   ! grep -qF 'go: errors parsing go.mod' "${err}" || { echo go_ran_before_admission; return 0; }
   ! grep -qE "${_RP_GO_STEP_RE}" "${err}" || { echo go_ran_before_admission; return 0; }
   grep -qE "$(_rp_event_record_re config_gen_gate_admission_failed)" "${err}" || { echo gate_record_missing; return 0; }

@@ -17,6 +17,8 @@
 #                stage with `--build-context mutation=<dir>` (the host
 #                mutation baseline, base#1464); a build that was not given
 #                that context sees the sentinel instead (base#1465).
+#   goenv        the pinned Go image with GOTOOLCHAIN=local and bash; the
+#                base of admit, build and test
 #   admit        no Go: refuses a build that got no mutation context, printing
 #                `cg_event config_gen_manifest_missing` on stderr, which the
 #                runner re-emits as that event; then runs the context's
@@ -26,8 +28,6 @@
 #                and `config_gen_gate_admission_failed`; otherwise prints
 #                `gate=admission ok`. The test stage starts by copying its
 #                /admitted, so no gate runs before it passed.
-#   goenv        the pinned Go image with GOTOOLCHAIN=local and bash; the
-#                base of admit, build and test
 #   build        the module and its static binary
 #   test         FROM goenv, not FROM build: a --target test build must run
 #                no go before admit passed (base#1465), and build's go build
@@ -92,8 +92,8 @@ FROM ${GO_IMAGE} AS goenv
 # for a newer Go. The golang image pinned today already sets it; this keeps
 # it set when GO_IMAGE is overridden or bumped to an image that does not.
 # admit, build and test are FROM goenv, so every go command inherits it.
-# It sits above SHELL because placed below it, hadolint reported SC3010 ([[ in POSIX sh)
-# on the test stage's fmt RUN.
+# It sits above SHELL because placed below it, hadolint reported SC3010
+# ([[ in POSIX sh) on the test stage's fmt RUN.
 ENV GOTOOLCHAIN=local
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 WORKDIR /src

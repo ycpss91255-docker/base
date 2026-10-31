@@ -12,38 +12,43 @@
 # admit stage runs it before any Go: it is bash and coreutils only, so
 # nothing from the snapshot is compiled or executed to judge the snapshot.
 #
-# Every `<path>\t<sha256>` line of visible.sha256 and ignored.sha256 names
-# a module file as 00-manifest hashed it; a file in <src> whose sha256 now
-# differs (an edit after the baseline was written) is refused, and so is
-# a file in <src> that neither list names (added after the baseline), and
-# a listed file <src> no longer holds (deleted after the baseline).
-# Before either, the manifest may hold only TAB, LF and 0x20-0x7e bytes,
-# as S1d writes it; any other byte (a CR from a CRLF rewrite included) is
-# refused as file=manifest reason=bytes. Then the manifest's first line
-# must be S1d's header,
-# `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`; any other
-# first line is refused as file=manifest reason=header. Every later line
-# must be the none marker `none: no-go-change` or a change record
-# `<status>\t<path>` (status A, D, M or T; two paths for a rename or copy,
-# R<score> or C<score>); any other body line, a wrong path count or another
-# status included, is refused as file=manifest reason=record. S1d writes
-# the marker only when no record exists, so the marker beside a change
-# record, or a second marker, is refused as file=manifest
-# reason=none_marker. S1d always writes the marker or a record, so a
-# header with no body line is refused as file=manifest reason=body_empty.
-# S1d writes a record path as git prints it, under the module prefix
-# `dockerfile/config-gen/`, so a record path holding a `..`, `.` or empty
-# segment, or outside that prefix, or holding a `"` (the quote of a name
-# git C-quotes), is refused as file=manifest reason=path.
-# visible.sha256 and ignored.sha256 may hold only the same bytes; any
-# other byte (a NUL, which a text read would drop) is refused as
-# file=<list> reason=bytes. Every line of each list must be
-# `<path>\t<64 hex digits>`; any other line is refused as file=<list>
-# reason=record, before any file of <src> is judged against it; and a
-# path listed twice in one list (00-manifest hashes each file once) is
-# refused as file=<list> reason=duplicate; and a path the earlier list
-# already names (00-manifest puts each file in exactly one list) is
-# refused as file=<list> reason=dual, naming the list read second.
+# The checks run in this order, and the first refusal ends the run:
+#
+#   manifest bytes   TAB, LF and 0x20-0x7e only, as S1d writes it; any
+#                    other byte (a CR from a CRLF rewrite included) is
+#                    file=manifest reason=bytes.
+#   manifest header  the first line must be S1d's header,
+#                    `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`;
+#                    any other is file=manifest reason=header.
+#   manifest body    every later line is the none marker `none: no-go-change`
+#                    or a change record `<status>\t<path>` (status A, D, M or
+#                    T; two paths for a rename or copy, R<score> or
+#                    C<score>); any other line, a wrong path count or
+#                    another status included, is reason=record. S1d writes
+#                    the marker only when no record exists, so the marker
+#                    beside a record, or a second marker, is
+#                    reason=none_marker; it always writes one of them, so a
+#                    header alone is reason=body_empty. A record path is
+#                    printed as git prints it, under `dockerfile/config-gen/`,
+#                    so a path holding a `..`, `.` or empty segment, outside
+#                    that prefix, or holding a `"` (the quote of a name git
+#                    C-quotes) is reason=path. All with file=manifest.
+#   each list        visible.sha256, then ignored.sha256. The same bytes
+#                    only (a NUL, which a text read would drop, is
+#                    reason=bytes); every line `<path>\t<64 hex digits>`
+#                    (reason=record); a path listed twice in one list is
+#                    reason=duplicate (00-manifest hashes each file once); a
+#                    path the earlier list already names is reason=dual
+#                    (00-manifest puts each file in exactly one list). All with file=<list>, the list read
+#                    when the rule fired. Once a list's lines pass, a file
+#                    it names whose sha256 in <src> differs (edited after
+#                    the baseline) is reason=sha_mismatch, and one <src> no
+#                    longer holds (deleted after it) is reason=missing, both
+#                    with file=<path>.
+#   disk walk        in byte order, an entry under <src> that is not a
+#                    directory or a regular file is reason=not_regular; one
+#                    neither list names (added after the baseline) is
+#                    reason=unlisted. Both with file=<path>.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -96,9 +101,9 @@ _cga_path() {
 
 # _cga_body <manifest> -- refuse a body line that is neither the none
 # marker nor a change record: `<status>\t<path>` with status A, D, M or T,
-# or for a rename or copy
-# (R<score>, C<score>) `<status>\t<old>\t<new>`; and the marker beside a
-# record, in either order, or a second marker; and a body with no line.
+# or `<status>\t<old>\t<new>` for a rename or copy (R<score>, C<score>);
+# and the marker beside a record, in either order, or a second marker; and
+# a body with no line.
 _cga_body() {
   local line t=$'\t' marker=0 record=0
   local one="^[ADMT]${t}[^${t}]+$"
@@ -124,29 +129,28 @@ _cga_body() {
 }
 
 # _cga_check <src> <list> -- refuse a <list> line that is not
-# `<path>\t<64 hex>` or whose path an earlier line names (duplicate) or
-# an earlier list names (dual), then the first
-# listed file whose sha256 in <src> differs from the one recorded, or
-# that <src> no longer holds.
+# `<path>\t<64 hex>` or whose path an earlier line names (duplicate) or an
+# earlier list names (dual); then the first listed file whose sha256 in
+# <src> differs from the one recorded, or that <src> no longer holds.
 _cga_check() {
-  local src="${1}" list="${2}" path want got line
+  local src="${1}" list="${2}" name="${2##*/}" path want got line file
   local rec=$'^[^\t]+\t[0-9a-f]{64}$'
   local -A seen=()
-  _cga_bytes "${list}" "${list##*/}"
+  _cga_bytes "${list}" "${name}"
   while IFS= read -r line; do
-    [[ "${line}" =~ ${rec} ]] || _cga_stale "${list##*/}" record
+    [[ "${line}" =~ ${rec} ]] || _cga_stale "${name}" record
     path="${line%%$'\t'*}"
-    [[ -z "${seen["${path}"]+x}" ]] || _cga_stale "${list##*/}" duplicate
-    [[ -z "${_cga_listed["${path}"]+x}" ]] || _cga_stale "${list##*/}" dual
+    [[ -z "${seen["${path}"]+x}" ]] || _cga_stale "${name}" duplicate
+    [[ -z "${_cga_listed["${path}"]+x}" ]] || _cga_stale "${name}" dual
     seen["${path}"]=1
   done <"${list}"
   for path in "${!seen[@]}"; do
     _cga_listed["${path}"]=1
   done
   while IFS=$'\t' read -r path want; do
-    [[ -e "${src}/${path#"${_CGA_MOD}"}" || -L "${src}/${path#"${_CGA_MOD}"}" ]] ||
-      _cga_stale "${path}" missing
-    got="$(sha256sum <"${src}/${path#"${_CGA_MOD}"}" 2>/dev/null)" || got=''
+    file="${src}/${path#"${_CGA_MOD}"}"
+    [[ -e "${file}" || -L "${file}" ]] || _cga_stale "${path}" missing
+    got="$(sha256sum <"${file}" 2>/dev/null)" || got=''
     [[ "${got%% *}" == "${want}" ]] || _cga_stale "${path}" sha_mismatch
   done <"${list}"
 }

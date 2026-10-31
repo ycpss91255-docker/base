@@ -106,11 +106,10 @@ _cg_context_args() {
 # as the event <id>, keeping only the words _CG_EVENT_ATTR_RE allows.
 _cg_event() {
   local id word
-  local -a attrs=()
-  read -r -a attrs <<<"${1}"
-  id="${attrs[0]}"
-  local -a keep=()
-  for word in "${attrs[@]:1}"; do
+  local -a words=() keep=()
+  read -r -a words <<<"${1}"
+  id="${words[0]}"
+  for word in "${words[@]:1}"; do
     [[ "${word}" =~ ${_CG_EVENT_ATTR_RE} ]] && keep+=("${word}")
   done
   _log_err "${_CG_SERVICE}" "${id}" "${keep[@]}" "status=${2}" \
