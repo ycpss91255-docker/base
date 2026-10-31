@@ -431,3 +431,31 @@ _run_admit() {
   assert_equal "${output}" "cg_event config_gen_manifest_stale file=ignored.sha256 reason=dual"
   assert_equal "${stderr}" ""
 }
+
+@test "config_gen_admit: a visible.sha256 line holding a NUL byte is refused as bytes (base#1465)" {
+  _baseline
+  # The no-fire twin: the untouched baseline is admitted.
+  _run_admit
+  assert_equal "${status}" 0
+  assert_equal "${output}" ""
+  assert_equal "${stderr}" ""
+  # 00-manifest writes every mutation file with only TAB, LF and 0x20-0x7e
+  # bytes; any other byte is `bytes` (design §4 cycle 8, case "NUL"). A
+  # later step puts a NUL between a.go's path and its TAB. Read as text,
+  # the NUL is dropped and the line looks like the untouched one, so only
+  # a byte check on the list itself refuses it, naming the list.
+  local line
+  IFS= read -r line < "${S}/m/visible.sha256"
+  assert_equal "${line%%$'\t'*}" "${MOD}/a.go"
+  { printf '%s\0' "${line%%$'\t'*}"; printf '\t%s\n' "${line#*$'\t'}"; } \
+    > "${S}/m/visible.sha256"
+  [[ "$(tr -d '\0' < "${S}/m/visible.sha256")" == "${line}" ]] \
+    || fail "the fixture is not the untouched line plus one NUL"
+  if ! od -An -c "${S}/m/visible.sha256" | grep -q '\\0'; then
+    fail "the fixture holds no NUL byte"
+  fi
+  _run_admit
+  assert_equal "${status}" 1
+  assert_equal "${output}" "cg_event config_gen_manifest_stale file=visible.sha256 reason=bytes"
+  assert_equal "${stderr}" ""
+}
