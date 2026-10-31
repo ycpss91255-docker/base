@@ -67,11 +67,12 @@ _cga_header() {
     _cga_stale manifest header
 }
 
-# _cga_path <path>... -- refuse a record path holding a `..` segment.
+# _cga_path <path>... -- refuse a record path holding a `..` or `.`
+# segment.
 _cga_path() {
   local p
   for p in "$@"; do
-    [[ "/${p}/" != */../* ]] || _cga_stale manifest path
+    [[ "/${p}/" != */../* && "/${p}/" != */./* ]] || _cga_stale manifest path
   done
 }
 
