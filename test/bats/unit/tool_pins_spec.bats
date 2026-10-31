@@ -948,6 +948,41 @@ STUB
   assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
 }
 
+# why: A golang minor bump rewrites the `go` directive of every tracked
+# go.mod; a tracked go.mod with no `go` directive has no line to move, and
+# skipping it would commit a Dockerfile the directive check then refuses
+# for that module (go=-). The bump is refused as go_directive_missing
+# before docker is called, and the Dockerfile and both modules keep their
+# literal bytes (base#1440).
+@test "pins: --set golang to another minor with a tracked go.mod that has no go line is go_directive_missing (base#1440)" {
+  _golang_pin
+  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2"
+  local _df="${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  mkdir -p "${_m}" "${_m2}"
+  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
+    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
+  printf '%s\n' 'module example.com/m2' > "${_m2}/go.mod"
+  _stub docker 0
+  printf '#!/bin/sh\necho "docker $*" >> %s\ncat > /dev/null\nprintf "golang.org/x/mod v0.21.0 h1:new=\\n"\n' \
+    "${_log}" > "${STUB_BIN}/docker"
+  : > "${_log}"
+  _pins_json --set golang golang:1.28.0-trixie
+  assert_refusal 1 pin_set_refused "file=${_m2}/go.mod" reason=go_directive_missing
+  assert_equal "$(cat "${_log}")" ''
+  assert_equal "$(cat "${_df}")" "$(printf '%s\n' \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e')"
+  assert_equal "$(cat "${_m}/go.mod")" "$(printf '%s\n' 'module example.com/m' '' \
+    'go 1.27' '' 'require golang.org/x/mod v0.21.0')"
+  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:old='
+  assert_equal "$(cat "${_m2}/go.mod")" 'module example.com/m2'
+  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
+  assert_equal "$(ls -A -- "${_m2}")" 'go.mod'
+  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
+}
+
 # why: A go.mod `go` directive names the Go a module needs; the golang pin
 # names the Go that builds it. Nothing compared the two, so `go 1.26` under
 # golang:1.27.2 passed the watch unseen. _pin_go_directive_check compares
