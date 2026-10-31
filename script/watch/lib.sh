@@ -1057,9 +1057,14 @@ _pin_go_mod_set_line() {
 # _pin_go_mod_scan first, so a go.mod it refuses fails here; its markers are
 # `//` comment lines, a marker's target must be a require entry the scanner
 # emitted, and <current> is the version the scanner read.
+#
+# The table is held until every file has been read and printed only then,
+# so a refusal partway through leaves stdout empty rather than a partial
+# table beside the error (base#1463).
 _pin_read() {
   local _root="${1}"
   local _file _abs _lineno _line _target _target_no _rest _list
+  local _table="" _record
   local _state _name _resolver _coord _pattern _skip _current
   local _marker_re _comment_re _gm_records _gm_rec
   local _gm_r_ln _gm_r_path _gm_r_ver _gm_r_cm
@@ -1193,9 +1198,10 @@ _pin_read() {
         # is the honest column for `RUN apk add ...`.
         _current="$(_pin_assign_value "${_target}")" || _current=""
       fi
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n' \
+      printf -v _record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n' \
         "${_state}" "${_name}" "${_resolver:--}" "${_coord:--}" \
         "${_pattern:--}" "${_skip:--}" "${_current:--}" "${_file}" "${_target_no}"
+      _table+="${_record}"
       _state=""
     done < "${_abs}"
     if [[ -n "${_state}" ]]; then
@@ -1204,6 +1210,7 @@ _pin_read() {
       return 1
     fi
   done <<< "${_list}"
+  printf '%s' "${_table}"
 }
 
 # ── Detector ────────────────────────────────────────────────────────────────
