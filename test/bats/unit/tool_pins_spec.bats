@@ -871,6 +871,22 @@ STUB
     dockerfile/config-gen/go.mod go=1.26 golang=1.27 line=3
 }
 
+# why: A go.mod with no `go` directive is not "nothing to compare": Go then
+# assumes go 1.16 for the module, which no golang pin of this repo builds.
+# Skipping the file let such a module pass the watch unseen, so it is a
+# mismatch named with go=- and line=0 (base#1440).
+@test "_pin_go_directive_check: a go.mod with no go directive is go_mod_go_directive_mismatch go=- (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m'
+  git -C "${SCRATCH}" add -A
+  # shellcheck disable=SC1091
+  source /source/script/watch/lib.sh
+  export LOG_FORMAT=json
+  run --separate-stderr _pin_go_directive_check "${SCRATCH}"
+  assert_refusal 1 go_mod_go_directive_mismatch \
+    dockerfile/config-gen/go.mod go=- golang=1.27 line=0
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
