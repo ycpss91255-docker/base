@@ -29,6 +29,11 @@
 #   visible.sha256  `<path>\t<sha256>` per present tracked or untracked
 #                   (not ignored) module file.
 #   ignored.sha256  the same for present Git-ignored module files.
+# Paths are enumerated NUL-delimited and spelled one way in all three files:
+# as is, unless the path holds a control byte, a double quote or a
+# backslash, in which case it is C-quoted as Git does with
+# core.quotePath=false (`"`, \a \b \t \n \v \f \r \" \\, other control
+# bytes as \ooo). The caller's core.quotePath has no effect.
 # Publication renames the old directory aside, renames the new one in and
 # only then removes the old one; a failed install puts the old one back.
 #
@@ -123,17 +128,75 @@ _cgm_write_manifest() {
   printf '%s\n' "${header}" "$@" >"${dest}"
 }
 
+# _cgm_quote <path> -- print <path> in the one spelling every output file
+# uses (see the header); no trailing newline.
+_cgm_quote() {
+  local p="${1}" LC_ALL=C q='' c i
+  case "${p}" in
+    *[[:cntrl:]\"\\]*) ;;
+    *)
+      printf '%s' "${p}"
+      return 0
+      ;;
+  esac
+  for (( i = 0; i < ${#p}; i++ )); do
+    c="${p:i:1}"
+    case "${c}" in
+      $'\a') q+='\a' ;;
+      $'\b') q+='\b' ;;
+      $'\t') q+='\t' ;;
+      $'\n') q+='\n' ;;
+      $'\v') q+='\v' ;;
+      $'\f') q+='\f' ;;
+      $'\r') q+='\r' ;;
+      '"') q+='\"' ;;
+      '\') q+='\\' ;;
+      [[:cntrl:]]) q+="$(printf '\\%03o' "'${c}")" ;;
+      *) q+="${c}" ;;
+    esac
+  done
+  printf '"%s"' "${q}"
+}
+
+# _cgm_lines <repo> <base> -- the manifest's change lines: `git diff
+# --name-status -M <base>` over the module (a rename or copy keeps both
+# paths), then `A\t<path>` per untracked module file. Read NUL-delimited,
+# so no path is ever Git-quoted before _cgm_quote spells it.
+_cgm_lines() {
+  local repo="${1}" base="${2}" i=0 st
+  local -a f=()
+  mapfile -d '' -t f < <(git -C "${repo}" diff --name-status -z -M "${base}" -- "${_CGM_MOD}")
+  while (( i < ${#f[@]} )); do
+    st="${f[i]}"
+    case "${st}" in
+      R*|C*)
+        printf '%s\t%s\t%s\n' "${st}" "$(_cgm_quote "${f[i+1]}")" "$(_cgm_quote "${f[i+2]}")"
+        i=$(( i + 3 ))
+        ;;
+      *)
+        printf '%s\t%s\n' "${st}" "$(_cgm_quote "${f[i+1]}")"
+        i=$(( i + 2 ))
+        ;;
+    esac
+  done
+  mapfile -d '' -t f < <(git -C "${repo}" ls-files -z -o --exclude-standard -- "${_CGM_MOD}")
+  for st in "${f[@]}"; do
+    printf 'A\t%s\n' "$(_cgm_quote "${st}")"
+  done
+}
+
 # _cgm_hashes <repo> <dest> <ls-files args...> -- `<path>\t<sha256>` for
-# each listed module file that is present, C-sorted.
+# each listed module file that is present, sorted by raw path bytes. The
+# list is read NUL-delimited, so the -f test sees the path on disk.
 _cgm_hashes() {
   local repo="${1}" dest="${2}" path sum
   shift 2
   : >"${dest}"
-  while IFS= read -r path; do
-    [[ -n "${path}" && -f "${repo}/${path}" ]] || continue
+  while IFS= read -r -d '' path; do
+    [[ -f "${repo}/${path}" ]] || continue
     sum="$(sha256sum <"${repo}/${path}")"
-    printf '%s\t%s\n' "${path}" "${sum%% *}" >>"${dest}"
-  done < <(git -C "${repo}" ls-files "$@" -- "${_CGM_MOD}" | LC_ALL=C sort -u)
+    printf '%s\t%s\n' "$(_cgm_quote "${path}")" "${sum%% *}" >>"${dest}"
+  done < <(git -C "${repo}" ls-files -z "$@" -- "${_CGM_MOD}" | LC_ALL=C sort -zu)
 }
 
 # _cgm_publish_failed <stage> <restored> [attr...] -- refuse, rc 1.
@@ -226,10 +289,7 @@ main() {
   [[ -z "$(git -C "${repo}" status --porcelain -- "${_CGM_MOD}")" ]] || dirty=yes
 
   local -a lines=()
-  mapfile -t lines < <(
-    git -C "${repo}" diff --name-status -M "${base}" -- "${_CGM_MOD}"
-    git -C "${repo}" ls-files -o --exclude-standard -- "${_CGM_MOD}" | sed 's/^/A\t/'
-  )
+  mapfile -t lines < <(_cgm_lines "${repo}" "${base}")
 
   local parent
   parent="$(dirname -- "${out}")"
