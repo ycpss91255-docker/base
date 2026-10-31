@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **226 tests**.
+Integration specs under `test/bats/integration/`: **259 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -77,6 +77,61 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
+
+### test/bats/integration/config_gen_mutation_targets_spec.bats (33)
+
+The build context has no Git history, and on main after a merge origin/main
+equals HEAD, so "which Go files changed" can only be decided on the host,
+from an explicit execution context. Each obvious choice of base is wrong in
+some checkout shape: HEAD^1 drops commits on a stale local main, merge-base
+gives HEAD (an empty diff, a false "none") on main after a merge, and in a
+--depth 1 clone merge-base exits 0 with HEAD. Every row below runs
+script/test/config_gen_mutation_targets.sh on a real Git fixture; no row
+reads the script's source.
+
+CONFIG_GEN_MUTATION_CONTEXT pr (default when unset) | main-push
+CONFIG_GEN_MUTATION_BASE optional override, verified + ancestor [--repo
+<dir>] <out-dir> writes manifest, visible.sha256, ignored.sha256; replaces
+<out-dir> whole
+
+Every refusal row holds the five points (assert_refusal) and checks that a
+pre-seeded <out-dir> keeps its bytes, file list and mode.
+
+| Test | Description |
+|------|-------------|
+| `pr: on a stale local main the base is the merge-base, not HEAD^1 (base#1464)` | The first red of the slice. On a stale local main HEAD^1 drops b.go and a two-dot diff against origin/main adds origin's other.go as a delete; only the merge-base names exactly the PR's two files. |
+| `context: unset defaults to pr (base#1464)` | Local runs and the pre-PR mirror pass no context; unset must mean pr. |
+| `pr: on a detached PR merge checkout the base is origin/main's tip (base#1464)` | GitHub checks a PR out as a detached merge of its head into origin/main; the base is origin/main's tip, not the head's parent. |
+| `main-push: on main after a --no-ff merge the base is HEAD^1 (base#1464)` | After a merge to main origin/main equals HEAD, so the pr rule would give an empty diff; main-push takes HEAD^1, which lists the merged files. |
+| `main-push: on main after a squash commit the base is HEAD^1 (base#1464)` | - |
+| `override: a verified ancestor CONFIG_GEN_MUTATION_BASE is the base (base#1464)` | - |
+| `base: a missing origin/main is refused as base_unreachable, rc 1 (base#1464)` | - |
+| `base: a --depth 1 clone is refused by name, in either context (base#1464)` | In a --depth 1 clone merge-base exits 0 and prints HEAD, which would be a false "none"; the shallow clone is refused by name before any rule. |
+| `base: main-push on a root commit (no HEAD^1) is refused, rc 1 (base#1464)` | - |
+| `override: a CONFIG_GEN_MUTATION_BASE that is not a commit is refused, rc 1 (base#1464)` | - |
+| `override: a CONFIG_GEN_MUTATION_BASE that is not an ancestor of HEAD is refused, rc 1 (base#1464)` | - |
+| `context: a value other than pr or main-push is refused, rc 2 (base#1464)` | - |
+| `context: an empty CONFIG_GEN_MUTATION_CONTEXT is refused, not defaulted (base#1464)` | Only an unset variable defaults; an empty one is a caller that meant to set something and did not, which ${X:-pr} would hide. |
+| `repo: a directory that is not a Git repository is refused, rc 2 (base#1464)` | - |
+| `usage: no <out-dir> is refused as missing_out, rc 2 (base#1464)` | - |
+| `usage: a second positional argument is refused as extra_arg, rc 2 (base#1464)` | - |
+| `usage: --repo without a value is refused as repo_value, rc 2 (base#1464)` | - |
+| `usage: an unknown option is refused as unknown_option, rc 2 (base#1464)` | - |
+| `usage: an <out-dir> that is a file or a symlink is refused as out_not_dir, rc 2 (base#1464)` | - |
+| `manifest: a change outside the module gives exactly the header and none: no-go-change (base#1464)` | - |
+| `manifest: a none marker beside a Go diff is refused as none_beside_diff, rc 1 (base#1464)` | The none marker is re-checked against the repository independently of the line builder, so a builder that drops lines is refused rather than written as none. The writer is called with an empty line set in a fixture whose module does differ from the base. |
+| `manifest: a rename keeps both paths as R100 under diff.renames=false (base#1464)` | A user's diff.renames=false splits a rename into D and A unless -M is passed; the fixture sets it, so the row does not lean on Git's default. |
+| `manifest: a delete is a D line (base#1464)` | - |
+| `dirty: a staged edit is dirty=yes and an M line (base#1464)` | - |
+| `dirty: an unstaged edit is dirty=yes and an M line (base#1464)` | - |
+| `dirty: a staged new file is dirty=yes and an A line (base#1464)` | - |
+| `dirty: an untracked file is dirty=yes and an A line after the diff lines (base#1464)` | - |
+| `hashes: visible.sha256 covers tracked and untracked module files, ignored.sha256 the ignored ones (base#1464)` | - |
+| `publish: a second invocation replaces the output directory whole (base#1464)` | A plain mv into an existing directory nests the new output inside the old one, and writing only the script's own files leaves stale ones beside them; the directory is replaced whole. |
+| `publish: the mv shim is on the script's path; a success over an existing output is two renames (base#1464)` | Without the sanity row a green failure row could be a shim the script never reached. Over an existing output a successful publication is exactly two renames, aside and install, and gives the same manifest as an unshimmed run. |
+| `publish: an install that fails after the aside restores the destination (base#1464)` | The review's blocking point. With the old output moved aside and the install rename failing, set -e alone exits with the destination gone and its bytes only in an anonymous .cgm-old.* directory. The backup must be put back: same bytes, same file list, same mode. |
+| `publish: an aside that fails leaves the destination untouched (base#1464)` | - |
+| `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 

@@ -1,0 +1,32 @@
+# s1d.tsv -- the mutations base#1464 (config-gen S1d, the host mutation
+# baseline and change manifest) requires script/test/mutation-probe.sh to
+# report PINNED. One row per behaviour:
+# <id> TAB <subject> TAB <spec> TAB <mutation command>, the command run
+# from the repo root, as `mutation-probe.sh --subject <subject> --spec
+# <spec> --mutate <command>`. Each command edits exactly one line of its
+# subject.
+base-pr-mergebase	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%merge-base HEAD refs/remotes/origin/main)%rev-parse HEAD^1)%' script/test/config_gen_mutation_targets.sh
+base-main-push-parent	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%HEAD^1^{commit}%HEAD^{commit}%' script/test/config_gen_mutation_targets.sh
+base-shallow	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%rev-parse --is-shallow-repository)" == true%rev-parse --is-shallow-repository)" == never%' script/test/config_gen_mutation_targets.sh
+base-override-verify	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%base="\$(git -C "\${repo}" rev-parse --verify -q "\${ref}^{commit}")"%base="${ref}"%' script/test/config_gen_mutation_targets.sh
+base-override-ancestor	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%^    git -C "\${repo}" merge-base --is-ancestor "\${base}" HEAD \\$%    true \\%' script/test/config_gen_mutation_targets.sh
+base-unreachable-rc	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i '/refusing rather than reporting no change"$/{n;s/exit 1/exit 2/}' script/test/config_gen_mutation_targets.sh
+context-invalid	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%^    pr|main-push) ;;%    *) ;;%' script/test/config_gen_mutation_targets.sh
+context-empty-default	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%CONFIG_GEN_MUTATION_CONTEXT-pr}%CONFIG_GEN_MUTATION_CONTEXT:-pr}%' script/test/config_gen_mutation_targets.sh
+usage-missing-out	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%(( have_out == 1 )) || _cgm_usage missing_out%true || _cgm_usage missing_out%' script/test/config_gen_mutation_targets.sh
+usage-extra-arg	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%(( have_out == 0 )) || _cgm_usage extra_arg%true || _cgm_usage extra_arg%' script/test/config_gen_mutation_targets.sh
+usage-repo-value	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%(( \$# >= 2 )) || _cgm_usage repo_value%true || _cgm_usage repo_value%' script/test/config_gen_mutation_targets.sh
+usage-unknown-option	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%_cgm_usage unknown_option "unknown option \${1}"%shift%' script/test/config_gen_mutation_targets.sh
+usage-out-not-dir	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%^  if \[\[ -L "\${out}" \]\].*; then$%  if false; then%' script/test/config_gen_mutation_targets.sh
+none-beside-diff	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%^    if ! git -C "\${repo}" diff --quiet "\${base}" -- "\${_CGM_MOD}" \\$%    if false \\%' script/test/config_gen_mutation_targets.sh
+rename-emission	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%diff --name-status -M "\${base}"%diff --name-status "${base}"%' script/test/config_gen_mutation_targets.sh
+untracked-emission	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i '/ls-files -o --exclude-standard -- "\${_CGM_MOD}" | sed /s/.*/    :/' script/test/config_gen_mutation_targets.sh
+dirty	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%|| dirty=yes%|| dirty=no%' script/test/config_gen_mutation_targets.sh
+repo-invalid	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%if \[\[ -z "\${top}" || "\${top}" != "\${want}" \]\]; then%if false; then%' script/test/config_gen_mutation_targets.sh
+publish-replace	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%if ! mv -T "\${out}" "\${old}/o"; then%if ! :; then%' script/test/config_gen_mutation_targets.sh
+publish-rollback	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%if mv -T "\${old}/o" "\${out}"; then%if false; then%' script/test/config_gen_mutation_targets.sh
+publish-backup-early	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%^  if ! mv -T "\${tmp}" "\${out}"; then%  [[ -z "${old}" ]] || rm -rf "${old}"; if ! mv -T "${tmp}" "${out}"; then%' script/test/config_gen_mutation_targets.sh
+publish-install-guard	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	sed -i 's%^  if ! mv -T "\${tmp}" "\${out}"; then%  mv -T "${tmp}" "${out}"; if false; then%' script/test/config_gen_mutation_targets.sh
+redpath-context-pin	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's% CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json% LOG_FORMAT=json%' script/test/config_gen_redpath.sh
+redpath-base-unset	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i 's%env -u CONFIG_GEN_MUTATION_BASE %env %' script/test/config_gen_redpath.sh
+redpath-git-copy	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	sed -i '\%update-ref refs/remotes/origin/main HEAD$%d' script/test/config_gen_redpath.sh
