@@ -364,7 +364,7 @@ _df_instructions() {
 
 # The cases the redpath plants, in the order it runs them, each with the
 # gate whose id it must produce; the unmodified control comes last.
-REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race"
+REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race"
 
 # _redpath_n -- how many cases REDPATH_CASES lists.
 _redpath_n() {

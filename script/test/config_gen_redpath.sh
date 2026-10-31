@@ -25,6 +25,7 @@
 #   fmt-parse      a _test.go file gofmt cannot parse              fmt
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
+#   corpus-var     a test reading a computed "test"+"data" path    race
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -35,7 +36,9 @@
 # module before the tests run, so that read finds nothing and the gate goes
 # red (base#1468). corpus-helper does the same read from a non-test helper
 # package that a test in another package calls, so the gate cannot key on
-# the test file's own source.
+# the test file's own source. corpus-var builds the directory name at run
+# time, so no literal "testdata" appears in the planted source and a scan
+# of path text cannot be what turns the gate red.
 #
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
@@ -55,7 +58,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race)
 
 # _rp_plant <case> <module dir> -- write the case's defect into the copy.
 _rp_plant() {
@@ -161,6 +164,25 @@ func TestZzHelpUser(t *testing.T) {
 EOF
       sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
         "${mod}/internal/zzhelpuser/zzhelpuser_test.go"
+      ;;
+    corpus-var)
+      mkdir -p "${mod}/internal/zzvar"
+      cat >"${mod}/internal/zzvar/zzvar_test.go" <<'EOF'
+package zzvar
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestZzVar(t *testing.T) {
+	dir := "test" + "data"
+	if _, err := os.ReadFile(filepath.Join("..", "..", dir, "golden", "s1", "seed.golden")); err != nil {
+		t.Fatal(err)
+	}
+}
+EOF
       ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
