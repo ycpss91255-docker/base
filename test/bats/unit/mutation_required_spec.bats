@@ -42,7 +42,7 @@ setup() {
   cd "${S}"
   unset COMPOSE_PROJECT_NAME MUTATION_REQUIRED_JOBS MUTATION_REQUIRED_PROBE \
     GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP \
-    MR_DOCKER_NETS MR_DOCKER_NET_RM_RC
+    MR_DOCKER_NETS MR_DOCKER_NET_RM_RC PER_TEST_TIMEOUT
   export GIT_CONFIG_NOSYSTEM=1
   export GIT_CONFIG_GLOBAL="${S}/gitconfig"
   git config --file "${GIT_CONFIG_GLOBAL}" user.name t
@@ -86,13 +86,15 @@ STUB
 # the spec as its last two arguments. Red (rc 1, one `not ok`) only while
 # lib/guard.sh differs from the sandbox's commit, so it goes red on mutated
 # bytes and nothing else; it records its pid, its COMPOSE_PROJECT_NAME, its
-# root, the root's mode and its start and end times, and the diff it saw.
+# root, the root's mode, the PER_TEST_TIMEOUT it was given and its start
+# and end times, and the diff it saw.
 _runner() {
   cat > "${S}/runner" <<'STUB'
 #!/usr/bin/env bash
 root="${@: -2:1}"
-printf 'start %s %s %s %s %s\n' "${EPOCHREALTIME}" "$$" "${root}" \
-  "${COMPOSE_PROJECT_NAME:-}" "$(stat -c %a -- "${root}")" >> "${MR_RUNNER_LOG:?}"
+printf 'start %s %s %s %s %s %s\n' "${EPOCHREALTIME}" "$$" "${root}" \
+  "${COMPOSE_PROJECT_NAME:-}" "$(stat -c %a -- "${root}")" \
+  "${PER_TEST_TIMEOUT:-unset}" >> "${MR_RUNNER_LOG:?}"
 [[ -z "${MR_RUNNER_SLEEP:-}" ]] || sleep "${MR_RUNNER_SLEEP}"
 git -C "${root}" ls-files | LC_ALL=C sort > "${MR_DIFF_DIR}/files.$$"
 if git -C "${root}" diff --quiet -- lib/guard.sh; then
@@ -721,6 +723,29 @@ STUB
   MUTATION_REQUIRED_JOBS=1 MR_RUNNER_SLEEP=1 _run_mr
   assert_success
   assert_equal "$(_max_concurrent)" 1
+}
+
+# why: MUTATION_REQUIRED_JOBS suites share one machine, and each bats test
+# in them is bounded by PER_TEST_TIMEOUT (default 120 s). On a hosted runner
+# four concurrent probes pushed two self_test_yaml_spec tests past 120 s in
+# a row's baseline (PR #1491, run 41226185346, lint-static 2/4), and the
+# row was refused. Unless the caller set it, each probe gets 120 s per
+# concurrent row.
+@test "parallel: each probe's per-test bound is 120 s times MUTATION_REQUIRED_JOBS (base#1461)" {
+  _pin_row a.tsv one
+  _commit_live
+  MUTATION_REQUIRED_JOBS=3 _run_mr
+  assert_success
+  assert_equal "$(awk '$1 == "start" { print $7 }' "${MR_RUNNER_LOG}" | sort -u)" 360
+}
+
+# why: A bound the caller set is the caller's; it is passed through as is.
+@test "parallel: a PER_TEST_TIMEOUT the caller set reaches the probe unchanged (base#1461)" {
+  _pin_row a.tsv one
+  _commit_live
+  PER_TEST_TIMEOUT=77 _run_mr
+  assert_success
+  assert_equal "$(awk '$1 == "start" { print $7 }' "${MR_RUNNER_LOG}" | sort -u)" 77
 }
 
 # why: A job count that is not 1..99 is refused before anything runs: 0
