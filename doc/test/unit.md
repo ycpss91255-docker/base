@@ -1939,15 +1939,16 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
-### test/bats/unit/config_gen_coverage_spec.bats (16)
+### test/bats/unit/config_gen_coverage_spec.bats (15)
 
-The gate reads per-package profiles and passes a package at >= 90.0% of its
-statements. Every way that measurement can go missing -- go list failing or
-listing nothing, a test failing, a profile absent, carrying the wrong mode,
-a malformed line or a line from another package, a package with source files
-and no statements -- must be a refusal, because each one otherwise reads as
-"covered". The floor is an integer comparison so no float rounding moves a
-package across it.
+The gate measures per-package profiles and writes, per package, `<import
+path>\t<statements>\t<covered>` for the floor ratchet (cmd/cg-gates ratchet,
+base#1465), which judges every floor. Every way the measurement can go
+missing -- go list failing or listing nothing, a test failing, a profile
+absent, carrying the wrong mode, a malformed line or a line from another
+package -- must be a refusal, because each one otherwise reads as a count.
+The counts are integers, so no float rounding moves a package across a
+floor.
 
 The script runs inside the golang image, which has no lib/log.sh, so its
 refusal is one exact stderr line rather than a JSON event; the runner
@@ -1963,17 +1964,32 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a profile not in atomic mode is refused with reason profile_invalid (base#1462)` | - |
 | `coverage.sh: a malformed profile line is refused with reason profile_invalid (base#1462)` | - |
 | `coverage.sh: a profile line from another package is refused with reason profile_invalid (base#1462)` | A line attributed to another package, or to a subpackage, would add that package's statements to this one's ratio. |
-| `coverage.sh: zero statements with source files is refused with reason no_statements (base#1462)` | The issue's `[no statements]` rule: a package with source files and zero statements was not measured, while a package with no source files (tests or types moved elsewhere) has nothing to measure. |
-| `coverage.sh: zero statements with no source files passes (base#1462)` | - |
-| `coverage.sh: 899 of 1000 statements is refused with reason below_floor, 900 passes (base#1462)` | >= 90.0 exactly, as an integer comparison: 899/1000 is below and 900/1000 is not, and a red package is named even after a green one. |
+| `coverage.sh: zero statements with or without source files is measured as 0 0 (base#1465)` | Judging a package with source files and zero statements is the ratchet's (its `none` rule, base#1465); the gate's job is the count, and a refusal here would leave such a package unjudgeable. The listing and profile are what golang:1.27.2-trixie gave for a package holding only declarations: GoFiles 1 and a profile of exactly `mode: atomic`. |
+| `coverage.sh: 899 and 900 of 1000 statements are measured exactly, with no floor judged (base#1465)` | The counts are what the ratchet compares in integer tenths: 899 of 1000 and 900 of 1000 must reach it as exactly those numbers, with no floor judged here (base#1465). |
+| `coverage.sh: a run without --measure <file> is refused with reason usage before go runs (base#1465)` | Without --measure the gate would have nowhere to write the counts, and no floor to judge; it refuses rather than passing on nothing (base#1465). |
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
 | `coverage.sh: a missing corpus root record is refused with reason corpus_root_missing before go runs (base#1468)` | The race RUN writes the corpus root record and the coverage RUN must hand that root to every go test, or testcorpus.Glob fails with an empty root and the gate reads it as a package's test_failed. A record that never arrived is refused before go runs, under its own reason, so it cannot pass and cannot look like a later test failure (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)` | A record that exists but is empty, a record holding only a blank line, and no argument at all deliver no root either. Each must stop at the same guard as a missing file, before go runs; a check that only asks whether the file exists passes the first two, and under set -u an unset variable exits without the refusal line (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)` | Validating the record and then dropping it leaves every go test with an empty testcorpus root, which reads as test_failed in the real image. The validated root has to reach each package's go test as one -ldflags -X token (base#1468). The expected token is the record line verbatim. |
-| `coverage.sh: --measure records a declaration-only package as pkg 0 0 with rc 0 (base#1465)` | Under --measure the gate records counts and judges no floor; it prepares them for the per-package floor ratchet, which is deferred (base#1465) and does not exist yet. So a declaration-only package is a measurement of zero, not a refusal. golang:1.27.2-trixie, run on a package holding only `type T struct{ X int }` and `const C = 1` plus one test, gave `ok m/a coverage: [no statements]`, rc 0, a profile of exactly `mode: atomic\n`, and `go list` GoFiles 1 -- the listing and profile here. |
 
-### test/bats/unit/config_gen_gates_spec.bats (33)
+### test/bats/unit/config_gen_floors_base_spec.bats (3)
+
+The coverage ratchet refuses a floor lower than the base's, and it can only
+know the base's floors from floors.base, which this step writes on the host
+from the commit 00-manifest diffed against. A floors.base that says `absent`
+while the base has floors, or that drops one of its fragments, lets a
+lowered floor through. Each row runs the real step on a Git fixture; a
+refusal must leave the old floors.base's bytes and mode as they were and no
+scratch file beside it.
+
+| Test | Description |
+|------|-------------|
+| `05-floors-base: a base with no coverage-floors.d writes absent (base#1465)` | A base with no coverage-floors.d is the one case the ratchet may judge with no base floors; any other base must be read. (base#1465) |
+| `05-floors-base: a base with fragments writes their concatenation in lexical order, each ending in LF (base#1465)` | The ratchet compares per package across the base's union, so every fragment must be in it, each line whole: one without a final LF would fuse with the next fragment's first line. The expected bytes are git show's, worked by hand. (base#1465) |
+| `05-floors-base: a base it cannot read is refused by reason, the old floors.base kept (base#1465)` | Each refusal is a base the step could not read faithfully; writing anything, or `absent`, would let the ratchet judge without the base's floors. (base#1465) |
+
+### test/bats/unit/config_gen_gates_spec.bats (36)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2008,13 +2024,17 @@ end-to-end proof that the planted defects go red.
 | `config_gen_gates.sh: an unknown argument is refused as usage before docker (base#1462)` | The catch-all branch is the one a typo reaches; a runner that ignored an unknown flag would report on the default tree as if the caller had asked for that run. |
 | `config_gen_gates.sh: a red gate propagates docker's status and re-emits the gate's id (base#1462)` | The build's own log is long and plain; without the id re-emitted as an event the redpath, CI and a reader all have to scrape BuildKit output to learn which gate went red, and docker's status is the run's verdict. |
 | `config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)` | A coverage RUN that never got the corpus root record refuses with reason=corpus_root_missing and an empty pkg (base#1468). The runner must name the coverage gate from that printed refusal line, not from the RUN line BuildKit echoes, whose command text names gates/coverage.sh too: the echoed line alone is a build that failed before any gate. |
+| `config_gen_gates.sh: a red build re-emits every allowlisted cg_event line in log order with only its allowed words, then the gate id (base#1465)` | The coverage ratchet prints one cg_event line per refusal, and one red build can carry several (a dropped fragment leaves a dropped and a missing package); each must reach the runner's records, in log order, before the gate's own, and an id outside the allowlist or a word outside file\|reason\|pkg\|other\|line\|floor\|measured\|base must not, so the build log can never put an arbitrary body or attribute into them (base#1465). |
 | `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
-| `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. |
+| `config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)` | The redpath proves each gate CAN fail; calling `just test go` from it would recurse into itself, and reusing one scratch tree would let one case's defect leak into the next. The control proves the reds come from the defects and not from the copy. Each call is told its case. |
 | `config_gen_redpath.sh: each scratch root carries script/watch, the log library and the go.mod fixtures (base#1463)` | The go.mod oracle step (base#1463) runs the scanner from script/watch with the logger from dist/script/docker/lib over test/fixtures/gomod, all relative to its own root; a scratch copy without them turns every redpath case red on the step instead of on its gate. |
 | `config_gen_redpath.sh: every copy is a Git checkout run with context pr and no base override (base#1464)` | The redpath's copies run the real steps, and the 00-manifest step (base#1464) reads Git history: each copy must be a Git checkout with origin/main, and must run with context pr and no override whatever the caller inherited -- a CI main push exports main-push, and HEAD^1 does not exist in a one-commit copy. |
 | `config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)` | A gate that never goes red is indistinguishable from a working one on a clean tree; each verdict below is a way a broken gate would otherwise pass the redpath. Every case is reported before the run fails. |
 | `config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)` | A verdict RUN the build cache served prints no line, so a runner that excluded only `test` (or only `admit`) from the cache passes its first call and reports cache state on the next. The rerun case calls the runner twice on one unchanged copy and holds each call to the six ok lines exactly (base#1465). |
-| `config_gen_redpath.sh: a refusal, stale or rerun answer missing any part of its contract fails with that part's reason (base#1465)` | A refusal or stale case passes only on the runner's own records of the refusal, after a run that ended the way every refusal must. Each row breaks exactly one part of a correct answer, and each part is a separate guard that would otherwise let a build that never refused (or that ran go on the unchecked snapshot first) pass the redpath (base#1465). The no-context case is call n+1, stale-edit n+2 and the first rerun call n+6, n being the gate cases. |
+| `config_gen_redpath.sh: a refusal, stale or rerun answer missing any part of its contract fails with that part's reason (base#1465)` | A refusal or stale case passes only on the runner's own records of the refusal, after a run that ended the way every refusal must. Each row breaks exactly one part of a correct answer, and each part is a separate guard that would otherwise let a build that never refused (or that ran go on the unchecked snapshot first) pass the redpath (base#1465). |
+| `config_gen_redpath.sh: a green case that exits non-zero or prints other than the six ok lines fails by reason (base#1465)` | A green case proves admission accepts a baseline the producer writes and every gate still runs after it; a call that exits non-zero, or that prints anything but the six ok lines, is a producer output admission refused or a gate that did not run (base#1465). |
+| `config_gen_redpath.sh: a coverage case missing any part of its contract fails with that part's reason (base#1465)` | A coverage case passes only when the ratchet refused it: after exactly the five earlier gates, with the coverage gate's record and the row's own event record. Each row breaks one part, which would otherwise let a ratchet that never fired (or fired another rule) pass (base#1465). |
+| `config_gen_redpath.sh: a stale case changes the copy in a step after every real one, and a green case reaches the runner as its git state (base#1465)` | A stale case's change must happen after 00-manifest wrote the baseline and 01-admit installed the checker, or the baseline already holds it and admission has nothing to refuse; a green case's change must reach 00-manifest as the git state it names. The steps and module each call ran with are what the real build would see (base#1465). |
 | `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
 | `config_gen_redpath.sh: the id only quoted in text or in the build log, with no record, is wrong_id (base#1462)` | The id a case must produce is the runner's own record of the gate that went red. A substring scan over stderr would also accept the id quoted inside unrelated text, a longer id that starts with it, or the build log line the runner streams ahead of its verdict; each of those is a run that did not report the planted gate. |
 | `config_gen_redpath.sh: a record whose body is a longer id, or another event naming the id, is wrong_id (base#1462)` | Even among JSON records only the body names the gate that went red; a match on a body prefix, or on display text, would let an unrelated event or a longer id stand in for the planted gate's record. |
@@ -2023,10 +2043,31 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)` | - |
 | `config_gen_redpath.sh: the fmt-parse case plants a _test.go file gofmt cannot parse and must produce the fmt gate's id (base#1462)` | A _test.go file is outside `go build`, so a syntax error there passes the build stage and reaches the fmt gate first. gofmt then exits non-zero instead of listing a file; a fmt RUN that let that status kill it before printing its own id would report the case as a build failure, and the fmt gate would be green on a file it never read (base#1462). |
 | `Dockerfile.config-gen: the goenv stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)` | ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the pinned toolchain or fails, never one go fetches for a newer go.mod. The golang image pinned today sets it itself, but a GO_IMAGE override or bump need not. admit, build and test are FROM goenv, so one ENV in goenv, ahead of its first RUN, covers every go command in all three (base#1462, base#1465). |
-| `Dockerfile.config-gen: the admit RUN refuses the sentinel, a missing checker and a checker refusal, and writes /admitted only on admission (base#1465)` | The admit RUN is the only place the sentinel and the checker's verdict become the build's: it must refuse a build that got no mutation context, refuse one whose context holds no checker (the 01-admit step did not run) as a stale admit.sh, pass the checker's refusal line through on stdout with the admission id after it, and write /admitted -- the file the test stage copies before any gate -- only when the checker admitted the module. Each is a separate refusal guard of the RUN, run here the way BuildKit runs it, with no docker (base#1465). |
-| `config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)` | - |
+| `config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)` | A control whose runner exited non-zero means the copy itself is red, so no case's red can be attributed to its defect. |
 | `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |
 | `just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)` | The one command all four environments run. The order matters: the redpath on a tree whose gates are already red proves nothing, and `;` would run it after a red runner and report the redpath's status instead. |
+
+### test/bats/unit/config_gen_mutation_lang_spec.bats (6)
+
+The producer (config_gen_mutation_targets.sh, S1d) writes every manifest and
+sha256 line through these constructors, and admission (config_gen_admit.sh)
+re-renders every line it reads through the same ones. A constructor that
+renders a value faithfully without validating it would let admission accept
+any header or record by re-rendering it, so each guard is pinned here beside
+the value next to it that passes.
+
+Each row sources the library in a fresh bash with no logger, as admission
+does inside the build: a refusal is rc 1, nothing on stdout and exactly one
+stderr line `cg_event config_gen_manifest_stale file=<f> reason=<r>`.
+
+| Test | Description |
+|------|-------------|
+| `config_gen_mutation_lang: _cgm_header prints the S1d header for valid values and refuses each invalid one as header (base#1465)` | The header is the one line that binds the baseline to two commits and a context; a value S1d never writes (mixed hash lengths, an unknown dirty flag or context) must not round-trip. (base#1465) |
+| `config_gen_mutation_lang: _cgm_record accepts each git status with its arity and refuses any other status, score or arity as record (base#1465)` | git diff --name-status -M writes A, D, M, T, U with one path and R<score> with two; C never (observed, base#1465 redesign r2 §1), and a score past 100 or not three digits is no git score. (base#1465) |
+| `config_gen_mutation_lang: _cgm_record refuses a path outside the module or not canonical as path (base#1465)` | Every record path names a file of the module, in one canonical spelling; a path outside the prefix or one holding an empty, . or .. segment could name the same file twice or a file outside it. (base#1465) |
+| `config_gen_mutation_lang: _cgm_unquote inverts _cgm_quote for one name holding every byte 0x01-0xff but / (base#1465)` | The quoted spelling is the producer's; admission reads a spelling back with _cgm_unquote and must get the name on disk for every byte but / and NUL. (base#1465) |
+| `config_gen_mutation_lang: _cgm_hash_line prints spelling TAB sha256 for a regular file and rc 1 for anything else (base#1465)` | A sha256 line binds a spelling to the bytes of a regular file; a path [[ -f ]] refuses (a dangling symlink, a fifo) has no bytes to bind. (base#1465) |
+| `config_gen_mutation_lang: _cgm_stale writes file= as one word, %XX outside ! to ~ and for % (base#1465)` | A refusal value is one word whatever the name holds: each byte outside ! to ~, and the % itself, is %XX. (base#1465) |
 
 ### test/bats/unit/config_gen_spec.bats (17)
 
