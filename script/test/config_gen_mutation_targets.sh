@@ -151,13 +151,11 @@ _cgm_publish_failed() {
 _cgm_publish() {
   local tmp="${1}" out="${2}" old=""
   if [[ -e "${out}" ]]; then
-    if ! old="$(mktemp -d "$(dirname -- "${out}")/.cgm-old.XXXXXX")"; then
+    # A failed mktemp leaves old empty; a failed aside leaves out in place.
+    if ! old="$(mktemp -d "$(dirname -- "${out}")/.cgm-old.XXXXXX")" \
+        || ! mv -T "${out}" "${old}/o"; then
       rm -rf "${tmp}"
-      _cgm_publish_failed aside n/a "out=${out}"
-      return 1
-    fi
-    if ! mv -T "${out}" "${old}/o"; then
-      rm -rf "${tmp}" "${old}"
+      [[ -z "${old}" ]] || rm -rf "${old}"
       _cgm_publish_failed aside n/a "out=${out}"
       return 1
     fi
