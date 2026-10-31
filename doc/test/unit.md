@@ -1969,7 +1969,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a repeated block counts once, at its highest count (base#1462)` | atomic profiles repeat a block once per test binary that ran it; summing the repeats would count its statements twice, and keeping the first repeat would keep a zero count another repeat covered. |
 | `coverage.sh: runs one atomic-mode go test per listed package (base#1462)` | One profile per package is what makes the attribution check possible; a single ./... profile cannot say which package a line came from. |
 
-### test/bats/unit/config_gen_gates_spec.bats (27)
+### test/bats/unit/config_gen_gates_spec.bats (28)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -4875,7 +4875,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: FAILS on an unmarked go.mod require, line form (base#1463)` | The base#1463 defect: no go.mod line was ever a declaration, so an unmarked requirement passed. The line form fails naming its line. |
 | `_run_pin_coverage: FAILS on an unmarked go.mod require, block form after a comment (base#1463)` | The block form is what `go get` writes; the entry's own line is the one named, not the `require (` line. |
 | `_run_pin_coverage: a // tool-pin: marker satisfies a go.mod require and the table carries its version (base#1463)` | In go.mod a marker is a `//` comment (a `#` is a Go syntax error), and the version the table carries is the one the scanner read. |
-| `_pin_read: a go.mod marker whose target is not a require entry is go_mod_pin_target_not_require (base#1463)` | A go.mod marker must target a line the scanner emitted; one aimed at the go directive would be a pin with no requirement behind it. The refusal is a registered event naming the file, the target line and the pin, and the reader prints no partial table beside it (review round 7, base#1463). |
+| `_pin_read: a go.mod marker whose target is not a require entry is go_mod_pin_target_not_require (base#1463)` | A go.mod marker must target a line the scanner emitted; one aimed at the go directive would be a pin with no requirement behind it. The refusal is a registered event naming the file, the target line and the pin, and the reader prints no partial table beside it. |
 | `_run_pin_coverage: FAILS on a go.mod // indirect require (base#1463)` | An indirect requirement is refused rather than silently passing. |
 | `_run_pin_coverage: FAILS on a go.mod the scanner refuses (base#1463)` | A go.mod the scanner refuses -- here a malformed exclude ahead of a valid require, which Go rejects -- fails the lint rather than passing it. |
 | `_pin_read: an unreadable tracked file sorted first is pin_file_unreadable, rc 1 (base#1463)` | An unreadable tracked file that sorts FIRST used to print `Permission denied` and still return 0 from the reader; a guard that only looks at the loop's last status would miss it. |
