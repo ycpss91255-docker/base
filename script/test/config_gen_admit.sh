@@ -31,8 +31,9 @@
 # record, or a second marker, is refused as file=manifest
 # reason=none_marker. S1d always writes the marker or a record, so a
 # header with no body line is refused as file=manifest reason=body_empty.
-# S1d writes a record path as git prints it, so a record path holding a
-# `..` segment is refused as file=manifest reason=path.
+# S1d writes a record path as git prints it, under the module prefix
+# `dockerfile/config-gen/`, so a record path holding a `..`, `.` or empty
+# segment, or outside that prefix, is refused as file=manifest reason=path.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -68,12 +69,13 @@ _cga_header() {
 }
 
 # _cga_path <path>... -- refuse a record path holding a `..`, `.` or
-# empty segment.
+# empty segment, or not under the module prefix.
 _cga_path() {
   local p
   for p in "$@"; do
     [[ "/${p}/" != */../* && "/${p}/" != */./* && "/${p}/" != *//* ]] ||
       _cga_stale manifest path
+    [[ "${p}" == "${_CGA_MOD}"* ]] || _cga_stale manifest path
   done
 }
 
