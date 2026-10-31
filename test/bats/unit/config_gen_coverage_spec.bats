@@ -278,8 +278,9 @@ _passed() {
   assert_output 2
 }
 
-# why: Under --measure the gate records counts and the per-package floor is
-# judged by cg-gates ratchet (base#1465), so a declaration-only package is a
+# why: Under --measure the gate records counts and judges no floor; it
+# prepares them for the per-package floor ratchet, which is deferred
+# (base#1465) and does not exist yet. So a declaration-only package is a
 # measurement of zero, not a refusal. golang:1.27.2-trixie, run on a package
 # holding only `type T struct{ X int }` and `const C = 1` plus one test, gave
 # `ok m/a coverage: [no statements]`, rc 0, a profile of exactly

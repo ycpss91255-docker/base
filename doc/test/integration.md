@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **284 tests**.
+Integration specs under `test/bats/integration/`: **289 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -78,7 +78,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
 
-### test/bats/integration/config_gen_admit_spec.bats (18)
+### test/bats/integration/config_gen_admit_spec.bats (23)
 
 The Dockerfile's admit stage runs this checker before any Go, to hold the
 build context to the host mutation baseline the 00-manifest step wrote
@@ -113,6 +113,11 @@ config_gen_manifest_stale file=<path> reason=<r> and nothing on stderr
 | `config_gen_admit: a visible.sha256 path listed twice is refused as duplicate (base#1465)` | - |
 | `config_gen_admit: a path listed in both visible.sha256 and ignored.sha256 is refused as dual (base#1465)` | - |
 | `config_gen_admit: a visible.sha256 line holding a NUL byte is refused as bytes (base#1465)` | - |
+| `config_gen_admit: a rename or copy record whose score is not three digits is refused as record (base#1465)` | - |
+| `config_gen_admit: a manifest whose last line has no LF is refused as malformed (base#1465)` | - |
+| `config_gen_admit: a sha256 list whose last record has no LF is refused as malformed (base#1465)` | - |
+| `config_gen_admit: an attribute value is one word, each byte outside ! to ~ and the % itself written as %XX (base#1465)` | - |
+| `config_gen_admit: every refusal reaches the runner as rc 1, no stdout, and JSON stale and admission records naming its file and reason (base#1465)` | - |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 

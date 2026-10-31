@@ -26,8 +26,10 @@
 # --measure <file> (base#1465) judges no floor: it writes one line per
 # package, `<import path>\t<statements>\t<covered>`, to <file> and exits 0,
 # so a package with source files and no statements is `<pkg>\t0\t0`.
-# cg-gates ratchet judges those counts. Every refusal above except
-# no_statements and below_floor still applies.
+# Every refusal above except no_statements and below_floor still applies.
+# Nothing runs --measure yet: it prepares the counts for the per-package
+# floor ratchet, which is deferred (base#1465), and the test stage still
+# runs the gate without it, judging every package against 90.0%.
 #
 # A refusal is one line on stderr,
 #   config_gen_gate_coverage_failed reason=<reason> pkg=<import path>
