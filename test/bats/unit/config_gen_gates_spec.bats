@@ -386,6 +386,8 @@ root=""; prev=""
 for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
 printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
+printf 'ctx=%s base=%s\n' "\${CONFIG_GEN_MUTATION_CONTEXT-unset}" "\${CONFIG_GEN_MUTATION_BASE+set}" >> "${S}/runner.mutenv"
+git -C "\${root}" rev-parse --verify -q 'refs/remotes/origin/main^{commit}' >> "${S}/runner.git" 2>/dev/null || echo nogit >> "${S}/runner.git"
 [[ -d "\${root}/dockerfile/config-gen" ]] && cp -a "\${root}/dockerfile/config-gen" "${S}/runner.\${n}.mod"
 cat "${S}/canned/\${n}.out" 2>/dev/null
 cat "${S}/canned/\${n}.err" >&2 2>/dev/null
@@ -455,6 +457,24 @@ _run_redpath() {
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
+}
+
+# why: The redpath's copies run the real steps, and the 00-manifest step
+# (base#1464) reads Git history: each copy must be a Git checkout with
+# origin/main, and must run with context pr and no override whatever the
+# caller inherited -- a CI main push exports main-push, and HEAD^1 does not
+# exist in a one-commit copy.
+@test "config_gen_redpath.sh: every copy is a Git checkout run with context pr and no base override (base#1464)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" \
+      CONFIG_GEN_MUTATION_CONTEXT=main-push CONFIG_GEN_MUTATION_BASE=deadbeef \
+      LOG_FORMAT=json timeout 60 bash "${S}/repo/script/test/config_gen_redpath.sh"
+  assert_success
+  assert_equal "$(grep -c . "${S}/runner.mutenv")" 8
+  assert_equal "$(grep -cvx 'ctx=pr base=' "${S}/runner.mutenv")" 0
+  assert_equal "$(grep -c . "${S}/runner.git")" 8
+  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 8
 }
 
 # why: A gate that never goes red is indistinguishable from a working one on
