@@ -275,12 +275,42 @@ _decode() {
     [[ "$(grep -cvE '^(#|$)' "/source/script/test/mutation_required/${_c%%:*}.tsv")" == "${_c##*:}" ]] \
       || fail "${_c%%:*}.tsv does not hold its ${_c##*:} rows"
   done
-  awk -F'\t' '!/^#/ && $2 == "dist/script/docker/lib/setup_cmd.sh"' \
-    /source/script/test/mutation_required/s1a.tsv | grep -q . \
-    || fail "s1a.tsv has no seed row for setup_cmd.sh's non-regular-file refusal"
-  awk -F'\t' '!/^#/ && $2 == "dist/script/docker/lib/setup_conf.sh"' \
-    /source/script/test/mutation_required/s1a.tsv | grep -q . \
-    || fail "s1a.tsv has no seed row for setup_conf.sh's *.toml refusal"
+}
+
+# why: A seed row names its subject, but what it must disable is one guard:
+# setup_cmd.sh's refusal of a non-regular-file apply output and
+# setup_conf.sh's refusal of a local layer not named *.toml. A row that
+# mutated any other line of either file would still go red somewhere in the
+# spec and read PINNED. So each seed's decoded <old> must be the `if` whose
+# body logs that guard's refusal event, holding the guard's own test, and
+# its decoded <new> must be the same `if` made never-true.
+@test "roster: each S1a seed row disables the guard it is named for (base#1461)" {
+  local _id _subj _test _event _line _old _new _ind _after _rows=0
+  local _tsv=/source/script/test/mutation_required/s1a.tsv
+  while IFS='|' read -r _id _subj _test _event; do
+    _line="$(awk -F'\t' -v id="${_id}" '!/^#/ && $1 == id' "${_tsv}")"
+    [[ -n "${_line}" ]] || fail "s1a.tsv has no row ${_id}"
+    [[ "$(cut -f2 <<< "${_line}")" == "${_subj}" ]] \
+      || fail "row ${_id} does not mutate ${_subj}"
+    _old="$(_decode "$(cut -f4 <<< "${_line}")")" || fail "row ${_id}: bad escape in old"
+    _new="$(_decode "$(cut -f5 <<< "${_line}")")" || fail "row ${_id}: bad escape in new"
+    [[ "${_old}" =~ ^([[:space:]]*)if\ .*\;\ then$ ]] \
+      || fail "row ${_id}: old is not one if-guard line: ${_old}"
+    _ind="${BASH_REMATCH[1]}"
+    [[ "${_old}" == *"${_test}"* ]] \
+      || fail "row ${_id}: old does not carry the guard's test '${_test}': ${_old}"
+    assert_equal "${_new}" "${_ind}if false; then"
+    # The line right after <old> in the subject is the guard's body: it has
+    # to be the refusal this row is named for.
+    _after="$(awk -v o="${_old}" 'f { print; exit } $0 == o { f = 1 }' "/source/${_subj}")"
+    [[ "${_after}" == *"_log_err "*" ${_event}"* ]] \
+      || fail "row ${_id}: the guard after old does not log ${_event}: ${_after}"
+    _rows=$(( _rows + 1 ))
+  done <<'SEEDS'
+setup-cmd-non-regular-file|dist/script/docker/lib/setup_cmd.sh|[[ ! -f "${_d}" ]]|apply_output_unusable
+setup-conf-toml-suffix|dist/script/docker/lib/setup_conf.sh|"${_p}" != *.toml|conf_local_override_unusable
+SEEDS
+  assert_equal "${_rows}" 2
 }
 
 # why: The runner's own validation over the committed roster, not the
@@ -407,6 +437,35 @@ _decode() {
   _run_mr
   _assert_mr_refusal 1 mutation_required_row_invalid \
     "row=script/test/mutation_required/a.tsv:2" id=twice reason=old_ambiguous
+  _runner_never_ran
+}
+
+# why: Occurrences that overlap are occurrences too: in `aaa` the old `aa`
+# starts at two offsets, so which bytes the mutant changes is a guess. A
+# count that resumes after the whole first match sees one.
+@test "validation: an old whose occurrences overlap is refused as ambiguous (base#1461)" {
+  printf 'aaa\n' > "${LIVE}/lib/overlap.sh"
+  _pin_row a.tsv good
+  _row a.tsv overlap lib/overlap.sh test/bats/unit/guard_spec.bats 'aa' 'b'
+  _commit_live
+  _run_mr
+  _assert_mr_refusal 1 mutation_required_row_invalid \
+    "row=script/test/mutation_required/a.tsv:2" id=overlap reason=old_ambiguous
+  _runner_never_ran
+}
+
+# why: A subject that carries a NUL byte cannot be edited byte-exactly by a
+# shell (a command substitution drops the NUL), so the mutant would differ
+# from the subject in bytes the row never named and could be read PINNED
+# for a change nobody wrote. Refused before any baseline.
+@test "validation: a subject that carries a NUL byte is refused (base#1461)" {
+  printf 'guard=1\0tail\n' > "${LIVE}/lib/nul.sh"
+  _pin_row a.tsv good
+  _row a.tsv nul lib/nul.sh test/bats/unit/guard_spec.bats 'guard=1' 'guard=0'
+  _commit_live
+  _run_mr
+  _assert_mr_refusal 1 mutation_required_row_invalid \
+    "row=script/test/mutation_required/a.tsv:2" id=nul reason=subject_has_nul
   _runner_never_ran
 }
 
@@ -833,6 +892,30 @@ _signal_while_running() {
   run bash -c "cd '${S}' && bash '${MR}' --apply g.sh old new"
   assert_equal "${status}" 1
   cmp -s "${LIVE}/lib/guard.sh" "${S}/g.sh" || fail "--apply changed the file"
+}
+
+# why: Overlapping occurrences are two occurrences: --apply refuses them the
+# way validation does, so neither path picks one.
+@test "--apply: an old whose occurrences overlap leaves the file unchanged and fails (base#1461)" {
+  printf 'aaa\n' > "${S}/f"
+  cp "${S}/f" "${S}/want"
+  printf 'aa' > "${S}/old"
+  printf 'b' > "${S}/new"
+  run bash -c "cd '${S}' && bash '${MR}' --apply f old new"
+  assert_equal "${status}" 1
+  cmp -s "${S}/want" "${S}/f" || fail "--apply changed the file"
+}
+
+# why: --apply is the one edit path; it refuses a NUL-bearing subject itself
+# rather than rewriting it without the NUL.
+@test "--apply: a subject that carries a NUL byte is left unchanged and fails (base#1461)" {
+  printf 'guard=1\0tail\n' > "${S}/f"
+  cp "${S}/f" "${S}/want"
+  printf 'guard=1' > "${S}/old"
+  printf 'guard=0' > "${S}/new"
+  run bash -c "cd '${S}' && bash '${MR}' --apply f old new"
+  assert_equal "${status}" 1
+  cmp -s "${S}/want" "${S}/f" || fail "--apply changed the file"
 }
 
 # why: The edit is byte-exact -- quotes, $( ), backslashes and a missing
