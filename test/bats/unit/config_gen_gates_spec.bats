@@ -627,6 +627,46 @@ _run_redpath() {
   assert_equal "$(cat "${S}/runner.n")" "$(_redpath_control)"
 }
 
+# why: A refusal or stale case passes only on the runner's own records of
+# the refusal, after a run that ended the way every refusal must. Each row
+# breaks exactly one part of a correct answer, and each part is a separate
+# guard that would otherwise let a build that never refused (or that ran go
+# on the unchecked snapshot first) pass the redpath (base#1465). The
+# no-context case is call n+1, stale-edit n+2 and the first rerun call
+# n+6, n being the gate cases.
+@test "config_gen_redpath.sh: a refusal, stale or rerun answer missing any part of its contract fails with that part's reason (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  local _n _ctx _st _rr _row _what _reason _case
+  _n="$(_redpath_n)"
+  _ctx=$(( _n + 1 )) _st=$(( _n + 2 )) _rr=$(( _n + 6 ))
+  for _row in rc0 rc2 stdout unregistered goparse gostep nogate nostale detail ctxwrong rerunrc; do
+    rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}/nested"
+    _redpath_repo
+    _case=stale-edit
+    case "${_row}" in
+      rc0) printf '0\n' > "${S}/canned/${_st}.rc"; _reason=rc_zero ;;
+      rc2) printf '2\n' > "${S}/canned/${_st}.rc"; _reason=rc_not_one ;;
+      stdout) printf 'gate=admission ok\n' > "${S}/canned/${_st}.out"; _reason=stdout_not_empty ;;
+      unregistered) printf 'FATAL: unregistered log body "x"\n' >> "${S}/canned/${_st}.err"; _reason=unregistered_body ;;
+      goparse) printf 'go: errors parsing go.mod:\n' >> "${S}/canned/${_st}.err"; _reason=go_ran_before_admission ;;
+      gostep) printf '#11 [test 5/9] RUN --mount=type=cache,target=/root/.cache/go-build     g=vet; go vet ./... || exit 1\n' \
+          >> "${S}/canned/${_st}.err"; _reason=go_ran_before_admission ;;
+      nogate) sed -i '/"body":"config_gen_gate_admission_failed"/d' "${S}/canned/${_st}.err"; _reason=gate_record_missing ;;
+      nostale) sed -i '/"body":"config_gen_manifest_stale"/d' "${S}/canned/${_st}.err"; _reason=stale_record_missing ;;
+      detail) sed -i 's/"reason":"sha_mismatch"/"reason":"missing"/' "${S}/canned/${_st}.err"; _reason=stale_detail_mismatch ;;
+      ctxwrong) sed -i 's/"body":"config_gen_manifest_missing"/"body":"config_gen_build_failed"/' "${S}/canned/${_ctx}.err"
+        _case=no-context _reason=wrong_id ;;
+      rerunrc) printf '1\n' > "${S}/canned/${_rr}.rc"; _case=rerun _reason=rc_not_zero ;;
+    esac
+    _run_redpath
+    assert_equal "${_row}:${status}" "${_row}:1"
+    # Read with jq, not assert_logged_event: the unregistered row's planted
+    # notice is streamed back with the case's log, which that helper refuses.
+    assert_equal "${_row}:$(jq -rR 'fromjson? | select(.body == "config_gen_redpath_case_failed")
+      | .attributes.case + "|" + .attributes.reason' <<<"${stderr}")" "${_row}:${_case}|${_reason}"
+  done
+}
+
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
