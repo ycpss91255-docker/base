@@ -107,28 +107,154 @@ _gomod() {
   [[ -z "${_bad}" ]] || fail "records differ from Go's for:${_bad}"
 }
 
+# _REFUSAL_LINES -- the line each refused fixture is refused at, read off
+# the fixture itself: the line that holds the token the scanner cannot read
+# (the opening line for an unterminated block or quote). One row per
+# refused fixture; the test below holds the set closed in both directions.
+_REFUSAL_LINES="$(cat <<'EOF'
+arity_1 3
+arity_3 3
+backquote 3
+backquote_word 3
+block_form_go 3
+block_form_module 2
+block_form_toolchain 3
+branch_name 3
+build_meta 3
+build_meta_pre 3
+c_comment 3
+c_comment_word 3
+control_byte 3
+core_nondigit 3
+cr_comment 3
+double_build 3
+empty_pre_ident 3
+empty_pre 3
+exclude_arity_post 4
+exclude_arity_pre 3
+exclude_block_post 4
+exclude_block_pre 3
+exclude_ok_post 4
+exclude_ok_pre 3
+go_arity_post 4
+go_arity_pre 3
+go_bad_post 4
+go_bad_pre 3
+godebug_block_post 4
+godebug_block_pre 3
+godebug_comma_post 4
+godebug_comma_pre 3
+godebug_no_eq_post 4
+godebug_no_eq_pre 3
+godebug_ok_post 4
+godebug_ok_pre 3
+go_locale_post 4
+go_locale_pre 3
+gopkg_in 3
+gopkg_in_wrong 3
+go_quoted 3
+go_repeated_post 5
+go_repeated_pre 4
+huge_major 3
+ignore 4
+incompat_major_path 3
+incompat_v1 3
+incompat_v2 3
+indirect_glued 3
+indirect 3
+indirect_semicolon 3
+major_no_suffix 3
+module_arity_post 3
+module_arity_pre 2
+module_quote_post 3
+module_quote_pre 2
+module_repeated_post 4
+module_repeated_pre 3
+non_ascii 3
+no_v 3
+nul_comment 3
+nul_post 3
+paren_close_trailer 5
+paren_not_alone 4
+paren_trailer 3
+path_empty_block 4
+path_empty 3
+path_major_dot 3
+path_v02 3
+path_v0 3
+path_v1 3
+path_v2_v1 3
+path_v2_v3 3
+pre_charset 3
+pre_zero 3
+punct_brace 3
+punct_bracket 3
+punct_comma 3
+quote_escape 3
+replace 4
+retract_block_post 4
+retract_block_pre 3
+retract_interval_post 4
+retract_interval_pre 3
+retract_trailer_post 4
+retract_trailer_pre 3
+retract_unclosed_post 4
+retract_unclosed_pre 3
+short_v1_2 3
+short_v1 3
+string_verb 3
+tab_comment 3
+tab_path_block 4
+tab_path 3
+toolchain_arity_post 4
+toolchain_arity_pre 3
+toolchain_bad_post 4
+toolchain_bad_pre 3
+toolchain_quoted 3
+toolchain_repeated_post 5
+toolchain_repeated_pre 4
+tool 4
+unknown_verb 3
+unterminated_block 4
+unterminated_quote 3
+word_quote_path 3
+word_quote_version 3
+zero_major 3
+zero_minor 3
+EOF
+)"
+
 # why: Every refused fixture is refused with the event and reason its header
-# names, and with nothing on stdout. A scanner that streams records before
-# a later refusal, or refuses for the wrong reason, fails here.
-@test "_pin_go_mod_scan: every policy-refused and go-invalid fixture is refused with its header's event and reason (base#1463)" {
-  local _m _h _ev _reason _bad="" _out _err _rc _count=0
+# names, nothing on stdout, and the file and line attributed -- the full
+# five-point assertion per fixture (review round 5). Several reasons
+# (quote_escape among them) have no dedicated test, so a refusal that drops
+# file= or line= for one of them must fail here. A scanner that streams
+# records before a later refusal, or refuses for the wrong reason, too.
+@test "_pin_go_mod_scan: every policy-refused and go-invalid fixture is refused with its header's event, reason, file and line (base#1463)" {
+  local _m _n _h _ev _reason _line _count=0 _rows
+  declare -A _want=()
+  while read -r _n _line; do
+    [[ -n "${_n}" ]] || continue
+    _want["${_n}"]="${_line}"
+  done <<<"${_REFUSAL_LINES}"
+  _rows="${#_want[@]}"
   for _m in "${FIX}"/*.mod; do
     _h="$(head -n1 "${_m}")"
     [[ "${_h}" =~ ^//\ class:\ (policy-refused|go-invalid)\ ([a-z_]+)\ ([a-z_0-9]+)$ ]] || continue
     _ev="${BASH_REMATCH[2]}"
     _reason="${BASH_REMATCH[3]}"
+    _n="${_m##*/}"
+    _n="${_n%.mod}"
     _count=$(( _count + 1 ))
-    _rc=0
-    _out="$(_pin_go_mod_scan "${_m}" 2>"${W}/err")" || _rc=$?
-    _err="$(cat "${W}/err")"
-    if [[ "${_rc}" -ne 1 || -n "${_out}" ]]; then
-      _bad+=" ${_m##*/}(rc=${_rc},stdout=${#_out})"
-    elif [[ "${_err}" != *"\"body\":\"${_ev}\""* || "${_err}" != *"\"reason\":\"${_reason}\""* ]]; then
-      _bad+=" ${_m##*/}(log)"
-    fi
+    [[ -n "${_want[${_n}]+x}" ]] || fail "${_n}.mod is refused but has no _REFUSAL_LINES row"
+    echo "fixture: ${_n}.mod"
+    run --separate-stderr _pin_go_mod_scan "${_m}"
+    assert_refusal 1 "${_ev}" "file=${_m}" "line=${_want[${_n}]}" "reason=${_reason}"
+    unset "_want[${_n}]"
   done
   (( _count >= 60 )) || fail "only ${_count} refused fixtures were found"
-  [[ -z "${_bad}" ]] || fail "not refused as their header says:${_bad}"
+  (( _count == _rows )) || fail "${_count} refused fixtures but ${_rows} rows"
+  [[ "${#_want[@]}" -eq 0 ]] || fail "rows with no refused fixture: ${!_want[*]}"
 }
 
 # why: The scanner's go.mod reader is a closed set: no fixture may sit
