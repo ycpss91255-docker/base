@@ -15,7 +15,8 @@
 # Every `<path>\t<sha256>` line of visible.sha256 and ignored.sha256 names
 # a module file as 00-manifest hashed it; a file in <src> whose sha256 now
 # differs (an edit after the baseline was written) is refused, and so is
-# a file in <src> that neither list names (added after the baseline).
+# a file in <src> that neither list names (added after the baseline), and
+# a listed file <src> no longer holds (deleted after the baseline).
 # Before either, the manifest's first line must be S1d's header,
 # `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`; any other
 # first line is refused as file=manifest reason=header.
@@ -48,10 +49,12 @@ _cga_header() {
 }
 
 # _cga_check <src> <list> -- refuse the first listed file whose sha256 in
-# <src> differs from the one recorded.
+# <src> differs from the one recorded, or that <src> no longer holds.
 _cga_check() {
   local src="${1}" list="${2}" path want got
   while IFS=$'\t' read -r path want; do
+    [[ -e "${src}/${path#"${_CGA_MOD}"}" || -L "${src}/${path#"${_CGA_MOD}"}" ]] ||
+      _cga_stale "${path}" missing
     got="$(sha256sum <"${src}/${path#"${_CGA_MOD}"}" 2>/dev/null)" || got=''
     [[ "${got%% *}" == "${want}" ]] || _cga_stale "${path}" sha_mismatch
   done <"${list}"
