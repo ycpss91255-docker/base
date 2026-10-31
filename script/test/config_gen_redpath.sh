@@ -45,6 +45,8 @@
 #   stale-new-pkg  a new package internal/zznew  dockerfile/config-gen/internal/zznew/zznew.go   unlisted
 #   stale-gomod    a line go cannot parse        dockerfile/config-gen/go.mod                     sha_mismatch
 #                  appended to go.mod
+#   stale-header   the manifest's header line   manifest                                         header
+#                  loses its context= field
 #
 # stale-gomod's go.mod makes every go command fail with go's own
 # "go: errors parsing go.mod". In any stale case, that line or a BuildKit
@@ -99,6 +101,7 @@ readonly -a _RP_STALE=(
   'stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch'
   'stale-new-pkg|dockerfile/config-gen/internal/zznew/zznew.go|unlisted'
   'stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch'
+  'stale-header|manifest|header'
 )
 
 # _rp_plant <case> <root> -- write the case's defect into the copy.
@@ -162,6 +165,18 @@ EOF
 set -euo pipefail
 _root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
 printf '\nzzstale after the manifest\n' >>"${_root}/dockerfile/config-gen/go.mod"
+EOF
+      ;;
+    stale-header)
+      # Runs after 00-manifest and 01-admit. The module is untouched; only
+      # the manifest's first line changes from S1d's
+      # `base=<sha> head=<sha> dirty=yes|no context=<ctx>` to the same line
+      # without its context= field, which that header never is.
+      cat >"${root}/script/test/config_gen_steps/99-zz-stale-header.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+_m="${CONFIG_GEN_CTX:?}/mutation/manifest"
+sed -i '1s/ context=[^ ]*$//' "${_m}"
 EOF
       ;;
     fmt)
