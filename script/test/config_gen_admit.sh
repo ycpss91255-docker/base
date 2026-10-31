@@ -57,8 +57,9 @@ _cga_check() {
   done <"${list}"
 }
 
-# _cga_walk <src> <list>... -- refuse the first file on disk under <src>,
-# in byte order, that no <list> names.
+# _cga_walk <src> <list>... -- refuse the first entry on disk under <src>,
+# in byte order, that is not a directory or a regular file (a symlink the
+# build would follow, which no sha256 binds), or that no <list> names.
 _cga_walk() {
   local src="${1}" path rel
   shift
@@ -68,8 +69,10 @@ _cga_walk() {
   done < <(cat -- "$@")
   while IFS= read -r -d '' rel; do
     path="${_CGA_MOD}${rel#./}"
+    [[ -f "${src}/${rel}" && ! -L "${src}/${rel}" ]] ||
+      _cga_stale "${path}" not_regular
     [[ -n "${listed["${path}"]+x}" ]] || _cga_stale "${path}" unlisted
-  done < <(cd -- "${src}" && find . -type f -print0 | sort -z)
+  done < <(cd -- "${src}" && find . ! -type d -print0 | sort -z)
 }
 
 main() {
