@@ -735,8 +735,10 @@ jobs:
 
       # The required-kill mutation roster (base#1461), the hosted leg of the
       # check the no-flag `just test` runs between lint and bats. Every leg
-      # runs it, ungated, through `just`; the just-pin steps are copied
-      # from the acceptance job, which carries their rationale.
+      # runs it, ungated, through `just`, on the shard named by its group:
+      # the four legs together probe every row, and a full roster per leg
+      # did not finish inside this job's timeout. The just-pin steps are
+      # copied from the acceptance job, which carries their rationale.
       - name: Resolve the pinned just version
         id: just-pin
         run: |
@@ -756,8 +758,10 @@ jobs:
           ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
           echo "just: ${observed}, which is the pin"
 
-      - name: Run the required-kill mutation roster
-        run: just test mutation-required
+      - name: Run the required-kill mutation roster (shard ${{ matrix.group }})
+        env:
+          LINT_GROUP: ${{ matrix.group }}
+        run: just test mutation-required --shard "${LINT_GROUP}"
 
       - name: Reclaim this run's docker artifacts
         if: always()

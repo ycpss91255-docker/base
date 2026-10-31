@@ -746,7 +746,7 @@ STUB
 
 # _pinned_ids -- the ids of the rows the last run reported pinned, sorted.
 _pinned_ids() {
-  log_event_line mutation_required_pinned "${stderr}" \
+  grep -F '"body":"mutation_required_pinned"' <<< "${stderr}" \
     | grep -oE '"id":"[^"]*"' | cut -d'"' -f4 | LC_ALL=C sort | tr '\n' ' '
 }
 

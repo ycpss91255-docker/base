@@ -4732,7 +4732,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/mutation_required_spec.bats (51)
+### test/bats/unit/mutation_required_spec.bats (55)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4795,6 +4795,10 @@ Every refusal holds assert_refusal's five points.
 | `parallel: MUTATION_REQUIRED_JOBS=1 runs one row at a time (base#1461)` | The bound holds: JOBS=1 is one row at a time. |
 | `parallel: MUTATION_REQUIRED_JOBS=0 is refused (base#1461)` | A job count that is not 1..99 is refused before anything runs: 0 would run nothing and report the empty run. |
 | `parallel: MUTATION_REQUIRED_JOBS=abc is refused (base#1461)` | The same for a value that is not a number. |
+| `shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)` | The four hosted lint-static legs each run the roster. 168 rows probed in full by every leg did not finish inside the job's 30 minutes (PR #1491, run 41222344327: the roster step cancelled at 29 minutes on all four legs), so a leg probes the rows of its own shard: row k (counted over every roster file, from 0) belongs to shard (k mod <total>) + 1. |
+| `shards: an invalid row outside the shard is still refused (base#1461)` | A shard only narrows what is probed; every row is still validated, so an invalid row outside the shard still fails the run. |
+| `shards: a malformed --shard is refused (base#1461)` | A shard spec that is not <n>/<total> with 1 <= n <= total <= 99 is refused before anything runs. |
+| `shards: a shard with no rows is refused as an empty roster (base#1461)` | A shard that selects no row would pass having probed nothing. |
 | `sandbox: an inherited COMPOSE_PROJECT_NAME is not the sandbox's project (base#1461)` | The probe edits files and runs compose; in the live checkout that would race the developer's tree and its compose project. Each row runs in its own copy under its own project, derived from the copy's path by the copy's test.sh -- an inherited COMPOSE_PROJECT_NAME (the live checkout's) is not used, and teardown asks docker about the project the probe used. |
 | `sandbox: the sandbox directory the probe runs in is mode 755 (base#1461)` | The probe mounts the sandbox as the container's /source, and a spec that drops from root to nobody (an unreadable-file case) must still reach the files under it. mktemp -d makes the sandbox 0700, so every such spec went red at its baseline and the row was refused. |
 | `sandbox: two rows run under two distinct projects (base#1461)` | Two rows in flight at once are two sandboxes and two projects. |
@@ -6658,7 +6662,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)` | Branch protection requires ci-rollup alone; a config-gen job outside its needs, or whose result the step never reads, is a red nobody sees. The step is run, not grepped, for every need. |
 | `self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)` | config-gen is gated on code_changed, so on a doc-only diff it skips; the rollup must read that skip as a pass and a failure or cancel as red. |
 | `ci-rollup check: a need whose result no loop reads is caught (base#1462)` | The rollup check must see a need that is listed and keyed but left out of every loop, or it proves nothing about the next job added. |
-| `self-test.yaml: every lint-static leg runs the required-kill roster once, gated (base#1461)` | The hosted environment. Every lint-static leg runs the roster exactly once, with no `if:` and no continue-on-error, and a red roster fails the step. |
+| `self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)` | The hosted environment. Every lint-static leg runs the roster exactly once, on its own shard (`--shard <its group>`, so the four legs together probe every row), with no `if:` and no continue-on-error, and a red roster fails the step. |
 | `coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)` | The self-hosted environment runs the same command beside `just test go`, gated the same way. |
 | `roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)` | The probe decides by execution. Each spelling that runs the driver is seen once, a step that does not run it is not seen, and the two ways a step can run it without gating -- `\|\| true` and an `if:` -- are caught. |
 

@@ -3,7 +3,7 @@
 # mutation_required.sh -- the required-kill roster runner (base#1461).
 #
 # Usage:
-#   ./script/test/drivers/mutation_required.sh [--root <dir>] [--check]
+#   ./script/test/drivers/mutation_required.sh [--root <dir>] [--check] [--shard <n>/<total>]
 #   ./script/test/drivers/mutation_required.sh --apply <subject> <old-file> <new-file>
 #
 # Every shell refusal guard a config-gen slice adds is listed, with the
@@ -23,6 +23,12 @@
 #
 # --root <dir>  the checkout whose roster is read (default: this checkout).
 # --check       validate the roster and run nothing.
+# --shard <n>/<total>
+#               validate every row, then probe only row k (counted over
+#               every roster file, from 0) with k mod <total> == n-1; the
+#               hosted lint-static legs each run one shard, which a full
+#               roster per leg could not finish inside the job's timeout.
+#               1 <= n <= total <= 99; a shard with no row is roster_empty.
 # --apply       the one way a row edits its subject, run by the probe from
 #               the sandbox root: replace the one occurrence of <old-file>'s
 #               bytes in <subject> with <new-file>'s, keeping the mode;
@@ -285,6 +291,33 @@ _mr_validate() {
   if (( ${#_MR_ROWS_LOC[@]} == 0 )); then
     _log_err "${_MR_SERVICE}" mutation_required_roster_empty "dir=${_MR_ROSTER_REL}" \
       "display=the mutation roster ${_MR_ROSTER_REL} holds no row; a roster that checks nothing is not a pass"
+    return 1
+  fi
+  return 0
+}
+
+# _mr_shard <n> <total> -- keep only the validated rows of shard <n>.
+_mr_shard() {
+  local _n="${1}" _t="${2}" _i
+  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=()
+  for (( _i = _n - 1; _i < ${#_MR_ROWS_LOC[@]}; _i += _t )); do
+    _s_loc+=( "${_MR_ROWS_LOC[_i]}" )
+    _s_id+=( "${_MR_ROWS_ID[_i]}" )
+    _s_subj+=( "${_MR_ROWS_SUBJ[_i]}" )
+    _s_spec+=( "${_MR_ROWS_SPEC[_i]}" )
+    _s_old+=( "${_MR_ROWS_OLD[_i]}" )
+    _s_new+=( "${_MR_ROWS_NEW[_i]}" )
+  done
+  _MR_ROWS_LOC=( "${_s_loc[@]}" )
+  _MR_ROWS_ID=( "${_s_id[@]}" )
+  _MR_ROWS_SUBJ=( "${_s_subj[@]}" )
+  _MR_ROWS_SPEC=( "${_s_spec[@]}" )
+  _MR_ROWS_OLD=( "${_s_old[@]}" )
+  _MR_ROWS_NEW=( "${_s_new[@]}" )
+  if (( ${#_MR_ROWS_LOC[@]} == 0 )); then
+    _log_err "${_MR_SERVICE}" mutation_required_roster_empty "dir=${_MR_ROSTER_REL}" \
+      "shard=${_n}/${_t}" \
+      "display=shard ${_n}/${_t} of the mutation roster ${_MR_ROSTER_REL} holds no row; a shard that checks nothing is not a pass"
     return 1
   fi
   return 0
@@ -701,7 +734,7 @@ _mr_run() {
 _MR_INHERITED=''
 
 main() {
-  local _root='' _check=0 _jobs
+  local _root='' _check=0 _jobs _shard=''
   if [[ "${1:-}" == --apply ]]; then
     shift
     _mr_apply "$@"
@@ -719,14 +752,27 @@ main() {
       --root)
         if (( $# < 2 )); then
           _log_err "${_MR_SERVICE}" mutation_required_usage_invalid reason=root_missing \
-            "display=--root needs a directory; usage: mutation_required.sh [--root <dir>] [--check]"
+            "display=--root needs a directory; usage: mutation_required.sh [--root <dir>] [--check] [--shard <n>/<total>]"
           return 2
         fi
         _root="${2}"; shift 2 ;;
       --check) _check=1; shift ;;
+      --shard)
+        if (( $# < 2 )); then
+          _log_err "${_MR_SERVICE}" mutation_required_usage_invalid reason=shard_missing \
+            "display=--shard needs <n>/<total>; usage: mutation_required.sh [--root <dir>] [--check] [--shard <n>/<total>]"
+          return 2
+        fi
+        if [[ ! "${2}" =~ ^([1-9][0-9]?)/([1-9][0-9]?)$ ]] \
+          || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+          _log_err "${_MR_SERVICE}" mutation_required_usage_invalid reason=shard_invalid "shard=${2}" \
+            "display=--shard is ${2}; it is <n>/<total> with 1 <= n <= total <= 99"
+          return 2
+        fi
+        _shard="${2}"; shift 2 ;;
       *)
         _log_err "${_MR_SERVICE}" mutation_required_usage_invalid reason=unknown_argument "argument=${1}" \
-          "display=unknown argument ${1}; usage: mutation_required.sh [--root <dir>] [--check]"
+          "display=unknown argument ${1}; usage: mutation_required.sh [--root <dir>] [--check] [--shard <n>/<total>]"
         return 2 ;;
     esac
   done
@@ -758,6 +804,9 @@ main() {
     return
   fi
   (( _check == 0 )) || return 0
+  if [[ -n "${_shard}" ]]; then
+    _mr_shard "${_shard%/*}" "${_shard#*/}" || return 1
+  fi
   _mr_run "${_root}" "${_jobs}"
 }
 
