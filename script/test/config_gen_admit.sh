@@ -31,6 +31,8 @@
 # record, or a second marker, is refused as file=manifest
 # reason=none_marker. S1d always writes the marker or a record, so a
 # header with no body line is refused as file=manifest reason=body_empty.
+# S1d writes a record path as git prints it, so a record path holding a
+# `..` segment is refused as file=manifest reason=path.
 #
 # On refusal one line goes to stdout,
 #   cg_event config_gen_manifest_stale file=<path> reason=<reason>
@@ -65,6 +67,14 @@ _cga_header() {
     _cga_stale manifest header
 }
 
+# _cga_path <path>... -- refuse a record path holding a `..` segment.
+_cga_path() {
+  local p
+  for p in "$@"; do
+    [[ "/${p}/" != */../* ]] || _cga_stale manifest path
+  done
+}
+
 # _cga_body <manifest> -- refuse a body line that is neither the none
 # marker nor a change record: `<status>\t<path>` with status A, D, M or T,
 # or for a rename or copy
@@ -87,6 +97,9 @@ _cga_body() {
     else
       [[ "${line}" =~ ${one} ]] || _cga_stale manifest record
     fi
+    local -a field
+    IFS="${t}" read -r -a field <<<"${line}"
+    _cga_path "${field[@]:1}"
   done < <(tail -n +2 -- "${1}")
   ((record == 1 || marker == 1)) || _cga_stale manifest body_empty
 }
