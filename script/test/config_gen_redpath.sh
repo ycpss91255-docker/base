@@ -15,18 +15,24 @@
 # unmodified copy, the control, runs last and must pass all five gates, so
 # the reds are the defects' and not the copy's.
 #
-#   case       defect                                         gate
-#   fmt        a misformatted .go file                        fmt
-#   vet        fmt.Printf("%d", "x")                          vet
-#   lint       an unchecked os.Remove error                   lint
-#   race       two goroutines incrementing one int, joined    race
-#   race-fuzz  a Fuzz seed that fails                         race
-#   coverage   a package whose test covers 2 of 3 statements  coverage
-#   fmt-parse  a _test.go file gofmt cannot parse             fmt
+#   case         defect                                         gate
+#   fmt          a misformatted .go file                        fmt
+#   vet          fmt.Printf("%d", "x")                          vet
+#   lint         an unchecked os.Remove error                   lint
+#   race         two goroutines incrementing one int, joined    race
+#   race-fuzz    a Fuzz seed that fails                         race
+#   coverage     a package whose test covers 2 of 3 statements  coverage
+#   fmt-parse    a _test.go file gofmt cannot parse             fmt
+#   corpus-join  a test reading ../../testdata, not testcorpus  race
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
 # gofmt exits non-zero instead of listing a file.
+#
+# corpus-join reads the shared corpus by a joined relative path instead of
+# through internal/testcorpus. The race gate moves testdata out of the
+# module before the tests run, so that read finds nothing and the gate goes
+# red (base#1468).
 #
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
@@ -46,7 +52,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race)
 
 # _rp_plant <case> <module dir> -- write the case's defect into the copy.
 _rp_plant() {
@@ -100,6 +106,24 @@ func FuzzZz(f *testing.F) {
 			t.Fatal("the seed boom fails")
 		}
 	})
+}
+EOF
+      ;;
+    corpus-join)
+      mkdir -p "${mod}/internal/zzjoin"
+      cat >"${mod}/internal/zzjoin/zzjoin_test.go" <<'EOF'
+package zzjoin
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestZzJoin(t *testing.T) {
+	if _, err := os.ReadFile(filepath.Join("..", "..", "testdata", "golden", "s1", "seed.golden")); err != nil {
+		t.Fatal(err)
+	}
 }
 EOF
       ;;
