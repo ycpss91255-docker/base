@@ -134,8 +134,8 @@ _green_set() {
   _fixture noclass 'module example.com/m' 'require a v1.0.0'
   _go noclass 0 a v1.0.0
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_fixture_unclassified "noclass.mod"
+  assert_refusal 1 go_mod_fixture_unclassified "file=test/fixtures/gomod/noclass.mod"
+  assert_equal "$(_docker_calls)" 0
 }
 
 # why: `#` is not a go.mod comment; a `# class:` header is a typo, not a class.
@@ -145,8 +145,8 @@ _green_set() {
   _fixture hash '# class: supported' 'module example.com/m' 'require a v1.0.0'
   _go hash 1
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_fixture_unclassified "hash.mod"
+  assert_refusal 1 go_mod_fixture_unclassified "file=test/fixtures/gomod/hash.mod"
+  assert_equal "$(_docker_calls)" 0
 }
 
 # why: Go canonicalises; a supported fixture whose records differ from Go's
@@ -157,8 +157,7 @@ _green_set() {
   _requires ok $'a\tv1.0.0'
   _go ok 0 a v1.2.0
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_oracle_mismatch "ok.mod" class=supported
+  assert_refusal 1 go_mod_oracle_mismatch "file=test/fixtures/gomod/ok.mod" class=supported reason=requires
 }
 
 # why: policy-refused means Go reads the file; a fixture Go rejects is
@@ -169,8 +168,7 @@ _green_set() {
     'module example.com/m' 'require a v1.0.0' 'replace a => ./a'
   _go rep 1
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_oracle_mismatch "rep.mod" class=policy-refused
+  assert_refusal 1 go_mod_oracle_mismatch "file=test/fixtures/gomod/rep.mod" class=policy-refused reason=verdict
 }
 
 # why: The blocking point of the review: a file Go rejects must be one the
@@ -182,8 +180,7 @@ _green_set() {
   _fixture acc '// class: go-invalid' 'module example.com/m' 'require a v1.0.0'
   _go acc 1
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_oracle_mismatch "acc.mod" class=go-invalid
+  assert_refusal 1 go_mod_oracle_mismatch "file=test/fixtures/gomod/acc.mod" class=go-invalid reason=verdict
 }
 
 # why: A policy refusal is pinned by its reason; refusing for another reason
@@ -194,8 +191,7 @@ _green_set() {
     'module example.com/m' 'require a v1.0.0' 'replace a => ./a'
   _go rep 0 a v1.0.0
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_oracle_mismatch "rep.mod" class=policy-refused
+  assert_refusal 1 go_mod_oracle_mismatch "file=test/fixtures/gomod/rep.mod" class=policy-refused reason=verdict
 }
 
 # why: The image is read from the golang pin, never hard-coded; with no pin
@@ -205,7 +201,6 @@ _green_set() {
   _green_set
   sed -i '/^# tool-pin: golang /d' "${R}/dockerfile/Dockerfile.config-gen"
   _oracle
-  assert_equal "${status}" 1
-  assert_logged_event go_mod_oracle_pin_missing
+  assert_refusal 1 go_mod_oracle_pin_missing file=dockerfile/Dockerfile.config-gen
   assert_equal "$(_docker_calls)" 0
 }

@@ -236,6 +236,15 @@ _gomod() {
   _refused toolchain_bad_post toolchain_version 4
 }
 
+# why: Go matches GoVersionRE and ToolchainRE against the RAW token, so a
+# quoted `"1.21"` or `"go1.21"` is an error to Go even though the string
+# decodes to a valid value. The scanner checks the same raw spelling, never
+# a decoded one (review round 3, base#1463).
+@test "_pin_go_mod_scan: a quoted go or toolchain value is refused on its raw token (base#1463)" {
+  _refused go_quoted go_version 3
+  _refused toolchain_quoted toolchain_version 3
+}
+
 # why: A second toolchain line is a Go error wherever it sits.
 @test "_pin_go_mod_scan: a repeated toolchain line is refused as toolchain_repeated (base#1463)" {
   _refused toolchain_repeated_pre toolchain_repeated 4
@@ -486,8 +495,7 @@ _gomod() {
 @test "_pin_go_mod_set_line: refuses a line that is not a require entry and rewrites only the version token (base#1463)" {
   _gomod 'module example.com/m' 'go 1.27' 'require a v1.0.0 // v1.0.0 is held'
   run --separate-stderr _pin_go_mod_set_line "${W}/go.mod" 2 v1.1.0
-  assert_failure 1
-  assert_output ''
+  assert_refusal 1 pin_set_refused "file=${W}/go.mod" line=2 reason=not_require_entry
   run --separate-stderr _pin_go_mod_set_line "${W}/go.mod" 3 v1.1.0
   assert_success
   assert_output 'require a v1.1.0 // v1.0.0 is held'
