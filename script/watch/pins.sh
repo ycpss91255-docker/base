@@ -286,15 +286,26 @@ _pins_set_go_mod() {
   else
     chmod 644 "${_sumtmp}"
   fi
+  # A copy of go.mod as it was, so a failed go.sum rename can put go.mod
+  # back and the tree never holds the new go.mod beside the old go.sum.
+  local _bak
+  if ! _bak="$(mktemp "${_abs%/*}/.go.mod.pins.bak.XXXXXX")" \
+      || ! cp -p -- "${_abs}" "${_bak}"; then
+    rm -f -- "${_sumtmp}" ${_bak:+"${_bak}"}
+    _pins_refuse "${_abs}" temp_create "no backup copy could be created beside it"
+    return 1
+  fi
   if ! _pins_commit "${_abs}" "${_n}" "${_repl}"; then
-    rm -f -- "${_sumtmp}"
+    rm -f -- "${_sumtmp}" "${_bak}"
     return 1
   fi
   if ! mv -f "${_sumtmp}" "${_sum}"; then
     rm -f -- "${_sumtmp}"
-    _pins_refuse "${_sum}" commit_failed "the temp copy could not be renamed over it"
+    mv -f "${_bak}" "${_abs}"
+    _pins_refuse "${_sum}" commit_failed "the temp copy could not be renamed over it; go.mod was put back"
     return 1
   fi
+  rm -f -- "${_bak}"
 }
 
 # _pins_set <name> <version>
