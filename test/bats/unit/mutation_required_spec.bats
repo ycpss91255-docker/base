@@ -41,7 +41,8 @@ setup() {
   # container does not mount.
   cd "${S}"
   unset COMPOSE_PROJECT_NAME MUTATION_REQUIRED_JOBS MUTATION_REQUIRED_PROBE \
-    GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP
+    GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP \
+    MR_DOCKER_NETS MR_DOCKER_NET_RM_RC
   export GIT_CONFIG_NOSYSTEM=1
   export GIT_CONFIG_GLOBAL="${S}/gitconfig"
   git config --file "${GIT_CONFIG_GLOBAL}" user.name t
@@ -60,13 +61,21 @@ setup() {
 # ── fixtures ────────────────────────────────────────────────────────────────
 
 # _docker_stub -- `docker` logs its argv; `ps` prints MR_DOCKER_PS (a
-# container still running) and nothing otherwise.
+# container still running) and nothing otherwise; `network ls` prints
+# MR_DOCKER_NETS (the project's networks) and `network rm` exits
+# MR_DOCKER_NET_RM_RC (default 0).
 _docker_stub() {
   cat > "${S}/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${MR_DOCKER_LOG:?}"
 if [[ "${1:-}" == ps && -n "${MR_DOCKER_PS:-}" ]]; then
   printf '%s\n' "${MR_DOCKER_PS}"
+fi
+if [[ "${1:-}" == network && "${2:-}" == ls && -n "${MR_DOCKER_NETS:-}" ]]; then
+  printf '%s\n' "${MR_DOCKER_NETS}"
+fi
+if [[ "${1:-}" == network && "${2:-}" == rm ]]; then
+  exit "${MR_DOCKER_NET_RM_RC:-0}"
 fi
 exit 0
 STUB
@@ -826,6 +835,36 @@ STUB
     || fail "the held sandbox is not kept: '${_path}'"
   [[ "${stderr}" != *mutation_required_pinned* ]] || fail "a held row was reported pinned"
   _no_probe_lines
+}
+
+# why: Each sandbox's compose project gets its own network, and
+# `docker compose run --rm` removes the container, not the network. The
+# project reclaim spares a network for its 6h grace window, so a roster of
+# 168 rows left one network per row: on a GitHub-hosted runner the daemon
+# answered "all predefined address pools have been fully subnetted" and
+# 139 rows were refused. Teardown removes the project's networks.
+@test "sandbox: teardown removes the networks of the sandbox's project (base#1461)" {
+  _pin_row a.tsv kill
+  _commit_live
+  MR_DOCKER_NETS=net0001 _run_mr
+  assert_success
+  local _name
+  _name="$(awk '$1 == "start" { print $5 }' "${MR_RUNNER_LOG}" | sort -u)"
+  grep -qxF -- "network ls -q --filter label=com.docker.compose.project=${_name}" "${MR_DOCKER_LOG}" \
+    || fail "teardown did not list ${_name}'s networks: $(cat "${MR_DOCKER_LOG}")"
+  grep -qxF -- "network rm net0001" "${MR_DOCKER_LOG}" \
+    || fail "teardown did not remove the project's network: $(cat "${MR_DOCKER_LOG}")"
+}
+
+# why: A network that could not be removed is litter the next rows run
+# into; the row fails, naming the step, rather than passing.
+@test "sandbox: a project network that cannot be removed fails the row (base#1461)" {
+  _pin_row a.tsv kill
+  _commit_live
+  MR_DOCKER_NETS=net0001 MR_DOCKER_NET_RM_RC=1 _run_mr
+  _assert_mr_refusal 1 mutation_required_sandbox_failed \
+    "row=script/test/mutation_required/a.tsv:1" step=network
+  [[ "${stderr}" != *mutation_required_pinned* ]] || fail "the row was reported pinned"
 }
 
 # ── signals ─────────────────────────────────────────────────────────────────
