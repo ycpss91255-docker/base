@@ -776,6 +776,35 @@ _golang_pin() {
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
+# why: A hard-linked go.mod is refused by name, like any hard-linked
+# destination (base#1463), and the refusal comes before the module is sent
+# to the golang image: a link check that ran only after staging would pay
+# for a tidy whose go.sum is then thrown away. Docker is never called,
+# neither file is written and no temp copy is left beside them (base#1440).
+@test "pins: --set on a hard-linked go.mod is hard_link before docker is called (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  local _log="${BATS_TEST_TMPDIR}/docker.log"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  ln "${_f}" "${BATS_TEST_TMPDIR}/hardlink"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  _stub docker 0
+  printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
+    > "${STUB_BIN}/docker"
+  : > "${_log}"
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused "file=${_f}" reason=hard_link
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  assert_equal "$(cat "${_log}")" ''
+  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" "$(printf 'go.mod\ngo.sum')"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
