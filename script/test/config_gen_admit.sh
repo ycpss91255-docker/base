@@ -21,7 +21,8 @@
 # `base=<sha> head=<sha> dirty=yes|no context=pr|main-push`; any other
 # first line is refused as file=manifest reason=header. Every later line
 # must be the none marker `none: no-go-change` or a change record
-# `<status>\t<path>...`; any other body line is refused as
+# `<status>\t<path>` (two paths for a rename or copy, R<score> or
+# C<score>); any other body line, a wrong path count included, is refused as
 # file=manifest reason=record.
 #
 # On refusal one line goes to stdout,
@@ -53,12 +54,19 @@ _cga_header() {
 }
 
 # _cga_body <manifest> -- refuse a body line that is neither the none
-# marker nor a `<status>\t<path>` change record.
+# marker nor a change record: `<status>\t<path>`, or for a rename or copy
+# (R<score>, C<score>) `<status>\t<old>\t<new>`.
 _cga_body() {
-  local line
+  local line t=$'\t'
+  local one="^[^${t}]*${t}[^${t}]+$"
+  local two="^[RC][^${t}]*${t}[^${t}]+${t}[^${t}]+$"
   while IFS= read -r line; do
-    [[ "${line}" == "${_CGA_NONE}" || "${line}" == [^$'\t']*$'\t'?* ]] ||
-      _cga_stale manifest record
+    [[ "${line}" == "${_CGA_NONE}" ]] && continue
+    if [[ "${line}" == [RC]* ]]; then
+      [[ "${line}" =~ ${two} ]] || _cga_stale manifest record
+    else
+      [[ "${line}" =~ ${one} ]] || _cga_stale manifest record
+    fi
   done < <(tail -n +2 -- "${1}")
 }
 
