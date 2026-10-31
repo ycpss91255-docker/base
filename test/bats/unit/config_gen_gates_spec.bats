@@ -178,8 +178,8 @@ _df_instructions() {
   _df_instructions > "${S}/df"
   run awk -F'\t' '$2 ~ /^FROM / {print $2}' "${S}/df"
   assert_success
-  assert_line --regexp '^FROM .* (AS|as) build$'
-  assert_line --regexp '^FROM build (AS|as) test$'
+  assert_line --regexp '^FROM goenv (AS|as) build$'
+  assert_line --regexp '^FROM goenv (AS|as) test$'
   assert_line --regexp '^FROM scratch (AS|as) final$'
 }
 
@@ -413,10 +413,10 @@ _gate_record() {
 # naming the case's gate, then the runner's own record of that gate id,
 # and rc 1; the no-context refusal case (base#1465) is an empty stdout,
 # the runner's record of config_gen_manifest_missing and rc 1; the
-# stale-edit and stale-new-pkg cases (base#1465) are each an empty stdout,
-# the runner's records of config_gen_manifest_stale (the case's file and
-# reason) and config_gen_gate_admission_failed, and rc 1; the two rerun calls
-# (base#1465) are each the six ok lines, admission first, and rc 0; the
+# stale-edit, stale-new-pkg and stale-gomod cases (base#1465) are each an
+# empty stdout, the runner's records of config_gen_manifest_stale (the
+# case's file and reason) and config_gen_gate_admission_failed, and rc 1;
+# the two rerun calls (base#1465) are each the six ok lines, admission first, and rc 0; the
 # control is the same six ok lines and rc 0.
 _canned_correct() {
   local _all=(admission fmt vet lint race coverage) _case _gate _n=0 _g
@@ -442,7 +442,8 @@ _canned_correct() {
     | sed 's/"body":"config_gen_build_failed"/"body":"config_gen_manifest_missing"/' > "${S}/canned/${_n}.err"
   printf '1\n' > "${S}/canned/${_n}.rc"
   local _stale
-  for _stale in cmd/config-gen/main.go:sha_mismatch internal/zznew/zznew.go:unlisted; do
+  for _stale in cmd/config-gen/main.go:sha_mismatch internal/zznew/zznew.go:unlisted \
+      go.mod:sha_mismatch; do
     _n=$(( _n + 1 ))
     : > "${S}/canned/${_n}.out"
     { _gate_record config_gen_manifest_stale "file=dockerfile/config-gen/${_stale%%:*}" \
@@ -478,12 +479,12 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  assert_equal "$(cat "${S}/runner.n")" 13
-  assert_equal "$(grep -c . "${S}/runner.trees")" 13
+  assert_equal "$(cat "${S}/runner.n")" 14
+  assert_equal "$(grep -c . "${S}/runner.trees")" 14
   local _roots
   _roots="$(for _f in "${S}"/runner.*.argv; do awk 'p == "--root" {print} {p=$0}' "${_f}"; done)"
   # The two rerun calls share one copy; every other call has its own.
-  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 12
+  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 13
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
@@ -501,10 +502,10 @@ _run_redpath() {
       CONFIG_GEN_MUTATION_CONTEXT=main-push CONFIG_GEN_MUTATION_BASE=deadbeef \
       LOG_FORMAT=json timeout 60 bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_success
-  assert_equal "$(grep -c . "${S}/runner.mutenv")" 13
+  assert_equal "$(grep -c . "${S}/runner.mutenv")" 14
   assert_equal "$(grep -cvx 'ctx=pr base=' "${S}/runner.mutenv")" 0
-  assert_equal "$(grep -c . "${S}/runner.git")" 13
-  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 13
+  assert_equal "$(grep -c . "${S}/runner.git")" 14
+  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 14
 }
 
 # why: A gate that never goes red is indistinguishable from a working one on
@@ -517,7 +518,7 @@ _run_redpath() {
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=vet reason=rc_zero gate=vet
-  assert_equal "$(cat "${S}/runner.n")" 13
+  assert_equal "$(cat "${S}/runner.n")" 14
 }
 
 # why: A verdict RUN the build cache served prints no line, so a runner
@@ -528,11 +529,11 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/12.out"
+  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/13.out"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
-  assert_equal "$(cat "${S}/runner.n")" 13
+  assert_equal "$(cat "${S}/runner.n")" 14
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
@@ -637,25 +638,28 @@ _run_redpath() {
 # why: ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the
 # pinned toolchain or fails, never one go fetches for a newer go.mod. The
 # golang image pinned today sets it itself, but a GO_IMAGE override or bump
-# need not. The test stage is FROM build, so one ENV in build, ahead of its
-# first RUN, covers every go command in both (base#1462).
-@test "Dockerfile.config-gen: the build stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)" {
+# need not. admit, build and test are FROM goenv, so one ENV in goenv,
+# ahead of its first RUN, covers every go command in all three (base#1462,
+# base#1465).
+@test "Dockerfile.config-gen: the goenv stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   _df_instructions > "${S}/df"
-  run awk -F'\t' '$1 == "build" && $2 ~ /^(ENV|RUN) / {print $2; exit}' "${S}/df"
+  run awk -F'\t' '$1 == "goenv" && $2 ~ /^(ENV|RUN) / {print $2; exit}' "${S}/df"
   assert_success
   assert_output 'ENV GOTOOLCHAIN=local'
   run awk -F'\t' '/GOTOOLCHAIN/ && $2 != "ENV GOTOOLCHAIN=local" {print}' "${S}/df"
   assert_success
   assert_output ""
   run awk -F'\t' '$2 ~ /^FROM / {print $2}' "${S}/df"
-  assert_line --regexp '^FROM build (AS|as) test$'
+  assert_line --regexp '^FROM goenv (AS|as) admit$'
+  assert_line --regexp '^FROM goenv (AS|as) build$'
+  assert_line --regexp '^FROM goenv (AS|as) test$'
 }
 
 @test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '1\n' > "${S}/canned/13.rc"
+  printf '1\n' > "${S}/canned/14.rc"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_control_failed status=1

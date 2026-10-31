@@ -131,7 +131,7 @@ EOF
       cat >"${root}/script/test/config_gen_steps/99-zz-stale-new-pkg.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
 _pkg="${_root}/dockerfile/config-gen/internal/zznew"
 mkdir -p "${_pkg}"
 cat >"${_pkg}/zznew.go" <<'GO'
@@ -160,7 +160,7 @@ EOF
       cat >"${root}/script/test/config_gen_steps/99-zz-stale-gomod.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")/../../.." && pwd -P)"
 printf '\nzzstale after the manifest\n' >>"${_root}/dockerfile/config-gen/go.mod"
 EOF
       ;;
