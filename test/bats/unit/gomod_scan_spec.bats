@@ -308,10 +308,36 @@ _gomod() {
   _refused block_form_module block_form_verb 2
 }
 
-# why: Non-ASCII is refused so a Unicode difference between bash and Go can
-# only refuse, never emit a record Go reads differently.
-@test "_pin_go_mod_scan: a non-ASCII byte is refused as non_ascii (base#1463)" {
-  _refused non_ascii non_ascii 3
+# why: The byte check runs on the FILE, before bash holds a line: a bash
+# variable cannot carry a NUL, so a check on the read-in copy never sees one
+# and `require a v1.0.0<NUL>`, which Go rejects, was emitted (review round
+# 1). Non-ASCII, a NUL in or after an entry, a control byte and a CR that
+# does not end its line are each refused, so a byte bash and Go read
+# differently can only refuse, never emit a record.
+@test "_pin_go_mod_scan: a byte outside tab, printable ASCII and a line-ending CR is refused as unsupported_byte (base#1463)" {
+  _refused non_ascii unsupported_byte 3
+  _refused nul_post unsupported_byte 3
+  _refused nul_comment unsupported_byte 3
+  _refused control_byte unsupported_byte 3
+  _refused cr_comment unsupported_byte 3
+}
+
+# why: A CR that ends its line is how a CRLF go.mod is written and Go reads
+# it; the byte check must not turn that into a refusal.
+@test "_pin_go_mod_scan: CRLF line endings are read (base#1463)" {
+  _scan crlf
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+}
+
+# why: A record is `lineno<TAB>path<TAB>version<TAB>comment`, so a tab inside
+# a quoted path or a comment is a field separator to every reader of the
+# record: `require "a<TAB>b" v1.0.0` read as path=a, version=b (review round
+# 1). Whatever field carries it, line or block form, the entry is refused.
+@test "_pin_go_mod_scan: a tab inside a path or a comment is refused as record_tab (base#1463)" {
+  _refused tab_path record_tab 3
+  _refused tab_path_block record_tab 4
+  _refused tab_comment record_tab 3
 }
 
 # why: `(` must end its line; `require ( a v1.0.0` is a Go error.

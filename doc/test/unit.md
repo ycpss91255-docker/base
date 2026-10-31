@@ -3497,7 +3497,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (39)
+### test/bats/unit/gomod_scan_spec.bats (41)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3551,7 +3551,9 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: an unterminated quote is refused as unterminated_quote (base#1463)` | A string that never closes on its line is a Go error. |
 | `_pin_go_mod_scan: a require with one or three words is refused as arity (base#1463)` | A require entry is exactly a path and a version. |
 | `_pin_go_mod_scan: a go, toolchain or module block is refused as block_form_verb (base#1463)` | module/go/toolchain are line-form only here (Go rejects go and toolchain blocks and accepts a module block the scanner does not model). |
-| `_pin_go_mod_scan: a non-ASCII byte is refused as non_ascii (base#1463)` | Non-ASCII is refused so a Unicode difference between bash and Go can only refuse, never emit a record Go reads differently. |
+| `_pin_go_mod_scan: a byte outside tab, printable ASCII and a line-ending CR is refused as unsupported_byte (base#1463)` | The byte check runs on the FILE, before bash holds a line: a bash variable cannot carry a NUL, so a check on the read-in copy never sees one and `require a v1.0.0<NUL>`, which Go rejects, was emitted (review round 1). Non-ASCII, a NUL in or after an entry, a control byte and a CR that does not end its line are each refused, so a byte bash and Go read differently can only refuse, never emit a record. |
+| `_pin_go_mod_scan: CRLF line endings are read (base#1463)` | A CR that ends its line is how a CRLF go.mod is written and Go reads it; the byte check must not turn that into a refusal. |
+| `_pin_go_mod_scan: a tab inside a path or a comment is refused as record_tab (base#1463)` | A record is `lineno<TAB>path<TAB>version<TAB>comment`, so a tab inside a quoted path or a comment is a field separator to every reader of the record: `require "a<TAB>b" v1.0.0` read as path=a, version=b (review round 1). Whatever field carries it, line or block form, the entry is refused. |
 | `_pin_go_mod_scan: text after an opening paren is refused as paren_trailer (base#1463)` | `(` must end its line; `require ( a v1.0.0` is a Go error. |
 | `_pin_go_mod_scan: a closing paren after an entry is refused as paren_not_alone (base#1463)` | `)` must stand alone on its line. |
 | `_pin_go_mod_scan: // indirect, //indirect and // indirect; ... are go_mod_indirect_requirement (base#1463)` | An indirect requirement is not this repo's declaration; it is refused by its own event in every spelling Go marks indirect. |
