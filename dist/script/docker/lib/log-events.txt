@@ -460,3 +460,7 @@ pin_set_refused
 # the go.sum Go wants, in the pinned golang image (base#1440).
 watch_gosum_mismatch
 watch_gosum_pin_missing
+
+# script/watch/lib.sh _pin_go_directive_check: a go.mod `go` directive
+# whose Go minor is not the golang pin's (base#1440).
+go_mod_go_directive_mismatch

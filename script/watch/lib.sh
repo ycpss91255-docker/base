@@ -1404,3 +1404,67 @@ _pin_uncovered() {
     done < "${_abs}"
   done <<< "${_list}"
 }
+
+# _pin_go_mod_go_line <file> -- print `<lineno><TAB><version>` for the go.mod
+# <file>'s `go` directive, nothing when it has none. The file is scanned
+# first, so a directive the scanner refuses is never half-read: rc 1 with
+# the scanner's refusal logged. The directive is the line whose first lexed
+# token is the word `go` and that is not a require entry the scanner
+# emitted (a block entry for a module path `go`) (base#1440).
+_pin_go_mod_go_line() {
+  local _gm_file="${1}" _emitted _line _ln=0 _gm_comment=""
+  local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
+  local LC_ALL=C
+  _emitted="$(_pin_go_mod_scan "${_gm_file}")" || return 1
+  mapfile -t _lines < "${_gm_file}"
+  for _line in "${_lines[@]}"; do
+    _ln=$(( _ln + 1 ))
+    _pin_go_mod_lex "${_line}" "${_ln}" || return 1
+    [[ "${_gm_text[0]:-}" == go && "${_gm_kind[0]:-}" == w ]] || continue
+    [[ $'\n'"${_emitted}" == *$'\n'"${_ln}"$'\t'* ]] && continue
+    printf '%s\t%s\n' "${_ln}" "${_gm_text[1]}"
+    return 0
+  done
+}
+
+# The pin whose image builds every go.mod module; its Go minor is the one
+# a module's `go` directive must name (base#1440).
+readonly _PIN_GO_DIRECTIVE_PIN=golang
+
+# _pin_go_directive_check <repo-root>
+#
+# Compare every tracked go.mod's `go` directive with the golang pin by
+# major.minor: the directive names the Go the module needs, the pin the Go
+# that builds it. A mismatch is go_mod_go_directive_mismatch (file= line=
+# go= golang=), rc 1, nothing on stdout (base#1440).
+_pin_go_directive_check() {
+  local _root="${1}" _table _rec _list _file _go_rec _go_ln _go_ver
+  local _image="" _tag _pin_mm _go_mm
+  local _state _name _resolver _coord _pattern _skip _current _pfile _pline
+  _table="$(_pin_read "${_root}")" || return 1
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip _current _pfile _pline; do
+    if [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" && "${_state}" == "${_PIN_STATE_PINNED}" ]]; then
+      _image="${_current}"
+    fi
+  done <<< "${_table}"
+  _tag="${_image%%@*}"
+  _tag="${_tag##*:}"
+  [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
+  _pin_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+  _list="$(_pin_files "${_root}")" || return 1
+  while IFS= read -r _file; do
+    [[ "${_file##*/}" == go.mod ]] || continue
+    _go_rec="$(_pin_go_mod_go_line "${_root}/${_file}")" || return 1
+    [[ -n "${_go_rec}" ]] || continue
+    _go_ln="${_go_rec%%$'\t'*}"
+    _go_ver="${_go_rec#*$'\t'}"
+    [[ "${_go_ver}" =~ ^([0-9]+)\.([0-9]+) ]]
+    _go_mm="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+    if [[ "${_go_mm}" != "${_pin_mm}" ]]; then
+      _log_err pin go_mod_go_directive_mismatch "file=${_file}" "line=${_go_ln}" \
+        "go=${_go_mm}" "golang=${_pin_mm}" \
+        "display=go_mod_go_directive_mismatch: ${_file}:${_go_ln}: go ${_go_ver} names Go ${_go_mm}; the ${_PIN_GO_DIRECTIVE_PIN} pin builds it with ${_pin_mm}"
+      return 1
+    fi
+  done <<< "${_list}"
+}
