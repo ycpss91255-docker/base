@@ -102,25 +102,33 @@ _count_inspects() {
 
 # why: a tag keyed only on the Dockerfile, or only on the module's top
 #      level, would keep the old name after a Go edit: the build is skipped
-#      as already present and the run uses a stale generator.
-@test "config-gen: the tag follows a nested internal/**.go edit and a go.sum edit" {
+#      as already present and the run uses a stale generator. Both files
+#      exist before the baseline and only their BYTES change, so a tag keyed
+#      on file names alone keeps its old value and fails here.
+@test "config-gen: the tag follows a content edit of a nested internal/**.go and of go.sum" {
   _seed_cg_subtree
-  run _derive
-  assert_success
-  local _t0="${output}"
-
   mkdir -p "${CG_CTX}/internal/a/b"
   printf 'package b\n' > "${CG_CTX}/internal/a/b/x.go"
-  run _derive
-  assert_success
-  assert_output --regexp '^config-gen:[0-9a-f]{12}$'
-  refute_output "${_t0}"
-  local _t1="${output}"
-
   printf 'example.com/m v1.0.0 h1:abc=\n' > "${CG_CTX}/go.sum"
   run _derive
   assert_success
+  assert_output "$(_expected_tag)"
+  local _t0="${output}"
+
+  printf 'package b\n\nconst X = 1\n' > "${CG_CTX}/internal/a/b/x.go"
+  run _derive
+  assert_success
   assert_output --regexp '^config-gen:[0-9a-f]{12}$'
+  assert_output "$(_expected_tag)"
+  refute_output "${_t0}"
+  local _t1="${output}"
+
+  printf 'example.com/m v1.0.0 h1:xyz=\n' > "${CG_CTX}/go.sum"
+  run _derive
+  assert_success
+  assert_output --regexp '^config-gen:[0-9a-f]{12}$'
+  assert_output "$(_expected_tag)"
+  refute_output "${_t0}"
   refute_output "${_t1}"
 }
 
@@ -285,6 +293,32 @@ echo alive"
 
   LOG_FORMAT=json run --separate-stderr bash -c "source '${CG}'; config_gen_resolve"
   assert_refusal 1 config_gen_unprovisionable "${CG_CTX}"
+}
+
+# why: a digest that fails, or that answers nothing, names no image; a
+#      tag built from it would be `config-gen:` with no identity. Both are
+#      refusals, never a literal or empty tag. The digest function is
+#      replaced in the resolving shell, so the guard is judged alone.
+@test "config-gen: a failed digest refuses with config_gen_unprovisionable" {
+  _seed_cg_subtree
+  _mock_docker present
+
+  LOG_FORMAT=json run --separate-stderr bash -c "source '${CG}'
+_reclaim_tool_dockerfile_hash() { return 1; }
+config_gen_resolve"
+  assert_refusal 1 config_gen_unprovisionable "path=${CG_DF}"
+  assert_equal "$(_count_inspects)" "0"
+}
+
+@test "config-gen: an empty digest refuses with config_gen_unprovisionable" {
+  _seed_cg_subtree
+  _mock_docker present
+
+  LOG_FORMAT=json run --separate-stderr bash -c "source '${CG}'
+_reclaim_tool_dockerfile_hash() { return 0; }
+config_gen_resolve"
+  assert_refusal 1 config_gen_unprovisionable "path=${CG_DF}"
+  assert_equal "$(_count_inspects)" "0"
 }
 
 # why: without docker the bridge path logs a build and then a build failure
