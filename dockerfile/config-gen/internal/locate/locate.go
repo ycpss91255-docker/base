@@ -37,7 +37,8 @@ type Occurrence struct {
 	// KeyLine is the 1-based line the header or key is written on.
 	KeyLine int
 	// ValueEndLine is the 1-based line the key's value ends on (KeyLine
-	// for a header).
+	// for a header). An array value is given its start line, the line the
+	// library reports for it.
 	ValueEndLine int
 }
 
@@ -171,9 +172,14 @@ func (s *scanner) keyValue() {
 	for i := len(s.table) + 1; i < len(path); i++ {
 		s.implicit(path[:i], line)
 	}
-	inline := s.peek() == '{' || s.peek() == '['
+	array := s.peek() == '['
+	inline := s.peek() == '{' || array
 	s.value()
-	s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, ValueEndLine: s.line})
+	end := s.line
+	if array {
+		end = line
+	}
+	s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, ValueEndLine: end})
 	s.skipLine()
 }
 
@@ -226,17 +232,51 @@ func bare(c byte) bool {
 	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
-// value skips one value, strings included; a multi-line basic string may
-// span lines, and a header-like line inside it is string content.
+// value skips one value, strings included; a multi-line basic string or
+// array may span lines, and a header-like line inside it is its content.
 func (s *scanner) value() {
 	for s.pos < len(s.src) && s.src[s.pos] != '\n' && s.src[s.pos] != '#' {
 		switch {
+		case s.src[s.pos] == '[':
+			s.array()
 		case bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)):
 			s.multiline()
 		case s.src[s.pos] == '"':
 			s.basic()
 		case s.src[s.pos] == '\'':
 			s.literal()
+		default:
+			s.pos++
+		}
+	}
+}
+
+// array skips a `[...]` array through its matching `]`, counting the
+// lines it spans; strings and comments inside it are skipped whole.
+func (s *scanner) array() {
+	depth := 0
+	for s.pos < len(s.src) {
+		switch c := s.src[s.pos]; {
+		case bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)):
+			s.multiline()
+		case c == '"':
+			s.basic()
+		case c == '\'':
+			s.literal()
+		case c == '#':
+			s.skipComment()
+		case c == '\n':
+			s.pos++
+			s.line++
+		case c == '[':
+			depth++
+			s.pos++
+		case c == ']':
+			depth--
+			s.pos++
+			if depth == 0 {
+				return
+			}
 		default:
 			s.pos++
 		}
