@@ -609,6 +609,20 @@ _case_failures() {
     | .attributes.case + "|" + .attributes.reason' <<<"${stderr}"
 }
 
+# why: Sourced, the redpath only defines its tables and functions (the case
+# tables are read that way); a caller that sources it must not come back
+# with nounset or errexit turned on, the #869 contract (base#1465).
+@test "config_gen_redpath.sh: sourced, it leaves its caller's nounset, errexit and pipefail as they were (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  run bash -c 'source "$1"
+    case $- in *u*) printf "nounset " ;; esac
+    case $- in *e*) printf "errexit " ;; esac
+    case :${SHELLOPTS}: in *:pipefail:*) printf "pipefail " ;; esac
+    printf "END\n"' _ "${REDPATH}"
+  assert_success
+  assert_output END
+}
+
 # why: The redpath proves each gate CAN fail; calling `just test go` from it
 # would recurse into itself, and reusing one scratch tree would let one
 # case's defect leak into the next. The control proves the reds come from
