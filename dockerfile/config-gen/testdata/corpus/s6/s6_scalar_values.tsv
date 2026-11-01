@@ -1,0 +1,6 @@
+# class	section	key	toml-literal	verdict	event	branch
+value	security	privileged	"yes"	refuse	conf_value_type_refused	privileged:other
+value	security	privileged	""	accept	-	empty:allow
+value	security	privileged	true	accept	-	privileged:bool
+value	security	privileged	"true"	accept	-	privileged:bool
+value	security	privileged	"TRUE"	refuse	conf_value_type_refused	privileged:other
