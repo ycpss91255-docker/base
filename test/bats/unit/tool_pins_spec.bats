@@ -430,7 +430,7 @@ _gomod() {
     '// tool-pin: xmod github-release golang/mod' \
     'require golang.org/x/mod v0.21.0 // held: v0.21.0 is the last for go 1.22'
   _golang_pin
-  _stub docker 0
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
   run sed -n 6p "${SCRATCH}/dockerfile/config-gen/go.mod"
@@ -446,7 +446,7 @@ _gomod() {
     '	// tool-pin: xmod github-release golang/mod' \
     '	golang.org/x/mod v0.21.0' ')'
   _golang_pin
-  _stub docker 0
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
   run sed -n 5p "${SCRATCH}/dockerfile/config-gen/go.mod"
@@ -459,7 +459,7 @@ _gomod() {
     '// tool-pin: xmod github-release golang/mod' \
     'require "golang.org/x/mod" "v0.21.0"'
   _golang_pin
-  _stub docker 0
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
   run sed -n 3p "${SCRATCH}/dockerfile/config-gen/go.mod"
@@ -685,7 +685,7 @@ _foo_pin() {
     'require golang.org/x/mod v0.21.0 // literal \n text \\ end' \
     'require golang.org/x/net v0.30.0'
   _golang_pin
-  _stub docker 0
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
   run cat "${SCRATCH}/dockerfile/config-gen/go.mod"
@@ -839,7 +839,7 @@ _golang_pin() {
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 3
+  _docker_stub 'exit 3'
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_semantic
   _assert_tree_delta
@@ -856,19 +856,15 @@ _golang_pin() {
     'require golang.org/x/mod v0.21.0'
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
-  local _log="${BATS_TEST_TMPDIR}/docker.log"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
-    > "${STUB_BIN}/docker"
-  : > "${_log}"
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=golang_pin_missing
   _assert_tree_delta
   _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
-  _assert_bytes "${_log}"
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
 }
 
 # why: A module whose tidied go.sum would be empty has none: measured in the
@@ -884,7 +880,7 @@ _golang_pin() {
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
-  _stub docker 5
+  _docker_stub 'exit 5'
   _tree_snap
   _pins_json --set xmod v0.22.0
   assert_success
@@ -913,7 +909,7 @@ _golang_pin() {
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 5
+  _docker_stub 'exit 5'
   : > "${_log}"
   for _cmd in rm mv; do
     _real="$(command -v "${_cmd}")"
@@ -951,30 +947,32 @@ STUB
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 4
+  _docker_stub 'exit 4'
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_layout
   _assert_tree_delta
   _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
-# _stub_go_container <verify-exit> -- a docker on ${STUB_BIN} that runs the
-# container script pins.sh hands it (its `-c` argument) on this host with
-# /bin/sh, every `/tmp/` in it moved under ${BATS_TEST_TMPDIR}/ctr, the
-# module tar on its stdin, and a `go` first on its PATH. That go appends
-# each call to ${BATS_TEST_TMPDIR}/go.log; `mod tidy` writes the one-line
-# `h1:new=` go.sum, `mod edit -json [<file>]` prints <file> (or go.mod), and
-# `mod verify` prints `all modules verified` and exits <verify-exit>. The
-# script's own steps are what runs, so a step it drops is a step the log
-# lacks (review round 2, base#1440).
+# _stub_go_container <verify-exit> -- a _docker_stub whose reply runs the
+# container script pins.sh hands it (the `-c` argument after the image) on
+# this host with /bin/sh, every `/tmp/` in it moved under
+# ${BATS_TEST_TMPDIR}/ctr, the module tar on its stdin, and a `go` first on
+# its PATH. That go appends `go <verb> <subverb>` of each call to
+# ${BATS_TEST_TMPDIR}/go.log (file arguments are the script's private
+# names, so they are not recorded); `mod tidy` writes the one-line
+# `h1:new=` go.sum, `mod edit -json [<file>]` prints <file> (or go.mod),
+# and `mod verify` prints `all modules verified` and exits <verify-exit>.
+# The script's own steps are what runs, so a step it drops is a step the
+# log lacks (review round 2, base#1440).
 _stub_go_container() {
   local _ctr="${BATS_TEST_TMPDIR}/ctr" _gobin="${BATS_TEST_TMPDIR}/gobin"
   local _log="${BATS_TEST_TMPDIR}/go.log"
-  mkdir -p "${STUB_BIN}" "${_ctr}" "${_gobin}"
+  mkdir -p "${_ctr}" "${_gobin}"
   : > "${_log}"
   cat > "${_gobin}/go" <<STUB
 #!/bin/sh
-echo "go \$*" >> "${_log}"
+printf 'go %s %s\n' "\$1" "\$2" >> "${_log}"
 case "\$1 \$2" in
   'mod tidy') printf 'golang.org/x/mod v0.22.0 h1:new=\n' > go.sum ;;
   'mod edit') cat -- "\${4:-go.mod}" ;;
@@ -982,25 +980,30 @@ case "\$1 \$2" in
   *) exit 99 ;;
 esac
 STUB
-  cat > "${STUB_BIN}/docker" <<STUB
-#!/bin/sh
-_script=''
-while [ "\$#" -gt 0 ]; do
-  if [ "\$1" = -c ]; then _script="\$2"; shift; fi
-  shift
-done
-_script="\$(printf '%s' "\${_script}" | sed 's#/tmp/#${_ctr}/#g')"
-PATH="${_gobin}:\${PATH}" exec /bin/sh -c "\${_script}"
-STUB
-  chmod +x "${_gobin}/go" "${STUB_BIN}/docker"
+  chmod +x "${_gobin}/go"
+  _docker_stub "[ \"\${2-}\" = -c ] || exit 97
+_script=\"\$(printf '%s' \"\${3}\" | sed 's#/tmp/#${_ctr}/#g')\"
+PATH=\"${_gobin}:\${PATH}\" exec /bin/sh -c \"\${_script}\" < \"\${_in}\""
+}
+
+# _assert_go_order <first> <then> -- go.log records exactly one `go
+# <first>` and exactly one `go <then>`, and <first> comes before <then>.
+# The calls between them and their file arguments are not asserted.
+_assert_go_order() {
+  local _log="${BATS_TEST_TMPDIR}/go.log"
+  awk -v a="go ${1}" -v b="go ${2}" '
+    $0 == a { na++; ia = NR }
+    $0 == b { nb++; ib = NR }
+    END { exit !(na == 1 && nb == 1 && ia < ib) }' "${_log}" \
+    || fail "not one \`go ${1}\` before one \`go ${2}\`: $(od -c -- "${_log}")"
 }
 
 # why: The container script runs `go mod verify` after the tidy, before it
-# hands go.sum back. Deleting that step once left every other spec green: the docker stubs print a go.sum
-# and never run the script, and the real-image step only checks go.sum,
-# go.mod and a build. Here the script itself runs: verify is called after
-# the tidy, and its `all modules verified` stays off go.sum (review round
-# 2, base#1440).
+# hands go.sum back. Deleting that step once left every other spec green:
+# the docker stubs print a go.sum and never run the script, and the
+# real-image step only checks go.sum, go.mod and a build. Here the script
+# itself runs: verify is called once, after the one tidy, and its `all
+# modules verified` stays off go.sum (review round 2, base#1440).
 @test "pins: --set on a go.mod require runs go mod verify after the tidy and keeps its output off go.sum (base#1440)" {
   _golang_pin
   _gomod 'module example.com/m' '' 'go 1.27' '' \
@@ -1009,16 +1012,12 @@ STUB
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
-  STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   _stub_go_container 0
   _tree_snap
   _pins_json --set xmod v0.22.0
   assert_success
   _assert_tree_delta "~${_f}" "~${_sum}"
-  assert_equal "$(cat "${BATS_TEST_TMPDIR}/go.log")" "go mod tidy
-go mod edit -json ${BATS_TEST_TMPDIR}/ctr/go.mod.staged
-go mod edit -json
-go mod verify"
+  _assert_go_order 'mod tidy' 'mod verify'
   _assert_bytes "${_sum}" 'golang.org/x/mod v0.22.0 h1:new='
   _assert_bytes "${_f}" 'module example.com/m' '' 'go 1.27' '' \
     '// tool-pin: xmod github-release golang/mod' \
@@ -1038,14 +1037,15 @@ go mod verify"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _tree_snap
-  STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   _stub_go_container 1
+  _tree_snap
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_tidy
   _assert_tree_delta
   _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(tail -n 1 "${BATS_TEST_TMPDIR}/go.log")" 'go mod verify'
+  _assert_go_order 'mod tidy' 'mod verify'
+  awk 'END { exit !($0 == "go mod verify") }' "${BATS_TEST_TMPDIR}/go.log" \
+    || fail "go mod verify was not the last go call: $(od -c -- "${BATS_TEST_TMPDIR}/go.log")"
 }
 
 # _stub_chmod_fails_on_go_sum_copy -- a chmod on ${STUB_BIN} that fails
@@ -1082,9 +1082,7 @@ STUB
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}" "${_sum}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
-    > "${STUB_BIN}/docker"
+  _docker_stub 'printf "golang.org/x/mod v0.22.0 h1:new=\n"'
   _stub_chmod_fails_on_go_sum_copy
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
@@ -1105,9 +1103,7 @@ STUB
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
-    > "${STUB_BIN}/docker"
+  _docker_stub 'printf "golang.org/x/mod v0.22.0 h1:new=\n"'
   _stub_chmod_fails_on_go_sum_copy
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
@@ -1130,19 +1126,15 @@ _assert_set_refused_untouched() {
   _gomod "$@"
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
-  local _log="${BATS_TEST_TMPDIR}/docker.log"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
-    > "${STUB_BIN}/docker"
-  : > "${_log}"
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_refusal 1 "${_event}" "file=${_f}" "line=${_line}" "reason=${_reason}"
   _assert_tree_delta
   _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
-  _assert_bytes "${_log}"
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
 }
 
 # why: An indirect requirement is not a declaration this repo makes, so the
@@ -1189,20 +1181,16 @@ _assert_set_refused_untouched() {
     'require golang.org/x/mod v0.21.0'
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
-  local _log="${BATS_TEST_TMPDIR}/docker.log"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   ln "${_f}" "${BATS_TEST_TMPDIR}/hardlink"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
-    > "${STUB_BIN}/docker"
-  : > "${_log}"
+  _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=hard_link
   _assert_tree_delta
   _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
-  _assert_bytes "${_log}"
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
 }
 
 # why: go.mod and go.sum are committed as one: when the rename of the
@@ -1225,9 +1213,7 @@ _assert_set_refused_untouched() {
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
-    > "${STUB_BIN}/docker"
+  _docker_stub 'printf "golang.org/x/mod v0.22.0 h1:new=\n"'
   : > "${_log}"
   cat > "${STUB_BIN}/mv" <<STUB
 #!/bin/sh
@@ -1335,9 +1321,7 @@ _assert_rollback_failed_kept() {
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   _tree_snap
-  _stub docker 0
-  printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
-    > "${STUB_BIN}/docker"
+  _docker_stub 'printf "golang.org/x/mod v0.22.0 h1:new=\n"'
   _stub_fail_go_sum_then_go_mod mv
   _pins_json --set xmod v0.22.0
   _assert_rollback_failed_kept "${_f}"
@@ -1357,7 +1341,7 @@ _assert_rollback_failed_kept() {
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   _tree_snap
-  _stub docker 5
+  _docker_stub 'exit 5'
   _stub_fail_go_sum_then_go_mod rm mv
   _pins_json --set xmod v0.22.0
   _assert_rollback_failed_kept "${_f}"
@@ -1440,16 +1424,8 @@ _assert_minor_modules_untouched() {
 @test "pins: --set golang to another minor whose second module's tidy fails leaves every file alone (base#1440)" {
   _golang_pin
   _minor_modules
-  _stub docker 0
-  cat > "${STUB_BIN}/docker" <<STUB
-#!/bin/sh
-cat > "${BATS_TEST_TMPDIR}/docker.in"
-if grep -aq 'example.com/m2' "${BATS_TEST_TMPDIR}/docker.in"; then
-  exit 1
-fi
-printf 'golang.org/x/mod v0.21.0 h1:new=\n'
-STUB
-  chmod +x "${STUB_BIN}/docker"
+  _docker_stub 'grep -aq example.com/m2 "${_in}" && exit 1
+printf "golang.org/x/mod v0.21.0 h1:new=\n"'
   _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused reason=go_sum_tidy
@@ -1466,20 +1442,16 @@ STUB
   _golang_pin
   local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2"
   local _df="${SCRATCH}/dockerfile/Dockerfile.config-gen"
-  local _log="${BATS_TEST_TMPDIR}/docker.log"
   mkdir -p "${_m}" "${_m2}"
   printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
     'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
   printf '%s\n' 'module example.com/m2' > "${_m2}/go.mod"
-  _stub docker 0
-  printf '#!/bin/sh\necho "docker $*" >> %s\ncat > /dev/null\nprintf "golang.org/x/mod v0.21.0 h1:new=\\n"\n' \
-    "${_log}" > "${STUB_BIN}/docker"
-  : > "${_log}"
+  _docker_stub 'printf "golang.org/x/mod v0.21.0 h1:new=\n"'
   _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused "file=${_m2}/go.mod" reason=go_directive_missing
-  _assert_bytes "${_log}"
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
   _assert_bytes "${_df}" \
     '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
     'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
@@ -1503,17 +1475,11 @@ STUB
   local _real_mv
   _real_mv="$(command -v mv)"
   _minor_modules
-  _stub docker 0
-  cat > "${STUB_BIN}/docker" <<STUB
-#!/bin/sh
-cat > "${BATS_TEST_TMPDIR}/docker.in"
-if grep -aq 'example.com/m2' "${BATS_TEST_TMPDIR}/docker.in"; then
-  printf 'golang.org/x/text v0.20.0 h1:new=\n'
-  exit 0
-fi
-printf 'golang.org/x/mod v0.21.0 h1:new=\n'
-STUB
-  chmod +x "${STUB_BIN}/docker"
+  _docker_stub 'if grep -aq example.com/m2 "${_in}"; then
+  printf "golang.org/x/text v0.20.0 h1:new=\n"
+else
+  printf "golang.org/x/mod v0.21.0 h1:new=\n"
+fi'
   cat > "${STUB_BIN}/mv" <<STUB
 #!/bin/sh
 for _d; do :; done
@@ -1544,17 +1510,11 @@ STUB
   local _m2="${SCRATCH}/m2" _real_mv _bak
   _real_mv="$(command -v mv)"
   _minor_modules
-  _stub docker 0
-  cat > "${STUB_BIN}/docker" <<STUB
-#!/bin/sh
-cat > "${BATS_TEST_TMPDIR}/docker.in"
-if grep -aq 'example.com/m2' "${BATS_TEST_TMPDIR}/docker.in"; then
-  printf 'golang.org/x/text v0.20.0 h1:new=\n'
-  exit 0
-fi
-printf 'golang.org/x/mod v0.21.0 h1:new=\n'
-STUB
-  chmod +x "${STUB_BIN}/docker"
+  _docker_stub 'if grep -aq example.com/m2 "${_in}"; then
+  printf "golang.org/x/text v0.20.0 h1:new=\n"
+else
+  printf "golang.org/x/mod v0.21.0 h1:new=\n"
+fi'
   cat > "${STUB_BIN}/mv" <<STUB
 #!/bin/sh
 for _d; do :; done
