@@ -111,3 +111,26 @@ func TestEmitPrefixesByParentPathNotDepth(t *testing.T) {
 		})
 	}
 }
+
+// An inline table is a table, not a value: `a = { b = { c = 1 } }` lists
+// a and a.b, an empty `e = {}` and one reached through a dotted key are
+// listed too, a key holding a colon (`["stage:dev"]`) is one level, CRLF
+// line endings give the same paths as LF, and an empty or comment-only
+// file lists nothing (base#1469). The want bytes are the bridge's
+// `toml_bridge.py --tables` output on each file, captured into the golden.
+func TestEmitListsInlineTablesAsTables(t *testing.T) {
+	for _, name := range []string{"nested_inline", "stage_dev", "crlf", "empty", "comment_only"} {
+		t.Run(name, func(t *testing.T) {
+			src := readCorpus(t, "corpus/s1/"+name+".toml")
+			want := readCorpus(t, "golden/s1/"+name+".golden")
+
+			got, err := Emit(src)
+			if err != nil {
+				t.Fatalf("Emit: unexpected error %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("Emit = %q, want the bridge golden %q", got, want)
+			}
+		})
+	}
+}
