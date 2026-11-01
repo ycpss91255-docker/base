@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -248,6 +249,84 @@ func TestTablesNonRegularInputIsOneNotRegularFrame(t *testing.T) {
 			}
 			if got[0][2] != "config_gen_input_not_regular" {
 				t.Fatalf("config-gen tables on %s frame event = %q, want config_gen_input_not_regular", tc.path, got[0][2])
+			}
+		})
+	}
+}
+
+// faultWriter takes at most limit bytes in total and then refuses: the
+// write that reaches the limit, and every write after it, returns the
+// bytes it took and a non-nil error -- or, with shortNil, a short count
+// with a nil error, which the io.Writer contract forbids but a caller
+// must still not take as success.
+type faultWriter struct {
+	limit    int
+	shortNil bool
+	got      []byte
+}
+
+var errFault = errors.New("injected write fault")
+
+func (w *faultWriter) Write(p []byte) (int, error) {
+	room := w.limit - len(w.got)
+	if room >= len(p) {
+		w.got = append(w.got, p...)
+		return len(p), nil
+	}
+	if room < 0 {
+		room = 0
+	}
+	w.got = append(w.got, p[:room]...)
+	if w.shortNil {
+		return room, nil
+	}
+	return room, errFault
+}
+
+// When the answer cannot be written in full -- the sink takes no bytes,
+// or takes some and then refuses, or reports a short count -- `config-gen
+// tables` exits 4 and its stderr is exactly one `config_gen_output_failed`
+// frame; the bytes the sink did take are a strict prefix of the bridge
+// golden (base#1469 I/O contract: exit 4 on any write error or short
+// write, one frame, never one per chunk). The fixture's bridge golden is
+// over 64 KiB, so half of it is more than one pipe buffer.
+func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
+	golden := testcorpus.Glob(t, "golden/s1/large_tables.golden")[0]
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read %s: %v", golden, err)
+	}
+	if len(want) < 64*1024 {
+		t.Fatalf("golden %s is %d bytes, want at least 64 KiB", golden, len(want))
+	}
+	for _, tc := range []struct {
+		name string
+		w    *faultWriter
+	}{
+		{"zero_bytes", &faultWriter{limit: 0}},
+		{"half", &faultWriter{limit: len(want) / 2}},
+		{"half_short_count_nil_error", &faultWriter{limit: len(want) / 2, shortNil: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			trapped = -1
+			rc := run([]string{"tables", "--name", "large_tables.toml", src}, tc.w, &stderr)
+			if trapped != -1 {
+				rc = trapped
+			}
+			if rc != 4 {
+				t.Fatalf("config-gen tables exited %d, want 4 (stderr %q)", rc, stderr.Bytes())
+			}
+			got := frames(t, stderr.Bytes())
+			if len(got) != 1 {
+				t.Fatalf("config-gen tables wrote %d frames, want 1 (stderr %q)", len(got), stderr.Bytes())
+			}
+			if got[0][2] != "config_gen_output_failed" {
+				t.Fatalf("frame event = %q, want config_gen_output_failed", got[0][2])
+			}
+			if len(tc.w.got) >= len(want) || !bytes.HasPrefix(want, tc.w.got) {
+				t.Fatalf("sink took %d bytes, want a strict prefix of the %d-byte golden", len(tc.w.got), len(want))
 			}
 		})
 	}
