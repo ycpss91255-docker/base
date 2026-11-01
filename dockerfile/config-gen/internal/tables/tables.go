@@ -35,7 +35,9 @@ func (n *node) child(name string) *node {
 // walk does. A key enters the tree by its key parts as given, so a dot
 // inside a quoted key never starts a new level; a key the parser does not
 // type as a table enters only as far as its parent, so a value is never
-// listed while the tables a dotted key declares on its way still are.
+// listed while the tables a dotted key declares on its way still are. An
+// array is a leaf: one at the root is listed by its name, one deeper is
+// not, and no key inside an array's elements enters the tree.
 func Emit(src []byte) ([]byte, error) {
 	var doc map[string]any
 	md, err := toml.Decode(string(src), &doc)
@@ -43,9 +45,16 @@ func Emit(src []byte) ([]byte, error) {
 		return nil, err
 	}
 	root := &node{}
+keys:
 	for _, key := range md.Keys() {
 		parts := []string(key)
-		if md.Type(key...) != "Hash" {
+		for i := 1; i < len(parts); i++ {
+			if isArray(md.Type(parts[:i]...)) {
+				continue keys
+			}
+		}
+		typ := md.Type(key...)
+		if typ != "Hash" && !(isArray(typ) && len(parts) == 1) {
 			parts = parts[:len(parts)-1]
 		}
 		n := root
@@ -56,6 +65,12 @@ func Emit(src []byte) ([]byte, error) {
 	var out bytes.Buffer
 	walk(&out, "", root)
 	return out.Bytes(), nil
+}
+
+// isArray reports whether typ, a type name from the parser's metadata, is
+// an array: of values ("Array") or of tables ("ArrayHash").
+func isArray(typ string) bool {
+	return typ == "Array" || typ == "ArrayHash"
 }
 
 // walk writes each node's path, then its children's, prefixing a path with
