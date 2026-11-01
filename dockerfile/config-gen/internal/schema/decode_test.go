@@ -56,3 +56,28 @@ func TestDecodeUnknownTable(t *testing.T) {
 		t.Errorf("Line = %d, want 3", got.Line)
 	}
 }
+
+// A scalar written at the root, above any table header, is one
+// conf_top_level_key refusal naming that key at its line (base#1308,
+// base#1442). schema.sh has no root section, so no root scalar is a
+// known key; the event id is the base#1442 design's. Line 1 is counted from the
+// input bytes. The table that follows it gets no refusal of its own.
+func TestDecodeTopLevelScalar(t *testing.T) {
+	src := []byte("top = \"v\"\n[deploy]\ngpu_count = \"all\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_top_level_key" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_top_level_key")
+	}
+	if want := []string{"top"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 1 {
+		t.Errorf("Line = %d, want 1", got.Line)
+	}
+}
