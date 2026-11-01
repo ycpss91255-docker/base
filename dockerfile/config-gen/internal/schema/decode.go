@@ -4,6 +4,7 @@ package schema
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -23,17 +24,20 @@ type Refusal struct {
 type Config struct{}
 
 // known is SCHEMA_VALIDATOR's scalar rows (dist/script/docker/lib/schema.sh)
-// by section. Only [deploy] so far; the other sections and the numbered
-// families follow in later cycles of base#1442.
+// by section. Only [deploy] and security.privileged so far; the other
+// sections and the numbered families follow in later cycles of base#1442.
 var known = map[string][]string{
-	"deploy": {"gpu_mode", "gpu_count", "gpu_capabilities", "gpu_runtime", "runtime", "dri_groups"},
+	"deploy":   {"gpu_mode", "gpu_count", "gpu_capabilities", "gpu_runtime", "runtime", "dri_groups"},
+	"security": {"privileged"},
 }
 
 // Decode decodes src and returns one conf_unknown_table refusal for each
 // top-level table schema.sh does not know, at its header line, and one
 // conf_unknown_key refusal for each key of a known table that the table
 // does not register. Keys under an unknown table get no refusal. A key
-// written at the root is one conf_top_level_key refusal at its line.
+// written at the root is one conf_top_level_key refusal at its line. A
+// known key whose value Validate refuses is one refusal with Validate's
+// event at the key's line.
 func Decode(src []byte) (*Config, []Refusal) {
 	var root map[string]toml.Primitive
 	md, err := toml.Decode(string(src), &root)
@@ -57,6 +61,20 @@ func Decode(src []byte) (*Config, []Refusal) {
 		}
 		if len(k) == 2 && ok && !contains(keys, k[1]) {
 			refusals = append(refusals, Refusal{Event: "conf_unknown_key", Path: k, Line: keyLine(src, k)})
+		}
+		if len(k) == 2 && ok && contains(keys, k[1]) {
+			var table map[string]toml.Primitive
+			var s Scalar
+			// A value of a kind Scalar does not decode yet is left
+			// unvalidated; the other kinds follow in later cycles of
+			// base#1442.
+			if md.PrimitiveDecode(root[k[0]], &table) != nil || md.PrimitiveDecode(table[k[1]], &s) != nil {
+				continue
+			}
+			var ve *ValueError
+			if err := Validate(k[0], k[1], s); errors.As(err, &ve) {
+				refusals = append(refusals, Refusal{Event: ve.Event, Path: k, Line: keyLine(src, k)})
+			}
 		}
 	}
 	return &Config{}, refusals
