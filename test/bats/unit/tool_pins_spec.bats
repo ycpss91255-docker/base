@@ -1386,6 +1386,42 @@ printf "golang.org/x/mod v0.21.0 h1:new=\n"'
     golang:1.28.0-trixie golang:1.28.0-trixie
 }
 
+# why: Only a go.mod bump or a golang minor bump needs Go. A bump of a
+# Dockerfile pin, with a tracked go.mod in the tree, runs no docker: the
+# stub would answer 99, and images.log stays empty. The tree differs only
+# by the Dockerfile, holding the bump (base#1440).
+@test "pins: --set on a Dockerfile pin beside a go.mod runs no docker and touches only the Dockerfile (base#1440)" {
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  _golang_pin
+  _docker_stub 'exit 99'
+  _foo_pin
+  _pins_json --set foo 1.3.0
+  assert_success
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
+  _assert_tree_delta "~${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_bytes "${SCRATCH}/dockerfile/Dockerfile.test-tools" \
+    '# tool-pin: foo github-release owner/foo' 'ARG FOO_VERSION=1.3.0' 'RUN true'
+}
+
+# why: A golang bump within the minor moves no `go` directive, so no go.mod
+# or go.sum is rewritten and no go.sum is regenerated: docker never runs
+# (the stub would answer 99) and only the Dockerfile changes (base#1440).
+@test "pins: --set golang within the minor runs no docker and touches only the Dockerfile (base#1440)" {
+  _golang_pin
+  _minor_modules
+  _docker_stub 'exit 99'
+  _tree_snap
+  _pins_json --set golang golang:1.27.3-trixie
+  assert_success
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
+  _assert_tree_delta "~${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  _assert_bytes "${SCRATCH}/dockerfile/Dockerfile.config-gen" \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.27.3-trixie'
+}
+
 # _minor_modules -- two tracked modules beside the golang pin, each with a
 # go.sum: ${SCRATCH}/m requires golang.org/x/mod, ${SCRATCH}/m2
 # golang.org/x/text, both at `go 1.27`.
