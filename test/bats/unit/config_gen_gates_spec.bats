@@ -848,7 +848,7 @@ _case_failures() {
   _steps="$(cd "${S}/runner.${_n}.steps" && printf '%s\n' *.sh | LC_ALL=C sort | tail -n 1)"
   assert_equal "${_steps}" 99-zz-stale-edit.sh
   # The module the runner got is the unchanged one: the step edits it.
-  run diff -r "${S}/runner.${_n}.mod" /source/dockerfile/config-gen
+  run diff -r "${S}/runner.${_n}.mod" "${S}/repo/dockerfile/config-gen"
   assert_success
   _n="$(_redpath_call rename-move)"
   [[ -f "${S}/runner.${_n}.mod/zzg/a.txt" && -f "${S}/runner.${_n}.mod/zzg/d.txt" ]] \
