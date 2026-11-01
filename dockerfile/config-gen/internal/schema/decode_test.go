@@ -30,3 +30,29 @@ func TestDecodeUnknownKeyInKnownTable(t *testing.T) {
 		t.Errorf("Line = %d, want 3", got.Line)
 	}
 }
+
+// A table schema.sh does not know is one conf_unknown_table refusal at its
+// header line, and the keys under it get no refusal of their own
+// (base#1442). The verdict is the shell's: `_setup_known_section deploy2`
+// fails and setup_cmd.sh reports apply_unknown_table once for the table,
+// with no apply_unknown_key for `deploy2.x`. Line 3 is counted from the
+// input bytes.
+func TestDecodeUnknownTable(t *testing.T) {
+	src := []byte("[deploy]\ngpu_count = \"all\"\n[deploy2]\nx = 1\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_unknown_table" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_unknown_table")
+	}
+	if want := []string{"deploy2"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 3 {
+		t.Errorf("Line = %d, want 3", got.Line)
+	}
+}
