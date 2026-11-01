@@ -272,3 +272,28 @@ func TestIndexHeaderInMultilineString(t *testing.T) {
 		t.Errorf("Key(lifecycle.watchdog_check) = %v KeyLine=%d ValueEndLine=%d, want Found 2 4", lk, o.KeyLine, o.ValueEndLine)
 	}
 }
+
+// TestIndexMultilineArray checks that a multi-line array is one value: a
+// line inside it that starts with `[` is array content, not a header, and
+// the key after it belongs to the enclosing table (base#1442). The library
+// lists only devices, devices.matrix and devices.after for this file, and
+// reports a multi-line array at its START line (BurntSushi v1.6.0, design
+// probe3: key line 2, ends line 4 -> line 2), so ValueEndLine stays on
+// the key's line; the other lines are counted by hand from the fixture.
+func TestIndexMultilineArray(t *testing.T) {
+	m := Index(corpusFile(t, "s6_loc_ml_array.toml"))
+	var seq []string
+	for _, o := range m.Entries() {
+		seq = append(seq, fmt.Sprintf("%s#%d", toml.Key(o.Path), o.Ordinal))
+	}
+	want := []string{"devices#0", "devices.matrix#0", "devices.after#0"}
+	if !reflect.DeepEqual(seq, want) {
+		t.Errorf("Entries() = %q, want %q", seq, want)
+	}
+	if o, lk := m.Key([]string{"devices", "matrix"}); lk != Found || !o.Inline || o.KeyLine != 2 || o.ValueEndLine != 2 {
+		t.Errorf("Key(devices.matrix) = %v Inline=%v KeyLine=%d ValueEndLine=%d, want Found true 2 2", lk, o.Inline, o.KeyLine, o.ValueEndLine)
+	}
+	if o, lk := m.Key([]string{"devices", "after"}); lk != Found || o.KeyLine != 6 {
+		t.Errorf("Key(devices.after) = %v KeyLine=%d, want Found 6", lk, o.KeyLine)
+	}
+}
