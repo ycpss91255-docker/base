@@ -819,8 +819,10 @@ STUB
 }
 
 # _stub_chmod_fails_on_go_sum_copy -- a chmod on ${STUB_BIN} that fails
-# when it names the temp copy of go.sum (.go.sum.pins.*) and runs the real
-# chmod on anything else, so only the go.sum mode step of a bump fails.
+# when it names a file holding the go.sum the docker stub produced (the
+# `h1:new=` checksum line) and runs the real chmod on anything else, so
+# only the mode step of the new go.sum fails, whatever its temp copy is
+# called (review round 1, base#1440).
 _stub_chmod_fails_on_go_sum_copy() {
   local _real
   _real="$(command -v chmod)"
@@ -828,7 +830,7 @@ _stub_chmod_fails_on_go_sum_copy() {
   cat > "${STUB_BIN}/chmod" <<STUB
 #!/bin/sh
 for _a; do
-  case "\${_a##*/}" in .go.sum.pins.*) exit 1 ;; esac
+  [ -f "\${_a}" ] && grep -q 'h1:new=' -- "\${_a}" && exit 1
 done
 exec "${_real}" "\$@"
 STUB
