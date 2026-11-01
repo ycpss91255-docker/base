@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
@@ -176,6 +179,75 @@ func TestTablesParseErrorIsOneFrameNamingTheLabel(t *testing.T) {
 			}
 			if !decimal.MatchString(f[5]) {
 				t.Fatalf("frame col = %q, want a decimal number", f[5])
+			}
+		})
+	}
+}
+
+// An input that is not a regular file -- a directory, a FIFO with no
+// writer, the character device /dev/null, or a listening unix socket --
+// makes `config-gen tables` exit 1 with nothing on stdout and exactly one
+// `config_gen_input_not_regular` frame, and it does so promptly: a FIFO
+// must not hold the command in open(2) waiting for a writer (base#1469
+// Input: open O_NONBLOCK, then fstat; not a regular file ->
+// config_gen_input_not_regular). Each row runs under a deadline so a
+// blocking open fails the test instead of hanging it.
+func TestTablesNonRegularInputIsOneNotRegularFrame(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "fifo.toml")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatalf("mkfifo %s: %v", fifo, err)
+	}
+	// A short directory keeps the socket path under sun_path's 108 bytes.
+	sockDir, err := os.MkdirTemp("", "s")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sock := filepath.Join(sockDir, "s.toml")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen unix %s: %v", sock, err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"directory", dir},
+		{"fifo", fifo},
+		{"dev_null", "/dev/null"},
+		{"unix_socket", sock},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			type result struct {
+				rc             int
+				stdout, stderr []byte
+			}
+			done := make(chan result, 1)
+			go func() {
+				rc, stdout, stderr := cli(t, "tables", "--name", "l.toml", tc.path)
+				done <- result{rc, stdout, stderr}
+			}()
+			var r result
+			select {
+			case r = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("config-gen tables on %s did not return within 10s", tc.path)
+			}
+			if r.rc != 1 {
+				t.Fatalf("config-gen tables on %s exited %d, want 1 (stderr %q)", tc.path, r.rc, r.stderr)
+			}
+			if len(r.stdout) != 0 {
+				t.Fatalf("config-gen tables on %s stdout = %q, want empty", tc.path, r.stdout)
+			}
+			got := frames(t, r.stderr)
+			if len(got) != 1 {
+				t.Fatalf("config-gen tables on %s wrote %d frames, want 1 (stderr %q)", tc.path, len(got), r.stderr)
+			}
+			if got[0][2] != "config_gen_input_not_regular" {
+				t.Fatalf("config-gen tables on %s frame event = %q, want config_gen_input_not_regular", tc.path, got[0][2])
 			}
 		})
 	}
