@@ -163,3 +163,87 @@ func TestIndexOccurrenceParity(t *testing.T) {
 		})
 	}
 }
+
+// corpusFile reads the one corpus/s6 file named base through testcorpus.
+func corpusFile(t *testing.T, base string) []byte {
+	t.Helper()
+	files := testcorpus.Glob(t, "corpus/s6/"+base)
+	src, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return src
+}
+
+// occLines returns each occurrence's KeyLine and Ordinal, in order.
+func occLines(all []Occurrence) (lines, ordinals []int) {
+	for _, o := range all {
+		lines = append(lines, o.KeyLine)
+		ordinals = append(ordinals, o.Ordinal)
+	}
+	return lines, ordinals
+}
+
+// TestIndexRepeatedOccurrences checks the earlier occurrences of a path
+// written more than once, which the library cannot report (it keeps only
+// the last position), so every expected line is counted by hand from the
+// fixture text (base#1442). An explicit table stays one occurrence when a
+// later array-table header lies under it, and an inline array is one
+// occurrence with nothing inside it indexed.
+func TestIndexRepeatedOccurrences(t *testing.T) {
+	t.Run("s6_loc_aot.toml", func(t *testing.T) {
+		m := Index(corpusFile(t, "s6_loc_aot.toml"))
+		vol := []string{"volumes"}
+		src := []string{"volumes", "source"}
+
+		lines, ords := occLines(m.Tables(vol))
+		if !reflect.DeepEqual(lines, []int{1, 4, 7}) || !reflect.DeepEqual(ords, []int{0, 1, 2}) {
+			t.Errorf("Tables(volumes) lines=%v ordinals=%v, want [1 4 7] [0 1 2]", lines, ords)
+		}
+		lines, _ = occLines(m.Keys(src))
+		if !reflect.DeepEqual(lines, []int{2, 5, 8}) {
+			t.Errorf("Keys(volumes.source) lines=%v, want [2 5 8]", lines)
+		}
+		if _, lk := m.Table(vol); lk != Repeated {
+			t.Errorf("Table(volumes) = %v, want Repeated", lk)
+		}
+		if _, lk := m.Key(src); lk != Repeated {
+			t.Errorf("Key(volumes.source) = %v, want Repeated", lk)
+		}
+		var seq []string
+		for _, o := range m.Entries() {
+			seq = append(seq, fmt.Sprintf("%s#%d", toml.Key(o.Path), o.Ordinal))
+		}
+		want := []string{"volumes#0", "volumes.source#0", "volumes#1", "volumes.source#1", "volumes#2", "volumes.source#2"}
+		if !reflect.DeepEqual(seq, want) {
+			t.Errorf("Entries() = %q, want %q", seq, want)
+		}
+	})
+
+	t.Run("s6_loc_aot_nested.toml", func(t *testing.T) {
+		m := Index(corpusFile(t, "s6_loc_aot_nested.toml"))
+		if o, lk := m.Table([]string{"devices"}); lk != Found || o.KeyLine != 1 {
+			t.Errorf("Table(devices) = %v line %d, want Found line 1 (all: %+v)", lk, o.KeyLine, m.Tables([]string{"devices"}))
+		}
+		if o, lk := m.Key([]string{"devices", "device_1"}); lk != Found || o.KeyLine != 2 {
+			t.Errorf("Key(devices.device_1) = %v line %d, want Found line 2", lk, o.KeyLine)
+		}
+		if lines, _ := occLines(m.Tables([]string{"devices", "bindings"})); !reflect.DeepEqual(lines, []int{4, 7}) {
+			t.Errorf("Tables(devices.bindings) lines=%v, want [4 7]", lines)
+		}
+		if lines, _ := occLines(m.Keys([]string{"devices", "bindings", "path"})); !reflect.DeepEqual(lines, []int{5, 8}) {
+			t.Errorf("Keys(devices.bindings.path) lines=%v, want [5 8]", lines)
+		}
+	})
+
+	t.Run("s6_loc_inline_aot.toml", func(t *testing.T) {
+		m := Index(corpusFile(t, "s6_loc_inline_aot.toml"))
+		all := m.Keys([]string{"volumes"})
+		if len(all) != 1 || !all[0].Inline || all[0].KeyLine != 1 {
+			t.Errorf("Keys(volumes) = %+v, want one Inline occurrence on line 1", all)
+		}
+		if n := len(m.Keys([]string{"volumes", "source"})); n != 0 {
+			t.Errorf("Keys(volumes.source): %d occurrences, want none", n)
+		}
+	})
+}
