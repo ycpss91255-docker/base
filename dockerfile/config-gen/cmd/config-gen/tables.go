@@ -25,7 +25,9 @@ func init() {
 // `conf_toml_parse_failed` frame whose `file` is the `--name` label.
 // An input that is not a regular file (a directory, a FIFO, a device, a
 // socket) exits 1 with one `config_gen_input_not_regular` frame; the open
-// is O_NONBLOCK so a FIFO with no writer cannot hold it.
+// is O_NONBLOCK so a FIFO with no writer cannot hold it. The answer is
+// one stdout write; a write error or a short count exits 4 with one
+// `config_gen_output_failed` frame.
 func tablesCmd(args []string, stdout, stderr io.Writer) error {
 	if len(args) != 3 || args[0] != "--name" {
 		_, _ = stderr.Write(diag.Encode(diag.Frame{
@@ -65,9 +67,24 @@ func tablesCmd(args []string, stdout, stderr io.Writer) error {
 		osExit(exitError)
 		return nil
 	}
-	_, err = stdout.Write(out)
-	return err
+	if n, err := stdout.Write(out); err != nil || n != len(out) {
+		text := "short write"
+		if err != nil {
+			text = err.Error()
+		}
+		_, _ = stderr.Write(diag.Encode(diag.Frame{
+			Sev:   "error",
+			Event: "config_gen_output_failed",
+			File:  args[1],
+			Text:  text,
+		}))
+		osExit(exitOutput)
+	}
+	return nil
 }
+
+// exitOutput is the status when the answer cannot be written in full.
+const exitOutput = 4
 
 var errNotRegular = errors.New("not a regular file")
 
