@@ -5,6 +5,7 @@
 package locate
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 )
@@ -225,18 +226,34 @@ func bare(c byte) bool {
 	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
-// value skips one single-line value, strings included.
+// value skips one value, strings included; a multi-line basic string may
+// span lines, and a header-like line inside it is string content.
 func (s *scanner) value() {
 	for s.pos < len(s.src) && s.src[s.pos] != '\n' && s.src[s.pos] != '#' {
-		switch s.src[s.pos] {
-		case '"':
+		switch {
+		case bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)):
+			s.multiline()
+		case s.src[s.pos] == '"':
 			s.basic()
-		case '\'':
+		case s.src[s.pos] == '\'':
 			s.literal()
 		default:
 			s.pos++
 		}
 	}
+}
+
+// multiline skips a `"""` string through its closing `"""`, counting the
+// lines it spans.
+func (s *scanner) multiline() {
+	s.pos += 3
+	for s.pos < len(s.src) && !bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)) {
+		if s.src[s.pos] == '\n' {
+			s.line++
+		}
+		s.pos++
+	}
+	s.pos += 3
 }
 
 // basic reads a single-line basic string without escapes.
