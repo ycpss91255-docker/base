@@ -57,6 +57,9 @@ func readValueRows(t *testing.T) []valueRow {
 // bool key whose text fails (`privileged = "yes"`, `"TRUE"`) is
 // conf_value_type_refused. An empty string is accepted by schema.sh's
 // default empty policy, and `true` / `"true"` pass _validate_privileged.
+// deploy.gpu_count (declared string|int) is the key whose empty policy
+// validates: `""`, `"02"` and a fullwidth digit are same-kind failures,
+// conf_value_invalid, while `true` and `1.5` are of another kind.
 func TestValidateMatchesSchemaSh(t *testing.T) {
 	for _, row := range readValueRows(t) {
 		name := row.section + "." + row.key + "=" + row.literal

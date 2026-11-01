@@ -4,3 +4,10 @@ value	security	privileged	""	accept	-	empty:allow
 value	security	privileged	true	accept	-	privileged:bool
 value	security	privileged	"true"	accept	-	privileged:bool
 value	security	privileged	"TRUE"	refuse	conf_value_type_refused	privileged:other
+value	deploy	gpu_count	true	refuse	conf_value_type_refused	gpu_count:other
+value	deploy	gpu_count	2	accept	-	gpu_count:int
+value	deploy	gpu_count	"02"	refuse	conf_value_invalid	gpu_count:other
+value	deploy	gpu_count	"all"	accept	-	gpu_count:all
+value	deploy	gpu_count	""	refuse	conf_value_invalid	empty:validate
+value	deploy	gpu_count	1.5	refuse	conf_value_type_refused	gpu_count:other
+value	deploy	gpu_count	"１"	refuse	conf_value_invalid	gpu_count:other
