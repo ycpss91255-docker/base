@@ -613,6 +613,58 @@ _stub() {
   chmod +x "${STUB_BIN}/${1}"
 }
 
+# _docker_stub <reply> -- a docker on ${STUB_BIN} that records each call
+# losslessly under ${BATS_TEST_TMPDIR}/docker (rule L, base#1440): its argv
+# as NUL-terminated records in calls/<n>, its stdin in calls/<n>.in, and
+# the image operand of `docker run`, one line per call, in images.log
+# (created empty, so an empty images.log is "docker never ran"). The image
+# is read by docker's own grammar, not by matching text: the flags --rm,
+# -i and -t, the value-taking options --user -u -e --env --entrypoint -v
+# -w --network --label (as two arguments or as --opt=value), then the
+# first operand. Anything else -- another subcommand, an unknown option, a
+# missing value or image -- writes `UNKNOWN <arg>` to images.log and exits
+# 98, so an option _pins_go_sum gains fails every stubbed test loudly
+# instead of being mis-parsed; add it here. <reply> is a sh snippet run
+# with the image and the arguments after it as "$@" and the call's stdin
+# file as ${_in}; its exit status and stdout are docker's.
+_docker_stub() {
+  local _d="${BATS_TEST_TMPDIR}/docker"
+  STUB_BIN="${BATS_TEST_TMPDIR}/bin"
+  mkdir -p "${STUB_BIN}" "${_d}/calls"
+  : > "${_d}/images.log"
+  {
+    cat <<STUB
+#!/bin/sh
+_d='${_d}'
+STUB
+    cat <<'STUB'
+_n=1
+while [ -e "${_d}/calls/${_n}" ]; do _n=$((_n + 1)); done
+printf '%s\0' "$@" > "${_d}/calls/${_n}"
+_in="${_d}/calls/${_n}.in"
+cat > "${_in}"
+_unknown() { printf 'UNKNOWN %s\n' "${1}" >> "${_d}/images.log"; exit 98; }
+[ "${1-}" = run ] || _unknown "${1-}"
+shift
+while [ "$#" -gt 0 ]; do
+  case "${1}" in
+    --rm|-i|-t) shift ;;
+    --user|-u|-e|--env|--entrypoint|-v|-w|--network|--label)
+      [ "$#" -ge 2 ] || _unknown "${1}"
+      shift 2 ;;
+    --user=*|--env=*|--entrypoint=*|--network=*|--label=*) shift ;;
+    -*) _unknown "${1}" ;;
+    *) break ;;
+  esac
+done
+[ "$#" -gt 0 ] || _unknown '(no image)'
+printf '%s\n' "${1}" >> "${_d}/images.log"
+STUB
+    printf '%s\n' "${1}"
+  } > "${STUB_BIN}/docker"
+  chmod +x "${STUB_BIN}/docker"
+}
+
 # _foo_pin -- a Dockerfile pin with a line after it, mode 664, tree snapped.
 _foo_pin() {
   _dockerfile \
@@ -1316,35 +1368,24 @@ _assert_rollback_failed_kept() {
 # `go` directive of each tracked go.mod moves with it, and each go.sum is
 # regenerated in the PROPOSED image, not the one being replaced: rewriting
 # the Dockerfile alone leaves every go.mod naming the old minor, which the
-# directive check then refuses. The docker stub stands in for the image: it
-# logs each call as one line (newlines in its arguments folded to spaces, so
-# the log counts calls), answers a module that requires golang.org/x/mod
-# with one go.sum line, and a dependency-free module with exit 5 (tidy
-# leaves no go.sum, as measured in the pinned image). Both go.mod files end up with
-# `go 1.28`, m keeps a go.sum of the stub's line, m2 still has none, and
-# docker ran exactly twice, both times in golang:1.28.0-trixie (base#1440).
+# directive check then refuses. The docker stub stands in for the image:
+# it answers a module that requires golang.org/x/mod with one go.sum line,
+# and a dependency-free module with exit 5 (tidy leaves no go.sum, as
+# measured in the pinned image). Both go.mod files end up with `go 1.28`,
+# m keeps a go.sum of the stub's line, m2 still has none, and the image
+# operand of each docker call, read by docker's grammar, is the proposed
+# golang:1.28.0-trixie, twice: the --set argument, not a string found
+# anywhere in the call (base#1440).
 @test "pins: --set golang to another minor rewrites every go.mod go line and go.sum in the proposed image (base#1440)" {
   _golang_pin
   local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2"
-  local _log="${BATS_TEST_TMPDIR}/docker.log"
   mkdir -p "${_m}" "${_m2}"
   printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
     'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
   printf '%s\n' 'module example.com/m2' '' 'go 1.27' > "${_m2}/go.mod"
-  _stub docker 0
-  cat > "${STUB_BIN}/docker" <<STUB
-#!/bin/sh
-printf 'docker %s\n' "\$(printf '%s' "\$*" | tr '\n' ' ')" >> "${_log}"
-cat > "${BATS_TEST_TMPDIR}/docker.in"
-if grep -aq 'golang.org/x/mod' "${BATS_TEST_TMPDIR}/docker.in"; then
-  printf 'golang.org/x/mod v0.21.0 h1:new=\n'
-  exit 0
-fi
-exit 5
-STUB
-  chmod +x "${STUB_BIN}/docker"
-  : > "${_log}"
+  _docker_stub 'grep -aq golang.org/x/mod "${_in}" || exit 5
+printf "golang.org/x/mod v0.21.0 h1:new=\n"'
   _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_success
@@ -1357,10 +1398,8 @@ STUB
     'require golang.org/x/mod v0.21.0'
   _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:new='
   _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' 'go 1.28'
-  assert_equal "$(wc -l < "${_log}")" 2
-  assert_equal "$(grep -c ' golang:1.28.0-trixie ' "${_log}")" 2
-  run grep -c '1\.27\.2' "${_log}"
-  assert_output 0
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log" \
+    golang:1.28.0-trixie golang:1.28.0-trixie
 }
 
 # _minor_modules -- two tracked modules beside the golang pin, each with a
