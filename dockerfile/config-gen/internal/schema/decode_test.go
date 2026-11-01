@@ -81,3 +81,30 @@ func TestDecodeTopLevelScalar(t *testing.T) {
 		t.Errorf("Line = %d, want 1", got.Line)
 	}
 }
+
+// A wrong-typed value at a known key is refused by Decode, not only by
+// Validate (base#1314, base#1442). `privileged = "yes"` is a string at the
+// bool key security.privileged whose text fails: schema.sh's verdict is
+// refuse (`_schema_validate security privileged yes` returns 1 under
+// LC_ALL=C), and the design's event for a value of another kind whose
+// text fails is conf_value_type_refused. Line 2 is counted from the input
+// bytes. The table [security] is known, so it gets no refusal of its own.
+func TestDecodeWrongTypedScalar(t *testing.T) {
+	src := []byte("[security]\nprivileged = \"yes\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_value_type_refused" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_value_type_refused")
+	}
+	if want := []string{"security", "privileged"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 2 {
+		t.Errorf("Line = %d, want 2", got.Line)
+	}
+}
