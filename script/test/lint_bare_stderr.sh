@@ -89,6 +89,11 @@ _is_allowlisted_line() {
   # sed-piped output (structured list formatting).
   [[ "${line}" == *"| sed"* ]] && return 0
 
+  # config-gen's in-image event protocol (base#1465): the admit stage runs
+  # with no lib/log.sh, so a refusal is a `cg_event` line on stderr that the
+  # host runner reads back and re-emits through _log_err.
+  [[ "${line}" == *"printf 'cg_event "* ]] && return 0
+
   return 1
 }
 
