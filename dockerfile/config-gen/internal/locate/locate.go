@@ -176,8 +176,15 @@ func (s *scanner) keyValue() {
 	s.skipLine()
 }
 
-// implicit records path as an implicit table created on line.
+// implicit records path as an implicit table created on line, unless a
+// table occurrence of path is already recorded.
 func (s *scanner) implicit(path []string, line int) {
+	want := pathID(path)
+	for _, o := range s.entries {
+		if o.Kind != Key && pathID(o.Path) == want {
+			return
+		}
+	}
 	p := append([]string{}, path...)
 	s.entries = append(s.entries, Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, ValueEndLine: line})
 }
