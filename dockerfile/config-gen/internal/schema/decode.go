@@ -32,7 +32,8 @@ var known = map[string][]string{
 // Decode decodes src and returns one conf_unknown_table refusal for each
 // top-level table schema.sh does not know, at its header line, and one
 // conf_unknown_key refusal for each key of a known table that the table
-// does not register. Keys under an unknown table get no refusal.
+// does not register. Keys under an unknown table get no refusal. A key
+// written at the root is one conf_top_level_key refusal at its line.
 func Decode(src []byte) (*Config, []Refusal) {
 	var root map[string]toml.Primitive
 	md, err := toml.Decode(string(src), &root)
@@ -46,6 +47,10 @@ func Decode(src []byte) (*Config, []Refusal) {
 		if len(k) == 1 && !ok {
 			if lines == nil {
 				lines = locate.Index(src)
+			}
+			if occ, found := lines.Key(k); found == locate.Found {
+				refusals = append(refusals, Refusal{Event: "conf_top_level_key", Path: k, Line: occ.KeyLine})
+				continue
 			}
 			occ, _ := lines.Table(k)
 			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
