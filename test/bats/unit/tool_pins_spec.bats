@@ -1352,6 +1352,35 @@ STUB
   assert_output 0
 }
 
+# _minor_modules -- two tracked modules beside the golang pin, each with a
+# go.sum: ${SCRATCH}/m requires golang.org/x/mod, ${SCRATCH}/m2
+# golang.org/x/text, both at `go 1.27`.
+_minor_modules() {
+  mkdir -p "${SCRATCH}/m" "${SCRATCH}/m2"
+  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
+    'require golang.org/x/mod v0.21.0' > "${SCRATCH}/m/go.mod"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${SCRATCH}/m/go.sum"
+  printf '%s\n' 'module example.com/m2' '' 'go 1.27' '' \
+    'require golang.org/x/text v0.20.0' > "${SCRATCH}/m2/go.mod"
+  printf 'golang.org/x/text v0.20.0 h1:old=\n' > "${SCRATCH}/m2/go.sum"
+}
+
+# _assert_minor_modules_untouched -- after a refused golang minor bump over
+# _minor_modules: the Dockerfile and all four module files hold their
+# literal fixture bytes, and the tree equals the one _tree_snap recorded.
+_assert_minor_modules_untouched() {
+  _assert_bytes "${SCRATCH}/dockerfile/Dockerfile.config-gen" \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
+  _assert_bytes "${SCRATCH}/m/go.mod" 'module example.com/m' '' \
+    'go 1.27' '' 'require golang.org/x/mod v0.21.0'
+  _assert_bytes "${SCRATCH}/m/go.sum" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${SCRATCH}/m2/go.mod" 'module example.com/m2' '' \
+    'go 1.27' '' 'require golang.org/x/text v0.20.0'
+  _assert_bytes "${SCRATCH}/m2/go.sum" 'golang.org/x/text v0.20.0 h1:old='
+  _assert_tree_delta
+}
+
 # why: A golang minor bump is one change to the Dockerfile and every go.mod
 # and go.sum it moves. Committing module m and then failing on m2 leaves m
 # saying `go 1.28` under a golang:1.27.2 pin. A tidy that fails on the
@@ -1360,15 +1389,7 @@ STUB
 # any of them (base#1440).
 @test "pins: --set golang to another minor whose second module's tidy fails leaves every file alone (base#1440)" {
   _golang_pin
-  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2"
-  local _df="${SCRATCH}/dockerfile/Dockerfile.config-gen"
-  mkdir -p "${_m}" "${_m2}"
-  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
-    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
-  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
-  printf '%s\n' 'module example.com/m2' '' 'go 1.27' '' \
-    'require golang.org/x/text v0.20.0' > "${_m2}/go.mod"
-  printf 'golang.org/x/text v0.20.0 h1:old=\n' > "${_m2}/go.sum"
+  _minor_modules
   _stub docker 0
   cat > "${STUB_BIN}/docker" <<STUB
 #!/bin/sh
@@ -1382,16 +1403,7 @@ STUB
   _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused reason=go_sum_tidy
-  _assert_bytes "${_df}" \
-    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
-    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
-  _assert_bytes "${_m}/go.mod" 'module example.com/m' '' \
-    'go 1.27' '' 'require golang.org/x/mod v0.21.0'
-  _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:old='
-  _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' \
-    'go 1.27' '' 'require golang.org/x/text v0.20.0'
-  _assert_bytes "${_m2}/go.sum" 'golang.org/x/text v0.20.0 h1:old='
-  _assert_tree_delta
+  _assert_minor_modules_untouched
 }
 
 # why: A golang minor bump rewrites the `go` directive of every tracked
@@ -1438,16 +1450,9 @@ STUB
 # temp or backup copy is left beside any of them (base#1440).
 @test "pins: --set golang to another minor whose Dockerfile rename fails leaves every file alone (base#1440)" {
   _golang_pin
-  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2" _real_mv
-  local _df="${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  local _real_mv
   _real_mv="$(command -v mv)"
-  mkdir -p "${_m}" "${_m2}"
-  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
-    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
-  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
-  printf '%s\n' 'module example.com/m2' '' 'go 1.27' '' \
-    'require golang.org/x/text v0.20.0' > "${_m2}/go.mod"
-  printf 'golang.org/x/text v0.20.0 h1:old=\n' > "${_m2}/go.sum"
+  _minor_modules
   _stub docker 0
   cat > "${STUB_BIN}/docker" <<STUB
 #!/bin/sh
@@ -1471,16 +1476,7 @@ STUB
   _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused reason=commit_failed
-  _assert_bytes "${_df}" \
-    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
-    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
-  _assert_bytes "${_m}/go.mod" 'module example.com/m' '' \
-    'go 1.27' '' 'require golang.org/x/mod v0.21.0'
-  _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:old='
-  _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' \
-    'go 1.27' '' 'require golang.org/x/text v0.20.0'
-  _assert_bytes "${_m2}/go.sum" 'golang.org/x/text v0.20.0 h1:old='
-  _assert_tree_delta
+  _assert_minor_modules_untouched
 }
 
 # why: A golang minor bump whose last rename fails puts every module back
@@ -1495,15 +1491,9 @@ STUB
 # old bytes (base#1440).
 @test "pins: --set golang to another minor whose rollback fails is rollback_failed and keeps the backup (base#1440)" {
   _golang_pin
-  local _m="${SCRATCH}/m" _m2="${SCRATCH}/m2" _real_mv _bak
+  local _m2="${SCRATCH}/m2" _real_mv _bak
   _real_mv="$(command -v mv)"
-  mkdir -p "${_m}" "${_m2}"
-  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
-    'require golang.org/x/mod v0.21.0' > "${_m}/go.mod"
-  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_m}/go.sum"
-  printf '%s\n' 'module example.com/m2' '' 'go 1.27' '' \
-    'require golang.org/x/text v0.20.0' > "${_m2}/go.mod"
-  printf 'golang.org/x/text v0.20.0 h1:old=\n' > "${_m2}/go.sum"
+  _minor_modules
   _stub docker 0
   cat > "${STUB_BIN}/docker" <<STUB
 #!/bin/sh
