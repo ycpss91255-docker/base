@@ -32,7 +32,10 @@ func (n *node) child(name string) *node {
 // The parser lists keys flat, in declaration order, with no key for an
 // implicit parent; the tree built here puts a parent where its first child
 // appears and gathers its later children under it, as the bridge's dict
-// walk does.
+// walk does. A key enters the tree by its key parts as given, so a dot
+// inside a quoted key never starts a new level; a key the parser does not
+// type as a table enters only as far as its parent, so a value is never
+// listed while the tables a dotted key declares on its way still are.
 func Emit(src []byte) ([]byte, error) {
 	var doc map[string]any
 	md, err := toml.Decode(string(src), &doc)
@@ -41,8 +44,12 @@ func Emit(src []byte) ([]byte, error) {
 	}
 	root := &node{}
 	for _, key := range md.Keys() {
+		parts := []string(key)
+		if md.Type(key...) != "Hash" {
+			parts = parts[:len(parts)-1]
+		}
 		n := root
-		for _, part := range key {
+		for _, part := range parts {
 			n = n.child(part)
 		}
 	}
