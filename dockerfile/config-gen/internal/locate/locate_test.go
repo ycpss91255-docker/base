@@ -247,3 +247,28 @@ func TestIndexRepeatedOccurrences(t *testing.T) {
 		}
 	})
 }
+
+// TestIndexHeaderInMultilineString checks that a header-like line inside a
+// multi-line basic string is string content, not a header (base#1442). The
+// bridge (`toml_bridge.py --tables`) prints only `lifecycle` for this file
+// and `--kv` prints `lifecycle\twatchdog_check\t[fake]`; the key sits on
+// line 2 of the fixture text and its value ends on line 4.
+func TestIndexHeaderInMultilineString(t *testing.T) {
+	m := Index(corpusFile(t, "s6_ml_header.toml"))
+	if all := m.Tables([]string{"fake"}); len(all) != 0 {
+		t.Errorf("Tables(fake) = %+v, want no occurrence (the line is inside a string)", all)
+	}
+	var tables []string
+	for _, o := range m.Entries() {
+		if o.Kind == Header || o.Kind == ArrayHeader {
+			tables = append(tables, toml.Key(o.Path).String())
+		}
+	}
+	if !reflect.DeepEqual(tables, []string{"lifecycle"}) {
+		t.Errorf("header occurrences = %q, want [lifecycle]", tables)
+	}
+	o, lk := m.Key([]string{"lifecycle", "watchdog_check"})
+	if lk != Found || o.KeyLine != 2 || o.ValueEndLine != 4 {
+		t.Errorf("Key(lifecycle.watchdog_check) = %v KeyLine=%d ValueEndLine=%d, want Found 2 4", lk, o.KeyLine, o.ValueEndLine)
+	}
+}
