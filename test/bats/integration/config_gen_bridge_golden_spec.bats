@@ -120,3 +120,62 @@ _mini() {
   assert_success
   assert_output ""
 }
+
+# ── per class: bridge and binary each against the golden ────────────────────
+
+# why: the golden is the bridge's own `--tables` answer captured once; this
+# re-runs BOTH sides over every s1 fixture and compares each one's bytes to
+# that file with cmp, never through $(...), which would drop trailing LFs
+# and hide a missing or extra final newline. The binary is the built
+# config-gen that script/test/test.sh provisions as CONFIG_GEN_BIN; an
+# unprovisioned binary fails the spec (ci_config_gen_unprovisioned), it is
+# never skipped, so a run without it can not pass by testing nothing.
+@test "per EXPECT class, the bridge and the config-gen binary each match golden/s1" {
+  local _bridge="/source/dockerfile/toml_bridge.py"
+  local _row _name _class _in _gold _rc _bad=0
+  if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
+    fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
+  fi
+  while IFS= read -r _row || [[ -n "${_row}" ]]; do
+    _name="${_row%%$'\t'*}"
+    _class="${_row#*$'\t'}"
+    _in="${TESTDATA}/corpus/s1/${_name}.toml"
+    _gold="${TESTDATA}/golden/s1/${_name}.golden"
+
+    _rc=0
+    python3 "${_bridge}" --tables < "${_in}" > "${S}/bridge.out" 2> "${S}/bridge.err" || _rc=$?
+    case "${_class}" in
+      parity | parity-refused)
+        if [[ "${_class}" == parity ]]; then
+          if (( _rc != 0 )) || ! cmp -s "${_gold}" "${S}/bridge.out"; then
+            printf '%s: bridge rc=%d or stdout differs from golden\n' "${_name}" "${_rc}"
+            _bad=1
+          fi
+        elif (( _rc != 1 )); then
+          printf '%s: bridge rc=%d, want 1\n' "${_name}" "${_rc}"
+          _bad=1
+        fi
+        ;;
+      bridge-refused-go-accepted)
+        if (( _rc != 1 )); then
+          printf '%s: bridge rc=%d, want 1\n' "${_name}" "${_rc}"
+          _bad=1
+        fi
+        ;;
+    esac
+
+    _rc=0
+    "${CONFIG_GEN_BIN}" tables --name "${_name}" "${_in}" > "${S}/bin.out" 2> "${S}/bin.err" || _rc=$?
+    if [[ "${_class}" == parity-refused ]]; then
+      if (( _rc != 1 )) || [[ -s "${S}/bin.out" ]]; then
+        printf '%s: config-gen rc=%d (want 1) or stdout not empty\n' "${_name}" "${_rc}"
+        _bad=1
+      fi
+    elif (( _rc != 0 )) || [[ -s "${S}/bin.err" ]] || ! cmp -s "${_gold}" "${S}/bin.out"; then
+      printf '%s: config-gen rc=%d, stderr bytes=%d, or stdout differs from golden\n' \
+        "${_name}" "${_rc}" "$(wc -c < "${S}/bin.err")"
+      _bad=1
+    fi
+  done < "${TESTDATA}/golden/s1/EXPECT"
+  (( _bad == 0 ))
+}
