@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -123,6 +124,58 @@ func TestTablesWrongArgvIsOneUsageFrame(t *testing.T) {
 			}
 			if got[0][2] != "config_gen_usage_invalid" {
 				t.Fatalf("config-gen %q frame event = %q, want config_gen_usage_invalid", tc.args, got[0][2])
+			}
+		})
+	}
+}
+
+// A file the TOML spec refuses -- a syntax error, a table header declared
+// twice, or bytes that are not UTF-8 -- makes `config-gen tables` exit 1
+// with nothing on stdout and exactly one `conf_toml_parse_failed` frame.
+// That frame's `file` field is the `--name` label verbatim, never the
+// opened path, and its `line` and `col` fields are decimal numbers
+// (base#1469 Input; the event id is the one log-events.txt registers).
+// The inputs are invalid by the TOML 1.0 spec: `k = = 1` has no value,
+// `[a]` twice defines one table twice, and 0xFF 0xFE is not UTF-8.
+func TestTablesParseErrorIsOneFrameNamingTheLabel(t *testing.T) {
+	const label = "lab\tel\n\"q\"\\é.toml"
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"syntax", "[a]\nk = = 1\n"},
+		{"duplicate_table", "[a]\nk = 1\n[a]\nj = 2\n"},
+		{"invalid_utf8", "[a]\nk = \"\xff\xfe\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "f.toml")
+			if err := os.WriteFile(path, []byte(tc.src), 0o600); err != nil {
+				t.Fatalf("write %s: %v", path, err)
+			}
+			rc, stdout, stderr := cli(t, "tables", "--name", label, path)
+			if rc != 1 {
+				t.Fatalf("config-gen tables exited %d, want 1 (stderr %q)", rc, stderr)
+			}
+			if len(stdout) != 0 {
+				t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
+			}
+			got := frames(t, stderr)
+			if len(got) != 1 {
+				t.Fatalf("config-gen tables wrote %d frames, want 1 (stderr %q)", len(got), stderr)
+			}
+			f := got[0]
+			if f[2] != "conf_toml_parse_failed" {
+				t.Fatalf("frame event = %q, want conf_toml_parse_failed", f[2])
+			}
+			if f[3] != label {
+				t.Fatalf("frame file = %q, want the --name label %q verbatim", f[3], label)
+			}
+			decimal := regexp.MustCompile(`^[0-9]+$`)
+			if !decimal.MatchString(f[4]) {
+				t.Fatalf("frame line = %q, want a decimal number", f[4])
+			}
+			if !decimal.MatchString(f[5]) {
+				t.Fatalf("frame col = %q, want a decimal number", f[5])
 			}
 		})
 	}
