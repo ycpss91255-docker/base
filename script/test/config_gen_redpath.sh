@@ -117,7 +117,7 @@
 #
 # Style: Google Shell Style Guide.
 
-# Strict mode only when run; sourced, the caller's settings stand (#869).
+# Strict mode only when run; sourced, the caller's settings stand.
 if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
   set -euo pipefail
 fi
