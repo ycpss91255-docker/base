@@ -117,7 +117,10 @@
 #
 # Style: Google Shell Style Guide.
 
-set -euo pipefail
+# Strict mode only when run; sourced, the caller's settings stand (#869).
+if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
+  set -euo pipefail
+fi
 
 _RP_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _RP_SCRIPT_DIR
