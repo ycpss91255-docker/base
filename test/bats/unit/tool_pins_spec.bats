@@ -1233,29 +1233,40 @@ STUB
   done
 }
 
+# _rollback_copy <file> -- the copy= attribute of the rollback_failed
+# refusal for <file> in ${stderr}, the public name of the kept copy; fails
+# when no such refusal carries one.
+_rollback_copy() {
+  local _line _re='"copy":"([^"\\]*)"'
+  while IFS= read -r _line; do
+    [[ "${_line}" == *'"reason":"rollback_failed"'* \
+       && "${_line}" == *"\"file\":\"${1}\""* && "${_line}" =~ ${_re} ]] || continue
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  done <<< "${stderr}"
+  fail "no rollback_failed refusal for ${1} names its copy: ${stderr}"
+}
+
 # _assert_rollback_failed_kept <go.mod> -- after a go.mod bump whose go.sum
 # step and go.mod rollback both failed: the refusal is rollback_failed for
-# go.mod, never a commit_failed claiming go.mod was put back; exactly one
-# copy beside go.mod holds the fixture's go.mod lines, and the refusal
-# names it.
+# go.mod, never a commit_failed claiming go.mod was put back. The tree
+# differs from the snapshot by exactly the copy the refusal names (added,
+# holding go.mod's old bytes) and go.mod (rewritten, holding the bump).
 _assert_rollback_failed_kept() {
-  local _f="${1}" _c
-  local -a _kept=()
-  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
-    '// tool-pin: xmod github-release golang/mod' \
-    'require golang.org/x/mod v0.21.0' > "${BATS_TEST_TMPDIR}/gomod.orig"
+  local _f="${1}" _copy
   assert_refusal 1 pin_set_refused "file=${_f}" reason=rollback_failed
   grep -qx go.mod "${BATS_TEST_TMPDIR}/fail.log" \
     || fail "no rollback rename onto go.mod was failed: $(cat "${BATS_TEST_TMPDIR}/fail.log")"
   [[ "${stderr}" != *'was put back'* ]] || fail "a refusal claims a file was put back: ${stderr}"
-  for _c in "${_f%/*}"/.go.mod*; do
-    if [[ -f "${_c}" ]] && cmp -s -- "${BATS_TEST_TMPDIR}/gomod.orig" "${_c}"; then
-      _kept+=("${_c}")
-    fi
-  done
-  (( ${#_kept[@]} == 1 )) \
-    || fail "not exactly one copy of the old go.mod beside it: $(ls -A -- "${_f%/*}")"
-  [[ "${stderr}" == *"${_kept[0]}"* ]] || fail "the refusal does not name ${_kept[0]}: ${stderr}"
+  _copy="$(_rollback_copy "${_f}")"
+  [[ -n "${_copy}" ]] || fail "the rollback_failed refusal names no copy: ${stderr}"
+  _assert_tree_delta "+${_copy}" "~${_f}"
+  _assert_bytes "${_copy}" 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  _assert_bytes "${_f}" 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.22.0'
 }
 
 # why: When the go.sum rename of a go.mod bump fails, go.mod is put back
@@ -1517,13 +1528,16 @@ fi
 exec "${_real_mv}" "\$@"
 STUB
   chmod +x "${STUB_BIN}/mv"
+  _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
-  assert_refusal 1 pin_set_refused reason=rollback_failed
-  run find "${_m2}" -maxdepth 1 -name '.go.mod.*'
-  assert_equal "$(printf '%s\n' "${output}" | grep -c .)" 1
-  _bak="${output}"
-  assert_equal "$(cat "${_bak}")" "$(printf '%s\n' 'module example.com/m2' '' \
-    'go 1.27' '' 'require golang.org/x/text v0.20.0')"
+  assert_refusal 1 pin_set_refused "file=${_m2}/go.mod" reason=rollback_failed
+  _bak="$(_rollback_copy "${_m2}/go.mod")"
+  [[ -n "${_bak}" ]] || fail "the rollback_failed refusal names no copy: ${stderr}"
+  _assert_tree_delta "+${_bak}" "~${_m2}/go.mod"
+  _assert_bytes "${_bak}" 'module example.com/m2' '' \
+    'go 1.27' '' 'require golang.org/x/text v0.20.0'
+  _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' \
+    'go 1.28' '' 'require golang.org/x/text v0.20.0'
 }
 
 # why: A go.mod `go` directive names the Go a module needs; the golang pin
