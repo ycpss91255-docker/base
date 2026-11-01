@@ -40,6 +40,10 @@ setup() {
   # a scanned shape; a tree that yields none is the vacuity case below.
   printf 'FROM scratch\n' > "${SCRATCH}/dist/dockerfile/Dockerfile"
   printf 'name: x\non:\n  push:\n' > "${SCRATCH}/.github/workflows/x.yaml"
+  # The TMPDIR _pins_json gives pins.sh: test-owned and empty, so the tree
+  # snapshot sees anything pins.sh leaves in it (base#1440).
+  PINS_TMPDIR="${BATS_TEST_TMPDIR}/pins-tmp"
+  mkdir -p "${PINS_TMPDIR}"
 }
 
 teardown() {
@@ -470,10 +474,10 @@ _gomod() {
     'require golang.org/x/mod v0.21.0'
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _pins_json --set xmod v0.22
   assert_refusal 1 pin_set_refused "file=${_f}" line=3 reason=version_noncanonical
-  _assert_unchanged "${_f}"
+  _assert_tree_delta
 }
 
 # why: An empty quoted path once shifted the comment into the version column,
@@ -499,25 +503,105 @@ _pins_json() {
 # _pins_json_unstaged <arg>... -- _pins_json without staging the tree.
 _pins_json_unstaged() {
   run --separate-stderr env PATH="${STUB_BIN:+${STUB_BIN}:}${PATH}" \
-    PIN_REPO_ROOT="${SCRATCH}" LOG_FORMAT=json "${PINS}" "$@"
+    TMPDIR="${PINS_TMPDIR}" PIN_REPO_ROOT="${SCRATCH}" LOG_FORMAT=json "${PINS}" "$@"
 }
 
-# _snapshot <file> -- record the file's bytes, its mode and its directory's
-# listing; _assert_unchanged <file> holds the file to that record.
-_snapshot() {
-  mkdir -p "${BATS_TEST_TMPDIR}/snap"
-  cp -- "${1}" "${BATS_TEST_TMPDIR}/snap/bytes"
-  stat -c '%a' -- "${1}" > "${BATS_TEST_TMPDIR}/snap/mode"
-  ls -A -- "$(dirname -- "${1}")" > "${BATS_TEST_TMPDIR}/snap/dir"
+# Rule L (base#1440): every observation of a file, the tree or docker is
+# lossless. Bytes are compared with cmp (_assert_bytes) and the tree by a
+# content snapshot (_tree_snap, _assert_tree_delta); entries are selected by
+# public name only. `$(cat f)` drops trailing newlines, a per-directory
+# listing drops every other directory and every file's contents, and a
+# filter on a private name drops every leak under another name, so a defect
+# in the dropped part would pass.
+
+# _tree_list -- one record per entry under ${SCRATCH} (its .git aside) and
+# under ${PINS_TMPDIR}: path, type, mode, link target (`-` for none), and
+# the sha256 of a regular file's bytes (`-` for anything else), sorted
+# bytewise.
+# The suite image's find and awk are busybox (no `find -printf`, no `awk
+# --`), so the type, mode, link and hash are read per entry.
+_tree_list() {
+  local _e _y _l _h
+  find "${SCRATCH}" "${PINS_TMPDIR}" -path "${SCRATCH}/.git" -prune -o -print \
+    | LC_ALL=C sort | while IFS= read -r _e; do
+    _l=- _h=-
+    if [[ -L "${_e}" ]]; then
+      _y=l
+      _l="$(readlink -- "${_e}")"
+    elif [[ -f "${_e}" ]]; then
+      _y=f
+      _h="$(sha256sum < "${_e}")"
+      _h="${_h%% *}"
+    elif [[ -d "${_e}" ]]; then
+      _y=d
+    else
+      _y=o
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' "${_e}" "${_y}" "$(stat -c '%a' -- "${_e}")" "${_l}" "${_h}"
+  done
 }
 
-# _assert_unchanged <file> -- the bytes and the mode _snapshot recorded, and
-# no file left beside it (a refused bump leaves no temp copy behind).
-_assert_unchanged() {
-  cmp -s -- "${BATS_TEST_TMPDIR}/snap/bytes" "${1}" \
-    || fail "the bytes of ${1} changed: $(od -c -- "${1}" | head -n 20)"
-  assert_equal "$(stat -c '%a' -- "${1}")" "$(cat "${BATS_TEST_TMPDIR}/snap/mode")"
-  assert_equal "$(ls -A -- "$(dirname -- "${1}")")" "$(cat "${BATS_TEST_TMPDIR}/snap/dir")"
+# _tree_snap -- record _tree_list. Called after the last fixture write,
+# right before the run under test (`git add` touches only .git). A listing
+# without the fixture's own Dockerfile is a broken helper, not a tree.
+_tree_snap() {
+  _tree_list > "${BATS_TEST_TMPDIR}/tree.before"
+  grep -q "^${SCRATCH}/dist/dockerfile/Dockerfile"$'\t''f' "${BATS_TEST_TMPDIR}/tree.before" \
+    || fail "_tree_snap listed no fixture: $(cat "${BATS_TEST_TMPDIR}/tree.before")"
+}
+
+# _assert_tree_delta [+<path>|-<path>|~<path>]... -- the tree equals the one
+# _tree_snap recorded except for exactly the entries named: +<path> added,
+# -<path> removed, ~<path> rewritten (other bytes; type, mode and link
+# target unchanged). No pattern is matched. With no argument the tree is
+# identical: every byte, every mode, and no entry added under any name.
+_assert_tree_delta() {
+  local _before="${BATS_TEST_TMPDIR}/tree.before"
+  local _after="${BATS_TEST_TMPDIR}/tree.after"
+  local _named="${BATS_TEST_TMPDIR}/tree.named" _d _p _b _a
+  _tree_list > "${_after}"
+  : > "${_named}"
+  for _d; do
+    _p="${_d:1}"
+    printf '%s\n' "${_p}" >> "${_named}"
+    _b="$(_tree_record "${_before}" "${_p}")"
+    _a="$(_tree_record "${_after}" "${_p}")"
+    case "${_d:0:1}" in
+      +) [[ -z "${_b}" && -n "${_a}" ]] \
+           || fail "${_p} was not added: before [${_b}] after [${_a}]" ;;
+      -) [[ -n "${_b}" && -z "${_a}" ]] \
+           || fail "${_p} was not removed: before [${_b}] after [${_a}]" ;;
+      '~') [[ -n "${_b}" && -n "${_a}" && "${_b%$'\t'*}" == "${_a%$'\t'*}" \
+              && "${_b}" != "${_a}" ]] \
+           || fail "${_p} was not rewritten in place: before [${_b}] after [${_a}]" ;;
+      *) fail "_assert_tree_delta: ${_d} is not +<path>, -<path> or ~<path>" ;;
+    esac
+  done
+  diff <(_tree_unnamed "${_before}" "${_named}") \
+          <(_tree_unnamed "${_after}" "${_named}") \
+    || fail "the tree changed beyond [${*}]"
+}
+
+# _tree_record <list> <path> -- the record of <path> in <list>, if any.
+_tree_record() {
+  awk -F'\t' -v p="${2}" '$1 == p' "${1}"
+}
+
+# _tree_unnamed <list> <names> -- the records of <list> whose path is not a
+# line of <names>.
+_tree_unnamed() {
+  awk -F'\t' 'FILENAME == ARGV[1] { n[$0]; next } !($1 in n)' "${2}" "${1}"
+}
+
+# _assert_bytes <file> [<line>...] -- <file> holds exactly the <line>s, each
+# ending in a newline (none: an empty file), compared with cmp.
+_assert_bytes() {
+  local _f="${1}" _want="${BATS_TEST_TMPDIR}/bytes.want"
+  shift
+  if (( $# )); then printf '%s\n' "$@" > "${_want}"; else : > "${_want}"; fi
+  cmp -- "${_want}" "${_f}" \
+    || fail "$(printf 'the bytes of %s differ\nwant:\n%s\ngot:\n%s' "${_f}" \
+         "$(od -c -- "${_want}")" "$(od -c -- "${_f}" 2>&1)")"
 }
 
 # _stub <command> <exit> -- a <command> on ${STUB_BIN} that prints nothing
@@ -529,14 +613,14 @@ _stub() {
   chmod +x "${STUB_BIN}/${1}"
 }
 
-# _foo_pin -- a Dockerfile pin with a line after it, mode 664, snapshotted.
+# _foo_pin -- a Dockerfile pin with a line after it, mode 664, tree snapped.
 _foo_pin() {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
     'ARG FOO_VERSION=1.2.3' \
     'RUN true'
   chmod 664 "${SCRATCH}/dockerfile/Dockerfile.test-tools"
-  _snapshot "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _tree_snap
 }
 
 # why: The rewritten line once went through `awk -v repl=...`, which
@@ -600,12 +684,15 @@ _foo_pin() {
   mv "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${_t}"
   chmod 664 "${_t}"
   ln -s "${_t}" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
-  _snapshot "${_t}"
+  _tree_snap
   _pins_json_unstaged --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=symlink
   [[ -L "${SCRATCH}/dockerfile/Dockerfile.test-tools" ]] || fail "the symlink was replaced"
-  _assert_unchanged "${_t}"
+  _assert_tree_delta
+  _assert_bytes "${_t}" '# tool-pin: foo github-release owner/foo' 'ARG FOO_VERSION=1.2.3'
+  run stat -c '%a' -- "${_t}"
+  assert_output 664
 }
 
 # why: Replacing one name of a hard-linked file splits the link and leaves
@@ -616,7 +703,7 @@ _foo_pin() {
   _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=hard_link
-  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_tree_delta
 }
 
 # why: The temp copy lives beside the destination so the final mv is one
@@ -628,7 +715,7 @@ _foo_pin() {
   _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=temp_create
-  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_tree_delta
 }
 
 # why: The injected write failure: a temp copy that could not be written is
@@ -639,7 +726,7 @@ _foo_pin() {
   _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=write_failed
-  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_tree_delta
 }
 
 # why: The temp copy is held to the splice before it lands: everything but
@@ -652,7 +739,7 @@ _foo_pin() {
   _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=check_failed
-  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_tree_delta
 }
 
 # why: mktemp creates 0600; a copy whose mode could not be set to the
@@ -663,7 +750,7 @@ _foo_pin() {
   _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=mode_failed
-  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_tree_delta
 }
 
 # why: The rename is the commit; one that fails leaves the old file and no
@@ -674,7 +761,7 @@ _foo_pin() {
   _pins_json --set foo 1.3.0
   assert_refusal 1 pin_set_refused \
     "file=${SCRATCH}/dockerfile/Dockerfile.test-tools" reason=commit_failed
-  _assert_unchanged "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _assert_tree_delta
 }
 
 # _golang_pin -- the scratch config-gen Dockerfile with the golang pin
@@ -699,12 +786,12 @@ _golang_pin() {
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 3
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_semantic
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
 # why: go.sum is regenerated in the image the golang pin names; with no
@@ -720,16 +807,16 @@ _golang_pin() {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
     > "${STUB_BIN}/docker"
   : > "${_log}"
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=golang_pin_missing
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(cat "${_log}")" ''
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_log}"
 }
 
 # why: A module whose tidied go.sum would be empty has none: measured in the
@@ -746,12 +833,13 @@ _golang_pin() {
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   _stub docker 5
+  _tree_snap
   _pins_json --set xmod v0.22.0
   assert_success
-  run sed -n 6p "${_f}"
-  assert_output 'require golang.org/x/mod v0.22.0 // keep me'
-  [[ ! -e "${_sum}" ]] || fail "go.sum is still there: $(cat "${_sum}")"
-  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" 'go.mod'
+  _assert_tree_delta "~${_f}" "-${_sum}"
+  _assert_bytes "${_f}" 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.22.0 // keep me'
 }
 
 # why: When the tidied module wants no go.sum, removing the old go.sum is
@@ -772,7 +860,7 @@ _golang_pin() {
   local _log="${BATS_TEST_TMPDIR}/gosum.log" _cmd _real
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 5
   : > "${_log}"
   for _cmd in rm mv; do
@@ -792,8 +880,8 @@ STUB
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused reason=commit_failed
   grep -qx failed "${_log}" || fail "no rm or mv of go.sum was failed"
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
 # why: The module goes to the container as a tar of paths relative to the
@@ -810,12 +898,12 @@ STUB
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 4
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_layout
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
 # _stub_go_container <verify-exit> -- a docker on ${STUB_BIN} that runs the
@@ -871,15 +959,18 @@ STUB
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   _stub_go_container 0
+  _tree_snap
   _pins_json --set xmod v0.22.0
   assert_success
+  _assert_tree_delta "~${_f}" "~${_sum}"
   assert_equal "$(cat "${BATS_TEST_TMPDIR}/go.log")" "go mod tidy
 go mod edit -json ${BATS_TEST_TMPDIR}/ctr/go.mod.staged
 go mod edit -json
 go mod verify"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.22.0 h1:new='
-  run sed -n 6p "${_f}"
-  assert_output 'require golang.org/x/mod v0.22.0'
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.22.0 h1:new='
+  _assert_bytes "${_f}" 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.22.0'
 }
 
 # why: A `go mod verify` that fails refuses the bump: go_sum_tidy, go.mod
@@ -895,13 +986,13 @@ go mod verify"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   _stub_go_container 1
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_tidy
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
   assert_equal "$(tail -n 1 "${BATS_TEST_TMPDIR}/go.log")" 'go mod verify'
 }
 
@@ -938,15 +1029,15 @@ STUB
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}" "${_sum}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
     > "${STUB_BIN}/docker"
   _stub_chmod_fails_on_go_sum_copy
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
   assert_equal "$(stat -c '%a' -- "${_sum}")" 664
 }
 
@@ -961,14 +1052,14 @@ STUB
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
     > "${STUB_BIN}/docker"
   _stub_chmod_fails_on_go_sum_copy
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
-  _assert_unchanged "${_f}"
+  _assert_tree_delta
   [[ ! -e "${_sum}" ]] || fail "a go.sum appeared: $(cat "${_sum}")"
 }
 
@@ -990,16 +1081,16 @@ _assert_set_refused_untouched() {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
     > "${STUB_BIN}/docker"
   : > "${_log}"
   _pins_json --set xmod v0.22.0
   assert_refusal 1 "${_event}" "file=${_f}" "line=${_line}" "reason=${_reason}"
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(cat "${_log}")" ''
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_log}"
 }
 
 # why: An indirect requirement is not a declaration this repo makes, so the
@@ -1050,17 +1141,16 @@ _assert_set_refused_untouched() {
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   ln "${_f}" "${BATS_TEST_TMPDIR}/hardlink"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\necho "docker $*" >> %s\nexit 0\n' "${_log}" \
     > "${STUB_BIN}/docker"
   : > "${_log}"
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_f}" reason=hard_link
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(cat "${_log}")" ''
-  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile/config-gen")" "$(printf 'go.mod\ngo.sum')"
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_log}"
 }
 
 # why: go.mod and go.sum are committed as one: when the rename of the
@@ -1082,7 +1172,7 @@ _assert_set_refused_untouched() {
   _real_mv="$(command -v mv)"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
   chmod 664 "${_f}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
     > "${STUB_BIN}/docker"
@@ -1108,8 +1198,8 @@ STUB
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused reason=commit_failed
   grep -qx failed "${_log}" || fail "no rename onto go.mod/go.sum was failed: $(cat "${_log}")"
-  _assert_unchanged "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_tree_delta
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
 # _stub_fail_go_sum_then_go_mod <cmd>... -- each <cmd> (rm, mv) on
@@ -1146,17 +1236,20 @@ STUB
 # _assert_rollback_failed_kept <go.mod> -- after a go.mod bump whose go.sum
 # step and go.mod rollback both failed: the refusal is rollback_failed for
 # go.mod, never a commit_failed claiming go.mod was put back; exactly one
-# copy beside go.mod holds the bytes _snapshot recorded, and the refusal
+# copy beside go.mod holds the fixture's go.mod lines, and the refusal
 # names it.
 _assert_rollback_failed_kept() {
   local _f="${1}" _c
   local -a _kept=()
+  printf '%s\n' 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0' > "${BATS_TEST_TMPDIR}/gomod.orig"
   assert_refusal 1 pin_set_refused "file=${_f}" reason=rollback_failed
   grep -qx go.mod "${BATS_TEST_TMPDIR}/fail.log" \
     || fail "no rollback rename onto go.mod was failed: $(cat "${BATS_TEST_TMPDIR}/fail.log")"
   [[ "${stderr}" != *'was put back'* ]] || fail "a refusal claims a file was put back: ${stderr}"
   for _c in "${_f%/*}"/.go.mod*; do
-    if [[ -f "${_c}" ]] && cmp -s -- "${BATS_TEST_TMPDIR}/snap/bytes" "${_c}"; then
+    if [[ -f "${_c}" ]] && cmp -s -- "${BATS_TEST_TMPDIR}/gomod.orig" "${_c}"; then
       _kept+=("${_c}")
     fi
   done
@@ -1178,14 +1271,14 @@ _assert_rollback_failed_kept() {
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 0
   printf '#!/bin/sh\ncat > /dev/null\nprintf "golang.org/x/mod v0.22.0 h1:new=\\n"\n' \
     > "${STUB_BIN}/docker"
   _stub_fail_go_sum_then_go_mod mv
   _pins_json --set xmod v0.22.0
   _assert_rollback_failed_kept "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
 # why: The same rollback on the other go.sum step: the tidied module wants
@@ -1200,12 +1293,12 @@ _assert_rollback_failed_kept() {
   local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
   local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
   printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
-  _snapshot "${_f}"
+  _tree_snap
   _stub docker 5
   _stub_fail_go_sum_then_go_mod rm mv
   _pins_json --set xmod v0.22.0
   _assert_rollback_failed_kept "${_f}"
-  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_sum}" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
 # why: A golang minor bump moves the Go that builds every module, so the
@@ -1241,22 +1334,22 @@ exit 5
 STUB
   chmod +x "${STUB_BIN}/docker"
   : > "${_log}"
+  _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_success
-  run sed -n 2p "${SCRATCH}/dockerfile/Dockerfile.config-gen"
-  assert_output 'ARG GO_IMAGE=golang:1.28.0-trixie'
-  run sed -n 3p "${_m}/go.mod"
-  assert_output 'go 1.28'
-  run sed -n 3p "${_m2}/go.mod"
-  assert_output 'go 1.28'
-  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:new='
-  [[ ! -e "${_m2}/go.sum" ]] || fail "m2 gained a go.sum: $(cat "${_m2}/go.sum")"
+  _assert_tree_delta "~${SCRATCH}/dockerfile/Dockerfile.config-gen" \
+    "~${_m}/go.mod" "~${_m}/go.sum" "~${_m2}/go.mod"
+  _assert_bytes "${SCRATCH}/dockerfile/Dockerfile.config-gen" \
+    '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
+    'ARG GO_IMAGE=golang:1.28.0-trixie'
+  _assert_bytes "${_m}/go.mod" 'module example.com/m' '' 'go 1.28' '' \
+    'require golang.org/x/mod v0.21.0'
+  _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:new='
+  _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' 'go 1.28'
   assert_equal "$(wc -l < "${_log}")" 2
   assert_equal "$(grep -c ' golang:1.28.0-trixie ' "${_log}")" 2
   run grep -c '1\.27\.2' "${_log}"
   assert_output 0
-  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
-  assert_equal "$(ls -A -- "${_m2}")" 'go.mod'
 }
 
 # why: A golang minor bump is one change to the Dockerfile and every go.mod
@@ -1286,20 +1379,19 @@ fi
 printf 'golang.org/x/mod v0.21.0 h1:new=\n'
 STUB
   chmod +x "${STUB_BIN}/docker"
+  _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused reason=go_sum_tidy
-  assert_equal "$(cat "${_df}")" "$(printf '%s\n' \
+  _assert_bytes "${_df}" \
     '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
-    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e')"
-  assert_equal "$(cat "${_m}/go.mod")" "$(printf '%s\n' 'module example.com/m' '' \
-    'go 1.27' '' 'require golang.org/x/mod v0.21.0')"
-  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(cat "${_m2}/go.mod")" "$(printf '%s\n' 'module example.com/m2' '' \
-    'go 1.27' '' 'require golang.org/x/text v0.20.0')"
-  assert_equal "$(cat "${_m2}/go.sum")" 'golang.org/x/text v0.20.0 h1:old='
-  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
-  assert_equal "$(ls -A -- "${_m2}")" "$(printf 'go.mod\ngo.sum')"
-  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
+  _assert_bytes "${_m}/go.mod" 'module example.com/m' '' \
+    'go 1.27' '' 'require golang.org/x/mod v0.21.0'
+  _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' \
+    'go 1.27' '' 'require golang.org/x/text v0.20.0'
+  _assert_bytes "${_m2}/go.sum" 'golang.org/x/text v0.20.0 h1:old='
+  _assert_tree_delta
 }
 
 # why: A golang minor bump rewrites the `go` directive of every tracked
@@ -1322,19 +1414,18 @@ STUB
   printf '#!/bin/sh\necho "docker $*" >> %s\ncat > /dev/null\nprintf "golang.org/x/mod v0.21.0 h1:new=\\n"\n' \
     "${_log}" > "${STUB_BIN}/docker"
   : > "${_log}"
+  _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused "file=${_m2}/go.mod" reason=go_directive_missing
-  assert_equal "$(cat "${_log}")" ''
-  assert_equal "$(cat "${_df}")" "$(printf '%s\n' \
+  _assert_bytes "${_log}"
+  _assert_bytes "${_df}" \
     '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
-    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e')"
-  assert_equal "$(cat "${_m}/go.mod")" "$(printf '%s\n' 'module example.com/m' '' \
-    'go 1.27' '' 'require golang.org/x/mod v0.21.0')"
-  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(cat "${_m2}/go.mod")" 'module example.com/m2'
-  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
-  assert_equal "$(ls -A -- "${_m2}")" 'go.mod'
-  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
+  _assert_bytes "${_m}/go.mod" 'module example.com/m' '' \
+    'go 1.27' '' 'require golang.org/x/mod v0.21.0'
+  _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_m2}/go.mod" 'module example.com/m2'
+  _assert_tree_delta
 }
 
 # why: A golang minor bump commits every go.mod, every go.sum and the
@@ -1377,20 +1468,19 @@ esac
 exec "${_real_mv}" "\$@"
 STUB
   chmod +x "${STUB_BIN}/mv"
+  _tree_snap
   _pins_json --set golang golang:1.28.0-trixie
   assert_refusal 1 pin_set_refused reason=commit_failed
-  assert_equal "$(cat "${_df}")" "$(printf '%s\n' \
+  _assert_bytes "${_df}" \
     '# tool-pin: golang dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+-trixie$' \
-    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e')"
-  assert_equal "$(cat "${_m}/go.mod")" "$(printf '%s\n' 'module example.com/m' '' \
-    'go 1.27' '' 'require golang.org/x/mod v0.21.0')"
-  assert_equal "$(cat "${_m}/go.sum")" 'golang.org/x/mod v0.21.0 h1:old='
-  assert_equal "$(cat "${_m2}/go.mod")" "$(printf '%s\n' 'module example.com/m2' '' \
-    'go 1.27' '' 'require golang.org/x/text v0.20.0')"
-  assert_equal "$(cat "${_m2}/go.sum")" 'golang.org/x/text v0.20.0 h1:old='
-  assert_equal "$(ls -A -- "${_m}")" "$(printf 'go.mod\ngo.sum')"
-  assert_equal "$(ls -A -- "${_m2}")" "$(printf 'go.mod\ngo.sum')"
-  assert_equal "$(ls -A -- "${SCRATCH}/dockerfile" | grep -c pins)" 0
+    'ARG GO_IMAGE=golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e'
+  _assert_bytes "${_m}/go.mod" 'module example.com/m' '' \
+    'go 1.27' '' 'require golang.org/x/mod v0.21.0'
+  _assert_bytes "${_m}/go.sum" 'golang.org/x/mod v0.21.0 h1:old='
+  _assert_bytes "${_m2}/go.mod" 'module example.com/m2' '' \
+    'go 1.27' '' 'require golang.org/x/text v0.20.0'
+  _assert_bytes "${_m2}/go.sum" 'golang.org/x/text v0.20.0 h1:old='
+  _assert_tree_delta
 }
 
 # why: A golang minor bump whose last rename fails puts every module back
