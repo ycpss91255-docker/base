@@ -40,3 +40,27 @@ func TestEmitListsImplicitParentBeforeItsChildren(t *testing.T) {
 		t.Fatalf("Emit = %q, want the bridge golden %q", got, want)
 	}
 }
+
+// A table's path is the parser's key parts joined with `.`, so only real
+// tables are listed and a dot inside a quoted key never starts a new
+// level: a dotted key `net.host.name = "x"` declares the tables srv.net
+// and srv.net.host but its leaf is a value, `["a.b"]` is one table named
+// `a.b` beside a separate `[a]`, and tables declared out of order still
+// group under their parent (base#1469). The want bytes are the bridge's
+// `toml_bridge.py --tables` output on each file, captured into the golden.
+func TestEmitJoinsKeyPartsWithoutResplitting(t *testing.T) {
+	for _, name := range []string{"dotted_keys", "quoted_dot", "interleaved"} {
+		t.Run(name, func(t *testing.T) {
+			src := readCorpus(t, "corpus/s1/"+name+".toml")
+			want := readCorpus(t, "golden/s1/"+name+".golden")
+
+			got, err := Emit(src)
+			if err != nil {
+				t.Fatalf("Emit: unexpected error %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("Emit = %q, want the bridge golden %q", got, want)
+			}
+		})
+	}
+}
