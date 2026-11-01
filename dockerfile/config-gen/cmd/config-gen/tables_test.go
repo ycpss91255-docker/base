@@ -63,3 +63,67 @@ func TestTablesPrintsTheBridgeGolden(t *testing.T) {
 		})
 	}
 }
+
+// frames parses stderr as NUL-framed diagnostics and fails the test unless
+// all of it is frames: eight NUL-terminated fields each, the first being
+// the tag `D` and the second a non-empty severity (ADR-00000039 §3,
+// base#1469). It returns each frame's fields.
+func frames(t *testing.T, stderr []byte) [][]string {
+	t.Helper()
+	if len(stderr) == 0 {
+		return nil
+	}
+	if stderr[len(stderr)-1] != 0 {
+		t.Fatalf("stderr %q does not end in NUL, so it is not all frames", stderr)
+	}
+	fields := strings.Split(string(stderr[:len(stderr)-1]), "\x00")
+	if len(fields)%8 != 0 {
+		t.Fatalf("stderr %q has %d NUL-terminated fields, not a multiple of 8", stderr, len(fields))
+	}
+	var out [][]string
+	for i := 0; i < len(fields); i += 8 {
+		f := fields[i : i+8]
+		if f[0] != "D" {
+			t.Fatalf("frame %d of stderr %q starts with %q, want the tag D", i/8, stderr, f[0])
+		}
+		if f[1] == "" {
+			t.Fatalf("frame %d of stderr %q has an empty severity", i/8, stderr)
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// `config-gen tables` called with the wrong argv -- no arguments, a path
+// with no `--name`, or an extra argument after the path -- exits 2, prints
+// nothing on stdout, and its stderr is exactly one frame whose event is
+// `config_gen_usage_invalid` (base#1469 I/O contract; exit 2 is wrong argv
+// per the issue, the event id is the one log-events.txt registers).
+func TestTablesWrongArgvIsOneUsageFrame(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/*.toml")[0]
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"none", []string{"tables"}},
+		{"positional_only", []string{"tables", src}},
+		{"extra", []string{"tables", "--name", "l.toml", src, "extra"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, stdout, stderr := cli(t, tc.args...)
+			if rc != 2 {
+				t.Fatalf("config-gen %q exited %d, want 2 (stderr %q)", tc.args, rc, stderr)
+			}
+			if len(stdout) != 0 {
+				t.Fatalf("config-gen %q stdout = %q, want empty", tc.args, stdout)
+			}
+			got := frames(t, stderr)
+			if len(got) != 1 {
+				t.Fatalf("config-gen %q wrote %d frames, want 1 (stderr %q)", tc.args, len(got), stderr)
+			}
+			if got[0][2] != "config_gen_usage_invalid" {
+				t.Fatalf("config-gen %q frame event = %q, want config_gen_usage_invalid", tc.args, got[0][2])
+			}
+		})
+	}
+}

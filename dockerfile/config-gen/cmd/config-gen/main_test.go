@@ -132,6 +132,7 @@ func FuzzRun(f *testing.F) {
 	f.Add("test-fail")
 	f.Add("test-panic")
 	f.Add("no-such-command")
+	f.Add("tables")
 	f.Fuzz(func(t *testing.T, name string) {
 		var stdout, stderr bytes.Buffer
 		got := run([]string{name}, &stdout, &stderr)
