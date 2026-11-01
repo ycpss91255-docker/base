@@ -10,10 +10,9 @@
 # mod tidy` and `go mod verify` in the golang image with an empty module
 # cache, which fetch from the module proxy and the checksum database, and
 # `docker run` pulls that image when it is not local (base#1440). check.sh
-# adds the upstream
-# comparison; the pin-coverage lint adds the completeness guard. All three
-# read watch/lib.sh, which is where the marker grammar and the derivation
-# are documented.
+# adds the upstream comparison; the pin-coverage lint adds the completeness
+# guard. All three read watch/lib.sh, which is where the marker grammar and
+# the derivation are documented.
 #
 # Usage:
 #   ./script/watch/pins.sh --list             # TSV table of every marker
