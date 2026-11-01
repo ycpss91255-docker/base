@@ -95,9 +95,10 @@ _pins_refuse() {
 
 # _pins_refuse_rollback <file> <copy> -- the refusal of a commit that
 # failed and could not be undone: <file> is NOT as it was, and <copy> still
-# holds its bytes from before the commit (base#1440).
+# holds its bytes from before the commit (base#1440). copy= names <copy>
+# as data, so a reader finds it without parsing the display text.
 _pins_refuse_rollback() {
-  _log_err pin pin_set_refused "file=${1}" "reason=rollback_failed" \
+  _log_err pin pin_set_refused "file=${1}" "reason=rollback_failed" "copy=${2}" \
     "display=pin_set_refused: ${1}: a commit failed and it could not be put back; its copy as it was is kept at ${2}"
 }
 
