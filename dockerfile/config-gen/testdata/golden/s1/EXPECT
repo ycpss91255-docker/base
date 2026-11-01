@@ -1,0 +1,16 @@
+aot_subtable	parity
+comment_only	parity
+crlf	parity
+dotted_keys	parity
+empty	parity
+empty_name_array	parity
+empty_name_parent	parity
+implicit_parent_order	parity
+interleaved	parity
+large_tables	parity
+nested_array	parity
+nested_inline	parity
+quoted_dot	parity
+root_array	parity
+seed	parity
+stage_dev	parity
