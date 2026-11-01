@@ -64,3 +64,26 @@ func TestEmitJoinsKeyPartsWithoutResplitting(t *testing.T) {
 		})
 	}
 }
+
+// An array is a leaf of the walk: a root-level array of any kind is listed
+// by its name, an array nested in a table is not listed, and the walk
+// never descends into an array's elements, so a subtable or a nested
+// array of tables declared inside `[[aot]]` is not listed (base#1469).
+// The want bytes are the bridge's `toml_bridge.py --tables` output on each
+// file, captured into the golden.
+func TestEmitDoesNotDescendIntoArrays(t *testing.T) {
+	for _, name := range []string{"root_array", "nested_array", "aot_subtable"} {
+		t.Run(name, func(t *testing.T) {
+			src := readCorpus(t, "corpus/s1/"+name+".toml")
+			want := readCorpus(t, "golden/s1/"+name+".golden")
+
+			got, err := Emit(src)
+			if err != nil {
+				t.Fatalf("Emit: unexpected error %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("Emit = %q, want the bridge golden %q", got, want)
+			}
+		})
+	}
+}
