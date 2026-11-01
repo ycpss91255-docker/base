@@ -818,6 +818,93 @@ STUB
   assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
 }
 
+# _stub_go_container <verify-exit> -- a docker on ${STUB_BIN} that runs the
+# container script pins.sh hands it (its `-c` argument) on this host with
+# /bin/sh, every `/tmp/` in it moved under ${BATS_TEST_TMPDIR}/ctr, the
+# module tar on its stdin, and a `go` first on its PATH. That go appends
+# each call to ${BATS_TEST_TMPDIR}/go.log; `mod tidy` writes the one-line
+# `h1:new=` go.sum, `mod edit -json [<file>]` prints <file> (or go.mod), and
+# `mod verify` prints `all modules verified` and exits <verify-exit>. The
+# script's own steps are what runs, so a step it drops is a step the log
+# lacks (review round 2, base#1440).
+_stub_go_container() {
+  local _ctr="${BATS_TEST_TMPDIR}/ctr" _gobin="${BATS_TEST_TMPDIR}/gobin"
+  local _log="${BATS_TEST_TMPDIR}/go.log"
+  mkdir -p "${STUB_BIN}" "${_ctr}" "${_gobin}"
+  : > "${_log}"
+  cat > "${_gobin}/go" <<STUB
+#!/bin/sh
+echo "go \$*" >> "${_log}"
+case "\$1 \$2" in
+  'mod tidy') printf 'golang.org/x/mod v0.22.0 h1:new=\n' > go.sum ;;
+  'mod edit') cat -- "\${4:-go.mod}" ;;
+  'mod verify') echo 'all modules verified'; exit ${1} ;;
+  *) exit 99 ;;
+esac
+STUB
+  cat > "${STUB_BIN}/docker" <<STUB
+#!/bin/sh
+_script=''
+while [ "\$#" -gt 0 ]; do
+  if [ "\$1" = -c ]; then _script="\$2"; shift; fi
+  shift
+done
+_script="\$(printf '%s' "\${_script}" | sed 's#/tmp/#${_ctr}/#g')"
+PATH="${_gobin}:\${PATH}" exec /bin/sh -c "\${_script}"
+STUB
+  chmod +x "${_gobin}/go" "${STUB_BIN}/docker"
+}
+
+# why: The container script runs `go mod verify` after the tidy, before it
+# hands go.sum back. Deleting that step once left every other spec green: the docker stubs print a go.sum
+# and never run the script, and the real-image step only checks go.sum,
+# go.mod and a build. Here the script itself runs: verify is called after
+# the tidy, and its `all modules verified` stays off go.sum (review round
+# 2, base#1440).
+@test "pins: --set on a go.mod require runs go mod verify after the tidy and keeps its output off go.sum (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  STUB_BIN="${BATS_TEST_TMPDIR}/bin"
+  _stub_go_container 0
+  _pins_json --set xmod v0.22.0
+  assert_success
+  assert_equal "$(cat "${BATS_TEST_TMPDIR}/go.log")" "go mod tidy
+go mod edit -json ${BATS_TEST_TMPDIR}/ctr/go.mod.staged
+go mod edit -json
+go mod verify"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.22.0 h1:new='
+  run sed -n 6p "${_f}"
+  assert_output 'require golang.org/x/mod v0.22.0'
+}
+
+# why: A `go mod verify` that fails refuses the bump: go_sum_tidy, go.mod
+# and go.sum byte for byte as they were, no temp copy beside them. The log
+# shows verify was the step that failed, after a tidy that passed (review
+# round 2, base#1440).
+@test "pins: --set on a go.mod require whose go mod verify fails is go_sum_tidy and changes no byte (base#1440)" {
+  _golang_pin
+  _gomod 'module example.com/m' '' 'go 1.27' '' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.21.0'
+  local _f="${SCRATCH}/dockerfile/config-gen/go.mod"
+  local _sum="${SCRATCH}/dockerfile/config-gen/go.sum"
+  printf 'golang.org/x/mod v0.21.0 h1:old=\n' > "${_sum}"
+  chmod 664 "${_f}"
+  _snapshot "${_f}"
+  STUB_BIN="${BATS_TEST_TMPDIR}/bin"
+  _stub_go_container 1
+  _pins_json --set xmod v0.22.0
+  assert_refusal 1 pin_set_refused "file=${_f}" reason=go_sum_tidy
+  _assert_unchanged "${_f}"
+  assert_equal "$(cat "${_sum}")" 'golang.org/x/mod v0.21.0 h1:old='
+  assert_equal "$(tail -n 1 "${BATS_TEST_TMPDIR}/go.log")" 'go mod verify'
+}
+
 # _stub_chmod_fails_on_go_sum_copy -- a chmod on ${STUB_BIN} that fails
 # when it names a file holding the go.sum the docker stub produced (the
 # `h1:new=` checksum line) and runs the real chmod on anything else, so
