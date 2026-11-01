@@ -87,3 +87,27 @@ func TestEmitDoesNotDescendIntoArrays(t *testing.T) {
 		})
 	}
 }
+
+// A path is prefixed by its parent's path only when that path is non-empty,
+// not whenever the key sits below the root: a table named "" prints as an
+// empty line, its subtable `["".b]` prints as `b`, not `.b`, and an array
+// directly under `[""]` is listed like a root-level array, because the
+// bridge's walk tests the prefix string, not the depth (base#1469). The
+// want bytes are the bridge's `toml_bridge.py --tables` output on each
+// file, captured into the golden.
+func TestEmitPrefixesByParentPathNotDepth(t *testing.T) {
+	for _, name := range []string{"empty_name_parent", "empty_name_array"} {
+		t.Run(name, func(t *testing.T) {
+			src := readCorpus(t, "corpus/s1/"+name+".toml")
+			want := readCorpus(t, "golden/s1/"+name+".golden")
+
+			got, err := Emit(src)
+			if err != nil {
+				t.Fatalf("Emit: unexpected error %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("Emit = %q, want the bridge golden %q", got, want)
+			}
+		})
+	}
+}
