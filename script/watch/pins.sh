@@ -289,10 +289,17 @@ _pins_stage_go_mod() {
     *) _pins_refuse "${_abs}" go_sum_tidy "go mod tidy / go mod verify failed in ${_image%%@*}"
        return 1 ;;
   esac
-  if [[ -e "${_sum}" ]]; then
-    chmod "$(stat -c '%a' -- "${_sum}")" "${_sumtmp}"
-  else
-    chmod 644 "${_sumtmp}"
+  # mktemp creates the copy 0600; it takes go.sum's mode (644 for a new
+  # go.sum) here, and a copy that cannot is never committed (review round
+  # 2, base#1440).
+  local _mode=644
+  if [[ -e "${_sum}" ]] && ! _mode="$(stat -c '%a' -- "${_sum}")"; then
+    _mode=""
+  fi
+  if [[ -z "${_mode}" ]] || ! chmod "${_mode}" "${_sumtmp}"; then
+    rm -f -- "${_sumtmp}"
+    _pins_refuse "${_sum}" mode_failed "its mode could not be carried onto the temp copy"
+    return 1
   fi
   _PINS_STAGED_SUM="${_sumtmp}"
 }
