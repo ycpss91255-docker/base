@@ -5,14 +5,17 @@
 # The local half of the upstream-release watch: no upstream knowledge. It
 # answers "what does this checkout pin, and where", and it performs the one
 # edit a bump consists of. Reading (--list, --value, --files, --uncovered)
-# and --set on a Dockerfile pin use no network. --set on anything that
-# moves a go.mod (a go.mod require, a golang minor bump) does: it runs `go
-# mod tidy` and `go mod verify` in the golang image with an empty module
-# cache, which fetch from the module proxy and the checksum database, and
-# `docker run` pulls that image when it is not local (base#1440). check.sh
-# adds the upstream comparison; the pin-coverage lint adds the completeness
-# guard. All three read watch/lib.sh, which is where the marker grammar and
-# the derivation are documented.
+# uses no network, and neither does --set on a Dockerfile pin, except a
+# golang minor bump. --set on anything that moves a go.mod does: a go.mod
+# require, and a golang minor bump, which rewrites the Dockerfile pin and
+# the go line of every tracked go.mod. For each go.mod it moves it runs
+# `go mod tidy` and `go mod verify` in the golang image (the proposed one
+# for a golang bump) with an empty module cache, which fetch from the
+# module proxy and the checksum database, and `docker run` pulls that
+# image when it is not local (base#1440). check.sh adds the upstream
+# comparison; the pin-coverage lint adds the completeness guard. All three
+# read watch/lib.sh, which is where the marker grammar and the derivation
+# are documented.
 #
 # Usage:
 #   ./script/watch/pins.sh --list             # TSV table of every marker
