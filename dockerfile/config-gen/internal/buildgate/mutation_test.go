@@ -305,6 +305,43 @@ func TestMapRefusesTheMarkerBesideLines(t *testing.T) {
 	}
 }
 
+// The producer writes either at least one record or the no-change marker
+// after the header (config_gen_mutation_targets.sh: with no line the
+// marker is written). A manifest that holds neither, only its header and
+// perhaps blank lines, is refused rather than read as nothing to test. The
+// expected line is the event id and reason the design (base#1467, design
+// r1 §2) names, spelled as a literal.
+func TestMapRefusesAManifestWithNoRecordAndNoMarker(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	const want = "cg_event config_gen_mutation_manifest_invalid reason=empty_manifest"
+	cases := []struct {
+		name     string
+		manifest string
+	}{
+		{"the header alone", header},
+		{"the header without its newline", strings.TrimSuffix(header, "\n")},
+		{"the header and blank lines", header + "\n\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err == nil {
+				t.Fatalf("Map returned %+v and no error, want %q", got, want)
+			}
+			if err.Error() != want {
+				t.Errorf("Map error = %q, want %q", err.Error(), want)
+			}
+		})
+	}
+}
+
 // unquote reads a control byte the producer writes as \ooo back to that
 // byte, and returns a spelling that does not read back as written (the
 // admission gate, config_gen_admit.sh _cga_record, refuses such a
