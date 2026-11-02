@@ -3,10 +3,12 @@
 package schema
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 
@@ -118,7 +120,9 @@ func valueCharEvent(text string) string {
 //
 // A document the parser refuses is one conf_toml_parse_failed at the
 // parser's line and column, naming the last table or key the locator
-// found at or before that line, and no Config.
+// found at or before that line, and no Config. A document the parser
+// accepts whose bytes the bridge cannot read as text (undecodable) is the
+// same refusal at the first such byte.
 //
 // Otherwise the locator's tree is joined to the parsed value (bind) and
 // walked once, depth first, in written order; each table, key and array is
@@ -151,6 +155,9 @@ func Decode(src []byte) (*Config, []Refusal) {
 	lines := locate.Index(src)
 	if err != nil {
 		return nil, []Refusal{parseRefusal(lines, err)}
+	}
+	if line, col, ok := undecodable(src); ok {
+		return nil, []Refusal{attributed(lines, line, col)}
 	}
 	root := bind(lines.Root(), doc, nil)
 	d := decoder{refused: map[string]bool{}, tables: map[string]bool{}}
@@ -364,11 +371,50 @@ func (d *decoder) judgeValues(p []string, b *bound, line, col int) {
 // err: at the parser's line and column, naming the path of the last
 // occurrence the locator found at or before that line.
 func parseRefusal(lines *locate.Map, err error) Refusal {
-	r := Refusal{Event: "conf_toml_parse_failed"}
+	var line, col int
 	var pe toml.ParseError
 	if errors.As(err, &pe) {
-		r.Line, r.Col = pe.Position.Line, pe.Position.Col
+		line, col = pe.Position.Line, pe.Position.Col
 	}
+	return attributed(lines, line, col)
+}
+
+// utf8Mark is the UTF-8 byte-order mark.
+const utf8Mark = "\xef\xbb\xbf"
+
+// undecodable reports the 1-based line and byte column of the first byte
+// the bridge cannot read as TOML text, judged on src as read: a byte that
+// is not UTF-8, or a leading UTF-8 byte-order mark, which the bridge
+// decodes to U+FEFF and tomllib refuses at line 1 column 1. The parser
+// strips a leading FF FE, FE FF or EF BB BF before it reads (BurntSushi
+// v1.6.0 parse.go), so its success does not make the bytes text (base#1442
+// review round 4).
+func undecodable(src []byte) (line, col int, ok bool) {
+	off := -1
+	if strings.HasPrefix(string(src), utf8Mark) {
+		off = 0
+	} else if !utf8.Valid(src) {
+		for i := 0; i < len(src); {
+			r, n := utf8.DecodeRune(src[i:])
+			if r == utf8.RuneError && n <= 1 {
+				off = i
+				break
+			}
+			i += n
+		}
+	}
+	if off < 0 {
+		return 0, 0, false
+	}
+	head := src[:off]
+	return bytes.Count(head, []byte("\n")) + 1, off - bytes.LastIndexByte(head, '\n'), true
+}
+
+// attributed is the conf_toml_parse_failed refusal at line and col, naming
+// the path of the last occurrence the locator found at or before that
+// line.
+func attributed(lines *locate.Map, line, col int) Refusal {
+	r := Refusal{Event: "conf_toml_parse_failed", Line: line, Col: col}
 	for _, o := range lines.Entries() {
 		if o.KeyLine > r.Line {
 			break
