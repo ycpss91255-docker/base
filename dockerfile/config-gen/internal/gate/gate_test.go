@@ -432,3 +432,73 @@ func TestCheckRefusesYearZeroDate(t *testing.T) {
 		}
 	}
 }
+
+// A multi-line basic string may hold one or two `"` of its own; the gate's
+// lexer must keep the string open across them (base#1441 review round 1,
+// finding 1). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
+// refuses the first two rows, `Unescaped '\' in a string`, and BurntSushi
+// v1.6.0 accepts them as TOML 1.1 escapes, so the gate refuses each at its
+// backslash, counted by hand: a(1) ' '(2) =(3) ' '(4) "(5) "(6) "(7) a(8)
+// "(9) ' '(10) \(11); in the second row x(8) "(9) "(10) ' '(11) \(12).
+// tomllib accepts the controls: a line ending after an embedded quote
+// inside an inline table's multi-line string is string content, not a
+// line ending of the inline table, and so is a brace.
+func TestCheckLexesQuotesInsideMultiLineBasicString(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+	}{
+		{"a = \"\"\"a\" \\e\"\"\"\n", 1, 11},
+		{"a = \"\"\"x\"\" \\x41\"\"\"\n", 1, 12},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		if r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonEscape {
+			t.Errorf("Check(%q) Refusal = {%d %d %v}, want {%d %d ReasonEscape}", tc.src, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, src := range []string{
+		"a = {b = \"\"\"a\"\n\"\"\"}\n",
+		"a = \"\"\"a\" {\"\"\"\n",
+		"a = {b = \"\"\"a\" , \"\"\"}\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
+
+// The date, offset and seconds rules read the value tokens a TOML parser
+// reads, wherever comments and line endings put them (base#1441 review
+// round 1, finding 2). tomllib (CPython 3.13.13 Lib/tomllib, run
+// 2026-11-02) refuses the year-zero row "Invalid date or datetime (at line
+// 2, column 3)", and BurntSushi v1.6.0 accepts it, so the gate must
+// refuse it at 2:3, the value's first byte after the two-space indent.
+// The offset-hour and seconds rows behind the same comment keep their
+// reasons: the sign at 2:22 (the 19-byte datetime runs from column 3 to
+// 21) and the value at 2:3.
+func TestCheckReadsValueTokensBehindComments(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+		reason    Reason
+	}{
+		{"a = [ # comment\n  0000-01-01\n]\n", 2, 3, ReasonDateRange},
+		{"a = [ # c\n  2021-01-01T00:00:00+24:00\n]\n", 2, 22, ReasonOffsetRange},
+		{"a = [ # c\n  07:32\n]\n", 2, 3, ReasonTimeNoSeconds},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		if r.Line != tc.line || r.Col != tc.col || r.Reason != tc.reason {
+			t.Errorf("Check(%q) Refusal = {%d %d %v}, want {%d %d %v}", tc.src, r.Line, r.Col, r.Reason, tc.line, tc.col, tc.reason)
+		}
+	}
+}
