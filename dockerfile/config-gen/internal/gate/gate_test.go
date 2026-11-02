@@ -93,7 +93,7 @@ func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 		// tomllib (run 2026-11-02) refuses both at the same column,
 		// "Expected '=' after a key in a key/value pair (at line 1,
 		// column 7)" and "Invalid value (at line 1, column 9)", and
-		// BurntSushi v1.6.0 refuses both too (base#1441 review round 2).
+		// BurntSushi v1.6.0 refuses both too (base#1441).
 		{"key-eq", "a = {b\n= 1}\n", 1, 7},
 		{"eq-value", "a = {b =\n1}\n", 1, 9},
 	} {
@@ -248,7 +248,7 @@ func TestCheckRefusesDuplicateKey(t *testing.T) {
 // the toml-test v2.2.0 (ce08da1) invalid/ files vendored under
 // testdata/toml-test, which tomllib (CPython 3.13.13 Lib/tomllib) refuses
 // with "Cannot declare ... twice" on the same line while BurntSushi v1.6.0
-// accepts them (base#1441 design run1 r2 cycle 9a, measured). Each L:C is
+// accepts them (base#1441, measured). Each L:C is
 // counted by hand in the file: the header line, column 1. The controls
 // are accepted by tomllib: a sub-table header under a dotted table that
 // no dotted key created (valid/spec-1.0.0/table-9), and the same shape
@@ -444,8 +444,7 @@ func TestCheckRefusesYearZeroDate(t *testing.T) {
 }
 
 // A multi-line basic string may hold one or two `"` of its own; the gate's
-// lexer must keep the string open across them (base#1441 review round 1,
-// finding 1). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
+// lexer must keep the string open across them (base#1441). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
 // refuses the first two rows, `Unescaped '\' in a string`, and BurntSushi
 // v1.6.0 accepts them as TOML 1.1 escapes, so the gate refuses each at its
 // backslash, counted by hand: a(1) ' '(2) =(3) ' '(4) "(5) "(6) "(7) a(8)
@@ -483,8 +482,7 @@ func TestCheckLexesQuotesInsideMultiLineBasicString(t *testing.T) {
 }
 
 // The date, offset and seconds rules read the value tokens a TOML parser
-// reads, wherever comments and line endings put them (base#1441 review
-// round 1, finding 2). tomllib (CPython 3.13.13 Lib/tomllib, run
+// reads, wherever comments and line endings put them (base#1441). tomllib (CPython 3.13.13 Lib/tomllib, run
 // 2026-11-02) refuses the year-zero row "Invalid date or datetime (at line
 // 2, column 3)", and BurntSushi v1.6.0 accepts it, so the gate must
 // refuse it at 2:3, the value's first byte after the two-space indent.
@@ -517,8 +515,7 @@ func TestCheckReadsValueTokensBehindComments(t *testing.T) {
 // its own before its closing delimiter of three, so a value written as x
 // followed by four single quotes is the string x plus one quote, and
 // with five, x plus two; the gate must lex past every closing quote and
-// still see a later basic string's escape (base#1441 review round 2,
-// finding 1). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
+// still see a later basic string's escape (base#1441). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
 // refuses each refused row with "Unescaped '\' in a string" on line 2
 // and BurntSushi v1.6.0 accepts it; tomllib accepts each control. The
 // position is the backslash, counted by hand: b(1) ' '(2) =(3) ' '(4)
@@ -557,7 +554,7 @@ func TestCheckLexesMultiLineLiteralClosingQuotes(t *testing.T) {
 
 // A dotted key under an array-of-tables header belongs to the current
 // element of that array, not to the root table, so a later [b] header
-// names a different table (base#1441 review round 2, finding 2). tomllib
+// names a different table (base#1441). tomllib
 // (CPython 3.13.13 Lib/tomllib, run 2026-11-02) accepts both nil rows.
 // It refuses both refused rows ("Cannot declare ('a', 'b') twice" and
 // "Cannot declare ('b',) twice") and BurntSushi v1.6.0 accepts them: the
@@ -594,10 +591,10 @@ func TestCheckScopesDottedKeysToArrayOfTablesElement(t *testing.T) {
 // (at line L, column C)": the issue base#1441 acceptance criterion and
 // ADR-00000039 line 129 fix that text for the class, so a header that
 // defines a table a second time speaks it too, whatever internal reason
-// the gate records (base#1441 redesign r3 R7). tomllib (CPython 3.13.13
+// the gate records (base#1441). tomllib (CPython 3.13.13
 // Lib/tomllib, run 2026-11-02) refuses every row, as "Cannot declare
-// ... twice". BurntSushi v1.6.0 (run 2026-11-02, review round 2 finding
-// 3) refuses four rows itself, "Key 'x' has already been defined." for
+// ... twice". BurntSushi v1.6.0 (run 2026-11-02)
+// refuses four rows itself, "Key 'x' has already been defined." for
 // `[x]\n[x]\n`, `[x]\ny = 1\n[x]\n` and `[[x]]\n[x]\n` and "Key 'a' has
 // already been defined." for `a = {b = 1}\n[a]\n`; it accepts the two
 // header-over-dotted-key rows, `a.b = 1\n[a]\n` and
@@ -636,7 +633,7 @@ func TestCheckRedefinedTableSpeaksOverwrite(t *testing.T) {
 
 // A key path is its decoded parts, so a quoted key part that holds a NUL
 // (written \u0000) names a key of its own, never the dotted path its
-// bytes around the NUL would spell (base#1441 review round 1, finding 2;
+// bytes around the NUL would spell (base#1441;
 // ADR-00000039 requires acceptance). tomllib (a Lib/tomllib copy run
 // under python3 -I, 2026-11-02) accepts each nil row and refuses the
 // last row, two spellings of the same key, "Cannot overwrite a value";
@@ -672,7 +669,7 @@ func TestCheckKeyPathsAreDecodedParts(t *testing.T) {
 // breaks the float ABNF (a leading zero, a doubled, leading or trailing
 // underscore, a fraction with no digits) is left byte for byte, so the
 // decoder refuses it as tomllib does, however far past float64 max its
-// value would be (base#1441 review round 1, finding 1). tomllib (a
+// value would be (base#1441). tomllib (a
 // Lib/tomllib copy under python3 -I, 2026-11-02) refuses every left row
 // and loads every rewritten row as an infinity.
 func TestNormalizeRewritesOnlyTOMLFloats(t *testing.T) {
@@ -707,8 +704,7 @@ func TestNormalizeRewritesOnlyTOMLFloats(t *testing.T) {
 
 // An array-of-tables header over an array value, or below an inline
 // table or an array value, defines a key path a second time, as the
-// other two definition sites already refuse (base#1441 redesign r3 R8,
-// review round 1 finding 4). Inputs are toml-test v2.2.0 (ce08da1)
+// other two definition sites already refuse (base#1441). Inputs are toml-test v2.2.0 (ce08da1)
 // invalid/ files vendored under testdata/toml-test, which tomllib refuses
 // (p1441/py-1.0.0.txt lines 22, 186, 440) and BurntSushi v1.6.0 refuses
 // in its own words. Each L:C is counted by hand in the file: the `[[`
@@ -764,18 +760,16 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 // error it leaves to BurntSushi is
 // TestCheckReadsPastErrorsTheDecoderRefuses's): a lexical refusal
 // (here a `\e` escape) is reported when the structural reading reaches
-// it, so a duplicate on an earlier line is reported first (base#1441
-// redesign r2 R4b, review round 2 finding 1). tomllib (a CPython 3.13.13
-// Lib/tomllib copy under python3 -I, run 2026-11-02) refuses both R4b
-// rows on line 2, "Cannot overwrite a value (at line 2, column 6)" and
+// it, so a duplicate on an earlier line is reported first (base#1441).
+// tomllib (a CPython 3.13.13 Lib/tomllib copy under python3 -I, run
+// 2026-11-02) refuses both duplicate rows on line 2, "Cannot overwrite a value (at line 2, column 6)" and
 // "Cannot declare ('x',) twice (at line 2, column 3)", not at the line 3
 // escape. The gate's position is the second definition's first byte,
 // 2:1, counted by hand. In the last two rows the reading stops on line 1,
 // where tomllib refuses them too ("Unclosed inline table", "Unclosed
 // array"): a bare value ends at the blank after it, so the next byte the
 // inline table or array reads is not a `,` or its closing bracket, and
-// the gate refuses there, before the line 2 escape (base#1441 review
-// round 1 finding 4): `c` at 1:12, a(1) ' '(2) =(3) ' '(4) {(5) b(6)
+// the gate refuses there, before the line 2 escape: `c` at 1:12, a(1) ' '(2) =(3) ' '(4) {(5) b(6)
 // ' '(7) =(8) ' '(9) 1(10) ' '(11) c(12); `2` at 1:8, x(1) ' '(2) =(3)
 // ' '(4) [(5) 1(6) ' '(7) 2(8).
 func TestCheckRefusesInDocumentOrder(t *testing.T) {
@@ -806,8 +800,7 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 // Where the structural reading cannot go on, Check refuses at the byte it
 // stopped on, the first byte in document order its reading cannot go on
 // from, and reads no further: no later rule (the escape on line 2 of
-// the first row) and no second, lossy reader of the rest decides the
-// verdict (base#1441 review round 1 finding 3). Each row's position is
+// the first row) decides the verdict (base#1441). Each row's position is
 // counted by hand: the `\n` where the header's `]` should be (1:3); the
 // `,` where an inline table's first key should be (1:6, t(1) ' '(2) =(3)
 // ' '(4) {(5) ,(6)); the `}` where `=` should be (1:7); the `c` and the
@@ -862,8 +855,7 @@ func TestCheckRefusesAtTheStopPoint(t *testing.T) {
 // Check's reading follows the grammar's structure, not every token rule:
 // an unknown escape (`\q`) or a malformed bare value (`tru`) is a byte
 // BurntSushi refuses too, so Check reads past it as one string or one
-// value and reports only its own rules (base#1441 review round 2,
-// finding 1). tomllib (a CPython 3.13.13 Lib/tomllib copy under python3
+// value and reports only its own rules (base#1441). tomllib (a CPython 3.13.13 Lib/tomllib copy under python3
 // -I, run 2026-11-02) refuses every row on line 1: "Unescaped '\' in a
 // string (at line 1, column 8)" for both `\q` rows and "Invalid value (at
 // line 1, column 5)" for both `tru` rows. In the rows with a later `\e`,

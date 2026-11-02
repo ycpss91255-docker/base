@@ -20,7 +20,7 @@ var (
 )
 
 // int64Only reports whether err, BurntSushi's refusal of src, is only the
-// differential's tolerated disagreement (base#1441 design run1 r2 F1):
+// differential's tolerated disagreement (base#1441):
 // every refusal is a value-position integer literal outside int64, and
 // with each such literal replaced by 0 the decode succeeds. It reads the
 // error's byte span only, never its message.

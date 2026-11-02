@@ -112,21 +112,16 @@ func oracleRefusal(label string, src []byte, off int, reason Reason, msg string)
 }
 
 // Check returns nil, or a *Refusal that names label and the offending
-// byte of src. One structural pass reads src in document order and raises
-// each refusal where it reads the token that breaks a rule: a lexical one
-// (an escape, a line ending or a trailing comma in an inline table), a
-// table rule, or the grammar itself where the pass cannot go on. So of
-// the refusals Check owns, the first in the document is the one reported,
-// and no second reader of the bytes after a stop decides anything
-// (base#1441 redesign r2 R4b, review round 1 finding 3). Check is not a
-// full TOML 1.0 validator: it reads a string or a bare value as one token
-// and does not check every escape or value form within it; those it
-// leaves to BurntSushi, which refuses an unknown escape such as `\q` and
-// a bare value such as `tru` (TestCheckReadsPastErrorsTheDecoderRefuses).
-// A document that holds such an error before one of
-// Check's refusals gets Check's later position, where tomllib names the
-// earlier byte; the verdict is still refuse (base#1441 review round 2
-// finding 1).
+// byte of src (base#1441). It reads src once, in document order, and
+// refuses at the token that breaks a rule: a lexical one (an escape, a
+// line ending or a trailing comma in an inline table), a table rule, or
+// the grammar itself where the reading cannot go on. Of Check's own
+// refusals, the first in the document is the one reported
+// (TestCheckRefusesInDocumentOrder, TestCheckRefusesAtTheStopPoint).
+// Check reads a string or a bare value as one token and does not check
+// every escape or value form within it; such an error is not Check's
+// refusal, and a later rule of Check's is still reported
+// (TestCheckReadsPastErrorsTheDecoderRefuses).
 func Check(label string, src []byte) error {
 	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
 		return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
@@ -188,7 +183,7 @@ func Normalize(src []byte) []byte {
 }
 
 // isDecimalFloat reports whether tok, as written, is a TOML 1.0 decimal
-// float (base#1441 review round 1, finding 1):
+// float (base#1441):
 //
 //	float = dec-int ( exp / frac [ exp ] )
 //	dec-int = [ "-" / "+" ] ( DIGIT / digit1-9 1*( DIGIT / "_" DIGIT ) )
@@ -255,8 +250,7 @@ func lineEnd(src []byte, i int) bool {
 // quotes q, that starts at offset j of src. A multi-line string (n == 3)
 // may end in one or two q of its own before that delimiter, so the
 // delimiter's run takes up to two more q (TOML 1.0 ml-basic-body,
-// ml-literal-body). The structural pass closes every string here
-// (base#1441 review round 2).
+// ml-literal-body).
 func closeQuotes(src []byte, j int, q byte, n int) int {
 	k := j + n
 	for extra := 0; n == 3 && extra < 2 && k < len(src) && src[k] == q; extra++ {

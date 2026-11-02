@@ -14,7 +14,7 @@ import (
 
 // dupShapes are the duplicate class's members, each written once with
 // three placeholders: F, a top-level table name the document has not used;
-// K1, a key spelling; K2, a second spelling (base#1441 redesign r3 R9).
+// K1, a key spelling; K2, a second spelling (base#1441).
 // The `@` marks the byte where the second definition starts, the byte a
 // refusal must name, and is removed before use. With K2 a spelling of the
 // same key as K1 the shape defines one key path twice and Check must
@@ -126,8 +126,7 @@ func checkDistinct(t *testing.T, doc string) {
 }
 
 // Every shape with every same-key pair is refused at its `@`, and with
-// every different-key pair is accepted (base#1441 redesign r3 R9, the
-// fixed matrix the fuzz property samples).
+// every different-key pair is accepted (base#1441).
 func TestCheckDuplicateClassMatrix(t *testing.T) {
 	for _, shape := range dupShapes {
 		for _, p := range sameKey {

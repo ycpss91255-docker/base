@@ -216,7 +216,7 @@ Known resolvers: $(printf '%s ' "${_PIN_RESOLVERS[@]}"). An unknown one is not a
     _die ci_pin_coverage \
       "a ${_PIN_MARKER} marker sits in a file that is not scanned:
 $(printf '  %s\n' "${_stray[@]}")
-Prose and .bats specs are exempt from the walk (script/watch/lib.sh says why), so a marker in one is read by NOTHING: the watch never compares it, this lint never counts it, and the person who wrote it has every reason to believe otherwise. Move the declaration to a file the walk reads, or drop the marker."
+Some shapes are exempt from the walk (script/watch/lib.sh lists them and says why), so a marker in one is read by NOTHING: the watch never compares it, this lint never counts it, and the person who wrote it has every reason to believe otherwise. Move the declaration to a file the walk reads, or drop the marker."
     return 1
   fi
 

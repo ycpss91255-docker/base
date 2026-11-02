@@ -13,20 +13,18 @@ import (
 )
 
 // FuzzCheck holds Check and Normalize to their contract on any input
-// (base#1441 seam 3): no panic; the same input gives the same result
+// (base#1441): no panic; the same input gives the same result
 // twice; a refusal is a *Refusal whose Line:Col names a byte inside the
 // input; and when Check returns nil, Normalize keeps the input's length
 // and every CR and LF at its offset, so a decoder's line and column still
 // index the input. When Check accepts a document BurntSushi also
 // decodes, dupProperty adds known duplicates to it and Check itself must
-// refuse each with the duplicate class's text (base#1441 redesign r3 R9).
+// refuse each with the duplicate class's text (base#1441).
 // Separately, suffixProperty appends each forbidden suffix to the input
 // and requires a nil Check to mean the decoder refuses the whole
-// document (base#1441 redesign r2 R6).
+// document (base#1441).
 // The seeds are every TOML file under testdata/forms and
-// testdata/toml-test plus a few literals for each refusal class; `go
-// test` runs them, and the test stage's fuzz gate searches from them for
-// 60 s.
+// testdata/toml-test plus a few literals for each refusal class.
 func FuzzCheck(f *testing.F) {
 	for _, dir := range []string{"forms", "toml-test"} {
 		err := filepath.WalkDir(filepath.Join("testdata", dir), func(p string, d fs.DirEntry, err error) error {
@@ -94,7 +92,7 @@ func FuzzCheck(f *testing.F) {
 // forbiddenSuffixes are one statement each of the refused forms that
 // BurntSushi v1.6.0 accepts on its own: a `\e` escape, an inline table's
 // trailing comma, a line ending inside an inline table, and a year-zero
-// date (base#1441 redesign r2 R6). Each starts with a line ending, so it
+// date (base#1441). Each starts with a line ending, so it
 // opens a new statement after any input that ends outside a string.
 var forbiddenSuffixes = []string{
 	"\nzz = \"\\e\"\n",

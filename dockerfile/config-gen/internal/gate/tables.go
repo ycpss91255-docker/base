@@ -21,7 +21,7 @@ const (
 // once the next header opens), and its children by decoded key part. A
 // path is the chain of parts from the root, so two paths are the same
 // exactly when their decoded parts are, whatever bytes a part holds
-// (base#1441 review round 1, finding 2).
+// (base#1441).
 type node struct {
 	kind     byte
 	explicit bool
@@ -46,13 +46,13 @@ func (n *node) child(part string) *node {
 // or an array of tables, not a scalar, an inline table or an array value.
 func (n *node) container() bool { return n.kind == nodeTable || n.kind == nodeAOT }
 
-// tables is the second pass of Check: it follows tomllib's table rules
-// (base#1441), which BurntSushi does not hold to. A dotted key may not
-// pass through a table a header defined, or a dotted-key table an
-// earlier section made; nothing may extend an inline table or an array
-// value; a key may not name a path that already exists. Where the TOML
-// 1.0 grammar allows nothing at the byte it reads, it stops there, and
-// Check refuses that byte (base#1441 review round 1 finding 3).
+// tables reads one document in document order and holds tomllib's table
+// rules (base#1441). A dotted key may not pass through a table a header
+// defined, or a dotted-key table an earlier section made; nothing may
+// extend an inline table or an array value; a key may not name a path
+// that already exists. A break of one of these rules is refused at its
+// byte. Where the TOML 1.0 grammar allows nothing at the byte it reads,
+// it stops there with errStop at that byte.
 type tables struct {
 	src   []byte
 	label string
@@ -156,8 +156,7 @@ func (t *tables) document() error {
 // header applies a [parts] or [[parts]] header that starts at offset at
 // and returns the table it opens. A [[parts]] header refuses a path that
 // exists as anything but an array of tables, and an ancestor that is a
-// value: a scalar, an inline table or an array (base#1441 redesign r3
-// R8). A [parts] header refuses a path a header or dotted keys defined,
+// value: a scalar, an inline table or an array (base#1441). A [parts] header refuses a path a header or dotted keys defined,
 // and the same ancestors.
 func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 	for _, p := range t.pending {
@@ -228,7 +227,7 @@ func (t *tables) define(n *node, part string, kind byte, at int) error {
 // inline-table rules within it: no key passes through or repeats an
 // inline table, array or scalar written earlier in it; no line ending
 // stands between its tokens, and no comma before its `}` (TOML 1.0
-// inline-table; base#1441 review round 2, finding 1). f is the frame of
+// inline-table; base#1441). f is the frame of
 // tomllib's parse_inline_table; its skip_chars, flag and nest calls run
 // at f+1, and each pair's parse_key_value_pair at f+1, whose parse_key
 // runs at f+2 and whose value is read at f+2.
@@ -351,8 +350,7 @@ func (t *tables) value(f int) (byte, error) {
 // ending. A full date followed by one space and `HH:` goes on as a
 // date-time whose delimiter is that space (TOML 1.0 offset-date-time,
 // local-date-time); no other bare value holds a blank, so what follows a
-// blank is the next token, never part of this one (base#1441 review round
-// 1 finding 4).
+// blank is the next token, never part of this one (base#1441).
 func bareEnd(src []byte, i int) int {
 	end := func(j int) int {
 		for j < len(src) && !strings.ContainsRune(",]}#\n\r \t", rune(src[j])) {
@@ -489,9 +487,8 @@ func isBareKeyByte(b byte) bool {
 // through parse_basic_str_escape_multiline); a multi-line whitespace
 // escape adds its skip_chars (5); a \u or \U escape adds parse_hex_char
 // and is_unicode_scalar_value (5 one-line, 6 multi-line). A `\e` or `\x`
-// escape in a basic string is refused at its backslash, here where the
-// pass reads it (base#1441 review round 2, finding 1); a single-line
-// string a line ending leaves unclosed stops the pass.
+// escape in a basic string is refused at its backslash (base#1441); a
+// single-line string a line ending leaves unclosed stops the reading.
 func (t *tables) str() (string, int, error) {
 	q := t.src[t.i]
 	delim := []byte{q}

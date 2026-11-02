@@ -85,7 +85,7 @@ func TestCheckOracleRowsSetEquality(t *testing.T) {
 // dockerfile/config-gen), with the path to read it from: the WalkDir set
 // of this package's testdata/**/*.toml (internal/gate/<path>), and every
 // shared corpus file testcorpus.Glob finds under corpus/s*/
-// (testdata/corpus/<sN>/<base>, base#1441 review round 1 finding 3).
+// (testdata/corpus/<sN>/<base>, base#1441).
 func oracleFiles(t *testing.T) map[string]string {
 	t.Helper()
 	files := map[string]string{}
@@ -138,7 +138,7 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/offset-hour24.toml":             "refuse",
 	"internal/gate/testdata/forms/offset-hour23.toml":             "accept",
 
-	// design run1 r3 §1: tomllib loads a float literal past float64 max
+	// tomllib loads a float literal past float64 max
 	// as inf, keeps float64 max and maps underflow to 0.
 	"internal/gate/testdata/forms/float-over.toml":       "accept",
 	"internal/gate/testdata/forms/float-over-neg.toml":   "accept",
@@ -148,11 +148,11 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/float-under.toml":      "accept",
 
 	// ADR-39's one exception: tomllib loads 2^63 as a Python int, which
-	// BurntSushi refuses as outside int64 (base#1441 review round 1,
-	// finding 7: an exception file with no float in it).
+	// BurntSushi refuses as outside int64 (base#1441; an exception file
+	// with no float in it).
 	"internal/gate/testdata/forms/int64-over.toml": "accept",
 
-	// base#1441 review round 2, measured 2026-11-02 (CPython 3.13.13
+	// base#1441, measured 2026-11-02 (CPython 3.13.13
 	// Lib/tomllib; BurntSushi v1.6.0 accepts the first three): a basic
 	// string's \e or \x after a multi-line literal that ends in four or
 	// five quotes is refused; a [b] header after [[a]] / b.c = 1 names a
@@ -170,13 +170,13 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/stop-array-no-comma.toml":   "refuse",
 	"internal/gate/testdata/forms/stop-header-eof.toml":       "refuse",
 
-	// base#1441 review round 1, finding 2 (a Lib/tomllib copy under
+	// base#1441 (a Lib/tomllib copy under
 	// python3 -I, 2026-11-02): a quoted key part holding \u0000 is a key
 	// of its own, not the dotted path around the NUL, as a key, a header
 	// and an inline-table member.
 	"internal/gate/testdata/forms/key-nul-not-dotted.toml": "accept",
 
-	// base#1441 review round 1, finding 1 (a Lib/tomllib copy under
+	// base#1441 (a Lib/tomllib copy under
 	// python3 -I, 2026-11-02): a float past float64 max that breaks the
 	// float ABNF is refused, not loaded as an infinity.
 	"internal/gate/testdata/forms/float-bad-leading-zero.toml":      "refuse",
@@ -184,8 +184,8 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/float-bad-exp-underscore.toml":    "refuse",
 }
 
-// designValues are tomllib's decoded values for the float forms (base#1441
-// design run1 r3 §1, CPython 3.13.13 Lib/tomllib), written as literals: an
+// designValues are tomllib's decoded values for the float forms (base#1441,
+// CPython 3.13.13 Lib/tomllib), written as literals: an
 // overflowing literal loads as +inf or -inf with its sign kept, in any
 // container and with underscores; the key `1e999` and the string "1e999"
 // stay text; float64 max stays exact and underflow loads as 0. The int64
@@ -275,10 +275,9 @@ func TestDifferential(t *testing.T) {
 }
 
 // int64A is tomllib's a for the int64 exception files whose first line
-// holds a float beside the out-of-int64 integer (base#1441 design run1 r3
-// §1): float-over-int64.toml's a = 1e999 loads as +Inf. Only these files
-// get the check; another exception file has no such a (review round 1,
-// finding 7).
+// holds a float beside the out-of-int64 integer (base#1441):
+// float-over-int64.toml's a = 1e999 loads as +Inf. Only these files get
+// the check; another exception file has no such a.
 var int64A = map[string]float64{
 	"internal/gate/testdata/forms/float-over-int64.toml": math.Inf(1),
 }
@@ -295,8 +294,8 @@ func designInt64A(src []byte) (float64, bool) {
 	return a, ok
 }
 
-// int64Only is the differential's one tolerated disagreement (base#1441
-// design run1 r2 F1, ADR-39): BurntSushi refuses an integer outside int64
+// int64Only is the differential's one tolerated disagreement (base#1441,
+// ADR-39): BurntSushi refuses an integer outside int64
 // that tomllib accepts. It must decide from structure and arithmetic only:
 // the refusal's byte span is an integer literal outside int64, and once
 // every such literal is replaced the decode succeeds. The true rows are
