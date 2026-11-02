@@ -671,7 +671,9 @@ jobs:
           platform="$(cat "${VERIFIED_REF##*sha256:}")"
           IFS='/' read -r p_os p_arch p_variant <<< "${platform}"
           # _child <ref>: the digest of the single non-attestation descriptor
-          # in <ref>'s index for this platform; none or several refuse.
+          # in <ref>'s index whose os, architecture and (when the artifact
+          # names one) variant are this platform's; none or several refuse.
+          # Both sides go through it, so each is held to exactly one.
           _child() {
             local _ref="${1}" _found _n
             _found="$(docker buildx imagetools inspect --raw "${_ref}" \
