@@ -23,7 +23,9 @@
 // or its own efficacy figure: each package prints `<pkg> ok efficacy=<e>` or
 // `<pkg> failed reason=<r> [measured=<e>]` on stdout, reason
 // gremlins_failed (it exited non-zero), report (no report it could read)
-// or below (under 90.0), and after the last package any failure puts
+// or below (under 90.0). A package gremlins wrote no report for after
+// printing `No results to report.` prints `<pkg> no-mutants` and passes.
+// After the last package any failure puts
 // `config_gen_gate_mutation_failed` on stderr. A manifest that maps to no
 // package prints `mutation targets none`.
 //
@@ -84,6 +86,10 @@ const (
 	sensitivityFailed = "config_gen_gate_corpus_sensitivity_failed"
 	ignoredFailed     = "config_gen_gate_ignored_failed"
 )
+
+// noMutants is what gremlins prints, writing no report and exiting 0, on a
+// package with no mutants (measured on ./internal/testcorpus, base#1467).
+const noMutants = "No results to report."
 
 const usage = "usage: cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>\n" +
 	"       cg-gates mutation --manifest <file> --module <path> --reports <dir>\n" +
@@ -180,13 +186,19 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		out := filepath.Join(*reports, strconv.Itoa(i)+".json")
 		cmd := exec.Command("gremlins", "unleash", "--workers", "1", "--timeout-coefficient", "10",
 			"-o", out, "./"+rel)
-		cmd.Stdout, cmd.Stderr = stderr, stderr
+		var said strings.Builder
+		w := io.MultiWriter(stderr, &said)
+		cmd.Stdout, cmd.Stderr = w, w
 		if err := cmd.Run(); err != nil {
 			_, _ = fmt.Fprintf(stdout, "%s failed reason=gremlins_failed\n", pkg)
 			bad = true
 			continue
 		}
 		rep, err := os.ReadFile(out)
+		if errors.Is(err, os.ErrNotExist) && strings.Contains(said.String(), noMutants) {
+			_, _ = fmt.Fprintf(stdout, "%s no-mutants\n", pkg)
+			continue
+		}
 		eff := 0
 		if err == nil {
 			eff, err = buildgate.Efficacy(rep)
