@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -371,5 +372,61 @@ func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 				t.Fatalf("sink took %d bytes, want a strict prefix of the %d-byte golden", len(tc.w.got), len(want))
 			}
 		})
+	}
+}
+
+// An input the caller may not read -- a regular file with mode 000, opened
+// by uid 65534 -- makes `config-gen tables` exit 1 with nothing on stdout
+// and exactly one `config_gen_input_unreadable` frame whose `file` field
+// is the `--name` label (base#1469 Input: EACCES/EPERM on open ->
+// config_gen_input_unreadable). Root reads a mode-000 file through
+// CAP_DAC_OVERRIDE, so when the test runs as root it sets this thread's
+// filesystem uid to 65534 for the call, which drops that capability from
+// the thread's effective set until the fsuid is set back to 0.
+func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
+	const label = "l.toml"
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+	path := filepath.Join(dir, "locked.toml")
+	if err := os.WriteFile(path, []byte("[a]\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatalf("chmod %s: %v", path, err)
+	}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if os.Geteuid() == 0 {
+		_, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 65534, 0, 0)
+		defer func() { _, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 0, 0, 0) }()
+	}
+	// The precondition: this thread can not open the file. Without it a
+	// pass would not show the refusal path ran.
+	if f, err := os.Open(path); !errors.Is(err, syscall.EACCES) {
+		if f != nil {
+			_ = f.Close()
+		}
+		t.Fatalf("open %s as uid %d: err = %v, want EACCES", path, os.Geteuid(), err)
+	}
+
+	rc, stdout, stderr := cli(t, "tables", "--name", label, path)
+	if rc != 1 {
+		t.Fatalf("config-gen tables on %s exited %d, want 1 (stderr %q)", path, rc, stderr)
+	}
+	if len(stdout) != 0 {
+		t.Fatalf("config-gen tables on %s stdout = %q, want empty", path, stdout)
+	}
+	got := frames(t, stderr)
+	if len(got) != 1 {
+		t.Fatalf("config-gen tables on %s wrote %d frames, want 1 (stderr %q)", path, len(got), stderr)
+	}
+	if got[0][2] != "config_gen_input_unreadable" {
+		t.Fatalf("config-gen tables on %s frame event = %q, want config_gen_input_unreadable", path, got[0][2])
+	}
+	if got[0][3] != label {
+		t.Fatalf("config-gen tables on %s frame file = %q, want the --name label %q", path, got[0][3], label)
 	}
 }
