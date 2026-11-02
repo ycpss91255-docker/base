@@ -72,6 +72,18 @@ func Decode(src []byte) (*Config, []Refusal) {
 		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" || md.Type(k...) == "ArrayHash" {
 			continue
 		}
+		// A plain table nested under a known section is a section of its
+		// own that _setup_known_section does not know, so it is refused
+		// at its header line and the keys under it get no refusal
+		// (base#1442).
+		if md.Type(k...) == "Hash" {
+			if lines == nil {
+				lines = locate.Index(src)
+			}
+			occ, _ := lines.Table(k)
+			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
+			continue
+		}
 		if _, isKey := canonical(k[0], k[1]); !isKey {
 			refusals = append(refusals, Refusal{Event: "conf_unknown_key", Path: k, Line: keyLine(src, k)})
 		} else {
