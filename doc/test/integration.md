@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **266 tests**.
+Integration specs under `test/bats/integration/`: **272 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -77,6 +77,30 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
+
+### test/bats/integration/config_gen_bridge_golden_spec.bats (6)
+
+Every fixture under dockerfile/config-gen/testdata/corpus/s1 carries one
+explicit expectation class in testdata/golden/s1/EXPECT, one row per
+fixture, `<fixture>\t<class>`:
+
+parity bridge and config-gen print the golden parity-refused both sides give
+rc 1 bridge-refused-go-accepted config-gen gives rc 0 and its golden, the
+bridge gives rc 1; only toml11_* fixtures may carry it (today's known
+divergence, not a parity claim)
+
+A fixture with no row, a row with no fixture, or the divergent class on any
+other name fails the spec, so a new fixture can never be read without a
+stated expectation and a stale row can never stand for a deleted one.
+
+| Test | Description |
+|------|-------------|
+| `partition: a fixture with no EXPECT row fails` | - |
+| `partition: an EXPECT row with no fixture fails` | - |
+| `partition: bridge-refused-go-accepted on a non-toml11_* fixture fails` | - |
+| `partition: one well-formed row per fixture passes` | - |
+| `the s1 corpus is partitioned by golden/s1/EXPECT, one row per fixture` | - |
+| `per EXPECT class, the bridge and the config-gen binary each match golden/s1` | the golden is the bridge's own `--tables` answer captured once; this re-runs BOTH sides over every s1 fixture and compares each one's bytes to that file with cmp, never through $(...), which would drop trailing LFs and hide a missing or extra final newline. The binary is the built config-gen that script/test/test.sh provisions as CONFIG_GEN_BIN; an unprovisioned binary fails the spec (ci_config_gen_unprovisioned), it is never skipped, so a run without it can not pass by testing nothing. |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 

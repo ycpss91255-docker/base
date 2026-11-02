@@ -1328,7 +1328,10 @@ _CONFIG_GEN_BIN=""
 #   Host-side for the same reason _prepare_prev_release is: the image is
 #   resolved and built by dist/script/docker/lib/config_gen.sh with the
 #   host's docker. The resolve runs in a child bash, so the library's
-#   functions and memo stay out of this shell. A binary that cannot be
+#   functions and memo stay out of this shell, and that child runs without
+#   CONFIG_GEN_IMAGE and _CONFIG_GEN_RESOLVED: a pin or memo inherited from
+#   whoever started `just test` would otherwise pick another build's binary
+#   to cmp against this checkout's goldens. A binary that cannot be
 #   provisioned is said here (ci_config_gen_unprovisioned) and leaves
 #   _CONFIG_GEN_BIN empty; the spec then fails by the same id, never skips.
 #   The lint dispatches run no bats and skip it.
@@ -1339,7 +1342,7 @@ _prepare_config_gen_bin() {
   fi
   local _image="" _cid="" _dir="${REPO_ROOT}/.config-gen-bin"
   # shellcheck disable=SC2016 # expanded by the child bash, not here
-  if ! _image="$(bash -c 'source "$1" && config_gen_resolve && printf "%s" "${_CONFIG_GEN_RESOLVED}"' \
+  if ! _image="$(env -u CONFIG_GEN_IMAGE -u _CONFIG_GEN_RESOLVED bash -c 'source "$1" && config_gen_resolve && printf "%s" "${_CONFIG_GEN_RESOLVED}"' \
       _ "${REPO_ROOT}/dist/script/docker/lib/config_gen.sh")" || [[ -z "${_image}" ]]; then
     _log_err ci ci_config_gen_unprovisioned \
       "display=the config generator image could not be resolved, so config_gen_bridge_golden_spec.bats has no binary to run and will fail (base#1469)."
