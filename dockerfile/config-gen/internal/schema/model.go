@@ -19,6 +19,25 @@ type Field struct {
 	Line  int
 }
 
+// Deploy is the part of the decoded [deploy] section that resolves the
+// legacy alias.
+type Deploy struct {
+	// GPURuntime is gpu_runtime when it is set to a non-empty value, and
+	// otherwise the legacy runtime's field: the rule deploy.sh's
+	// _resolve_deploy_config applies (base#1442).
+	GPURuntime Field
+	// Runtime is the legacy key as written.
+	Runtime Field
+}
+
+// Deprecation is one key written in a deprecated spelling: its path, the
+// canonical path it stands for, and the 1-based line it is written on.
+type Deprecation struct {
+	Path      []string
+	Canonical []string
+	Line      int
+}
+
 // Environment is the decoded [environment] section.
 type Environment struct {
 	// Table is Absent with no [environment], Empty when it is written

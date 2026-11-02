@@ -74,7 +74,9 @@ func TestDecodeRefusalClasses(t *testing.T) {
 			[]want{{"conf_unknown_key", []string{"deploy", "gpu_cuont"}, 4}}},
 		{"header-like line in a multi-line string", "[deploy]\ngpu_capabilities = \"\"\"\n[security]\n\"\"\"\nprivileged = true\n",
 			[]want{
-				{"conf_value_invalid", []string{"deploy", "gpu_capabilities"}, 2},
+				// The value holds an LF, which the bridge refuses
+				// (_check_transportable).
+				{"conf_value_newline_refused", []string{"deploy", "gpu_capabilities"}, 2},
 				{"conf_unknown_key", []string{"deploy", "privileged"}, 5},
 			}},
 		{"escaped quote in a value", "[deploy]\ngpu_mode = \"a\\\"b\"\ngpu_cuont = 1\n",

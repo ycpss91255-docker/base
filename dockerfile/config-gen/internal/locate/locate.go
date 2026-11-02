@@ -36,6 +36,9 @@ type Occurrence struct {
 	Inline bool
 	// KeyLine is the 1-based line the header or key is written on.
 	KeyLine int
+	// KeyCol is the 1-based byte column of the header's `[` or the key's
+	// first byte on KeyLine; an implicit table's is its first creator's.
+	KeyCol int
 	// ValueEndLine is the 1-based line the key's value ends on (KeyLine
 	// for a header). An array value is given its start line, the line the
 	// library reports for it.
@@ -145,7 +148,7 @@ func (s *scanner) run() {
 }
 
 func (s *scanner) header() {
-	line := s.line
+	line, col := s.line, s.col()
 	kind := Header
 	s.pos++
 	if s.peek() == '[' {
@@ -155,14 +158,14 @@ func (s *scanner) header() {
 	path := s.key()
 	s.skipLine()
 	for i := 1; i < len(path); i++ {
-		s.implicit(path[:i], line)
+		s.implicit(path[:i], line, col)
 	}
-	s.add(Occurrence{Path: path, Kind: kind, KeyLine: line, ValueEndLine: line})
+	s.add(Occurrence{Path: path, Kind: kind, KeyLine: line, KeyCol: col, ValueEndLine: line})
 	s.table = path
 }
 
 func (s *scanner) keyValue() {
-	line := s.line
+	line, col := s.line, s.col()
 	parts := s.key()
 	s.skipSpace()
 	if s.peek() != '=' {
@@ -173,7 +176,7 @@ func (s *scanner) keyValue() {
 	s.skipSpace()
 	path := append(append([]string{}, s.table...), parts...)
 	for i := len(s.table) + 1; i < len(path); i++ {
-		s.implicit(path[:i], line)
+		s.implicit(path[:i], line, col)
 	}
 	array := s.peek() == '['
 	inline := s.peek() == '{' || array
@@ -182,13 +185,18 @@ func (s *scanner) keyValue() {
 	if array {
 		end = line
 	}
-	s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, ValueEndLine: end})
+	s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end})
 	s.skipLine()
 }
 
-// implicit records path as an implicit table created on line, unless a
-// table occurrence of path is already recorded.
-func (s *scanner) implicit(path []string, line int) {
+// col is the 1-based byte column of the scanner's position.
+func (s *scanner) col() int {
+	return s.pos - bytes.LastIndexByte(s.src[:s.pos], '\n')
+}
+
+// implicit records path as an implicit table created at line and col,
+// unless a table occurrence of path is already recorded.
+func (s *scanner) implicit(path []string, line, col int) {
 	want := pathID(path)
 	for _, o := range s.entries {
 		if o.Kind != Key && pathID(o.Path) == want {
@@ -196,7 +204,7 @@ func (s *scanner) implicit(path []string, line int) {
 		}
 	}
 	p := append([]string{}, path...)
-	s.entries = append(s.entries, Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, ValueEndLine: line})
+	s.entries = append(s.entries, Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line})
 }
 
 func (s *scanner) add(o Occurrence) {

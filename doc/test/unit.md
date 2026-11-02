@@ -2023,7 +2023,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |
 | `just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)` | The one command all four environments run. The order matters: the redpath on a tree whose gates are already red proves nothing, and `;` would run it after a red runner and report the redpath's status instead. |
 
-### test/bats/unit/config_gen_schema_values_spec.bats (2)
+### test/bats/unit/config_gen_schema_values_spec.bats (4)
 
 The Go generator's schema.Validate and the shell's _schema_validate must
 accept and refuse the same values. Both read one shared table,
@@ -2036,6 +2036,8 @@ the shell's word and not the Go package's.
 |------|-------------|
 | `s6_scalar_values: every class=value verdict is _schema_validate's on the bridge text` | Each class=value row's literal goes through the bridge's --kv, the text the shell reads, and _schema_validate on that text must give the row's verdict: rc 0 for accept, non-zero for refuse. A `differs:wrong_type` row is one the generator refuses on purpose as a value outside its field's type (ADR-00000039) while the shell passes its text, so the shell must accept it: rc 0. |
 | `s6_scalar_texts: every bridge-text column is the bridge's --kv text` | Go's Scalar text for each TOML scalar kind (a local time, a local datetime, a fractional datetime among them) must be the text the shell reads from the bridge's --kv for the same literal; each row of the shared s6_scalar_texts.tsv names that text and the Go half asserts the same. |
+| `s6_layers: every layer verdict is the bridge's and apply's checks'` | Go's schema.Decode must give the shell's verdict on a whole layer, not only on one value (base#1442 review round 2). Each row of the shared s6_layers.tsv is a layer written with printf %b escapes; the shell's verdict on it (_layer_verdict) must be the row's: accept for accept, refuse for refuse, and accept for a differs:<exception> row, which the generator refuses on purpose under ADR-00000039 (wrong type, U+0000) while the shell passes it. The Go half asserts Decode's verdict, event and line on the same rows. |
+| `s6_layers: the section:<name> rows are exactly SCHEMA_SECTIONS` | The Go half holds the sections Decode knows equal to the table's section:<name> rows; this half holds those rows equal to SCHEMA_SECTIONS, so a section added to schema.sh fails one of the two until both know it. |
 
 ### test/bats/unit/config_gen_spec.bats (17)
 

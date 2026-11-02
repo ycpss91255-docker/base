@@ -20,7 +20,7 @@ type layerRow struct {
 }
 
 // unescapeLayer decodes the layer column as bash's `printf %b` decodes
-// it, for the escapes the table uses: `\\`, `\n`, `\t`, `\r` and `\xHH`.
+// it, for the escapes the table holds: `\\`, `\n`, `\t`, `\r` and `\xHH`.
 func unescapeLayer(t *testing.T, s string) []byte {
 	t.Helper()
 	var out []byte

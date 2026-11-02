@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -168,5 +169,31 @@ func TestCheckFailedFrameWriteIsIO(t *testing.T) {
 		if w.calls != n {
 			t.Errorf("write %d failing: %d writes tried, want %d", n, w.calls, n)
 		}
+	}
+}
+
+// A FIFO in a layer's place is refused as not a regular file, exit 4,
+// without blocking on it (base#1400).
+func TestCheckFIFOIsInputFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fifo.toml")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	got := run([]string{"check", "--", path}, &stdout, &stderr)
+
+	fr := frames(t, stderr.String())
+	if got != 4 || len(fr) != 1 || fr[0][2] != "config_gen_check_input_failed" || fr[0][3] != path {
+		t.Errorf("check FIFO = %d, frames %q; want 4 and one config_gen_check_input_failed naming it", got, fr)
+	}
+}
+
+// A reported error reads and unwraps as the error it wraps.
+func TestReportedErrorWraps(t *testing.T) {
+	cause := errors.New("cause")
+	err := reported(exitUsage, cause)
+	if err.Error() != "cause" || !errors.Is(err, cause) {
+		t.Errorf("reported(2, cause) = %q, errors.Is = %v; want the cause's text and chain", err, errors.Is(err, cause))
 	}
 }

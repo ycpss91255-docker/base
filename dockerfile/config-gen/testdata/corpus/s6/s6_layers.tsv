@@ -43,6 +43,6 @@ layer	[environment]\nenv_1 = "\xff"\n	refuse	conf_toml_parse_failed	2	invalid_ut
 layer	[environment]\nenv_\xff = "A=b"\n	refuse	conf_toml_parse_failed	2	invalid_utf8:key
 layer	[environment]\nenv_1 = "A=é"\n	accept	-	0	unicode:value
 layer	[environment]\nenv_1 = "é=b"\n	refuse	conf_value_invalid	2	unicode:env_name
-layer	[environment]\nenv_é = "A=b"\n	refuse	conf_unknown_key	2	unicode:key
+layer	[environment]\n"env_é" = "A=b"\n	refuse	conf_unknown_key	2	unicode:key
 layer	[environment]\nenv_1 = "A=\\u0000"\n	differs:nul	conf_value_nul_refused	2	nul:value
 layer	[logging."a\\u0000b"]\ndriver = "local"\n	differs:nul	conf_value_nul_refused	1	nul:key

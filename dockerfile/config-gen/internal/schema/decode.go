@@ -14,17 +14,23 @@ import (
 )
 
 // Refusal is one key the decode refused: the event id, the TOML path of
-// the key and the 1-based line it is written on.
+// the key with its raw bytes, and the 1-based line and byte column it is
+// written on (0 when no position is known).
 type Refusal struct {
 	Event string
 	Path  []string
 	Line  int
+	Col   int
 }
 
 // Config is the decoded layer.
 type Config struct {
+	Deploy      Deploy
 	Environment Environment
 	Logging     Logging
+	// Deprecated is every key of the layer written in a deprecated
+	// spelling, owned by this decode.
+	Deprecated []Deprecation
 	// Tree is every accepted table node, in the bridge's traversal order.
 	Tree Tree
 	// Deferred is every accepted array with its payload, in the order its
@@ -33,47 +39,127 @@ type Config struct {
 }
 
 // known is the set of sections _setup_known_section accepts
-// (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [devices],
-// [environment], [logging], [security] and [volumes] so far; the other sections
-// follow in later cycles of base#1442. A key of a known section is known
-// when it resolves to a SCHEMA_VALIDATOR row, as _setup_known_key does.
-var known = map[string]bool{
-	"deploy":      true,
-	"devices":     true,
-	"environment": true,
-	"logging":     true,
-	"security":    true,
-	"volumes":     true,
+// (dist/script/docker/lib/setup_cmd.sh) by name: schema.sh's
+// SCHEMA_SECTIONS, every one of which carries at least one
+// SCHEMA_VALIDATOR row, so it is derived from the sections of the
+// validators and not listed a second time (base#1442).
+// TestKnownSectionsAreSchemaSections and its bats half hold it equal to
+// SCHEMA_SECTIONS.
+var known = func() map[string]bool {
+	m := map[string]bool{}
+	for k := range validators {
+		section, _, _ := strings.Cut(k, ".")
+		m[section] = true
+	}
+	return m
+}()
+
+// KnownSections returns the section names Decode knows, sorted.
+func KnownSections() []string {
+	out := make([]string, 0, len(known))
+	for s := range known {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
-// Decode decodes src and returns its refusals, each at the line the
-// locator gives the refused table or key (base#1442). Every path md.Keys()
-// lists is classified by its TOML type before any name lookup:
+// freeForm is the keys _setup_known_key knows with no validator: the
+// pre-arg_N [build] named keys _setup_apply lifts into build args.
+var freeForm = map[string]bool{
+	"build.apt_mirror_ubuntu": true,
+	"build.apt_mirror_debian": true,
+	"build.tz":                true,
+}
+
+// knownKey is _setup_known_key: a key that resolves to a SCHEMA_VALIDATOR
+// row, or a free-form key.
+func knownKey(section, key string) bool {
+	_, ok := canonical(section, key)
+	return ok || freeForm[section+"."+key]
+}
+
+// stage reports whether the path lies in a `["stage:<name>"]` table,
+// whose section text _setup_conf_check_known skips.
+func stage(p []string) bool {
+	return len(p) > 0 && strings.HasPrefix(p[0], "stage:")
+}
+
+// keyCharEvent is the refusal one key or table name draws: U+0000 is
+// conf_value_nul_refused (ADR-00000039), and a tab, LF or CR, which the
+// bridge's tab-separated view cannot carry (toml_bridge.py
+// _check_transportable), is conf_key_char_refused; "" otherwise.
+func keyCharEvent(name string) string {
+	switch {
+	case strings.ContainsRune(name, 0):
+		return "conf_value_nul_refused"
+	case strings.ContainsAny(name, "\t\n\r"):
+		return "conf_key_char_refused"
+	}
+	return ""
+}
+
+// valueCharEvent is the refusal one string value draws: U+0000 is
+// conf_value_nul_refused (ADR-00000039), and an LF or CR, which the
+// bridge refuses in a value (_check_transportable), is
+// conf_value_newline_refused; "" otherwise. A tab in a value is carried.
+func valueCharEvent(text string) string {
+	switch {
+	case strings.ContainsRune(text, 0):
+		return "conf_value_nul_refused"
+	case strings.ContainsAny(text, "\n\r"):
+		return "conf_value_newline_refused"
+	}
+	return ""
+}
+
+// Decode decodes src and returns its refusals, each at the position the
+// locator gives the refused table or key (base#1442), sorted by line.
+//
+// A document the parser refuses is one conf_toml_parse_failed at the
+// parser's line and column, naming the last table or key the locator
+// found at or before that line, and no Config.
+//
+// Otherwise every path md.Keys() lists is judged in turn:
+//   - a table or key name holding U+0000, a tab, LF or CR is refused
+//     (keyCharEvent) at the outermost path it appears in, once;
 //   - a table schema.sh does not know is one conf_unknown_table refusal at
 //     its header line; the outermost such table is refused and nothing
 //     under it gets a refusal of its own;
-//   - anything under an array is the array stage's and gets no refusal;
+//   - anything under an array is the array stage's: only its string
+//     values are judged here, by valueCharEvent;
 //   - a scalar at the root, whatever its name, is one conf_top_level_key;
+//   - a string value under a known table holding U+0000, LF or CR is
+//     refused (valueCharEvent);
+//   - anything else under a `["stage:<name>"]` table is not judged, as
+//     _setup_conf_check_known does not judge it;
 //   - a scalar or an array under a known table is judged as
 //     _setup_known_key and _schema_validate judge its section text and
 //     key, so a `[logging.<service>]` key is judged as a [logging] key: an
-//     unregistered key is conf_unknown_key, an array at a registered key
-//     is conf_value_type_refused, and a scalar Validate refuses is one
+//     unknown key is conf_unknown_key, an array at a registered key is
+//     conf_value_type_refused, and a scalar Validate refuses is one
 //     refusal with Validate's event.
 func Decode(src []byte) (*Config, []Refusal) {
 	var doc map[string]any
 	md, err := toml.Decode(string(src), &doc)
-	if err != nil {
-		return nil, []Refusal{{Event: "conf_toml_parse_failed"}}
-	}
 	lines := locate.Index(src)
-	var refusals []Refusal
-	refuse := func(event string, k []string, line int) {
-		refusals = append(refusals, Refusal{Event: event, Path: k, Line: line})
+	if err != nil {
+		return nil, []Refusal{parseRefusal(lines, err)}
 	}
-	refused := map[string]bool{}
+	d := decoder{lines: lines, refused: map[string]bool{}}
 next:
 	for _, k := range md.Keys() {
+		if i := badName(k); i >= 0 {
+			p := k[:i+1]
+			if !d.refused[pathID(p)] {
+				line, col := keyPos(lines, p)
+				if i < len(k)-1 || md.Type(k...) == "Hash" {
+					line, col = tablePos(lines, p)
+				}
+				d.refuse(keyCharEvent(k[i]), p, line, col)
+			}
+			continue
+		}
 		// The outermost table on the path that is refused, or the first
 		// array on it, decides for everything under it. A prefix is
 		// classified by its decoded value, so an implicit table, which
@@ -84,69 +170,179 @@ next:
 				continue next
 			case map[string]any:
 				if !accepted(k[:i]) {
-					if id := pathID(k[:i]); !refused[id] {
-						refused[id] = true
-						refuse("conf_unknown_table", k[:i], tableLine(lines, k[:i]))
+					if !d.refused[pathID(k[:i])] {
+						line, col := tablePos(lines, k[:i])
+						d.refuse("conf_unknown_table", k[:i], line, col)
 					}
 					continue next
 				}
 			}
 		}
-		section, key := strings.Join(k[:len(k)-1], "."), k[len(k)-1]
-		switch typ := md.Type(k...); {
-		case typ == "Hash":
-			if id := pathID(k); !accepted(k) && !refused[id] {
-				refused[id] = true
-				refuse("conf_unknown_table", k, tableLine(lines, k))
-			}
-		case len(k) == 1 && (typ == "ArrayHash" || typ == "Array"):
-			// An array at a known section name, `[[volumes]]` or the
-			// inline `volumes = [{...}]`, is the legacy spelling the
-			// array stage handles. Any other root array is refused as
-			// what it is written as: an array-table header is a table,
-			// an inline array a root key.
-			switch {
-			case known[k[0]]:
-			case typ == "ArrayHash":
-				refuse("conf_unknown_table", k, tableLine(lines, k))
-			default:
-				refuse("conf_top_level_key", k, keyLine(lines, k))
-			}
-		case len(k) == 1:
-			refuse("conf_top_level_key", k, keyLine(lines, k))
-		case typ == "ArrayHash":
-			// An array of tables nested under a known table is the array
-			// stage's.
-		default:
-			if _, isKey := canonical(section, key); !isKey {
-				refuse("conf_unknown_key", k, keyLine(lines, k))
-				continue
-			}
-			if typ == "Array" {
-				// An array at a registered scalar key is a value of the
-				// wrong type for that key, not an array the array stage
-				// owns.
-				refuse("conf_value_type_refused", k, keyLine(lines, k))
-				continue
-			}
-			var s Scalar
-			if s.UnmarshalTOML(lookup(doc, k)) != nil {
-				refuse("conf_value_type_refused", k, keyLine(lines, k))
-				continue
-			}
-			var ve *ValueError
-			if err := Validate(section, key, s); errors.As(err, &ve) {
-				refuse(ve.Event, k, keyLine(lines, k))
-			}
-		}
+		d.judge(md, doc, k)
 	}
 	tree, deferred := buildTree(md, doc, lines)
-	return &Config{Environment: projectEnvironment(&tree), Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree, Deferred: deferred}, refusals
+	for _, def := range deferred {
+		if !d.refusedUnder(def.Path) {
+			d.judgeValues(def.Path, def.Value)
+		}
+	}
+	sort.SliceStable(d.refusals, func(i, j int) bool { return d.refusals[i].Line < d.refusals[j].Line })
+	deploy, deprecated := projectDeploy(&tree)
+	return &Config{
+		Deploy:      deploy,
+		Environment: projectEnvironment(&tree),
+		Logging:     Logging{Services: ProjectServices(&tree)},
+		Deprecated:  deprecated,
+		Tree:        tree,
+		Deferred:    deferred,
+	}, d.refusals
+}
+
+// decoder collects the refusals of one Decode.
+type decoder struct {
+	lines    *locate.Map
+	refusals []Refusal
+	// refused holds the pathID of every refused path.
+	refused map[string]bool
+}
+
+func (d *decoder) refuse(event string, k []string, line, col int) {
+	d.refused[pathID(k)] = true
+	d.refusals = append(d.refusals, Refusal{Event: event, Path: k, Line: line, Col: col})
+}
+
+// refusedUnder reports whether p or a prefix of it is refused.
+func (d *decoder) refusedUnder(p []string) bool {
+	for i := 1; i <= len(p); i++ {
+		if d.refused[pathID(p[:i])] {
+			return true
+		}
+	}
+	return false
+}
+
+// judge judges the path k, which lies under no array and no refused table.
+func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
+	section, key := strings.Join(k[:len(k)-1], "."), k[len(k)-1]
+	typ := md.Type(k...)
+	line, col := keyPos(d.lines, k)
+	switch {
+	case typ == "Hash":
+		if !accepted(k) && !d.refused[pathID(k)] {
+			line, col = tablePos(d.lines, k)
+			d.refuse("conf_unknown_table", k, line, col)
+		}
+		return
+	case len(k) == 1 && (typ == "ArrayHash" || typ == "Array"):
+		// An array at a known section name, `[[volumes]]` or the inline
+		// `volumes = [{...}]`, is the legacy spelling the array stage
+		// handles. Any other root array is refused as what it is written
+		// as: an array-table header is a table, an inline array a root key.
+		switch {
+		case known[k[0]]:
+		case typ == "ArrayHash":
+			line, col = tablePos(d.lines, k)
+			d.refuse("conf_unknown_table", k, line, col)
+		default:
+			d.refuse("conf_top_level_key", k, line, col)
+		}
+		return
+	case len(k) == 1:
+		d.refuse("conf_top_level_key", k, line, col)
+		return
+	case typ == "ArrayHash":
+		// An array of tables nested under a known table is the array
+		// stage's.
+		return
+	}
+	v := lookup(doc, k)
+	if text, ok := v.(string); ok {
+		if event := valueCharEvent(text); event != "" {
+			d.refuse(event, k, line, col)
+			return
+		}
+	}
+	switch {
+	case stage(k):
+	case !knownKey(section, key):
+		d.refuse("conf_unknown_key", k, line, col)
+	case typ == "Array":
+		// An array at a registered scalar key is a value of the wrong
+		// type for that key, not an array the array stage owns.
+		if _, registered := canonical(section, key); registered {
+			d.refuse("conf_value_type_refused", k, line, col)
+		}
+	default:
+		var s Scalar
+		if s.UnmarshalTOML(v) != nil {
+			d.refuse("conf_value_type_refused", k, line, col)
+			return
+		}
+		var ve *ValueError
+		if err := Validate(section, key, s); errors.As(err, &ve) {
+			d.refuse(ve.Event, k, line, col)
+		}
+	}
+}
+
+// judgeValues refuses each string in the deferred value v, written at
+// path p, that valueCharEvent refuses, at the value's line.
+func (d *decoder) judgeValues(p []string, v Value) {
+	switch v.Kind {
+	case VScalar:
+		if v.Scalar.Kind != KindString {
+			return
+		}
+		if event := valueCharEvent(v.Scalar.Text); event != "" {
+			d.refuse(event, p, v.Line, 0)
+		}
+	case VArray:
+		for _, it := range v.Items {
+			d.judgeValues(p, it)
+		}
+	case VTable:
+		for _, m := range v.Members {
+			d.judgeValues(append(append([]string{}, p...), m.Key), m.Value)
+		}
+	}
+}
+
+// badName is the index of the first component of k that keyCharEvent
+// refuses, or -1.
+func badName(k []string) int {
+	for i, name := range k {
+		if keyCharEvent(name) != "" {
+			return i
+		}
+	}
+	return -1
+}
+
+// parseRefusal is the conf_toml_parse_failed refusal for the parser's
+// err: at the parser's line and column, naming the path of the last
+// occurrence the locator found at or before that line.
+func parseRefusal(lines *locate.Map, err error) Refusal {
+	r := Refusal{Event: "conf_toml_parse_failed"}
+	var pe toml.ParseError
+	if errors.As(err, &pe) {
+		r.Line, r.Col = pe.Position.Line, pe.Position.Col
+	}
+	for _, o := range lines.Entries() {
+		if o.KeyLine > r.Line {
+			break
+		}
+		r.Path = o.Path
+	}
+	return r
 }
 
 // accepted reports whether the table at p is one _setup_known_section
-// accepts: a known section, or any table whose text is under logging.
+// accepts: a known section, or any table whose text is under logging; or
+// a `["stage:<name>"]` table, which _setup_conf_check_known skips.
 func accepted(p []string) bool {
+	if stage(p) {
+		return true
+	}
 	if len(p) == 1 {
 		return known[p[0]] || serviceText(p[0])
 	}
@@ -166,27 +362,71 @@ func lookup(doc map[string]any, k []string) any {
 	return v
 }
 
-// keyLine is the line the locator gives the key k. A key inside an inline
-// value is not indexed, so it is given the line of the innermost inline
-// key that holds it.
-func keyLine(lines *locate.Map, k []string) int {
+// keyPos is the line and column the locator gives the key k. A key inside
+// an inline value is not indexed, so it is given the position of the
+// innermost inline key that holds it.
+func keyPos(lines *locate.Map, k []string) (line, col int) {
 	for i := len(k); i > 0; i-- {
 		for _, o := range lines.Keys(k[:i]) {
 			if i == len(k) || o.Inline {
-				return o.KeyLine
+				return o.KeyLine, o.KeyCol
 			}
 		}
 	}
-	return 0
+	return 0, 0
 }
 
-// tableLine is the line of the first occurrence of the table k: its
+// keyLine is keyPos's line.
+func keyLine(lines *locate.Map, k []string) int {
+	line, _ := keyPos(lines, k)
+	return line
+}
+
+// tablePos is the position of the first occurrence of the table k: its
 // header, its first creator's when implicit, or its key's when inline.
-func tableLine(lines *locate.Map, k []string) int {
+func tablePos(lines *locate.Map, k []string) (line, col int) {
 	if occ := lines.Tables(k); len(occ) > 0 {
-		return occ[0].KeyLine
+		return occ[0].KeyLine, occ[0].KeyCol
 	}
-	return keyLine(lines, k)
+	return keyPos(lines, k)
+}
+
+// projectDeploy resolves the legacy alias in the [deploy] node of t as
+// deploy.sh's _resolve_deploy_config does: GPURuntime is gpu_runtime when
+// it is set to a non-empty value, and the legacy runtime's field
+// otherwise. A non-empty legacy runtime, which deploy.sh reports as
+// conf_runtime_key_deprecated, is returned as a Deprecation allocated for
+// this call (base#1442).
+func projectDeploy(t *Tree) (Deploy, []Deprecation) {
+	var out Deploy
+	if len(t.Nodes) == 0 {
+		return out, nil
+	}
+	for _, c := range t.Nodes[0].Children {
+		if c.Kind != ChildNode || c.Key != "deploy" {
+			continue
+		}
+		for _, r := range t.Nodes[c.Node].Children {
+			switch {
+			case r.Kind != ChildRow:
+			case r.Key == "gpu_runtime":
+				out.GPURuntime = r.Row
+			case r.Key == "runtime":
+				out.Runtime = r.Row
+			}
+		}
+	}
+	if (out.GPURuntime.State != Set || out.GPURuntime.Value.Text == "") && out.Runtime.State == Set {
+		out.GPURuntime = out.Runtime
+	}
+	if out.Runtime.State != Set || out.Runtime.Value.Text == "" {
+		return out, nil
+	}
+	return out, []Deprecation{{
+		Path:      []string{"deploy", "runtime"},
+		Canonical: []string{"deploy", "gpu_runtime"},
+		Line:      out.Runtime.Line,
+	}}
 }
 
 // projectEnvironment is the [environment] node of t: Absent when there is
@@ -241,10 +481,10 @@ func pathID(path []string) string {
 // parsed tree walked depth first, each node entered before its children,
 // each table's children in the order they were first created, which is
 // the order a key or a prefix of it first appears in md.Keys(). The root,
-// the known sections and every table whose text is under logging are
-// accepted; a refused table and everything under it is left out, and so
-// is a root scalar. Each accepted array is returned in the second result
-// with its payload (base#1442).
+// the known sections, every table whose text is under logging and every
+// `["stage:<name>"]` table are accepted; a refused table and everything
+// under it is left out, and so is a root scalar. Each accepted array is
+// returned in the second result with its payload (base#1442).
 func buildTree(md toml.MetaData, doc map[string]any, lines *locate.Map) (Tree, []Deferred) {
 	keys := md.Keys()
 	children := map[string][]string{}
@@ -314,22 +554,22 @@ func buildTree(md toml.MetaData, doc map[string]any, lines *locate.Map) (Tree, [
 
 // arrayValue is the payload of the array v at path p. An array of tables
 // is tablesValue's. An inline array starts on its key's line and its items
-// are given that line; the members of each table item are in the order
-// md.Keys() lists them (base#1442).
+// are given that line; the members of every inline table in it are in
+// source order (keyStream).
 func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 	elems, isTables := v.([]map[string]any)
 	if !isTables {
 		out := valueOf(v, keyLine(lines, p))
-		orderInlineMembers(&out, keys, p)
+		streamAfter(keys, p, 0).order(&out, p)
 		return out
 	}
-	return tablesValue(lines.Entries(), p, elems)
+	return tablesValue(lines.Entries(), keys, p, elems)
 }
 
 // tablesValue is the payload of the array of tables at p whose decoded
 // elements are elems: one VTable per `[[p]]` element of entries, at its
 // header line, holding the element's whole decoded table (tableValue).
-func tablesValue(entries []locate.Occurrence, p []string, elems []map[string]any) Value {
+func tablesValue(entries []locate.Occurrence, keys []toml.Key, p []string, elems []map[string]any) Value {
 	out := Value{Kind: VArray}
 	spans := elementSpans(entries, p)
 	for i, e := range elems {
@@ -338,7 +578,7 @@ func tablesValue(entries []locate.Occurrence, p []string, elems []map[string]any
 		if i < len(spans) {
 			span, line = spans[i][1:], spans[i][0].KeyLine
 		}
-		item := tableValue(span, p, e, line)
+		item := tableValue(span, keys, p, e, line)
 		item.Header = true
 		if i == 0 {
 			out.Line = line
@@ -382,8 +622,10 @@ func under(path, p []string) bool {
 // span does not name, in key order, so the payload is whole either way.
 // A member that is a table written with headers or dotted keys is a
 // tableValue of its own, an array of tables a tablesValue, and anything
-// else valueOf at the member's first line.
-func tableValue(span []locate.Occurrence, prefix []string, m map[string]any, line int) Value {
+// else valueOf at the member's first line; a member whose value is
+// written inline has every inline table in it put in source order by the
+// key stream from that occurrence of its key (keyStream).
+func tableValue(span []locate.Occurrence, keys []toml.Key, prefix []string, m map[string]any, line int) Value {
 	out := Value{Kind: VTable, Line: line}
 	var order []string
 	first := map[string]locate.Occurrence{}
@@ -422,57 +664,95 @@ func tableValue(span []locate.Occurrence, prefix []string, m map[string]any, lin
 			if inline {
 				mv = valueOf(x, at)
 			} else {
-				mv = tableValue(span, p, x, at)
+				mv = tableValue(span, keys, p, x, at)
 			}
 		case []map[string]any:
-			mv = tablesValue(span, p, x)
+			mv = tablesValue(span, keys, p, x)
 		default:
 			mv = valueOf(v, at)
+		}
+		if inline {
+			streamAfter(keys, p, o.Ordinal).order(&mv, p)
 		}
 		out.Members = append(out.Members, Member{Key: name, Value: mv})
 	}
 	return out
 }
 
-// orderInlineMembers puts the members of each table item of the inline
-// array a, written at path p, in source order. md.Keys() lists the
-// members of the items under p itself with no item index, one item after
-// another (toml_bridge.py line 755 walks elem.items() in that order), so each
-// table item takes the next run of keys directly under p, until every one
-// of its members has its key (base#1442).
-func orderInlineMembers(a *Value, keys []toml.Key, p []string) {
+// keyStream replays md.Keys() from one position. The library lists every
+// key in the order it parses it, the members of an inline table and of
+// each table item of an inline array included, under the path they are
+// written at with no item index, each member followed at once by the keys
+// inside its own value (toml_bridge.py line 755 walks elem.items() in that
+// order). A nil stream orders nothing.
+type keyStream struct {
+	keys []toml.Key
+	at   int
+}
+
+// streamAfter is the stream just after the nth (0-based) listing of the
+// path p, or nil when p is listed fewer times.
+func streamAfter(keys []toml.Key, p []string, nth int) *keyStream {
 	want := pathID(p)
-	var run []string
-	for _, k := range keys {
-		if len(k) == len(p)+1 && pathID(k[:len(p)]) == want {
-			run = append(run, k[len(p)])
-		}
-	}
-	for i := range a.Items {
-		item := &a.Items[i]
-		if item.Kind != VTable {
+	for i, k := range keys {
+		if pathID(k) != want {
 			continue
 		}
-		byKey := map[string]Member{}
-		for _, m := range item.Members {
-			byKey[m.Key] = m
+		if nth == 0 {
+			return &keyStream{keys: keys, at: i + 1}
 		}
-		ordered := make([]Member, 0, len(item.Members))
-		for len(run) > 0 && len(ordered) < len(item.Members) {
-			if m, ok := byKey[run[0]]; ok {
-				ordered = append(ordered, m)
-				delete(byKey, run[0])
+		nth--
+	}
+	return nil
+}
+
+// order puts the members of every table in v, written at path p, in the
+// order the stream lists them, consuming the stream as it goes: each table
+// takes the next listed keys directly under p, until each of its members
+// has its key, and each member's own value is ordered from the keys that
+// follow it. A table whose members the stream does not account for keeps
+// its order (base#1442).
+func (s *keyStream) order(v *Value, p []string) {
+	if s == nil {
+		return
+	}
+	switch v.Kind {
+	case VArray:
+		for i := range v.Items {
+			s.order(&v.Items[i], p)
+		}
+	case VTable:
+		byKey := make(map[string]int, len(v.Members))
+		for i, m := range v.Members {
+			byKey[m.Key] = i
+		}
+		want := pathID(p)
+		ordered := make([]Member, 0, len(v.Members))
+		for len(ordered) < len(v.Members) && s.at < len(s.keys) {
+			k := s.keys[s.at]
+			s.at++
+			if len(k) != len(p)+1 || pathID(k[:len(p)]) != want {
+				continue
 			}
-			run = run[1:]
+			i, ok := byKey[k[len(p)]]
+			if !ok {
+				continue
+			}
+			delete(byKey, k[len(p)])
+			m := v.Members[i]
+			s.order(&m.Value, append(append([]string{}, p...), m.Key))
+			ordered = append(ordered, m)
 		}
-		if len(ordered) == len(item.Members) {
-			item.Members = ordered
+		if len(ordered) == len(v.Members) {
+			v.Members = ordered
 		}
+	case VScalar:
 	}
 }
 
 // valueOf is the value v written at line: a scalar, an array of values or
-// a table whose members are in key order, each given line.
+// a table, each given line. A table's members are in key order here; the
+// callers put them in source order with a keyStream.
 func valueOf(v any, line int) Value {
 	switch x := v.(type) {
 	case []any:
@@ -494,8 +774,7 @@ func valueOf(v any, line int) Value {
 		return out
 	}
 	var s Scalar
-	// A kind Scalar does not decode yet keeps its zero Scalar; the other
-	// kinds follow in later cycles of base#1442.
+	// A kind Scalar does not decode keeps its zero Scalar.
 	_ = s.UnmarshalTOML(v)
 	return Value{Kind: VScalar, Scalar: s, Line: line}
 }
