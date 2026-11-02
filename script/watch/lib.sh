@@ -667,10 +667,10 @@ _pin_extract_value() {
 #   godebug (line or block argument, the value grammar, not repeated) and
 #   form), exclude (line   never emitted (a godebug line that fails Go's
 #   form)                  check is godebug_usage; an exclude line takes
-#                          the require entry's path and version checks);
+#                          the require entry's arity, path and version
+#                          checks);
 #   anything else          refused BY NAME (replace, tool, ignore, retract,
-#                          an exclude block or an exclude without exactly
-#                          two arguments) or as unknown_verb.
+#                          an exclude block) or as unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -986,7 +986,7 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi
     if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
     if [[ "${_verb}" == exclude ]]; then
-      if _pin_go_mod_opens_block || (( ${#_gm_kind[@]} != 3 )); then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
+      if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
       _pin_go_mod_entry "${_ln}" 1 0 || return 1
       continue
     fi
