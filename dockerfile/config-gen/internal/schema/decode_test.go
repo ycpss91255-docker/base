@@ -138,3 +138,30 @@ func TestDecodeScalarInDeferrableTableIsValidated(t *testing.T) {
 		t.Errorf("Line = %d, want 2", got.Line)
 	}
 }
+
+// A table whose name also holds deferred arrays of tables is still a
+// scalar table when written as `[devices]`, so an unregistered key in it
+// is refused, not deferred (base#1442). The verdicts are the shell's
+// under LC_ALL=C: `_setup_known_section devices` returns 0 and
+// `_setup_known_key devices typo` returns 1. Line 2 is counted from the
+// input bytes. The table [devices] is known, so it gets no refusal of its
+// own.
+func TestDecodeUnknownKeyInDeferrableTable(t *testing.T) {
+	src := []byte("[devices]\ntypo = \"x\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_unknown_key" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_unknown_key")
+	}
+	if want := []string{"devices", "typo"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 2 {
+		t.Errorf("Line = %d, want 2", got.Line)
+	}
+}
