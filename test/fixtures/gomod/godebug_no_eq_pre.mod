@@ -1,4 +1,4 @@
-// class: go-invalid go_mod_unsupported_syntax godebug
+// class: go-invalid go_mod_unsupported_syntax godebug_usage
 module example.com/m
 godebug foo
 require a v1.0.0

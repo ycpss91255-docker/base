@@ -282,6 +282,17 @@ EOF
   assert_failure 1
 }
 
+# why: Go rejects `godebug foo` (no `=`) and `godebug a=1,b=2` (a comma);
+# these fixtures are go-invalid, held to Go by the oracle. A malformed
+# godebug must not be skipped unread: both refuse as godebug_usage, before
+# a require and after one.
+@test "_pin_go_mod_scan: godebug with no = or with a comma is refused as godebug_usage (base#1488)" {
+  _refused godebug_no_eq_pre godebug_usage 3
+  _refused godebug_no_eq_post godebug_usage 4
+  _refused godebug_comma_pre godebug_usage 3
+  _refused godebug_comma_post godebug_usage 4
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Go rejects `exclude a` and the old design consumed exclude unread, so
@@ -303,13 +314,11 @@ EOF
   _refused retract_trailer_pre retract 3
 }
 
-# why: Same point for godebug: `godebug foo` and `godebug a=1,b=2` are Go
-# errors the old scanner skipped. A well-formed godebug line is read
-# (base#1488); a malformed one and the block form are still refused.
-@test "_pin_go_mod_scan: godebug is refused by name in the line and block forms (base#1463)" {
+# why: Same point for godebug: the block form is not yet read with Go's
+# checks, so it is still refused by name (a malformed line form is
+# godebug_usage, base#1488).
+@test "_pin_go_mod_scan: a godebug block is refused by name (base#1463)" {
   _refused godebug_block_pre godebug 3
-  _refused godebug_no_eq_pre godebug 3
-  _refused godebug_comma_post godebug 4
 }
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
