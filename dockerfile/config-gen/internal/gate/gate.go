@@ -115,9 +115,13 @@ func oracleRefusal(label string, src []byte, off int, reason Reason, msg string)
 // byte of src (base#1441). It reads src once, in document order, and
 // refuses at the token that breaks a rule: a lexical one (an escape, a
 // line ending or a trailing comma in an inline table), a table rule, or
-// the grammar itself where the reading cannot go on. Of Check's own
-// refusals, the first in the document is the one reported
-// (TestCheckRefusesInDocumentOrder, TestCheckRefusesAtTheStopPoint).
+// the grammar itself where the reading cannot go on. Each rule is checked
+// as soon as the bytes that decide it are read, and the first refusal so
+// decided is the one reported. A key's refusal names the key's first
+// byte and is decided by the key parts read so far, before the rest of
+// the key or its value is read; so a duplicate is reported before an
+// escape in its own key or value (TestCheckRefusesInDocumentOrder,
+// TestCheckRefusesAtTheStopPoint).
 // Check reads a string or a bare value as one token and does not check
 // every escape or value form within it; such an error is not Check's
 // refusal, and a later rule of Check's is still reported
