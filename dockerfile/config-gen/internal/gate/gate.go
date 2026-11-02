@@ -14,9 +14,9 @@ import (
 // `:SS` after it: a local time, or a date plus `T`/`t`/space and a time.
 var timeNoSeconds = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ])?[0-9]{2}:[0-9]{2}(?:[^:0-9]|$)`)
 
-// offsetMinute matches an offset datetime value token; group 1 is the
-// offset's sign and group 2 its minute.
-var offsetMinute = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?([+-])[0-9]{2}:([0-9]{2})$`)
+// offsetField matches an offset datetime value token; group 1 is the
+// offset's sign, group 2 its hour and group 3 its minute.
+var offsetField = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?([+-])([0-9]{2}):([0-9]{2})$`)
 
 // Reason names why Check refused its input.
 type Reason int
@@ -45,8 +45,9 @@ const (
 	// dotted keys already created, which the TOML 1.0 oracle reports as
 	// "Cannot redefine a table".
 	ReasonRedefine
-	// ReasonOffsetRange is an offset datetime whose offset minute is above
-	// 59, which the TOML 1.0 oracle refuses at the offset's sign.
+	// ReasonOffsetRange is an offset datetime whose offset hour is above
+	// 23 or whose offset minute is above 59, which the TOML 1.0 oracle
+	// refuses at the offset's sign.
 	ReasonOffsetRange
 )
 
@@ -142,10 +143,17 @@ func Check(label string, src []byte) error {
 				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonTimeNoSeconds,
 					Text: "time without seconds is not TOML 1.0"}
 			}
-			if m := offsetMinute.FindSubmatchIndex(src[i:end]); m != nil && string(src[i+m[4]:i+m[5]]) > "59" {
-				line, col := position(src, i+m[2])
-				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonOffsetRange,
-					Text: "offset minute above 59 is not TOML 1.0"}
+			if m := offsetField.FindSubmatchIndex(src[i:end]); m != nil {
+				if string(src[i+m[4]:i+m[5]]) > "23" {
+					line, col := position(src, i+m[2])
+					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonOffsetRange,
+						Text: "offset hour above 23 is not TOML 1.0"}
+				}
+				if string(src[i+m[6]:i+m[7]]) > "59" {
+					line, col := position(src, i+m[2])
+					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonOffsetRange,
+						Text: "offset minute above 59 is not TOML 1.0"}
+				}
 			}
 			i = end - 1
 		case src[i] == '"':
