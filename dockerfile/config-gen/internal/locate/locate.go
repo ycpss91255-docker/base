@@ -57,17 +57,82 @@ const (
 	Repeated
 )
 
-// Map is the occurrence index of one document.
-type Map struct {
-	entries []Occurrence
-	members []Occurrence
-	// inlineTables is every table a dotted key inside an inline value
-	// creates for its parent components.
-	inlineTables []Occurrence
+// NodeKind is what a node of the document tree is.
+type NodeKind int
+
+const (
+	// NTable is a table: the root, a `[path]` header's, or one a header
+	// or a dotted key creates implicitly.
+	NTable NodeKind = iota
+	// NArrayTables is the array a `[[path]]` header appends to.
+	NArrayTables
+	// NElement is one element of an NArrayTables node, by index.
+	NElement
+	// NKey is a `key = value` key.
+	NKey
+)
+
+// Node is one node of the document tree (base#1442). Its records are the
+// occurrences of the log that write it, in source order, so a table that
+// is created implicitly and declared later keeps both positions.
+type Node struct {
+	// Key is the node's key as the scanner decodes it; "" for the root and
+	// an element.
+	Key  string
+	Kind NodeKind
+	// Occ are the node's records, in source order.
+	Occ []*Occurrence
+	// Children are in first-creation order; elements by index.
+	Children []*Node
 }
 
+// child is n's child with key k, or nil.
+func (n *Node) child(k string) *Node {
+	for _, c := range n.Children {
+		if c.Key == k {
+			return c
+		}
+	}
+	return nil
+}
+
+// add appends a child with key k and kind to n, holding rec unless it is
+// nil, and returns it.
+func (n *Node) add(k string, kind NodeKind, rec *Occurrence) *Node {
+	c := &Node{Key: k, Kind: kind}
+	if rec != nil {
+		c.Occ = append(c.Occ, rec)
+	}
+	n.Children = append(n.Children, c)
+	return c
+}
+
+// Map is the occurrence index of one document.
+type Map struct {
+	entries []*Occurrence
+	members []*Occurrence
+	// inlineTables is every table a dotted key inside an inline value
+	// creates for its parent components.
+	inlineTables []*Occurrence
+	root         *Node
+}
+
+// Root returns the root of the document tree: headers resolve from it,
+// and a `key = value` line from the table or element the last header
+// opened (base#1442 redesign r3).
+func (m *Map) Root() *Node { return m.root }
+
 // Entries returns every occurrence in document order.
-func (m *Map) Entries() []Occurrence { return m.entries }
+func (m *Map) Entries() []Occurrence { return values(m.entries) }
+
+// values copies the records of rs.
+func values(rs []*Occurrence) []Occurrence {
+	out := make([]Occurrence, len(rs))
+	for i, r := range rs {
+		out[i] = *r
+	}
+	return out
+}
 
 // Members returns every occurrence of the key path written inside an
 // inline value, in document order: a member of an inline table, or of a
@@ -80,7 +145,7 @@ func (m *Map) Members(path []string) []Occurrence {
 	want := pathID(path)
 	for _, o := range m.members {
 		if pathID(o.Path) == want {
-			out = append(out, o)
+			out = append(out, *o)
 		}
 	}
 	return out
@@ -97,7 +162,7 @@ func (m *Map) InlineTables(path []string) []Occurrence {
 	want := pathID(path)
 	for _, o := range m.inlineTables {
 		if pathID(o.Path) == want {
-			out = append(out, o)
+			out = append(out, *o)
 		}
 	}
 	return out
@@ -123,8 +188,8 @@ func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 	var out []Occurrence
 	want := pathID(path)
 	for _, o := range m.entries {
-		if keep(o) && pathID(o.Path) == want {
-			out = append(out, o)
+		if keep(*o) && pathID(o.Path) == want {
+			out = append(out, *o)
 		}
 	}
 	return out
@@ -152,9 +217,10 @@ func pathID(path []string) string {
 
 // Index scans src and returns its occurrence index.
 func Index(src []byte) *Map {
-	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, memberOrdinal: map[string]int{}}
+	root := &Node{Kind: NTable}
+	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, memberOrdinal: map[string]int{}, root: root, cur: root}
 	s.run()
-	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables}
+	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, root: root}
 }
 
 type scanner struct {
@@ -162,12 +228,15 @@ type scanner struct {
 	pos     int
 	line    int
 	table   []string
-	entries []Occurrence
-	members []Occurrence
+	entries []*Occurrence
+	members []*Occurrence
 	// inlineTables is every implicit table a dotted key inside an inline
 	// value creates.
-	inlineTables []Occurrence
-	ordinal      map[string]int
+	inlineTables []*Occurrence
+	// root is the document tree; cur is the node the last header opened,
+	// the one a `key = value` line resolves from.
+	root, cur *Node
+	ordinal   map[string]int
 	// memberOrdinal counts the members of each path recorded so far.
 	memberOrdinal map[string]int
 }
@@ -201,10 +270,33 @@ func (s *scanner) header() {
 	}
 	path := s.key()
 	s.skipLine()
+	// A header resolves from the root.
+	n := s.root
 	for i := 1; i < len(path); i++ {
-		s.implicit(path[:i], line, col)
+		rec := s.implicit(path[:i], line, col)
+		c := n.child(path[i-1])
+		if c == nil {
+			c = n.add(path[i-1], NTable, rec)
+		}
+		n = c
 	}
-	s.add(Occurrence{Path: path, Kind: kind, KeyLine: line, KeyCol: col, ValueEndLine: line})
+	rec := s.add(Occurrence{Path: path, Kind: kind, KeyLine: line, KeyCol: col, ValueEndLine: line})
+	last := path[len(path)-1]
+	c := n.child(last)
+	switch {
+	case kind == Header:
+		if c == nil {
+			c = n.add(last, NTable, nil)
+		}
+		c.Occ = append(c.Occ, rec)
+		s.cur = c
+	default:
+		if c == nil {
+			c = n.add(last, NArrayTables, nil)
+		}
+		c.Occ = append(c.Occ, rec)
+		s.cur = c.add("", NElement, rec)
+	}
 	s.table = path
 }
 
@@ -219,8 +311,16 @@ func (s *scanner) keyValue() {
 	s.pos++
 	s.skipSpace()
 	path := append(append([]string{}, s.table...), parts...)
+	// A `key = value` line resolves from the table or element the last
+	// header opened.
+	n := s.cur
 	for i := len(s.table) + 1; i < len(path); i++ {
-		s.implicit(path[:i], line, col)
+		rec := s.implicit(path[:i], line, col)
+		c := n.child(path[i-1])
+		if c == nil {
+			c = n.add(path[i-1], NTable, rec)
+		}
+		n = c
 	}
 	array := s.peek() == '['
 	inline := s.peek() == '{' || array
@@ -229,7 +329,8 @@ func (s *scanner) keyValue() {
 	if array {
 		end = line
 	}
-	s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end})
+	rec := s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end})
+	n.add(parts[len(parts)-1], NKey, rec)
 	s.skipLine()
 }
 
@@ -239,23 +340,29 @@ func (s *scanner) col() int {
 }
 
 // implicit records path as an implicit table created at line and col,
-// unless a table occurrence of path is already recorded.
-func (s *scanner) implicit(path []string, line, col int) {
+// unless a table occurrence of path is already recorded, and returns the
+// record it appends, or nil.
+func (s *scanner) implicit(path []string, line, col int) *Occurrence {
 	want := pathID(path)
 	for _, o := range s.entries {
 		if o.Kind != Key && pathID(o.Path) == want {
-			return
+			return nil
 		}
 	}
 	p := append([]string{}, path...)
-	s.entries = append(s.entries, Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line})
+	rec := &Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line}
+	s.entries = append(s.entries, rec)
+	return rec
 }
 
-func (s *scanner) add(o Occurrence) {
+// add appends o to the log with its ordinal and returns its record.
+func (s *scanner) add(o Occurrence) *Occurrence {
 	id := pathID(o.Path)
 	o.Ordinal = s.ordinal[id]
 	s.ordinal[id]++
-	s.entries = append(s.entries, o)
+	rec := &o
+	s.entries = append(s.entries, rec)
+	return rec
 }
 
 // key reads a dotted key up to `=`, `]` or the end of the line.
@@ -365,12 +472,12 @@ func (s *scanner) inline(path []string) {
 		p := append(append([]string{}, path...), parts...)
 		for i := len(path) + 1; i < len(p); i++ {
 			t := append([]string{}, p[:i]...)
-			s.inlineTables = append(s.inlineTables, Occurrence{Path: t, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line})
+			s.inlineTables = append(s.inlineTables, &Occurrence{Path: t, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line})
 		}
 		id := pathID(p)
 		inline := s.peek() == '{' || s.peek() == '['
 		s.item(p)
-		s.members = append(s.members, Occurrence{Path: p, Ordinal: s.memberOrdinal[id], Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: s.line})
+		s.members = append(s.members, &Occurrence{Path: p, Ordinal: s.memberOrdinal[id], Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: s.line})
 		s.memberOrdinal[id]++
 	}
 }
