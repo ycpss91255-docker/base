@@ -92,3 +92,28 @@ func TestCheckInlineKeyPositions(t *testing.T) {
 		})
 	}
 }
+
+// A dotted key written inside an inline value creates a table for each of
+// its parent components, as a dotted `key = value` line does. A refused
+// parent component is reported at the line and column of the dotted key
+// that creates it, not at the key holding the inline value (base#1442
+// review round 2 finding 1).
+func TestCheckInlineDottedParentPositions(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want [][]string
+	}{
+		{"bad parent in a multiline inline array", "volumes = [\n  { \"bad\\tkey\".x = 1 }\n]\n",
+			[][]string{{"conf_key_char_refused", "2", "5", "volumes.bad\tkey"}}},
+		{"bad middle parent in a multiline inline array", "volumes = [\n  { source = \"/a\" },\n  { a.\"b\\tc\".d = 1 }\n]\n",
+			[][]string{{"conf_key_char_refused", "3", "5", "volumes.a.b\tc"}}},
+		{"bad parent in a multiline inline table", "security = {\n  \"bad\\tkey\".x = 1 }\n",
+			[][]string{{"conf_key_char_refused", "2", "3", "security.bad\tkey"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			checkFrames(t, tc.src, 1, tc.want)
+		})
+	}
+}
