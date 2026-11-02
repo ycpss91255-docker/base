@@ -1,22 +1,20 @@
 package main
 
 import (
-	"bytes"
 	"testing"
 )
 
-// checkFrames runs `config-gen check` on src and holds it to status and
-// to want, one {event, line, col, key} per frame, in order.
+// checkFrames runs `config-gen check` on src through runCheck (empty
+// stdout, wholly frames, each naming the layer's path) and holds it to
+// status and to want, one {event, line, col, key} per frame, in order.
 func checkFrames(t *testing.T, src string, status int, want [][]string) {
 	t.Helper()
 	path := writeLayer(t, src)
-	var stdout, stderr bytes.Buffer
 
-	got := run([]string{"check", path}, &stdout, &stderr)
+	got, fr := runCheck(t, path)
 
-	fr := frames(t, stderr.String())
-	if got != status || stdout.Len() != 0 || len(fr) != len(want) {
-		t.Fatalf("check = %d, stdout %q, frames %q; want %d, no stdout, %d frames %q", got, stdout.String(), fr, status, len(want), want)
+	if got != status || len(fr) != len(want) {
+		t.Fatalf("check = %d, frames %q; want %d and %d frames %q", got, fr, status, len(want), want)
 	}
 	for i, w := range want {
 		if fr[i][2] != w[0] || fr[i][4] != w[1] || fr[i][5] != w[2] || fr[i][6] != w[3] {

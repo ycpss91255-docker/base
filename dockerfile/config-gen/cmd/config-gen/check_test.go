@@ -46,6 +46,30 @@ func writeLayer(t *testing.T, src string) string {
 	return path
 }
 
+// runCheck runs `config-gen check <path>` and returns its status and its
+// frames. Every call is held to the fixed points of the refusal-test
+// contract (base#1395 plan, "Every refusal test asserts five things"), so
+// no refusal test can leave one out: stdout stays empty, stderr is wholly
+// frames, and every frame names path as its file. The caller asserts the
+// status, the event and the key.
+func runCheck(t *testing.T, path string) (int, [][]string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+
+	status := run([]string{"check", path}, &stdout, &stderr)
+
+	if stdout.Len() != 0 {
+		t.Errorf("check %s: stdout = %q, want empty", path, stdout.String())
+	}
+	fr := frames(t, stderr.String())
+	for i, f := range fr {
+		if f[3] != path {
+			t.Errorf("check %s: frame %d file = %q, want the layer's path", path, i, f[3])
+		}
+	}
+	return status, fr
+}
+
 // `config-gen check <layer>` decodes each layer and reports every refusal
 // as one diagnostic frame naming the file, the line, the column and the
 // key (base#1442 AC "Unknown keys", review round 2 finding 1). A refused
@@ -83,26 +107,7 @@ func TestCheckRefusals(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path := writeLayer(t, tc.src)
-			var stdout, stderr bytes.Buffer
-
-			got := run([]string{"check", path}, &stdout, &stderr)
-
-			if got != tc.status {
-				t.Fatalf("check = %d, want %d (stderr %q)", got, tc.status, stderr.String())
-			}
-			if stdout.Len() != 0 {
-				t.Errorf("stdout = %q, want empty", stdout.String())
-			}
-			fr := frames(t, stderr.String())
-			if len(fr) != len(tc.want) {
-				t.Fatalf("frames = %q, want %d", fr, len(tc.want))
-			}
-			for i, w := range tc.want {
-				if fr[i][3] != path || fr[i][2] != w[0] || fr[i][4] != w[1] || fr[i][5] != w[2] || fr[i][6] != w[3] {
-					t.Errorf("frame %d = %q, want event %s file %s line %s col %s key %s", i, fr[i], w[0], path, w[1], w[2], w[3])
-				}
-			}
+			checkFrames(t, tc.src, tc.status, tc.want)
 		})
 	}
 }
@@ -138,8 +143,14 @@ func TestCheckUsageAndInput(t *testing.T) {
 				t.Errorf("stdout = %q, want empty", stdout.String())
 			}
 			fr := frames(t, stderr.String())
-			if len(fr) != 1 || fr[0][2] != tc.event {
-				t.Errorf("frames = %q, want one %s", fr, tc.event)
+			// A usage frame names no layer; an input frame names the
+			// layer it could not read.
+			file := ""
+			if tc.status == 4 {
+				file = tc.args[len(tc.args)-1]
+			}
+			if len(fr) != 1 || fr[0][2] != tc.event || fr[0][3] != file {
+				t.Errorf("frames = %q, want one %s naming file %q", fr, tc.event, file)
 			}
 		})
 	}

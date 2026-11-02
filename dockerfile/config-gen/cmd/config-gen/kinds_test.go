@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -40,11 +39,9 @@ func TestCheckKinds(t *testing.T) {
 		section, key, literal, event := f[0], f[1], f[2], f[4]
 		t.Run(section+"."+key+"="+literal, func(t *testing.T) {
 			path := writeLayer(t, "["+section+"]\n"+key+" = "+literal+"\n")
-			var stdout, stderr bytes.Buffer
 
-			status := run([]string{"check", path}, &stdout, &stderr)
+			status, fr := runCheck(t, path)
 
-			fr := frames(t, stderr.String())
 			if event == "-" {
 				if status != 0 || len(fr) != 0 {
 					t.Errorf("tsv line %d: check = %d, frames %q; want 0 and none", i+1, status, fr)

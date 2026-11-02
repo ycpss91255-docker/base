@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -66,11 +65,10 @@ func TestCheckSectionsCorpus(t *testing.T) {
 			if !ok {
 				t.Fatalf("s6_sections.tsv has no row for %s", base)
 			}
-			var stdout, stderr bytes.Buffer
-			status := run([]string{"check", path}, &stdout, &stderr)
+			status, fr := runCheck(t, path)
 			var got []string
-			for _, fr := range frames(t, stderr.String()) {
-				got = append(got, fr[2]+" "+fr[4]+" "+fr[6])
+			for _, f := range fr {
+				got = append(got, f[2]+" "+f[4]+" "+f[6])
 			}
 			sort.Strings(got)
 			sorted := append([]string(nil), rows...)
