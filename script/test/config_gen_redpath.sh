@@ -51,6 +51,18 @@
 # baseline into bytes the producer cannot write for the module on disk,
 # one admission rule each.
 #
+# stale-edit-locale is stale-edit with the runner run under
+# LC_ALL=en_US.UTF-8, a locale in which bash's [!-~] does not match the
+# word file=dockerfile/config-gen/cmd/config-gen/main.go: on glibc 2.35
+# (Ubuntu 22.04) the runner's attribute filter dropped every file and
+# reason word under it, and kept them only once _cg_attr_ok pinned LC_ALL=C
+# (base#1465). Where en_US.UTF-8 does not drop that word, the redpath makes
+# it with localedef into a LOCPATH of its own; where localedef exists and
+# still yields no such locale, the case fails (reason locale_not_affected)
+# rather than pass on a locale that proves nothing. A libc with no
+# localedef runs the case under the name as it is: in the musl test-tools
+# image bash matched the word under C, C.UTF-8 and en_US.UTF-8 alike.
+#
 # In any stale case, go's "go: errors parsing go.mod" (stale-gomod's
 # go.mod makes every go command print it) or a BuildKit step header for a
 # RUN that calls go (BuildKit prints the header when the step starts, even
@@ -139,6 +151,7 @@ readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
 readonly -a _RP_STALE=(
   'stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch'
+  'stale-edit-locale|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch'
   'stale-new-pkg|dockerfile/config-gen/internal/zznew/zznew.go|unlisted'
   'stale-delete|dockerfile/config-gen/cmd/config-gen/main_test.go|missing'
   'stale-symlink|dockerfile/config-gen/cmd/config-gen/zz.go|unlisted'
@@ -196,7 +209,7 @@ readonly -a _RP_COVERAGE=(
 # shellcheck disable=SC2016,SC2028
 _rp_stale_body() {
   case "${1}" in
-    stale-edit)
+    stale-edit | stale-edit-locale)
       # The appended line is a comment: every gate would pass on it.
       echo 'printf "\n// zz stale edit after the manifest\n" >>"${_mod}/cmd/config-gen/main.go"' ;;
     stale-new-pkg)
@@ -577,15 +590,16 @@ _rp_copy() {
   printf '%s\n' "${dst}"
 }
 
-# _rp_gates <root> <case> -- run the runner on <root>, its stdout to
-# <root>.out and its stderr to <root>.err; returns the runner's status. Its
+# _rp_gates <root> <case> [VAR=value...] -- run the runner on <root>, its
+# stdout to <root>.out and its stderr to <root>.err, with any VAR=value
+# words added to its environment; returns the runner's status. Its
 # log is JSON whatever the caller set, because the verdicts read its
 # records. The mutation context is pr with no base override whatever the
 # caller inherited (base#1464): a CI main push exports main-push, and a
 # one-commit copy has no HEAD^1.
 _rp_gates() {
   env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
-    CONFIG_GEN_REDPATH_CASE="${2}" \
+    CONFIG_GEN_REDPATH_CASE="${2}" "${@:3}" \
     bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
 }
 
@@ -702,13 +716,52 @@ _rp_stale_verdict() {
   [[ "${got}" == "${file}|${reason}" ]] || { echo stale_detail_mismatch; return 0; }
 }
 
+# The locale stale-edit-locale runs the runner under, and the word whose
+# match under it decides whether that locale proves anything (base#1465).
+readonly _RP_LOCALE='en_US.UTF-8'
+readonly _RP_LOCALE_WORD='file=dockerfile/config-gen/cmd/config-gen/main.go'
+
+# _rp_locale_drops [VAR=value...] -- true when bash, with those variables
+# and LC_ALL=_RP_LOCALE, does not match _RP_LOCALE_WORD against the
+# runner's attribute range [!-~] with no LC_ALL=C of its own.
+_rp_locale_drops() {
+  # shellcheck disable=SC2016 # the script is bash -c's, its $1 is the word
+  ! env "$@" LC_ALL="${_RP_LOCALE}" bash -c '[[ "${1}" =~ ^file=[!-~]+$ ]]' _ "${_RP_LOCALE_WORD}" 2>/dev/null
+}
+
+# _rp_locale_env <scratch> -- the VAR=value words, one per line, that put
+# stale-edit-locale's runner call under _RP_LOCALE; non-zero when
+# localedef exists but no _RP_LOCALE it can reach drops _RP_LOCALE_WORD.
+_rp_locale_env() {
+  local dir="${1}/locale"
+  if ! command -v localedef >/dev/null 2>&1 || _rp_locale_drops; then
+    printf 'LC_ALL=%s\n' "${_RP_LOCALE}"
+    return 0
+  fi
+  mkdir -p "${dir}"
+  # localedef exits 1 on warnings it still writes the locale through.
+  localedef -i en_US -f UTF-8 "${dir}/${_RP_LOCALE}" >/dev/null 2>&1 || true
+  _rp_locale_drops LOCPATH="${dir}" || return 1
+  printf 'LC_ALL=%s\nLOCPATH=%s\n' "${_RP_LOCALE}" "${dir}"
+}
+
 # _rp_stale <scratch> <case> <file> <reason> -- run one stale case;
 # non-zero when admission did not refuse it with <file> and <reason>.
 _rp_stale() {
-  local scratch="${1}" name="${2}" file="${3}" want="${4}" root rc=0 reason
+  local scratch="${1}" name="${2}" file="${3}" want="${4}" root rc=0 reason words=''
+  local -a env_words=()
+  if [[ "${name}" == stale-edit-locale ]]; then
+    if ! words="$(_rp_locale_env "${scratch}")"; then
+      _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=locale_not_affected" \
+        "event=config_gen_manifest_stale" \
+        "display=config-gen redpath case ${name}: localedef made no ${_RP_LOCALE} in which [!-~] drops ${_RP_LOCALE_WORD}"
+      return 1
+    fi
+    mapfile -t env_words <<<"${words}"
+  fi
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
-  _rp_gates "${root}" "${name}" || rc=$?
+  _rp_gates "${root}" "${name}" "${env_words[@]}" || rc=$?
   reason="$(_rp_stale_verdict "${rc}" "${root}.out" "${root}.err" "${file}" "${want}")"
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2

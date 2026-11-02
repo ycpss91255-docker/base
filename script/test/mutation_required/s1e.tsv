@@ -5,7 +5,7 @@
 # config_gen_admit.sh, the runner's event re-emission, step-output routing
 # and cache filter, each 05-floors-base refusal, the coverage gate's usage
 # guard, and the redpath's verdicts on the refusal, stale, rerun, green and
-# coverage cases, its per-test case scope, and each guard of the
+# coverage cases, its per-test case scope and locale case, and each guard of the
 # Dockerfile's admit RUN, whose own text config_gen_gates_spec runs outside
 # a build. The ratchet's rules are pinned by its Go table.
 # <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
@@ -104,4 +104,6 @@ df-admit-checker-args	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen
 df-admit-ok	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	echo gate=admission ok;	:;
 df-admit-touch	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	touch /admitted	:
 redpath-only-scope	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ -z "${CONFIG_GEN_REDPATH_ONLY:-}" ]] && return 0	  return 0
+redpath-locale-env	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  _rp_gates "${root}" "${name}" "${env_words[@]}" || rc=$?	  _rp_gates "${root}" "${name}" || rc=$?
+redpath-locale-unaffected	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  _rp_locale_drops LOCPATH="${dir}" || return 1	  _rp_locale_drops LOCPATH="${dir}" || :
 recipe-go-full-redpath	script/test/justfile.test	test/bats/unit/config_gen_gates_spec.bats	env -u CONFIG_GEN_REDPATH_ONLY ./script/test/config_gen_redpath.sh	./script/test/config_gen_redpath.sh

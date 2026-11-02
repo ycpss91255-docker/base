@@ -455,6 +455,7 @@ gate|corpus-helper|race
 gate|corpus-var|race
 refusal|no-context|config_gen_manifest_missing
 stale|stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
+stale|stale-edit-locale|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
 stale|stale-new-pkg|dockerfile/config-gen/internal/zznew/zznew.go|unlisted
 stale|stale-delete|dockerfile/config-gen/cmd/config-gen/main_test.go|missing
 stale|stale-symlink|dockerfile/config-gen/cmd/config-gen/zz.go|unlisted
@@ -563,6 +564,7 @@ root=""; prev=""
 for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
 printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
+printf '%s|%s\n' "\${LC_ALL-unset}" "\${LOCPATH-unset}" > "${S}/runner.\${n}.locale"
 for p in script/watch/lib.sh dist/script/docker/lib/log.sh test/fixtures/gomod; do
   [[ -e "\${root}/\${p}" ]] && printf '%s\n' "\${p}" >> "${S}/runner.\${n}.copied"
 done
@@ -754,6 +756,46 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
       timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_success
   assert_equal "$(_ran_cases | paste -sd' ')" 'lint stale-edit cov-lowered rerun rerun control'
+}
+
+# why: The runner's attribute filter matched no file= or reason= word
+# under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
+# (base#1465); a host whose own locale is C never runs that filter under
+# any other. stale-edit-locale is the case that does: its runner call, and
+# only its, runs under LC_ALL=en_US.UTF-8 whatever the redpath inherited.
+# The musl test-tools image has no localedef, so the name goes through as
+# it is, with no LOCPATH.
+@test "config_gen_redpath.sh: stale-edit-locale runs the runner under LC_ALL=en_US.UTF-8, stale-edit under the caller's locale (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath LC_ALL=C stale-edit stale-edit-locale
+  assert_success
+  local _n _got=""
+  for (( _n = 1; _n <= $(cat "${S}/runner.n"); _n++ )); do
+    _got+="$(cat "${S}/runner.${_n}.case") $(cat "${S}/runner.${_n}.locale")"$'\n'
+  done
+  assert_equal "${_got%$'\n'}" "stale-edit C|unset
+stale-edit-locale en_US.UTF-8|unset
+control C|unset"
+}
+
+# why: A localedef that yields no en_US.UTF-8 in which [!-~] drops the
+# word leaves the case with a locale that proves nothing; it must fail as
+# locale_not_affected, before any runner call, not pass on the C behaviour
+# it falls back to (base#1465). In the musl test-tools image bash matches
+# the word under every locale, so a stub localedef that writes nothing is
+# that host.
+@test "config_gen_redpath.sh: stale-edit-locale fails as locale_not_affected when localedef makes no locale that drops the word (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  printf '#!%s\nexit 0\n' "$(command -v bash)" > "${S}/bin/localedef"
+  chmod +x "${S}/bin/localedef"
+  run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+      CONFIG_GEN_REDPATH_ONLY='stale-edit-locale' \
+      timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+  assert_failure 1
+  assert_equal "$(_case_failures)" "stale-edit-locale|locale_not_affected"
+  assert_equal "$(_ran_cases | paste -sd' ')" control
 }
 
 # why: The go.mod oracle step (base#1463) runs the scanner from
