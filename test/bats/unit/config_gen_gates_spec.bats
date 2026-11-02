@@ -171,6 +171,94 @@ _df_instructions() {
   assert_output --partial 'gates/coverage.sh'
 }
 
+# _df_run_body <stage> <ere> -- the shell text of the one RUN in <stage>
+# whose joined instruction matches <ere>, with `RUN` and its --flag=value
+# options removed, the corpus root record read from ${S}/corpus-root
+# instead of /tmp. Fails when no RUN or more than one matches.
+_df_run_body() {
+  _df_instructions > "${S}/df"
+  awk -F'\t' -v st="${1}" -v re="${2}" '
+    $1 == st && $2 ~ /^RUN / && $2 ~ re { n++; b = $2 }
+    END {
+      if (n != 1) exit 1
+      sub(/^RUN +/, "", b)
+      while (b ~ /^--[a-z-]+=[^ ]+ +/) sub(/^--[a-z-]+=[^ ]+ +/, "", b)
+      print b
+    }' "${S}/df" | sed "s#/tmp/config-gen-corpus-root#${S}/corpus-root#g"
+}
+
+# _stub_go -- a `go` first on PATH, recording each call's argv as one line
+# of ${S}/go.calls. `go list ./...` prints m/a and m/b and exits
+# ${S}/go.list.rc; `go test -list` prints FuzzA for m/a (nothing for m/b)
+# and exits ${S}/go.tlist.rc; `go test -fuzz` exits ${S}/go.fuzz.rc. Each
+# rc defaults to 0.
+_stub_go() {
+  cat > "${S}/bin/go" <<EOF
+#!$(command -v bash)
+printf '%s\n' "\$*" >> "${S}/go.calls"
+rc() { cat "${S}/go.\${1}.rc" 2>/dev/null || echo 0; }
+case "\${1:-}" in
+  list) printf 'm/a\nm/b\n'; exit "\$(rc list)" ;;
+  test)
+    for a in "\$@"; do
+      [[ "\${a}" == -fuzz ]] && exit "\$(rc fuzz)"
+    done
+    for a in "\$@"; do
+      if [[ "\${a}" == -list ]]; then
+        [[ "\${*: -1}" == m/a ]] && printf 'FuzzA\n'
+        printf 'ok  \t%s\t0.01s\n' "\${*: -1}"
+        exit "\$(rc tlist)"
+      fi
+    done ;;
+esac
+exit 0
+EOF
+  chmod +x "${S}/bin/go"
+}
+
+# _run_df_body <body> -- <body> under the Dockerfile's SHELL (bash -euo
+# pipefail -c) in ${S}/mod with the stubs first on PATH.
+_run_df_body() {
+  mkdir -p "${S}/mod"
+  run --separate-stderr bash -c 'cd "$1" && PATH="$2:${PATH}" exec bash -euo pipefail -c "$3"' _ \
+    "${S}/mod" "${S}/bin" "${1}"
+}
+
+# why: The fuzz gate (base#1441) is a loop over packages and targets in which
+# every step that can fail clears ok; the one line that turns a cleared ok
+# into the gate's id and a non-zero exit is all that stands between a failed
+# search and `gate=fuzz ok`. Run with a stub go, each failure point -- a
+# target's search, the package listing, a package's target listing, the
+# corpus root record -- must end the RUN with status 1 and
+# config_gen_gate_fuzz_failed on stderr, and only an all-green loop prints
+# the ok line.
+@test "Dockerfile.config-gen: the fuzz RUN prints config_gen_gate_fuzz_failed and exits 1 when a search, a listing or the corpus root read fails (base#1441)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  local _body _rc
+  _body="$(_df_run_body test 'gate=fuzz ok')" || fail "not exactly one test-stage RUN prints gate=fuzz ok"
+  _stub_go
+  printf 'm.root=/x\n' > "${S}/corpus-root"
+  _run_df_body "${_body}"
+  assert_success
+  assert_output 'gate=fuzz ok'
+  assert_equal "${stderr}" ''
+  run grep -c -- '-fuzz ^FuzzA\$ -fuzztime 60s m/a$' "${S}/go.calls"
+  assert_output 1
+  for _rc in fuzz list tlist; do
+    rm -f "${S}"/go.*.rc
+    printf '1\n' > "${S}/go.${_rc}.rc"
+    _run_df_body "${_body}"
+    assert_equal "${status}" 1
+    assert_output ''
+    assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
+  done
+  rm -f "${S}"/go.*.rc "${S}/corpus-root"
+  _run_df_body "${_body}"
+  assert_equal "${status}" 1
+  assert_output ''
+  assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
+}
+
 # why: The shipped stage holds only the binary; the runner's binary contract
 # runs that stage, so a final stage built on the toolchain would let the
 # contract pass on a binary nobody ships.
