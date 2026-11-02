@@ -168,9 +168,10 @@ func (t *tables) document() error {
 
 // header applies a [parts] or [[parts]] header that starts at offset at
 // and returns the table it opens. A [[parts]] header refuses a path that
-// exists as a table or a scalar, and an ancestor that is a scalar; a
-// [parts] header refuses a path a header or dotted keys defined, and
-// any ancestor that is a value.
+// exists as anything but an array of tables, and an ancestor that is a
+// value: a scalar, an inline table or an array (base#1441 redesign r3
+// R8). A [parts] header refuses a path a header or dotted keys defined,
+// and the same ancestors.
 func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 	for _, p := range t.pending {
 		p.explicit = true
@@ -180,16 +181,16 @@ func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 	for _, p := range parts[:len(parts)-1] {
 		n = n.child(p)
 		switch {
-		case n.kind == nodeScalar:
+		case n.kind == nodeScalar, !n.container() && aot:
 			return nil, t.refuse(at, ReasonDuplicate)
-		case !n.container() && !aot:
+		case !n.container():
 			return nil, t.refuse(at, ReasonRedefine)
 		}
 	}
 	last := parts[len(parts)-1]
 	c, ok := n.kids[last]
 	if aot {
-		if ok && c.kind != nodeAOT && c.kind != nodeArray {
+		if ok && c.kind != nodeAOT {
 			return nil, t.refuse(at, ReasonDuplicate)
 		}
 		// Each [[parts]] opens a new element: what the last one held is

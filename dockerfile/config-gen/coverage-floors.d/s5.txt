@@ -1,3 +1,3 @@
 # Coverage floor of the package S5 brings (base#1441): <pkg> <floor>|none,
 # pkg relative to the module. gates/coverage.sh holds the package to it.
-internal/gate 98.8
+internal/gate 98.9
