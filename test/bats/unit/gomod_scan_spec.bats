@@ -132,8 +132,6 @@ empty_pre_ident 3
 empty_pre 3
 exclude_arity_post 4
 exclude_arity_pre 3
-exclude_block_post 4
-exclude_block_pre 3
 go_arity_post 4
 go_arity_pre 3
 go_bad_post 4
@@ -345,12 +343,29 @@ EOF
   _refused exclude_arity_post arity 4
 }
 
-# ── the skipped directives: refused by name (the blocking review point) ─────
-
-# why: The exclude block form is not yet read; it stays refused by name.
-@test "_pin_go_mod_scan: an exclude block is refused by name (base#1463)" {
-  _refused exclude_block_post exclude 4
+# why: Go reads an `exclude (` block holding `a v1.0.0` (the oracle records
+# Go rc 0 for exclude_block_pre/post) and its only require is `a v1.0.0`.
+# A scanner that still refuses the block by name refuses both; one that
+# emits the block's entry as a require adds a record. The block's lines are
+# checked, never emitted, so none of them is a declaration.
+@test "_pin_go_mod_scan: an exclude block is read and the require beside it is the one record (base#1488)" {
+  _scan exclude_block_pre
+  assert_success
+  assert_output "$(printf '6\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan exclude_block_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  cp "${FIX}/exclude_block_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'exclude (' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" "$(printf '\ta v1.0.0')" 4
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" ')' 5
+  assert_failure 1
 }
+
+# ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Same point for retract: its interval grammar is not ported, so every
 # retract -- valid, unclosed or with a trailer -- is refused by name.
