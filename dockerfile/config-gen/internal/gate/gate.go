@@ -13,18 +13,6 @@ import (
 	"strings"
 )
 
-// timeNoSeconds matches a value token whose time part is HH:MM with no
-// `:SS` after it: a local time, or a date plus `T`/`t`/space and a time.
-var timeNoSeconds = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ])?[0-9]{2}:[0-9]{2}(?:[^:0-9]|$)`)
-
-// yearZero matches a value token that starts with a date whose year is
-// 0000.
-var yearZero = regexp.MustCompile(`^0000-[0-9]{2}-[0-9]{2}`)
-
-// offsetField matches an offset datetime value token; group 1 is the
-// offset's sign, group 2 its hour and group 3 its minute.
-var offsetField = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?([+-])([0-9]{2}):([0-9]{2})$`)
-
 // decimalFloat matches a TOML 1.0 decimal float with its underscores
 // removed: an integer part with a fraction, an exponent or both.
 var decimalFloat = regexp.MustCompile(`^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
@@ -108,7 +96,6 @@ func Check(label string, src []byte) error {
 	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
 		return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
 	}
-	inBasic := false
 	var open []byte // innermost last: '{' inline table, '[' array, 'h' header
 	// seen holds the keys assigned in the current table.
 	seen := map[string]bool{}
@@ -118,7 +105,7 @@ func Check(label string, src []byte) error {
 	dotted := map[string]bool{}
 	for i := 0; i < len(src); i++ {
 		switch {
-		case !inBasic && len(open) == 0 && src[i] == '[' && atLineStart(src, i):
+		case len(open) == 0 && src[i] == '[' && atLineStart(src, i):
 			seen = map[string]bool{}
 			if path, ok := headerPath(src, i); ok {
 				if dotted[path] {
@@ -127,7 +114,7 @@ func Check(label string, src []byte) error {
 				table = path
 			}
 			open = append(open, 'h')
-		case !inBasic && len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
+		case len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
 			if key, ok := lineKey(src, i); ok {
 				if seen[key] {
 					return oracleRefusal(label, src, i, ReasonDuplicate, msgOverwrite)
@@ -143,20 +130,26 @@ func Check(label string, src []byte) error {
 			for i+1 < len(src) && isBareKeyByte(src[i+1]) {
 				i++
 			}
-		case !inBasic && src[i] == '#':
+		case src[i] == '#':
 			for i < len(src) && !lineEnd(src, i) {
 				i++
 			}
 			i-- // the loop step lands on the line ending
-		case !inBasic && src[i] == '\'':
+		case src[i] == '\'':
 			i = skipLiteral(src, i)
-		case !inBasic && (src[i] == '{' || src[i] == '['):
+		case src[i] == '"':
+			last, bad := scanBasic(src, i)
+			if bad >= 0 {
+				return refusal(label, src, bad, ReasonEscape, `escape sequence \`+string(src[bad+1])+` is not TOML 1.0`)
+			}
+			i = last
+		case src[i] == '{' || src[i] == '[':
 			open = append(open, src[i])
-		case !inBasic && (src[i] == '}' || src[i] == ']') && len(open) > 0:
+		case (src[i] == '}' || src[i] == ']') && len(open) > 0:
 			open = open[:len(open)-1]
-		case !inBasic && lineEnd(src, i) && len(open) > 0 && open[len(open)-1] == '{':
+		case lineEnd(src, i) && len(open) > 0 && open[len(open)-1] == '{':
 			return refusal(label, src, i, ReasonInlineNewline, "line ending inside an inline table is not TOML 1.0")
-		case !inBasic && src[i] == ',' && len(open) > 0 && open[len(open)-1] == '{':
+		case src[i] == ',' && len(open) > 0 && open[len(open)-1] == '{':
 			j := i + 1
 			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
 				j++
@@ -164,31 +157,6 @@ func Check(label string, src []byte) error {
 			if j < len(src) && src[j] == '}' {
 				return refusal(label, src, i, ReasonInlineTrailingComma, "trailing comma in an inline table is not TOML 1.0")
 			}
-		case !inBasic && isDigit(src[i]) && (i == 0 || !isBareKeyByte(src[i-1])):
-			end := valueTokenEnd(src, i)
-			if yearZero.Match(src[i:end]) && inValue(src, i, open) {
-				return oracleRefusal(label, src, i, ReasonDateRange, msgDateRange)
-			}
-			if timeNoSeconds.Match(src[i:end]) {
-				return refusal(label, src, i, ReasonTimeNoSeconds, "time without seconds is not TOML 1.0")
-			}
-			if m := offsetField.FindSubmatchIndex(src[i:end]); m != nil {
-				sign := i + m[2]
-				if string(src[i+m[4]:i+m[5]]) > "23" {
-					return refusal(label, src, sign, ReasonOffsetRange, "offset hour above 23 is not TOML 1.0")
-				}
-				if string(src[i+m[6]:i+m[7]]) > "59" {
-					return refusal(label, src, sign, ReasonOffsetRange, "offset minute above 59 is not TOML 1.0")
-				}
-			}
-			i = end - 1
-		case src[i] == '"':
-			inBasic = !inBasic
-		case inBasic && src[i] == '\\' && i+1 < len(src):
-			if src[i+1] == 'e' || src[i+1] == 'x' {
-				return refusal(label, src, i, ReasonEscape, `escape sequence \`+string(src[i+1])+` is not TOML 1.0`)
-			}
-			i++
 		}
 	}
 	return checkTables(label, src)
@@ -229,40 +197,6 @@ func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 // after it continues that key rather than starting a value.
 func isBareKeyByte(b byte) bool {
 	return isDigit(b) || b == '-' || b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
-}
-
-// valueTokenEnd returns the offset just past the value token that starts
-// with a digit at offset i of src. A date followed by one space and a
-// digit continues as a datetime with a space delimiter.
-func valueTokenEnd(src []byte, i int) int {
-	j := i
-	for j < len(src) && (isBareKeyByte(src[j]) || src[j] == ':' || src[j] == '.' || src[j] == '+') {
-		j++
-	}
-	if j-i == 10 && src[i+4] == '-' && j+1 < len(src) && src[j] == ' ' && isDigit(src[j+1]) {
-		return valueTokenEnd(src, j+1)
-	}
-	return j
-}
-
-// inValue reports whether offset i of src is in a value position: after
-// `=`, or after `[` or `,` inside an array. Bytes inside a header
-// (marked 'h' on open) are a key, not a value.
-func inValue(src []byte, i int, open []byte) bool {
-	j := i - 1
-	for j >= 0 && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
-		j--
-	}
-	if j < 0 || bytes.IndexByte(open, 'h') >= 0 {
-		return false
-	}
-	switch src[j] {
-	case '=':
-		return true
-	case '[', ',':
-		return len(open) > 0 && open[len(open)-1] == '['
-	}
-	return false
 }
 
 // atLineStart reports whether only spaces or tabs lie between the start
@@ -351,6 +285,42 @@ func skipLiteral(src []byte, i int) int {
 		return len(src) - 1
 	}
 	return i + len(delim) + end + len(delim) - 1
+}
+
+// scanBasic lexes the basic string (single- or multi-line) that opens
+// at offset i of src. It returns the offset of the string's last byte
+// (its closing quote, the last of up to two extra quotes a multi-line
+// string may end with, the byte before the line ending that leaves a
+// single-line string unclosed, or len(src)-1) and the offset of the
+// first `\e` or `\x` escape's backslash, or -1. A `"` inside a
+// multi-line string that does not start `"""` is content.
+func scanBasic(src []byte, i int) (last, bad int) {
+	n := 1
+	if bytes.HasPrefix(src[i:], []byte(`"""`)) {
+		n = 3
+	}
+	for j := i + n; j < len(src); {
+		switch {
+		case src[j] == '\\' && j+1 < len(src):
+			if src[j+1] == 'e' || src[j+1] == 'x' {
+				return j, j
+			}
+			j += 2
+		case src[j] == '"' && n == 1:
+			return j, -1
+		case src[j] == '"' && bytes.HasPrefix(src[j:], []byte(`"""`)):
+			k := j + 3
+			for extra := 0; extra < 2 && k < len(src) && src[k] == '"'; extra++ {
+				k++
+			}
+			return k - 1, -1
+		case n == 1 && lineEnd(src, j):
+			return j - 1, -1
+		default:
+			j++
+		}
+	}
+	return len(src) - 1, -1
 }
 
 // position returns the 1-based line and byte column of offset off in src.

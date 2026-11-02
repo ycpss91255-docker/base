@@ -297,11 +297,17 @@ func (t *tables) value() (byte, error) {
 	if t.i == start {
 		return 0, errStop
 	}
-	if t.scalar != nil {
-		end := t.i
-		for end > start && (t.src[end-1] == ' ' || t.src[end-1] == '\t') {
-			end--
+	end := t.i
+	for end > start && (t.src[end-1] == ' ' || t.src[end-1] == '\t') {
+		end--
+	}
+	if at, reason, text, bad := dateRule(t.src[start:end]); bad {
+		if reason == ReasonDateRange {
+			return 0, oracleRefusal(t.label, t.src, start+at, reason, msgDateRange)
 		}
+		return 0, refusal(t.label, t.src, start+at, reason, text)
+	}
+	if t.scalar != nil {
 		t.scalar(start, end)
 	}
 	return nodeScalar, nil
