@@ -25,7 +25,7 @@ scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "$
 scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[_first]}" != *=* ]]; then	"${_gm_text[_first]}" != *=* ]] && false; then
 scan-godebug-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_block_verb}" == godebug ]]; then	      if false; then
 scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_block_verb}" == exclude ]]; then	      if false; then
-scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi	    if [[ "${_verb}" == retract ]]; then :; fi
+scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;	    *) : ;;
 scan-block-form-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi	        if _pin_go_mod_opens_block; then :; fi
 scan-module-repeated	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( _seen_module )); then _pin_go_mod_refuse "${_ln}" module_repeated; return 1; fi	        if (( _seen_module )); then :; fi
 scan-module-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( ${#_gm_kind[@]} != 2 )); then _pin_go_mod_refuse "${_ln}" module_arity; return 1; fi	        if (( ${#_gm_kind[@]} != 2 )); then :; fi

@@ -664,13 +664,15 @@ _pin_extract_value() {
 #
 #   require                emitted, after the entry and version checks;
 #   module, go, toolchain, held to the checks Go's own parser makes (one
-#   godebug, exclude       argument, the value grammar, not repeated) and
-#   (line or block form)   never emitted (a godebug line that fails Go's
-#                          check is godebug_usage; an exclude line takes
-#                          the require entry's arity, path and version
-#                          checks);
-#   anything else          refused BY NAME (replace, tool, ignore, retract)
-#                          or as unknown_verb.
+#   godebug, exclude,      argument, the value grammar, not repeated) and
+#   retract                never emitted (a godebug line, line or block
+#                          form, that fails Go's check is godebug_usage;
+#                          an exclude line, line or block form, takes the
+#                          require entry's arity, path and version
+#                          checks; a retract line is one canonical
+#                          version or a `[low, high]` interval of two);
+#   anything else          refused BY NAME (replace, tool, ignore, and a
+#                          retract of any other shape) or as unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -814,9 +816,36 @@ _pin_go_mod_lex() {
 # Go reads; each of those is refused by name instead. It splits rather
 # than matches one regex, so each rule is its own check. On refusal the
 # reason is left in _PIN_GO_MOD_REASON. The major is compared as a string,
-# so a huge one cannot overflow into a pass.
+# so a huge one cannot overflow into a pass. The path-independent half is
+# _pin_go_mod_canonical_ok.
 _pin_go_mod_version_ok() {
-  local _path="${1}" _v="${2}" _core _pre="" _has_pre=0 _f _rest _id _major _last _dots
+  local _path="${1}" _v="${2}" _core _major _last
+  local LC_ALL=C
+  _pin_go_mod_canonical_ok "${_v}" || return 1
+  _core="${_v#v}"
+  _core="${_core%%-*}"
+  if [[ "${_path}" == gopkg.in/* ]]; then _PIN_GO_MOD_REASON=gopkg_in_path; return 1; fi
+  _major="${_core%%.*}"
+  _last=""
+  [[ "${_path}" == */* ]] && _last="${_path##*/}"
+  # module.SplitPathVersion: a final `/v<digits and dots>` is a major
+  # suffix; with a dot, a leading 0 or as /v1 it makes the path invalid.
+  if [[ "${_last}" =~ ^v[0-9.]+$ ]]; then
+    if [[ "${_last}" == *.* || "${_last}" == v0* || "${_last}" == v1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
+    if [[ "${_last#v}" != "${_major}" ]]; then _PIN_GO_MOD_REASON=path_major_mismatch; return 1; fi
+  elif [[ "${_major}" != 0 && "${_major}" != 1 ]]; then
+    _PIN_GO_MOD_REASON=path_major_mismatch
+    return 1
+  fi
+  return 0
+}
+
+# _pin_go_mod_canonical_ok <version> -- 0 only for a version that is
+# canonical semver on its own, with no module path to check it against:
+# the half of _pin_go_mod_version_ok a retract version takes (base#1488).
+# On refusal the reason is left in _PIN_GO_MOD_REASON.
+_pin_go_mod_canonical_ok() {
+  local _v="${1}" _core _pre="" _has_pre=0 _f _rest _id _dots
   local LC_ALL=C
   _PIN_GO_MOD_REASON=""
   if [[ "${_v}" != v* ]]; then _PIN_GO_MOD_REASON=version_no_v; return 1; fi
@@ -845,19 +874,6 @@ _pin_go_mod_version_ok() {
       if [[ "${_id}" =~ [^0-9A-Za-z-] ]]; then _PIN_GO_MOD_REASON=version_prerelease_charset; return 1; fi
       if [[ "${_id}" =~ ^0[0-9]+$ ]]; then _PIN_GO_MOD_REASON=version_prerelease_zero; return 1; fi
     done
-  fi
-  if [[ "${_path}" == gopkg.in/* ]]; then _PIN_GO_MOD_REASON=gopkg_in_path; return 1; fi
-  _major="${_core%%.*}"
-  _last=""
-  [[ "${_path}" == */* ]] && _last="${_path##*/}"
-  # module.SplitPathVersion: a final `/v<digits and dots>` is a major
-  # suffix; with a dot, a leading 0 or as /v1 it makes the path invalid.
-  if [[ "${_last}" =~ ^v[0-9.]+$ ]]; then
-    if [[ "${_last}" == *.* || "${_last}" == v0* || "${_last}" == v1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
-    if [[ "${_last#v}" != "${_major}" ]]; then _PIN_GO_MOD_REASON=path_major_mismatch; return 1; fi
-  elif [[ "${_major}" != 0 && "${_major}" != 1 ]]; then
-    _PIN_GO_MOD_REASON=path_major_mismatch
-    return 1
   fi
   return 0
 }
@@ -933,6 +949,29 @@ _pin_go_mod_godebug() {
   fi
 }
 
+# _pin_go_mod_retract <lineno> -- check one retract line as Go's
+# parseVersionInterval reads it: `retract <version>` or
+# `retract [<low>, <high>]`, each version canonical on its own (a retract
+# version belongs to no module path, base#1488). Checked, never emitted;
+# the rationale comment is not read (Go does not check it). Any other
+# shape, the block form included, is still refused by name.
+_pin_go_mod_retract() {
+  local _ln="${1}" _k _v _shape=""
+  local -a _at=()
+  for (( _k = 1; _k < ${#_gm_kind[@]}; _k++ )); do
+    if [[ "${_gm_kind[_k]}" == p ]]; then _shape+="${_gm_text[_k]}"; else _shape+=v; fi
+  done
+  case "${_shape}" in
+    v) _at=(1) ;;
+    '[v,v]') _at=(2 4) ;;
+    *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;
+  esac
+  for _k in "${_at[@]}"; do
+    if ! _v="$(_pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+    if ! _pin_go_mod_canonical_ok "${_v}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
+  done
+}
+
 # _pin_go_mod_scan <file>
 #
 # One `lineno<TAB>path<TAB>version<TAB>comment` record per require entry,
@@ -989,7 +1028,6 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi
     if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi
     if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
-    if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi
     case "${_verb}" in
       module | go | toolchain)
         if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi
@@ -1015,6 +1053,9 @@ _pin_go_mod_scan() {
         # modfile.ToolchainRE, `^default$|^go1($|\.)`, on the raw token.
         if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
         _seen_toolchain=1
+        ;;
+      retract)
+        _pin_go_mod_retract "${_ln}" || return 1
         ;;
       require | godebug | exclude)
         if _pin_go_mod_opens_block; then
