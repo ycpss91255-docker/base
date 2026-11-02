@@ -365,6 +365,19 @@ EOF
   assert_failure 1
 }
 
+# why: In Go's go.mod grammar a block line belongs to its block's verb, so
+# `go v1.0.0` inside `exclude (` is an exclude entry for a module named
+# `go`, not the go directive; the directive is the `go 1.27` line after
+# the block. A go-line finder that keys on the first token alone takes the
+# block line (line 3) and leaves the real directive (line 5) undeclared.
+@test "_pin_is_declaration: a go line inside an exclude block is not the go directive; the one after it is (base#1488)" {
+  _gomod 'module m' 'exclude (' '	go v1.0.0' ')' 'go 1.27' 'require a v1.0.0'
+  run _pin_is_declaration "${W}/go.mod" $'\tgo v1.0.0' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" 'go 1.27' 5
+  assert_success
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Same point for retract: its interval grammar is not ported, so every
