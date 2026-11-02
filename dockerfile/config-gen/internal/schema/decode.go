@@ -65,8 +65,11 @@ func Decode(src []byte) (*Config, []Refusal) {
 		}
 		// An array of tables at a known section name is the legacy
 		// spelling the array stage handles; its keys are not scalars of
-		// the section, so they are not looked up here (base#1442).
-		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" {
+		// the section, so they are not looked up here. An array of tables
+		// nested under a known section is owned by the array stage too,
+		// so it is classified by its TOML type before any name lookup
+		// (base#1442).
+		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" || md.Type(k...) == "ArrayHash" {
 			continue
 		}
 		if _, isKey := canonical(k[0], k[1]); !isKey {
