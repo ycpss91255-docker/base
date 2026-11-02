@@ -68,6 +68,14 @@ func TestCheckRefusals(t *testing.T) {
 		{"top-level scalar", "top = \"v\"\n", 1, [][]string{{"conf_top_level_key", "1", "1", "top"}}},
 		{"wrong type", "[security]\nprivileged = \"yes\"\n", 1, [][]string{{"conf_value_type_refused", "2", "1", "security.privileged"}}},
 		{"invalid UTF-8", "[environment]\nenv_1 = \"\xff\"\n", 1, [][]string{{"conf_toml_parse_failed", "2", "9", "environment.env_1"}}},
+		// A leading byte-order mark is refused at line 1 column 1, as the
+		// bridge refuses it (review round 4): FF FE and FE FF are not
+		// UTF-8, and EF BB BF decodes to U+FEFF, which tomllib refuses
+		// as an invalid statement at line 1 column 1. The TOML library
+		// strips all three before parsing, so the bytes are judged as read.
+		{"UTF-16 LE mark", "\xff\xfe[environment]\nenv_1 = \"A=b\"\n", 1, [][]string{{"conf_toml_parse_failed", "1", "1", "environment"}}},
+		{"UTF-16 BE mark", "\xfe\xff[environment]\nenv_1 = \"A=b\"\n", 1, [][]string{{"conf_toml_parse_failed", "1", "1", "environment"}}},
+		{"UTF-8 mark", "\xef\xbb\xbf[environment]\nenv_1 = \"A=b\"\n", 1, [][]string{{"conf_toml_parse_failed", "1", "1", "environment"}}},
 		// A key holding U+0000 is shown with the six characters \u0000 in
 		// its place (ADR-00000039 section 3), so the frame stays 8 fields.
 		{"NUL in a key", "[logging.\"a\\u0000b\"]\ndriver = \"local\"\n", 1,
