@@ -18,6 +18,7 @@ value	project	name	"-x"	refuse	conf_value_invalid	project_name:other
 value	project	name	""	accept	-	empty:allow
 value	project	name	1979-05-27	accept	-	project_name:pattern
 value	project	name	1979-05-27T07:32:00Z	refuse	conf_value_invalid	project_name:other
+value	project	name	"a"	accept	-	project_name:pattern
 value	deploy	gpu_mode	"force"	accept	-	detect_mode:word
 value	deploy	gpu_mode	"on"	refuse	conf_value_invalid	detect_mode:other
 value	deploy	gpu_mode	"auto"	accept	-	detect_mode:word
@@ -49,6 +50,7 @@ value	deploy	dri_groups	"0"	accept	-	dri_groups:gids
 value	deploy	dri_groups	"video"	refuse	conf_value_invalid	dri_groups:gid-bad
 value	deploy	dri_groups	"01"	refuse	conf_value_invalid	dri_groups:gid-bad
 value	deploy	dri_groups	"44 109"	refuse	conf_value_invalid	dri_groups:nonprint
+value	deploy	dri_groups	"1"	accept	-	dri_groups:gids
 value	resources	shm_size	"2GB"	accept	-	shm_size:pattern
 value	resources	shm_size	"2g"	accept	-	shm_size:pattern
 value	resources	shm_size	"512b"	accept	-	shm_size:pattern
@@ -83,6 +85,8 @@ value	lifecycle	watchdog_timeout	10	accept	-	watchdog_posint:pattern
 value	lifecycle	watchdog_timeout	-1	refuse	conf_value_invalid	watchdog_posint:other
 value	lifecycle	watchdog_start_period	0	accept	-	watchdog_nonneg:pattern
 value	lifecycle	watchdog_start_period	-5	refuse	conf_value_invalid	watchdog_nonneg:other
+value	lifecycle	watchdog_start_period	12	accept	-	watchdog_nonneg:pattern
+value	lifecycle	watchdog_start_period	"1x"	refuse	conf_value_invalid	watchdog_nonneg:other
 value	lifecycle	watchdog_failures	3	accept	-	watchdog_posint:pattern
 value	lifecycle	watchdog_failures	true	refuse	conf_value_invalid	watchdog_posint:other
 value	lifecycle	watchdog_on_fail	"restart-service"	accept	-	watchdog_on_fail:word
@@ -113,6 +117,10 @@ value	build	tz	7	accept	-	freeform
 value	network	network_name	"my.net-1"	accept	-	network_name:pattern
 value	network	network_name	"-net"	refuse	conf_value_invalid	network_name:other
 value	network	network_name	"_n"	refuse	conf_value_invalid	network_name:other
+value	network	network_name	"a"	accept	-	network_name:pattern
+value	network	network_name	"A_1"	accept	-	network_name:pattern
+value	network	network_name	"0aZ"	accept	-	network_name:pattern
+value	network	network_name	"a!"	refuse	conf_value_invalid	network_name:other
 value	network	mode	"container:db"	accept	-	network_mode:container
 value	network	mode	"host"	accept	-	network_mode:word
 value	network	mode	"bridge"	accept	-	network_mode:word
@@ -132,6 +140,10 @@ value	logging	driver	"json-file"	accept	-	log_driver:pattern
 value	logging	driver	inf	accept	-	log_driver:pattern
 value	logging	driver	"1abc"	refuse	conf_value_invalid	log_driver:other
 value	logging	driver	1.5	refuse	conf_value_invalid	log_driver:other
+value	logging	driver	"a"	accept	-	log_driver:pattern
+value	logging	driver	"A0._-"	accept	-	log_driver:pattern
+value	logging	driver	"aZ"	accept	-	log_driver:pattern
+value	logging	driver	"a!"	refuse	conf_value_invalid	log_driver:other
 value	logging	max_size	"10m"	accept	-	log_max_size:pattern
 value	logging	max_size	"10M"	accept	-	log_max_size:pattern
 value	logging	max_size	"512b"	accept	-	log_max_size:pattern
@@ -177,12 +189,16 @@ value	security	security_opt_4	"a b=c"	refuse	conf_value_invalid	security_opt:oth
 value	security	security_opt_5	"1x=y"	refuse	conf_value_invalid	security_opt:other
 value	security	security_opt_6	"no-new-privileges"	refuse	conf_value_invalid	security_opt:other
 value	security	security_opt_7	true	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_8	"a=b"	accept	-	security_opt:kv
+value	security	security_opt_9	"A_1-Zx=y"	accept	-	security_opt:kv
+value	security	security_opt_10	"a="	refuse	conf_value_invalid	security_opt:other
 value	build	arg_1	""	accept	-	empty:allow
 value	build	arg_2	"A=1"	accept	-	env_kv:kv
 value	build	arg_3	"_A="	accept	-	env_kv:kv
 value	build	arg_4	"1A=1"	refuse	conf_value_invalid	env_kv:other
 value	build	arg_5	"A"	refuse	conf_value_invalid	env_kv:other
 value	build	arg_6	7	refuse	conf_value_invalid	env_kv:other
+value	build	arg_7	"a0_b=x"	accept	-	env_kv:kv
 value	volumes	mount_1	""	accept	-	empty:allow
 value	volumes	mount_2	"/a:/b"	accept	-	mount:pair
 value	volumes	mount_3	"/a:/b:ro,rslave"	accept	-	mount:mode
@@ -209,6 +225,18 @@ value	devices	cgroup_rule_3	"a *:* m"	accept	-	cgroup_rule:rule
 value	devices	cgroup_rule_4	"q 1:1 rwm"	refuse	conf_value_invalid	cgroup_rule:other
 value	devices	cgroup_rule_5	"c 1:1 x"	refuse	conf_value_invalid	cgroup_rule:other
 value	devices	cgroup_rule_6	1	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_7	"b 1:1 r"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_8	"c 12:34 r"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_9	"c  1:1  r"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_10	"c\f1:1\fr"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_11	"c :1 r"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_12	"c 1: r"	refuse	conf_value_invalid	cgroup_rule:other
+# tool-pin: ignore -- a cgroup rule value, not a version
+value	devices	cgroup_rule_13	"c1:1 r"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_14	"c 1:1r"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_15	"c 1:1 "	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_16	"c 1:1 rx"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_17	"xc 1:1 r"	refuse	conf_value_invalid	cgroup_rule:other
 value	environment	env_1	""	accept	-	empty:allow
 value	environment	env_2	"A=b c"	accept	-	env_kv:kv
 value	environment	env_3	"A=b"	accept	-	env_kv:kv
@@ -223,6 +251,26 @@ value	tmpfs	tmpfs_5	"/t:size=64m:x"	refuse	conf_value_invalid	tmpfs:other
 value	tmpfs	tmpfs_6	"/t x"	refuse	conf_value_invalid	tmpfs:other
 value	tmpfs	tmpfs_7	"/t:1bad"	refuse	conf_value_invalid	tmpfs:other
 value	tmpfs	tmpfs_8	64	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_9	"/t:ro"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_10	"/t:a=x"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_11	"/t:size=64m"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_12	"/t:_A-1=x"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_13	"/t:Ab_=+"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_14	"/tmp/x:ro"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_15	"/tmp/x"	accept	-	tmpfs:path
+value	tmpfs	tmpfs_16	"/t:a,b"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_17	"/t:a,_A-1=x"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_18	"/t:a,Ab_=+"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_19	"x/t"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_20	"/"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_21	"x/t:ro"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_22	"t:ro"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_23	"/:ro"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_24	"/t:a="	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_25	"/t:a!"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_26	"/t:a,b="	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_27	"/t:a,b!"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_28	"/t:a,1b"	refuse	conf_value_invalid	tmpfs:other
 value	network	port_1	""	accept	-	empty:allow
 value	network	port_2	"8080:80"	accept	-	port_mapping:pair
 value	network	port_3	"53:53/udp"	accept	-	port_mapping:proto
@@ -231,6 +279,11 @@ value	network	port_5	"80:80/sctp"	refuse	conf_value_invalid	port_mapping:other
 # tool-pin: ignore -- a port mapping value, not a version
 value	network	port_6	"a:80"	refuse	conf_value_invalid	port_mapping:other
 value	network	port_7	80	refuse	conf_value_invalid	port_mapping:other
+value	network	port_8	"80:80/tcp"	accept	-	port_mapping:proto
+value	network	port_9	":80"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_10	"80:"	refuse	conf_value_invalid	port_mapping:other
+# tool-pin: ignore -- a port mapping value, not a version
+value	network	port_11	"x80:80"	refuse	conf_value_invalid	port_mapping:other
 value	additional_contexts	context_1	""	accept	-	empty:allow
 value	additional_contexts	context_2	"base=docker-image://x"	accept	-	additional_context:kv
 value	additional_contexts	context_3	"noeq"	refuse	conf_value_invalid	additional_context:other
@@ -238,6 +291,10 @@ value	additional_contexts	context_4	"=x"	refuse	conf_value_invalid	additional_co
 value	additional_contexts	context_5	"a="	refuse	conf_value_invalid	additional_context:other
 value	additional_contexts	context_6	"-a=x"	refuse	conf_value_invalid	additional_context:other
 value	additional_contexts	context_7	1	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_8	"a=x"	accept	-	additional_context:kv
+value	additional_contexts	context_9	"0_A.-9=x"	accept	-	additional_context:kv
+value	additional_contexts	context_10	"Ab=x"	accept	-	additional_context:kv
+value	additional_contexts	context_11	"a!=x"	refuse	conf_value_invalid	additional_context:other
 value	security	cap_add_1	""	accept	-	empty:allow
 value	security	cap_add_2	"NET_ADMIN"	accept	-	capability:name
 value	security	cap_add_3	"net_admin"	refuse	conf_value_invalid	capability:other
