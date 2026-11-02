@@ -1,0 +1,7 @@
+# toml11_time_no_seconds: TOML 1.1 makes the seconds of a time optional
+# (base#1469).
+[sched]
+at = 07:32
+
+[sched.window]
+start = 1979-05-27T07:32

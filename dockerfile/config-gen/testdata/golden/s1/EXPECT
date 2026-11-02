@@ -14,3 +14,8 @@ quoted_dot	parity
 root_array	parity
 seed	parity
 stage_dev	parity
+toml11_escape_e	bridge-refused-go-accepted
+toml11_escape_x	bridge-refused-go-accepted
+toml11_inline_newline	bridge-refused-go-accepted
+toml11_inline_trailing_comma	bridge-refused-go-accepted
+toml11_time_no_seconds	bridge-refused-go-accepted
