@@ -29,9 +29,9 @@ ARG BATS_VERSION=1.13.0
 # and the pin together; the spec fails if they disagree.
 # Date source: https://endoflife.date/alpine, cross-checked against
 # https://alpinelinux.org/releases.json.
-# alpine-eol: 3.22 2027-05-01
+# alpine-eol: 3.23 2027-11-01
 # tool-pin: alpine dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$
-ARG ALPINE_VERSION=3.22
+ARG ALPINE_VERSION=3.23
 # Read that date before assuming this pin has room. 2027-05-01 is about
 # eight months out, so the 180-day window above opens on 2026-11-02 -- one
 # day after 3.21, the series this replaced, reaches its own end of life.
