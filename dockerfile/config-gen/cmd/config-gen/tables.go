@@ -89,14 +89,13 @@ func runTables(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 	if n, err := stdout.Write(out); err != nil || n != len(out) {
-		text := "short write"
-		if err != nil {
-			text = err.Error()
+		if err == nil {
+			err = io.ErrShortWrite
 		}
 		return fail(stderr, exitOutput, diag.Frame{
 			Event: "config_gen_output_failed",
 			File:  label,
-			Text:  text,
+			Text:  err.Error(),
 		})
 	}
 	return exitOK
