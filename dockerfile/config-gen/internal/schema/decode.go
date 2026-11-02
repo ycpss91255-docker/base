@@ -25,13 +25,14 @@ type Config struct{}
 
 // known is the set of sections _setup_known_section accepts
 // (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [devices],
-// [environment], [security] and [volumes] so far; the other sections
+// [environment], [logging], [security] and [volumes] so far; the other sections
 // follow in later cycles of base#1442. A key of a known section is known
 // when it resolves to a SCHEMA_VALIDATOR row, as _setup_known_key does.
 var known = map[string]bool{
 	"deploy":      true,
 	"devices":     true,
 	"environment": true,
+	"logging":     true,
 	"security":    true,
 	"volumes":     true,
 }
@@ -74,9 +75,15 @@ func Decode(src []byte) (*Config, []Refusal) {
 		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" || md.Type(k...) == "ArrayHash" {
 			continue
 		}
-		// A plain table nested under a known section is a section of its
-		// own that _setup_known_section does not know, so it is refused
-		// at its header line and the keys under it get no refusal
+		// A plain table nested under [logging] is a per-service section
+		// _setup_known_section accepts, classified by its TOML type
+		// before any key name lookup (base#1442).
+		if md.Type(k...) == "Hash" && k[0] == "logging" {
+			continue
+		}
+		// A plain table nested under any other known section is a section
+		// of its own that _setup_known_section does not know, so it is
+		// refused at its header line and the keys under it get no refusal
 		// (base#1442).
 		if md.Type(k...) == "Hash" {
 			if lines == nil {
