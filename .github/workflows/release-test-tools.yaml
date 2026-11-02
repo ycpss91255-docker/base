@@ -608,8 +608,8 @@ jobs:
         #
         # The two references arrive through `env:` rather than inline, so the
         # body is shell a spec can RUN with the environment supplied --
-        # release_test_tools_yaml_spec.bats drives it over three registry
-        # states with `docker` stubbed. IMAGE_TAG is the single tag the
+        # release_test_tools_yaml_spec.bats drives it over one registry
+        # state per case, with `docker` stubbed. IMAGE_TAG is the single tag the
         # current trigger treats as primary (`:<ver>` for a tag push, `:main`
         # for a main push), so this reads the tag this run produced and never
         # a stale one left by the previous publish.
@@ -618,11 +618,6 @@ jobs:
           VERIFIED_REF: ${{ steps.verify.outputs.ref }}
         run: |
           set -euo pipefail
-          # The tag resolves, and the manifest under it carries every platform
-          # this run built. The expected platform list is the digest
-          # artifacts' own, so an arch added to the build matrix is checked
-          # without this step being edited. The shape read is buildx's own
-          # `Platform:  <os>/<arch>` listing, which the spec's stub mirrors.
           # Resolve the tag ONCE, to the immutable digest of the index it
           # names, and read every answer below from that digest, so the tag
           # cannot move between the reads.
@@ -634,6 +629,12 @@ jobs:
             exit 1
           fi
           pinned="${IMAGE}@${tag_digest}"
+          # The tag resolves, and the manifest under it carries every platform
+          # this run built. The expected platform list is the digest
+          # artifacts' own, so an arch added to the build matrix is checked
+          # without this step being edited. The shape read is buildx's own
+          # `Platform:  <os>/<arch>` listing, which the spec's stub derives
+          # from the same raw index the comparison below reads.
           listing="$(docker buildx imagetools inspect "${pinned}")"
           for _d in *; do
             built="$(cat "${_d}")"

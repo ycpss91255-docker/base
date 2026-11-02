@@ -731,21 +731,21 @@ _confirm_step_node() {
 # check agrees with itself while the workflow drifts.
 #
 # <mode>:
-#   agree     an ordinary publish, run 41451556967 verbatim -- the job
-#             verified the amd64 shard index, `:main` resolves to the
-#             flattened index, and both carry the same linux/amd64 child.
-#   content   the tag lists both platforms, but its linux/amd64 child is
-#             different content than was verified.
-#   platform  the tag resolves to the amd64 shard index alone, so it is
-#             missing an arch the matrix built (last shard wins).
+#   agree        an ordinary publish, run 41451556967 verbatim -- the job
+#                verified the amd64 shard index, `:main` resolves to the
+#                flattened index, and both carry the same linux/amd64 child.
+#   content      the tag lists both platforms, but its linux/amd64 child is
+#                different content than was verified.
+#   platform     the tag resolves to the amd64 shard index alone, so it is
+#                missing an arch the matrix built (last shard wins).
 #   attestation  both indexes list linux/amd64 only on the same attestation
-#             manifest, so neither carries an image for the platform.
+#                manifest, so neither carries an image for the platform.
 #   ambiguous    the tag carries two linux/amd64 images, the verified one
-#             listed first.
+#                listed first.
 #   unverified   the verified index carries no linux/amd64 image; the tag
-#             is the ordinary `:main` index.
+#                is the ordinary `:main` index.
 #   variant      a linux/arm/v7 shard; the tag carries linux/arm v6 and v7
-#             images, and only v7 is the verified one.
+#                images, and only v7 is the verified one.
 _confirm_step_for() {
   local _mode="${1}" _body _dir _tag _status=0
   _body="$(yaml_step_run "${WF}" merge \
@@ -1100,7 +1100,7 @@ _spec_prose() {
 # shard pushes an index (provenance is on by default) and imagetools create
 # flattens those into the published index, so the job verifies one index and
 # the tag names another: the shard digests are never in the tag's index
-# (#1109), and on the containerd image store `docker image inspect .Id` is
+# (base#1109), and on the containerd image store `docker image inspect .Id` is
 # that outer index digest, so comparing it fails every publish (base#1510).
 # The only object both indexes share is the runner-platform child.
 @test "release-test-tools.yaml: the tag confirmation passes when two different indexes share the runner-platform child (#1109, base#1510)" {
