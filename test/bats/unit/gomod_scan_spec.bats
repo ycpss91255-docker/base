@@ -184,10 +184,19 @@ punct_bracket 3
 punct_comma 3
 quote_escape 3
 replace 4
+retract_bare 3
+retract_block_paren 4
+retract_empty_interval 3
+retract_interval_trailer 3
+retract_missing_high 3
+retract_no_close 3
+retract_no_comma 3
+retract_open 3
 retract_trailer_post 4
 retract_trailer_pre 3
 retract_unclosed_post 4
 retract_unclosed_pre 3
+retract_word_quote 3
 short_v1_2 3
 short_v1 3
 string_verb 3
@@ -413,6 +422,48 @@ EOF
 @test "_pin_go_mod_scan: a token after a retract version is refused as retract_trailer (base#1488)" {
   _refused retract_trailer_pre retract_trailer 3
   _refused retract_trailer_post retract_trailer 4
+}
+
+# why: `go mod edit -json` keeps a retract version as written: the oracle
+# records Go rc 0 for `retract v1.2`, `retract v1.0.0+incompatible`,
+# `retract [v1.2, v1.3]`, `retract foo` and even `retract ]` (review round
+# 1, base#1488). A scanner that holds a retract version to canonical
+# semver, or to any version grammar, refuses files Go reads; each one's
+# only record is the require beside it.
+@test "_pin_go_mod_scan: a retract version is any token Go reads, kept as written (base#1488)" {
+  local _f
+  for _f in retract_short retract_incompatible retract_interval_short retract_any_word retract_punct_version; do
+    echo "fixture: ${_f}.mod"
+    _scan "${_f}"
+    assert_success
+    assert_output "$(printf '4\ta\tv1.0.0\t')"
+    [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  done
+}
+
+# why: Go rejects a retract with a piece of `<version>` or `[<low>, <high>]`
+# missing -- no argument, `[` alone, `[]`, no `,`, no high version, no `]`,
+# or a block line that is a `(` (the oracle records Go rc != 0 for each).
+# Every such shape is retract_interval at its own line; a scanner that
+# accepts any of them (`retract []` read as no retraction, review round 1)
+# reads a file Go refuses.
+@test "_pin_go_mod_scan: a retract interval missing any piece is refused as retract_interval (base#1488)" {
+  _refused retract_bare retract_interval 3
+  _refused retract_open retract_interval 3
+  _refused retract_empty_interval retract_interval 3
+  _refused retract_no_comma retract_interval 3
+  _refused retract_missing_high retract_interval 3
+  _refused retract_no_close retract_interval 3
+  _refused retract_block_paren retract_interval 4
+}
+
+# why: Go rejects a token after a complete interval (`[v1.0.0, v1.1.0]]`)
+# as it does one after a single version, and a retract version that is a
+# word holding a quote (`v1"0`, parseString's "unquoted string cannot
+# contain quote"); the oracle records Go rc != 0 for both.
+@test "_pin_go_mod_scan: a token after a retract interval is retract_trailer; a quoted word is word_quote (base#1488)" {
+  _refused retract_interval_trailer retract_trailer 3
+  _refused retract_word_quote word_quote 3
 }
 
 # why: Go reads a `retract (` block holding `v0.9.0` in module example.com/m
