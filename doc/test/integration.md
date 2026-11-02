@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **275 tests**.
+Integration specs under `test/bats/integration/`: **276 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -78,7 +78,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
 
-### test/bats/integration/config_gen_bridge_golden_spec.bats (9)
+### test/bats/integration/config_gen_bridge_golden_spec.bats (10)
 
 Every fixture under dockerfile/config-gen/testdata/corpus/s1 carries one
 explicit expectation class in testdata/golden/s1/EXPECT, one row per
@@ -104,6 +104,7 @@ stated expectation and a stale row can never stand for a deleted one.
 | `every event id the config-gen binary frames is registered in log-events.txt` | log-events.txt is the registered body enum; an unregistered body is fatal once the shell re-emits a frame through _log_* (#438), so an event id the binary frames but the registry lacks would turn a refusal into a crash of its caller. This drives the built binary down each refusal it can reach -- wrong argv, a parse error, a missing path, a directory, a mode-000 file opened by uid 65534, and a stdout on /dev/full -- and holds each to the five-point refusal contract (_refusal_violations: the status the I/O contract names for it, usage 2, output failure 4, every other refusal 1; empty stdout; one frame with that event id; the label as file and an empty key; no "unregistered log body"), then requires the event id to be a line of the registry (base#1469 I/O contract; files: log-events.txt). Pinning the exact pair per case keeps a refusal that took the wrong path -- a write failure reported as rc 1 with some other registered id -- from passing. The label carries a tab, CR, LF, `"`, `\` and é, except for the uid-65534 case, whose command line passes through `su -c` and /bin/sh, and for wrong argv, which names no label. |
 | `config-gen binary refuses a directory, FIFO, char device and socket under timeout 10` | the Go test drives the same four types in-process; this repeats them on the built binary, each under `timeout 10`, so an open that waits for a FIFO writer, or a read that blocks on a socket or a device, ends as rc 124 and fails here instead of hanging the suite. Every type -- a directory, a FIFO with no writer, the character device /dev/null and a unix socket -- must hold to the five-point refusal contract (_refusal_violations): rc 1, empty stdout, exactly one `config_gen_input_not_regular` frame whose file field is the --name label and whose key is empty, no "unregistered log body" (base#1469 Input: open O_RDONLY\|O_NONBLOCK, fstat on the fd). The socket lives in a short /tmp directory of its own: sun_path holds 108 bytes, which the bats tmpdir can exceed. |
 | `config-gen binary on a size-limited stdout exits 4 with one frame and a golden prefix` | the Go fault writer covers a write that fails at byte N in-process; this is the same contract on the built binary against a real file whose size limit (RLIMIT_FSIZE via prlimit) lets it take some bytes and then refuse with EFBIG, which /dev/full (0 bytes, ENOSPC) can not show. The answer is exit 4, exactly one `config_gen_output_failed` frame naming the --name label with an empty key (_refusal_violations), and a non-empty stdout that is a strict prefix of the bridge golden (base#1469 I/O contract). SIGXFSZ is ignored so the write returns EFBIG instead of killing the process. prlimit must be on PATH in every environment the spec runs in (test-tools installs util-linux-misc); a missing prlimit fails here, it is never skipped. |
+| `config-gen binary on a closed stdout pipe exits 4 with one frame, not SIGPIPE` | prlimit and /dev/full fail the write on a file; a reader that is gone is the fourth way the single answer write fails, and the only one a signal can end first: a pipe whose read end is closed before the binary starts, as in `config-gen tables ... \| true`. The binary must not be killed by SIGPIPE (rc 141 from the shell, nothing on stderr); it exits 4 with exactly one `config_gen_output_failed` frame naming the --name label with an empty key (_refusal_violations; stdout is the failing sink, so `-`) (base#1469 I/O contract). The golden is more than 65536 bytes, the default pipe buffer, so the case can not pass by the answer fitting into the buffer before the reader goes. |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 

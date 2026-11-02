@@ -413,3 +413,40 @@ _refusal_violations() {
   cmp -s -n "${_got}" "${S}/cap" "${_gold}" \
     || fail "stdout's ${_got} bytes are not a prefix of the golden"
 }
+
+# why: prlimit and /dev/full fail the write on a file; a reader that is
+# gone is the fourth way the single answer write fails, and the only one a
+# signal can end first: a pipe whose read end is closed before the binary
+# starts, as in `config-gen tables ... | true`. The binary must not be
+# killed by SIGPIPE (rc 141 from the shell, nothing on stderr); it exits 4
+# with exactly one `config_gen_output_failed` frame naming the --name
+# label with an empty key (_refusal_violations; stdout is the failing sink,
+# so `-`) (base#1469 I/O contract). The golden is more than 65536 bytes,
+# the default pipe buffer, so the case can not pass by the answer fitting
+# into the buffer before the reader goes.
+@test "config-gen binary on a closed stdout pipe exits 4 with one frame, not SIGPIPE" {
+  local _in="${TESTDATA}/corpus/s1/large_tables.toml"
+  local _gold="${TESTDATA}/golden/s1/large_tables.golden"
+  local _size _why
+  if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
+    fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
+  fi
+  _size="$(wc -c < "${_gold}")"
+  (( _size > 65536 )) || fail "golden ${_gold} is ${_size} bytes, want more than the 65536-byte pipe buffer"
+
+  # `true` never reads: whether it exits before the write or during it,
+  # the answer can not fit the buffer, so the write meets a pipe with no
+  # reader. rc is recorded inside the subshell, since the pipeline's own
+  # status is always true's; `|| _rc=$?` keeps errexit from ending the
+  # subshell before it is written. An empty rc file fails below.
+  : > "${S}/rc"
+  (
+    _rc=0
+    "${CONFIG_GEN_BIN}" tables --name large_tables.toml "${_in}" 2> "${S}/err" || _rc=$?
+    echo "${_rc}" > "${S}/rc"
+  ) | true
+  [[ -s "${S}/rc" ]] || fail "the subshell recorded no exit status"
+
+  _why="$(_refusal_violations closed_pipe "$(cat "${S}/rc")" 4 config_gen_output_failed large_tables.toml - "${S}/err")"
+  [[ -z "${_why}" ]] || fail "${_why}"
+}

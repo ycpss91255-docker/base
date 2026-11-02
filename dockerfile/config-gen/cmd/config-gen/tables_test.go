@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -23,10 +25,26 @@ import (
 // was made since cli reset it.
 var trapped = -1
 
+// argvEnv names the variable that turns a re-exec of this test binary into
+// a run of config-gen itself: its value is a JSON array of the arguments
+// after the program name (base#1469).
+const argvEnv = "CONFIG_GEN_TEST_ARGV"
+
 // TestMain swaps osExit for a recorder before any test runs, so a command
 // that exits can never end the test process: its status is read back by
-// cli instead (base#1469).
+// cli instead (base#1469). When argvEnv is set the binary is a child a
+// test started: it runs main with that argv and the real os.Exit, so the
+// child is the production process -- same main, same signal handling.
 func TestMain(m *testing.M) {
+	if argv, ok := os.LookupEnv(argvEnv); ok {
+		var args []string
+		if err := json.Unmarshal([]byte(argv), &args); err != nil {
+			os.Exit(99)
+		}
+		os.Args = append([]string{os.Args[0]}, args...)
+		main()
+		os.Exit(98)
+	}
 	osExit = func(code int) { trapped = code }
 	os.Exit(m.Run())
 }
@@ -498,4 +516,61 @@ func TestTablesFstatFailureIsOneUnreadableFrame(t *testing.T) {
 		t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
 	}
 	refusal(t, stderr, "config_gen_input_unreadable", "l.toml")
+}
+
+// When the reader of stdout is gone before the answer is written -- a pipe
+// whose read end is closed before the command starts, as in `config-gen
+// tables ... | true` -- the process is not killed by SIGPIPE: it exits
+// normally with status 4 and its stderr is exactly one
+// `config_gen_output_failed` frame naming the --name label with an empty
+// key, and no "unregistered log body" (base#1469 I/O contract: exit 4 on
+// any write error, one frame). It runs the real binary as a child, since
+// the signal only exists for a process writing to a real pipe on fd 1;
+// the golden is over 64 KiB, more than one pipe buffer, so the write can
+// not succeed by fitting into the buffer whatever the reader does.
+func TestTablesClosedStdoutPipeIsExit4AndOneFrame(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
+	golden := testcorpus.Glob(t, "golden/s1/large_tables.golden")[0]
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read %s: %v", golden, err)
+	}
+	if len(want) <= 64*1024 {
+		t.Fatalf("golden %s is %d bytes, want more than 64 KiB", golden, len(want))
+	}
+	argv, err := json.Marshal([]string{"tables", "--name", "large_tables.toml", src})
+	if err != nil {
+		t.Fatalf("marshal argv: %v", err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("close read end: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), argvEnv+"="+string(argv))
+	cmd.Stdout = w
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	_ = w.Close()
+	if cmd.ProcessState == nil {
+		t.Fatalf("config-gen tables did not run: %v", runErr)
+	}
+	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok {
+		t.Fatalf("process state %T is not a syscall.WaitStatus", cmd.ProcessState.Sys())
+	}
+	if ws.Signaled() {
+		t.Fatalf("config-gen tables was killed by signal %v (stderr %q), want a normal exit 4", ws.Signal(), stderr.Bytes())
+	}
+	if rc := ws.ExitStatus(); rc != 4 {
+		t.Fatalf("config-gen tables exited %d, want 4 (stderr %q)", rc, stderr.Bytes())
+	}
+	refusal(t, stderr.Bytes(), "config_gen_output_failed", "large_tables.toml")
+	if bytes.Contains(stderr.Bytes(), []byte("unregistered log body")) {
+		t.Fatalf("stderr %q carries \"unregistered log body\"", stderr.Bytes())
+	}
 }
