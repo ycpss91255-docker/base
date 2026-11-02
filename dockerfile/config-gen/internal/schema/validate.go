@@ -74,6 +74,37 @@ var validators = map[string]rule{
 	"logging.wrapper_transcript":      {valid: validBool, kinds: kindsBool},
 	"logging.wrapper_transcript_keep": {valid: posInt.MatchString, kinds: kindsInt},
 	"logging.wrapper_transcript_days": {valid: posInt.MatchString, kinds: kindsInt},
+	// The numbered families, keyed by schema.sh's trailing-_ prefix.
+	"image.rule_":                  {valid: validImageRule, kinds: kindsString},
+	"security.security_opt_":       {valid: validSecurityOpt, kinds: kindsString},
+	"build.arg_":                   {valid: validEnvKV, kinds: kindsString},
+	"volumes.mount_":               {valid: validMount, kinds: kindsString},
+	"devices.device_":              {valid: validMount, kinds: kindsString},
+	"devices.cgroup_rule_":         {valid: cgroupRule.MatchString, kinds: kindsString},
+	"environment.env_":             {valid: validEnvKV, kinds: kindsString},
+	"tmpfs.tmpfs_":                 {valid: validTmpfs, kinds: kindsString},
+	"network.port_":                {valid: portMapping.MatchString, kinds: kindsString},
+	"additional_contexts.context_": {valid: validAdditionalContext, kinds: kindsString},
+	"security.cap_add_":            {valid: capability.MatchString, kinds: kindsString},
+	"security.cap_drop_":           {valid: capability.MatchString, kinds: kindsString},
+}
+
+// canonical is schema.sh's _schema_canonical_key lookup: the exact
+// section.key first, then a numbered key (`^(.+_)[0-9]+$`) by its
+// trailing-_ prefix.
+func canonical(section, key string) (rule, bool) {
+	if r, ok := validators[section+"."+key]; ok {
+		return r, true
+	}
+	i := len(key)
+	for i > 0 && key[i-1] >= '0' && key[i-1] <= '9' {
+		i--
+	}
+	if i == len(key) || i < 2 || key[i-1] != '_' {
+		return rule{}, false
+	}
+	r, ok := validators[section+"."+key[:i]]
+	return r, ok
 }
 
 // Validate judges s at section.key as _schema_validate does on the
@@ -83,7 +114,7 @@ var validators = map[string]rule{
 // A refused value of a kind the key declares is conf_value_invalid; one
 // of another kind is conf_value_type_refused.
 func Validate(section, key string, s Scalar) error {
-	r, ok := validators[section+"."+key]
+	r, ok := canonical(section, key)
 	if !ok || (s.Text == "" && !r.validateEmpty) || r.valid(s.Text) {
 		return nil
 	}
@@ -109,7 +140,35 @@ var (
 	logDriver   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
 	shmSize     = regexp.MustCompile(`(?i)^[0-9]+(b|k|m|g|kb|mb|gb)$`)
 	logMaxSize  = regexp.MustCompile(`(?i)^[0-9]+[bkmg]$`)
+	portMapping = regexp.MustCompile(`^[0-9]+:[0-9]+(/(tcp|udp))?$`)
+	cgroupRule  = regexp.MustCompile(`^[cba][[:space:]]+([0-9]+|\*):([0-9]+|\*)[[:space:]]+[rwm]+$`)
+	capability  = regexp.MustCompile(`^[A-Z_]+$`)
+	envKV       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+	securityOpt = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*[:=].`)
+	contextName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	tmpfsOpt    = `[A-Za-z_][A-Za-z0-9_-]*(=[^,:]+)?`
+	tmpfsPath   = regexp.MustCompile(`^/[^:]+$`)
+	tmpfsOpts   = regexp.MustCompile(`^/[^:]+:` + tmpfsOpt + `(,` + tmpfsOpt + `)*$`)
 )
+
+// cSpace is a byte of LC_ALL=C [[:space:]]: space, \t, \n, \v, \f, \r.
+func cSpace(text string) bool {
+	return strings.ContainsAny(text, " \t\n\v\f\r")
+}
+
+// readSplit is bash's `IFS=<sep> read -ra` for one non-whitespace sep:
+// the fields between separators, with one trailing empty field dropped
+// (`a:b:` is two fields, `a:b::` three) and none for the empty string.
+func readSplit(text string, sep string) []string {
+	if text == "" {
+		return nil
+	}
+	parts := strings.Split(text, sep)
+	if parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	return parts
+}
 
 // oneOf is a validator whose `case` arm lists the accepted words.
 func oneOf(words ...string) func(string) bool {
@@ -215,4 +274,66 @@ func validWatchdogCmd(text string) bool {
 // empty and not only spaces.
 func validLogLocalPath(text string) bool {
 	return strings.ReplaceAll(text, " ", "") != "" && !strings.Contains(text, "\n")
+}
+
+// validImageRule ports _validate_image_rule: @basename, or one of the
+// prefixes followed by at least one byte.
+func validImageRule(text string) bool {
+	if text == "" || text == "@basename" {
+		return true
+	}
+	for _, p := range []string{"prefix:", "suffix:", "string:", "@default:"} {
+		if strings.HasPrefix(text, p) && len(text) > len(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// validSecurityOpt ports _validate_security_opt: no whitespace, and a
+// key followed by `:` or `=` and at least one byte.
+func validSecurityOpt(text string) bool {
+	return !cSpace(text) && securityOpt.MatchString(text)
+}
+
+// validEnvKV ports _validate_env_kv: one line `KEY=` with any value.
+func validEnvKV(text string) bool {
+	return !strings.Contains(text, "\n") && envKV.MatchString(text)
+}
+
+// validMount ports _validate_mount: no whitespace, `host:container` or
+// `host:container:mode` split as `IFS=: read -ra` splits it, both paths
+// non-empty, and every comma-separated mode word a known propagation or
+// access word.
+func validMount(text string) bool {
+	if text == "" || cSpace(text) {
+		return false
+	}
+	parts := readSplit(text, ":")
+	if (len(parts) != 2 && len(parts) != 3) || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	if len(parts) == 3 {
+		mode := oneOf("ro", "rw", "rslave", "rshared", "rprivate", "slave", "shared", "private")
+		for _, m := range readSplit(parts[2], ",") {
+			if !mode(m) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// validTmpfs ports _validate_tmpfs: no whitespace, an absolute path with
+// no `:`, then optionally `:` and a comma-separated option list.
+func validTmpfs(text string) bool {
+	return !cSpace(text) && (tmpfsPath.MatchString(text) || tmpfsOpts.MatchString(text))
+}
+
+// validAdditionalContext ports _validate_additional_context: one line
+// `name=value`, split at the first `=`, both halves non-empty and the
+// name a BuildKit context name.
+func validAdditionalContext(text string) bool {
+	name, val, ok := strings.Cut(text, "=")
+	return ok && !strings.Contains(text, "\n") && name != "" && val != "" && contextName.MatchString(name)
 }
