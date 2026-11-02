@@ -621,10 +621,6 @@ func TestTablesClosedStdoutPipeIsExit4AndOneFrame(t *testing.T) {
 	if len(want) <= 64*1024 {
 		t.Fatalf("golden %s is %d bytes, want more than 64 KiB", golden, len(want))
 	}
-	argv, err := json.Marshal([]string{"tables", "--name", "large_tables.toml", src})
-	if err != nil {
-		t.Fatalf("marshal argv: %v", err)
-	}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
@@ -632,28 +628,123 @@ func TestTablesClosedStdoutPipeIsExit4AndOneFrame(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatalf("close read end: %v", err)
 	}
+	stderr := childExit4(t, w, nil, "tables", "--name", "large_tables.toml", src)
+	_ = w.Close()
+	refusal(t, stderr, "config_gen_output_failed", "large_tables.toml")
+}
+
+// childExit4 runs config-gen as a child process -- this test binary
+// re-executed with argvEnv, so the child is main itself with the real
+// os.Exit and signal handling -- with args, its stdout on the file
+// stdout, and, when wrap is non-nil, started through wrap (the child's
+// path is appended as wrap's last argument). It fails the test unless the
+// child exited normally with status 4 and its stderr carries no
+// "unregistered log body"; it returns the child's stderr (base#1469 I/O
+// contract: exit 4 on any write error, never a signal).
+func childExit4(t *testing.T, stdout *os.File, wrap []string, args ...string) []byte {
+	t.Helper()
+	argv, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal argv: %v", err)
+	}
+	name, cargs := os.Args[0], []string(nil)
+	if wrap != nil {
+		name, cargs = wrap[0], append(append([]string(nil), wrap[1:]...), os.Args[0])
+	}
 	var stderr bytes.Buffer
-	cmd := exec.Command(os.Args[0])
+	cmd := exec.Command(name, cargs...)
 	cmd.Env = append(os.Environ(), argvEnv+"="+string(argv))
-	cmd.Stdout = w
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
-	_ = w.Close()
 	if cmd.ProcessState == nil {
-		t.Fatalf("config-gen tables did not run: %v", runErr)
+		t.Fatalf("config-gen %q did not run: %v", args, runErr)
 	}
 	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
 	if !ok {
 		t.Fatalf("process state %T is not a syscall.WaitStatus", cmd.ProcessState.Sys())
 	}
 	if ws.Signaled() {
-		t.Fatalf("config-gen tables was killed by signal %v (stderr %q), want a normal exit 4", ws.Signal(), stderr.Bytes())
+		t.Fatalf("config-gen %q was killed by signal %v (stderr %q), want a normal exit 4", args, ws.Signal(), stderr.Bytes())
 	}
 	if rc := ws.ExitStatus(); rc != 4 {
-		t.Fatalf("config-gen tables exited %d, want 4 (stderr %q)", rc, stderr.Bytes())
+		t.Fatalf("config-gen %q exited %d, want 4 (stderr %q)", args, rc, stderr.Bytes())
 	}
-	refusal(t, stderr.Bytes(), "config_gen_output_failed", "large_tables.toml")
 	if bytes.Contains(stderr.Bytes(), []byte("unregistered log body")) {
 		t.Fatalf("stderr %q carries \"unregistered log body\"", stderr.Bytes())
+	}
+	return stderr.Bytes()
+}
+
+// A process whose stdout is /dev/full -- a real sink that takes no bytes
+// and refuses with ENOSPC -- exits 4 with exactly one
+// `config_gen_output_failed` frame naming the --name label with an empty
+// key, and that frame's text is the write's own message verbatim
+// (base#1469 Partial write: process tests run in the test stage, `>
+// /dev/full` gives rc 4 and a config_gen_output_failed frame). This runs
+// under `go test` in Dockerfile.config-gen's test stage, so the process
+// case is not left to the bats spec alone. The want text is the
+// *os.PathError os.File.Write returns for the child's os.Stdout on ENOSPC.
+func TestTablesDevFullStdoutIsExit4AndOneFrame(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open /dev/full: %v", err)
+	}
+	defer func() { _ = full.Close() }()
+
+	stderr := childExit4(t, full, nil, "tables", "--name", "large_tables.toml", src)
+	f := refusal(t, stderr, "config_gen_output_failed", "large_tables.toml")
+	want := (&os.PathError{Op: "write", Path: os.Stdout.Name(), Err: syscall.ENOSPC}).Error()
+	if f[7] != want {
+		t.Fatalf("frame text = %q, want the write message %q verbatim", f[7], want)
+	}
+}
+
+// A process whose stdout is a regular file it may grow only to half the
+// large golden -- SIGXFSZ ignored, then `prlimit --fsize=<half>`, so the
+// kernel takes that many bytes and then refuses the rest with EFBIG
+// instead of killing the process with SIGXFSZ -- exits 4 with exactly one
+// `config_gen_output_failed` frame naming the --name label with an empty
+// key, whose text is the write's own message verbatim, and the file holds
+// a non-empty strict prefix of the golden (base#1469 Partial write:
+// process tests run in the test stage with util-linux prlimit). /dev/full
+// can not show a sink that takes some bytes first. prlimit must be on
+// PATH in Dockerfile.config-gen's test stage; a missing prlimit fails
+// here, it is never skipped.
+func TestTablesSizeLimitedStdoutIsExit4AndAGoldenPrefix(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
+	golden := testcorpus.Glob(t, "golden/s1/large_tables.golden")[0]
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read %s: %v", golden, err)
+	}
+	if len(want) < 64*1024 {
+		t.Fatalf("golden %s is %d bytes, want at least 64 KiB", golden, len(want))
+	}
+	if _, err := exec.LookPath("prlimit"); err != nil {
+		t.Fatalf("prlimit is not on PATH (%v); Dockerfile.config-gen's test stage must provide util-linux prlimit for this case (base#1469)", err)
+	}
+	limit := len(want) / 2
+	capPath := filepath.Join(t.TempDir(), "cap")
+	capFile, err := os.Create(capPath)
+	if err != nil {
+		t.Fatalf("create %s: %v", capPath, err)
+	}
+	defer func() { _ = capFile.Close() }()
+
+	wrap := []string{"sh", "-c", `trap '' XFSZ; exec prlimit --fsize="$1" "$2"`, "sh", strconv.Itoa(limit)}
+	stderr := childExit4(t, capFile, wrap, "tables", "--name", "large_tables.toml", src)
+	f := refusal(t, stderr, "config_gen_output_failed", "large_tables.toml")
+	wantText := (&os.PathError{Op: "write", Path: os.Stdout.Name(), Err: syscall.EFBIG}).Error()
+	if f[7] != wantText {
+		t.Fatalf("frame text = %q, want the write message %q verbatim", f[7], wantText)
+	}
+	got, err := os.ReadFile(capPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", capPath, err)
+	}
+	if len(got) == 0 || len(got) >= len(want) || !bytes.HasPrefix(want, got) {
+		t.Fatalf("stdout file took %d bytes, want a non-empty strict prefix of the %d-byte golden", len(got), len(want))
 	}
 }
