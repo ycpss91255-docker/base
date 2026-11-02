@@ -14,6 +14,10 @@ import (
 // `:SS` after it: a local time, or a date plus `T`/`t`/space and a time.
 var timeNoSeconds = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ])?[0-9]{2}:[0-9]{2}(?:[^:0-9]|$)`)
 
+// yearZero matches a value token that starts with a date whose year is
+// 0000.
+var yearZero = regexp.MustCompile(`^0000-[0-9]{2}-[0-9]{2}`)
+
 // offsetField matches an offset datetime value token; group 1 is the
 // offset's sign, group 2 its hour and group 3 its minute.
 var offsetField = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?([+-])([0-9]{2}):([0-9]{2})$`)
@@ -49,6 +53,10 @@ const (
 	// 23 or whose offset minute is above 59, which the TOML 1.0 oracle
 	// refuses at the offset's sign.
 	ReasonOffsetRange
+	// ReasonDateRange is a date-bearing value whose year is 0000, which
+	// the TOML 1.0 oracle refuses at the value's first byte as "Invalid
+	// date or datetime".
+	ReasonDateRange
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -73,7 +81,7 @@ func Check(label string, src []byte) error {
 			Text: "leading byte order mark is not TOML 1.0"}
 	}
 	inBasic := false
-	var open []byte // innermost last: '{' inline table, '[' array or header
+	var open []byte // innermost last: '{' inline table, '[' array, 'h' header
 	// seen holds the keys assigned in the current table.
 	seen := map[string]bool{}
 	// table is the current table's dotted path; dotted holds the paths
@@ -92,7 +100,7 @@ func Check(label string, src []byte) error {
 				}
 				table = path
 			}
-			open = append(open, src[i])
+			open = append(open, 'h')
 		case !inBasic && len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
 			if key, ok := lineKey(src, i); ok {
 				if seen[key] {
@@ -138,6 +146,11 @@ func Check(label string, src []byte) error {
 			}
 		case !inBasic && isDigit(src[i]) && (i == 0 || !isBareKeyByte(src[i-1])):
 			end := valueTokenEnd(src, i)
+			if yearZero.Match(src[i:end]) && inValue(src, i, open) {
+				line, col := position(src, i)
+				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonDateRange,
+					Text: fmt.Sprintf("Invalid date or datetime (at line %d, column %d)", line, col)}
+			}
 			if timeNoSeconds.Match(src[i:end]) {
 				line, col := position(src, i)
 				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonTimeNoSeconds,
@@ -191,6 +204,26 @@ func valueTokenEnd(src []byte, i int) int {
 		return valueTokenEnd(src, j+1)
 	}
 	return j
+}
+
+// inValue reports whether offset i of src is in a value position: after
+// `=`, or after `[` or `,` inside an array. Bytes inside a header
+// (marked 'h' on open) are a key, not a value.
+func inValue(src []byte, i int, open []byte) bool {
+	j := i - 1
+	for j >= 0 && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
+		j--
+	}
+	if j < 0 || bytes.IndexByte(open, 'h') >= 0 {
+		return false
+	}
+	switch src[j] {
+	case '=':
+		return true
+	case '[', ',':
+		return len(open) > 0 && open[len(open)-1] == '['
+	}
+	return false
 }
 
 // atLineStart reports whether only spaces or tabs lie between the start
