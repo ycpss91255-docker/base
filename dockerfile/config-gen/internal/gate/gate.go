@@ -37,12 +37,16 @@ const (
 	// ReasonBOM is a UTF-8 byte order mark (EF BB BF) at the start of the
 	// document, which the TOML 1.0 oracle refuses.
 	ReasonBOM
-	// ReasonDuplicate is a key assigned a second time in the same table,
-	// which the TOML 1.0 oracle reports as "Cannot overwrite a value".
+	// ReasonDuplicate is a key path defined a second time where nothing
+	// may extend it: a key assigned twice, a path through a value, or a
+	// [[path]] over a value that is not an array of tables.
 	ReasonDuplicate
-	// ReasonRedefine is a table header whose path names a table that
-	// dotted keys already created, which the TOML 1.0 oracle reports as
-	// "Cannot redefine a table".
+	// ReasonRedefine is a table header, or a dotted key, whose path names
+	// a table that a header or dotted keys already defined. It stays a
+	// separate value so callers can tell the two apart; Error() renders
+	// both reasons as "Cannot overwrite a value (at line L, column C)",
+	// the duplicate class's one text (base#1441 acceptance criterion,
+	// ADR-00000039).
 	ReasonRedefine
 	// ReasonOffsetRange is an offset datetime whose offset hour is above
 	// 23 or whose offset minute is above 59, which the TOML 1.0 oracle
@@ -73,11 +77,11 @@ func (r *Refusal) Error() string {
 	return fmt.Sprintf("%s:%d:%d: %s", r.File, r.Line, r.Col, r.Text)
 }
 
-// The tomllib messages Check repeats word for word; oracleRefusal appends
-// tomllib's position suffix to them.
+// The messages oracleRefusal follows with tomllib's position suffix: the
+// duplicate class's contract text (base#1441 acceptance criterion) and
+// tomllib's date-range message, word for word.
 const (
 	msgOverwrite = "Cannot overwrite a value"
-	msgRedefine  = "Cannot redefine a table"
 	msgDateRange = "Invalid date or datetime"
 )
 

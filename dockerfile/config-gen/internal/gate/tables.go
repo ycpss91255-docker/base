@@ -533,11 +533,8 @@ func (t *tables) eat(s string) bool {
 	return false
 }
 
-// refuse returns the *Refusal for reason at offset at.
+// refuse returns the *Refusal for reason, a member of the duplicate
+// class, at offset at; every member speaks the one overwrite text.
 func (t *tables) refuse(at int, reason Reason) error {
-	msg := msgOverwrite
-	if reason == ReasonRedefine {
-		msg = msgRedefine
-	}
-	return oracleRefusal(t.label, t.src, at, reason, msg)
+	return oracleRefusal(t.label, t.src, at, reason, msgOverwrite)
 }
