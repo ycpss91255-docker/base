@@ -16,9 +16,35 @@ const (
 	nodeArray  = 'l' // an array value, immutable once written
 )
 
-// sep joins the parts of a key path; no TOML key holds a NUL byte
-// unescaped, so a quoted key holding a dot cannot alias a dotted one.
-const sep = "\x00"
+// node is one key path of the document: its kind, whether tomllib marks
+// it EXPLICIT_NEST (a header path, or a dotted-key prefix of a section
+// once the next header opens), and its children by decoded key part. A
+// path is the chain of parts from the root, so two paths are the same
+// exactly when their decoded parts are, whatever bytes a part holds
+// (base#1441 review round 1, finding 2).
+type node struct {
+	kind     byte
+	explicit bool
+	kids     map[string]*node
+}
+
+// newNode returns a node of kind with no children.
+func newNode(kind byte) *node { return &node{kind: kind, kids: map[string]*node{}} }
+
+// child returns n's child named part, creating it as an implicit table
+// when it does not exist yet.
+func (n *node) child(part string) *node {
+	c, ok := n.kids[part]
+	if !ok {
+		c = newNode(nodeTable)
+		n.kids[part] = c
+	}
+	return c
+}
+
+// container reports whether a key may be defined below n: n is a table
+// or an array of tables, not a scalar, an inline table or an array value.
+func (n *node) container() bool { return n.kind == nodeTable || n.kind == nodeAOT }
 
 // tables is the second pass of Check: it follows tomllib's table rules
 // (base#1441), which BurntSushi does not hold to. A dotted key may not
@@ -30,12 +56,12 @@ type tables struct {
 	src   []byte
 	label string
 	i     int
-	// node holds every absolute path that exists and its kind.
-	node map[string]byte
-	// explicit holds the paths tomllib marks EXPLICIT_NEST: header paths,
-	// and the dotted-key prefixes of a section once the next header opens.
-	explicit map[string]bool
-	pending  []string
+	// root is the document's root table; every path that exists is a
+	// node below it.
+	root *node
+	// pending holds the dotted-key prefixes the current section made;
+	// the next header marks them explicit.
+	pending []*node
 	// scalar, when set, receives the span of each bare value token (a
 	// number, boolean or date) the pass reads, trailing blanks excluded.
 	scalar func(start, end int)
@@ -69,7 +95,7 @@ var errStop = errors.New("gate: table pass stopped")
 // newTables returns a pass over src that starts at its first byte and
 // names label in its refusals.
 func newTables(label string, src []byte) *tables {
-	return &tables{src: src, label: label, node: map[string]byte{}, explicit: map[string]bool{}, tz: map[string]bool{}}
+	return &tables{src: src, label: label, root: newNode(nodeTable), tz: map[string]bool{}}
 }
 
 // checkTables returns nil or the *Refusal for the first table-rule
@@ -84,7 +110,7 @@ func checkTables(label string, src []byte) error {
 }
 
 func (t *tables) document() error {
-	var table []string // the current table's path; nil is the root table
+	table := t.root // the current table
 	for {
 		t.skipBlank(true)
 		if t.i >= len(t.src) {
@@ -109,11 +135,11 @@ func (t *tables) document() error {
 			} else if !t.eat("]") {
 				return errStop
 			}
-			path := strings.Join(parts, sep)
-			if err := t.header(path, aot, start); err != nil {
+			n, err := t.header(parts, aot, start)
+			if err != nil {
 				return err
 			}
-			table = parts
+			table = n
 		} else {
 			parts, _, err := t.key()
 			if err != nil {
@@ -140,94 +166,69 @@ func (t *tables) document() error {
 	}
 }
 
-// header applies a [path] or [[path]] header that starts at offset at.
-func (t *tables) header(path string, aot bool, at int) error {
+// header applies a [parts] or [[parts]] header that starts at offset at
+// and returns the table it opens. A [[parts]] header refuses a path that
+// exists as a table or a scalar, and an ancestor that is a scalar; a
+// [parts] header refuses a path a header or dotted keys defined, and
+// any ancestor that is a value.
+func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 	for _, p := range t.pending {
-		t.explicit[p] = true
+		p.explicit = true
 	}
 	t.pending = nil
-	parts := strings.Split(path, sep)
-	for n := 1; n < len(parts); n++ {
-		if k := t.node[strings.Join(parts[:n], sep)]; k == nodeScalar {
-			return t.refuse(at, ReasonDuplicate)
+	n := t.root
+	for _, p := range parts[:len(parts)-1] {
+		n = n.child(p)
+		switch {
+		case n.kind == nodeScalar:
+			return nil, t.refuse(at, ReasonDuplicate)
+		case !n.container() && !aot:
+			return nil, t.refuse(at, ReasonRedefine)
 		}
 	}
+	last := parts[len(parts)-1]
+	c, ok := n.kids[last]
 	if aot {
-		if k, ok := t.node[path]; ok && k != nodeAOT && k != nodeArray {
-			return t.refuse(at, ReasonDuplicate)
+		if ok && c.kind != nodeAOT && c.kind != nodeArray {
+			return nil, t.refuse(at, ReasonDuplicate)
 		}
-		for p := range t.node {
-			if strings.HasPrefix(p, path+sep) {
-				delete(t.node, p)
-			}
-		}
-		for p := range t.explicit {
-			if strings.HasPrefix(p, path+sep) {
-				delete(t.explicit, p)
-			}
-		}
-		t.node[path] = nodeAOT
+		// Each [[parts]] opens a new element: what the last one held is
+		// out of scope.
+		c = newNode(nodeAOT)
+		n.kids[last] = c
 	} else {
-		if t.explicit[path] || t.frozen(parts) {
-			return t.refuse(at, ReasonRedefine)
+		switch {
+		case ok && (c.explicit || c.kind == nodeInline || c.kind == nodeArray):
+			return nil, t.refuse(at, ReasonRedefine)
+		case ok && c.kind != nodeTable:
+			return nil, t.refuse(at, ReasonDuplicate)
 		}
-		if k, ok := t.node[path]; ok && k != nodeTable {
+		c = n.child(last)
+	}
+	c.explicit = true
+	return c, nil
+}
+
+// assign applies `parts = <kind>` in table.
+func (t *tables) assign(table *node, parts []string, kind byte, at int) error {
+	n := table
+	for _, p := range parts[:len(parts)-1] {
+		c, ok := n.kids[p]
+		switch {
+		case ok && c.explicit:
+			return t.refuse(at, ReasonRedefine)
+		case ok && !c.container():
 			return t.refuse(at, ReasonDuplicate)
 		}
-		t.node[path] = nodeTable
+		n = n.child(p)
+		t.pending = append(t.pending, n)
 	}
-	t.explicit[path] = true
-	t.makeParents(parts)
-	return nil
-}
-
-// assign applies `parts = <kind>` in the table whose path is base.
-func (t *tables) assign(base, parts []string, kind byte, at int) error {
-	abs := append(append([]string{}, base...), parts...)
-	for n := len(base) + 1; n < len(abs); n++ {
-		cont := strings.Join(abs[:n], sep)
-		if t.explicit[cont] {
-			return t.refuse(at, ReasonRedefine)
-		}
-		t.pending = append(t.pending, cont)
-	}
-	if t.frozen(abs[:len(abs)-1]) {
+	last := parts[len(parts)-1]
+	if _, ok := n.kids[last]; ok {
 		return t.refuse(at, ReasonDuplicate)
 	}
-	for n := 1; n < len(abs); n++ {
-		if k := t.node[strings.Join(abs[:n], sep)]; k == nodeScalar {
-			return t.refuse(at, ReasonDuplicate)
-		}
-	}
-	path := strings.Join(abs, sep)
-	if _, ok := t.node[path]; ok {
-		return t.refuse(at, ReasonDuplicate)
-	}
-	t.makeParents(abs)
-	t.node[path] = kind
+	n.kids[last] = newNode(kind)
 	return nil
-}
-
-// frozen reports whether parts or one of its ancestors is an inline
-// table or an array value.
-func (t *tables) frozen(parts []string) bool {
-	for n := 1; n <= len(parts); n++ {
-		if k := t.node[strings.Join(parts[:n], sep)]; k == nodeInline || k == nodeArray {
-			return true
-		}
-	}
-	return false
-}
-
-// makeParents records every proper prefix of parts that does not exist
-// yet as a table.
-func (t *tables) makeParents(parts []string) {
-	for n := 1; n < len(parts); n++ {
-		p := strings.Join(parts[:n], sep)
-		if _, ok := t.node[p]; !ok {
-			t.node[p] = nodeTable
-		}
-	}
 }
 
 // inline reads an inline table whose `{` is at t.i, holding tomllib's
@@ -241,7 +242,7 @@ func (t *tables) inline(f int) error {
 		return err
 	}
 	t.i++
-	local := map[string]byte{}
+	local := newNode(nodeTable) // the paths this inline table defined
 	t.skipBlank(false)
 	if t.eat("}") {
 		return nil
@@ -264,23 +265,17 @@ func (t *tables) inline(f int) error {
 		if err != nil {
 			return err
 		}
-		for n := 1; n < len(parts); n++ {
-			p := strings.Join(parts[:n], sep)
-			if k, ok := local[p]; ok && k != nodeTable {
+		n := local
+		for _, p := range parts[:len(parts)-1] {
+			if c, ok := n.kids[p]; ok && c.kind != nodeTable {
 				return t.refuse(start, ReasonDuplicate)
 			}
+			n = n.child(p)
 		}
-		path := strings.Join(parts, sep)
-		if _, ok := local[path]; ok {
+		if _, ok := n.kids[parts[len(parts)-1]]; ok {
 			return t.refuse(start, ReasonDuplicate)
 		}
-		for n := 1; n < len(parts); n++ {
-			p := strings.Join(parts[:n], sep)
-			if _, ok := local[p]; !ok {
-				local[p] = nodeTable
-			}
-		}
-		local[path] = kind
+		n.kids[parts[len(parts)-1]] = newNode(kind)
 		t.skipBlank(false)
 		if t.eat("}") {
 			return nil
