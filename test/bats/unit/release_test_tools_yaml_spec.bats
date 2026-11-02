@@ -752,6 +752,64 @@ JSON
 JSON
 }
 
+# _fx_wrongos -- a shard index whose only amd64 image is labelled
+# windows/amd64, though its digest is the linux/amd64 child of the `:main`
+# index. The verified side carries no image for a linux/amd64 runner, so a
+# selection that ignored the os would compare equal digests and accept it.
+_FX_WINOS_SHARD='0505050505050505050505050505050505050505050505050505050505050505'
+_fx_wrongos() {
+  _fx "${_FX_WINOS_SHARD}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "windows"
+      }
+    }
+  ]
+}
+JSON
+}
+
+# _fx_verified_ambiguous -- a shard index with TWO linux/amd64 images, the
+# one the `:main` index carries (sha256:ce29e05d...) listed first, so a
+# selection that took the first verified match would accept it.
+_FX_AMB_SHARD='5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b5a3b'
+_fx_verified_ambiguous() {
+  _fx "${_FX_AMB_SHARD}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+}
+
 # _confirm_step_node -- the WHOLE tag-confirmation step, its `env:` mapping
 # included. The two references that step reads arrive through `env:` so the
 # `run:` body is shell a spec can execute, which means the assertions about
@@ -793,6 +851,12 @@ _confirm_step_node() {
 #                is the ordinary `:main` index.
 #   variant      a linux/arm/v7 shard; the tag carries linux/arm v6 and v7
 #                images, and only v7 is the verified one.
+#   wrongos      the verified index's only amd64 image is labelled
+#                windows/amd64, under the digest of the tag's linux/amd64
+#                child; the tag is the ordinary `:main` index.
+#   verified-ambiguous
+#                the verified index carries two linux/amd64 images, the
+#                tag's one listed first; the tag is the ordinary `:main` index.
 _confirm_step_for() {
   local _mode="${1}" _body _dir _tag _moved='' _rawfail='' _status=0
   _body="$(yaml_step_run "${WF}" merge \
@@ -836,6 +900,16 @@ _confirm_step_for() {
       _fx_variant
       _verified="${_FX_V7_SHARD}" _tag="${_FX_ARM_TAG}"
       _arts=("${_FX_V7_SHARD}=linux/arm/v7")
+      ;;
+    wrongos)
+      _fx_wrongos
+      _verified="${_FX_WINOS_SHARD}" _tag="${_FX_MAIN}"
+      _arts=("${_FX_WINOS_SHARD}=linux/amd64" "${_FX_SHARD_ARM64}=linux/arm64")
+      ;;
+    verified-ambiguous)
+      _fx_verified_ambiguous
+      _verified="${_FX_AMB_SHARD}" _tag="${_FX_MAIN}"
+      _arts=("${_FX_AMB_SHARD}=linux/amd64" "${_FX_SHARD_ARM64}=linux/arm64")
       ;;
     *) printf 'BUG: unknown registry state %s\n' "${_mode}"; return 2 ;;
   esac
@@ -1253,6 +1327,26 @@ _spec_prose() {
   assert_success
   refute_output --partial '::error::'
   assert_output --partial 'names the verified linux/arm/v7 image (sha256:c7c7'
+}
+
+# why: The platform is os AND architecture. An image labelled windows/amd64 is
+# not the image a linux/amd64 runner ran, even under a digest the tag also
+# carries; a selection matching the architecture alone would accept it.
+@test "release-test-tools.yaml: the tag confirmation fails when the verified image for the runner architecture is labelled with another os (base#1510)" {
+  run _confirm_step_for wrongos
+  assert_failure
+  assert_output --partial "test-tools@sha256:${_FX_WINOS_SHARD} carries 0 image manifests for linux/amd64"
+  refute_output --partial 'names the verified'
+}
+
+# why: Exactly one image per side, on BOTH sides. A verified index carrying two
+# images for the runner platform leaves no single answer to what the smoke
+# step ran; taking its first match would pass whenever that one is the tag's.
+@test "release-test-tools.yaml: the tag confirmation fails when the verified index carries more than one image for the runner platform (base#1510)" {
+  run _confirm_step_for verified-ambiguous
+  assert_failure
+  assert_output --partial "test-tools@sha256:${_FX_AMB_SHARD} carries 2 image manifests for linux/amd64"
+  refute_output --partial 'names the verified'
 }
 
 # why: One loop over the pins the Dockerfile declares, rather than fourteen
