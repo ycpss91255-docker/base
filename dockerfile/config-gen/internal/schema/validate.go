@@ -112,38 +112,36 @@ func canonical(section, key string) (rule, bool) {
 	return r, ok
 }
 
-// Validate judges s at section.key as _schema_validate does on the
-// bridge's text (dist/script/docker/lib/schema.sh): a key with no
-// validator accepts any value, an empty text is accepted unless the key's
-// SCHEMA_EMPTY policy is `validate`, and otherwise the validator decides.
-// A refused value of a kind the key declares is conf_value_invalid; one
-// of another kind is conf_value_type_refused.
-//
-// A key that declares no string kind (a bool or an int key) is typed: a
-// value of another kind is conf_value_type_refused before its text is
-// judged, so `privileged = "true"` and `max_file = "3"` are refused
-// although schema.sh passes their text (ADR-00000039: a value outside its
-// field's type is refused at load, base#1314). The empty string is still
-// the default empty policy's, accepted at any such key. A string key keeps
-// the bridge's accepted spellings (a date or a number in a string field,
-// base#1407 matrix rows 7a and 7c): its value is judged on its text.
-func Validate(section, key string, s Scalar) error {
+// Validate is _schema_validate (dist/script/docker/lib/schema.sh) on the
+// bridge's text for a value at section.key: a key with no validator
+// accepts any text, an empty text is accepted unless the key's
+// SCHEMA_EMPTY policy is `validate`, and otherwise the key's validator
+// decides. A refused text is conf_value_invalid. The value's TOML kind is
+// not judged here; Decode refuses a value outside its key's type
+// (kindRefused) before it asks Validate.
+func Validate(section, key, text string) error {
 	r, ok := canonical(section, key)
-	if !ok || (s.Text == "" && !r.validateEmpty) {
+	if !ok || (text == "" && !r.validateEmpty) || r.valid(text) {
 		return nil
 	}
-	declared := slices.Contains(r.kinds, s.Kind)
-	if !declared && !slices.Contains(r.kinds, KindString) {
-		return &ValueError{Event: "conf_value_type_refused", Section: section, Key: key, Text: s.Text}
+	return &ValueError{Event: "conf_value_invalid", Section: section, Key: key, Text: text}
+}
+
+// kindRefused reports whether s is outside the type of section.key
+// (ADR-00000039: a value outside its field's type is refused at load,
+// base#1314). A key whose kinds are more than the string kind, a bool or
+// an int key or gpu_count's string|int, takes only its kinds, so
+// `privileged = "true"` and `max_file = 3.0` are refused although
+// schema.sh passes their text. Any other key takes any scalar kind and is
+// judged on its text (ADR-00000039 l.121: a date or a number in a string
+// field is an accepted spelling). The empty string stays the default
+// empty policy's at a typed key, as schema.sh accepts it there.
+func kindRefused(section, key string, s Scalar) bool {
+	r, ok := canonical(section, key)
+	if !ok || slices.Equal(r.kinds, kindsString) || slices.Contains(r.kinds, s.Kind) {
+		return false
 	}
-	if r.valid(s.Text) {
-		return nil
-	}
-	event := "conf_value_type_refused"
-	if declared {
-		event = "conf_value_invalid"
-	}
-	return &ValueError{Event: event, Section: section, Key: key, Text: s.Text}
+	return s.Kind != KindString || s.Text != ""
 }
 
 // The regular expressions of the _tui_conf.sh validators. schema.sh runs

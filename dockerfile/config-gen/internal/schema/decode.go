@@ -137,8 +137,9 @@ func valueCharEvent(text string) string {
 //     _setup_known_key and _schema_validate judge its section text and
 //     key, so a `[logging.<service>]` key is judged as a [logging] key: an
 //     unknown key is conf_unknown_key, an array at a registered key is
-//     conf_value_type_refused, and a scalar Validate refuses is one
-//     refusal with Validate's event.
+//     conf_value_type_refused, a scalar outside its key's type
+//     (kindRefused) is conf_value_type_refused, and a scalar whose text
+//     Validate refuses is one refusal with Validate's event.
 func Decode(src []byte) (*Config, []Refusal) {
 	var doc map[string]any
 	md, err := toml.Decode(string(src), &doc)
@@ -310,12 +311,12 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 		}
 	default:
 		var s Scalar
-		if s.UnmarshalTOML(v) != nil {
+		if s.UnmarshalTOML(v) != nil || kindRefused(section, key, s) {
 			d.refuse("conf_value_type_refused", k, line, col)
 			return
 		}
 		var ve *ValueError
-		if err := Validate(section, key, s); errors.As(err, &ve) {
+		if err := Validate(section, key, s.Text); errors.As(err, &ve) {
 			d.refuse(ve.Event, k, line, col)
 		}
 	}

@@ -91,10 +91,12 @@ func TestDecodeRefusalClasses(t *testing.T) {
 			[]want{{"conf_unknown_key", []string{"deploy", "gpu_cuont"}, 1}}},
 		{"local time at gpu_count", "[deploy]\ngpu_count = 07:32:00\n",
 			[]want{{"conf_value_type_refused", []string{"deploy", "gpu_count"}, 2}}},
+		// A string key takes any scalar kind and is judged on the bridge's
+		// text (ADR-00000039 l.121); these texts fail the key's validator.
 		{"local datetime at env_1", "[environment]\nenv_1 = 1979-05-27T07:32:00\n",
-			[]want{{"conf_value_type_refused", []string{"environment", "env_1"}, 2}}},
+			[]want{{"conf_value_invalid", []string{"environment", "env_1"}, 2}}},
 		{"fractional datetime at gpu_mode", "[deploy]\ngpu_mode = 1979-05-27T07:32:00.5Z\n",
-			[]want{{"conf_value_type_refused", []string{"deploy", "gpu_mode"}, 2}}},
+			[]want{{"conf_value_invalid", []string{"deploy", "gpu_mode"}, 2}}},
 		// Every unknown table text is reported once, as the shell's
 		// --tables walk reports it: `[foo.bar]` is foo and foo.bar
 		// (s6_sec_unknown_nested.toml, held to _setup_conf_check_known by
