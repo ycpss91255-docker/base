@@ -1,0 +1,3 @@
+# Coverage floors of the packages S1g brought (base#1468), added by S1e
+# (base#1465) when the floors first became files.
+internal/testcorpus 96.0

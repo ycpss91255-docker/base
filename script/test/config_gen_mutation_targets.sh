@@ -51,6 +51,9 @@ _CGM_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _CGM_SCRIPT_DIR
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_CGM_SCRIPT_DIR}/../../dist/script/docker/lib/log.sh"
+# The constructors every written line goes through (base#1465).
+# shellcheck source=script/test/config_gen_mutation_lang.sh
+source "${_CGM_SCRIPT_DIR}/config_gen_mutation_lang.sh"
 
 readonly _CGM_SERVICE='config-gen'
 readonly _CGM_MOD='dockerfile/config-gen/'
@@ -131,40 +134,11 @@ _cgm_write_manifest() {
   printf '%s\n' "${header}" "$@" >"${dest}"
 }
 
-# _cgm_quote <path> -- print <path> in the one spelling every output file
-# uses (see the header); no trailing newline.
-_cgm_quote() {
-  local p="${1}" LC_ALL=C q='' c i
-  case "${p}" in
-    *[[:cntrl:]\"\\]*) ;;
-    *)
-      printf '%s' "${p}"
-      return 0
-      ;;
-  esac
-  for (( i = 0; i < ${#p}; i++ )); do
-    c="${p:i:1}"
-    case "${c}" in
-      $'\a') q+='\a' ;;
-      $'\b') q+='\b' ;;
-      $'\t') q+='\t' ;;
-      $'\n') q+='\n' ;;
-      $'\v') q+='\v' ;;
-      $'\f') q+='\f' ;;
-      $'\r') q+='\r' ;;
-      '"') q+='\"' ;;
-      \\) q+="\\\\" ;;
-      [[:cntrl:]]) q+="$(printf '\\%03o' "'${c}")" ;;
-      *) q+="${c}" ;;
-    esac
-  done
-  printf '"%s"' "${q}"
-}
-
 # _cgm_lines <repo> <base> -- the manifest's change lines: `git diff
-# --name-status -M <base>` over the module (a rename or copy keeps both
-# paths), then `A\t<path>` per untracked module file. Read NUL-delimited,
-# so no path is ever Git-quoted before _cgm_quote spells it.
+# --name-status -M <base>` over the module (a rename keeps both paths),
+# then `A\t<path>` per untracked module file, each through _cgm_record;
+# rc 1 on the first line it refuses. Read NUL-delimited, so no path is
+# ever Git-quoted before _cgm_quote spells it.
 _cgm_lines() {
   local repo="${1}" base="${2}" i=0 st
   local -a f=()
@@ -173,18 +147,18 @@ _cgm_lines() {
     st="${f[i]}"
     case "${st}" in
       R*|C*)
-        printf '%s\t%s\t%s\n' "${st}" "$(_cgm_quote "${f[i+1]}")" "$(_cgm_quote "${f[i+2]}")"
+        _cgm_record "${st}" "${f[i+1]}" "${f[i+2]}" || return 1
         i=$(( i + 3 ))
         ;;
       *)
-        printf '%s\t%s\n' "${st}" "$(_cgm_quote "${f[i+1]}")"
+        _cgm_record "${st}" "${f[i+1]}" || return 1
         i=$(( i + 2 ))
         ;;
     esac
   done
   mapfile -d '' -t f < <(git -C "${repo}" ls-files -z -o --exclude-standard -- "${_CGM_MOD}")
   for st in "${f[@]}"; do
-    printf 'A\t%s\n' "$(_cgm_quote "${st}")"
+    _cgm_record A "${st}" || return 1
   done
 }
 
@@ -192,13 +166,12 @@ _cgm_lines() {
 # each listed module file that is present, sorted by raw path bytes. The
 # list is read NUL-delimited, so the -f test sees the path on disk.
 _cgm_hashes() {
-  local repo="${1}" dest="${2}" path sum
+  local repo="${1}" dest="${2}" path
   shift 2
   : >"${dest}"
   while IFS= read -r -d '' path; do
     [[ -f "${repo}/${path}" ]] || continue
-    sum="$(sha256sum <"${repo}/${path}")"
-    printf '%s\t%s\n' "$(_cgm_quote "${path}")" "${sum%% *}" >>"${dest}"
+    _cgm_hash_line "${path}" "${repo}/${path}" >>"${dest}" || return 1
   done < <(git -C "${repo}" ls-files -z "$@" -- "${_CGM_MOD}" | LC_ALL=C sort -zu)
 }
 
@@ -291,19 +264,21 @@ main() {
   head="$(git -C "${repo}" rev-parse --verify 'HEAD^{commit}')"
   [[ -z "$(git -C "${repo}" status --porcelain -- "${_CGM_MOD}")" ]] || dirty=yes
 
+  local header listing
   local -a lines=()
-  mapfile -t lines < <(_cgm_lines "${repo}" "${base}")
+  header="$(_cgm_header "${base}" "${head}" "${dirty}" "${ctx}")" || exit 1
+  listing="$(_cgm_lines "${repo}" "${base}")" || exit 1
+  [[ -z "${listing}" ]] || mapfile -t lines <<<"${listing}"
 
   local parent
   parent="$(dirname -- "${out}")"
   mkdir -p -- "${parent}"
   trap _cgm_cleanup EXIT
   _CGM_TMP="$(mktemp -d "${parent}/.cgm-new.XXXXXX")"
-  _cgm_write_manifest "${repo}" "${base}" \
-    "base=${base} head=${head} dirty=${dirty} context=${ctx}" \
+  _cgm_write_manifest "${repo}" "${base}" "${header}" \
     "${_CGM_TMP}/manifest" "${lines[@]}"
-  _cgm_hashes "${repo}" "${_CGM_TMP}/visible.sha256" -co --exclude-standard
-  _cgm_hashes "${repo}" "${_CGM_TMP}/ignored.sha256" -o -i --exclude-standard
+  _cgm_hashes "${repo}" "${_CGM_TMP}/visible.sha256" -co --exclude-standard || exit 1
+  _cgm_hashes "${repo}" "${_CGM_TMP}/ignored.sha256" -o -i --exclude-standard || exit 1
   _cgm_publish "${_CGM_TMP}" "${out}"
   _CGM_TMP=""
 }
