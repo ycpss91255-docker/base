@@ -184,8 +184,6 @@ punct_bracket 3
 punct_comma 3
 quote_escape 3
 replace 4
-retract_block_post 4
-retract_block_pre 3
 retract_trailer_post 4
 retract_trailer_pre 3
 retract_unclosed_post 4
@@ -417,13 +415,30 @@ EOF
   _refused retract_trailer_post retract_trailer 4
 }
 
-# ── the skipped directives: refused by name (the blocking review point) ─────
-
-# why: Same point for retract: its block form is not ported yet, so it is
-# still refused by name.
-@test "_pin_go_mod_scan: retract is refused by name in the block form (base#1463)" {
-  _refused retract_block_post retract 4
+# why: Go reads a `retract (` block holding `v0.9.0` in module example.com/m
+# (the oracle records Go rc 0 for retract_block_pre/post) and its only
+# require is `a v1.0.0`. A scanner that still refuses the block by name
+# refuses both; one that hands the block's lines to the require entry
+# refuses `v0.9.0` as arity; one that emits them adds a record. The block's
+# lines are checked, never emitted, so none of them is a declaration.
+@test "_pin_go_mod_scan: a retract block is read and the require beside it is the one record (base#1488)" {
+  _scan retract_block_pre
+  assert_success
+  assert_output "$(printf '6\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan retract_block_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  cp "${FIX}/retract_block_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'retract (' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" "$(printf '\tv0.9.0')" 4
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" ')' 5
+  assert_failure 1
 }
+
+# ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
 @test "_pin_go_mod_scan: replace, tool and ignore are each refused by name (base#1463)" {
