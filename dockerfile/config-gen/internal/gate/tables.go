@@ -107,21 +107,18 @@ func (t *tables) document() error {
 		}
 		start := t.i
 		if t.src[t.i] == '[' {
-			aot := t.i+1 < len(t.src) && t.src[t.i+1] == '['
+			closing := "]"
+			aot := t.eat("[[")
 			if aot {
-				t.i += 2
+				closing = "]]"
 			} else {
-				t.i++
+				t.i++ // the `[` checked above
 			}
 			parts, _, err := t.key()
 			if err != nil {
 				return err
 			}
-			if aot {
-				if !t.eat("]]") {
-					return errStop
-				}
-			} else if !t.eat("]") {
+			if !t.eat(closing) {
 				return errStop
 			}
 			n, err := t.header(parts, aot, start)
@@ -213,11 +210,16 @@ func (t *tables) assign(table *node, parts []string, kind byte, at int) error {
 		n = n.child(p)
 		t.pending = append(t.pending, n)
 	}
-	last := parts[len(parts)-1]
-	if _, ok := n.kids[last]; ok {
+	return t.define(n, parts[len(parts)-1], kind, at)
+}
+
+// define records key part as a new node of kind below n, and refuses
+// ReasonDuplicate at offset at when n already holds part.
+func (t *tables) define(n *node, part string, kind byte, at int) error {
+	if _, ok := n.kids[part]; ok {
 		return t.refuse(at, ReasonDuplicate)
 	}
-	n.kids[last] = newNode(kind)
+	n.kids[part] = newNode(kind)
 	return nil
 }
 
@@ -270,10 +272,9 @@ func (t *tables) inline(f int) error {
 			}
 			n = n.child(p)
 		}
-		if _, ok := n.kids[parts[len(parts)-1]]; ok {
-			return t.refuse(start, ReasonDuplicate)
+		if err := t.define(n, parts[len(parts)-1], kind, start); err != nil {
+			return err
 		}
-		n.kids[parts[len(parts)-1]] = newNode(kind)
 		if err := t.inlineBlank(); err != nil {
 			return err
 		}
