@@ -222,6 +222,50 @@ func TestMapDeletesAndRenames(t *testing.T) {
 	}
 }
 
+// A manifest path the producer wrote C-quoted (it holds a control byte, a
+// double quote or a backslash; config_gen_mutation_lang.sh _cgm_quote)
+// maps as the raw path it reads back to. Each manifest line below is
+// spelled the way _cgm_quote spells it (a `"` as \", a backslash as \\, a
+// tab as \t). The expected lists are spelled from the fixture comment
+// above TestMapRootTestdataTargetsTestcorpusImporters, as for the
+// unquoted forms of the same paths.
+func TestMapReadsQuotedPaths(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	cases := []struct {
+		name     string
+		manifest string
+		want     []string
+	}{
+		{"a quoted root testdata file", header + "A\t\"dockerfile/config-gen/testdata/zznames/zz\\\"q.txt\"\n",
+			[]string{"internal/b", "internal/d", "internal/testcorpus"}},
+		{"a quoted file in a package's own testdata", header + "M\t\"dockerfile/config-gen/internal/c/testdata/a\\\\b.txt\"\n",
+			[]string{"internal/c"}},
+		{"a quoted Go file", header + "A\t\"dockerfile/config-gen/internal/c/zz\\tq.go\"\n",
+			[]string{"internal/c"}},
+		{"a quoted new side of a rename", header +
+			"R100\tdockerfile/config-gen/internal/c/old.go\t\"dockerfile/config-gen/internal/b/zz\\\"q.go\"\n",
+			[]string{"internal/b", "internal/c"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err != nil {
+				t.Fatalf("Map: %v", err)
+			}
+			if !reflect.DeepEqual(got.Targets, c.want) {
+				t.Errorf("Map targets = %q, want %q", got.Targets, c.want)
+			}
+		})
+	}
+}
+
 // Map keeps Targets' rule: a Go file maps to its own directory, with no
 // package list needed.
 func TestMapGoFileTargetsItsDirectory(t *testing.T) {
