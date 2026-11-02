@@ -106,3 +106,15 @@ scan-go-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      
 scan-toolchain-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi	        if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^(default|go1(\\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
 read-table-buffered	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	      _table+="${_record}"	      printf "%s" "${_record}"
 reader-marker-target-event	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	          _log_err pin go_mod_pin_target_not_require "file=${_file}" "line=${_target_no}" "pin=${_name}" \\	          printf "%s\\n" not_require_entry >&2; : \\
+exclude-check-call	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    _pin_go_mod_exclude_ok "${_path}" "${_ver}" && return 0	    return 0
+exclude-version-grammar	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ! "${_v}" =~ ${_re} ]]; then	  if false; then
+exclude-prerelease-zero	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ".${_pre#-}." =~	  if false && [[ ".${_pre#-}." =~
+exclude-gopkg-unstable	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    _run="${_path%-unstable}"	    _run="${_path}"
+exclude-gopkg-invalid	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      _PIN_GO_MOD_REASON=path_major_invalid\n      return 1	      _PIN_GO_MOD_REASON=path_major_invalid\n      :
+exclude-gopkg-v0	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 && ".v${_pm}${_suffix}" != .v0 ]]	 ]]
+exclude-path-invalid	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_run}" == 1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi	"${_run}" == 1 ]]; then :; fi
+exclude-path-suffix	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if (( _i > 1 )) && [[	    if false && [[
+exclude-gopkg-pseudo	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  [[ "${_v}" == v0.0.0-* &&	  false && [[ "${_v}" == v0.0.0-* &&
+exclude-incompatible	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 || "${_build}" == +incompatible ]] && return 0	 ]] && return 0
+exclude-major-match	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  elif [[ "${_major}" == "${_pm}" ]]; then	  elif false; then
+exclude-mismatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  _PIN_GO_MOD_REASON=path_major_mismatch\n  return 1	  _PIN_GO_MOD_REASON=path_major_mismatch\n  return 0

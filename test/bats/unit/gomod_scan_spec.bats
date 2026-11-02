@@ -134,8 +134,12 @@ exclude_arity_post 4
 exclude_arity_pre 3
 exclude_gopkg_in_mismatch 3
 exclude_gopkg_in_no_major 3
+exclude_gopkg_in_zero 3
 exclude_major_mismatch 3
+exclude_path_dot 3
+exclude_path_v02 3
 exclude_path_v1 3
+exclude_pre_zero 3
 exclude_short_pre 3
 exclude_version_invalid 3
 go_arity_post 4
@@ -366,7 +370,7 @@ EOF
 @test "_pin_go_mod_scan: an exclude takes Go's version and path-major checks, not the require entry's policy (base#1488)" {
   local _n _ln
   for _n in exclude_incompatible exclude_gopkg_in exclude_gopkg_in_unstable \
-    exclude_gopkg_in_v1_pseudo exclude_major_suffix_incompatible exclude_build_meta \
+    exclude_gopkg_in_v0 exclude_gopkg_in_v1_pseudo exclude_major_suffix_incompatible exclude_build_meta \
     exclude_short exclude_path_empty; do
     echo "fixture: ${_n}.mod"
     _scan "${_n}"
@@ -389,18 +393,23 @@ EOF
 }
 
 # why: The same Go checks still refuse what Go refuses (the oracle records
-# Go rc != 0 for each): a version CanonicalVersion cannot read
+# Go rc != 0 for each): a version CanonicalVersion cannot read, a short
+# one with a prerelease or a numeric prerelease with a leading zero
 # (version_invalid), a major the path does not carry (path_major_mismatch,
-# for a plain path and a gopkg.in one) and a path SplitPathVersion rejects
-# (path_major_invalid). An exclude check that accepts any version would
-# read these files Go refuses.
+# for a plain path and a gopkg.in one) and a path SplitPathVersion rejects:
+# no .vN, a leading zero, /v1 or a dotted /vN (path_major_invalid). An
+# exclude check that accepts any version would read these files Go refuses.
 @test "_pin_go_mod_scan: an exclude Go rejects for its version or path major is refused by Go's reason (base#1488)" {
   _refused exclude_version_invalid version_invalid 3
   _refused exclude_short_pre version_invalid 3
+  _refused exclude_pre_zero version_invalid 3
   _refused exclude_major_mismatch path_major_mismatch 3
   _refused exclude_gopkg_in_mismatch path_major_mismatch 3
   _refused exclude_gopkg_in_no_major path_major_invalid 3
+  _refused exclude_gopkg_in_zero path_major_invalid 3
   _refused exclude_path_v1 path_major_invalid 3
+  _refused exclude_path_v02 path_major_invalid 3
+  _refused exclude_path_dot path_major_invalid 3
 }
 
 # why: Go reads an `exclude (` block holding `a v1.0.0` (the oracle records

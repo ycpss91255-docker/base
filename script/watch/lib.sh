@@ -669,8 +669,10 @@ _pin_extract_value() {
 #                          repeated; godebug, exclude and retract, in
 #                          line and block form alike (base#1488), take
 #                          one `key=value` argument (else godebug_usage),
-#                          the require entry's arity, path and version
-#                          checks, and one version or a `[low, high]`
+#                          the require entry's arity and quote checks with
+#                          Go's own version and path-major checks (not
+#                          the require's record policy), and one version
+#                          or a `[low, high]`
 #                          interval, each version any token Go reads,
 #                          with no version grammar (a piece missing:
 #                          retract_interval; a token after the version
@@ -888,6 +890,58 @@ _pin_go_mod_canonical_ok() {
   return 0
 }
 
+# _pin_go_mod_exclude_ok <path> <version> -- 0 when Go's modfile parser
+# reads `exclude <path> <version>` (base#1488, review round 2): the version
+# through module.CanonicalVersion (semver: `v`, then MAJOR[.MINOR[.PATCH
+# [-pre][+build]]], numbers and numeric prerelease identifiers without a
+# leading zero), then module.CheckPathMajor against the major
+# module.SplitPathVersion reads off the path. An exclude emits no record,
+# so none of the require entry's record-fidelity refusals apply: Go keeps
+# +incompatible, reads a gopkg.in path, drops +build, completes a short
+# version and accepts an empty path. On refusal the reason is left in
+# _PIN_GO_MOD_REASON: version_invalid, path_major_invalid or
+# path_major_mismatch.
+_pin_go_mod_exclude_ok() {
+  local _path="${1}" _v="${2}" _n='(0|[1-9][0-9]*)' _id='[0-9A-Za-z-]+' _re
+  local _major _pre _build _run _i _suffix="" _pm=""
+  local LC_ALL=C
+  _PIN_GO_MOD_REASON=""
+  _re="^v${_n}(\.${_n}(\.${_n}(-${_id}(\.${_id})*)?(\+${_id}(\.${_id})*)?)?)?$"
+  if [[ ! "${_v}" =~ ${_re} ]]; then _PIN_GO_MOD_REASON=version_invalid; return 1; fi
+  _major="${BASH_REMATCH[1]}"
+  _pre="${BASH_REMATCH[6]}"
+  _build="${BASH_REMATCH[8]}"
+  if [[ ".${_pre#-}." =~ \.0[0-9]+\. ]]; then _PIN_GO_MOD_REASON=version_invalid; return 1; fi
+  # module.SplitPathVersion: gopkg.in/<x>.v<N>[-unstable], or a final
+  # /v<N>; a path with neither carries no major.
+  if [[ "${_path}" == gopkg.in/* ]]; then
+    _run="${_path%-unstable}"
+    [[ "${_run}" != "${_path}" ]] && _suffix=-unstable
+    _pm="${_run##*.v}"
+    if [[ "${_run}" != *.v* || ! "${_pm}" =~ ^[0-9]+$ ]] \
+      || [[ "${_pm}" == 0* && ".v${_pm}${_suffix}" != .v0 ]]; then
+      _PIN_GO_MOD_REASON=path_major_invalid
+      return 1
+    fi
+  else
+    _run="${_path##*[!0-9.]}"
+    _i=$(( ${#_path} - ${#_run} ))
+    if (( _i > 1 )) && [[ -n "${_run}" && "${_path:_i-2:2}" == /v ]]; then
+      if [[ "${_run}" == *.* || "${_run}" == 0* || "${_run}" == 1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
+      _pm="${_run}"
+    fi
+  fi
+  # module.CheckPathMajor: gopkg.in's .v1 also takes a v0.0.0- pseudo-version.
+  [[ "${_v}" == v0.0.0-* && "${_pm}" == 1 && "${_path}" == gopkg.in/* ]] && return 0
+  if [[ -z "${_pm}" ]]; then
+    [[ "${_major}" == 0 || "${_major}" == 1 || "${_build}" == +incompatible ]] && return 0
+  elif [[ "${_major}" == "${_pm}" ]]; then
+    return 0
+  fi
+  _PIN_GO_MOD_REASON=path_major_mismatch
+  return 1
+}
+
 # _pin_go_mod_unquote <kind> <text> -- a path or version token as Go reads
 # it: a string loses its quotes and is decoded left to right, `\"` to `"`
 # and `\\` to `\` (base#1488; every other escape never reaches here: the
@@ -924,15 +978,18 @@ _pin_go_mod_entry() {
   if (( ${#_gm_kind[@]} - _first != 2 )); then _pin_go_mod_refuse "${_ln}" arity; return 1; fi
   if ! _path="$(_pin_go_mod_unquote "${_gm_kind[_first]}" "${_gm_text[_first]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
   if ! _ver="$(_pin_go_mod_unquote "${_gm_kind[_first+1]}" "${_gm_text[_first+1]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+  # An exclude is held to Go's own checks only: it emits no record, so the
+  # record-fidelity refusals below (path_empty, version_ok) would refuse a
+  # file Go reads (review round 2, base#1488).
+  if (( ! _emit )); then
+    _pin_go_mod_exclude_ok "${_path}" "${_ver}" && return 0
+    _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"
+    return 1
+  fi
   # Go drops a requirement whose path is empty (`require "" v1.0.0` reads
   # as no requirement at all), so no record of it agrees with Go (review
   # round 2, base#1463).
   if [[ -z "${_path}" ]]; then _pin_go_mod_refuse "${_ln}" path_empty; return 1; fi
-  if (( ! _emit )); then
-    _pin_go_mod_version_ok "${_path}" "${_ver}" && return 0
-    _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"
-    return 1
-  fi
   # The record's own separator: a tab inside a quoted path or a comment
   # would split one field into two for every reader of the record
   # (`require "a<TAB>b" v1.0.0` read as path=a, version=b; review round 1,
