@@ -270,3 +270,24 @@ func TestDecodeArrayAtScalarKeyIsTypeRefused(t *testing.T) {
 		t.Errorf("Line = %d, want 2", got.Line)
 	}
 }
+
+// [logging] is a known section, and a table under it is a per-service
+// section, classified by its TOML type before any key name is matched,
+// so `[logging]` with `driver = "local"` beside `[logging.web]` with
+// `driver = "json-file"` gets no refusal (base#1442). The verdicts are
+// the shell's under LC_ALL=C: `_setup_known_section logging` and
+// `_setup_known_section logging.web` return 0, `_setup_known_key logging
+// driver` and `_setup_known_key logging.web driver` return 0, and
+// `_schema_validate logging driver local` and `_schema_validate
+// logging.web driver json-file` return 0. `_setup_known_key logging web`
+// returns 1, so a lookup of `web` as a key name of [logging] would refuse
+// the service.
+func TestDecodeLoggingSectionWithService(t *testing.T) {
+	src := []byte("[logging]\ndriver = \"local\"\n\n[logging.web]\ndriver = \"json-file\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 0 {
+		t.Fatalf("Decode refusals = %d (%+v), want none", len(refusals), refusals)
+	}
+}
