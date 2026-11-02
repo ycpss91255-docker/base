@@ -91,11 +91,16 @@ var moduleWide = map[string]bool{"go.mod": true, "go.sum": true, ".golangci.yml"
 // binary depends on internal/testcorpus. Any other module file is
 // refused as config_gen_mutation_unmapped, and a manifest that holds the
 // no-change marker beside any other line as config_gen_mutation_manifest_invalid
-// reason=marker_beside_lines. module is the module path; pkgs
-// is `go list -json -test -deps ./...` of the module.
+// reason=marker_beside_lines, and one with neither a record nor the
+// marker after its header as reason=empty_manifest. module is the module
+// path; pkgs is `go list -json -test -deps ./...` of the module.
 func Map(manifest, module string, pkgs []Package) (Mapping, error) {
-	if markerBesideLines(manifest) {
+	marker, other := scanLines(manifest)
+	if marker && other {
 		return Mapping{}, errors.New(ev("mutation_manifest_invalid", "reason", "marker_beside_lines").String())
+	}
+	if !marker && !other {
+		return Mapping{}, errors.New(ev("mutation_manifest_invalid", "reason", "empty_manifest").String())
 	}
 	seen := map[string]bool{}
 	out := []string{}
@@ -167,10 +172,9 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 // header.
 const noChange = "none: no-go-change"
 
-// markerBesideLines reports whether a manifest holds the no-change marker
-// together with any other non-empty line after the header.
-func markerBesideLines(manifest string) bool {
-	marker, other := false, false
+// scanLines reports whether a manifest holds the no-change marker after
+// the header, and whether it holds any other non-empty line there.
+func scanLines(manifest string) (marker, other bool) {
 	lines := strings.Split(manifest, "\n")
 	for _, line := range lines[1:] {
 		switch line {
@@ -181,7 +185,7 @@ func markerBesideLines(manifest string) bool {
 			other = true
 		}
 	}
-	return marker && other
+	return marker, other
 }
 
 // goPath is one Go path a manifest line names inside the module, and
