@@ -181,3 +181,61 @@ printf '%s\\n' \"\${_v}\${_w}\" >/dev/null"
       "line ${_l} ran but kcov recorded $(_hits "${_l}") hits. kcov read a backslash inside a plain single-quoted word as an escape. It is literal to the shell, so reading it as an escape eats the closing quote and discards everything after it."
   done
 }
+
+# _bash_method_of <argv-log>
+#   Print every `--bash-method=` token in a recorded kcov argv, one per
+#   line, or nothing when the argv carries none.
+_bash_method_of() {
+  local _log="${1:?BUG: _bash_method_of expects an argv log}"
+  tr ' ' '\n' < "${_log}" | { grep -- '^--bash-method=' || true; }
+}
+
+# why: The cases above are only the acceptance for the coverage run if they
+# measure with the instrument the run uses; a run site and an acceptance
+# that pick different `--bash-method` values would leave this file green
+# over a method the gate never reads (base#1030)
+@test "kcov: the coverage run site and this acceptance pass the same --bash-method (PS4)" {
+  create_mock_dir
+  local _site_log="${BATS_TEST_TMPDIR}/site-argv"
+  local _spec_log="${BATS_TEST_TMPDIR}/spec-argv"
+  # The stub stands in for the external kcov binary: it records its argv to
+  # the file KCOV_ARGV_LOG names and leaves the codecov.json a real run
+  # writes, so _measure reads a report instead of failing on a missing one.
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "${KCOV_ARGV_LOG}"
+    _out=""
+    for _a in "$@"; do
+      case "${_a}" in -*) ;; *) _out="${_a}"; break ;; esac
+    done
+    mkdir -p "${_out}/fixture.sh"
+    printf "{\"coverage\":{}}\n" > "${_out}/fixture.sh/codecov.json"'
+
+  local _root="${BATS_TEST_TMPDIR}/root"
+  mkdir -p "${_root}/test/bats/unit" "${BATS_TEST_TMPDIR}/work"
+  : > "${_root}/test/bats/unit/one_spec.bats"
+  run env KCOV_ARGV_LOG="${_site_log}" bash -c '
+    REPO_ROOT="'"${_root}"'"
+    _die() { printf "DIE %s\n" "$*" >&2; exit 1; }
+    _log_warn() { printf "WARN %s\n" "$*" >&2; }
+    source /source/script/test/drivers/bats.sh
+    _slices=("'"${_root}"'/test/bats/unit/one_spec.bats")
+    _pids=()
+    _coverage_parallel_launch _pids _slices "'"${BATS_TEST_TMPDIR}"'/work"
+    wait "${_pids[@]}"'
+  assert_success
+  [[ -s "${_site_log}" ]] || fail \
+    "_coverage_parallel_launch never reached kcov, so there is no run-site argv to compare."
+
+  KCOV_ARGV_LOG="${_spec_log}" _measure "#!/usr/bin/env bash
+true"
+  [[ -s "${_spec_log}" ]] || fail \
+    "_measure never reached kcov, so there is no acceptance argv to compare."
+
+  local _site _spec
+  _site="$(_bash_method_of "${_site_log}")"
+  _spec="$(_bash_method_of "${_spec_log}")"
+  [[ "${_site}" == "--bash-method=PS4" ]] || fail \
+    "the coverage run site (_coverage_parallel_launch in script/test/drivers/bats.sh) passed '${_site}' to kcov, expected exactly --bash-method=PS4. Its argv: $(cat "${_site_log}")"
+  [[ "${_spec}" == "${_site}" ]] || fail \
+    "this acceptance measured with '${_spec}' while the run site used '${_site}'. The cases above then accept an instrument the coverage gate never reads."
+}

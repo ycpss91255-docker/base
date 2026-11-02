@@ -4080,7 +4080,7 @@ status).
 | `just template new <name> scaffolds a working repo-local group (#633, closes #594)` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help (#633)` | #633 -- module default recipe |
 
-### test/bats/unit/kcov_bash_instrumentation_spec.bats (2)
+### test/bats/unit/kcov_bash_instrumentation_spec.bats (3)
 
 Asserts about the MEASURING INSTRUMENT rather than about the code, because
 the instrument is the one input to the coverage gate that nothing was
@@ -4101,6 +4101,7 @@ the bump rather than moving the coverage number by a plausible margin.
 |------|-------------|
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
+| `kcov: the coverage run site and this acceptance pass the same --bash-method (PS4)` | The cases above are only the acceptance for the coverage run if they measure with the instrument the run uses; a run site and an acceptance that pick different `--bash-method` values would leave this file green over a method the gate never reads (base#1030) |
 
 ### test/bats/unit/kcov_shard_concurrency_spec.bats (3)
 
