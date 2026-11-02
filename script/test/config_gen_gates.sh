@@ -113,6 +113,9 @@ _cg_context_args() {
 # en_US.UTF-8 on the host, bash's [!-~] matched no
 # file=dockerfile/config-gen/... word at all, while the C-locale test-tools
 # container matched every one. The local LC_ALL ends with the function.
+# The redpath's stale-edit-locale case runs this runner under en_US.UTF-8
+# and fails without it; no bats spec can, since the musl test-tools image
+# matched every word under every locale (base#1465).
 _cg_attr_ok() {
   local LC_ALL=C
   [[ "${1}" =~ ${_CG_EVENT_ATTR_RE} ]]
