@@ -169,6 +169,12 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/stop-inline-no-comma.toml":  "refuse",
 	"internal/gate/testdata/forms/stop-array-no-comma.toml":   "refuse",
 	"internal/gate/testdata/forms/stop-header-eof.toml":       "refuse",
+
+	// base#1441 review round 1, finding 2 (a Lib/tomllib copy under
+	// python3 -I, 2026-11-02): a quoted key part holding \u0000 is a key
+	// of its own, not the dotted path around the NUL, as a key, a header
+	// and an inline-table member.
+	"internal/gate/testdata/forms/key-nul-not-dotted.toml": "accept",
 }
 
 // designValues are tomllib's decoded values for the float forms (base#1441

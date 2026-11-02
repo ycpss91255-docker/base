@@ -618,3 +618,37 @@ func TestCheckRedefinedTableSpeaksOverwrite(t *testing.T) {
 		}
 	}
 }
+
+// A key path is its decoded parts, so a quoted key part that holds a NUL
+// (written \u0000) names a key of its own, never the dotted path its
+// bytes around the NUL would spell (base#1441 review round 1, finding 2;
+// ADR-00000039 requires acceptance). tomllib (a Lib/tomllib copy run
+// under python3 -I, 2026-11-02) accepts each nil row and refuses the
+// last row, two spellings of the same key, "Cannot overwrite a value";
+// the gate refuses it with ReasonDuplicate at the second key's first
+// byte, 2:1, counted by hand.
+func TestCheckKeyPathsAreDecodedParts(t *testing.T) {
+	for _, src := range []string{
+		"\"a\\u0000b\" = 1\na.b = 2\n",
+		"a.b = 1\n\"a\\u0000b\" = 2\n",
+		"[\"a\\u0000b\"]\n[a.b]\n",
+		"[a.b]\n[\"a\\u0000b\"]\n",
+		"[[\"a\\u0000b\"]]\n[a.b]\n",
+		"t = {\"a\\u0000b\" = 1, a.b = 2}\n",
+		"t = {a.b = 1, \"a\\u0000b\" = 2}\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+	const dup = "\"a\\u0000b\" = 1\n\"a\\U00000000b\" = 2\n"
+	err := Check("t.toml", []byte(dup))
+	var r *Refusal
+	if !errors.As(err, &r) {
+		t.Fatalf("Check(%q) = %v, want *Refusal", dup, err)
+	}
+	const want = "t.toml:2:1: Cannot overwrite a value (at line 2, column 1)"
+	if r.Reason != ReasonDuplicate || r.Error() != want {
+		t.Fatalf("Check(%q) = %v %q, want ReasonDuplicate %q", dup, r.Reason, r.Error(), want)
+	}
+}
