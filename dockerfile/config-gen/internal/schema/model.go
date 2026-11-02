@@ -55,7 +55,7 @@ type Row struct {
 
 // Tree is every accepted table node of a layer, empty ones included, so
 // two layers can be merged on TOML keys the way _merge_tables
-// (toml_bridge.py:914) merges them (base#1442).
+// (toml_bridge.py line 914) merges them (base#1442).
 type Tree struct {
 	// Nodes[0] is the root; a node's index is its visit order in the
 	// bridge's traversal.

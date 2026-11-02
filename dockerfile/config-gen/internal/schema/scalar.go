@@ -11,14 +11,16 @@ import (
 // Kind is the TOML kind of a scalar value.
 type Kind string
 
-// The scalar kinds decoded so far, named as toml-test names them.
+// The TOML scalar kinds, named as toml-test names them.
 const (
-	KindString    Kind = "string"
-	KindInt       Kind = "int"
-	KindFloat     Kind = "float"
-	KindBool      Kind = "bool"
-	KindDatetime  Kind = "datetime"
-	KindLocalDate Kind = "date-local"
+	KindString        Kind = "string"
+	KindInt           Kind = "int"
+	KindFloat         Kind = "float"
+	KindBool          Kind = "bool"
+	KindDatetime      Kind = "datetime"
+	KindLocalDatetime Kind = "datetime-local"
+	KindLocalDate     Kind = "date-local"
+	KindLocalTime     Kind = "time-local"
 )
 
 // Scalar is one scalar value of a layer. Kind is its TOML kind; Text is
@@ -45,11 +47,7 @@ func (s *Scalar) UnmarshalTOML(v any) error {
 	case float64:
 		s.Kind, s.Text = KindFloat, pythonFloat(x)
 	case time.Time:
-		k, text, err := pythonTime(x)
-		if err != nil {
-			return err
-		}
-		s.Kind, s.Text = k, text
+		s.Kind, s.Text = pythonTime(x)
 	default:
 		return fmt.Errorf("unsupported scalar type %T", v)
 	}
@@ -76,17 +74,24 @@ func pythonFloat(x float64) string {
 	return fixed
 }
 
-// pythonTime is the TOML kind of a decoded date or offset datetime and
-// Python's str() of what tomllib makes of it. BurntSushi/toml marks a
-// local date by the name of the zone it parses it in. A local datetime,
-// a local time and a fractional second are not decoded yet; they follow
-// in later cycles of base#1442.
-func pythonTime(t time.Time) (Kind, string, error) {
-	switch {
-	case t.Location().String() == "date-local":
-		return KindLocalDate, t.Format("2006-01-02"), nil
-	case strings.HasSuffix(t.Location().String(), "-local") || t.Nanosecond() != 0:
-		return "", "", fmt.Errorf("unsupported scalar value %s", t.Format(time.RFC3339Nano))
+// pythonTime is the TOML kind of a decoded date, time or datetime and
+// Python's str() of what tomllib makes of it: `HH:MM:SS`, with
+// `.ffffff` when the microsecond is not zero (tomllib keeps the first six
+// fraction digits), a date before it with a space and an offset datetime's
+// `+HH:MM` after it (`Z` is `+00:00`). BurntSushi/toml marks a local value
+// by the name of the zone it parses it in.
+func pythonTime(t time.Time) (Kind, string) {
+	clock := t.Format("15:04:05")
+	if us := t.Nanosecond() / 1000; us != 0 {
+		clock += fmt.Sprintf(".%06d", us)
 	}
-	return KindDatetime, t.Format("2006-01-02 15:04:05-07:00"), nil
+	switch t.Location().String() {
+	case "date-local":
+		return KindLocalDate, t.Format("2006-01-02")
+	case "time-local":
+		return KindLocalTime, clock
+	case "datetime-local":
+		return KindLocalDatetime, t.Format("2006-01-02 ") + clock
+	}
+	return KindDatetime, t.Format("2006-01-02 ") + clock + t.Format("-07:00")
 }

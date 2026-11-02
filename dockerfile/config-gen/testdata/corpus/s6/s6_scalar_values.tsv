@@ -42,7 +42,9 @@ value	resources	shm_size	"2g"	accept	-	shm_size:pattern
 value	resources	shm_size	"2t"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"2 g"	refuse	conf_value_invalid	shm_size:other
 value	lifecycle	restart	"unless-stopped"	accept	-	restart:word
+# tool-pin: ignore -- a restart policy value, not a version
 value	lifecycle	restart	"on-failure:3"	accept	-	restart:on-failure-n
+# tool-pin: ignore -- a restart policy value, not a version
 value	lifecycle	restart	"on-failure:0"	refuse	conf_value_invalid	restart:on-failure-n
 value	lifecycle	restart	"never"	refuse	conf_value_invalid	restart:other
 value	lifecycle	init	true	accept	-	init:bool
@@ -171,6 +173,7 @@ value	network	port_2	"8080:80"	accept	-	port_mapping:pair
 value	network	port_3	"53:53/udp"	accept	-	port_mapping:proto
 value	network	port_4	"80"	refuse	conf_value_invalid	port_mapping:other
 value	network	port_5	"80:80/sctp"	refuse	conf_value_invalid	port_mapping:other
+# tool-pin: ignore -- a port mapping value, not a version
 value	network	port_6	"a:80"	refuse	conf_value_invalid	port_mapping:other
 value	network	port_7	80	refuse	conf_value_type_refused	port_mapping:other
 value	additional_contexts	context_1	""	accept	-	empty:allow

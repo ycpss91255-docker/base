@@ -171,7 +171,7 @@ func TestDecodeUnknownKeyInDeferrableTable(t *testing.T) {
 // schema and get no refusal: deferral goes by TOML type (base#1442).
 // The bridge accepts `[[volumes]]\nsource = "/a"` with rc 0 and turns it
 // into the row `volumes\tmount_1\t/a` (`_ARRAY_SPEC["volumes"]`,
-// dockerfile/toml_bridge.py:53),
+// dockerfile/toml_bridge.py line 53),
 // so the element's `source` never reaches _setup_known_key; checking it
 // is left to the array stage. The library types the path as ArrayHash,
 // unlike `[volumes]`, which is Hash.

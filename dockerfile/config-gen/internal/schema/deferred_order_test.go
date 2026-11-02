@@ -11,7 +11,7 @@ import (
 
 // The members of an inline table inside a deferred array keep the order
 // they are written in, so the array stage reads each element's keys the
-// way the bridge's _emit_entries walks elem.items() (toml_bridge.py:755)
+// way the bridge's _emit_entries walks elem.items() (toml_bridge.py line 755)
 // (base#1442, design r4 cycle 12e (c)).
 //
 // Expected values: the bridge's `--entries` rows for the same bytes

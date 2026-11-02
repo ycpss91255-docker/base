@@ -2,6 +2,7 @@ package schema
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -89,10 +90,14 @@ var validators = map[string]rule{
 	"security.cap_drop_":           {valid: capability.MatchString, kinds: kindsString},
 }
 
-// canonical is schema.sh's _schema_canonical_key lookup: the exact
-// section.key first, then a numbered key (`^(.+_)[0-9]+$`) by its
-// trailing-_ prefix.
+// canonical is schema.sh's _schema_canonical_key lookup: a per-service
+// section text `logging.<service>` shares the [logging] key set, then the
+// exact section.key is looked up first, then a numbered key
+// (`^(.+_)[0-9]+$`) by its trailing-_ prefix.
 func canonical(section, key string) (rule, bool) {
+	if strings.HasPrefix(section, "logging.") {
+		section = "logging"
+	}
 	if r, ok := validators[section+"."+key]; ok {
 		return r, true
 	}
@@ -113,16 +118,30 @@ func canonical(section, key string) (rule, bool) {
 // SCHEMA_EMPTY policy is `validate`, and otherwise the validator decides.
 // A refused value of a kind the key declares is conf_value_invalid; one
 // of another kind is conf_value_type_refused.
+//
+// A key that declares no string kind (a bool or an int key) is typed: a
+// value of another kind is conf_value_type_refused before its text is
+// judged, so `privileged = "true"` and `max_file = "3"` are refused
+// although schema.sh passes their text (ADR-00000039: a value outside its
+// field's type is refused at load, base#1314). The empty string is still
+// the default empty policy's, accepted at any such key. A string key keeps
+// the bridge's accepted spellings (a date or a number in a string field,
+// base#1407 matrix rows 7a and 7c): its value is judged on its text.
 func Validate(section, key string, s Scalar) error {
 	r, ok := canonical(section, key)
-	if !ok || (s.Text == "" && !r.validateEmpty) || r.valid(s.Text) {
+	if !ok || (s.Text == "" && !r.validateEmpty) {
+		return nil
+	}
+	declared := slices.Contains(r.kinds, s.Kind)
+	if !declared && !slices.Contains(r.kinds, KindString) {
+		return &ValueError{Event: "conf_value_type_refused", Section: section, Key: key, Text: s.Text}
+	}
+	if r.valid(s.Text) {
 		return nil
 	}
 	event := "conf_value_type_refused"
-	for _, k := range r.kinds {
-		if k == s.Kind {
-			event = "conf_value_invalid"
-		}
+	if declared {
+		event = "conf_value_invalid"
 	}
 	return &ValueError{Event: event, Section: section, Key: key, Text: s.Text}
 }

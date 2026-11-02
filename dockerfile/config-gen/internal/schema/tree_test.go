@@ -101,7 +101,7 @@ func emitRows(tr *Tree) []string {
 }
 
 // mergeTrees merges upper into a copy of base the way _merge_tables
-// (toml_bridge.py:914) merges two parsed layers: a key that is a table on
+// (toml_bridge.py line 914) merges two parsed layers: a key that is a table on
 // both sides recurses; any other key is assigned, which keeps an existing
 // key's position and appends a new one.
 func mergeTrees(t *testing.T, base, upper *Tree) *Tree {

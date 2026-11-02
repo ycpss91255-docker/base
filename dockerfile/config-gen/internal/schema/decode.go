@@ -3,7 +3,6 @@
 package schema
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"sort"
@@ -47,89 +46,147 @@ var known = map[string]bool{
 	"volumes":     true,
 }
 
-// Decode decodes src and returns one conf_unknown_table refusal for each
-// top-level table schema.sh does not know, at its header line, and one
-// conf_unknown_key refusal for each key of a known table that the table
-// does not register. Keys under an unknown table get no refusal. A key
-// written at the root is one conf_top_level_key refusal at its line. A
-// known key whose value Validate refuses is one refusal with Validate's
-// event at the key's line; an array at a known key is one
-// conf_value_type_refused refusal at its line.
+// Decode decodes src and returns its refusals, each at the line the
+// locator gives the refused table or key (base#1442). Every path md.Keys()
+// lists is classified by its TOML type before any name lookup:
+//   - a table schema.sh does not know is one conf_unknown_table refusal at
+//     its header line; the outermost such table is refused and nothing
+//     under it gets a refusal of its own;
+//   - anything under an array is the array stage's and gets no refusal;
+//   - a scalar at the root, whatever its name, is one conf_top_level_key;
+//   - a scalar or an array under a known table is judged as
+//     _setup_known_key and _schema_validate judge its section text and
+//     key, so a `[logging.<service>]` key is judged as a [logging] key: an
+//     unregistered key is conf_unknown_key, an array at a registered key
+//     is conf_value_type_refused, and a scalar Validate refuses is one
+//     refusal with Validate's event.
 func Decode(src []byte) (*Config, []Refusal) {
-	var root map[string]toml.Primitive
-	md, err := toml.Decode(string(src), &root)
+	var doc map[string]any
+	md, err := toml.Decode(string(src), &doc)
 	if err != nil {
 		return nil, []Refusal{{Event: "conf_toml_parse_failed"}}
 	}
+	lines := locate.Index(src)
 	var refusals []Refusal
-	var lines *locate.Map
-	index := func() *locate.Map {
-		if lines == nil {
-			lines = locate.Index(src)
-		}
-		return lines
+	refuse := func(event string, k []string, line int) {
+		refusals = append(refusals, Refusal{Event: event, Path: k, Line: line})
 	}
+	refused := map[string]bool{}
+next:
 	for _, k := range md.Keys() {
-		ok := known[k[0]]
-		// A root table whose name is `logging.` plus at least one byte
-		// (`["logging.a"]`) is a per-service section by its text, which
-		// _setup_known_section accepts (base#1442).
-		if len(k) == 1 && !ok && !(serviceText(k[0]) && md.Type(k...) == "Hash") {
-			if occ, found := index().Key(k); found == locate.Found {
-				refusals = append(refusals, Refusal{Event: "conf_top_level_key", Path: k, Line: occ.KeyLine})
+		// The outermost table on the path that is refused, or the first
+		// array on it, decides for everything under it. A prefix is
+		// classified by its decoded value, so an implicit table, which
+		// md.Keys() need not list, is classified too.
+		for i := 1; i < len(k); i++ {
+			switch lookup(doc, k[:i]).(type) {
+			case []map[string]any, []any:
+				continue next
+			case map[string]any:
+				if !accepted(k[:i]) {
+					if id := pathID(k[:i]); !refused[id] {
+						refused[id] = true
+						refuse("conf_unknown_table", k[:i], tableLine(lines, k[:i]))
+					}
+					continue next
+				}
+			}
+		}
+		section, key := strings.Join(k[:len(k)-1], "."), k[len(k)-1]
+		switch typ := md.Type(k...); {
+		case typ == "Hash":
+			if id := pathID(k); !accepted(k) && !refused[id] {
+				refused[id] = true
+				refuse("conf_unknown_table", k, tableLine(lines, k))
+			}
+		case len(k) == 1 && (typ == "ArrayHash" || typ == "Array"):
+			// An array at a known section name, `[[volumes]]` or the
+			// inline `volumes = [{...}]`, is the legacy spelling the
+			// array stage handles. Any other root array is refused as
+			// what it is written as: an array-table header is a table,
+			// an inline array a root key.
+			switch {
+			case known[k[0]]:
+			case typ == "ArrayHash":
+				refuse("conf_unknown_table", k, tableLine(lines, k))
+			default:
+				refuse("conf_top_level_key", k, keyLine(lines, k))
+			}
+		case len(k) == 1:
+			refuse("conf_top_level_key", k, keyLine(lines, k))
+		case typ == "ArrayHash":
+			// An array of tables nested under a known table is the array
+			// stage's.
+		default:
+			if _, isKey := canonical(section, key); !isKey {
+				refuse("conf_unknown_key", k, keyLine(lines, k))
 				continue
 			}
-			occ, _ := index().Table(k)
-			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
-		}
-		// An array of tables at a known section name, `[[volumes]]` or
-		// the inline `volumes = [{...}]`, is the legacy spelling the
-		// array stage handles; its keys are not scalars of the section,
-		// so they are not looked up here. An array of tables nested under
-		// a known section is owned by the array stage too, so it is
-		// classified by its TOML type before any name lookup (base#1442).
-		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" || md.Type(k[0]) == "Array" || md.Type(k...) == "ArrayHash" {
-			continue
-		}
-		// A plain table nested under [logging] is a per-service section
-		// _setup_known_section accepts, classified by its TOML type
-		// before any key name lookup (base#1442).
-		if md.Type(k...) == "Hash" && k[0] == "logging" {
-			continue
-		}
-		// A plain table nested under any other known section is a section
-		// of its own that _setup_known_section does not know, so it is
-		// refused at its header line and the keys under it get no refusal
-		// (base#1442).
-		if md.Type(k...) == "Hash" {
-			occ, _ := index().Table(k)
-			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
-			continue
-		}
-		if _, isKey := canonical(k[0], k[1]); !isKey {
-			refusals = append(refusals, Refusal{Event: "conf_unknown_key", Path: k, Line: keyLine(src, k)})
-		} else if md.Type(k...) == "Array" {
-			// An array at a registered scalar key is a value of the wrong
-			// type for that key, not an array the array stage owns
-			// (base#1442).
-			refusals = append(refusals, Refusal{Event: "conf_value_type_refused", Path: k, Line: keyLine(src, k)})
-		} else {
-			var table map[string]toml.Primitive
+			if typ == "Array" {
+				// An array at a registered scalar key is a value of the
+				// wrong type for that key, not an array the array stage
+				// owns.
+				refuse("conf_value_type_refused", k, keyLine(lines, k))
+				continue
+			}
 			var s Scalar
-			// A value of a kind Scalar does not decode yet is left
-			// unvalidated; the other kinds follow in later cycles of
-			// base#1442.
-			if md.PrimitiveDecode(root[k[0]], &table) != nil || md.PrimitiveDecode(table[k[1]], &s) != nil {
+			if s.UnmarshalTOML(lookup(doc, k)) != nil {
+				refuse("conf_value_type_refused", k, keyLine(lines, k))
 				continue
 			}
 			var ve *ValueError
-			if err := Validate(k[0], k[1], s); errors.As(err, &ve) {
-				refusals = append(refusals, Refusal{Event: ve.Event, Path: k, Line: keyLine(src, k)})
+			if err := Validate(section, key, s); errors.As(err, &ve) {
+				refuse(ve.Event, k, keyLine(lines, k))
 			}
 		}
 	}
-	tree, deferred := buildTree(src, md)
+	tree, deferred := buildTree(md, doc, lines)
 	return &Config{Environment: projectEnvironment(&tree), Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree, Deferred: deferred}, refusals
+}
+
+// accepted reports whether the table at p is one _setup_known_section
+// accepts: a known section, or any table whose text is under logging.
+func accepted(p []string) bool {
+	if len(p) == 1 {
+		return known[p[0]] || serviceText(p[0])
+	}
+	return p[0] == "logging" || serviceText(p[0])
+}
+
+// lookup is the decoded value at path k of doc, or nil.
+func lookup(doc map[string]any, k []string) any {
+	var v any = doc
+	for _, name := range k {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		v = m[name]
+	}
+	return v
+}
+
+// keyLine is the line the locator gives the key k. A key inside an inline
+// value is not indexed, so it is given the line of the innermost inline
+// key that holds it.
+func keyLine(lines *locate.Map, k []string) int {
+	for i := len(k); i > 0; i-- {
+		for _, o := range lines.Keys(k[:i]) {
+			if i == len(k) || o.Inline {
+				return o.KeyLine
+			}
+		}
+	}
+	return 0
+}
+
+// tableLine is the line of the first occurrence of the table k: its
+// header, its first creator's when implicit, or its key's when inline.
+func tableLine(lines *locate.Map, k []string) int {
+	if occ := lines.Tables(k); len(occ) > 0 {
+		return occ[0].KeyLine
+	}
+	return keyLine(lines, k)
 }
 
 // projectEnvironment is the [environment] node of t: Absent when there is
@@ -188,12 +245,8 @@ func pathID(path []string) string {
 // accepted; a refused table and everything under it is left out, and so
 // is a root scalar. Each accepted array is returned in the second result
 // with its payload (base#1442).
-func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
+func buildTree(md toml.MetaData, doc map[string]any, lines *locate.Map) (Tree, []Deferred) {
 	keys := md.Keys()
-	var doc map[string]any
-	if _, err := toml.Decode(string(src), &doc); err != nil {
-		return Tree{}, nil
-	}
 	children := map[string][]string{}
 	seen := map[string]bool{}
 	for _, k := range keys {
@@ -205,13 +258,6 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 				children[parent] = append(children[parent], k[i-1])
 			}
 		}
-	}
-	lines := locate.Index(src)
-	accepted := func(p []string) bool {
-		if len(p) == 1 {
-			return known[p[0]] || serviceText(p[0])
-		}
-		return p[0] == "logging" || serviceText(p[0])
 	}
 	t := Tree{Nodes: []Node{{}}}
 	var deferred []Deferred
@@ -251,14 +297,13 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 					continue
 				}
 				var s Scalar
-				// A value of a kind Scalar does not decode yet is left
-				// out; the other kinds follow in later cycles of
-				// base#1442.
+				// Scalar decodes every TOML scalar kind; a value it cannot
+				// decode is refused by Decode, so leaving it out loses
+				// nothing silently.
 				if s.UnmarshalTOML(v) != nil {
 					continue
 				}
-				occ, _ := lines.Key(p)
-				f := Field{State: Set, Value: s, Line: occ.KeyLine}
+				f := Field{State: Set, Value: s, Line: keyLine(lines, p)}
 				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildRow, Key: name, Row: f})
 			}
 		}
@@ -268,43 +313,123 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 }
 
 // arrayValue is the payload of the array v at path p. An array of tables
-// has one VTable per `[[p]]` element, at its header line, whose members
-// are the keys written directly under that header, in source order, each
-// at its key line. An inline array starts on its key's line and its items
+// is tablesValue's. An inline array starts on its key's line and its items
 // are given that line; the members of each table item are in the order
 // md.Keys() lists them (base#1442).
 func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 	elems, isTables := v.([]map[string]any)
 	if !isTables {
-		occ, _ := lines.Key(p)
-		out := valueOf(v, occ.KeyLine)
+		out := valueOf(v, keyLine(lines, p))
 		orderInlineMembers(&out, keys, p)
 		return out
 	}
+	return tablesValue(lines.Entries(), p, elems)
+}
+
+// tablesValue is the payload of the array of tables at p whose decoded
+// elements are elems: one VTable per `[[p]]` element of entries, at its
+// header line, holding the element's whole decoded table (tableValue).
+func tablesValue(entries []locate.Occurrence, p []string, elems []map[string]any) Value {
 	out := Value{Kind: VArray}
-	entries := lines.Entries()
-	want := pathID(p)
-	i := 0
-	for at, o := range entries {
-		if o.Kind != locate.ArrayHeader || pathID(o.Path) != want || i >= len(elems) {
-			continue
+	spans := elementSpans(entries, p)
+	for i, e := range elems {
+		var span []locate.Occurrence
+		line := 0
+		if i < len(spans) {
+			span, line = spans[i][1:], spans[i][0].KeyLine
 		}
-		item := Value{Kind: VTable, Header: true, Line: o.KeyLine}
-		for _, m := range entries[at+1:] {
-			if m.Kind == locate.ArrayHeader || (m.Kind == locate.Header && !m.Implicit) {
-				break
-			}
-			if m.Kind != locate.Key || len(m.Path) != len(p)+1 || pathID(m.Path[:len(p)]) != want {
-				continue
-			}
-			key := m.Path[len(p)]
-			item.Members = append(item.Members, Member{Key: key, Value: valueOf(elems[i][key], m.KeyLine)})
-		}
+		item := tableValue(span, p, e, line)
+		item.Header = true
 		if i == 0 {
-			out.Line = o.KeyLine
+			out.Line = line
 		}
 		out.Items = append(out.Items, item)
-		i++
+	}
+	return out
+}
+
+// elementSpans splits entries into the `[[p]]` elements: each span starts
+// at one `[[p]]` header and holds every occurrence after it up to the next
+// `[[p]]` header or the first header that is not under p. Nested tables,
+// nested arrays of tables and dotted keys of the element are under p, so
+// they stay in its span.
+func elementSpans(entries []locate.Occurrence, p []string) [][]locate.Occurrence {
+	want := pathID(p)
+	var spans [][]locate.Occurrence
+	open := false
+	for _, o := range entries {
+		switch {
+		case o.Kind == locate.ArrayHeader && pathID(o.Path) == want:
+			spans = append(spans, []locate.Occurrence{o})
+			open = true
+		case !open:
+		case o.Kind != locate.Key && !under(o.Path, p):
+			open = false
+		default:
+			spans[len(spans)-1] = append(spans[len(spans)-1], o)
+		}
+	}
+	return spans
+}
+
+// under reports whether path lies strictly under p, by whole components.
+func under(path, p []string) bool {
+	return len(path) > len(p) && pathID(path[:len(p)]) == pathID(p)
+}
+
+// tableValue is the decoded table m written at prefix, at line. Its
+// members are its keys in the order span first names them, then any key
+// span does not name, in key order, so the payload is whole either way.
+// A member that is a table written with headers or dotted keys is a
+// tableValue of its own, an array of tables a tablesValue, and anything
+// else valueOf at the member's first line.
+func tableValue(span []locate.Occurrence, prefix []string, m map[string]any, line int) Value {
+	out := Value{Kind: VTable, Line: line}
+	var order []string
+	first := map[string]locate.Occurrence{}
+	for _, o := range span {
+		if !under(o.Path, prefix) {
+			continue
+		}
+		name := o.Path[len(prefix)]
+		if _, seen := first[name]; !seen {
+			first[name] = o
+			order = append(order, name)
+		}
+	}
+	var rest []string
+	for name := range m {
+		if _, seen := first[name]; !seen {
+			rest = append(rest, name)
+		}
+	}
+	sort.Strings(rest)
+	for _, name := range append(order, rest...) {
+		v, ok := m[name]
+		if !ok {
+			continue
+		}
+		o, written := first[name]
+		at := line
+		if written {
+			at = o.KeyLine
+		}
+		p := append(append([]string{}, prefix...), name)
+		inline := written && o.Kind == locate.Key && len(o.Path) == len(p)
+		var mv Value
+		switch x := v.(type) {
+		case map[string]any:
+			if inline {
+				mv = valueOf(x, at)
+			} else {
+				mv = tableValue(span, p, x, at)
+			}
+		case []map[string]any:
+			mv = tablesValue(span, p, x)
+		default:
+			mv = valueOf(v, at)
+		}
+		out.Members = append(out.Members, Member{Key: name, Value: mv})
 	}
 	return out
 }
@@ -312,7 +437,7 @@ func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 // orderInlineMembers puts the members of each table item of the inline
 // array a, written at path p, in source order. md.Keys() lists the
 // members of the items under p itself with no item index, one item after
-// another (toml_bridge.py:755 walks elem.items() in that order), so each
+// another (toml_bridge.py line 755 walks elem.items() in that order), so each
 // table item takes the next run of keys directly under p, until every one
 // of its members has its key (base#1442).
 func orderInlineMembers(a *Value, keys []toml.Key, p []string) {
@@ -414,18 +539,4 @@ func ProjectServices(t *Tree) map[string]*Service {
 	}
 	walk(0)
 	return out
-}
-
-// keyLine is the line of `<key> =` under the header `[<table>]`.
-func keyLine(src []byte, k toml.Key) int {
-	table := ""
-	for i, line := range bytes.Split(src, []byte("\n")) {
-		s := strings.TrimSpace(string(line))
-		if strings.HasPrefix(s, "[") {
-			table = strings.Trim(s, "[]")
-		} else if name, _, ok := strings.Cut(s, "="); ok && table == k[0] && strings.TrimSpace(name) == k[1] {
-			return i + 1
-		}
-	}
-	return 0
 }

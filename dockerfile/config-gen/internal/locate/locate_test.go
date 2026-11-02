@@ -297,3 +297,48 @@ func TestIndexMultilineArray(t *testing.T) {
 		t.Errorf("Key(devices.after) = %v KeyLine=%d, want Found 6", lk, o.KeyLine)
 	}
 }
+
+// TestIndexKeyEscapes checks that a quoted key is indexed under the key
+// the library decodes, every TOML 1.0 escape included, and that an escaped
+// quote does not end the key (base#1442). The expected paths are the
+// library's md.Keys().
+func TestIndexKeyEscapes(t *testing.T) {
+	src := []byte("[\"t\\\"able\"]\n\"a\\bb\\tc\\nd\\fe\\rf\\\"g\\\\h\\u0041\\U0001F600\" = 1\n'lit\\eral' = 2\n")
+	md, err := toml.Decode(string(src), new(map[string]any))
+	if err != nil {
+		t.Fatalf("library refused %q: %v", src, err)
+	}
+	var want, got []string
+	for _, k := range md.Keys() {
+		want = append(want, fmt.Sprintf("%q", []string(k)))
+	}
+	for _, o := range Index(src).Entries() {
+		got = append(got, fmt.Sprintf("%q", o.Path))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Entries() paths = %v, want md.Keys() %v", got, want)
+	}
+}
+
+// TestIndexEveryPrefixIsSafe indexes every byte prefix of every corpus/s6
+// file, so an unterminated string, escape, array or header at any point
+// cannot make the scan run past the input (base#1442, review round 1: an
+// escaped quote used to start a scan beyond the end and panic).
+func TestIndexEveryPrefixIsSafe(t *testing.T) {
+	for _, file := range testcorpus.Glob(t, "corpus/s6/*.toml") {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for n := 0; n <= len(src); n++ {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Fatalf("%s: Index of the first %d bytes panicked: %v", file, n, r)
+					}
+				}()
+				Index(src[:n])
+			}()
+		}
+	}
+}

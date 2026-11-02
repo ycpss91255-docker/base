@@ -41,6 +41,7 @@ teardown() {
   while IFS=$'\t' read -r _class _section _key _lit _verdict _event _branch; do
     [[ "${_class}" == \#* ]] && continue
     [[ "${_class}" == value ]] || { _bad+=("class ${_class}"); continue; }
+    # toml-fixture-lint: allow the body is built from a table row; the bridge parses each row and a refusal is reported
     printf '[%s]\n%s = %s\n' "${_section}" "${_key}" "${_lit}" > "${TEMP_DIR}/in.toml"
     _kv="$(toml_bridge_parse "${TEMP_DIR}/in.toml" --kv)" \
       || { _bad+=("${_section}.${_key}=${_lit}: bridge failed"); continue; }
@@ -72,6 +73,7 @@ teardown() {
   local _rows=0 _bad=()
   while IFS=$'\t' read -r _section _key _lit _kind _want; do
     [[ "${_section}" == \#* ]] && continue
+    # toml-fixture-lint: allow the body is built from a table row; the bridge parses each row and a refusal is reported
     printf '[%s]\n%s = %s\n' "${_section}" "${_key}" "${_lit}" > "${TEMP_DIR}/in.toml"
     _kv="$(toml_bridge_parse "${TEMP_DIR}/in.toml" --kv)" \
       || { _bad+=("${_section}.${_key}=${_lit}: bridge failed"); continue; }

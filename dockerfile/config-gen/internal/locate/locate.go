@@ -131,6 +131,9 @@ func (s *scanner) run() {
 		case c == '\n':
 			s.pos++
 			s.line++
+		case c == ' ' || c == '\t' || c == '\r':
+			// Indentation before a header, a key or a comment.
+			s.pos++
 		case c == '#':
 			s.skipLine()
 		case c == '[':
@@ -232,46 +235,58 @@ func bare(c byte) bool {
 	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
-// value skips one value, strings included; a multi-line basic string or
-// array may span lines, and a header-like line inside it is its content.
+// value skips one value, strings included; a multi-line string, array or
+// inline table may span lines, and a header-like line inside it is its
+// content.
 func (s *scanner) value() {
 	for s.pos < len(s.src) && s.src[s.pos] != '\n' && s.src[s.pos] != '#' {
-		switch {
-		case s.src[s.pos] == '[':
-			s.array()
-		case bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)):
-			s.multiline()
-		case s.src[s.pos] == '"':
-			s.basic()
-		case s.src[s.pos] == '\'':
-			s.literal()
-		default:
-			s.pos++
+		if !s.skipString() {
+			if c := s.src[s.pos]; c == '[' || c == '{' {
+				s.nested()
+			} else {
+				s.pos++
+			}
 		}
 	}
 }
 
-// array skips a `[...]` array through its matching `]`, counting the
-// lines it spans; strings and comments inside it are skipped whole.
-func (s *scanner) array() {
+// skipString skips the string that starts at the current byte, of any of
+// the four TOML string forms, and reports whether one started there.
+func (s *scanner) skipString() bool {
+	switch {
+	case bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)):
+		s.multiline('"')
+	case bytes.HasPrefix(s.src[s.pos:], []byte(`'''`)):
+		s.multiline('\'')
+	case s.src[s.pos] == '"':
+		s.basic()
+	case s.src[s.pos] == '\'':
+		s.literal()
+	default:
+		return false
+	}
+	return true
+}
+
+// nested skips a `[...]` array or a `{...}` inline table through its
+// matching close, counting the lines it spans; strings and comments
+// inside it are skipped whole.
+func (s *scanner) nested() {
 	depth := 0
 	for s.pos < len(s.src) {
-		switch c := s.src[s.pos]; {
-		case bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)):
-			s.multiline()
-		case c == '"':
-			s.basic()
-		case c == '\'':
-			s.literal()
-		case c == '#':
+		if s.skipString() {
+			continue
+		}
+		switch c := s.src[s.pos]; c {
+		case '#':
 			s.skipComment()
-		case c == '\n':
+		case '\n':
 			s.pos++
 			s.line++
-		case c == '[':
+		case '[', '{':
 			depth++
 			s.pos++
-		case c == ']':
+		case ']', '}':
 			depth--
 			s.pos++
 			if depth == 0 {
@@ -283,38 +298,115 @@ func (s *scanner) array() {
 	}
 }
 
-// multiline skips a `"""` string through its closing `"""`, counting the
-// lines it spans.
-func (s *scanner) multiline() {
+// multiline skips a multi-line string delimited by three q bytes through
+// its closing delimiter, counting the lines it spans. In a basic string
+// (q is `"`) a backslash escapes the byte after it, so `\"""` does not
+// close the string. The closing delimiter may follow one or two quote
+// bytes of the content (`"""a""""` is `a"`), so a run of up to five q
+// bytes is consumed whole.
+func (s *scanner) multiline(q byte) {
 	s.pos += 3
-	for s.pos < len(s.src) && !bytes.HasPrefix(s.src[s.pos:], []byte(`"""`)) {
-		if s.src[s.pos] == '\n' {
+	for s.pos < len(s.src) {
+		c := s.src[s.pos]
+		switch {
+		case c == '\n':
 			s.line++
+			s.pos++
+		case c == '\\' && q == '"':
+			s.pos++
+			if s.pos < len(s.src) && s.src[s.pos] != '\n' {
+				s.pos++
+			}
+		case c == q && s.pos+2 < len(s.src) && s.src[s.pos+1] == q && s.src[s.pos+2] == q:
+			n := 0
+			for n < 5 && s.pos < len(s.src) && s.src[s.pos] == q {
+				s.pos++
+				n++
+			}
+			return
+		default:
+			s.pos++
 		}
-		s.pos++
 	}
-	s.pos += 3
 }
 
-// basic reads a single-line basic string without escapes.
+// basic reads a single-line basic string and returns its decoded text:
+// an escape never ends the string. The scan stops at the end of the line
+// or of the input, so an unterminated string cannot run past either.
 func (s *scanner) basic() string {
-	return s.quoted('"')
+	s.pos++
+	var b strings.Builder
+	for s.pos < len(s.src) && s.src[s.pos] != '\n' {
+		switch c := s.src[s.pos]; c {
+		case '"':
+			s.pos++
+			return b.String()
+		case '\\':
+			s.escape(&b)
+		default:
+			b.WriteByte(c)
+			s.pos++
+		}
+	}
+	return b.String()
 }
 
-// literal reads a single-line literal string.
+// escape decodes the TOML 1.0 escape sequence at the current backslash
+// into b; any other escaped byte is kept as written.
+func (s *scanner) escape(b *strings.Builder) {
+	s.pos++
+	if s.pos >= len(s.src) || s.src[s.pos] == '\n' {
+		return
+	}
+	c := s.src[s.pos]
+	s.pos++
+	switch c {
+	case 'b':
+		b.WriteByte('\b')
+	case 't':
+		b.WriteByte('\t')
+	case 'n':
+		b.WriteByte('\n')
+	case 'f':
+		b.WriteByte('\f')
+	case 'r':
+		b.WriteByte('\r')
+	case 'u':
+		s.hexRune(b, 4)
+	case 'U':
+		s.hexRune(b, 8)
+	default:
+		b.WriteByte(c)
+	}
+}
+
+// hexRune decodes the n hex digits at the current position as one code
+// point into b.
+func (s *scanner) hexRune(b *strings.Builder, n int) {
+	if s.pos+n > len(s.src) {
+		s.pos = len(s.src)
+		return
+	}
+	v, err := strconv.ParseUint(string(s.src[s.pos:s.pos+n]), 16, 32)
+	s.pos += n
+	if err == nil {
+		b.WriteRune(rune(v))
+	}
+}
+
+// literal reads a single-line literal string, which has no escapes. The
+// scan stops at the end of the line or of the input.
 func (s *scanner) literal() string {
-	return s.quoted('\'')
-}
-
-// quoted reads the bytes between an opening quote and the next q.
-func (s *scanner) quoted(q byte) string {
 	s.pos++
 	start := s.pos
-	for s.src[s.pos] != q {
+	for s.pos < len(s.src) && s.src[s.pos] != '\'' && s.src[s.pos] != '\n' {
 		s.pos++
 	}
-	s.pos++
-	return string(s.src[start : s.pos-1])
+	text := string(s.src[start:s.pos])
+	if s.pos < len(s.src) && s.src[s.pos] == '\'' {
+		s.pos++
+	}
+	return text
 }
 
 func (s *scanner) peek() byte {

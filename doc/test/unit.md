@@ -2023,6 +2023,20 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |
 | `just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)` | The one command all four environments run. The order matters: the redpath on a tree whose gates are already red proves nothing, and `;` would run it after a red runner and report the redpath's status instead. |
 
+### test/bats/unit/config_gen_schema_values_spec.bats (2)
+
+The Go generator's schema.Validate and the shell's _schema_validate must
+accept and refuse the same values. Both read one shared table,
+dockerfile/config-gen/testdata/corpus/s6/s6_scalar_values.tsv; the Go half
+asserts what Validate answers, and this half asserts that every verdict in
+the table is what the shell answers on the bridge's text, so the table is
+the shell's word and not the Go package's.
+
+| Test | Description |
+|------|-------------|
+| `s6_scalar_values: every class=value verdict is _schema_validate's on the bridge text` | Each class=value row's literal goes through the bridge's --kv, the text the shell reads, and _schema_validate on that text must give the row's verdict: rc 0 for accept, non-zero for refuse. A `differs:wrong_type` row is one the generator refuses on purpose as a value outside its field's type (ADR-00000039) while the shell passes its text, so the shell must accept it: rc 0. |
+| `s6_scalar_texts: every bridge-text column is the bridge's --kv text` | Go's Scalar text for each TOML scalar kind (a local time, a local datetime, a fractional datetime among them) must be the text the shell reads from the bridge's --kv for the same literal; each row of the shared s6_scalar_texts.tsv names that text and the Go half asserts the same. |
+
 ### test/bats/unit/config_gen_spec.bats (17)
 
 the config generator ships as a Go module under dockerfile/config-gen with
