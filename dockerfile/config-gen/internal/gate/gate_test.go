@@ -86,6 +86,14 @@ func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 		{"r6", "a = { b = [1] \n}\n", 1, 15},
 		{"r1-form", "a = {b = 1,\n c = 2}\n", 1, 12},
 		{"crlf", "a = {\r\nb = 1}\r\n", 1, 6},
+		// Between a key and its `=`, and between the `=` and the value,
+		// the structural pass refuses the line ending where it stands;
+		// tomllib (run 2026-11-02) refuses both at the same column,
+		// "Expected '=' after a key in a key/value pair (at line 1,
+		// column 7)" and "Invalid value (at line 1, column 9)", and
+		// BurntSushi v1.6.0 refuses both too (base#1441 review round 2).
+		{"key-eq", "a = {b\n= 1}\n", 1, 7},
+		{"eq-value", "a = {b =\n1}\n", 1, 9},
 	} {
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
@@ -586,7 +594,12 @@ func TestCheckScopesDottedKeysToArrayOfTablesElement(t *testing.T) {
 // defines a table a second time speaks it too, whatever internal reason
 // the gate records (base#1441 redesign r3 R7). tomllib (CPython 3.13.13
 // Lib/tomllib, run 2026-11-02) refuses every row, as "Cannot declare
-// ... twice", and BurntSushi v1.6.0 accepts every row. The reason and the
+// ... twice". BurntSushi v1.6.0 (run 2026-11-02, review round 2 finding
+// 3) refuses four rows itself, "Key 'x' has already been defined." for
+// `[x]\n[x]\n`, `[x]\ny = 1\n[x]\n` and `[[x]]\n[x]\n` and "Key 'a' has
+// already been defined." for `a = {b = 1}\n[a]\n`; it accepts the two
+// header-over-dotted-key rows, `a.b = 1\n[a]\n` and
+// `[a]\nb.c = 1\n[a.b]\n`, which only the gate refuses. The reason and the
 // position are the gate's own: ReasonRedefine at the second header's `[`,
 // column 1, the line counted by hand.
 func TestCheckRedefinedTableSpeaksOverwrite(t *testing.T) {
@@ -748,12 +761,16 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 // Check reports the first refusal in document order: a lexical refusal
 // (here a `\e` escape) is reported when the structural reading reaches
 // it, so a duplicate on an earlier line is reported first (base#1441
-// redesign r2 R4b, review round 2 finding 1). tomllib reads the document
-// in one pass and stops at its first error, the line 2 duplicate. The
-// position is the second definition's first byte, 2:1, counted by hand.
-// A structural reading that stops on input it cannot follow still lets
-// a later escape be refused (R4c): the escape's backslash is at 2:6,
-// d(1) ' '(2) =(3) ' '(4) "(5) \(6).
+// redesign r2 R4b, review round 2 finding 1). tomllib (a CPython 3.13.13
+// Lib/tomllib copy under python3 -I, run 2026-11-02) refuses both R4b
+// rows on line 2, "Cannot overwrite a value (at line 2, column 6)" and
+// "Cannot declare ('x',) twice (at line 2, column 3)", not at the line 3
+// escape. The gate's position is the second definition's first byte,
+// 2:1, counted by hand. A structural reading that stops on input it
+// cannot follow still lets a later escape be refused (R4c): tomllib
+// refuses those rows on line 1 ("Unclosed inline table", "Unclosed
+// array"), a form the gate leaves to the decoder, and the gate names the
+// escape's backslash at 2:6, d(1) ' '(2) =(3) ' '(4) "(5) \(6).
 func TestCheckRefusesInDocumentOrder(t *testing.T) {
 	for _, tc := range []struct {
 		src       string

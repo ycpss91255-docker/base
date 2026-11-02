@@ -98,17 +98,6 @@ func newTables(label string, src []byte) *tables {
 	return &tables{src: src, label: label, root: newNode(nodeTable), tz: map[string]bool{}}
 }
 
-// checkTables returns nil or the *Refusal for the first table-rule
-// conflict in src.
-func checkTables(label string, src []byte) error {
-	t := newTables(label, src)
-	err := t.document()
-	if errors.Is(err, errStop) {
-		return nil
-	}
-	return err
-}
-
 func (t *tables) document() error {
 	table := t.root // the current table
 	for {
@@ -234,7 +223,9 @@ func (t *tables) assign(table *node, parts []string, kind byte, at int) error {
 
 // inline reads an inline table whose `{` is at t.i, holding tomllib's
 // inline-table rules within it: no key passes through or repeats an
-// inline table, array or scalar written earlier in it. f is the frame of
+// inline table, array or scalar written earlier in it; no line ending
+// stands between its tokens, and no comma before its `}` (TOML 1.0
+// inline-table; base#1441 review round 2, finding 1). f is the frame of
 // tomllib's parse_inline_table; its skip_chars, flag and nest calls run
 // at f+1, and each pair's parse_key_value_pair at f+1, whose parse_key
 // runs at f+2 and whose value is read at f+2.
@@ -244,12 +235,13 @@ func (t *tables) inline(f int) error {
 	}
 	t.i++
 	local := newNode(nodeTable) // the paths this inline table defined
-	t.skipBlank(false)
+	if err := t.inlineBlank(); err != nil {
+		return err
+	}
 	if t.eat("}") {
 		return nil
 	}
 	for {
-		t.skipBlank(false)
 		start := t.i
 		parts, cost, err := t.key()
 		if err != nil {
@@ -258,9 +250,14 @@ func (t *tables) inline(f int) error {
 		if err := t.reach(f + 3 + cost); err != nil {
 			return err
 		}
-		t.skipBlank(false)
+		if err := t.inlineBlank(); err != nil {
+			return err
+		}
 		if !t.eat("=") {
 			return errStop
+		}
+		if err := t.inlineBlank(); err != nil {
+			return err
 		}
 		kind, err := t.value(f + 2)
 		if err != nil {
@@ -277,14 +274,33 @@ func (t *tables) inline(f int) error {
 			return t.refuse(start, ReasonDuplicate)
 		}
 		n.kids[parts[len(parts)-1]] = newNode(kind)
-		t.skipBlank(false)
+		if err := t.inlineBlank(); err != nil {
+			return err
+		}
 		if t.eat("}") {
 			return nil
 		}
+		comma := t.i
 		if !t.eat(",") {
 			return errStop
 		}
+		if err := t.inlineBlank(); err != nil {
+			return err
+		}
+		if t.i < len(t.src) && t.src[t.i] == '}' {
+			return commaRefusal(t.label, t.src, comma)
+		}
 	}
+}
+
+// inlineBlank skips the spaces, tabs and comment at t.i inside an inline
+// table and refuses the line ending it then stands on.
+func (t *tables) inlineBlank() error {
+	t.skipBlank(false)
+	if t.i < len(t.src) && lineEnd(t.src, t.i) {
+		return newlineRefusal(t.label, t.src, t.i)
+	}
+	return nil
 }
 
 // value reads the value at t.i and returns its node kind. f is the frame
@@ -453,7 +469,10 @@ func isBareKeyByte(b byte) bool {
 // 2. An escape adds parse_basic_str_escape (3 one-line, 4 multi-line
 // through parse_basic_str_escape_multiline); a multi-line whitespace
 // escape adds its skip_chars (5); a \u or \U escape adds parse_hex_char
-// and is_unicode_scalar_value (5 one-line, 6 multi-line).
+// and is_unicode_scalar_value (5 one-line, 6 multi-line). A `\e` or `\x`
+// escape in a basic string is refused at its backslash, here where the
+// pass reads it (base#1441 review round 2, finding 1); a single-line
+// string a line ending leaves unclosed stops the pass.
 func (t *tables) str() (string, int, error) {
 	q := t.src[t.i]
 	delim := []byte{q}
@@ -468,7 +487,13 @@ func (t *tables) str() (string, int, error) {
 	t.i += len(delim)
 	start := t.i
 	for t.i < len(t.src) {
+		if len(delim) == 1 && lineEnd(t.src, t.i) {
+			return "", 0, errStop // a single-line string left unclosed
+		}
 		if q == '"' && t.src[t.i] == '\\' {
+			if t.i+1 < len(t.src) && (t.src[t.i+1] == 'e' || t.src[t.i+1] == 'x') {
+				return "", 0, escapeRefusal(t.label, t.src, t.i)
+			}
 			esc := 3
 			if t.i+1 < len(t.src) {
 				switch c := t.src[t.i+1]; {

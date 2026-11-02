@@ -99,15 +99,31 @@ func oracleRefusal(label string, src []byte, off int, reason Reason, msg string)
 }
 
 // Check returns nil, or a *Refusal that names label and the offending
-// byte of src.
+// byte of src. The structural pass reads src in document order and
+// raises each lexical refusal (an escape, a line ending or a trailing
+// comma in an inline table) where it reads that token, so the first
+// refusal in the document is the one reported, as tomllib reports its
+// first error (base#1441 redesign r2 R4b, review round 2 finding 1).
 func Check(label string, src []byte) error {
 	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
 		return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
 	}
+	err := newTables(label, src).document()
+	if errors.Is(err, errStop) {
+		// The structural pass stopped on input it cannot follow, which
+		// the decoder refuses; the lexical rules still name a later
+		// escape or inline-table form (redesign r2 R4c).
+		return lexScan(label, src)
+	}
+	return err
+}
+
+// lexScan returns nil, or the *Refusal for the first `\e` or `\x` escape
+// in a basic string, or line ending or trailing comma in an inline table,
+// that a flat scan of src finds. Check runs it only once the structural
+// pass has stopped.
+func lexScan(label string, src []byte) error {
 	var open []byte // innermost last: '{' inline table, '[' array or header
-	// Table rules (duplicate keys, redefined tables) are the structural
-	// pass's alone: checkTables follows headers, array-of-tables elements
-	// and dotted keys the way tomllib does (base#1441 review round 2).
 	for i := 0; i < len(src); i++ {
 		switch {
 		case src[i] == '#':
@@ -120,7 +136,7 @@ func Check(label string, src []byte) error {
 		case src[i] == '"':
 			last, bad := scanBasic(src, i)
 			if bad >= 0 {
-				return refusal(label, src, bad, ReasonEscape, `escape sequence \`+string(src[bad+1])+` is not TOML 1.0`)
+				return escapeRefusal(label, src, bad)
 			}
 			i = last
 		case src[i] == '{' || src[i] == '[':
@@ -128,18 +144,36 @@ func Check(label string, src []byte) error {
 		case (src[i] == '}' || src[i] == ']') && len(open) > 0:
 			open = open[:len(open)-1]
 		case lineEnd(src, i) && len(open) > 0 && open[len(open)-1] == '{':
-			return refusal(label, src, i, ReasonInlineNewline, "line ending inside an inline table is not TOML 1.0")
+			return newlineRefusal(label, src, i)
 		case src[i] == ',' && len(open) > 0 && open[len(open)-1] == '{':
 			j := i + 1
 			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
 				j++
 			}
 			if j < len(src) && src[j] == '}' {
-				return refusal(label, src, i, ReasonInlineTrailingComma, "trailing comma in an inline table is not TOML 1.0")
+				return commaRefusal(label, src, i)
 			}
 		}
 	}
-	return checkTables(label, src)
+	return nil
+}
+
+// escapeRefusal is the refusal for the `\e` or `\x` escape whose
+// backslash is at offset off of src.
+func escapeRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonEscape, `escape sequence \`+string(src[off+1])+` is not TOML 1.0`)
+}
+
+// newlineRefusal is the refusal for the line ending at offset off of src
+// inside an inline table.
+func newlineRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonInlineNewline, "line ending inside an inline table is not TOML 1.0")
+}
+
+// commaRefusal is the refusal for the inline table's trailing comma at
+// offset off of src.
+func commaRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonInlineTrailingComma, "trailing comma in an inline table is not TOML 1.0")
 }
 
 // Normalize returns a copy of src, which Check accepted, in which every
