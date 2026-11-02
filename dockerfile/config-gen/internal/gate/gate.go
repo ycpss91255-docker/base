@@ -12,7 +12,8 @@ import (
 type Reason int
 
 const (
-	// ReasonEscape is a `\e` escape in a basic string (TOML 1.1 only).
+	// ReasonEscape is a `\e` or `\xHH` escape in a basic string (TOML 1.1
+	// only).
 	ReasonEscape Reason = iota + 1
 )
 
@@ -38,10 +39,10 @@ func Check(label string, src []byte) error {
 		switch {
 		case src[i] == '"':
 			inBasic = !inBasic
-		case inBasic && src[i] == '\\' && i+1 < len(src) && src[i+1] == 'e':
+		case inBasic && src[i] == '\\' && i+1 < len(src) && (src[i+1] == 'e' || src[i+1] == 'x'):
 			line, col := position(src, i)
 			return &Refusal{File: label, Line: line, Col: col, Reason: ReasonEscape,
-				Text: `escape sequence \e is not TOML 1.0`}
+				Text: `escape sequence \` + string(src[i+1]) + ` is not TOML 1.0`}
 		}
 	}
 	return nil
