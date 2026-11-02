@@ -696,8 +696,12 @@ jobs:
     runs-on: ubuntu-latest
     # 45, not 30: each leg also runs its shard of the required-kill roster
     # (base#1461), measured at 13-20 minutes a shard on PR #1491's run
-    # 41226185346, on top of the lint group.
-    timeout-minutes: 45
+    # 41226185346, on top of the lint group. 90, not 45: the s1e rows
+    # (base#1465) took the roster from 166 rows to 262, and on PR #1496's
+    # run 41385653542 shard 1/4 was cancelled at 45 minutes with its
+    # roster step still running after 43 minutes, while the other three
+    # legs finished in 34 to 36 minutes.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
