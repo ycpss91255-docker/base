@@ -664,13 +664,13 @@ _pin_extract_value() {
 #
 #   require                emitted, after the entry and version checks;
 #   module, go, toolchain, held to the checks Go's own parser makes (one
-#   godebug (line or block argument, the value grammar, not repeated) and
-#   form), exclude (line   never emitted (a godebug line that fails Go's
-#   form)                  check is godebug_usage; an exclude line takes
+#   godebug, exclude       argument, the value grammar, not repeated) and
+#   (line or block form)   never emitted (a godebug line that fails Go's
+#                          check is godebug_usage; an exclude line takes
 #                          the require entry's arity, path and version
 #                          checks);
-#   anything else          refused BY NAME (replace, tool, ignore, retract,
-#                          an exclude block) or as unknown_verb.
+#   anything else          refused BY NAME (replace, tool, ignore, retract)
+#                          or as unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -976,6 +976,10 @@ _pin_go_mod_scan() {
         _pin_go_mod_godebug "${_ln}" 0 || return 1
         continue
       fi
+      if [[ "${_block_verb}" == exclude ]]; then
+        _pin_go_mod_entry "${_ln}" 0 0 || return 1
+        continue
+      fi
       _pin_go_mod_entry "${_ln}" 0 || return 1
       continue
     fi
@@ -985,11 +989,6 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi
     if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi
     if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
-    if [[ "${_verb}" == exclude ]]; then
-      if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
-      _pin_go_mod_entry "${_ln}" 1 0 || return 1
-      continue
-    fi
     if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi
     case "${_verb}" in
       module | go | toolchain)
@@ -1017,7 +1016,7 @@ _pin_go_mod_scan() {
         if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
         _seen_toolchain=1
         ;;
-      require | godebug)
+      require | godebug | exclude)
         if _pin_go_mod_opens_block; then
           if (( ${#_gm_kind[@]} > 2 )); then _pin_go_mod_refuse "${_ln}" paren_trailer; return 1; fi
           _block_verb="${_verb}"
@@ -1026,6 +1025,10 @@ _pin_go_mod_scan() {
         fi
         if [[ "${_verb}" == godebug ]]; then
           _pin_go_mod_godebug "${_ln}" 1 || return 1
+          continue
+        fi
+        if [[ "${_verb}" == exclude ]]; then
+          _pin_go_mod_entry "${_ln}" 1 0 || return 1
           continue
         fi
         _pin_go_mod_entry "${_ln}" 1 || return 1
