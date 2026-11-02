@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,5 +34,70 @@ func TestLoadOracleVerdictsFailsClosed(t *testing.T) {
 				t.Fatalf("loadOracleVerdicts(%q) error = %q, want it to contain %q", tc.path, err.Error(), noOracleMsg)
 			}
 		})
+	}
+}
+
+// The verdict rows must name exactly the TOML files under this package's
+// testdata (design-ahead r3 cycle 12, base#1441): a file with no row was
+// never asked of tomllib, and a row with no file is a verdict for
+// something the differential cannot read. Each direction fails naming
+// the path; the same set in another order passes. Rows are the step's
+// `<rel>\t<verdict>` lines, rel taken from dockerfile/config-gen.
+func TestCheckOracleRowsSetEquality(t *testing.T) {
+	const a = "internal/gate/testdata/toml-test/valid/a.toml"
+	const b = "internal/gate/testdata/toml-test/invalid/b.toml"
+	cases := []struct {
+		name  string
+		rows  []string
+		files []string
+		want  string // "" = nil error; otherwise a substring of the error
+	}{
+		{"equal sets", []string{b + "\trefuse", a + "\taccept"}, []string{a, b}, ""},
+		{"missing row", []string{a + "\taccept"}, []string{a, b}, b},
+		{"extra row", []string{a + "\taccept", b + "\trefuse"}, []string{a}, b},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkOracleRows(tc.rows, tc.files)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("checkOracleRows(%q, %q) = %v, want nil", tc.rows, tc.files, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("checkOracleRows(%q, %q) = nil, want an error naming %q", tc.rows, tc.files, tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("checkOracleRows(%q, %q) error = %q, want it to name %q", tc.rows, tc.files, err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// The live rows, from the verdicts file `just test go` hands the build
+// through CONFIG_GEN_TOML_ORACLE, must equal the WalkDir set of
+// testdata/**/*.toml, keyed the way the step keys them
+// (internal/gate/<path>).
+func TestOracleRows(t *testing.T) {
+	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	walkErr := filepath.WalkDir("testdata", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".toml") {
+			files = append(files, "internal/gate/"+filepath.ToSlash(p))
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatal(walkErr)
+	}
+	if err := checkOracleRows(rows, files); err != nil {
+		t.Fatal(err)
 	}
 }
