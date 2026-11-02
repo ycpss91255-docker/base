@@ -124,6 +124,48 @@ func TestMapNonGoModuleFilesTargetTheirPackages(t *testing.T) {
 	}
 }
 
+// A module file no mapping rule covers (not Go, not under any testdata/,
+// not go.mod, go.sum, .golangci.yml or a coverage-floors.d fragment) is
+// refused as unmapped, naming the manifest path, even beside a mapped
+// file. The expected lines are the issue's event id with file= spelled
+// as literals.
+func TestMapRefusesAnUnmappedFile(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	cases := []struct {
+		name     string
+		manifest string
+		want     string
+	}{
+		{"notes.txt at the module root", header + "A\tdockerfile/config-gen/notes.txt\n",
+			"cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt"},
+		{"a shell script in a gates directory", header + "M\tdockerfile/config-gen/gates/coverage.sh\n",
+			"cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/gates/coverage.sh"},
+		{"a README beside a package's Go files", header + "M\tdockerfile/config-gen/internal/c/README.md\n",
+			"cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/internal/c/README.md"},
+		{"beside a mapped Go file", header +
+			"M\tdockerfile/config-gen/internal/c/c.go\nA\tdockerfile/config-gen/notes.txt\n",
+			"cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Map(c.manifest, fixtureModule, pkgs)
+			if err == nil {
+				t.Fatalf("Map returned no error, want %q", c.want)
+			}
+			if got := err.Error(); got != c.want {
+				t.Errorf("Map error = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // Map keeps Targets' rule: a Go file maps to its own directory, with no
 // package list needed.
 func TestMapGoFileTargetsItsDirectory(t *testing.T) {
