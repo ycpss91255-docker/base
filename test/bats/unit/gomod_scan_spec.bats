@@ -335,15 +335,21 @@ EOF
   assert_failure 1
 }
 
+# why: Go rejects `exclude a` (one argument; the oracle records Go rc != 0
+# for exclude_arity_pre/post). exclude now takes the require entry's
+# checks, so a wrong argument count is the same `arity` a require with one
+# word gets -- not a by-name `exclude` refusal, and never skipped unread
+# (the base#1463 bug: the valid require beside it was emitted).
+@test "_pin_go_mod_scan: exclude with one argument is refused as arity, before a require and after one (base#1488)" {
+  _refused exclude_arity_pre arity 3
+  _refused exclude_arity_post arity 4
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
-# why: Go rejects `exclude a` and the old design consumed exclude unread, so
-# a valid require after it was emitted for a file Go refuses. exclude is now
-# refused by name in any form: line and block, before and after a require.
-@test "_pin_go_mod_scan: exclude is refused by name, line form before a require and block form after one (base#1463)" {
+# why: The exclude block form is not yet read; it stays refused by name.
+@test "_pin_go_mod_scan: an exclude block is refused by name (base#1463)" {
   _refused exclude_block_post exclude 4
-  _refused exclude_arity_pre exclude 3
-  _refused exclude_arity_post exclude 4
 }
 
 # why: Same point for retract: its interval grammar is not ported, so every
