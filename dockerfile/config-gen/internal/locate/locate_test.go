@@ -189,3 +189,40 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 		}
 	}
 }
+
+// TestIndexInlineMembers checks that each key written inside an inline
+// value is a member at its own line and column, under the path the
+// library lists it by (base#1442 review round 1 finding 2): a bracket in
+// a string or a comment inside the value is content, an array item
+// spanning lines moves the line on, and the holding key stays the only
+// entry. The expected paths are the library's md.Keys() after `a`; the
+// lines and columns are counted by hand from the text.
+func TestIndexInlineMembers(t *testing.T) {
+	src := []byte("a = { b = \"}{\", c = [ # } ]\n  { d = 1 } ] }\n")
+	md, err := toml.Decode(string(src), new(map[string]any))
+	if err != nil {
+		t.Fatalf("library refused %q: %v", src, err)
+	}
+	var want []string
+	for _, k := range md.Keys()[1:] {
+		want = append(want, fmt.Sprintf("%q", []string(k)))
+	}
+	m := Index(src)
+	var got []string
+	var pos [][2]int
+	for _, p := range [][]string{{"a", "b"}, {"a", "c"}, {"a", "c", "d"}} {
+		for _, o := range m.Members(p) {
+			got = append(got, fmt.Sprintf("%q", o.Path))
+			pos = append(pos, [2]int{o.KeyLine, o.KeyCol})
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Members paths = %v, want md.Keys() %v", got, want)
+	}
+	if wantPos := [][2]int{{1, 7}, {1, 17}, {2, 5}}; !reflect.DeepEqual(pos, wantPos) {
+		t.Errorf("Members positions = %v, want %v", pos, wantPos)
+	}
+	if len(m.Entries()) != 1 {
+		t.Errorf("Entries() = %+v, want only a", m.Entries())
+	}
+}

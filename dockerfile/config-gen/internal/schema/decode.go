@@ -149,13 +149,14 @@ func Decode(src []byte) (*Config, []Refusal) {
 	if err != nil {
 		return nil, []Refusal{parseRefusal(lines, err)}
 	}
-	d := decoder{lines: lines, refused: map[string]bool{}, tables: map[string]bool{}}
+	d := decoder{lines: lines, refused: map[string]bool{}, tables: map[string]bool{}, listed: map[string]int{}, valued: map[string]int{}}
 next:
 	for _, k := range md.Keys() {
+		d.listed[pathID(k)]++
 		if i := badName(k); i >= 0 {
 			p := k[:i+1]
 			if !d.refused[pathID(p)] {
-				line, col := keyPos(lines, p)
+				line, col := d.keyPos(p)
 				if i < len(k)-1 || md.Type(k...) == "Hash" {
 					line, col = tablePos(lines, p)
 				}
@@ -193,7 +194,11 @@ next:
 	tree, deferred := buildTree(md, doc, lines)
 	for _, def := range deferred {
 		if !d.refusedUnder(def.Path) {
-			d.judgeValues(def.Path, def.Value)
+			line, col := keyPos(lines, def.Path, 0)
+			if line == 0 {
+				line = def.Value.Line
+			}
+			d.judgeValues(def.Path, def.Value, line, col)
 		}
 	}
 	sort.SliceStable(d.refusals, func(i, j int) bool { return d.refusals[i].Line < d.refusals[j].Line })
@@ -216,6 +221,17 @@ type decoder struct {
 	refused map[string]bool
 	// tables holds the section text of every refused table.
 	tables map[string]bool
+	// listed counts the md.Keys() listings of each path judged so far.
+	listed map[string]int
+	// valued counts the member keys of each path judgeValues has met.
+	valued map[string]int
+}
+
+// keyPos is the position of the key k as listed last by md.Keys(): the
+// parser lists a key once per place it is written, in source order, so
+// the nth listing is the nth occurrence.
+func (d *decoder) keyPos(k []string) (line, col int) {
+	return keyPos(d.lines, k, max(d.listed[pathID(k)]-1, 0))
 }
 
 // refuseTable refuses the table k as conf_unknown_table at its first
@@ -251,7 +267,12 @@ func (d *decoder) refusedUnder(p []string) bool {
 func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 	section, key := strings.Join(k[:len(k)-1], "."), k[len(k)-1]
 	typ := md.Type(k...)
-	line, col := keyPos(d.lines, k)
+	line, col := d.keyPos(k)
+	if typ == "ArrayHash" {
+		// An array of tables is written as `[[k]]` headers: it is
+		// refused at its first.
+		line, col = tablePos(d.lines, k)
+	}
 	switch {
 	case typ == "Hash":
 		if !accepted(k) {
@@ -282,17 +303,22 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 		// entry takes: `[[security.cap_drop]]` and `cap_drop = []` are
 		// security.cap_drop_1, as the shell's --kv and --empty-families
 		// views name them. Its payload is the array stage's.
-		if prefix, ok := arrayFamily[key]; ok {
-			if !knownKey(section, prefix+"_1") {
-				d.refuse("conf_unknown_key", k, line, col)
-			}
-			return
+		//
+		// Any other array, `[[k]]` or `k = [...]`, is refused, as the
+		// bridge refuses every array whose key _ARRAY_SPEC has no family
+		// for (toml_bridge.py _array_spec): at a key _setup_known_key
+		// knows, a registered scalar key or a free-form one, it is a value
+		// of the wrong type for that key; at any other key it is unknown.
+		// It is refused once, however many headers write it.
+		switch prefix, ok := arrayFamily[key]; {
+		case d.refused[pathID(k)]:
+		case ok && knownKey(section, prefix+"_1"):
+		case ok, !knownKey(section, key):
+			d.refuse("conf_unknown_key", k, line, col)
+		default:
+			d.refuse("conf_value_type_refused", k, line, col)
 		}
-		if typ == "ArrayHash" {
-			// Any other array of tables under a known table is the array
-			// stage's.
-			return
-		}
+		return
 	}
 	v := lookup(doc, k)
 	if text, ok := v.(string); ok {
@@ -305,12 +331,6 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 	case stage(k):
 	case !knownKey(section, key):
 		d.refuse("conf_unknown_key", k, line, col)
-	case typ == "Array":
-		// An array at a registered scalar key is a value of the wrong
-		// type for that key, not an array the array stage owns.
-		if _, registered := canonical(section, key); registered {
-			d.refuse("conf_value_type_refused", k, line, col)
-		}
 	default:
 		var s Scalar
 		if s.UnmarshalTOML(v) != nil || kindRefused(section, key, s) {
@@ -325,23 +345,33 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 }
 
 // judgeValues refuses each string in the deferred value v, written at
-// path p, that valueCharEvent refuses, at the value's line.
-func (d *decoder) judgeValues(p []string, v Value) {
+// path p, that valueCharEvent refuses: at the position of the innermost
+// key holding it, line and col for v itself. The members of v's tables are
+// met in source order, so the nth member met with a path is the nth
+// occurrence the locator gives that path.
+func (d *decoder) judgeValues(p []string, v Value, line, col int) {
 	switch v.Kind {
 	case VScalar:
 		if v.Scalar.Kind != KindString {
 			return
 		}
 		if event := valueCharEvent(v.Scalar.Text); event != "" {
-			d.refuse(event, p, v.Line, 0)
+			d.refuse(event, p, line, col)
 		}
 	case VArray:
 		for _, it := range v.Items {
-			d.judgeValues(p, it)
+			d.judgeValues(p, it, line, col)
 		}
 	case VTable:
 		for _, m := range v.Members {
-			d.judgeValues(append(append([]string{}, p...), m.Key), m.Value)
+			mp := append(append([]string{}, p...), m.Key)
+			id := pathID(mp)
+			ml, mc := keyPos(d.lines, mp, d.valued[id])
+			d.valued[id]++
+			if ml == 0 {
+				ml, mc = m.Value.Line, 0
+			}
+			d.judgeValues(mp, m.Value, ml, mc)
 		}
 	}
 }
@@ -424,13 +454,19 @@ func lookup(doc map[string]any, k []string) any {
 	return v
 }
 
-// keyPos is the line and column the locator gives the key k. A key inside
-// an inline value is not indexed, so it is given the position of the
-// innermost inline key that holds it.
-func keyPos(lines *locate.Map, k []string) (line, col int) {
-	for i := len(k); i > 0; i-- {
-		for _, o := range lines.Keys(k[:i]) {
-			if i == len(k) || o.Inline {
+// keyPos is the line and column the locator gives the nth (0-based)
+// occurrence of the key k, written as a `key = value` line or inside an
+// inline value (locate.Map.Members), or its last when k is written fewer
+// times. A key the locator does not find is given the position of the
+// innermost inline key that holds it, and 0, 0 when there is none.
+func keyPos(lines *locate.Map, k []string, nth int) (line, col int) {
+	if occ := keyOccurrences(lines, k); len(occ) > 0 {
+		o := occ[min(nth, len(occ)-1)]
+		return o.KeyLine, o.KeyCol
+	}
+	for i := len(k) - 1; i > 0; i-- {
+		for _, o := range keyOccurrences(lines, k[:i]) {
+			if o.Inline {
 				return o.KeyLine, o.KeyCol
 			}
 		}
@@ -438,9 +474,22 @@ func keyPos(lines *locate.Map, k []string) (line, col int) {
 	return 0, 0
 }
 
-// keyLine is keyPos's line.
+// keyOccurrences is every occurrence of the key k, as a line of its own
+// or inside an inline value, in document order.
+func keyOccurrences(lines *locate.Map, k []string) []locate.Occurrence {
+	occ := append(lines.Keys(k), lines.Members(k)...)
+	sort.SliceStable(occ, func(i, j int) bool {
+		if occ[i].KeyLine != occ[j].KeyLine {
+			return occ[i].KeyLine < occ[j].KeyLine
+		}
+		return occ[i].KeyCol < occ[j].KeyCol
+	})
+	return occ
+}
+
+// keyLine is the line of the first occurrence of the key k (keyPos).
 func keyLine(lines *locate.Map, k []string) int {
-	line, _ := keyPos(lines, k)
+	line, _ := keyPos(lines, k, 0)
 	return line
 }
 
@@ -450,7 +499,7 @@ func tablePos(lines *locate.Map, k []string) (line, col int) {
 	if occ := lines.Tables(k); len(occ) > 0 {
 		return occ[0].KeyLine, occ[0].KeyCol
 	}
-	return keyPos(lines, k)
+	return keyPos(lines, k, 0)
 }
 
 // projectDeploy resolves the legacy alias in the [deploy] node of t as

@@ -31,8 +31,8 @@ type Occurrence struct {
 	// Implicit marks a table with no header of its own, created by a
 	// header or a dotted key under it; its lines are its first creator's.
 	Implicit bool
-	// Inline marks a key whose value is an inline table or array; nothing
-	// inside the value is indexed.
+	// Inline marks a key whose value is an inline table or array. A key
+	// written inside the value is not one of Entries; Members lists it.
 	Inline bool
 	// KeyLine is the 1-based line the header or key is written on.
 	KeyLine int
@@ -60,10 +60,28 @@ const (
 // Map is the occurrence index of one document.
 type Map struct {
 	entries []Occurrence
+	members []Occurrence
 }
 
 // Entries returns every occurrence in document order.
 func (m *Map) Entries() []Occurrence { return m.entries }
+
+// Members returns every occurrence of the key path written inside an
+// inline value, in document order: a member of an inline table, or of a
+// table item of an inline array, under the path the parser names it by,
+// the holding key's path and the member's key with no item index
+// (base#1442). An inline value may span lines, so each member keeps its
+// own line and column.
+func (m *Map) Members(path []string) []Occurrence {
+	var out []Occurrence
+	want := pathID(path)
+	for _, o := range m.members {
+		if pathID(o.Path) == want {
+			out = append(out, o)
+		}
+	}
+	return out
+}
 
 // Table is the unique lookup of a table path.
 func (m *Map) Table(path []string) (Occurrence, Lookup) { return unique(m.Tables(path)) }
@@ -114,9 +132,9 @@ func pathID(path []string) string {
 
 // Index scans src and returns its occurrence index.
 func Index(src []byte) *Map {
-	s := &scanner{src: src, line: 1, ordinal: map[string]int{}}
+	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, memberOrdinal: map[string]int{}}
 	s.run()
-	return &Map{entries: s.entries}
+	return &Map{entries: s.entries, members: s.members}
 }
 
 type scanner struct {
@@ -125,7 +143,10 @@ type scanner struct {
 	line    int
 	table   []string
 	entries []Occurrence
+	members []Occurrence
 	ordinal map[string]int
+	// memberOrdinal counts the members of each path recorded so far.
+	memberOrdinal map[string]int
 }
 
 func (s *scanner) run() {
@@ -180,7 +201,7 @@ func (s *scanner) keyValue() {
 	}
 	array := s.peek() == '['
 	inline := s.peek() == '{' || array
-	s.value()
+	s.value(path)
 	end := s.line
 	if array {
 		end = line
@@ -243,14 +264,15 @@ func bare(c byte) bool {
 	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
-// value skips one value, strings included; a multi-line string, array or
-// inline table may span lines, and a header-like line inside it is its
-// content.
-func (s *scanner) value() {
+// value skips one value written at path, strings included; a multi-line
+// string, array or inline table may span lines, and a header-like line
+// inside it is its content. Each key inside an inline value is recorded
+// as a member (inline).
+func (s *scanner) value(path []string) {
 	for s.pos < len(s.src) && s.src[s.pos] != '\n' && s.src[s.pos] != '#' {
 		if !s.skipString() {
 			if c := s.src[s.pos]; c == '[' || c == '{' {
-				s.nested()
+				s.inline(path)
 			} else {
 				s.pos++
 			}
@@ -276,32 +298,88 @@ func (s *scanner) skipString() bool {
 	return true
 }
 
-// nested skips a `[...]` array or a `{...}` inline table through its
-// matching close, counting the lines it spans; strings and comments
-// inside it are skipped whole.
-func (s *scanner) nested() {
-	depth := 0
+// inline skips the `[...]` array or `{...}` inline table at the current
+// byte, written at path, through its matching close, counting the lines
+// it spans; strings and comments inside it are skipped whole. Each
+// `key = value` of an inline table is recorded as a member at the line
+// and column of its key's first byte, under path plus its dotted key, and
+// its value is read at that path; an array's items are read at path, as
+// the parser lists the members of each table item of an inline array
+// with no item index. A byte that fits neither is skipped, so malformed
+// input still ends the scan.
+func (s *scanner) inline(path []string) {
+	table := s.src[s.pos] == '{'
+	s.pos++
+	for s.pos < len(s.src) {
+		s.skipBlank()
+		if s.pos >= len(s.src) {
+			return
+		}
+		switch s.src[s.pos] {
+		case ']', '}':
+			s.pos++
+			return
+		case ',':
+			s.pos++
+			continue
+		}
+		if !table {
+			s.item(path)
+			continue
+		}
+		line, col, start := s.line, s.col(), s.pos
+		parts := s.key()
+		s.skipSpace()
+		if s.peek() != '=' {
+			if s.pos == start {
+				s.pos++
+			}
+			continue
+		}
+		s.pos++
+		s.skipSpace()
+		p := append(append([]string{}, path...), parts...)
+		id := pathID(p)
+		inline := s.peek() == '{' || s.peek() == '['
+		s.item(p)
+		s.members = append(s.members, Occurrence{Path: p, Ordinal: s.memberOrdinal[id], Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: s.line})
+		s.memberOrdinal[id]++
+	}
+}
+
+// item skips one value inside an inline value, written at path, up to the
+// `,`, closing bracket, end of line or comment that ends it; a nested
+// inline value is read by inline.
+func (s *scanner) item(path []string) {
 	for s.pos < len(s.src) {
 		if s.skipString() {
 			continue
 		}
-		switch c := s.src[s.pos]; c {
-		case '#':
-			s.skipComment()
+		switch s.src[s.pos] {
+		case '[', '{':
+			s.inline(path)
+		case ',', ']', '}', '\n', '#':
+			return
+		default:
+			s.pos++
+		}
+	}
+}
+
+// skipBlank skips spaces, tabs, CRs, newlines and comments inside an
+// inline value, counting the lines it spans.
+func (s *scanner) skipBlank() {
+	for s.pos < len(s.src) {
+		switch s.src[s.pos] {
+		case ' ', '\t', '\r':
+			s.pos++
 		case '\n':
 			s.pos++
 			s.line++
-		case '[', '{':
-			depth++
-			s.pos++
-		case ']', '}':
-			depth--
-			s.pos++
-			if depth == 0 {
-				return
-			}
+		case '#':
+			s.skipComment()
 		default:
-			s.pos++
+			return
 		}
 	}
 }
