@@ -6,7 +6,12 @@ package gate
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 )
+
+// timeNoSeconds matches a value token whose time part is HH:MM with no
+// `:SS` after it: a local time, or a date plus `T`/`t`/space and a time.
+var timeNoSeconds = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ])?[0-9]{2}:[0-9]{2}(?:[^:0-9]|$)`)
 
 // Reason names why Check refused its input.
 type Reason int
@@ -22,6 +27,9 @@ const (
 	// spaces or tabs, by the `}` that closes an inline table (TOML 1.1
 	// only).
 	ReasonInlineTrailingComma
+	// ReasonTimeNoSeconds is a time value written as HH:MM, without the
+	// seconds the TOML 1.0 partial-time requires (TOML 1.1 only).
+	ReasonTimeNoSeconds
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -70,6 +78,14 @@ func Check(label string, src []byte) error {
 				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonInlineTrailingComma,
 					Text: "trailing comma in an inline table is not TOML 1.0"}
 			}
+		case !inBasic && isDigit(src[i]) && (i == 0 || !isBareKeyByte(src[i-1])):
+			end := valueTokenEnd(src, i)
+			if timeNoSeconds.Match(src[i:end]) {
+				line, col := position(src, i)
+				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonTimeNoSeconds,
+					Text: "time without seconds is not TOML 1.0"}
+			}
+			i = end - 1
 		case src[i] == '"':
 			inBasic = !inBasic
 		case inBasic && src[i] == '\\' && i+1 < len(src):
@@ -82,6 +98,29 @@ func Check(label string, src []byte) error {
 		}
 	}
 	return nil
+}
+
+// isDigit reports whether b is an ASCII digit.
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+// isBareKeyByte reports whether b may appear in a bare key, so a digit
+// after it continues that key rather than starting a value.
+func isBareKeyByte(b byte) bool {
+	return isDigit(b) || b == '-' || b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+// valueTokenEnd returns the offset just past the value token that starts
+// with a digit at offset i of src. A date followed by one space and a
+// digit continues as a datetime with a space delimiter.
+func valueTokenEnd(src []byte, i int) int {
+	j := i
+	for j < len(src) && (isBareKeyByte(src[j]) || src[j] == ':' || src[j] == '.' || src[j] == '+') {
+		j++
+	}
+	if j-i == 10 && src[i+4] == '-' && j+1 < len(src) && src[j] == ' ' && isDigit(src[j+1]) {
+		return valueTokenEnd(src, j+1)
+	}
+	return j
 }
 
 // lineEnd reports whether a line ending (LF, or the CR of CRLF) starts at
