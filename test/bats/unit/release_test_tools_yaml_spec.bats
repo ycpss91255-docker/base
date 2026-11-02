@@ -535,6 +535,184 @@ _fx_content() {
 JSON
 }
 
+# _fx_attestation -- a shard index and a tag index whose only linux/amd64
+# entry is the SAME attestation manifest: neither carries an image for the
+# platform, though the two attestation digests agree and buildx still lists
+# the entry under `Platform: linux/amd64`.
+_FX_ATT_SHARD='a77e57a7a77e57a7a77e57a7a77e57a7a77e57a7a77e57a7a77e57a7a77e57a7'
+_FX_ATT_TAG='7a6a77e57a6a77e57a6a77e57a6a77e57a6a77e57a6a77e57a6a77e57a6a77e5'
+_fx_attestation() {
+  _fx "${_FX_ATT_SHARD}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:9ab55cf32b5cde968311d1467b911ebe76da4e44240934ed53c268b2b985bdec",
+      "size": 838,
+      "annotations": {
+        "vnd.docker.reference.digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+        "vnd.docker.reference.type": "attestation-manifest"
+      },
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+  _fx "${_FX_ATT_TAG}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:9ab55cf32b5cde968311d1467b911ebe76da4e44240934ed53c268b2b985bdec",
+      "size": 838,
+      "annotations": {
+        "vnd.docker.reference.digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+        "vnd.docker.reference.type": "attestation-manifest"
+      },
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+}
+
+# _fx_ambiguous -- a tag index with TWO linux/amd64 images, the verified
+# sha256:ce29e05d... listed first, so first-match-wins would accept it.
+_FX_AMB_TAG='a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1a3b1'
+_fx_ambiguous() {
+  _fx "${_FX_AMB_TAG}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+}
+
+# _fx_unverified -- a shard index the job verified whose only image is
+# linux/arm64: there is no linux/amd64 image on the verified side to compare.
+_FX_UNV_SHARD='0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe0abe'
+_fx_unverified() {
+  _fx "${_FX_UNV_SHARD}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+}
+
+# _fx_variant -- a linux/arm/v7 shard index, and a tag index carrying
+# linux/arm v6 and v7 images under the same os/architecture; only the v7
+# image sha256:c7c7... is the verified one.
+_FX_V7_SHARD='7777777777777777777777777777777777777777777777777777777777777777'
+_FX_ARM_TAG='a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7a6a7'
+_fx_variant() {
+  _fx "${_FX_V7_SHARD}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm",
+        "os": "linux",
+        "variant": "v7"
+      }
+    }
+  ]
+}
+JSON
+  _fx "${_FX_ARM_TAG}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm",
+        "os": "linux",
+        "variant": "v6"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm",
+        "os": "linux",
+        "variant": "v7"
+      }
+    }
+  ]
+}
+JSON
+}
+
 # _confirm_step_node -- the WHOLE tag-confirmation step, its `env:` mapping
 # included. The two references that step reads arrive through `env:` so the
 # `run:` body is shell a spec can execute, which means the assertions about
@@ -560,6 +738,14 @@ _confirm_step_node() {
 #             different content than was verified.
 #   platform  the tag resolves to the amd64 shard index alone, so it is
 #             missing an arch the matrix built (last shard wins).
+#   attestation  both indexes list linux/amd64 only on the same attestation
+#             manifest, so neither carries an image for the platform.
+#   ambiguous    the tag carries two linux/amd64 images, the verified one
+#             listed first.
+#   unverified   the verified index carries no linux/amd64 image; the tag
+#             is the ordinary `:main` index.
+#   variant      a linux/arm/v7 shard; the tag carries linux/arm v6 and v7
+#             images, and only v7 is the verified one.
 _confirm_step_for() {
   local _mode="${1}" _body _dir _tag _status=0
   _body="$(yaml_step_run "${WF}" merge \
@@ -577,15 +763,35 @@ _confirm_step_for() {
   printf '%s\n' "${_body}" > "${_dir}/step.sh"
   # The artifact directory the step reads: one file per arch the matrix
   # built, named by that shard's digest and carrying the platform it built.
-  printf 'linux/amd64\n' > "${_dir}/digests/${_FX_SHARD_AMD64}"
-  printf 'linux/arm64\n' > "${_dir}/digests/${_FX_SHARD_ARM64}"
+  local _verified="${_FX_SHARD_AMD64}" _a
+  local -a _arts=("${_FX_SHARD_AMD64}=linux/amd64" \
+      "${_FX_SHARD_ARM64}=linux/arm64")
   _fx_real
   case "${_mode}" in
     agree) _tag="${_FX_MAIN}" ;;
     content) _fx_content; _tag="${_FX_CONTENT}" ;;
     platform) _tag="${_FX_SHARD_AMD64}" ;;
+    attestation)
+      _fx_attestation
+      _verified="${_FX_ATT_SHARD}" _tag="${_FX_ATT_TAG}"
+      _arts=("${_FX_ATT_SHARD}=linux/amd64" "${_FX_SHARD_ARM64}=linux/arm64")
+      ;;
+    ambiguous) _fx_ambiguous; _tag="${_FX_AMB_TAG}" ;;
+    unverified)
+      _fx_unverified
+      _verified="${_FX_UNV_SHARD}" _tag="${_FX_MAIN}"
+      _arts=("${_FX_UNV_SHARD}=linux/amd64" "${_FX_SHARD_ARM64}=linux/arm64")
+      ;;
+    variant)
+      _fx_variant
+      _verified="${_FX_V7_SHARD}" _tag="${_FX_ARM_TAG}"
+      _arts=("${_FX_V7_SHARD}=linux/arm/v7")
+      ;;
     *) printf 'BUG: unknown registry state %s\n' "${_mode}"; return 2 ;;
   esac
+  for _a in "${_arts[@]}"; do
+    printf '%s\n' "${_a#*=}" > "${_dir}/digests/${_a%%=*}"
+  done
   _docker_stub
   (
     cd -- "${_dir}/digests" || exit 2
@@ -594,7 +800,7 @@ _confirm_step_for() {
     STUB_TAG_DIGEST="${_tag}" \
     IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
     IMAGE_TAG='ghcr.io/ycpss91255-docker/test-tools:main' \
-    VERIFIED_REF="ghcr.io/ycpss91255-docker/test-tools@sha256:${_FX_SHARD_AMD64}" \
+    VERIFIED_REF="ghcr.io/ycpss91255-docker/test-tools@sha256:${_verified}" \
       bash "${_dir}/step.sh" 2>&1
   ) || _status=$?
   return "${_status}"
@@ -925,6 +1131,44 @@ _spec_prose() {
   run _confirm_step_for platform
   assert_failure
   assert_output --partial '::error::'
+}
+
+# why: An attestation manifest is not an image. buildx lists it under a
+# `Platform:` line like any child, and two indexes built from the same image
+# carry the same attestation digest, so a selection that does not skip
+# attestations "confirms" a tag holding no image at all for the platform.
+@test "release-test-tools.yaml: the tag confirmation fails when the runner platform appears only on an attestation manifest (base#1510)" {
+  run _confirm_step_for attestation
+  assert_failure
+  assert_output --partial 'carries 0 image manifests for linux/amd64'
+}
+
+# why: Two images under one platform label leave no single answer to what the
+# tag names for this runner; taking the first match would pass whenever the
+# verified image happens to be listed first.
+@test "release-test-tools.yaml: the tag confirmation fails when the tag carries more than one image for the runner platform (base#1510)" {
+  run _confirm_step_for ambiguous
+  assert_failure
+  assert_output --partial 'carries 2 image manifests for linux/amd64'
+}
+
+# why: The comparison has two sides. A verified index with no image for this
+# runner's platform means nothing the smoke step ran can be named, so the
+# check refuses instead of reading the tag side alone.
+@test "release-test-tools.yaml: the tag confirmation fails when the verified index carries no image for the runner platform (base#1510)" {
+  run _confirm_step_for unverified
+  assert_failure
+  assert_output --partial "test-tools@sha256:${_FX_UNV_SHARD} carries 0 image manifests for linux/amd64"
+}
+
+# why: A platform with a variant (linux/arm/v7) shares os and architecture
+# with its siblings; the selection has to read the variant the artifact
+# names, or every multi-variant arm tag reads as ambiguous.
+@test "release-test-tools.yaml: the tag confirmation selects the runner platform by its variant when it names one (base#1510)" {
+  run _confirm_step_for variant
+  assert_success
+  refute_output --partial '::error::'
+  assert_output --partial 'names the verified linux/arm/v7 image (sha256:c7c7'
 }
 
 # why: One loop over the pins the Dockerfile declares, rather than fourteen
