@@ -93,7 +93,9 @@
 # the control), which the runner itself ignores.
 #
 # CONFIG_GEN_REDPATH_ONLY, when set, is a space-separated list of case
-# names: only those cases run, then the control.
+# names: only those cases run, then the control. config_gen_gates_spec
+# scopes each test this way; `just test go` unsets it, so the recipe
+# always runs every case (base#1465).
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where

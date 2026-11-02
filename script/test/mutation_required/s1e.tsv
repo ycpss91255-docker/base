@@ -5,9 +5,9 @@
 # config_gen_admit.sh, the runner's event re-emission, step-output routing
 # and cache filter, each 05-floors-base refusal, the coverage gate's usage
 # guard, and the redpath's verdicts on the refusal, stale, rerun, green and
-# coverage cases. The Dockerfile admit RUN's guards are pinned by the
-# redpath's real builds (no-context, no-checker, the stale cases), which no
-# bats tier can run, and the ratchet's rules by its Go table.
+# coverage cases, its per-test case scope, and each guard of the
+# Dockerfile's admit RUN, whose own text config_gen_gates_spec runs outside
+# a build. The ratchet's rules are pinned by its Go table.
 # <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
 # script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
@@ -93,3 +93,15 @@ redpath-coverage-unregistered	script/test/config_gen_redpath.sh	test/bats/unit/c
 redpath-coverage-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${first}" == config_gen_gate_coverage_failed ]] || { echo wrong_id; return 0; }	  :
 redpath-coverage-event	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_record_missing; return 0; }	|| true
 redpath-coverage-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_detail_mismatch; return 0; }	|| true
+df-admit-sentinel	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	if [[ -e /mutation/no-mutation-context ]]; then	if false; then
+df-admit-sentinel-exit	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	echo "cg_event config_gen_${e}" >&2; exit 1; fi	echo "cg_event config_gen_${e}" >&2; fi
+df-admit-absent	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	if [[ ! -f /mutation/admit.sh ]]; then	if false; then
+df-admit-absent-file	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	[[ ! -f /mutation/admit.sh ]]	[[ ! -e /mutation/admit.sh ]]
+df-admit-absent-event	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	then echo "cg_event config_gen_${s} file=admit.sh reason=absent"; echo	then echo
+df-admit-absent-exit	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	reason=absent"; echo "config_gen_gate_${g}_failed" >&2; exit 1; fi	reason=absent"; echo "config_gen_gate_${g}_failed" >&2; fi
+df-admit-checker-red	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	/mutation /src || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	/mutation /src || true
+df-admit-checker-args	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	bash /mutation/admit.sh /mutation /src	bash /mutation/admit.sh /src /mutation
+df-admit-ok	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	echo gate=admission ok;	:;
+df-admit-touch	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	touch /admitted	:
+redpath-only-scope	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ -z "${CONFIG_GEN_REDPATH_ONLY:-}" ]] && return 0	  return 0
+recipe-go-full-redpath	script/test/justfile.test	test/bats/unit/config_gen_gates_spec.bats	env -u CONFIG_GEN_REDPATH_ONLY ./script/test/config_gen_redpath.sh	./script/test/config_gen_redpath.sh
