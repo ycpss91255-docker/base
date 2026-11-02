@@ -2,8 +2,10 @@ package gate
 
 import (
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -118,6 +120,40 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/date-year0-text.toml":           "accept",
 	"internal/gate/testdata/forms/offset-hour24.toml":             "refuse",
 	"internal/gate/testdata/forms/offset-hour23.toml":             "accept",
+
+	// design run1 r3 §1: tomllib loads a float literal past float64 max
+	// as inf, keeps float64 max and maps underflow to 0.
+	"internal/gate/testdata/forms/float-over.toml":       "accept",
+	"internal/gate/testdata/forms/float-over-neg.toml":   "accept",
+	"internal/gate/testdata/forms/float-over-mixed.toml": "accept",
+	"internal/gate/testdata/forms/float-over-int64.toml": "accept",
+	"internal/gate/testdata/forms/float-max.toml":        "accept",
+	"internal/gate/testdata/forms/float-under.toml":      "accept",
+}
+
+// designValues are tomllib's decoded values for the float forms (base#1441
+// design run1 r3 §1, CPython 3.13.13 Lib/tomllib), written as literals: an
+// overflowing literal loads as +inf or -inf with its sign kept, in any
+// container and with underscores; the key `1e999` and the string "1e999"
+// stay text; float64 max stays exact and underflow loads as 0. The int64
+// file's b is checked only through the int64 exception path.
+var designValues = map[string]map[string]any{
+	"internal/gate/testdata/forms/float-over.toml":     {"a": math.Inf(1)},
+	"internal/gate/testdata/forms/float-over-neg.toml": {"a": math.Inf(-1)},
+	"internal/gate/testdata/forms/float-over-mixed.toml": {
+		"1e999": math.Inf(1),
+		"b":     []any{math.Inf(1), int64(2)},
+		"c":     map[string]any{"d": math.Inf(1)},
+		"s":     "1e999",
+	},
+	"internal/gate/testdata/forms/float-max.toml":   {"a": 1.7976931348623157e308},
+	"internal/gate/testdata/forms/float-under.toml": {"a": float64(0)},
+}
+
+// int64Rows are the forms files whose acceptance must come through the
+// int64 exception (int64Only) and no other way.
+var int64Rows = map[string]bool{
+	"internal/gate/testdata/forms/float-over-int64.toml": true,
 }
 
 // The gate plus BurntSushi must give tomllib's verdict on every TOML file
@@ -145,20 +181,47 @@ func TestDifferential(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := "refuse"
+		got, viaInt64 := "refuse", false
+		var v map[string]any
 		if Check(rel, src) == nil {
-			var v map[string]any
-			if _, err := toml.Decode(string(src), &v); err == nil {
+			norm := Normalize(src)
+			if len(norm) != len(src) {
+				t.Errorf("%s: Normalize changed the length %d -> %d", rel, len(src), len(norm))
+			}
+			if _, err := toml.Decode(string(norm), &v); err == nil {
 				got = "accept"
+			} else if int64Only(norm, err) {
+				got, viaInt64 = "accept", true
+				if a, ok := designInt64A(norm); !ok || !math.IsInf(a, 1) {
+					t.Errorf("%s: a = %v (ok %v) after the int64 path, tomllib loads +Inf", rel, a, ok)
+				}
 			}
 		}
 		if got != live {
 			t.Errorf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live)
 		}
+		if viaInt64 != int64Rows[rel] && strings.Contains(rel, "/forms/float-") {
+			t.Errorf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, int64Rows[rel])
+		}
+		if want, ok := designValues[rel]; ok && got == "accept" && !reflect.DeepEqual(v, want) {
+			t.Errorf("%s: decoded %#v, tomllib loads %#v", rel, v, want)
+		}
 	}
 	if seen != len(designVerdicts) {
 		t.Errorf("oracle rows named %d of the %d design-measured forms", seen, len(designVerdicts))
 	}
+}
+
+// designInt64A decodes the int64 form's first line on its own (the file's
+// b is the out-of-int64 integer) and returns its a.
+func designInt64A(src []byte) (float64, bool) {
+	line, _, _ := strings.Cut(string(src), "\n")
+	var v map[string]any
+	if _, err := toml.Decode(line, &v); err != nil {
+		return 0, false
+	}
+	a, ok := v["a"].(float64)
+	return a, ok
 }
 
 // int64Only is the differential's one tolerated disagreement (base#1441
