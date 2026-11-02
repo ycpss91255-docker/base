@@ -106,6 +106,14 @@
 # the six ok lines below: admission accepts every baseline the producer
 # writes, and every gate still runs after it.
 #
+# ign-excluded (a green case, base#1467) leaves cmd/config-gen/.main.go.swp,
+# an editor swap file, in the module, Git-ignored by the `*.swp` line the
+# repository's own .gitignore holds. The producer
+# lists it in ignored.sha256; Dockerfile.config-gen.dockerignore must keep
+# it out of the build context, admission must accept a listed ignored file
+# the context does not hold, and so the ignored-input gate has nothing to
+# refuse: the run passes with the six ok lines.
+#
 # An after-admit case (_RP_AFTER_ADMIT, base#1467) leaves a Git-ignored
 # module file in the build context, so the producer lists it in
 # ignored.sha256 and admission accepts the context: the ignored-input gate
@@ -250,7 +258,7 @@ readonly -a _RP_STALE=(
 )
 # The green cases: each a git state whose baseline must be admitted
 # (base#1465).
-readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange)
+readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded)
 # <case>|<gate>|<event>|<file>: a context the producer and admission both
 # accept, holding a Git-ignored module file the gate must refuse, naming
 # that file in each <event> record (base#1467).
@@ -469,6 +477,13 @@ EOF
       printf 'zz_ign.go\n' >"${root}/.git/info/exclude"
       printf '// zz_ign.go is a Git-ignored file left in the build context.\npackage main\n' \
         >"${cmd}/zz_ign.go"
+      ;;
+    ign-excluded)
+      # The swap file vim leaves beside main.go while it is open, ignored
+      # by the copy's .git/info/exclude through the `*.swp` line the
+      # repository's own .gitignore holds.
+      printf '*.swp\n' >"${root}/.git/info/exclude"
+      printf 'zz editor swap file\n' >"${cmd}/.main.go.swp"
       ;;
     cov-drop)
       # Two statements no test reaches: cmd/config-gen falls below 100.0.
