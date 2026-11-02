@@ -68,8 +68,14 @@ const (
 	NArrayTables
 	// NElement is one element of an NArrayTables node, by index.
 	NElement
-	// NKey is a `key = value` key.
+	// NKey is a `key = value` key, on a line of its own or inside an
+	// inline table.
 	NKey
+	// NInlineTable is a table a dotted key inside an inline table creates
+	// for a parent component.
+	NInlineTable
+	// NItem is one item of an inline array, by index.
+	NItem
 )
 
 // Node is one node of the document tree (base#1442). Its records are the
@@ -82,8 +88,12 @@ type Node struct {
 	Kind NodeKind
 	// Occ are the node's records, in source order.
 	Occ []*Occurrence
-	// Children are in first-creation order; elements by index.
+	// Children are in first-creation order; elements and items by index.
 	Children []*Node
+	// Open is '{' or '[' when the value of a key or an item is an inline
+	// table or array, whose members or items are its children, and 0 for
+	// any other value.
+	Open byte
 }
 
 // Decl is n's explicit record, the header or key that writes it, or nil
@@ -336,13 +346,13 @@ func (s *scanner) keyValue() {
 	}
 	array := s.peek() == '['
 	inline := s.peek() == '{' || array
-	s.value(path)
+	k := n.add(parts[len(parts)-1], NKey, nil)
+	s.value(path, k)
 	end := s.line
 	if array {
 		end = line
 	}
-	rec := s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end})
-	n.add(parts[len(parts)-1], NKey, rec)
+	k.Occ = append(k.Occ, s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end}))
 	s.skipLine()
 }
 
@@ -427,12 +437,12 @@ func bare(c byte) bool {
 // value skips one value written at path, strings included; a multi-line
 // string, array or inline table may span lines, and a header-like line
 // inside it is its content. Each key inside an inline value is recorded
-// as a member (inline).
-func (s *scanner) value(path []string) {
+// as a member (inline) under k, the key node holding the value.
+func (s *scanner) value(path []string, k *Node) {
 	for s.pos < len(s.src) && s.src[s.pos] != '\n' && s.src[s.pos] != '#' {
 		if !s.skipString() {
 			if c := s.src[s.pos]; c == '[' || c == '{' {
-				s.inline(path)
+				s.inline(path, k)
 			} else {
 				s.pos++
 			}
@@ -468,8 +478,15 @@ func (s *scanner) skipString() bool {
 // the parser lists the members of each table item of an inline array
 // with no item index. A byte that fits neither is skipped, so malformed
 // input still ends the scan.
-func (s *scanner) inline(path []string) {
+//
+// In the tree, n (the key or item node holding the value) gets an item
+// node per array item, with a record kept off the log at the item's first
+// byte, or for an inline table a key node per member and an inline-table
+// node per parent component of a dotted key, resolved from n and holding
+// the record of each dotted key that writes it.
+func (s *scanner) inline(path []string, n *Node) {
 	table := s.src[s.pos] == '{'
+	n.Open = s.src[s.pos]
 	s.pos++
 	for s.pos < len(s.src) {
 		s.skipBlank()
@@ -485,7 +502,11 @@ func (s *scanner) inline(path []string) {
 			continue
 		}
 		if !table {
-			s.item(path)
+			rec := &Occurrence{Path: append([]string{}, path...), Kind: Key, KeyLine: s.line, KeyCol: s.col()}
+			s.extra = append(s.extra, rec)
+			it := n.add("", NItem, rec)
+			s.item(path, it)
+			rec.Inline, rec.ValueEndLine = it.Open != 0, s.line
 			continue
 		}
 		line, col, start := s.line, s.col(), s.pos
@@ -500,29 +521,40 @@ func (s *scanner) inline(path []string) {
 		s.pos++
 		s.skipSpace()
 		p := append(append([]string{}, path...), parts...)
+		at := n
 		for i := len(path) + 1; i < len(p); i++ {
 			t := append([]string{}, p[:i]...)
-			s.inlineTables = append(s.inlineTables, &Occurrence{Path: t, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line})
+			rec := &Occurrence{Path: t, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line}
+			s.inlineTables = append(s.inlineTables, rec)
+			c := at.child(p[i-1])
+			if c == nil {
+				c = at.add(p[i-1], NInlineTable, nil)
+			}
+			c.Occ = append(c.Occ, rec)
+			at = c
 		}
 		id := pathID(p)
 		inline := s.peek() == '{' || s.peek() == '['
-		s.item(p)
-		s.members = append(s.members, &Occurrence{Path: p, Ordinal: s.memberOrdinal[id], Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: s.line})
+		k := at.add(parts[len(parts)-1], NKey, nil)
+		s.item(p, k)
+		rec := &Occurrence{Path: p, Ordinal: s.memberOrdinal[id], Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: s.line}
+		s.members = append(s.members, rec)
+		k.Occ = append(k.Occ, rec)
 		s.memberOrdinal[id]++
 	}
 }
 
 // item skips one value inside an inline value, written at path, up to the
 // `,`, closing bracket, end of line or comment that ends it; a nested
-// inline value is read by inline.
-func (s *scanner) item(path []string) {
+// inline value is read by inline under n, the node holding the value.
+func (s *scanner) item(path []string, n *Node) {
 	for s.pos < len(s.src) {
 		if s.skipString() {
 			continue
 		}
 		switch s.src[s.pos] {
 		case '[', '{':
-			s.inline(path)
+			s.inline(path, n)
 		case ',', ']', '}', '\n', '#':
 			return
 		default:
