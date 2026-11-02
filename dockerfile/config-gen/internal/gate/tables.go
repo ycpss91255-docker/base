@@ -443,6 +443,11 @@ func (t *tables) key() ([]string, int, error) {
 	}
 }
 
+// isBareKeyByte reports whether b may appear in a bare key.
+func isBareKeyByte(b byte) bool {
+	return isDigit(b) || b == '-' || b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
 // str reads the string at t.i (basic, literal, or either multi-line
 // form) and returns its text, a basic string's escapes decoded, and how
 // many frames below its caller (parse_value or parse_key_part) tomllib

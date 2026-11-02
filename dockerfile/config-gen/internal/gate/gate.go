@@ -174,11 +174,6 @@ func Normalize(src []byte) []byte {
 // isDigit reports whether b is an ASCII digit.
 func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
-// isBareKeyByte reports whether b may appear in a bare key.
-func isBareKeyByte(b byte) bool {
-	return isDigit(b) || b == '-' || b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
-}
-
 // lineEnd reports whether a line ending (LF, or the CR of CRLF) starts at
 // offset i of src.
 func lineEnd(src []byte, i int) bool {
