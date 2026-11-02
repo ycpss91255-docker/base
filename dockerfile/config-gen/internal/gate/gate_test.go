@@ -149,3 +149,41 @@ func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
 		}
 	}
 }
+
+// A time without seconds (HH:MM) is TOML 1.1 only: the TOML 1.0 ABNF has
+// partial-time = time-hour ":" time-minute ":" time-second [ time-secfrac ],
+// so tomllib refuses `07:32` while BurntSushi v1.6.0 accepts it (toml-test
+// v2.2.0 1.0 list, base#1441 design-ahead §1c). The refusal points at the
+// first byte of the value token, counted by hand: a(1) ' '(2) =(3) ' '(4)
+// 0 or 1(5). The forms are the local time, the offset datetime (`T`
+// delimiter) and the local datetime (space delimiter). A time with
+// seconds, and the same bytes inside a basic string, are nil.
+func TestCheckRefusesTimeWithoutSeconds(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"local-time", "a = 07:32\n", 1, 5},
+		{"offset-datetime", "a = 1979-05-27T07:32Z\n", 1, 5},
+		{"local-datetime-space", "a = 1979-05-27 07:32\n", 1, 5},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonTimeNoSeconds {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonTimeNoSeconds}",
+				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, tc := range []struct{ name, src string }{
+		{"c1", "a = 07:32:00\n"},
+		{"c2", "a = \"07:32\"\n"},
+	} {
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+}
