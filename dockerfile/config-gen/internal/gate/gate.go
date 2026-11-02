@@ -37,12 +37,19 @@ func Check(label string, src []byte) error {
 	inBasic := false
 	for i := 0; i < len(src); i++ {
 		switch {
+		case !inBasic && src[i] == '#':
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
 		case src[i] == '"':
 			inBasic = !inBasic
-		case inBasic && src[i] == '\\' && i+1 < len(src) && (src[i+1] == 'e' || src[i+1] == 'x'):
-			line, col := position(src, i)
-			return &Refusal{File: label, Line: line, Col: col, Reason: ReasonEscape,
-				Text: `escape sequence \` + string(src[i+1]) + ` is not TOML 1.0`}
+		case inBasic && src[i] == '\\' && i+1 < len(src):
+			if src[i+1] == 'e' || src[i+1] == 'x' {
+				line, col := position(src, i)
+				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonEscape,
+					Text: `escape sequence \` + string(src[i+1]) + ` is not TOML 1.0`}
+			}
+			i++
 		}
 	}
 	return nil
