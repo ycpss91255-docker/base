@@ -69,9 +69,9 @@ func readValueRows(t *testing.T) []valueRow {
 // build keys, both empty policies (`""` at gpu_count and
 // gpu_capabilities is validated and refused, at any other key accepted),
 // and the 12 numbered families at keys other than _1. What else the rows
-// cover is checked, not claimed: TestEveryChoiceAlternativeHasAnAcceptedRow
-// requires an accepted row through every alternative of every list
-// validator, and TestEveryValidatorKeyAcceptsAndRefuses an accepted and a
+// cover is checked, not claimed: TestEveryAlternativeHasAnAcceptedWitness
+// requires an accepted row through every alternative s6_alternatives.tsv
+// lists, and TestEveryValidatorKeyAcceptsAndRefuses an accepted and a
 // refused row at every validator key.
 func TestValidateMatchesSchemaSh(t *testing.T) {
 	for _, row := range readValueRows(t) {
@@ -136,47 +136,66 @@ func rowText(t *testing.T, row valueRow) string {
 	return s.Text
 }
 
-// Every alternative of every list validator (a choice: a case word, an
-// image rule prefix, a mount mode, a size unit, container:) has a row of
-// the shared table that the shell accepts through it, at that validators
-// key (base#1442 review round 1: no row went through `string:`, so
-// dropping it from the image rule left every test green). The
-// alternatives a row went through are the choice's own report, so a new
-// alternative needs a new row, and an alternative dropped from the code
-// fails the row that went through it in TestValidateMatchesSchemaSh.
-func TestEveryChoiceAlternativeHasAnAcceptedRow(t *testing.T) {
-	took := map[string]map[string]bool{}
+// Every alternative of every list validator (a case word, an image rule
+// prefix, a mount mode word, a size unit, container:, or a <placeholder>
+// for a numeric or GID branch) is a row of corpus/s6/s6_alternatives.tsv,
+// written from the validators in dist/script/docker/lib/_tui_conf.sh and
+// not from this package, naming the s6_scalar_values.tsv row that goes
+// through it (base#1442 review round 1: no row went through `string:`,
+// so dropping it from the image rule left every test green; review round
+// 2: the obligation is the table's, not the validator representation's).
+// The witness row must be one the shell accepts, at a key that resolves
+// to the alternative's validator key, and Validate must accept its text;
+// a word alternative must appear in that text (ASCII case folded, as a
+// size unit is). The bats half (config_gen_schema_values_spec.bats)
+// holds the same rows to _schema_canonical_key and _schema_validate.
+func TestEveryAlternativeHasAnAcceptedWitness(t *testing.T) {
+	paths := testcorpus.Glob(t, "corpus/s6/s6_alternatives.tsv")
+	data, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("read %s: %v", paths[0], err)
+	}
+	rows := map[[3]string]valueRow{}
 	for _, row := range readValueRows(t) {
-		k, ok := canonicalKey(row.section, row.key)
-		if !ok || row.verdict != "accept" || validators[k].choice == nil {
+		rows[[3]string{row.section, row.key, row.literal}] = row
+	}
+	seen := map[[2]string]bool{}
+	n := 0
+	for i, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
 			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) != 5 {
+			t.Fatalf("%s:%d: %d fields, want 5: %q", paths[0], i+1, len(f), line)
+		}
+		n++
+		canon, alt := f[0], f[1]
+		if seen[[2]string{canon, alt}] {
+			t.Errorf("alternatives line %d: %s %q listed twice", i+1, canon, alt)
+		}
+		seen[[2]string{canon, alt}] = true
+		row, ok := rows[[3]string{f[2], f[3], f[4]}]
+		if !ok {
+			t.Errorf("alternatives line %d: %s %q: no s6_scalar_values.tsv row %s.%s = %s", i+1, canon, alt, f[2], f[3], f[4])
+			continue
+		}
+		if row.verdict != "accept" {
+			t.Errorf("alternatives line %d: %s %q: witness tsv line %d is %s, want accept", i+1, canon, alt, row.line, row.verdict)
+		}
+		if k, _ := canonicalKey(row.section, row.key); k != canon {
+			t.Errorf("alternatives line %d: %s.%s resolves to %q, want %q", i+1, row.section, row.key, k, canon)
 		}
 		text := rowText(t, row)
-		if text == "" && !validators[k].validateEmpty {
-			continue
+		if err := Validate(row.section, row.key, text); err != nil {
+			t.Errorf("alternatives line %d: %s %q: Validate(%q) = %v, want accept", i+1, canon, alt, text, err)
 		}
-		alts, ok := validators[k].choice.took(text)
-		if !ok {
-			t.Errorf("tsv line %d: %s refuses accepted %q", row.line, k, text)
-			continue
-		}
-		if took[k] == nil {
-			took[k] = map[string]bool{}
-		}
-		for _, a := range alts {
-			took[k][a] = true
+		if !strings.Contains(alt, "<") && !strings.Contains(asciiLower(text), alt) {
+			t.Errorf("alternatives line %d: %s %q: witness text %q does not carry it", i+1, canon, alt, text)
 		}
 	}
-	for _, k := range slices.Sorted(maps.Keys(validators)) {
-		c := validators[k].choice
-		if c == nil {
-			continue
-		}
-		for _, a := range c.alts {
-			if !took[k][a] {
-				t.Errorf("%s: no accepted row goes through alternative %q", k, a)
-			}
-		}
+	if n == 0 {
+		t.Fatalf("%s: no rows", paths[0])
 	}
 }
 

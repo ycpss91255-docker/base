@@ -106,6 +106,43 @@ _quoted_header() {
   [ "${_rows}" -gt 0 ]
 }
 
+# why: Every alternative of every list validator (a case word, an image
+# rule prefix, a mount mode word, a size unit, container:, a <placeholder>
+# for a numeric or GID branch) is a row of the shared s6_alternatives.tsv,
+# written from _tui_conf.sh, naming the s6_scalar_values.tsv row that goes
+# through it (base#1442 review round 2). The witness row must be an accept
+# row at a key _schema_canonical_key resolves to the alternative's
+# validator key, _schema_validate must accept its bridge text, and a word
+# alternative must appear in that text, ASCII case folded. The Go half
+# holds schema.Validate to the same rows.
+@test "s6_alternatives: every alternative's witness row is one _schema_validate accepts through it" {
+  local _alts=/source/dockerfile/config-gen/testdata/corpus/s6/s6_alternatives.tsv
+  local _canon _alt _section _key _lit _verdict _got _kv _text
+  local _rows=0 _bad=()
+  while IFS=$'\t' read -r _canon _alt _section _key _lit; do
+    [[ "${_canon}" == \#* ]] && continue
+    _verdict="$(awk -F'\t' -v s="${_section}" -v k="${_key}" -v l="${_lit}" \
+      '$1 == "value" && $2 == s && $3 == k && $4 == l { print $5 }' "${TABLE}")"
+    [[ "${_verdict}" == accept ]] \
+      || { _bad+=("${_canon} ${_alt}: witness ${_section}.${_key}=${_lit} verdict '${_verdict}'"); continue; }
+    _schema_canonical_key "${_section}" "${_key}" _got
+    [[ "${_got}" == "${_canon}" ]] || _bad+=("${_canon} ${_alt}: ${_section}.${_key} resolves to '${_got}'")
+    # toml-fixture-lint: allow the body is built from a table row; the bridge parses each row and a refusal is reported
+    { _quoted_header "${_section}"; printf '%s = %s\n' "${_key}" "${_lit}"; } > "${TEMP_DIR}/in.toml"
+    _kv="$(toml_bridge_parse "${TEMP_DIR}/in.toml" --kv)" \
+      || { _bad+=("${_canon} ${_alt}: bridge failed"); continue; }
+    _text="${_kv#*$'\t'*$'\t'}"
+    _schema_validate "${_section}" "${_key}" "${_text}" \
+      || _bad+=("${_canon} ${_alt}: _schema_validate refuses '${_text}'")
+    [[ "${_alt}" == *'<'* || "${_text,,}" == *"${_alt}"* ]] \
+      || _bad+=("${_canon} ${_alt}: witness text '${_text}' does not carry it")
+    _rows=$((_rows + 1))
+  done < "${_alts}"
+  printf '%s\n' "${_bad[@]}"
+  [ "${#_bad[@]}" -eq 0 ]
+  [ "${_rows}" -gt 0 ]
+}
+
 # why: Go's Scalar text for each TOML scalar kind (a local time, a local
 # datetime, a fractional datetime among them) must be the text the shell
 # reads from the bridge's --kv for the same literal; each row of the shared
