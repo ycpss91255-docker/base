@@ -14,6 +14,10 @@ import (
 // `:SS` after it: a local time, or a date plus `T`/`t`/space and a time.
 var timeNoSeconds = regexp.MustCompile(`^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ])?[0-9]{2}:[0-9]{2}(?:[^:0-9]|$)`)
 
+// offsetMinute matches an offset datetime value token; group 1 is the
+// offset's sign and group 2 its minute.
+var offsetMinute = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?([+-])[0-9]{2}:([0-9]{2})$`)
+
 // Reason names why Check refused its input.
 type Reason int
 
@@ -41,6 +45,9 @@ const (
 	// dotted keys already created, which the TOML 1.0 oracle reports as
 	// "Cannot redefine a table".
 	ReasonRedefine
+	// ReasonOffsetRange is an offset datetime whose offset minute is above
+	// 59, which the TOML 1.0 oracle refuses at the offset's sign.
+	ReasonOffsetRange
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -134,6 +141,11 @@ func Check(label string, src []byte) error {
 				line, col := position(src, i)
 				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonTimeNoSeconds,
 					Text: "time without seconds is not TOML 1.0"}
+			}
+			if m := offsetMinute.FindSubmatchIndex(src[i:end]); m != nil && string(src[i+m[4]:i+m[5]]) > "59" {
+				line, col := position(src, i+m[2])
+				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonOffsetRange,
+					Text: "offset minute above 59 is not TOML 1.0"}
 			}
 			i = end - 1
 		case src[i] == '"':
