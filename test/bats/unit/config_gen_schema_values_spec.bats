@@ -155,3 +155,48 @@ teardown() {
   run diff <(printf '%s\n' "${_rows[@]}" | sort) <(printf '%s\n' "${SCHEMA_SECTIONS[@]}" | sort)
   [ "${status}" -eq 0 ]
 }
+
+# _check_known_events <file> -- print one "<event> <key>" line per
+# refusal the real _setup_conf_check_known logs for <file> as a layer:
+# apply_unknown_table as conf_unknown_table <table>, apply_unknown_key as
+# conf_unknown_key <table>.<key>, sorted.
+_check_known_events() {
+  local _file="${1}" _base _line _body _table _key
+  _base="$(mktemp -d "${TEMP_DIR}/base.XXXXXX")"
+  cp "${_file}" "${_base}/setup.toml"
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ \"body\":\"(apply_unknown_[a-z]+)\" ]] || continue
+    _body="${BASH_REMATCH[1]}"
+    [[ "${_line}" =~ \"table\":\"([^\"]*)\" ]] && _table="${BASH_REMATCH[1]}"
+    case "${_body}" in
+      apply_unknown_table) printf 'conf_unknown_table %s\n' "${_table}" ;;
+      apply_unknown_key)
+        [[ "${_line}" =~ \"key\":\"([^\"]*)\" ]] && _key="${BASH_REMATCH[1]}"
+        printf 'conf_unknown_key %s.%s\n' "${_table}" "${_key}" ;;
+    esac
+  done < <(LOG_FORMAT=json bash -c 'source "$1/_lib.sh" && _setup_conf_check_known "$2"' _ "${LIB}" "${_base}" 2>&1) | sort
+}
+
+# why: The Go half (TestCheckSectionsCorpus) holds config-gen check on
+# every corpus/s6/sections/ file equal to s6_sections.tsv. This half holds
+# the table's source=shell rows equal to what the real
+# _setup_conf_check_known reports for the same file, so the section-text
+# classification ([logging.""], stage tables, empty arrays judged by
+# their first entry's row) is the shell's, not the Go package's
+# (base#1442 review round 3 finding 1).
+@test "s6_sections: every source=shell row is what _setup_conf_check_known reports" {
+  local _dir=/source/dockerfile/config-gen/testdata/corpus/s6/sections
+  local _table=/source/dockerfile/config-gen/testdata/corpus/s6/s6_sections.tsv
+  local _f _base _want _got _files=0 _bad=()
+  for _f in "${_dir}"/*.toml; do
+    _base="${_f##*/}"
+    _want="$(awk -F'\t' -v f="${_base}" '$1 == f && $5 == "shell" && $2 != "-" { print $2 " " $4 }' "${_table}" | sort)"
+    grep -q "^${_base}"$'\t' "${_table}" || _bad+=("${_base}: no row in s6_sections.tsv")
+    _got="$(_check_known_events "${_f}")"
+    [[ "${_got}" == "${_want}" ]] || _bad+=("${_base}: shell '${_got//$'\n'/; }', table '${_want//$'\n'/; }'")
+    _files=$((_files + 1))
+  done
+  printf '%s\n' "${_bad[@]}"
+  [ "${#_bad[@]}" -eq 0 ]
+  [ "${_files}" -gt 0 ]
+}
