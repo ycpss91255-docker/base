@@ -623,7 +623,18 @@ jobs:
           # artifacts' own, so an arch added to the build matrix is checked
           # without this step being edited. The shape read is buildx's own
           # `Platform:  <os>/<arch>` listing, which the spec's stub mirrors.
-          listing="$(docker buildx imagetools inspect "${IMAGE_TAG}")"
+          # Resolve the tag ONCE, to the immutable digest of the index it
+          # names, and read every answer below from that digest, so the tag
+          # cannot move between the reads.
+          tag_digest="$(docker buildx imagetools inspect "${IMAGE_TAG}" \
+            --format '{{.Manifest.Digest}}')"
+          if [[ ! "${tag_digest}" =~ ^sha256:[0-9a-f]+$ ]]; then
+            echo "::error::${IMAGE_TAG} did not resolve to a digest" \
+              "(answered '${tag_digest}')." >&2
+            exit 1
+          fi
+          pinned="${IMAGE}@${tag_digest}"
+          listing="$(docker buildx imagetools inspect "${pinned}")"
           for _d in *; do
             built="$(cat "${_d}")"
             if ! grep -qE "Platform:[[:space:]]+${built}[[:space:]]*$" \
@@ -635,24 +646,51 @@ jobs:
             fi
             echo "${IMAGE_TAG} carries a manifest for ${built}"
           done
-          # And for THIS runner's platform the tag resolves to the very image
-          # the smoke step ran. Compared by CONFIG digest -- docker's image id
-          # -- rather than by manifest digest, and that is not a stylistic
-          # choice: provenance is on by default in docker/build-push-action,
-          # so each shard's `outputs.digest` names an INDEX carrying the
-          # platform image plus its attestation, and `imagetools create`
-          # FLATTENS those indexes into the published one. The shard digests
-          # the artifact files are named by are therefore absent from the
-          # published manifest, and a digest-set comparison would fail every
-          # ordinary publish -- after the tags had moved. The config digest
-          # survives both the flattening and the tag resolution.
-          docker pull "${IMAGE_TAG}"
-          want="$(docker image inspect --format '{{.Id}}' "${VERIFIED_REF}")"
-          got="$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")"
+          # And for THIS runner's platform the tag names the very image the
+          # smoke step ran. Neither index digest can be compared: provenance
+          # is on by default in docker/build-push-action, so each shard's
+          # `outputs.digest` names an INDEX carrying the platform image plus
+          # its attestation, and `imagetools create` FLATTENS those indexes
+          # into the published one -- the verified ref and the tag are always
+          # two different indexes. `docker image inspect .Id` is no way out
+          # either: it depends on the local image store, the config digest on
+          # the classic graphdriver store but the pulled INDEX digest on the
+          # containerd store (base#1510), where it failed every publish after
+          # the tags had moved. What both indexes must share is the image
+          # manifest for this platform, read from the registry, so the answer
+          # does not depend on the store; its digest pins config and layers.
+          # The platform is the one the verify step matched to this host: the
+          # artifact file named by the verified digest.
+          platform="$(cat "${VERIFIED_REF##*sha256:}")"
+          IFS='/' read -r p_os p_arch p_variant <<< "${platform}"
+          # _child <ref>: the digest of the single non-attestation descriptor
+          # in <ref>'s index for this platform; none or several refuse.
+          _child() {
+            local _ref="${1}" _found _n
+            _found="$(docker buildx imagetools inspect --raw "${_ref}" \
+              | jq -r --arg os "${p_os}" --arg arch "${p_arch}" \
+                  --arg variant "${p_variant:-}" '
+                (.manifests // [])[]
+                | select((.annotations // {})["vnd.docker.reference.type"]
+                    != "attestation-manifest")
+                | select(.platform.os == $os
+                    and .platform.architecture == $arch
+                    and ($variant == "" or .platform.variant == $variant))
+                | .digest')"
+            _n="$(grep -c . <<< "${_found}" || true)"
+            if [[ "${_n}" -ne 1 ]]; then
+              echo "::error::${_ref} carries ${_n} image manifests for" \
+                "${platform}; exactly one is required." >&2
+              return 1
+            fi
+            printf '%s\n' "${_found}"
+          }
+          want="$(_child "${VERIFIED_REF}")"
+          got="$(_child "${pinned}")"
           if [[ "${want}" != "${got}" ]]; then
-            echo "::error::${IMAGE_TAG} resolves to ${got}, but the image" \
-              "this job verified is ${want}. The tags were attached to" \
-              "content the smoke step never ran." >&2
+            echo "::error::${IMAGE_TAG} names ${got} for ${platform}, but" \
+              "the image this job verified is ${want}. The tags were" \
+              "attached to content the smoke step never ran." >&2
             exit 1
           fi
-          echo "${IMAGE_TAG} resolves to the verified image (${got})"
+          echo "${IMAGE_TAG} names the verified ${platform} image (${got})"
