@@ -1185,6 +1185,7 @@ _spec_prose() {
 @test "release-test-tools.yaml: the tag confirmation refuses a failed read of the tag's index, whatever it printed (base#1510)" {
   run _confirm_step_for rawfail-tag
   assert_failure
+  assert_output --partial '::error::could not read the index'
   refute_output --partial 'names the verified'
 }
 
@@ -1193,6 +1194,7 @@ _spec_prose() {
 @test "release-test-tools.yaml: the tag confirmation refuses a failed read of the verified index, whatever it printed (base#1510)" {
   run _confirm_step_for rawfail-verified
   assert_failure
+  assert_output --partial '::error::could not read the index'
   refute_output --partial 'names the verified'
 }
 

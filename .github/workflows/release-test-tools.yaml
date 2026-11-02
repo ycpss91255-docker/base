@@ -618,6 +618,12 @@ jobs:
           VERIFIED_REF: ${{ steps.verify.outputs.ref }}
         run: |
           set -euo pipefail
+          # Bash runs a command substitution with errexit OFF unless told
+          # otherwise, so a registry read that printed a usable body and then
+          # failed would be taken as an answer. inherit_errexit carries -e
+          # into every `$(...)` below; the reads that matter also check their
+          # own status (base#1510).
+          shopt -s inherit_errexit
           # Resolve the tag ONCE, to the immutable digest of the index it
           # names, and read every answer below from that digest, so the tag
           # cannot move between the reads.
@@ -677,7 +683,10 @@ jobs:
                 | select(.platform.os == $os
                     and .platform.architecture == $arch
                     and ($variant == "" or .platform.variant == $variant))
-                | .digest')"
+                | .digest')" || {
+              echo "::error::could not read the index ${_ref} names." >&2
+              return 1
+            }
             _n="$(grep -c . <<< "${_found}" || true)"
             if [[ "${_n}" -ne 1 ]]; then
               echo "::error::${_ref} carries ${_n} image manifests for" \
@@ -686,8 +695,8 @@ jobs:
             fi
             printf '%s\n' "${_found}"
           }
-          want="$(_child "${VERIFIED_REF}")"
-          got="$(_child "${pinned}")"
+          want="$(_child "${VERIFIED_REF}")" || exit 1
+          got="$(_child "${pinned}")" || exit 1
           if [[ "${want}" != "${got}" ]]; then
             echo "::error::${IMAGE_TAG} names ${got} for ${platform}, but" \
               "the image this job verified is ${want}. The tags were" \
