@@ -189,6 +189,9 @@ _watch_scan() {
   # hazard in _pin_read and _pin_uncovered for the same reason; this was
   # the single line that decided the exit code and did not.
   _table="$(_pin_read "${PIN_REPO_ROOT}")" || return 1
+  # Before any upstream is asked: a go.mod whose go directive names another
+  # Go minor than the golang pin is refused, not reported (base#1440).
+  _pin_go_directive_check "${PIN_REPO_ROOT}" || return 1
 
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
       _current _file _line; do
