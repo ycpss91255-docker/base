@@ -16,7 +16,9 @@
 #
 # The input set, relative to dockerfile/config-gen and in C-locale order:
 # every *.toml at any depth under internal/gate/testdata/forms and
-# internal/gate/testdata/toml-test. It goes to one `docker run`,
+# internal/gate/testdata/toml-test, and every testdata/corpus/s*/*.toml,
+# the shared corpus internal/testcorpus.Glob reads (base#1441). It goes
+# to one `docker run`,
 # --network none, as a tar on stdin; the container answers one
 # `<rel>\taccept|refuse` line per file, from `tomllib.loads` on the file's
 # bytes. Those answers are written verbatim to
@@ -64,6 +66,10 @@ readonly -a _TO_INPUT_DIRS=(
   'internal/gate/testdata/forms'
   'internal/gate/testdata/toml-test'
 )
+# The shared corpus: one level of slice directories, TOML files directly
+# inside each, the shape testcorpus.Glob(t, "corpus/s*/*.toml") matches.
+readonly _TO_CORPUS_DIR='testdata/corpus'
+
 
 # What runs inside the bridge image: extract the tar, then one
 # `python3 -I` per file, with the bridge's call shape
@@ -110,8 +116,14 @@ main() {
   for dir in "${_TO_INPUT_DIRS[@]}"; do
     [[ -d "${module}/${dir}" ]] && dirs+=("${dir}")
   done
-  if (( ${#dirs[@]} > 0 )); then
-    mapfile -t files < <(cd -- "${module}" && find "${dirs[@]}" -type f -name '*.toml' | LC_ALL=C sort)
+  local corpus=''
+  [[ -d "${module}/${_TO_CORPUS_DIR}" ]] && corpus="${_TO_CORPUS_DIR}"
+  if (( ${#dirs[@]} > 0 )) || [[ -n "${corpus}" ]]; then
+    mapfile -t files < <(cd -- "${module}" && {
+      (( ${#dirs[@]} == 0 )) || find "${dirs[@]}" -type f -name '*.toml'
+      [[ -z "${corpus}" ]] || find "${corpus}" -mindepth 2 -maxdepth 2 -type f \
+        -path "${corpus}/s*/*.toml"
+    } | LC_ALL=C sort)
   fi
 
   local f
