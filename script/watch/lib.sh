@@ -670,7 +670,8 @@ _pin_extract_value() {
 #                          an exclude line, line or block form, takes the
 #                          require entry's arity, path and version
 #                          checks; a retract line is one canonical
-#                          version or a `[low, high]` interval of two);
+#                          version or a `[low, high]` interval of two,
+#                          and one cut short is retract_interval);
 #   anything else          refused BY NAME (replace, tool, ignore, and a
 #                          retract of any other shape) or as unknown_verb.
 #
@@ -964,6 +965,9 @@ _pin_go_mod_retract() {
   case "${_shape}" in
     v) _at=(1) ;;
     '[v,v]') _at=(2 4) ;;
+    # An interval that ends before its `]`: Go's parseVersionInterval
+    # names the missing piece (base#1488).
+    '[' | '[v' | '[v,' | '[v,v') _pin_go_mod_refuse "${_ln}" retract_interval; return 1 ;;
     *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;
   esac
   for _k in "${_at[@]}"; do
