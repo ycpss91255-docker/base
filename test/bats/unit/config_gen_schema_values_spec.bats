@@ -57,10 +57,9 @@ teardown() {
 
 # why: Each class=value row's literal goes through the bridge's --kv, the
 # text the shell reads, and _schema_validate on that text must give the
-# row's verdict: rc 0 for accept, non-zero for refuse. A
-# `differs:wrong_type` row is one the generator refuses on purpose as a
-# value outside its field's type (ADR-00000039) while the shell passes its
-# text, so the shell must accept it: rc 0.
+# row's verdict: rc 0 for accept, non-zero for refuse. The Go half holds
+# schema.Validate on the same text to the same verdict, with no exception
+# column: a value outside its field's type is s6_kinds.tsv's.
 @test "s6_scalar_values: every class=value verdict is _schema_validate's on the bridge text" {
   local _class _section _key _lit _verdict _event _branch _kv _text _rc
   local _rows=0 _bad=()
@@ -75,12 +74,11 @@ teardown() {
     _rc=0
     _schema_validate "${_section}" "${_key}" "${_text}" || _rc=$?
     if [[ "${_verdict}" == accept && "${_rc}" -ne 0 ]] \
-      || [[ "${_verdict}" == differs:wrong_type && "${_rc}" -ne 0 ]] \
       || [[ "${_verdict}" == refuse && "${_rc}" -eq 0 ]]; then
       _bad+=("${_section}.${_key}=${_lit} (${_branch}): shell rc=${_rc}, table ${_verdict}")
     fi
     case "${_verdict}" in
-      accept|refuse|differs:wrong_type) ;;
+      accept|refuse) ;;
       *) _bad+=("${_section}.${_key}=${_lit}: verdict ${_verdict}") ;;
     esac
     _rows=$((_rows + 1))
@@ -199,4 +197,64 @@ _check_known_events() {
   printf '%s\n' "${_bad[@]}"
   [ "${#_bad[@]}" -eq 0 ]
   [ "${_files}" -gt 0 ]
+}
+
+# _probe_kind <canonical key> -- print int, bool or string: how
+# _schema_validate types the key on the pinned probe texts. A key is bool
+# when it accepts exactly true and false, int when it accepts at least
+# one probe and only decimal integers, string otherwise. The probe set
+# holds a word, a size, a list and the GPU words (all, auto, 3,4) so a
+# string key that also takes integers is not read as int (base#1442).
+_probe_kind() {
+  local _canon="${1}" _section _key _p _acc=()
+  local -a _probes=(3 0 x 1g true false 3a 1.5 all video utility 3,4 auto)
+  _section="${_canon%%.*}"
+  _key="${_canon#*.}"
+  [[ "${_key}" == *_ ]] && _key="${_key}1"
+  for _p in "${_probes[@]}"; do
+    _schema_validate "${_section}" "${_key}" "${_p}" && _acc+=("${_p}")
+  done
+  if [[ " ${_acc[*]} " == " true false " ]]; then
+    echo bool
+  elif [[ "${#_acc[@]}" -gt 0 && ! " ${_acc[*]} " =~ [^0-9\ ] ]]; then
+    echo int
+  else
+    echo string
+  fi
+}
+
+# why: The Go half (TestCheckKinds) refuses a value of another TOML kind
+# at every key s6_kinds.tsv marks int or bool. This half holds that set
+# equal to the keys schema.sh itself types, read off _schema_validate on a
+# pinned probe set for every SCHEMA_VALIDATOR key, in both directions: a
+# typed key added to schema.sh with no rows fails here, and so does a row
+# marking a key the shell does not type. Each typed key must also carry
+# every wrong-kind row for its kind (int: "3", 3.0, true, 1979-05-27;
+# bool: "true", 1, 1.0) and an accept row (base#1442 review round 3).
+@test "s6_kinds: the int and bool keys are the keys _schema_validate types, each with every wrong-kind row" {
+  local _kinds=/source/dockerfile/config-gen/testdata/corpus/s6/s6_kinds.tsv
+  local _canon _kind _lit _want _bad=() _probed="" _tabled=""
+  for _canon in "${!SCHEMA_VALIDATOR[@]}"; do
+    _kind="$(_probe_kind "${_canon}")"
+    [[ "${_kind}" == string ]] && continue
+    _probed+="${_canon} ${_kind}"$'\n'
+    case "${_kind}" in
+      int) _want=('"3"' '3.0' 'true' '1979-05-27') ;;
+      bool) _want=('"true"' '1' '1.0') ;;
+    esac
+    for _lit in "${_want[@]}"; do
+      awk -F'\t' -v c="${_canon}" -v l="${_lit}" -v k="${_kind}" \
+        '$1 "." $2 == c && $3 == l && $4 == k && $5 == "conf_value_type_refused" { f = 1 } END { exit !f }' "${_kinds}" \
+        || _bad+=("${_canon} (${_kind}): no conf_value_type_refused row for ${_lit}")
+    done
+    awk -F'\t' -v c="${_canon}" -v k="${_kind}" '$1 "." $2 == c && $4 == k && $5 == "-" { f = 1 } END { exit !f }' "${_kinds}" \
+      || _bad+=("${_canon} (${_kind}): no accept row")
+  done
+  _tabled="$(awk -F'\t' '$1 !~ /^#/ && ($4 == "int" || $4 == "bool") { print $1 "." $2 " " $4 }' "${_kinds}" | sort -u)"
+  _probed="$(printf '%s' "${_probed}" | sort -u)"
+  [[ "${_probed}" == "${_tabled}" ]] \
+    || _bad+=("typed keys differ: probe '${_probed//$'\n'/; }', table '${_tabled//$'\n'/; }'")
+  printf '%s\n' "${_bad[@]}"
+  [ "${#_bad[@]}" -eq 0 ]
+  [ -n "${_probed}" ]
 }

@@ -3,7 +3,6 @@ package schema
 import (
 	"errors"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 
@@ -51,37 +50,24 @@ func readValueRows(t *testing.T) []valueRow {
 	return rows
 }
 
-// Validate gives schema.sh's verdict for every class=value row of the
-// shared table (base#1442, AC "Validation matches schema.sh" and "Wrong
-// types"). The literal
-// is decoded into a Scalar by the library, exactly as a layer's value is,
-// and Validate judges it. A refused row names its event: a string at a
-// bool key whose text fails (`privileged = "yes"`, `"TRUE"`) is
-// conf_value_type_refused. An empty string is accepted by schema.sh's
-// default empty policy, and `true` / `"true"` pass _validate_privileged.
-// deploy.gpu_count (declared string|int) is the key whose empty policy
-// validates: `""`, `"02"` and a fullwidth digit are same-kind failures,
-// conf_value_invalid, while `true` and `1.5` are of another kind.
-// Every other scalar key of SCHEMA_VALIDATOR, and the three free-form
-// build keys, has rows too. The kind each key declares is dist/setup.toml's
-// (bool: init, privileged, compress, wrapper_transcript; int: max_file,
-// the *_keep / *_days and watchdog counts; string otherwise). A string key
-// is judged on the bridge's text: `driver = inf` and `name = 1979-05-27`
-// pass (base#1407 matrix rows 7a, 7c), and a non-breaking space does not
-// split gpu_capabilities words under LC_ALL=C. A bool or int key is typed
-// (ADR-00000039: a value outside its field's type is refused at load):
-// `max_file = 3.0` is refused as a float, and a row whose verdict is
-// `differs:wrong_type` is one schema.sh accepts on its text and the
-// generator refuses as conf_value_type_refused -- `privileged = "true"`,
-// `init = "false"`, `watchdog_interval = "30"`, `max_file = "3"`. The
-// bats half asserts the shell accepts each such row, so the difference is
-// a declared one, not a drift. The empty string stays the default empty
-// policy's at a typed key too (`max_file = ""` is accepted).
-// The 12 numbered families of schema.sh (image.rule_, build.arg_,
-// volumes.mount_, ...) are judged at numbered keys other than _1 too:
-// each accepts `""` (the default empty policy, although its validator
-// refuses it), gives every validator branch its verdict, and refuses a
-// non-string literal as conf_value_type_refused.
+// Validate is _schema_validate on the bridge's text: for every
+// class=value row of the shared table it gives schema.sh's verdict, exactly
+// and with no exception (base#1442 AC "Validation matches schema.sh",
+// review round 3 finding 2). The row's literal is decoded into a Scalar by
+// the library, exactly as a layer's value is, and Validate judges its
+// Text, the bridge's rendering of it; a refused text is conf_value_invalid.
+// The bats half (config_gen_schema_values_spec.bats) runs the real
+// _schema_validate on the bridge's --kv text of the same literal and holds
+// every verdict to it, so the table is the shell's word. The type of a
+// value is not Validate's to judge: a value outside its field's type
+// (ADR-00000039) is refused by Decode before Validate is asked, and is
+// tested through config-gen check on s6_kinds.tsv. So `privileged =
+// "true"` is a row the shell accepts, and Validate accepts its text too.
+// Rows cover every scalar key of SCHEMA_VALIDATOR, the three free-form
+// build keys, both empty policies (`""` at gpu_count and
+// gpu_capabilities is validated and refused, at any other key accepted),
+// every validator branch, and the 12 numbered families at keys other than
+// _1.
 func TestValidateMatchesSchemaSh(t *testing.T) {
 	for _, row := range readValueRows(t) {
 		name := row.section + "." + row.key + "=" + row.literal
@@ -96,65 +82,23 @@ func TestValidateMatchesSchemaSh(t *testing.T) {
 				t.Fatalf("tsv line %d: decode %q gave no %s.%s", row.line, src, row.section, row.key)
 			}
 
-			err := Validate(row.section, row.key, s)
+			err := Validate(row.section, row.key, s.Text)
 
 			switch row.verdict {
 			case "accept":
 				if err != nil {
-					t.Errorf("tsv line %d (%s): Validate = %v, want accept", row.line, row.branch, err)
+					t.Errorf("tsv line %d (%s): Validate(%q) = %v, want accept", row.line, row.branch, s.Text, err)
 				}
-			case "refuse", "differs:wrong_type":
+			case "refuse":
 				var ve *ValueError
 				if !errors.As(err, &ve) {
-					t.Fatalf("tsv line %d (%s): Validate = %v, want a *ValueError", row.line, row.branch, err)
+					t.Fatalf("tsv line %d (%s): Validate(%q) = %v, want a *ValueError", row.line, row.branch, s.Text, err)
 				}
 				if ve.Event != row.event {
 					t.Errorf("tsv line %d (%s): Event = %q, want %q", row.line, row.branch, ve.Event, row.event)
 				}
 			default:
-				t.Fatalf("tsv line %d: verdict %q, want accept, refuse or differs:wrong_type", row.line, row.verdict)
-			}
-		})
-	}
-}
-
-// The port of _schema_validate and the shell accept and refuse the same
-// texts, row for row, with no exception (base#1442 AC "Validation matches
-// schema.sh", review round 2). The bats half asserts each row's shell
-// verdict on the bridge's text: rc 0 for accept and differs:wrong_type,
-// non-zero for refuse. Here the same text is judged by the key's ported
-// validator and empty policy alone, before any type rule, and must get
-// that verdict too. A differs:wrong_type row is therefore one whose text
-// both sides accept, and its refusal (TestValidateMatchesSchemaSh) can
-// come only from the declared type exception (ADR-00000039 "How the
-// differential tests treat these changes"): its literal's kind must be
-// outside the kinds the key declares, and the key must declare no string
-// kind, or the type rule would not apply to it.
-func TestValidatorTextMatchesSchemaSh(t *testing.T) {
-	for _, row := range readValueRows(t) {
-		name := row.section + "." + row.key + "=" + row.literal
-		t.Run(name, func(t *testing.T) {
-			src := "[" + row.section + "]\n" + row.key + " = " + row.literal + "\n"
-			var doc map[string]map[string]Scalar
-			if _, err := toml.Decode(src, &doc); err != nil {
-				t.Fatalf("tsv line %d: decode %q: %v", row.line, src, err)
-			}
-			s := doc[row.section][row.key]
-			shellAccepts := row.verdict == "accept" || row.verdict == "differs:wrong_type"
-
-			r, ok := canonical(row.section, row.key)
-			textAccepted := !ok || (s.Text == "" && !r.validateEmpty) || r.valid(s.Text)
-
-			if textAccepted != shellAccepts {
-				t.Errorf("tsv line %d (%s): ported validator on %q accepts=%v, shell accepts=%v",
-					row.line, row.branch, s.Text, textAccepted, shellAccepts)
-			}
-			if row.verdict != "differs:wrong_type" {
-				return
-			}
-			if !ok || slices.Contains(r.kinds, s.Kind) || slices.Contains(r.kinds, KindString) {
-				t.Errorf("tsv line %d (%s): differs:wrong_type row of kind %s at a key declaring %v: not a type exception",
-					row.line, row.branch, s.Kind, r.kinds)
+				t.Fatalf("tsv line %d: verdict %q, want accept or refuse", row.line, row.verdict)
 			}
 		})
 	}
