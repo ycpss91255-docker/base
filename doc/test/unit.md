@@ -1939,6 +1939,12 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
+### test/bats/unit/config_gen_bin_provision_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `the provisioned binary comes from this checkout's image, not an inherited override or memo` | an override or memo inherited from the caller must not choose which binary the golden spec runs; both are poisoned at once, so dropping only one of them from the resolve's environment still names a poison image. |
+
 ### test/bats/unit/config_gen_coverage_spec.bats (15)
 
 The gate reads per-package profiles and passes a package at >= 90.0% of its

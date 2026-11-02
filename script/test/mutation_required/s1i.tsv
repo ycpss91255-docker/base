@@ -1,0 +1,10 @@
+# s1i.tsv -- the mutations base#1469 (config-gen S1i, the `tables`
+# command and the binary test.sh provisions for its golden spec) requires
+# script/test/mutation-probe.sh to report PINNED. One row per behaviour:
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+bin-resolve-unset-image	script/test/test.sh	test/bats/unit/config_gen_bin_provision_spec.bats	env -u CONFIG_GEN_IMAGE -u _CONFIG_GEN_RESOLVED bash -c	env -u _CONFIG_GEN_RESOLVED bash -c
+bin-resolve-unset-memo	script/test/test.sh	test/bats/unit/config_gen_bin_provision_spec.bats	env -u CONFIG_GEN_IMAGE -u _CONFIG_GEN_RESOLVED bash -c	env -u CONFIG_GEN_IMAGE bash -c

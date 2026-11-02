@@ -1,0 +1,10 @@
+# toml11_inline_newline: TOML 1.1 lets an inline table span lines (base#1469).
+[srv]
+name = "a"
+opts = {
+  net = { mode = "host" },
+  env = { A = "1" }
+}
+
+[srv.ports]
+http = 8080

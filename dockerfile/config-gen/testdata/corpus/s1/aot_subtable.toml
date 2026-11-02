@@ -1,0 +1,13 @@
+[[aot]]
+k = 1
+
+[aot.sub]
+x = 2
+
+[[aot]]
+k = 3
+
+[[aot.items]]
+y = 4
+
+[after]

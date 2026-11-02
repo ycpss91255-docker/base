@@ -1,0 +1,7 @@
+a = { b = { c = 1 }, d = [], e = {} }
+list = [1, 2]
+
+[t]
+x = { y = { z = 1 } }
+plain = 1
+deep.inline = { k = { } }

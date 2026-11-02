@@ -346,6 +346,16 @@ FROM alpine-apk
 # dockerfile/Dockerfile.toml-bridge keeps it for the runtimes that need
 # it. Measured cost of the package on alpine 3.22: 8.3 MB -> 49.2 MB for
 # a bare alpine, about +41 MB uncompressed on a 350 MB image.
+# util-linux-misc (base#1469): the config-gen output-failure spec
+# (test/bats/integration/config_gen_bridge_golden_spec.bats) needs
+# `prlimit --fsize` to make the binary's one stdout write land short and
+# then fail with EFBIG; /dev/full only ever takes 0 bytes, so it cannot
+# reach the short-count branch. busybox has no prlimit applet. The package
+# is `util-linux-misc`, not `util-linux`: it is the split package that owns
+# /usr/bin/prlimit in main on both architectures this image publishes on
+# this Alpine branch, while the `util-linux` meta package pulls the rest
+# of util-linux in with it. Measured cost on alpine 3.22: this image went
+# from 386,330,098 to 389,644,208 bytes, about +3.3 MB uncompressed.
 # tool-pin: unpinned alpine-packages -- an apk package resolves to whatever
 # the pinned alpine series ships, so it declares no version of its own;
 # ALPINE_VERSION is the bound. Recorded so the watch reports these ~20
@@ -353,7 +363,7 @@ FROM alpine-apk
 # package that needed a version of its own -- just, the runner the whole
 # downstream contract is written in -- moved to a pinned upstream release
 # in the just-runner stage above.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 \
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 util-linux-misc \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats

@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -122,12 +122,14 @@ func withoutEnv(env []string, key string) []string {
 // TestLinkerRoot runs against the root the build passed with -ldflags -X,
 // not one set here, so a root fixed in source cannot satisfy it. The race
 // gate moves testdata/ (holding corpus/s1/seed.toml) to that root
-// (base#1468). A plain `go test` without -X fails here by design.
+// (base#1468). A plain `go test` without -X fails here by design. The s1
+// slice holds other fixtures too (base#1469), so seed.toml must be among
+// the matches, not the only one.
 func TestLinkerRoot(t *testing.T) {
 	got := Glob(t, "corpus/s1/*.toml")
-	want := []string{filepath.Join(root, "corpus", "s1", "seed.toml")}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Glob(%q) = %q, want %q", "corpus/s1/*.toml", got, want)
+	want := filepath.Join(root, "corpus", "s1", "seed.toml")
+	if !slices.Contains(got, want) {
+		t.Fatalf("Glob(%q) = %q, want it to contain %q", "corpus/s1/*.toml", got, want)
 	}
 }
 
