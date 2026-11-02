@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **272 tests**.
+Integration specs under `test/bats/integration/`: **273 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -78,7 +78,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
 
-### test/bats/integration/config_gen_bridge_golden_spec.bats (6)
+### test/bats/integration/config_gen_bridge_golden_spec.bats (7)
 
 Every fixture under dockerfile/config-gen/testdata/corpus/s1 carries one
 explicit expectation class in testdata/golden/s1/EXPECT, one row per
@@ -101,6 +101,7 @@ stated expectation and a stale row can never stand for a deleted one.
 | `partition: one well-formed row per fixture passes` | - |
 | `the s1 corpus is partitioned by golden/s1/EXPECT, one row per fixture` | - |
 | `per EXPECT class, the bridge and the config-gen binary each match golden/s1` | the golden is the bridge's own `--tables` answer captured once; this re-runs BOTH sides over every s1 fixture and compares each one's bytes to that file with cmp, never through $(...), which would drop trailing LFs and hide a missing or extra final newline. The binary is the built config-gen that script/test/test.sh provisions as CONFIG_GEN_BIN; an unprovisioned binary fails the spec (ci_config_gen_unprovisioned), it is never skipped, so a run without it can not pass by testing nothing. |
+| `config-gen binary on a size-limited stdout exits 4 with one frame and a golden prefix` | the Go fault writer covers a write that fails at byte N in-process; this is the same contract on the built binary against a real file whose size limit (RLIMIT_FSIZE via prlimit) lets it take some bytes and then refuse with EFBIG, which /dev/full (0 bytes, ENOSPC) can not show. The answer is exit 4, exactly one `config_gen_output_failed` frame, and a non-empty stdout that is a strict prefix of the bridge golden (base#1469 I/O contract). SIGXFSZ is ignored so the write returns EFBIG instead of killing the process. prlimit must be on PATH in every environment the spec runs in (test-tools installs util-linux-misc); a missing prlimit fails here, it is never skipped. |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 
