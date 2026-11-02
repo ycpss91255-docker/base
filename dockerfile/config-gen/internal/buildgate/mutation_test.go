@@ -342,6 +342,50 @@ func TestMapRefusesAManifestWithNoRecordAndNoMarker(t *testing.T) {
 	}
 }
 
+// A Go path the head tree should hold (an M, A or T line, or the new side
+// of an R line) whose directory is no package of `go list` is refused,
+// never mapped to a target the gate cannot test: the listed package does
+// not exist. internal/zzghost is no package of the fixture (see the
+// comment above TestMapRootTestdataTargetsTestcorpusImporters); internal/c
+// is. The expected line is the event id the design (base#1467, design r1
+// §2) names, `mutation_no_such_package pkg=`, with pkg= the full import
+// path as the gate's mutation_failed pkg= spells it, written as a literal.
+func TestMapRefusesAListedPackageThatDoesNotExist(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	const want = "cg_event config_gen_mutation_no_such_package " +
+		"pkg=github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzghost"
+	cases := []struct {
+		name     string
+		manifest string
+	}{
+		{"a modified Go file", header + "M\tdockerfile/config-gen/internal/zzghost/zzghost.go\n"},
+		{"an added Go file", header + "A\tdockerfile/config-gen/internal/zzghost/zzghost.go\n"},
+		{"a type change", header + "T\tdockerfile/config-gen/internal/zzghost/zzghost.go\n"},
+		{"the new side of a rename", header +
+			"R100\tdockerfile/config-gen/internal/c/old.go\tdockerfile/config-gen/internal/zzghost/old.go\n"},
+		{"beside a Go file of a package that exists", header +
+			"M\tdockerfile/config-gen/internal/c/c.go\nA\tdockerfile/config-gen/internal/zzghost/zzghost_test.go\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err == nil {
+				t.Fatalf("Map returned %+v and no error, want %q", got, want)
+			}
+			if err.Error() != want {
+				t.Errorf("Map error = %q, want %q", err.Error(), want)
+			}
+		})
+	}
+}
+
 // unquote reads a control byte the producer writes as \ooo back to that
 // byte, and returns a spelling that does not read back as written (the
 // admission gate, config_gen_admit.sh _cga_record, refuses such a
@@ -358,10 +402,18 @@ func TestUnquoteOctalAndUnreadable(t *testing.T) {
 	}
 }
 
-// Map keeps Targets' rule: a Go file maps to its own directory, with no
-// package list needed.
+// Map keeps Targets' rule: a Go file maps to its own directory, here
+// internal/c, a package of the fixture.
 func TestMapGoFileTargetsItsDirectory(t *testing.T) {
-	got, err := Map(header+"M\tdockerfile/config-gen/internal/c/c.go\n", fixtureModule, nil)
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	got, err := Map(header+"M\tdockerfile/config-gen/internal/c/c.go\n", fixtureModule, pkgs)
 	if err != nil {
 		t.Fatalf("Map: %v", err)
 	}
