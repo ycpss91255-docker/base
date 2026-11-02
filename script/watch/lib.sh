@@ -852,10 +852,8 @@ _pin_go_mod_version_ok() {
 
 # _pin_go_mod_canonical_ok <version> -- 0 only for a version that is
 # canonical semver on its own, with no module path to check it against:
-# the path-independent half of _pin_go_mod_version_ok (base#1488). A
-# retract version does not take it: Go holds a retract version to no
-# version grammar (see _pin_go_mod_retract). On refusal the reason is left in
-# _PIN_GO_MOD_REASON.
+# the path-independent half of _pin_go_mod_version_ok (base#1488), its
+# only caller. On refusal the reason is left in _PIN_GO_MOD_REASON.
 _pin_go_mod_canonical_ok() {
   local _v="${1}" _core _pre="" _has_pre=0 _f _rest _id _dots
   local LC_ALL=C

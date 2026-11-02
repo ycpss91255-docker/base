@@ -288,7 +288,7 @@ _decode() {
     [[ -n "${_ids[${_want}]:-}" ]] || fail "the roster lost row ${_want}"
   done
   local _c
-  for _c in s1b:24 s1c:97 s1d:38 s1g:2 s1h:12 s1a:2; do
+  for _c in s1b:24 s1c:109 s1d:38 s1g:2 s1h:12 s1a:2; do
     [[ "$(grep -cvE '^(#|$)' "/source/script/test/mutation_required/${_c%%:*}.tsv")" == "${_c##*:}" ]] \
       || fail "${_c%%:*}.tsv does not hold its ${_c##*:} rows"
   done
