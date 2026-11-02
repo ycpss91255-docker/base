@@ -270,13 +270,17 @@ func (s *scanner) header() {
 	}
 	path := s.key()
 	s.skipLine()
-	// A header resolves from the root.
+	// A header resolves from the root; crossing an array of tables, it
+	// enters the array's last element.
 	n := s.root
 	for i := 1; i < len(path); i++ {
 		rec := s.implicit(path[:i], line, col)
 		c := n.child(path[i-1])
-		if c == nil {
+		switch {
+		case c == nil:
 			c = n.add(path[i-1], NTable, rec)
+		case c.Kind == NArrayTables && len(c.Children) > 0:
+			c = c.Children[len(c.Children)-1]
 		}
 		n = c
 	}
