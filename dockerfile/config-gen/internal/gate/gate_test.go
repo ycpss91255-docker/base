@@ -2,6 +2,9 @@ package gate
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -227,5 +230,59 @@ func TestCheckRefusesDuplicateKey(t *testing.T) {
 	const want = "t.toml:2:1: Cannot overwrite a value (at line 2, column 1)"
 	if r.Error() != want {
 		t.Fatalf("Error() = %q, want %q", r.Error(), want)
+	}
+}
+
+// A table header whose path names a table that dotted keys already
+// created is refused with ReasonRedefine at the header's `[`. Inputs are
+// the toml-test v2.2.0 (ce08da1) invalid/ files vendored under
+// testdata/toml-test, which tomllib (CPython 3.13.13 Lib/tomllib) refuses
+// with "Cannot declare ... twice" on the same line while BurntSushi v1.6.0
+// accepts them (base#1441 design run1 r2 cycle 9a, measured). Each L:C is
+// counted by hand in the file: the header line, column 1. The controls
+// are accepted by tomllib: a sub-table header under a dotted table that
+// no dotted key created (valid/spec-1.0.0/table-9), and the same shape
+// written as a literal.
+func TestCheckRefusesHeaderOverDottedTable(t *testing.T) {
+	for _, tc := range []struct {
+		file      string
+		line, col int
+	}{
+		{"invalid/table/duplicate-key-04.toml", 4, 1},
+		{"invalid/table/duplicate-key-05.toml", 4, 1},
+		{"invalid/table/redefine-02.toml", 3, 1},
+		{"invalid/table/redefine-03.toml", 3, 1},
+		{"invalid/spec-1.0.0/table-9-1.toml", 6, 1},
+	} {
+		src, err := os.ReadFile(filepath.Join("testdata", "toml-test", tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = Check(tc.file, src)
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check() = %v, want *Refusal", tc.file, err)
+			continue
+		}
+		if r.File != tc.file || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonRedefine {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {%q %d %d ReasonRedefine}",
+				tc.file, r.File, r.Line, r.Col, r.Reason, tc.file, tc.line, tc.col)
+			continue
+		}
+		want := fmt.Sprintf("%s:%d:%d: Cannot redefine a table (at line %d, column %d)",
+			tc.file, tc.line, tc.col, tc.line, tc.col)
+		if r.Error() != want {
+			t.Errorf("%s: Error() = %q, want %q", tc.file, r.Error(), want)
+		}
+	}
+	src, err := os.ReadFile(filepath.Join("testdata", "toml-test", "valid", "spec-1.0.0", "table-9.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Check("table-9.toml", src); err != nil {
+		t.Errorf("Check(valid/spec-1.0.0/table-9.toml) = %v, want nil", err)
+	}
+	if err := Check("t.toml", []byte("[a]\nb.c = 1\n[a.d]\n")); err != nil {
+		t.Errorf("Check(%q) = %v, want nil", "[a]\nb.c = 1\n[a.d]\n", err)
 	}
 }

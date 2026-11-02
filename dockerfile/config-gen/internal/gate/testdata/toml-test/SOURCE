@@ -1,0 +1,3 @@
+toml-lang/toml-test commit ce08da1 (v2.2.0), files under tests/ copied
+byte for byte to the same relative path here. LICENSE is that
+repository's LICENSE file. Vendored for base#1441.
