@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 // A `\e` escape in a basic string is TOML 1.1 only; tomllib (the oracle)
@@ -851,6 +853,49 @@ func TestCheckRefusesAtTheStopPoint(t *testing.T) {
 		want := fmt.Sprintf("t.toml:%d:%d: %s", tc.line, tc.col, wantSyntaxText)
 		if r.Reason != ReasonSyntax || r.Error() != want {
 			t.Errorf("%s: Check(%q) = %v %q, want ReasonSyntax %q", tc.name, tc.src, r.Reason, r.Error(), want)
+		}
+	}
+}
+
+// Check's reading follows the grammar's structure, not every token rule:
+// an unknown escape (`\q`) or a malformed bare value (`tru`) is a byte
+// BurntSushi refuses too, so Check reads past it as one string or one
+// value and reports only its own rules (base#1441 review round 2,
+// finding 1). tomllib (a CPython 3.13.13 Lib/tomllib copy under python3
+// -I, run 2026-11-02) refuses every row on line 1: "Unescaped '\' in a
+// string (at line 1, column 8)" for both `\q` rows and "Invalid value (at
+// line 1, column 5)" for both `tru` rows. In the rows with a later `\e`,
+// Check reports that escape at its backslash, counted by hand: 1:8,
+// a(1) ' '(2) =(3) ' '(4) "(5) \(6) q(7) \(8); and 2:6, b(1) ' '(2) =(3)
+// ' '(4) "(5) \(6). In the rows without one Check is nil. In every row
+// BurntSushi v1.6.0 refuses the document, so gate plus BurntSushi gives
+// tomllib's verdict, refuse; the position is tomllib's only for the
+// errors Check owns.
+func TestCheckReadsPastErrorsTheDecoderRefuses(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int // 0: Check is nil
+	}{
+		{"a = \"\\q\\e\"\n", 1, 8},
+		{"a = tru\nb = \"\\e\"\n", 2, 6},
+		{"a = \"\\q\"\n", 0, 0},
+		{"a = tru\n", 0, 0},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		if tc.line == 0 {
+			if err != nil {
+				t.Errorf("Check(%q) = %v, want nil", tc.src, err)
+			}
+		} else {
+			var r *Refusal
+			want := fmt.Sprintf("t.toml:%d:%d: escape sequence \\e is not TOML 1.0", tc.line, tc.col)
+			if !errors.As(err, &r) || r.Reason != ReasonEscape || r.Error() != want {
+				t.Errorf("Check(%q) = %v, want ReasonEscape %q", tc.src, err, want)
+			}
+		}
+		var v map[string]any
+		if _, err := toml.Decode(string(Normalize([]byte(tc.src))), &v); err == nil {
+			t.Errorf("toml.Decode(%q) = nil, want the decoder's refusal", tc.src)
 		}
 	}
 }
