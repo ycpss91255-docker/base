@@ -28,6 +28,8 @@
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
 #   fuzz-panic     a Fuzz target that panics past its one seed     fuzz
+#   gosum-extra    a go.sum line for a module go.mod does not       tidy
+#                  require
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -47,6 +49,12 @@
 # green; the target panics on any input of four or more bytes, which only
 # the fuzz gate's search reaches (base#1441).
 #
+# gosum-extra appends one well-formed go.sum line and changes nothing else,
+# so `go mod download` and the build pass and only the build stage's
+# `go mod tidy -diff` check can refuse it. That check runs ahead of every
+# test gate and prints config_gen_gate_tidy_failed, so no earlier gate ok
+# is expected for it (base#1441).
+#
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
 # script -- and a nested entry is refused with config_gen_redpath_reentered
@@ -65,7 +73,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(fmt vet lint race coverage fuzz)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz gosum-extra:tidy)
 
 # _rp_plant <case> <module dir> -- write the case's defect into the copy.
 _rp_plant() {
@@ -209,6 +217,9 @@ EOF
       ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
+    gosum-extra)
+      printf '%s\n' 'golang.org/x/text v0.3.0 h1:g61tztE5qeGQ89tm6NTjjM9VPIm088od1l6aSorWRWg=' \
+        >>"${mod}/go.sum" ;;
     coverage)
       mkdir -p "${mod}/internal/zzcov"
       cat >"${mod}/internal/zzcov/zzcov.go" <<'EOF'
@@ -300,6 +311,8 @@ _rp_verdict() {
   first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
   first="${first%%$'\n'*}"
   [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }
+  # tidy is the build stage's check: no test gate runs before it.
+  [[ "${gate}" == tidy ]] && return 0
   for g in "${_RP_GATES[@]}"; do
     [[ "${g}" == "${gate}" ]] && break
     grep -qx "gate=${g} ok" "${out}" || { echo earlier_gate_missing; return 0; }

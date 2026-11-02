@@ -76,8 +76,12 @@ WORKDIR /src
 COPY . .
 # The module's requires are fetched here, and go.sum must be exactly what
 # `go mod tidy` writes: -diff prints the change and exits 1 otherwise, so
-# every environment's build checks go.sum against tidy (base#1441).
-RUN go mod download && go mod tidy -diff
+# every environment's build checks go.sum against tidy (base#1441). A red
+# here prints config_gen_gate_tidy_failed, which the runner re-emits like a
+# test gate's id; the redpath's gosum-extra case plants an extra go.sum
+# line to prove it. It prints no ok line: this stage is cached, so one
+# would report cache state, not the check.
+RUN g=tidy; { go mod download && go mod tidy -diff; } || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/config-gen ./cmd/config-gen
 
