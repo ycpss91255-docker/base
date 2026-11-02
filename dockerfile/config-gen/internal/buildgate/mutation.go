@@ -1,6 +1,7 @@
 package buildgate
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"path"
@@ -41,6 +42,89 @@ func Targets(manifest string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Package is the part of one `go list -json -test -deps` record the
+// mapping reads.
+type Package struct {
+	ImportPath string
+	Deps       []string
+}
+
+// DecodeList reads the concatenated JSON records `go list -json` prints.
+func DecodeList(body []byte) ([]Package, error) {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	var out []Package
+	for dec.More() {
+		var p Package
+		if err := dec.Decode(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// Mapping is what the change manifest makes the mutation gate test.
+type Mapping struct {
+	Targets []string
+}
+
+// testcorpus is the one package that reads the module-root testdata/.
+const testcorpus = "internal/testcorpus"
+
+// Map returns the module-relative package directories the manifest
+// makes the gate test: the directory of every Go file (as Targets), and,
+// when the manifest lists a file under the module-root testdata/, every
+// package whose test binary depends on internal/testcorpus. module is the
+// module path; pkgs is `go list -json -test -deps ./...` of the module.
+func Map(manifest, module string, pkgs []Package) (Mapping, error) {
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(dir string) {
+		if !seen[dir] {
+			seen[dir] = true
+			out = append(out, dir)
+		}
+	}
+	for _, dir := range Targets(manifest) {
+		add(dir)
+	}
+	if listsRootTestdata(manifest) {
+		corpus := module + "/" + testcorpus
+		for _, p := range pkgs {
+			under, ok := strings.CutSuffix(p.ImportPath, ".test")
+			if !ok {
+				continue
+			}
+			rel, ok := strings.CutPrefix(under, module+"/")
+			if !ok {
+				continue
+			}
+			for _, d := range p.Deps {
+				if d == corpus || strings.HasPrefix(d, corpus+" [") {
+					add(rel)
+					break
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return Mapping{Targets: out}, nil
+}
+
+// listsRootTestdata reports whether a manifest line after the header
+// names a path under the module-root testdata/.
+func listsRootTestdata(manifest string) bool {
+	lines := strings.Split(manifest, "\n")
+	for _, line := range lines[1:] {
+		for _, p := range strings.Split(line, "\t")[1:] {
+			if strings.HasPrefix(p, modulePrefix+"testdata/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // report is the part of a gremlins -o report the gate reads.
