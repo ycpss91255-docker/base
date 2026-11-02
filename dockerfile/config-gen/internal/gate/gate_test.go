@@ -42,3 +42,21 @@ func TestCheckRefusesEscapeXInBasicString(t *testing.T) {
 		t.Fatalf("Error() = %q, want prefix %q", r.Error(), "t.toml:1:7: ")
 	}
 }
+
+// The escape rule covers only an escape inside a basic string. The same
+// `\e` / `\x` bytes in a literal string, a multi-line literal string or a
+// comment are not escapes, and `\\e` is an escaped backslash followed by
+// a plain `e`. tomllib (the oracle) accepts every row (base#1441 design
+// cycle 3), so Check must return nil for each.
+func TestCheckAcceptsEscapeBytesOutsideBasicStringEscape(t *testing.T) {
+	for _, src := range []string{
+		"a = 'x\\e'\n",
+		"a = '''x\\x41'''\n",
+		"# \"\\e\"\na = 1\n",
+		"a = \"x\\\\e\"\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
