@@ -38,8 +38,8 @@ func TestCheckRefuses2000NestedArrays(t *testing.T) {
 			t.Errorf("Check(%d bytes of nesting) = %v, want *Refusal", len(src), err)
 			continue
 		}
-		if r.Reason != ReasonDepth || r.Line != 1 || r.Col != 5 || r.Text != depthText {
-			t.Errorf("Refusal = {%d %d %v %q}, want {1 5 ReasonDepth %q}", r.Line, r.Col, r.Reason, r.Text, depthText)
+		if r.Reason != ReasonDepth || r.Line != 1 || r.Col != 5 || r.Text != wantDepthText {
+			t.Errorf("Refusal = {%d %d %v %q}, want {1 5 ReasonDepth %q}", r.Line, r.Col, r.Reason, r.Text, wantDepthText)
 		}
 	}
 }

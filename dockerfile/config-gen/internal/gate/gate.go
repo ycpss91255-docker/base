@@ -52,6 +52,11 @@ const (
 	// the TOML 1.0 oracle refuses at the value's first byte as "Invalid
 	// date or datetime".
 	ReasonDateRange
+	// ReasonDepth is a value nested so deep that tomllib's parse passes
+	// CPython's recursion limit, which the TOML 1.0 oracle reports as a
+	// RecursionError; it is refused at the first byte of the outermost
+	// value of the nesting chain.
+	ReasonDepth
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -75,6 +80,10 @@ const (
 	msgRedefine  = "Cannot redefine a table"
 	msgDateRange = "Invalid date or datetime"
 )
+
+// depthText is the depth refusal's text; tomllib's RecursionError has no
+// position to repeat.
+const depthText = "nesting deeper than tomllib accepts (Python recursion limit)"
 
 // refusal returns the *Refusal for reason at offset off of src.
 func refusal(label string, src []byte, off int, reason Reason, text string) *Refusal {

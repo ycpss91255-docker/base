@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// depthText is the depth refusal's text (base#1441 design-ahead r3 §2).
-const depthText = "nesting deeper than tomllib accepts (Python recursion limit)"
+// wantDepthText is the depth refusal's text (base#1441 design-ahead r3 §2),
+// written out here rather than read from the package.
+const wantDepthText = "nesting deeper than tomllib accepts (Python recursion limit)"
 
 // nest builds one of the design-ahead r3 §1e shapes, n levels deep, with
 // term at the bottom: arr `a = [[…]]`, it `a = {b = {b = …}}`, mix
@@ -96,9 +97,9 @@ func TestCheckDepthBoundaries(t *testing.T) {
 			t.Errorf("%s %s at %d (tomllib refuses): Check() = %v, want *Refusal", rw.shape, rw.term, rw.max+1, err)
 			continue
 		}
-		if r.Reason != ReasonDepth || r.Line != rw.line || r.Col != rw.col || r.Text != depthText {
+		if r.Reason != ReasonDepth || r.Line != rw.line || r.Col != rw.col || r.Text != wantDepthText {
 			t.Errorf("%s %s at %d: Refusal = {%d %d %v %q}, want {%d %d ReasonDepth %q}",
-				rw.shape, rw.term, rw.max+1, r.Line, r.Col, r.Reason, r.Text, rw.line, rw.col, depthText)
+				rw.shape, rw.term, rw.max+1, r.Line, r.Col, r.Reason, r.Text, rw.line, rw.col, wantDepthText)
 		}
 	}
 }
