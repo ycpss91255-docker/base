@@ -22,8 +22,8 @@ scan-punctuation	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if 
 scan-replace	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi	    if [[ "${_verb}" == replace ]]; then :; fi
 scan-tool	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi	    if [[ "${_verb}" == tool ]]; then :; fi
 scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi	    if [[ "${_verb}" == ignore ]]; then :; fi
-scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[1]}" != *=* ]]; then _pin_go_mod_refuse "${_ln}" godebug_usage; return 1; fi	"${_gm_text[1]}" != *=* ]]; then :; fi
-scan-godebug-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" godebug; return 1; fi	      if _pin_go_mod_opens_block; then :; fi
+scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[_first]}" != *=* ]]; then	"${_gm_text[_first]}" != *=* ]] && false; then
+scan-godebug-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_block_verb}" == godebug ]]; then	      if false; then
 scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == exclude ]]; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi	    if [[ "${_verb}" == exclude ]]; then :; fi
 scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi	    if [[ "${_verb}" == retract ]]; then :; fi
 scan-block-form-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi	        if _pin_go_mod_opens_block; then :; fi
@@ -43,7 +43,7 @@ scan-word-quote-version	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	
 scan-paren-close-trailer	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( ${#_gm_kind[@]} > 1 )); then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi	        if (( ${#_gm_kind[@]} > 1 )); then :; fi
 scan-paren-not-alone	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi	        if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then :; fi
 scan-unknown-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        _pin_go_mod_refuse "${_ln}" unknown_verb\n        return 1	        _pin_go_mod_refuse "${_ln}" unknown_verb\n        :
-scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if (( _in_block )); then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi	  if (( _in_block )); then :; fi
+scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ -n "${_block_verb}" ]]; then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi	  if [[ -n "${_block_verb}" ]]; then :; fi
 scan-indirect	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ( "${#_f[@]}" -eq 1 && "${_f[0]}" == indirect ) || ( "${#_f[@]}" -gt 1 && "${_f[0]}" == 'indirect;' ) ]]; then	  if false; then
 scan-version-check	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi	  if false; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
 scan-string-unquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    printf '%s' "${2:1:${#2}-2}"	    printf "%s" "${2}"
