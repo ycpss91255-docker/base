@@ -663,20 +663,19 @@ _pin_extract_value() {
 # Every verb takes one of three paths, and there is no fourth:
 #
 #   require                emitted, after the entry and version checks;
-#   module, go, toolchain, held to the checks Go's own parser makes (one
-#   godebug, exclude,      argument, the value grammar, not repeated) and
-#   retract                never emitted (a godebug line, line or block
-#                          form, that fails Go's check is godebug_usage;
-#                          an exclude line, line or block form, takes the
-#                          require entry's arity, path and version
-#                          checks; a retract line, line or block form,
-#                          is one canonical version or a `[low, high]`
-#                          interval of two,
-#                          one cut short is retract_interval and one
-#                          with a token after its version is
-#                          retract_trailer);
-#   anything else          refused BY NAME (replace, tool, ignore, and a
-#                          retract of any other shape) or as unknown_verb.
+#   module, go, toolchain, held to the checks Go's own parser makes and
+#   godebug, exclude,      never emitted: module, go and toolchain take
+#   retract                one argument of their value grammar, not
+#                          repeated; godebug, exclude and retract, in
+#                          line and block form alike (base#1488), take
+#                          one `key=value` argument (else godebug_usage),
+#                          the require entry's arity, path and version
+#                          checks, and one canonical version or a
+#                          `[low, high]` interval (cut short:
+#                          retract_interval; a token after the version:
+#                          retract_trailer; any other shape: retract);
+#   anything else          refused BY NAME (replace, tool, ignore) or as
+#                          unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -996,6 +995,20 @@ _pin_go_mod_retract() {
   done
 }
 
+# _pin_go_mod_directive <verb> <lineno> <first> -- one require, godebug,
+# exclude or retract line: the line form (first=1: its arguments start at
+# token 1) or a line of a `<verb> (` block (first=0), read as the
+# arguments of <verb>, as Go's f.add reads it (base#1488). Only a require
+# appends a record; non-zero, refusal logged, otherwise.
+_pin_go_mod_directive() {
+  case "${1}" in
+    godebug) _pin_go_mod_godebug "${2}" "${3}" ;;
+    exclude) _pin_go_mod_entry "${2}" "${3}" 0 ;;
+    retract) _pin_go_mod_retract "${2}" "${3}" ;;
+    *) _pin_go_mod_entry "${2}" "${3}" ;;
+  esac
+}
+
 # _pin_go_mod_scan <file>
 #
 # One `lineno<TAB>path<TAB>version<TAB>comment` record per require entry,
@@ -1033,21 +1046,7 @@ _pin_go_mod_scan() {
       for (( _k = 1; _k < ${#_gm_kind[@]}; _k++ )); do
         if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi
       done
-      # A block line is the arguments of the block's verb, as Go's f.add
-      # reads it (base#1488).
-      if [[ "${_block_verb}" == godebug ]]; then
-        _pin_go_mod_godebug "${_ln}" 0 || return 1
-        continue
-      fi
-      if [[ "${_block_verb}" == exclude ]]; then
-        _pin_go_mod_entry "${_ln}" 0 0 || return 1
-        continue
-      fi
-      if [[ "${_block_verb}" == retract ]]; then
-        _pin_go_mod_retract "${_ln}" 0 || return 1
-        continue
-      fi
-      _pin_go_mod_entry "${_ln}" 0 || return 1
+      _pin_go_mod_directive "${_block_verb}" "${_ln}" 0 || return 1
       continue
     fi
     # The verb is the first token's TEXT: a string keeps its quotes, so
@@ -1089,19 +1088,7 @@ _pin_go_mod_scan() {
           _block_ln="${_ln}"
           continue
         fi
-        if [[ "${_verb}" == godebug ]]; then
-          _pin_go_mod_godebug "${_ln}" 1 || return 1
-          continue
-        fi
-        if [[ "${_verb}" == exclude ]]; then
-          _pin_go_mod_entry "${_ln}" 1 0 || return 1
-          continue
-        fi
-        if [[ "${_verb}" == retract ]]; then
-          _pin_go_mod_retract "${_ln}" 1 || return 1
-          continue
-        fi
-        _pin_go_mod_entry "${_ln}" 1 || return 1
+        _pin_go_mod_directive "${_verb}" "${_ln}" 1 || return 1
         ;;
       *)
         _pin_go_mod_refuse "${_ln}" unknown_verb

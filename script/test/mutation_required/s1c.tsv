@@ -23,8 +23,8 @@ scan-replace	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "
 scan-tool	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi	    if [[ "${_verb}" == tool ]]; then :; fi
 scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi	    if [[ "${_verb}" == ignore ]]; then :; fi
 scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[_first]}" != *=* ]]; then	"${_gm_text[_first]}" != *=* ]] && false; then
-scan-godebug-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_block_verb}" == godebug ]]; then	      if false; then
-scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_block_verb}" == exclude ]]; then	      if false; then
+scan-godebug-dispatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    godebug) _pin_go_mod_godebug "${2}" "${3}" ;;	    godebug) _pin_go_mod_entry "${2}" "${3}" ;;
+scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    exclude) _pin_go_mod_entry "${2}" "${3}" 0 ;;	    exclude) _pin_go_mod_entry "${2}" "${3}" ;;
 scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;	    *) : ;;
 scan-retract-interval	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    '[' | '[v' | '[v,' | '[v,v') _pin_go_mod_refuse "${_ln}" retract_interval; return 1 ;;	    '[' | '[v' | '[v,' | '[v,v') : ;;
 scan-block-form-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi	        if _pin_go_mod_opens_block; then :; fi
