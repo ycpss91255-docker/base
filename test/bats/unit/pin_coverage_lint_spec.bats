@@ -943,6 +943,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: a file below a testdata directory needs no marker, a near miss is still read (base#1441)" {
   _one_good_pin
   mkdir -p "${SCRATCH}/dockerfile/m/testdata/toml-test/invalid" "${SCRATCH}/dockerfile/mytestdata"
+  # toml-fixture-lint: allow a toml-test invalid case is not TOML by design, and this row only asks whether pin-coverage skips it
   printf 'foo = 1997-09-0909:09:09\n' > "${SCRATCH}/dockerfile/m/testdata/toml-test/invalid/x.toml"
   _lint
   assert_success
