@@ -221,8 +221,10 @@ func TestDifferential(t *testing.T) {
 				got = "accept"
 			} else if int64Only(norm, err) {
 				got, viaInt64 = "accept", true
-				if a, ok := designInt64A(norm); !ok || !math.IsInf(a, 1) {
-					t.Errorf("%s: a = %v (ok %v) after the int64 path, tomllib loads +Inf", rel, a, ok)
+				if want, ok := int64A[rel]; ok {
+					if a, ok := designInt64A(norm); !ok || a != want {
+						t.Errorf("%s: a = %v (ok %v) after the int64 path, tomllib loads %v", rel, a, ok, want)
+					}
 				}
 			}
 		}
@@ -239,6 +241,15 @@ func TestDifferential(t *testing.T) {
 	if seen != len(designVerdicts) {
 		t.Errorf("oracle rows named %d of the %d design-measured forms", seen, len(designVerdicts))
 	}
+}
+
+// int64A is tomllib's a for the int64 exception files whose first line
+// holds a float beside the out-of-int64 integer (base#1441 design run1 r3
+// §1): float-over-int64.toml's a = 1e999 loads as +Inf. Only these files
+// get the check; another exception file has no such a (review round 1,
+// finding 7).
+var int64A = map[string]float64{
+	"internal/gate/testdata/forms/float-over-int64.toml": math.Inf(1),
 }
 
 // designInt64A decodes the int64 form's first line on its own (the file's
