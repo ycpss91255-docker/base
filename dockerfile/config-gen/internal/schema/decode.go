@@ -24,7 +24,8 @@ type Refusal struct {
 
 // Config is the decoded layer.
 type Config struct {
-	Logging Logging
+	Environment Environment
+	Logging     Logging
 	// Tree is every accepted table node, in the bridge's traversal order.
 	Tree Tree
 	// Deferred is every accepted array with its payload, in the order its
@@ -128,7 +129,34 @@ func Decode(src []byte) (*Config, []Refusal) {
 		}
 	}
 	tree, deferred := buildTree(src, md)
-	return &Config{Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree, Deferred: deferred}, refusals
+	return &Config{Environment: projectEnvironment(&tree), Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree, Deferred: deferred}, refusals
+}
+
+// projectEnvironment is the [environment] node of t: Absent when there is
+// none, Empty when it has no scalar row, Set with its rows otherwise
+// (base#1309, base#1442).
+func projectEnvironment(t *Tree) Environment {
+	var out Environment
+	if len(t.Nodes) == 0 {
+		return out
+	}
+	for _, c := range t.Nodes[0].Children {
+		if c.Kind != ChildNode || c.Key != "environment" {
+			continue
+		}
+		out.Table.State = Empty
+		for _, r := range t.Nodes[c.Node].Children {
+			if r.Kind != ChildRow {
+				continue
+			}
+			if out.Env == nil {
+				out.Env = map[string]Field{}
+			}
+			out.Env[r.Key] = r.Row
+			out.Table.State = Set
+		}
+	}
+	return out
 }
 
 // serviceText reports whether a section text names a logging service:

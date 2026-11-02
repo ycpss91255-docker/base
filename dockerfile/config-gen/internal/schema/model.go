@@ -7,6 +7,8 @@ type State int
 const (
 	Absent State = iota
 	Set
+	// Empty is a table that is written but holds no key (base#1309).
+	Empty
 )
 
 // Field is one scalar of the layer: its state, its value and the 1-based
@@ -15,6 +17,15 @@ type Field struct {
 	State State
 	Value Scalar
 	Line  int
+}
+
+// Environment is the decoded [environment] section.
+type Environment struct {
+	// Table is Absent with no [environment], Empty when it is written
+	// with no key, Set when it holds a key.
+	Table Field
+	// Env is each scalar key directly under the table.
+	Env map[string]Field
 }
 
 // Logging is the decoded [logging] section.
