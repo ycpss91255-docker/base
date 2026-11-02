@@ -251,3 +251,212 @@ func TestMutationRefusesBeforeGremlins(t *testing.T) {
 		})
 	}
 }
+
+// cg-gates sensitivity (base#1467), with a fake go first on PATH. `go list`
+// prints fake/list.json. `go test` logs its argv to fake/argv; with
+// CG_TESTCORPUS_TRACE set (the traced baseline) it fails when
+// fake/<n>.basefail exists and else appends fake/<n>.trace to the trace
+// file, <n> being the package argument with . and / as _; without it (a
+// flipped run) it fails only when the root-relative file fake/<n>.reads
+// names differs in the root it was linked with from the same file under
+// fake/orig's root, so a package with no .reads file passes whatever byte
+// is flipped.
+const fakeSensitivityGo = `#!/bin/sh
+d="${0%/*}"
+if [ "$1" = list ]; then exec cat "$d/list.json"; fi
+printf '%s\n' "$*" >>"$d/argv"
+for a; do
+  case "$a" in -ldflags=*) r="${a#*.root=}" ;; esac
+  p="$a"
+done
+n="$(printf '%s' "$p" | tr ./ __)"
+if [ -n "${CG_TESTCORPUS_TRACE:-}" ]; then
+  [ -e "$d/$n.basefail" ] && exit 1
+  [ -e "$d/$n.trace" ] && cat "$d/$n.trace" >>"$CG_TESTCORPUS_TRACE"
+  exit 0
+fi
+[ -e "$d/$n.reads" ] || exit 0
+f="$(cat "$d/$n.reads")"
+cmp -s "$r/$f" "$(cat "$d/orig")/$f" && exit 0
+exit 1
+`
+
+// importers is a go list of three test binaries that depend on
+// testcorpus (internal/a, internal/w, internal/testcorpus) and one that
+// does not (internal/x).
+const importers = `{"ImportPath":"` + mod + `/internal/testcorpus"}
+{"ImportPath":"` + mod + `/internal/testcorpus.test","Deps":["` + mod + `/internal/testcorpus [` + mod + `/internal/testcorpus.test]"]}
+{"ImportPath":"` + mod + `/internal/a.test","Deps":["` + mod + `/internal/testcorpus"]}
+{"ImportPath":"` + mod + `/internal/w.test","Deps":["` + mod + `/internal/testcorpus"]}
+{"ImportPath":"` + mod + `/internal/x.test","Deps":["fmt"]}
+`
+
+const globSrc = "package testcorpus\n\nfunc Glob() {}\n"
+
+// sensTree writes files (paths relative to a new directory, every ROOT in
+// a body replaced by that directory's root/) and the fake go, puts the
+// fake first on PATH, makes mod/ the working directory, and returns the
+// directory.
+func sensTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	files["fake/go"] = fakeSensitivityGo
+	files["fake/orig"] = filepath.Join(dir, "root")
+	if err := os.MkdirAll(filepath.Join(dir, "work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "mod"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(strings.ReplaceAll(body, "ROOT", filepath.Join(dir, "root"))), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", filepath.Join(dir, "fake")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Chdir(filepath.Join(dir, "mod"))
+	return dir
+}
+
+func sensArgs(dir string) []string {
+	return []string{"sensitivity", "--module", mod, "--root", filepath.Join(dir, "root"),
+		"--work", filepath.Join(dir, "work")}
+}
+
+// corpus is a root with two goldens and a corpus file, the testcorpus
+// source and the go list above; extra adds the per-package fake files and
+// replaces any of these, a "-" body leaving that file out.
+func corpus(extra map[string]string) map[string]string {
+	files := map[string]string{}
+	files["root/golden/s1/a.golden"] = "a golden\n"
+	files["root/golden/s1/b.golden"] = "b golden\n"
+	files["root/corpus/s1/seed.toml"] = "x = 1\n"
+	files["mod/internal/testcorpus/testcorpus.go"] = globSrc
+	files["fake/list.json"] = importers
+	for k, v := range extra {
+		files[k] = v
+		if v == "-" {
+			delete(files, k)
+		}
+	}
+	return files
+}
+
+func TestSensitivity(t *testing.T) {
+	const weak = "cg_event config_gen_corpus_sensitivity_weak pkg=" + mod
+	strongA := map[string]string{"fake/__internal_a.trace": "ROOT/golden/s1/a.golden\n", "fake/__internal_a.reads": "golden/s1/a.golden"}
+	with := func(base map[string]string, kv ...string) map[string]string {
+		out := map[string]string{}
+		for k, v := range base {
+			out[k] = v
+		}
+		for i := 0; i+1 < len(kv); i += 2 {
+			out[kv[i]] = kv[i+1]
+		}
+		return out
+	}
+	cases := []struct {
+		name   string
+		extra  map[string]string
+		status int
+		out    string
+	}{
+		{"a consumer that reads its golden, and a golden nobody is handed", strongA, 0,
+			"golden=golden/s1/b.golden consumers none\n"},
+		{"a consumer handed a golden it never reads", with(strongA, "fake/__internal_w.trace", "ROOT/golden/s1/a.golden\n"), 1,
+			weak + "/internal/w file=golden/s1/a.golden\n" + "golden=golden/s1/b.golden consumers none\n"},
+		{"each golden is flipped alone and put back before the next",
+			with(strongA, "fake/__internal_w.trace", "ROOT/golden/s1/b.golden\nROOT/golden/s1/a.golden\n",
+				"fake/__internal_w.reads", "golden/s1/a.golden"), 1,
+			weak + "/internal/w file=golden/s1/b.golden\n"},
+		{"an empty golden a consumer is handed", with(strongA, "root/golden/s1/a.golden", ""), 1,
+			"golden=golden/s1/a.golden failed reason=empty\ngolden=golden/s1/b.golden consumers none\n"},
+		{"a baseline that fails", with(strongA, "fake/__internal_a.basefail", ""), 1,
+			mod + "/internal/a failed reason=baseline_failed\n"},
+		{"a testcorpus with no top-level Glob", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n"}, 1,
+			"cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n"},
+		{"go list fails", map[string]string{"fake/list.json": "-"}, 1, ""},
+		{"go list prints what it cannot decode", map[string]string{"fake/list.json": "x"}, 1, ""},
+		{"no testcorpus source", map[string]string{"mod/internal/testcorpus/testcorpus.go": "-"}, 1, ""},
+		{"no corpus root", map[string]string{"root/golden/s1/a.golden": "-", "root/golden/s1/b.golden": "-", "root/corpus/s1/seed.toml": "-"}, 1, ""},
+		{"a corpus root with no golden directory",
+			map[string]string{"root/golden/s1/a.golden": "-", "root/golden/s1/b.golden": "-"}, 1, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := sensTree(t, corpus(c.extra))
+			var out, errOut bytes.Buffer
+			if got := run(sensArgs(dir), &out, &errOut); got != c.status {
+				t.Fatalf("status %d, want %d; stderr %q", got, c.status, errOut.String())
+			}
+			if out.String() != c.out {
+				t.Errorf("stdout %q, want %q", out.String(), c.out)
+			}
+			if gate := bytes.Contains(errOut.Bytes(), []byte("config_gen_gate_corpus_sensitivity_failed")); gate != (c.status == 1) {
+				t.Errorf("stderr %q: gate id present %v, want %v", errOut.String(), gate, c.status == 1)
+			}
+			if c.status == 1 && c.out == "" && !bytes.Contains(errOut.Bytes(), []byte("_failed reason=unreadable")) {
+				t.Errorf("stderr %q names no unreadable refusal", errOut.String())
+			}
+		})
+	}
+}
+
+// The traced baseline builds the packages with the overlay against the
+// corpus root; each flipped run builds the consumers of one golden with no
+// overlay against the copy, which ends as the root it was copied from.
+func TestSensitivityRunsTheOverlayThenTheCopy(t *testing.T) {
+	dir := sensTree(t, corpus(map[string]string{"fake/__internal_a.trace": "ROOT/golden/s1/a.golden\n", "fake/__internal_a.reads": "golden/s1/a.golden"}))
+	var out, errOut bytes.Buffer
+	if got := run(sensArgs(dir), &out, &errOut); got != 0 {
+		t.Fatalf("status %d, want 0; stderr %q", got, errOut.String())
+	}
+	root, work := filepath.Join(dir, "root"), filepath.Join(dir, "work")
+	x := "-ldflags=-X=" + mod + "/internal/testcorpus.root="
+	base := "test -count=1 -overlay " + work + "/overlay.json " + x + root
+	want := base + " ./internal/a\n" + base + " ./internal/testcorpus\n" + base + " ./internal/w\n" +
+		"test -count=1 " + x + work + "/corpus ./internal/a\n"
+	if argv, _ := os.ReadFile(filepath.Join(dir, "fake", "argv")); string(argv) != want {
+		t.Errorf("go argv %q, want %q", argv, want)
+	}
+	ov, _ := os.ReadFile(filepath.Join(work, "overlay.json"))
+	tc := filepath.Join(dir, "mod", "internal", "testcorpus")
+	wantOv := `{"Replace":{"` + tc + `/testcorpus.go":"` + work + `/testcorpus.go","` +
+		tc + `/zz_cgtrace.go":"` + work + `/zz_cgtrace.go"}}`
+	if string(ov) != wantOv {
+		t.Errorf("overlay %s, want %s", ov, wantOv)
+	}
+	if src, _ := os.ReadFile(filepath.Join(work, "testcorpus.go")); string(src) != "package testcorpus\n\nfunc cgUntracedGlob() {}\n" {
+		t.Errorf("overlay testcorpus.go %q", src)
+	}
+	if src, _ := os.ReadFile(filepath.Join(work, "zz_cgtrace.go")); !strings.Contains(string(src), "cgUntracedGlob(t, pattern)") {
+		t.Errorf("overlay zz_cgtrace.go %q", src)
+	}
+	for _, r := range []string{root, work + "/corpus"} {
+		if b, _ := os.ReadFile(filepath.Join(r, "golden", "s1", "a.golden")); string(b) != "a golden\n" {
+			t.Errorf("%s/golden/s1/a.golden = %q after the gate, want it as it was", r, b)
+		}
+	}
+}
+
+func TestSensitivityUsage(t *testing.T) {
+	for _, args := range [][]string{
+		{"sensitivity"},
+		{"sensitivity", "--module", mod, "--root", "r"},
+		{"sensitivity", "--module", "", "--root", "r", "--work", "w"},
+		{"sensitivity", "--x"},
+		{"sensitivity", "--module", mod, "--root", "r", "--work", "w", "x"},
+	} {
+		var out, errOut bytes.Buffer
+		if got := run(args, &out, &errOut); got != exitUsage {
+			t.Errorf("%q: status %d, want %d", args, got, exitUsage)
+		}
+		if out.Len() != 0 {
+			t.Errorf("%q: stdout %q, want none", args, out.String())
+		}
+	}
+}

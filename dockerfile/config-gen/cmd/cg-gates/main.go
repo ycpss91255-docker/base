@@ -5,6 +5,7 @@
 //
 //	cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>
 //	cg-gates mutation --manifest <file> --module <path> --reports <dir>
+//	cg-gates sensitivity --module <path> --root <dir> --work <dir>
 //
 // ratchet judges coverage.sh --measure's counts against the
 // coverage-floors.d fragments and the base's union (internal/buildgate).
@@ -25,6 +26,21 @@
 // `config_gen_gate_mutation_failed` on stderr. A manifest that maps to no
 // package prints `mutation targets none`.
 //
+// sensitivity (base#1467) checks that each golden file under the corpus
+// root <root> fails every package its tests were handed it by. Each
+// package whose test binary depends on internal/testcorpus runs its tests
+// once with a traced Glob (buildgate.TraceOverlay, by `go test -overlay`,
+// the source left as it is) against <root>; a red baseline prints
+// `<pkg> failed reason=baseline_failed`. The packages whose trace holds a
+// golden are its consumers. In a copy of <root> under the existing
+// directory <work>, each golden in turn has its first byte flipped and
+// each consumer runs its tests with the real Glob against the copy: one
+// that still passes prints `cg_event config_gen_corpus_sensitivity_weak
+// pkg= file=` on stdout. A golden with no consumer prints `golden=<file>
+// consumers none`, an empty one `golden=<file> failed reason=empty`. After
+// the last golden any weak pair or empty golden puts
+// `config_gen_gate_corpus_sensitivity_failed` on stderr.
+//
 // Exit statuses:
 //
 //	0  every package holds its floor
@@ -33,13 +49,17 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/buildgate"
 )
@@ -52,12 +72,14 @@ const (
 
 // The gate ids, spelled once.
 const (
-	failed         = "config_gen_gate_coverage_failed"
-	mutationFailed = "config_gen_gate_mutation_failed"
+	failed            = "config_gen_gate_coverage_failed"
+	mutationFailed    = "config_gen_gate_mutation_failed"
+	sensitivityFailed = "config_gen_gate_corpus_sensitivity_failed"
 )
 
 const usage = "usage: cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>\n" +
-	"       cg-gates mutation --manifest <file> --module <path> --reports <dir>"
+	"       cg-gates mutation --manifest <file> --module <path> --reports <dir>\n" +
+	"       cg-gates sensitivity --module <path> --root <dir> --work <dir>"
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -69,6 +91,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ratchet(args[1:], stdout, stderr)
 	case "mutation":
 		return mutation(args[1:], stdout, stderr)
+	case "sensitivity":
+		return sensitivity(args[1:], stdout, stderr)
 	}
 	_, _ = fmt.Fprintln(stderr, usage)
 	return exitUsage
@@ -174,6 +198,126 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		return exitFail
 	}
 	return exitOK
+}
+
+func sensitivity(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("sensitivity", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	module := flags.String("module", "", "the module path (go list -m)")
+	root := flags.String("root", "", "the corpus root the race gate moved testdata/ to")
+	work := flags.String("work", "", "an existing directory for the overlay, traces and the flipped copy")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 ||
+		*module == "" || *root == "" || *work == "" {
+		_, _ = fmt.Fprintln(stderr, usage)
+		return exitUsage
+	}
+	unreadable := func(err error) int {
+		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unreadable\n", err, sensitivityFailed)
+		return exitFail
+	}
+	wd, _ := os.Getwd()
+	tc := filepath.Join(wd, "internal", "testcorpus")
+	list, err := exec.Command("go", "list", "-json", "-test", "-deps", "./...").Output()
+	var pkgs []buildgate.Package
+	if err == nil {
+		pkgs, err = buildgate.DecodeList(list)
+	}
+	var src []byte
+	if err == nil {
+		src, err = os.ReadFile(filepath.Join(tc, "testcorpus.go"))
+	}
+	if err != nil {
+		return unreadable(err)
+	}
+	traced, err := buildgate.TraceOverlay(src)
+	if err != nil {
+		_, _ = fmt.Fprintln(stdout, err.Error())
+		_, _ = fmt.Fprintln(stderr, sensitivityFailed)
+		return exitFail
+	}
+	replace := map[string]string{}
+	replace[filepath.Join(tc, "testcorpus.go")] = filepath.Join(*work, "testcorpus.go")
+	replace[filepath.Join(tc, "zz_cgtrace.go")] = filepath.Join(*work, "zz_cgtrace.go")
+	ov, _ := json.Marshal(map[string]map[string]string{"Replace": replace})
+	overlay := filepath.Join(*work, "overlay.json")
+	flip := filepath.Join(*work, "corpus")
+	err = errors.Join(
+		os.WriteFile(filepath.Join(*work, "testcorpus.go"), traced, 0o644),
+		os.WriteFile(filepath.Join(*work, "zz_cgtrace.go"), []byte(buildgate.TraceSource), 0o644),
+		os.WriteFile(overlay, ov, 0o644),
+		os.CopyFS(flip, os.DirFS(*root)),
+	)
+	var goldens []string
+	if err == nil {
+		err = filepath.WalkDir(filepath.Join(flip, "golden"), func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				goldens = append(goldens, p)
+			}
+			return err
+		})
+	}
+	if err != nil {
+		return unreadable(err)
+	}
+	x := "-ldflags=-X=" + *module + "/internal/testcorpus.root="
+	consumers := map[string][]string{}
+	for i, rel := range buildgate.CorpusImporters(*module, pkgs) {
+		trace := filepath.Join(*work, "trace"+strconv.Itoa(i))
+		cmd := exec.Command("go", "test", "-count=1", "-overlay", overlay, x+*root, "./"+rel)
+		cmd.Env = append(os.Environ(), buildgate.TraceEnv+"="+trace)
+		cmd.Stdout, cmd.Stderr = stderr, stderr
+		if err := cmd.Run(); err != nil {
+			_, _ = fmt.Fprintf(stdout, "%s/%s failed reason=baseline_failed\n", *module, rel)
+			_, _ = fmt.Fprintln(stderr, sensitivityFailed)
+			return exitFail
+		}
+		body, _ := os.ReadFile(trace)
+		for _, g := range buildgate.TracedGoldens(string(body), *root) {
+			consumers[g] = append(consumers[g], rel)
+		}
+	}
+	bad := false
+	for _, p := range goldens {
+		g := strings.TrimPrefix(p, flip+"/")
+		users := consumers[g]
+		if len(users) == 0 {
+			_, _ = fmt.Fprintf(stdout, "golden=%s consumers none\n", g)
+			continue
+		}
+		if err := flipFirst(p); err != nil {
+			_, _ = fmt.Fprintf(stdout, "golden=%s failed reason=empty\n", g)
+			bad = true
+			continue
+		}
+		for _, rel := range users {
+			cmd := exec.Command("go", "test", "-count=1", x+flip, "./"+rel)
+			cmd.Stdout, cmd.Stderr = stderr, stderr
+			if cmd.Run() == nil {
+				_, _ = fmt.Fprintln(stdout, buildgate.SensitivityWeak(*module+"/"+rel, g).String())
+				bad = true
+			}
+		}
+		_ = flipFirst(p)
+	}
+	if bad {
+		_, _ = fmt.Fprintln(stderr, sensitivityFailed)
+		return exitFail
+	}
+	return exitOK
+}
+
+// flipFirst inverts the first byte of the file p; an empty file is an
+// error.
+func flipFirst(p string) error {
+	b, err := os.ReadFile(p)
+	if err == nil && len(b) == 0 {
+		err = errors.New("empty")
+	}
+	if err != nil {
+		return err
+	}
+	b[0] ^= 0xff
+	return os.WriteFile(p, b, 0o644)
 }
 
 // osExit is swapped by the tests so main itself is exercised.

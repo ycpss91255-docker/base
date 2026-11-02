@@ -509,3 +509,10 @@ go_mod_golang_pin_missing
 # the change manifest lists a Go file of; re-emitted by config_gen_gates.sh
 # (base#1467).
 config_gen_gate_mutation_failed
+
+# Dockerfile.config-gen corpus sensitivity gate: cg-gates sensitivity
+# failed, and each weak pair it found, a package whose tests still passed
+# with the first byte of a golden file they were handed flipped (pkg= and
+# file=); both re-emitted by config_gen_gates.sh (base#1467).
+config_gen_gate_corpus_sensitivity_failed
+config_gen_corpus_sensitivity_weak

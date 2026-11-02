@@ -59,12 +59,14 @@ readonly _CG_SERVICE='config-gen'
 # keeps whatever the pattern leaves unmatched: the coverage gate's id is
 # followed by `reason=... pkg=...`.
 readonly _CG_OK_RE='^#[0-9]+ [0-9]+\.[0-9]+ gate=([a-z]+) ok$'
-readonly _CG_FAIL_RE='^#[0-9]+ [0-9]+\.[0-9]+ config_gen_gate_([a-z]+)_failed( .*)?$'
+# A gate id may hold an underscore (corpus_sensitivity, base#1467).
+readonly _CG_FAIL_RE='^#[0-9]+ [0-9]+\.[0-9]+ config_gen_gate_([a-z_]+)_failed( .*)?$'
 # A refusal the build prints as `cg_event <id>` (base#1465): admission's
-# before any gate, the coverage ratchet's inside the coverage gate. Only
+# before any gate, the coverage ratchet's inside the coverage gate, the
+# corpus sensitivity gate's weak golden/package pair (base#1467). Only
 # an id named here is re-emitted, so the build log can never put an
 # arbitrary body into the runner's own records.
-readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale|config_gen_coverage_(fragment_invalid|floors_base_invalid|floors_dir_deleted|floor_(duplicate|missing|orphan|below|too_low|lowered|stale|none_misuse|dropped)))( .*)?$'
+readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale|config_gen_corpus_sensitivity_weak|config_gen_coverage_(fragment_invalid|floors_base_invalid|floors_dir_deleted|floor_(duplicate|missing|orphan|below|too_low|lowered|stale|none_misuse|dropped)))( .*)?$'
 # The attributes a re-emitted event may carry, each `<key>=<value>` whose
 # value is bytes 0x21-0x7e only: config_gen_admit.sh and cg-gates write
 # every other byte, and the % itself, as %XX, so a value is one word and is

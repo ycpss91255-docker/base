@@ -49,10 +49,11 @@
 #                after it read as never reached, not as passed. The id is
 #                spelled from ${g} in the RUN text, so BuildKit's echo of the
 #                RUN line itself never carries a literal id the runner would
-#                read as a failure. After coverage, the mutation gate
-#                (base#1467) runs gremlins on each package the change
-#                manifest lists a Go file of; it prints per-package lines
-#                and no `gate=mutation ok` line yet.
+#                read as a failure. After coverage, the corpus sensitivity
+#                gate (base#1467) flips each golden file for the packages
+#                handed it, then the mutation gate (base#1467) runs gremlins
+#                on each package the change manifest maps to; they print
+#                per-golden and per-package lines and no ok line yet.
 #   final        FROM scratch: the binary alone, which is what ships.
 #
 # The race gate needs cgo and gcc, which the trixie golang image carries
@@ -201,6 +202,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         --base /mutation/floors.base --module "$(go list -m)"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
+# The corpus sensitivity gate (base#1467): cg-gates sensitivity, built by
+# the coverage RUN, runs each package whose tests depend on
+# internal/testcorpus once with a traced Glob against the corpus root the
+# race RUN wrote, then flips the first byte of each golden file in a copy
+# of that root and fails when a package its tests were handed that golden
+# by still passes. Like the mutation gate it prints no ok line.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    g=corpus_sensitivity; { w="$(mktemp -d)" && r="$(cat /tmp/config-gen-corpus-root)" \
+      && /tmp/cg-gates sensitivity --module "$(go list -m)" --root "${r#*=}" --work "${w}"; } \
+      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 # The mutation gate (base#1467): cg-gates mutation, built by the coverage
 # RUN, runs gremlins on each package the change manifest in the mutation
 # context maps to, and fails below 90.0 efficacy counted from gremlins'

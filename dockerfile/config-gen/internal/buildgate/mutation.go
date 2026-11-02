@@ -146,22 +146,8 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 		}
 	}
 	if listsRootTestdata(manifest) {
-		corpus := module + "/" + testcorpus
-		for _, p := range pkgs {
-			under, ok := strings.CutSuffix(p.ImportPath, ".test")
-			if !ok {
-				continue
-			}
-			rel, ok := strings.CutPrefix(under, module+"/")
-			if !ok {
-				continue
-			}
-			for _, d := range p.Deps {
-				if d == corpus || strings.HasPrefix(d, corpus+" [") {
-					add(rel)
-					break
-				}
-			}
+		for _, rel := range CorpusImporters(module, pkgs) {
+			add(rel)
 		}
 	}
 	sort.Strings(out)
