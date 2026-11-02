@@ -63,20 +63,23 @@ func Decode(src []byte) (*Config, []Refusal) {
 	}
 	var refusals []Refusal
 	var lines *locate.Map
+	index := func() *locate.Map {
+		if lines == nil {
+			lines = locate.Index(src)
+		}
+		return lines
+	}
 	for _, k := range md.Keys() {
 		ok := known[k[0]]
 		// A root table whose name is `logging.` plus at least one byte
 		// (`["logging.a"]`) is a per-service section by its text, which
 		// _setup_known_section accepts (base#1442).
 		if len(k) == 1 && !ok && !(serviceText(k[0]) && md.Type(k...) == "Hash") {
-			if lines == nil {
-				lines = locate.Index(src)
-			}
-			if occ, found := lines.Key(k); found == locate.Found {
+			if occ, found := index().Key(k); found == locate.Found {
 				refusals = append(refusals, Refusal{Event: "conf_top_level_key", Path: k, Line: occ.KeyLine})
 				continue
 			}
-			occ, _ := lines.Table(k)
+			occ, _ := index().Table(k)
 			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
 		}
 		// An array of tables at a known section name, `[[volumes]]` or
@@ -99,10 +102,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 		// refused at its header line and the keys under it get no refusal
 		// (base#1442).
 		if md.Type(k...) == "Hash" {
-			if lines == nil {
-				lines = locate.Index(src)
-			}
-			occ, _ := lines.Table(k)
+			occ, _ := index().Table(k)
 			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
 			continue
 		}
@@ -159,11 +159,24 @@ func projectEnvironment(t *Tree) Environment {
 	return out
 }
 
-// serviceText reports whether a section text names a logging service:
-// `logging.` plus at least one byte.
-func serviceText(text string) bool {
+// serviceName is the logging service a section text names: the text
+// after `logging.`, when the text is `logging.` plus at least one byte.
+func serviceName(text string) (string, bool) {
 	svc, ok := strings.CutPrefix(text, "logging.")
-	return ok && svc != ""
+	return svc, ok && svc != ""
+}
+
+// serviceText reports whether a section text names a logging service.
+func serviceText(text string) bool {
+	_, ok := serviceName(text)
+	return ok
+}
+
+// pathID is a collision-free string form of a TOML path, used as a map
+// key and for path equality. It takes []string so a toml.Key is quoted
+// element by element rather than through its String method.
+func pathID(path []string) string {
+	return fmt.Sprintf("%q", path)
 }
 
 // buildTree records the accepted table nodes of the layer in the bridge's
@@ -185,10 +198,10 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 	seen := map[string]bool{}
 	for _, k := range keys {
 		for i := 1; i <= len(k); i++ {
-			id := fmt.Sprintf("%q", []string(k[:i]))
+			id := pathID(k[:i])
 			if !seen[id] {
 				seen[id] = true
-				parent := fmt.Sprintf("%q", []string(k[:i-1]))
+				parent := pathID(k[:i-1])
 				children[parent] = append(children[parent], k[i-1])
 			}
 		}
@@ -204,7 +217,7 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 	var deferred []Deferred
 	var walk func(at int, path []string, table map[string]any)
 	walk = func(at int, path []string, table map[string]any) {
-		for _, name := range children[fmt.Sprintf("%q", path)] {
+		for _, name := range children[pathID(path)] {
 			p := append(append([]string{}, path...), name)
 			switch v := table[name].(type) {
 			case map[string]any:
@@ -270,10 +283,10 @@ func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 	}
 	out := Value{Kind: VArray}
 	entries := lines.Entries()
-	want := fmt.Sprintf("%q", p)
+	want := pathID(p)
 	i := 0
 	for at, o := range entries {
-		if o.Kind != locate.ArrayHeader || fmt.Sprintf("%q", o.Path) != want || i >= len(elems) {
+		if o.Kind != locate.ArrayHeader || pathID(o.Path) != want || i >= len(elems) {
 			continue
 		}
 		item := Value{Kind: VTable, Header: true, Line: o.KeyLine}
@@ -281,7 +294,7 @@ func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 			if m.Kind == locate.ArrayHeader || (m.Kind == locate.Header && !m.Implicit) {
 				break
 			}
-			if m.Kind != locate.Key || len(m.Path) != len(p)+1 || fmt.Sprintf("%q", m.Path[:len(p)]) != want {
+			if m.Kind != locate.Key || len(m.Path) != len(p)+1 || pathID(m.Path[:len(p)]) != want {
 				continue
 			}
 			key := m.Path[len(p)]
@@ -303,10 +316,10 @@ func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 // table item takes the next run of keys directly under p, until every one
 // of its members has its key (base#1442).
 func orderInlineMembers(a *Value, keys []toml.Key, p []string) {
-	want := fmt.Sprintf("%q", p)
+	want := pathID(p)
 	var run []string
 	for _, k := range keys {
-		if len(k) == len(p)+1 && fmt.Sprintf("%q", []string(k[:len(p)])) == want {
+		if len(k) == len(p)+1 && pathID(k[:len(p)]) == want {
 			run = append(run, k[len(p)])
 		}
 	}
@@ -380,8 +393,8 @@ func ProjectServices(t *Tree) map[string]*Service {
 			case ChildNode:
 				walk(c.Node)
 			case ChildRow:
-				svc, ok := strings.CutPrefix(t.Nodes[i].Text, "logging.")
-				if !ok || svc == "" {
+				svc, ok := serviceName(t.Nodes[i].Text)
+				if !ok {
 					continue
 				}
 				if out[svc] == nil {
