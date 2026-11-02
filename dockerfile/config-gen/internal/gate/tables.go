@@ -136,13 +136,13 @@ func (t *tables) document() error {
 			if !t.eat("=") {
 				return errStop
 			}
-			t.skipBlank(false)
-			t.outer = t.i
-			kind, err := t.value(statementValueFrame)
+			n, err := t.assign(table, parts, start)
 			if err != nil {
 				return err
 			}
-			if err := t.assign(table, parts, kind, start); err != nil {
+			t.skipBlank(false)
+			t.outer = t.i
+			if n.kind, err = t.value(statementValueFrame); err != nil {
 				return err
 			}
 		}
@@ -196,31 +196,35 @@ func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 	return c, nil
 }
 
-// assign applies `parts = <kind>` in table.
-func (t *tables) assign(table *node, parts []string, kind byte, at int) error {
+// assign defines the key `parts =` in table and returns its node, whose
+// kind the caller sets once it has read the value. It is called before
+// the value is read, so a refusal of the key comes before any refusal
+// inside its value (TestCheckRefusesInDocumentOrder).
+func (t *tables) assign(table *node, parts []string, at int) (*node, error) {
 	n := table
 	for _, p := range parts[:len(parts)-1] {
 		c, ok := n.kids[p]
 		switch {
 		case ok && c.explicit:
-			return t.refuse(at, ReasonRedefine)
+			return nil, t.refuse(at, ReasonRedefine)
 		case ok && !c.container():
-			return t.refuse(at, ReasonDuplicate)
+			return nil, t.refuse(at, ReasonDuplicate)
 		}
 		n = n.child(p)
 		t.pending = append(t.pending, n)
 	}
-	return t.define(n, parts[len(parts)-1], kind, at)
+	return t.define(n, parts[len(parts)-1], at)
 }
 
-// define records key part as a new node of kind below n, and refuses
-// ReasonDuplicate at offset at when n already holds part.
-func (t *tables) define(n *node, part string, kind byte, at int) error {
+// define records key part as a new node below n and returns it, and
+// refuses ReasonDuplicate at offset at when n already holds part.
+func (t *tables) define(n *node, part string, at int) (*node, error) {
 	if _, ok := n.kids[part]; ok {
-		return t.refuse(at, ReasonDuplicate)
+		return nil, t.refuse(at, ReasonDuplicate)
 	}
-	n.kids[part] = newNode(kind)
-	return nil
+	c := newNode(nodeScalar)
+	n.kids[part] = c
+	return c, nil
 }
 
 // inline reads an inline table whose `{` is at t.i, holding tomllib's
@@ -261,10 +265,6 @@ func (t *tables) inline(f int) error {
 		if err := t.inlineBlank(); err != nil {
 			return err
 		}
-		kind, err := t.value(f + 2)
-		if err != nil {
-			return err
-		}
 		n := local
 		for _, p := range parts[:len(parts)-1] {
 			if c, ok := n.kids[p]; ok && c.kind != nodeTable {
@@ -272,7 +272,13 @@ func (t *tables) inline(f int) error {
 			}
 			n = n.child(p)
 		}
-		if err := t.define(n, parts[len(parts)-1], kind, start); err != nil {
+		// The member is defined before its value is read, so its refusal
+		// comes before any inside the value (TestCheckRefusesInDocumentOrder).
+		member, err := t.define(n, parts[len(parts)-1], start)
+		if err != nil {
+			return err
+		}
+		if member.kind, err = t.value(f + 2); err != nil {
 			return err
 		}
 		if err := t.inlineBlank(); err != nil {
