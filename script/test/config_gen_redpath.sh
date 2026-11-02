@@ -27,6 +27,14 @@
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
+#   mut-unstaged   a committed package's test loses its assertion  mutation
+#                  as an unstaged edit, so every mutant survives
+#
+# A mutation case (gate mutation, base#1467) must also show the manifest
+# the 00-manifest step wrote with dirty=yes: a step planted after every
+# real one prints its header line, prefixed with
+# "config-gen redpath manifest: ", and the runner streams a step's stdout
+# to stderr.
 #
 # A refusal case plants a defect the build must refuse before any gate
 # runs: the run must exit exactly 1 with nothing on stdout, and stderr
@@ -147,7 +155,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation)
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
@@ -354,6 +362,20 @@ _rp_floor() {
   sed -i "s#^${2} .*#${2} ${3}#" "${1}/dockerfile/config-gen/coverage-floors.d/s1e.txt"
 }
 
+# The prefix the manifest step puts before the manifest's header line.
+readonly _RP_MANIFEST_TAG='config-gen redpath manifest: '
+
+# _rp_manifest_step <root> -- write a step that runs after every real one
+# (C-locale glob order) and prints the header line of the manifest
+# 00-manifest wrote, prefixed with _RP_MANIFEST_TAG (base#1467).
+_rp_manifest_step() {
+  cat >"${1}/script/test/config_gen_steps/99-zz-manifest.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s%s\n' '${_RP_MANIFEST_TAG}' "\$(head -n 1 "\${CONFIG_GEN_CTX:?}/mutation/manifest")"
+EOF
+}
+
 # _rp_plant <case> <root> -- write the case's defect into the copy.
 _rp_plant() {
   local root="${2}" mod="${2}/dockerfile/config-gen" cmd="${2}/dockerfile/config-gen/cmd/config-gen"
@@ -527,6 +549,49 @@ func TestZzVar(t *testing.T) {
 }
 EOF
       ;;
+    mut-unstaged)
+      # zzmut and its floor are committed with a test that kills both of
+      # Pos's mutants (n >= 0 fails Pos(0), n <= 0 fails all three rows).
+      # The edit, left unstaged, keeps every call (coverage stays 100.0)
+      # and drops the comparison, so both mutants survive (base#1467).
+      mkdir -p "${mod}/internal/zzmut"
+      cat >"${mod}/internal/zzmut/zzmut.go" <<'EOF'
+// Package zzmut is a redpath fixture whose test kills every mutant.
+package zzmut
+
+// Pos reports whether n is positive.
+func Pos(n int) bool {
+	return n > 0
+}
+EOF
+      cat >"${mod}/internal/zzmut/zzmut_test.go" <<'EOF'
+package zzmut
+
+import "testing"
+
+func TestPos(t *testing.T) {
+	for n, want := range map[int]bool{-1: false, 0: false, 1: true} {
+		if got := Pos(n); got != want {
+			t.Fatalf("Pos(%d) = %v, want %v", n, got, want)
+		}
+	}
+}
+EOF
+      printf 'internal/zzmut 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_rebase "${root}"
+      cat >"${mod}/internal/zzmut/zzmut_test.go" <<'EOF'
+package zzmut
+
+import "testing"
+
+func TestPos(t *testing.T) {
+	for n := range map[int]bool{-1: false, 0: false, 1: true} {
+		_ = Pos(n)
+	}
+}
+EOF
+      _rp_manifest_step "${root}"
+      ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
     coverage)
@@ -634,6 +699,10 @@ _rp_verdict() {
     [[ "${g}" == "${gate}" ]] && break
     grep -qx "gate=${g} ok" "${out}" || { echo earlier_gate_missing; return 0; }
   done
+  # A mutation case is an uncommitted change: its manifest says so.
+  [[ "${gate}" != mutation ]] \
+    || grep -qxE "${_RP_MANIFEST_TAG}base=[0-9a-f]{40} head=[0-9a-f]{40} dirty=yes context=pr" "${err}" \
+    || { echo not_dirty; return 0; }
 }
 
 # _rp_case <scratch> <case> <gate> -- run one planted case; non-zero when

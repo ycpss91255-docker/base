@@ -453,6 +453,7 @@ gate|fmt-parse|fmt
 gate|corpus-join|race
 gate|corpus-helper|race
 gate|corpus-var|race
+gate|mut-unstaged|mutation
 refusal|no-context|config_gen_manifest_missing
 stale|stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
 stale|stale-edit-locale|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
@@ -625,6 +626,11 @@ _canned_correct() {
         printf '#9 0.31 config_gen_gate_%s_failed\n' "${_want}" > "${_c}.err"
         _gate_record "config_gen_gate_${_want}_failed" "gate=${_want}" status=1 \
           "display=config-gen gate ${_want} failed (docker exited 1)" >> "${_c}.err"
+        # A mutation case's planted step prints the dirty manifest header
+        # (base#1467).
+        [[ "${_want}" != mutation ]] \
+          || printf 'config-gen redpath manifest: base=%s head=%s dirty=yes context=pr\n' \
+            "$(printf 'a%.0s' {1..40})" "$(printf 'b%.0s' {1..40})" >> "${_c}.err"
         ;;
       refusal)
         : > "${_c}.out"
