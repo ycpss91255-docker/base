@@ -671,7 +671,9 @@ _pin_extract_value() {
 #                          require entry's arity, path and version
 #                          checks; a retract line is one canonical
 #                          version or a `[low, high]` interval of two,
-#                          and one cut short is retract_interval);
+#                          one cut short is retract_interval and one
+#                          with a token after its version is
+#                          retract_trailer);
 #   anything else          refused BY NAME (replace, tool, ignore, and a
 #                          retract of any other shape) or as unknown_verb.
 #
@@ -968,6 +970,9 @@ _pin_go_mod_retract() {
     # An interval that ends before its `]`: Go's parseVersionInterval
     # names the missing piece (base#1488).
     '[' | '[v' | '[v,' | '[v,v') _pin_go_mod_refuse "${_ln}" retract_interval; return 1 ;;
+    # A token left after the version: Go's retract reports the unexpected
+    # token after it (base#1488).
+    v?*) _pin_go_mod_refuse "${_ln}" retract_trailer; return 1 ;;
     *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;
   esac
   for _k in "${_at[@]}"; do
