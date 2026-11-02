@@ -108,6 +108,10 @@ const exitOutput = 4
 
 var errNotRegular = errors.New("not a regular file")
 
+// fstat is syscall.Fstat; a test swaps it to reach the error no regular
+// file on a healthy filesystem gives (base#1469).
+var fstat = syscall.Fstat
+
 // readRegular opens path without blocking (a FIFO with no writer, a socket
 // or a device does not hold open(2)), checks the opened descriptor is a
 // regular file, and reads it. Anything else is errNotRegular.
@@ -122,7 +126,7 @@ func readRegular(path string) ([]byte, error) {
 	f := os.NewFile(uintptr(fd), path)
 	defer func() { _ = f.Close() }()
 	var st syscall.Stat_t
-	if err := syscall.Fstat(fd, &st); err != nil {
+	if err := fstat(fd, &st); err != nil {
 		return nil, &os.PathError{Op: "fstat", Path: path, Err: err}
 	}
 	if st.Mode&syscall.S_IFMT != syscall.S_IFREG {
