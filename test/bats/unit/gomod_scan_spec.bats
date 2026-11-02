@@ -134,8 +134,6 @@ exclude_arity_post 4
 exclude_arity_pre 3
 exclude_block_post 4
 exclude_block_pre 3
-exclude_ok_post 4
-exclude_ok_pre 3
 go_arity_post 4
 go_arity_pre 3
 go_bad_post 4
@@ -313,13 +311,36 @@ EOF
   assert_failure 1
 }
 
+# why: Go reads `exclude a v1.0.0` beside `require a v1.0.0` (the oracle
+# records Go rc 0 for exclude_ok_pre/post) and its only require is
+# `a v1.0.0`; Go ignores an exclude's comments, so `// indirect` on an
+# exclude is no indirect requirement. A scanner that emits exclude as a
+# require would add a second record, and one that applies the indirect
+# refusal to exclude would refuse exclude_indirect. The exclude line is
+# checked, never emitted, so it is not a declaration.
+@test "_pin_go_mod_scan: an exclude line is read and the require beside it is the one record (base#1488)" {
+  _scan exclude_ok_pre
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan exclude_ok_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  _scan exclude_indirect
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  cp "${FIX}/exclude_ok_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'exclude a v1.0.0' 3
+  assert_failure 1
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Go rejects `exclude a` and the old design consumed exclude unread, so
 # a valid require after it was emitted for a file Go refuses. exclude is now
 # refused by name in any form: line and block, before and after a require.
 @test "_pin_go_mod_scan: exclude is refused by name, line form before a require and block form after one (base#1463)" {
-  _refused exclude_ok_pre exclude 3
   _refused exclude_block_post exclude 4
   _refused exclude_arity_pre exclude 3
   _refused exclude_arity_post exclude 4
