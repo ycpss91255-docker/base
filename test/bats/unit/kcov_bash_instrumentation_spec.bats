@@ -117,13 +117,27 @@ setup() {
 #   through the environment (BASH_ENV, BASH_XTRACEFD, LD_PRELOAD). Inherited,
 #   the inner bash would write its trace into the OUTER kcov's pipe and this
 #   fixture would measure nothing at all.
+#
+#   The --bash-method comes from the driver's _kcov_bash_method_args, the
+#   same function the coverage run site reads, so these cases measure with
+#   the instrument the coverage figure comes from (base#1030). It is read in
+#   a subshell: the driver declares readonly globals at source time.
 _measure() {
   local _body="${1:?BUG: _measure expects a script body}"
+  local -a _method
+  mapfile -t _method < <(
+    source /source/script/test/drivers/bats.sh
+    declare -a _m
+    _kcov_bash_method_args _m
+    printf '%s\n' "${_m[@]}"
+  )
+  (( ${#_method[@]} > 0 )) || fail \
+    "_kcov_bash_method_args in script/test/drivers/bats.sh gave no --bash-method, so this acceptance cannot name the instrument it measures."
   printf '%s\n' "${_body}" > "${SRC_DIR}/fixture.sh"
   chmod +x "${SRC_DIR}/fixture.sh"
   rm -rf "${OUT_DIR}"
   env -u BASH_ENV -u BASH_XTRACEFD -u KCOV_BASH_XTRACEFD -u LD_PRELOAD \
-    kcov --include-path="${SRC_DIR}" "${OUT_DIR}" "${SRC_DIR}/fixture.sh" \
+    kcov "${_method[@]}" --include-path="${SRC_DIR}" "${OUT_DIR}" "${SRC_DIR}/fixture.sh" \
     >/dev/null 2>&1 || fail "kcov refused to run the fixture at all"
   REPORT="$(find "${OUT_DIR}" -name codecov.json -print -quit)"
   [[ -n "${REPORT}" ]] || fail \
