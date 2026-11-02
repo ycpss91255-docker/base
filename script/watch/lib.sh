@@ -1463,9 +1463,11 @@ _pin_uncovered() {
 # first, so a directive the scanner refuses is never half-read: rc 1 with
 # the scanner's refusal logged. The directive is the line whose first lexed
 # token is the word `go` and that is not a require entry the scanner
-# emitted (a block entry for a module path `go`) (base#1440).
+# emitted (a block entry for a module path `go`) (base#1440), nor any line
+# inside a `<verb> (` ... `)` block: a block line belongs to its block's
+# verb, so `go v1.0.0` in an exclude block is no go directive (base#1488).
 _pin_go_mod_go_line() {
-  local _gm_file="${1}" _emitted _line _ln=0 _gm_comment=""
+  local _gm_file="${1}" _emitted _line _ln=0 _gm_comment="" _in_block=0
   local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
   local LC_ALL=C
   _emitted="$(_pin_go_mod_scan "${_gm_file}")" || return 1
@@ -1473,6 +1475,11 @@ _pin_go_mod_go_line() {
   for _line in "${_lines[@]}"; do
     _ln=$(( _ln + 1 ))
     _pin_go_mod_lex "${_line}" "${_ln}" || return 1
+    if (( _in_block )); then
+      [[ "${_gm_text[0]:-}" == ')' && "${_gm_kind[0]:-}" == p ]] && _in_block=0
+      continue
+    fi
+    if _pin_go_mod_opens_block; then _in_block=1; continue; fi
     [[ "${_gm_text[0]:-}" == go && "${_gm_kind[0]:-}" == w ]] || continue
     [[ $'\n'"${_emitted}" == *$'\n'"${_ln}"$'\t'* ]] && continue
     printf '%s\t%s\n' "${_ln}" "${_gm_text[1]}"
