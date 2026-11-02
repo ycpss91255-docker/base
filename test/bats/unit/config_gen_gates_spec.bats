@@ -161,13 +161,21 @@ _df_instructions() {
 
 # why: The coverage gate is a script so the >= 90% rule and its refusals can
 # be tested on the host with a stub go; an inline awk in the RUN could not be.
-@test "Dockerfile.config-gen: the coverage RUN runs gates/coverage.sh (base#1462)" {
+# It runs from the mutation context, where 01-admit installs it from the
+# host checkout: a copy inside the module would be a module file no mapping
+# rule of the mutation gate covers, so every change to it, and every run
+# from an empty base, would be refused as unmapped (base#1467).
+@test "Dockerfile.config-gen: the coverage RUN runs the coverage.sh 01-admit installs in the mutation context (base#1467)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   _df_instructions > "${S}/df"
   run awk -F'\t' '$1 == "test" && $2 ~ /^RUN / && /gate=coverage ok/' "${S}/df"
   assert_success
   [[ -n "${output}" ]] || fail "no test-stage RUN prints gate=coverage ok"
-  assert_output --partial 'gates/coverage.sh'
+  assert_output --partial 'bash /mutation/coverage.sh --measure'
+  run grep -cxF 'install -m 0644 "${_root}/script/test/config_gen_coverage.sh" "${_dst}/coverage.sh"' \
+    /source/script/test/config_gen_steps/01-admit.sh
+  assert_success
+  assert_output 1
 }
 
 # why: The shipped stage holds only the binary; the runner's binary contract
@@ -358,21 +366,21 @@ _df_instructions() {
 # why: A coverage RUN that never got the corpus root record refuses with
 # reason=corpus_root_missing and an empty pkg (base#1468). The runner must
 # name the coverage gate from that printed refusal line, not from the RUN
-# line BuildKit echoes, whose command text names gates/coverage.sh too: the
+# line BuildKit echoes, whose command text names coverage.sh too: the
 # echoed line alone is a build that failed before any gate.
 @test "config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)" {
   assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
   _root
   _stub_docker
   { _gate_log fmt vet lint race
-    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'
+    printf '#12 [test 5/6] RUN bash /mutation/coverage.sh /tmp/config-gen-corpus-root\n'
     printf '#12 0.52 config_gen_gate_coverage_failed reason=corpus_root_missing pkg=\n'; } > "${S}/build_test.err"
   printf '1\n' > "${S}/build_test.rc"
   _run_runner
   assert_equal "${status}" 1
   assert_logged_event config_gen_gate_coverage_failed gate=coverage
   { _gate_log fmt vet lint race
-    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'; } > "${S}/build_test.err"
+    printf '#12 [test 5/6] RUN bash /mutation/coverage.sh /tmp/config-gen-corpus-root\n'; } > "${S}/build_test.err"
   _run_runner
   assert_equal "${status}" 1
   assert_logged_event config_gen_build_failed status=1
@@ -392,7 +400,7 @@ _df_instructions() {
   _root
   _stub_docker
   { _gate_log admission fmt vet lint race
-    printf '#12 [test 8/8] RUN g=coverage; bash gates/coverage.sh --measure /tmp/measured\n'
+    printf '#12 [test 8/8] RUN g=coverage; bash /mutation/coverage.sh --measure /tmp/measured\n'
     printf '#12 1.069 cg_event config_gen_coverage_floor_dropped pkg=internal/testcorpus x=1\n'
     printf '#12 1.069 cg_event config_gen_coverage_floor_missing pkg=a%%20b\n'
     printf '#12 1.069 cg_event config_gen_coverage_floor_bogus pkg=z\n'
@@ -518,10 +526,11 @@ EOF
 }
 
 # _redpath_sequence -- the case each runner call of one full redpath run
-# is told, in call order: every row, rerun twice, the control last.
+# is told, in call order: every row, rerun twice, retro (base#1467), the
+# control last.
 _redpath_sequence() {
   _redpath_rows | cut -d'|' -f2
-  printf '%s\n' rerun rerun control
+  printf '%s\n' rerun rerun retro control
 }
 
 # _ran_cases -- the case each runner call was told, in call order.
@@ -587,6 +596,8 @@ a="${S}/canned/\${c}"
 [[ -e "\${a}.\${k}.rc" ]] && a="\${a}.\${k}"
 cat "\${a}.out" 2>/dev/null
 cat "\${a}.err" >&2 2>/dev/null
+[[ "\${c}" != retro ]] || printf 'config-gen redpath manifest: base=%s head=%s dirty=no context=pr\n' \
+  "\${CONFIG_GEN_MUTATION_BASE-}" "\$(git -C "\${root}" rev-parse HEAD)" >&2
 exit "\$(cat "\${a}.rc" 2>/dev/null || echo 9)"
 EOF
   chmod +x "${_r}/script/test/config_gen_gates.sh"
@@ -701,6 +712,18 @@ _canned_correct() {
     : > "${S}/canned/${_c}.err"
     printf '0\n' > "${S}/canned/${_c}.rc"
   done
+  # retro (base#1467): the six ok lines, one passing mutation line per
+  # package of the module (each directory holding a .go file outside
+  # testdata/), rc 0; the stub runner adds the manifest header naming the
+  # base it was handed.
+  local _mod
+  _mod="$(awk '$1 == "module" {print $2; exit}' /source/dockerfile/config-gen/go.mod)"
+  _ok_lines "" > "${S}/canned/retro.out"
+  (cd /source/dockerfile/config-gen && find . -name '*.go' -not -path '*/testdata/*') \
+    | sed -E 's#^\./##; s#/?[^/]*$##' | LC_ALL=C sort -u \
+    | awk -v m="${_mod}" '{ printf "#30 1.00 %s%s ok efficacy=100.0\n", m, ($0 == "" ? "" : "/" $0) }' \
+    > "${S}/canned/retro.err"
+  printf '0\n' > "${S}/canned/retro.rc"
 }
 
 # _run_redpath [VAR=value...] <case>... -- the scratch redpath with the
