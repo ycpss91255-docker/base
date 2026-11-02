@@ -50,8 +50,9 @@ func (n *node) container() bool { return n.kind == nodeTable || n.kind == nodeAO
 // (base#1441), which BurntSushi does not hold to. A dotted key may not
 // pass through a table a header defined, or a dotted-key table an
 // earlier section made; nothing may extend an inline table or an array
-// value; a key may not name a path that already exists. Input it cannot
-// follow is left to the decoder.
+// value; a key may not name a path that already exists. Where the TOML
+// 1.0 grammar allows nothing at the byte it reads, it stops there, and
+// Check refuses that byte (base#1441 review round 1 finding 3).
 type tables struct {
 	src   []byte
 	label string
@@ -88,8 +89,8 @@ const (
 	recursionLimit      = 1000
 )
 
-// errStop ends the pass without a verdict: the input is not something
-// the pass can follow, so the decoder decides.
+// errStop ends the pass at t.i, a byte where the TOML 1.0 grammar allows
+// nothing; Check refuses that byte with ReasonSyntax.
 var errStop = errors.New("gate: table pass stopped")
 
 // newTables returns a pass over src that starts at its first byte and
@@ -305,11 +306,11 @@ func (t *tables) inlineBlank() error {
 }
 
 // value reads the value at t.i and returns its node kind. f is the frame
-// of tomllib's parse_value for it.
+// of tomllib's parse_value for it. value checks no frame of its own:
+// every caller has already reached a deeper one (array f+1, inline its
+// key's f+1+cost, a statement the fixed statementValueFrame), so a check
+// of f here could never refuse.
 func (t *tables) value(f int) (byte, error) {
-	if err := t.reach(f); err != nil {
-		return 0, err
-	}
 	t.skipBlank(false)
 	if t.i >= len(t.src) {
 		return 0, errStop
@@ -327,16 +328,11 @@ func (t *tables) value(f int) (byte, error) {
 		return nodeScalar, t.reach(f + cost)
 	}
 	start := t.i
-	for t.i < len(t.src) && !strings.ContainsRune(",]}#\n\r", rune(t.src[t.i])) {
-		t.i++
-	}
+	t.i = bareEnd(t.src, t.i)
 	if t.i == start {
 		return 0, errStop
 	}
 	end := t.i
-	for end > start && (t.src[end-1] == ' ' || t.src[end-1] == '\t') {
-		end--
-	}
 	if at, reason, text, bad := dateRule(t.src[start:end]); bad {
 		if reason == ReasonDateRange {
 			return 0, oracleRefusal(t.label, t.src, start+at, reason, msgDateRange)
@@ -347,6 +343,28 @@ func (t *tables) value(f int) (byte, error) {
 		t.scalar(start, end)
 	}
 	return nodeScalar, t.reach(f + t.scalarCost(t.src[start:end]))
+}
+
+// bareEnd returns the offset just past the bare value token (a number,
+// boolean, date or time) that starts at offset i of src: the token ends at
+// a blank, a comma, a closing bracket or brace, a comment or a line
+// ending. A full date followed by one space and `HH:` goes on as a
+// date-time whose delimiter is that space (TOML 1.0 offset-date-time,
+// local-date-time); no other bare value holds a blank, so what follows a
+// blank is the next token, never part of this one (base#1441 review round
+// 1 finding 4).
+func bareEnd(src []byte, i int) int {
+	end := func(j int) int {
+		for j < len(src) && !strings.ContainsRune(",]}#\n\r \t", rune(src[j])) {
+			j++
+		}
+		return j
+	}
+	j := end(i)
+	if j-i == 10 && fullDate(src[i:j]) && j+3 < len(src) && src[j] == ' ' && digits(src[j+1:j+3]) && src[j+3] == ':' {
+		j = end(j + 1)
+	}
+	return j
 }
 
 // array reads an array whose `[` is at t.i. f is the frame of tomllib's

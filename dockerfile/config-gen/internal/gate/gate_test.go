@@ -783,8 +783,8 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 	}{
 		{"a = 1\na = 2\nb = \"\\e\"\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
 		{"[x]\n[x]\nb = \"\\e\"\n", 2, 1, ReasonRedefine, "Cannot overwrite a value (at line 2, column 1)"},
-		{"a = {b = 1 c = 2}\nd = \"\\e\"\n", 1, 12, ReasonSyntax, syntaxText},
-		{"x = [1 2]\nd = \"\\e\"\n", 1, 8, ReasonSyntax, syntaxText},
+		{"a = {b = 1 c = 2}\nd = \"\\e\"\n", 1, 12, ReasonSyntax, wantSyntaxText},
+		{"x = [1 2]\nd = \"\\e\"\n", 1, 8, ReasonSyntax, wantSyntaxText},
 	} {
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
@@ -808,7 +808,12 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 // `,` where an inline table's first key should be (1:6, t(1) ' '(2) =(3)
 // ' '(4) {(5) ,(6)); the `}` where `=` should be (1:7); the `c` and the
 // second `"` where a `,` should be (1:14, 1:10); and the last byte, the
-// lone `[`, when the document ends inside a header (2:1).
+// lone `[`, when the document ends inside a header (2:1). The rest are
+// one row for each other place the reading stops: the byte where a key or
+// its `=` should start, the byte after a complete statement, the byte
+// where a value should start, the line ending that leaves a one-line
+// string unclosed, and the last byte when the document ends inside a key,
+// a value or a multi-line string.
 func TestCheckRefusesAtTheStopPoint(t *testing.T) {
 	read := func(p string) string {
 		b, err := os.ReadFile(filepath.Join("testdata", p))
@@ -828,6 +833,14 @@ func TestCheckRefusesAtTheStopPoint(t *testing.T) {
 		{"inline-no-comma", read("forms/stop-inline-no-comma.toml"), 1, 14},
 		{"array-no-comma", read("forms/stop-array-no-comma.toml"), 1, 10},
 		{"header-eof", read("forms/stop-header-eof.toml"), 2, 1},
+		{"key-missing", "= 1\n", 1, 1},
+		{"key-eof", "a.", 1, 2},
+		{"equals-missing", "a 1\n", 1, 3},
+		{"statement-trailing", "a = 1 b\n", 1, 7},
+		{"value-eof", "a =", 1, 3},
+		{"value-missing", "a = ,\n", 1, 5},
+		{"string-line-end", "a = \"x\nb = 1\n", 1, 7},
+		{"string-eof", "a = \"\"\"x", 1, 8},
 	} {
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
@@ -835,12 +848,12 @@ func TestCheckRefusesAtTheStopPoint(t *testing.T) {
 			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
 			continue
 		}
-		want := fmt.Sprintf("t.toml:%d:%d: %s", tc.line, tc.col, syntaxText)
+		want := fmt.Sprintf("t.toml:%d:%d: %s", tc.line, tc.col, wantSyntaxText)
 		if r.Reason != ReasonSyntax || r.Error() != want {
 			t.Errorf("%s: Check(%q) = %v %q, want ReasonSyntax %q", tc.name, tc.src, r.Reason, r.Error(), want)
 		}
 	}
 }
 
-// syntaxText is the stop-point refusal's text, written as a literal.
-const syntaxText = "invalid TOML 1.0 syntax"
+// wantSyntaxText is the stop-point refusal's text, written as a literal.
+const wantSyntaxText = "invalid TOML 1.0 syntax"

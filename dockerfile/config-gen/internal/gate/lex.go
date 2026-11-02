@@ -12,7 +12,7 @@ package gate
 // It reads parsed value tokens only, so a key, header, string or comment
 // that holds the same text never reaches it.
 func dateRule(tok []byte) (at int, reason Reason, text string, ok bool) {
-	if len(tok) >= 10 && digits(tok[0:4]) && tok[4] == '-' && digits(tok[5:7]) && tok[7] == '-' && digits(tok[8:10]) {
+	if len(tok) >= 10 && fullDate(tok[:10]) {
 		if num(tok[0:4]) < 1 {
 			return 0, ReasonDateRange, "", true
 		}
@@ -56,6 +56,11 @@ func timeRule(tok []byte, i int) (at int, reason Reason, text string, ok bool) {
 		return i + j, ReasonOffsetRange, "offset minute above 59 is not TOML 1.0", true
 	}
 	return 0, 0, "", false
+}
+
+// fullDate reports whether b has a TOML full-date's shape, YYYY-MM-DD.
+func fullDate(b []byte) bool {
+	return len(b) == 10 && digits(b[0:4]) && b[4] == '-' && digits(b[5:7]) && b[7] == '-' && digits(b[8:10])
 }
 
 // digits reports whether b is non-empty and all ASCII digits.

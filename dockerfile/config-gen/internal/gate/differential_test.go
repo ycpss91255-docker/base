@@ -161,9 +161,9 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/literal-close5-escape.toml":  "refuse",
 	"internal/gate/testdata/forms/aot-dotted-root-header.toml": "accept",
 
-	// Input the table pass cannot follow is left to the decoder; tomllib
-	// and BurntSushi v1.6.0 both refuse each of these (measured
-	// 2026-11-02): an inline-table key with no `=`, inline-table pairs or
+	// Input where the table pass stops, which Check refuses with
+	// ReasonSyntax; tomllib and BurntSushi v1.6.0 both refuse each of these
+	// (measured 2026-11-02): an inline-table key with no `=`, inline-table pairs or
 	// array values with no comma, a header `[` at the end of the document.
 	"internal/gate/testdata/forms/stop-inline-no-equals.toml": "refuse",
 	"internal/gate/testdata/forms/stop-inline-no-comma.toml":  "refuse",
