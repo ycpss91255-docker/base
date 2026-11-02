@@ -123,9 +123,11 @@ func valueCharEvent(text string) string {
 // Otherwise every path md.Keys() lists is judged in turn:
 //   - a table or key name holding U+0000, a tab, LF or CR is refused
 //     (keyCharEvent) at the outermost path it appears in, once;
-//   - a table schema.sh does not know is one conf_unknown_table refusal at
-//     its header line; the outermost such table is refused and nothing
-//     under it gets a refusal of its own;
+//   - every table on a path whose section text schema.sh does not know is
+//     a conf_unknown_table refusal at its header line, once per section
+//     text, as the shell's --tables walk reports each one: `[foo.bar]`
+//     refuses both foo and foo.bar. Keys under an unknown table get no
+//     refusal of their own;
 //   - anything under an array is the array stage's: only its string
 //     values are judged here, by valueCharEvent;
 //   - a scalar at the root, whatever its name, is one conf_top_level_key;

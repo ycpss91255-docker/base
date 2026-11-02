@@ -38,8 +38,10 @@ func decodeNoPanic(t *testing.T, src []byte) (cfg *Config, refusals []Refusal) {
 //     time, a local datetime and a fractional offset datetime at a known
 //     key are refused (their text fails the key's validator, and their
 //     kind is not the key's).
-//   - A table under an unknown table is not refused again: the outermost
-//     unknown table, implicit or not, is the one refusal.
+//   - Every unknown table on a path, implicit or not, is refused once
+//     per section text, as the shell's --tables walk reports it: a table
+//     under an unknown table is refused too (`[foo.bar]` is foo and
+//     foo.bar), and a key under one is not.
 func TestDecodeRefusalClasses(t *testing.T) {
 	type want struct {
 		event string
