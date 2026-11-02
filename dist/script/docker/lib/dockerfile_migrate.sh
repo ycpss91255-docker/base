@@ -1000,7 +1000,7 @@ _migrate_hadolint_apply() {
   # tool-pin: migrate-bats dockerhub bats/bats pattern=^[0-9]+\.[0-9]+\.[0-9]+$
   local _bats_tag='1.13.0'
   # tool-pin: migrate-alpine dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$
-  local _alpine_tag='3.22'
+  local _alpine_tag='3.23'
   _dfm_sed "${_file}" -E "s|^FROM bats/bats:latest|FROM bats/bats:${_bats_tag}|; s|^FROM alpine:latest|FROM alpine:${_alpine_tag}|"
   # DL3046: useradd -l (idempotent — only adds when not already present).
   #

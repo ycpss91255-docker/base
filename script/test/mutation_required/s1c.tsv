@@ -65,7 +65,7 @@ read-unreadable	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	 
 read-gomod-refused	script/watch/lib.sh	test/bats/unit/tool_watch_check_spec.bats	      _gm_records="$(_pin_go_mod_scan "${_abs}")" || return 1	      _gm_records="$(_pin_go_mod_scan "${_abs}")" || true
 read-gomod-target	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	        if [[ -z "${_gm_version["${_target_no}"]+x}" ]]; then	        if false; then
 read-gomod-current	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	        [[ "${_state}" == "${_PIN_STATE_IGNORE}" ]] || _current="${_gm_version["${_target_no}"]}"	        [[ "${_state}" == "${_PIN_STATE_IGNORE}" ]] || _current=""
-uncovered-read-status	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	  _table="$(_pin_read "${_root}")" || return 1	  _table="$(_pin_read "${_root}")" || true
+uncovered-read-status	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	  # failed (base#1463).\n  _table="$(_pin_read "${_root}")" || return 1	  # failed (base#1463).\n  _table="$(_pin_read "${_root}")" || true
 uncovered-gomod-lineno	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	      if _pin_is_declaration "${_file}" "${_line}" "${_lineno}" \\	      if _pin_is_declaration "${_file}" "${_line}" \\
 oracle-pin-missing	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	  if [[ -z "${image}" ]]; then	  if false; then
 oracle-unclassified	script/test/config_gen_steps/20-gomod-oracle.sh	test/bats/unit/gomod_oracle_spec.bats	    if [[ ! "${header}" =~ ${_GMO_HEADER_RE} ]]; then	    if false; then
@@ -82,7 +82,7 @@ record-fields-keep-empty	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats
 set-line-not-entry	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if (( ! _gm_hit )); then	  if false; then
 set-line-version-ok	script/watch/lib.sh	test/bats/unit/tool_pins_spec.bats	  if ! _pin_go_mod_version_ok "${_gm_r_path}" "${_new}"; then	  if false; then
 set-line-keeps-quotes	script/watch/lib.sh	test/bats/unit/tool_pins_spec.bats	  [[ "${_gm_kind[_last]}" == s ]] && _tok="\\"${_new}\\""	  false && _tok="\\"${_new}\\""
-pins-set-gomod-dispatch	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	  if [[ "${_file##*/}" == go.mod ]]; then	  if false; then
+pins-set-gomod-dispatch	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	  if [[ "${_file##*/}" == go.mod ]]; then\n    # A go.mod pin is a require entry the scanner read	  if false; then\n    # A go.mod pin is a require entry the scanner read
 pins-commit-symlink	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	  if [[ -L "${_abs}" ]]; then	  if false; then
 pins-commit-hard-link	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	  if [[ "$(stat -c '%h' -- "${_abs}")" != 1 ]]; then	  if false; then
 pins-commit-temp-create	script/watch/pins.sh	test/bats/unit/tool_pins_spec.bats	  if ! _tmp="$(mktemp "${_abs%/*}/.${_abs##*/}.pins.XXXXXX")"; then	  if false; then

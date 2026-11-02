@@ -37,7 +37,8 @@
 # The third pin is the alpine SERIES, and it was the one nothing measured.
 # `ARG ALPINE_VERSION` decides which bash the image ships, and bash is what
 # decides whether kcov can read this suite's coverage at all -- 5.3's
-# ANSI-C xtrace quoting makes it report lines that ran as never run. The
+# ANSI-C xtrace quoting makes a kcov without dockerfile/kcov-bash53-ansi-c.patch
+# report lines that ran as never run (base#1030). The
 # Dockerfile records the bash-per-series table it was measured from, and
 # until these tests that table was a claim in a comment: nothing compared
 # it, or the series itself, with the image the suite was running inside.

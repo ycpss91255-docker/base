@@ -420,16 +420,22 @@ _lint_driver_failed() {
 # direct `if` / `&&` / `||` / `!` caller, and differently through `eval`:
 # on bash 5.1, `if eval f` leaves the substitution reporting errexit ARMED
 # while a plain `( set -e; false )` subshell of that same call still sails.
-# An eval'd suppressing caller is therefore NOT refused here.
+# Before bash 5.3 an eval'd suppressing caller is therefore NOT refused
+# here. bash 5.3 changed both halves (measured on 5.3.3, base#1030): under
+# `if eval f` the substitution reports "suppressed", so the caller IS
+# refused here, and the ERR trap below no longer fires -- with this
+# refusal stubbed out, the driver sails and the phase reports clean.
 #
-# It is still not a way to make a driver sail, because this is not the only
-# mechanism: `_run_lint_tool` arms `set -E` and an ERR trap around the
-# dispatch, `eval` does not disarm either, and the driver dies at its first
-# failing command with `ci_lint_driver_failed` naming it. ci_spec pins that
-# ("an eval'd caller escapes the probe, the driver still cannot sail"), so
-# the narrower claim above rests on a measured mechanism rather than on the
-# absence of a report. What this refusal buys over the trap alone is the
-# earlier and better-named stop: one refusal, before any driver runs.
+# So which mechanism stops an eval'd caller depends on the bash version,
+# and each version has one. Before 5.3, `_run_lint_tool` arms `set -E` and
+# an ERR trap around the dispatch, `eval` does not disarm either, and the
+# driver dies at its first failing command with `ci_lint_driver_failed`
+# naming it. From 5.3 on, this refusal stops the phase before any driver
+# runs. ci_spec pins each on the bash it holds on ("an eval'd caller
+# escapes the probe, the driver still cannot sail"), so the claim rests on
+# a measured mechanism rather than on the absence of a report. Where both
+# apply, what this refusal buys over the trap alone is the earlier and
+# better-named stop: one refusal, before any driver runs.
 #
 # CALL THIS AS A PLAIN STATEMENT. Called from a condition of its own it
 # measures that condition and refuses every time -- which is the honest
@@ -566,9 +572,10 @@ _run_lint_tool() {
 # precondition is enforced instead of assumed, by the shared refusal above
 # -- every caller shape its probe can read defaults to a refusal, not to a
 # pass. A shape the probe cannot read is a different case and is handled
-# by a different mechanism, not by this one: an `eval`'d suppressing caller
-# is measured as armed and passes here, and is stopped one level down by
-# `_run_lint_tool`'s ERR trap. Both are pinned in ci_spec, and the refusal's
+# by a different mechanism, not by this one: before bash 5.3 an `eval`'d
+# suppressing caller is measured as armed and passes here, and is stopped
+# one level down by `_run_lint_tool`'s ERR trap; on bash 5.3 the probe reads
+# it and the phase refuses. Both are pinned in ci_spec, and the refusal's
 # header carries the boundary between them.
 #
 # `_run_lint_tool` guards itself the same way, because `main --ci` also

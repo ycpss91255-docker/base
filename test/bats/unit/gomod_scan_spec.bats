@@ -614,14 +614,28 @@ EOF
 # ── _pin_is_declaration on go.mod ───────────────────────────────────────────
 
 # why: For go.mod the scanner, not a line shape, decides: DECL only on a
-# line number it emitted, so a comment, module or go line is never one.
+# line number it emitted, so a comment or module line is never one. The
+# `go` directive is the one other declaration (base#1440, next spec).
 @test "_pin_is_declaration: go.mod is DECL only on the line numbers the scanner emitted (base#1463)" {
   _gomod 'module example.com/m' '' 'go 1.27' '' 'require (' '	// c' '	golang.org/x/mod v0.21.0' ')'
   run _pin_is_declaration "${W}/go.mod" $'\tgolang.org/x/mod v0.21.0' 7
   assert_success
   run _pin_is_declaration "${W}/go.mod" $'\t// c' 6
   assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" 'module example.com/m' 1
+  assert_failure 1
+}
+
+# why: The `go` directive names the Go a module needs, and the golang pin
+# names the Go that builds it, so the directive is a declaration the
+# coverage lint must see covered. Before base#1440 it is rc 1, so nothing
+# ever has to cover it. The module and toolchain lines stay rc 1: only the
+# go directive joins the require entries.
+@test "_pin_is_declaration: the go.mod go directive is DECL (base#1440)" {
+  _gomod 'module example.com/m' '' 'go 1.27' 'toolchain go1.27.2' '' 'require golang.org/x/mod v0.21.0'
   run _pin_is_declaration "${W}/go.mod" 'go 1.27' 3
+  assert_success
+  run _pin_is_declaration "${W}/go.mod" 'toolchain go1.27.2' 4
   assert_failure 1
   run _pin_is_declaration "${W}/go.mod" 'module example.com/m' 1
   assert_failure 1

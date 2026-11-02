@@ -1,0 +1,51 @@
+kcov-bash53-ansi-c.patch -- teaches kcov v43's bash engine the ANSI-C
+quoting bash 5.3 uses in xtrace (base#1030). Applied in the kcov-builder
+stage of dockerfile/Dockerfile.test-tools AFTER kcov-76bf685.patch, on
+top of which it was generated. Only the diff below is applied (`git
+apply` skips this header); if a KCOV_VERSION bump moves its context, the
+apply fails and so does the build.
+
+bash 5.3 writes a traced value holding a newline as one line,
+`$'line one\n  - \'quoted\' word'`. v43's getInputType flips its
+single-quote state on every `'` and honours `\` only outside a quote, so
+each `\'` inside `$'...'` flips the state; the line ends "inside a quote"
+and every later trace line, coverage marker included, is dropped. The
+diff gives `$'` its own state in which a backslash consumes the next
+character and only an unescaped `'` closes the string. A plain `'...'`
+keeps the literal-backslash rule, so the bash 5.2 form reads as before.
+
+diff --git a/src/engines/bash-engine.cc b/src/engines/bash-engine.cc
+index 0d32dbb..20b055b 100644
+--- a/src/engines/bash-engine.cc
++++ b/src/engines/bash-engine.cc
+@@ -40,6 +40,7 @@ enum InputType
+ 	INPUT_QUOTE,        // "
+ 	INPUT_SINGLE_QUOTE, // '
+ 	INPUT_MULTILINE,    // backslash backslash
++	INPUT_ANSI_C_QUOTE, // $' (bash 5.3 xtrace)
+ };
+ 
+ class BashEngine : public ScriptEngineBase
+@@ -544,8 +545,21 @@ private:
+ 		enum InputType out = m_inputType;
+ 
+ 		for(std::string::size_type i = 0; i < str.size(); ++i) {
+-			if (str[i] == '\\' && out == INPUT_NORMAL)
++			if (out == INPUT_ANSI_C_QUOTE) {
++				// $'...': a backslash escapes the next character, so \' and \\
++				// are consumed whole; only an unescaped ' closes the string.
++				if (str[i] == '\\')
++					i++;
++				else if (str[i] == '\'')
++					out = INPUT_NORMAL;
++			}
++			else if (str[i] == '\\' && out == INPUT_NORMAL)
++				i++;
++			else if (str[i] == '$' && out == INPUT_NORMAL &&
++					i + 1 < str.size() && str[i + 1] == '\'') {
++				out = INPUT_ANSI_C_QUOTE;
+ 				i++;
++			}
+ 			else if (str[i] == '\'')
+ 				out = (out == INPUT_NORMAL ? INPUT_SINGLE_QUOTE : INPUT_NORMAL);
+ 		}
