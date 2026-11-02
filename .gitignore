@@ -23,6 +23,10 @@ log/
 # root list, and an old release inside one of those roots would be linted
 # as if it were current source.
 .prev-release/
+# The config generator binary script/test/test.sh copies out of this
+# checkout's config-gen image for config_gen_bridge_golden_spec.bats
+# (base#1469). Derived on every run, never committed.
+.config-gen-bin/
 # Bytecode CPython writes beside dockerfile/toml_bridge.py whenever the
 # bridge is run from the checkout rather than from its image. Derived,
 # per-interpreter, and no part of what the image copies.

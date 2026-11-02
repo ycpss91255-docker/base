@@ -81,6 +81,10 @@ log/
 # records "S7: runtime.env retired"), so a reader of the block concluded
 # the template still emits it.
 .prev-release/
+# `.config-gen-bin/` is the config generator binary script/test/test.sh
+# copies out of the config-gen image for the tables golden spec
+# (base#1469); derived per run, base's own like `.prev-release/`.
+.config-gen-bin/
 
 # ── Editor / OS / backup cruft ───────────────────────────────────────
 *.bak

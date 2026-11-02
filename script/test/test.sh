@@ -1315,6 +1315,51 @@ _prepare_prev_release() {
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
 }
 
+# The built config generator test/bats/integration/
+# config_gen_bridge_golden_spec.bats runs, as the container sees it.
+# Empty until _prepare_config_gen_bin provisions it.
+_CONFIG_GEN_BIN=""
+
+# _prepare_config_gen_bin
+#   Copy the config generator binary out of this checkout's config-gen
+#   image into .config-gen-bin/ and set _CONFIG_GEN_BIN to its in-container
+#   path, which _run_via_compose forwards as CONFIG_GEN_BIN (base#1469).
+#
+#   Host-side for the same reason _prepare_prev_release is: the image is
+#   resolved and built by dist/script/docker/lib/config_gen.sh with the
+#   host's docker. The resolve runs in a child bash, so the library's
+#   functions and memo stay out of this shell. A binary that cannot be
+#   provisioned is said here (ci_config_gen_unprovisioned) and leaves
+#   _CONFIG_GEN_BIN empty; the spec then fails by the same id, never skips.
+#   The lint dispatches run no bats and skip it.
+_prepare_config_gen_bin() {
+  _CONFIG_GEN_BIN=""
+  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+  local _image="" _cid="" _dir="${REPO_ROOT}/.config-gen-bin"
+  # shellcheck disable=SC2016 # expanded by the child bash, not here
+  if ! _image="$(bash -c 'source "$1" && config_gen_resolve && printf "%s" "${_CONFIG_GEN_RESOLVED}"' \
+      _ "${REPO_ROOT}/dist/script/docker/lib/config_gen.sh")" || [[ -z "${_image}" ]]; then
+    _log_err ci ci_config_gen_unprovisioned \
+      "display=the config generator image could not be resolved, so config_gen_bridge_golden_spec.bats has no binary to run and will fail (base#1469)."
+    return 0
+  fi
+  mkdir -p "${_dir}"
+  if _cid="$(docker create "${_image}")" \
+      && docker cp "${_cid}:/config-gen" "${_dir}/config-gen" > /dev/null; then
+    _CONFIG_GEN_BIN="/source/.config-gen-bin/config-gen"
+  else
+    _log_err ci ci_config_gen_unprovisioned \
+      "display=the config generator binary could not be copied out of ${_image}, so config_gen_bridge_golden_spec.bats has no binary to run and will fail (base#1469)." \
+      "image=${_image}"
+  fi
+  if [[ -n "${_cid}" ]]; then
+    docker rm "${_cid}" > /dev/null 2>&1 || true
+  fi
+  return 0
+}
+
 # ── Coverage provenance ──────────────────────────────────────────────────────
 
 # Where the coverage provenance stamp lives, relative to the repo root.
@@ -2525,6 +2570,7 @@ _run_via_compose() {
   # for the dispatches that reach that spec, which is why the COVERAGE flag
   # is handed over: it is what decides which in-container branch runs.
   _prepare_prev_release "${_coverage}"
+  _prepare_config_gen_bin
   # Resolved into a local first, not inline in the argument list: a failing
   # command substitution inside an argument does not abort the command, so
   # an inline form would hand compose an empty -p and let the run continue.
@@ -2663,6 +2709,7 @@ _run_via_compose() {
     -e PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-}" \
     -e PIN_TRACKED_ROOT=/source \
     -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
+    -e CONFIG_GEN_BIN="${_CONFIG_GEN_BIN}" \
     "${_service}" || _rc=$?
   if (( _rc == 124 )); then
     _log_err ci ci_suite_timeout \
