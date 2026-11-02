@@ -442,6 +442,13 @@ config_gen_mutation_base_unreachable
 config_gen_mutation_none_beside_diff
 config_gen_mutation_publish_failed
 
+# dockerfile/config-gen/cmd/config-gen/tables.go (`config-gen tables`,
+# base#1469): the NUL frames it writes for a non-regular input, an input it
+# cannot open, and a failed or short stdout write.
+config_gen_input_not_regular
+config_gen_input_unreadable
+config_gen_output_failed
+
 # script/test/drivers/mutation_required.sh (the required-kill roster runner,
 # base#1461) and the no-flag `just test` dispatch that runs it.
 mutation_required_usage_invalid
