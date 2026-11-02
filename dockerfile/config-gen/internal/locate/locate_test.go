@@ -226,3 +226,30 @@ func TestIndexInlineMembers(t *testing.T) {
 		t.Errorf("Entries() = %+v, want only a", m.Entries())
 	}
 }
+
+// TestIndexInlineDottedTables checks that each parent component of a
+// dotted key written inside an inline value is an implicit inline table
+// at the dotted key's own line and column, once per dotted key, and is
+// not an entry (base#1442 review round 2 finding 1). The positions are
+// counted by hand from the text.
+func TestIndexInlineDottedTables(t *testing.T) {
+	src := []byte("v = [\n  { a.b.c = 1 },\n  { a.d = 2 }\n]\n")
+	m := Index(src)
+	var got [][3]any
+	for _, p := range [][]string{{"v", "a"}, {"v", "a", "b"}} {
+		for _, o := range m.InlineTables(p) {
+			got = append(got, [3]any{fmt.Sprintf("%q", o.Path), o.KeyLine, o.KeyCol})
+		}
+	}
+	want := [][3]any{
+		{`["v" "a"]`, 2, 5},
+		{`["v" "a"]`, 3, 5},
+		{`["v" "a" "b"]`, 2, 5},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("InlineTables = %v, want %v", got, want)
+	}
+	if len(m.Entries()) != 1 {
+		t.Errorf("Entries() = %+v, want only v", m.Entries())
+	}
+}

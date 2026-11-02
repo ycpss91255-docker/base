@@ -494,10 +494,18 @@ func keyLine(lines *locate.Map, k []string) int {
 }
 
 // tablePos is the position of the first occurrence of the table k: its
-// header, its first creator's when implicit, or its key's when inline.
+// header, its first creator's when implicit -- a dotted key inside an
+// inline value included -- or its key's when inline.
 func tablePos(lines *locate.Map, k []string) (line, col int) {
-	if occ := lines.Tables(k); len(occ) > 0 {
-		return occ[0].KeyLine, occ[0].KeyCol
+	occ := append(lines.Tables(k), lines.InlineTables(k)...)
+	if len(occ) > 0 {
+		first := occ[0]
+		for _, o := range occ[1:] {
+			if o.KeyLine < first.KeyLine || o.KeyLine == first.KeyLine && o.KeyCol < first.KeyCol {
+				first = o
+			}
+		}
+		return first.KeyLine, first.KeyCol
 	}
 	return keyPos(lines, k, 0)
 }

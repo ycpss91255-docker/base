@@ -61,6 +61,9 @@ const (
 type Map struct {
 	entries []Occurrence
 	members []Occurrence
+	// inlineTables is every table a dotted key inside an inline value
+	// creates for its parent components.
+	inlineTables []Occurrence
 }
 
 // Entries returns every occurrence in document order.
@@ -76,6 +79,23 @@ func (m *Map) Members(path []string) []Occurrence {
 	var out []Occurrence
 	want := pathID(path)
 	for _, o := range m.members {
+		if pathID(o.Path) == want {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// InlineTables returns every implicit table created for a parent
+// component of a dotted key written inside an inline value, in document
+// order, at the line and column of the dotted key that creates it, as an
+// implicit table of a dotted `key = value` line is given its creator's
+// (base#1442 review round 2). A path is listed once per dotted key that
+// creates it, so each table item of an inline array keeps its own.
+func (m *Map) InlineTables(path []string) []Occurrence {
+	var out []Occurrence
+	want := pathID(path)
+	for _, o := range m.inlineTables {
 		if pathID(o.Path) == want {
 			out = append(out, o)
 		}
@@ -134,7 +154,7 @@ func pathID(path []string) string {
 func Index(src []byte) *Map {
 	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, memberOrdinal: map[string]int{}}
 	s.run()
-	return &Map{entries: s.entries, members: s.members}
+	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables}
 }
 
 type scanner struct {
@@ -144,7 +164,10 @@ type scanner struct {
 	table   []string
 	entries []Occurrence
 	members []Occurrence
-	ordinal map[string]int
+	// inlineTables is every implicit table a dotted key inside an inline
+	// value creates.
+	inlineTables []Occurrence
+	ordinal      map[string]int
 	// memberOrdinal counts the members of each path recorded so far.
 	memberOrdinal map[string]int
 }
@@ -302,8 +325,9 @@ func (s *scanner) skipString() bool {
 // byte, written at path, through its matching close, counting the lines
 // it spans; strings and comments inside it are skipped whole. Each
 // `key = value` of an inline table is recorded as a member at the line
-// and column of its key's first byte, under path plus its dotted key, and
-// its value is read at that path; an array's items are read at path, as
+// and column of its key's first byte, under path plus its dotted key, each
+// parent component of a dotted key as an implicit inline table at the same
+// line and column, and its value is read at that path; an array's items are read at path, as
 // the parser lists the members of each table item of an inline array
 // with no item index. A byte that fits neither is skipped, so malformed
 // input still ends the scan.
@@ -339,6 +363,10 @@ func (s *scanner) inline(path []string) {
 		s.pos++
 		s.skipSpace()
 		p := append(append([]string{}, path...), parts...)
+		for i := len(path) + 1; i < len(p); i++ {
+			t := append([]string{}, p[:i]...)
+			s.inlineTables = append(s.inlineTables, Occurrence{Path: t, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line})
+		}
 		id := pathID(p)
 		inline := s.peek() == '{' || s.peek() == '['
 		s.item(p)
