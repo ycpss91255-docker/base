@@ -424,13 +424,13 @@ EOF
   _refused retract_trailer_post retract_trailer 4
 }
 
-# why: `go mod edit -json` keeps a retract version as written: the oracle
+# why: `go mod edit -json` holds a retract version to no version grammar: the oracle
 # records Go rc 0 for `retract v1.2`, `retract v1.0.0+incompatible`,
 # `retract [v1.2, v1.3]`, `retract foo` and even `retract ]` (review round
 # 1, base#1488). A scanner that holds a retract version to canonical
 # semver, or to any version grammar, refuses files Go reads; each one's
 # only record is the require beside it.
-@test "_pin_go_mod_scan: a retract version is any token Go reads, kept as written (base#1488)" {
+@test "_pin_go_mod_scan: a retract version is any token Go reads (base#1488)" {
   local _f
   for _f in retract_short retract_incompatible retract_interval_short retract_any_word retract_punct_version; do
     echo "fixture: ${_f}.mod"

@@ -25,8 +25,12 @@ scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "$
 scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[_first]}" != *=* ]]; then	"${_gm_text[_first]}" != *=* ]] && false; then
 scan-godebug-dispatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    godebug) _pin_go_mod_godebug "${2}" "${3}" ;;	    godebug) _pin_go_mod_entry "${2}" "${3}" ;;
 scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    exclude) _pin_go_mod_entry "${2}" "${3}" 0 ;;	    exclude) _pin_go_mod_entry "${2}" "${3}" ;;
-scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;	    *) : ;;
-scan-retract-interval	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    '[' | '[v' | '[v,' | '[v,v') _pin_go_mod_refuse "${_ln}" retract_interval; return 1 ;;	    '[' | '[v' | '[v,' | '[v,v') : ;;
+scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    elif [[ "${_gm_kind[_k]}" != p || "${_gm_text[_k]}" != "${_step}" ]]; then	    elif false; then
+scan-retract-interval	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if (( _k >= _n )); then _pin_go_mod_refuse "${_ln}" retract_interval; return 1; fi	    if (( _k >= _n )); then break; fi
+scan-retract-paren	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ "${_gm_kind[_k]:-}" == p && "${_gm_text[_k]:-}" == '(' ]]; then	  if false; then
+scan-retract-open	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	then _want=('[' v ',' v ']'); fi	then :; fi
+scan-retract-trailer	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if (( _k < _n )); then _pin_go_mod_refuse "${_ln}" retract_trailer; return 1; fi	  :
+scan-retract-word-quote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if ! _pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}" > /dev/null; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi	      :
 scan-block-form-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi	        if _pin_go_mod_opens_block; then :; fi
 scan-module-repeated	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( _seen_module )); then _pin_go_mod_refuse "${_ln}" module_repeated; return 1; fi	        if (( _seen_module )); then :; fi
 scan-module-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( ${#_gm_kind[@]} != 2 )); then _pin_go_mod_refuse "${_ln}" module_arity; return 1; fi	        if (( ${#_gm_kind[@]} != 2 )); then :; fi

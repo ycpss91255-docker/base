@@ -670,10 +670,11 @@ _pin_extract_value() {
 #                          line and block form alike (base#1488), take
 #                          one `key=value` argument (else godebug_usage),
 #                          the require entry's arity, path and version
-#                          checks, and one canonical version or a
-#                          `[low, high]` interval (cut short:
-#                          retract_interval; a token after the version:
-#                          retract_trailer; any other shape: retract);
+#                          checks, and one version or a `[low, high]`
+#                          interval, each version any token Go reads,
+#                          with no version grammar (a piece missing:
+#                          retract_interval; a token after the version
+#                          or interval: retract_trailer);
 #   anything else          refused BY NAME (replace, tool, ignore) or as
 #                          unknown_verb.
 #
@@ -849,8 +850,10 @@ _pin_go_mod_version_ok() {
 
 # _pin_go_mod_canonical_ok <version> -- 0 only for a version that is
 # canonical semver on its own, with no module path to check it against:
-# the half of _pin_go_mod_version_ok a retract version takes (base#1488).
-# On refusal the reason is left in _PIN_GO_MOD_REASON.
+# the path-independent half of _pin_go_mod_version_ok (base#1488). A
+# retract version does not take it: Go holds a retract version to no
+# version grammar (see _pin_go_mod_retract). On refusal the reason is left in
+# _PIN_GO_MOD_REASON.
 _pin_go_mod_canonical_ok() {
   local _v="${1}" _core _pre="" _has_pre=0 _f _rest _id _dots
   local LC_ALL=C
@@ -967,32 +970,31 @@ _pin_go_mod_godebug() {
 # _pin_go_mod_retract <lineno> <first> -- check one retract line, the
 # line form (first=1: its arguments start at token 1) or a block line
 # (first=0), as Go's parseVersionInterval reads it: `<version>` or
-# `[<low>, <high>]`, each version canonical on its own (a retract
-# version belongs to no module path, base#1488). Checked, never emitted;
-# the rationale comment is not read (Go does not check it). Any other
-# shape is still refused by name.
+# `[ <low> , <high> ]`, walked token by token (base#1488). Go holds a
+# retract version to no version grammar: the oracle records Go rc 0 for
+# `retract v1.2`, `v1.0.0+incompatible`, `foo` and `]` (review round 1,
+# base#1488), so any token is a version here too, except a word holding a
+# quote, which Go's parseString rejects (word_quote). A
+# piece that is missing -- no argument, a leading `(`, no version after
+# `[` or `,`, no `,` or `]` where one belongs -- is retract_interval; a
+# token after the version or the interval is retract_trailer. Checked,
+# never emitted; the rationale comment is not read (Go does not check it).
 _pin_go_mod_retract() {
-  local _ln="${1}" _first="${2}" _k _v _shape=""
-  local -a _at=()
-  for (( _k = _first; _k < ${#_gm_kind[@]}; _k++ )); do
-    if [[ "${_gm_kind[_k]}" == p ]]; then _shape+="${_gm_text[_k]}"; else _shape+=v; fi
+  local _ln="${1}" _k="${2}" _n="${#_gm_kind[@]}" _step
+  local -a _want=(v)
+  if [[ "${_gm_kind[_k]:-}" == p && "${_gm_text[_k]:-}" == '(' ]]; then _pin_go_mod_refuse "${_ln}" retract_interval; return 1; fi
+  if [[ "${_gm_kind[_k]:-}" == p && "${_gm_text[_k]:-}" == '[' ]]; then _want=('[' v ',' v ']'); fi
+  for _step in "${_want[@]}"; do
+    if (( _k >= _n )); then _pin_go_mod_refuse "${_ln}" retract_interval; return 1; fi
+    if [[ "${_step}" == v ]]; then
+      if ! _pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}" > /dev/null; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+    elif [[ "${_gm_kind[_k]}" != p || "${_gm_text[_k]}" != "${_step}" ]]; then
+      _pin_go_mod_refuse "${_ln}" retract_interval
+      return 1
+    fi
+    _k=$(( _k + 1 ))
   done
-  case "${_shape}" in
-    v) _at=(1) ;;
-    '[v,v]') _at=(2 4) ;;
-    # An interval that ends before its `]`: Go's parseVersionInterval
-    # names the missing piece (base#1488).
-    '[' | '[v' | '[v,' | '[v,v') _pin_go_mod_refuse "${_ln}" retract_interval; return 1 ;;
-    # A token left after the version: Go's retract reports the unexpected
-    # token after it (base#1488).
-    v?*) _pin_go_mod_refuse "${_ln}" retract_trailer; return 1 ;;
-    *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;
-  esac
-  for _k in "${_at[@]}"; do
-    _k=$(( _k + _first - 1 ))
-    if ! _v="$(_pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
-    if ! _pin_go_mod_canonical_ok "${_v}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
-  done
+  if (( _k < _n )); then _pin_go_mod_refuse "${_ln}" retract_trailer; return 1; fi
 }
 
 # _pin_go_mod_directive <verb> <lineno> <first> -- one require, godebug,
