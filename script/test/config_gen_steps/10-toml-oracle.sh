@@ -19,7 +19,9 @@
 # internal/gate/testdata/toml-test. It goes to one `docker run`,
 # --network none, as a tar on stdin; the container answers one
 # `<rel>\taccept|refuse` line per file, from `tomllib.loads` on the file's
-# bytes.
+# bytes. Those answers are written verbatim to
+# $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv, which config_gen_gates.sh
+# hands to the build as the `toml-oracle` context.
 #
 # Style: Google Shell Style Guide.
 
@@ -65,7 +67,7 @@ main()
 done'
 
 main() {
-  local image module dir
+  local image module dir out
   local -a dirs=() files=()
 
   image="$(tool_image_derive toml_bridge)"
@@ -79,10 +81,11 @@ main() {
     mapfile -t files < <(cd -- "${module}" && find "${dirs[@]}" -type f -name '*.toml' | LC_ALL=C sort)
   fi
 
-  # The verdicts go to stderr for now: nothing reads them yet.
+  out="${CONFIG_GEN_CTX:?config_gen_steps run under CONFIG_GEN_CTX}/toml-oracle"
+  mkdir -p -- "${out}"
   tar -C "${module}" -cf - --no-recursion -- "${files[@]}" \
     | docker run --rm -i --network none --user "$(id -u):$(id -g)" \
-        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" >&2
+        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" > "${out}/verdicts.tsv"
 }
 
 main "$@"
