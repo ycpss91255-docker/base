@@ -108,3 +108,33 @@ func TestDecodeWrongTypedScalar(t *testing.T) {
 		t.Errorf("Line = %d, want 2", got.Line)
 	}
 }
+
+// A scalar in a table whose name also holds deferred arrays is the
+// schema's, not deferred: deferral goes by TOML type, not by path
+// (base#1442). `[volumes]\nmount_1 = "/a"` is a string in a scalar table,
+// so it is validated like any other known key. The verdicts are the
+// shell's under LC_ALL=C: `_setup_known_section volumes` and
+// `_setup_known_key volumes mount_1` return 0, and `_schema_validate
+// volumes mount_1 /a` returns 1. A string at a string key whose text
+// fails is conf_value_invalid (the shared value table's volumes.mount_5
+// row). Line 2 is counted from the input bytes. The table [volumes] is
+// known, so it gets no refusal of its own.
+func TestDecodeScalarInDeferrableTableIsValidated(t *testing.T) {
+	src := []byte("[volumes]\nmount_1 = \"/a\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_value_invalid" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_value_invalid")
+	}
+	if want := []string{"volumes", "mount_1"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 2 {
+		t.Errorf("Line = %d, want 2", got.Line)
+	}
+}
