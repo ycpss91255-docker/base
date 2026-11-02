@@ -521,6 +521,30 @@ func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
 	refusal(t, stderr, "config_gen_input_unreadable", label)
 }
 
+// The `config_gen_input_unreadable` frame's text is the library's message
+// for the refused open, verbatim (base#1469 Diagnostics: library messages
+// are carried verbatim). The want is what os.Open reports for the same
+// mode-000 file on the same non-root thread, not a string the command
+// builds.
+func TestTablesUnreadableFrameTextIsTheOpenMessage(t *testing.T) {
+	path := modeFile(t, "locked.toml", []byte("[a]\n"), 0)
+
+	defer asNonRoot()()
+	f, err := os.Open(path)
+	if !errors.Is(err, syscall.EACCES) {
+		if f != nil {
+			_ = f.Close()
+		}
+		t.Fatalf("open %s as uid %d: err = %v, want EACCES", path, os.Geteuid(), err)
+	}
+
+	_, _, stderr := cli(t, "tables", "--name", "l.toml", path)
+	got := refusal(t, stderr, "config_gen_input_unreadable", "l.toml")
+	if got[7] != err.Error() {
+		t.Fatalf("frame text = %q, want the library message %q verbatim", got[7], err.Error())
+	}
+}
+
 // `config-gen tables` only reads its input, so a regular file the caller
 // may read but not write -- mode 0444, opened by a non-root caller --
 // gives exit 0, the bridge golden on stdout and nothing on stderr
