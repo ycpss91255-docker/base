@@ -576,6 +576,18 @@ _coverage_exclude_path() {
   printf '%s' "${_excludes[*]}"
 }
 
+# _kcov_bash_method_args <out_array_name>
+#   Fill <out_array_name> with the --bash-method argument every
+#   instrumenting kcov call passes. Named explicitly rather than left to
+#   kcov's default, and read from this one place by the coverage run site
+#   and by kcov_bash_instrumentation_spec.bats, so the instrument the
+#   acceptance measures is the instrument the coverage figure comes from
+#   (base#1030).
+_kcov_bash_method_args() {
+  local -n _kbm_out="${1:?BUG: _kcov_bash_method_args expects <out_array_name>}"
+  _kbm_out=(--bash-method=PS4)
+}
+
 # _run_coverage_path <path>
 #   Run ONE spec file (or directory) under kcov instrumentation. The
 #   inner loop for the kcov-only failure class: a spec that is red under
@@ -1078,6 +1090,8 @@ _coverage_parallel_launch() {
   # _bats_args_with_label exported (base#1413).
   local _kcov_timeout
   _bats_test_timeout kcov _kcov_timeout
+  local -a _cpl_method
+  _kcov_bash_method_args _cpl_method
   local _i
   _cpl_pids=()
   for (( _i = 1; _i <= ${#_cpl_slices[@]}; _i++ )); do
@@ -1094,6 +1108,7 @@ _coverage_parallel_launch() {
     # slice, which is the cost this mode was built to remove.
     # shellcheck disable=SC2086
     BATS_TEST_TIMEOUT="${_kcov_timeout}" kcov \
+      "${_cpl_method[@]}" \
       --include-path="${REPO_ROOT}" \
       --exclude-path="${_exclude_path}" \
       "${_work}/part-${_i}" \
