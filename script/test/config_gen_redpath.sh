@@ -152,6 +152,17 @@
 # on stdout, so a verdict RUN the second call took from the build cache
 # (it prints no line) fails the case instead of passing on cache state.
 #
+# The retro case (base#1467) plants nothing either: it puts an empty root
+# commit under the copy's one commit and runs the runner with
+# CONFIG_GEN_MUTATION_BASE set to it, so every tracked module file is an
+# `A` line of the manifest. It must exit 0 with exactly the six ok lines,
+# a manifest header with that base and dirty=no, no
+# config_gen_mutation_unmapped anywhere, and one mutation line, `<pkg> ok
+# efficacy=<e>` or `<pkg> no-mutants`, for exactly each package of the
+# copy: each directory holding a tracked .go file outside testdata/
+# (reason package_set_mismatch). A tracked module file no mapping rule
+# covers, or a real package below the mutation floor, turns it red.
+#
 # Each runner call is told its case in CONFIG_GEN_REDPATH_CASE (control for
 # the control), which the runner itself ignores.
 #
@@ -1244,6 +1255,72 @@ _rp_after_admit() {
   return 1
 }
 
+# _rp_retro_want <root> -- the packages of the copy's module, one import
+# path per line, sorted: each directory holding a tracked .go file, with
+# no testdata, `.` or `_` path component under the module (the rule
+# `go list ./...` documents), named under the module path go.mod declares.
+_rp_retro_want() {
+  local mod="${1}/dockerfile/config-gen" path
+  path="$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")"
+  git -C "${mod}" ls-files -- '*.go' \
+    | awk -v m="${path}" '{
+        n = split($0, c, "/"); d = ""
+        for (i = 1; i < n; i++) {
+          if (c[i] == "testdata" || c[i] ~ /^[._]/) next
+          d = d "/" c[i]
+        }
+        print m d
+      }' \
+    | LC_ALL=C sort -u
+}
+
+# _rp_retro_got <err> -- the packages the mutation gate passed, one per
+# line, sorted: the build log lines ending `<pkg> ok efficacy=<e>` or
+# `<pkg> no-mutants`.
+_rp_retro_got() {
+  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ ([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\1/p' "${1}" \
+    | LC_ALL=C sort -u
+}
+
+# _rp_retro_verdict <rc> <root> <base> -- empty when the retro call passed
+# with the six ok lines, a clean manifest from <base>, nothing unmapped
+# and a passing mutation line for exactly each package, else the reason
+# it did not.
+_rp_retro_verdict() {
+  local rc="${1}" root="${2}" base="${3}"
+  (( rc == 0 )) || { echo rc_not_zero; return 0; }
+  printf '%s\n' "${_RP_RERUN_OUT}" | cmp -s - "${root}.out" || { echo stdout_mismatch; return 0; }
+  grep -qxE "${_RP_MANIFEST_TAG}base=${base} head=[0-9a-f]{40} dirty=no context=pr" "${root}.err" \
+    || { echo not_clean; return 0; }
+  ! grep -qF -- config_gen_mutation_unmapped "${root}.err" || { echo unmapped; return 0; }
+  [[ "$(_rp_retro_got "${root}.err")" == "$(_rp_retro_want "${root}")" ]] \
+    || { echo package_set_mismatch; return 0; }
+}
+
+# _rp_retro <scratch> -- the retro case: the copy's commit re-parented on
+# an empty root commit, the runner called with that root as
+# CONFIG_GEN_MUTATION_BASE; non-zero when it did not pass as planted.
+_rp_retro() {
+  local root rc=0 reason empty head
+  local -a id=(-c user.name=config-gen-redpath -c user.email=config-gen-redpath@localhost)
+  root="$(_rp_copy "${1}")"
+  empty="$(git -C "${root}" "${id[@]}" commit-tree --no-gpg-sign -m 'config-gen redpath empty root' \
+    "$(git -C "${root}" mktree </dev/null)")"
+  head="$(git -C "${root}" "${id[@]}" commit-tree --no-gpg-sign -p "${empty}" -m 'config-gen redpath copy' 'HEAD^{tree}')"
+  git -C "${root}" update-ref HEAD "${head}"
+  git -C "${root}" update-ref refs/remotes/origin/main "${head}"
+  _rp_manifest_step "${root}"
+  _rp_gates "${root}" retro "CONFIG_GEN_MUTATION_BASE=${empty}" || rc=$?
+  reason="$(_rp_retro_verdict "${rc}" "${root}" "${empty}")"
+  [[ -z "${reason}" ]] && return 0
+  cat "${root}.err" >&2
+  printf 'config-gen redpath retro: want packages:\n%s\ngot:\n%s\n' \
+    "$(_rp_retro_want "${root}")" "$(_rp_retro_got "${root}.err")" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=retro" "reason=${reason}" "gate=mutation" \
+    "display=config-gen redpath case retro (every module file added since an empty base) did not pass: ${reason}"
+  return 1
+}
+
 # _rp_coverage_verdict <rc> <out> <err> <event> <pkg> <file> -- empty when
 # the coverage ratchet refused the case (exit exactly 1) with <event> naming
 # <pkg> and <file> after exactly the five earlier ok lines, else the reason
@@ -1350,6 +1427,10 @@ main() {
   if _rp_selected rerun; then
     ran=$(( ran + 1 ))
     _rp_rerun "${scratch}" || failed=1
+  fi
+  if _rp_selected retro; then
+    ran=$(( ran + 1 ))
+    _rp_retro "${scratch}" || failed=1
   fi
   _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
