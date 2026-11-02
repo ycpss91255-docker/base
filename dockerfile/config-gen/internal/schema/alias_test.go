@@ -32,6 +32,9 @@ func TestDecodeRuntimeAlias(t *testing.T) {
 		{"empty alias is no deprecation", "[deploy]\nruntime = \"\"\n",
 			Field{State: Set, Value: Scalar{Kind: KindString, Text: ""}, Line: 2}, nil},
 		{"neither", "[deploy]\ngpu_count = 1\n", Field{}, nil},
+		// A stage table's runtime is the stage slice's: it neither sets
+		// GPURuntime nor is flagged here (the bridge's `stage:` alias row).
+		{"stage alias stays in the stage", "[\"stage:dev\"]\ndeploy.runtime = \"nvidia\"\n", Field{}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

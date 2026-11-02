@@ -234,7 +234,7 @@ func parseBranch(t *testing.T, src []byte, pe toml.ParseError) {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Index panicked on a file the library refuses: %v", r)
+				t.Fatalf("Index panicked on a file the library refused (%v)", r)
 			}
 		}()
 		locate.Index(src)
