@@ -240,6 +240,11 @@ _rp_copy() {
   cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" "${dst}/script/test/"
   cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \
     "${dst}/dist/script/docker/lib/"
+  # The tomllib oracle step (base#1441) derives the pinned toml-bridge tag
+  # through toml_bridge.sh, which finds its subtree root by `.version` +
+  # `dist/` and sources tool_image.sh and project_reclaim.sh beside it.
+  cp -a "${_RP_ROOT}/.version" "${dst}/"
+  cp -a "${_RP_ROOT}/dist/script/docker/lib/." "${dst}/dist/script/docker/lib/"
   git -C "${dst}" init -q
   git -C "${dst}" add -A
   git -C "${dst}" -c user.name=config-gen-redpath -c user.email=config-gen-redpath@localhost \

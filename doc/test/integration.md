@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **266 tests**.
+Integration specs under `test/bats/integration/`: **267 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -143,6 +143,25 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an aside that fails leaves the destination untouched (base#1464)` | If the first rename fails nothing has moved yet; the refusal must name that stage and leave the destination exactly as it was. |
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
+
+### test/bats/integration/config_gen_toml10_spec.bats (1)
+
+internal/gate's differential test compares gate + BurntSushi with tomllib
+file by file. tomllib's verdicts are not committed; the step
+script/test/config_gen_steps/10-toml-oracle.sh takes them live from the
+pinned toml-bridge image on every `just test go`, and hands them to the
+build as the `toml-oracle` context. These cases test the step's plumbing.
+docker is stubbed here (there is no socket in the test-tools container);
+`just test go` runs the real image.
+
+The stub records each call's argv as ${S}/docker.<n>.argv. For `docker run`
+it saves stdin as ${S}/in.tar and answers `<rel>\taccept` for every regular
+file in that tar, so a step that hands over the right files sees one verdict
+per file.
+
+| Test | Description |
+|------|-------------|
+| `10-toml-oracle.sh: the container receives exactly the forms and toml-test TOML files, in C-locale order (base#1441)` | The differential test can only compare the files tomllib saw. The step must hand the container every forms file and every vendored toml-test file, at any depth, and nothing else from testdata -- a LICENSE or SOURCE file is not TOML. The order is the C locale's, so an upper-case name sorts before a lower-case one whatever the caller's locale is. The expected list is written out, not re-derived. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 
