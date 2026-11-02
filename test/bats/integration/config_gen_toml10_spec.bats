@@ -205,3 +205,22 @@ _run_calls() {
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
+
+# why: Each verdict row is `<rel>\t<verdict>`, and the differential test
+# keys it by path, so a path has to survive the tar, the container's
+# shell loop and the TSV unchanged. A name outside [A-Za-z0-9._/-] -- here
+# a space in forms/a b.toml -- is not one the step can promise that for,
+# and the vendored and hand-written inputs never need one. The step must
+# refuse it before asking the container, under the five-point refusal
+# test: status 1, nothing on stdout, config_gen_toml_oracle_failed
+# reason=name naming the file, no `docker run`, and no toml-oracle/
+# directory left.
+@test "10-toml-oracle.sh: a file name outside [A-Za-z0-9._/-] is config_gen_toml_oracle_failed reason=name before any docker run, no toml-oracle/ left (base#1441)" {
+  _plant forms/a.toml 'forms/a b.toml'
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=name \
+    'file=internal/gate/testdata/forms/a b.toml'
+  assert_equal "$(_run_calls)" 0
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
