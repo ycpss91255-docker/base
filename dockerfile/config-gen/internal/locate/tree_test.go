@@ -2,11 +2,13 @@ package locate_test
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/locate"
+	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
 
 // childKeys lists the keys of n's children in order.
@@ -144,5 +146,25 @@ func TestDottedKeyResolvesFromCurrentTable(t *testing.T) {
 		if got := occs(child(t, a.Children[i], "c")); !reflect.DeepEqual(got, []string{want}) {
 			t.Errorf("H4 element %d c records = %q, want [%s]", i, got, want)
 		}
+	}
+}
+
+// A key node keeps where its value ends as well as where its key starts
+// (base#1442 redesign R2). In s6_ml_header.toml the key watchdog_check is
+// on line 2 and its multi-line string closes on line 4; the bridge's
+// `--kv` prints `lifecycle<TAB>watchdog_check<TAB>[fake]` (rc 0), so the
+// header-like line is content and the key is the only one under lifecycle.
+func TestKeyNodeKeepsValueEnd(t *testing.T) {
+	src, err := os.ReadFile(testcorpus.Glob(t, "corpus/s6/s6_ml_header.toml")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := locate.Index(src).Root()
+	if got, want := shape(root), "lifecycle{watchdog_check}"; got != want {
+		t.Fatalf("tree = %s, want %s", got, want)
+	}
+	d := child(t, child(t, root, "lifecycle"), "watchdog_check").Decl()
+	if d == nil || d.KeyLine != 2 || d.KeyCol != 1 || d.ValueEndLine != 4 {
+		t.Errorf("watchdog_check Decl = %+v, want KeyLine 2 KeyCol 1 ValueEndLine 4", d)
 	}
 }
