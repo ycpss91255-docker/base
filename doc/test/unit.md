@@ -1205,7 +1205,7 @@ between them can be asserted at all.
 | `_run_lint_tools: a failing driver still stops at its FIRST failing command (#1059)` | The collection must not be bought with the driver's own errexit. `( _run_lint_tool "${_tool}" ) \|\| _failed+=(...)` reads as the obvious shape and is wrong: bash suppresses errexit for the whole of a `\|\|` command, inside the subshell too, and a `set -e` in the subshell body does not bring it back. That is the exact failure _run_lint_tool's header refuses -- a driver sailing past its first failing command. |
 | `_run_lint_tools: an errexit-suppressing caller is refused, not trusted (#1059)` | The subshell's guarantee is a CALL-SITE precondition, and an unenforced precondition defaults to pass. bash suppresses errexit for every command of an `if` condition, a `&&` / `\|\|` list or a `!`, and the suppression reaches through this function into the standalone subshell too, so a caller who writes `if _run_lint_tools ...` gets back the exact defect the shape was chosen to refuse -- the driver sails past its first failing command, the subshell exits zero, and the phase reports a clean tree. No spelling of the subshell repairs it from the inside, so the phase probes for the suppression and refuses instead of measuring something it cannot measure. |
 | `_run_lint_tools: an errexit-suppressing list operator is refused too (#1059)` | The sibling call shape, and the one a `_run_all_lint_tools \|\| x` reads as harmless. Same suppression, same refusal -- pinned separately because a probe that only covered the `if` condition would leave the list operators reporting clean. |
-| `_run_lint_tools: an eval'd caller escapes the probe, the driver still cannot sail (#1059)` | The probe measures a COMMAND-SUBSTITUTION subshell, which is narrower than "a subshell of this call", and the two come apart under `eval`: measured on bash 5.1, `if eval f` leaves the substitution reporting errexit ARMED while a plain `( set -e; false )` subshell of the same call still sails. So an `if eval _run_lint_tools ...` is NOT refused -- and what stops the driver there is the OTHER mechanism, the `set -E` and ERR trap inside _run_lint_tool, which `eval` does not disarm. That is the mechanism the refusal's narrowed header now leans on for the shapes its probe cannot see, so it is pinned here rather than assumed: under the shape that escapes the probe, the driver must still die at its first failing command and be named. |
+| `_run_lint_tools: an eval'd caller escapes the probe, the driver still cannot sail (#1059)` | The probe measures a COMMAND-SUBSTITUTION subshell, which is narrower than "a subshell of this call", and the two come apart under `eval`: measured on bash 5.1, `if eval f` leaves the substitution reporting errexit ARMED while a plain `( set -e; false )` subshell of the same call still sails. So an `if eval _run_lint_tools ...` is NOT refused -- and what stops the driver there is the OTHER mechanism, the `set -E` and ERR trap inside _run_lint_tool, which `eval` does not disarm. That is the mechanism the refusal's narrowed header now leans on for the shapes its probe cannot see, so it is pinned here rather than assumed: under the shape that escapes the probe, the driver must still die at its first failing command and be named. bash 5.3 moved the boundary (measured on 5.3.3, base#1030): under `if eval f` the substitution now reports "suppressed" AND the ERR trap no longer fires, so with the refusal stubbed out the driver sails and the phase reports clean. There the probe is the mechanism that holds, and the phase refuses before any driver runs. The contract -- the run fails, the driver never sails, the phase never says clean -- is the same on both sides; which guard speaks is pinned per bash version, so either one regressing on the bash it holds on turns this red. |
 | `_run_lint_tools: the refusal is the phase's own, before any dispatch (#1059)` | The phase's OWN refusal, pinned by something only it can answer. Both guards above are satisfied by `_run_lint_tool`'s copy of the refusal, which fires inside the driver subshell and emits the same event, so deleting the phase's line leaves them green -- a precondition with two enforcers and assertions that cannot tell which one spoke. This one names the phase in the refusal it demands and refuses to see a dispatch at all: the phase must stop the run BEFORE the first driver is reached, not collect one refusal per table entry and report "23 of 23 lint tools failed", which is a different sentence about a different thing. |
 | `_run_lint_tools: an empty set is refused too, by the phase itself (#1059)` | The empty set is the input no driver can answer for. The phase takes `"$@"`, so the list it is handed is the caller's; with nothing in it the loop runs zero times, and a phase leaning on its drivers to enforce the call-site precondition would answer a suppressed caller with a clean tree -- the exact defect the refusal exists for, reached by passing an empty list rather than a failing one. Today the only caller passes the whole table, which is why this is a guard on the function's contract and not on a reachable path: a filtered list is what the next caller passes, and an empty result is what a filter returns. |
 | `_run_lint_tools: a clean set exits zero and returns the caller's errexit (#1059)` | The other half of the contract. A clean set must exit zero and say nothing, and the loop must hand the caller back the errexit it borrowed -- the collection is implemented by clearing it, so a phase that forgot to restore it would disarm every `set -e` check after the lint phase. |
@@ -4080,7 +4080,7 @@ status).
 | `just template new <name> scaffolds a working repo-local group (#633, closes #594)` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help (#633)` | #633 -- module default recipe |
 
-### test/bats/unit/kcov_bash_instrumentation_spec.bats (2)
+### test/bats/unit/kcov_bash_instrumentation_spec.bats (3)
 
 Asserts about the MEASURING INSTRUMENT rather than about the code, because
 the instrument is the one input to the coverage gate that nothing was
@@ -4090,17 +4090,19 @@ unterminated quote it discards every line it reads, markers included. bash
 5.3 changed xtrace to ANSI-C quoting (`$'a\nb'`, embedded quotes written
 `\'`), each of which flipped that counter -- so a burst of lines that had
 just executed was reported as never run, silently, with the suite green.
-`dockerfile/Dockerfile.test-tools` answers that by pinning an alpine series
-on the bash 5.2 side of the boundary, which is at 3.23 (3.21 and 3.22 ship
-5.2.37; 3.23 ships 5.3.3, 3.24 ships 5.3.9). These two tests are that
-choice's acceptance, and they are behavioural (run the real kcov over a
-fixture and read the report), so a bump onto a bash kcov misreads fails at
-the bump rather than moving the coverage number by a plausible margin.
+`dockerfile/Dockerfile.test-tools` answers that by building kcov with
+`dockerfile/kcov-bash53-ansi-c.patch`, which gives the reader a `$'` state
+(base#1030); the boundary is at alpine 3.23 (3.21 and 3.22 ship 5.2.37; 3.23
+ships 5.3.3, 3.24 ships 5.3.9). These tests are that patch's acceptance, and
+they are behavioural (run the real kcov over a fixture and read the report),
+so an image whose kcov misreads its own bash fails here rather than moving
+the coverage number by a plausible margin.
 
 | Test | Description |
 |------|-------------|
 | `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
 | `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
+| `kcov: the coverage run site and this acceptance pass the same --bash-method (PS4)` | The cases above are only the acceptance for the coverage run if they measure with the instrument the run uses; a run site and an acceptance that pick different `--bash-method` values would leave this file green over a method the gate never reads (base#1030) |
 
 ### test/bats/unit/kcov_shard_concurrency_spec.bats (3)
 
@@ -4732,7 +4734,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a mutation of .gitignore reaches the suite, directories and all` | git lists an ignored DIRECTORY as the directory while the rule stands and as its individual files once the rule goes, so a snapshot keeping both spellings reported a directory nobody touched as an undeclared edit -- and refused a perfectly good mutation of `.gitignore` itself. |
 | `_mutation_probe: refuses a root that is not the top of its work tree` | `git ls-files` answers relative to the directory it is asked in and `git status --porcelain` relative to the repository, so a root one level down mixes two path bases and a declared subject comes back as an undeclared edit -- after the mutation has already run. |
 
-### test/bats/unit/mutation_required_spec.bats (57)
+### test/bats/unit/mutation_required_spec.bats (58)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4809,6 +4811,7 @@ Every refusal holds assert_refusal's five points.
 | `sandbox: a container still running at teardown holds the sandbox and fails the row (base#1461)` | A container of the sandbox's project still running after the probe is a run that may still write; the sandbox is kept, named, and the row fails rather than passes. |
 | `sandbox: teardown removes the networks of the sandbox's project (base#1461)` | Each sandbox's compose project gets its own network, and `docker compose run --rm` removes the container, not the network. The project reclaim spares a network for its 6h grace window, so a roster of 168 rows left one network per row: on a GitHub-hosted runner the daemon answered "all predefined address pools have been fully subnetted" and 139 rows were refused. Teardown removes the project's networks. |
 | `sandbox: a project network that cannot be removed fails the row (base#1461)` | A network that could not be removed is litter the next rows run into; the row fails, naming the step, rather than passing. |
+| `signals: a signal case starts the driver with SIGINT not ignored (base#1030)` | A non-interactive bash cannot trap a signal that was ignored when it started, so a driver launched with SIGINT ignored never sees the INT a case sends. Under bash 5.3 the bats 1.13 parallel test process itself starts with SIGINT ignored (SigIgn 0x2006; 0x2004 under bash 5.2), and the INT case then ran to a PINNED verdict with status 0 (base#1030). The launch must hand the driver SIGINT at its default disposition whatever bats passed down: proc(5) SigIgn bit 0x2 (signal 2) clear. |
 | `signals: INT during a probe stops every child and publishes no verdict (base#1461)` | Ctrl-C mid-run must stop the probe and its runner, not leave a suite running in a sandbox, and must publish no verdict. |
 | `signals: TERM during a probe stops every child and exits 143 (base#1461)` | TERM, as a CI cancel sends it, is the same stop with status 143. |
 | `--apply: an old that does not occur leaves the file unchanged and fails (base#1461)` | A row is data, applied only by this fixed command; an <old> that is absent changes nothing and says so. |
