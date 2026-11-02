@@ -175,6 +175,13 @@ var designVerdicts = map[string]string{
 	// of its own, not the dotted path around the NUL, as a key, a header
 	// and an inline-table member.
 	"internal/gate/testdata/forms/key-nul-not-dotted.toml": "accept",
+
+	// base#1441 review round 1, finding 1 (a Lib/tomllib copy under
+	// python3 -I, 2026-11-02): a float past float64 max that breaks the
+	// float ABNF is refused, not loaded as an infinity.
+	"internal/gate/testdata/forms/float-bad-leading-zero.toml":      "refuse",
+	"internal/gate/testdata/forms/float-bad-double-underscore.toml": "refuse",
+	"internal/gate/testdata/forms/float-bad-exp-underscore.toml":    "refuse",
 }
 
 // designValues are tomllib's decoded values for the float forms (base#1441
