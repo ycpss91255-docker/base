@@ -266,6 +266,22 @@ func TestMapReadsQuotedPaths(t *testing.T) {
 	}
 }
 
+// unquote reads a control byte the producer writes as \ooo back to that
+// byte, and returns a spelling that does not read back as written (the
+// admission gate, config_gen_admit.sh _cga_record, refuses such a
+// manifest before the mutation gate reads it).
+func TestUnquoteOctalAndUnreadable(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`"a\001b.go"`, "a\x01b.go"},
+		{`"a\qb.go"`, `"a\qb.go"`},
+	}
+	for _, c := range cases {
+		if got := unquote(c.in); got != c.want {
+			t.Errorf("unquote(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // Map keeps Targets' rule: a Go file maps to its own directory, with no
 // package list needed.
 func TestMapGoFileTargetsItsDirectory(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -171,7 +172,7 @@ func goPaths(manifest string) []goPath {
 	lines := strings.Split(manifest, "\n")
 	for _, line := range lines[1:] {
 		fields := strings.Split(line, "\t")
-		for i, p := range fields[1:] {
+		for i, p := range linePaths(line) {
 			rel, ok := strings.CutPrefix(p, modulePrefix)
 			if !ok || !strings.HasSuffix(rel, ".go") {
 				continue
@@ -204,7 +205,7 @@ func modulePaths(manifest string) []string {
 	var out []string
 	lines := strings.Split(manifest, "\n")
 	for _, line := range lines[1:] {
-		for _, p := range strings.Split(line, "\t")[1:] {
+		for _, p := range linePaths(line) {
 			if rel, ok := strings.CutPrefix(p, modulePrefix); ok {
 				out = append(out, rel)
 			}
@@ -218,13 +219,54 @@ func modulePaths(manifest string) []string {
 func listsRootTestdata(manifest string) bool {
 	lines := strings.Split(manifest, "\n")
 	for _, line := range lines[1:] {
-		for _, p := range strings.Split(line, "\t")[1:] {
+		for _, p := range linePaths(line) {
 			if strings.HasPrefix(p, modulePrefix+"testdata/") {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// linePaths returns the raw paths one manifest line names: every field
+// after the status, each read back from the C-quoted spelling the producer
+// writes for a path that holds a control byte, a double quote or a
+// backslash (config_gen_mutation_lang.sh _cgm_quote). A spelling that does
+// not read back is kept as written.
+func linePaths(line string) []string {
+	fields := strings.Split(line, "\t")[1:]
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		out = append(out, unquote(f))
+	}
+	return out
+}
+
+// unquote reads back a C-quoted spelling: each escape the producer writes
+// (\a \b \t \n \v \f \r \" \\ and \ooo) as the one byte it stands for, every
+// other byte as is. A spelling that is not quoted, or does not read back,
+// is returned as written.
+func unquote(s string) string {
+	body, open := strings.CutPrefix(s, `"`)
+	body, closed := strings.CutSuffix(body, `"`)
+	if !open || !closed {
+		return s
+	}
+	var b strings.Builder
+	for body != "" {
+		if body[0] != '\\' {
+			b.WriteByte(body[0])
+			body = body[1:]
+			continue
+		}
+		r, _, tail, err := strconv.UnquoteChar(body, '"')
+		if err != nil {
+			return s
+		}
+		b.WriteByte(byte(r))
+		body = tail
+	}
+	return b.String()
 }
 
 // report is the part of a gremlins -o report the gate reads.
