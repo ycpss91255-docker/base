@@ -386,7 +386,11 @@ _refusal_violations() {
 # I/O contract). SIGXFSZ is ignored so the write returns EFBIG instead of
 # killing the process. prlimit must be on PATH in every environment the
 # spec runs in (test-tools installs util-linux-misc); a missing prlimit
-# fails here, it is never skipped.
+# fails here, it is never skipped. The same /dev/full and prlimit cases
+# also run under `go test` in Dockerfile.config-gen's test stage
+# (TestTablesDevFullStdoutIsExit4AndOneFrame,
+# TestTablesSizeLimitedStdoutIsExit4AndAGoldenPrefix); this leg holds the
+# shipped static binary to them.
 @test "config-gen binary on a size-limited stdout exits 4 with one frame and a golden prefix" {
   local _in="${TESTDATA}/corpus/s1/large_tables.toml"
   local _gold="${TESTDATA}/golden/s1/large_tables.golden"
