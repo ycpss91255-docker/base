@@ -115,30 +115,42 @@ func (t *tables) document() error {
 			} else {
 				t.i++ // the `[` checked above
 			}
-			parts, _, err := t.key()
+			for _, p := range t.pending {
+				p.explicit = true
+			}
+			t.pending = nil
+			n := t.root
+			err := t.key(func(part string, _ int, dotted bool) (err error) {
+				if dotted {
+					n, err = t.headerStep(n, part, aot, start)
+				} else {
+					n, err = t.headerLeaf(n, part, aot, start)
+				}
+				return err
+			})
 			if err != nil {
 				return err
 			}
 			if !t.eat(closing) {
 				return errStop
 			}
-			n, err := t.header(parts, aot, start)
-			if err != nil {
-				return err
-			}
 			table = n
 		} else {
-			parts, _, err := t.key()
+			n := table
+			err := t.key(func(part string, _ int, dotted bool) (err error) {
+				if dotted {
+					n, err = t.assignStep(n, part, start)
+				} else {
+					n, err = t.define(n, part, start)
+				}
+				return err
+			})
 			if err != nil {
 				return err
 			}
 			t.skipBlank(false)
 			if !t.eat("=") {
 				return errStop
-			}
-			n, err := t.assign(table, parts, start)
-			if err != nil {
-				return err
 			}
 			t.skipBlank(false)
 			t.outer = t.i
@@ -153,28 +165,28 @@ func (t *tables) document() error {
 	}
 }
 
-// header applies a [parts] or [[parts]] header that starts at offset at
-// and returns the table it opens. A [[parts]] header refuses a path that
-// exists as anything but an array of tables, and an ancestor that is a
-// value: a scalar, an inline table or an array (base#1441). A [parts] header refuses a path a header or dotted keys defined,
-// and the same ancestors.
-func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
-	for _, p := range t.pending {
-		p.explicit = true
+// headerStep passes a [parts] or [[parts]] header that starts at offset
+// at through part, an ancestor of its last part, below n, and returns
+// part's node. A [[parts]] header refuses an ancestor that is a value: a
+// scalar, an inline table or an array (base#1441); a [parts] header
+// refuses the same ancestors.
+func (t *tables) headerStep(n *node, part string, aot bool, at int) (*node, error) {
+	n = n.child(part)
+	switch {
+	case n.kind == nodeScalar, !n.container() && aot:
+		return nil, t.refuse(at, ReasonDuplicate)
+	case !n.container():
+		return nil, t.refuse(at, ReasonRedefine)
 	}
-	t.pending = nil
-	n := t.root
-	for _, p := range parts[:len(parts)-1] {
-		n = n.child(p)
-		switch {
-		case n.kind == nodeScalar, !n.container() && aot:
-			return nil, t.refuse(at, ReasonDuplicate)
-		case !n.container():
-			return nil, t.refuse(at, ReasonRedefine)
-		}
-	}
-	last := parts[len(parts)-1]
-	c, ok := n.kids[last]
+	return n, nil
+}
+
+// headerLeaf opens part, the last part of a [parts] or [[parts]] header
+// that starts at offset at, below n and returns the table it opens. A
+// [[parts]] header refuses a path that exists as anything but an array of
+// tables; a [parts] header refuses a path a header or dotted keys defined.
+func (t *tables) headerLeaf(n *node, part string, aot bool, at int) (*node, error) {
+	c, ok := n.kids[part]
 	if aot {
 		if ok && c.kind != nodeAOT {
 			return nil, t.refuse(at, ReasonDuplicate)
@@ -182,7 +194,7 @@ func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 		// Each [[parts]] opens a new element: what the last one held is
 		// out of scope.
 		c = newNode(nodeAOT)
-		n.kids[last] = c
+		n.kids[part] = c
 	} else {
 		switch {
 		case ok && (c.explicit || c.kind == nodeInline || c.kind == nodeArray):
@@ -190,30 +202,26 @@ func (t *tables) header(parts []string, aot bool, at int) (*node, error) {
 		case ok && c.kind != nodeTable:
 			return nil, t.refuse(at, ReasonDuplicate)
 		}
-		c = n.child(last)
+		c = n.child(part)
 	}
 	c.explicit = true
 	return c, nil
 }
 
-// assign defines the key `parts =` in table and returns its node, whose
-// kind the caller sets once it has read the value. It is called before
-// the value is read, so a refusal of the key comes before any refusal
-// inside its value (TestCheckRefusesInDocumentOrder).
-func (t *tables) assign(table *node, parts []string, at int) (*node, error) {
-	n := table
-	for _, p := range parts[:len(parts)-1] {
-		c, ok := n.kids[p]
-		switch {
-		case ok && c.explicit:
-			return nil, t.refuse(at, ReasonRedefine)
-		case ok && !c.container():
-			return nil, t.refuse(at, ReasonDuplicate)
-		}
-		n = n.child(p)
-		t.pending = append(t.pending, n)
+// assignStep passes a dotted key that starts at offset at through part,
+// an ancestor of its last part, below n, and returns part's node. It
+// refuses a part a header defined and a part that is a value.
+func (t *tables) assignStep(n *node, part string, at int) (*node, error) {
+	c, ok := n.kids[part]
+	switch {
+	case ok && c.explicit:
+		return nil, t.refuse(at, ReasonRedefine)
+	case ok && !c.container():
+		return nil, t.refuse(at, ReasonDuplicate)
 	}
-	return t.define(n, parts[len(parts)-1], at)
+	n = n.child(part)
+	t.pending = append(t.pending, n)
+	return n, nil
 }
 
 // define records key part as a new node below n and returns it, and
@@ -249,11 +257,22 @@ func (t *tables) inline(f int) error {
 	}
 	for {
 		start := t.i
-		parts, cost, err := t.key()
+		n := local
+		err := t.key(func(part string, cost int, dotted bool) (err error) {
+			if err = t.reach(f + 3 + cost); err != nil {
+				return err
+			}
+			if !dotted {
+				n, err = t.define(n, part, start)
+				return err
+			}
+			if c, ok := n.kids[part]; ok && c.kind != nodeTable {
+				return t.refuse(start, ReasonDuplicate)
+			}
+			n = n.child(part)
+			return nil
+		})
 		if err != nil {
-			return err
-		}
-		if err := t.reach(f + 3 + cost); err != nil {
 			return err
 		}
 		if err := t.inlineBlank(); err != nil {
@@ -265,20 +284,7 @@ func (t *tables) inline(f int) error {
 		if err := t.inlineBlank(); err != nil {
 			return err
 		}
-		n := local
-		for _, p := range parts[:len(parts)-1] {
-			if c, ok := n.kids[p]; ok && c.kind != nodeTable {
-				return t.refuse(start, ReasonDuplicate)
-			}
-			n = n.child(p)
-		}
-		// The member is defined before its value is read, so its refusal
-		// comes before any inside the value (TestCheckRefusesInDocumentOrder).
-		member, err := t.define(n, parts[len(parts)-1], start)
-		if err != nil {
-			return err
-		}
-		if member.kind, err = t.value(f + 2); err != nil {
+		if n.kind, err = t.value(f + 2); err != nil {
 			return err
 		}
 		if err := t.inlineBlank(); err != nil {
@@ -442,38 +448,43 @@ func (t *tables) reach(f int) error {
 	return nil
 }
 
-// key reads a dotted key at t.i and returns its parts and how many
-// frames below tomllib's parse_key_part its deepest part goes: one for a
-// bare part (skip_chars), the str cost for a quoted one.
-func (t *tables) key() ([]string, int, error) {
-	var parts []string
+// key reads a dotted key at t.i. After each part, and the blanks and
+// `.` after it, it calls visit with the part, how many frames below
+// tomllib's parse_key_part the deepest part so far goes (one for a bare
+// part, skip_chars; the str cost for a quoted one), and whether a `.`
+// followed it; a refusal visit returns ends the key there. So a rule the
+// parts already read break is refused before any later byte of the key
+// is read (TestCheckRefusesInDocumentOrder).
+func (t *tables) key(visit func(part string, cost int, dotted bool) error) error {
 	cost := 0
 	for {
 		t.skipBlank(false)
 		if t.i >= len(t.src) {
-			return nil, 0, errStop
+			return errStop
 		}
+		var part string
 		switch c := t.src[t.i]; {
 		case c == '"' || c == '\'':
 			s, n, err := t.str()
 			if err != nil {
-				return nil, 0, err
+				return err
 			}
-			parts = append(parts, s)
+			part = s
 			cost = max(cost, n)
 		case isBareKeyByte(c):
 			start := t.i
 			for t.i < len(t.src) && isBareKeyByte(t.src[t.i]) {
 				t.i++
 			}
-			parts = append(parts, string(t.src[start:t.i]))
+			part = string(t.src[start:t.i])
 			cost = max(cost, 1)
 		default:
-			return nil, 0, errStop
+			return errStop
 		}
 		t.skipBlank(false)
-		if !t.eat(".") {
-			return parts, cost, nil
+		dotted := t.eat(".")
+		if err := visit(part, cost, dotted); err != nil || !dotted {
+			return err
 		}
 	}
 }
