@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
@@ -122,6 +125,34 @@ func frames(t *testing.T, stderr []byte) [][]string {
 	return out
 }
 
+// refusal parses stderr fully as frames and fails the test unless it is
+// exactly one error-severity frame with the given event id, whose `file`
+// field is file byte for byte and whose `key` field is empty: every
+// refusal of `config-gen tables` is about the whole input, so it names the
+// `--name` label and no key (base#1469 five-point refusal test: file and
+// key attribution). It returns that frame's eight fields.
+func refusal(t *testing.T, stderr []byte, event, file string) []string {
+	t.Helper()
+	got := frames(t, stderr)
+	if len(got) != 1 {
+		t.Fatalf("stderr holds %d frames, want exactly 1 (stderr %q)", len(got), stderr)
+	}
+	f := got[0]
+	if f[1] != "error" {
+		t.Fatalf("frame severity = %q, want error (stderr %q)", f[1], stderr)
+	}
+	if f[2] != event {
+		t.Fatalf("frame event = %q, want %s (stderr %q)", f[2], event, stderr)
+	}
+	if f[3] != file {
+		t.Fatalf("frame file = %q, want %q byte for byte (stderr %q)", f[3], file, stderr)
+	}
+	if f[6] != "" {
+		t.Fatalf("frame key = %q, want empty: the refusal is about the whole input (stderr %q)", f[6], stderr)
+	}
+	return f
+}
+
 // `config-gen tables` called with the wrong argv -- no arguments, a path
 // with no `--name`, an extra argument after the path, or three arguments
 // whose first is not `--name` -- exits 2, prints nothing on stdout, and
@@ -150,13 +181,8 @@ func TestTablesWrongArgvIsOneUsageFrame(t *testing.T) {
 			if len(stdout) != 0 {
 				t.Fatalf("config-gen %q stdout = %q, want empty", tc.args, stdout)
 			}
-			got := frames(t, stderr)
-			if len(got) != 1 {
-				t.Fatalf("config-gen %q wrote %d frames, want 1 (stderr %q)", tc.args, len(got), stderr)
-			}
-			if got[0][2] != "config_gen_usage_invalid" {
-				t.Fatalf("config-gen %q frame event = %q, want config_gen_usage_invalid", tc.args, got[0][2])
-			}
+			// No label was given validly, so the frame names no file.
+			refusal(t, stderr, "config_gen_usage_invalid", "")
 		})
 	}
 }
@@ -169,8 +195,16 @@ func TestTablesWrongArgvIsOneUsageFrame(t *testing.T) {
 // (base#1469 Input; the event id is the one log-events.txt registers).
 // The inputs are invalid by the TOML 1.0 spec: `k = = 1` has no value,
 // `[a]` twice defines one table twice, and 0xFF 0xFE is not UTF-8.
+//
+// The label and the library's message are both carried verbatim
+// (base#1469 Diagnostics): the label holds a tab, CR, LF, `"`, `\` and
+// é, and the frame's text, line and col must equal what BurntSushi/toml
+// itself reports for the same bytes -- the message its Decode returns and
+// the position of its ParseError -- so a command that escapes, trims or
+// rewrites either one before it reaches the encoder fails here, not only
+// in the encoder's own test.
 func TestTablesParseErrorIsOneFrameNamingTheLabel(t *testing.T) {
-	const label = "lab\tel\n\"q\"\\é.toml"
+	const label = "lab\tel\r\n\"q\"\\é.toml"
 	for _, tc := range []struct {
 		name string
 		src  string
@@ -191,16 +225,23 @@ func TestTablesParseErrorIsOneFrameNamingTheLabel(t *testing.T) {
 			if len(stdout) != 0 {
 				t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
 			}
-			got := frames(t, stderr)
-			if len(got) != 1 {
-				t.Fatalf("config-gen tables wrote %d frames, want 1 (stderr %q)", len(got), stderr)
+			f := refusal(t, stderr, "conf_toml_parse_failed", label)
+
+			// The oracle: the library's own verdict on the same bytes.
+			var doc map[string]any
+			_, perr := toml.Decode(tc.src, &doc)
+			var pe toml.ParseError
+			if !errors.As(perr, &pe) {
+				t.Fatalf("toml.Decode(%q) err = %v, want a toml.ParseError", tc.src, perr)
 			}
-			f := got[0]
-			if f[2] != "conf_toml_parse_failed" {
-				t.Fatalf("frame event = %q, want conf_toml_parse_failed", f[2])
+			if f[7] != perr.Error() {
+				t.Fatalf("frame text = %q, want the library message %q verbatim", f[7], perr.Error())
 			}
-			if f[3] != label {
-				t.Fatalf("frame file = %q, want the --name label %q verbatim", f[3], label)
+			if want := strconv.Itoa(pe.Position.Line); f[4] != want {
+				t.Fatalf("frame line = %q, want the library's line %s", f[4], want)
+			}
+			if want := strconv.Itoa(pe.Position.Col); f[5] != want {
+				t.Fatalf("frame col = %q, want the library's col %s", f[5], want)
 			}
 			decimal := regexp.MustCompile(`^[0-9]+$`)
 			if !decimal.MatchString(f[4]) {
@@ -271,13 +312,7 @@ func TestTablesNonRegularInputIsOneNotRegularFrame(t *testing.T) {
 			if len(r.stdout) != 0 {
 				t.Fatalf("config-gen tables on %s stdout = %q, want empty", tc.path, r.stdout)
 			}
-			got := frames(t, r.stderr)
-			if len(got) != 1 {
-				t.Fatalf("config-gen tables on %s wrote %d frames, want 1 (stderr %q)", tc.path, len(got), r.stderr)
-			}
-			if got[0][2] != "config_gen_input_not_regular" {
-				t.Fatalf("config-gen tables on %s frame event = %q, want config_gen_input_not_regular", tc.path, got[0][2])
-			}
+			refusal(t, r.stderr, "config_gen_input_not_regular", "l.toml")
 		})
 	}
 }
@@ -310,16 +345,7 @@ func TestTablesMissingInputIsOneNoSuchFileFrame(t *testing.T) {
 			if len(stdout) != 0 {
 				t.Fatalf("config-gen tables on %s stdout = %q, want empty", tc.path, stdout)
 			}
-			got := frames(t, stderr)
-			if len(got) != 1 {
-				t.Fatalf("config-gen tables on %s wrote %d frames, want 1 (stderr %q)", tc.path, len(got), stderr)
-			}
-			if got[0][2] != "no_such_file" {
-				t.Fatalf("config-gen tables on %s frame event = %q, want no_such_file", tc.path, got[0][2])
-			}
-			if got[0][3] != label {
-				t.Fatalf("config-gen tables on %s frame file = %q, want the --name label %q", tc.path, got[0][3], label)
-			}
+			refusal(t, stderr, "no_such_file", label)
 		})
 	}
 }
@@ -392,13 +418,7 @@ func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 			if rc != 4 {
 				t.Fatalf("config-gen tables exited %d, want 4 (stderr %q)", rc, stderr.Bytes())
 			}
-			got := frames(t, stderr.Bytes())
-			if len(got) != 1 {
-				t.Fatalf("config-gen tables wrote %d frames, want 1 (stderr %q)", len(got), stderr.Bytes())
-			}
-			if got[0][2] != "config_gen_output_failed" {
-				t.Fatalf("frame event = %q, want config_gen_output_failed", got[0][2])
-			}
+			refusal(t, stderr.Bytes(), "config_gen_output_failed", "large_tables.toml")
 			if len(tc.w.got) >= len(want) || !bytes.HasPrefix(want, tc.w.got) {
 				t.Fatalf("sink took %d bytes, want a strict prefix of the %d-byte golden", len(tc.w.got), len(want))
 			}
@@ -453,14 +473,5 @@ func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
 	if len(stdout) != 0 {
 		t.Fatalf("config-gen tables on %s stdout = %q, want empty", path, stdout)
 	}
-	got := frames(t, stderr)
-	if len(got) != 1 {
-		t.Fatalf("config-gen tables on %s wrote %d frames, want 1 (stderr %q)", path, len(got), stderr)
-	}
-	if got[0][2] != "config_gen_input_unreadable" {
-		t.Fatalf("config-gen tables on %s frame event = %q, want config_gen_input_unreadable", path, got[0][2])
-	}
-	if got[0][3] != label {
-		t.Fatalf("config-gen tables on %s frame file = %q, want the --name label %q", path, got[0][3], label)
-	}
+	refusal(t, stderr, "config_gen_input_unreadable", label)
 }

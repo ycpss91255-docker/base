@@ -194,23 +194,62 @@ _mini() {
 
 # ── every frame's event id is registered ────────────────────────────────────
 
+# _refusal_violations <case> <rc> <want_rc> <want_ev> <want_file> <out> <err>
+# -- print one line per way a refusal of the built binary breaks the
+# five-point contract, nothing when it holds: the exact status; an empty
+# stdout (<out> is `-` when stdout is the failing sink itself, as with
+# /dev/full and the size-limited file); stderr exactly one 8-field frame,
+# tag D, severity error, the wanted event id; file attribution, the
+# --name label byte for byte; key attribution, an empty key, since every
+# refusal of `tables` is about the whole input; and no
+# `unregistered log body` anywhere in its output (base#1469 five-point
+# refusal test). The fields are read with mapfile -d '', so a label's
+# tab, CR or LF reaches the comparison unchanged.
+_refusal_violations() {
+  local _case="${1}" _rc="${2}" _want_rc="${3}" _want_ev="${4}" _want_file="${5}"
+  local _out="${6}" _err="${7}"
+  local -a _f=()
+  (( _rc == _want_rc )) || printf '%s: rc=%d, want %d\n' "${_case}" "${_rc}" "${_want_rc}"
+  if [[ "${_out}" != - && -s "${_out}" ]]; then
+    printf '%s: stdout holds %d bytes, want empty\n' "${_case}" "$(wc -c < "${_out}")"
+  fi
+  mapfile -d '' -t _f < "${_err}"
+  if (( ${#_f[@]} != 8 )) || [[ "$(tail -c 1 "${_err}" | od -An -tx1 | tr -d ' ')" != 00 ]]; then
+    printf '%s: stderr is %d NUL fields, want exactly one 8-field frame\n' "${_case}" "${#_f[@]}"
+    return 0
+  fi
+  [[ "${_f[0]}" == D ]] || printf '%s: frame tag %q, want D\n' "${_case}" "${_f[0]}"
+  [[ "${_f[1]}" == error ]] || printf '%s: frame severity %q, want error\n' "${_case}" "${_f[1]}"
+  [[ "${_f[2]}" == "${_want_ev}" ]] || printf '%s: frame event %q, want %s\n' "${_case}" "${_f[2]}" "${_want_ev}"
+  [[ "${_f[3]}" == "${_want_file}" ]] \
+    || printf '%s: frame file %q, want the --name label %q\n' "${_case}" "${_f[3]}" "${_want_file}"
+  [[ -z "${_f[6]}" ]] || printf '%s: frame key %q, want empty\n' "${_case}" "${_f[6]}"
+  if grep -aqF 'unregistered log body' "${_err}" || { [[ "${_out}" != - ]] && grep -aqF 'unregistered log body' "${_out}"; }; then
+    printf '%s: output carries "unregistered log body"\n' "${_case}"
+  fi
+}
+
 # why: log-events.txt is the registered body enum; an unregistered body is
 # fatal once the shell re-emits a frame through _log_* (#438), so an event
 # id the binary frames but the registry lacks would turn a refusal into a
 # crash of its caller. This drives the built binary down each refusal it
 # can reach -- wrong argv, a parse error, a missing path, a directory, a
 # mode-000 file opened by uid 65534, and a stdout on /dev/full -- and
-# requires of each the exit status and event id the I/O contract names
-# for it (usage 2, output failure 4, every other refusal 1), exactly one
-# 8-field frame, and that event id being a line of the registry
-# (base#1469 I/O contract; files: log-events.txt). Pinning the exact pair
-# per case keeps a refusal that took the wrong path -- a write failure
-# reported as rc 1 with some other registered id -- from passing.
+# holds each to the five-point refusal contract (_refusal_violations: the
+# status the I/O contract names for it, usage 2, output failure 4, every
+# other refusal 1; empty stdout; one frame with that event id; the label
+# as file and an empty key; no "unregistered log body"), then requires the
+# event id to be a line of the registry (base#1469 I/O contract; files:
+# log-events.txt). Pinning the exact pair per case keeps a refusal that
+# took the wrong path -- a write failure reported as rc 1 with some other
+# registered id -- from passing. The label carries a tab, CR, LF, `"`,
+# `\` and é, except for the uid-65534 case, whose command line passes
+# through `su -c` and /bin/sh, and for wrong argv, which names no label.
 @test "every event id the config-gen binary frames is registered in log-events.txt" {
   local _reg="/source/dist/script/docker/lib/log-events.txt"
   local _ok="${TESTDATA}/corpus/s1/implicit_parent_order.toml"
-  local _case _rc _cmd _shared _want_rc _want_ev _bad=0
-  local -a _f=()
+  local _label=$'lab\tel\r\n"q"\\\xc3\xa9.toml'
+  local _case _rc _cmd _shared _want_rc _want_ev _want_file _why _bad=0
   local -A _want=(
     [usage]="2 config_gen_usage_invalid"
     [parse]="1 conf_toml_parse_failed"
@@ -227,43 +266,52 @@ _mini() {
   mkdir -p "${S}/dir.toml"
   # uid 65534 must reach the binary and the locked file, and the bats
   # tmpdir's parents are not traversable by it: a world-traversable dir of
-  # its own holds a copy of the binary and the mode-000 file.
+  # its own holds a copy of the binary and the mode-000 file. Its stdout
+  # and stderr are opened by this shell, so the files need no mode for it.
   _shared="$(mktemp -d /tmp/cg-registry.XXXXXX)"
   chmod 755 "${_shared}"
   cp "${CONFIG_GEN_BIN}" "${_shared}/config-gen"
   chmod 755 "${_shared}/config-gen"
   printf '[a]\n' > "${_shared}/f.toml"
   chmod 000 "${_shared}/f.toml"
-  printf -v _cmd '%q tables --name l %q > /dev/null' \
+  printf -v _cmd '%q tables --name l.toml %q' \
     "${_shared}/config-gen" "${_shared}/f.toml"
 
   for _case in usage parse missing dir unreadable full; do
     _rc=0
+    _want_file="${_label}"
+    : > "${S}/out"
     case "${_case}" in
-      usage) "${CONFIG_GEN_BIN}" tables "${_ok}" > /dev/null 2> "${S}/err" || _rc=$? ;;
-      parse) "${CONFIG_GEN_BIN}" tables --name l "${S}/bad.toml" > /dev/null 2> "${S}/err" || _rc=$? ;;
-      missing) "${CONFIG_GEN_BIN}" tables --name l "${S}/absent.toml" > /dev/null 2> "${S}/err" || _rc=$? ;;
-      dir) timeout 10 "${CONFIG_GEN_BIN}" tables --name l "${S}/dir.toml" > /dev/null 2> "${S}/err" || _rc=$? ;;
+      usage)
+        _want_file=''
+        "${CONFIG_GEN_BIN}" tables "${_ok}" > "${S}/out" 2> "${S}/err" || _rc=$?
+        ;;
+      parse) "${CONFIG_GEN_BIN}" tables --name "${_label}" "${S}/bad.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
+      missing) "${CONFIG_GEN_BIN}" tables --name "${_label}" "${S}/absent.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
+      dir) timeout 10 "${CONFIG_GEN_BIN}" tables --name "${_label}" "${S}/dir.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
       unreadable)
+        _want_file=l.toml
         if (( $(id -u) == 0 )); then
-          su -s /bin/sh nobody -c "${_cmd}" 2> "${S}/err" || _rc=$?
+          su -s /bin/sh nobody -c "${_cmd}" > "${S}/out" 2> "${S}/err" || _rc=$?
         else
-          "${_shared}/config-gen" tables --name l "${_shared}/f.toml" > /dev/null 2> "${S}/err" || _rc=$?
+          "${_shared}/config-gen" tables --name l.toml "${_shared}/f.toml" > "${S}/out" 2> "${S}/err" || _rc=$?
         fi
         ;;
-      full) "${CONFIG_GEN_BIN}" tables --name l "${_ok}" > /dev/full 2> "${S}/err" || _rc=$? ;;
+      full) "${CONFIG_GEN_BIN}" tables --name "${_label}" "${_ok}" > /dev/full 2> "${S}/err" || _rc=$? ;;
     esac
     read -r _want_rc _want_ev <<<"${_want[${_case}]}"
-    _f=()
-    mapfile -d '' -t _f < "${S}/err"
-    if (( _rc != _want_rc || ${#_f[@]} != 8 )) || [[ "${_f[0]:-}" != D || "${_f[2]:-}" != "${_want_ev}" ]]; then
-      printf '%s: rc=%d, %d NUL fields, event %s; want rc %d and one 8-field frame with event %s\n' \
-        "${_case}" "${_rc}" "${#_f[@]}" "${_f[2]:-}" "${_want_rc}" "${_want_ev}"
+    if [[ "${_case}" == full ]]; then
+      _why="$(_refusal_violations "${_case}" "${_rc}" "${_want_rc}" "${_want_ev}" "${_want_file}" - "${S}/err")"
+    else
+      _why="$(_refusal_violations "${_case}" "${_rc}" "${_want_rc}" "${_want_ev}" "${_want_file}" "${S}/out" "${S}/err")"
+    fi
+    if [[ -n "${_why}" ]]; then
+      printf '%s\n' "${_why}"
       _bad=1
       continue
     fi
-    if ! grep -qxF -- "${_f[2]}" "${_reg}"; then
-      printf '%s: event id %s is not registered in log-events.txt\n' "${_case}" "${_f[2]}"
+    if ! grep -qxF -- "${_want_ev}" "${_reg}"; then
+      printf '%s: event id %s is not registered in log-events.txt\n' "${_case}" "${_want_ev}"
       _bad=1
     fi
   done
@@ -278,14 +326,15 @@ _mini() {
 # FIFO writer, or a read that blocks on a socket or a device, ends as rc
 # 124 and fails here instead of hanging the suite. Every type -- a
 # directory, a FIFO with no writer, the character device /dev/null and a
-# unix socket -- must give rc 1, empty stdout and exactly one
+# unix socket -- must hold to the five-point refusal contract
+# (_refusal_violations): rc 1, empty stdout, exactly one
 # `config_gen_input_not_regular` frame whose file field is the --name
-# label (base#1469 Input: open O_RDONLY|O_NONBLOCK, fstat on the fd). The
-# socket lives in a short /tmp directory of its own: sun_path holds 108
-# bytes, which the bats tmpdir can exceed.
+# label and whose key is empty, no "unregistered log body" (base#1469
+# Input: open O_RDONLY|O_NONBLOCK, fstat on the fd). The socket lives in
+# a short /tmp directory of its own: sun_path holds 108 bytes, which the
+# bats tmpdir can exceed.
 @test "config-gen binary refuses a directory, FIFO, char device and socket under timeout 10" {
-  local _case _path _rc _sockdir _bad=0
-  local -a _f=()
+  local _case _path _rc _sockdir _why _bad=0
   if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
     fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
   fi
@@ -307,12 +356,10 @@ _mini() {
     _rc=0
     timeout 10 "${CONFIG_GEN_BIN}" tables --name l.toml "${_path}" \
       > "${S}/out" 2> "${S}/err" || _rc=$?
-    _f=()
-    mapfile -d '' -t _f < "${S}/err"
-    if (( _rc != 1 || ${#_f[@]} != 8 )) || [[ -s "${S}/out" ]] \
-        || [[ "${_f[0]:-}" != D || "${_f[2]:-}" != config_gen_input_not_regular || "${_f[3]:-}" != l.toml ]]; then
-      printf '%s: rc=%d (124 is the timeout), stdout bytes=%d, %d NUL fields, event %s, file %s; want rc 1, empty stdout, one config_gen_input_not_regular frame for l.toml\n' \
-        "${_case}" "${_rc}" "$(wc -c < "${S}/out")" "${#_f[@]}" "${_f[2]:-}" "${_f[3]:-}"
+    # rc 124 is the timeout.
+    _why="$(_refusal_violations "${_case}" "${_rc}" 1 config_gen_input_not_regular l.toml "${S}/out" "${S}/err")"
+    if [[ -n "${_why}" ]]; then
+      printf '%s\n' "${_why}"
       _bad=1
     fi
   done
@@ -326,7 +373,8 @@ _mini() {
 # this is the same contract on the built binary against a real file whose
 # size limit (RLIMIT_FSIZE via prlimit) lets it take some bytes and then
 # refuse with EFBIG, which /dev/full (0 bytes, ENOSPC) can not show. The
-# answer is exit 4, exactly one `config_gen_output_failed` frame, and a
+# answer is exit 4, exactly one `config_gen_output_failed` frame naming
+# the --name label with an empty key (_refusal_violations), and a
 # non-empty stdout that is a strict prefix of the bridge golden (base#1469
 # I/O contract). SIGXFSZ is ignored so the write returns EFBIG instead of
 # killing the process. prlimit must be on PATH in every environment the
@@ -335,8 +383,7 @@ _mini() {
 @test "config-gen binary on a size-limited stdout exits 4 with one frame and a golden prefix" {
   local _in="${TESTDATA}/corpus/s1/large_tables.toml"
   local _gold="${TESTDATA}/golden/s1/large_tables.golden"
-  local _size _limit _rc _got
-  local -a _f=()
+  local _size _limit _rc _got _why
   if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
     fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
   fi
@@ -356,11 +403,10 @@ _mini() {
       --name large_tables.toml "${_in}"
   ) > "${S}/cap" 2> "${S}/err" || _rc=$?
 
-  (( _rc == 4 )) || fail "config-gen exited ${_rc}, want 4 (stderr: $(tr '\0' '|' < "${S}/err"))"
-  mapfile -d '' -t _f < "${S}/err"
-  (( ${#_f[@]} == 8 )) || fail "stderr holds ${#_f[@]} NUL fields, want exactly one 8-field frame"
-  [[ "${_f[0]}" == D && "${_f[2]}" == config_gen_output_failed ]] \
-    || fail "frame tag/event = ${_f[0]}/${_f[2]}, want D/config_gen_output_failed"
+  # stdout is the failing sink here, so its bytes are judged below as a
+  # golden prefix, not as empty.
+  _why="$(_refusal_violations prlimit "${_rc}" 4 config_gen_output_failed large_tables.toml - "${S}/err")"
+  [[ -z "${_why}" ]] || fail "${_why}"
   _got="$(wc -c < "${S}/cap")"
   (( _got > 0 && _got < _size )) \
     || fail "stdout took ${_got} bytes, want a non-empty strict prefix of the ${_size}-byte golden"
