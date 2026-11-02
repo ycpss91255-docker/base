@@ -477,10 +477,12 @@ acceptance:
 # command runs in the hosted self-test `config-gen` job, the self-hosted
 # coverage-local `config-gen` job and the pre-PR mirror. The two lines run
 # in order and a red runner stops the recipe: a redpath over gates that
-# are already red proves nothing. Needs the host docker daemon.
+# are already red proves nothing. The redpath runs every case: a
+# CONFIG_GEN_REDPATH_ONLY (the spec's per-test scope, base#1465) in the
+# caller's environment is dropped. Needs the host docker daemon.
 go:
     ./script/test/config_gen_gates.sh
-    ./script/test/config_gen_redpath.sh
+    env -u CONFIG_GEN_REDPATH_ONLY ./script/test/config_gen_redpath.sh
 
 # just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
 # the way a downstream Dockerfile `-test` stage runs them: root-owned

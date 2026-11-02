@@ -440,6 +440,30 @@ config_gen_mutation_context_invalid
 config_gen_mutation_base_unreachable
 config_gen_mutation_none_beside_diff
 config_gen_mutation_publish_failed
+# The admit stage's refusal of a build given no mutation context
+# (base#1465), re-emitted by config_gen_gates.sh.
+config_gen_manifest_missing
+# The admit stage's refusal of a module file changed after the baseline
+# (base#1465): the checker's stale event and the admission gate id, both
+# re-emitted by config_gen_gates.sh.
+config_gen_manifest_stale
+config_gen_gate_admission_failed
+# The 05-floors-base step's refusal to write floors.base (base#1465).
+config_gen_floors_base_failed
+# The coverage ratchet's refusals (cmd/cg-gates ratchet, base#1465),
+# re-emitted by config_gen_gates.sh.
+config_gen_coverage_fragment_invalid
+config_gen_coverage_floors_base_invalid
+config_gen_coverage_floors_dir_deleted
+config_gen_coverage_floor_duplicate
+config_gen_coverage_floor_missing
+config_gen_coverage_floor_orphan
+config_gen_coverage_floor_below
+config_gen_coverage_floor_too_low
+config_gen_coverage_floor_lowered
+config_gen_coverage_floor_stale
+config_gen_coverage_floor_none_misuse
+config_gen_coverage_floor_dropped
 
 # dockerfile/config-gen `check` (schema.Decode refusals and the command's
 # own diagnostics, base#1442). Emitted as diagnostic frames the shim

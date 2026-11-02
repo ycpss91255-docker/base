@@ -1,0 +1,5 @@
+# Coverage floors of the packages S1e brings (base#1465): <pkg> <floor>|none,
+# pkg relative to the module. Ratcheted up by cg-gates ratchet, never lowered.
+cmd/cg-gates 100.0
+cmd/config-gen 100.0
+internal/buildgate 97.9
