@@ -5,8 +5,11 @@ package gate
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +24,10 @@ var yearZero = regexp.MustCompile(`^0000-[0-9]{2}-[0-9]{2}`)
 // offsetField matches an offset datetime value token; group 1 is the
 // offset's sign, group 2 its hour and group 3 its minute.
 var offsetField = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?([+-])([0-9]{2}):([0-9]{2})$`)
+
+// decimalFloat matches a TOML 1.0 decimal float with its underscores
+// removed: an integer part with a fraction, an exponent or both.
+var decimalFloat = regexp.MustCompile(`^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
 
 // Reason names why Check refused its input.
 type Reason int
@@ -181,6 +188,34 @@ func Check(label string, src []byte) error {
 		}
 	}
 	return checkTables(label, src)
+}
+
+// Normalize returns a copy of src, which Check accepted, in which every
+// value-position float literal past float64 max is replaced by `inf`,
+// `+inf` or `-inf` (its sign kept) padded with spaces to the literal's
+// length; tomllib loads such a literal as an infinity, BurntSushi refuses
+// it (base#1441). Every other byte keeps its value and offset, so a
+// decoder's line and column still index src. Decode Normalize(src),
+// never src itself.
+func Normalize(src []byte) []byte {
+	out := bytes.Clone(src)
+	t := &tables{src: src, node: map[string]byte{}, explicit: map[string]bool{}}
+	t.scalar = func(start, end int) {
+		tok := strings.ReplaceAll(string(src[start:end]), "_", "")
+		if !decimalFloat.MatchString(tok) || !strings.ContainsAny(tok, ".eE") {
+			return
+		}
+		if f, err := strconv.ParseFloat(tok, 64); !errors.Is(err, strconv.ErrRange) || !math.IsInf(f, 0) {
+			return
+		}
+		inf := "inf"
+		if tok[0] == '+' || tok[0] == '-' {
+			inf = tok[:1] + inf
+		}
+		copy(out[start:end], inf+strings.Repeat(" ", end-start-len(inf)))
+	}
+	_ = t.document()
+	return out
 }
 
 // isDigit reports whether b is an ASCII digit.

@@ -36,6 +36,9 @@ type tables struct {
 	// and the dotted-key prefixes of a section once the next header opens.
 	explicit map[string]bool
 	pending  []string
+	// scalar, when set, receives the span of each bare value token (a
+	// number, boolean or date) the pass reads, trailing blanks excluded.
+	scalar func(start, end int)
 }
 
 // errStop ends the pass without a verdict: the input is not something
@@ -287,6 +290,13 @@ func (t *tables) value() (byte, error) {
 	}
 	if t.i == start {
 		return 0, errStop
+	}
+	if t.scalar != nil {
+		end := t.i
+		for end > start && (t.src[end-1] == ' ' || t.src[end-1] == '\t') {
+			end--
+		}
+		t.scalar(start, end)
 	}
 	return nodeScalar, nil
 }
