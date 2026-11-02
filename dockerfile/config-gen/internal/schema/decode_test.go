@@ -184,3 +184,33 @@ func TestDecodeArrayOfTablesIsDeferred(t *testing.T) {
 		t.Fatalf("Decode refusals = %d (%+v), want none", len(refusals), refusals)
 	}
 }
+
+// An array of tables nested under a known scalar table is deferred by
+// its TOML type, while the scalar table's own keys are still checked
+// (base#1442). In `[devices]` beside `[[devices.bindings]]` the library
+// types devices as Hash and devices.bindings as ArrayHash. The verdicts
+// are the shell's under LC_ALL=C: `_setup_known_key devices bogus` and
+// `_setup_known_key devices bindings` both return 1, so a lookup by name
+// would refuse bindings too; the array stage owns it instead. device_1
+// holds a value the shared value table accepts (`/dev/x:/dev/x`,
+// mount:pair). The only refusal is conf_unknown_key at devices.bogus,
+// line 3, counted from the input bytes.
+func TestDecodeNestedArrayOfTablesIsDeferred(t *testing.T) {
+	src := []byte("[devices]\ndevice_1 = \"/dev/x:/dev/x\"\nbogus = 1\n\n[[devices.bindings]]\npath = \"/dev/y\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_unknown_key" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_unknown_key")
+	}
+	if want := []string{"devices", "bogus"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 3 {
+		t.Errorf("Line = %d, want 3", got.Line)
+	}
+}
