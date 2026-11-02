@@ -180,6 +180,71 @@ _mini() {
   (( _bad == 0 ))
 }
 
+# ── every frame's event id is registered ────────────────────────────────────
+
+# why: log-events.txt is the registered body enum; an unregistered body is
+# fatal once the shell re-emits a frame through _log_* (#438), so an event
+# id the binary frames but the registry lacks would turn a refusal into a
+# crash of its caller. This drives the built binary down each refusal it
+# can reach -- wrong argv, a parse error, a missing path, a directory, a
+# mode-000 file opened by uid 65534, and a stdout on /dev/full -- reads the
+# event field of the one frame each writes, and requires every id to be a
+# line of the registry (base#1469 I/O contract; files: log-events.txt).
+@test "every event id the config-gen binary frames is registered in log-events.txt" {
+  local _reg="/source/dist/script/docker/lib/log-events.txt"
+  local _ok="${TESTDATA}/corpus/s1/implicit_parent_order.toml"
+  local _case _rc _cmd _shared _bad=0
+  local -a _f=()
+  if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
+    fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
+  fi
+  printf '[a]\nk = = 1\n' > "${S}/bad.toml"
+  mkdir -p "${S}/dir.toml"
+  # uid 65534 must reach the binary and the locked file, and the bats
+  # tmpdir's parents are not traversable by it: a world-traversable dir of
+  # its own holds a copy of the binary and the mode-000 file.
+  _shared="$(mktemp -d /tmp/cg-registry.XXXXXX)"
+  chmod 755 "${_shared}"
+  cp "${CONFIG_GEN_BIN}" "${_shared}/config-gen"
+  chmod 755 "${_shared}/config-gen"
+  printf '[a]\n' > "${_shared}/f.toml"
+  chmod 000 "${_shared}/f.toml"
+  printf -v _cmd '%q tables --name l %q > /dev/null' \
+    "${_shared}/config-gen" "${_shared}/f.toml"
+
+  for _case in usage parse missing dir unreadable full; do
+    _rc=0
+    case "${_case}" in
+      usage) "${CONFIG_GEN_BIN}" tables "${_ok}" > /dev/null 2> "${S}/err" || _rc=$? ;;
+      parse) "${CONFIG_GEN_BIN}" tables --name l "${S}/bad.toml" > /dev/null 2> "${S}/err" || _rc=$? ;;
+      missing) "${CONFIG_GEN_BIN}" tables --name l "${S}/absent.toml" > /dev/null 2> "${S}/err" || _rc=$? ;;
+      dir) timeout 10 "${CONFIG_GEN_BIN}" tables --name l "${S}/dir.toml" > /dev/null 2> "${S}/err" || _rc=$? ;;
+      unreadable)
+        if (( $(id -u) == 0 )); then
+          su -s /bin/sh nobody -c "${_cmd}" 2> "${S}/err" || _rc=$?
+        else
+          "${_shared}/config-gen" tables --name l "${_shared}/f.toml" > /dev/null 2> "${S}/err" || _rc=$?
+        fi
+        ;;
+      full) "${CONFIG_GEN_BIN}" tables --name l "${_ok}" > /dev/full 2> "${S}/err" || _rc=$? ;;
+    esac
+    _f=()
+    mapfile -d '' -t _f < "${S}/err"
+    if (( _rc == 0 || ${#_f[@]} != 8 )) || [[ "${_f[0]:-}" != D ]]; then
+      printf '%s: rc=%d, %d NUL fields, want a non-zero exit and one 8-field frame\n' \
+        "${_case}" "${_rc}" "${#_f[@]}"
+      _bad=1
+      continue
+    fi
+    if ! grep -qxF -- "${_f[2]}" "${_reg}"; then
+      printf '%s: event id %s is not registered in log-events.txt\n' "${_case}" "${_f[2]}"
+      _bad=1
+    fi
+  done
+  rm -rf -- "${_shared}"
+  (( _bad == 0 ))
+}
+
 # ── output failure on a real sink ───────────────────────────────────────────
 
 # why: the Go fault writer covers a write that fails at byte N in-process;
