@@ -317,10 +317,12 @@ _publish_order_violations_in() {
 # The registry is fixture-driven: `${STUB_FX}/<hex>.json` is the raw index
 # stored under `sha256:<hex>`, and IMAGE_TAG resolves to
 # `sha256:${STUB_TAG_DIGEST}`. Every answer is read from those files, so the
-# `Platform:` listing and the raw JSON cannot disagree. Three switches bend
-# that state for one refusal each: STUB_TAG_MOVED (the tag moves after its
-# first read), STUB_RAW_FAIL (a raw read exits non-zero after its body) and
-# STUB_TAG_UNRESOLVED (the tag's `{{.Manifest.Digest}}` answer is empty).
+# `Platform:` listing and the raw JSON cannot disagree. Three switches vary
+# that registry state: STUB_TAG_MOVED (the tag moves after its first read;
+# the step must stay pinned to the digest it first resolved and pass),
+# STUB_RAW_FAIL (a raw read exits non-zero after its body; refused) and
+# STUB_TAG_UNRESOLVED (the tag's `{{.Manifest.Digest}}` answer is empty;
+# refused).
 #
 # The LOCAL image store is the containerd one (ubuntu-26.04 runners, Docker
 # 29.4.2), where `docker image inspect --format {{.Id}}` is the digest of the
