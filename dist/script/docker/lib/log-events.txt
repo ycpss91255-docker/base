@@ -503,3 +503,9 @@ watch_gosum_pin_missing
 # whose Go minor is not the golang pin's (base#1440).
 go_mod_go_directive_mismatch
 go_mod_golang_pin_missing
+
+# Dockerfile.config-gen mutation gate: cg-gates mutation found a package
+# under 90.0 efficacy, or one gremlins could not judge, among the packages
+# the change manifest lists a Go file of; re-emitted by config_gen_gates.sh
+# (base#1467).
+config_gen_gate_mutation_failed

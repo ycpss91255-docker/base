@@ -11,7 +11,8 @@
 # builds `final` and holds the binary to its usage contract.
 #
 # Stages:
-#   tools        golangci-lint, downloaded at a pinned version and checksum
+#   tools        golangci-lint and gremlins, each downloaded at a pinned
+#                version and checksum
 #   placeholder  the sentinel file the mutation stage copies
 #   mutation     FROM scratch: a sentinel file alone. The runner replaces this
 #                stage with `--build-context mutation=<dir>` (the host
@@ -48,7 +49,10 @@
 #                after it read as never reached, not as passed. The id is
 #                spelled from ${g} in the RUN text, so BuildKit's echo of the
 #                RUN line itself never carries a literal id the runner would
-#                read as a failure.
+#                read as a failure. After coverage, the mutation gate
+#                (base#1467) runs gremlins on each package the change
+#                manifest lists a Go file of; it prints per-package lines
+#                and no `gate=mutation ok` line yet.
 #   final        FROM scratch: the binary alone, which is what ships.
 #
 # The race gate needs cgo and gcc, which the trixie golang image carries
@@ -83,6 +87,25 @@ RUN case "${TARGETARCH}" in \
     tar -xzf /tmp/golangci-lint.tar.gz -C /tmp; \
     install -m 0755 "/tmp/${name}/golangci-lint" /usr/local/bin/golangci-lint; \
     rm -rf /tmp/golangci-lint.tar.gz "/tmp/${name}"
+# tool-pin: gremlins github-release go-gremlins/gremlins
+ARG GREMLINS_VERSION=v0.6.0
+# The release's own checksums.txt, per architecture. A bump of the
+# version above must bump both.
+ARG GREMLINS_SHA256_AMD64=b02a42e47935f891c9a411d68c07e211c7082609e79c2435b67c85ee9658c538
+ARG GREMLINS_SHA256_ARM64=686542674e54559afb7e86d6994d342c19a856cfd970c315748989537936664c
+RUN case "${TARGETARCH}" in \
+      amd64) sum="${GREMLINS_SHA256_AMD64}" ;; \
+      arm64) sum="${GREMLINS_SHA256_ARM64}" ;; \
+      *) echo "no gremlins checksum for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    name="gremlins_${GREMLINS_VERSION#v}_linux_${TARGETARCH}"; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/gremlins.tar.gz \
+      "https://github.com/go-gremlins/gremlins/releases/download/${GREMLINS_VERSION}/${name}.tar.gz"; \
+    echo "${sum}  /tmp/gremlins.tar.gz" | sha256sum -c -; \
+    mkdir /tmp/gremlins; \
+    tar -xzf /tmp/gremlins.tar.gz -C /tmp/gremlins; \
+    install -m 0755 /tmp/gremlins/gremlins /usr/local/bin/gremlins; \
+    rm -rf /tmp/gremlins.tar.gz /tmp/gremlins
 # arch-literal-lint: allow-end
 
 # The sentinel's name is the placeholder's whole contract: admit refuses
@@ -134,6 +157,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM goenv AS test
 COPY --from=admit /admitted /admitted
 COPY --from=tools /usr/local/bin/golangci-lint /usr/local/bin/golangci-lint
+COPY --from=tools /usr/local/bin/gremlins /usr/local/bin/gremlins
 COPY . .
 # gofmt exits non-zero on a file it cannot parse (a _test.go syntax error
 # passes the build stage); that status must name this gate too, not end
@@ -177,6 +201,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         --base /mutation/floors.base --module "$(go list -m)"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
+# The mutation gate (base#1467): cg-gates mutation, built by the coverage
+# RUN, runs gremlins on each package of a Go file the change manifest in
+# the mutation context lists, and fails below 90.0 efficacy counted from
+# gremlins' report, never from its exit status. It prints no ok line: the
+# runner's green callers expect exactly the six gates above.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,from=mutation,target=/mutation \
+    g=mutation; { r="$(mktemp -d)" \
+      && /tmp/cg-gates mutation --manifest /mutation/manifest --module "$(go list -m)" --reports "${r}"; } \
+      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 
 FROM scratch AS final
 COPY --from=build /out/config-gen /config-gen
