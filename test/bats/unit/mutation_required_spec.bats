@@ -959,18 +959,26 @@ _three_rows() {
 
 # ── signals ─────────────────────────────────────────────────────────────────
 
+# _signal_case_launch <cmd>... -- start <cmd> in the background the way a
+# signal case starts the driver, its stdout in ${S}/out and its stderr in
+# ${S}/err. Sets SIG_PID.
+_signal_case_launch() {
+  set -m
+  env PATH="${S}/bin:${PATH}" LOG_FORMAT=json TMPDIR="${S}/tmp" \
+    MUTATION_PROBE_RUNNER="${S}/runner" MR_RUNNER_SLEEP=30 \
+    "$@" > "${S}/out" 2> "${S}/err" &
+  SIG_PID=$!
+  set +m
+}
+
 # _signal_while_running <signal> -- start the driver under job control (a
 # background job of a non-interactive shell otherwise starts with INT
 # ignored), wait until the runner is in flight, signal the DRIVER only, and
 # reap it. Sets SIG_RC.
 _signal_while_running() {
   local _sig="${1}" _pid _i
-  set -m
-  env PATH="${S}/bin:${PATH}" LOG_FORMAT=json TMPDIR="${S}/tmp" \
-    MUTATION_PROBE_RUNNER="${S}/runner" MR_RUNNER_SLEEP=30 \
-    bash "${MR}" --root "${LIVE}" > "${S}/out" 2> "${S}/err" &
-  _pid=$!
-  set +m
+  _signal_case_launch bash "${MR}" --root "${LIVE}"
+  _pid="${SIG_PID}"
   for (( _i = 0; _i < 300; _i++ )); do
     grep -q '^start' "${MR_RUNNER_LOG}" 2>/dev/null && break
     sleep 0.1
@@ -980,6 +988,23 @@ _signal_while_running() {
   kill -s "${_sig}" "${_pid}"
   SIG_RC=0
   wait "${_pid}" || SIG_RC=$?
+}
+
+# why: A non-interactive bash cannot trap a signal that was ignored when
+# it started, so a driver launched with SIGINT ignored never sees the INT a
+# case sends. Under bash 5.3 the bats 1.13 parallel test process itself
+# starts with SIGINT ignored (SigIgn 0x2006; 0x2004 under bash 5.2), and
+# the INT case then ran to a PINNED verdict with status 0 (base#1030). The
+# launch must hand the driver SIGINT at its default disposition whatever
+# bats passed down: proc(5) SigIgn bit 0x2 (signal 2) clear.
+@test "signals: a signal case starts the driver with SIGINT not ignored (base#1030)" {
+  _signal_case_launch awk '/^SigIgn:/ { print $2 }' /proc/self/status
+  wait "${SIG_PID}"
+  local _ign
+  _ign="$(cat "${S}/out")"
+  [[ "${_ign}" =~ ^[0-9a-f]+$ ]] || fail "no SigIgn mask was read: '${_ign}' $(cat "${S}/err")"
+  (( (16#${_ign} & 2) == 0 )) \
+    || fail "the launched process starts with SIGINT ignored: SigIgn=${_ign}"
 }
 
 # why: Ctrl-C mid-run must stop the probe and its runner, not leave a suite
