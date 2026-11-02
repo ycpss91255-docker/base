@@ -96,7 +96,7 @@ func shape(n *locate.Node) string {
 			b.WriteString(c.Key + "[[" + shape(c) + "]]")
 		case locate.NElement:
 			b.WriteString("{" + shape(c) + "}")
-		default:
+		case locate.NKey:
 			b.WriteString(c.Key)
 		}
 	}

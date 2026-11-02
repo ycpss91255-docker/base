@@ -114,7 +114,11 @@ type Map struct {
 	// inlineTables is every table a dotted key inside an inline value
 	// creates for its parent components.
 	inlineTables []*Occurrence
-	root         *Node
+	// extra is every record of a tree node the log does not list: the
+	// implicit table a dotted key or header creates in a later element of
+	// an array of tables, which the log records once per path.
+	extra []*Occurrence
+	root  *Node
 }
 
 // Root returns the root of the document tree: headers resolve from it,
@@ -220,7 +224,7 @@ func Index(src []byte) *Map {
 	root := &Node{Kind: NTable}
 	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, memberOrdinal: map[string]int{}, root: root, cur: root}
 	s.run()
-	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, root: root}
+	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, extra: s.extra, root: root}
 }
 
 type scanner struct {
@@ -233,6 +237,8 @@ type scanner struct {
 	// inlineTables is every implicit table a dotted key inside an inline
 	// value creates.
 	inlineTables []*Occurrence
+	// extra is every record of a tree node the log does not list.
+	extra []*Occurrence
 	// root is the document tree; cur is the node the last header opened,
 	// the one a `key = value` line resolves from.
 	root, cur *Node
@@ -274,15 +280,10 @@ func (s *scanner) header() {
 	// enters the array's last element.
 	n := s.root
 	for i := 1; i < len(path); i++ {
-		rec := s.implicit(path[:i], line, col)
-		c := n.child(path[i-1])
-		switch {
-		case c == nil:
-			c = n.add(path[i-1], NTable, rec)
-		case c.Kind == NArrayTables && len(c.Children) > 0:
-			c = c.Children[len(c.Children)-1]
+		n = s.open(n, path[:i], line, col)
+		if n.Kind == NArrayTables && len(n.Children) > 0 {
+			n = n.Children[len(n.Children)-1]
 		}
-		n = c
 	}
 	rec := s.add(Occurrence{Path: path, Kind: kind, KeyLine: line, KeyCol: col, ValueEndLine: line})
 	last := path[len(path)-1]
@@ -319,12 +320,7 @@ func (s *scanner) keyValue() {
 	// header opened.
 	n := s.cur
 	for i := len(s.table) + 1; i < len(path); i++ {
-		rec := s.implicit(path[:i], line, col)
-		c := n.child(path[i-1])
-		if c == nil {
-			c = n.add(path[i-1], NTable, rec)
-		}
-		n = c
+		n = s.open(n, path[:i], line, col)
 	}
 	array := s.peek() == '['
 	inline := s.peek() == '{' || array
@@ -357,6 +353,24 @@ func (s *scanner) implicit(path []string, line, col int) *Occurrence {
 	rec := &Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line}
 	s.entries = append(s.entries, rec)
 	return rec
+}
+
+// open returns n's child named by the last component of path, a table a
+// header or dotted key crosses at line and col, creating it when missing
+// with the implicit record it creates. Where the log already holds a
+// table record of path (a second element's dotted parent), the new node's
+// record is kept in extra, off the log, so every node owns one.
+func (s *scanner) open(n *Node, path []string, line, col int) *Node {
+	rec := s.implicit(path, line, col)
+	k := path[len(path)-1]
+	if c := n.child(k); c != nil {
+		return c
+	}
+	if rec == nil {
+		rec = &Occurrence{Path: append([]string{}, path...), Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line}
+		s.extra = append(s.extra, rec)
+	}
+	return n.add(k, NTable, rec)
 }
 
 // add appends o to the log with its ordinal and returns its record.
