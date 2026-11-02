@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
 
 // noOracleMsg is the refusal design-ahead r3 cycle 12 fixes for a run
@@ -79,27 +80,43 @@ func TestCheckOracleRowsSetEquality(t *testing.T) {
 	}
 }
 
+// oracleFiles returns every TOML file the differential holds the gate to,
+// keyed the way the oracle step keys its rows (relative to
+// dockerfile/config-gen), with the path to read it from: the WalkDir set
+// of this package's testdata/**/*.toml (internal/gate/<path>), and every
+// shared corpus file testcorpus.Glob finds under corpus/s*/
+// (testdata/corpus/<sN>/<base>, base#1441 review round 1 finding 3).
+func oracleFiles(t *testing.T) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	walkErr := filepath.WalkDir("testdata", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".toml") {
+			files["internal/gate/"+filepath.ToSlash(p)] = p
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatal(walkErr)
+	}
+	for _, p := range testcorpus.Glob(t, "corpus/s*/*.toml") {
+		files["testdata/corpus/"+filepath.Base(filepath.Dir(p))+"/"+filepath.Base(p)] = p
+	}
+	return files
+}
+
 // The live rows, from the verdicts file `just test go` hands the build
-// through CONFIG_GEN_TOML_ORACLE, must equal the WalkDir set of
-// testdata/**/*.toml, keyed the way the step keys them
-// (internal/gate/<path>).
+// through CONFIG_GEN_TOML_ORACLE, must equal oracleFiles' set.
 func TestOracleRows(t *testing.T) {
 	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var files []string
-	walkErr := filepath.WalkDir("testdata", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(p, ".toml") {
-			files = append(files, "internal/gate/"+filepath.ToSlash(p))
-		}
-		return nil
-	})
-	if walkErr != nil {
-		t.Fatal(walkErr)
+	for rel := range oracleFiles(t) {
+		files = append(files, rel)
 	}
 	if err := checkOracleRows(rows, files); err != nil {
 		t.Fatal(err)
@@ -165,6 +182,7 @@ func TestDifferential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	files := oracleFiles(t)
 	seen := 0
 	for _, r := range rows {
 		rel, live, ok := strings.Cut(r, "\t")
@@ -177,7 +195,11 @@ func TestDifferential(t *testing.T) {
 				t.Errorf("%s: live tomllib verdict %s, design §1 measured %s", rel, live, want)
 			}
 		}
-		src, err := os.ReadFile(strings.TrimPrefix(rel, "internal/gate/"))
+		path, ok := files[rel]
+		if !ok {
+			t.Fatalf("oracle verdict row %s names no file the differential reads", rel)
+		}
+		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -81,18 +81,27 @@ _run_calls() {
 }
 
 # why: The differential test can only compare the files tomllib saw. The
-# step must hand the container every forms file and every vendored
-# toml-test file, at any depth, and nothing else from testdata -- a LICENSE
-# or SOURCE file is not TOML. The order is the C locale's, so an
-# upper-case name sorts before a lower-case one whatever the caller's
-# locale is. The expected list is written out, not re-derived.
-@test "10-toml-oracle.sh: the container receives exactly the forms and toml-test TOML files, in C-locale order (base#1441)" {
+# step must hand the container every forms file, every vendored toml-test
+# file, at any depth, and every shared corpus file the module's
+# testdata/corpus/s*/ holds (the files testcorpus.Glob reads, review round
+# 1 finding 3), and nothing else -- a LICENSE, SOURCE or golden file is
+# not TOML, and a TOML file outside corpus/s*/ is not corpus. The order is
+# the C locale's, so an upper-case name sorts before a lower-case one
+# whatever the caller's locale is. The expected list is written out, not
+# re-derived.
+@test "10-toml-oracle.sh: the container receives exactly the forms, toml-test and shared corpus TOML files, in C-locale order (base#1441)" {
   assert_spec_subject "${STEP_SRC}" "the tomllib oracle step (base#1441)"
   _plant forms/b.toml forms/Z.toml forms/sub/a.toml \
          toml-test/valid/x.toml toml-test/invalid/datetime/y.toml
   printf 'MIT\n' > "${G}/toml-test/LICENSE"
   printf 'tag v2.2.0\n' > "${G}/toml-test/SOURCE"
   printf 'not toml\n' > "${G}/forms/notes.txt"
+  local _c="${R}/dockerfile/config-gen/testdata"
+  mkdir -p "${_c}/corpus/s1" "${_c}/corpus/s9" "${_c}/golden/s1" "${_c}/other"
+  printf 'a = 1\n' > "${_c}/corpus/s1/seed.toml"
+  printf 'a = 1\n' > "${_c}/corpus/s9/x.toml"
+  printf 'a = 1\n' > "${_c}/golden/s1/seed.golden"
+  printf 'a = 1\n' > "${_c}/other/stray.toml"
   _oracle
   assert_success
   assert_equal "$(_run_calls)" 1
@@ -102,7 +111,9 @@ _run_calls() {
     internal/gate/testdata/forms/b.toml \
     internal/gate/testdata/forms/sub/a.toml \
     internal/gate/testdata/toml-test/invalid/datetime/y.toml \
-    internal/gate/testdata/toml-test/valid/x.toml)"
+    internal/gate/testdata/toml-test/valid/x.toml \
+    testdata/corpus/s1/seed.toml \
+    testdata/corpus/s9/x.toml)"
   _got="$(tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/$/d')"
   assert_equal "${_got}" "${_want}"
 }
