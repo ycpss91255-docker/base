@@ -771,7 +771,13 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 // inline table or array reads is not a `,` or its closing bracket, and
 // the gate refuses there, before the line 2 escape: `c` at 1:12, a(1) ' '(2) =(3) ' '(4) {(5) b(6)
 // ' '(7) =(8) ' '(9) 1(10) ' '(11) c(12); `2` at 1:8, x(1) ' '(2) =(3)
-// ' '(4) [(5) 1(6) ' '(7) 2(8).
+// ' '(4) [(5) 1(6) ' '(7) 2(8). The rows after those put the refused
+// form inside the duplicate assignment's own value: a `\e` escape, and an
+// array the reading stops in (2:8). The key comes before its value, so
+// the duplicate is reported at the key's first byte, as a statement (2:1)
+// and as an inline-table member (1:13: t(1) ' '(2) =(3) ' '(4) {(5) a(6)
+// ' '(7) =(8) ' '(9) 1(10) ,(11) ' '(12) a(13)), for the whole key and
+// for a dotted key through the scalar a.
 func TestCheckRefusesInDocumentOrder(t *testing.T) {
 	for _, tc := range []struct {
 		src       string
@@ -783,6 +789,11 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 		{"[x]\n[x]\nb = \"\\e\"\n", 2, 1, ReasonRedefine, "Cannot overwrite a value (at line 2, column 1)"},
 		{"a = {b = 1 c = 2}\nd = \"\\e\"\n", 1, 12, ReasonSyntax, wantSyntaxText},
 		{"x = [1 2]\nd = \"\\e\"\n", 1, 8, ReasonSyntax, wantSyntaxText},
+		{"a = 1\na = \"\\e\"\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"a = 1\na.b = \"\\e\"\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"a = 1\na = [1 2]\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"t = {a = 1, a = \"\\e\"}\n", 1, 13, ReasonDuplicate, "Cannot overwrite a value (at line 1, column 13)"},
+		{"t = {a = 1, a.b = \"\\e\"}\n", 1, 13, ReasonDuplicate, "Cannot overwrite a value (at line 1, column 13)"},
 	} {
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
