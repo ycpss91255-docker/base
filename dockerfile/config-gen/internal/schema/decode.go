@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -26,6 +27,9 @@ type Config struct {
 	Logging Logging
 	// Tree is every accepted table node, in the bridge's traversal order.
 	Tree Tree
+	// Deferred is every accepted array with its payload, in the order its
+	// ChildDeferred appears in the traversal; Child.Defer indexes it.
+	Deferred []Deferred
 }
 
 // known is the set of sections _setup_known_section accepts
@@ -123,8 +127,8 @@ func Decode(src []byte) (*Config, []Refusal) {
 			}
 		}
 	}
-	tree := buildTree(src, md.Keys())
-	return &Config{Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree}, refusals
+	tree, deferred := buildTree(src, md)
+	return &Config{Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree, Deferred: deferred}, refusals
 }
 
 // serviceText reports whether a section text names a logging service:
@@ -141,11 +145,13 @@ func serviceText(text string) bool {
 // the order a key or a prefix of it first appears in md.Keys(). The root,
 // the known sections and every table whose text is under logging are
 // accepted; a refused table and everything under it is left out, and so
-// is a root scalar (base#1442).
-func buildTree(src []byte, keys []toml.Key) Tree {
+// is a root scalar. Each accepted array is returned in the second result
+// with its payload (base#1442).
+func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
+	keys := md.Keys()
 	var doc map[string]any
 	if _, err := toml.Decode(string(src), &doc); err != nil {
-		return Tree{}
+		return Tree{}, nil
 	}
 	children := map[string][]string{}
 	seen := map[string]bool{}
@@ -167,6 +173,7 @@ func buildTree(src []byte, keys []toml.Key) Tree {
 		return p[0] == "logging" || serviceText(p[0])
 	}
 	t := Tree{Nodes: []Node{{}}}
+	var deferred []Deferred
 	var walk func(at int, path []string, table map[string]any)
 	walk = func(at int, path []string, table map[string]any) {
 		for _, name := range children[fmt.Sprintf("%q", path)] {
@@ -195,7 +202,10 @@ func buildTree(src []byte, keys []toml.Key) Tree {
 					continue
 				}
 				if isTables || isArray {
-					t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildDeferred, Key: name})
+					d := Deferred{Path: p, Type: md.Type(p...), Value: arrayValue(lines, p, v)}
+					d.Line = d.Value.Line
+					t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildDeferred, Key: name, Defer: len(deferred)})
+					deferred = append(deferred, d)
 					continue
 				}
 				var s Scalar
@@ -212,7 +222,75 @@ func buildTree(src []byte, keys []toml.Key) Tree {
 		}
 	}
 	walk(0, nil, doc)
-	return t
+	return t, deferred
+}
+
+// arrayValue is the payload of the array v at path p. An array of tables
+// has one VTable per `[[p]]` element, at its header line, whose members
+// are the keys written directly under that header, in source order, each
+// at its key line. An inline array starts on its key's line and its items
+// are given that line (base#1442).
+func arrayValue(lines *locate.Map, p []string, v any) Value {
+	elems, isTables := v.([]map[string]any)
+	if !isTables {
+		occ, _ := lines.Key(p)
+		return valueOf(v, occ.KeyLine)
+	}
+	out := Value{Kind: VArray}
+	entries := lines.Entries()
+	want := fmt.Sprintf("%q", p)
+	i := 0
+	for at, o := range entries {
+		if o.Kind != locate.ArrayHeader || fmt.Sprintf("%q", o.Path) != want || i >= len(elems) {
+			continue
+		}
+		item := Value{Kind: VTable, Header: true, Line: o.KeyLine}
+		for _, m := range entries[at+1:] {
+			if m.Kind == locate.ArrayHeader || (m.Kind == locate.Header && !m.Implicit) {
+				break
+			}
+			if m.Kind != locate.Key || len(m.Path) != len(p)+1 || fmt.Sprintf("%q", m.Path[:len(p)]) != want {
+				continue
+			}
+			key := m.Path[len(p)]
+			item.Members = append(item.Members, Member{Key: key, Value: valueOf(elems[i][key], m.KeyLine)})
+		}
+		if i == 0 {
+			out.Line = o.KeyLine
+		}
+		out.Items = append(out.Items, item)
+		i++
+	}
+	return out
+}
+
+// valueOf is the value v written at line: a scalar, an array of values or
+// a table whose members are in key order, each given line.
+func valueOf(v any, line int) Value {
+	switch x := v.(type) {
+	case []any:
+		out := Value{Kind: VArray, Line: line}
+		for _, item := range x {
+			out.Items = append(out.Items, valueOf(item, line))
+		}
+		return out
+	case map[string]any:
+		out := Value{Kind: VTable, Line: line}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			out.Members = append(out.Members, Member{Key: k, Value: valueOf(x[k], line)})
+		}
+		return out
+	}
+	var s Scalar
+	// A kind Scalar does not decode yet keeps its zero Scalar; the other
+	// kinds follow in later cycles of base#1442.
+	_ = s.UnmarshalTOML(v)
+	return Value{Kind: VScalar, Scalar: s, Line: line}
 }
 
 // ProjectServices walks t depth first in Children order and appends each

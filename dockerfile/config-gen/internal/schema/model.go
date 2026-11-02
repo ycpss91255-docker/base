@@ -79,7 +79,7 @@ const (
 	// ChildRow is a scalar: Child.Row is its field.
 	ChildRow
 	// ChildDeferred is an array, which the array stage owns; S6 keeps
-	// only its key and its place.
+	// its key and its place, and Child.Defer indexes Config.Deferred.
 	ChildDeferred
 )
 
@@ -87,7 +87,52 @@ const (
 type Child struct {
 	Kind ChildKind
 	// Key is the child's TOML key as spelled.
-	Key  string
-	Node int
-	Row  Field
+	Key   string
+	Node  int
+	Row   Field
+	Defer int
+}
+
+// Deferred is one array the array stage owns, with its whole payload, so
+// two layers that differ only inside an array decode to different models
+// (base#1442).
+type Deferred struct {
+	// Path is the raw TOML path of the array.
+	Path []string
+	// Type is the library's md.Type for the path.
+	Type string
+	// Line is the 1-based line of the array's first occurrence.
+	Line  int
+	Value Value
+}
+
+// ValueKind is what a Value is.
+type ValueKind int
+
+// The kinds of a value.
+const (
+	VScalar ValueKind = iota
+	VArray
+	VTable
+)
+
+// Value is one value inside a deferred array.
+type Value struct {
+	Kind   ValueKind
+	Scalar Scalar
+	// Items are the elements of a VArray.
+	Items []Value
+	// Members are the keys of a VTable, in source order.
+	Members []Member
+	// Header marks a VTable written as a `[[path]]` element.
+	Header bool
+	// Line is the 1-based line the value starts on: an element's header
+	// line, a key's line.
+	Line int
+}
+
+// Member is one key of a VTable and its value.
+type Member struct {
+	Key   string
+	Value Value
 }
