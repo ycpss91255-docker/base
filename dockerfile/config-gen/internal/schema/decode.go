@@ -78,13 +78,13 @@ func Decode(src []byte) (*Config, []Refusal) {
 			occ, _ := lines.Table(k)
 			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
 		}
-		// An array of tables at a known section name is the legacy
-		// spelling the array stage handles; its keys are not scalars of
-		// the section, so they are not looked up here. An array of tables
-		// nested under a known section is owned by the array stage too,
-		// so it is classified by its TOML type before any name lookup
-		// (base#1442).
-		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" || md.Type(k...) == "ArrayHash" {
+		// An array of tables at a known section name, `[[volumes]]` or
+		// the inline `volumes = [{...}]`, is the legacy spelling the
+		// array stage handles; its keys are not scalars of the section,
+		// so they are not looked up here. An array of tables nested under
+		// a known section is owned by the array stage too, so it is
+		// classified by its TOML type before any name lookup (base#1442).
+		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" || md.Type(k[0]) == "Array" || md.Type(k...) == "ArrayHash" {
 			continue
 		}
 		// A plain table nested under [logging] is a per-service section
@@ -196,9 +196,10 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 			default:
 				_, isTables := v.([]map[string]any)
 				_, isArray := v.([]any)
-				// At the root only an array of tables at a known section
-				// name is accepted; any other root key is refused.
-				if len(path) == 0 && (!isTables || !known[name]) {
+				// At the root only an array at a known section name,
+				// `[[volumes]]` or `volumes = [...]`, is accepted; any
+				// other root key is refused.
+				if len(path) == 0 && ((!isTables && !isArray) || !known[name]) {
 					continue
 				}
 				if isTables || isArray {
