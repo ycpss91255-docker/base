@@ -123,3 +123,26 @@ func TestHeaderThroughArrayOfTablesLandsInLastElement(t *testing.T) {
 		})
 	}
 }
+
+// A dotted key resolves from the table or element the last header opened,
+// and each element owns its own dotted parents (base#1442 redesign r3, H3
+// and H4). BurntSushi decodes H3 `[a] b.c=1 [d] e=2` as
+// map[a:map[b:map[c:1]] d:map[e:2]] and H4 `[[a]] c.d=1 [[a]] c.d=2` as
+// map[a:[map[c:map[d:1]] map[c:map[d:2]]]]. The log records the implicit
+// table a.c once, for the first element; the second element's c still owns
+// one record of its own, at its own line.
+func TestDottedKeyResolvesFromCurrentTable(t *testing.T) {
+	if got, want := shape(locate.Index([]byte("[a]\nb.c = 1\n[d]\ne = 2\n")).Root()), "a{b{c}} d{e}"; got != want {
+		t.Errorf("H3 tree = %s, want %s", got, want)
+	}
+	root := locate.Index([]byte("[[a]]\nc.d = 1\n[[a]]\nc.d = 2\n")).Root()
+	if got, want := shape(root), "a[[{c{d}} {c{d}}]]"; got != want {
+		t.Fatalf("H4 tree = %s, want %s", got, want)
+	}
+	a := child(t, root, "a")
+	for i, want := range []string{"implicit 2:1", "implicit 4:1"} {
+		if got := occs(child(t, a.Children[i], "c")); !reflect.DeepEqual(got, []string{want}) {
+			t.Errorf("H4 element %d c records = %q, want [%s]", i, got, want)
+		}
+	}
+}
