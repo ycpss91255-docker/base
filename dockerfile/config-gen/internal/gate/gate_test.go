@@ -760,7 +760,9 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 	}
 }
 
-// Check reports the first refusal in document order: a lexical refusal
+// Check reports the first of its own refusals in document order (an
+// error it leaves to BurntSushi is
+// TestCheckReadsPastErrorsTheDecoderRefuses's): a lexical refusal
 // (here a `\e` escape) is reported when the structural reading reaches
 // it, so a duplicate on an earlier line is reported first (base#1441
 // redesign r2 R4b, review round 2 finding 1). tomllib (a CPython 3.13.13
@@ -802,8 +804,8 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 }
 
 // Where the structural reading cannot go on, Check refuses at the byte it
-// stopped on, the first byte in document order that breaks the TOML 1.0
-// grammar, and reads no further: no later rule (the escape on line 2 of
+// stopped on, the first byte in document order its reading cannot go on
+// from, and reads no further: no later rule (the escape on line 2 of
 // the first row) and no second, lossy reader of the rest decides the
 // verdict (base#1441 review round 1 finding 3). Each row's position is
 // counted by hand: the `\n` where the header's `]` should be (1:3); the

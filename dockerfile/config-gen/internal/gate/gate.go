@@ -59,8 +59,11 @@ const (
 	// ReasonSyntax is the byte where the structural reading stops because
 	// the TOML 1.0 grammar allows nothing there: a header with no closing
 	// bracket, a key with no `=`, a value missing, two values or pairs with
-	// no comma between them, a string left unclosed. It is the first such
-	// byte in document order, and nothing after it is read.
+	// no comma between them, a string left unclosed. It is the first byte
+	// the reading cannot go on from, and nothing after it is read. An
+	// earlier byte that breaks a token's own rules, which the reading
+	// passes over (an unknown escape inside a string, a malformed bare
+	// value), is not a stop; it is left to BurntSushi.
 	ReasonSyntax
 )
 
@@ -112,10 +115,18 @@ func oracleRefusal(label string, src []byte, off int, reason Reason, msg string)
 // byte of src. One structural pass reads src in document order and raises
 // each refusal where it reads the token that breaks a rule: a lexical one
 // (an escape, a line ending or a trailing comma in an inline table), a
-// table rule, or the grammar itself where the pass cannot go on. So the
-// first refusal in the document is the one reported, as tomllib reports
-// its first error, and no second reader of the bytes after a stop decides
-// anything (base#1441 redesign r2 R4b, review round 1 finding 3).
+// table rule, or the grammar itself where the pass cannot go on. So of
+// the refusals Check owns, the first in the document is the one reported,
+// and no second reader of the bytes after a stop decides anything
+// (base#1441 redesign r2 R4b, review round 1 finding 3). Check is not a
+// full TOML 1.0 validator: it reads a string or a bare value as one token
+// and does not check every escape or value form within it; those it
+// leaves to BurntSushi, which refuses an unknown escape such as `\q` and
+// a bare value such as `tru` (TestCheckReadsPastErrorsTheDecoderRefuses).
+// A document that holds such an error before one of
+// Check's refusals gets Check's later position, where tomllib names the
+// earlier byte; the verdict is still refuse (base#1441 review round 2
+// finding 1).
 func Check(label string, src []byte) error {
 	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
 		return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
