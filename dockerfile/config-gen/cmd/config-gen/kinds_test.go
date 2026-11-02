@@ -63,3 +63,55 @@ func TestCheckKinds(t *testing.T) {
 		t.Fatalf("%s: no rows", paths[0])
 	}
 }
+
+// `config-gen check` judges a value by the key registry first and its
+// written kind second, for every kind at every class of key (base#1442
+// redesign R7; review round 1 finding 1 was a `[[k]]` judged by its kind
+// before the registry). Rows: {scalar, inline table, inline array,
+// `[[k]]`, `[k]`} x {registered scalar key security.privileged, family
+// key security.cap_drop, free-form key build.tz, unknown key
+// security.typo}. Expected values, run in LC_ALL=C on the same bytes
+// (scratch probe p1442r3_kinds.sh): where the bridge's `--kv` is rc 0, the
+// shell's verdicts on its `--tables` and `--kv` rows (_setup_known_section,
+// _setup_known_key, _schema_validate): a table at any key is an unknown
+// table, a scalar at the family key or an unknown key is an unknown key;
+// where the bridge refuses an array with no numbered family (rc 1, "is an
+// array, and no numbered family of the shell view carries an array by
+// that name"), conf_value_type_refused at a key _setup_known_key knows and
+// conf_unknown_key at any other. A family array with a payload the bridge
+// reads (`cap = "ALL"`, `--kv` rc 0, row security.cap_drop_1 known and
+// valid) is accepted.
+func TestCheckKindByRegistryFirst(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    string
+		status int
+		want   [][]string
+	}{
+		{"scalar at a registered key", "[security]\nprivileged = true\n", 0, nil},
+		{"inline table at a registered key", "[security]\nprivileged = { x = 1 }\n", 1, [][]string{{"conf_unknown_table", "2", "1", "security.privileged"}}},
+		{"inline array at a registered key", "[security]\nprivileged = [\"a\"]\n", 1, [][]string{{"conf_value_type_refused", "2", "1", "security.privileged"}}},
+		{"array of tables at a registered key", "[[security.privileged]]\nx = \"a\"\n", 1, [][]string{{"conf_value_type_refused", "1", "1", "security.privileged"}}},
+		{"table at a registered key", "[security.privileged]\nx = \"a\"\n", 1, [][]string{{"conf_unknown_table", "1", "1", "security.privileged"}}},
+		{"scalar at a family key", "[security]\ncap_drop = \"ALL\"\n", 1, [][]string{{"conf_unknown_key", "2", "1", "security.cap_drop"}}},
+		{"inline table at a family key", "[security]\ncap_drop = { x = 1 }\n", 1, [][]string{{"conf_unknown_table", "2", "1", "security.cap_drop"}}},
+		{"inline array at a family key", "[security]\ncap_drop = [{ cap = \"ALL\" }]\n", 0, nil},
+		{"array of tables at a family key", "[[security.cap_drop]]\ncap = \"ALL\"\n", 0, nil},
+		{"table at a family key", "[security.cap_drop]\nx = \"a\"\n", 1, [][]string{{"conf_unknown_table", "1", "1", "security.cap_drop"}}},
+		{"scalar at a free-form key", "[build]\ntz = \"UTC\"\n", 0, nil},
+		{"inline table at a free-form key", "[build]\ntz = { x = 1 }\n", 1, [][]string{{"conf_unknown_table", "2", "1", "build.tz"}}},
+		{"inline array at a free-form key", "[build]\ntz = [\"a\"]\n", 1, [][]string{{"conf_value_type_refused", "2", "1", "build.tz"}}},
+		{"array of tables at a free-form key", "[[build.tz]]\nx = \"a\"\n", 1, [][]string{{"conf_value_type_refused", "1", "1", "build.tz"}}},
+		{"table at a free-form key", "[build.tz]\nx = \"a\"\n", 1, [][]string{{"conf_unknown_table", "1", "1", "build.tz"}}},
+		{"scalar at an unknown key", "[security]\ntypo = 1\n", 1, [][]string{{"conf_unknown_key", "2", "1", "security.typo"}}},
+		{"inline table at an unknown key", "[security]\ntypo = { x = 1 }\n", 1, [][]string{{"conf_unknown_table", "2", "1", "security.typo"}}},
+		{"inline array at an unknown key", "[security]\ntypo = [\"a\"]\n", 1, [][]string{{"conf_unknown_key", "2", "1", "security.typo"}}},
+		{"array of tables at an unknown key", "[[security.typo]]\nx = \"a\"\n", 1, [][]string{{"conf_unknown_key", "1", "1", "security.typo"}}},
+		{"table at an unknown key", "[security.typo]\nx = \"a\"\n", 1, [][]string{{"conf_unknown_table", "1", "1", "security.typo"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			checkFrames(t, tc.src, tc.status, tc.want)
+		})
+	}
+}
