@@ -49,7 +49,9 @@
 #                after it read as never reached, not as passed. The id is
 #                spelled from ${g} in the RUN text, so BuildKit's echo of the
 #                RUN line itself never carries a literal id the runner would
-#                read as a failure. After coverage, the corpus sensitivity
+#                read as a failure. After coverage, the ignored-input gate
+#                (base#1467) refuses a Git-ignored module file left in the
+#                build context, then the corpus sensitivity
 #                gate (base#1467) flips each golden file for the packages
 #                handed it, then the mutation gate (base#1467) runs gremlins
 #                on each package the change manifest maps to; they print
@@ -202,6 +204,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         --base /mutation/floors.base --module "$(go list -m)"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
+# The ignored-input gate (base#1467): cg-gates ignored, built by the
+# coverage RUN, refuses a build context holding a file the producer listed
+# in the mutation context's ignored.sha256, a Git-ignored module file
+# nothing tests. The context is bound, not read from /src: the race RUN
+# moved testdata/ out of it. Like the mutation gate it prints no ok line.
+RUN --mount=type=bind,from=mutation,target=/mutation \
+    --mount=type=bind,target=/ctx \
+    g=ignored; /tmp/cg-gates ignored --list /mutation/ignored.sha256 --context /ctx \
+      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 # The corpus sensitivity gate (base#1467): cg-gates sensitivity, built by
 # the coverage RUN, runs each package whose tests depend on
 # internal/testcorpus once with a traced Glob against the corpus root the

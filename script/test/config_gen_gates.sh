@@ -32,7 +32,9 @@
 #                (config_gen_manifest_missing: no mutation context;
 #                config_gen_manifest_stale: a module file changed after the
 #                baseline, with its file= and reason=; the coverage
-#                ratchet's config_gen_coverage_* refusals; base#1465)
+#                ratchet's config_gen_coverage_* refusals; base#1465; the
+#                ignored-input gate's config_gen_mutation_ignored_input
+#                file=, base#1467)
 #                re-emits each <id>, in log order, then the gate id when
 #                there is one.
 #   3. contract  the `final` stage is built and its binary run with no
@@ -63,10 +65,11 @@ readonly _CG_OK_RE='^#[0-9]+ [0-9]+\.[0-9]+ gate=([a-z]+) ok$'
 readonly _CG_FAIL_RE='^#[0-9]+ [0-9]+\.[0-9]+ config_gen_gate_([a-z_]+)_failed( .*)?$'
 # A refusal the build prints as `cg_event <id>` (base#1465): admission's
 # before any gate, the coverage ratchet's inside the coverage gate, the
-# corpus sensitivity gate's weak golden/package pair (base#1467). Only
+# corpus sensitivity gate's weak golden/package pair and the ignored-input
+# gate's Git-ignored file in the build context (base#1467). Only
 # an id named here is re-emitted, so the build log can never put an
 # arbitrary body into the runner's own records.
-readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale|config_gen_corpus_sensitivity_weak|config_gen_coverage_(fragment_invalid|floors_base_invalid|floors_dir_deleted|floor_(duplicate|missing|orphan|below|too_low|lowered|stale|none_misuse|dropped)))( .*)?$'
+readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale|config_gen_corpus_sensitivity_weak|config_gen_mutation_ignored_input|config_gen_coverage_(fragment_invalid|floors_base_invalid|floors_dir_deleted|floor_(duplicate|missing|orphan|below|too_low|lowered|stale|none_misuse|dropped)))( .*)?$'
 # The attributes a re-emitted event may carry, each `<key>=<value>` whose
 # value is bytes 0x21-0x7e only: config_gen_admit.sh and cg-gates write
 # every other byte, and the % itself, as %XX, so a value is one word and is

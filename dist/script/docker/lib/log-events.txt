@@ -516,3 +516,9 @@ config_gen_gate_mutation_failed
 # file=); both re-emitted by config_gen_gates.sh (base#1467).
 config_gen_gate_corpus_sensitivity_failed
 config_gen_corpus_sensitivity_weak
+
+# Dockerfile.config-gen ignored-input gate: cg-gates ignored found a file
+# the producer listed in ignored.sha256 in the build context (file=); both
+# re-emitted by config_gen_gates.sh (base#1467).
+config_gen_gate_ignored_failed
+config_gen_mutation_ignored_input

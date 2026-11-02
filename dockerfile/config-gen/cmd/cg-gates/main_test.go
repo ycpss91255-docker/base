@@ -460,3 +460,65 @@ func TestSensitivityUsage(t *testing.T) {
 		}
 	}
 }
+
+// cg-gates ignored (base#1467): 0 and no output when the context holds no
+// file ignored.sha256 lists; 1 with one cg_event line per listed file it
+// holds on stdout and the gate id on stderr; 1 on a list it cannot read;
+// 2 on usage.
+func TestIgnored(t *testing.T) {
+	const sha = "\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+	dir := t.TempDir()
+	ctx := filepath.Join(dir, "ctx")
+	if err := os.MkdirAll(filepath.Join(ctx, "cmd", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ctx, "cmd", "x", "zz.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	held := filepath.Join(dir, "held")
+	gone := filepath.Join(dir, "gone")
+	for name, body := range map[string]string{
+		held: "dockerfile/config-gen/gone.go" + sha + "dockerfile/config-gen/cmd/x/zz.go" + sha,
+		gone: "dockerfile/config-gen/gone.go" + sha,
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name        string
+		args        []string
+		status      int
+		out, errOut string
+	}{
+		{"a listed file in the context", []string{"ignored", "--list", held, "--context", ctx}, 1,
+			"cg_event config_gen_mutation_ignored_input file=dockerfile/config-gen/cmd/x/zz.go\n",
+			"config_gen_gate_ignored_failed\n"},
+		{"no listed file in the context", []string{"ignored", "--list", gone, "--context", ctx}, 0, "", ""},
+		{"an unreadable list", []string{"ignored", "--list", filepath.Join(dir, "absent"), "--context", ctx}, 1, "", ""},
+		{"a flag left out", []string{"ignored", "--list", held}, 2, "", ""},
+		{"an empty list flag", []string{"ignored", "--list", "", "--context", ctx}, 2, "", ""},
+		{"an unknown flag", []string{"ignored", "--x"}, 2, "", ""},
+		{"an extra argument", []string{"ignored", "--list", held, "--context", ctx, "x"}, 2, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			if got := run(c.args, &out, &errOut); got != c.status {
+				t.Fatalf("status %d, want %d; stderr %q", got, c.status, errOut.String())
+			}
+			if out.String() != c.out {
+				t.Errorf("stdout %q, want %q", out.String(), c.out)
+			}
+			switch {
+			case c.status == 0 && errOut.Len() != 0:
+				t.Errorf("stderr %q, want none", errOut.String())
+			case c.status == 1 && c.errOut != "" && errOut.String() != c.errOut:
+				t.Errorf("stderr %q, want %q", errOut.String(), c.errOut)
+			case c.status == 1 && c.errOut == "" &&
+				!strings.Contains(errOut.String(), "config_gen_gate_ignored_failed reason=unreadable"):
+				t.Errorf("stderr %q names no ignored gate refusal", errOut.String())
+			}
+		})
+	}
+}

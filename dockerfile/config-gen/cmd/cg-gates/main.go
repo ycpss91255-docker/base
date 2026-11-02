@@ -6,6 +6,7 @@
 //	cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>
 //	cg-gates mutation --manifest <file> --module <path> --reports <dir>
 //	cg-gates sensitivity --module <path> --root <dir> --work <dir>
+//	cg-gates ignored --list <file> --context <dir>
 //
 // ratchet judges coverage.sh --measure's counts against the
 // coverage-floors.d fragments and the base's union (internal/buildgate).
@@ -41,6 +42,12 @@
 // the last golden any weak pair or empty golden puts
 // `config_gen_gate_corpus_sensitivity_failed` on stderr.
 //
+// ignored (base#1467) refuses a build context holding a Git-ignored module
+// file: each path the producer's ignored.sha256 <file> lists that the
+// context <dir> holds prints `cg_event config_gen_mutation_ignored_input
+// file=` on stdout, and any puts `config_gen_gate_ignored_failed` on
+// stderr.
+//
 // Exit statuses:
 //
 //	0  every package holds its floor
@@ -75,11 +82,13 @@ const (
 	failed            = "config_gen_gate_coverage_failed"
 	mutationFailed    = "config_gen_gate_mutation_failed"
 	sensitivityFailed = "config_gen_gate_corpus_sensitivity_failed"
+	ignoredFailed     = "config_gen_gate_ignored_failed"
 )
 
 const usage = "usage: cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>\n" +
 	"       cg-gates mutation --manifest <file> --module <path> --reports <dir>\n" +
-	"       cg-gates sensitivity --module <path> --root <dir> --work <dir>"
+	"       cg-gates sensitivity --module <path> --root <dir> --work <dir>\n" +
+	"       cg-gates ignored --list <file> --context <dir>"
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -93,6 +102,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return mutation(args[1:], stdout, stderr)
 	case "sensitivity":
 		return sensitivity(args[1:], stdout, stderr)
+	case "ignored":
+		return ignored(args[1:], stdout, stderr)
 	}
 	_, _ = fmt.Fprintln(stderr, usage)
 	return exitUsage
@@ -301,6 +312,34 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, sensitivityFailed)
+		return exitFail
+	}
+	return exitOK
+}
+
+func ignored(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ignored", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	list := flags.String("list", "", "the producer's ignored.sha256")
+	ctxDir := flags.String("context", "", "the build context, bound unchanged")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *list == "" || *ctxDir == "" {
+		_, _ = fmt.Fprintln(stderr, usage)
+		return exitUsage
+	}
+	body, err := os.ReadFile(*list)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "cg-gates: ignored: %v\n%s reason=unreadable\n", err, ignoredFailed)
+		return exitFail
+	}
+	events := buildgate.IgnoredInputs(string(body), func(rel string) bool {
+		_, err := os.Lstat(filepath.Join(*ctxDir, rel))
+		return err == nil
+	})
+	for _, e := range events {
+		_, _ = fmt.Fprintln(stdout, e.String())
+	}
+	if len(events) > 0 {
+		_, _ = fmt.Fprintln(stderr, ignoredFailed)
 		return exitFail
 	}
 	return exitOK
