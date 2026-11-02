@@ -179,3 +179,51 @@ _mini() {
   done < "${TESTDATA}/golden/s1/EXPECT"
   (( _bad == 0 ))
 }
+
+# ── output failure on a real sink ───────────────────────────────────────────
+
+# why: the Go fault writer covers a write that fails at byte N in-process;
+# this is the same contract on the built binary against a real file whose
+# size limit (RLIMIT_FSIZE via prlimit) lets it take some bytes and then
+# refuse with EFBIG, which /dev/full (0 bytes, ENOSPC) can not show. The
+# answer is exit 4, exactly one `config_gen_output_failed` frame, and a
+# non-empty stdout that is a strict prefix of the bridge golden (base#1469
+# I/O contract). SIGXFSZ is ignored so the write returns EFBIG instead of
+# killing the process. prlimit must be on PATH in every environment the
+# spec runs in (test-tools installs util-linux-misc); a missing prlimit
+# fails here, it is never skipped.
+@test "config-gen binary on a size-limited stdout exits 4 with one frame and a golden prefix" {
+  local _in="${TESTDATA}/corpus/s1/large_tables.toml"
+  local _gold="${TESTDATA}/golden/s1/large_tables.golden"
+  local _size _limit _rc _got
+  local -a _f=()
+  if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
+    fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
+  fi
+  run command -v prlimit
+  if (( status != 0 )); then
+    fail "prlimit is not on PATH; dockerfile/Dockerfile.test-tools must install util-linux-misc (it owns /usr/bin/prlimit) for this leg (base#1469)"
+  fi
+
+  _size="$(wc -c < "${_gold}")"
+  (( _size >= 65536 )) || fail "golden ${_gold} is ${_size} bytes, want at least 64 KiB"
+  _limit=$(( _size / 2 ))
+
+  _rc=0
+  (
+    trap '' XFSZ
+    exec prlimit --fsize="${_limit}" "${CONFIG_GEN_BIN}" tables \
+      --name large_tables.toml "${_in}"
+  ) > "${S}/cap" 2> "${S}/err" || _rc=$?
+
+  (( _rc == 4 )) || fail "config-gen exited ${_rc}, want 4 (stderr: $(tr '\0' '|' < "${S}/err"))"
+  mapfile -d '' -t _f < "${S}/err"
+  (( ${#_f[@]} == 8 )) || fail "stderr holds ${#_f[@]} NUL fields, want exactly one 8-field frame"
+  [[ "${_f[0]}" == D && "${_f[2]}" == config_gen_output_failed ]] \
+    || fail "frame tag/event = ${_f[0]}/${_f[2]}, want D/config_gen_output_failed"
+  _got="$(wc -c < "${S}/cap")"
+  (( _got > 0 && _got < _size )) \
+    || fail "stdout took ${_got} bytes, want a non-empty strict prefix of the ${_size}-byte golden"
+  cmp -s -n "${_got}" "${S}/cap" "${_gold}" \
+    || fail "stdout's ${_got} bytes are not a prefix of the golden"
+}
