@@ -117,3 +117,13 @@ func TestCheckInlineDottedParentPositions(t *testing.T) {
 		})
 	}
 }
+
+// A header after a deeper header names its table from the root
+// (base#1442 redesign r3, H1): `[logging.web]` then `[logging]` is one
+// logging table holding web and driver. The bridge's `--kv` accepts it,
+// rc 0, `logging.web<TAB>driver<TAB>json-file` then
+// `logging<TAB>driver<TAB>local`, so check is 0 with nothing on stdout or
+// stderr; a misnested locator tree would reach bind's shape panic, 4.
+func TestCheckHeaderAfterDeeperHeader(t *testing.T) {
+	checkFrames(t, "[logging.web]\ndriver = \"json-file\"\n[logging]\ndriver = \"local\"\n", 0, nil)
+}
