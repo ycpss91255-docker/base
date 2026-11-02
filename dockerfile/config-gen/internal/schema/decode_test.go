@@ -241,3 +241,32 @@ func TestDecodeNestedTableUnderKnownSectionIsUnknownTable(t *testing.T) {
 		t.Errorf("Line = %d, want 1", got.Line)
 	}
 }
+
+// An array written at a registered scalar key is a value of the wrong
+// type for that key, so it is one conf_value_type_refused refusal at the
+// key's line: it is neither deferred as an array nor a parse failure
+// (base#1442). The verdicts are the shell's under LC_ALL=C:
+// `_setup_known_section environment` and `_setup_known_key environment
+// env_1` both return 0, so the key is known, and `_schema_validate
+// environment env_1 '["x"]'` returns 1. The input is valid TOML, so the
+// refusal is the value's type, not conf_toml_parse_failed. Line 2 is
+// counted from the input bytes.
+func TestDecodeArrayAtScalarKeyIsTypeRefused(t *testing.T) {
+	src := []byte("[environment]\nenv_1 = [\"x\"]\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_value_type_refused" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_value_type_refused")
+	}
+	if want := []string{"environment", "env_1"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 2 {
+		t.Errorf("Line = %d, want 2", got.Line)
+	}
+}
