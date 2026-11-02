@@ -214,3 +214,30 @@ func TestDecodeNestedArrayOfTablesIsDeferred(t *testing.T) {
 		t.Errorf("Line = %d, want 3", got.Line)
 	}
 }
+
+// A plain table nested under a known section is a section of its own,
+// and schema.sh does not know it, so it is one conf_unknown_table refusal
+// at its header line, with no refusal for the key under it (base#1442).
+// The verdicts are the shell's under LC_ALL=C: `_setup_known_section
+// devices.bindings` returns 1 (apply_unknown_table), while
+// `_setup_known_section devices` returns 0. Line 1 is counted from the
+// input bytes.
+func TestDecodeNestedTableUnderKnownSectionIsUnknownTable(t *testing.T) {
+	src := []byte("[devices.bindings]\npath = \"/dev/y\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 1 {
+		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	}
+	got := refusals[0]
+	if got.Event != "conf_unknown_table" {
+		t.Errorf("Event = %q, want %q", got.Event, "conf_unknown_table")
+	}
+	if want := []string{"devices", "bindings"}; !reflect.DeepEqual(got.Path, want) {
+		t.Errorf("Path = %q, want %q", got.Path, want)
+	}
+	if got.Line != 1 {
+		t.Errorf("Line = %d, want 1", got.Line)
+	}
+}
