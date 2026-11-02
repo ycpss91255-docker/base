@@ -961,8 +961,10 @@ _three_rows() {
 
 # _signal_case_launch <cmd>... -- start <cmd> in the background the way a
 # signal case starts the driver, its stdout in ${S}/out and its stderr in
-# ${S}/err. Sets SIG_PID. coreutils env --default-signal=INT hands <cmd>
-# SIGINT at its default disposition whatever bats passed down (base#1030).
+# ${S}/err. Sets SIG_PID. Two layers keep SIGINT reachable: job control
+# (`set -m`), since a background job of a non-interactive shell otherwise
+# starts with INT ignored, and coreutils env --default-signal=INT, which
+# resets a SIGINT that bats itself passed down ignored (base#1030).
 _signal_case_launch() {
   set -m
   env --default-signal=INT \
@@ -973,14 +975,13 @@ _signal_case_launch() {
   set +m
 }
 
-# _signal_while_running <signal> -- start the driver under job control (a
-# background job of a non-interactive shell otherwise starts with INT
-# ignored), wait until the runner is in flight, signal the DRIVER only, and
-# reap it. Sets SIG_RC.
+# _signal_while_running <signal> -- start the driver through
+# _signal_case_launch, wait until the runner is in flight, signal the
+# DRIVER only, and reap it. Sets SIG_RC.
 _signal_while_running() {
-  local _sig="${1}" _pid _i
+  local _sig="${1}" _i
   _signal_case_launch bash "${MR}" --root "${LIVE}"
-  _pid="${SIG_PID}"
+  local _pid="${SIG_PID}"
   for (( _i = 0; _i < 300; _i++ )); do
     grep -q '^start' "${MR_RUNNER_LOG}" 2>/dev/null && break
     sleep 0.1

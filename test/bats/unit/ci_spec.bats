@@ -384,7 +384,6 @@ teardown() {
 # on for the shapes its probe cannot see, so it is pinned here rather
 # than assumed: under the shape that escapes the probe, the driver must
 # still die at its first failing command and be named.
-#
 # bash 5.3 moved the boundary (measured on 5.3.3, base#1030): under
 # `if eval f` the substitution now reports "suppressed" AND the ERR trap
 # no longer fires, so with the refusal stubbed out the driver sails and the
