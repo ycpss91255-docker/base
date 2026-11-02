@@ -25,14 +25,15 @@ type Config struct{}
 
 // known is the set of sections _setup_known_section accepts
 // (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [devices],
-// [security] and [volumes] so far; the other sections follow in later cycles of
-// base#1442. A key of a known section is known when it resolves to a
-// SCHEMA_VALIDATOR row, as _setup_known_key does.
+// [environment], [security] and [volumes] so far; the other sections
+// follow in later cycles of base#1442. A key of a known section is known
+// when it resolves to a SCHEMA_VALIDATOR row, as _setup_known_key does.
 var known = map[string]bool{
-	"deploy":   true,
-	"devices":  true,
-	"security": true,
-	"volumes":  true,
+	"deploy":      true,
+	"devices":     true,
+	"environment": true,
+	"security":    true,
+	"volumes":     true,
 }
 
 // Decode decodes src and returns one conf_unknown_table refusal for each
@@ -41,7 +42,8 @@ var known = map[string]bool{
 // does not register. Keys under an unknown table get no refusal. A key
 // written at the root is one conf_top_level_key refusal at its line. A
 // known key whose value Validate refuses is one refusal with Validate's
-// event at the key's line.
+// event at the key's line; an array at a known key is one
+// conf_value_type_refused refusal at its line.
 func Decode(src []byte) (*Config, []Refusal) {
 	var root map[string]toml.Primitive
 	md, err := toml.Decode(string(src), &root)
@@ -86,6 +88,11 @@ func Decode(src []byte) (*Config, []Refusal) {
 		}
 		if _, isKey := canonical(k[0], k[1]); !isKey {
 			refusals = append(refusals, Refusal{Event: "conf_unknown_key", Path: k, Line: keyLine(src, k)})
+		} else if md.Type(k...) == "Array" {
+			// An array at a registered scalar key is a value of the wrong
+			// type for that key, not an array the array stage owns
+			// (base#1442).
+			refusals = append(refusals, Refusal{Event: "conf_value_type_refused", Path: k, Line: keyLine(src, k)})
 		} else {
 			var table map[string]toml.Primitive
 			var s Scalar
