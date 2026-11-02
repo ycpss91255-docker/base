@@ -252,3 +252,16 @@ value	logging	max_file	""	accept	-	empty:allow
 value	deploy	gpu_mode	07:32:00	refuse	conf_value_invalid	detect_mode:other
 value	deploy	gpu_count	1979-05-27T07:32:00	refuse	conf_value_invalid	gpu_count:other
 value	lifecycle	watchdog_check	07:32:00.5	accept	-	watchdog_cmd:line
+value	logging.web	max_size	"10m"	accept	-	section:logging_service
+value	logging.web	max_size	"1x"	refuse	conf_value_invalid	section:logging_service
+value	stage:dev.logging	max_size	"10m"	accept	-	section:stage
+value	stage:dev.logging	max_size	"1x"	refuse	conf_value_invalid	section:stage
+value	stage:dev.resources	shm_size	"2g"	accept	-	section:stage
+value	stage:dev.resources	shm_size	"1x"	refuse	conf_value_invalid	section:stage
+value	stage:dev.logging.web	max_size	"1x"	refuse	conf_value_invalid	section:stage_logging_service
+value	stage:dev.volumes	mount_2	"/a:/b"	accept	-	section:stage_numbered
+value	stage:dev.volumes	mount_2	"/a"	refuse	conf_value_invalid	section:stage_numbered
+value	stage:dev.deploy	gpu_count	""	refuse	conf_value_invalid	section:stage_empty_validate
+value	stage:.logging	max_size	"1x"	refuse	conf_value_invalid	section:stage_empty_name
+value	stage:dev	max_size	"1x"	accept	-	section:stage_bare
+value	stage:a.b.logging	max_size	"1x"	accept	-	section:stage_shortest_strip

@@ -101,19 +101,37 @@ func TestValidateMatchesSchemaSh(t *testing.T) {
 	}
 }
 
-// rowText decodes a row's literal with the library, exactly as a layer's
-// value is decoded, and returns its Text: the bridge's rendering Validate
-// judges.
+// rowText writes a row's literal under a header naming its section, each
+// dot-separated part of the section as a quoted key, so a section text
+// such as `stage:dev.logging` (the bridge's dotted name for the table
+// `["stage:dev".logging]`) is written as `["stage:dev"."logging"]`. It
+// decodes that with the library, exactly as a layer's value is decoded,
+// and returns its Text: the bridge's rendering Validate judges. The bats
+// half writes the same header and holds the bridge's section text equal
+// to the row's.
 func rowText(t *testing.T, row valueRow) string {
 	t.Helper()
-	src := "[" + row.section + "]\n" + row.key + " = " + row.literal + "\n"
-	var doc map[string]map[string]Scalar
+	parts := strings.Split(row.section, ".")
+	src := "[\"" + strings.Join(parts, "\".\"") + "\"]\n" + row.key + " = " + row.literal + "\n"
+	var doc map[string]any
 	if _, err := toml.Decode(src, &doc); err != nil {
 		t.Fatalf("tsv line %d: decode %q: %v", row.line, src, err)
 	}
-	s, ok := doc[row.section][row.key]
+	table := doc
+	for _, p := range parts {
+		next, ok := table[p].(map[string]any)
+		if !ok {
+			t.Fatalf("tsv line %d: decode %q gave no table %q", row.line, src, row.section)
+		}
+		table = next
+	}
+	v, ok := table[row.key]
 	if !ok {
 		t.Fatalf("tsv line %d: decode %q gave no %s.%s", row.line, src, row.section, row.key)
+	}
+	var s Scalar
+	if err := s.UnmarshalTOML(v); err != nil {
+		t.Fatalf("tsv line %d: %s.%s = %#v: %v", row.line, row.section, row.key, v, err)
 	}
 	return s.Text
 }

@@ -55,11 +55,27 @@ teardown() {
   rm -rf "${TEMP_DIR}"
 }
 
+# _quoted_header <section> -- print the TOML header for a section text:
+# each dot-separated part as a quoted key, so `stage:dev.logging` (the
+# bridge's dotted name for `["stage:dev".logging]`) is
+# `["stage:dev"."logging"]`. The Go half (rowText) writes the same header.
+_quoted_header() {
+  local -a _parts
+  local _out
+  IFS=. read -ra _parts <<< "${1}"
+  printf -v _out '"%s".' "${_parts[@]}"
+  printf '[%s]\n' "${_out%.}"
+}
+
 # why: Each class=value row's literal goes through the bridge's --kv, the
 # text the shell reads, and _schema_validate on that text must give the
 # row's verdict: rc 0 for accept, non-zero for refuse. The Go half holds
 # schema.Validate on the same text to the same verdict, with no exception
-# column: a value outside its field's type is s6_kinds.tsv's.
+# column: a value outside its field's type is s6_kinds.tsv's. The section
+# column is the shell's section text, the bridge's dotted name for the
+# table, so a stage or a per-service section (`stage:dev.logging`,
+# `logging.web`) is the name _schema_validate is asked about; the bridge
+# must name the written table exactly so (base#1442 review round 2).
 @test "s6_scalar_values: every class=value verdict is _schema_validate's on the bridge text" {
   local _class _section _key _lit _verdict _event _branch _kv _text _rc
   local _rows=0 _bad=()
@@ -67,9 +83,11 @@ teardown() {
     [[ "${_class}" == \#* ]] && continue
     [[ "${_class}" == value ]] || { _bad+=("class ${_class}"); continue; }
     # toml-fixture-lint: allow the body is built from a table row; the bridge parses each row and a refusal is reported
-    printf '[%s]\n%s = %s\n' "${_section}" "${_key}" "${_lit}" > "${TEMP_DIR}/in.toml"
+    { _quoted_header "${_section}"; printf '%s = %s\n' "${_key}" "${_lit}"; } > "${TEMP_DIR}/in.toml"
     _kv="$(toml_bridge_parse "${TEMP_DIR}/in.toml" --kv)" \
       || { _bad+=("${_section}.${_key}=${_lit}: bridge failed"); continue; }
+    [[ "${_kv%%$'\t'*}" == "${_section}" ]] \
+      || _bad+=("${_section}.${_key}=${_lit}: bridge section '${_kv%%$'\t'*}'")
     _text="${_kv#*$'\t'*$'\t'}"
     _rc=0
     _schema_validate "${_section}" "${_key}" "${_text}" || _rc=$?
