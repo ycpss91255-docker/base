@@ -496,6 +496,73 @@ func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
 	refusal(t, stderr, "config_gen_input_unreadable", label)
 }
 
+// `config-gen tables` only reads its input, so a regular file the caller
+// may read but not write -- mode 0444, opened by a non-root caller --
+// gives exit 0, the bridge golden on stdout and nothing on stderr
+// (base#1469 Input: the input is opened O_RDONLY). As in the unreadable
+// test, a root run sets this thread's filesystem uid to 65534 for the
+// call, so CAP_DAC_OVERRIDE can not grant the write access a read-write
+// open would ask for.
+func TestTablesReadOnlyInputPrintsTheBridgeGolden(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/interleaved.toml")[0]
+	golden := testcorpus.Glob(t, "golden/s1/interleaved.golden")[0]
+	body, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read %s: %v", src, err)
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read %s: %v", golden, err)
+	}
+	// t.TempDir is <per-test dir>/<NNN>, both mode 0700 and owned by the
+	// caller; uid 65534 must be able to search both to reach the file.
+	dir := t.TempDir()
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		if err := os.Chmod(d, 0o755); err != nil {
+			t.Fatalf("chmod %s: %v", d, err)
+		}
+	}
+	path := filepath.Join(dir, "ro.toml")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatalf("chmod %s: %v", path, err)
+	}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if os.Geteuid() == 0 {
+		_, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 65534, 0, 0)
+		defer func() { _, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 0, 0, 0) }()
+	}
+	// The preconditions: this thread can open the file for reading and can
+	// not open it for writing. Without both a pass would not show the open
+	// asks for read access only.
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open %s read-only as fsuid 65534 or uid %d: %v, want success", path, os.Geteuid(), err)
+	}
+	_ = f.Close()
+	if f, err := os.OpenFile(path, os.O_RDWR, 0); !errors.Is(err, syscall.EACCES) {
+		if f != nil {
+			_ = f.Close()
+		}
+		t.Fatalf("open %s read-write as uid %d: err = %v, want EACCES", path, os.Geteuid(), err)
+	}
+
+	rc, stdout, stderr := cli(t, "tables", "--name", "ro.toml", path)
+	if rc != 0 {
+		t.Fatalf("config-gen tables on mode-0444 %s exited %d, want 0 (stderr %q)", path, rc, stderr)
+	}
+	if !bytes.Equal(stdout, want) {
+		t.Fatalf("config-gen tables stdout = %q, want the bridge golden %q", stdout, want)
+	}
+	if len(stderr) != 0 {
+		t.Fatalf("config-gen tables stderr = %q, want empty", stderr)
+	}
+}
+
 // When the reader of stdout is gone before the answer is written -- a pipe
 // whose read end is closed before the command starts, as in `config-gen
 // tables ... | true` -- the process is not killed by SIGPIPE: it exits
