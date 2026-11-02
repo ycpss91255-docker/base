@@ -15,7 +15,8 @@
 # The stub records each call's argv as ${S}/docker.<n>.argv. For `docker
 # run` it saves stdin as ${S}/in.tar and answers `<rel>\taccept` for every
 # regular file in that tar, so a step that hands over the right files sees
-# one verdict per file.
+# one verdict per file. When ${S}/answers exists the stub prints that file
+# instead, byte for byte.
 
 bats_require_minimum_version 1.5.0
 
@@ -40,7 +41,11 @@ printf '%s\n' "\$@" > "${S}/docker.\${n}.argv"
 case "\${1:-}" in
   run)
     cat > "${S}/in.tar"
-    tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/\$/d' -e 's|\$|\taccept|'
+    if [[ -f "${S}/answers" ]]; then
+      cat "${S}/answers"
+    else
+      tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/\$/d' -e 's|\$|\taccept|'
+    fi
     ;;
 esac
 exit 0
@@ -98,4 +103,23 @@ _run_calls() {
     internal/gate/testdata/toml-test/valid/x.toml)"
   _got="$(tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/$/d')"
   assert_equal "${_got}" "${_want}"
+}
+
+# why: The build reads tomllib's verdicts from the step's toml-oracle
+# context, so the step must keep the container's answers as they are:
+# a rewritten, re-sorted or dropped line would hand the differential test
+# a verdict tomllib never gave. The stub answers a mix of accept and
+# refuse; the expected file is that answer, written out here.
+@test "10-toml-oracle.sh: the container's answers land verbatim in toml-oracle/verdicts.tsv (base#1441)" {
+  _plant forms/a.toml forms/b.toml toml-test/invalid/c.toml
+  printf '%s\t%s\n' \
+    internal/gate/testdata/forms/a.toml accept \
+    internal/gate/testdata/forms/b.toml refuse \
+    internal/gate/testdata/toml-test/invalid/c.toml refuse \
+    > "${S}/answers"
+  _oracle
+  assert_success
+  [[ -f "${S}/ctx/toml-oracle/verdicts.tsv" ]]
+  run cmp -- "${S}/answers" "${S}/ctx/toml-oracle/verdicts.tsv"
+  assert_success
 }
