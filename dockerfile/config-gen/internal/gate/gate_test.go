@@ -689,3 +689,58 @@ func TestNormalizeRewritesOnlyTOMLFloats(t *testing.T) {
 		}
 	}
 }
+
+// An array-of-tables header over an array value, or below an inline
+// table or an array value, defines a key path a second time, as the
+// other two definition sites already refuse (base#1441 redesign r3 R8,
+// review round 1 finding 4). Inputs are toml-test v2.2.0 (ce08da1)
+// invalid/ files vendored under testdata/toml-test, which tomllib refuses
+// (p1441/py-1.0.0.txt lines 22, 186, 440) and BurntSushi v1.6.0 refuses
+// in its own words. Each L:C is counted by hand in the file: the `[[`
+// line, column 1. The controls are accepted by tomllib: an array of
+// tables twice, a sub-table header before its parent, and the spec's
+// array-of-tables files.
+func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
+	for _, tc := range []struct {
+		file      string
+		line, col int
+	}{
+		{"invalid/array/tables-01.toml", 4, 1},
+		{"invalid/inline-table/overwrite-04.toml", 3, 1},
+		{"invalid/table/duplicate-key-10.toml", 2, 1},
+	} {
+		src, err := os.ReadFile(filepath.Join("testdata", "toml-test", tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = Check(tc.file, src)
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check() = %v, want *Refusal", tc.file, err)
+			continue
+		}
+		want := fmt.Sprintf("%s:%d:%d: Cannot overwrite a value (at line %d, column %d)",
+			tc.file, tc.line, tc.col, tc.line, tc.col)
+		if r.Reason != ReasonDuplicate || r.Error() != want {
+			t.Errorf("%s: Refusal = %v %q, want ReasonDuplicate %q", tc.file, r.Reason, r.Error(), want)
+		}
+	}
+	for _, src := range []string{"[[x]]\n[[x]]\n", "[x.y]\n[x]\n"} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "toml-test", "valid", "spec-1.0.0", "array-of-tables-*.toml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob array-of-tables-*.toml: %v, %d files", err, len(files))
+	}
+	for _, f := range files {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Check(f, src); err != nil {
+			t.Errorf("Check(%s) = %v, want nil", f, err)
+		}
+	}
+}

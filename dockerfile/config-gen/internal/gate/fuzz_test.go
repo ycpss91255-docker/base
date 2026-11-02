@@ -15,22 +15,28 @@ import (
 // twice; a refusal is a *Refusal whose Line:Col names a byte inside the
 // input; and when Check returns nil, Normalize keeps the input's length
 // and every CR and LF at its offset, so a decoder's line and column still
-// index the input. The seeds are every TOML file under testdata/forms
-// plus a few literals for each refusal class; `go test` runs them, and
-// the test stage's fuzz gate searches from them for 60 s.
+// index the input. When Check accepts a document BurntSushi also
+// decodes, dupProperty adds known duplicates to it and Check itself must
+// refuse each with the duplicate class's text (base#1441 redesign r3 R9).
+// The seeds are every TOML file under testdata/forms and
+// testdata/toml-test plus a few literals for each refusal class; `go
+// test` runs them, and the test stage's fuzz gate searches from them for
+// 60 s.
 func FuzzCheck(f *testing.F) {
-	err := filepath.WalkDir(filepath.Join("testdata", "forms"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".toml") {
+	for _, dir := range []string{"forms", "toml-test"} {
+		err := filepath.WalkDir(filepath.Join("testdata", dir), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".toml") {
+				return err
+			}
+			src, err := os.ReadFile(p)
+			if err == nil {
+				f.Add(src)
+			}
 			return err
+		})
+		if err != nil {
+			f.Fatal(err)
 		}
-		src, err := os.ReadFile(p)
-		if err == nil {
-			f.Add(src)
-		}
-		return err
-	})
-	if err != nil {
-		f.Fatal(err)
 	}
 	for _, s := range []string{
 		"a = \"x\\e\"\n",
@@ -45,6 +51,8 @@ func FuzzCheck(f *testing.F) {
 		"a = [ # c\n 0000-01-01\n]\n",
 		"a = " + strings.Repeat("[", 600) + "\n",
 		"a = 1e999\nb = [-1e999]\n",
+		"a = []\n[[a]]\n",
+		"\"a\\u0000b\" = 1\na.b = 2\n",
 	} {
 		f.Add([]byte(s))
 	}
@@ -72,6 +80,7 @@ func FuzzCheck(f *testing.F) {
 				t.Fatalf("Normalize changed the line ending byte at offset %d", i)
 			}
 		}
+		dupProperty(t, src)
 	})
 }
 
