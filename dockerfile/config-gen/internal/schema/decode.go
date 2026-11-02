@@ -391,12 +391,12 @@ const utf8Mark = "\xef\xbb\xbf"
 // review round 4).
 func undecodable(src []byte) (line, col int, ok bool) {
 	off := -1
-	if strings.HasPrefix(string(src), utf8Mark) {
+	if bytes.HasPrefix(src, []byte(utf8Mark)) {
 		off = 0
-	} else if !utf8.Valid(src) {
+	} else {
 		for i := 0; i < len(src); {
 			r, n := utf8.DecodeRune(src[i:])
-			if r == utf8.RuneError && n <= 1 {
+			if r == utf8.RuneError && n == 1 {
 				off = i
 				break
 			}
