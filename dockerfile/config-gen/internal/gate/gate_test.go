@@ -269,7 +269,7 @@ func TestCheckRefusesHeaderOverDottedTable(t *testing.T) {
 				tc.file, r.File, r.Line, r.Col, r.Reason, tc.file, tc.line, tc.col)
 			continue
 		}
-		want := fmt.Sprintf("%s:%d:%d: Cannot redefine a table (at line %d, column %d)",
+		want := fmt.Sprintf("%s:%d:%d: Cannot overwrite a value (at line %d, column %d)",
 			tc.file, tc.line, tc.col, tc.line, tc.col)
 		if r.Error() != want {
 			t.Errorf("%s: Error() = %q, want %q", tc.file, r.Error(), want)
@@ -576,6 +576,45 @@ func TestCheckScopesDottedKeysToArrayOfTablesElement(t *testing.T) {
 		}
 		if r.Line != 3 || r.Col != 1 || r.Reason != ReasonRedefine {
 			t.Errorf("Check(%q) Refusal = {%d %d %v}, want {3 1 ReasonRedefine}", src, r.Line, r.Col, r.Reason)
+		}
+	}
+}
+
+// Every member of the duplicate class reads "Cannot overwrite a value
+// (at line L, column C)": the issue base#1441 acceptance criterion and
+// ADR-00000039 line 129 fix that text for the class, so a header that
+// defines a table a second time speaks it too, whatever internal reason
+// the gate records (base#1441 redesign r3 R7). tomllib (CPython 3.13.13
+// Lib/tomllib, run 2026-11-02) refuses every row, as "Cannot declare
+// ... twice", and BurntSushi v1.6.0 accepts every row. The reason and the
+// position are the gate's own: ReasonRedefine at the second header's `[`,
+// column 1, the line counted by hand.
+func TestCheckRedefinedTableSpeaksOverwrite(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		line int
+	}{
+		{"[x]\n[x]\n", 2},
+		{"[x]\ny = 1\n[x]\n", 3},
+		{"[[x]]\n[x]\n", 2},
+		{"a.b = 1\n[a]\n", 2},
+		{"a = {b = 1}\n[a]\n", 2},
+		{"[a]\nb.c = 1\n[a.b]\n", 3},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != 1 || r.Reason != ReasonRedefine {
+			t.Errorf("Check(%q) Refusal = {%q %d %d %v}, want {\"t.toml\" %d 1 ReasonRedefine}",
+				tc.src, r.File, r.Line, r.Col, r.Reason, tc.line)
+			continue
+		}
+		want := fmt.Sprintf("t.toml:%d:1: Cannot overwrite a value (at line %d, column 1)", tc.line, tc.line)
+		if r.Error() != want {
+			t.Errorf("Check(%q) Error() = %q, want %q", tc.src, r.Error(), want)
 		}
 	}
 }
