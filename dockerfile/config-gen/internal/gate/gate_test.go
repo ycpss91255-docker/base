@@ -777,7 +777,12 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 // the duplicate is reported at the key's first byte, as a statement (2:1)
 // and as an inline-table member (1:13: t(1) ' '(2) =(3) ' '(4) {(5) a(6)
 // ' '(7) =(8) ' '(9) 1(10) ,(11) ' '(12) a(13)), for the whole key and
-// for a dotted key through the scalar a.
+// for a dotted key through the scalar a. In the last rows the refusal
+// comes inside or right after the key itself: a `\e` in a quoted part
+// after the scalar a (2:1 as a statement and a header, 1:13 as a member),
+// and the byte after a complete key where `=` (2:3) or the header's `]`
+// (2:3) should be. The key parts already read decide the duplicate, so it
+// is reported at the key's first byte.
 func TestCheckRefusesInDocumentOrder(t *testing.T) {
 	for _, tc := range []struct {
 		src       string
@@ -794,6 +799,11 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 		{"a = 1\na = [1 2]\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
 		{"t = {a = 1, a = \"\\e\"}\n", 1, 13, ReasonDuplicate, "Cannot overwrite a value (at line 1, column 13)"},
 		{"t = {a = 1, a.b = \"\\e\"}\n", 1, 13, ReasonDuplicate, "Cannot overwrite a value (at line 1, column 13)"},
+		{"a = 1\na.\"\\e\" = 2\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"a = 1\n[a.\"\\e\"]\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"t = {a = 1, a.\"\\e\" = 2}\n", 1, 13, ReasonDuplicate, "Cannot overwrite a value (at line 1, column 13)"},
+		{"a = 1\na 2\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"[x]\n[x\n", 2, 1, ReasonRedefine, "Cannot overwrite a value (at line 2, column 1)"},
 	} {
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
