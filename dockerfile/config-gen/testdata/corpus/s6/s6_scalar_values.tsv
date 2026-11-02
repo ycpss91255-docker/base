@@ -111,3 +111,80 @@ value	logging	wrapper_transcript_keep	20	accept	-	wrapper_transcript_keep:patter
 value	logging	wrapper_transcript_keep	"0"	refuse	conf_value_type_refused	wrapper_transcript_keep:other
 value	logging	wrapper_transcript_days	14	accept	-	wrapper_transcript_days:pattern
 value	logging	wrapper_transcript_days	1e16	refuse	conf_value_type_refused	wrapper_transcript_days:other
+value	image	rule_1	""	accept	-	empty:allow
+value	image	rule_2	"@basename"	accept	-	image_rule:at
+value	image	rule_3	"suffix:_ws"	accept	-	image_rule:suffix
+value	image	rule_4	"@default:x"	accept	-	image_rule:default
+value	image	rule_5	"prefix:ros_"	accept	-	image_rule:prefix
+value	image	rule_6	"prefix:"	refuse	conf_value_invalid	image_rule:other
+value	image	rule_7	"ros"	refuse	conf_value_invalid	image_rule:other
+value	image	rule_8	1	refuse	conf_value_type_refused	image_rule:other
+value	security	security_opt_1	""	accept	-	empty:allow
+value	security	security_opt_2	"seccomp=unconfined"	accept	-	security_opt:kv
+value	security	security_opt_3	"label:disable"	accept	-	security_opt:colon
+value	security	security_opt_4	"a b=c"	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_5	"1x=y"	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_6	"no-new-privileges"	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_7	true	refuse	conf_value_type_refused	security_opt:other
+value	build	arg_1	""	accept	-	empty:allow
+value	build	arg_2	"A=1"	accept	-	env_kv:kv
+value	build	arg_3	"_A="	accept	-	env_kv:kv
+value	build	arg_4	"1A=1"	refuse	conf_value_invalid	env_kv:other
+value	build	arg_5	"A"	refuse	conf_value_invalid	env_kv:other
+value	build	arg_6	7	refuse	conf_value_type_refused	env_kv:other
+value	volumes	mount_1	""	accept	-	empty:allow
+value	volumes	mount_2	"/a:/b"	accept	-	mount:pair
+value	volumes	mount_3	"/a:/b:ro,rslave"	accept	-	mount:mode
+value	volumes	mount_4	"/a:/b:zz"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_5	"/a"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_6	":/b"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_7	"/a b:/c"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_8	"/a:/b:ro:x"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_9	7	refuse	conf_value_type_refused	mount:other
+value	devices	device_1	""	accept	-	empty:allow
+value	devices	device_2	"/dev/x:/dev/x"	accept	-	mount:pair
+value	devices	device_3	"/dev/x:/dev/x:rw"	accept	-	mount:mode
+value	devices	device_4	"/dev/x"	refuse	conf_value_invalid	mount:other
+value	devices	device_5	false	refuse	conf_value_type_refused	mount:other
+value	devices	cgroup_rule_1	""	accept	-	empty:allow
+value	devices	cgroup_rule_2	"c 1:1 rwm"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_3	"a *:* m"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_4	"q 1:1 rwm"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_5	"c 1:1 x"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_6	1	refuse	conf_value_type_refused	cgroup_rule:other
+value	environment	env_1	""	accept	-	empty:allow
+value	environment	env_2	"A=b c"	accept	-	env_kv:kv
+value	environment	env_3	"A=b"	accept	-	env_kv:kv
+value	environment	env_4	"-A=b"	refuse	conf_value_invalid	env_kv:other
+value	environment	env_5	"1A=b"	refuse	conf_value_invalid	env_kv:other
+value	environment	env_6	true	refuse	conf_value_type_refused	env_kv:other
+value	tmpfs	tmpfs_1	""	accept	-	empty:allow
+value	tmpfs	tmpfs_2	"/t"	accept	-	tmpfs:path
+value	tmpfs	tmpfs_3	"/t:size=64m,mode=1777"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_4	"t"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_5	"/t:size=64m:x"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_6	"/t x"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_7	"/t:1bad"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_8	64	refuse	conf_value_type_refused	tmpfs:other
+value	network	port_1	""	accept	-	empty:allow
+value	network	port_2	"8080:80"	accept	-	port_mapping:pair
+value	network	port_3	"53:53/udp"	accept	-	port_mapping:proto
+value	network	port_4	"80"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_5	"80:80/sctp"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_6	"a:80"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_7	80	refuse	conf_value_type_refused	port_mapping:other
+value	additional_contexts	context_1	""	accept	-	empty:allow
+value	additional_contexts	context_2	"base=docker-image://x"	accept	-	additional_context:kv
+value	additional_contexts	context_3	"noeq"	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_4	"=x"	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_5	"a="	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_6	"-a=x"	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_7	1	refuse	conf_value_type_refused	additional_context:other
+value	security	cap_add_1	""	accept	-	empty:allow
+value	security	cap_add_2	"NET_ADMIN"	accept	-	capability:name
+value	security	cap_add_3	"net_admin"	refuse	conf_value_invalid	capability:other
+value	security	cap_add_4	1	refuse	conf_value_type_refused	capability:other
+value	security	cap_drop_1	""	accept	-	empty:allow
+value	security	cap_drop_2	"ALL"	accept	-	capability:name
+value	security	cap_drop_3	"SYS-ADMIN"	refuse	conf_value_invalid	capability:other
+value	security	cap_drop_4	true	refuse	conf_value_type_refused	capability:other

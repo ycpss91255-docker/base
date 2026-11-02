@@ -68,6 +68,11 @@ func readValueRows(t *testing.T) []valueRow {
 // float. Values are judged on the bridge's text: `driver = inf` and
 // `name = 1979-05-27` pass, and a non-breaking space does not split
 // gpu_capabilities words under LC_ALL=C.
+// The 12 numbered families of schema.sh (image.rule_, build.arg_,
+// volumes.mount_, ...) are judged at numbered keys other than _1 too:
+// each accepts `""` (the default empty policy, although its validator
+// refuses it), gives every validator branch its verdict, and refuses a
+// non-string literal as conf_value_type_refused.
 func TestValidateMatchesSchemaSh(t *testing.T) {
 	for _, row := range readValueRows(t) {
 		name := row.section + "." + row.key + "=" + row.literal
