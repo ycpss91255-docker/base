@@ -68,6 +68,9 @@ func DecodeList(body []byte) ([]Package, error) {
 // Mapping is what the change manifest makes the mutation gate test.
 type Mapping struct {
 	Targets []string
+	// Removed are the module-relative directories of deleted Go paths
+	// where the head tree holds no package any more.
+	Removed []string
 }
 
 // testcorpus is the one package that reads the module-root testdata/.
@@ -78,7 +81,9 @@ const testcorpus = "internal/testcorpus"
 var moduleWide = map[string]bool{"go.mod": true, "go.sum": true, ".golangci.yml": true}
 
 // Map returns the module-relative package directories the manifest
-// makes the gate test: the directory of every Go file (as Targets), the
+// makes the gate test: the directory of every Go file (as Targets, except
+// that a deleted Go path whose directory holds no package in pkgs is
+// recorded in Removed instead), the
 // package that owns a file under its own testdata/, every package of the
 // module for go.mod, go.sum or .golangci.yml, and, when the manifest
 // lists a file under the module-root testdata/, every package whose test
@@ -94,7 +99,13 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 			out = append(out, dir)
 		}
 	}
-	for _, dir := range Targets(manifest) {
+	removed := map[string]bool{}
+	for _, g := range goPaths(manifest) {
+		dir := path.Dir(g.rel)
+		if g.deleted && !hasPackage(pkgs, module, dir) {
+			removed[dir] = true
+			continue
+		}
 		add(dir)
 	}
 	every := false
@@ -137,7 +148,54 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 		}
 	}
 	sort.Strings(out)
-	return Mapping{Targets: out}, nil
+	gone := []string{}
+	for dir := range removed {
+		gone = append(gone, dir)
+	}
+	sort.Strings(gone)
+	return Mapping{Targets: out, Removed: gone}, nil
+}
+
+// goPath is one Go path a manifest line names inside the module, and
+// whether the head tree no longer has it: the path of a D line or the
+// old side of an R line.
+type goPath struct {
+	rel     string
+	deleted bool
+}
+
+// goPaths returns every Go path a manifest line after the header names
+// inside the module.
+func goPaths(manifest string) []goPath {
+	var out []goPath
+	lines := strings.Split(manifest, "\n")
+	for _, line := range lines[1:] {
+		fields := strings.Split(line, "\t")
+		for i, p := range fields[1:] {
+			rel, ok := strings.CutPrefix(p, modulePrefix)
+			if !ok || !strings.HasSuffix(rel, ".go") {
+				continue
+			}
+			deleted := fields[0] == "D" || (strings.HasPrefix(fields[0], "R") && i == 0)
+			out = append(out, goPath{rel: rel, deleted: deleted})
+		}
+	}
+	return out
+}
+
+// hasPackage reports whether pkgs holds the package at the
+// module-relative directory dir (`.` for the module root).
+func hasPackage(pkgs []Package, module, dir string) bool {
+	want := module + "/" + dir
+	if dir == "." {
+		want = module
+	}
+	for _, p := range pkgs {
+		if p.ImportPath == want {
+			return true
+		}
+	}
+	return false
 }
 
 // modulePaths returns the module-relative form of every path a manifest
