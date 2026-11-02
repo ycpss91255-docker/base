@@ -66,6 +66,11 @@ FROM ${GO_IMAGE} AS build
 # SHELL because placed below it, hadolint reported SC3010 ([[ in POSIX sh)
 # on the test stage's fmt RUN.
 ENV GOTOOLCHAIN=local
+# The live tomllib verdicts file internal/gate's differential reads
+# (base#1441); the test stage copies it there. Above SHELL for the same
+# SC3010 reason as GOTOOLCHAIN: placed in the test stage, hadolint
+# reported SC3010 on the fmt RUN.
+ENV CONFIG_GEN_TOML_ORACLE=/toml-oracle/verdicts.tsv
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 WORKDIR /src
 COPY . .
@@ -78,6 +83,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # build cache is mounted only to save compile time; it is keyed on content.
 FROM build AS test
 COPY --from=tools /usr/local/bin/golangci-lint /usr/local/bin/golangci-lint
+# tomllib's live verdicts, written by script/test/config_gen_steps/
+# 10-toml-oracle.sh and handed in by config_gen_gates.sh as the
+# `toml-oracle` build context (base#1441); CONFIG_GEN_TOML_ORACLE (set in
+# build) names this path. toml-oracle is a named build context, not a
+# stage, which DL3022 cannot see.
+# hadolint ignore=DL3022
+COPY --from=toml-oracle verdicts.tsv /toml-oracle/verdicts.tsv
 # gofmt exits non-zero on a file it cannot parse (a _test.go syntax error
 # passes the build stage); that status must name this gate too, not end
 # the RUN under set -e before the id is printed.
