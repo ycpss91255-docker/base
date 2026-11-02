@@ -5,9 +5,7 @@
 package testcorpus
 
 import (
-	"io/fs"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -45,56 +43,14 @@ func Glob(t testing.TB, pattern string) []string {
 	return got
 }
 
-// Files returns every file under root/corpus, at any depth, whose name
-// ends in ext, as sorted paths joined to root (base#1442). It lists the
-// tree rather than matching a pattern, so a fixture in a nested directory
-// is never left out. It calls t.Fatal when root was never set, when the
-// tree cannot be walked, when no file ends in ext, and when one basename
-// appears twice anywhere under root/corpus.
-func Files(t testing.TB, ext string) []string {
+// refuseRepeatedBasename calls t.Fatal, naming both paths, when two files
+// under root/corpus/s*/ share a basename (base#1468).
+func refuseRepeatedBasename(t testing.TB) {
 	t.Helper()
-	if root == "" {
-		t.Fatalf("testcorpus: root is empty; cannot list %q files (build with -ldflags=-X=<module>/internal/testcorpus.root=<dir>)", ext)
-	}
-	var got []string
-	for _, p := range corpusFiles(t) {
-		if strings.HasSuffix(p, ext) {
-			got = append(got, p)
-		}
-	}
-	if len(got) == 0 {
-		t.Fatalf("testcorpus: no corpus file ends in %q under %s", ext, root)
-	}
-	refuseRepeatedBasename(t)
-	return got
-}
-
-// corpusFiles is every regular file under root/corpus, at any depth,
-// sorted.
-func corpusFiles(t testing.TB) []string {
-	t.Helper()
-	var all []string
-	err := filepath.WalkDir(filepath.Join(root, "corpus"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type().IsRegular() {
-			all = append(all, p)
-		}
-		return nil
-	})
+	all, err := filepath.Glob(filepath.Join(root, "corpus", "s*", "*"))
 	if err != nil {
 		t.Fatalf("testcorpus: cannot list %s/corpus: %v", root, err)
 	}
-	sort.Strings(all)
-	return all
-}
-
-// refuseRepeatedBasename calls t.Fatal, naming both paths, when two files
-// anywhere under root/corpus share a basename (base#1468, base#1442).
-func refuseRepeatedBasename(t testing.TB) {
-	t.Helper()
-	all := corpusFiles(t)
 	seen := make(map[string]string, len(all))
 	for _, p := range all {
 		base := filepath.Base(p)

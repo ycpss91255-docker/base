@@ -75,7 +75,7 @@ func under(k, p []string) bool {
 
 // TestIndexOccurrenceParity checks the locator against the library on
 // every corpus TOML file, at any depth (base#1442 AC "every corpus file").
-// The scope is testcorpus.Files, a listing of the corpus tree, so no file
+// The scope is locate.CorpusTOML, a listing of the corpus tree, so no file
 // is left out by a pattern; the test asserts the scope holds the s1 seed,
 // a file under corpus/s6/sections/ and every file the one- and two-level
 // slice globs match.
@@ -95,7 +95,7 @@ func under(k, p []string) bool {
 // scope cannot silently lose either kind of file. Every expected line
 // comes from the library, never from this package.
 func TestIndexOccurrenceParity(t *testing.T) {
-	files := testcorpus.Files(t, ".toml")
+	files := locate.CorpusTOML(t)
 	scope := map[string]bool{}
 	sections := 0
 	for _, f := range files {

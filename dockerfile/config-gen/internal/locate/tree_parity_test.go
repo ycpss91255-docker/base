@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
 
 // treeSeeds are the documents of base#1442 redesign r1-r3 that the corpus
@@ -204,7 +202,7 @@ func sameItems(n *Node, items []any, path []string) string {
 // on every corpus TOML file and the redesign seeds (base#1442 redesign
 // R4). A file the parser refuses is still indexed and its records owned.
 func TestTreeParity(t *testing.T) {
-	files := testcorpus.Files(t, ".toml")
+	files := CorpusTOML(t)
 	if len(files) == 0 {
 		t.Fatal("no corpus TOML file")
 	}
@@ -226,7 +224,7 @@ func FuzzTreeParity(f *testing.F) {
 	for _, s := range treeSeeds {
 		f.Add([]byte(s))
 	}
-	for _, file := range testcorpus.Files(f, ".toml") {
+	for _, file := range CorpusTOML(f) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			f.Fatal(err)

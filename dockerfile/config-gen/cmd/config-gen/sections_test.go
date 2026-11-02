@@ -58,10 +58,7 @@ func readSectionRows(t *testing.T) map[string][]string {
 func TestCheckSectionsCorpus(t *testing.T) {
 	want := readSectionRows(t)
 	seen := map[string]bool{}
-	for _, path := range testcorpus.Files(t, ".toml") {
-		if filepath.Base(filepath.Dir(path)) != "sections" {
-			continue
-		}
+	for _, path := range testcorpus.Glob(t, "corpus/s6/sections/*.toml") {
 		base := filepath.Base(path)
 		seen[base] = true
 		t.Run(base, func(t *testing.T) {

@@ -168,11 +168,11 @@ func TestIndexKeyEscapes(t *testing.T) {
 }
 
 // TestIndexEveryPrefixIsSafe indexes every byte prefix of every corpus
-// TOML file at any depth (testcorpus.Files), so an unterminated string, escape, array or header at any point
+// TOML file at any depth (CorpusTOML), so an unterminated string, escape, array or header at any point
 // cannot make the scan run past the input (base#1442, review round 1: an
 // escaped quote used to start a scan beyond the end and panic).
 func TestIndexEveryPrefixIsSafe(t *testing.T) {
-	for _, file := range testcorpus.Files(t, ".toml") {
+	for _, file := range CorpusTOML(t) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
