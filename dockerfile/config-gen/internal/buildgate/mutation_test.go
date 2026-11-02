@@ -83,6 +83,47 @@ func TestMapRootTestdataTargetsTestcorpusImporters(t *testing.T) {
 	}
 }
 
+// A module file that is not Go maps to the packages whose build or test
+// it can change: a file under a package's own testdata/ to that package,
+// and go.mod, go.sum or .golangci.yml to every package of the module. The
+// expected lists are the fixture's packages as the comment above names
+// them (six, tested or not), not derived from the fixture by code.
+func TestMapNonGoModuleFilesTargetTheirPackages(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	every := []string{"cmd/x", "internal/b", "internal/c", "internal/d", "internal/helper", "internal/testcorpus"}
+	cases := []struct {
+		name     string
+		manifest string
+		want     []string
+	}{
+		{"a file in a package's own testdata", header + "M\tdockerfile/config-gen/internal/c/testdata/in.txt\n",
+			[]string{"internal/c"}},
+		{"a nested file in a package's own testdata", header + "A\tdockerfile/config-gen/internal/c/testdata/s1/in.txt\n",
+			[]string{"internal/c"}},
+		{"go.mod", header + "M\tdockerfile/config-gen/go.mod\n", every},
+		{"go.sum", header + "M\tdockerfile/config-gen/go.sum\n", every},
+		{".golangci.yml", header + "M\tdockerfile/config-gen/.golangci.yml\n", every},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err != nil {
+				t.Fatalf("Map: %v", err)
+			}
+			if !reflect.DeepEqual(got.Targets, c.want) {
+				t.Errorf("Map targets = %q, want %q", got.Targets, c.want)
+			}
+		})
+	}
+}
+
 // statuses is a gremlins report holding one mutation per status.
 func statuses(s ...string) string {
 	var b strings.Builder
