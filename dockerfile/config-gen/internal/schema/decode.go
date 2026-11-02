@@ -23,12 +23,15 @@ type Refusal struct {
 // Config is the decoded layer.
 type Config struct{}
 
-// known is SCHEMA_VALIDATOR's scalar rows (dist/script/docker/lib/schema.sh)
-// by section. Only [deploy] and security.privileged so far; the other
-// sections and the numbered families follow in later cycles of base#1442.
-var known = map[string][]string{
-	"deploy":   {"gpu_mode", "gpu_count", "gpu_capabilities", "gpu_runtime", "runtime", "dri_groups"},
-	"security": {"privileged"},
+// known is the set of sections _setup_known_section accepts
+// (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [security] and
+// [volumes] so far; the other sections follow in later cycles of
+// base#1442. A key of a known section is known when it resolves to a
+// SCHEMA_VALIDATOR row, as _setup_known_key does.
+var known = map[string]bool{
+	"deploy":   true,
+	"security": true,
+	"volumes":  true,
 }
 
 // Decode decodes src and returns one conf_unknown_table refusal for each
@@ -47,7 +50,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 	var refusals []Refusal
 	var lines *locate.Map
 	for _, k := range md.Keys() {
-		keys, ok := known[k[0]]
+		ok := known[k[0]]
 		if len(k) == 1 && !ok {
 			if lines == nil {
 				lines = locate.Index(src)
@@ -59,10 +62,12 @@ func Decode(src []byte) (*Config, []Refusal) {
 			occ, _ := lines.Table(k)
 			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
 		}
-		if len(k) == 2 && ok && !contains(keys, k[1]) {
-			refusals = append(refusals, Refusal{Event: "conf_unknown_key", Path: k, Line: keyLine(src, k)})
+		if len(k) != 2 || !ok {
+			continue
 		}
-		if len(k) == 2 && ok && contains(keys, k[1]) {
+		if _, isKey := canonical(k[0], k[1]); !isKey {
+			refusals = append(refusals, Refusal{Event: "conf_unknown_key", Path: k, Line: keyLine(src, k)})
+		} else {
 			var table map[string]toml.Primitive
 			var s Scalar
 			// A value of a kind Scalar does not decode yet is left
@@ -78,15 +83,6 @@ func Decode(src []byte) (*Config, []Refusal) {
 		}
 	}
 	return &Config{}, refusals
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // keyLine is the line of `<key> =` under the header `[<table>]`.
