@@ -115,18 +115,16 @@ func checkArgs(args []string) ([]string, error) {
 
 // readLayer reads the regular file at path. It is opened non-blocking and
 // checked on the open descriptor, so a FIFO in a layer's place is refused
-// rather than waited on (base#1400).
+// rather than waited on (base#1400). A descriptor fstat cannot describe is
+// not known to be a regular file, so it takes the same refusal (base#1442
+// review round 1): one rule, not a second branch no input reaches.
 func readLayer(path string) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s: not a regular file", path)
 	}
 	return io.ReadAll(f)
