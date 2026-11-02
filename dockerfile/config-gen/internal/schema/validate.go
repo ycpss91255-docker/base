@@ -48,7 +48,7 @@ var validators = map[string]rule{
 	"deploy.dri_groups":               {valid: validDRIGroups, kinds: kindsString},
 	"gui.mode":                        {valid: validDetectMode, kinds: kindsString},
 	"security.privileged":             {valid: validBool, kinds: kindsBool},
-	"resources.shm_size":              {valid: shmSize.MatchString, kinds: kindsString},
+	"resources.shm_size":              {valid: shmSize, kinds: kindsString},
 	"lifecycle.restart":               {valid: validRestart, kinds: kindsString},
 	"lifecycle.init":                  {valid: validBool, kinds: kindsBool},
 	"lifecycle.watchdog_check":        {valid: validWatchdogCmd, kinds: kindsString},
@@ -66,7 +66,7 @@ var validators = map[string]rule{
 	"network.ipc":                     {valid: containerOr("host", "private", "shareable", "none"), kinds: kindsString},
 	"network.pid":                     {valid: containerOr("host", "private"), kinds: kindsString},
 	"logging.driver":                  {valid: logDriver.MatchString, kinds: kindsString},
-	"logging.max_size":                {valid: logMaxSize.MatchString, kinds: kindsString},
+	"logging.max_size":                {valid: logMaxSize, kinds: kindsString},
 	"logging.max_file":                {valid: posInt.MatchString, kinds: kindsInt},
 	"logging.compress":                {valid: validBool, kinds: kindsBool},
 	"logging.local_path":              {valid: validLogLocalPath, kinds: kindsString},
@@ -146,8 +146,8 @@ func kindRefused(section, key string, s Scalar) bool {
 
 // The regular expressions of the _tui_conf.sh validators. schema.sh runs
 // under LC_ALL=C, where a bracket range is ASCII bytes; Go's ranges are
-// ASCII too, so a fullwidth digit fails. `(?i)` is the validators'
-// `shopt -s nocasematch`.
+// ASCII too, so a fullwidth digit fails. No pattern here folds case: the
+// two validators that run under `shopt -s nocasematch` are sizeWithUnit.
 var (
 	posInt      = regexp.MustCompile(`^[1-9][0-9]*$`)
 	nonNegInt   = regexp.MustCompile(`^[0-9]+$`)
@@ -155,8 +155,6 @@ var (
 	projectName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	networkName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 	logDriver   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
-	shmSize     = regexp.MustCompile(`(?i)^[0-9]+(b|k|m|g|kb|mb|gb)$`)
-	logMaxSize  = regexp.MustCompile(`(?i)^[0-9]+[bkmg]$`)
 	portMapping = regexp.MustCompile(`^[0-9]+:[0-9]+(/(tcp|udp))?$`)
 	cgroupRule  = regexp.MustCompile(`^[cba][[:space:]]+([0-9]+|\*):([0-9]+|\*)[[:space:]]+[rwm]+$`)
 	capability  = regexp.MustCompile(`^[A-Z_]+$`)
@@ -167,6 +165,38 @@ var (
 	tmpfsPath   = regexp.MustCompile(`^/[^:]+$`)
 	tmpfsOpts   = regexp.MustCompile(`^/[^:]+:` + tmpfsOpt + `(,` + tmpfsOpt + `)*$`)
 )
+
+// shmSize ports _validate_shm_size and logMaxSize _validate_log_max_size.
+var (
+	shmSize    = sizeWithUnit("b", "k", "m", "g", "kb", "mb", "gb")
+	logMaxSize = sizeWithUnit("b", "k", "m", "g")
+)
+
+// sizeWithUnit is a validator `[[ $v =~ ^[0-9]+(<unit>|...)$ ]]` run under
+// `shopt -s nocasematch` and LC_ALL=C: one or more ASCII digits, then one
+// of units (lower case) in any ASCII case. Under LC_ALL=C only A-Z and a-z
+// have a case, so "1"+U+212A KELVIN SIGN is refused; a Go `(?i)` regexp
+// accepted it as "1k" (s6_scalar_values.tsv, base#1442 review round 1).
+func sizeWithUnit(units ...string) func(string) bool {
+	return func(text string) bool {
+		i := 0
+		for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+			i++
+		}
+		return i > 0 && slices.Contains(units, asciiLower(text[i:]))
+	}
+}
+
+// asciiLower maps A-Z to a-z and keeps every other byte.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
+}
 
 // cSpace is a byte of LC_ALL=C [[:space:]]: space, \t, \n, \v, \f, \r.
 func cSpace(text string) bool {
