@@ -31,6 +31,10 @@
 #                  as an unstaged edit, so every mutant survives
 #   mut-timeout    an untracked package whose loop mutant hangs:   mutation
 #                  3 mutants killed and 1 timed out is 75.0
+#   corpus         a committed importer of internal/testcorpus     mutation
+#                  whose result goes unasserted; the change is
+#                  only an untracked file under the module's
+#                  root testdata/
 #
 # A mutation case (gate mutation, base#1467) must also show the manifest
 # the 00-manifest step wrote with dirty=yes: a step planted after every
@@ -159,12 +163,15 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-timeout:mutation)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-timeout:mutation corpus:mutation)
 # <case>|<the line the mutation gate must print for it> (base#1467). The
 # mut-timeout figure is 3 killed over 4 judged: gremlins reported its loop
 # fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
+# The corpus figure is 0 killed over 2 judged: Pos's boundary and negation
+# mutants of n > 0 both live, since no test asserts Pos's result.
 readonly -a _RP_MUTATION_LINES=(
   'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0'
+  'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0'
 )
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
@@ -636,6 +643,53 @@ func TestCount(t *testing.T) {
 }
 EOF
       printf 'internal/zzloop 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    corpus)
+      # zzweak is committed with its floor, so the change 00-manifest lists
+      # is only the untracked testdata/c.txt. Its test reads the golden
+      # through internal/testcorpus and compares its bytes, but leaves
+      # Pos(5) unasserted: every Pos mutant survives, and only a root
+      # testdata change that reaches the test importers of testcorpus can
+      # make zzweak a target (base#1467).
+      mkdir -p "${mod}/internal/zzweak"
+      cat >"${mod}/internal/zzweak/zzweak.go" <<'EOF'
+// Package zzweak is a redpath fixture whose test asserts nothing of Pos.
+package zzweak
+
+// Pos reports whether n is positive.
+func Pos(n int) bool {
+	return n > 0
+}
+EOF
+      cat >"${mod}/internal/zzweak/zzweak_test.go" <<'EOF'
+package zzweak
+
+import (
+	"os"
+	"testing"
+
+	"MODPATH/internal/testcorpus"
+)
+
+func TestPos(t *testing.T) {
+	_ = Pos(5)
+	for _, p := range testcorpus.Glob(t, "golden/s1/seed.golden") {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+			t.Fatalf("%s = %q", p, b)
+		}
+	}
+}
+EOF
+      sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
+        "${mod}/internal/zzweak/zzweak_test.go"
+      printf 'internal/zzweak 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_rebase "${root}"
+      printf 'c\n' >"${mod}/testdata/c.txt"
       _rp_manifest_step "${root}"
       ;;
     fmt-parse)

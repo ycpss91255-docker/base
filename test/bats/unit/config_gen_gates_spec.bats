@@ -457,6 +457,7 @@ gate|corpus-helper|race
 gate|corpus-var|race
 gate|mut-unstaged|mutation
 gate|mut-timeout|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0
+gate|corpus|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0
 refusal|no-context|config_gen_manifest_missing
 stale|stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
 stale|stale-edit-locale|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
