@@ -665,10 +665,10 @@ _pin_extract_value() {
 #   require                emitted, after the entry and version checks;
 #   module, go, toolchain, held to the checks Go's own parser makes (one
 #   godebug (line form)    argument, the value grammar, not repeated) and
-#                          never emitted;
+#                          never emitted (a godebug line that fails Go's
+#                          check is godebug_usage);
 #   anything else          refused BY NAME (replace, tool, ignore, a godebug
-#                          block or malformed godebug, exclude, retract) or
-#                          as unknown_verb.
+#                          block, exclude, retract) or as unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -958,9 +958,11 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
     # godebug, line form: Go's f.add takes exactly one argument whose raw
     # text holds no quote, backquote or comma and has a `=`; checked, never
-    # emitted (base#1488). Any other godebug is still refused by name.
+    # emitted (base#1488); a line that fails it is godebug_usage. The block
+    # form is still refused by name.
     if [[ "${_verb}" == godebug ]]; then
-      if (( ${#_gm_kind[@]} != 2 )) || [[ "${_gm_text[1]}" == *[\"\'\`,]* || "${_gm_text[1]}" != *=* ]]; then _pin_go_mod_refuse "${_ln}" godebug; return 1; fi
+      if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" godebug; return 1; fi
+      if (( ${#_gm_kind[@]} != 2 )) || [[ "${_gm_text[1]}" == *[\"\'\`,]* || "${_gm_text[1]}" != *=* ]]; then _pin_go_mod_refuse "${_ln}" godebug_usage; return 1; fi
       continue
     fi
     if [[ "${_verb}" == exclude ]]; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
