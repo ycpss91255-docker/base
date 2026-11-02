@@ -84,7 +84,8 @@ var moduleWide = map[string]bool{"go.mod": true, "go.sum": true, ".golangci.yml"
 // Map returns the module-relative package directories the manifest
 // makes the gate test: the directory of every Go file (as Targets, except
 // that a deleted Go path whose directory holds no package in pkgs is
-// recorded in Removed instead), the
+// recorded in Removed instead, and any other Go path whose directory holds
+// no package is refused as config_gen_mutation_no_such_package pkg=), the
 // package that owns a file under its own testdata/, every package of the
 // module for go.mod, go.sum or .golangci.yml, and, when the manifest
 // lists a file under the module-root testdata/, every package whose test
@@ -113,7 +114,10 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 	removed := map[string]bool{}
 	for _, g := range goPaths(manifest) {
 		dir := path.Dir(g.rel)
-		if g.deleted && !hasPackage(pkgs, module, dir) {
+		if !hasPackage(pkgs, module, dir) {
+			if !g.deleted {
+				return Mapping{}, errors.New(ev("mutation_no_such_package", "pkg", importPath(module, dir)).String())
+			}
 			removed[dir] = true
 			continue
 		}
@@ -218,16 +222,22 @@ func goPaths(manifest string) []goPath {
 // hasPackage reports whether pkgs holds the package at the
 // module-relative directory dir (`.` for the module root).
 func hasPackage(pkgs []Package, module, dir string) bool {
-	want := module + "/" + dir
-	if dir == "." {
-		want = module
-	}
+	want := importPath(module, dir)
 	for _, p := range pkgs {
 		if p.ImportPath == want {
 			return true
 		}
 	}
 	return false
+}
+
+// importPath returns the import path of the package at the module-relative
+// directory dir (`.` for the module root).
+func importPath(module, dir string) string {
+	if dir == "." {
+		return module
+	}
+	return module + "/" + dir
 }
 
 // modulePaths returns the module-relative form of every path a manifest
