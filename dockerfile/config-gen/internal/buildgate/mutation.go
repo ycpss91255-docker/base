@@ -124,8 +124,11 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 		}
 		add(dir)
 	}
-	every := false
+	every, rootTestdata := false, false
 	for _, rel := range modulePaths(manifest) {
+		if strings.HasPrefix(rel, "testdata/") {
+			rootTestdata = true
+		}
 		switch dir, _, inPkgTestdata := strings.Cut(rel, "/testdata/"); {
 		case moduleWide[rel]:
 			every = true
@@ -145,7 +148,7 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 			}
 		}
 	}
-	if listsRootTestdata(manifest) {
+	if rootTestdata {
 		for _, rel := range CorpusImporters(module, pkgs) {
 			add(rel)
 		}
@@ -241,20 +244,6 @@ func modulePaths(manifest string) []string {
 		}
 	}
 	return out
-}
-
-// listsRootTestdata reports whether a manifest line after the header
-// names a path under the module-root testdata/.
-func listsRootTestdata(manifest string) bool {
-	lines := strings.Split(manifest, "\n")
-	for _, line := range lines[1:] {
-		for _, p := range linePaths(line) {
-			if strings.HasPrefix(p, modulePrefix+"testdata/") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // linePaths returns the raw paths one manifest line names: every field

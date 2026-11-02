@@ -52,7 +52,7 @@
 //
 // Exit statuses:
 //
-//	0  every package holds its floor
+//	0  the gate passed
 //	1  a refusal, or an input it could not read
 //	2  usage
 package main
@@ -158,11 +158,7 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "cg-gates: mutation: %v\n%s reason=unreadable\n", err, mutationFailed)
 		return exitFail
 	}
-	list, err := exec.Command("go", "list", "-json", "-test", "-deps", "./...").Output()
-	var pkgs []buildgate.Package
-	if err == nil {
-		pkgs, err = buildgate.DecodeList(list)
-	}
+	pkgs, err := goList()
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "cg-gates: mutation: go list: %v\n%s reason=unreadable\n", err, mutationFailed)
 		return exitFail
@@ -240,11 +236,7 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 	}
 	wd, _ := os.Getwd()
 	tc := filepath.Join(wd, "internal", "testcorpus")
-	list, err := exec.Command("go", "list", "-json", "-test", "-deps", "./...").Output()
-	var pkgs []buildgate.Package
-	if err == nil {
-		pkgs, err = buildgate.DecodeList(list)
-	}
+	pkgs, err := goList()
 	var src []byte
 	if err == nil {
 		src, err = os.ReadFile(filepath.Join(tc, "testcorpus.go"))
@@ -355,6 +347,16 @@ func ignored(args []string, stdout, stderr io.Writer) int {
 		return exitFail
 	}
 	return exitOK
+}
+
+// goList decodes `go list -json -test -deps ./...` of the working
+// directory, the package graph the mutation and sensitivity gates read.
+func goList() ([]buildgate.Package, error) {
+	list, err := exec.Command("go", "list", "-json", "-test", "-deps", "./...").Output()
+	if err != nil {
+		return nil, err
+	}
+	return buildgate.DecodeList(list)
 }
 
 // flipFirst inverts the first byte of the file p; an empty file is an
