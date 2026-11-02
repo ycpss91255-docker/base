@@ -110,3 +110,42 @@ func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 		}
 	}
 }
+
+// A comma followed (after optional whitespace) by the `}` that closes an
+// inline table is TOML 1.1 only. toml-test v2.2.0's 1.0 list has
+// invalid/inline-table/trailing-comma, which tomllib refuses while
+// BurntSushi v1.6.0 accepts (base#1441 design-ahead §1c), and the TOML 1.0
+// ABNF (inline-table-keyvals = keyval [ inline-table-sep
+// inline-table-keyvals ]) has no trailing separator. The position is the
+// comma, counted by hand, e.g. r1:
+// a(1) ' '(2) =(3) ' '(4) {(5) b(6) ' '(7) =(8) ' '(9) 1(10) ,(11).
+// An array's trailing comma is TOML 1.0 (array-values allows it), and a
+// comma between two inline-table pairs is the separator, so both are nil.
+func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"r1", "a = {b = 1, }\n", 1, 11},
+		{"r2", "a = {b = 1,}\n", 1, 11},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonInlineTrailingComma {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonInlineTrailingComma}",
+				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, tc := range []struct{ name, src string }{
+		{"c1", "a = [1,\n2,]\n"},
+		{"c2", "a = {b = 1, c = 2}\n"},
+	} {
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+}
