@@ -57,11 +57,13 @@
 # (Ubuntu 22.04) the runner's attribute filter dropped every file and
 # reason word under it, and kept them only once _cg_attr_ok pinned LC_ALL=C
 # (base#1465). Where en_US.UTF-8 does not drop that word, the redpath makes
-# it with localedef into a LOCPATH of its own; where localedef exists and
-# still yields no such locale, the case fails (reason locale_not_affected)
-# rather than pass on a locale that proves nothing. A libc with no
-# localedef runs the case under the name as it is: in the musl test-tools
-# image bash matched the word under C, C.UTF-8 and en_US.UTF-8 alike.
+# it with localedef into a LOCPATH of its own; where neither yields such a
+# locale -- no localedef, a localedef that writes none, or a libc that is
+# neither glibc nor musl -- the case fails (reason locale_not_affected)
+# rather than pass on a locale that proves nothing. Musl alone runs the
+# case under the name as it is, and is told by its loader, not by a
+# missing localedef: in the musl test-tools image bash matched the word
+# under C, C.UTF-8 and en_US.UTF-8 alike.
 #
 # In any stale case, go's "go: errors parsing go.mod" (stale-gomod's
 # go.mod makes every go command print it) or a BuildKit step header for a
@@ -729,15 +731,32 @@ _rp_locale_drops() {
   ! env "$@" LC_ALL="${_RP_LOCALE}" bash -c '[[ "${1}" =~ ^file=[!-~]+$ ]]' _ "${_RP_LOCALE_WORD}" 2>/dev/null
 }
 
+# _rp_libc -- glibc when getconf answers GNU_LIBC_VERSION, musl when the
+# musl dynamic loader is on disk, unknown otherwise (base#1465).
+_rp_libc() {
+  if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
+    echo glibc
+  elif compgen -G '/lib/ld-musl-*.so.1' >/dev/null; then
+    echo musl
+  else
+    echo unknown
+  fi
+}
+
 # _rp_locale_env <scratch> -- the VAR=value words, one per line, that put
-# stale-edit-locale's runner call under _RP_LOCALE; non-zero when
-# localedef exists but no _RP_LOCALE it can reach drops _RP_LOCALE_WORD.
+# stale-edit-locale's runner call under _RP_LOCALE; non-zero when no
+# _RP_LOCALE that drops _RP_LOCALE_WORD can be had. Musl is the one libc
+# let through on a locale that does not drop the word, and only by name
+# (base#1465).
 _rp_locale_env() {
-  local dir="${1}/locale"
-  if ! command -v localedef >/dev/null 2>&1 || _rp_locale_drops; then
+  local dir="${1}/locale" libc
+  libc="$(_rp_libc)"
+  if _rp_locale_drops || [[ "${libc}" == musl ]]; then
     printf 'LC_ALL=%s\n' "${_RP_LOCALE}"
     return 0
   fi
+  [[ "${libc}" == glibc ]] || return 1
+  command -v localedef >/dev/null 2>&1 || return 1
   mkdir -p "${dir}"
   # localedef exits 1 on warnings it still writes the locale through.
   localedef -i en_US -f UTF-8 "${dir}/${_RP_LOCALE}" >/dev/null 2>&1 || true
@@ -754,7 +773,7 @@ _rp_stale() {
     if ! words="$(_rp_locale_env "${scratch}")"; then
       _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=locale_not_affected" \
         "event=config_gen_manifest_stale" \
-        "display=config-gen redpath case ${name}: localedef made no ${_RP_LOCALE} in which [!-~] drops ${_RP_LOCALE_WORD}"
+        "display=config-gen redpath case ${name}: no ${_RP_LOCALE} in which [!-~] drops ${_RP_LOCALE_WORD} could be had, from the installed locales or localedef"
       return 1
     fi
     mapfile -t env_words <<<"${words}"

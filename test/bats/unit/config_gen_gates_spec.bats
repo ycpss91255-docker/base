@@ -763,8 +763,8 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
 # (base#1465); a host whose own locale is C never runs that filter under
 # any other. stale-edit-locale is the case that does: its runner call, and
 # only its, runs under LC_ALL=en_US.UTF-8 whatever the redpath inherited.
-# The musl test-tools image has no localedef, so the name goes through as
-# it is, with no LOCPATH.
+# The test-tools image is musl, the one libc let through on the name as it
+# is, so it goes through with no LOCPATH.
 @test "config_gen_redpath.sh: stale-edit-locale runs the runner under LC_ALL=en_US.UTF-8, stale-edit under the caller's locale (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
