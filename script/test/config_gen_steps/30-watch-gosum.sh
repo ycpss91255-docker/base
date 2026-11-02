@@ -8,9 +8,13 @@
 # it again on each scratch copy. It reads everything relative to its own
 # root (three directories up), never the caller's checkout.
 #
-# The unit specs stub docker, so they never run the container script that
-# regenerates go.sum; only a real image can show that the go.sum a bump
-# commits is the one Go wants, with nothing else on it. So, per require
+# The unit specs stub docker. Most stubs answer with a canned go.sum; the
+# two verify specs in tool_pins_spec.bats (_stub_go_container) do run the
+# container script that regenerates go.sum, on the host under /bin/sh, but
+# against a fake `go` that writes a fixed go.sum. No unit spec runs that
+# script with the real Go in the pinned image, so only a real image can
+# show that the go.sum a bump commits is the one Go wants, with nothing
+# else on it. So, per require
 # form -- `line` (`require <path> <version>`) and `block` (the entry inside
 # `require ( ... )`, the form `go get` writes) -- this builds a
 # git-initialised scratch tree:

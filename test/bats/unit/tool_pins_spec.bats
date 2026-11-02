@@ -1001,7 +1001,7 @@ _assert_go_order() {
 
 # why: The container script runs `go mod verify` after the tidy, before it
 # hands go.sum back. Deleting that step once left every other spec green:
-# the docker stubs print a go.sum and never run the script, and the
+# the other docker stubs print a go.sum and never run the script, and the
 # real-image step only checks go.sum, go.mod and a build. Here the script
 # itself runs: verify is called once, after the one tidy, and its `all
 # modules verified` stays off go.sum (review round 2, base#1440).
