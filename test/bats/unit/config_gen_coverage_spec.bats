@@ -28,7 +28,8 @@ setup() {
   _stub_go
 }
 
-# _stub_go -- `go list ...` prints ${S}/list and exits ${S}/list.rc.
+# _stub_go -- `go list -m` prints the module path m; any other `go list
+# ...` prints ${S}/list and exits ${S}/list.rc.
 # `go test ... -coverprofile=<f> ... <pkg>` copies ${S}/prof/<key> to <f>
 # when it exists (<key> is <pkg> with / as _) and exits ${S}/prof/<key>.rc,
 # 0 when there is none. Every call is logged to ${S}/go.calls.
@@ -38,6 +39,7 @@ _stub_go() {
 printf '%s\n' "\$*" >> "${S}/go.calls"
 case "\${1:-}" in
   list)
+    [[ "\${2:-}" == -m ]] && { printf 'm\n'; exit 0; }
     cat "${S}/list"
     exit "\$(cat "${S}/list.rc")" ;;
   test)
@@ -276,4 +278,43 @@ _passed() {
   assert_output 2
   run grep -c '^test \(.* \)\?-ldflags=-X=m/internal/testcorpus\.root=/r/testdata .*' "${S}/go.calls"
   assert_output 2
+}
+
+# why: A package's floor is its coverage-floors.d/<slice>.txt line when one
+# names it, `<pkg relative to the module> <floor>` (base#1441 review round
+# 1 finding 6; the fragment grammar of base#1465), and 90.0 otherwise. The
+# comparison stays integer: 959 of 1000 is below a 96.0 floor and 960 is
+# not, while another package with no line still passes at 90.0. Comment and
+# blank lines carry no floor.
+@test "coverage.sh: a coverage-floors.d line is its package's floor, 959 of 1000 under 96.0 is below_floor and 960 passes (base#1441)" {
+  mkdir -p "${S}/mod/coverage-floors.d"
+  printf '# floors\n\na 96.0\n' > "${S}/mod/coverage-floors.d/s5.txt"
+  _pkg m/ok 1
+  _profile m/ok 'm/ok/o.go:1.1,2.2 900 1' 'm/ok/o.go:3.1,4.2 100 0'
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 959 1' 'm/a/a.go:3.1,4.2 41 0'
+  _run_gate
+  _refused below_floor m/a
+  _profile m/a 'm/a/a.go:1.1,2.2 960 1' 'm/a/a.go:3.1,4.2 40 0'
+  _run_gate
+  _passed
+}
+
+# why: A fragment line the gate cannot read as `<pkg> <NN.N>|none`, or a
+# floor under the 90.0 every package is held to, must not pass as "no floor"
+# or lower the bar; each is refused with reason floor_invalid naming the
+# fragment, before any package is judged (base#1441).
+@test "coverage.sh: a fragment line that is not <pkg> <NN.N>|none, or a floor under 90.0, is refused with reason floor_invalid (base#1441)" {
+  mkdir -p "${S}/mod/coverage-floors.d"
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  local _line
+  for _line in 'a 96' 'a  96.0' 'a 96.0 x' 'a' 'a 89.9' '/a 95.0'; do
+    printf '%s\n' "${_line}" > "${S}/mod/coverage-floors.d/s5.txt"
+    _run_gate
+    _refused floor_invalid coverage-floors.d/s5.txt
+  done
+  printf 'a none\n' > "${S}/mod/coverage-floors.d/s5.txt"
+  _run_gate
+  _passed
 }
