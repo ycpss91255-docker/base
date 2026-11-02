@@ -11,8 +11,8 @@
 #
 #   dockerfile/Dockerfile.config-gen  build, test and final (scratch) stages;
 #                                     the test stage runs fmt, vet, lint,
-#                                     race and coverage, one RUN each, in
-#                                     that order.
+#                                     race, coverage and fuzz, one RUN each,
+#                                     in that order.
 #   script/test/config_gen_gates.sh   the runner: steps seam, named build
 #                                     contexts, the docker build, the gate id
 #                                     re-emitted, and the binary contract.

@@ -1972,7 +1972,7 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)` | A record that exists but is empty, a record holding only a blank line, and no argument at all deliver no root either. Each must stop at the same guard as a missing file, before go runs; a check that only asks whether the file exists passes the first two, and under set -u an unset variable exits without the refusal line (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)` | Validating the record and then dropping it leaves every go test with an empty testcorpus root, which reads as test_failed in the real image. The validated root has to reach each package's go test as one -ldflags -X token (base#1468). The expected token is the record line verbatim. |
 
-### test/bats/unit/config_gen_gates_spec.bats (29)
+### test/bats/unit/config_gen_gates_spec.bats (30)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -1981,11 +1981,11 @@ This spec pins the pieces that make one command, `just test go`, run the
 same gates in every environment:
 
 dockerfile/Dockerfile.config-gen build, test and final (scratch) stages; the
-test stage runs fmt, vet, lint, race and coverage, one RUN each, in that
-order. script/test/config_gen_gates.sh the runner: steps seam, named build
-contexts, the docker build, the gate id re-emitted, and the binary contract.
-script/test/config_gen_redpath.sh one planted defect per gate plus an
-unmodified control, each run through the runner on a scratch copy. `go`
+test stage runs fmt, vet, lint, race, coverage and fuzz, one RUN each, in
+that order. script/test/config_gen_gates.sh the runner: steps seam, named
+build contexts, the docker build, the gate id re-emitted, and the binary
+contract. script/test/config_gen_redpath.sh one planted defect per gate plus
+an unmodified control, each run through the runner on a scratch copy. `go`
 recipe in justfile.test the runner, then the redpath.
 
 docker, just and the runner are stubbed here; the real `just test go` is the
@@ -1993,7 +1993,7 @@ end-to-end proof that the planted defects go red.
 
 | Test | Description |
 |------|-------------|
-| `Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, one RUN each, in that order (base#1462)` | Each gate is its own RUN so a red names its gate: one RUN running all five would leave the first id as the only record and stop the later gates from reading as "never reached" rather than "passed". The order is the one the redpath's earlier_gate_missing check reads. |
+| `Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, fuzz, one RUN each, in that order (base#1462)` | Each gate is its own RUN so a red names its gate: one RUN running all six would leave the first id as the only record and stop the later gates from reading as "never reached" rather than "passed". The order is the one the redpath's earlier_gate_missing check reads; fuzz, the 60 s search (base#1441), runs last. |
 | `Dockerfile.config-gen: the coverage RUN runs gates/coverage.sh (base#1462)` | The coverage gate is a script so the >= 90% rule and its refusals can be tested on the host with a stub go; an inline awk in the RUN could not be. |
 | `Dockerfile.config-gen: declares build, test and a final stage FROM scratch (base#1462)` | The shipped stage holds only the binary; the runner's binary contract runs that stage, so a final stage built on the toolchain would let the contract pass on a binary nobody ships. |
 | `Dockerfile.config-gen: the golang trixie image and golangci-lint are tool-pin marked ARGs (base#1462)` | The pin-coverage lint and the tool-pin watch read the marker on the line above each version ARG; a pin with no marker is a version nothing watches. The race gate needs cgo and gcc, which the trixie image carries and alpine does not. |
@@ -2018,6 +2018,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: a case whose earlier gate printed no ok fails with reason earlier_gate_missing (base#1462)` | - |
 | `config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)` | - |
 | `config_gen_redpath.sh: the fmt-parse case plants a _test.go file gofmt cannot parse and must produce the fmt gate's id (base#1462)` | A _test.go file is outside `go build`, so a syntax error there passes the build stage and reaches the fmt gate first. gofmt then exits non-zero instead of listing a file; a fmt RUN that let that status kill it before printing its own id would report the case as a build failure, and the fmt gate would be green on a file it never read (base#1462). |
+| `config_gen_redpath.sh: the fuzz-panic case plants a Fuzz target whose seed passes and must produce the fuzz gate's id (base#1441)` | The fuzz gate (base#1441) searches beyond the seeds the race gate already runs. Its planted defect is a Fuzz target whose one seed passes, so the race gate stays green, and that panics on any input of four or more bytes, which only a search reaches. A case that went red on the race gate instead would prove nothing about the search. |
 | `Dockerfile.config-gen: the build stage sets GOTOOLCHAIN=local before its first RUN, and nothing overrides it (base#1462)` | ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the pinned toolchain or fails, never one go fetches for a newer go.mod. The golang image pinned today sets it itself, but a GO_IMAGE override or bump need not. The test stage is FROM build, so one ENV in build, ahead of its first RUN, covers every go command in both (base#1462). |
 | `config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)` | - |
 | `config_gen_redpath.sh: a nested entry is refused with config_gen_redpath_reentered and runs nothing (base#1462)` | `just test go` runs the redpath, and the redpath runs the runner; a redpath that reached `just test go` again would recurse without bound. The guard refuses a nested entry and runs nothing. |

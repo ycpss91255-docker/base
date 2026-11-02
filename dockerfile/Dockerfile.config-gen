@@ -13,8 +13,8 @@
 # Stages:
 #   tools  golangci-lint, downloaded at a pinned version and checksum
 #   build  the module and its static binary
-#   test   the five gates, one RUN each, in this order: fmt, vet, lint,
-#          race, coverage. A gate that passes prints `gate=<g> ok`; one
+#   test   the six gates, one RUN each, in this order: fmt, vet, lint,
+#          race, coverage, fuzz. A gate that passes prints `gate=<g> ok`; one
 #          that fails prints `config_gen_gate_<g>_failed` on stderr and
 #          stops the build. Each is its own RUN so a red names its gate
 #          and the gates after it read as never reached, not as passed.
@@ -127,6 +127,24 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     bash gates/coverage.sh /tmp/config-gen-corpus-root > /dev/null; \
     echo gate=coverage ok
+# The fuzz gate (base#1441): every Fuzz target of every package searches
+# for 60 s from its seeds, which the race gate has already run. A panic or
+# a failed property stops the build with the target's own report. It is
+# the last RUN, so the gates before it read as passed when it goes red.
+# Every step that can fail clears ok rather than exiting, so a failure to
+# read the corpus root, list the packages or list a package's targets is
+# this gate's red too, never an empty loop that passes.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    g=fuzz; ok=1; x="$(cat /tmp/config-gen-corpus-root)" || ok=0; pkgs="$(go list ./...)" || ok=0; \
+    for pkg in ${pkgs}; do \
+      (( ok )) || break; \
+      list="$(go test -ldflags="-X=${x}" -list '^Fuzz' "${pkg}")" || { ok=0; break; }; \
+      for fz in $(grep '^Fuzz' <<<"${list}" || true); do \
+        go test -ldflags="-X=${x}" -run '^$' -fuzz "^${fz}\$" -fuzztime 60s "${pkg}" || { ok=0; break; }; \
+      done; \
+    done; \
+    (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
+    echo gate=fuzz ok
 
 FROM scratch AS final
 COPY --from=build /out/config-gen /config-gen

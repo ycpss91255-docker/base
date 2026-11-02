@@ -13,7 +13,7 @@
 # runs ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
 # its own gate's id first, and show every earlier gate ok -- the last is
 # what tells "this gate caught it" from "the build broke first". An
-# unmodified copy, the control, runs last and must pass all five gates, so
+# unmodified copy, the control, runs last and must pass all six gates, so
 # the reds are the defects' and not the copy's.
 #
 #   case           defect                                          gate
@@ -27,6 +27,7 @@
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
+#   fuzz-panic     a Fuzz target that panics past its one seed     fuzz
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -41,6 +42,10 @@
 # constant expression "test" + "data", which the compiler folds; the
 # string testdata never appears in the planted source, so a scan of the
 # source text for it cannot be what turns the gate red.
+#
+# fuzz-panic's one seed passes, so the race gate (which runs seeds) stays
+# green; the target panics on any input of four or more bytes, which only
+# the fuzz gate's search reaches (base#1441).
 #
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
@@ -58,9 +63,9 @@ readonly _RP_ROOT="${_RP_SCRIPT_DIR}/../.."
 source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 
 readonly _RP_SERVICE='config-gen'
-readonly -a _RP_GATES=(fmt vet lint race coverage)
+readonly -a _RP_GATES=(fmt vet lint race coverage fuzz)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz)
 
 # _rp_plant <case> <module dir> -- write the case's defect into the copy.
 _rp_plant() {
@@ -98,6 +103,22 @@ func TestZzRace(t *testing.T) {
 	close(start)
 	wg.Wait()
 	_ = shared
+}
+EOF
+      ;;
+    fuzz-panic)
+      cat >"${cmd}/zz_fuzzpanic_test.go" <<'EOF'
+package main
+
+import "testing"
+
+func FuzzZzPanic(f *testing.F) {
+	f.Add("a")
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) >= 4 {
+			panic("zz: four bytes")
+		}
+	})
 }
 EOF
       ;;
