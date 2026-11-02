@@ -16,7 +16,8 @@
 # run` it saves stdin as ${S}/in.tar and answers `<rel>\taccept` for every
 # regular file in that tar, so a step that hands over the right files sees
 # one verdict per file. When ${S}/answers exists the stub prints that file
-# instead, byte for byte.
+# instead, byte for byte. When ${S}/run.rc exists, `docker run` then exits
+# with the status it holds.
 
 bats_require_minimum_version 1.5.0
 
@@ -46,6 +47,7 @@ case "\${1:-}" in
     else
       tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/\$/d' -e 's|\$|\taccept|'
     fi
+    [[ -f "${S}/run.rc" ]] && exit "\$(cat "${S}/run.rc")"
     ;;
 esac
 exit 0
@@ -122,4 +124,18 @@ _run_calls() {
   [[ -f "${S}/ctx/toml-oracle/verdicts.tsv" ]]
   run cmp -- "${S}/answers" "${S}/ctx/toml-oracle/verdicts.tsv"
   assert_success
+}
+
+# why: When the pinned image cannot answer -- the container exits non-zero
+# -- whatever it printed is not tomllib's verdict on the input set. The
+# step must refuse under the five-point refusal test: status 1, nothing on
+# stdout, config_gen_toml_oracle_failed reason=image, and no toml-oracle/
+# directory left for the build to read as an answer.
+@test "10-toml-oracle.sh: a container that exits non-zero is config_gen_toml_oracle_failed reason=image, no toml-oracle/ left (base#1441)" {
+  _plant forms/a.toml
+  printf '1\n' > "${S}/run.rc"
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=image
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
