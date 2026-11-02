@@ -180,7 +180,7 @@ func Check(label string, src []byte) error {
 			i++
 		}
 	}
-	return nil
+	return checkTables(label, src)
 }
 
 // isDigit reports whether b is an ASCII digit.

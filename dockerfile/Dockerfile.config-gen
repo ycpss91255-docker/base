@@ -74,6 +74,10 @@ ENV CONFIG_GEN_TOML_ORACLE=/toml-oracle/verdicts.tsv
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 WORKDIR /src
 COPY . .
+# The module's requires are fetched here, and go.sum must be exactly what
+# `go mod tidy` writes: -diff prints the change and exits 1 otherwise, so
+# every environment's build checks go.sum against tidy (base#1441).
+RUN go mod download && go mod tidy -diff
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/config-gen ./cmd/config-gen
 
