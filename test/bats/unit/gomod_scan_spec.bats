@@ -408,13 +408,21 @@ EOF
   _refused retract_unclosed_post retract_interval 4
 }
 
+# why: Go rejects `retract v1.0.0 x` (a token left after the version; the
+# oracle records Go rc != 0 for retract_trailer_pre/post). A retract read by
+# Go's parseVersionInterval names the leftover token: retract_trailer,
+# before a require and after one -- not a by-name `retract` refusal.
+@test "_pin_go_mod_scan: a token after a retract version is refused as retract_trailer (base#1488)" {
+  _refused retract_trailer_pre retract_trailer 3
+  _refused retract_trailer_post retract_trailer 4
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
-# why: Same point for retract: its trailer and block forms are not ported
-# yet, so they are still refused by name.
-@test "_pin_go_mod_scan: retract is refused by name in the trailer and block forms (base#1463)" {
+# why: Same point for retract: its block form is not ported yet, so it is
+# still refused by name.
+@test "_pin_go_mod_scan: retract is refused by name in the block form (base#1463)" {
   _refused retract_block_post retract 4
-  _refused retract_trailer_pre retract 3
 }
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
