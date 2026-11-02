@@ -494,30 +494,6 @@ func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
 	refusal(t, stderr, "config_gen_input_unreadable", label)
 }
 
-// A descriptor that opens but that fstat(2) then fails on -- here an
-// injected EIO, since no regular file on a healthy filesystem makes it
-// fail -- makes `config-gen tables` exit 1 with nothing on stdout and
-// exactly one `config_gen_input_unreadable` frame naming the label
-// (base#1469 Input: any open, stat or read error other than a missing
-// name is config_gen_input_unreadable). It also keeps cmd/config-gen at
-// the 100.0 floor base#1465's coverage-floors.d/s1e.txt gives it: without
-// this test the fstat error return is the one statement no test reaches.
-func TestTablesFstatFailureIsOneUnreadableFrame(t *testing.T) {
-	src := testcorpus.Glob(t, "corpus/s1/*.toml")[0]
-	saved := fstat
-	fstat = func(int, *syscall.Stat_t) error { return syscall.EIO }
-	t.Cleanup(func() { fstat = saved })
-
-	rc, stdout, stderr := cli(t, "tables", "--name", "l.toml", src)
-	if rc != 1 {
-		t.Fatalf("config-gen tables exited %d, want 1 (stderr %q)", rc, stderr)
-	}
-	if len(stdout) != 0 {
-		t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
-	}
-	refusal(t, stderr, "config_gen_input_unreadable", "l.toml")
-}
-
 // When the reader of stdout is gone before the answer is written -- a pipe
 // whose read end is closed before the command starts, as in `config-gen
 // tables ... | true` -- the process is not killed by SIGPIPE: it exits

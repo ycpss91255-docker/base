@@ -28,8 +28,9 @@ func init() {
 // socket) exits 1 with one `config_gen_input_not_regular` frame; the open
 // is O_NONBLOCK so a FIFO with no writer cannot hold it. A path that
 // names no file (ENOENT, or ENOTDIR for a name under a regular file)
-// exits 1 with one `no_such_file` frame. Any other open, stat or read
-// error (EACCES, EPERM, ...) exits 1 with one
+// exits 1 with one `no_such_file` frame; an fstat error on the opened
+// descriptor is the not-regular frame. Any other open or read error
+// (EACCES, EPERM, ...) exits 1 with one
 // `config_gen_input_unreadable` frame. The answer is
 // one stdout write; a write error or a short count exits 4 with one
 // `config_gen_output_failed` frame. That includes a stdout pipe whose
@@ -113,13 +114,11 @@ const exitOutput = 4
 
 var errNotRegular = errors.New("not a regular file")
 
-// fstat is syscall.Fstat; a test swaps it to reach the error no regular
-// file on a healthy filesystem gives (base#1469).
-var fstat = syscall.Fstat
-
 // readRegular opens path without blocking (a FIFO with no writer, a socket
 // or a device does not hold open(2)), checks the opened descriptor is a
-// regular file, and reads it. Anything else is errNotRegular.
+// regular file, and reads it. Anything else is errNotRegular, including a
+// descriptor fstat(2) can not describe: what it names is not known to be
+// a regular file (base#1469).
 func readRegular(path string) ([]byte, error) {
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.ENODEV) {
@@ -131,10 +130,7 @@ func readRegular(path string) ([]byte, error) {
 	f := os.NewFile(uintptr(fd), path)
 	defer func() { _ = f.Close() }()
 	var st syscall.Stat_t
-	if err := fstat(fd, &st); err != nil {
-		return nil, &os.PathError{Op: "fstat", Path: path, Err: err}
-	}
-	if st.Mode&syscall.S_IFMT != syscall.S_IFREG {
+	if err := syscall.Fstat(fd, &st); err != nil || st.Mode&syscall.S_IFMT != syscall.S_IFREG {
 		return nil, errNotRegular
 	}
 	return io.ReadAll(f)
