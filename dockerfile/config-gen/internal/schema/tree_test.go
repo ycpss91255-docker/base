@@ -49,6 +49,7 @@ func flatTree(tr *Tree) []treeNode {
 				fc.Node = c.Node
 			case ChildRow:
 				fc.Text, fc.Line = c.Row.Value.Text, c.Row.Line
+			case ChildDeferred:
 			}
 			fn.Children = append(fn.Children, fc)
 		}
@@ -91,6 +92,7 @@ func emitRows(tr *Tree) []string {
 				walk(c.Node)
 			case ChildRow:
 				out = append(out, tr.Nodes[i].Text+"\t"+c.Key+"\t"+c.Row.Value.Text)
+			case ChildDeferred:
 			}
 		}
 	}
