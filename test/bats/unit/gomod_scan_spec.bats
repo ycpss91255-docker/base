@@ -146,8 +146,6 @@ godebug_comma_post 4
 godebug_comma_pre 3
 godebug_no_eq_post 4
 godebug_no_eq_pre 3
-godebug_ok_post 4
-godebug_ok_pre 3
 go_locale_post 4
 go_locale_pre 3
 gopkg_in 3
@@ -306,9 +304,9 @@ EOF
 }
 
 # why: Same point for godebug: `godebug foo` and `godebug a=1,b=2` are Go
-# errors the old scanner skipped.
+# errors the old scanner skipped. A well-formed godebug line is read
+# (base#1488); a malformed one and the block form are still refused.
 @test "_pin_go_mod_scan: godebug is refused by name in the line and block forms (base#1463)" {
-  _refused godebug_ok_post godebug 4
   _refused godebug_block_pre godebug 3
   _refused godebug_no_eq_pre godebug 3
   _refused godebug_comma_post godebug 4
