@@ -80,12 +80,33 @@ func (r *Refusal) Error() string {
 	return fmt.Sprintf("%s:%d:%d: %s", r.File, r.Line, r.Col, r.Text)
 }
 
+// The tomllib messages Check repeats word for word; oracleRefusal appends
+// tomllib's position suffix to them.
+const (
+	msgOverwrite = "Cannot overwrite a value"
+	msgRedefine  = "Cannot redefine a table"
+	msgDateRange = "Invalid date or datetime"
+)
+
+// refusal returns the *Refusal for reason at offset off of src.
+func refusal(label string, src []byte, off int, reason Reason, text string) *Refusal {
+	line, col := position(src, off)
+	return &Refusal{File: label, Line: line, Col: col, Reason: reason, Text: text}
+}
+
+// oracleRefusal returns the *Refusal for reason at offset off of src
+// whose text is tomllib's msg followed by " (at line L, column C)".
+func oracleRefusal(label string, src []byte, off int, reason Reason, msg string) *Refusal {
+	r := refusal(label, src, off, reason, "")
+	r.Text = fmt.Sprintf("%s (at line %d, column %d)", msg, r.Line, r.Col)
+	return r
+}
+
 // Check returns nil, or a *Refusal that names label and the offending
 // byte of src.
 func Check(label string, src []byte) error {
 	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
-		return &Refusal{File: label, Line: 1, Col: 1, Reason: ReasonBOM,
-			Text: "leading byte order mark is not TOML 1.0"}
+		return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
 	}
 	inBasic := false
 	var open []byte // innermost last: '{' inline table, '[' array, 'h' header
@@ -101,9 +122,7 @@ func Check(label string, src []byte) error {
 			seen = map[string]bool{}
 			if path, ok := headerPath(src, i); ok {
 				if dotted[path] {
-					line, col := position(src, i)
-					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonRedefine,
-						Text: fmt.Sprintf("Cannot redefine a table (at line %d, column %d)", line, col)}
+					return oracleRefusal(label, src, i, ReasonRedefine, msgRedefine)
 				}
 				table = path
 			}
@@ -111,9 +130,7 @@ func Check(label string, src []byte) error {
 		case !inBasic && len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
 			if key, ok := lineKey(src, i); ok {
 				if seen[key] {
-					line, col := position(src, i)
-					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonDuplicate,
-						Text: fmt.Sprintf("Cannot overwrite a value (at line %d, column %d)", line, col)}
+					return oracleRefusal(label, src, i, ReasonDuplicate, msgOverwrite)
 				}
 				seen[key] = true
 				if !bytes.ContainsAny([]byte(key), "\"'") {
@@ -138,41 +155,30 @@ func Check(label string, src []byte) error {
 		case !inBasic && (src[i] == '}' || src[i] == ']') && len(open) > 0:
 			open = open[:len(open)-1]
 		case !inBasic && lineEnd(src, i) && len(open) > 0 && open[len(open)-1] == '{':
-			line, col := position(src, i)
-			return &Refusal{File: label, Line: line, Col: col, Reason: ReasonInlineNewline,
-				Text: "line ending inside an inline table is not TOML 1.0"}
+			return refusal(label, src, i, ReasonInlineNewline, "line ending inside an inline table is not TOML 1.0")
 		case !inBasic && src[i] == ',' && len(open) > 0 && open[len(open)-1] == '{':
 			j := i + 1
 			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
 				j++
 			}
 			if j < len(src) && src[j] == '}' {
-				line, col := position(src, i)
-				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonInlineTrailingComma,
-					Text: "trailing comma in an inline table is not TOML 1.0"}
+				return refusal(label, src, i, ReasonInlineTrailingComma, "trailing comma in an inline table is not TOML 1.0")
 			}
 		case !inBasic && isDigit(src[i]) && (i == 0 || !isBareKeyByte(src[i-1])):
 			end := valueTokenEnd(src, i)
 			if yearZero.Match(src[i:end]) && inValue(src, i, open) {
-				line, col := position(src, i)
-				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonDateRange,
-					Text: fmt.Sprintf("Invalid date or datetime (at line %d, column %d)", line, col)}
+				return oracleRefusal(label, src, i, ReasonDateRange, msgDateRange)
 			}
 			if timeNoSeconds.Match(src[i:end]) {
-				line, col := position(src, i)
-				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonTimeNoSeconds,
-					Text: "time without seconds is not TOML 1.0"}
+				return refusal(label, src, i, ReasonTimeNoSeconds, "time without seconds is not TOML 1.0")
 			}
 			if m := offsetField.FindSubmatchIndex(src[i:end]); m != nil {
+				sign := i + m[2]
 				if string(src[i+m[4]:i+m[5]]) > "23" {
-					line, col := position(src, i+m[2])
-					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonOffsetRange,
-						Text: "offset hour above 23 is not TOML 1.0"}
+					return refusal(label, src, sign, ReasonOffsetRange, "offset hour above 23 is not TOML 1.0")
 				}
 				if string(src[i+m[6]:i+m[7]]) > "59" {
-					line, col := position(src, i+m[2])
-					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonOffsetRange,
-						Text: "offset minute above 59 is not TOML 1.0"}
+					return refusal(label, src, sign, ReasonOffsetRange, "offset minute above 59 is not TOML 1.0")
 				}
 			}
 			i = end - 1
@@ -180,9 +186,7 @@ func Check(label string, src []byte) error {
 			inBasic = !inBasic
 		case inBasic && src[i] == '\\' && i+1 < len(src):
 			if src[i+1] == 'e' || src[i+1] == 'x' {
-				line, col := position(src, i)
-				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonEscape,
-					Text: `escape sequence \` + string(src[i+1]) + ` is not TOML 1.0`}
+				return refusal(label, src, i, ReasonEscape, `escape sequence \`+string(src[i+1])+` is not TOML 1.0`)
 			}
 			i++
 		}
@@ -199,7 +203,7 @@ func Check(label string, src []byte) error {
 // never src itself.
 func Normalize(src []byte) []byte {
 	out := bytes.Clone(src)
-	t := &tables{src: src, node: map[string]byte{}, explicit: map[string]bool{}}
+	t := newTables("", src)
 	t.scalar = func(start, end int) {
 		tok := strings.ReplaceAll(string(src[start:end]), "_", "")
 		if !decimalFloat.MatchString(tok) || !strings.ContainsAny(tok, ".eE") {

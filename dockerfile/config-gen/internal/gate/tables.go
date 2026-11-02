@@ -1,8 +1,8 @@
 package gate
 
 import (
+	"bytes"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -45,10 +45,16 @@ type tables struct {
 // the pass can follow, so the decoder decides.
 var errStop = errors.New("gate: table pass stopped")
 
+// newTables returns a pass over src that starts at its first byte and
+// names label in its refusals.
+func newTables(label string, src []byte) *tables {
+	return &tables{src: src, label: label, node: map[string]byte{}, explicit: map[string]bool{}}
+}
+
 // checkTables returns nil or the *Refusal for the first table-rule
 // conflict in src.
 func checkTables(label string, src []byte) error {
-	t := &tables{src: src, label: label, node: map[string]byte{}, explicit: map[string]bool{}}
+	t := newTables(label, src)
 	err := t.document()
 	if errors.Is(err, errStop) {
 		return nil
@@ -336,9 +342,9 @@ func (t *tables) key() ([]string, error) {
 // form) and returns its text; a basic string's escapes are decoded.
 func (t *tables) str() (string, error) {
 	q := t.src[t.i]
-	delim := string(q)
-	if strings.HasPrefix(string(t.src[t.i:min(t.i+3, len(t.src))]), strings.Repeat(delim, 3)) {
-		delim = strings.Repeat(delim, 3)
+	delim := []byte{q}
+	if triple := []byte{q, q, q}; bytes.HasPrefix(t.src[t.i:], triple) {
+		delim = triple
 	}
 	t.i += len(delim)
 	start := t.i
@@ -347,7 +353,7 @@ func (t *tables) str() (string, error) {
 			t.i += 2
 			continue
 		}
-		if strings.HasPrefix(string(t.src[t.i:min(t.i+len(delim), len(t.src))]), delim) {
+		if bytes.HasPrefix(t.src[t.i:], delim) {
 			end := t.i
 			t.i += len(delim)
 			// A multi-line string may end in one or two quotes of its own.
@@ -389,7 +395,7 @@ func (t *tables) skipBlank(lines bool) {
 
 // eat consumes s at t.i and reports whether it was there.
 func (t *tables) eat(s string) bool {
-	if strings.HasPrefix(string(t.src[t.i:]), s) {
+	if bytes.HasPrefix(t.src[t.i:], []byte(s)) {
 		t.i += len(s)
 		return true
 	}
@@ -398,10 +404,9 @@ func (t *tables) eat(s string) bool {
 
 // refuse returns the *Refusal for reason at offset at.
 func (t *tables) refuse(at int, reason Reason) error {
-	line, col := position(t.src, at)
-	text := fmt.Sprintf("Cannot overwrite a value (at line %d, column %d)", line, col)
+	msg := msgOverwrite
 	if reason == ReasonRedefine {
-		text = fmt.Sprintf("Cannot redefine a table (at line %d, column %d)", line, col)
+		msg = msgRedefine
 	}
-	return &Refusal{File: t.label, Line: line, Col: col, Reason: reason, Text: text}
+	return oracleRefusal(t.label, t.src, at, reason, msg)
 }
