@@ -46,7 +46,7 @@ var (
 // and wrapper_transcript, int for max_file, the *_keep / *_days and the
 // watchdog counts, string|int for gpu_count, string otherwise.
 var validators = map[string]rule{
-	"project.name":                    {valid: validProjectName, kinds: kindsString},
+	"project.name":                    {valid: projectName.MatchString, kinds: kindsString},
 	"deploy.gpu_mode":                 {valid: validDetectMode, kinds: kindsString},
 	"deploy.gpu_count":                {valid: validGPUCount, kinds: []Kind{KindString, KindInt}, validateEmpty: true},
 	"deploy.gpu_capabilities":         {valid: validGPUCapabilities, kinds: kindsString, validateEmpty: true},
@@ -138,10 +138,9 @@ func canonical(section, key string) (rule, bool) {
 // Validate is _schema_validate (dist/script/docker/lib/schema.sh) on the
 // bridge's text for a value at section.key, section being the shell's
 // section text, a stage or a per-service one included (canonicalKey,
-// base#1442 review round 2): a key with no validator
-// accepts any text, an empty text is accepted unless the key's
-// SCHEMA_EMPTY policy is `validate`, and otherwise the key's validator
-// decides. A refused text is conf_value_invalid. The value's TOML kind is
+// base#1442 review round 2): a key with no validator accepts any text,
+// an empty text is accepted unless the key's SCHEMA_EMPTY policy is
+// `validate`, and otherwise the key's validator decides. A refused text is conf_value_invalid. The value's TOML kind is
 // not judged here; Decode refuses a value outside its key's type
 // (kindRefused) before it asks Validate.
 func Validate(section, key, text string) error {
@@ -172,7 +171,8 @@ func kindRefused(section, key string, s Scalar) bool {
 // The regular expressions of the _tui_conf.sh validators. schema.sh runs
 // under LC_ALL=C, where a bracket range is ASCII bytes; Go's ranges are
 // ASCII too, so a fullwidth digit fails. No pattern here folds case: the
-// two validators that run under `shopt -s nocasematch` are sizeWithUnit.
+// two validators that run under `shopt -s nocasematch`, shmSize and
+// logMaxSize, are sizeWithUnit, which folds ASCII case only.
 var (
 	posInt      = regexp.MustCompile(`^[1-9][0-9]*$`)
 	nonNegInt   = regexp.MustCompile(`^[0-9]+$`)
@@ -266,11 +266,6 @@ func validGPUCount(text string) bool {
 	return text == "all" || posInt.MatchString(text)
 }
 
-// validProjectName ports _validate_project_name.
-func validProjectName(text string) bool {
-	return projectName.MatchString(text)
-}
-
 // validDetectMode ports _validate_detect_mode.
 var validDetectMode = words("", "auto", "force", "off")
 
@@ -283,8 +278,11 @@ func validRestart(text string) bool {
 	if n, ok := strings.CutPrefix(text, "on-failure:"); ok {
 		return posInt.MatchString(n)
 	}
-	return slices.Contains([]string{"no", "always", "unless-stopped", "on-failure"}, text)
+	return restartWords(text)
 }
+
+// restartWords are _validate_restart's plain words.
+var restartWords = words("no", "always", "unless-stopped", "on-failure")
 
 // gpuCapabilities is _VALID_GPU_CAPABILITIES.
 var gpuCapabilities = []string{"gpu", "compute", "utility", "graphics", "all", "video", "display", "compat32", "ngx"}
@@ -303,10 +301,13 @@ func validGPUCapabilities(text string) bool {
 	return true
 }
 
+// driGroupWords are _validate_dri_groups' plain words.
+var driGroupWords = words("", "auto", "off")
+
 // validDRIGroups ports _validate_dri_groups: empty, auto or off, or one
 // or more GIDs; a byte outside [:print:] (LC_ALL=C: 0x20-0x7e) refuses.
 func validDRIGroups(text string) bool {
-	if slices.Contains([]string{"", "auto", "off"}, text) {
+	if driGroupWords(text) {
 		return true
 	}
 	for i := 0; i < len(text); i++ {
