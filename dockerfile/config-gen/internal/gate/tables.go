@@ -482,13 +482,9 @@ func (t *tables) str() (string, int, error) {
 			continue
 		}
 		if bytes.HasPrefix(t.src[t.i:], delim) {
-			end := t.i
-			t.i += len(delim)
-			// A multi-line string may end in one or two quotes of its own.
-			for n := 0; len(delim) == 3 && n < 2 && t.i < len(t.src) && t.src[t.i] == q; n++ {
-				t.i++
-				end++
-			}
+			stop := closeQuotes(t.src, t.i, q, len(delim))
+			end := stop - len(delim)
+			t.i = stop
 			raw := string(t.src[start:end])
 			if q == '"' && len(delim) == 1 {
 				if s, err := strconv.Unquote(`"` + raw + `"`); err == nil {

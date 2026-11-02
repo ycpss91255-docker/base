@@ -105,40 +105,12 @@ func Check(label string, src []byte) error {
 	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
 		return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
 	}
-	var open []byte // innermost last: '{' inline table, '[' array, 'h' header
-	// seen holds the keys assigned in the current table.
-	seen := map[string]bool{}
-	// table is the current table's dotted path; dotted holds the paths
-	// of the tables that dotted keys created.
-	table := ""
-	dotted := map[string]bool{}
+	var open []byte // innermost last: '{' inline table, '[' array or header
+	// Table rules (duplicate keys, redefined tables) are the structural
+	// pass's alone: checkTables follows headers, array-of-tables elements
+	// and dotted keys the way tomllib does (base#1441 review round 2).
 	for i := 0; i < len(src); i++ {
 		switch {
-		case len(open) == 0 && src[i] == '[' && atLineStart(src, i):
-			seen = map[string]bool{}
-			if path, ok := headerPath(src, i); ok {
-				if dotted[path] {
-					return oracleRefusal(label, src, i, ReasonRedefine, msgRedefine)
-				}
-				table = path
-			}
-			open = append(open, 'h')
-		case len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
-			if key, ok := lineKey(src, i); ok {
-				if seen[key] {
-					return oracleRefusal(label, src, i, ReasonDuplicate, msgOverwrite)
-				}
-				seen[key] = true
-				if !bytes.ContainsAny([]byte(key), "\"'") {
-					parts := splitKey(key)
-					for n := 1; n < len(parts); n++ {
-						dotted[joinPath(table, parts[:n])] = true
-					}
-				}
-			}
-			for i+1 < len(src) && isBareKeyByte(src[i+1]) {
-				i++
-			}
 		case src[i] == '#':
 			for i < len(src) && !lineEnd(src, i) {
 				i++
@@ -202,77 +174,9 @@ func Normalize(src []byte) []byte {
 // isDigit reports whether b is an ASCII digit.
 func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
-// isBareKeyByte reports whether b may appear in a bare key, so a digit
-// after it continues that key rather than starting a value.
+// isBareKeyByte reports whether b may appear in a bare key.
 func isBareKeyByte(b byte) bool {
 	return isDigit(b) || b == '-' || b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
-}
-
-// atLineStart reports whether only spaces or tabs lie between the start
-// of the line and offset i of src.
-func atLineStart(src []byte, i int) bool {
-	for j := i - 1; j >= 0; j-- {
-		switch src[j] {
-		case ' ', '\t':
-		case '\n':
-			return true
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// lineKey returns the key text from offset i of src up to the `=` on the
-// same line, with trailing spaces and tabs removed, and false when the
-// line has no `=`.
-func lineKey(src []byte, i int) (string, bool) {
-	j := i
-	for j < len(src) && src[j] != '=' && src[j] != '\n' {
-		j++
-	}
-	if j == len(src) || src[j] != '=' {
-		return "", false
-	}
-	return string(bytes.TrimRight(src[i:j], " \t")), true
-}
-
-// headerPath returns the dotted path of the single-bracket table header
-// whose `[` is at offset i of src, with spaces around each part removed,
-// and false for an array-of-tables header, a quoted part, or no `]` on
-// the line.
-func headerPath(src []byte, i int) (string, bool) {
-	if i+1 < len(src) && src[i+1] == '[' {
-		return "", false
-	}
-	j := i + 1
-	for j < len(src) && src[j] != ']' && src[j] != '\n' {
-		j++
-	}
-	if j == len(src) || src[j] != ']' || bytes.ContainsAny(src[i+1:j], "\"'") {
-		return "", false
-	}
-	return joinPath("", splitKey(string(src[i+1:j]))), true
-}
-
-// splitKey splits an unquoted dotted key at each `.` and trims spaces
-// and tabs from each part.
-func splitKey(key string) []string {
-	parts := strings.Split(key, ".")
-	for n := range parts {
-		parts[n] = strings.Trim(parts[n], " \t")
-	}
-	return parts
-}
-
-// joinPath returns the dotted path of parts under the table at path
-// base ("" for the root table).
-func joinPath(base string, parts []string) string {
-	p := strings.Join(parts, ".")
-	if base == "" {
-		return p
-	}
-	return base + "." + p
 }
 
 // lineEnd reports whether a line ending (LF, or the CR of CRLF) starts at
@@ -293,7 +197,21 @@ func skipLiteral(src []byte, i int) int {
 	if end < 0 {
 		return len(src) - 1
 	}
-	return i + len(delim) + end + len(delim) - 1
+	return closeQuotes(src, i+len(delim)+end, '\'', len(delim)) - 1
+}
+
+// closeQuotes returns the offset just past the closing delimiter, n
+// quotes q, that starts at offset j of src. A multi-line string (n == 3)
+// may end in one or two q of its own before that delimiter, so the
+// delimiter's run takes up to two more q (TOML 1.0 ml-basic-body,
+// ml-literal-body). Every lexer in this package closes strings here
+// (base#1441 review round 2).
+func closeQuotes(src []byte, j int, q byte, n int) int {
+	k := j + n
+	for extra := 0; n == 3 && extra < 2 && k < len(src) && src[k] == q; extra++ {
+		k++
+	}
+	return k
 }
 
 // scanBasic lexes the basic string (single- or multi-line) that opens
@@ -318,11 +236,7 @@ func scanBasic(src []byte, i int) (last, bad int) {
 		case src[j] == '"' && n == 1:
 			return j, -1
 		case src[j] == '"' && bytes.HasPrefix(src[j:], []byte(`"""`)):
-			k := j + 3
-			for extra := 0; extra < 2 && k < len(src) && src[k] == '"'; extra++ {
-				k++
-			}
-			return k - 1, -1
+			return closeQuotes(src, j, '"', 3) - 1, -1
 		case n == 1 && lineEnd(src, j):
 			return j - 1, -1
 		default:

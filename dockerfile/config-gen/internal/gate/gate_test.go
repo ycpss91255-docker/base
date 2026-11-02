@@ -503,9 +503,10 @@ func TestCheckReadsValueTokensBehindComments(t *testing.T) {
 	}
 }
 
-// A multi-line literal string may end in one or two `'` of its own
-// before its `'''` delimiter, so `'''x''''` is the string x' and
-// `'''x'''''` is x''; the gate must lex past every closing quote and
+// A multi-line literal string may end in one or two single quotes of
+// its own before its closing delimiter of three, so a value written as x
+// followed by four single quotes is the string x plus one quote, and
+// with five, x plus two; the gate must lex past every closing quote and
 // still see a later basic string's escape (base#1441 review round 2,
 // finding 1). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
 // refuses each refused row with "Unescaped '\' in a string" on line 2

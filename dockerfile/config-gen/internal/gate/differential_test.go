@@ -151,6 +151,24 @@ var designVerdicts = map[string]string{
 	// BurntSushi refuses as outside int64 (base#1441 review round 1,
 	// finding 7: an exception file with no float in it).
 	"internal/gate/testdata/forms/int64-over.toml": "accept",
+
+	// base#1441 review round 2, measured 2026-11-02 (CPython 3.13.13
+	// Lib/tomllib; BurntSushi v1.6.0 accepts the first three): a basic
+	// string's \e or \x after a multi-line literal that ends in four or
+	// five quotes is refused; a [b] header after [[a]] / b.c = 1 names a
+	// table of its own and is accepted.
+	"internal/gate/testdata/forms/literal-close4-escape.toml":  "refuse",
+	"internal/gate/testdata/forms/literal-close5-escape.toml":  "refuse",
+	"internal/gate/testdata/forms/aot-dotted-root-header.toml": "accept",
+
+	// Input the table pass cannot follow is left to the decoder; tomllib
+	// and BurntSushi v1.6.0 both refuse each of these (measured
+	// 2026-11-02): an inline-table key with no `=`, inline-table pairs or
+	// array values with no comma, a header `[` at the end of the document.
+	"internal/gate/testdata/forms/stop-inline-no-equals.toml": "refuse",
+	"internal/gate/testdata/forms/stop-inline-no-comma.toml":  "refuse",
+	"internal/gate/testdata/forms/stop-array-no-comma.toml":   "refuse",
+	"internal/gate/testdata/forms/stop-header-eof.toml":       "refuse",
 }
 
 // designValues are tomllib's decoded values for the float forms (base#1441
