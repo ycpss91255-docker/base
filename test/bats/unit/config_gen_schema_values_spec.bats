@@ -18,11 +18,37 @@ setup() {
   LIB=/source/dist/script/docker/lib
   TABLE=/source/dockerfile/config-gen/testdata/corpus/s6/s6_scalar_values.tsv
   TEXTS=/source/dockerfile/config-gen/testdata/corpus/s6/s6_scalar_texts.tsv
+  LAYERS=/source/dockerfile/config-gen/testdata/corpus/s6/s6_layers.tsv
   export LC_ALL=C
   # shellcheck disable=SC1091
   source "${LIB}/schema.sh"
   # shellcheck disable=SC1091
   source "${LIB}/toml_bridge.sh"
+  # shellcheck disable=SC1091
+  source "${LIB}/setup_cmd.sh"
+}
+
+# _layer_verdict <file> -- print accept or refuse: the verdict the bridge
+# and apply's per-layer checks give one layer. The bridge's --kv refusing
+# it (a parse failure, a transport refusal) is refuse; so is a --tables
+# table or a --kv row's section that _setup_known_section does not know, a
+# key _setup_known_key does not know, or a value _schema_validate refuses.
+# A [stage:*] table is skipped as _setup_conf_check_known skips it.
+_layer_verdict() {
+  local _file="${1}" _kv _tables _sect _key _val
+  _kv="$(toml_bridge_parse "${_file}" --kv 2>/dev/null)" || { echo refuse; return 0; }
+  _tables="$(toml_bridge_parse "${_file}" --tables 2>/dev/null)" || { echo refuse; return 0; }
+  while IFS= read -r _sect; do
+    [[ -z "${_sect}" || "${_sect}" == stage:* ]] && continue
+    _setup_known_section "${_sect}" || { echo refuse; return 0; }
+  done <<< "${_tables}"
+  while IFS=$'\t' read -r _sect _key _val; do
+    [[ -z "${_sect}${_key}" || "${_sect}" == stage:* ]] && continue
+    _setup_known_section "${_sect}" || { echo refuse; return 0; }
+    _setup_known_key "${_sect}" "${_key}" || { echo refuse; return 0; }
+    _schema_validate "${_sect}" "${_key}" "${_val}" || { echo refuse; return 0; }
+  done <<< "${_kv}"
+  echo accept
 }
 
 teardown() {
@@ -85,4 +111,47 @@ teardown() {
   printf '%s\n' "${_bad[@]}"
   [ "${#_bad[@]}" -eq 0 ]
   [ "${_rows}" -gt 0 ]
+}
+
+# why: Go's schema.Decode must give the shell's verdict on a whole layer,
+# not only on one value (base#1442 review round 2). Each row of the shared
+# s6_layers.tsv is a layer written with printf %b escapes; the shell's
+# verdict on it (_layer_verdict) must be the row's: accept for accept,
+# refuse for refuse, and accept for a differs:<exception> row, which the
+# generator refuses on purpose under ADR-00000039 (wrong type, U+0000)
+# while the shell passes it. The Go half asserts Decode's verdict, event
+# and line on the same rows.
+@test "s6_layers: every layer verdict is the bridge's and apply's checks'" {
+  local _class _layer _verdict _event _line _branch _got
+  local _rows=0 _bad=()
+  while IFS=$'\t' read -r _class _layer _verdict _event _line _branch; do
+    [[ "${_class}" == \#* ]] && continue
+    # toml-fixture-lint: allow the body is built from a table row; the bridge parses each row and a refusal is reported
+    printf '%b' "${_layer}" > "${TEMP_DIR}/in.toml"
+    _got="$(_layer_verdict "${TEMP_DIR}/in.toml")"
+    case "${_verdict}" in
+      accept|differs:*) [[ "${_got}" == accept ]] || _bad+=("${_branch}: shell ${_got}, table ${_verdict}") ;;
+      refuse) [[ "${_got}" == refuse ]] || _bad+=("${_branch}: shell ${_got}, table ${_verdict}") ;;
+      *) _bad+=("${_branch}: verdict ${_verdict}") ;;
+    esac
+    _rows=$((_rows + 1))
+  done < "${LAYERS}"
+  printf '%s\n' "${_bad[@]}"
+  [ "${#_bad[@]}" -eq 0 ]
+  [ "${_rows}" -gt 0 ]
+}
+
+# why: The Go half holds the sections Decode knows equal to the table's
+# section:<name> rows; this half holds those rows equal to SCHEMA_SECTIONS,
+# so a section added to schema.sh fails one of the two until both know it.
+@test "s6_layers: the section:<name> rows are exactly SCHEMA_SECTIONS" {
+  local _class _layer _verdict _event _line _branch
+  local -a _rows=()
+  while IFS=$'\t' read -r _class _layer _verdict _event _line _branch; do
+    [[ "${_class}" == \#* ]] && continue
+    [[ "${_branch}" == section:* && "${_branch}" != section:stage ]] || continue
+    _rows+=("${_branch#section:}")
+  done < "${LAYERS}"
+  run diff <(printf '%s\n' "${_rows[@]}" | sort) <(printf '%s\n' "${SCHEMA_SECTIONS[@]}" | sort)
+  [ "${status}" -eq 0 ]
 }

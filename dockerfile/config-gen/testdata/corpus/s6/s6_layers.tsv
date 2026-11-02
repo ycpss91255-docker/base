@@ -1,0 +1,48 @@
+# class	layer	verdict	event	line	branch
+layer	[project]\n	accept	-	0	section:project
+layer	[image]\n	accept	-	0	section:image
+layer	[build]\n	accept	-	0	section:build
+layer	[deploy]\n	accept	-	0	section:deploy
+layer	[lifecycle]\n	accept	-	0	section:lifecycle
+layer	[gui]\n	accept	-	0	section:gui
+layer	[network]\n	accept	-	0	section:network
+layer	[security]\n	accept	-	0	section:security
+layer	[resources]\n	accept	-	0	section:resources
+layer	[environment]\n	accept	-	0	section:environment
+layer	[tmpfs]\n	accept	-	0	section:tmpfs
+layer	[devices]\n	accept	-	0	section:devices
+layer	[volumes]\n	accept	-	0	section:volumes
+layer	[additional_contexts]\n	accept	-	0	section:additional_contexts
+layer	[logging]\n	accept	-	0	section:logging
+layer	[project]\nname = "demo"\n	accept	-	0	key:project.name
+layer	[image]\nrule_1 = "@basename"\n	accept	-	0	key:image.rule_
+layer	[build]\ntarget_arch = "amd64"\nnetwork = "host"\n	accept	-	0	key:build.scalar
+layer	[build]\ntz = "UTC"\napt_mirror_ubuntu = "http://m"\napt_mirror_debian = "http://d"\n	accept	-	0	key:build.free_form
+layer	[lifecycle]\nrestart = "no"\ninit = true\n	accept	-	0	key:lifecycle
+layer	[gui]\nmode = "auto"\n	accept	-	0	key:gui.mode
+layer	[network]\nmode = "host"\nport_1 = "8080:80"\n	accept	-	0	key:network
+layer	[resources]\nshm_size = "2gb"\n	accept	-	0	key:resources.shm_size
+layer	[tmpfs]\ntmpfs_1 = "/tmp"\n	accept	-	0	key:tmpfs.tmpfs_
+layer	[additional_contexts]\ncontext_1 = "a=/b"\n	accept	-	0	key:additional_contexts.context_
+layer	["stage:dev"]\ngui.mode = "off"\n	accept	-	0	section:stage
+layer	[deploy]\nruntime = "nvidia"\n	accept	-	0	alias:runtime
+layer	[deploy]\ngpu_cuont = 1\n	refuse	conf_unknown_key	2	unknown_key
+layer	[deploy2]\nx = 1\n	refuse	conf_unknown_table	1	unknown_table
+layer	top = "v"\n[deploy]\n	refuse	conf_top_level_key	1	top_level_scalar
+layer	[security]\nprivileged = "yes"\n	refuse	conf_value_type_refused	2	wrong_type
+layer	[security]\nprivileged = "true"\n	differs:wrong_type	conf_value_type_refused	2	wrong_type_text_ok
+layer	[logging."a\\tb"]\ndriver = "local"\n	refuse	conf_key_char_refused	1	key_char:tab
+layer	[logging."a\\rb"]\ndriver = "local"\n	refuse	conf_key_char_refused	1	key_char:cr
+layer	[logging."a\\nb"]\ndriver = "local"\n	refuse	conf_key_char_refused	1	key_char:lf
+layer	[logging.web]\n"dri\\tver" = "local"\n	refuse	conf_key_char_refused	2	key_char:leaf_tab
+layer	[environment]\nenv_1 = "A=b\\rC=d"\n	refuse	conf_value_newline_refused	2	value_char:cr
+layer	[environment]\nenv_1 = "A=b\\nC=d"\n	refuse	conf_value_newline_refused	2	value_char:lf
+layer	[lifecycle]\nwatchdog_check = "echo a\\recho b"\n	refuse	conf_value_newline_refused	2	value_char:cr_cmd
+layer	[[volumes]]\nsource = "/a\\rb"\ntarget = "/c"\n	refuse	conf_value_newline_refused	2	value_char:cr_in_array
+layer	[environment]\nenv_1 = "\xff"\n	refuse	conf_toml_parse_failed	2	invalid_utf8:value
+layer	[environment]\nenv_\xff = "A=b"\n	refuse	conf_toml_parse_failed	2	invalid_utf8:key
+layer	[environment]\nenv_1 = "A=é"\n	accept	-	0	unicode:value
+layer	[environment]\nenv_1 = "é=b"\n	refuse	conf_value_invalid	2	unicode:env_name
+layer	[environment]\nenv_é = "A=b"\n	refuse	conf_unknown_key	2	unicode:key
+layer	[environment]\nenv_1 = "A=\\u0000"\n	differs:nul	conf_value_nul_refused	2	nul:value
+layer	[logging."a\\u0000b"]\ndriver = "local"\n	differs:nul	conf_value_nul_refused	1	nul:key
