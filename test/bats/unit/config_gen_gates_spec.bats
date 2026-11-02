@@ -176,22 +176,24 @@ _df_instructions() {
 # options removed, the corpus root record read from ${S}/corpus-root
 # instead of /tmp. Fails when no RUN or more than one matches.
 _df_run_body() {
+  local _b
   _df_instructions > "${S}/df"
-  awk -F'\t' -v st="${1}" -v re="${2}" '
+  _b="$(awk -F'\t' -v st="${1}" -v re="${2}" '
     $1 == st && $2 ~ /^RUN / && $2 ~ re { n++; b = $2 }
     END {
       if (n != 1) exit 1
       sub(/^RUN +/, "", b)
       while (b ~ /^--[a-z-]+=[^ ]+ +/) sub(/^--[a-z-]+=[^ ]+ +/, "", b)
       print b
-    }' "${S}/df" | sed "s#/tmp/config-gen-corpus-root#${S}/corpus-root#g"
+    }' "${S}/df")" || return 1
+  printf '%s\n' "${_b//\/tmp\/config-gen-corpus-root/${S}/corpus-root}"
 }
 
 # _stub_go -- a `go` first on PATH, recording each call's argv as one line
 # of ${S}/go.calls. `go list ./...` prints m/a and m/b and exits
 # ${S}/go.list.rc; `go test -list` prints FuzzA for m/a (nothing for m/b)
-# and exits ${S}/go.tlist.rc; `go test -fuzz` exits ${S}/go.fuzz.rc. Each
-# rc defaults to 0.
+# and exits ${S}/go.tlist.rc; `go test -fuzz` exits ${S}/go.fuzz.rc; and
+# `go mod <verb>` exits ${S}/go.mod.<verb>.rc. Each rc defaults to 0.
 _stub_go() {
   cat > "${S}/bin/go" <<EOF
 #!$(command -v bash)
@@ -199,6 +201,7 @@ printf '%s\n' "\$*" >> "${S}/go.calls"
 rc() { cat "${S}/go.\${1}.rc" 2>/dev/null || echo 0; }
 case "\${1:-}" in
   list) printf 'm/a\nm/b\n'; exit "\$(rc list)" ;;
+  mod) exit "\$(rc "mod.\${2:-}")" ;;
   test)
     for a in "\$@"; do
       [[ "\${a}" == -fuzz ]] && exit "\$(rc fuzz)"
@@ -257,6 +260,34 @@ _run_df_body() {
   assert_equal "${status}" 1
   assert_output ''
   assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
+}
+
+# why: go.sum must be exactly what `go mod tidy` writes (base#1441): an
+# extra line is a hash nothing checks against a module nothing builds.
+# `go mod tidy -diff` prints the change and exits 1 on such a go.sum. The
+# check runs in the build stage, before any test gate, and names itself as
+# the tidy gate, so the redpath's gosum-extra case can tell its red from
+# any other build failure. Run with a stub go: download then tidy -diff;
+# either failing ends the RUN with status 1 and config_gen_gate_tidy_failed.
+@test "Dockerfile.config-gen: the build stage's tidy RUN runs go mod download then go mod tidy -diff and prints config_gen_gate_tidy_failed when either fails (base#1441)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  local _body
+  _body="$(_df_run_body build 'g=tidy;')" || fail "not exactly one build-stage RUN sets g=tidy"
+  _stub_go
+  _run_df_body "${_body}"
+  assert_success
+  assert_equal "${stderr}" ''
+  assert_equal "$(cat "${S}/go.calls")" "$(printf 'mod download\nmod tidy -diff')"
+  printf '1\n' > "${S}/go.mod.tidy.rc"
+  _run_df_body "${_body}"
+  assert_equal "${status}" 1
+  assert_equal "${stderr##*$'\n'}" 'config_gen_gate_tidy_failed'
+  rm -f "${S}"/go.*.rc "${S}/go.calls"
+  printf '1\n' > "${S}/go.mod.download.rc"
+  _run_df_body "${_body}"
+  assert_equal "${status}" 1
+  assert_equal "${stderr##*$'\n'}" 'config_gen_gate_tidy_failed'
+  assert_equal "$(cat "${S}/go.calls")" 'mod download'
 }
 
 # why: The shipped stage holds only the binary; the runner's binary contract
@@ -479,7 +510,7 @@ _run_df_body() {
 
 # The cases the redpath plants, in the order it runs them, each with the
 # gate whose id it must produce; the unmodified control comes last.
-REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz"
+REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz gosum-extra:tidy"
 
 # _redpath_n -- how many cases REDPATH_CASES lists.
 _redpath_n() {
@@ -565,8 +596,9 @@ _canned_correct() {
     _n=$(( _n + 1 ))
     _gate="${_case#*:}"
     : > "${S}/canned/${_n}.out"
+    # tidy runs in the build stage, ahead of every test gate: no ok line.
     for _g in "${_all[@]}"; do
-      [[ "${_g}" == "${_gate}" ]] && break
+      [[ "${_gate}" == tidy || "${_g}" == "${_gate}" ]] && break
       printf 'gate=%s ok\n' "${_g}" >> "${S}/canned/${_n}.out"
     done
     printf '#9 0.31 config_gen_gate_%s_failed\n' "${_gate}" > "${S}/canned/${_n}.err"
@@ -777,6 +809,37 @@ _run_redpath() {
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=fuzz-panic reason=wrong_id gate=fuzz
+}
+
+# why: The build stage refuses a go.sum that is not what `go mod tidy`
+# writes (base#1441). Its planted defect is one well-formed go.sum line for
+# a module go.mod does not require, appended to the module's own go.sum
+# and nothing else changed, so `go mod download` and the build still pass
+# and only the tidy check can go red. Its id is the tidy gate's, which no
+# other build failure prints: a bare build failure is a wrong id.
+@test "config_gen_redpath.sh: the gosum-extra case appends one go.sum line for a module go.mod does not require and must produce the tidy gate's id (base#1441)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath
+  assert_success
+  local _mod _changed _extra
+  _mod="${S}/runner.$(_redpath_idx gosum-extra).mod"
+  _changed="$(diff -rq /source/dockerfile/config-gen "${_mod}" || true)"
+  assert_equal "${_changed}" "Files /source/dockerfile/config-gen/go.sum and ${_mod}/go.sum differ"
+  # The original bytes, then exactly one more line.
+  assert_equal "$(head -c "$(wc -c < /source/dockerfile/config-gen/go.sum)" "${_mod}/go.sum" | od -An -tx1)" \
+    "$(od -An -tx1 < /source/dockerfile/config-gen/go.sum)"
+  assert_equal "$(( $(wc -l < "${_mod}/go.sum") - $(wc -l < /source/dockerfile/config-gen/go.sum) ))" 1
+  _extra="$(tail -n 1 "${_mod}/go.sum")"
+  [[ "${_extra}" =~ ^[a-z0-9.-]+(/[A-Za-z0-9._-]+)+\ v[0-9]+\.[0-9]+\.[0-9]+\ h1:[A-Za-z0-9+/]{43}=$ ]] \
+    || fail "the planted line is not a go.sum h1 line: ${_extra}"
+  run grep -F -- "${_extra%% *}" /source/dockerfile/config-gen/go.mod
+  assert_failure
+  rm -rf "${S}"/runner.*
+  _gate_record config_gen_build_failed status=1 display=build > "${S}/canned/$(_redpath_idx gosum-extra).err"
+  _run_redpath
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=gosum-extra reason=wrong_id gate=tidy
 }
 
 # why: ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the
