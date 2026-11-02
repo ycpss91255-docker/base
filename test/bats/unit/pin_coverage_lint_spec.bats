@@ -935,10 +935,9 @@ _one_good_pin() {
   refute_output --partial 'm_test.go'
 }
 
-# why: A file below a testdata directory is a fixture the go tool itself
-# never builds, and a vendored one (toml-test's cases, base#1441) must keep
-# upstream's bytes, so a marker line inserted into it would change what
-# the test feeds its subject -- the .bats argument, for a whole directory.
+# why: A TOML case below a testdata directory is what a test feeds its
+# subject, and a vendored one (toml-test's cases, base#1441) must keep
+# upstream's bytes, so a marker line inserted into it would change the case.
 # A file merely NAMED testdata, or a directory whose name only contains
 # it, is still read.
 @test "_run_pin_coverage: a file below a testdata directory needs no marker, a near miss is still read (base#1441)" {
@@ -956,6 +955,19 @@ _one_good_pin() {
   refute_output --partial 'x.toml'
 }
 
+# why: Only a TOML case below testdata is exempt, because its bytes are
+# what the test feeds its subject. Any other file kind there is read like
+# the same bytes in the near-miss directory above, so the exemption cannot
+# widen back to the whole directory or to a basename-only scope.
+@test "_run_pin_coverage: a non-TOML file below a testdata directory is still read (base#1441)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata"
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/m/testdata/Dockerfile"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/m/testdata/Dockerfile:1:'
+}
+
 # why: Exempting Go tests and testdata must not open a place to write a pin
 # nothing reads: a marker in either is refused like a marker in a spec.
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits below a testdata directory (base#1441)" {
@@ -963,8 +975,8 @@ _one_good_pin() {
   mkdir -p "${SCRATCH}/dockerfile/m/testdata"
   printf '%s\n' \
     '# tool-pin: ghost github-release owner/ghost' \
-    'ARG GHOST_VERSION=1.0.0' \
-    > "${SCRATCH}/dockerfile/m/testdata/Dockerfile"
+    'ghost_version = "1.0.0"' \
+    > "${SCRATCH}/dockerfile/m/testdata/x.toml"
   _lint
   assert_failure
   assert_output --partial 'is not scanned'
