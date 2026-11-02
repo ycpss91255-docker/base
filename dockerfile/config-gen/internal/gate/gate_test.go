@@ -60,3 +60,53 @@ func TestCheckAcceptsEscapeBytesOutsideBasicStringEscape(t *testing.T) {
 		}
 	}
 }
+
+// A line ending outside a string token is refused exactly when the
+// innermost open container is an inline table; inside an array (at any
+// depth) or inside a multi-line string it is legal. Verdicts come from
+// the pinned-image tomllib and BurntSushi v1.6.0 (base#1441 design §1g):
+// tomllib refuses every refused row and accepts every nil row, while
+// BurntSushi accepts all of them. The position is the first byte (LF, or
+// the CR of a CRLF) of that line ending, counted by hand, e.g. r2:
+// a(1) ' '(2) =(3) ' '(4) {(5) ' '(6) b(7) ' '(8) =(9) ' '(10) 1(11)
+// ' '(12) #(13) ' '(14) c(15) LF(16).
+func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"r1", "a = {\nb = 1}\n", 1, 6},
+		{"r2", "a = { b = 1 # c\n}\n", 1, 16},
+		{"r3", "a = { b = [1,\n2],\n c = 3 }\n", 2, 4},
+		{"r4", "a = { b = [ { c = 1,\n d = 2 } ] }\n", 1, 21},
+		{"r5", "a = { b = 1\n, c = 2 }\n", 1, 12},
+		{"r6", "a = { b = [1] \n}\n", 1, 15},
+		{"r1-form", "a = {b = 1,\n c = 2}\n", 1, 12},
+		{"crlf", "a = {\r\nb = 1}\r\n", 1, 6},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonInlineNewline {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonInlineNewline}",
+				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, tc := range []struct{ name, src string }{
+		{"c1", "a = { b = [1,\n2] }\n"},
+		{"c2", "a = { b = [ # c\n 1 ] }\n"},
+		{"c3", "a = { b = \"\"\"x\ny\"\"\" }\n"},
+		{"c4", "a = { b = '''x\ny''' }\n"},
+		{"c5", "a = { b = { c = [1,\n2] } }\n"},
+		{"c6", "a = [ { b = 1 },\n { b = 2 } ]\n"},
+		{"c7", "a = { b = [1,\r\n2] }\r\n"},
+		{"c8", "a = { b = [1\n] }\n"},
+	} {
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+}
