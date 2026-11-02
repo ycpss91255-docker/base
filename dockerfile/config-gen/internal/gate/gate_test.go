@@ -286,3 +286,47 @@ func TestCheckRefusesHeaderOverDottedTable(t *testing.T) {
 		t.Errorf("Check(%q) = %v, want nil", "[a]\nb.c = 1\n[a.d]\n", err)
 	}
 }
+
+// An offset minute above 59 is refused with ReasonOffsetRange at the
+// offset's sign. tomllib (CPython 3.13.13 Lib/tomllib, measured
+// 2026-11-02) refuses each row at the sign, "(at line 1, column 24)",
+// array row column 25, while BurntSushi v1.6.0 accepts it (toml-test
+// invalid/datetime/offset-overflow-minute; base#1441 design cycle 10).
+// Column 24 is counted by hand: the value starts at column 5 and the
+// 19-byte datetime ends at column 23. tomllib accepts the controls: the
+// in-range minute 59 and the same bytes inside a basic string.
+func TestCheckRefusesOffsetMinuteOutOfRange(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+	}{
+		{"d = 1985-06-18 17:04:07+12:60\n", 1, 24},
+		{"d = 1985-06-18T17:04:07-12:60\n", 1, 24},
+		{"d = 1985-06-18T17:04:07+00:60\n", 1, 24},
+		{"d = [1985-06-18T17:04:07+12:60]\n", 1, 25},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonOffsetRange {
+			t.Errorf("Check(%q) Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonOffsetRange}",
+				tc.src, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+			continue
+		}
+		prefix := fmt.Sprintf("t.toml:%d:%d: ", tc.line, tc.col)
+		if !strings.HasPrefix(r.Error(), prefix) {
+			t.Errorf("Check(%q) Error() = %q, want prefix %q", tc.src, r.Error(), prefix)
+		}
+	}
+	for _, src := range []string{
+		"d = 1985-06-18 17:04:07+12:59\n",
+		"s = \"1985-06-18 17:04:07+12:60\"\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
