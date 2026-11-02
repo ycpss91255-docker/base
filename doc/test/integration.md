@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **268 tests**.
+Integration specs under `test/bats/integration/`: **269 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -144,7 +144,7 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
 
-### test/bats/integration/config_gen_toml10_spec.bats (2)
+### test/bats/integration/config_gen_toml10_spec.bats (3)
 
 internal/gate's differential test compares gate + BurntSushi with tomllib
 file by file. tomllib's verdicts are not committed; the step
@@ -158,12 +158,14 @@ The stub records each call's argv as ${S}/docker.<n>.argv. For `docker run`
 it saves stdin as ${S}/in.tar and answers `<rel>\taccept` for every regular
 file in that tar, so a step that hands over the right files sees one verdict
 per file. When ${S}/answers exists the stub prints that file instead, byte
-for byte.
+for byte. When ${S}/run.rc exists, `docker run` then exits with the status
+it holds.
 
 | Test | Description |
 |------|-------------|
 | `10-toml-oracle.sh: the container receives exactly the forms and toml-test TOML files, in C-locale order (base#1441)` | The differential test can only compare the files tomllib saw. The step must hand the container every forms file and every vendored toml-test file, at any depth, and nothing else from testdata -- a LICENSE or SOURCE file is not TOML. The order is the C locale's, so an upper-case name sorts before a lower-case one whatever the caller's locale is. The expected list is written out, not re-derived. |
 | `10-toml-oracle.sh: the container's answers land verbatim in toml-oracle/verdicts.tsv (base#1441)` | The build reads tomllib's verdicts from the step's toml-oracle context, so the step must keep the container's answers as they are: a rewritten, re-sorted or dropped line would hand the differential test a verdict tomllib never gave. The stub answers a mix of accept and refuse; the expected file is that answer, written out here. |
+| `10-toml-oracle.sh: a container that exits non-zero is config_gen_toml_oracle_failed reason=image, no toml-oracle/ left (base#1441)` | When the pinned image cannot answer -- the container exits non-zero -- whatever it printed is not tomllib's verdict on the input set. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=image, and no toml-oracle/ directory left for the build to read as an answer. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 

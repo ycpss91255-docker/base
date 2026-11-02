@@ -23,6 +23,12 @@
 # $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv, which config_gen_gates.sh
 # hands to the build as the `toml-oracle` context.
 #
+# Refusal: a container that exits non-zero is config_gen_toml_oracle_failed
+# reason=image, and the toml-oracle directory is removed, so the build has
+# no verdicts to read.
+#
+# Exit: 0 verdicts written; 1 otherwise.
+#
 # Style: Google Shell Style Guide.
 
 set -euo pipefail
@@ -34,6 +40,7 @@ readonly _TO_ROOT
 # shellcheck source=dist/script/docker/lib/toml_bridge.sh
 source "${_TO_ROOT}/dist/script/docker/lib/toml_bridge.sh"
 
+readonly _TO_SERVICE='config-gen'
 readonly _TO_MODULE_REL='dockerfile/config-gen'
 readonly -a _TO_INPUT_DIRS=(
   'internal/gate/testdata/forms'
@@ -83,9 +90,14 @@ main() {
 
   out="${CONFIG_GEN_CTX:?config_gen_steps run under CONFIG_GEN_CTX}/toml-oracle"
   mkdir -p -- "${out}"
-  tar -C "${module}" -cf - --no-recursion -- "${files[@]}" \
+  if ! tar -C "${module}" -cf - --no-recursion -- "${files[@]}" \
     | docker run --rm -i --network none --user "$(id -u):$(id -g)" \
-        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" > "${out}/verdicts.tsv"
+        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" > "${out}/verdicts.tsv"; then
+    rm -rf -- "${out}"
+    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=image \
+      "display=config_gen_toml_oracle_failed: the toml-bridge container ${image} exited non-zero; what it printed is not tomllib's verdict"
+    return 1
+  fi
 }
 
 main "$@"
