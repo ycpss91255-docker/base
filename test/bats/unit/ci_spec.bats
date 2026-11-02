@@ -384,6 +384,15 @@ teardown() {
 # on for the shapes its probe cannot see, so it is pinned here rather
 # than assumed: under the shape that escapes the probe, the driver must
 # still die at its first failing command and be named.
+#
+# bash 5.3 moved the boundary (measured on 5.3.3, base#1030): under
+# `if eval f` the substitution now reports "suppressed" AND the ERR trap
+# no longer fires, so with the refusal stubbed out the driver sails and the
+# phase reports clean. There the probe is the mechanism that holds, and the
+# phase refuses before any driver runs. The contract -- the run fails, the
+# driver never sails, the phase never says clean -- is the same on both
+# sides; which guard speaks is pinned per bash version, so either one
+# regressing on the bash it holds on turns this red.
 @test "_run_lint_tools: an eval'd caller escapes the probe, the driver still cannot sail (#1059)" {
   run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
@@ -394,8 +403,15 @@ teardown() {
   assert_failure
   refute_output --partial "SAILED PAST"
   refute_output --partial "PHASE SAID CLEAN"
-  # Not the refusal -- the probe cannot see this shape -- but the driver's
-  # own ERR trap, naming the driver that died.
+  if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
+    # bash >= 5.3: the probe reads the eval'd caller; the phase refuses.
+    assert_output --partial "ci_lint_errexit_suppressed"
+    assert_output --partial "the lint phase was called"
+    refute_output --partial "ci_lint_driver_failed"
+    return 0
+  fi
+  # bash < 5.3: not the refusal -- the probe cannot see this shape -- but
+  # the driver's own ERR trap, naming the driver that died.
   assert_output --partial "ci_lint_driver_failed"
   assert_output --partial "adr-numbering"
 }
