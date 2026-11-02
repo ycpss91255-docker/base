@@ -449,34 +449,59 @@ func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 	}
 }
 
-// An input the caller may not read -- a regular file with mode 000, opened
-// by uid 65534 -- makes `config-gen tables` exit 1 with nothing on stdout
-// and exactly one `config_gen_input_unreadable` frame whose `file` field
-// is the `--name` label (base#1469 Input: EACCES/EPERM on open ->
-// config_gen_input_unreadable). Root reads a mode-000 file through
-// CAP_DAC_OVERRIDE, so when the test runs as root it sets this thread's
-// filesystem uid to 65534 for the call, which drops that capability from
-// the thread's effective set until the fsuid is set back to 0.
-func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
-	const label = "l.toml"
+// modeFile writes body to a file named name in a fresh t.TempDir and sets
+// the file's mode to mode. Both levels of the temp dir (<per-test dir> and
+// <NNN>, each created mode 0700) are opened to 0755 so that uid 65534 can
+// search them: the file's own mode then decides what an open as that uid
+// gets, not a directory on the way to it (base#1469).
+func modeFile(t *testing.T, name string, body []byte, mode os.FileMode) string {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o755); err != nil {
-		t.Fatalf("chmod %s: %v", dir, err)
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		if err := os.Chmod(d, 0o755); err != nil {
+			t.Fatalf("chmod %s: %v", d, err)
+		}
 	}
-	path := filepath.Join(dir, "locked.toml")
-	if err := os.WriteFile(path, []byte("[a]\n"), 0o600); err != nil {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
-	if err := os.Chmod(path, 0); err != nil {
+	if err := os.Chmod(path, mode); err != nil {
 		t.Fatalf("chmod %s: %v", path, err)
 	}
+	return path
+}
 
+// asNonRoot pins the calling goroutine to its OS thread and, when the test
+// runs as root, sets that thread's filesystem uid to 65534, which drops
+// CAP_DAC_OVERRIDE from the thread's effective set, so file modes bind the
+// thread as they bind a non-root caller (base#1469). The returned func
+// sets the fsuid back to 0 and unpins the goroutine; defer it.
+func asNonRoot() func() {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if os.Geteuid() == 0 {
+	root := os.Geteuid() == 0
+	if root {
 		_, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 65534, 0, 0)
-		defer func() { _, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 0, 0, 0) }()
 	}
+	return func() {
+		if root {
+			_, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 0, 0, 0)
+		}
+		runtime.UnlockOSThread()
+	}
+}
+
+// An input the caller may not read -- a regular file with mode 000, opened
+// by a non-root caller -- makes `config-gen tables` exit 1 with nothing on
+// stdout and exactly one `config_gen_input_unreadable` frame whose `file`
+// field is the `--name` label (base#1469 Input: EACCES/EPERM on open ->
+// config_gen_input_unreadable). Root reads a mode-000 file through
+// CAP_DAC_OVERRIDE, so a root run drops it with asNonRoot for the call.
+func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
+	const label = "l.toml"
+	path := modeFile(t, "locked.toml", []byte("[a]\n"), 0)
+
+	defer asNonRoot()()
 	// The precondition: this thread can not open the file. Without it a
 	// pass would not show the refusal path ran.
 	if f, err := os.Open(path); !errors.Is(err, syscall.EACCES) {
@@ -499,10 +524,9 @@ func TestTablesUnreadableInputIsOneUnreadableFrame(t *testing.T) {
 // `config-gen tables` only reads its input, so a regular file the caller
 // may read but not write -- mode 0444, opened by a non-root caller --
 // gives exit 0, the bridge golden on stdout and nothing on stderr
-// (base#1469 Input: the input is opened O_RDONLY). As in the unreadable
-// test, a root run sets this thread's filesystem uid to 65534 for the
-// call, so CAP_DAC_OVERRIDE can not grant the write access a read-write
-// open would ask for.
+// (base#1469 Input: the input is opened O_RDONLY). A root run drops
+// CAP_DAC_OVERRIDE with asNonRoot for the call, so the capability can not
+// grant the write access a read-write open would ask for.
 func TestTablesReadOnlyInputPrintsTheBridgeGolden(t *testing.T) {
 	src := testcorpus.Glob(t, "corpus/s1/interleaved.toml")[0]
 	golden := testcorpus.Glob(t, "golden/s1/interleaved.golden")[0]
@@ -514,28 +538,9 @@ func TestTablesReadOnlyInputPrintsTheBridgeGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", golden, err)
 	}
-	// t.TempDir is <per-test dir>/<NNN>, both mode 0700 and owned by the
-	// caller; uid 65534 must be able to search both to reach the file.
-	dir := t.TempDir()
-	for _, d := range []string{filepath.Dir(dir), dir} {
-		if err := os.Chmod(d, 0o755); err != nil {
-			t.Fatalf("chmod %s: %v", d, err)
-		}
-	}
-	path := filepath.Join(dir, "ro.toml")
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-	if err := os.Chmod(path, 0o444); err != nil {
-		t.Fatalf("chmod %s: %v", path, err)
-	}
+	path := modeFile(t, "ro.toml", body, 0o444)
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if os.Geteuid() == 0 {
-		_, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 65534, 0, 0)
-		defer func() { _, _, _ = syscall.RawSyscall(syscall.SYS_SETFSUID, 0, 0, 0) }()
-	}
+	defer asNonRoot()()
 	// The preconditions: this thread can open the file for reading and can
 	// not open it for writing. Without both a pass would not show the open
 	// asks for read access only.
