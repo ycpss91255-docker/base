@@ -438,6 +438,17 @@ EOF
   assert_failure 1
 }
 
+# why: Go's parseString unquotes `"a\"b"` with strconv.Unquote to the path
+# `a"b` (base#1488). A lexer that ends the token at the escaped quote breaks
+# the line apart; an unquote that only strips the outer quotes keeps the
+# backslash (`a\"b`). The record carries the decoded path.
+@test "_pin_go_mod_scan: a quoted path with an escaped double quote is one record with the decoded path (base#1488)" {
+  _scan quote_escape_dquote
+  assert_success
+  assert_output "$(printf '3\ta"b\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
