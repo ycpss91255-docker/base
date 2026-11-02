@@ -93,11 +93,15 @@ func TestMain_ExitsWithRunStatus(t *testing.T) {
 // cg-gates mutation (base#1467), with a fake gremlins first on PATH that
 // logs its argv and copies <reports>/../fake/<n>.json to its -o path,
 // where <n> is the package argument with . and / as _. A fake/<n>.fail
-// file makes it exit 3 instead.
+// file makes it exit 3 instead. A fake/<n>.none file makes it do what
+// gremlins was measured doing on a package with no mutants (design run2
+// r1, ./internal/testcorpus): print `No results to report.`, write no
+// report and exit 0.
 
 const fakeGremlins = `#!/bin/sh
 printf '%s\n' "$*" >>"${0%/*}/argv"
 n="$(printf '%s' "$8" | tr ./ __)"
+[ -e "${0%/*}/${n}.none" ] && { echo 'No results to report.'; exit 0; }
 [ -e "${0%/*}/${n}.fail" ] && exit 3
 [ -e "${0%/*}/${n}.json" ] && cp "${0%/*}/${n}.json" "$7"
 exit 0
@@ -181,6 +185,8 @@ func TestMutation(t *testing.T) {
 			mod + "/internal/a failed reason=gremlins_failed\n", ""},
 		{"no report written", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{}, 1, mod + "/internal/a failed reason=report\n", ""},
+		{"a package with no mutants passes as no-mutants", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
+			map[string]string{"__internal_a.none": ""}, 0, mod + "/internal/a no-mutants\n", ""},
 		{"a report it cannot read", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": "x"}, 1, mod + "/internal/a failed reason=report\n", ""},
 		{"no Go file", mhead + "none: no-go-change\n", map[string]string{}, 0, "mutation targets none\n", ""},
