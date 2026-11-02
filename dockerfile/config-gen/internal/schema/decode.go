@@ -120,14 +120,16 @@ func valueCharEvent(text string) string {
 // parser's line and column, naming the last table or key the locator
 // found at or before that line, and no Config.
 //
-// Otherwise every path md.Keys() lists is judged in turn:
+// Otherwise the locator's tree is joined to the parsed value (bind) and
+// walked once, depth first, in written order; each table, key and array is
+// judged at its own node, a key at its own record and a table at its
+// earliest:
 //   - a table or key name holding U+0000, a tab, LF or CR is refused
-//     (keyCharEvent) at the outermost path it appears in, once;
-//   - every table on a path whose section text schema.sh does not know is
-//     a conf_unknown_table refusal at its header line, once per section
-//     text, as the shell's --tables walk reports each one: `[foo.bar]`
-//     refuses both foo and foo.bar. Keys under an unknown table get no
-//     refusal of their own;
+//     (keyCharEvent) once per path, and nothing under it is judged;
+//   - every table whose section text schema.sh does not know is a
+//     conf_unknown_table refusal, once per section text, as the shell's
+//     --tables walk reports each one: `[foo.bar]` refuses both foo and
+//     foo.bar. Keys under an unknown table get no refusal of their own;
 //   - anything under an array is the array stage's: only its string
 //     values are judged here, by valueCharEvent;
 //   - a scalar at the root, whatever its name, is one conf_top_level_key;
@@ -137,8 +139,9 @@ func valueCharEvent(text string) string {
 //     _setup_conf_check_known does not judge it;
 //   - a scalar or an array under a known table is judged as
 //     _setup_known_key and _schema_validate judge its section text and
-//     key, so a `[logging.<service>]` key is judged as a [logging] key: an
-//     unknown key is conf_unknown_key, an array at a registered key is
+//     key, the key registry first and the written kind second, so a
+//     `[logging.<service>]` key is judged as a [logging] key: an unknown
+//     key is conf_unknown_key, an array at a registered key is
 //     conf_value_type_refused, a scalar outside its key's type
 //     (kindRefused) is conf_value_type_refused, and a scalar whose text
 //     Validate refuses is one refusal with Validate's event.
@@ -149,56 +152,14 @@ func Decode(src []byte) (*Config, []Refusal) {
 	if err != nil {
 		return nil, []Refusal{parseRefusal(lines, err)}
 	}
-	d := decoder{lines: lines, refused: map[string]bool{}, tables: map[string]bool{}, listed: map[string]int{}, valued: map[string]int{}}
-next:
-	for _, k := range md.Keys() {
-		d.listed[pathID(k)]++
-		if i := badName(k); i >= 0 {
-			p := k[:i+1]
-			if !d.refused[pathID(p)] {
-				line, col := d.keyPos(p)
-				if i < len(k)-1 || md.Type(k...) == "Hash" {
-					line, col = tablePos(lines, p)
-				}
-				d.refuse(keyCharEvent(k[i]), p, line, col)
-			}
-			continue
-		}
-		// Every table on the path is judged by its section text, as the
-		// shell's --tables walk judges it: each one _setup_known_section
-		// does not know is refused once, and nothing under it is judged
-		// further. The first array on the path decides for everything
-		// under it. A prefix is classified by its decoded value, so an
-		// implicit table, which md.Keys() need not list, is classified
-		// too.
-		unknown := false
-		for i := 1; i < len(k); i++ {
-			switch lookup(doc, k[:i]).(type) {
-			case []map[string]any, []any:
-				continue next
-			case map[string]any:
-				if !accepted(k[:i]) {
-					d.refuseTable(k[:i])
-					unknown = true
-				}
-			}
-		}
-		if unknown {
-			if md.Type(k...) == "Hash" {
-				d.refuseTable(k)
-			}
-			continue
-		}
-		d.judge(md, doc, k)
-	}
-	tree, deferred := buildTree(md, doc, lines)
-	for _, def := range deferred {
+	root := bind(lines.Root(), doc, nil)
+	d := decoder{refused: map[string]bool{}, tables: map[string]bool{}}
+	d.walk(root, nil, judging)
+	tree, deferred, arrays := buildTree(md, root)
+	for i, def := range deferred {
 		if !d.refusedUnder(def.Path) {
-			line, col := keyPos(lines, def.Path, 0)
-			if line == 0 {
-				line = def.Value.Line
-			}
-			d.judgeValues(def.Path, def.Value, line, col)
+			line, col := arrays[i].declPos()
+			d.judgeValues(def.Path, arrays[i], line, col)
 		}
 	}
 	sort.SliceStable(d.refusals, func(i, j int) bool { return d.refusals[i].Line < d.refusals[j].Line })
@@ -215,36 +176,73 @@ next:
 
 // decoder collects the refusals of one Decode.
 type decoder struct {
-	lines    *locate.Map
 	refusals []Refusal
 	// refused holds the pathID of every refused path.
 	refused map[string]bool
 	// tables holds the section text of every refused table.
 	tables map[string]bool
-	// listed counts the md.Keys() listings of each path judged so far.
-	listed map[string]int
-	// valued counts the member keys of each path judgeValues has met.
-	valued map[string]int
 }
 
-// keyPos is the position of the key k as listed last by md.Keys(): the
-// parser lists a key once per place it is written, in source order, so
-// the nth listing is the nth occurrence.
-func (d *decoder) keyPos(k []string) (line, col int) {
-	return keyPos(d.lines, k, max(d.listed[pathID(k)]-1, 0))
+// scope is what the walk judges under a node.
+type scope int
+
+const (
+	// judging: under known tables, every node is judged.
+	judging scope = iota
+	// unknownTable: under a refused table only tables are judged, each by
+	// its section text.
+	unknownTable
+	// inArray: under an array only names are judged here; values are the
+	// array stage's (judgeValues).
+	inArray
+)
+
+// walk judges every child of b, at path, in written order.
+func (d *decoder) walk(b *bound, path []string, s scope) {
+	for _, c := range b.children {
+		if c.keyless() {
+			d.walk(c, path, inArray)
+			continue
+		}
+		p := append(append([]string{}, path...), c.node.Key)
+		if event := keyCharEvent(c.node.Key); event != "" {
+			if !d.refused[pathID(p)] {
+				line, col := c.declPos()
+				if c.isTable() {
+					line, col = c.firstPos()
+				}
+				d.refuse(event, p, line, col)
+			}
+			continue
+		}
+		next := s
+		switch s {
+		case inArray:
+		case unknownTable:
+			if c.isTable() && !accepted(p) {
+				d.refuseTable(p, c)
+			}
+		case judging:
+			next = d.judge(c, p)
+		}
+		if c.isArray() {
+			next = inArray
+		}
+		d.walk(c, p, next)
+	}
 }
 
-// refuseTable refuses the table k as conf_unknown_table at its first
-// occurrence, once per section text: the shell reports a text once
-// however many paths spell it (_setup_conf_check_known's _sck_reported).
-func (d *decoder) refuseTable(k []string) {
+// refuseTable refuses the table b at k as conf_unknown_table at its first
+// record, once per section text: the shell reports a text once however
+// many paths spell it (_setup_conf_check_known's _sck_reported).
+func (d *decoder) refuseTable(k []string, b *bound) {
 	text := strings.Join(k, ".")
 	if d.tables[text] {
 		d.refused[pathID(k)] = true
 		return
 	}
 	d.tables[text] = true
-	line, col := tablePos(d.lines, k)
+	line, col := b.firstPos()
 	d.refuse("conf_unknown_table", k, line, col)
 }
 
@@ -263,42 +261,39 @@ func (d *decoder) refusedUnder(p []string) bool {
 	return false
 }
 
-// judge judges the path k, which lies under no array and no refused table.
-func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
+// judge judges b at path k, which lies under no array and no refused
+// table, and returns the scope of its children.
+func (d *decoder) judge(b *bound, k []string) scope {
 	section, key := strings.Join(k[:len(k)-1], "."), k[len(k)-1]
-	typ := md.Type(k...)
-	line, col := d.keyPos(k)
-	if typ == "ArrayHash" {
-		// An array of tables is written as `[[k]]` headers: it is
-		// refused at its first.
-		line, col = tablePos(d.lines, k)
-	}
+	tables := b.node.Kind == locate.NArrayTables
+	line, col := b.declPos()
 	switch {
-	case typ == "Hash":
+	case b.isTable():
 		if !accepted(k) {
-			d.refuseTable(k)
+			d.refuseTable(k, b)
+			return unknownTable
 		}
-		return
-	case len(k) == 1 && (typ == "ArrayHash" || typ == "Array"):
+		return judging
+	case len(k) == 1 && b.isArray():
 		// An array at a known section name, `[[volumes]]` or the inline
 		// `volumes = [{...}]`, is the legacy spelling the array stage
 		// handles. Any other root array is refused as what it is written
 		// as: an array-table header is a table, an inline array a root key.
 		switch {
-		case known[k[0]]:
-		case typ == "ArrayHash":
-			d.refuseTable(k)
+		case known[key]:
+		case tables:
+			d.refuseTable(k, b)
 		default:
 			d.refuse("conf_top_level_key", k, line, col)
 		}
-		return
+		return inArray
 	case len(k) == 1:
 		d.refuse("conf_top_level_key", k, line, col)
-		return
+		return judging
 	case stage(k):
 		// A `["stage:<name>"]` table is not judged here; only a string
 		// value's characters are (below).
-	case typ == "ArrayHash" || typ == "Array":
+	case b.isArray():
 		// An array of a numbered family is judged by the row its first
 		// entry takes: `[[security.cap_drop]]` and `cap_drop = []` are
 		// security.cap_drop_1, as the shell's --kv and --empty-families
@@ -309,7 +304,8 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 		// for (toml_bridge.py _array_spec): at a key _setup_known_key
 		// knows, a registered scalar key or a free-form one, it is a value
 		// of the wrong type for that key; at any other key it is unknown.
-		// It is refused once, however many headers write it.
+		// It is refused once, at its first header when written as
+		// `[[k]]` headers.
 		switch prefix, ok := arrayFamily[key]; {
 		case d.refused[pathID(k)]:
 		case ok && knownKey(section, prefix+"_1"):
@@ -318,13 +314,12 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 		default:
 			d.refuse("conf_value_type_refused", k, line, col)
 		}
-		return
+		return inArray
 	}
-	v := lookup(doc, k)
-	if text, ok := v.(string); ok {
+	if text, ok := b.value.(string); ok {
 		if event := valueCharEvent(text); event != "" {
 			d.refuse(event, k, line, col)
-			return
+			return judging
 		}
 	}
 	switch {
@@ -333,58 +328,36 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 		d.refuse("conf_unknown_key", k, line, col)
 	default:
 		var s Scalar
-		if s.UnmarshalTOML(v) != nil || kindRefused(section, key, s) {
+		if s.UnmarshalTOML(b.value) != nil || kindRefused(section, key, s) {
 			d.refuse("conf_value_type_refused", k, line, col)
-			return
+			return judging
 		}
 		var ve *ValueError
 		if err := Validate(section, key, s.Text); errors.As(err, &ve) {
 			d.refuse(ve.Event, k, line, col)
 		}
 	}
+	return judging
 }
 
-// judgeValues refuses each string in the deferred value v, written at
+// judgeValues refuses each string in the deferred value b, written at
 // path p, that valueCharEvent refuses: at the position of the innermost
-// key holding it, line and col for v itself. The members of v's tables are
-// met in source order, so the nth member met with a path is the nth
-// occurrence the locator gives that path.
-func (d *decoder) judgeValues(p []string, v Value, line, col int) {
-	switch v.Kind {
-	case VScalar:
-		if v.Scalar.Kind != KindString {
-			return
-		}
-		if event := valueCharEvent(v.Scalar.Text); event != "" {
+// key holding it, line and col for b itself.
+func (d *decoder) judgeValues(p []string, b *bound, line, col int) {
+	if text, ok := b.value.(string); ok {
+		if event := valueCharEvent(text); event != "" {
 			d.refuse(event, p, line, col)
 		}
-	case VArray:
-		for _, it := range v.Items {
-			d.judgeValues(p, it, line, col)
-		}
-	case VTable:
-		for _, m := range v.Members {
-			mp := append(append([]string{}, p...), m.Key)
-			id := pathID(mp)
-			ml, mc := keyPos(d.lines, mp, d.valued[id])
-			d.valued[id]++
-			if ml == 0 {
-				ml, mc = m.Value.Line, 0
-			}
-			d.judgeValues(mp, m.Value, ml, mc)
-		}
+		return
 	}
-}
-
-// badName is the index of the first component of k that keyCharEvent
-// refuses, or -1.
-func badName(k []string) int {
-	for i, name := range k {
-		if keyCharEvent(name) != "" {
-			return i
+	for _, c := range b.children {
+		if c.keyless() {
+			d.judgeValues(p, c, line, col)
+			continue
 		}
+		ml, mc := c.declPos()
+		d.judgeValues(append(append([]string{}, p...), c.node.Key), c, ml, mc)
 	}
-	return -1
 }
 
 // parseRefusal is the conf_toml_parse_failed refusal for the parser's
@@ -439,75 +412,6 @@ var arrayFamily = map[string]string{
 	"bindings":            "device",
 	"cgroup_rules":        "cgroup_rule",
 	"additional_contexts": "context",
-}
-
-// lookup is the decoded value at path k of doc, or nil.
-func lookup(doc map[string]any, k []string) any {
-	var v any = doc
-	for _, name := range k {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return nil
-		}
-		v = m[name]
-	}
-	return v
-}
-
-// keyPos is the line and column the locator gives the nth (0-based)
-// occurrence of the key k, written as a `key = value` line or inside an
-// inline value (locate.Map.Members), or its last when k is written fewer
-// times. A key the locator does not find is given the position of the
-// innermost inline key that holds it, and 0, 0 when there is none.
-func keyPos(lines *locate.Map, k []string, nth int) (line, col int) {
-	if occ := keyOccurrences(lines, k); len(occ) > 0 {
-		o := occ[min(nth, len(occ)-1)]
-		return o.KeyLine, o.KeyCol
-	}
-	for i := len(k) - 1; i > 0; i-- {
-		for _, o := range keyOccurrences(lines, k[:i]) {
-			if o.Inline {
-				return o.KeyLine, o.KeyCol
-			}
-		}
-	}
-	return 0, 0
-}
-
-// keyOccurrences is every occurrence of the key k, as a line of its own
-// or inside an inline value, in document order.
-func keyOccurrences(lines *locate.Map, k []string) []locate.Occurrence {
-	occ := append(lines.Keys(k), lines.Members(k)...)
-	sort.SliceStable(occ, func(i, j int) bool {
-		if occ[i].KeyLine != occ[j].KeyLine {
-			return occ[i].KeyLine < occ[j].KeyLine
-		}
-		return occ[i].KeyCol < occ[j].KeyCol
-	})
-	return occ
-}
-
-// keyLine is the line of the first occurrence of the key k (keyPos).
-func keyLine(lines *locate.Map, k []string) int {
-	line, _ := keyPos(lines, k, 0)
-	return line
-}
-
-// tablePos is the position of the first occurrence of the table k: its
-// header, its first creator's when implicit -- a dotted key inside an
-// inline value included -- or its key's when inline.
-func tablePos(lines *locate.Map, k []string) (line, col int) {
-	occ := append(lines.Tables(k), lines.InlineTables(k)...)
-	if len(occ) > 0 {
-		first := occ[0]
-		for _, o := range occ[1:] {
-			if o.KeyLine < first.KeyLine || o.KeyLine == first.KeyLine && o.KeyCol < first.KeyCol {
-				first = o
-			}
-		}
-		return first.KeyLine, first.KeyCol
-	}
-	return keyPos(lines, k, 0)
 }
 
 // projectDeploy resolves the legacy alias in the [deploy] node of t as
@@ -598,304 +502,66 @@ func pathID(path []string) string {
 // buildTree records the accepted table nodes of the layer in the bridge's
 // traversal order (toml_bridge.py _emit_table, the loop at line 407): the
 // parsed tree walked depth first, each node entered before its children,
-// each table's children in the order they were first created, which is
-// the order a key or a prefix of it first appears in md.Keys(). The root,
-// the known sections, every table whose text is under logging and every
-// `["stage:<name>"]` table are accepted; a refused table and everything
-// under it is left out, and so is a root scalar. Each accepted array is
-// returned in the second result with its payload (base#1442).
-func buildTree(md toml.MetaData, doc map[string]any, lines *locate.Map) (Tree, []Deferred) {
-	keys := md.Keys()
-	children := map[string][]string{}
-	seen := map[string]bool{}
-	for _, k := range keys {
-		for i := 1; i <= len(k); i++ {
-			id := pathID(k[:i])
-			if !seen[id] {
-				seen[id] = true
-				parent := pathID(k[:i-1])
-				children[parent] = append(children[parent], k[i-1])
-			}
-		}
-	}
+// each table's children in the order they were first created, the
+// locator's node order. The root, the known sections, every table whose
+// text is under logging and every `["stage:<name>"]` table are accepted; a
+// refused table and everything under it is left out, and so is a root
+// scalar. Each accepted array is returned in the second result with its
+// payload, and its bound node in the third (base#1442).
+func buildTree(md toml.MetaData, root *bound) (Tree, []Deferred, []*bound) {
 	t := Tree{Nodes: []Node{{}}}
 	var deferred []Deferred
-	var walk func(at int, path []string, table map[string]any)
-	walk = func(at int, path []string, table map[string]any) {
-		for _, name := range children[pathID(path)] {
+	var arrays []*bound
+	var walk func(at int, path []string, b *bound)
+	walk = func(at int, path []string, b *bound) {
+		for _, c := range b.children {
+			name := c.node.Key
 			p := append(append([]string{}, path...), name)
-			switch v := table[name].(type) {
-			case map[string]any:
+			switch {
+			case c.isTable():
 				if !accepted(p) {
 					continue
 				}
-				n := Node{Path: p, Text: strings.Join(p, ".")}
-				if occ := lines.Tables(p); len(occ) > 0 {
-					n.Line, n.Implicit = occ[0].KeyLine, occ[0].Implicit
-				} else if occ := lines.Keys(p); len(occ) > 0 {
-					n.Line, n.Inline = occ[0].KeyLine, true
+				// Line and Implicit are the node's earliest record's: its
+				// header, or its first creator's when it is created first.
+				n := Node{Path: p, Text: strings.Join(p, "."), Inline: c.node.Kind == locate.NKey}
+				if first := c.first(); first != nil {
+					n.Line, n.Implicit = first.KeyLine, first.Implicit && !n.Inline
 				}
 				i := len(t.Nodes)
 				t.Nodes = append(t.Nodes, n)
 				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildNode, Key: name, Node: i})
-				walk(i, p, v)
-			default:
-				_, isTables := v.([]map[string]any)
-				_, isArray := v.([]any)
+				walk(i, p, c)
+			case c.isArray():
 				// At the root only an array at a known section name,
 				// `[[volumes]]` or `volumes = [...]`, is accepted; any
 				// other root key is refused.
-				if len(path) == 0 && ((!isTables && !isArray) || !known[name]) {
+				if len(path) == 0 && !known[name] {
 					continue
 				}
-				if isTables || isArray {
-					d := Deferred{Path: p, Type: md.Type(p...), Value: arrayValue(lines, keys, p, v)}
-					d.Line = d.Value.Line
-					t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildDeferred, Key: name, Defer: len(deferred)})
-					deferred = append(deferred, d)
+				def := Deferred{Path: p, Type: md.Type(p...), Value: c.payload()}
+				def.Line = def.Value.Line
+				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildDeferred, Key: name, Defer: len(deferred)})
+				deferred = append(deferred, def)
+				arrays = append(arrays, c)
+			default:
+				if len(path) == 0 {
 					continue
 				}
 				var s Scalar
 				// Scalar decodes every TOML scalar kind; a value it cannot
 				// decode is refused by Decode, so leaving it out loses
 				// nothing silently.
-				if s.UnmarshalTOML(v) != nil {
+				if s.UnmarshalTOML(c.value) != nil {
 					continue
 				}
-				f := Field{State: Set, Value: s, Line: keyLine(lines, p)}
-				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildRow, Key: name, Row: f})
+				line, _ := c.declPos()
+				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildRow, Key: name, Row: Field{State: Set, Value: s, Line: line}})
 			}
 		}
 	}
-	walk(0, nil, doc)
-	return t, deferred
-}
-
-// arrayValue is the payload of the array v at path p. An array of tables
-// is tablesValue's. An inline array starts on its key's line and its items
-// are given that line; the members of every inline table in it are in
-// source order (keyStream).
-func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
-	elems, isTables := v.([]map[string]any)
-	if !isTables {
-		out := valueOf(v, keyLine(lines, p))
-		streamAfter(keys, p, 0).order(&out, p)
-		return out
-	}
-	return tablesValue(lines.Entries(), keys, p, elems)
-}
-
-// tablesValue is the payload of the array of tables at p whose decoded
-// elements are elems: one VTable per `[[p]]` element of entries, at its
-// header line, holding the element's whole decoded table (tableValue).
-func tablesValue(entries []locate.Occurrence, keys []toml.Key, p []string, elems []map[string]any) Value {
-	out := Value{Kind: VArray}
-	spans := elementSpans(entries, p)
-	for i, e := range elems {
-		var span []locate.Occurrence
-		line := 0
-		if i < len(spans) {
-			span, line = spans[i][1:], spans[i][0].KeyLine
-		}
-		item := tableValue(span, keys, p, e, line)
-		item.Header = true
-		if i == 0 {
-			out.Line = line
-		}
-		out.Items = append(out.Items, item)
-	}
-	return out
-}
-
-// elementSpans splits entries into the `[[p]]` elements: each span starts
-// at one `[[p]]` header and holds every occurrence after it up to the next
-// `[[p]]` header or the first header that is not under p. Nested tables,
-// nested arrays of tables and dotted keys of the element are under p, so
-// they stay in its span.
-func elementSpans(entries []locate.Occurrence, p []string) [][]locate.Occurrence {
-	want := pathID(p)
-	var spans [][]locate.Occurrence
-	open := false
-	for _, o := range entries {
-		switch {
-		case o.Kind == locate.ArrayHeader && pathID(o.Path) == want:
-			spans = append(spans, []locate.Occurrence{o})
-			open = true
-		case !open:
-		case o.Kind != locate.Key && !under(o.Path, p):
-			open = false
-		default:
-			spans[len(spans)-1] = append(spans[len(spans)-1], o)
-		}
-	}
-	return spans
-}
-
-// under reports whether path lies strictly under p, by whole components.
-func under(path, p []string) bool {
-	return len(path) > len(p) && pathID(path[:len(p)]) == pathID(p)
-}
-
-// tableValue is the decoded table m written at prefix, at line. Its
-// members are its keys in the order span first names them, then any key
-// span does not name, in key order, so the payload is whole either way.
-// A member that is a table written with headers or dotted keys is a
-// tableValue of its own, an array of tables a tablesValue, and anything
-// else valueOf at the member's first line; a member whose value is
-// written inline has every inline table in it put in source order by the
-// key stream from that occurrence of its key (keyStream).
-func tableValue(span []locate.Occurrence, keys []toml.Key, prefix []string, m map[string]any, line int) Value {
-	out := Value{Kind: VTable, Line: line}
-	var order []string
-	first := map[string]locate.Occurrence{}
-	for _, o := range span {
-		if !under(o.Path, prefix) {
-			continue
-		}
-		name := o.Path[len(prefix)]
-		if _, seen := first[name]; !seen {
-			first[name] = o
-			order = append(order, name)
-		}
-	}
-	var rest []string
-	for name := range m {
-		if _, seen := first[name]; !seen {
-			rest = append(rest, name)
-		}
-	}
-	sort.Strings(rest)
-	for _, name := range append(order, rest...) {
-		v, ok := m[name]
-		if !ok {
-			continue
-		}
-		o, written := first[name]
-		at := line
-		if written {
-			at = o.KeyLine
-		}
-		p := append(append([]string{}, prefix...), name)
-		inline := written && o.Kind == locate.Key && len(o.Path) == len(p)
-		var mv Value
-		switch x := v.(type) {
-		case map[string]any:
-			if inline {
-				mv = valueOf(x, at)
-			} else {
-				mv = tableValue(span, keys, p, x, at)
-			}
-		case []map[string]any:
-			mv = tablesValue(span, keys, p, x)
-		default:
-			mv = valueOf(v, at)
-		}
-		if inline {
-			streamAfter(keys, p, o.Ordinal).order(&mv, p)
-		}
-		out.Members = append(out.Members, Member{Key: name, Value: mv})
-	}
-	return out
-}
-
-// keyStream replays md.Keys() from one position. The library lists every
-// key in the order it parses it, the members of an inline table and of
-// each table item of an inline array included, under the path they are
-// written at with no item index, each member followed at once by the keys
-// inside its own value (toml_bridge.py line 755 walks elem.items() in that
-// order). A nil stream orders nothing.
-type keyStream struct {
-	keys []toml.Key
-	at   int
-}
-
-// streamAfter is the stream just after the nth (0-based) listing of the
-// path p, or nil when p is listed fewer times.
-func streamAfter(keys []toml.Key, p []string, nth int) *keyStream {
-	want := pathID(p)
-	for i, k := range keys {
-		if pathID(k) != want {
-			continue
-		}
-		if nth == 0 {
-			return &keyStream{keys: keys, at: i + 1}
-		}
-		nth--
-	}
-	return nil
-}
-
-// order puts the members of every table in v, written at path p, in the
-// order the stream lists them, consuming the stream as it goes: each table
-// takes the next listed keys directly under p, until each of its members
-// has its key, and each member's own value is ordered from the keys that
-// follow it. A table whose members the stream does not account for keeps
-// its order (base#1442).
-func (s *keyStream) order(v *Value, p []string) {
-	if s == nil {
-		return
-	}
-	switch v.Kind {
-	case VArray:
-		for i := range v.Items {
-			s.order(&v.Items[i], p)
-		}
-	case VTable:
-		byKey := make(map[string]int, len(v.Members))
-		for i, m := range v.Members {
-			byKey[m.Key] = i
-		}
-		want := pathID(p)
-		ordered := make([]Member, 0, len(v.Members))
-		for len(ordered) < len(v.Members) && s.at < len(s.keys) {
-			k := s.keys[s.at]
-			s.at++
-			if len(k) != len(p)+1 || pathID(k[:len(p)]) != want {
-				continue
-			}
-			i, ok := byKey[k[len(p)]]
-			if !ok {
-				continue
-			}
-			delete(byKey, k[len(p)])
-			m := v.Members[i]
-			s.order(&m.Value, append(append([]string{}, p...), m.Key))
-			ordered = append(ordered, m)
-		}
-		if len(ordered) == len(v.Members) {
-			v.Members = ordered
-		}
-	case VScalar:
-	}
-}
-
-// valueOf is the value v written at line: a scalar, an array of values or
-// a table, each given line. A table's members are in key order here; the
-// callers put them in source order with a keyStream.
-func valueOf(v any, line int) Value {
-	switch x := v.(type) {
-	case []any:
-		out := Value{Kind: VArray, Line: line}
-		for _, item := range x {
-			out.Items = append(out.Items, valueOf(item, line))
-		}
-		return out
-	case map[string]any:
-		out := Value{Kind: VTable, Line: line}
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			out.Members = append(out.Members, Member{Key: k, Value: valueOf(x[k], line)})
-		}
-		return out
-	}
-	var s Scalar
-	// A kind Scalar does not decode keeps its zero Scalar.
-	_ = s.UnmarshalTOML(v)
-	return Value{Kind: VScalar, Scalar: s, Line: line}
+	walk(0, nil, root)
+	return t, deferred, arrays
 }
 
 // ProjectServices walks t depth first in Children order and appends each
