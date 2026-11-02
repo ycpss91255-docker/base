@@ -3555,7 +3555,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (50)
+### test/bats/unit/gomod_scan_spec.bats (51)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3589,9 +3589,9 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: godebug default=go1.27 is read and the require after it is the one record (base#1488)` | Go reads `godebug default=go1.27` (rc 0, issue observation in the pinned golang image) and its only require is `a v1.0.0`. The scanner refused godebug by name, so a go.mod Go accepts could not be read. The godebug line is checked, never emitted, so it is not a declaration. |
 | `_pin_go_mod_scan: godebug with no = or with a comma is refused as godebug_usage (base#1488)` | Go rejects `godebug foo` (no `=`) and `godebug a=1,b=2` (a comma); these fixtures are go-invalid, held to Go by the oracle. A malformed godebug must not be skipped unread: both refuse as godebug_usage, before a require and after one. |
 | `_pin_go_mod_scan: a godebug block is read and the require after it is the one record (base#1488)` | Go reads a `godebug (` block holding `foo=1` (the oracle records Go rc 0 for godebug_block_pre/post) and its only require is `a v1.0.0`. A scanner that hands godebug block lines to the require entry would refuse `foo=1` as arity; one that emits them would add a record. The block's lines are checked, never emitted, so none of them is a declaration. |
+| `_pin_go_mod_scan: an exclude line is read and the require beside it is the one record (base#1488)` | Go reads `exclude a v1.0.0` beside `require a v1.0.0` (the oracle records Go rc 0 for exclude_ok_pre/post) and its only require is `a v1.0.0`; Go ignores an exclude's comments, so `// indirect` on an exclude is no indirect requirement. A scanner that emits exclude as a require would add a second record, and one that applies the indirect refusal to exclude would refuse exclude_indirect. The exclude line is checked, never emitted, so it is not a declaration. |
 | `_pin_go_mod_scan: exclude is refused by name, line form before a require and block form after one (base#1463)` | Go rejects `exclude a` and the old design consumed exclude unread, so a valid require after it was emitted for a file Go refuses. exclude is now refused by name in any form: line and block, before and after a require. |
 | `_pin_go_mod_scan: retract is refused by name in the line, interval and block forms (base#1463)` | Same point for retract: its interval grammar is not ported, so every retract -- valid, unclosed or with a trailer -- is refused by name. |
-
 | `_pin_go_mod_scan: replace, tool and ignore are each refused by name (base#1463)` | replace, tool and ignore are three separate arms, each its own guard. |
 | `_pin_go_mod_scan: module with two arguments is refused as module_arity (base#1463)` | module takes exactly one argument; `module a b` is a Go error. |
 | `_pin_go_mod_scan: module ) is read as Go reads it, the require kept (base#1463)` | Review round 4 took `module )` for a Go error. The oracle step ran `go mod edit -json` on both fixtures and Go returned rc 0: its parser reads the `)` as the module path. So the scanner keeps the require on either side of it, as Go does, rather than refusing a file Go accepts. |

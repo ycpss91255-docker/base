@@ -665,10 +665,12 @@ _pin_extract_value() {
 #   require                emitted, after the entry and version checks;
 #   module, go, toolchain, held to the checks Go's own parser makes (one
 #   godebug (line or block argument, the value grammar, not repeated) and
-#   form)                  never emitted (a godebug line that fails Go's
-#                          check is godebug_usage);
-#   anything else          refused BY NAME (replace, tool, ignore, exclude,
-#                          retract) or as unknown_verb.
+#   form), exclude (line   never emitted (a godebug line that fails Go's
+#   form)                  check is godebug_usage; an exclude line takes
+#                          the require entry's path and version checks);
+#   anything else          refused BY NAME (replace, tool, ignore, retract,
+#                          an exclude block or an exclude without exactly
+#                          two arguments) or as unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -873,11 +875,14 @@ _pin_go_mod_unquote() {
   printf '%s' "${2}"
 }
 
-# _pin_go_mod_entry <lineno> <first> -- one require entry: the tokens of
-# the caller's `_gm_kind`/`_gm_text` from index <first>. Appends its record
-# to the caller's `_gm_out`; non-zero, refusal logged, otherwise.
+# _pin_go_mod_entry <lineno> <first> [emit] -- one require entry: the tokens
+# of the caller's `_gm_kind`/`_gm_text` from index <first>. Appends its
+# record to the caller's `_gm_out`; non-zero, refusal logged, otherwise.
+# With emit=0 (an exclude entry, base#1488) the path and version checks run
+# and nothing is recorded; Go ignores an exclude's comments, so neither the
+# record nor the indirect rule applies.
 _pin_go_mod_entry() {
-  local _ln="${1}" _first="${2}" _k _path _ver _cm _rec _tabs
+  local _ln="${1}" _first="${2}" _emit="${3:-1}" _k _path _ver _cm _rec _tabs
   local -a _f=()
   for (( _k = _first; _k < ${#_gm_kind[@]}; _k++ )); do
     if [[ "${_gm_kind[_k]}" == p ]]; then _pin_go_mod_refuse "${_ln}" punctuation; return 1; fi
@@ -889,6 +894,11 @@ _pin_go_mod_entry() {
   # as no requirement at all), so no record of it agrees with Go (review
   # round 2, base#1463).
   if [[ -z "${_path}" ]]; then _pin_go_mod_refuse "${_ln}" path_empty; return 1; fi
+  if (( ! _emit )); then
+    _pin_go_mod_version_ok "${_path}" "${_ver}" && return 0
+    _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"
+    return 1
+  fi
   # The record's own separator: a tab inside a quoted path or a comment
   # would split one field into two for every reader of the record
   # (`require "a<TAB>b" v1.0.0` read as path=a, version=b; review round 1,
@@ -975,7 +985,11 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi
     if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi
     if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
-    if [[ "${_verb}" == exclude ]]; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
+    if [[ "${_verb}" == exclude ]]; then
+      if _pin_go_mod_opens_block || (( ${#_gm_kind[@]} != 3 )); then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
+      _pin_go_mod_entry "${_ln}" 1 0 || return 1
+      continue
+    fi
     if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi
     case "${_verb}" in
       module | go | toolchain)
