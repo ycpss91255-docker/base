@@ -140,8 +140,6 @@ go_arity_post 4
 go_arity_pre 3
 go_bad_post 4
 go_bad_pre 3
-godebug_block_post 4
-godebug_block_pre 3
 godebug_comma_post 4
 godebug_comma_pre 3
 godebug_no_eq_post 4
@@ -293,6 +291,28 @@ EOF
   _refused godebug_comma_post godebug_usage 4
 }
 
+# why: Go reads a `godebug (` block holding `foo=1` (the oracle records Go
+# rc 0 for godebug_block_pre/post) and its only require is `a v1.0.0`. A
+# scanner that hands godebug block lines to the require entry would refuse
+# `foo=1` as arity; one that emits them would add a record. The block's
+# lines are checked, never emitted, so none of them is a declaration.
+@test "_pin_go_mod_scan: a godebug block is read and the require after it is the one record (base#1488)" {
+  _scan godebug_block_pre
+  assert_success
+  assert_output "$(printf '6\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan godebug_block_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  cp "${FIX}/godebug_block_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'godebug (' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" "$(printf '\tfoo=1')" 4
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" ')' 5
+  assert_failure 1
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Go rejects `exclude a` and the old design consumed exclude unread, so
@@ -312,13 +332,6 @@ EOF
   _refused retract_block_post retract 4
   _refused retract_unclosed_post retract 4
   _refused retract_trailer_pre retract 3
-}
-
-# why: Same point for godebug: the block form is not yet read with Go's
-# checks, so it is still refused by name (a malformed line form is
-# godebug_usage, base#1488).
-@test "_pin_go_mod_scan: a godebug block is refused by name (base#1463)" {
-  _refused godebug_block_pre godebug 3
 }
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
