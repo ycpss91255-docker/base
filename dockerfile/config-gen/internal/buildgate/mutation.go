@@ -320,9 +320,10 @@ type report struct {
 }
 
 // Efficacy reads a gremlins -o report and returns its KILLED mutants over
-// its KILLED and LIVED ones, in integer tenths of a percent. It never
-// reads gremlins' own efficacy field. An error is a report it cannot
-// decode or one that holds neither status.
+// its KILLED, LIVED and TIMED OUT ones, in integer tenths of a percent: a
+// timed-out mutant is judged and not killed (base#1467). It never reads
+// gremlins' own efficacy field. An error is a report it cannot decode or
+// one that holds none of those statuses.
 func Efficacy(body []byte) (int, error) {
 	var r report
 	if err := json.Unmarshal(body, &r); err != nil {
@@ -335,13 +336,13 @@ func Efficacy(body []byte) (int, error) {
 			case "KILLED":
 				killed++
 				judged++
-			case "LIVED":
+			case "LIVED", "TIMED OUT":
 				judged++
 			}
 		}
 	}
 	if judged == 0 {
-		return 0, errors.New("report holds no KILLED or LIVED mutant")
+		return 0, errors.New("report holds no KILLED, LIVED or TIMED OUT mutant")
 	}
 	return killed * 1000 / judged, nil
 }

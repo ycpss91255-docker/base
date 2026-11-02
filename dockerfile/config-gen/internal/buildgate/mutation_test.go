@@ -455,6 +455,8 @@ func TestEfficacy(t *testing.T) {
 		{"one of two", statuses("KILLED", "LIVED"), 500, false},
 		{"two of three, truncated", statuses("KILLED", "LIVED", "KILLED"), 666, false},
 		{"nine of ten", statuses("KILLED", "KILLED", "KILLED", "KILLED", "KILLED", "KILLED", "KILLED", "KILLED", "KILLED", "LIVED"), 900, false},
+		{"a timed-out mutant is judged, not killed", statuses("KILLED", "KILLED", "KILLED", "TIMED OUT"), 750, false},
+		{"only timed-out mutants", statuses("TIMED OUT"), 0, false},
 		{"another status counts for neither", statuses("KILLED", "NOT COVERED"), 1000, false},
 		{"no KILLED or LIVED mutant", statuses("NOT COVERED"), 0, true},
 		{"no mutation", `{"files":[]}`, 0, true},

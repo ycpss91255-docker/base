@@ -15,8 +15,8 @@
 // mutation (base#1467) runs gremlins once on each package the change
 // manifest lists a Go file of, with one worker and a timeout coefficient
 // of 10, its report written under <dir>. The verdict is the report's
-// KILLED over KILLED and LIVED, never gremlins' exit status or its own
-// efficacy figure: each package prints `<pkg> ok efficacy=<e>` or
+// KILLED over KILLED, LIVED and TIMED OUT, never gremlins' exit status
+// or its own efficacy figure: each package prints `<pkg> ok efficacy=<e>` or
 // `<pkg> failed reason=<r> [measured=<e>]` on stdout, reason
 // gremlins_failed (it exited non-zero), report (no report it could read)
 // or below (under 90.0), and after the last package any failure puts
