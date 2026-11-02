@@ -3,6 +3,7 @@ package schema
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -112,6 +113,48 @@ func TestValidateMatchesSchemaSh(t *testing.T) {
 				}
 			default:
 				t.Fatalf("tsv line %d: verdict %q, want accept, refuse or differs:wrong_type", row.line, row.verdict)
+			}
+		})
+	}
+}
+
+// The port of _schema_validate and the shell accept and refuse the same
+// texts, row for row, with no exception (base#1442 AC "Validation matches
+// schema.sh", review round 2). The bats half asserts each row's shell
+// verdict on the bridge's text: rc 0 for accept and differs:wrong_type,
+// non-zero for refuse. Here the same text is judged by the key's ported
+// validator and empty policy alone, before any type rule, and must get
+// that verdict too. A differs:wrong_type row is therefore one whose text
+// both sides accept, and its refusal (TestValidateMatchesSchemaSh) can
+// come only from the declared type exception (ADR-00000039 "How the
+// differential tests treat these changes"): its literal's kind must be
+// outside the kinds the key declares, and the key must declare no string
+// kind, or the type rule would not apply to it.
+func TestValidatorTextMatchesSchemaSh(t *testing.T) {
+	for _, row := range readValueRows(t) {
+		name := row.section + "." + row.key + "=" + row.literal
+		t.Run(name, func(t *testing.T) {
+			src := "[" + row.section + "]\n" + row.key + " = " + row.literal + "\n"
+			var doc map[string]map[string]Scalar
+			if _, err := toml.Decode(src, &doc); err != nil {
+				t.Fatalf("tsv line %d: decode %q: %v", row.line, src, err)
+			}
+			s := doc[row.section][row.key]
+			shellAccepts := row.verdict == "accept" || row.verdict == "differs:wrong_type"
+
+			r, ok := canonical(row.section, row.key)
+			textAccepted := !ok || (s.Text == "" && !r.validateEmpty) || r.valid(s.Text)
+
+			if textAccepted != shellAccepts {
+				t.Errorf("tsv line %d (%s): ported validator on %q accepts=%v, shell accepts=%v",
+					row.line, row.branch, s.Text, textAccepted, shellAccepts)
+			}
+			if row.verdict != "differs:wrong_type" {
+				return
+			}
+			if !ok || slices.Contains(r.kinds, s.Kind) || slices.Contains(r.kinds, KindString) {
+				t.Errorf("tsv line %d (%s): differs:wrong_type row of kind %s at a key declaring %v: not a type exception",
+					row.line, row.branch, s.Kind, r.kinds)
 			}
 		})
 	}
