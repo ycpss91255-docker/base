@@ -376,3 +376,59 @@ func TestCheckRefusesOffsetHourOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+// A date-bearing value whose year is 0000 is refused at the value's
+// first byte with tomllib's own wording. tomllib (CPython 3.13.13
+// Lib/tomllib, measured 2026-11-02, base#1441 design run2 r1 cycle 10c)
+// refuses each row with "Invalid date or datetime (at line 1, column
+// 5)", array row column 6, inline-table row column 10, while BurntSushi
+// v1.6.0 accepts every row (prints 0000-01-01 00:00:00 +0000 UTC). The
+// year refusal wins over the offset-hour one in the combined row
+// (tomllib column 5, not the sign at 24). tomllib accepts the controls:
+// year 0001 in all three forms, year 9999, and the same text inside
+// strings, keys, a header and a comment.
+func TestCheckRefusesYearZeroDate(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+	}{
+		{"a = 0000-01-01\n", 1, 5},
+		{"b = 0000-01-01T00:00:00\n", 1, 5},
+		{"c = 0000-01-01T00:00:00Z\n", 1, 5},
+		{"e = 0000-01-01 00:00:00\n", 1, 5},
+		{"g = [0000-01-01]\n", 1, 6},
+		{"h = {x = 0000-01-01T00:00:00Z}\n", 1, 10},
+		{"a = 0000-01-01T00:00:00+24:00\n", 1, 5},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		want := fmt.Sprintf("t.toml:%d:%d: Invalid date or datetime (at line %d, column %d)",
+			tc.line, tc.col, tc.line, tc.col)
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Error() != want {
+			t.Errorf("Check(%q) = {%q %d %d %q}, want {\"t.toml\" %d %d %q}",
+				tc.src, r.File, r.Line, r.Col, r.Error(), tc.line, tc.col, want)
+		}
+	}
+	for _, src := range []string{
+		"a = 0001-01-01\n",
+		"b = 0001-01-01T00:00:00\n",
+		"c = 0001-01-01T00:00:00Z\n",
+		"a = 9999-12-31T23:59:59Z\n",
+		"s = \"0000-01-01\"\n",
+		"s = '0000-01-01T00:00:00Z'\n",
+		"s = \"\"\"0000-01-01\"\"\"\n",
+		"\"0000-01-01\" = 1\n",
+		"0000-01-01 = 1\n",
+		"x.0000-01-01 = 1\n",
+		"[0000-01-01]\n",
+		"a = 1 # 0000-01-01T00:00:00Z\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
