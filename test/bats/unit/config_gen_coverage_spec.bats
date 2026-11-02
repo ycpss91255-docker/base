@@ -4,7 +4,8 @@
 # the coverage gate the config-gen test stage runs (base#1462).
 #
 # why: The gate reads per-package profiles and passes a package at >= 90.0%
-# of its statements. Every way that measurement can go missing -- go list
+# of its statements, or at the higher floor a coverage-floors.d fragment
+# gives it (base#1441). Every way that measurement can go missing -- go list
 # failing or listing nothing, a test failing, a profile absent, carrying the
 # wrong mode, a malformed line or a line from another package, a package
 # with source files and no statements -- must be a refusal, because each one

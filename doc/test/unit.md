@@ -1939,10 +1939,11 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
-### test/bats/unit/config_gen_coverage_spec.bats (15)
+### test/bats/unit/config_gen_coverage_spec.bats (17)
 
 The gate reads per-package profiles and passes a package at >= 90.0% of its
-statements. Every way that measurement can go missing -- go list failing or
+statements, or at the higher floor a coverage-floors.d fragment gives it
+(base#1441). Every way that measurement can go missing -- go list failing or
 listing nothing, a test failing, a profile absent, carrying the wrong mode,
 a malformed line or a line from another package, a package with source files
 and no statements -- must be a refusal, because each one otherwise reads as
@@ -1971,6 +1972,8 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: a missing corpus root record is refused with reason corpus_root_missing before go runs (base#1468)` | The race RUN writes the corpus root record and the coverage RUN must hand that root to every go test, or testcorpus.Glob fails with an empty root and the gate reads it as a package's test_failed. A record that never arrived is refused before go runs, under its own reason, so it cannot pass and cannot look like a later test failure (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)` | A record that exists but is empty, a record holding only a blank line, and no argument at all deliver no root either. Each must stop at the same guard as a missing file, before go runs; a check that only asks whether the file exists passes the first two, and under set -u an unset variable exits without the refusal line (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)` | Validating the record and then dropping it leaves every go test with an empty testcorpus root, which reads as test_failed in the real image. The validated root has to reach each package's go test as one -ldflags -X token (base#1468). The expected token is the record line verbatim. |
+| `coverage.sh: a coverage-floors.d line is its package's floor, 959 of 1000 under 96.0 is below_floor and 960 passes (base#1441)` | A package's floor is its coverage-floors.d/<slice>.txt line when one names it, `<pkg relative to the module> <floor>` (base#1441 review round 1 finding 6; the fragment grammar of base#1465), and 90.0 otherwise. The comparison stays integer: 959 of 1000 is below a 96.0 floor and 960 is not, while another package with no line still passes at 90.0. Comment and blank lines carry no floor. |
+| `coverage.sh: a fragment line that is not <pkg> <NN.N>\|none, or a floor under 90.0, is refused with reason floor_invalid (base#1441)` | A fragment line the gate cannot read as `<pkg> <NN.N>\|none`, or a floor under the 90.0 every package is held to, must not pass as "no floor" or lower the bar; each is refused with reason floor_invalid naming the fragment, before any package is judged (base#1441). |
 
 ### test/bats/unit/config_gen_gates_spec.bats (30)
 
