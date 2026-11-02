@@ -268,6 +268,22 @@ EOF
   [[ -z "${_bad}" ]] || fail "unclassified:${_bad}"
 }
 
+# ── godebug, exclude, retract: read with Go's own checks (base#1488) ────────
+
+# why: Go reads `godebug default=go1.27` (rc 0, issue observation in the
+# pinned golang image) and its only require is `a v1.0.0`. The scanner
+# refused godebug by name, so a go.mod Go accepts could not be read. The
+# godebug line is checked, never emitted, so it is not a declaration.
+@test "_pin_go_mod_scan: godebug default=go1.27 is read and the require after it is the one record (base#1488)" {
+  _scan godebug_default
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  cp "${FIX}/godebug_default.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'godebug default=go1.27' 2
+  assert_failure 1
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Go rejects `exclude a` and the old design consumed exclude unread, so
