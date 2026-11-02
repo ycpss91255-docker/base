@@ -135,10 +135,17 @@ _mini() {
 
 # ── per class: bridge and binary each against the golden ────────────────────
 
-# why: the golden is the bridge's own `--tables` answer captured once; this
-# re-runs BOTH sides over every s1 fixture and compares each one's bytes to
-# that file with cmp, never through $(...), which would drop trailing LFs
-# and hide a missing or extra final newline. The binary is the built
+# why: this re-runs BOTH sides over every s1 fixture and checks each one
+# by the fixture's EXPECT class. parity: the golden is the bridge's own
+# `--tables` answer captured once, and the bridge (rc 0) and the binary
+# (rc 0, empty stderr) must each match it byte for byte. parity-refused:
+# both sides must give rc 1 and the binary an empty stdout; no golden is
+# compared. bridge-refused-go-accepted (toml11_* only): the bridge must
+# give rc 1 and only its status is checked; the binary (rc 0, empty
+# stderr) must match the golden, which the bridge can not produce for
+# these fixtures. Every comparison is cmp, never through $(...), which
+# would drop trailing LFs and hide a missing or extra final newline. The
+# binary is the built
 # config-gen that script/test/test.sh provisions as CONFIG_GEN_BIN; an
 # unprovisioned binary fails the spec (ci_config_gen_unprovisioned), it is
 # never skipped, so a run without it can not pass by testing nothing.
@@ -230,7 +237,7 @@ _refusal_violations() {
 }
 
 # why: log-events.txt is the registered body enum; an unregistered body is
-# fatal once the shell re-emits a frame through _log_* (#438), so an event
+# fatal once the shell re-emits a frame through _log_* (base#438), so an event
 # id the binary frames but the registry lacks would turn a refusal into a
 # crash of its caller. This drives the built binary down each refusal it
 # can reach -- wrong argv, a parse error, a missing path, a directory, a

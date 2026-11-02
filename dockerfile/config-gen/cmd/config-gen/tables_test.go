@@ -406,8 +406,10 @@ func (w *faultWriter) Write(p []byte) (int, error) {
 // golden, and the command made exactly one Write call, so it neither
 // streamed the answer in chunks nor retried the rest after a short write
 // (base#1469 I/O contract: exit 4 on any write error or short write, one
-// frame, never one per chunk). The fixture's bridge golden is over 64
-// KiB, so half of it is more than one pipe buffer.
+// frame, never one per chunk). The test requires the fixture's bridge
+// golden to be at least 64 KiB, so in the half cases the sink takes at
+// least 32 KiB before it fails. The fault writer is not a pipe; the
+// closed-pipe case is TestTablesClosedStdoutPipeIsExit4AndOneFrame.
 func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
 	golden := testcorpus.Glob(t, "golden/s1/large_tables.golden")[0]
