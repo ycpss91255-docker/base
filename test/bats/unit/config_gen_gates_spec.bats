@@ -467,7 +467,7 @@ stale|stale-symlink|dockerfile/config-gen/cmd/config-gen/zz.go|unlisted
 stale|stale-dangling|dockerfile/config-gen/zz-dangling|not_regular
 stale|stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch
 stale|stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted
-stale|stale-names|dockerfile/config-gen/zznames/a%20b.txt|sha_mismatch
+stale|stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch
 stale|stale-header|manifest|header
 stale|no-checker|admit.sh|absent
 stale|no-lib|config_gen_mutation_lang.sh|absent
@@ -1040,10 +1040,10 @@ _glibc_getconf() {
   run diff -r "${S}/runner.${_n}.mod" "${S}/repo/dockerfile/config-gen"
   assert_success
   _n="$(_redpath_call rename-move)"
-  [[ -f "${S}/runner.${_n}.mod/zzg/a.txt" && -f "${S}/runner.${_n}.mod/zzg/d.txt" ]] \
-    || fail "rename-move did not leave zzg/a.txt and zzg/d.txt"
-  [[ ! -e "${S}/runner.${_n}.mod/zzg/c.txt" ]] || fail "rename-move left zzg/c.txt"
-  assert_equal "$(cat "${S}/runner.${_n}.mod/zzg/a.txt")" c
+  [[ -f "${S}/runner.${_n}.mod/testdata/zzg/a.txt" && -f "${S}/runner.${_n}.mod/testdata/zzg/d.txt" ]] \
+    || fail "rename-move did not leave testdata/zzg/a.txt and testdata/zzg/d.txt"
+  [[ ! -e "${S}/runner.${_n}.mod/testdata/zzg/c.txt" ]] || fail "rename-move left testdata/zzg/c.txt"
+  assert_equal "$(cat "${S}/runner.${_n}.mod/testdata/zzg/a.txt")" c
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {

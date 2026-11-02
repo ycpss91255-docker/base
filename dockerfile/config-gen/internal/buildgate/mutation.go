@@ -89,7 +89,8 @@ var moduleWide = map[string]bool{"go.mod": true, "go.sum": true, ".golangci.yml"
 // package that owns a file under its own testdata/, every package of the
 // module for go.mod, go.sum or .golangci.yml, and, when the manifest
 // lists a file under the module-root testdata/, every package whose test
-// binary depends on internal/testcorpus. Any other module file is
+// binary depends on internal/testcorpus. A coverage-floors.d fragment maps
+// to no package. Any other module file is
 // refused as config_gen_mutation_unmapped, and a manifest that holds the
 // no-change marker beside any other line as config_gen_mutation_manifest_invalid
 // reason=marker_beside_lines, and one with neither a record nor the
@@ -130,7 +131,8 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 			every = true
 		case inPkgTestdata:
 			add(dir)
-		case strings.HasSuffix(rel, ".go"), strings.HasPrefix(rel, "testdata/"):
+		case strings.HasSuffix(rel, ".go"), strings.HasPrefix(rel, "testdata/"),
+			strings.HasPrefix(rel, "coverage-floors.d/"):
 		default:
 			return Mapping{}, errors.New(ev("mutation_unmapped", "file", modulePrefix+rel).String())
 		}

@@ -103,6 +103,12 @@ n="$(printf '%s' "$8" | tr ./ __)"
 exit 0
 `
 
+// fakeGo stands in for `go list -json -test -deps ./...` of a module
+// holding the packages the manifests name: its root and internal/a.
+const fakeGo = `#!/bin/sh
+printf '%s\n' '{"ImportPath":"` + mod + `"}' '{"ImportPath":"` + mod + `/internal/a"}'
+`
+
 // killed is a gremlins report with k KILLED and l LIVED mutants.
 func killed(k, l int) string {
 	s := `{"files":[{"file_name":"a.go","mutations":[`
@@ -128,6 +134,9 @@ func fake(t *testing.T, dir string, files map[string]string) string {
 		t.Fatal(err)
 	}
 	files["gremlins"] = fakeGremlins
+	if _, ok := files["go"]; !ok {
+		files["go"] = fakeGo
+	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
@@ -175,6 +184,10 @@ func TestMutation(t *testing.T) {
 		{"a report it cannot read", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": "x"}, 1, mod + "/internal/a failed reason=report\n", ""},
 		{"no Go file", mhead + "none: no-go-change\n", map[string]string{}, 0, "mutation targets none\n", ""},
+		{"a module file the mapping refuses", mhead + "A\tdockerfile/config-gen/notes.txt\n",
+			map[string]string{}, 1, "cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt\n", ""},
+		{"go list fails", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
+			map[string]string{"go": "#!/bin/sh\nexit 1\n"}, 1, "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

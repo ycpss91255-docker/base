@@ -185,7 +185,7 @@ readonly -a _RP_STALE=(
   'stale-dangling|dockerfile/config-gen/zz-dangling|not_regular'
   'stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch'
   'stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted'
-  'stale-names|dockerfile/config-gen/zznames/a%20b.txt|sha_mismatch'
+  'stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch'
   'stale-header|manifest|header'
   'no-checker|admit.sh|absent'
   'no-lib|config_gen_mutation_lang.sh|absent'
@@ -260,7 +260,7 @@ STEP
     # go refuses to parse the appended directive.
     stale-gomod) echo 'printf "\nzzstale after the manifest\n" >>"${_mod}/go.mod"' ;;
     stale-checker) echo 'printf "package buildgate\n\nfunc zz( {\n" >"${_mod}/internal/buildgate/zz.go"' ;;
-    stale-names) echo 'printf "edit\n" >>"${_mod}/zznames/a b.txt"' ;;
+    stale-names) echo 'printf "edit\n" >>"${_mod}/testdata/zznames/a b.txt"' ;;
     # The header without its context= field, which S1d's header never is.
     stale-header) echo 'sed -i "1s/ context=[^ ]*\$//" "${_m}/manifest"' ;;
     no-checker) echo 'rm "${_m}/admit.sh"' ;;
@@ -331,11 +331,15 @@ _rp_rebase() {
 }
 
 # _rp_green <case> <root> -- bring the copy to a green case's git state:
-# zzg/a.txt and zzg/c.txt committed as the base, then the case's change.
-# names commits zznames/ (café.txt, `a b.txt`, one name holding every byte
-# 0x01-0x7f but /) and leaves an untracked name the producer C-quotes.
+# testdata/zzg/a.txt and testdata/zzg/c.txt committed as the base, then
+# the case's change. names commits testdata/zznames/ (café.txt, `a b.txt`,
+# one name holding every byte 0x01-0x7f but /) and leaves an untracked name
+# the producer C-quotes. Both sit under the module-root testdata/, which the
+# mutation gate maps to the test importers of internal/testcorpus, so the
+# case stays green there (base#1467).
 _rp_green() {
-  local root="${2}" g="${2}/dockerfile/config-gen/zzg" n="${2}/dockerfile/config-gen/zznames"
+  local root="${2}" mod="${2}/dockerfile/config-gen"
+  local g="${mod}/testdata/zzg" n="${mod}/testdata/zznames"
   local name='' i
   if [[ "${1}" == names ]]; then
     mkdir -p "${n}"
@@ -360,7 +364,7 @@ _rp_green() {
     untrack) _rp_git "${root}" rm -q --cached "${g}/a.txt" ;;
     rename-move) _rp_git "${root}" mv "${g}/a.txt" "${g}/d.txt"; mv "${g}/c.txt" "${g}/a.txt" ;;
     untrack-ignored)
-      printf 'dockerfile/config-gen/zzg/a.txt\n' >"${root}/.git/info/exclude"
+      printf 'dockerfile/config-gen/testdata/zzg/a.txt\n' >"${root}/.git/info/exclude"
       _rp_git "${root}" rm -q --cached "${g}/a.txt"
       ;;
     copies)

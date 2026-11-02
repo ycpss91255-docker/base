@@ -12,16 +12,18 @@
 // k=v...`; after the last, `config_gen_gate_coverage_failed` goes to
 // stderr.
 //
-// mutation (base#1467) runs gremlins once on each package the change
-// manifest lists a Go file of, with one worker and a timeout coefficient
+// mutation (base#1467) runs gremlins once on each package
+// buildgate.Map draws from the change manifest and `go list -json -test
+// -deps ./...` of the working directory (a refusal of Map is printed as its
+// cg_event line on stdout), with one worker and a timeout coefficient
 // of 10, its report written under <dir>. The verdict is the report's
 // KILLED over KILLED, LIVED and TIMED OUT, never gremlins' exit status
 // or its own efficacy figure: each package prints `<pkg> ok efficacy=<e>` or
 // `<pkg> failed reason=<r> [measured=<e>]` on stdout, reason
 // gremlins_failed (it exited non-zero), report (no report it could read)
 // or below (under 90.0), and after the last package any failure puts
-// `config_gen_gate_mutation_failed` on stderr. A manifest listing no Go
-// file prints `mutation targets none`.
+// `config_gen_gate_mutation_failed` on stderr. A manifest that maps to no
+// package prints `mutation targets none`.
 //
 // Exit statuses:
 //
@@ -115,7 +117,22 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "cg-gates: mutation: %v\n%s reason=unreadable\n", err, mutationFailed)
 		return exitFail
 	}
-	targets := buildgate.Targets(string(body))
+	list, err := exec.Command("go", "list", "-json", "-test", "-deps", "./...").Output()
+	var pkgs []buildgate.Package
+	if err == nil {
+		pkgs, err = buildgate.DecodeList(list)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "cg-gates: mutation: go list: %v\n%s reason=unreadable\n", err, mutationFailed)
+		return exitFail
+	}
+	m, err := buildgate.Map(string(body), *module, pkgs)
+	if err != nil {
+		_, _ = fmt.Fprintln(stdout, err.Error())
+		_, _ = fmt.Fprintln(stderr, mutationFailed)
+		return exitFail
+	}
+	targets := m.Targets
 	if len(targets) == 0 {
 		_, _ = fmt.Fprintln(stdout, "mutation targets none")
 	}

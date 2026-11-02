@@ -202,14 +202,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
 # The mutation gate (base#1467): cg-gates mutation, built by the coverage
-# RUN, runs gremlins on each package of a Go file the change manifest in
-# the mutation context lists, and fails below 90.0 efficacy counted from
-# gremlins' report, never from its exit status. It prints no ok line: the
-# runner's green callers expect exactly the six gates above.
+# RUN, runs gremlins on each package the change manifest in the mutation
+# context maps to, and fails below 90.0 efficacy counted from gremlins'
+# report, never from its exit status. GOFLAGS hands every go test gremlins
+# runs the corpus root the race RUN wrote, as -X tells internal/testcorpus
+# there. It prints no ok line: the runner's green callers expect exactly
+# the six gates above.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,from=mutation,target=/mutation \
     g=mutation; { r="$(mktemp -d)" \
-      && /tmp/cg-gates mutation --manifest /mutation/manifest --module "$(go list -m)" --reports "${r}"; } \
+      && GOFLAGS="-ldflags=-X=$(cat /tmp/config-gen-corpus-root)" \
+        /tmp/cg-gates mutation --manifest /mutation/manifest --module "$(go list -m)" --reports "${r}"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 
 FROM scratch AS final
