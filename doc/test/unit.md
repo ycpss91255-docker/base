@@ -8608,7 +8608,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool-version-watch: the bump is performed by the same script a human runs` | The scheduled path and the human path must be one script, or the bump CI proves is not the bump a person can reproduce |
 | `tool-version-watch: it runs on a reserved GitHub-hosted runner` | Both jobs check out and execute repository code, so a self-hosted runner would run it on hardware this repo does not control |
 
-### test/bats/unit/tool_watch_check_spec.bats (19)
+### test/bats/unit/tool_watch_check_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -8626,6 +8626,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `watch: a go.mod require behind its upstream is drift, line form (base#1440)` | The refusal cases below prove that a go.mod the reader cannot read stops the watch; without a go.mod the watch DOES read, a check that refused every go.mod would pass all of them. A marked BurntSushi/toml require at v1.5.0, line form, under a stubbed upstream v1.6.0, is drift: exit 10 and the one machine row naming both versions and the require's file and line (base#1440). |
 | `watch: a go.mod require behind its upstream is drift, block form (base#1440)` | The block form is what `go get` writes; its entry has no `require` on its line, so a watch that read only the line form would miss it. Same drift, block form: the row names the entry's own line (base#1440). |
 | `watch: a go.mod with an indirect requirement is go_mod_indirect_requirement (base#1463)` | An indirect requirement in a go.mod is refused by the reader (base#1463); the watch must not read past it into a clean week. The refusal is the indirect one by name, with its line, not any exit 1: the same tree with the comment changed is the drift case above (base#1440). |
+| `watch: an unmarked go.mod with an indirect requirement is refused once, by the reader (base#1440)` | The reader scans every tracked go.mod, not only one a marker points into, and its scanner's refusal ends the run. Here no marker names a require, so only that status stops the reader: one that dropped it would read on, and the go directive check would scan the go.mod again and repeat the refusal. The refusal is logged once (base#1440). |
 | `watch: a go.mod with a replace directive is go_mod_unsupported_syntax (base#1440)` | A replace directive changes which version builds, so the require the marker names is not the one Go uses; the reader refuses it, and the watch with it, by name and line (base#1440). |
 | `watch: a go.mod with an unterminated require block is go_mod_unsupported_syntax (base#1440)` | A require block with no closing paren is a go.mod Go rejects; the reader refuses it at the line that opens the block, and the watch with it (base#1440). |
 | `watch: a go 1.26 go.mod under golang:1.27.2 exits 1 before any resolver runs (base#1440)` | A go.mod `go` directive names the Go a module needs and the golang pin the Go that builds it; the watch compared neither, so `go 1.26` under golang:1.27.2 read as a clean week. The directive is checked against the pin before any upstream is asked: the run is refused by name with both sides and the directive's line, and no resolver is called (base#1440). |

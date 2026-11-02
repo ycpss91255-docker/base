@@ -340,6 +340,21 @@ _assert_watch_refused() {
   _assert_watch_refused go_mod_indirect_requirement 6 indirect
 }
 
+# why: The reader scans every tracked go.mod, not only one a marker points
+# into, and its scanner's refusal ends the run. Here no marker names a
+# require, so only that status stops the reader: one that dropped it would
+# read on, and the go directive check would scan the go.mod again and
+# repeat the refusal. The refusal is logged once (base#1440).
+@test "watch: an unmarked go.mod with an indirect requirement is refused once, by the reader (base#1440)" {
+  _curl_logged
+  _release BurntSushi/toml v1.6.0
+  _golang_tree 'module example.com/m' '' 'go 1.27' '' \
+    'require github.com/BurntSushi/toml v1.5.0 // indirect'
+  _check_json --report
+  _assert_watch_refused go_mod_indirect_requirement 5 indirect
+  assert_equal "$(grep -c '"body":"go_mod_indirect_requirement"' <<< "${stderr}")" 1
+}
+
 # why: A replace directive changes which version builds, so the require
 # the marker names is not the one Go uses; the reader refuses it, and the
 # watch with it, by name and line (base#1440).
