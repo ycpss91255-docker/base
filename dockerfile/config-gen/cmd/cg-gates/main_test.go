@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -190,6 +191,16 @@ func TestMutation(t *testing.T) {
 		{"a report it cannot read", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": "x"}, 1, mod + "/internal/a failed reason=report\n", ""},
 		{"no Go file", mhead + "none: no-go-change\n", map[string]string{}, 0, "mutation targets none\n", ""},
+		// A package the head tree no longer holds is named as removed, by
+		// its import path, before any package is judged (base#1467).
+		{"a deleted package", mhead + "D\tdockerfile/config-gen/internal/gone/gone.go\n",
+			map[string]string{}, 0, "removed " + mod + "/internal/gone\nmutation targets none\n", ""},
+		{"a package move", mhead +
+			"R100\tdockerfile/config-gen/internal/old/a.go\tdockerfile/config-gen/internal/a/a.go\n" +
+			"R100\tdockerfile/config-gen/internal/old/a_test.go\tdockerfile/config-gen/internal/a/a_test.go\n",
+			map[string]string{"__internal_a.json": killed(2, 0)}, 0,
+			"removed " + mod + "/internal/old\n" + mod + "/internal/a ok efficacy=100.0\n",
+			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
 		{"a module file the mapping refuses", mhead + "A\tdockerfile/config-gen/notes.txt\n",
 			map[string]string{}, 1, "cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt\n", ""},
 		{"go list fails", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
@@ -412,40 +423,114 @@ func TestSensitivity(t *testing.T) {
 	}
 }
 
-// The traced baseline builds the packages with the overlay against the
-// corpus root; each flipped run builds the consumers of one golden with no
-// overlay against the copy, which ends as the root it was copied from.
-func TestSensitivityRunsTheOverlayThenTheCopy(t *testing.T) {
-	dir := sensTree(t, corpus(map[string]string{"fake/__internal_a.trace": "ROOT/golden/s1/a.golden\n", "fake/__internal_a.reads": "golden/s1/a.golden"}))
-	var out, errOut bytes.Buffer
-	if got := run(sensArgs(dir), &out, &errOut); got != 0 {
-		t.Fatalf("status %d, want 0; stderr %q", got, errOut.String())
+// realModule is a module the real go toolchain builds: an
+// internal/testcorpus whose Glob resolves a pattern under its root, a
+// strong consumer whose test compares a.golden's bytes, and a weak one
+// whose test only asserts Glob returned one path. b.golden is handed to
+// no package.
+var realModule = map[string]string{
+	"go.mod": "module example.com/m\n\ngo 1.21\n",
+	"internal/testcorpus/testcorpus.go": `// Package testcorpus resolves corpus paths.
+package testcorpus
+
+import (
+	"path/filepath"
+	"testing"
+)
+
+var root string
+
+// Glob returns the corpus paths pattern matches.
+func Glob(t testing.TB, pattern string) []string {
+	t.Helper()
+	got, err := filepath.Glob(filepath.Join(root, pattern))
+	if err != nil {
+		t.Fatal(err)
 	}
-	root, work := filepath.Join(dir, "root"), filepath.Join(dir, "work")
-	x := "-ldflags=-X=" + mod + "/internal/testcorpus.root="
-	base := "test -count=1 -overlay " + work + "/overlay.json " + x + root
-	want := base + " ./internal/a\n" + base + " ./internal/testcorpus\n" + base + " ./internal/w\n" +
-		"test -count=1 " + x + work + "/corpus ./internal/a\n"
-	if argv, _ := os.ReadFile(filepath.Join(dir, "fake", "argv")); string(argv) != want {
-		t.Errorf("go argv %q, want %q", argv, want)
-	}
-	ov, _ := os.ReadFile(filepath.Join(work, "overlay.json"))
-	tc := filepath.Join(dir, "mod", "internal", "testcorpus")
-	wantOv := `{"Replace":{"` + tc + `/testcorpus.go":"` + work + `/testcorpus.go","` +
-		tc + `/zz_cgtrace.go":"` + work + `/zz_cgtrace.go"}}`
-	if string(ov) != wantOv {
-		t.Errorf("overlay %s, want %s", ov, wantOv)
-	}
-	if src, _ := os.ReadFile(filepath.Join(work, "testcorpus.go")); string(src) != "package testcorpus\n\nfunc cgUntracedGlob() {}\n" {
-		t.Errorf("overlay testcorpus.go %q", src)
-	}
-	if src, _ := os.ReadFile(filepath.Join(work, "zz_cgtrace.go")); !strings.Contains(string(src), "cgUntracedGlob(t, pattern)") {
-		t.Errorf("overlay zz_cgtrace.go %q", src)
-	}
-	for _, r := range []string{root, work + "/corpus"} {
-		if b, _ := os.ReadFile(filepath.Join(r, "golden", "s1", "a.golden")); string(b) != "a golden\n" {
-			t.Errorf("%s/golden/s1/a.golden = %q after the gate, want it as it was", r, b)
+	return got
+}
+`,
+	"internal/strong/strong_test.go": `package strong
+
+import (
+	"os"
+	"testing"
+
+	"example.com/m/internal/testcorpus"
+)
+
+func TestA(t *testing.T) {
+	for _, p := range testcorpus.Glob(t, "golden/s1/a.golden") {
+		b, err := os.ReadFile(p)
+		if err != nil || string(b) != "a golden\n" {
+			t.Fatalf("%s = %q, %v", p, b, err)
 		}
+	}
+}
+`,
+	"internal/weak/weak_test.go": `package weak
+
+import (
+	"testing"
+
+	"example.com/m/internal/testcorpus"
+)
+
+func TestA(t *testing.T) {
+	if got := testcorpus.Glob(t, "golden/s1/a.golden"); len(got) != 1 {
+		t.Fatalf("Glob = %q", got)
+	}
+}
+`,
+	"root/golden/s1/a.golden": "a golden\n",
+	"root/golden/s1/b.golden": "b golden\n",
+}
+
+// The gate, run with the real go toolchain on realModule, finds each
+// golden's consumers through the traced Glob, flips each golden for them,
+// and reports exactly the consumer that still passes: the weak package
+// for a.golden, b.golden as handed to nobody. The corpus root and the
+// module's own testcorpus source are left as they were.
+func TestSensitivityWithTheGoToolchain(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Fatalf("this test runs the go toolchain: %v", err)
+	}
+	dir := t.TempDir()
+	for name, body := range realModule {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	work := filepath.Join(dir, "work")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	var out, errOut bytes.Buffer
+	got := run([]string{"sensitivity", "--module", "example.com/m", "--root", filepath.Join(dir, "root"),
+		"--work", work}, &out, &errOut)
+	if got != 1 {
+		t.Fatalf("status %d, want 1; stderr %q", got, errOut.String())
+	}
+	want := "cg_event config_gen_corpus_sensitivity_weak pkg=example.com/m/internal/weak file=golden/s1/a.golden\n" +
+		"golden=golden/s1/b.golden consumers none\n"
+	if out.String() != want {
+		t.Errorf("stdout %q, want %q", out.String(), want)
+	}
+	if !strings.HasSuffix(errOut.String(), "config_gen_gate_corpus_sensitivity_failed\n") {
+		t.Errorf("stderr does not end with the gate id: %q", errOut.String())
+	}
+	for _, name := range []string{"root/golden/s1/a.golden", "root/golden/s1/b.golden", "internal/testcorpus/testcorpus.go"} {
+		if b, _ := os.ReadFile(filepath.Join(dir, name)); string(b) != realModule[name] {
+			t.Errorf("%s = %q after the gate, want it as it was", name, b)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "testcorpus", "zz_cgtrace.go")); !os.IsNotExist(err) {
+		t.Errorf("the traced Glob was written into the module: %v", err)
 	}
 }
 

@@ -474,3 +474,138 @@ func TestEfficacy(t *testing.T) {
 		})
 	}
 }
+
+// fixturePkgs is the fixture's `go list` (see the comment above
+// TestMapRootTestdataTargetsTestcorpusImporters), plus extra records.
+func fixturePkgs(t *testing.T, extra ...Package) []Package {
+	t.Helper()
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	return append(pkgs, extra...)
+}
+
+// A .go file under a testdata/ directory is a fixture, never a package of
+// its own (`go list ./...` skips testdata): one under a package's own
+// testdata/ maps to that package, one under the module-root testdata/ to
+// every test importer of internal/testcorpus, as any other file there
+// does. internal/c and internal/b are packages of the fixture; the lists
+// are spelled from the fixture comment.
+func TestMapGoFilesUnderTestdataAreFixtures(t *testing.T) {
+	pkgs := fixturePkgs(t)
+	cases := []struct {
+		name        string
+		manifest    string
+		wantTargets []string
+		wantRemoved []string
+	}{
+		{"a Go file in a package's own testdata", header + "M\tdockerfile/config-gen/internal/c/testdata/input.go\n",
+			[]string{"internal/c"}, []string{}},
+		{"a nested Go file in a package's own testdata", header + "A\tdockerfile/config-gen/internal/c/testdata/s1/in.go\n",
+			[]string{"internal/c"}, []string{}},
+		{"a deleted Go file in a package's own testdata", header + "D\tdockerfile/config-gen/internal/c/testdata/old.go\n",
+			[]string{"internal/c"}, []string{}},
+		{"a Go file in the module-root testdata", header + "A\tdockerfile/config-gen/testdata/corpus/s1/x.go\n",
+			[]string{"internal/b", "internal/d", "internal/testcorpus"}, []string{}},
+		{"a Go fixture renamed between testdata directories", header +
+			"R100\tdockerfile/config-gen/internal/c/testdata/x.go\tdockerfile/config-gen/internal/b/testdata/x.go\n",
+			[]string{"internal/b", "internal/c"}, []string{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err != nil {
+				t.Fatalf("Map: %v", err)
+			}
+			if !reflect.DeepEqual(got.Targets, c.wantTargets) {
+				t.Errorf("Map targets = %q, want %q", got.Targets, c.wantTargets)
+			}
+			if !reflect.DeepEqual(got.Removed, c.wantRemoved) {
+				t.Errorf("Map removed = %q, want %q", got.Removed, c.wantRemoved)
+			}
+		})
+	}
+}
+
+// A file under the testdata/ of a package that does not exist is treated as
+// a Go file of it would be: refused when the head tree should hold it, and
+// recorded as removed when deleted. internal/zzgone is no package of the
+// fixture.
+func TestMapPackageTestdataOfAMissingPackage(t *testing.T) {
+	pkgs := fixturePkgs(t)
+	got, err := Map(header+"D\tdockerfile/config-gen/internal/zzgone/testdata/in.txt\n", fixtureModule, pkgs)
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if !reflect.DeepEqual(got.Targets, []string{}) || !reflect.DeepEqual(got.Removed, []string{"internal/zzgone"}) {
+		t.Errorf("Map = %+v, want no target and internal/zzgone removed", got)
+	}
+	const want = "cg_event config_gen_mutation_no_such_package " +
+		"pkg=github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzgone"
+	if _, err := Map(header+"A\tdockerfile/config-gen/internal/zzgone/testdata/in.txt\n", fixtureModule, pkgs); err == nil ||
+		err.Error() != want {
+		t.Errorf("Map error = %v, want %q", err, want)
+	}
+}
+
+// A package at the module root is a package of the module like any other:
+// go.mod, go.sum and .golangci.yml map to it too, and its test binary
+// (`<module>.test`) is a testcorpus importer when it depends on
+// internal/testcorpus. The extra records are the shape `go list -json
+// -test -deps` prints for a root package with an in-package test.
+func TestMapAndCorpusImportersReadTheModuleRootPackage(t *testing.T) {
+	pkgs := fixturePkgs(t,
+		Package{ImportPath: fixtureModule},
+		Package{ImportPath: fixtureModule + " [" + fixtureModule + ".test]"},
+		Package{ImportPath: fixtureModule + ".test", Deps: []string{fixtureModule + "/internal/testcorpus"}},
+	)
+	got, err := Map(header+"M\tdockerfile/config-gen/go.mod\n", fixtureModule, pkgs)
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	every := []string{".", "cmd/x", "internal/b", "internal/c", "internal/d", "internal/helper", "internal/testcorpus"}
+	if !reflect.DeepEqual(got.Targets, every) {
+		t.Errorf("Map targets = %q, want %q", got.Targets, every)
+	}
+	corpus := []string{".", "internal/b", "internal/d", "internal/testcorpus"}
+	if got := CorpusImporters(fixtureModule, pkgs); !reflect.DeepEqual(got, corpus) {
+		t.Errorf("CorpusImporters = %q, want %q", got, corpus)
+	}
+	got, err = Map(header+"A\tdockerfile/config-gen/testdata/c.txt\n", fixtureModule, pkgs)
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if !reflect.DeepEqual(got.Targets, corpus) {
+		t.Errorf("Map targets of a root testdata file = %q, want %q", got.Targets, corpus)
+	}
+}
+
+// A coverage-floors.d fragment is a `*.txt` file directly in that
+// directory (internal/buildgate Ratchet's rule) and maps to no package.
+// Any other file there, or one in a directory below it, is refused as
+// unmapped, as any other unmapped module file is.
+func TestMapCoverageFloorsFragmentsOnly(t *testing.T) {
+	pkgs := fixturePkgs(t)
+	got, err := Map(header+"M\tdockerfile/config-gen/coverage-floors.d/s1e.txt\n", fixtureModule, pkgs)
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if !reflect.DeepEqual(got.Targets, []string{}) {
+		t.Errorf("Map targets of a fragment = %q, want none", got.Targets)
+	}
+	for _, p := range []string{
+		"dockerfile/config-gen/coverage-floors.d/notes.md",
+		"dockerfile/config-gen/coverage-floors.d/sub/s1z.txt",
+		"dockerfile/config-gen/coverage-floors.d/README",
+	} {
+		want := "cg_event config_gen_mutation_unmapped file=" + p
+		if _, err := Map(header+"A\t"+p+"\n", fixtureModule, pkgs); err == nil || err.Error() != want {
+			t.Errorf("Map(%s) error = %v, want %q", p, err, want)
+		}
+	}
+}
