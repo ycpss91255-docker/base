@@ -63,7 +63,10 @@ func Decode(src []byte) (*Config, []Refusal) {
 			occ, _ := lines.Table(k)
 			refusals = append(refusals, Refusal{Event: "conf_unknown_table", Path: k, Line: occ.KeyLine})
 		}
-		if len(k) != 2 || !ok {
+		// An array of tables at a known section name is the legacy
+		// spelling the array stage handles; its keys are not scalars of
+		// the section, so they are not looked up here (base#1442).
+		if len(k) != 2 || !ok || md.Type(k[0]) == "ArrayHash" {
 			continue
 		}
 		if _, isKey := canonical(k[0], k[1]); !isKey {
