@@ -187,3 +187,25 @@ func TestCheckRefusesTimeWithoutSeconds(t *testing.T) {
 		}
 	}
 }
+
+// A leading UTF-8 BOM (bytes EF BB BF) is refused at 1:1: tomllib (CPython
+// 3.13.13 Lib/tomllib) refuses "\xEF\xBB\xBFa = 1\n" with "Invalid statement
+// (at line 1, column 1)" while BurntSushi v1.6.0 accepts it as {a: 1}
+// (base#1441, measured). The same three bytes inside a basic string are a
+// U+FEFF character that both accept, so Check returns nil for them.
+func TestCheckRefusesLeadingBOM(t *testing.T) {
+	err := Check("t.toml", []byte("\xEF\xBB\xBFa = 1\n"))
+	var r *Refusal
+	if !errors.As(err, &r) {
+		t.Fatalf("Check() = %v, want *Refusal", err)
+	}
+	if r.File != "t.toml" || r.Line != 1 || r.Col != 1 || r.Reason != ReasonBOM {
+		t.Fatalf("Refusal = {%q %d %d %v}, want {\"t.toml\" 1 1 ReasonBOM}", r.File, r.Line, r.Col, r.Reason)
+	}
+	if !strings.HasPrefix(r.Error(), "t.toml:1:1: ") {
+		t.Fatalf("Error() = %q, want prefix %q", r.Error(), "t.toml:1:1: ")
+	}
+	if err := Check("t.toml", []byte("a = \"\xEF\xBB\xBF\"\n")); err != nil {
+		t.Fatalf("Check(BOM inside a basic string) = %v, want nil", err)
+	}
+}
