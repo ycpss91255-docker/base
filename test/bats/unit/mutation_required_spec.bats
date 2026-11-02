@@ -961,10 +961,12 @@ _three_rows() {
 
 # _signal_case_launch <cmd>... -- start <cmd> in the background the way a
 # signal case starts the driver, its stdout in ${S}/out and its stderr in
-# ${S}/err. Sets SIG_PID.
+# ${S}/err. Sets SIG_PID. coreutils env --default-signal=INT hands <cmd>
+# SIGINT at its default disposition whatever bats passed down (base#1030).
 _signal_case_launch() {
   set -m
-  env PATH="${S}/bin:${PATH}" LOG_FORMAT=json TMPDIR="${S}/tmp" \
+  env --default-signal=INT \
+    PATH="${S}/bin:${PATH}" LOG_FORMAT=json TMPDIR="${S}/tmp" \
     MUTATION_PROBE_RUNNER="${S}/runner" MR_RUNNER_SLEEP=30 \
     "$@" > "${S}/out" 2> "${S}/err" &
   SIG_PID=$!
