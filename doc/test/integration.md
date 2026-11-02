@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **271 tests**.
+Integration specs under `test/bats/integration/`: **272 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -144,7 +144,7 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
 
-### test/bats/integration/config_gen_toml10_spec.bats (5)
+### test/bats/integration/config_gen_toml10_spec.bats (6)
 
 internal/gate's differential test compares gate + BurntSushi with tomllib
 file by file. tomllib's verdicts are not committed; the step
@@ -168,6 +168,7 @@ it holds.
 | `10-toml-oracle.sh: a container that exits non-zero is config_gen_toml_oracle_failed reason=image, no toml-oracle/ left (base#1441)` | When the pinned image cannot answer -- the container exits non-zero -- whatever it printed is not tomllib's verdict on the input set. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=image, and no toml-oracle/ directory left for the build to read as an answer. |
 | `10-toml-oracle.sh: an answer missing a row is config_gen_toml_oracle_failed reason=count, no toml-oracle/ left (base#1441)` | The differential test compares a verdict for every file it was handed. An answer with fewer rows than the files in the tar -- here three files planted and the container answers for two -- leaves a file with no tomllib verdict, and a short TSV must not reach the build as if it were complete. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=count, and no toml-oracle/ directory left behind. |
 | `10-toml-oracle.sh: an answer whose verdict is neither accept nor refuse is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left (base#1441)` | The differential test reads each row's second field as tomllib's verdict, and only `accept` and `refuse` are verdicts. An answer with the right number of rows whose middle row says `maybe` is not something tomllib said about that file, and it must not reach the build. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=token, and no toml-oracle/ directory left behind. |
+| `10-toml-oracle.sh: a calibration answer that differs from the oracle's verdict is config_gen_toml_oracle_failed reason=calibration, no toml-oracle/ left (base#1441)` | The oracle program in the step stands in for the real toml-bridge, and the two give the same verdict only while they sit at the same Python call depth -- tomllib's depth refusals depend on it. So for every file under forms/depth/ the container also asks the image's real `toml-bridge --tables` and answers it on a line of its own, `calibration\t<rel>\t<verdict>`, after the verdict rows. Here the oracle program accepts forms/depth/x.toml while the bridge refuses it: the oracle no longer stands for the bridge, so none of its verdicts can be trusted. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=calibration naming the file, and no toml-oracle/ directory left. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 

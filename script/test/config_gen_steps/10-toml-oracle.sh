@@ -31,6 +31,16 @@
 # `accept` nor `refuse` is config_gen_toml_oracle_failed reason=token,
 # with the directory removed the same way.
 #
+# Calibration: the oracle program stands in for the real bridge only while
+# it sits at the bridge's Python call depth, which tomllib's depth refusals
+# depend on. So for every file under internal/gate/testdata/forms/depth the
+# container also runs the image's real `toml-bridge --tables` and answers
+# `calibration\t<rel>\taccept|refuse` after the verdict rows. Those lines
+# are not verdicts: they are left out of verdicts.tsv and of the row count.
+# A calibration answer that differs from that file's verdict row is
+# config_gen_toml_oracle_failed reason=calibration file=<rel>, with the
+# directory removed the same way.
+#
 # Exit: 0 verdicts written; 1 otherwise.
 #
 # Style: Google Shell Style Guide.
@@ -75,6 +85,14 @@ main()
   else
     printf "%s\trefuse\n" "$rel"
   fi
+done
+find . -type f -path "./internal/gate/testdata/forms/depth/*" -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
+  rel="${f#./}"
+  if python3 -I /usr/local/bin/toml-bridge --tables < "$f" > /dev/null 2>&1; then
+    printf "calibration\t%s\taccept\n" "$rel"
+  else
+    printf "calibration\t%s\trefuse\n" "$rel"
+  fi
 done'
 
 main() {
@@ -96,12 +114,16 @@ main() {
   mkdir -p -- "${out}"
   if ! tar -C "${module}" -cf - --no-recursion -- "${files[@]}" \
     | docker run --rm -i --network none --user "$(id -u):$(id -g)" \
-        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" > "${out}/verdicts.tsv"; then
+        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" > "${out}/answer.raw"; then
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=image \
       "display=config_gen_toml_oracle_failed: the toml-bridge container ${image} exited non-zero; what it printed is not tomllib's verdict"
     return 1
   fi
+
+  grep -v $'^calibration\t' "${out}/answer.raw" > "${out}/verdicts.tsv" || true
+  grep $'^calibration\t' "${out}/answer.raw" > "${out}/calibration.tsv" || true
+  rm -f -- "${out}/answer.raw"
 
   local rows
   rows="$(wc -l < "${out}/verdicts.tsv")"
@@ -118,6 +140,17 @@ main() {
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=token \
       "display=config_gen_toml_oracle_failed: line ${bad} of the toml-bridge container's answer has a verdict that is neither accept nor refuse"
+    return 1
+  fi
+
+  local drift
+  drift="$(awk -F'\t' 'FILENAME == ARGV[1] { v[$1] = $2; next }
+    v[$2] != $3 { print $2; exit }' "${out}/verdicts.tsv" "${out}/calibration.tsv")"
+  rm -f -- "${out}/calibration.tsv"
+  if [[ -n "${drift}" ]]; then
+    rm -rf -- "${out}"
+    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=calibration "file=${drift}" \
+      "display=config_gen_toml_oracle_failed: the real toml-bridge --tables and the oracle program disagree on ${drift}; the oracle no longer stands for the bridge"
     return 1
   fi
 }
