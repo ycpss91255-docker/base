@@ -436,7 +436,7 @@ _df_instructions() {
 
 # _redpath_rows -- every case the redpath is required to run, one
 # `<kind>|<case>|<want>` line each in the order it runs them (gate,
-# refusal, stale, green, coverage). Written out here, not read from the
+# refusal, stale, green, after, coverage). Written out here, not read from the
 # redpath's own tables: a case dropped from the redpath must still get its
 # canned answer and its expected runner call, so the full run below fails
 # on it (base#1465). <want> is the gate (and, for a mutation case the
@@ -444,7 +444,8 @@ _df_instructions() {
 # sensitivity case its _RP_WEAK names, `|<line, may be empty>|<pkg>|<file>`
 # of its one weak record), the event id,
 # `<file>|<reason>`,
-# empty, or `<event>|<pkg>|<file>` (file empty when the event names none).
+# empty, `<gate>|<event>|<file>` (an after-admit case, base#1467), or
+# `<event>|<pkg>|<file>` (file empty when the event names none).
 _redpath_rows() {
   cat <<'EOF'
 gate|fmt|fmt
@@ -502,9 +503,10 @@ green|names|
 green|rename-recreate|
 green|untrack|
 green|rename-move|
-green|untrack-ignored|
 green|copies|
 green|typechange|
+after|ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go
+after|untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt
 coverage|cov-drop|config_gen_coverage_floor_below|cmd/config-gen|
 coverage|cov-lowered|config_gen_coverage_floor_lowered|internal/buildgate|
 coverage|cov-stale|config_gen_coverage_floor_stale|internal/buildgate|
@@ -618,7 +620,9 @@ _ok_lines() {
 # rc 1; a stale case is an empty stdout, the runner's records of
 # config_gen_manifest_stale (the row's file and reason) and
 # config_gen_gate_admission_failed, rc 1; a green case, both rerun calls
-# and the control are the six ok lines and rc 0; a coverage case is the
+# and the control are the six ok lines and rc 0; an after-admit case
+# (base#1467) is the six ok lines, the runner's records of the row's gate
+# id and of its event naming the row's file, rc 1; a coverage case is the
 # five pre-coverage ok lines, the runner's records of the row's event
 # (naming the row's pkg, and its file when it has one) and
 # config_gen_gate_coverage_failed, rc 1.
@@ -671,6 +675,16 @@ _canned_correct() {
         : > "${_c}.err"
         printf '0\n' > "${_c}.rc"
         continue
+        ;;
+      after)
+        # Made from registered ids, as a gate case's are: only the bodies
+        # are the row's gate id and event (base#1467).
+        _ok_lines "" > "${_c}.out"
+        { _gate_record config_gen_build_failed "file=${_extra}" status=1 "display=ignored" \
+            | sed "s/\"body\":\"config_gen_build_failed\"/\"body\":\"${_reason}\"/"
+          _gate_record config_gen_gate_fmt_failed "gate=${_want}" status=1 "display=after admit" \
+            | sed "s/\"body\":\"config_gen_gate_fmt_failed\"/\"body\":\"config_gen_gate_${_want}_failed\"/"
+        } > "${_c}.err"
         ;;
       coverage)
         _ok_lines coverage > "${_c}.out"

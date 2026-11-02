@@ -100,11 +100,26 @@
 # A green case (_RP_GREENS) brings the copy to a git state a real producer
 # run was observed to write (base#1465 redesign r2 §1) -- a rename with the
 # old path recreated, a tracked file untracked, a rename onto a moved file,
-# a removed path left ignored, two copies under diff.renames=copies, a
+# two copies under diff.renames=copies, a
 # typechange to a symlink -- or to a baseline holding café.txt, `a b.txt`
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
 # the six ok lines below: admission accepts every baseline the producer
 # writes, and every gate still runs after it.
+#
+# An after-admit case (_RP_AFTER_ADMIT, base#1467) leaves a Git-ignored
+# module file in the build context, so the producer lists it in
+# ignored.sha256 and admission accepts the context: the ignored-input gate
+# must refuse it after every S1b gate. The run must exit exactly 1 with
+# exactly the rerun case's six ok lines on stdout, no "unregistered log body",
+# the runner's JSON config_gen_gate_<gate>_failed as its first gate record,
+# and exactly one runner JSON record of the row's event, naming the
+# row's file (reason after_admit_detail_mismatch).
+#
+#   case             ignored file left in the context               gate
+#   ign              cmd/config-gen/zz_ign.go, a Go file ignored     ignored
+#                    by .git/info/exclude
+#   untrack-ignored  testdata/zzg/a.txt, untracked and then         ignored
+#                    ignored (once a green case)
 #
 # A coverage case (_RP_COVERAGE) changes a package or a floor so the
 # coverage ratchet (cmd/cg-gates ratchet, base#1465) refuses it: the run
@@ -235,7 +250,14 @@ readonly -a _RP_STALE=(
 )
 # The green cases: each a git state whose baseline must be admitted
 # (base#1465).
-readonly -a _RP_GREENS=(names rename-recreate untrack rename-move untrack-ignored copies typechange)
+readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange)
+# <case>|<gate>|<event>|<file>: a context the producer and admission both
+# accept, holding a Git-ignored module file the gate must refuse, naming
+# that file in each <event> record (base#1467).
+readonly -a _RP_AFTER_ADMIT=(
+  'ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go'
+  'untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt'
+)
 # <case>|<the coverage ratchet event the build must refuse it with>|<its
 # pkg>|<its file, empty when the event names none> (base#1465).
 readonly -a _RP_COVERAGE=(
@@ -439,6 +461,14 @@ EOF
       ;;
     names | rename-recreate | untrack | rename-move | untrack-ignored | copies | typechange)
       _rp_green "${1}" "${root}"
+      ;;
+    ign)
+      # Every gate before the ignored one passes on it: a package clause
+      # and no statement. Ignored only by the copy's own .git/info/exclude,
+      # so nothing in the context names it.
+      printf 'zz_ign.go\n' >"${root}/.git/info/exclude"
+      printf '// zz_ign.go is a Git-ignored file left in the build context.\npackage main\n' \
+        >"${cmd}/zz_ign.go"
       ;;
     cov-drop)
       # Two statements no test reaches: cmd/config-gen falls below 100.0.
@@ -1165,6 +1195,40 @@ _rp_green_case() {
   return 1
 }
 
+# _rp_after_admit_verdict <rc> <out> <err> <gate> <event> <file> -- empty
+# when <gate> refused the case (exit exactly 1) after exactly the six ok
+# lines, with exactly one <event> record, naming <file>, else the reason
+# it did not.
+_rp_after_admit_verdict() {
+  local rc="${1}" out="${2}" err="${3}" gate="${4}" event="${5}" file="${6}" first after_exit
+  after_exit="$(_rp_exit_one "${rc}")"
+  [[ -z "${after_exit}" ]] || { echo "${after_exit}"; return 0; }
+  printf '%s\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }
+  ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
+  first="${first%%$'\n'*}"
+  [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }
+  grep -qE "$(_rp_event_record_re "${event}")" "${err}" || { echo event_record_missing; return 0; }
+  [[ "$(_rp_event_detail "${err}" "${event}" file file)" == "${file}|${file}" ]] \
+    || { echo after_admit_detail_mismatch; return 0; }
+}
+
+# _rp_after_admit <scratch> <case> <gate> <event> <file> -- run one
+# after-admit case; non-zero when <gate> did not refuse it with <event>
+# naming <file>.
+_rp_after_admit() {
+  local root rc=0 reason
+  root="$(_rp_copy "${1}")"
+  _rp_plant "${2}" "${root}"
+  _rp_gates "${root}" "${2}" || rc=$?
+  reason="$(_rp_after_admit_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
+  [[ -z "${reason}" ]] && return 0
+  cat "${root}.err" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" "gate=${3}" \
+    "event=${4}" "display=config-gen redpath case ${2} was not refused by gate ${3} with ${4} file=${5}: ${reason}"
+  return 1
+}
+
 # _rp_coverage_verdict <rc> <out> <err> <event> <pkg> <file> -- empty when
 # the coverage ratchet refused the case (exit exactly 1) with <event> naming
 # <pkg> and <file> after exactly the five earlier ok lines, else the reason
@@ -1254,6 +1318,13 @@ main() {
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
     _rp_green_case "${scratch}" "${name}" || failed=1
+  done
+  local gate
+  for entry in "${_RP_AFTER_ADMIT[@]}"; do
+    IFS='|' read -r name gate want file <<<"${entry}"
+    _rp_selected "${name}" || continue
+    ran=$(( ran + 1 ))
+    _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}" || failed=1
   done
   for entry in "${_RP_COVERAGE[@]}"; do
     IFS='|' read -r name want pkg file <<<"${entry}"
