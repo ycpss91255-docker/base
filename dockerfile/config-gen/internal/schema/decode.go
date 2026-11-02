@@ -525,7 +525,7 @@ func buildTree(md toml.MetaData, root *bound) (Tree, []Deferred, []*bound) {
 				// Line and Implicit are the node's earliest record's: its
 				// header, or its first creator's when it is created first.
 				n := Node{Path: p, Text: strings.Join(p, "."), Inline: c.node.Kind == locate.NKey}
-				if first := c.first(); first != nil {
+				if first := c.node.First(); first != nil {
 					n.Line, n.Implicit = first.KeyLine, first.Implicit && !n.Inline
 				}
 				i := len(t.Nodes)

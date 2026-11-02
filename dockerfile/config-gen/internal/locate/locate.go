@@ -1,6 +1,8 @@
 // Package locate is a line index of a TOML document: it records where
 // each table header and key is written, so a caller can attribute a key
-// the parser reports to its line (base#1442). It is not a parser and
+// the parser reports to its line (base#1442). Beside the flat occurrence
+// log it builds the document's tree, each node owning its records, which
+// a caller joins to the parsed value by structure. It is not a parser and
 // never decides whether the document is valid.
 package locate
 
@@ -117,6 +119,19 @@ func (n *Node) lastElement() *Node {
 		}
 	}
 	return n
+}
+
+// First is n's earliest record by line and column: a table's header, or
+// its first creator's when it is created before it is declared; nil for
+// the root.
+func (n *Node) First() *Occurrence {
+	var first *Occurrence
+	for _, o := range n.Occ {
+		if first == nil || o.KeyLine < first.KeyLine || o.KeyLine == first.KeyLine && o.KeyCol < first.KeyCol {
+			first = o
+		}
+	}
+	return first
 }
 
 // child is n's child with key k, or nil. An element or an item has no

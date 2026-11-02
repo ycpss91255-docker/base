@@ -109,22 +109,10 @@ func (b *bound) keyless() bool {
 	return b.node.Kind == locate.NElement || b.node.Kind == locate.NItem
 }
 
-// first is b's earliest record, by line and column: a table's header, or
-// its first creator's when it is created before it is declared; nil for
-// the root.
-func (b *bound) first() *locate.Occurrence {
-	var first *locate.Occurrence
-	for _, o := range b.node.Occ {
-		if first == nil || o.KeyLine < first.KeyLine || o.KeyLine == first.KeyLine && o.KeyCol < first.KeyCol {
-			first = o
-		}
-	}
-	return first
-}
-
-// firstPos is the position of b's earliest record (first), or 0, 0.
+// firstPos is the position of b's earliest record (locate.Node.First),
+// or 0, 0 for the root.
 func (b *bound) firstPos() (line, col int) {
-	if first := b.first(); first != nil {
+	if first := b.node.First(); first != nil {
 		return first.KeyLine, first.KeyCol
 	}
 	return 0, 0
