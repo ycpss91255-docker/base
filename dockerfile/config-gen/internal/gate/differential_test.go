@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 // noOracleMsg is the refusal design-ahead r3 cycle 12 fixes for a run
@@ -99,5 +101,62 @@ func TestOracleRows(t *testing.T) {
 	}
 	if err := checkOracleRows(rows, files); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// designVerdicts are tomllib's verdicts on the year and offset-hour forms,
+// as measured in the base#1441 design run2 r1 §1 (CPython 3.13.13
+// Lib/tomllib): year 0000 is refused in every form, year 0001 and 9999
+// are accepted, offset hour 24 is refused and 23 accepted, and the same
+// text inside strings, keys, headers and comments is accepted. A live
+// verdict that differs fails the row by name.
+var designVerdicts = map[string]string{
+	"internal/gate/testdata/forms/date-year0-local-date.toml":     "refuse",
+	"internal/gate/testdata/forms/date-year0-local-datetime.toml": "refuse",
+	"internal/gate/testdata/forms/date-year0-offset.toml":         "refuse",
+	"internal/gate/testdata/forms/date-year1.toml":                "accept",
+	"internal/gate/testdata/forms/date-year0-text.toml":           "accept",
+	"internal/gate/testdata/forms/offset-hour24.toml":             "refuse",
+	"internal/gate/testdata/forms/offset-hour23.toml":             "accept",
+}
+
+// The gate plus BurntSushi must give tomllib's verdict on every TOML file
+// the live oracle answered (design-ahead r3 cycle 13, seam 2, base#1441):
+// accept when Check returns nil and toml.Decode then succeeds, refuse
+// otherwise. Each disagreeing file fails by name with both verdicts.
+func TestDifferential(t *testing.T) {
+	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, r := range rows {
+		rel, live, ok := strings.Cut(r, "\t")
+		if !ok {
+			t.Fatalf("oracle verdict row %q has no tab", r)
+		}
+		if want, pinned := designVerdicts[rel]; pinned {
+			seen++
+			if live != want {
+				t.Errorf("%s: live tomllib verdict %s, design §1 measured %s", rel, live, want)
+			}
+		}
+		src, err := os.ReadFile(strings.TrimPrefix(rel, "internal/gate/"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := "refuse"
+		if Check(rel, src) == nil {
+			var v map[string]any
+			if _, err := toml.Decode(string(src), &v); err == nil {
+				got = "accept"
+			}
+		}
+		if got != live {
+			t.Errorf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live)
+		}
+	}
+	if seen != len(designVerdicts) {
+		t.Errorf("oracle rows named %d of the %d design-measured forms", seen, len(designVerdicts))
 	}
 }
