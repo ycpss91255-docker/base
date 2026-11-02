@@ -1,0 +1,15 @@
+# s5.tsv -- the mutations base#1441 (config-gen S5, the TOML 1.0 acceptance
+# gate) requires script/test/mutation-probe.sh to report PINNED. One row per
+# behaviour:
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+oracle-name	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	    if [[ ! "${f}" =~ ^[A-Za-z0-9._/-]+$ ]]; then	    if false; then
+oracle-image	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	"${out}/answer.raw"; then	"${out}/answer.raw"; false; then
+oracle-count	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if (( rows != ${#files[@]} )); then	  if false; then
+oracle-token	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${bad}" ]]; then	  if false; then
+oracle-calibration	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${drift}" ]]; then	  if false; then
+coverage-floor-shape	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	        || _refuse floor_invalid "${f}"	        || true
+coverage-floor-min	dockerfile/config-gen/gates/coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	      (( floor >= 900 )) || _refuse floor_invalid "${f}"	      (( floor >= 899 )) || _refuse floor_invalid "${f}"
