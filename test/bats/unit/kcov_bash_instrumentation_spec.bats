@@ -35,43 +35,46 @@
 # the whole reason it is worth a spec: the failure mode of a broken
 # instrument is a plausible number.
 #
-# What this repo does about it is choose the series: the ALPINE_VERSION
-# pinned in dockerfile/Dockerfile.test-tools stays on the bash 5.2 side of
-# the boundary, which is at alpine 3.23 (3.21 and 3.22 ship bash 5.2.37;
-# 3.23 ships 5.3.3, 3.24 ships 5.3.9 -- all read out of the built images).
-# These two tests are that choice's acceptance, and they are deliberately
-# BEHAVIOURAL: they run the real kcov over a fixture and read the report it
-# writes, so they answer "does this image measure correctly", not "does the
-# Dockerfile pin the series I expect". A bump onto a bash whose xtrace kcov
-# misreads fails them at the moment of the bump, loudly, instead of moving
-# the coverage number by a plausible-looking margin.
+# What this repo does about it is fix the instrument rather than hold the
+# series back. The bash 5.2 -> 5.3 boundary is at alpine 3.23 (3.21 and
+# 3.22 ship bash 5.2.37; 3.23 ships 5.3.3, 3.24 ships 5.3.9 -- all read out
+# of the built images), and dockerfile/Dockerfile.test-tools builds kcov
+# with dockerfile/kcov-bash53-ansi-c.patch, which gives the parity reader a
+# `$'` state in which a backslash consumes the next character (base#1030).
+# The two measuring cases below are that patch's acceptance, and they are
+# deliberately BEHAVIOURAL: they run the real kcov over a fixture and read
+# the report it writes, so they answer "does this image measure
+# correctly", not "does the Dockerfile carry the patch I expect". An image
+# whose kcov misreads the xtrace of the bash it ships fails them, loudly,
+# instead of moving the coverage number by a plausible-looking margin.
 #
-# ── what these two tests are NOT the witness for ──────────────────────
+# The third case ties those two to the coverage run: the run site in
+# script/test/drivers/bats.sh and _measure below read their
+# `--bash-method` from the same driver function, and the case asserts both
+# pass the same one, so the instrument accepted here is the instrument the
+# coverage figure comes from.
 #
-# "At the moment of the bump" is true because the tooling tag a local run
-# resolves is a content hash of this Dockerfile and what it COPYs, so a pin
+# ── what these tests are NOT the witness for ──────────────────────────
+#
+# They read the image under test, and the tooling tag a local run resolves
+# is a content hash of this Dockerfile and what it COPYs, so a pin or patch
 # edit builds a new image before these tests read it. Under a caller-pinned
 # TEST_TOOLS_IMAGE -- which CI uses, and which a published tag may lag --
-# the image need not correspond to the pin at all, and the correspondence
-# is asserted by tool_pin_agreement_spec.bats ("the alpine this image runs
-# on is the series the Dockerfile pins", "the bash this image ships is the
-# series the pin's table records"), not here. Against a pinned image, a pin
-# moved to 3.24 leaves these two green and fails there instead.
+# the image need not correspond to the checkout at all, and the
+# correspondence is asserted by tool_pin_agreement_spec.bats ("the alpine
+# this image runs on is the series the Dockerfile pins", "the bash this
+# image ships is the series the pin's table records"), not here.
 #
-# They are also not a witness for the series bump that LANDED with them,
-# 3.21 -> 3.22. Both of those ship bash 5.2.37, which is the whole reason
-# 3.22 was chosen, so no honest assertion in this file can tell the two
-# apart and reverting the pin leaves these green. That bump's own witnesses
-# are alpine_eol_spec.bats (the recorded expiry marker agrees with the pin)
-# and tool_pin_agreement_spec.bats (the image and its bash agree with it).
-# What this file is the acceptance for is the BOUNDARY: a pin that crosses
-# it cannot be measured green once the image under test is built from it.
+# Nor are they the witness for the series pin itself. Which series is
+# pinned, and how far it is from its end of life, is alpine_eol_spec.bats's
+# question; this file only says whether the kcov in the image reads the
+# bash in the image.
 #
-# The two cases are the two directions the reading can be wrong in. The
-# first is the bug: an ANSI-C `\'` must not flip the parity. The second is
-# its mirror -- inside a plain `'...'` a backslash is literal to the shell,
-# so a value ENDING in one really does close its quote, and an instrument
-# that read it as an escape would swallow the next line instead.
+# The two measuring cases are the two directions the reading can be wrong
+# in. The first is the bug: an ANSI-C `\'` must not flip the parity. The
+# second is its mirror -- inside a plain `'...'` a backslash is literal to
+# the shell, so a value ENDING in one really does close its quote, and an
+# instrument that read it as an escape would swallow the next line instead.
 #
 # why: Asserts about the MEASURING INSTRUMENT rather than about the code,
 # because the instrument is the one input to the coverage gate that nothing
@@ -81,12 +84,13 @@
 # 5.3 changed xtrace to ANSI-C quoting (`$'a\nb'`, embedded quotes written
 # `\'`), each of which flipped that counter -- so a burst of lines that had
 # just executed was reported as never run, silently, with the suite green.
-# `dockerfile/Dockerfile.test-tools` answers that by pinning an alpine
-# series on the bash 5.2 side of the boundary, which is at 3.23 (3.21 and
-# 3.22 ship 5.2.37; 3.23 ships 5.3.3, 3.24 ships 5.3.9). These two tests are
-# that choice's acceptance, and they are behavioural (run the real kcov over
-# a fixture and read the report), so a bump onto a bash kcov misreads fails
-# at the bump rather than moving the coverage number by a plausible margin.
+# `dockerfile/Dockerfile.test-tools` answers that by building kcov with
+# `dockerfile/kcov-bash53-ansi-c.patch`, which gives the reader a `$'` state
+# (base#1030); the boundary is at alpine 3.23 (3.21 and 3.22 ship 5.2.37;
+# 3.23 ships 5.3.3, 3.24 ships 5.3.9). These tests are that patch's
+# acceptance, and they are behavioural (run the real kcov over a fixture
+# and read the report), so an image whose kcov misreads its own bash fails
+# here rather than moving the coverage number by a plausible margin.
 
 setup() {
   export LOG_FORMAT=text

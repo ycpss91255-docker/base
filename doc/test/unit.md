@@ -4090,12 +4090,13 @@ unterminated quote it discards every line it reads, markers included. bash
 5.3 changed xtrace to ANSI-C quoting (`$'a\nb'`, embedded quotes written
 `\'`), each of which flipped that counter -- so a burst of lines that had
 just executed was reported as never run, silently, with the suite green.
-`dockerfile/Dockerfile.test-tools` answers that by pinning an alpine series
-on the bash 5.2 side of the boundary, which is at 3.23 (3.21 and 3.22 ship
-5.2.37; 3.23 ships 5.3.3, 3.24 ships 5.3.9). These two tests are that
-choice's acceptance, and they are behavioural (run the real kcov over a
-fixture and read the report), so a bump onto a bash kcov misreads fails at
-the bump rather than moving the coverage number by a plausible margin.
+`dockerfile/Dockerfile.test-tools` answers that by building kcov with
+`dockerfile/kcov-bash53-ansi-c.patch`, which gives the reader a `$'` state
+(base#1030); the boundary is at alpine 3.23 (3.21 and 3.22 ship 5.2.37; 3.23
+ships 5.3.3, 3.24 ships 5.3.9). These tests are that patch's acceptance, and
+they are behavioural (run the real kcov over a fixture and read the report),
+so an image whose kcov misreads its own bash fails here rather than moving
+the coverage number by a plausible margin.
 
 | Test | Description |
 |------|-------------|
