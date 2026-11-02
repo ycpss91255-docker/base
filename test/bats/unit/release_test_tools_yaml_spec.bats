@@ -321,8 +321,8 @@ _publish_order_violations_in() {
 # that registry state: STUB_TAG_MOVED (the tag moves after its first read;
 # the step must stay pinned to the digest it first resolved and pass),
 # STUB_RAW_FAIL (a raw read exits non-zero after its body; refused) and
-# STUB_TAG_UNRESOLVED (the tag's `{{.Manifest.Digest}}` answer is empty;
-# refused).
+# STUB_TAG_UNRESOLVED (the tag's `{{.Manifest.Digest}}` answer is
+# STUB_TAG_ANSWER, which is not a digest; refused).
 #
 # The LOCAL image store is the containerd one (ubuntu-26.04 runners, Docker
 # 29.4.2), where `docker image inspect --format {{.Id}}` is the digest of the
@@ -386,10 +386,10 @@ case "${1:-}" in
         exit 90
       }
       # A resolution that succeeds and names no digest: when
-      # STUB_TAG_UNRESOLVED is set, the read by name exits 0 with an empty
-      # answer.
+      # STUB_TAG_UNRESOLVED is set, the read by name exits 0 and prints
+      # STUB_TAG_ANSWER verbatim (empty, or any text that is not a digest).
       if [[ -n "${STUB_TAG_UNRESOLVED:-}" && "${_ref}" == "${IMAGE_TAG}" ]]; then
-        printf '\n'
+        printf '%s\n' "${STUB_TAG_ANSWER:-}"
       else
         printf 'sha256:%s\n' "${_h}"
       fi
@@ -851,8 +851,9 @@ _confirm_step_node() {
 #   rawfail-verified
 #                as agree, but the raw read of the verified index writes the
 #                whole index and then exits non-zero.
-#   unresolved   as agree, but resolving the tag by name exits 0 and prints
-#                an empty answer instead of a digest.
+#   unresolved <answer>
+#                as agree, but resolving the tag by name exits 0 and prints
+#                <answer> (default empty) instead of a digest.
 #   content      the tag lists both platforms, but its linux/amd64 child is
 #                different content than was verified.
 #   platform     the tag resolves to the amd64 shard index alone, so it is
@@ -872,7 +873,8 @@ _confirm_step_node() {
 #                the verified index carries two linux/amd64 images, the
 #                tag's one listed first; the tag is the ordinary `:main` index.
 _confirm_step_for() {
-  local _mode="${1}" _body _dir _tag _moved='' _rawfail='' _unresolved=''
+  local _mode="${1}" _answer="${2:-}" _body _dir _tag _moved='' _rawfail=''
+  local _unresolved=''
   local _status=0
   _body="$(yaml_step_run "${WF}" merge \
       'Confirm the published tag names the verified content')" || {
@@ -941,6 +943,7 @@ _confirm_step_for() {
     STUB_TAG_MOVED="${_moved}" \
     STUB_RAW_FAIL="${_rawfail}" \
     STUB_TAG_UNRESOLVED="${_unresolved}" \
+    STUB_TAG_ANSWER="${_answer}" \
     IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
     IMAGE_TAG='ghcr.io/ycpss91255-docker/test-tools:main' \
     VERIFIED_REF="ghcr.io/ycpss91255-docker/test-tools@sha256:${_verified}" \
@@ -1368,12 +1371,29 @@ _spec_prose() {
 
 # why: Every later read goes through `${IMAGE}@<answer>`, so an answer that is
 # not a digest would make the step read a reference nobody resolved. The
-# step refuses it at the source, naming the tag, before any comparison.
+# step refuses it at the source, naming the tag, before any comparison. An
+# empty answer is one way; a nonempty answer outside `^sha256:[0-9a-f]+$` is
+# the rest: no algorithm, another algorithm, no hex, uppercase or non-hex
+# digits, and a real digest with text before or after it.
 @test "release-test-tools.yaml: the tag confirmation refuses a tag that does not resolve to a digest (base#1510)" {
-  run _confirm_step_for unresolved
-  assert_failure
-  assert_output --partial '::error::ghcr.io/ycpss91255-docker/test-tools:main did not resolve to a digest'
-  refute_output --partial 'names the verified'
+  local _answer
+  local -a _answers=(
+    ''
+    'main'
+    "sha512:${_FX_MAIN}"
+    'sha256:'
+    "sha256:${_FX_MAIN^^}"
+    'sha256:not-a-hex-digest'
+    "x sha256:${_FX_MAIN}"
+    "sha256:${_FX_MAIN} x"
+  )
+  for _answer in "${_answers[@]}"; do
+    printf 'answer: [%s]\n' "${_answer}"
+    run _confirm_step_for unresolved "${_answer}"
+    assert_failure
+    assert_output --partial '::error::ghcr.io/ycpss91255-docker/test-tools:main did not resolve to a digest'
+    refute_output --partial 'names the verified'
+  done
 }
 
 # why: One loop over the pins the Dockerfile declares, rather than fourteen
