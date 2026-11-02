@@ -165,3 +165,22 @@ func TestDecodeUnknownKeyInDeferrableTable(t *testing.T) {
 		t.Errorf("Line = %d, want 2", got.Line)
 	}
 }
+
+// An array of tables at a known section name is the deferred legacy
+// spelling, not a scalar table, so its keys are not looked up in the
+// schema and get no refusal: deferral goes by TOML type (base#1442).
+// The bridge accepts `[[volumes]]\nsource = "/a"` with rc 0 and turns it
+// into the row `volumes\tmount_1\t/a` (`_ARRAY_SPEC["volumes"]`,
+// dockerfile/toml_bridge.py:53),
+// so the element's `source` never reaches _setup_known_key; checking it
+// is left to the array stage. The library types the path as ArrayHash,
+// unlike `[volumes]`, which is Hash.
+func TestDecodeArrayOfTablesIsDeferred(t *testing.T) {
+	src := []byte("[[volumes]]\nsource = \"/a\"\n")
+
+	_, refusals := Decode(src)
+
+	if len(refusals) != 0 {
+		t.Fatalf("Decode refusals = %d (%+v), want none", len(refusals), refusals)
+	}
+}
