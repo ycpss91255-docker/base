@@ -254,6 +254,48 @@ func TestTablesNonRegularInputIsOneNotRegularFrame(t *testing.T) {
 	}
 }
 
+// A path that names no file -- nothing at that name (ENOENT), or a name
+// under a regular file used as a directory (ENOTDIR) -- makes `config-gen
+// tables` exit 1 with nothing on stdout and exactly one `no_such_file`
+// frame whose `file` field is the `--name` label, never the opened path
+// (base#1469 Input: a missing file gives no_such_file; the event id is the
+// one log-events.txt registers).
+func TestTablesMissingInputIsOneNoSuchFileFrame(t *testing.T) {
+	const label = "l.toml"
+	dir := t.TempDir()
+	reg := filepath.Join(dir, "reg")
+	if err := os.WriteFile(reg, []byte("[a]\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", reg, err)
+	}
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"enoent", filepath.Join(dir, "absent.toml")},
+		{"enotdir", filepath.Join(reg, "x")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, stdout, stderr := cli(t, "tables", "--name", label, tc.path)
+			if rc != 1 {
+				t.Fatalf("config-gen tables on %s exited %d, want 1 (stderr %q)", tc.path, rc, stderr)
+			}
+			if len(stdout) != 0 {
+				t.Fatalf("config-gen tables on %s stdout = %q, want empty", tc.path, stdout)
+			}
+			got := frames(t, stderr)
+			if len(got) != 1 {
+				t.Fatalf("config-gen tables on %s wrote %d frames, want 1 (stderr %q)", tc.path, len(got), stderr)
+			}
+			if got[0][2] != "no_such_file" {
+				t.Fatalf("config-gen tables on %s frame event = %q, want no_such_file", tc.path, got[0][2])
+			}
+			if got[0][3] != label {
+				t.Fatalf("config-gen tables on %s frame file = %q, want the --name label %q", tc.path, got[0][3], label)
+			}
+		})
+	}
+}
+
 // faultWriter takes at most limit bytes in total and then refuses: the
 // write that reaches the limit, and every write after it, returns the
 // bytes it took and a non-nil error -- or, with shortNil, a short count
