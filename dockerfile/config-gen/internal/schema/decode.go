@@ -5,6 +5,7 @@ package schema
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -21,7 +22,9 @@ type Refusal struct {
 }
 
 // Config is the decoded layer.
-type Config struct{}
+type Config struct {
+	Logging Logging
+}
 
 // known is the set of sections _setup_known_section accepts
 // (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [devices],
@@ -115,7 +118,68 @@ func Decode(src []byte) (*Config, []Refusal) {
 			}
 		}
 	}
-	return &Config{}, refusals
+	return &Config{Logging: Logging{Services: services(src, md.Keys())}}, refusals
+}
+
+// services projects the scalar rows whose section text is `logging.` plus
+// at least one byte onto one Service per section text. The rows come in
+// the bridge's traversal order (toml_bridge.py _emit_table, the loop at
+// line 407): the parsed tree walked depth first, each table's children in
+// the order they were first created, which is the order a key or a prefix
+// of it first appears in md.Keys() (base#1442).
+func services(src []byte, keys []toml.Key) map[string]*Service {
+	var tree map[string]any
+	if _, err := toml.Decode(string(src), &tree); err != nil {
+		return nil
+	}
+	children := map[string][]string{}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		for i := 1; i <= len(k); i++ {
+			id := fmt.Sprintf("%q", []string(k[:i]))
+			if !seen[id] {
+				seen[id] = true
+				parent := fmt.Sprintf("%q", []string(k[:i-1]))
+				children[parent] = append(children[parent], k[i-1])
+			}
+		}
+	}
+	out := map[string]*Service{}
+	var lines *locate.Map
+	var walk func(path []string, table map[string]any)
+	walk = func(path []string, table map[string]any) {
+		for _, name := range children[fmt.Sprintf("%q", path)] {
+			p := append(append([]string{}, path...), name)
+			switch v := table[name].(type) {
+			case map[string]any:
+				walk(p, v)
+			default:
+				text := strings.Join(path, ".")
+				svc, ok := strings.CutPrefix(text, "logging.")
+				var s Scalar
+				if !ok || svc == "" || s.UnmarshalTOML(v) != nil {
+					continue
+				}
+				if lines == nil {
+					lines = locate.Index(src)
+				}
+				occ, _ := lines.Key(p)
+				f := Field{State: Set, Value: s, Line: occ.KeyLine}
+				if out[svc] == nil {
+					out[svc] = &Service{}
+				}
+				out[svc].Rows = append(out[svc].Rows, Row{Key: name, Field: f})
+				switch name {
+				case "driver":
+					out[svc].Driver = f
+				case "max_file":
+					out[svc].MaxFile = f
+				}
+			}
+		}
+	}
+	walk(nil, tree)
+	return out
 }
 
 // keyLine is the line of `<key> =` under the header `[<table>]`.
