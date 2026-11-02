@@ -18,3 +18,9 @@ doc/changelog/v[0-9]*.md merge=union
 # endings on purpose, and a checkout or commit that normalised them would
 # test a different file than Go measured (base#1463).
 test/fixtures/gomod/*.mod -text
+
+# The vendored toml-test cases are byte-exact copies of upstream: several
+# hold CR or CRLF on purpose (valid/newline-crlf.toml,
+# invalid/control/bare-cr.toml, ...), and a commit that normalised them
+# would hand tomllib and the gate a different file (base#1441).
+dockerfile/config-gen/internal/gate/testdata/toml-test/** -text

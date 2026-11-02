@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **273 tests**.
+Integration specs under `test/bats/integration/`: **274 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -144,7 +144,7 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
 
-### test/bats/integration/config_gen_toml10_spec.bats (7)
+### test/bats/integration/config_gen_toml10_spec.bats (8)
 
 internal/gate's differential test compares gate + BurntSushi with tomllib
 file by file. tomllib's verdicts are not committed; the step
@@ -170,6 +170,7 @@ it holds.
 | `10-toml-oracle.sh: an answer whose verdict is neither accept nor refuse is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left (base#1441)` | The differential test reads each row's second field as tomllib's verdict, and only `accept` and `refuse` are verdicts. An answer with the right number of rows whose middle row says `maybe` is not something tomllib said about that file, and it must not reach the build. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=token, and no toml-oracle/ directory left behind. |
 | `10-toml-oracle.sh: a calibration answer that differs from the oracle's verdict is config_gen_toml_oracle_failed reason=calibration, no toml-oracle/ left (base#1441)` | The oracle program in the step stands in for the real toml-bridge, and the two give the same verdict only while they sit at the same Python call depth -- tomllib's depth refusals depend on it. So for every file under forms/depth/ the container also asks the image's real `toml-bridge --tables` and answers it on a line of its own, `calibration\t<rel>\t<verdict>`, after the verdict rows. Here the oracle program accepts forms/depth/x.toml while the bridge refuses it: the oracle no longer stands for the bridge, so none of its verdicts can be trusted. The step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=calibration naming the file, and no toml-oracle/ directory left. |
 | `10-toml-oracle.sh: a file name outside [A-Za-z0-9._/-] is config_gen_toml_oracle_failed reason=name before any docker run, no toml-oracle/ left (base#1441)` | Each verdict row is `<rel>\t<verdict>`, and the differential test keys it by path, so a path has to survive the tar, the container's shell loop and the TSV unchanged. A name outside [A-Za-z0-9._/-] -- here a space in forms/a b.toml -- is not one the step can promise that for, and the vendored and hand-written inputs never need one. The step must refuse it before asking the container, under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=name naming the file, no `docker run`, and no toml-oracle/ directory left. |
+| `toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, and SOURCE names v2.2.0 and the 40-hex commit (base#1441)` | The differential test holds the gate to every toml-test case only if the vendored copy has every case. toml-test lists its cases in tests/files-toml-1.0.0 and tests/files-toml-1.1.0, vendored next to them; the *.toml files on disk must be exactly the union of the .toml lines in those two lists -- 746 paths at v2.2.0, a figure written out here from counting upstream's lists, not re-derived -- with none missing and none added by hand. SOURCE must name the tag and the full 40-hex commit, so the copy can be re-fetched and compared byte for byte. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 

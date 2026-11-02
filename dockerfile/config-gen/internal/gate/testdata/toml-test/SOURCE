@@ -1,3 +1,5 @@
-toml-lang/toml-test commit ce08da1 (v2.2.0), files under tests/ copied
-byte for byte to the same relative path here. LICENSE is that
-repository's LICENSE file. Vendored for base#1441.
+toml-lang/toml-test tag v2.2.0, commit
+ce08da1ddb075d1c7596d663c7fcba9a2ae02c5c. Every *.toml named in
+tests/files-toml-1.0.0 or tests/files-toml-1.1.0 (746 files), plus those
+two lists, copied byte for byte from tests/ to the same relative path
+here. LICENSE is that repository's LICENSE file. Vendored for base#1441.
