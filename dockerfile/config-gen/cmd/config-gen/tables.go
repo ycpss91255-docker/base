@@ -25,7 +25,9 @@ func init() {
 // `conf_toml_parse_failed` frame whose `file` is the `--name` label.
 // An input that is not a regular file (a directory, a FIFO, a device, a
 // socket) exits 1 with one `config_gen_input_not_regular` frame; the open
-// is O_NONBLOCK so a FIFO with no writer cannot hold it. The answer is
+// is O_NONBLOCK so a FIFO with no writer cannot hold it. A path that
+// names no file (ENOENT, or ENOTDIR for a name under a regular file)
+// exits 1 with one `no_such_file` frame. The answer is
 // one stdout write; a write error or a short count exits 4 with one
 // `config_gen_output_failed` frame.
 func tablesCmd(args []string, stdout, stderr io.Writer) error {
@@ -45,6 +47,16 @@ func tablesCmd(args []string, stdout, stderr io.Writer) error {
 			Event: "config_gen_input_not_regular",
 			File:  args[1],
 			Text:  "input is not a regular file",
+		}))
+		osExit(exitError)
+		return nil
+	}
+	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR) {
+		_, _ = stderr.Write(diag.Encode(diag.Frame{
+			Sev:   "error",
+			Event: "no_such_file",
+			File:  args[1],
+			Text:  "no such file",
 		}))
 		osExit(exitError)
 		return nil
