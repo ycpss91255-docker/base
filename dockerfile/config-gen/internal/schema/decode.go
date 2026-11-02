@@ -24,12 +24,13 @@ type Refusal struct {
 type Config struct{}
 
 // known is the set of sections _setup_known_section accepts
-// (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [security] and
-// [volumes] so far; the other sections follow in later cycles of
+// (dist/script/docker/lib/setup_cmd.sh). Only [deploy], [devices],
+// [security] and [volumes] so far; the other sections follow in later cycles of
 // base#1442. A key of a known section is known when it resolves to a
 // SCHEMA_VALIDATOR row, as _setup_known_key does.
 var known = map[string]bool{
 	"deploy":   true,
+	"devices":  true,
 	"security": true,
 	"volumes":  true,
 }
