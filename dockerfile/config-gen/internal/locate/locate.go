@@ -108,10 +108,22 @@ func (n *Node) Decl() *Occurrence {
 	return nil
 }
 
-// child is n's child with key k, or nil.
+// lastElement is the last element of the array of tables n, or n when a
+// document the parser refuses gives it none.
+func (n *Node) lastElement() *Node {
+	for i := len(n.Children) - 1; i >= 0; i-- {
+		if n.Children[i].Kind == NElement {
+			return n.Children[i]
+		}
+	}
+	return n
+}
+
+// child is n's child with key k, or nil. An element or an item has no
+// key, so it is never one.
 func (n *Node) child(k string) *Node {
 	for _, c := range n.Children {
-		if c.Key == k {
+		if c.Key == k && c.Kind != NElement && c.Kind != NItem {
 			return c
 		}
 	}
@@ -241,10 +253,19 @@ func pathID(path []string) string {
 	return strings.Join(parts, ".")
 }
 
-// Index scans src and returns its occurrence index.
+// Index scans src and returns its occurrence index. A leading byte-order
+// mark is skipped, as the parser skips it (BurntSushi v1.6.0 parse.go: the
+// UTF-16 marks FF FE and FE FF, and the UTF-8 EF BB BF), so columns on the
+// first line are the parser's.
 func Index(src []byte) *Map {
+	for _, bom := range []string{"\xff\xfe", "\xfe\xff", "\xef\xbb\xbf"} {
+		if bytes.HasPrefix(src, []byte(bom)) {
+			src = src[len(bom):]
+			break
+		}
+	}
 	root := &Node{Kind: NTable}
-	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, memberOrdinal: map[string]int{}, root: root, cur: root}
+	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, tables: map[string]bool{}, memberOrdinal: map[string]int{}, root: root, cur: root}
 	s.run()
 	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, extra: s.extra, root: root}
 }
@@ -265,6 +286,9 @@ type scanner struct {
 	// the one a `key = value` line resolves from.
 	root, cur *Node
 	ordinal   map[string]int
+	// tables holds the pathID of every table record of the log, so
+	// implicit finds one without rescanning the log.
+	tables map[string]bool
 	// memberOrdinal counts the members of each path recorded so far.
 	memberOrdinal map[string]int
 }
@@ -303,8 +327,8 @@ func (s *scanner) header() {
 	n := s.root
 	for i := 1; i < len(path); i++ {
 		n = s.open(n, path[:i], line, col)
-		if n.Kind == NArrayTables && len(n.Children) > 0 {
-			n = n.Children[len(n.Children)-1]
+		if n.Kind == NArrayTables {
+			n = n.lastElement()
 		}
 	}
 	rec := s.add(Occurrence{Path: path, Kind: kind, KeyLine: line, KeyCol: col, ValueEndLine: line})
@@ -366,11 +390,10 @@ func (s *scanner) col() int {
 // record it appends, or nil.
 func (s *scanner) implicit(path []string, line, col int) *Occurrence {
 	want := pathID(path)
-	for _, o := range s.entries {
-		if o.Kind != Key && pathID(o.Path) == want {
-			return nil
-		}
+	if s.tables[want] {
+		return nil
 	}
+	s.tables[want] = true
 	p := append([]string{}, path...)
 	rec := &Occurrence{Path: p, Kind: Header, Implicit: true, KeyLine: line, KeyCol: col, ValueEndLine: line}
 	s.entries = append(s.entries, rec)
@@ -386,6 +409,11 @@ func (s *scanner) open(n *Node, path []string, line, col int) *Node {
 	rec := s.implicit(path, line, col)
 	k := path[len(path)-1]
 	if c := n.child(k); c != nil {
+		// Only a document the parser refuses (a header through a key)
+		// logs an implicit record for a node that exists.
+		if rec != nil {
+			c.Occ = append(c.Occ, rec)
+		}
 		return c
 	}
 	if rec == nil {
@@ -400,6 +428,9 @@ func (s *scanner) add(o Occurrence) *Occurrence {
 	id := pathID(o.Path)
 	o.Ordinal = s.ordinal[id]
 	s.ordinal[id]++
+	if o.Kind != Key {
+		s.tables[id] = true
+	}
 	rec := &o
 	s.entries = append(s.entries, rec)
 	return rec
@@ -634,8 +665,10 @@ func (s *scanner) basic() string {
 	return b.String()
 }
 
-// escape decodes the TOML 1.0 escape sequence at the current backslash
-// into b; any other escaped byte is kept as written.
+// escape decodes the escape sequence at the current backslash into b: the
+// TOML 1.0 ones and the \e and \xHH of TOML 1.1, which the parser
+// (BurntSushi v1.6.0 replaceEscapes) also decodes; any other escaped byte
+// is kept as written.
 func (s *scanner) escape(b *strings.Builder) {
 	s.pos++
 	if s.pos >= len(s.src) || s.src[s.pos] == '\n' {
@@ -654,6 +687,10 @@ func (s *scanner) escape(b *strings.Builder) {
 		b.WriteByte('\f')
 	case 'r':
 		b.WriteByte('\r')
+	case 'e':
+		b.WriteByte(0x1b)
+	case 'x':
+		s.hexRune(b, 2)
 	case 'u':
 		s.hexRune(b, 4)
 	case 'U':

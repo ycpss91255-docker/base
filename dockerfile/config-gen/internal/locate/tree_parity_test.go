@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -14,9 +15,17 @@ import (
 
 // treeSeeds are the documents of base#1442 redesign r1-r3 that the corpus
 // does not hold: H1-H5 (header and dotted-key resolution), F1-F5 (the
-// review round 3 findings), and inputs FuzzTreeParity found: a header
-// whose last key is empty under a table that a `[[a` line also wrote,
-// which the parser refuses.
+// review round 3 findings), and inputs FuzzTreeParity found, which the
+// parser refuses: a header whose last key is empty under a table that a
+// `[[a` line also wrote, a header through a key, a header through an
+// array of tables a `[a` line wrote a key under, a key redefining a dotted
+// table and a dotted key through an array, which BurntSushi v1.6.0 accepts
+// (both decode to map[0:map[0:0]]) and the bridge refuses ("Can not
+// overwrite a value (at line 2, column 4)" for the first); a document
+// opening with a byte-order mark, which the parser skips; a key of 2000
+// empty dotted parts, on which the locator once took over a minute; and
+// keys spelled
+// with the TOML 1.1 escapes \e and \xHH, which the parser decodes.
 var treeSeeds = []string{
 	"[logging.web]\ndriver = \"json-file\"\n[logging]\ndriver = \"local\"\n",
 	"[[a]]\nx = 1\n[[a]]\nx = 2\n[a.b]\ny = 3\n",
@@ -29,6 +38,15 @@ var treeSeeds = []string{
 	"volumes = [{ extra.z = 1, extra.a = 2 }]\n",
 	"volumes = [\n  {\n    opts = [\n      { \"bad\\tk\" = 1 },\n    ],\n  },\n]\n",
 	"[a\n[[a\n[a. ",
+	"=\n[.",
+	"[\"\\e\"]",
+	"[\"\\x41\"]",
+	"[[a \n[a \n=\n[a.",
+	"0.0=0\n0=0",
+	"0=[]\n0.0=0",
+	"\xfe\xff0=\"\"",
+	"\xef\xbb\xbfa = 1\n",
+	strings.Repeat(".", 2000) + "0=0.++++++++",
 }
 
 // treeParity holds the tree of src to the log it is built beside and to
@@ -75,12 +93,37 @@ func treeParity(t *testing.T, name string, src []byte) {
 		}
 	}
 	var v map[string]any
-	if _, err := toml.Decode(string(src), &v); err != nil {
+	if _, err := toml.Decode(string(src), &v); err != nil || redefines(m.root) {
 		return
 	}
 	if diff := sameShape(m.root, v, nil); diff != "" {
 		t.Errorf("%s: tree and decoded value differ: %s", name, diff)
 	}
+}
+
+// redefines reports whether the subtree n writes a key twice: two
+// siblings share a key, or a header or dotted key crosses a key, so a node
+// holding a scalar or an inline array has a child that is not its item.
+// TOML 1.0 refuses each. BurntSushi v1.6.0 accepts some (`a.b=0` then
+// `a=0`, and `a=[]` then `a.b=0`, each decode to map[a:map[b:0]]), so no
+// tree can have their shape; the TOML 1.0 gate of base#1441 refuses them
+// before Decode.
+func redefines(n *Node) bool {
+	seen := map[string]bool{}
+	for _, c := range n.Children {
+		switch {
+		case c.Kind == NElement || c.Kind == NItem:
+		case seen[c.Key]:
+			return true
+		default:
+			seen[c.Key] = true
+		}
+		crossed := (n.Kind == NKey || n.Kind == NItem) && (n.Open == 0 || n.Open == '[' && c.Kind != NItem)
+		if crossed || redefines(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // sameShape compares the subtree n with the decoded value v at path and
