@@ -146,6 +146,11 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/float-over-int64.toml": "accept",
 	"internal/gate/testdata/forms/float-max.toml":        "accept",
 	"internal/gate/testdata/forms/float-under.toml":      "accept",
+
+	// ADR-39's one exception: tomllib loads 2^63 as a Python int, which
+	// BurntSushi refuses as outside int64 (base#1441 review round 1,
+	// finding 7: an exception file with no float in it).
+	"internal/gate/testdata/forms/int64-over.toml": "accept",
 }
 
 // designValues are tomllib's decoded values for the float forms (base#1441
@@ -168,9 +173,11 @@ var designValues = map[string]map[string]any{
 }
 
 // int64Rows are the forms files whose acceptance must come through the
-// int64 exception (int64Only) and no other way.
+// int64 exception (int64Only) and no other way; every other forms file
+// must not take it.
 var int64Rows = map[string]bool{
 	"internal/gate/testdata/forms/float-over-int64.toml": true,
+	"internal/gate/testdata/forms/int64-over.toml":       true,
 }
 
 // The gate plus BurntSushi must give tomllib's verdict on every TOML file
@@ -222,7 +229,7 @@ func TestDifferential(t *testing.T) {
 		if got != live {
 			t.Errorf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live)
 		}
-		if viaInt64 != int64Rows[rel] && strings.Contains(rel, "/forms/float-") {
+		if viaInt64 != int64Rows[rel] && strings.Contains(rel, "/forms/") {
 			t.Errorf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, int64Rows[rel])
 		}
 		if want, ok := designValues[rel]; ok && got == "accept" && !reflect.DeepEqual(v, want) {
