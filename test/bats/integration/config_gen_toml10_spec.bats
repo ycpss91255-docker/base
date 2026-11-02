@@ -224,3 +224,27 @@ _run_calls() {
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
+
+# why: The differential test holds the gate to every toml-test case only
+# if the vendored copy has every case. toml-test lists its cases in
+# tests/files-toml-1.0.0 and tests/files-toml-1.1.0, vendored next to
+# them; the *.toml files on disk must be exactly the union of the .toml
+# lines in those two lists -- 746 paths at v2.2.0, a figure written out
+# here from counting upstream's lists, not re-derived -- with none
+# missing and none added by hand. SOURCE must name the tag and the full
+# 40-hex commit, so the copy can be re-fetched and compared byte for byte.
+@test "toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, and SOURCE names v2.2.0 and the 40-hex commit (base#1441)" {
+  local _v=/source/dockerfile/config-gen/internal/gate/testdata/toml-test
+  [[ -f "${_v}/files-toml-1.0.0" ]] || fail "${_v}/files-toml-1.0.0 is not vendored"
+  [[ -f "${_v}/files-toml-1.1.0" ]] || fail "${_v}/files-toml-1.1.0 is not vendored"
+  local _want _got
+  _want="$(cat -- "${_v}/files-toml-1.0.0" "${_v}/files-toml-1.1.0" \
+    | grep '\.toml$' | LC_ALL=C sort -u)"
+  assert_equal "$(printf '%s\n' "${_want}" | wc -l)" 746
+  _got="$(cd -- "${_v}" && find . -type f -name '*.toml' | sed 's|^\./||' | LC_ALL=C sort)"
+  assert_equal "${_got}" "${_want}"
+  run grep -cwF 'v2.2.0' "${_v}/SOURCE"
+  assert_output 1
+  run grep -cE '(^|[^0-9a-f])ce08da1[0-9a-f]{33}([^0-9a-f]|$)' "${_v}/SOURCE"
+  assert_output 1
+}
