@@ -73,11 +73,17 @@ type Mapping struct {
 // testcorpus is the one package that reads the module-root testdata/.
 const testcorpus = "internal/testcorpus"
 
+// moduleWide are the module-root files that change every package's
+// build or test.
+var moduleWide = map[string]bool{"go.mod": true, "go.sum": true, ".golangci.yml": true}
+
 // Map returns the module-relative package directories the manifest
-// makes the gate test: the directory of every Go file (as Targets), and,
-// when the manifest lists a file under the module-root testdata/, every
-// package whose test binary depends on internal/testcorpus. module is the
-// module path; pkgs is `go list -json -test -deps ./...` of the module.
+// makes the gate test: the directory of every Go file (as Targets), the
+// package that owns a file under its own testdata/, every package of the
+// module for go.mod, go.sum or .golangci.yml, and, when the manifest
+// lists a file under the module-root testdata/, every package whose test
+// binary depends on internal/testcorpus. module is the module path; pkgs
+// is `go list -json -test -deps ./...` of the module.
 func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 	seen := map[string]bool{}
 	out := []string{}
@@ -89,6 +95,22 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 	}
 	for _, dir := range Targets(manifest) {
 		add(dir)
+	}
+	every := false
+	for _, rel := range modulePaths(manifest) {
+		if moduleWide[rel] {
+			every = true
+		} else if dir, _, ok := strings.Cut(rel, "/testdata/"); ok {
+			add(dir)
+		}
+	}
+	if every {
+		for _, p := range pkgs {
+			if rel, ok := strings.CutPrefix(p.ImportPath, module+"/"); ok &&
+				!strings.Contains(rel, " ") && !strings.HasSuffix(rel, ".test") {
+				add(rel)
+			}
+		}
 	}
 	if listsRootTestdata(manifest) {
 		corpus := module + "/" + testcorpus
@@ -111,6 +133,21 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 	}
 	sort.Strings(out)
 	return Mapping{Targets: out}, nil
+}
+
+// modulePaths returns the module-relative form of every path a manifest
+// line after the header names inside the module.
+func modulePaths(manifest string) []string {
+	var out []string
+	lines := strings.Split(manifest, "\n")
+	for _, line := range lines[1:] {
+		for _, p := range strings.Split(line, "\t")[1:] {
+			if rel, ok := strings.CutPrefix(p, modulePrefix); ok {
+				out = append(out, rel)
+			}
+		}
+	}
+	return out
 }
 
 // listsRootTestdata reports whether a manifest line after the header

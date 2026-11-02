@@ -124,6 +124,25 @@ func TestMapNonGoModuleFilesTargetTheirPackages(t *testing.T) {
 	}
 }
 
+// Map keeps Targets' rule: a Go file maps to its own directory, with no
+// package list needed.
+func TestMapGoFileTargetsItsDirectory(t *testing.T) {
+	got, err := Map(header+"M\tdockerfile/config-gen/internal/c/c.go\n", fixtureModule, nil)
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if want := []string{"internal/c"}; !reflect.DeepEqual(got.Targets, want) {
+		t.Errorf("Map targets = %q, want %q", got.Targets, want)
+	}
+}
+
+// DecodeList refuses a body that is not concatenated JSON records.
+func TestDecodeListRefusesBadJSON(t *testing.T) {
+	if _, err := DecodeList([]byte("{\"ImportPath\": ")); err == nil {
+		t.Error("DecodeList of a truncated record returned no error")
+	}
+}
+
 // statuses is a gremlins report holding one mutation per status.
 func statuses(s ...string) string {
 	var b strings.Builder
