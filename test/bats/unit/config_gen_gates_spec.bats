@@ -439,7 +439,9 @@ _df_instructions() {
 # refusal, stale, green, coverage). Written out here, not read from the
 # redpath's own tables: a case dropped from the redpath must still get its
 # canned answer and its expected runner call, so the full run below fails
-# on it (base#1465). <want> is the gate, the event id, `<file>|<reason>`,
+# on it (base#1465). <want> is the gate (and, for a mutation case the
+# redpath's _RP_MUTATION_LINES names, `|<the gate's line>`), the event id,
+# `<file>|<reason>`,
 # empty, or `<event>|<pkg>|<file>` (file empty when the event names none).
 _redpath_rows() {
   cat <<'EOF'
@@ -454,6 +456,7 @@ gate|corpus-join|race
 gate|corpus-helper|race
 gate|corpus-var|race
 gate|mut-unstaged|mutation
+gate|mut-timeout|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0
 refusal|no-context|config_gen_manifest_missing
 stale|stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
 stale|stale-edit-locale|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
@@ -631,6 +634,9 @@ _canned_correct() {
         [[ "${_want}" != mutation ]] \
           || printf 'config-gen redpath manifest: base=%s head=%s dirty=yes context=pr\n' \
             "$(printf 'a%.0s' {1..40})" "$(printf 'b%.0s' {1..40})" >> "${_c}.err"
+        # A gate row's fourth field is the line its gate prints, streamed
+        # by the build log (base#1467).
+        [[ -z "${_reason}" ]] || printf '#12 3.21 %s\n' "${_reason}" >> "${_c}.err"
         ;;
       refusal)
         : > "${_c}.out"

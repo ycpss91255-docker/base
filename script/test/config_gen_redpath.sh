@@ -29,12 +29,16 @@
 #   corpus-var     a test spelling the path as "test"+"data"       race
 #   mut-unstaged   a committed package's test loses its assertion  mutation
 #                  as an unstaged edit, so every mutant survives
+#   mut-timeout    an untracked package whose loop mutant hangs:   mutation
+#                  3 mutants killed and 1 timed out is 75.0
 #
 # A mutation case (gate mutation, base#1467) must also show the manifest
 # the 00-manifest step wrote with dirty=yes: a step planted after every
 # real one prints its header line, prefixed with
 # "config-gen redpath manifest: ", and the runner streams a step's stdout
-# to stderr.
+# to stderr. A mutation case listed in _RP_MUTATION_LINES must also end a
+# stderr line with " <its line>", the gate's verdict for that package as
+# the build log streams it (reason mutation_line_missing).
 #
 # A refusal case plants a defect the build must refuse before any gate
 # runs: the run must exit exactly 1 with nothing on stdout, and stderr
@@ -155,7 +159,13 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-timeout:mutation)
+# <case>|<the line the mutation gate must print for it> (base#1467). The
+# mut-timeout figure is 3 killed over 4 judged: gremlins reported its loop
+# fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
+readonly -a _RP_MUTATION_LINES=(
+  'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0'
+)
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
@@ -592,6 +602,42 @@ func TestPos(t *testing.T) {
 EOF
       _rp_manifest_step "${root}"
       ;;
+    mut-timeout)
+      # Never committed. The test kills the boundary and negation mutants
+      # of i > 0 (Count(3) gives 4 and 0) and c-- (Count(3) gives -3); i++
+      # never ends for n = 3, so gremlins times that mutant out. No row
+      # has n = 0: under the negation i <= 0 that loop never ends either,
+      # which a run with a 0 row showed as a second TIMED OUT (base#1467).
+      mkdir -p "${mod}/internal/zzloop"
+      cat >"${mod}/internal/zzloop/zzloop.go" <<'EOF'
+// Package zzloop is a redpath fixture whose loop mutant never ends.
+package zzloop
+
+// Count returns how many times a loop from n down to 1 runs.
+func Count(n int) int {
+	c := 0
+	for i := n; i > 0; i-- {
+		c++
+	}
+	return c
+}
+EOF
+      cat >"${mod}/internal/zzloop/zzloop_test.go" <<'EOF'
+package zzloop
+
+import "testing"
+
+func TestCount(t *testing.T) {
+	for n, want := range map[int]int{1: 1, 3: 3} {
+		if got := Count(n); got != want {
+			t.Fatalf("Count(%d) = %d, want %d", n, got, want)
+		}
+	}
+}
+EOF
+      printf 'internal/zzloop 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_manifest_step "${root}"
+      ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
     coverage)
@@ -705,14 +751,35 @@ _rp_verdict() {
     || { echo not_dirty; return 0; }
 }
 
+# _rp_mutation_line <case> -- the line _RP_MUTATION_LINES holds for
+# <case>, empty when it holds none.
+_rp_mutation_line() {
+  local entry
+  for entry in "${_RP_MUTATION_LINES[@]}"; do
+    [[ "${entry%%|*}" == "${1}" ]] && { printf '%s\n' "${entry#*|}"; return 0; }
+  done
+  return 0
+}
+
+# _rp_line_ends <err> <line> -- true when a line of <err> ends with
+# " <line>" (the build log puts its step and time first).
+_rp_line_ends() {
+  awk -v w=" ${2}" 'length($0) >= length(w) && substr($0, length($0) - length(w) + 1) == w { f = 1 }
+    END { exit !f }' "${1}"
+}
+
 # _rp_case <scratch> <case> <gate> -- run one planted case; non-zero when
 # it did not go red as planted.
 _rp_case() {
-  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason
+  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason line
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
+  line="$(_rp_mutation_line "${name}")"
+  if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
+    reason=mutation_line_missing
+  fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=${reason}" "gate=${gate}" \
