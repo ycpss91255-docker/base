@@ -291,3 +291,89 @@ func TestDecodeLoggingSectionWithService(t *testing.T) {
 		t.Fatalf("Decode refusals = %d (%+v), want none", len(refusals), refusals)
 	}
 }
+
+// Rows that land on one service's section text from different TOML paths
+// under [logging] come out in the bridge's traversal order, not in
+// document order, and each typed field is the last row with its key
+// (base#1442). The bridge walks the parsed tree depth first in key
+// creation order (toml_bridge.py _emit_table, the loop at line 407), so
+// in the first case `"a.b".driver` (line 4) comes before `a.b.driver`
+// (line 3). Rows and resolved values are the real bridge's `--kv` output
+// and the shell's `_conf_get` for the same bytes (base#1442 design r4
+// section 1o, bridge_b1.out and resolve_b1.out): codex.toml gives
+// `logging.a.b>max_file>1 | logging.a.b>driver>local |
+// logging.a.b>driver>json-file` and driver json-file, max_file 1;
+// f2_quoted_first gives `local | json-file` and json-file; f3_dotted_first
+// gives `json-file | local` and local. Lines are counted from the input
+// bytes. `_validate_log_driver` and the max_file rule accept every value,
+// so no case has a refusal.
+func TestDecodeServiceRowsInBridgeTraversalOrder(t *testing.T) {
+	type row struct {
+		key, text string
+		line      int
+	}
+	cases := []struct {
+		name, src, service string
+		rows               []row
+		driver, maxFile    *row
+	}{
+		{
+			name:    "codex",
+			src:     "[logging]\n\"a.b\".max_file = 1\na.b.driver = \"json-file\"\n\"a.b\".driver = \"local\"\n",
+			service: "a.b",
+			rows:    []row{{"max_file", "1", 2}, {"driver", "local", 4}, {"driver", "json-file", 3}},
+			driver:  &row{"driver", "json-file", 3},
+			maxFile: &row{"max_file", "1", 2},
+		},
+		{
+			name:    "f2_quoted_first",
+			src:     "[logging.\"a.b\"]\ndriver = \"local\"\n\n[logging.a.b]\ndriver = \"json-file\"\n",
+			service: "a.b",
+			rows:    []row{{"driver", "local", 2}, {"driver", "json-file", 5}},
+			driver:  &row{"driver", "json-file", 5},
+		},
+		{
+			name:    "f3_dotted_first",
+			src:     "[logging.a.b]\ndriver = \"json-file\"\n\n[logging.\"a.b\"]\ndriver = \"local\"\n",
+			service: "a.b",
+			rows:    []row{{"driver", "json-file", 2}, {"driver", "local", 5}},
+			driver:  &row{"driver", "local", 5},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, refusals := Decode([]byte(tc.src))
+
+			if len(refusals) != 0 {
+				t.Fatalf("Decode refusals = %d (%+v), want none", len(refusals), refusals)
+			}
+			svc := cfg.Logging.Services[tc.service]
+			if svc == nil {
+				t.Fatalf("Logging.Services[%q] missing", tc.service)
+			}
+			var got []row
+			for _, r := range svc.Rows {
+				got = append(got, row{r.Key, r.Field.Value.Text, r.Field.Line})
+			}
+			if !reflect.DeepEqual(got, tc.rows) {
+				t.Errorf("Rows = %+v, want %+v", got, tc.rows)
+			}
+			for _, f := range []struct {
+				name  string
+				field Field
+				want  *row
+			}{{"Driver", svc.Driver, tc.driver}, {"MaxFile", svc.MaxFile, tc.maxFile}} {
+				if f.want == nil {
+					if f.field.State != Absent {
+						t.Errorf("%s.State = %v, want Absent", f.name, f.field.State)
+					}
+					continue
+				}
+				if f.field.State != Set || f.field.Value.Text != f.want.text || f.field.Line != f.want.line {
+					t.Errorf("%s = {%v %q line %d}, want {Set %q line %d}",
+						f.name, f.field.State, f.field.Value.Text, f.field.Line, f.want.text, f.want.line)
+				}
+			}
+		})
+	}
+}
