@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 // FuzzCheck holds Check and Normalize to their contract on any input
@@ -18,6 +20,9 @@ import (
 // index the input. When Check accepts a document BurntSushi also
 // decodes, dupProperty adds known duplicates to it and Check itself must
 // refuse each with the duplicate class's text (base#1441 redesign r3 R9).
+// Separately, suffixProperty appends each forbidden suffix to the input
+// and requires a nil Check to mean the decoder refuses the whole
+// document (base#1441 redesign r2 R6).
 // The seeds are every TOML file under testdata/forms and
 // testdata/toml-test plus a few literals for each refusal class; `go
 // test` runs them, and the test stage's fuzz gate searches from them for
@@ -56,7 +61,9 @@ func FuzzCheck(f *testing.F) {
 	} {
 		f.Add([]byte(s))
 	}
+	suffixControls(f)
 	f.Fuzz(func(t *testing.T, src []byte) {
+		suffixProperty(t, src)
 		err := Check("f.toml", src)
 		if again := Check("f.toml", src); errString(err) != errString(again) {
 			t.Fatalf("Check gave %q, then %q", errString(err), errString(again))
@@ -82,6 +89,56 @@ func FuzzCheck(f *testing.F) {
 		}
 		dupProperty(t, src)
 	})
+}
+
+// forbiddenSuffixes are one statement each of the refused forms that
+// BurntSushi v1.6.0 accepts on its own: a `\e` escape, an inline table's
+// trailing comma, a line ending inside an inline table, and a year-zero
+// date (base#1441 redesign r2 R6). Each starts with a line ending, so it
+// opens a new statement after any input that ends outside a string.
+var forbiddenSuffixes = []string{
+	"\nzz = \"\\e\"\n",
+	"\nzz = {x = 1,}\n",
+	"\nzz = {\nx = 1}\n",
+	"\nzz = 0000-01-01\n",
+}
+
+// suffixControls fails the fuzz target unless each forbidden suffix, on
+// its own, is a document BurntSushi decodes and Check refuses: the
+// suffix property holds only while the decoder accepts what the gate
+// must refuse, so a decoder bump that starts refusing a suffix fails
+// here instead of making the property hold vacuously.
+func suffixControls(f *testing.F) {
+	for _, s := range forbiddenSuffixes {
+		var v map[string]any
+		if _, err := toml.Decode(s, &v); err != nil {
+			f.Fatalf("toml.Decode(%q) = %v, want nil: the suffix no longer tests the gate", s, err)
+		}
+		if Check("s.toml", []byte(s)) == nil {
+			f.Fatalf("Check(%q) = nil, want a refusal", s)
+		}
+	}
+}
+
+// suffixProperty appends each forbidden suffix to src. When Check accepts
+// the result, the decoder must refuse it: BurntSushi accepts the suffix
+// on its own, so a nil Check holds only when src makes the whole document
+// invalid. A reader that loses its place in src (a quote it misreads, a
+// construct it stops on) and so never refuses the suffix breaks this on
+// an input whose document is otherwise valid. It judges decoder verdicts
+// only; dupProperty classifies duplicates.
+func suffixProperty(t *testing.T, src []byte) {
+	t.Helper()
+	for _, s := range forbiddenSuffixes {
+		doc := append(bytes.Clone(src), s...)
+		if Check("f.toml", doc) != nil {
+			continue
+		}
+		var v map[string]any
+		if _, err := toml.Decode(string(Normalize(doc)), &v); err == nil {
+			t.Fatalf("Check(%q) = nil and BurntSushi decodes it: the suffix %q went unrefused", doc, s)
+		}
+	}
 }
 
 // errString is err's text, or "" for nil.

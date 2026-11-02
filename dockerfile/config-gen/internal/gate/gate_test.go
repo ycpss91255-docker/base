@@ -744,3 +744,37 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 		}
 	}
 }
+
+// Check reports the first refusal in document order: a lexical refusal
+// (here a `\e` escape) is reported when the structural reading reaches
+// it, so a duplicate on an earlier line is reported first (base#1441
+// redesign r2 R4b, review round 2 finding 1). tomllib reads the document
+// in one pass and stops at its first error, the line 2 duplicate. The
+// position is the second definition's first byte, 2:1, counted by hand.
+// A structural reading that stops on input it cannot follow still lets
+// a later escape be refused (R4c): the escape's backslash is at 2:6,
+// d(1) ' '(2) =(3) ' '(4) "(5) \(6).
+func TestCheckRefusesInDocumentOrder(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+		reason    Reason
+		text      string
+	}{
+		{"a = 1\na = 2\nb = \"\\e\"\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
+		{"[x]\n[x]\nb = \"\\e\"\n", 2, 1, ReasonRedefine, "Cannot overwrite a value (at line 2, column 1)"},
+		{"a = {b = 1 c = 2}\nd = \"\\e\"\n", 2, 6, ReasonEscape, `escape sequence \e is not TOML 1.0`},
+		{"x = [1 2]\nd = \"\\e\"\n", 2, 6, ReasonEscape, `escape sequence \e is not TOML 1.0`},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		want := fmt.Sprintf("t.toml:%d:%d: %s", tc.line, tc.col, tc.text)
+		if r.Line != tc.line || r.Col != tc.col || r.Reason != tc.reason || r.Error() != want {
+			t.Errorf("Check(%q) = %v %q, want %v %q", tc.src, r.Reason, r.Error(), tc.reason, want)
+		}
+	}
+}
