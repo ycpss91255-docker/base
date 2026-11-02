@@ -51,7 +51,8 @@ func readValueRows(t *testing.T) []valueRow {
 }
 
 // Validate gives schema.sh's verdict for every class=value row of the
-// shared table (base#1442, AC "Validation matches schema.sh"). The literal
+// shared table (base#1442, AC "Validation matches schema.sh" and "Wrong
+// types"). The literal
 // is decoded into a Scalar by the library, exactly as a layer's value is,
 // and Validate judges it. A refused row names its event: a string at a
 // bool key whose text fails (`privileged = "yes"`, `"TRUE"`) is
@@ -63,11 +64,18 @@ func readValueRows(t *testing.T) []valueRow {
 // Every other scalar key of SCHEMA_VALIDATOR, and the three free-form
 // build keys, has rows too. The kind each key declares is dist/setup.toml's
 // (bool: init, privileged, compress, wrapper_transcript; int: max_file,
-// the *_keep / *_days and watchdog counts; string otherwise), so `"30"` at
-// an int key passes on its text while `max_file = 3.0` is refused as a
-// float. Values are judged on the bridge's text: `driver = inf` and
-// `name = 1979-05-27` pass, and a non-breaking space does not split
-// gpu_capabilities words under LC_ALL=C.
+// the *_keep / *_days and watchdog counts; string otherwise). A string key
+// is judged on the bridge's text: `driver = inf` and `name = 1979-05-27`
+// pass (base#1407 matrix rows 7a, 7c), and a non-breaking space does not
+// split gpu_capabilities words under LC_ALL=C. A bool or int key is typed
+// (ADR-00000039: a value outside its field's type is refused at load):
+// `max_file = 3.0` is refused as a float, and a row whose verdict is
+// `differs:wrong_type` is one schema.sh accepts on its text and the
+// generator refuses as conf_value_type_refused -- `privileged = "true"`,
+// `init = "false"`, `watchdog_interval = "30"`, `max_file = "3"`. The
+// bats half asserts the shell accepts each such row, so the difference is
+// a declared one, not a drift. The empty string stays the default empty
+// policy's at a typed key too (`max_file = ""` is accepted).
 // The 12 numbered families of schema.sh (image.rule_, build.arg_,
 // volumes.mount_, ...) are judged at numbered keys other than _1 too:
 // each accepts `""` (the default empty policy, although its validator
@@ -94,7 +102,7 @@ func TestValidateMatchesSchemaSh(t *testing.T) {
 				if err != nil {
 					t.Errorf("tsv line %d (%s): Validate = %v, want accept", row.line, row.branch, err)
 				}
-			case "refuse":
+			case "refuse", "differs:wrong_type":
 				var ve *ValueError
 				if !errors.As(err, &ve) {
 					t.Fatalf("tsv line %d (%s): Validate = %v, want a *ValueError", row.line, row.branch, err)
@@ -103,8 +111,45 @@ func TestValidateMatchesSchemaSh(t *testing.T) {
 					t.Errorf("tsv line %d (%s): Event = %q, want %q", row.line, row.branch, ve.Event, row.event)
 				}
 			default:
-				t.Fatalf("tsv line %d: verdict %q, want accept or refuse", row.line, row.verdict)
+				t.Fatalf("tsv line %d: verdict %q, want accept, refuse or differs:wrong_type", row.line, row.verdict)
 			}
 		})
+	}
+}
+
+// Scalar's text for every TOML scalar kind is the bridge's --kv text for
+// the same literal (base#1442): each row of corpus/s6/s6_scalar_texts.tsv
+// names a literal, its toml-test kind and the text the bridge prints; the
+// bats half (config_gen_schema_values_spec.bats) checks that text against
+// the bridge itself. A local time, a local datetime and a fractional
+// datetime are decoded like any other scalar, never left out.
+func TestScalarTextMatchesBridge(t *testing.T) {
+	paths := testcorpus.Glob(t, "corpus/s6/s6_scalar_texts.tsv")
+	data, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("read %s: %v", paths[0], err)
+	}
+	rows := 0
+	for i, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		if len(f) != 5 {
+			t.Fatalf("%s:%d: %d fields, want 5: %q", paths[0], i+1, len(f), line)
+		}
+		rows++
+		src := "[" + f[0] + "]\n" + f[1] + " = " + f[2] + "\n"
+		var doc map[string]map[string]Scalar
+		if _, err := toml.Decode(src, &doc); err != nil {
+			t.Errorf("tsv line %d: decode %q: %v", i+1, src, err)
+			continue
+		}
+		if got, want := doc[f[0]][f[1]], (Scalar{Kind: Kind(f[3]), Text: f[4]}); got != want {
+			t.Errorf("tsv line %d: %s = %+v, want %+v", i+1, f[2], got, want)
+		}
+	}
+	if rows == 0 {
+		t.Fatalf("%s: no rows", paths[0])
 	}
 }

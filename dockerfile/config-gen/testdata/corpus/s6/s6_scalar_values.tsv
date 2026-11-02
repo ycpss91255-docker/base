@@ -2,7 +2,7 @@
 value	security	privileged	"yes"	refuse	conf_value_type_refused	privileged:other
 value	security	privileged	""	accept	-	empty:allow
 value	security	privileged	true	accept	-	privileged:bool
-value	security	privileged	"true"	accept	-	privileged:bool
+value	security	privileged	"true"	differs:wrong_type	conf_value_type_refused	privileged:bool
 value	security	privileged	"TRUE"	refuse	conf_value_type_refused	privileged:other
 value	deploy	gpu_count	true	refuse	conf_value_type_refused	gpu_count:other
 value	deploy	gpu_count	2	accept	-	gpu_count:int
@@ -46,13 +46,13 @@ value	lifecycle	restart	"on-failure:3"	accept	-	restart:on-failure-n
 value	lifecycle	restart	"on-failure:0"	refuse	conf_value_invalid	restart:on-failure-n
 value	lifecycle	restart	"never"	refuse	conf_value_invalid	restart:other
 value	lifecycle	init	true	accept	-	init:bool
-value	lifecycle	init	"false"	accept	-	init:bool
+value	lifecycle	init	"false"	differs:wrong_type	conf_value_type_refused	init:bool
 value	lifecycle	init	""	accept	-	empty:allow
 value	lifecycle	init	"yes"	refuse	conf_value_type_refused	init:other
 value	lifecycle	watchdog_check	"curl -f localhost"	accept	-	watchdog_cmd:line
 value	lifecycle	watchdog_check	1	accept	-	watchdog_cmd:line
 value	lifecycle	watchdog_interval	30	accept	-	watchdog_posint:pattern
-value	lifecycle	watchdog_interval	"30"	accept	-	watchdog_posint:pattern
+value	lifecycle	watchdog_interval	"30"	differs:wrong_type	conf_value_type_refused	watchdog_posint:pattern
 value	lifecycle	watchdog_interval	0	refuse	conf_value_invalid	watchdog_posint:other
 value	lifecycle	watchdog_interval	1.0	refuse	conf_value_type_refused	watchdog_posint:other
 value	lifecycle	watchdog_timeout	10	accept	-	watchdog_posint:pattern
@@ -188,3 +188,9 @@ value	security	cap_drop_1	""	accept	-	empty:allow
 value	security	cap_drop_2	"ALL"	accept	-	capability:name
 value	security	cap_drop_3	"SYS-ADMIN"	refuse	conf_value_invalid	capability:other
 value	security	cap_drop_4	true	refuse	conf_value_type_refused	capability:other
+value	logging	max_file	"3"	differs:wrong_type	conf_value_type_refused	log_max_file:pattern
+value	logging	compress	"true"	differs:wrong_type	conf_value_type_refused	log_compress:bool
+value	logging	max_file	""	accept	-	empty:allow
+value	deploy	gpu_mode	07:32:00	refuse	conf_value_type_refused	detect_mode:other
+value	deploy	gpu_count	1979-05-27T07:32:00	refuse	conf_value_type_refused	gpu_count:other
+value	lifecycle	watchdog_check	07:32:00.5	accept	-	watchdog_cmd:line
