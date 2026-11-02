@@ -132,6 +132,12 @@ empty_pre_ident 3
 empty_pre 3
 exclude_arity_post 4
 exclude_arity_pre 3
+exclude_gopkg_in_mismatch 3
+exclude_gopkg_in_no_major 3
+exclude_major_mismatch 3
+exclude_path_v1 3
+exclude_short_pre 3
+exclude_version_invalid 3
 go_arity_post 4
 go_arity_pre 3
 go_bad_post 4
@@ -346,6 +352,55 @@ EOF
 @test "_pin_go_mod_scan: exclude with one argument is refused as arity, before a require and after one (base#1488)" {
   _refused exclude_arity_pre arity 3
   _refused exclude_arity_post arity 4
+}
+
+# why: Go's modfile parser holds an exclude to its own version and path
+# checks (CanonicalVersion, then CheckPathMajor), not to the require
+# entry's record-fidelity policy: it reads `exclude a v1.0.0+incompatible`,
+# `exclude gopkg.in/yaml.v2 v2.0.0`, a build suffix, a short version and an
+# empty path, in line and block form (review round 2, base#1488; the oracle
+# holds each supported header to Go's rc 0). An exclude emits no record, so
+# refusing these would only refuse a file Go reads. A scanner that hands
+# exclude the require's version_ok refuses them as version_build,
+# gopkg_in_path, version_noncanonical and path_empty.
+@test "_pin_go_mod_scan: an exclude takes Go's version and path-major checks, not the require entry's policy (base#1488)" {
+  local _n _ln
+  for _n in exclude_incompatible exclude_gopkg_in exclude_gopkg_in_unstable \
+    exclude_gopkg_in_v1_pseudo exclude_major_suffix_incompatible exclude_build_meta \
+    exclude_short exclude_path_empty; do
+    echo "fixture: ${_n}.mod"
+    _scan "${_n}"
+    assert_success
+    assert_output "$(printf '4\ta\tv1.0.0\t')"
+    [[ -z "${stderr}" ]] || fail "${_n}: a supported file logs nothing: ${stderr}"
+  done
+  for _n in exclude_incompatible_block exclude_gopkg_in_block; do
+    echo "fixture: ${_n}.mod"
+    _scan "${_n}"
+    assert_success
+    assert_output "$(printf '7\ta\tv1.0.0\t')"
+    [[ -z "${stderr}" ]] || fail "${_n}: a supported file logs nothing: ${stderr}"
+    cp "${FIX}/${_n}.mod" "${W}/go.mod"
+    for _ln in 3 4 5 6; do
+      run _pin_is_declaration "${W}/go.mod" "$(sed -n "${_ln}p" "${W}/go.mod")" "${_ln}"
+      assert_failure 1
+    done
+  done
+}
+
+# why: The same Go checks still refuse what Go refuses (the oracle records
+# Go rc != 0 for each): a version CanonicalVersion cannot read
+# (version_invalid), a major the path does not carry (path_major_mismatch,
+# for a plain path and a gopkg.in one) and a path SplitPathVersion rejects
+# (path_major_invalid). An exclude check that accepts any version would
+# read these files Go refuses.
+@test "_pin_go_mod_scan: an exclude Go rejects for its version or path major is refused by Go's reason (base#1488)" {
+  _refused exclude_version_invalid version_invalid 3
+  _refused exclude_short_pre version_invalid 3
+  _refused exclude_major_mismatch path_major_mismatch 3
+  _refused exclude_gopkg_in_mismatch path_major_mismatch 3
+  _refused exclude_gopkg_in_no_major path_major_invalid 3
+  _refused exclude_path_v1 path_major_invalid 3
 }
 
 # why: Go reads an `exclude (` block holding `a v1.0.0` (the oracle records
