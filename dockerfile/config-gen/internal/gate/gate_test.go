@@ -209,3 +209,23 @@ func TestCheckRefusesLeadingBOM(t *testing.T) {
 		t.Fatalf("Check(BOM inside a basic string) = %v, want nil", err)
 	}
 }
+
+// A key assigned twice in the same table is refused at the first byte of
+// the second assignment's key, in tomllib's wording "Cannot overwrite a
+// value" (issue base#1441 acceptance criterion: a duplicate key gives
+// "Cannot overwrite a value (at line L, column C)"). The position is
+// counted by hand: line 2 is `a = 2`, and its key `a` is column 1.
+func TestCheckRefusesDuplicateKey(t *testing.T) {
+	err := Check("t.toml", []byte("a = 1\na = 2\n"))
+	var r *Refusal
+	if !errors.As(err, &r) {
+		t.Fatalf("Check() = %v, want *Refusal", err)
+	}
+	if r.File != "t.toml" || r.Line != 2 || r.Col != 1 || r.Reason != ReasonDuplicate {
+		t.Fatalf("Refusal = {%q %d %d %v}, want {\"t.toml\" 2 1 ReasonDuplicate}", r.File, r.Line, r.Col, r.Reason)
+	}
+	const want = "t.toml:2:1: Cannot overwrite a value (at line 2, column 1)"
+	if r.Error() != want {
+		t.Fatalf("Error() = %q, want %q", r.Error(), want)
+	}
+}
