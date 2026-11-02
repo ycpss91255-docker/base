@@ -669,8 +669,9 @@ _pin_extract_value() {
 #                          form, that fails Go's check is godebug_usage;
 #                          an exclude line, line or block form, takes the
 #                          require entry's arity, path and version
-#                          checks; a retract line is one canonical
-#                          version or a `[low, high]` interval of two,
+#                          checks; a retract line, line or block form,
+#                          is one canonical version or a `[low, high]`
+#                          interval of two,
 #                          one cut short is retract_interval and one
 #                          with a token after its version is
 #                          retract_trailer);
@@ -952,16 +953,17 @@ _pin_go_mod_godebug() {
   fi
 }
 
-# _pin_go_mod_retract <lineno> -- check one retract line as Go's
-# parseVersionInterval reads it: `retract <version>` or
-# `retract [<low>, <high>]`, each version canonical on its own (a retract
+# _pin_go_mod_retract <lineno> <first> -- check one retract line, the
+# line form (first=1: its arguments start at token 1) or a block line
+# (first=0), as Go's parseVersionInterval reads it: `<version>` or
+# `[<low>, <high>]`, each version canonical on its own (a retract
 # version belongs to no module path, base#1488). Checked, never emitted;
 # the rationale comment is not read (Go does not check it). Any other
-# shape, the block form included, is still refused by name.
+# shape is still refused by name.
 _pin_go_mod_retract() {
-  local _ln="${1}" _k _v _shape=""
+  local _ln="${1}" _first="${2}" _k _v _shape=""
   local -a _at=()
-  for (( _k = 1; _k < ${#_gm_kind[@]}; _k++ )); do
+  for (( _k = _first; _k < ${#_gm_kind[@]}; _k++ )); do
     if [[ "${_gm_kind[_k]}" == p ]]; then _shape+="${_gm_text[_k]}"; else _shape+=v; fi
   done
   case "${_shape}" in
@@ -976,6 +978,7 @@ _pin_go_mod_retract() {
     *) _pin_go_mod_refuse "${_ln}" retract; return 1 ;;
   esac
   for _k in "${_at[@]}"; do
+    _k=$(( _k + _first - 1 ))
     if ! _v="$(_pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
     if ! _pin_go_mod_canonical_ok "${_v}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
   done
@@ -1028,6 +1031,10 @@ _pin_go_mod_scan() {
         _pin_go_mod_entry "${_ln}" 0 0 || return 1
         continue
       fi
+      if [[ "${_block_verb}" == retract ]]; then
+        _pin_go_mod_retract "${_ln}" 0 || return 1
+        continue
+      fi
       _pin_go_mod_entry "${_ln}" 0 || return 1
       continue
     fi
@@ -1063,10 +1070,7 @@ _pin_go_mod_scan() {
         if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
         _seen_toolchain=1
         ;;
-      retract)
-        _pin_go_mod_retract "${_ln}" || return 1
-        ;;
-      require | godebug | exclude)
+      require | godebug | exclude | retract)
         if _pin_go_mod_opens_block; then
           if (( ${#_gm_kind[@]} > 2 )); then _pin_go_mod_refuse "${_ln}" paren_trailer; return 1; fi
           _block_verb="${_verb}"
@@ -1079,6 +1083,10 @@ _pin_go_mod_scan() {
         fi
         if [[ "${_verb}" == exclude ]]; then
           _pin_go_mod_entry "${_ln}" 1 0 || return 1
+          continue
+        fi
+        if [[ "${_verb}" == retract ]]; then
+          _pin_go_mod_retract "${_ln}" 1 || return 1
           continue
         fi
         _pin_go_mod_entry "${_ln}" 1 || return 1
