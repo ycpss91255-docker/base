@@ -203,7 +203,7 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 					continue
 				}
 				if isTables || isArray {
-					d := Deferred{Path: p, Type: md.Type(p...), Value: arrayValue(lines, p, v)}
+					d := Deferred{Path: p, Type: md.Type(p...), Value: arrayValue(lines, keys, p, v)}
 					d.Line = d.Value.Line
 					t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildDeferred, Key: name, Defer: len(deferred)})
 					deferred = append(deferred, d)
@@ -230,12 +230,15 @@ func buildTree(src []byte, md toml.MetaData) (Tree, []Deferred) {
 // has one VTable per `[[p]]` element, at its header line, whose members
 // are the keys written directly under that header, in source order, each
 // at its key line. An inline array starts on its key's line and its items
-// are given that line (base#1442).
-func arrayValue(lines *locate.Map, p []string, v any) Value {
+// are given that line; the members of each table item are in the order
+// md.Keys() lists them (base#1442).
+func arrayValue(lines *locate.Map, keys []toml.Key, p []string, v any) Value {
 	elems, isTables := v.([]map[string]any)
 	if !isTables {
 		occ, _ := lines.Key(p)
-		return valueOf(v, occ.KeyLine)
+		out := valueOf(v, occ.KeyLine)
+		orderInlineMembers(&out, keys, p)
+		return out
 	}
 	out := Value{Kind: VArray}
 	entries := lines.Entries()
@@ -263,6 +266,43 @@ func arrayValue(lines *locate.Map, p []string, v any) Value {
 		i++
 	}
 	return out
+}
+
+// orderInlineMembers puts the members of each table item of the inline
+// array a, written at path p, in source order. md.Keys() lists the
+// members of the items under p itself with no item index, one item after
+// another (toml_bridge.py:755 walks elem.items() in that order), so each
+// table item takes the next run of keys directly under p, until every one
+// of its members has its key (base#1442).
+func orderInlineMembers(a *Value, keys []toml.Key, p []string) {
+	want := fmt.Sprintf("%q", p)
+	var run []string
+	for _, k := range keys {
+		if len(k) == len(p)+1 && fmt.Sprintf("%q", []string(k[:len(p)])) == want {
+			run = append(run, k[len(p)])
+		}
+	}
+	for i := range a.Items {
+		item := &a.Items[i]
+		if item.Kind != VTable {
+			continue
+		}
+		byKey := map[string]Member{}
+		for _, m := range item.Members {
+			byKey[m.Key] = m
+		}
+		ordered := make([]Member, 0, len(item.Members))
+		for len(run) > 0 && len(ordered) < len(item.Members) {
+			if m, ok := byKey[run[0]]; ok {
+				ordered = append(ordered, m)
+				delete(byKey, run[0])
+			}
+			run = run[1:]
+		}
+		if len(ordered) == len(item.Members) {
+			item.Members = ordered
+		}
+	}
 }
 
 // valueOf is the value v written at line: a scalar, an array of values or
