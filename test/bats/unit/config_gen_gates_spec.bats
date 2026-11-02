@@ -61,7 +61,7 @@ _gate_log() {
 # --iidfile and, under -q, prints it. `run` prints ${S}/run.out with no
 # newline and exits ${S}/run.rc.
 _stub_docker() {
-  _gate_log fmt vet lint race coverage > "${S}/build_test.err"
+  _gate_log fmt vet lint race coverage fuzz > "${S}/build_test.err"
   printf '0\n' > "${S}/build_test.rc"
   printf '' > "${S}/run.out"
   printf '2\n' > "${S}/run.rc"
@@ -143,15 +143,16 @@ _df_instructions() {
 }
 
 # why: Each gate is its own RUN so a red names its gate: one RUN running all
-# five would leave the first id as the only record and stop the later gates
+# six would leave the first id as the only record and stop the later gates
 # from reading as "never reached" rather than "passed". The order is the one
-# the redpath's earlier_gate_missing check reads.
-@test "Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, one RUN each, in that order (base#1462)" {
+# the redpath's earlier_gate_missing check reads; fuzz, the 60 s search
+# (base#1441), runs last.
+@test "Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, fuzz, one RUN each, in that order (base#1462)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   local _gates
   _gates="$(_df_instructions | awk -F'\t' '$1 == "test" && $2 ~ /^RUN / {print $2}' \
       | grep -oE 'gate=[a-z]+ ok' | sed -E 's/^gate=([a-z]+) ok$/\1/' | paste -sd' ')"
-  assert_equal "${_gates}" "fmt vet lint race coverage"
+  assert_equal "${_gates}" "fmt vet lint race coverage fuzz"
   # One gate per RUN: no test-stage RUN carries two ok lines.
   _df_instructions > "${S}/df"
   run awk -F'\t' '$1 == "test" && $2 ~ /^RUN / { n = gsub(/gate=[a-z]+ ok/, "&"); if (n > 1) print }' "${S}/df"
@@ -210,7 +211,7 @@ _df_instructions() {
   _run_runner
   assert_success
   run grep -E '^gate=[a-z]+ ok$' <<<"${output}"
-  assert_output "$(printf 'gate=%s ok\n' fmt vet lint race coverage)"
+  assert_output "$(printf 'gate=%s ok\n' fmt vet lint race coverage fuzz)"
   # f. argv is read as an array: the gates run uncached, on the test target,
   # from the config-gen Dockerfile and module context under --root.
   local _test
@@ -390,7 +391,7 @@ _df_instructions() {
 
 # The cases the redpath plants, in the order it runs them, each with the
 # gate whose id it must produce; the unmodified control comes last.
-REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race"
+REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz"
 
 # _redpath_n -- how many cases REDPATH_CASES lists.
 _redpath_n() {
@@ -468,9 +469,9 @@ _gate_record() {
 # _canned_correct -- the runner answers each case as a correct gate would:
 # every earlier gate ok, the build log line naming the case's gate, then
 # the runner's own record of that gate id, and rc 1; the control is all
-# five ok and rc 0.
+# six ok and rc 0.
 _canned_correct() {
-  local _all=(fmt vet lint race coverage) _case _gate _n=0 _g
+  local _all=(fmt vet lint race coverage fuzz) _case _gate _n=0 _g
   mkdir -p "${S}/canned"
   for _case in ${REDPATH_CASES}; do
     _n=$(( _n + 1 ))
@@ -661,6 +662,33 @@ _run_redpath() {
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=fmt-parse reason=wrong_id gate=fmt
+}
+
+# why: The fuzz gate (base#1441) searches beyond the seeds the race gate
+# already runs. Its planted defect is a Fuzz target whose one seed passes,
+# so the race gate stays green, and that panics on any input of four or
+# more bytes, which only a search reaches. A case that went red on the
+# race gate instead would prove nothing about the search.
+@test "config_gen_redpath.sh: the fuzz-panic case plants a Fuzz target whose seed passes and must produce the fuzz gate's id (base#1441)" {
+  _redpath_repo
+  _run_redpath
+  assert_success
+  local _mod _new _f
+  _mod="${S}/runner.$(_redpath_idx fuzz-panic).mod"
+  _new="$(cd "${_mod}" && find . -type f | sort | comm -23 - <(cd /source/dockerfile/config-gen && find . -type f | sort))"
+  assert_equal "${_new}" "./cmd/config-gen/zz_fuzzpanic_test.go"
+  _f="${_mod}/cmd/config-gen/zz_fuzzpanic_test.go"
+  run grep -c '^func Fuzz' "${_f}"
+  assert_output 1
+  run grep -E 'f\.Add\("a"\)' "${_f}"
+  assert_success
+  run grep -E 'len\(s\) >= 4' "${_f}"
+  assert_success
+  rm -rf "${S}"/runner.*
+  _gate_record config_gen_gate_race_failed gate=race status=1 display=race > "${S}/canned/$(_redpath_idx fuzz-panic).err"
+  _run_redpath
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=fuzz-panic reason=wrong_id gate=fuzz
 }
 
 # why: ADR-00000039 requires GOTOOLCHAIN=local so every gate runs the
