@@ -779,17 +779,48 @@ stale-edit-locale en_US.UTF-8|unset
 control C|unset"
 }
 
+# _glibc_getconf -- put a getconf on ${S}/bin that answers
+# GNU_LIBC_VERSION as glibc 2.35 does and hands every other query to the
+# real one, so the redpath takes this host for glibc (base#1465).
+_glibc_getconf() {
+  local real
+  real="$(command -v getconf || echo false)"
+  printf '#!%s\n[[ "${1:-}" == GNU_LIBC_VERSION ]] && { echo "glibc 2.35"; exit 0; }\nexec %s "$@"\n' \
+    "$(command -v bash)" "${real}" > "${S}/bin/getconf"
+  chmod +x "${S}/bin/getconf"
+}
+
 # why: A localedef that yields no en_US.UTF-8 in which [!-~] drops the
 # word leaves the case with a locale that proves nothing; it must fail as
 # locale_not_affected, before any runner call, not pass on the C behaviour
 # it falls back to (base#1465). In the musl test-tools image bash matches
-# the word under every locale, so a stub localedef that writes nothing is
-# that host.
+# the word under every locale, so a glibc getconf and a stub localedef
+# that writes nothing are that host.
 @test "config_gen_redpath.sh: stale-edit-locale fails as locale_not_affected when localedef makes no locale that drops the word (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
+  _glibc_getconf
   printf '#!%s\nexit 0\n' "$(command -v bash)" > "${S}/bin/localedef"
   chmod +x "${S}/bin/localedef"
+  run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+      CONFIG_GEN_REDPATH_ONLY='stale-edit-locale' \
+      timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+  assert_failure 1
+  assert_equal "$(_case_failures)" "stale-edit-locale|locale_not_affected"
+  assert_equal "$(_ran_cases | paste -sd' ')" control
+}
+
+# why: A glibc host with no localedef and no en_US.UTF-8 installed falls
+# back to C behaviour under LC_ALL=en_US.UTF-8, so the case would pass with
+# _cg_attr_ok's LC_ALL=C taken out and prove nothing (base#1465, review
+# round 2). A missing localedef is no reason to run the case: only a musl
+# libc is let through under the name as it is. The musl test-tools image
+# has no localedef; a glibc getconf makes it that glibc host.
+@test "config_gen_redpath.sh: stale-edit-locale fails as locale_not_affected on a glibc host with no localedef and no affected locale (base#1465)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _glibc_getconf
+  assert_equal "$(PATH="${S}/bin:${PATH}" command -v localedef || echo none)" none
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
       CONFIG_GEN_REDPATH_ONLY='stale-edit-locale' \
       timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
