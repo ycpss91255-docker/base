@@ -433,8 +433,9 @@ _gomod() {
   _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
-  run sed -n 6p "${SCRATCH}/dockerfile/config-gen/go.mod"
-  assert_output 'require golang.org/x/mod v0.22.0 // held: v0.21.0 is the last for go 1.22'
+  _assert_bytes "${SCRATCH}/dockerfile/config-gen/go.mod" 'module example.com/m' '' \
+    'go 1.27' '' '// tool-pin: xmod github-release golang/mod' \
+    'require golang.org/x/mod v0.22.0 // held: v0.21.0 is the last for go 1.22'
   _pins --value xmod
   assert_output v0.22.0
 }
@@ -449,8 +450,9 @@ _gomod() {
   _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
-  run sed -n 5p "${SCRATCH}/dockerfile/config-gen/go.mod"
-  assert_output $'\tgolang.org/x/mod v0.22.0'
+  _assert_bytes "${SCRATCH}/dockerfile/config-gen/go.mod" 'module example.com/m' '' \
+    'require (' $'\t// tool-pin: xmod github-release golang/mod' \
+    $'\tgolang.org/x/mod v0.22.0' ')'
 }
 
 # why: A quoted version is read without its quotes; the rewrite keeps them.
@@ -462,8 +464,9 @@ _gomod() {
   _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
-  run sed -n 3p "${SCRATCH}/dockerfile/config-gen/go.mod"
-  assert_output 'require "golang.org/x/mod" "v0.22.0"'
+  _assert_bytes "${SCRATCH}/dockerfile/config-gen/go.mod" 'module example.com/m' \
+    '// tool-pin: xmod github-release golang/mod' \
+    'require "golang.org/x/mod" "v0.22.0"'
 }
 
 # why: A version Go would rewrite (`v0.22` -> `v0.22.0`) is refused before
@@ -688,12 +691,10 @@ _foo_pin() {
   _docker_stub 'exit 0'
   _pins_json --set xmod v0.22.0
   assert_success
-  run cat "${SCRATCH}/dockerfile/config-gen/go.mod"
-  assert_output "$(printf '%s\n' 'module example.com/m' \
+  _assert_bytes "${SCRATCH}/dockerfile/config-gen/go.mod" 'module example.com/m' \
     '// tool-pin: xmod github-release golang/mod' \
     'require golang.org/x/mod v0.22.0 // literal \n text \\ end' \
-    'require golang.org/x/net v0.30.0')"
-  assert_equal "$(wc -l < "${SCRATCH}/dockerfile/config-gen/go.mod")" 4
+    'require golang.org/x/net v0.30.0'
 }
 
 # why: The same awk carried every rewrite, so a Dockerfile comment with a
@@ -705,9 +706,9 @@ _foo_pin() {
     'RUN true'
   _pins --set foo 1.3.0
   assert_success
-  run cat "${SCRATCH}/dockerfile/Dockerfile.test-tools"
-  assert_output "$(printf '%s\n' '# tool-pin: foo github-release owner/foo' \
-    'ARG FOO_VERSION=1.3.0  # held: C:\temp \t x' 'RUN true')"
+  _assert_bytes "${SCRATCH}/dockerfile/Dockerfile.test-tools" \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.3.0  # held: C:\temp \t x' 'RUN true'
 }
 
 # why: The last line of a file with no final newline stays without one: the
@@ -1108,7 +1109,6 @@ STUB
   _pins_json --set xmod v0.22.0
   assert_refusal 1 pin_set_refused "file=${_sum}" reason=mode_failed
   _assert_tree_delta
-  [[ ! -e "${_sum}" ]] || fail "a go.sum appeared: $(cat "${_sum}")"
 }
 
 # _assert_set_refused_untouched <event> <line> <reason> <go.mod line>...
