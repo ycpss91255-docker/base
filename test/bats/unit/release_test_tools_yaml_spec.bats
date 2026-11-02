@@ -337,7 +337,15 @@ _hex() {
   if [[ "${_ref}" == *@sha256:* ]]; then
     _h="${_ref##*@sha256:}"
   elif [[ "${_ref}" == "${IMAGE_TAG}" ]]; then
-    _h="${STUB_TAG_DIGEST}"
+    # A tag is mutable: when STUB_TAG_MOVED is set, the first read by name
+    # answers STUB_TAG_DIGEST and every later read by name answers the
+    # moved index, the way a concurrent publish would.
+    if [[ -n "${STUB_TAG_MOVED:-}" && -f "${STUB_FX}/.tag-read" ]]; then
+      _h="${STUB_TAG_MOVED}"
+    else
+      _h="${STUB_TAG_DIGEST}"
+      : > "${STUB_FX}/.tag-read"
+    fi
   else
     printf 'stub: unknown reference: %s\n' "${_ref}" >&2
     exit 91
@@ -375,6 +383,12 @@ case "${1:-}" in
       printf 'sha256:%s\n' "${_h}"
     elif [[ "${_raw}" -eq 1 ]]; then
       cat "${STUB_FX}/${_h}.json"
+      # A read that fails AFTER writing a usable body: the exit status is
+      # the only sign anything went wrong.
+      if [[ "${_h}" == "${STUB_RAW_FAIL:-}" ]]; then
+        printf 'stub: registry read of sha256:%s failed\n' "${_h}" >&2
+        exit 93
+      fi
     else
       # buildx's human listing, derived from the same raw index.
       printf 'Name:      %s\n' "${_ref}"
@@ -527,6 +541,31 @@ _fx_content() {
       "size": 2770,
       "platform": {
         "architecture": "arm64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+}
+
+# _fx_moved -- the index a tag moved to after the step resolved it: it lacks
+# the linux/arm64 image this run built AND its linux/amd64 child is content
+# nothing verified, so a read of it fails the platform listing and the
+# content comparison alike.
+_FX_MOVED='0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0dd0'
+_fx_moved() {
+  _fx "${_FX_MOVED}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
         "os": "linux"
       }
     }
@@ -734,6 +773,14 @@ _confirm_step_node() {
 #   agree        an ordinary publish, run 41451556967 verbatim -- the job
 #                verified the amd64 shard index, `:main` resolves to the
 #                flattened index, and both carry the same linux/amd64 child.
+#   moved        as agree, but every read of the tag BY NAME after the first
+#                answers an index missing linux/arm64 and carrying a
+#                linux/amd64 image nothing verified.
+#   rawfail-tag  as agree, but the raw read of the tag's index writes the
+#                whole index and then exits non-zero.
+#   rawfail-verified
+#                as agree, but the raw read of the verified index writes the
+#                whole index and then exits non-zero.
 #   content      the tag lists both platforms, but its linux/amd64 child is
 #                different content than was verified.
 #   platform     the tag resolves to the amd64 shard index alone, so it is
@@ -747,7 +794,7 @@ _confirm_step_node() {
 #   variant      a linux/arm/v7 shard; the tag carries linux/arm v6 and v7
 #                images, and only v7 is the verified one.
 _confirm_step_for() {
-  local _mode="${1}" _body _dir _tag _status=0
+  local _mode="${1}" _body _dir _tag _moved='' _rawfail='' _status=0
   _body="$(yaml_step_run "${WF}" merge \
       'Confirm the published tag names the verified content')" || {
     printf 'BUG: yq could not read the confirmation step of %s\n' "${WF}"
@@ -769,6 +816,9 @@ _confirm_step_for() {
   _fx_real
   case "${_mode}" in
     agree) _tag="${_FX_MAIN}" ;;
+    moved) _fx_moved; _tag="${_FX_MAIN}" _moved="${_FX_MOVED}" ;;
+    rawfail-tag) _tag="${_FX_MAIN}" _rawfail="${_FX_MAIN}" ;;
+    rawfail-verified) _tag="${_FX_MAIN}" _rawfail="${_FX_SHARD_AMD64}" ;;
     content) _fx_content; _tag="${_FX_CONTENT}" ;;
     platform) _tag="${_FX_SHARD_AMD64}" ;;
     attestation)
@@ -798,6 +848,8 @@ _confirm_step_for() {
     PATH="${SCRATCH}/bin:${PATH}" \
     STUB_FX="${SCRATCH}/fx" \
     STUB_TAG_DIGEST="${_tag}" \
+    STUB_TAG_MOVED="${_moved}" \
+    STUB_RAW_FAIL="${_rawfail}" \
     IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
     IMAGE_TAG='ghcr.io/ycpss91255-docker/test-tools:main' \
     VERIFIED_REF="ghcr.io/ycpss91255-docker/test-tools@sha256:${_verified}" \
@@ -1102,7 +1154,8 @@ _spec_prose() {
 # the tag names another: the shard digests are never in the tag's index
 # (base#1109), and on the containerd image store `docker image inspect .Id` is
 # that outer index digest, so comparing it fails every publish (base#1510).
-# The only object both indexes share is the runner-platform child.
+# What is compared instead is the image manifest each index carries for the
+# runner's platform.
 @test "release-test-tools.yaml: the tag confirmation passes when two different indexes share the runner-platform child (#1109, base#1510)" {
   # Run 41451556967 verbatim: the amd64 shard index sha256:a5689723... and
   # the :main index sha256:e1486c02... both carry linux/amd64 child
@@ -1112,6 +1165,35 @@ _spec_prose() {
   run _confirm_step_for agree
   assert_success
   refute_output --partial '::error::'
+}
+
+# why: A tag is mutable, so the step resolves it once and reads every answer
+# from that digest. A step that read the tag by name again would check
+# whatever another publish moved it to in between, not what this run
+# published; the moved index here fails both later reads, so either one going
+# back to the name fails the case.
+@test "release-test-tools.yaml: the tag confirmation reads the index the tag first resolved to, even after the tag moves (base#1510)" {
+  run _confirm_step_for moved
+  assert_success
+  refute_output --partial '::error::'
+  assert_output --partial 'names the verified linux/amd64 image (sha256:ce29e05d'
+}
+
+# why: Errexit does not reach into a command substitution, so a registry read
+# that writes a usable body and then fails would be read as an answer. Both
+# sides of the comparison must refuse a failed read, whatever it printed.
+@test "release-test-tools.yaml: the tag confirmation refuses a failed read of the tag's index, whatever it printed (base#1510)" {
+  run _confirm_step_for rawfail-tag
+  assert_failure
+  refute_output --partial 'names the verified'
+}
+
+# why: The verified side is read the same way, so the same failed read there
+# must refuse too, or the comparison runs against a body nobody vouched for.
+@test "release-test-tools.yaml: the tag confirmation refuses a failed read of the verified index, whatever it printed (base#1510)" {
+  run _confirm_step_for rawfail-verified
+  assert_failure
+  refute_output --partial 'names the verified'
 }
 
 # why: The property the step exists for: a tag that resolves to content other
