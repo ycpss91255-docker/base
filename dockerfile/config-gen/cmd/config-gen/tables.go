@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"syscall"
 
@@ -31,8 +32,12 @@ func init() {
 // error (EACCES, EPERM, ...) exits 1 with one
 // `config_gen_input_unreadable` frame. The answer is
 // one stdout write; a write error or a short count exits 4 with one
-// `config_gen_output_failed` frame.
+// `config_gen_output_failed` frame. That includes a stdout pipe whose
+// reader is gone: SIGPIPE is routed to a channel here, so the write
+// returns EPIPE instead of the Go runtime killing the process (os/signal);
+// only this command does so, other commands keep the default.
 func tablesCmd(args []string, stdout, stderr io.Writer) error {
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
 	if rc := runTables(args, stdout, stderr); rc != exitOK {
 		osExit(rc)
 	}
