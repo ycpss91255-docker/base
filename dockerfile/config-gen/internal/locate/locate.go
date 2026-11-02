@@ -86,6 +86,18 @@ type Node struct {
 	Children []*Node
 }
 
+// Decl is n's explicit record, the header or key that writes it, or nil
+// when every record of n is implicit. A key written more than once (a
+// document the parser refuses) gives its first.
+func (n *Node) Decl() *Occurrence {
+	for _, o := range n.Occ {
+		if !o.Implicit {
+			return o
+		}
+	}
+	return nil
+}
+
 // child is n's child with key k, or nil.
 func (n *Node) child(k string) *Node {
 	for _, c := range n.Children {
