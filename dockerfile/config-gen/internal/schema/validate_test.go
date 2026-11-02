@@ -60,6 +60,14 @@ func readValueRows(t *testing.T) []valueRow {
 // deploy.gpu_count (declared string|int) is the key whose empty policy
 // validates: `""`, `"02"` and a fullwidth digit are same-kind failures,
 // conf_value_invalid, while `true` and `1.5` are of another kind.
+// Every other scalar key of SCHEMA_VALIDATOR, and the three free-form
+// build keys, has rows too. The kind each key declares is dist/setup.toml's
+// (bool: init, privileged, compress, wrapper_transcript; int: max_file,
+// the *_keep / *_days and watchdog counts; string otherwise), so `"30"` at
+// an int key passes on its text while `max_file = 3.0` is refused as a
+// float. Values are judged on the bridge's text: `driver = inf` and
+// `name = 1979-05-27` pass, and a non-breaking space does not split
+// gpu_capabilities words under LC_ALL=C.
 func TestValidateMatchesSchemaSh(t *testing.T) {
 	for _, row := range readValueRows(t) {
 		name := row.section + "." + row.key + "=" + row.literal
