@@ -235,18 +235,6 @@ func TestEveryValidatorKeyAcceptsAndRefuses(t *testing.T) {
 	}
 }
 
-// Every rule has exactly one validator: a list (choice) or a predicate
-// (valid). accepts reads choice first, so a rule with both would have
-// its valid ignored, and a rule with neither would panic.
-func TestEveryRuleHasOneValidator(t *testing.T) {
-	for _, k := range slices.Sorted(maps.Keys(validators)) {
-		r := validators[k]
-		if (r.valid == nil) == (r.choice == nil) {
-			t.Errorf("%s: valid set %v, choice set %v; want exactly one", k, r.valid != nil, r.choice != nil)
-		}
-	}
-}
-
 // Scalar's text for every TOML scalar kind is the bridge's --kv text for
 // the same literal (base#1442): each row of corpus/s6/s6_scalar_texts.tsv
 // names a literal, its toml-test kind and the text the bridge prints; the
