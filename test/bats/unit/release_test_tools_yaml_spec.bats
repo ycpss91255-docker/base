@@ -380,7 +380,14 @@ case "${1:-}" in
         printf 'stub: unexpected format: %s\n' "${_fmt}" >&2
         exit 90
       }
-      printf 'sha256:%s\n' "${_h}"
+      # A resolution that succeeds and names no digest: when
+      # STUB_TAG_UNRESOLVED is set, the read by name exits 0 with an empty
+      # answer.
+      if [[ -n "${STUB_TAG_UNRESOLVED:-}" && "${_ref}" == "${IMAGE_TAG}" ]]; then
+        printf '\n'
+      else
+        printf 'sha256:%s\n' "${_h}"
+      fi
     elif [[ "${_raw}" -eq 1 ]]; then
       cat "${STUB_FX}/${_h}.json"
       # A read that fails AFTER writing a usable body: the exit status is
@@ -857,8 +864,11 @@ _confirm_step_node() {
 #   verified-ambiguous
 #                the verified index carries two linux/amd64 images, the
 #                tag's one listed first; the tag is the ordinary `:main` index.
+#   unresolved   as agree, but resolving the tag by name exits 0 and prints
+#                an empty answer instead of a digest.
 _confirm_step_for() {
-  local _mode="${1}" _body _dir _tag _moved='' _rawfail='' _status=0
+  local _mode="${1}" _body _dir _tag _moved='' _rawfail='' _unresolved=''
+  local _status=0
   _body="$(yaml_step_run "${WF}" merge \
       'Confirm the published tag names the verified content')" || {
     printf 'BUG: yq could not read the confirmation step of %s\n' "${WF}"
@@ -882,6 +892,7 @@ _confirm_step_for() {
     agree) _tag="${_FX_MAIN}" ;;
     moved) _fx_moved; _tag="${_FX_MAIN}" _moved="${_FX_MOVED}" ;;
     rawfail-tag) _tag="${_FX_MAIN}" _rawfail="${_FX_MAIN}" ;;
+    unresolved) _tag="${_FX_MAIN}" _unresolved=1 ;;
     rawfail-verified) _tag="${_FX_MAIN}" _rawfail="${_FX_SHARD_AMD64}" ;;
     content) _fx_content; _tag="${_FX_CONTENT}" ;;
     platform) _tag="${_FX_SHARD_AMD64}" ;;
@@ -924,6 +935,7 @@ _confirm_step_for() {
     STUB_TAG_DIGEST="${_tag}" \
     STUB_TAG_MOVED="${_moved}" \
     STUB_RAW_FAIL="${_rawfail}" \
+    STUB_TAG_UNRESOLVED="${_unresolved}" \
     IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
     IMAGE_TAG='ghcr.io/ycpss91255-docker/test-tools:main' \
     VERIFIED_REF="ghcr.io/ycpss91255-docker/test-tools@sha256:${_verified}" \
@@ -1346,6 +1358,16 @@ _spec_prose() {
   run _confirm_step_for verified-ambiguous
   assert_failure
   assert_output --partial "test-tools@sha256:${_FX_AMB_SHARD} carries 2 image manifests for linux/amd64"
+  refute_output --partial 'names the verified'
+}
+
+# why: Every later read goes through `${IMAGE}@<answer>`, so an answer that is
+# not a digest would make the step read a reference nobody resolved. The
+# step refuses it at the source, naming the tag, before any comparison.
+@test "release-test-tools.yaml: the tag confirmation refuses a tag that does not resolve to a digest (base#1510)" {
+  run _confirm_step_for unresolved
+  assert_failure
+  assert_output --partial '::error::ghcr.io/ycpss91255-docker/test-tools:main did not resolve to a digest'
   refute_output --partial 'names the verified'
 }
 
