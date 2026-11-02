@@ -35,6 +35,16 @@
 #                  whose result goes unasserted; the change is
 #                  only an untracked file under the module's
 #                  root testdata/
+#   sens-per-golden  an untracked golden whose one consumer reached  corpus_sensitivity
+#                  through a helper asserts only that it exists,
+#                  beside a strong reader of another golden
+#
+# A sensitivity case listed in _RP_WEAK (gate corpus_sensitivity,
+# base#1467) must also carry, as the runner's JSON
+# config_gen_corpus_sensitivity_weak records, exactly the `<pkg>|<file>`
+# pairs its row names, in that order (reason weak_records_mismatch): the
+# golden whose byte flip left that package's tests passing, and no record
+# for a package that reads another golden.
 #
 # A mutation case (gate mutation, base#1467) must also show the manifest
 # the 00-manifest step wrote with dirty=yes: a step planted after every
@@ -163,7 +173,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-timeout:mutation corpus:mutation)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-timeout:mutation corpus:mutation sens-per-golden:corpus_sensitivity)
 # <case>|<the line the mutation gate must print for it> (base#1467). The
 # mut-timeout figure is 3 killed over 4 judged: gremlins reported its loop
 # fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
@@ -172,6 +182,15 @@ readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race covera
 readonly -a _RP_MUTATION_LINES=(
   'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0'
   'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0'
+)
+# <case>|<pkg>|<file>: each weak record the sensitivity gate must log for
+# <case>, in order (base#1467). sens-per-golden's one pair is its planted
+# tests' own contract: zzglob reaches zz.golden only through zzhelp and
+# asserts only that Glob returned it, so no byte of it can fail zzglob;
+# zzhelp compares zz.golden's bytes and zzseed seed.golden's, so neither
+# is weak.
+readonly -a _RP_WEAK=(
+  'sens-per-golden|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzglob|golden/s1/zz.golden'
 )
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
@@ -696,6 +715,97 @@ EOF
       printf 'c\n' >"${mod}/testdata/c.txt"
       _rp_manifest_step "${root}"
       ;;
+    sens-per-golden)
+      # zzseed, zzhelp and zzglob are committed with their floors (the two
+      # test-only packages have no statements, so none); the change is
+      # only the untracked golden/s1/zz.golden. zzseed compares
+      # seed.golden's bytes and never reads zz.golden. zzhelp's Golden
+      # returns zz.golden through internal/testcorpus, and zzhelp's own
+      # test compares its bytes. zzglob calls zzhelp.Golden and asserts
+      # only that one path came back, so a flipped byte of zz.golden
+      # leaves it passing: the one weak pair (base#1467).
+      mkdir -p "${mod}/internal/zzseed" "${mod}/internal/zzhelp" "${mod}/internal/zzglob"
+      cat >"${mod}/internal/zzseed/zzseed_test.go" <<'EOF'
+package zzseed
+
+import (
+	"os"
+	"testing"
+
+	"MODPATH/internal/testcorpus"
+)
+
+func TestSeed(t *testing.T) {
+	for _, p := range testcorpus.Glob(t, "golden/s1/seed.golden") {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+			t.Fatalf("%s = %q", p, b)
+		}
+	}
+}
+EOF
+      cat >"${mod}/internal/zzhelp/zzhelp.go" <<'EOF'
+// Package zzhelp is a redpath fixture that hands its callers zz.golden.
+package zzhelp
+
+import (
+	"testing"
+
+	"MODPATH/internal/testcorpus"
+)
+
+// Golden returns zz.golden's path, read through internal/testcorpus.
+func Golden(t testing.TB) []string {
+	t.Helper()
+	return testcorpus.Glob(t, "golden/s1/zz.golden")
+}
+EOF
+      cat >"${mod}/internal/zzhelp/zzhelp_test.go" <<'EOF'
+package zzhelp
+
+import (
+	"os"
+	"testing"
+)
+
+func TestGolden(t *testing.T) {
+	for _, p := range Golden(t) {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != "zz golden for redpath sens-per-golden (base#1467)\n" {
+			t.Fatalf("%s = %q", p, b)
+		}
+	}
+}
+EOF
+      cat >"${mod}/internal/zzglob/zzglob_test.go" <<'EOF'
+package zzglob
+
+import (
+	"testing"
+
+	"MODPATH/internal/zzhelp"
+)
+
+func TestGlob(t *testing.T) {
+	if got := zzhelp.Golden(t); len(got) != 1 {
+		t.Fatalf("zzhelp.Golden = %q, want one path", got)
+	}
+}
+EOF
+      sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
+        "${mod}/internal/zzseed/zzseed_test.go" "${mod}/internal/zzhelp/zzhelp.go" \
+        "${mod}/internal/zzglob/zzglob_test.go"
+      printf 'internal/zzseed none\ninternal/zzhelp 100.0\ninternal/zzglob none\n' \
+        >"${mod}/coverage-floors.d/zz.txt"
+      _rp_rebase "${root}"
+      printf 'zz golden for redpath sens-per-golden (base#1467)\n' >"${mod}/testdata/golden/s1/zz.golden"
+      ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
     coverage)
@@ -778,7 +888,7 @@ _rp_gates() {
 # from service config-gen whose body is exactly a gate id. The build log
 # streamed ahead of it, an id quoted inside other text and a longer id that
 # starts with one are none of them that record (base#1462).
-readonly _RP_GATE_RECORD_RE='^\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\{"service\.name":"config-gen",.*\}\}$'
+readonly _RP_GATE_RECORD_RE='^\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z_]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\{"service\.name":"config-gen",.*\}\}$'
 
 # _rp_exit_one <rc> -- empty when a refused run exited exactly 1, the
 # status every refusal ends with; else rc_zero or rc_not_one. A runner that
@@ -819,6 +929,16 @@ _rp_mutation_line() {
   return 0
 }
 
+# _rp_weak_pairs <case> -- the `<pkg>|<file>` pairs _RP_WEAK holds for
+# <case>, one per line in table order; empty when it holds none.
+_rp_weak_pairs() {
+  local entry
+  for entry in "${_RP_WEAK[@]}"; do
+    [[ "${entry%%|*}" == "${1}" ]] && printf '%s\n' "${entry#*|}"
+  done
+  return 0
+}
+
 # _rp_line_ends <err> <line> -- true when a line of <err> ends with
 # " <line>" (the build log puts its step and time first).
 _rp_line_ends() {
@@ -829,7 +949,7 @@ _rp_line_ends() {
 # _rp_case <scratch> <case> <gate> -- run one planted case; non-zero when
 # it did not go red as planted.
 _rp_case() {
-  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason line
+  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason line weak
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
   _rp_gates "${root}" "${name}" || rc=$?
@@ -837,6 +957,11 @@ _rp_case() {
   line="$(_rp_mutation_line "${name}")"
   if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
     reason=mutation_line_missing
+  fi
+  weak="$(_rp_weak_pairs "${name}")"
+  if [[ -z "${reason}" && -n "${weak}" ]] \
+    && [[ "$(_rp_event_detail "${root}.err" config_gen_corpus_sensitivity_weak pkg file)" != "${weak}" ]]; then
+    reason=weak_records_mismatch
   fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2

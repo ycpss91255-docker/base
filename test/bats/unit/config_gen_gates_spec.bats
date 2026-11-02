@@ -440,7 +440,9 @@ _df_instructions() {
 # redpath's own tables: a case dropped from the redpath must still get its
 # canned answer and its expected runner call, so the full run below fails
 # on it (base#1465). <want> is the gate (and, for a mutation case the
-# redpath's _RP_MUTATION_LINES names, `|<the gate's line>`), the event id,
+# redpath's _RP_MUTATION_LINES names, `|<the gate's line>`; for a
+# sensitivity case its _RP_WEAK names, `|<line, may be empty>|<pkg>|<file>`
+# of its one weak record), the event id,
 # `<file>|<reason>`,
 # empty, or `<event>|<pkg>|<file>` (file empty when the event names none).
 _redpath_rows() {
@@ -458,6 +460,7 @@ gate|corpus-var|race
 gate|mut-unstaged|mutation
 gate|mut-timeout|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0
 gate|corpus|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0
+gate|sens-per-golden|corpus_sensitivity||github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzglob|golden/s1/zz.golden
 refusal|no-context|config_gen_manifest_missing
 stale|stale-edit|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
 stale|stale-edit-locale|dockerfile/config-gen/cmd/config-gen/main.go|sha_mismatch
@@ -628,8 +631,12 @@ _canned_correct() {
       gate)
         _ok_lines "${_want}" > "${_c}.out"
         printf '#9 0.31 config_gen_gate_%s_failed\n' "${_want}" > "${_c}.err"
-        _gate_record "config_gen_gate_${_want}_failed" "gate=${_want}" status=1 \
-          "display=config-gen gate ${_want} failed (docker exited 1)" >> "${_c}.err"
+        # Made from a registered gate id, so a gate the logger does not
+        # list yet (corpus_sensitivity, base#1467) still gets a record;
+        # only the body is the case's gate's.
+        _gate_record config_gen_gate_fmt_failed "gate=${_want}" status=1 \
+          "display=config-gen gate ${_want} failed (docker exited 1)" \
+          | sed "s/\"body\":\"config_gen_gate_fmt_failed\"/\"body\":\"config_gen_gate_${_want}_failed\"/" >> "${_c}.err"
         # A mutation case's planted step prints the dirty manifest header
         # (base#1467).
         [[ "${_want}" != mutation ]] \
@@ -638,6 +645,12 @@ _canned_correct() {
         # A gate row's fourth field is the line its gate prints, streamed
         # by the build log (base#1467).
         [[ -z "${_reason}" ]] || printf '#12 3.21 %s\n' "${_reason}" >> "${_c}.err"
+        # Its fifth and sixth fields are the pkg and file of the one weak
+        # record the sensitivity gate logs for it (base#1467), made from a
+        # registered id as a refusal's is.
+        [[ -z "${_extra}" ]] \
+          || _gate_record config_gen_build_failed "pkg=${_extra%%|*}" "file=${_extra#*|}" status=1 "display=weak" \
+            | sed 's/"body":"config_gen_build_failed"/"body":"config_gen_corpus_sensitivity_weak"/' >> "${_c}.err"
         ;;
       refusal)
         : > "${_c}.out"
