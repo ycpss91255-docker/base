@@ -83,6 +83,8 @@ _mini() {
   done
 }
 
+# why: a fixture read with no stated expectation would be judged by
+# whatever class a default picked; the partition check must name it.
 @test "partition: a fixture with no EXPECT row fails" {
   _mini a b
   printf 'a\tparity\n' > "${S}/EXPECT"
@@ -91,6 +93,8 @@ _mini() {
   assert_output --partial "fixture with no EXPECT row: b"
 }
 
+# why: a stale row for a deleted fixture would stand for a case nothing
+# runs any more; the partition check must name it.
 @test "partition: an EXPECT row with no fixture fails" {
   _mini a
   printf 'a\tparity\nghost\tparity-refused\n' > "${S}/EXPECT"
@@ -99,6 +103,9 @@ _mini() {
   assert_output --partial "EXPECT row with no fixture: ghost"
 }
 
+# why: the divergent class is today's known TOML 1.1 gap and nothing
+# else; on any other name it would excuse a real parity break. Exactly the
+# offending row is reported, the toml11_* one is not.
 @test "partition: bridge-refused-go-accepted on a non-toml11_* fixture fails" {
   _mini a toml11_ok
   printf 'a\tbridge-refused-go-accepted\ntoml11_ok\tbridge-refused-go-accepted\n' > "${S}/EXPECT"
@@ -107,6 +114,9 @@ _mini() {
   assert_output "bridge-refused-go-accepted on a non-toml11_* fixture: a"
 }
 
+# why: the control for the three refusals above: every class on a
+# matching fixture set passes silently, so their failures are the rule
+# firing and not a check that refuses everything.
 @test "partition: one well-formed row per fixture passes" {
   _mini a b toml11_ok
   printf 'a\tparity\nb\tparity-refused\ntoml11_ok\tbridge-refused-go-accepted\n' > "${S}/EXPECT"
@@ -115,6 +125,8 @@ _mini() {
   assert_output ""
 }
 
+# why: the same check over the real corpus and EXPECT, so a fixture added
+# or deleted without its row fails here before any per-class comparison.
 @test "the s1 corpus is partitioned by golden/s1/EXPECT, one row per fixture" {
   run _expect_partition "${TESTDATA}/corpus/s1" "${TESTDATA}/golden/s1/EXPECT"
   assert_success
@@ -187,17 +199,30 @@ _mini() {
 # id the binary frames but the registry lacks would turn a refusal into a
 # crash of its caller. This drives the built binary down each refusal it
 # can reach -- wrong argv, a parse error, a missing path, a directory, a
-# mode-000 file opened by uid 65534, and a stdout on /dev/full -- reads the
-# event field of the one frame each writes, and requires every id to be a
-# line of the registry (base#1469 I/O contract; files: log-events.txt).
+# mode-000 file opened by uid 65534, and a stdout on /dev/full -- and
+# requires of each the exit status and event id the I/O contract names
+# for it (usage 2, output failure 4, every other refusal 1), exactly one
+# 8-field frame, and that event id being a line of the registry
+# (base#1469 I/O contract; files: log-events.txt). Pinning the exact pair
+# per case keeps a refusal that took the wrong path -- a write failure
+# reported as rc 1 with some other registered id -- from passing.
 @test "every event id the config-gen binary frames is registered in log-events.txt" {
   local _reg="/source/dist/script/docker/lib/log-events.txt"
   local _ok="${TESTDATA}/corpus/s1/implicit_parent_order.toml"
-  local _case _rc _cmd _shared _bad=0
+  local _case _rc _cmd _shared _want_rc _want_ev _bad=0
   local -a _f=()
+  local -A _want=(
+    [usage]="2 config_gen_usage_invalid"
+    [parse]="1 conf_toml_parse_failed"
+    [missing]="1 no_such_file"
+    [dir]="1 config_gen_input_not_regular"
+    [unreadable]="1 config_gen_input_unreadable"
+    [full]="4 config_gen_output_failed"
+  )
   if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
     fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
   fi
+  # toml-fixture-lint: allow the parse refusal is the case under test
   printf '[a]\nk = = 1\n' > "${S}/bad.toml"
   mkdir -p "${S}/dir.toml"
   # uid 65534 must reach the binary and the locked file, and the bats
@@ -228,11 +253,12 @@ _mini() {
         ;;
       full) "${CONFIG_GEN_BIN}" tables --name l "${_ok}" > /dev/full 2> "${S}/err" || _rc=$? ;;
     esac
+    read -r _want_rc _want_ev <<<"${_want[${_case}]}"
     _f=()
     mapfile -d '' -t _f < "${S}/err"
-    if (( _rc == 0 || ${#_f[@]} != 8 )) || [[ "${_f[0]:-}" != D ]]; then
-      printf '%s: rc=%d, %d NUL fields, want a non-zero exit and one 8-field frame\n' \
-        "${_case}" "${_rc}" "${#_f[@]}"
+    if (( _rc != _want_rc || ${#_f[@]} != 8 )) || [[ "${_f[0]:-}" != D || "${_f[2]:-}" != "${_want_ev}" ]]; then
+      printf '%s: rc=%d, %d NUL fields, event %s; want rc %d and one 8-field frame with event %s\n' \
+        "${_case}" "${_rc}" "${#_f[@]}" "${_f[2]:-}" "${_want_rc}" "${_want_ev}"
       _bad=1
       continue
     fi
@@ -242,6 +268,55 @@ _mini() {
     fi
   done
   rm -rf -- "${_shared}"
+  (( _bad == 0 ))
+}
+
+# ── non-regular input on the built binary ──────────────────────────────────
+
+# why: the Go test drives the same four types in-process; this repeats them
+# on the built binary, each under `timeout 10`, so an open that waits for a
+# FIFO writer, or a read that blocks on a socket or a device, ends as rc
+# 124 and fails here instead of hanging the suite. Every type -- a
+# directory, a FIFO with no writer, the character device /dev/null and a
+# unix socket -- must give rc 1, empty stdout and exactly one
+# `config_gen_input_not_regular` frame whose file field is the --name
+# label (base#1469 Input: open O_RDONLY|O_NONBLOCK, fstat on the fd). The
+# socket lives in a short /tmp directory of its own: sun_path holds 108
+# bytes, which the bats tmpdir can exceed.
+@test "config-gen binary refuses a directory, FIFO, char device and socket under timeout 10" {
+  local _case _path _rc _sockdir _bad=0
+  local -a _f=()
+  if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
+    fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
+  fi
+  mkdir -p "${S}/dir.toml"
+  mkfifo "${S}/fifo.toml"
+  _sockdir="$(mktemp -d /tmp/cg-sock.XXXXXX)"
+  python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' \
+    "${_sockdir}/s.toml"
+  [[ -S "${_sockdir}/s.toml" ]] || fail "no unix socket at ${_sockdir}/s.toml"
+  [[ -c /dev/null ]] || fail "/dev/null is not a character device"
+
+  for _case in dir fifo chardev socket; do
+    case "${_case}" in
+      dir) _path="${S}/dir.toml" ;;
+      fifo) _path="${S}/fifo.toml" ;;
+      chardev) _path=/dev/null ;;
+      socket) _path="${_sockdir}/s.toml" ;;
+    esac
+    _rc=0
+    timeout 10 "${CONFIG_GEN_BIN}" tables --name l.toml "${_path}" \
+      > "${S}/out" 2> "${S}/err" || _rc=$?
+    _f=()
+    mapfile -d '' -t _f < "${S}/err"
+    if (( _rc != 1 || ${#_f[@]} != 8 )) || [[ -s "${S}/out" ]] \
+        || [[ "${_f[0]:-}" != D || "${_f[2]:-}" != config_gen_input_not_regular || "${_f[3]:-}" != l.toml ]]; then
+      printf '%s: rc=%d (124 is the timeout), stdout bytes=%d, %d NUL fields, event %s, file %s; want rc 1, empty stdout, one config_gen_input_not_regular frame for l.toml\n' \
+        "${_case}" "${_rc}" "$(wc -c < "${S}/out")" "${#_f[@]}" "${_f[2]:-}" "${_f[3]:-}"
+      _bad=1
+    fi
+  done
+  rm -rf -- "${_sockdir}"
   (( _bad == 0 ))
 }
 

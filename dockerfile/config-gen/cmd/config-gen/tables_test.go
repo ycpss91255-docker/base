@@ -42,10 +42,22 @@ func cli(t *testing.T, args ...string) (int, []byte, []byte) {
 	return rc, stdout.Bytes(), stderr.Bytes()
 }
 
+// countingWriter is a bytes.Buffer that counts the Write calls made on it.
+type countingWriter struct {
+	bytes.Buffer
+	calls int
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.calls++
+	return w.Buffer.Write(p)
+}
+
 // `config-gen tables --name <label> <path>` exits 0 and prints exactly the
 // bytes the bridge's `toml_bridge.py --tables` prints for the same file,
-// with nothing on stderr (base#1469). The want bytes are those bridge
-// outputs, captured into golden/s1, one per corpus/s1 fixture.
+// in one stdout Write call, with nothing on stderr (base#1469 Partial
+// write: the answer is built in memory and written once). The want bytes
+// are the goldens captured into golden/s1, one per corpus/s1 fixture.
 func TestTablesPrintsTheBridgeGolden(t *testing.T) {
 	for _, src := range testcorpus.Glob(t, "corpus/s1/*.toml") {
 		name := strings.TrimSuffix(filepath.Base(src), ".toml")
@@ -56,7 +68,14 @@ func TestTablesPrintsTheBridgeGolden(t *testing.T) {
 				t.Fatalf("read %s: %v", goldens[0], err)
 			}
 
-			rc, stdout, stderr := cli(t, "tables", "--name", name+".toml", src)
+			var out countingWriter
+			var errb bytes.Buffer
+			trapped = -1
+			rc := run([]string{"tables", "--name", name + ".toml", src}, &out, &errb)
+			if trapped != -1 {
+				rc = trapped
+			}
+			stdout, stderr := out.Bytes(), errb.Bytes()
 			if rc != 0 {
 				t.Fatalf("config-gen tables exited %d, want 0 (stderr %q)", rc, stderr)
 			}
@@ -65,6 +84,9 @@ func TestTablesPrintsTheBridgeGolden(t *testing.T) {
 			}
 			if len(stderr) != 0 {
 				t.Fatalf("config-gen tables stderr = %q, want empty", stderr)
+			}
+			if out.calls != 1 {
+				t.Fatalf("config-gen tables made %d stdout Write calls, want exactly 1: the answer is built in memory and written once", out.calls)
 			}
 		})
 	}
@@ -101,10 +123,12 @@ func frames(t *testing.T, stderr []byte) [][]string {
 }
 
 // `config-gen tables` called with the wrong argv -- no arguments, a path
-// with no `--name`, or an extra argument after the path -- exits 2, prints
-// nothing on stdout, and its stderr is exactly one frame whose event is
-// `config_gen_usage_invalid` (base#1469 I/O contract; exit 2 is wrong argv
-// per the issue, the event id is the one log-events.txt registers).
+// with no `--name`, an extra argument after the path, or three arguments
+// whose first is not `--name` -- exits 2, prints nothing on stdout, and
+// its stderr is exactly one frame whose event is `config_gen_usage_invalid`
+// (base#1469 I/O contract; exit 2 is wrong argv per the issue, the event
+// id is the one log-events.txt registers). The three-argument rows have
+// the right count, so only the flag check can refuse them.
 func TestTablesWrongArgvIsOneUsageFrame(t *testing.T) {
 	src := testcorpus.Glob(t, "corpus/s1/*.toml")[0]
 	for _, tc := range []struct {
@@ -114,6 +138,9 @@ func TestTablesWrongArgvIsOneUsageFrame(t *testing.T) {
 		{"none", []string{"tables"}},
 		{"positional_only", []string{"tables", src}},
 		{"extra", []string{"tables", "--name", "l.toml", src, "extra"}},
+		{"misspelled_flag", []string{"tables", "--nam", "l.toml", src}},
+		{"flag_after_label", []string{"tables", "l.toml", "--name", src}},
+		{"path_first", []string{"tables", src, "--name", "l.toml"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rc, stdout, stderr := cli(t, tc.args...)
@@ -297,7 +324,7 @@ func TestTablesMissingInputIsOneNoSuchFileFrame(t *testing.T) {
 	}
 }
 
-// faultWriter takes at most limit bytes in total and then refuses: the
+// faultWriter takes at most limit bytes in total and then refuses. The
 // write that reaches the limit, and every write after it, returns the
 // bytes it took and a non-nil error -- or, with shortNil, a short count
 // with a nil error, which the io.Writer contract forbids but a caller
@@ -306,11 +333,13 @@ type faultWriter struct {
 	limit    int
 	shortNil bool
 	got      []byte
+	calls    int
 }
 
 var errFault = errors.New("injected write fault")
 
 func (w *faultWriter) Write(p []byte) (int, error) {
+	w.calls++
 	room := w.limit - len(w.got)
 	if room >= len(p) {
 		w.got = append(w.got, p...)
@@ -330,9 +359,11 @@ func (w *faultWriter) Write(p []byte) (int, error) {
 // or takes some and then refuses, or reports a short count -- `config-gen
 // tables` exits 4 and its stderr is exactly one `config_gen_output_failed`
 // frame; the bytes the sink did take are a strict prefix of the bridge
-// golden (base#1469 I/O contract: exit 4 on any write error or short
-// write, one frame, never one per chunk). The fixture's bridge golden is
-// over 64 KiB, so half of it is more than one pipe buffer.
+// golden, and the command made exactly one Write call, so it neither
+// streamed the answer in chunks nor retried the rest after a short write
+// (base#1469 I/O contract: exit 4 on any write error or short write, one
+// frame, never one per chunk). The fixture's bridge golden is over 64
+// KiB, so half of it is more than one pipe buffer.
 func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
 	golden := testcorpus.Glob(t, "golden/s1/large_tables.golden")[0]
@@ -370,6 +401,9 @@ func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 			}
 			if len(tc.w.got) >= len(want) || !bytes.HasPrefix(want, tc.w.got) {
 				t.Fatalf("sink took %d bytes, want a strict prefix of the %d-byte golden", len(tc.w.got), len(want))
+			}
+			if tc.w.calls != 1 {
+				t.Fatalf("config-gen tables made %d Write calls on stdout, want exactly 1", tc.w.calls)
 			}
 		})
 	}

@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **273 tests**.
+Integration specs under `test/bats/integration/`: **275 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -78,7 +78,7 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
 
-### test/bats/integration/config_gen_bridge_golden_spec.bats (7)
+### test/bats/integration/config_gen_bridge_golden_spec.bats (9)
 
 Every fixture under dockerfile/config-gen/testdata/corpus/s1 carries one
 explicit expectation class in testdata/golden/s1/EXPECT, one row per
@@ -95,12 +95,14 @@ stated expectation and a stale row can never stand for a deleted one.
 
 | Test | Description |
 |------|-------------|
-| `partition: a fixture with no EXPECT row fails` | - |
-| `partition: an EXPECT row with no fixture fails` | - |
-| `partition: bridge-refused-go-accepted on a non-toml11_* fixture fails` | - |
-| `partition: one well-formed row per fixture passes` | - |
-| `the s1 corpus is partitioned by golden/s1/EXPECT, one row per fixture` | - |
+| `partition: a fixture with no EXPECT row fails` | a fixture read with no stated expectation would be judged by whatever class a default picked; the partition check must name it. |
+| `partition: an EXPECT row with no fixture fails` | a stale row for a deleted fixture would stand for a case nothing runs any more; the partition check must name it. |
+| `partition: bridge-refused-go-accepted on a non-toml11_* fixture fails` | the divergent class is today's known TOML 1.1 gap and nothing else; on any other name it would excuse a real parity break. Exactly the offending row is reported, the toml11_* one is not. |
+| `partition: one well-formed row per fixture passes` | the control for the three refusals above: every class on a matching fixture set passes silently, so their failures are the rule firing and not a check that refuses everything. |
+| `the s1 corpus is partitioned by golden/s1/EXPECT, one row per fixture` | the same check over the real corpus and EXPECT, so a fixture added or deleted without its row fails here before any per-class comparison. |
 | `per EXPECT class, the bridge and the config-gen binary each match golden/s1` | the golden is the bridge's own `--tables` answer captured once; this re-runs BOTH sides over every s1 fixture and compares each one's bytes to that file with cmp, never through $(...), which would drop trailing LFs and hide a missing or extra final newline. The binary is the built config-gen that script/test/test.sh provisions as CONFIG_GEN_BIN; an unprovisioned binary fails the spec (ci_config_gen_unprovisioned), it is never skipped, so a run without it can not pass by testing nothing. |
+| `every event id the config-gen binary frames is registered in log-events.txt` | log-events.txt is the registered body enum; an unregistered body is fatal once the shell re-emits a frame through _log_* (#438), so an event id the binary frames but the registry lacks would turn a refusal into a crash of its caller. This drives the built binary down each refusal it can reach -- wrong argv, a parse error, a missing path, a directory, a mode-000 file opened by uid 65534, and a stdout on /dev/full -- and requires of each the exit status and event id the I/O contract names for it (usage 2, output failure 4, every other refusal 1), exactly one 8-field frame, and that event id being a line of the registry (base#1469 I/O contract; files: log-events.txt). Pinning the exact pair per case keeps a refusal that took the wrong path -- a write failure reported as rc 1 with some other registered id -- from passing. |
+| `config-gen binary refuses a directory, FIFO, char device and socket under timeout 10` | the Go test drives the same four types in-process; this repeats them on the built binary, each under `timeout 10`, so an open that waits for a FIFO writer, or a read that blocks on a socket or a device, ends as rc 124 and fails here instead of hanging the suite. Every type -- a directory, a FIFO with no writer, the character device /dev/null and a unix socket -- must give rc 1, empty stdout and exactly one `config_gen_input_not_regular` frame whose file field is the --name label (base#1469 Input: open O_RDONLY\|O_NONBLOCK, fstat on the fd). The socket lives in a short /tmp directory of its own: sun_path holds 108 bytes, which the bats tmpdir can exceed. |
 | `config-gen binary on a size-limited stdout exits 4 with one frame and a golden prefix` | the Go fault writer covers a write that fails at byte N in-process; this is the same contract on the built binary against a real file whose size limit (RLIMIT_FSIZE via prlimit) lets it take some bytes and then refuse with EFBIG, which /dev/full (0 bytes, ENOSPC) can not show. The answer is exit 4, exactly one `config_gen_output_failed` frame, and a non-empty stdout that is a strict prefix of the bridge golden (base#1469 I/O contract). SIGXFSZ is ignored so the write returns EFBIG instead of killing the process. prlimit must be on PATH in every environment the spec runs in (test-tools installs util-linux-misc); a missing prlimit fails here, it is never skipped. |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
