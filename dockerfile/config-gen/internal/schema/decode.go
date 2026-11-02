@@ -146,7 +146,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 	if err != nil {
 		return nil, []Refusal{parseRefusal(lines, err)}
 	}
-	d := decoder{lines: lines, refused: map[string]bool{}}
+	d := decoder{lines: lines, refused: map[string]bool{}, tables: map[string]bool{}}
 next:
 	for _, k := range md.Keys() {
 		if i := badName(k); i >= 0 {
@@ -160,23 +160,30 @@ next:
 			}
 			continue
 		}
-		// The outermost table on the path that is refused, or the first
-		// array on it, decides for everything under it. A prefix is
-		// classified by its decoded value, so an implicit table, which
-		// md.Keys() need not list, is classified too.
+		// Every table on the path is judged by its section text, as the
+		// shell's --tables walk judges it: each one _setup_known_section
+		// does not know is refused once, and nothing under it is judged
+		// further. The first array on the path decides for everything
+		// under it. A prefix is classified by its decoded value, so an
+		// implicit table, which md.Keys() need not list, is classified
+		// too.
+		unknown := false
 		for i := 1; i < len(k); i++ {
 			switch lookup(doc, k[:i]).(type) {
 			case []map[string]any, []any:
 				continue next
 			case map[string]any:
 				if !accepted(k[:i]) {
-					if !d.refused[pathID(k[:i])] {
-						line, col := tablePos(lines, k[:i])
-						d.refuse("conf_unknown_table", k[:i], line, col)
-					}
-					continue next
+					d.refuseTable(k[:i])
+					unknown = true
 				}
 			}
+		}
+		if unknown {
+			if md.Type(k...) == "Hash" {
+				d.refuseTable(k)
+			}
+			continue
 		}
 		d.judge(md, doc, k)
 	}
@@ -204,6 +211,22 @@ type decoder struct {
 	refusals []Refusal
 	// refused holds the pathID of every refused path.
 	refused map[string]bool
+	// tables holds the section text of every refused table.
+	tables map[string]bool
+}
+
+// refuseTable refuses the table k as conf_unknown_table at its first
+// occurrence, once per section text: the shell reports a text once
+// however many paths spell it (_setup_conf_check_known's _sck_reported).
+func (d *decoder) refuseTable(k []string) {
+	text := strings.Join(k, ".")
+	if d.tables[text] {
+		d.refused[pathID(k)] = true
+		return
+	}
+	d.tables[text] = true
+	line, col := tablePos(d.lines, k)
+	d.refuse("conf_unknown_table", k, line, col)
 }
 
 func (d *decoder) refuse(event string, k []string, line, col int) {
@@ -228,9 +251,8 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 	line, col := keyPos(d.lines, k)
 	switch {
 	case typ == "Hash":
-		if !accepted(k) && !d.refused[pathID(k)] {
-			line, col = tablePos(d.lines, k)
-			d.refuse("conf_unknown_table", k, line, col)
+		if !accepted(k) {
+			d.refuseTable(k)
 		}
 		return
 	case len(k) == 1 && (typ == "ArrayHash" || typ == "Array"):
@@ -241,8 +263,7 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 		switch {
 		case known[k[0]]:
 		case typ == "ArrayHash":
-			line, col = tablePos(d.lines, k)
-			d.refuse("conf_unknown_table", k, line, col)
+			d.refuseTable(k)
 		default:
 			d.refuse("conf_top_level_key", k, line, col)
 		}
@@ -250,10 +271,25 @@ func (d *decoder) judge(md toml.MetaData, doc map[string]any, k []string) {
 	case len(k) == 1:
 		d.refuse("conf_top_level_key", k, line, col)
 		return
-	case typ == "ArrayHash":
-		// An array of tables nested under a known table is the array
-		// stage's.
-		return
+	case stage(k):
+		// A `["stage:<name>"]` table is not judged here; only a string
+		// value's characters are (below).
+	case typ == "ArrayHash" || typ == "Array":
+		// An array of a numbered family is judged by the row its first
+		// entry takes: `[[security.cap_drop]]` and `cap_drop = []` are
+		// security.cap_drop_1, as the shell's --kv and --empty-families
+		// views name them. Its payload is the array stage's.
+		if prefix, ok := arrayFamily[key]; ok {
+			if !knownKey(section, prefix+"_1") {
+				d.refuse("conf_unknown_key", k, line, col)
+			}
+			return
+		}
+		if typ == "ArrayHash" {
+			// Any other array of tables under a known table is the array
+			// stage's.
+			return
+		}
 	}
 	v := lookup(doc, k)
 	if text, ok := v.(string); ok {
@@ -336,17 +372,40 @@ func parseRefusal(lines *locate.Map, err error) Refusal {
 	return r
 }
 
-// accepted reports whether the table at p is one _setup_known_section
-// accepts: a known section, or any table whose text is under logging; or
-// a `["stage:<name>"]` table, which _setup_conf_check_known skips.
+// accepted reports whether the table at p is one the shell accepts, judged
+// on its section text, the dotted path the bridge names it by: a text
+// _setup_known_section knows, or one starting with `stage:`, which
+// _setup_conf_check_known skips. So `[logging.""]` is the text
+// `logging.` and refused, while `["logging.web"]` and `[logging.web.x]`
+// name a service.
 func accepted(p []string) bool {
-	if stage(p) {
-		return true
-	}
-	if len(p) == 1 {
-		return known[p[0]] || serviceText(p[0])
-	}
-	return p[0] == "logging" || serviceText(p[0])
+	text := strings.Join(p, ".")
+	return strings.HasPrefix(text, "stage:") || knownSection(text)
+}
+
+// knownSection is _setup_known_section (dist/script/docker/lib/
+// setup_cmd.sh): a SCHEMA_SECTIONS name, or `logging.` followed by at
+// least one byte.
+func knownSection(text string) bool {
+	return known[text] || serviceText(text)
+}
+
+// arrayFamily maps an array's key to the numbered-family prefix its
+// entries take in the shell view: the first element of toml_bridge.py's
+// _ARRAY_SPEC, ported verbatim.
+var arrayFamily = map[string]string{
+	"rules":               "rule",
+	"args":                "arg",
+	"ports":               "port",
+	"cap_add":             "cap_add",
+	"cap_drop":            "cap_drop",
+	"security_opt":        "security_opt",
+	"volumes":             "mount",
+	"tmpfs":               "tmpfs",
+	"devices":             "device",
+	"bindings":            "device",
+	"cgroup_rules":        "cgroup_rule",
+	"additional_contexts": "context",
 }
 
 // lookup is the decoded value at path k of doc, or nil.

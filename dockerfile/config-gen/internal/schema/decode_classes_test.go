@@ -95,8 +95,12 @@ func TestDecodeRefusalClasses(t *testing.T) {
 			[]want{{"conf_value_type_refused", []string{"environment", "env_1"}, 2}}},
 		{"fractional datetime at gpu_mode", "[deploy]\ngpu_mode = 1979-05-27T07:32:00.5Z\n",
 			[]want{{"conf_value_type_refused", []string{"deploy", "gpu_mode"}, 2}}},
+		// Every unknown table text is reported once, as the shell's
+		// --tables walk reports it: `[foo.bar]` is foo and foo.bar
+		// (s6_sec_unknown_nested.toml, held to _setup_conf_check_known by
+		// config_gen_schema_values_spec.bats).
 		{"table under an implicit unknown table", "[foo.bar]\nx = 1\n[foo.baz]\ny = 1\n",
-			[]want{{"conf_unknown_table", []string{"foo"}, 1}}},
+			[]want{{"conf_unknown_table", []string{"foo"}, 1}, {"conf_unknown_table", []string{"foo", "bar"}, 1}, {"conf_unknown_table", []string{"foo", "baz"}, 3}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
