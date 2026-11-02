@@ -30,6 +30,9 @@ const (
 	// ReasonTimeNoSeconds is a time value written as HH:MM, without the
 	// seconds the TOML 1.0 partial-time requires (TOML 1.1 only).
 	ReasonTimeNoSeconds
+	// ReasonBOM is a UTF-8 byte order mark (EF BB BF) at the start of the
+	// document, which the TOML 1.0 oracle refuses.
+	ReasonBOM
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -49,6 +52,10 @@ func (r *Refusal) Error() string {
 // Check returns nil, or a *Refusal that names label and the offending
 // byte of src.
 func Check(label string, src []byte) error {
+	if bytes.HasPrefix(src, []byte("\xEF\xBB\xBF")) {
+		return &Refusal{File: label, Line: 1, Col: 1, Reason: ReasonBOM,
+			Text: "leading byte order mark is not TOML 1.0"}
+	}
 	inBasic := false
 	var open []byte // innermost last: '{' inline table, '[' array or header
 	for i := 0; i < len(src); i++ {
