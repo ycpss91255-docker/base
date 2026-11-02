@@ -143,6 +143,50 @@ _quoted_header() {
   [ "${_rows}" -gt 0 ]
 }
 
+# why: Every key of schema.sh's SCHEMA_VALIDATOR has a row of the shared
+# table the shell accepts with a non-empty bridge text and a row it
+# refuses, each resolved to that key by _schema_canonical_key, so no
+# validator is judged on the empty policy alone or only ever accepts. The
+# obligation is read off the shell contract, not off the Go package's
+# validator representation (base#1442 implementation review round 2);
+# the Go half holds schema.Validate to every row. The watchdog commands
+# are the exception: _validate_watchdog_cmd refuses only an empty or a
+# multi-line text, the empty one never reaches it and the bridge's --kv
+# refuses a newline, so no row can be refused there; an exception with a
+# refused row fails, so the list cannot go stale.
+@test "s6_scalar_values: every SCHEMA_VALIDATOR key has an accepted and a refused row" {
+  local _class _section _key _lit _verdict _event _branch _canon _kv _text
+  local -A _accepted=() _refused=()
+  local -A _never=([lifecycle.watchdog_check]=1 [lifecycle.watchdog_notify]=1)
+  local _bad=()
+  while IFS=$'\t' read -r _class _section _key _lit _verdict _event _branch; do
+    [[ "${_class}" == value ]] || continue
+    _schema_canonical_key "${_section}" "${_key}" _canon
+    [[ -n "${_canon}" ]] || continue
+    if [[ "${_verdict}" == refuse ]]; then
+      _refused[${_canon}]=1
+      continue
+    fi
+    # toml-fixture-lint: allow the body is built from a table row; the bridge parses each row and a refusal is reported
+    { _quoted_header "${_section}"; printf '%s = %s\n' "${_key}" "${_lit}"; } > "${TEMP_DIR}/in.toml"
+    _kv="$(toml_bridge_parse "${TEMP_DIR}/in.toml" --kv)" \
+      || { _bad+=("${_section}.${_key}=${_lit}: bridge failed"); continue; }
+    _text="${_kv#*$'\t'*$'\t'}"
+    [[ -n "${_text}" ]] && _accepted[${_canon}]=1
+  done < "${TABLE}"
+  for _canon in "${!SCHEMA_VALIDATOR[@]}"; do
+    [[ -v "_accepted[${_canon}]" ]] || _bad+=("${_canon}: no accepted row with a non-empty text")
+    if [[ -v "_never[${_canon}]" ]]; then
+      [[ -v "_refused[${_canon}]" ]] && _bad+=("${_canon}: a refused row, but listed as never refused")
+    else
+      [[ -v "_refused[${_canon}]" ]] || _bad+=("${_canon}: no refused row")
+    fi
+  done
+  printf '%s\n' "${_bad[@]}"
+  [ "${#_bad[@]}" -eq 0 ]
+  [ "${#SCHEMA_VALIDATOR[@]}" -gt 0 ]
+}
+
 # why: Go's Scalar text for each TOML scalar kind (a local time, a local
 # datetime, a fractional datetime among them) must be the text the shell
 # reads from the bridge's --kv for the same literal; each row of the shared

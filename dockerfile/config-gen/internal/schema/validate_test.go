@@ -2,9 +2,7 @@ package schema
 
 import (
 	"errors"
-	"maps"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 
@@ -71,8 +69,8 @@ func readValueRows(t *testing.T) []valueRow {
 // and the 12 numbered families at keys other than _1. What else the rows
 // cover is checked, not claimed: TestEveryAlternativeHasAnAcceptedWitness
 // requires an accepted row through every alternative s6_alternatives.tsv
-// lists, and TestEveryValidatorKeyAcceptsAndRefuses an accepted and a
-// refused row at every validator key.
+// lists, and the bats half an accepted and a refused row at every key of
+// schema.sh's SCHEMA_VALIDATOR.
 func TestValidateMatchesSchemaSh(t *testing.T) {
 	for _, row := range readValueRows(t) {
 		name := row.section + "." + row.key + "=" + row.literal
@@ -144,11 +142,13 @@ func rowText(t *testing.T, row valueRow) string {
 // through it (base#1442 review round 1: no row went through `string:`,
 // so dropping it from the image rule left every test green; review round
 // 2: the obligation is the table's, not the validator representation's).
-// The witness row must be one the shell accepts, at a key that resolves
-// to the alternative's validator key, and Validate must accept its text;
-// a word alternative must appear in that text (ASCII case folded, as a
-// size unit is). The bats half (config_gen_schema_values_spec.bats)
-// holds the same rows to _schema_canonical_key and _schema_validate.
+// The witness row must be one the table accepts and Validate must accept
+// its text, judged only through Validate (review round 2 of the
+// implementation: no private validator detail). That the witness's key
+// resolves to the alternative's validator key and that its text carries a
+// word alternative are the shell contract's, so the bats half
+// (config_gen_schema_values_spec.bats) holds them to _schema_canonical_key
+// and _schema_validate.
 func TestEveryAlternativeHasAnAcceptedWitness(t *testing.T) {
 	paths := testcorpus.Glob(t, "corpus/s6/s6_alternatives.tsv")
 	data, err := os.ReadFile(paths[0])
@@ -183,55 +183,13 @@ func TestEveryAlternativeHasAnAcceptedWitness(t *testing.T) {
 		if row.verdict != "accept" {
 			t.Errorf("alternatives line %d: %s %q: witness tsv line %d is %s, want accept", i+1, canon, alt, row.line, row.verdict)
 		}
-		if k, _ := canonicalKey(row.section, row.key); k != canon {
-			t.Errorf("alternatives line %d: %s.%s resolves to %q, want %q", i+1, row.section, row.key, k, canon)
-		}
 		text := rowText(t, row)
 		if err := Validate(row.section, row.key, text); err != nil {
 			t.Errorf("alternatives line %d: %s %q: Validate(%q) = %v, want accept", i+1, canon, alt, text, err)
 		}
-		if !strings.Contains(alt, "<") && !strings.Contains(asciiLower(text), alt) {
-			t.Errorf("alternatives line %d: %s %q: witness text %q does not carry it", i+1, canon, alt, text)
-		}
 	}
 	if n == 0 {
 		t.Fatalf("%s: no rows", paths[0])
-	}
-}
-
-// Every validator key has a row the shell accepts with a non-empty text
-// and a row it refuses, so no validator is judged on the empty policy
-// alone or only ever accepts (base#1442 review round 1). The watchdog
-// commands are the exception: _validate_watchdog_cmd refuses only an
-// empty or a multi-line text, the empty one never reaches it, and the
-// bridge's --kv refuses a value holding a newline ("the tab-separated
-// shell view cannot carry" it), so no table row can be refused there. An
-// exception with a refused row fails, so the list cannot go stale.
-func TestEveryValidatorKeyAcceptsAndRefuses(t *testing.T) {
-	neverRefused := map[string]bool{"lifecycle.watchdog_check": true, "lifecycle.watchdog_notify": true}
-	accepted, refused := map[string]bool{}, map[string]bool{}
-	for _, row := range readValueRows(t) {
-		k, ok := canonicalKey(row.section, row.key)
-		if !ok {
-			continue
-		}
-		switch {
-		case row.verdict == "refuse":
-			refused[k] = true
-		case rowText(t, row) != "":
-			accepted[k] = true
-		}
-	}
-	for _, k := range slices.Sorted(maps.Keys(validators)) {
-		if !accepted[k] {
-			t.Errorf("%s: no accepted row with a non-empty text", k)
-		}
-		if !refused[k] && !neverRefused[k] {
-			t.Errorf("%s: no refused row", k)
-		}
-		if refused[k] && neverRefused[k] {
-			t.Errorf("%s: a refused row, but listed as never refused", k)
-		}
 	}
 }
 
