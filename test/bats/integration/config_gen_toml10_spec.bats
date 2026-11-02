@@ -178,3 +178,30 @@ _run_calls() {
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
+
+# why: The oracle program in the step stands in for the real toml-bridge,
+# and the two give the same verdict only while they sit at the same
+# Python call depth -- tomllib's depth refusals depend on it. So for every
+# file under forms/depth/ the container also asks the image's real
+# `toml-bridge --tables` and answers it on a line of its own,
+# `calibration\t<rel>\t<verdict>`, after the verdict rows. Here the oracle
+# program accepts forms/depth/x.toml while the bridge refuses it: the
+# oracle no longer stands for the bridge, so none of its verdicts can be
+# trusted. The step must refuse under the five-point refusal test:
+# status 1, nothing on stdout, config_gen_toml_oracle_failed
+# reason=calibration naming the file, and no toml-oracle/ directory left.
+@test "10-toml-oracle.sh: a calibration answer that differs from the oracle's verdict is config_gen_toml_oracle_failed reason=calibration, no toml-oracle/ left (base#1441)" {
+  _plant forms/a.toml forms/depth/x.toml
+  printf '%s\t%s\n' \
+    internal/gate/testdata/forms/a.toml accept \
+    internal/gate/testdata/forms/depth/x.toml accept \
+    > "${S}/answers"
+  printf 'calibration\t%s\t%s\n' \
+    internal/gate/testdata/forms/depth/x.toml refuse \
+    >> "${S}/answers"
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=calibration \
+    file=internal/gate/testdata/forms/depth/x.toml
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
