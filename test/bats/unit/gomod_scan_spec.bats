@@ -186,8 +186,6 @@ quote_escape 3
 replace 4
 retract_block_post 4
 retract_block_pre 3
-retract_interval_post 4
-retract_interval_pre 3
 retract_trailer_post 4
 retract_trailer_pre 3
 retract_unclosed_post 4
@@ -378,12 +376,34 @@ EOF
   assert_success
 }
 
+# why: Go reads `retract [v1.0.0, v1.1.0] // why` and `retract v2.0.0` in
+# module example.com/m (the oracle holds these supported headers to Go's
+# rc 0) and the only require is `a v1.0.0`. A retract version is not tied
+# to a module path: run against the empty path, the require entry's version
+# check refuses v2.0.0 as path_major_mismatch, which Go does not. The
+# retract line is checked, never emitted, so it is not a declaration.
+@test "_pin_go_mod_scan: a retract version or interval is read and the require beside it is the one record (base#1488)" {
+  _scan retract_interval_pre
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan retract_interval_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  _scan retract_v2
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  cp "${FIX}/retract_interval_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'retract [v1.0.0, v1.1.0] // why' 3
+  assert_failure 1
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: Same point for retract: its interval grammar is not ported, so every
-# retract -- valid, unclosed or with a trailer -- is refused by name.
-@test "_pin_go_mod_scan: retract is refused by name in the line, interval and block forms (base#1463)" {
-  _refused retract_interval_pre retract 3
+# retract -- unclosed, with a trailer or in a block -- is refused by name.
+@test "_pin_go_mod_scan: retract is refused by name in the unclosed, trailer and block forms (base#1463)" {
   _refused retract_block_post retract 4
   _refused retract_unclosed_post retract 4
   _refused retract_trailer_pre retract 3
