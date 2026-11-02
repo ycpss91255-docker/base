@@ -18,6 +18,10 @@ const (
 	// ReasonInlineNewline is a line ending whose innermost open container
 	// is an inline table (TOML 1.1 only).
 	ReasonInlineNewline
+	// ReasonInlineTrailingComma is a comma followed, after optional
+	// spaces or tabs, by the `}` that closes an inline table (TOML 1.1
+	// only).
+	ReasonInlineTrailingComma
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -56,6 +60,16 @@ func Check(label string, src []byte) error {
 			line, col := position(src, i)
 			return &Refusal{File: label, Line: line, Col: col, Reason: ReasonInlineNewline,
 				Text: "line ending inside an inline table is not TOML 1.0"}
+		case !inBasic && src[i] == ',' && len(open) > 0 && open[len(open)-1] == '{':
+			j := i + 1
+			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
+				j++
+			}
+			if j < len(src) && src[j] == '}' {
+				line, col := position(src, i)
+				return &Refusal{File: label, Line: line, Col: col, Reason: ReasonInlineTrailingComma,
+					Text: "trailing comma in an inline table is not TOML 1.0"}
+			}
 		case src[i] == '"':
 			inBasic = !inBasic
 		case inBasic && src[i] == '\\' && i+1 < len(src):
