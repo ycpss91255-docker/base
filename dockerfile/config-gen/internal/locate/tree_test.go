@@ -83,8 +83,11 @@ func TestRootHeaderResolvesFromRoot(t *testing.T) {
 	}
 }
 
-// shape writes the subtree under n: a table as key{...}, an array of
-// tables as key[[...]], an element as {...}, a key as its name.
+// shape writes the subtree under n: a table or a dotted parent inside an
+// inline value as key{...}, an array of tables as key[[...]], an element
+// as {...}, a key as its name, followed by ={...} or =[...] when its value
+// is an inline table or array, and an item of an inline array as {...},
+// [...] or _ for any other value.
 func shape(n *locate.Node) string {
 	var b strings.Builder
 	for i, c := range n.Children {
@@ -92,17 +95,34 @@ func shape(n *locate.Node) string {
 			b.WriteByte(' ')
 		}
 		switch c.Kind {
-		case locate.NTable:
+		case locate.NTable, locate.NInlineTable:
 			b.WriteString(c.Key + "{" + shape(c) + "}")
 		case locate.NArrayTables:
 			b.WriteString(c.Key + "[[" + shape(c) + "]]")
 		case locate.NElement:
 			b.WriteString("{" + shape(c) + "}")
 		case locate.NKey:
-			b.WriteString(c.Key)
+			b.WriteString(c.Key + inlineShape(c, "="))
+		case locate.NItem:
+			b.WriteString(inlineShape(c, ""))
 		}
 	}
 	return b.String()
+}
+
+// inlineShape writes the inline value n holds after prefix, or "" for a
+// key and "_" for an item holding any other value.
+func inlineShape(n *locate.Node, prefix string) string {
+	switch n.Open {
+	case '{':
+		return prefix + "{" + shape(n) + "}"
+	case '[':
+		return prefix + "[" + shape(n) + "]"
+	}
+	if n.Kind == locate.NItem {
+		return "_"
+	}
+	return ""
 }
 
 // A header that crosses an array of tables lands in its last element
@@ -166,5 +186,32 @@ func TestKeyNodeKeepsValueEnd(t *testing.T) {
 	d := child(t, child(t, root, "lifecycle"), "watchdog_check").Decl()
 	if d == nil || d.KeyLine != 2 || d.KeyCol != 1 || d.ValueEndLine != 4 {
 		t.Errorf("watchdog_check Decl = %+v, want KeyLine 2 KeyCol 1 ValueEndLine 4", d)
+	}
+}
+
+// A dotted key inside an inline value creates its parent as a node under
+// the item that holds it, owning one record per dotted key that writes it,
+// and the members keep the order they are written in (base#1442 redesign
+// R3, finding F4 of review round 3). For
+// `volumes = [{ extra.z = 1, extra.a = 2 }]` BurntSushi decodes
+// map[volumes:[map[extra:map[a:2 z:1]]]], whose map has no order; the
+// positions are counted from the bytes: `extra.z` starts at column 14 and
+// `extra.a` at column 27.
+func TestInlineDottedKeyNodes(t *testing.T) {
+	root := locate.Index([]byte("volumes = [{ extra.z = 1, extra.a = 2 }]\n")).Root()
+	if got, want := shape(root), "volumes=[{extra{z a}}]"; got != want {
+		t.Fatalf("tree = %s, want %s", got, want)
+	}
+	extra := child(t, child(t, root, "volumes").Children[0], "extra")
+	if extra.Kind != locate.NInlineTable {
+		t.Errorf("extra kind = %v, want NInlineTable", extra.Kind)
+	}
+	if got, want := occs(extra), []string{"implicit 1:14", "implicit 1:27"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("extra records = %q, want %q", got, want)
+	}
+	for k, want := range map[string]string{"z": "explicit 1:14", "a": "explicit 1:27"} {
+		if got := occs(child(t, extra, k)); !reflect.DeepEqual(got, []string{want}) {
+			t.Errorf("extra.%s records = %q, want [%s]", k, got, want)
+		}
 	}
 }
