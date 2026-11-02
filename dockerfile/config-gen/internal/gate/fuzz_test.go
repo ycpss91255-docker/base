@@ -104,7 +104,7 @@ var forbiddenSuffixes = []string{
 }
 
 // suffixControls fails the fuzz target unless each forbidden suffix, on
-// its own, is a document BurntSushi decodes and Check refuses: the
+// its own, is a document BurntSushi decodes and Check turns away. The
 // suffix property holds only while the decoder accepts what the gate
 // must refuse, so a decoder bump that starts refusing a suffix fails
 // here instead of making the property hold vacuously.
@@ -123,10 +123,11 @@ func suffixControls(f *testing.F) {
 // suffixProperty appends each forbidden suffix to src. When Check accepts
 // the result, the decoder must refuse it: BurntSushi accepts the suffix
 // on its own, so a nil Check holds only when src makes the whole document
-// invalid. A reader that loses its place in src (a quote it misreads, a
-// construct it stops on) and so never refuses the suffix breaks this on
-// an input whose document is otherwise valid. It judges decoder verdicts
-// only; dupProperty classifies duplicates.
+// invalid. A reader that misreads a quote in src, and so reads the suffix
+// as string content, breaks this on an input whose document is otherwise
+// valid. It says nothing about where Check stops on src: an src the
+// decoder refuses passes with or without the suffix. It judges decoder
+// verdicts only; dupProperty classifies duplicates.
 func suffixProperty(t *testing.T, src []byte) {
 	t.Helper()
 	for _, s := range forbiddenSuffixes {
