@@ -1,6 +1,7 @@
 package buildgate
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -34,6 +35,49 @@ func TestTargets(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := Targets(c.manifest); !reflect.DeepEqual(got, c.want) {
 				t.Errorf("Targets = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// testdata/golist-testcorpus.json is the live output of
+// `go list -json=ImportPath,ForTest,Standard,Deps -test -deps ./...`
+// (go1.27.2) over a fixture module with this module's path:
+// internal/testcorpus (with a test), internal/helper (imports testcorpus,
+// no test), internal/b (imports helper, with a test), internal/d (only
+// its external d_test imports testcorpus), internal/c (no import, with a
+// test) and cmd/x (imports helper, no test). In that output the .test
+// packages whose Deps hold testcorpus, or its own test variant, are b.test,
+// d.test and testcorpus.test.
+const fixtureModule = "github.com/ycpss91255-docker/base/dockerfile/config-gen"
+
+func TestMapRootTestdataTargetsTestcorpusImporters(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	want := []string{"internal/b", "internal/d", "internal/testcorpus"}
+	cases := []struct {
+		name     string
+		manifest string
+	}{
+		{"a modified golden file", header + "M\tdockerfile/config-gen/testdata/golden/s1/seed.golden\n"},
+		{"a new corpus file", header + "A\tdockerfile/config-gen/testdata/corpus/s1/c.txt\n"},
+		{"two root testdata files", header +
+			"M\tdockerfile/config-gen/testdata/c.txt\nA\tdockerfile/config-gen/testdata/golden/s1/zz.golden\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err != nil {
+				t.Fatalf("Map: %v", err)
+			}
+			if !reflect.DeepEqual(got.Targets, want) {
+				t.Errorf("Map targets = %q, want %q", got.Targets, want)
 			}
 		})
 	}
