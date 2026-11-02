@@ -48,8 +48,9 @@ scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	
 scan-indirect	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ( "${#_f[@]}" -eq 1 && "${_f[0]}" == indirect ) || ( "${#_f[@]}" -gt 1 && "${_f[0]}" == 'indirect;' ) ]]; then	  if false; then
 scan-version-check	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi	  if false; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
 scan-string-unquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    _in="${2:1:${#2}-2}"	    _in="${2}"
-scan-unquote-dquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    printf '%s' "${_in//\\\\\\"/\\"}"	    printf '%s' "${_in}"
-scan-lex-dquote-pair	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ "${_s:_j:2}" == "\\\\\\"" ]]; then _j=$(( _j + 2 )); continue; fi	        if false; then _j=$(( _j + 2 )); continue; fi
+scan-unquote-decode	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_in:_k:1}" == "\\\\" ]]; then _k=$(( _k + 1 )); fi	      if false; then _k=$(( _k + 1 )); fi
+scan-lex-dquote-pair	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ "${_s:_j:2}" == "\\\\\\"" || "${_s:_j:2}" == "\\\\\\\\" ]]; then _j=$(( _j + 2 )); continue; fi	        if false; then _j=$(( _j + 2 )); continue; fi
+scan-lex-backslash-pair	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 || "${_s:_j:2}" == "\\\\\\\\" ]]; then _j	 ]]; then _j
 version-version-no-v	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ "${_v}" != v* ]]; then _PIN_GO_MOD_REASON=version_no_v; return 1; fi	  if [[ "${_v}" != v* ]]; then :; fi
 version-version-build	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ "${_v}" == *+* ]]; then _PIN_GO_MOD_REASON=version_build; return 1; fi	  if [[ "${_v}" == *+* ]]; then :; fi
 version-version-leading-zero	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_f}" =~ ^0[0-9]+$ ]]; then _PIN_GO_MOD_REASON=version_leading_zero; return 1; fi	    if [[ "${_f}" =~ ^0[0-9]+$ ]]; then :; fi
