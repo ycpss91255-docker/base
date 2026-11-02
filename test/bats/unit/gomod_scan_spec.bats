@@ -150,6 +150,14 @@ godebug_comma_post 4
 godebug_comma_pre 3
 godebug_no_eq_post 4
 godebug_no_eq_pre 3
+godebug_arity 3
+godebug_arity_block 4
+godebug_backquote 3
+godebug_empty 3
+godebug_quoted_block 4
+godebug_quoted_post 4
+godebug_quoted_pre 3
+godebug_squote 3
 go_locale_post 4
 go_locale_pre 3
 gopkg_in 3
@@ -300,6 +308,41 @@ EOF
   _refused godebug_no_eq_post godebug_usage 4
   _refused godebug_comma_pre godebug_usage 3
   _refused godebug_comma_post godebug_usage 4
+}
+
+# why: Go rejects a godebug argument holding a quote: the oracle records Go
+# rc 1 for `godebug "foo=1"` (line form, before and after a require, and in
+# a `godebug (` block) and for `godebug 'foo=1'`. The lexer reads `"foo=1"`
+# as one string token and `'foo=1'` as one word, both holding `=` and no
+# comma, so only the quote check refuses them; a godebug check that drops
+# it reads a file Go rejects (review round 4). Refused as godebug_usage,
+# nothing on stdout. A backquoted argument is refused earlier, by the
+# lexer, as backquote.
+@test "_pin_go_mod_scan: a quoted godebug argument is refused as godebug_usage, line and block form (base#1488)" {
+  _refused godebug_quoted_pre godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_quoted_post godebug_usage 4
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_quoted_block godebug_usage 4
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_squote godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_backquote backquote 3
+}
+
+# why: Go's godebug usage check takes exactly one argument: the oracle
+# records Go rc 1 for `godebug a=1 b=2` (line form and block form) and for
+# a bare `godebug`. The first argument of `a=1 b=2` holds `=` and no quote,
+# so only the argument count refuses it; a godebug check that drops the
+# count reads a file Go rejects. Refused as godebug_usage, nothing on
+# stdout.
+@test "_pin_go_mod_scan: a godebug with no argument or two arguments is refused as godebug_usage, line and block form (base#1488)" {
+  _refused godebug_arity godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_arity_block godebug_usage 4
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_empty godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
 }
 
 # why: Go reads a `godebug (` block holding `foo=1` (the oracle records Go
