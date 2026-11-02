@@ -1202,7 +1202,13 @@ _admit_run() {
     fail) printf 'echo "cg_event config_gen_manifest_stale file=x reason=missing"\nexit 1\n' > "${_m}/admit.sh" ;;
     pass) printf 'printf "%%s\\n" "$@" > "%s/args"\nexit 0\n' "${_a}" > "${_m}/admit.sh" ;;
   esac
-  run --separate-stderr bash -c 'cd "$1" && exec bash -euo pipefail -c "$2"' _ "${_a}/src" "${_body}"
+  # The goenv SHELL's -euo pipefail is set inside _w, not on the bash
+  # command line: under `just test coverage-path` a top-level
+  # `bash -euo pipefail -c` printed "BASH_SOURCE: unbound variable" to
+  # stderr before the RUN text ran (the same shape as the manifest
+  # writer test in config_gen_mutation_targets_spec).
+  run --separate-stderr bash -c \
+    'cd "$1" && _w() { set -euo pipefail; eval "$2"; }; _w "$@"' _ "${_a}/src" "${_body}"
 }
 
 # why: The admit RUN is the build's admission barrier, reached only through
