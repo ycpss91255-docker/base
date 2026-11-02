@@ -1,0 +1,102 @@
+package gate
+
+import (
+	"bytes"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// FuzzCheck holds Check and Normalize to their contract on any input
+// (base#1441 seam 3): no panic; the same input gives the same result
+// twice; a refusal is a *Refusal whose Line:Col names a byte inside the
+// input; and when Check returns nil, Normalize keeps the input's length
+// and every CR and LF at its offset, so a decoder's line and column still
+// index the input. The seeds are every TOML file under testdata/forms
+// plus a few literals for each refusal class; `go test` runs them, and
+// the test stage's fuzz gate searches from them for 60 s.
+func FuzzCheck(f *testing.F) {
+	err := filepath.WalkDir(filepath.Join("testdata", "forms"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".toml") {
+			return err
+		}
+		src, err := os.ReadFile(p)
+		if err == nil {
+			f.Add(src)
+		}
+		return err
+	})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, s := range []string{
+		"a = \"x\\e\"\n",
+		"a = \"\"\"a\" \\x41\"\"\"\n",
+		"a = {b = 1,\n}\n",
+		"a = {b = 1, }\n",
+		"a = 07:32\n",
+		"\xEF\xBB\xBFa = 1\n",
+		"a = 1\na = 2\n",
+		"a.b = 1\n[a.b]\n",
+		"a = 2021-01-01T00:00:00+24:00\n",
+		"a = [ # c\n 0000-01-01\n]\n",
+		"a = " + strings.Repeat("[", 600) + "\n",
+		"a = 1e999\nb = [-1e999]\n",
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, src []byte) {
+		err := Check("f.toml", src)
+		if again := Check("f.toml", src); errString(err) != errString(again) {
+			t.Fatalf("Check gave %q, then %q", errString(err), errString(again))
+		}
+		if err != nil {
+			var r *Refusal
+			if !errors.As(err, &r) {
+				t.Fatalf("Check() = %T %v, want *Refusal", err, err)
+			}
+			if !inside(src, r.Line, r.Col) {
+				t.Fatalf("Refusal at %d:%d names no byte of the %d-byte input", r.Line, r.Col, len(src))
+			}
+			return
+		}
+		norm := Normalize(src)
+		if len(norm) != len(src) {
+			t.Fatalf("Normalize changed the length %d -> %d", len(src), len(norm))
+		}
+		for i, c := range src {
+			if (c == '\n' || c == '\r') && norm[i] != c {
+				t.Fatalf("Normalize changed the line ending byte at offset %d", i)
+			}
+		}
+	})
+}
+
+// errString is err's text, or "" for nil.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// inside reports whether 1-based line and byte column col name a byte of
+// src that is not past the end of its line.
+func inside(src []byte, line, col int) bool {
+	if line < 1 || col < 1 {
+		return false
+	}
+	start := 0
+	for n := 1; n < line; n++ {
+		i := bytes.IndexByte(src[start:], '\n')
+		if i < 0 {
+			return false
+		}
+		start += i + 1
+	}
+	off := start + col - 1
+	return off < len(src) && bytes.IndexByte(src[start:off], '\n') < 0
+}
