@@ -399,13 +399,21 @@ EOF
   assert_failure 1
 }
 
+# why: Go rejects `retract [v1.0.0` (an interval with no `, high ]`; the
+# oracle records Go rc != 0 for retract_unclosed_pre/post). A retract read
+# by Go's parseVersionInterval names the missing piece: retract_interval,
+# before a require and after one -- not a by-name `retract` refusal.
+@test "_pin_go_mod_scan: an unclosed retract interval is refused as retract_interval (base#1488)" {
+  _refused retract_unclosed_pre retract_interval 3
+  _refused retract_unclosed_post retract_interval 4
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
-# why: Same point for retract: its interval grammar is not ported, so every
-# retract -- unclosed, with a trailer or in a block -- is refused by name.
-@test "_pin_go_mod_scan: retract is refused by name in the unclosed, trailer and block forms (base#1463)" {
+# why: Same point for retract: its trailer and block forms are not ported
+# yet, so they are still refused by name.
+@test "_pin_go_mod_scan: retract is refused by name in the trailer and block forms (base#1463)" {
   _refused retract_block_post retract 4
-  _refused retract_unclosed_post retract 4
   _refused retract_trailer_pre retract 3
 }
 
