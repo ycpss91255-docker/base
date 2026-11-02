@@ -4,6 +4,7 @@ value	security	privileged	""	accept	-	empty:allow
 value	security	privileged	true	accept	-	privileged:bool
 value	security	privileged	"true"	accept	-	privileged:bool
 value	security	privileged	"TRUE"	refuse	conf_value_invalid	privileged:other
+value	security	privileged	false	accept	-	privileged:bool
 value	deploy	gpu_count	true	refuse	conf_value_invalid	gpu_count:other
 value	deploy	gpu_count	2	accept	-	gpu_count:int
 value	deploy	gpu_count	"02"	refuse	conf_value_invalid	gpu_count:other
@@ -19,19 +20,30 @@ value	project	name	1979-05-27	accept	-	project_name:pattern
 value	project	name	1979-05-27T07:32:00Z	refuse	conf_value_invalid	project_name:other
 value	deploy	gpu_mode	"force"	accept	-	detect_mode:word
 value	deploy	gpu_mode	"on"	refuse	conf_value_invalid	detect_mode:other
+value	deploy	gpu_mode	"auto"	accept	-	detect_mode:word
+value	deploy	gpu_mode	"off"	accept	-	detect_mode:word
 value	gui	mode	"off"	accept	-	detect_mode:word
 value	gui	mode	"auto "	refuse	conf_value_invalid	detect_mode:other
+value	gui	mode	"auto"	accept	-	detect_mode:word
+value	gui	mode	"force"	accept	-	detect_mode:word
 value	deploy	gpu_capabilities	"gpu compute"	accept	-	gpu_capabilities:known
 value	deploy	gpu_capabilities	"  all  ngx "	accept	-	gpu_capabilities:known
 value	deploy	gpu_capabilities	""	refuse	conf_value_invalid	empty:validate
 value	deploy	gpu_capabilities	"gpu,compute"	refuse	conf_value_invalid	gpu_capabilities:unknown
 value	deploy	gpu_capabilities	"gpu compute"	refuse	conf_value_invalid	gpu_capabilities:unknown
 value	deploy	gpu_capabilities	1	refuse	conf_value_invalid	gpu_capabilities:unknown
+value	deploy	gpu_capabilities	"utility graphics video"	accept	-	gpu_capabilities:known
+value	deploy	gpu_capabilities	"display compat32"	accept	-	gpu_capabilities:known
 value	deploy	gpu_runtime	"nvidia"	accept	-	runtime:word
 value	deploy	gpu_runtime	"runc"	refuse	conf_value_invalid	runtime:other
+value	deploy	gpu_runtime	"auto"	accept	-	runtime:word
+value	deploy	gpu_runtime	"off"	accept	-	runtime:word
 value	deploy	runtime	"off"	accept	-	runtime:word
 value	deploy	runtime	"NVIDIA"	refuse	conf_value_invalid	runtime:other
+value	deploy	runtime	"auto"	accept	-	runtime:word
+value	deploy	runtime	"nvidia"	accept	-	runtime:word
 value	deploy	dri_groups	"auto"	accept	-	dri_groups:word
+value	deploy	dri_groups	"off"	accept	-	dri_groups:word
 value	deploy	dri_groups	"44  109"	accept	-	dri_groups:gids
 value	deploy	dri_groups	"0"	accept	-	dri_groups:gids
 value	deploy	dri_groups	"video"	refuse	conf_value_invalid	dri_groups:gid-bad
@@ -39,11 +51,19 @@ value	deploy	dri_groups	"01"	refuse	conf_value_invalid	dri_groups:gid-bad
 value	deploy	dri_groups	"44 109"	refuse	conf_value_invalid	dri_groups:nonprint
 value	resources	shm_size	"2GB"	accept	-	shm_size:pattern
 value	resources	shm_size	"2g"	accept	-	shm_size:pattern
+value	resources	shm_size	"512b"	accept	-	shm_size:pattern
+value	resources	shm_size	"1K"	accept	-	shm_size:pattern
+value	resources	shm_size	"64m"	accept	-	shm_size:pattern
+value	resources	shm_size	"1kB"	accept	-	shm_size:pattern
+value	resources	shm_size	"64Mb"	accept	-	shm_size:pattern
 value	resources	shm_size	"2t"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"2 g"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"1\u212A"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"1\u212Ab"	refuse	conf_value_invalid	shm_size:other
 value	lifecycle	restart	"unless-stopped"	accept	-	restart:word
+value	lifecycle	restart	"no"	accept	-	restart:word
+value	lifecycle	restart	"always"	accept	-	restart:word
+value	lifecycle	restart	"on-failure"	accept	-	restart:word
 # tool-pin: ignore -- a restart policy value, not a version
 value	lifecycle	restart	"on-failure:3"	accept	-	restart:on-failure-n
 # tool-pin: ignore -- a restart policy value, not a version
@@ -66,14 +86,26 @@ value	lifecycle	watchdog_start_period	-5	refuse	conf_value_invalid	watchdog_nonn
 value	lifecycle	watchdog_failures	3	accept	-	watchdog_posint:pattern
 value	lifecycle	watchdog_failures	true	refuse	conf_value_invalid	watchdog_posint:other
 value	lifecycle	watchdog_on_fail	"restart-service"	accept	-	watchdog_on_fail:word
+value	lifecycle	watchdog_on_fail	"restart-container"	accept	-	watchdog_on_fail:word
 value	lifecycle	watchdog_on_fail	"restart"	refuse	conf_value_invalid	watchdog_on_fail:other
 value	lifecycle	watchdog_max_restarts	5	accept	-	watchdog_posint:pattern
 value	lifecycle	watchdog_max_restarts	"05"	refuse	conf_value_invalid	watchdog_posint:other
 value	lifecycle	watchdog_notify	"notify-send x"	accept	-	watchdog_cmd:line
 value	lifecycle	watchdog_notify	false	accept	-	watchdog_cmd:line
 value	build	target_arch	"arm64"	accept	-	target_arch:word
+value	build	target_arch	"amd64"	accept	-	target_arch:word
+value	build	target_arch	"arm"	accept	-	target_arch:word
+value	build	target_arch	"386"	accept	-	target_arch:word
+value	build	target_arch	"ppc64le"	accept	-	target_arch:word
+value	build	target_arch	"s390x"	accept	-	target_arch:word
+value	build	target_arch	"riscv64"	accept	-	target_arch:word
 value	build	target_arch	"x86_64"	refuse	conf_value_invalid	target_arch:other
 value	build	network	"default"	accept	-	build_network:word
+value	build	network	"auto"	accept	-	build_network:word
+value	build	network	"host"	accept	-	build_network:word
+value	build	network	"bridge"	accept	-	build_network:word
+value	build	network	"none"	accept	-	build_network:word
+value	build	network	"off"	accept	-	build_network:word
 value	build	network	"nat"	refuse	conf_value_invalid	build_network:other
 value	build	apt_mirror_ubuntu	"anything goes"	accept	-	freeform
 value	build	apt_mirror_debian	"http://deb.example/"	accept	-	freeform
@@ -83,10 +115,18 @@ value	network	network_name	"-net"	refuse	conf_value_invalid	network_name:other
 value	network	network_name	"_n"	refuse	conf_value_invalid	network_name:other
 value	network	mode	"container:db"	accept	-	network_mode:container
 value	network	mode	"host"	accept	-	network_mode:word
+value	network	mode	"bridge"	accept	-	network_mode:word
+value	network	mode	"none"	accept	-	network_mode:word
 value	network	mode	"container:"	refuse	conf_value_invalid	network_mode:other
 value	network	ipc	"shareable"	accept	-	ipc_mode:word
+value	network	ipc	"host"	accept	-	ipc_mode:word
+value	network	ipc	"private"	accept	-	ipc_mode:word
+value	network	ipc	"none"	accept	-	ipc_mode:word
+value	network	ipc	"container:db"	accept	-	ipc_mode:container
 value	network	ipc	"shared"	refuse	conf_value_invalid	ipc_mode:other
 value	network	pid	"private"	accept	-	pid_mode:word
+value	network	pid	"host"	accept	-	pid_mode:word
+value	network	pid	"container:db"	accept	-	pid_mode:container
 value	network	pid	"none"	refuse	conf_value_invalid	pid_mode:other
 value	logging	driver	"json-file"	accept	-	log_driver:pattern
 value	logging	driver	inf	accept	-	log_driver:pattern
@@ -94,6 +134,9 @@ value	logging	driver	"1abc"	refuse	conf_value_invalid	log_driver:other
 value	logging	driver	1.5	refuse	conf_value_invalid	log_driver:other
 value	logging	max_size	"10m"	accept	-	log_max_size:pattern
 value	logging	max_size	"10M"	accept	-	log_max_size:pattern
+value	logging	max_size	"512b"	accept	-	log_max_size:pattern
+value	logging	max_size	"100K"	accept	-	log_max_size:pattern
+value	logging	max_size	"1g"	accept	-	log_max_size:pattern
 value	logging	max_size	"10mb"	refuse	conf_value_invalid	log_max_size:other
 value	logging	max_size	10	refuse	conf_value_invalid	log_max_size:other
 value	logging	max_size	"1\u212A"	refuse	conf_value_invalid	log_max_size:other
@@ -110,6 +153,7 @@ value	logging	container_log_keep	0	refuse	conf_value_invalid	container_log_keep:
 value	logging	container_log_days	1_000	accept	-	container_log_days:pattern
 value	logging	container_log_days	-14	refuse	conf_value_invalid	container_log_days:other
 value	logging	wrapper_transcript	true	accept	-	wrapper_transcript:bool
+value	logging	wrapper_transcript	false	accept	-	wrapper_transcript:bool
 value	logging	wrapper_transcript	1	refuse	conf_value_invalid	wrapper_transcript:other
 value	logging	wrapper_transcript	"1"	refuse	conf_value_invalid	wrapper_transcript:other
 value	logging	wrapper_transcript_keep	20	accept	-	wrapper_transcript_keep:pattern
@@ -148,11 +192,17 @@ value	volumes	mount_6	":/b"	refuse	conf_value_invalid	mount:other
 value	volumes	mount_7	"/a b:/c"	refuse	conf_value_invalid	mount:other
 value	volumes	mount_8	"/a:/b:ro:x"	refuse	conf_value_invalid	mount:other
 value	volumes	mount_9	7	refuse	conf_value_invalid	mount:other
+value	volumes	mount_10	"/a:/b:rw,rshared"	accept	-	mount:mode
+value	volumes	mount_11	"/a:/b:rprivate,slave"	accept	-	mount:mode
+value	volumes	mount_12	"/a:/b:shared,private"	accept	-	mount:mode
 value	devices	device_1	""	accept	-	empty:allow
 value	devices	device_2	"/dev/x:/dev/x"	accept	-	mount:pair
 value	devices	device_3	"/dev/x:/dev/x:rw"	accept	-	mount:mode
 value	devices	device_4	"/dev/x"	refuse	conf_value_invalid	mount:other
 value	devices	device_5	false	refuse	conf_value_invalid	mount:other
+value	devices	device_6	"/dev/x:/dev/x:ro,rslave"	accept	-	mount:mode
+value	devices	device_7	"/dev/x:/dev/x:rshared,rprivate"	accept	-	mount:mode
+value	devices	device_8	"/dev/x:/dev/x:slave,shared,private"	accept	-	mount:mode
 value	devices	cgroup_rule_1	""	accept	-	empty:allow
 value	devices	cgroup_rule_2	"c 1:1 rwm"	accept	-	cgroup_rule:rule
 value	devices	cgroup_rule_3	"a *:* m"	accept	-	cgroup_rule:rule

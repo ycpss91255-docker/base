@@ -164,8 +164,14 @@ func TestEveryChoiceAlternativeHasAnAcceptedRow(t *testing.T) {
 
 // Every validator key has a row the shell accepts with a non-empty text
 // and a row it refuses, so no validator is judged on the empty policy
-// alone or only ever accepts (base#1442 review round 1).
+// alone or only ever accepts (base#1442 review round 1). The watchdog
+// commands are the exception: _validate_watchdog_cmd refuses only an
+// empty or a multi-line text, the empty one never reaches it, and the
+// bridge's --kv refuses a value holding a newline ("the tab-separated
+// shell view cannot carry" it), so no table row can be refused there. An
+// exception with a refused row fails, so the list cannot go stale.
 func TestEveryValidatorKeyAcceptsAndRefuses(t *testing.T) {
+	neverRefused := map[string]bool{"lifecycle.watchdog_check": true, "lifecycle.watchdog_notify": true}
 	accepted, refused := map[string]bool{}, map[string]bool{}
 	for _, row := range readValueRows(t) {
 		k, ok := canonicalKey(row.section, row.key)
@@ -183,8 +189,11 @@ func TestEveryValidatorKeyAcceptsAndRefuses(t *testing.T) {
 		if !accepted[k] {
 			t.Errorf("%s: no accepted row with a non-empty text", k)
 		}
-		if !refused[k] {
+		if !refused[k] && !neverRefused[k] {
 			t.Errorf("%s: no refused row", k)
+		}
+		if refused[k] && neverRefused[k] {
+			t.Errorf("%s: a refused row, but listed as never refused", k)
 		}
 	}
 }
