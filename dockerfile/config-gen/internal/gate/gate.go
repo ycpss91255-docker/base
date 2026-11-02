@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // timeNoSeconds matches a value token whose time part is HH:MM with no
@@ -36,6 +37,10 @@ const (
 	// ReasonDuplicate is a key assigned a second time in the same table,
 	// which the TOML 1.0 oracle reports as "Cannot overwrite a value".
 	ReasonDuplicate
+	// ReasonRedefine is a table header whose path names a table that
+	// dotted keys already created, which the TOML 1.0 oracle reports as
+	// "Cannot redefine a table".
+	ReasonRedefine
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -63,10 +68,22 @@ func Check(label string, src []byte) error {
 	var open []byte // innermost last: '{' inline table, '[' array or header
 	// seen holds the keys assigned in the current table.
 	seen := map[string]bool{}
+	// table is the current table's dotted path; dotted holds the paths
+	// of the tables that dotted keys created.
+	table := ""
+	dotted := map[string]bool{}
 	for i := 0; i < len(src); i++ {
 		switch {
 		case !inBasic && len(open) == 0 && src[i] == '[' && atLineStart(src, i):
 			seen = map[string]bool{}
+			if path, ok := headerPath(src, i); ok {
+				if dotted[path] {
+					line, col := position(src, i)
+					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonRedefine,
+						Text: fmt.Sprintf("Cannot redefine a table (at line %d, column %d)", line, col)}
+				}
+				table = path
+			}
 			open = append(open, src[i])
 		case !inBasic && len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
 			if key, ok := lineKey(src, i); ok {
@@ -76,6 +93,12 @@ func Check(label string, src []byte) error {
 						Text: fmt.Sprintf("Cannot overwrite a value (at line %d, column %d)", line, col)}
 				}
 				seen[key] = true
+				if !bytes.ContainsAny([]byte(key), "\"'") {
+					parts := splitKey(key)
+					for n := 1; n < len(parts); n++ {
+						dotted[joinPath(table, parts[:n])] = true
+					}
+				}
 			}
 			for i+1 < len(src) && isBareKeyByte(src[i+1]) {
 				i++
@@ -177,6 +200,44 @@ func lineKey(src []byte, i int) (string, bool) {
 		return "", false
 	}
 	return string(bytes.TrimRight(src[i:j], " \t")), true
+}
+
+// headerPath returns the dotted path of the single-bracket table header
+// whose `[` is at offset i of src, with spaces around each part removed,
+// and false for an array-of-tables header, a quoted part, or no `]` on
+// the line.
+func headerPath(src []byte, i int) (string, bool) {
+	if i+1 < len(src) && src[i+1] == '[' {
+		return "", false
+	}
+	j := i + 1
+	for j < len(src) && src[j] != ']' && src[j] != '\n' {
+		j++
+	}
+	if j == len(src) || src[j] != ']' || bytes.ContainsAny(src[i+1:j], "\"'") {
+		return "", false
+	}
+	return joinPath("", splitKey(string(src[i+1:j]))), true
+}
+
+// splitKey splits an unquoted dotted key at each `.` and trims spaces
+// and tabs from each part.
+func splitKey(key string) []string {
+	parts := strings.Split(key, ".")
+	for n := range parts {
+		parts[n] = strings.Trim(parts[n], " \t")
+	}
+	return parts
+}
+
+// joinPath returns the dotted path of parts under the table at path
+// base ("" for the root table).
+func joinPath(base string, parts []string) string {
+	p := strings.Join(parts, ".")
+	if base == "" {
+		return p
+	}
+	return base + "." + p
 }
 
 // lineEnd reports whether a line ending (LF, or the CR of CRLF) starts at
