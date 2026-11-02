@@ -33,6 +33,9 @@ const (
 	// ReasonBOM is a UTF-8 byte order mark (EF BB BF) at the start of the
 	// document, which the TOML 1.0 oracle refuses.
 	ReasonBOM
+	// ReasonDuplicate is a key assigned a second time in the same table,
+	// which the TOML 1.0 oracle reports as "Cannot overwrite a value".
+	ReasonDuplicate
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -58,8 +61,25 @@ func Check(label string, src []byte) error {
 	}
 	inBasic := false
 	var open []byte // innermost last: '{' inline table, '[' array or header
+	// seen holds the keys assigned in the current table.
+	seen := map[string]bool{}
 	for i := 0; i < len(src); i++ {
 		switch {
+		case !inBasic && len(open) == 0 && src[i] == '[' && atLineStart(src, i):
+			seen = map[string]bool{}
+			open = append(open, src[i])
+		case !inBasic && len(open) == 0 && isBareKeyByte(src[i]) && atLineStart(src, i):
+			if key, ok := lineKey(src, i); ok {
+				if seen[key] {
+					line, col := position(src, i)
+					return &Refusal{File: label, Line: line, Col: col, Reason: ReasonDuplicate,
+						Text: fmt.Sprintf("Cannot overwrite a value (at line %d, column %d)", line, col)}
+				}
+				seen[key] = true
+			}
+			for i+1 < len(src) && isBareKeyByte(src[i+1]) {
+				i++
+			}
 		case !inBasic && src[i] == '#':
 			for i < len(src) && !lineEnd(src, i) {
 				i++
@@ -128,6 +148,35 @@ func valueTokenEnd(src []byte, i int) int {
 		return valueTokenEnd(src, j+1)
 	}
 	return j
+}
+
+// atLineStart reports whether only spaces or tabs lie between the start
+// of the line and offset i of src.
+func atLineStart(src []byte, i int) bool {
+	for j := i - 1; j >= 0; j-- {
+		switch src[j] {
+		case ' ', '\t':
+		case '\n':
+			return true
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// lineKey returns the key text from offset i of src up to the `=` on the
+// same line, with trailing spaces and tabs removed, and false when the
+// line has no `=`.
+func lineKey(src []byte, i int) (string, bool) {
+	j := i
+	for j < len(src) && src[j] != '=' && src[j] != '\n' {
+		j++
+	}
+	if j == len(src) || src[j] != '=' {
+		return "", false
+	}
+	return string(bytes.TrimRight(src[i:j], " \t")), true
 }
 
 // lineEnd reports whether a line ending (LF, or the CR of CRLF) starts at
