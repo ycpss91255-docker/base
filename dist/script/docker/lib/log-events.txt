@@ -469,3 +469,13 @@ go_mod_pin_target_not_require
 # script/watch/pins.sh --set and _pin_go_mod_set_line: a bump refused with
 # the file left as it was (base#1463).
 pin_set_refused
+
+# script/test/config_gen_steps/30-watch-gosum.sh: a go.mod pin bump held to
+# the go.sum Go wants, in the pinned golang image (base#1440).
+watch_gosum_mismatch
+watch_gosum_pin_missing
+
+# script/watch/lib.sh _pin_go_directive_check: a go.mod `go` directive
+# whose Go minor is not the golang pin's (base#1440).
+go_mod_go_directive_mismatch
+go_mod_golang_pin_missing

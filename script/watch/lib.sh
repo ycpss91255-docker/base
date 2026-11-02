@@ -383,6 +383,22 @@ _pin_is_exempt_shape() {
   return 1
 }
 
+# _pin_absent <path> -- rc 0 iff the path is known not to exist: neither it
+# nor a dangling link is there, and its nearest existing ancestor is a
+# directory that can be searched, so the failed lookup is not a denied one.
+_pin_absent() {
+  local _p="${1}" _d
+  [[ -e "${_p}" || -L "${_p}" ]] && return 1
+  _d="${_p}"
+  while [[ ! -e "${_d}" ]]; do
+    case "${_d}" in
+      */*) _d="${_d%/*}"; [[ -n "${_d}" ]] || _d=/ ;;
+      *) _d=. ;;
+    esac
+  done
+  [[ -d "${_d}" && -x "${_d}" ]]
+}
+
 # _pin_tracked <repo-root>
 #
 # Print every file this repo TRACKS at <repo-root>, repo-root-relative,
@@ -412,6 +428,16 @@ _pin_is_exempt_shape() {
 # that can read modes: the carried list is filtered against the tree
 # instead. A rule enforced on one road is a verdict that depends on which
 # road the environment took.
+#
+# ── Only what the work tree still holds ─────────────────────────────────
+#
+# A tracked path the work tree no longer has is a deletion not yet
+# committed: it declares nothing, so it is left out on both roads. A
+# go.mod bump whose tidy wants no go.sum removes a tracked go.sum, and
+# the bump's own read-back would otherwise refuse the tree as
+# pin_file_unreadable (base#1440). A file that is there but cannot be
+# read is still refused, and so is one behind a directory that cannot be
+# searched: _pin_absent answers only when the lookup can tell.
 #
 # ── Where the answer comes from, and why it is never absent ─────────────
 #
@@ -445,6 +471,7 @@ _pin_tracked() {
       _mode="${_rec%% *}"
       [[ "${_mode}" == '100644' || "${_mode}" == '100755' ]] || continue
       _path="${_rec#*$'\t'}"
+      _pin_absent "${_root}/${_path}" && continue
       _found+=("${_path}")
     done < <(git -C "${_root}" ls-files -s -z)
   elif [[ "${PIN_TRACKED_ROOT:-}" == "${_root}" \
@@ -460,7 +487,8 @@ _pin_tracked() {
       # file that declares a pin yields a second record for that pin
       # under a second name, and the lint's duplicate-NAME check fails on
       # the repo's own declarations.
-      if [[ -n "${_path}" && ! -L "${_root}/${_path}" ]]; then
+      if [[ -n "${_path}" && ! -L "${_root}/${_path}" ]] \
+         && ! _pin_absent "${_root}/${_path}"; then
         _found+=("${_path}")
       fi
     done <<< "${PIN_TRACKED_FILES}"
@@ -1259,22 +1287,26 @@ _pin_image_is_built() {
 #
 # The one exception is go.mod (base#1463), where no line shape decides:
 # the line is a declaration exactly when <lineno> is one the go.mod scanner
-# emitted. _pin_uncovered hands over the records it already scanned
-# (`_pin_gomod_file` / `_pin_gomod_lines`, its locals); any other caller is
-# scanned here. A go.mod line with no <lineno>, or a go.mod the scanner
-# refuses, cannot be answered: 2.
+# emitted, or the `go` directive _pin_go_mod_go_line names (base#1440).
+# _pin_uncovered hands over the records it already scanned
+# (`_pin_gomod_file` / `_pin_gomod_lines` / `_pin_gomod_go`, its locals);
+# any other caller is scanned here. A go.mod line with no <lineno>, or a
+# go.mod the scanner refuses, cannot be answered: 2.
 _pin_is_declaration() {
   local _file="${1}" _line="${2}" _lineno="${3:-}"
-  local _value _ref _emitted
+  local _value _ref _emitted _go_rec
 
   if [[ "${_file##*/}" == go.mod ]]; then
     [[ -n "${_lineno}" ]] || return 2
     if [[ "${_pin_gomod_file:-}" == "${_file}" ]]; then
       _emitted="${_pin_gomod_lines:-}"
+      _go_rec="${_pin_gomod_go:-}"
     else
       _emitted="$(_pin_go_mod_scan "${_file}")" || return 2
+      _go_rec="$(_pin_go_mod_go_line "${_file}")" || return 2
     fi
     [[ $'\n'"${_emitted}" == *$'\n'"${_lineno}"$'\t'* ]] && return 0
+    [[ -n "${_go_rec}" && "${_go_rec%%$'\t'*}" == "${_lineno}" ]] && return 0
     return 1
   fi
 
@@ -1340,8 +1372,8 @@ _pin_is_declaration() {
 # second question with the first one's blind spots.
 _pin_uncovered() {
   local _root="${1}"
-  local _file _abs _lineno _line _key _covered_list _list _table
-  local _pin_gomod_file="" _pin_gomod_lines=""
+  local _file _abs _lineno _line _key _covered_list _list _table _golang_pinned
+  local _pin_gomod_file="" _pin_gomod_lines="" _pin_gomod_go=""
   local -A _covered=()
 
   # Both producers run in a command substitution for the reason spelled
@@ -1351,6 +1383,11 @@ _pin_uncovered() {
   # failed (base#1463).
   _table="$(_pin_read "${_root}")" || return 1
   _covered_list="$(awk -F'\t' '{print $8 ":" $9}' <<< "${_table}")"
+  # A go.mod `go` directive is covered by the pinned golang image, not by a
+  # marker of its own: that pin is the one _pin_go_directive_check compares
+  # it with (base#1440).
+  _golang_pinned="$(awk -F'\t' -v s="${_PIN_STATE_PINNED}" -v n="${_PIN_GO_DIRECTIVE_PIN}" \
+    '$1 == s && $2 == n { print 1; exit }' <<< "${_table}")"
   _list="$(_pin_files "${_root}")" || return 1
 
   while IFS= read -r _key; do
@@ -1362,7 +1399,11 @@ _pin_uncovered() {
     _pin_gomod_file=""
     if [[ "${_file##*/}" == go.mod ]]; then
       _pin_gomod_lines="$(_pin_go_mod_scan "${_abs}")" || return 1
+      _pin_gomod_go="$(_pin_go_mod_go_line "${_abs}")" || return 1
       _pin_gomod_file="${_file}"
+      if [[ -n "${_golang_pinned}" && -n "${_pin_gomod_go}" ]]; then
+        _covered["${_file}:${_pin_gomod_go%%$'\t'*}"]=1
+      fi
     fi
     _lineno=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
@@ -1374,5 +1415,101 @@ _pin_uncovered() {
           "${_line#"${_line%%[![:space:]]*}"}"
       fi
     done < "${_abs}"
+  done <<< "${_list}"
+}
+
+# _pin_go_mod_go_line <file> -- print `<lineno><TAB><version>` for the go.mod
+# <file>'s `go` directive, nothing when it has none. The file is scanned
+# first, so a directive the scanner refuses is never half-read: rc 1 with
+# the scanner's refusal logged. The directive is the line whose first lexed
+# token is the word `go` and that is not a require entry the scanner
+# emitted (a block entry for a module path `go`) (base#1440).
+_pin_go_mod_go_line() {
+  local _gm_file="${1}" _emitted _line _ln=0 _gm_comment=""
+  local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
+  local LC_ALL=C
+  _emitted="$(_pin_go_mod_scan "${_gm_file}")" || return 1
+  mapfile -t _lines < "${_gm_file}"
+  for _line in "${_lines[@]}"; do
+    _ln=$(( _ln + 1 ))
+    _pin_go_mod_lex "${_line}" "${_ln}" || return 1
+    [[ "${_gm_text[0]:-}" == go && "${_gm_kind[0]:-}" == w ]] || continue
+    [[ $'\n'"${_emitted}" == *$'\n'"${_ln}"$'\t'* ]] && continue
+    printf '%s\t%s\n' "${_ln}" "${_gm_text[1]}"
+    return 0
+  done
+}
+
+# _pin_go_mod_set_go_line <file> <lineno> <old-version> <new-version> --
+# print line <lineno> of the go.mod <file>, a `go` directive naming
+# <old-version>, with that version replaced by <new-version>; the spacing
+# and any comment are kept (base#1440).
+_pin_go_mod_set_go_line() {
+  local _line
+  _line="$(awk -v n="${2}" 'NR == n' "${1}")"
+  printf '%s\n' "${_line/"${3}"/"${4}"}"
+}
+
+# The pin whose image builds every go.mod module; its Go minor is the one
+# a module's `go` directive must name, and its image is the one pins.sh
+# regenerates go.sum in (base#1440).
+readonly _PIN_GO_DIRECTIVE_PIN=golang
+
+# _pin_go_minor <image-or-version> -- print the major.minor a golang image's
+# tag (`golang:1.27.2-trixie@sha256:...`) or a go directive's version
+# (`1.27rc1`) starts with, nothing when it starts with none (base#1440).
+_pin_go_minor() {
+  local _tag="${1%%@*}"
+  _tag="${_tag##*:}"
+  [[ "${_tag}" =~ ^([0-9]+)\.([0-9]+) ]] || return 0
+  printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+# _pin_go_directive_check <repo-root>
+#
+# Compare every tracked go.mod's `go` directive with the golang pin by
+# major.minor: the directive names the Go the module needs, the pin the Go
+# that builds it. A mismatch is go_mod_go_directive_mismatch (file= line=
+# go= golang=), rc 1, nothing on stdout. A go.mod with no `go` line is a
+# mismatch named go=- line=0. A tracked go.mod with no pinned golang image
+# is go_mod_golang_pin_missing (file=) (base#1440).
+_pin_go_directive_check() {
+  local _root="${1}" _table _list _file _go_rec _go_ln _go_ver
+  local _image="" _pin_mm _go_mm
+  local _state _name _resolver _coord _pattern _skip _current _pfile _pline
+  _table="$(_pin_read "${_root}")" || return 1
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip _current _pfile _pline; do
+    if [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" && "${_state}" == "${_PIN_STATE_PINNED}" ]]; then
+      _image="${_current}"
+    fi
+  done <<< "${_table}"
+  _list="$(_pin_files "${_root}")" || return 1
+  if [[ -z "${_image}" ]]; then
+    while IFS= read -r _file; do
+      [[ "${_file##*/}" == go.mod ]] || continue
+      _log_err pin go_mod_golang_pin_missing "file=${_file}" \
+        "display=go_mod_golang_pin_missing: ${_file}: no pinned ${_PIN_GO_DIRECTIVE_PIN} image to compare its go directive with"
+      return 1
+    done <<< "${_list}"
+    return 0
+  fi
+  _pin_mm="$(_pin_go_minor "${_image}")"
+  [[ -n "${_pin_mm}" ]] || return 0
+  while IFS= read -r _file; do
+    [[ "${_file##*/}" == go.mod ]] || continue
+    _go_rec="$(_pin_go_mod_go_line "${_root}/${_file}")" || return 1
+    if [[ -n "${_go_rec}" ]]; then
+      _go_ln="${_go_rec%%$'\t'*}"
+      _go_ver="${_go_rec#*$'\t'}"
+      _go_mm="$(_pin_go_minor "${_go_ver}")"
+    else
+      _go_ln=0 _go_ver=- _go_mm=-
+    fi
+    if [[ "${_go_mm}" != "${_pin_mm}" ]]; then
+      _log_err pin go_mod_go_directive_mismatch "file=${_file}" "line=${_go_ln}" \
+        "go=${_go_mm}" "golang=${_pin_mm}" \
+        "display=go_mod_go_directive_mismatch: ${_file}:${_go_ln}: go ${_go_ver} names Go ${_go_mm}; the ${_PIN_GO_DIRECTIVE_PIN} pin builds it with ${_pin_mm}"
+      return 1
+    fi
   done <<< "${_list}"
 }
