@@ -41,6 +41,8 @@ value	resources	shm_size	"2GB"	accept	-	shm_size:pattern
 value	resources	shm_size	"2g"	accept	-	shm_size:pattern
 value	resources	shm_size	"2t"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"2 g"	refuse	conf_value_invalid	shm_size:other
+value	resources	shm_size	"1\u212A"	refuse	conf_value_invalid	shm_size:other
+value	resources	shm_size	"1\u212Ab"	refuse	conf_value_invalid	shm_size:other
 value	lifecycle	restart	"unless-stopped"	accept	-	restart:word
 # tool-pin: ignore -- a restart policy value, not a version
 value	lifecycle	restart	"on-failure:3"	accept	-	restart:on-failure-n
@@ -94,6 +96,7 @@ value	logging	max_size	"10m"	accept	-	log_max_size:pattern
 value	logging	max_size	"10M"	accept	-	log_max_size:pattern
 value	logging	max_size	"10mb"	refuse	conf_value_invalid	log_max_size:other
 value	logging	max_size	10	refuse	conf_value_invalid	log_max_size:other
+value	logging	max_size	"1\u212A"	refuse	conf_value_invalid	log_max_size:other
 value	logging	max_file	3	accept	-	log_max_file:pattern
 value	logging	max_file	0x1F	accept	-	log_max_file:pattern
 value	logging	max_file	0	refuse	conf_value_invalid	log_max_file:other
@@ -121,6 +124,8 @@ value	image	rule_5	"prefix:ros_"	accept	-	image_rule:prefix
 value	image	rule_6	"prefix:"	refuse	conf_value_invalid	image_rule:other
 value	image	rule_7	"ros"	refuse	conf_value_invalid	image_rule:other
 value	image	rule_8	1	refuse	conf_value_invalid	image_rule:other
+value	image	rule_9	"string:ros"	accept	-	image_rule:string
+value	image	rule_10	"string:"	refuse	conf_value_invalid	image_rule:other
 value	security	security_opt_1	""	accept	-	empty:allow
 value	security	security_opt_2	"seccomp=unconfined"	accept	-	security_opt:kv
 value	security	security_opt_3	"label:disable"	accept	-	security_opt:colon
