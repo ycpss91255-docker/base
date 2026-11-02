@@ -502,3 +502,79 @@ func TestCheckReadsValueTokensBehindComments(t *testing.T) {
 		}
 	}
 }
+
+// A multi-line literal string may end in one or two `'` of its own
+// before its `'''` delimiter, so `'''x''''` is the string x' and
+// `'''x'''''` is x''; the gate must lex past every closing quote and
+// still see a later basic string's escape (base#1441 review round 2,
+// finding 1). tomllib (CPython 3.13.13 Lib/tomllib, run 2026-11-02)
+// refuses each refused row with "Unescaped '\' in a string" on line 2
+// and BurntSushi v1.6.0 accepts it; tomllib accepts each control. The
+// position is the backslash, counted by hand: b(1) ' '(2) =(3) ' '(4)
+// "(5) \(6); in the array row a(1) ' '(2) =(3) ' '(4) [(5) '(6) '(7)
+// '(8) x(9) '(10) '(11) '(12) '(13) ,(14) ' '(15) "(16) \(17).
+func TestCheckLexesMultiLineLiteralClosingQuotes(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+	}{
+		{"a = '''x''''\nb = \"\\e\"\n", 2, 6},
+		{"a = '''x''''\nb = \"\\x41\"\n", 2, 6},
+		{"a = '''x'''''\nb = \"\\e\"\n", 2, 6},
+		{"a = '''x'''''\nb = \"\\x41\"\n", 2, 6},
+		{"a = ['''x'''', \"\\e\"]\n", 1, 17},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		if r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonEscape {
+			t.Errorf("Check(%q) Refusal = {%d %d %v}, want {%d %d ReasonEscape}", tc.src, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, src := range []string{
+		"a = '''x''''\nb = \"ok\"\n",
+		"a = '''x'''''\nb = \"ok\"\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
+
+// A dotted key under an array-of-tables header belongs to the current
+// element of that array, not to the root table, so a later [b] header
+// names a different table (base#1441 review round 2, finding 2). tomllib
+// (CPython 3.13.13 Lib/tomllib, run 2026-11-02) accepts both nil rows.
+// It refuses both refused rows ("Cannot declare ('a', 'b') twice" and
+// "Cannot declare ('b',) twice") and BurntSushi v1.6.0 accepts them: the
+// header names the table a dotted key created, in the current element
+// and at the root. The gate refuses them with ReasonRedefine at the
+// header's `[`, line 3 column 1, as TestCheckRefusesHeaderOverDottedTable
+// fixes for that reason.
+func TestCheckScopesDottedKeysToArrayOfTablesElement(t *testing.T) {
+	for _, src := range []string{
+		"[[a]]\nb.c = 1\n[b]\nx = 1\n",
+		"[[a]]\nb.c = 1\n[[a]]\nb.c = 2\n[b]\nx = 1\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+	for _, src := range []string{
+		"[[a]]\nb.c = 1\n[a.b]\nx = 1\n",
+		"b.c = 1\n[[a]]\n[b]\n",
+	} {
+		err := Check("t.toml", []byte(src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", src, err)
+			continue
+		}
+		if r.Line != 3 || r.Col != 1 || r.Reason != ReasonRedefine {
+			t.Errorf("Check(%q) Refusal = {%d %d %v}, want {3 1 ReasonRedefine}", src, r.Line, r.Col, r.Reason)
+		}
+	}
+}
