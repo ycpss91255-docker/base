@@ -780,6 +780,9 @@ _pin_go_mod_lex() {
     _j=$(( _i + 1 ))
     if [[ "${_c}" == '"' ]]; then
       while (( _j < _n )) && [[ "${_s:_j:1}" != '"' ]]; do
+        # An escaped quote stays in the string (base#1488): the pair is
+        # consumed whole, so the token ends at the true closing quote.
+        if [[ "${_s:_j:2}" == "\\\"" ]]; then _j=$(( _j + 2 )); continue; fi
         if [[ "${_s:_j:1}" == "\\" ]]; then _pin_go_mod_refuse "${_ln}" quote_escape; return 1; fi
         _j=$(( _j + 1 ))
       done
@@ -883,12 +886,15 @@ _pin_go_mod_canonical_ok() {
 }
 
 # _pin_go_mod_unquote <kind> <text> -- a path or version token as Go reads
-# it: a string loses its quotes (escapes never reach here: the lexer
-# refuses them). Non-zero when a word holds a quote character, which Go
-# reserves ("unquoted string cannot contain quote").
+# it: a string loses its quotes and `\"` decodes to `"` (base#1488; every
+# other escape never reaches here: the lexer refuses it). Non-zero when a
+# word holds a quote character, which Go reserves ("unquoted string cannot
+# contain quote").
 _pin_go_mod_unquote() {
+  local _in
   if [[ "${1}" == s ]]; then
-    printf '%s' "${2:1:${#2}-2}"
+    _in="${2:1:${#2}-2}"
+    printf '%s' "${_in//\\\"/\"}"
     return 0
   fi
   [[ "${2}" != *[\"\']* ]] || return 1
