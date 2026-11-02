@@ -3,13 +3,14 @@
 # config_gen_coverage_spec.bats -- dockerfile/config-gen/gates/coverage.sh,
 # the coverage gate the config-gen test stage runs (base#1462).
 #
-# why: The gate reads per-package profiles and passes a package at >= 90.0%
-# of its statements. Every way that measurement can go missing -- go list
-# failing or listing nothing, a test failing, a profile absent, carrying the
-# wrong mode, a malformed line or a line from another package, a package
-# with source files and no statements -- must be a refusal, because each one
-# otherwise reads as "covered". The floor is an integer comparison so no
-# float rounding moves a package across it.
+# why: The gate measures per-package profiles and writes, per package,
+# `<import path>\t<statements>\t<covered>` for the floor ratchet
+# (cmd/cg-gates ratchet, base#1465), which judges every floor. Every way
+# the measurement can go missing -- go list failing or listing nothing, a
+# test failing, a profile absent, carrying the wrong mode, a malformed line
+# or a line from another package -- must be a refusal, because each one
+# otherwise reads as a count. The counts are integers, so no float rounding
+# moves a package across a floor.
 #
 # The script runs inside the golang image, which has no lib/log.sh, so its
 # refusal is one exact stderr line rather than a JSON event; the runner
@@ -75,10 +76,11 @@ _run_gate_with() {
   run --separate-stderr env PATH="${S}/bin:${PATH}" bash -c "cd '${S}/mod' && bash '${GATE}'${_args}"
 }
 
-# _run_gate -- run the gate with a valid corpus root record (base#1468).
+# _run_gate -- run the gate with --measure ${S}/measured and a valid corpus
+# root record (base#1468).
 _run_gate() {
   printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
-  _run_gate_with "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root"
 }
 
 # _refused <reason> <pkg> -- the exact refusal: rc 1, empty stdout, and one
@@ -89,11 +91,14 @@ _refused() {
   assert_equal "${stderr}" "config_gen_gate_coverage_failed reason=${1} pkg=${2}"
 }
 
-# _passed -- rc 0, `gate=coverage ok` alone on stdout, nothing on stderr.
+# _passed [<line>...] -- rc 0, nothing on stdout or stderr, and when lines
+# are given, ${S}/measured holding exactly them.
 _passed() {
   assert_equal "${status}" 0
-  assert_equal "${output}" "gate=coverage ok"
+  assert_equal "${output}" ""
   assert_equal "${stderr}" ""
+  (( $# == 0 )) || assert_equal "$(od -An -c "${S}/measured" | tr -s ' ')" \
+    "$(printf '%s\n' "$@" | od -An -c | tr -s ' ')"
 }
 
 # why: A list that failed is not a list of zero packages; reading it as one
@@ -160,39 +165,49 @@ _passed() {
   _refused profile_invalid m/a
 }
 
-# why: The issue's `[no statements]` rule: a package with source files and
-# zero statements was not measured, while a package with no source files
-# (tests or types moved elsewhere) has nothing to measure.
-@test "coverage.sh: zero statements with source files is refused with reason no_statements (base#1462)" {
+# why: Judging a package with source files and zero statements is the
+# ratchet's (its `none` rule, base#1465); the gate's job is the count, and
+# a refusal here would leave such a package unjudgeable. The listing and
+# profile are what golang:1.27.2-trixie gave for a package holding only
+# declarations: GoFiles 1 and a profile of exactly `mode: atomic`.
+@test "coverage.sh: zero statements with or without source files is measured as 0 0 (base#1465)" {
   _pkg m/a 1
   _profile m/a
+  _pkg m/b 0 1
+  _profile m/b
+  _pkg m/c 0 0
+  _profile m/c
   _run_gate
-  _refused no_statements m/a
-  : > "${S}/list"
-  _pkg m/a 0 1
-  _run_gate
-  _refused no_statements m/a
+  _passed "m/a"$'\t'"0"$'\t'"0" "m/b"$'\t'"0"$'\t'"0" "m/c"$'\t'"0"$'\t'"0"
 }
 
-@test "coverage.sh: zero statements with no source files passes (base#1462)" {
-  _pkg m/a 0 0
-  _profile m/a
-  _run_gate
-  _passed
-}
-
-# why: >= 90.0 exactly, as an integer comparison: 899/1000 is below and
-# 900/1000 is not, and a red package is named even after a green one.
-@test "coverage.sh: 899 of 1000 statements is refused with reason below_floor, 900 passes (base#1462)" {
+# why: The counts are what the ratchet compares in integer tenths: 899 of
+# 1000 and 900 of 1000 must reach it as exactly those numbers, with no
+# floor judged here (base#1465).
+@test "coverage.sh: 899 and 900 of 1000 statements are measured exactly, with no floor judged (base#1465)" {
   _pkg m/ok 1
   _profile m/ok 'm/ok/o.go:1.1,2.2 10 1'
   _pkg m/a 1
   _profile m/a 'm/a/a.go:1.1,2.2 899 1' 'm/a/a.go:3.1,4.2 101 0'
   _run_gate
-  _refused below_floor m/a
+  _passed "m/ok"$'\t'"10"$'\t'"10" "m/a"$'\t'"1000"$'\t'"899"
   _profile m/a 'm/a/a.go:1.1,2.2 900 1' 'm/a/a.go:3.1,4.2 100 0'
   _run_gate
-  _passed
+  _passed "m/ok"$'\t'"10"$'\t'"10" "m/a"$'\t'"1000"$'\t'"900"
+}
+
+# why: Without --measure the gate would have nowhere to write the counts,
+# and no floor to judge; it refuses rather than passing on nothing
+# (base#1465).
+@test "coverage.sh: a run without --measure <file> is refused with reason usage before go runs (base#1465)" {
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with "${S}/corpus-root"
+  _refused usage ""
+  _run_gate_with --measure
+  _refused usage ""
+  [[ ! -e "${S}/go.calls" ]] || fail "go ran before the guard: $(cat "${S}/go.calls")"
 }
 
 # why: atomic profiles repeat a block once per test binary that ran it;
@@ -202,7 +217,7 @@ _passed() {
   _pkg m/a 1
   _profile m/a 'm/a/a.go:1.1,2.2 900 0' 'm/a/a.go:3.1,4.2 100 0' 'm/a/a.go:1.1,2.2 900 3'
   _run_gate
-  _passed
+  _passed "m/a"$'\t'"1000"$'\t'"900"
 }
 
 # why: One profile per package is what makes the attribution check possible;
@@ -231,7 +246,7 @@ _passed() {
   _pkg m/a 1
   _profile m/a 'm/a/a.go:1.1,2.2 10 1'
   printf '1\n' > "${S}/prof/m_a.rc"
-  _run_gate_with "${S}/no-such-record"
+  _run_gate_with --measure "${S}/measured" "${S}/no-such-record"
   _refused corpus_root_missing ""
   [[ ! -e "${S}/go.calls" ]] || fail "go ran before the guard: $(cat "${S}/go.calls")"
 }
@@ -252,9 +267,9 @@ _passed() {
   for _case in empty blank none; do
     rm -f "${S}/go.calls"
     case "${_case}" in
-      empty) _run_gate_with "${S}/empty-record" ;;
-      blank) _run_gate_with "${S}/blank-record" ;;
-      none) _run_gate_with ;;
+      empty) _run_gate_with --measure "${S}/measured" "${S}/empty-record" ;;
+      blank) _run_gate_with --measure "${S}/measured" "${S}/blank-record" ;;
+      none) _run_gate_with --measure "${S}/measured" ;;
     esac
     _refused corpus_root_missing ""
     [[ ! -e "${S}/go.calls" ]] || fail "${_case}: go ran before the guard: $(cat "${S}/go.calls")"

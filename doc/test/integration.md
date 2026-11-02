@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **266 tests**.
+Integration specs under `test/bats/integration/`: **271 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -77,6 +77,30 @@ because the text is not what decides which image a run pulls.
 | `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
 | `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
 | `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
+
+### test/bats/integration/config_gen_admit_spec.bats (5)
+
+The Dockerfile's admit stage runs this checker before any Go, to hold the
+build context to the host mutation baseline the 00-manifest step wrote
+(base#1464). The build-seam proof is config_gen_redpath.sh, which runs these
+cases through real docker builds; this spec runs the checker's own contract
+fast enough for the required-kill roster
+(script/test/mutation_required/s1e.tsv) to probe each of its guards. Every
+row writes a real baseline with config_gen_mutation_targets.sh on a Git
+fixture, changes the module or the baseline the way a later step could, and
+runs the checker on the result; no row reads the checker's source.
+
+config_gen_admit.sh <mutation> <src> admitted: rc 0, nothing on stdout or
+stderr refused: rc 1, nothing on stdout, exactly one stderr line cg_event
+config_gen_manifest_stale file=<f> reason=<r>
+
+| Test | Description |
+|------|-------------|
+| `config_gen_admit: the producer's baseline for each observed git state is admitted, and its manifest is the one observed (base#1465)` | Every manifest the producer writes for a module, and the module it wrote it for, must be admitted: the record pairs below repeat an operand (R a d with A a, D a with A a, D c with R a d and A a), list a removed path as ignored, or list a symlink by its target's sha256, all observed from real producer runs (base#1465 redesign r2 §1). A presence rule guessed per record refuses one of them. (base#1465) |
+| `config_gen_admit: an unchanged baseline holding café.go, a b.go and one name per byte 0x01-0x7f but / is admitted (base#1465)` | Every name the producer writes, raw or C-quoted, is read back to the name on disk: a checker with a second spelling grammar refuses one of them, and a value it splits on a space names the wrong file. (base#1465) |
+| `config_gen_admit: a module file edited, deleted, added or replaced after the baseline is refused naming it (base#1465)` | Whatever reaches the build after the baseline and is not bound by it, by name and by sha256, is compiled by gates that never saw it in the manifest; each change below names its file. (base#1465) |
+| `config_gen_admit: a baseline the producer cannot write for the module on disk is refused with the rule's file and reason (base#1465)` | Each row is bytes the producer cannot write for the module on disk: a value its constructors refuse, a spelling it does not write, a record set no git state yields, or a list that is not its listing of the disk. Each was let through or wrongly refused by an earlier checker (base#1465 redesign r1 §1, r2 §1); add-over-src is the green twin of modify-over-src. (base#1465) |
+| `config_gen_admit: a refusal reaches the runner as rc 1, no stdout, and JSON stale and admission records naming its file and reason (base#1465)` | The checker's line is not the contract a caller reads; the runner's JSON record is, and its file attribute must survive a name holding a space, a % or a byte past 0x7e intact. (base#1465) |
 
 ### test/bats/integration/config_gen_mutation_targets_spec.bats (40)
 
