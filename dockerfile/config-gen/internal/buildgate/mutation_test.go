@@ -166,6 +166,62 @@ func TestMapRefusesAnUnmappedFile(t *testing.T) {
 	}
 }
 
+// A deleted Go path (a D line, or the old side of an R line) maps to its
+// directory's package while the head tree still holds a package there,
+// and is otherwise recorded as removed: no target, no refusal. The new
+// side of a rename maps as an add, so a package move targets the new
+// package and records the old one as removed. internal/zzgone and
+// internal/zzold are not packages of the fixture (see the comment above
+// TestMapRootTestdataTargetsTestcorpusImporters); internal/b and
+// internal/c are. The expected lists are spelled from that comment.
+func TestMapDeletesAndRenames(t *testing.T) {
+	body, err := os.ReadFile("testdata/golist-testcorpus.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := DecodeList(body)
+	if err != nil {
+		t.Fatalf("DecodeList: %v", err)
+	}
+	cases := []struct {
+		name        string
+		manifest    string
+		wantTargets []string
+		wantRemoved []string
+	}{
+		{"a deleted file whose package is left", header + "D\tdockerfile/config-gen/internal/c/old.go\n",
+			[]string{"internal/c"}, []string{}},
+		{"a deleted package", header + "D\tdockerfile/config-gen/internal/zzgone/zzgone.go\n",
+			[]string{}, []string{"internal/zzgone"}},
+		{"a deleted package of two files, recorded once", header +
+			"D\tdockerfile/config-gen/internal/zzgone/zzgone.go\nD\tdockerfile/config-gen/internal/zzgone/zzgone_test.go\n",
+			[]string{}, []string{"internal/zzgone"}},
+		{"a rename inside one package", header + "R100\tdockerfile/config-gen/internal/c/old.go\tdockerfile/config-gen/internal/c/new.go\n",
+			[]string{"internal/c"}, []string{}},
+		{"a file moved between two packages that are left", header +
+			"R100\tdockerfile/config-gen/internal/c/x.go\tdockerfile/config-gen/internal/b/x.go\n",
+			[]string{"internal/b", "internal/c"}, []string{}},
+		{"a package move", header +
+			"R100\tdockerfile/config-gen/internal/zzold/b.go\tdockerfile/config-gen/internal/b/b.go\n" +
+			"R100\tdockerfile/config-gen/internal/zzold/b_test.go\tdockerfile/config-gen/internal/b/b_test.go\n",
+			[]string{"internal/b"}, []string{"internal/zzold"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Map(c.manifest, fixtureModule, pkgs)
+			if err != nil {
+				t.Fatalf("Map: %v", err)
+			}
+			if !reflect.DeepEqual(got.Targets, c.wantTargets) {
+				t.Errorf("Map targets = %q, want %q", got.Targets, c.wantTargets)
+			}
+			if !reflect.DeepEqual(got.Removed, c.wantRemoved) {
+				t.Errorf("Map removed = %q, want %q", got.Removed, c.wantRemoved)
+			}
+		})
+	}
+}
+
 // Map keeps Targets' rule: a Go file maps to its own directory, with no
 // package list needed.
 func TestMapGoFileTargetsItsDirectory(t *testing.T) {
