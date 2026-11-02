@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -444,6 +445,46 @@ func TestTablesWriteFailureIsExit4AndOneFrame(t *testing.T) {
 			}
 			if tc.w.calls != 1 {
 				t.Fatalf("config-gen tables made %d Write calls on stdout, want exactly 1", tc.w.calls)
+			}
+		})
+	}
+}
+
+// The `config_gen_output_failed` frame's text is the library's message for
+// the failed write, verbatim (base#1469 Diagnostics: library messages are
+// carried verbatim): the writer's own error when the write returns one, and
+// io.ErrShortWrite's message when it returns a short count with no error,
+// the io package's error for exactly that case. The wants are the errors
+// the sink and the io package define, not strings the command builds.
+func TestTablesWriteFailureFrameTextIsTheWriteMessage(t *testing.T) {
+	src := testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0]
+	golden := testcorpus.Glob(t, "golden/s1/large_tables.golden")[0]
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read %s: %v", golden, err)
+	}
+	for _, tc := range []struct {
+		name string
+		w    *faultWriter
+		text string
+	}{
+		{"zero_bytes", &faultWriter{limit: 0}, errFault.Error()},
+		{"half", &faultWriter{limit: len(want) / 2}, errFault.Error()},
+		{"half_short_count_nil_error", &faultWriter{limit: len(want) / 2, shortNil: true}, io.ErrShortWrite.Error()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			trapped = -1
+			rc := run([]string{"tables", "--name", "large_tables.toml", src}, tc.w, &stderr)
+			if trapped != -1 {
+				rc = trapped
+			}
+			if rc != 4 {
+				t.Fatalf("config-gen tables exited %d, want 4 (stderr %q)", rc, stderr.Bytes())
+			}
+			got := refusal(t, stderr.Bytes(), "config_gen_output_failed", "large_tables.toml")
+			if got[7] != tc.text {
+				t.Fatalf("frame text = %q, want the library message %q verbatim", got[7], tc.text)
 			}
 		})
 	}
