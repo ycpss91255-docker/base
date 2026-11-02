@@ -766,11 +766,14 @@ func TestCheckRefusesArrayOfTablesOverValue(t *testing.T) {
 // rows on line 2, "Cannot overwrite a value (at line 2, column 6)" and
 // "Cannot declare ('x',) twice (at line 2, column 3)", not at the line 3
 // escape. The gate's position is the second definition's first byte,
-// 2:1, counted by hand. A structural reading that stops on input it
-// cannot follow still lets a later escape be refused (R4c): tomllib
-// refuses those rows on line 1 ("Unclosed inline table", "Unclosed
-// array"), a form the gate leaves to the decoder, and the gate names the
-// escape's backslash at 2:6, d(1) ' '(2) =(3) ' '(4) "(5) \(6).
+// 2:1, counted by hand. In the last two rows the reading stops on line 1,
+// where tomllib refuses them too ("Unclosed inline table", "Unclosed
+// array"): a bare value ends at the blank after it, so the next byte the
+// inline table or array reads is not a `,` or its closing bracket, and
+// the gate refuses there, before the line 2 escape (base#1441 review
+// round 1 finding 4): `c` at 1:12, a(1) ' '(2) =(3) ' '(4) {(5) b(6)
+// ' '(7) =(8) ' '(9) 1(10) ' '(11) c(12); `2` at 1:8, x(1) ' '(2) =(3)
+// ' '(4) [(5) 1(6) ' '(7) 2(8).
 func TestCheckRefusesInDocumentOrder(t *testing.T) {
 	for _, tc := range []struct {
 		src       string
@@ -780,8 +783,8 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 	}{
 		{"a = 1\na = 2\nb = \"\\e\"\n", 2, 1, ReasonDuplicate, "Cannot overwrite a value (at line 2, column 1)"},
 		{"[x]\n[x]\nb = \"\\e\"\n", 2, 1, ReasonRedefine, "Cannot overwrite a value (at line 2, column 1)"},
-		{"a = {b = 1 c = 2}\nd = \"\\e\"\n", 2, 6, ReasonEscape, `escape sequence \e is not TOML 1.0`},
-		{"x = [1 2]\nd = \"\\e\"\n", 2, 6, ReasonEscape, `escape sequence \e is not TOML 1.0`},
+		{"a = {b = 1 c = 2}\nd = \"\\e\"\n", 1, 12, ReasonSyntax, syntaxText},
+		{"x = [1 2]\nd = \"\\e\"\n", 1, 8, ReasonSyntax, syntaxText},
 	} {
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
@@ -795,3 +798,49 @@ func TestCheckRefusesInDocumentOrder(t *testing.T) {
 		}
 	}
 }
+
+// Where the structural reading cannot go on, Check refuses at the byte it
+// stopped on, the first byte in document order that breaks the TOML 1.0
+// grammar, and reads no further: no later rule (the escape on line 2 of
+// the first row) and no second, lossy reader of the rest decides the
+// verdict (base#1441 review round 1 finding 3). Each row's position is
+// counted by hand: the `\n` where the header's `]` should be (1:3); the
+// `,` where an inline table's first key should be (1:6, t(1) ' '(2) =(3)
+// ' '(4) {(5) ,(6)); the `}` where `=` should be (1:7); the `c` and the
+// second `"` where a `,` should be (1:14, 1:10); and the last byte, the
+// lone `[`, when the document ends inside a header (2:1).
+func TestCheckRefusesAtTheStopPoint(t *testing.T) {
+	read := func(p string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"header-newline", "[a\nb = \"\\e\"\n", 1, 3},
+		{"empty-01", read("toml-test/invalid/inline-table/empty-01.toml"), 1, 6},
+		{"empty-02", read("toml-test/invalid/inline-table/empty-02.toml"), 1, 6},
+		{"inline-no-equals", read("forms/stop-inline-no-equals.toml"), 1, 7},
+		{"inline-no-comma", read("forms/stop-inline-no-comma.toml"), 1, 14},
+		{"array-no-comma", read("forms/stop-array-no-comma.toml"), 1, 10},
+		{"header-eof", read("forms/stop-header-eof.toml"), 2, 1},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		want := fmt.Sprintf("t.toml:%d:%d: %s", tc.line, tc.col, syntaxText)
+		if r.Reason != ReasonSyntax || r.Error() != want {
+			t.Errorf("%s: Check(%q) = %v %q, want ReasonSyntax %q", tc.name, tc.src, r.Reason, r.Error(), want)
+		}
+	}
+}
+
+// syntaxText is the stop-point refusal's text, written as a literal.
+const syntaxText = "invalid TOML 1.0 syntax"
