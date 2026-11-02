@@ -317,7 +317,10 @@ _publish_order_violations_in() {
 # The registry is fixture-driven: `${STUB_FX}/<hex>.json` is the raw index
 # stored under `sha256:<hex>`, and IMAGE_TAG resolves to
 # `sha256:${STUB_TAG_DIGEST}`. Every answer is read from those files, so the
-# `Platform:` listing and the raw JSON cannot disagree.
+# `Platform:` listing and the raw JSON cannot disagree. Three switches bend
+# that state for one refusal each: STUB_TAG_MOVED (the tag moves after its
+# first read), STUB_RAW_FAIL (a raw read exits non-zero after its body) and
+# STUB_TAG_UNRESOLVED (the tag's `{{.Manifest.Digest}}` answer is empty).
 #
 # The LOCAL image store is the containerd one (ubuntu-26.04 runners, Docker
 # 29.4.2), where `docker image inspect --format {{.Id}}` is the digest of the
@@ -846,6 +849,8 @@ _confirm_step_node() {
 #   rawfail-verified
 #                as agree, but the raw read of the verified index writes the
 #                whole index and then exits non-zero.
+#   unresolved   as agree, but resolving the tag by name exits 0 and prints
+#                an empty answer instead of a digest.
 #   content      the tag lists both platforms, but its linux/amd64 child is
 #                different content than was verified.
 #   platform     the tag resolves to the amd64 shard index alone, so it is
@@ -864,8 +869,6 @@ _confirm_step_node() {
 #   verified-ambiguous
 #                the verified index carries two linux/amd64 images, the
 #                tag's one listed first; the tag is the ordinary `:main` index.
-#   unresolved   as agree, but resolving the tag by name exits 0 and prints
-#                an empty answer instead of a digest.
 _confirm_step_for() {
   local _mode="${1}" _body _dir _tag _moved='' _rawfail='' _unresolved=''
   local _status=0
@@ -892,8 +895,8 @@ _confirm_step_for() {
     agree) _tag="${_FX_MAIN}" ;;
     moved) _fx_moved; _tag="${_FX_MAIN}" _moved="${_FX_MOVED}" ;;
     rawfail-tag) _tag="${_FX_MAIN}" _rawfail="${_FX_MAIN}" ;;
-    unresolved) _tag="${_FX_MAIN}" _unresolved=1 ;;
     rawfail-verified) _tag="${_FX_MAIN}" _rawfail="${_FX_SHARD_AMD64}" ;;
+    unresolved) _tag="${_FX_MAIN}" _unresolved=1 ;;
     content) _fx_content; _tag="${_FX_CONTENT}" ;;
     platform) _tag="${_FX_SHARD_AMD64}" ;;
     attestation)
