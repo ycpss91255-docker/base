@@ -3555,7 +3555,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | `20-gomod-oracle.sh: a policy-refused fixture refused for another reason is go_mod_oracle_mismatch (base#1463)` | A policy refusal is pinned by its reason; refusing for another reason means the named guard is not the one doing the work. |
 | `20-gomod-oracle.sh: a Dockerfile with no golang pin is go_mod_oracle_pin_missing and runs no docker (base#1463)` | The image is read from the golang pin, never hard-coded; with no pin there is no image to trust, so docker must not run. |
 
-### test/bats/unit/gomod_scan_spec.bats (57)
+### test/bats/unit/gomod_scan_spec.bats (58)
 
 config-gen's go.mod is a declaration site the pin registry cannot read.
 Before base#1463 no go.mod line is ever a declaration, so an unmarked or `//
@@ -3598,6 +3598,7 @@ its reason so a guard that goes quiet fails here by name.
 | `_pin_go_mod_scan: a token after a retract version is refused as retract_trailer (base#1488)` | Go rejects `retract v1.0.0 x` (a token left after the version; the oracle records Go rc != 0 for retract_trailer_pre/post). A retract read by Go's parseVersionInterval names the leftover token: retract_trailer, before a require and after one, not a by-name `retract` refusal. |
 | `_pin_go_mod_scan: a retract block is read and the require beside it is the one record (base#1488)` | Go reads a `retract (` block holding `v0.9.0` in module example.com/m (the oracle records Go rc 0 for retract_block_pre/post) and its only require is `a v1.0.0`. A scanner that still refuses the block by name refuses both; one that hands the block's lines to the require entry refuses `v0.9.0` as arity; one that emits them adds a record. The block's lines are checked, never emitted, so none of them is a declaration. |
 | `_pin_go_mod_scan: a quoted path with an escaped double quote is one record with the decoded path (base#1488)` | Go's parseString unquotes `"a\"b"` with strconv.Unquote to the path `a"b` (base#1488). A lexer that ends the token at the escaped quote breaks the line apart; an unquote that only strips the outer quotes keeps the backslash (`a\"b`). The record carries the decoded path. |
+| `_pin_go_mod_scan: a quoted path with an escaped backslash is one record with the decoded path (base#1488)` | strconv.Unquote reads `"a\\b"` as `a\b` and `"c\\"` as `c\` (base#1488). A lexer that takes any quote after a backslash as escaped reads `"c\\"` as unterminated; an unquote that only strips the outer quotes keeps both backslashes. Each record carries the decoded path. |
 | `_pin_go_mod_scan: replace, tool and ignore are each refused by name (base#1463)` | replace, tool and ignore are three separate arms, each its own guard. |
 | `_pin_go_mod_scan: module with two arguments is refused as module_arity (base#1463)` | module takes exactly one argument; `module a b` is a Go error. |
 | `_pin_go_mod_scan: module ) is read as Go reads it, the require kept (base#1463)` | Review round 4 took `module )` for a Go error. The oracle step ran `go mod edit -json` on both fixtures and Go returned rc 0: its parser reads the `)` as the module path. So the scanner keeps the require on either side of it, as Go does, rather than refusing a file Go accepts. |

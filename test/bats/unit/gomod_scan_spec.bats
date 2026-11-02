@@ -449,6 +449,17 @@ EOF
   [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
 }
 
+# why: strconv.Unquote reads `"a\\b"` as `a\b` and `"c\\"` as `c\`
+# (base#1488). A lexer that takes any quote after a backslash as escaped
+# reads `"c\\"` as unterminated; an unquote that only strips the outer
+# quotes keeps both backslashes. Each record carries the decoded path.
+@test "_pin_go_mod_scan: a quoted path with an escaped backslash is one record with the decoded path (base#1488)" {
+  _scan quote_escape_backslash
+  assert_success
+  assert_output "$(printf '3\ta\\b\tv1.0.0\t\n4\tc\\\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
