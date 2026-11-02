@@ -33,75 +33,74 @@ func init() {
 // one stdout write; a write error or a short count exits 4 with one
 // `config_gen_output_failed` frame.
 func tablesCmd(args []string, stdout, stderr io.Writer) error {
+	if rc := runTables(args, stdout, stderr); rc != exitOK {
+		osExit(rc)
+	}
+	return nil
+}
+
+// runTables does the work of tablesCmd and returns its exit status; every
+// non-zero status has written exactly one frame to stderr.
+func runTables(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 3 || args[0] != "--name" {
-		_, _ = stderr.Write(diag.Encode(diag.Frame{
-			Sev:   "error",
+		return fail(stderr, exitUsage, diag.Frame{
 			Event: "config_gen_usage_invalid",
 			Text:  "usage: tables --name <label> <path>",
-		}))
-		osExit(exitUsage)
-		return nil
+		})
 	}
+	label := args[1]
 	src, err := readRegular(args[2])
-	if errors.Is(err, errNotRegular) {
-		_, _ = stderr.Write(diag.Encode(diag.Frame{
-			Sev:   "error",
+	switch {
+	case errors.Is(err, errNotRegular):
+		return fail(stderr, exitError, diag.Frame{
 			Event: "config_gen_input_not_regular",
-			File:  args[1],
+			File:  label,
 			Text:  "input is not a regular file",
-		}))
-		osExit(exitError)
-		return nil
-	}
-	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR) {
-		_, _ = stderr.Write(diag.Encode(diag.Frame{
-			Sev:   "error",
+		})
+	case errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR):
+		return fail(stderr, exitError, diag.Frame{
 			Event: "no_such_file",
-			File:  args[1],
+			File:  label,
 			Text:  "no such file",
-		}))
-		osExit(exitError)
-		return nil
-	}
-	if err != nil {
-		_, _ = stderr.Write(diag.Encode(diag.Frame{
-			Sev:   "error",
+		})
+	case err != nil:
+		return fail(stderr, exitError, diag.Frame{
 			Event: "config_gen_input_unreadable",
-			File:  args[1],
+			File:  label,
 			Text:  err.Error(),
-		}))
-		osExit(exitError)
-		return nil
+		})
 	}
 	out, err := tables.Emit(src)
 	if err != nil {
 		var pe toml.ParseError
 		errors.As(err, &pe)
-		_, _ = stderr.Write(diag.Encode(diag.Frame{
-			Sev:   "error",
+		return fail(stderr, exitError, diag.Frame{
 			Event: "conf_toml_parse_failed",
-			File:  args[1],
+			File:  label,
 			Line:  strconv.Itoa(pe.Position.Line),
 			Col:   strconv.Itoa(pe.Position.Col),
 			Text:  err.Error(),
-		}))
-		osExit(exitError)
-		return nil
+		})
 	}
 	if n, err := stdout.Write(out); err != nil || n != len(out) {
 		text := "short write"
 		if err != nil {
 			text = err.Error()
 		}
-		_, _ = stderr.Write(diag.Encode(diag.Frame{
-			Sev:   "error",
+		return fail(stderr, exitOutput, diag.Frame{
 			Event: "config_gen_output_failed",
-			File:  args[1],
+			File:  label,
 			Text:  text,
-		}))
-		osExit(exitOutput)
+		})
 	}
-	return nil
+	return exitOK
+}
+
+// fail writes f to stderr as one error-severity frame and returns rc.
+func fail(stderr io.Writer, rc int, f diag.Frame) int {
+	f.Sev = "error"
+	_, _ = stderr.Write(diag.Encode(f))
+	return rc
 }
 
 // exitOutput is the status when the answer cannot be written in full.
