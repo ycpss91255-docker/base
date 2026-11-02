@@ -15,6 +15,9 @@ const (
 	// ReasonEscape is a `\e` or `\xHH` escape in a basic string (TOML 1.1
 	// only).
 	ReasonEscape Reason = iota + 1
+	// ReasonInlineNewline is a line ending whose innermost open container
+	// is an inline table (TOML 1.1 only).
+	ReasonInlineNewline
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -35,12 +38,24 @@ func (r *Refusal) Error() string {
 // byte of src.
 func Check(label string, src []byte) error {
 	inBasic := false
+	var open []byte // innermost last: '{' inline table, '[' array or header
 	for i := 0; i < len(src); i++ {
 		switch {
 		case !inBasic && src[i] == '#':
-			for i < len(src) && src[i] != '\n' {
+			for i < len(src) && !lineEnd(src, i) {
 				i++
 			}
+			i-- // the loop step lands on the line ending
+		case !inBasic && src[i] == '\'':
+			i = skipLiteral(src, i)
+		case !inBasic && (src[i] == '{' || src[i] == '['):
+			open = append(open, src[i])
+		case !inBasic && (src[i] == '}' || src[i] == ']') && len(open) > 0:
+			open = open[:len(open)-1]
+		case !inBasic && lineEnd(src, i) && len(open) > 0 && open[len(open)-1] == '{':
+			line, col := position(src, i)
+			return &Refusal{File: label, Line: line, Col: col, Reason: ReasonInlineNewline,
+				Text: "line ending inside an inline table is not TOML 1.0"}
 		case src[i] == '"':
 			inBasic = !inBasic
 		case inBasic && src[i] == '\\' && i+1 < len(src):
@@ -53,6 +68,27 @@ func Check(label string, src []byte) error {
 		}
 	}
 	return nil
+}
+
+// lineEnd reports whether a line ending (LF, or the CR of CRLF) starts at
+// offset i of src.
+func lineEnd(src []byte, i int) bool {
+	return src[i] == '\n' || (src[i] == '\r' && i+1 < len(src) && src[i+1] == '\n')
+}
+
+// skipLiteral returns the offset of the last quote of the literal string
+// (single- or multi-line) that opens at offset i of src, or len(src)-1
+// when it is unclosed.
+func skipLiteral(src []byte, i int) int {
+	delim := []byte{'\''}
+	if bytes.HasPrefix(src[i:], []byte("'''")) {
+		delim = []byte("'''")
+	}
+	end := bytes.Index(src[i+len(delim):], delim)
+	if end < 0 {
+		return len(src) - 1
+	}
+	return i + len(delim) + end + len(delim) - 1
 }
 
 // position returns the 1-based line and byte column of offset off in src.
