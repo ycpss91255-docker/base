@@ -66,9 +66,19 @@ _profile() {
   { printf 'mode: atomic\n'; printf '%s\n' "$@"; } > "${S}/prof/${_key}"
 }
 
-_run_gate() {
+# _run_gate_with [arg...] -- run the gate from ${S}/mod with exactly the
+# given arguments.
+_run_gate_with() {
   assert_spec_subject "${GATE}" "the config-gen coverage gate (base#1462)"
-  run --separate-stderr env PATH="${S}/bin:${PATH}" bash -c "cd '${S}/mod' && bash '${GATE}'"
+  local _args=""
+  (( $# == 0 )) || _args="$(printf " '%s'" "$@")"
+  run --separate-stderr env PATH="${S}/bin:${PATH}" bash -c "cd '${S}/mod' && bash '${GATE}'${_args}"
+}
+
+# _run_gate -- run the gate with a valid corpus root record (base#1468).
+_run_gate() {
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with "${S}/corpus-root"
 }
 
 # _refused <reason> <pkg> -- the exact refusal: rc 1, empty stdout, and one
@@ -209,4 +219,61 @@ _passed() {
   run grep '^test ' "${S}/go.calls"
   assert_line --regexp '^test .*-covermode=atomic .*m/a$'
   assert_line --regexp '^test .*-covermode=atomic .*m/b$'
+}
+
+# why: The race RUN writes the corpus root record and the coverage RUN must
+# hand that root to every go test, or testcorpus.Glob fails with an empty
+# root and the gate reads it as a package's test_failed. A record that never
+# arrived is refused before go runs, under its own reason, so it cannot pass
+# and cannot look like a later test failure (base#1468). Without the guard
+# this listing reads reason=test_failed pkg=m/a.
+@test "coverage.sh: a missing corpus root record is refused with reason corpus_root_missing before go runs (base#1468)" {
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  printf '1\n' > "${S}/prof/m_a.rc"
+  _run_gate_with "${S}/no-such-record"
+  _refused corpus_root_missing ""
+  [[ ! -e "${S}/go.calls" ]] || fail "go ran before the guard: $(cat "${S}/go.calls")"
+}
+
+# why: A record that exists but is empty, a record holding only a blank
+# line, and no argument at all deliver no root either. Each must stop at the
+# same guard as a missing file, before go runs; a check that only asks
+# whether the file exists passes the first two, and under set -u an unset
+# variable exits without the refusal line (base#1468). Without the guard
+# this listing reads reason=test_failed pkg=m/a.
+@test "coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)" {
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  printf '1\n' > "${S}/prof/m_a.rc"
+  : > "${S}/empty-record"
+  printf '\n' > "${S}/blank-record"
+  local _case
+  for _case in empty blank none; do
+    rm -f "${S}/go.calls"
+    case "${_case}" in
+      empty) _run_gate_with "${S}/empty-record" ;;
+      blank) _run_gate_with "${S}/blank-record" ;;
+      none) _run_gate_with ;;
+    esac
+    _refused corpus_root_missing ""
+    [[ ! -e "${S}/go.calls" ]] || fail "${_case}: go ran before the guard: $(cat "${S}/go.calls")"
+  done
+}
+
+# why: Validating the record and then dropping it leaves every go test with
+# an empty testcorpus root, which reads as test_failed in the real image. The
+# validated root has to reach each package's go test as one -ldflags -X
+# token (base#1468). The expected token is the record line verbatim.
+@test "coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)" {
+  _pkg m/a 1
+  _profile m/a 'm/a/a.go:1.1,2.2 10 1'
+  _pkg m/b 1
+  _profile m/b 'm/b/b.go:1.1,2.2 10 1'
+  _run_gate
+  _passed
+  run grep -c '^test ' "${S}/go.calls"
+  assert_output 2
+  run grep -c '^test \(.* \)\?-ldflags=-X=m/internal/testcorpus\.root=/r/testdata .*' "${S}/go.calls"
+  assert_output 2
 }

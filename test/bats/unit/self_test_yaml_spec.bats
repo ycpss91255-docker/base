@@ -2544,7 +2544,15 @@ _lint_probe_env() {
 #       one per step run, so a caller can see the population is not empty;
 #   unresolved<TAB><file>:<job>#<step><TAB><expression>
 #       the step uses a runtime expression no domain is known for, so it
-#       was not run (_lint_probe_bindings).
+#       was not run (_lint_probe_bindings);
+#   roster<TAB><file>:<job>#<step><TAB><exit status><TAB><driver argv>
+#       the step ran the required-kill roster driver, once per run of it
+#       (only in a root from _roster_probe_root, whose driver records).
+#
+# LP_JOBS (space-separated) limits the run to those jobs; LP_ALL_STEPS=1
+# runs every `run:` step of them instead of only the ones naming test.sh,
+# which is how the roster probe decides by execution, not by spelling,
+# which steps run the roster (base#1461).
 #
 # <step> is the step index, then ` matrix=<leg>` for a matrix leg and
 # ` with=<binding>` for a combination of runtime values.
@@ -2566,8 +2574,13 @@ STUB
   local -a _a=() _envargs=()
   local -A _LP_ENV=()
   local -a _legs=()
+  local _select='test("test\\.sh")'
+  [ "${LP_ALL_STEPS:-0}" != 1 ] || _select='true'
   for _wf in "$@"; do
     while IFS= read -r _job; do
+      if [ -n "${LP_JOBS:-}" ] && [[ " ${LP_JOBS} " != *" ${_job} "* ]]; then
+        continue
+      fi
       mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
       while IFS= read -r _i; do
         for _n in "${!_legs[@]}"; do
@@ -2600,6 +2613,7 @@ STUB
             rm -rf "${_dir}"
             mkdir -p "${_dir}/docker"
             : > "${_dir}/host"
+            : > "${_dir}/roster"
             _LP_ENV=()
             _lint_probe_env "${_wf}" '.env' "${_job}"
             _lint_probe_env "${_wf}" ".jobs[\"${_job}\"].env" "${_job}"
@@ -2616,6 +2630,8 @@ STUB
               GITHUB_ENV="${_dir}/env" GITHUB_STEP_SUMMARY="${_dir}/summary"
               LINT_PROBE_HOST_LOG="${_dir}/host"
               LINT_PROBE_DOCKER_DIR="${_dir}/docker"
+              LINT_PROBE_ROSTER_LOG="${_dir}/roster"
+              LINT_PROBE_ROSTER_RC="${LINT_PROBE_ROSTER_RC:-0}"
             )
             for _k in "${!_LP_ENV[@]}"; do
               _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )
@@ -2629,6 +2645,9 @@ STUB
             while IFS= read -r _k; do
               printf 'host\t%s\t%s\n' "${_label}" "${_k}"
             done < "${_dir}/host"
+            while IFS= read -r _k; do
+              printf 'roster\t%s\t%s\t%s\n' "${_label}" "${_status}" "${_k}"
+            done < "${_dir}/roster"
             for _call in "${_dir}"/docker/call.*; do
               [ -f "${_call}" ] || continue
               mapfile -d '' -t _a < "${_call}"
@@ -2637,7 +2656,7 @@ STUB
           done
         done
       done < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps // [] | to_entries | .[]
-          | select(.value.run != null and (.value.run | test("test\\.sh"))) | .key' "${_wf}")
+          | select(.value.run != null and (.value.run | '"${_select}"')) | .key' "${_wf}")
     done < <(yaml_job_names "${_wf}")
   done
 }
@@ -2715,7 +2734,7 @@ _lint_probe_selection_errors() {
 # lint a step runs is the probe's to say; this reads only whether the
 # runner runs that step and minds its result (base#1412 review round 7).
 _lint_probe_gating_errors() {
-  local _probe="${1}" _wf="${2}" _job="${3}" _i _if _coe
+  local _probe="${1}" _wf="${2}" _job="${3}" _kind="${4:-image}" _i _if _coe
   while IFS= read -r _i; do
     [ -n "${_i}" ] || continue
     _if="$(LP_J="${_job}" LP_I="${_i}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)] | has("if")' "${_wf}")"
@@ -2724,8 +2743,8 @@ _lint_probe_gating_errors() {
     _coe="$(LP_J="${_job}" LP_I="${_i}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)]["continue-on-error"] // false' "${_wf}")"
     [ "${_coe}" = false ] \
       || printf '  %s: step %s lints in the image with continue-on-error, so its failure fails nothing\n' "${_job}" "${_i}"
-  done < <(awk -F'\t' -v j="$(basename "${_wf}"):${_job}#" '
-      $1 == "image" && index($2, j) == 1 {
+  done < <(awk -F'\t' -v j="$(basename "${_wf}"):${_job}#" -v k="${_kind}" '
+      $1 == k && index($2, j) == 1 {
         l = substr($2, length(j) + 1); sub(/[^0-9].*$/, "", l); print l
       }' <<< "${_probe}" | sort -u)
 }
@@ -3818,15 +3837,20 @@ _cg_mut_ctx() {
 # base-ref diff, the redpath's copies and the mutation baseline need
 # history), the three just-pin steps, and the one canonical step with its
 # CONFIG_GEN_MUTATION_CONTEXT env. Every step is a literal here, so no file
-# under test can move its own expectation.
+# under test can move its own expectation. The self-hosted job then runs the
+# required-kill roster (base#1461); the hosted job does not, because the
+# hosted lint-static legs run it.
 _cg_expected_steps() {
-  local _pin _ctx
+  local _pin _ctx _tail='[]'
   _pin="$(_cg_just_pin_steps)" || return 1
   _ctx="$(_cg_mut_ctx "${1}")" || { printf '%s\n' "${_ctx}"; return 1; }
-  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" yq -n -o json -I0 '
+  [[ "${1}" != coverage-local ]] \
+    || _tail='[{"name": "Run the required-kill mutation roster", "run": "just test mutation-required"}]'
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" CG_TAIL="${_tail}" yq -n -o json -I0 '
       [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
       + env(CG_PIN)
       + [{"name": strenv(CG_NAME), "env": {"CONFIG_GEN_MUTATION_CONTEXT": strenv(CG_CTX)}, "run": strenv(CG_RUN)}]
+      + env(CG_TAIL)
       | sort_keys(..)'
 }
 
@@ -4184,4 +4208,146 @@ _rollup_honours_every_need() {
              = "${{ needs.config-gen.result }}"' "${_m}"
   run _rollup_honours_every_need "${_m}"
   assert_output --partial 'config-gen failure passes'
+}
+
+# ── the required-kill roster runs in every CI environment (base#1461) ────────
+#
+# Local `just test`, the hosted lint-static legs and the self-hosted
+# coverage-local workflow all run `just test mutation-required`. Which
+# steps run it is decided the way the lint parity is (base#1412): by
+# RUNNING every `run:` step of the job in a checkout copy whose roster
+# driver is a recorder, not by reading the step text. A quoted, variable
+# or wrapped spelling still runs the driver, and `|| true` or an `if:`
+# still lets the job pass without it -- both are seen here.
+
+# _roster_probe_root -- _lint_probe_root's copy with
+# script/test/drivers/mutation_required.sh replaced by a recorder that
+# appends its argv to LINT_PROBE_ROSTER_LOG and exits LINT_PROBE_ROSTER_RC.
+# The copy's `just test mutation-required` has to reach it, or the probe
+# would credit nothing and say so as a BUG line.
+_roster_probe_root() {
+  local _root _drv _log="${BATS_TEST_TMPDIR}/roster-selfcheck.log"
+  _root="$(_lint_probe_root)" || { printf '%s\n' "${_root}"; return 1; }
+  _drv="${_root}/script/test/drivers/mutation_required.sh"
+  # shellcheck disable=SC2016  # written into the recorder, expanded there.
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" >> "${LINT_PROBE_ROSTER_LOG:?}"' \
+    'exit "${LINT_PROBE_ROSTER_RC:-0}"' > "${_drv}"
+  chmod +x "${_drv}"
+  : > "${_log}"
+  ( cd "${_root}" && env -i PATH="${PATH}" HOME="${HOME}" \
+      LINT_PROBE_ROSTER_LOG="${_log}" timeout 120 \
+      just test mutation-required ) > "${BATS_TEST_TMPDIR}/roster-selfcheck.out" 2>&1 || true
+  [ -s "${_log}" ] \
+    || { echo "BUG: 'just test mutation-required' in the checkout copy did not run the roster driver: $(cat "${BATS_TEST_TMPDIR}/roster-selfcheck.out")"; return 1; }
+  printf '%s\n' "${_root}"
+}
+
+# _roster_runs <probe output> <label prefix> -- the roster lines whose label
+# starts with <label prefix>.
+_roster_runs() {
+  awk -F'\t' -v p="${2}" '$1 == "roster" && index($2, p) == 1' <<< "${1}"
+}
+
+# why: The hosted environment. Every lint-static leg runs the roster
+# exactly once, on its own shard (`--shard <its group>`, so the four legs
+# together probe every row), with no `if:` and no continue-on-error, and a
+# red roster fails the step.
+@test "self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)" {
+  local _root
+  _root="$(_roster_probe_root)" || fail "${_root}"
+  LP_JOBS=lint-static LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
+  assert_success
+  local _probe="${output}" _group _runs _st
+  local -a _groups=()
+  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}")
+  (( ${#_groups[@]} == 4 )) || fail "lint-static has ${#_groups[@]} legs, not 4"
+  for _group in "${_groups[@]}"; do
+    _runs="$(_roster_runs "${_probe}" "self-test.yaml:lint-static#" | grep -F "\"group\":\"${_group}\"" || true)"
+    [ "$(grep -c . <<< "${_runs}" || true)" = 1 ] \
+      || fail "lint-static leg ${_group} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
+    _st="$(cut -f3 <<< "${_runs}")"
+    [ "${_st}" != 0 ] || fail "lint-static leg ${_group}: a red roster leaves its step green"
+    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_group} "* ]] \
+      || fail "lint-static leg ${_group} does not run the roster on shard ${_group}: $(cut -f4 <<< "${_runs}")"
+  done
+  run _lint_probe_gating_errors "${_probe}" "${WF}" lint-static roster
+  assert_output ""
+}
+
+# why: The self-hosted environment runs the same command beside
+# `just test go`, gated the same way.
+@test "coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)" {
+  assert_spec_subject "${COV_LOCAL_WF}" "the self-hosted workflow"
+  local _root
+  _root="$(_roster_probe_root)" || fail "${_root}"
+  LP_JOBS=config-gen LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${COV_LOCAL_WF}"
+  assert_success
+  local _probe="${output}" _runs
+  _runs="$(_roster_runs "${_probe}" "coverage-local.yaml:config-gen#")"
+  [ "$(grep -c . <<< "${_runs}" || true)" = 1 ] \
+    || fail "coverage-local's config-gen job runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
+  [ "$(cut -f3 <<< "${_runs}")" != 0 ] || fail "a red roster leaves coverage-local's step green"
+  [[ " $(cut -f4 <<< "${_runs}") " != *" --shard "* ]] \
+    || fail "coverage-local's config-gen job runs only a shard of the roster: $(cut -f4 <<< "${_runs}")"
+  run _lint_probe_gating_errors "${_probe}" "${COV_LOCAL_WF}" config-gen roster
+  assert_output ""
+}
+
+# why: The probe decides by execution. Each spelling that runs the driver
+# is seen once, a step that does not run it is not seen, and the two ways
+# a step can run it without gating -- `|| true` and an `if:` -- are caught.
+@test "roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)" {
+  local _root
+  _root="$(_roster_probe_root)" || fail "${_root}"
+  printf '%s\n' '#!/usr/bin/env bash' 'just test mutation-required' > "${_root}/wrap.sh"
+  chmod +x "${_root}/wrap.sh"
+  local _fx="${BATS_TEST_TMPDIR}/roster-fixture.yaml"
+  cat > "${_fx}" <<'YAML'
+name: fixture
+on: push
+jobs:
+  quoted:
+    runs-on: ubuntu-latest
+    steps:
+      - run: just "test" mutation-required
+  variable:
+    runs-on: ubuntu-latest
+    steps:
+      - run: R=mutation-required; just test "$R"
+  wrapper:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./wrap.sh
+  direct:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash script/test/drivers/mutation_required.sh
+  none:
+    runs-on: ubuntu-latest
+    steps:
+      - run: just --version
+  swallowed:
+    runs-on: ubuntu-latest
+    steps:
+      - run: just test mutation-required || true
+  skipped:
+    runs-on: ubuntu-latest
+    steps:
+      - if: always()
+        run: just test mutation-required
+YAML
+  LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${_fx}"
+  assert_success
+  local _probe="${output}" _job
+  for _job in quoted variable wrapper direct swallowed skipped; do
+    [ "$(_roster_runs "${_probe}" "roster-fixture.yaml:${_job}#" | grep -c . || true)" = 1 ] \
+      || fail "the probe did not see job '${_job}' run the roster once:"$'\n'"${_probe}"
+  done
+  [ -z "$(_roster_runs "${_probe}" "roster-fixture.yaml:none#")" ] \
+    || fail "the probe credited a step that does not run the roster"
+  [ "$(_roster_runs "${_probe}" "roster-fixture.yaml:swallowed#" | cut -f3)" = 0 ] \
+    || fail "the fixture's || true step did not mask the red, so this case shows nothing"
+  run _lint_probe_gating_errors "${_probe}" "${_fx}" skipped roster
+  assert_output --partial 'skipped: step 0'
 }

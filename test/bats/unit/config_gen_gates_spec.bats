@@ -339,6 +339,32 @@ _df_instructions() {
   true
 }
 
+# why: A coverage RUN that never got the corpus root record refuses with
+# reason=corpus_root_missing and an empty pkg (base#1468). The runner must
+# name the coverage gate from that printed refusal line, not from the RUN
+# line BuildKit echoes, whose command text names gates/coverage.sh too: the
+# echoed line alone is a build that failed before any gate.
+@test "config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  { _gate_log fmt vet lint race
+    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'
+    printf '#12 0.52 config_gen_gate_coverage_failed reason=corpus_root_missing pkg=\n'; } > "${S}/build_test.err"
+  printf '1\n' > "${S}/build_test.rc"
+  _run_runner
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_gate_coverage_failed gate=coverage
+  { _gate_log fmt vet lint race
+    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'; } > "${S}/build_test.err"
+  _run_runner
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_build_failed status=1
+  grep -qF '"body":"config_gen_gate_coverage_failed"' <<<"${stderr}" \
+    && fail "the echoed RUN line was read as the coverage gate's refusal: ${stderr}"
+  true
+}
+
 # why: The final image is what ships. A binary that exits 0 with no
 # arguments, or writes usage to stdout, breaks the rc 2 / empty stdout
 # contract callers rely on, whatever the gates said.
@@ -364,7 +390,32 @@ _df_instructions() {
 
 # The cases the redpath plants, in the order it runs them, each with the
 # gate whose id it must produce; the unmodified control comes last.
-REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt"
+REDPATH_CASES="fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race"
+
+# _redpath_n -- how many cases REDPATH_CASES lists.
+_redpath_n() {
+  local -a _c
+  read -r -a _c <<<"${REDPATH_CASES}"
+  echo "${#_c[@]}"
+}
+
+# _redpath_control -- the runner call that is the control: one past the
+# last case.
+_redpath_control() {
+  echo "$(( $(_redpath_n) + 1 ))"
+}
+
+# _redpath_idx <case> -- the 1-based runner call of <case>, by name, so a
+# canned answer stays on its case when a case is added (base#1468).
+_redpath_idx() {
+  local _e _n=0
+  for _e in ${REDPATH_CASES}; do
+    _n=$(( _n + 1 ))
+    [[ "${_e%%:*}" == "${1}" ]] && { echo "${_n}"; return 0; }
+  done
+  echo "_redpath_idx: no case ${1}" >&2
+  return 1
+}
 
 # _redpath_repo -- a scratch copy of what the redpath reads, at ${S}/repo,
 # with a recording stub in place of the runner. Call <n> of the stub writes
@@ -455,11 +506,11 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  assert_equal "$(cat "${S}/runner.n")" 8
-  assert_equal "$(grep -c . "${S}/runner.trees")" 8
+  assert_equal "$(cat "${S}/runner.n")" "$(_redpath_control)"
+  assert_equal "$(grep -c . "${S}/runner.trees")" "$(_redpath_control)"
   local _roots
   _roots="$(for _f in "${S}"/runner.*.argv; do awk 'p == "--root" {print} {p=$0}' "${_f}"; done)"
-  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" 8
+  assert_equal "$(sort -u <<<"${_roots}" | grep -c .)" "$(_redpath_control)"
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
@@ -493,10 +544,10 @@ _run_redpath() {
       CONFIG_GEN_MUTATION_CONTEXT=main-push CONFIG_GEN_MUTATION_BASE=deadbeef \
       LOG_FORMAT=json timeout 60 bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_success
-  assert_equal "$(grep -c . "${S}/runner.mutenv")" 8
+  assert_equal "$(grep -c . "${S}/runner.mutenv")" "$(_redpath_control)"
   assert_equal "$(grep -cvx 'ctx=pr base=' "${S}/runner.mutenv")" 0
-  assert_equal "$(grep -c . "${S}/runner.git")" 8
-  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" 8
+  assert_equal "$(grep -c . "${S}/runner.git")" "$(_redpath_control)"
+  assert_equal "$(grep -cEx '[0-9a-f]{40}' "${S}/runner.git")" "$(_redpath_control)"
 }
 
 # why: A gate that never goes red is indistinguishable from a working one on
@@ -505,17 +556,17 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a case whose runner exited 0 fails with reason rc_zero, and the rest still run (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '0\n' > "${S}/canned/2.rc"
+  printf '0\n' > "${S}/canned/$(_redpath_idx vet).rc"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=vet reason=rc_zero gate=vet
-  assert_equal "$(cat "${S}/runner.n")" 8
+  assert_equal "$(cat "${S}/runner.n")" "$(_redpath_control)"
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  _gate_record config_gen_gate_vet_failed gate=vet status=1 display=vet > "${S}/canned/3.err"
+  _gate_record config_gen_gate_vet_failed gate=vet status=1 display=vet > "${S}/canned/$(_redpath_idx lint).err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=lint reason=wrong_id gate=lint
@@ -529,8 +580,8 @@ _run_redpath() {
 @test "config_gen_redpath.sh: the id only quoted in text or in the build log, with no record, is wrong_id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'unrelated: config_gen_gate_fmt_failed_extra\n#9 0.31 config_gen_gate_fmt_failed\n' > "${S}/canned/1.err"
-  printf 'unrelated: config_gen_gate_vet_failed\n' > "${S}/canned/2.err"
+  printf 'unrelated: config_gen_gate_fmt_failed_extra\n#9 0.31 config_gen_gate_fmt_failed\n' > "${S}/canned/$(_redpath_idx fmt).err"
+  printf 'unrelated: config_gen_gate_vet_failed\n' > "${S}/canned/$(_redpath_idx vet).err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=fmt reason=wrong_id gate=fmt
@@ -545,9 +596,9 @@ _run_redpath() {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
   _gate_record config_gen_gate_fmt_failed gate=fmt status=1 display=fmt \
-    | sed 's/"body":"config_gen_gate_fmt_failed"/"body":"config_gen_gate_fmt_failed_extra"/' > "${S}/canned/1.err"
-  grep -qF '"body":"config_gen_gate_fmt_failed_extra"' "${S}/canned/1.err" || fail "fixture: no suffixed body"
-  _gate_record config_gen_build_failed status=1 "display=not config_gen_gate_vet_failed" > "${S}/canned/2.err"
+    | sed 's/"body":"config_gen_gate_fmt_failed"/"body":"config_gen_gate_fmt_failed_extra"/' > "${S}/canned/$(_redpath_idx fmt).err"
+  grep -qF '"body":"config_gen_gate_fmt_failed_extra"' "${S}/canned/$(_redpath_idx fmt).err" || fail "fixture: no suffixed body"
+  _gate_record config_gen_build_failed status=1 "display=not config_gen_gate_vet_failed" > "${S}/canned/$(_redpath_idx vet).err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=fmt reason=wrong_id gate=fmt
@@ -570,7 +621,7 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a case whose earlier gate printed no ok fails with reason earlier_gate_missing (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'gate=fmt ok\ngate=vet ok\n' > "${S}/canned/4.out"
+  printf 'gate=fmt ok\ngate=vet ok\n' > "${S}/canned/$(_redpath_idx race).out"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=race reason=earlier_gate_missing gate=race
@@ -579,7 +630,7 @@ _run_redpath() {
 @test "config_gen_redpath.sh: the race-fuzz case must produce the race gate's id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  _gate_record config_gen_gate_coverage_failed gate=coverage status=1 display=coverage > "${S}/canned/5.err"
+  _gate_record config_gen_gate_coverage_failed gate=coverage status=1 display=coverage > "${S}/canned/$(_redpath_idx race-fuzz).err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=race-fuzz reason=wrong_id gate=race
@@ -595,17 +646,18 @@ _run_redpath() {
   _redpath_repo
   _run_redpath
   assert_success
-  local _new
-  _new="$(cd "${S}/runner.7.mod" && find . -type f | sort | comm -23 - <(cd /source/dockerfile/config-gen && find . -type f | sort))"
+  local _mod _new
+  _mod="${S}/runner.$(_redpath_idx fmt-parse).mod"
+  _new="$(cd "${_mod}" && find . -type f | sort | comm -23 - <(cd /source/dockerfile/config-gen && find . -type f | sort))"
   assert_equal "${_new}" "./cmd/config-gen/zz_parse_test.go"
   # Unbalanced braces: no Go parser accepts the file.
   local _open _close
-  _open="$(tr -cd '{' < "${S}/runner.7.mod/cmd/config-gen/zz_parse_test.go" | wc -c)"
-  _close="$(tr -cd '}' < "${S}/runner.7.mod/cmd/config-gen/zz_parse_test.go" | wc -c)"
-  (( _open != _close )) || fail "zz_parse_test.go balances its braces: $(cat "${S}/runner.7.mod/cmd/config-gen/zz_parse_test.go")"
+  _open="$(tr -cd '{' < "${_mod}/cmd/config-gen/zz_parse_test.go" | wc -c)"
+  _close="$(tr -cd '}' < "${_mod}/cmd/config-gen/zz_parse_test.go" | wc -c)"
+  (( _open != _close )) || fail "zz_parse_test.go balances its braces: $(cat "${_mod}/cmd/config-gen/zz_parse_test.go")"
   # A build-failure record in place of the fmt id fails the case.
   rm -rf "${S}"/runner.*
-  _gate_record config_gen_build_failed status=1 display=build > "${S}/canned/7.err"
+  _gate_record config_gen_build_failed status=1 display=build > "${S}/canned/$(_redpath_idx fmt-parse).err"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=fmt-parse reason=wrong_id gate=fmt
@@ -632,7 +684,7 @@ _run_redpath() {
 @test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '1\n' > "${S}/canned/8.rc"
+  printf '1\n' > "${S}/canned/$(_redpath_control).rc"
   _run_redpath
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_control_failed status=1

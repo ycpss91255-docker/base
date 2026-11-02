@@ -3306,10 +3306,24 @@ main() {
       elif [[ "${bats_only}" == "1" ]]; then
         BATS_ONLY=1 _run_via_compose ci 0
       else
-        _run_via_compose ci 0
+        # The no-flag `just test` is split around the required-kill roster
+        # (base#1461): it runs on the host, because it builds sandbox
+        # copies and its probe drives compose itself, after the lint phase
+        # and before bats, and a red roster stops the run before bats.
+        LINT_ONLY=1 _run_via_compose ci 0
+        _run_mutation_required \
+          || _die ci_mutation_required_failed "the required-kill mutation roster failed; see the mutation_required_* events above"
+        BATS_ONLY=1 _run_via_compose ci 0
       fi
       ;;
   esac
+}
+
+# _run_mutation_required -- the required-kill roster over this checkout
+# (base#1461), on the host. Its own function so the dispatch above can be
+# read, and specced, apart from the probes it runs.
+_run_mutation_required() {
+  bash "${REPO_ROOT}/script/test/drivers/mutation_required.sh" --root "${REPO_ROOT}"
 }
 
 # ── End-of-run reclaim ───────────────────────────────────────────────────────

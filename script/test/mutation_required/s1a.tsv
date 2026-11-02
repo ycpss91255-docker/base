@@ -1,0 +1,10 @@
+# s1a.tsv -- the seed rows of the required-kill roster (base#1461, config-gen
+# S1a): two shell refusal guards that predate the config-gen slices and that
+# script/test/mutation-probe.sh reports PINNED. One row per behaviour:
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+setup-cmd-non-regular-file	dist/script/docker/lib/setup_cmd.sh	test/bats/unit/setup_cmd_spec.bats	    if [[ -L "${_d}" ]] || { [[ -e "${_d}" ]] && [[ ! -f "${_d}" ]]; }; then	    if false; then
+setup-conf-toml-suffix	dist/script/docker/lib/setup_conf.sh	test/bats/unit/setup_cmd_spec.bats	  if [[ "${_p}" != *.toml ]]; then	  if false; then
