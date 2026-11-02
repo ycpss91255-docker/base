@@ -24,6 +24,8 @@ type Refusal struct {
 // Config is the decoded layer.
 type Config struct {
 	Logging Logging
+	// Tree is every accepted table node, in the bridge's traversal order.
+	Tree Tree
 }
 
 // known is the set of sections _setup_known_section accepts
@@ -58,7 +60,10 @@ func Decode(src []byte) (*Config, []Refusal) {
 	var lines *locate.Map
 	for _, k := range md.Keys() {
 		ok := known[k[0]]
-		if len(k) == 1 && !ok {
+		// A root table whose name is `logging.` plus at least one byte
+		// (`["logging.a"]`) is a per-service section by its text, which
+		// _setup_known_section accepts (base#1442).
+		if len(k) == 1 && !ok && !(serviceText(k[0]) && md.Type(k...) == "Hash") {
 			if lines == nil {
 				lines = locate.Index(src)
 			}
@@ -118,19 +123,29 @@ func Decode(src []byte) (*Config, []Refusal) {
 			}
 		}
 	}
-	return &Config{Logging: Logging{Services: services(src, md.Keys())}}, refusals
+	tree := buildTree(src, md.Keys())
+	return &Config{Logging: Logging{Services: ProjectServices(&tree)}, Tree: tree}, refusals
 }
 
-// services projects the scalar rows whose section text is `logging.` plus
-// at least one byte onto one Service per section text. The rows come in
-// the bridge's traversal order (toml_bridge.py _emit_table, the loop at
-// line 407): the parsed tree walked depth first, each table's children in
-// the order they were first created, which is the order a key or a prefix
-// of it first appears in md.Keys() (base#1442).
-func services(src []byte, keys []toml.Key) map[string]*Service {
-	var tree map[string]any
-	if _, err := toml.Decode(string(src), &tree); err != nil {
-		return nil
+// serviceText reports whether a section text names a logging service:
+// `logging.` plus at least one byte.
+func serviceText(text string) bool {
+	svc, ok := strings.CutPrefix(text, "logging.")
+	return ok && svc != ""
+}
+
+// buildTree records the accepted table nodes of the layer in the bridge's
+// traversal order (toml_bridge.py _emit_table, the loop at line 407): the
+// parsed tree walked depth first, each node entered before its children,
+// each table's children in the order they were first created, which is
+// the order a key or a prefix of it first appears in md.Keys(). The root,
+// the known sections and every table whose text is under logging are
+// accepted; a refused table and everything under it is left out, and so
+// is a root scalar (base#1442).
+func buildTree(src []byte, keys []toml.Key) Tree {
+	var doc map[string]any
+	if _, err := toml.Decode(string(src), &doc); err != nil {
+		return Tree{}
 	}
 	children := map[string][]string{}
 	seen := map[string]bool{}
@@ -144,41 +159,100 @@ func services(src []byte, keys []toml.Key) map[string]*Service {
 			}
 		}
 	}
-	out := map[string]*Service{}
-	var lines *locate.Map
-	var walk func(path []string, table map[string]any)
-	walk = func(path []string, table map[string]any) {
+	lines := locate.Index(src)
+	accepted := func(p []string) bool {
+		if len(p) == 1 {
+			return known[p[0]] || serviceText(p[0])
+		}
+		return p[0] == "logging" || serviceText(p[0])
+	}
+	t := Tree{Nodes: []Node{{}}}
+	var walk func(at int, path []string, table map[string]any)
+	walk = func(at int, path []string, table map[string]any) {
 		for _, name := range children[fmt.Sprintf("%q", path)] {
 			p := append(append([]string{}, path...), name)
 			switch v := table[name].(type) {
 			case map[string]any:
-				walk(p, v)
-			default:
-				text := strings.Join(path, ".")
-				svc, ok := strings.CutPrefix(text, "logging.")
-				var s Scalar
-				if !ok || svc == "" || s.UnmarshalTOML(v) != nil {
+				if !accepted(p) {
 					continue
 				}
-				if lines == nil {
-					lines = locate.Index(src)
+				n := Node{Path: p, Text: strings.Join(p, ".")}
+				if occ := lines.Tables(p); len(occ) > 0 {
+					n.Line, n.Implicit = occ[0].KeyLine, occ[0].Implicit
+				} else if occ := lines.Keys(p); len(occ) > 0 {
+					n.Line, n.Inline = occ[0].KeyLine, true
+				}
+				i := len(t.Nodes)
+				t.Nodes = append(t.Nodes, n)
+				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildNode, Key: name, Node: i})
+				walk(i, p, v)
+			default:
+				_, isTables := v.([]map[string]any)
+				_, isArray := v.([]any)
+				// At the root only an array of tables at a known section
+				// name is accepted; any other root key is refused.
+				if len(path) == 0 && (!isTables || !known[name]) {
+					continue
+				}
+				if isTables || isArray {
+					t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildDeferred, Key: name})
+					continue
+				}
+				var s Scalar
+				// A value of a kind Scalar does not decode yet is left
+				// out; the other kinds follow in later cycles of
+				// base#1442.
+				if s.UnmarshalTOML(v) != nil {
+					continue
 				}
 				occ, _ := lines.Key(p)
 				f := Field{State: Set, Value: s, Line: occ.KeyLine}
-				if out[svc] == nil {
-					out[svc] = &Service{}
-				}
-				out[svc].Rows = append(out[svc].Rows, Row{Key: name, Field: f})
-				switch name {
-				case "driver":
-					out[svc].Driver = f
-				case "max_file":
-					out[svc].MaxFile = f
-				}
+				t.Nodes[at].Children = append(t.Nodes[at].Children, Child{Kind: ChildRow, Key: name, Row: f})
 			}
 		}
 	}
-	walk(nil, tree)
+	walk(0, nil, doc)
+	return t
+}
+
+// ProjectServices walks t depth first in Children order and appends each
+// row of a node whose text is `logging.` plus at least one byte to the
+// Rows of the service named by the rest of the text; each typed field is
+// the last row with its key (the `_conf_get` rule). Decode builds
+// Logging.Services with it, and a merged tree projects the same way
+// (base#1442).
+func ProjectServices(t *Tree) map[string]*Service {
+	out := map[string]*Service{}
+	if len(t.Nodes) == 0 {
+		return out
+	}
+	var walk func(i int)
+	walk = func(i int) {
+		for _, c := range t.Nodes[i].Children {
+			switch c.Kind {
+			case ChildNode:
+				walk(c.Node)
+			case ChildRow:
+				svc, ok := strings.CutPrefix(t.Nodes[i].Text, "logging.")
+				if !ok || svc == "" {
+					continue
+				}
+				if out[svc] == nil {
+					out[svc] = &Service{}
+				}
+				out[svc].Rows = append(out[svc].Rows, Row{Key: c.Key, Field: c.Row})
+				switch c.Key {
+				case "driver":
+					out[svc].Driver = c.Row
+				case "max_file":
+					out[svc].MaxFile = c.Row
+				}
+			case ChildDeferred:
+				// An array is no service row.
+			}
+		}
+	}
+	walk(0)
 	return out
 }
 
