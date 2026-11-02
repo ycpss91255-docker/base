@@ -8,14 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 )
-
-// decimalFloat matches a TOML 1.0 decimal float with its underscores
-// removed: an integer part with a fraction, an exponent or both.
-var decimalFloat = regexp.MustCompile(`^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
 
 // Reason names why Check refused its input.
 type Reason int
@@ -158,10 +153,10 @@ func Normalize(src []byte) []byte {
 	out := bytes.Clone(src)
 	t := newTables("", src)
 	t.scalar = func(start, end int) {
-		tok := strings.ReplaceAll(string(src[start:end]), "_", "")
-		if !decimalFloat.MatchString(tok) || !strings.ContainsAny(tok, ".eE") {
+		if !isDecimalFloat(src[start:end]) {
 			return
 		}
+		tok := strings.ReplaceAll(string(src[start:end]), "_", "")
 		if f, err := strconv.ParseFloat(tok, 64); !errors.Is(err, strconv.ErrRange) || !math.IsInf(f, 0) {
 			return
 		}
@@ -173,6 +168,61 @@ func Normalize(src []byte) []byte {
 	}
 	_ = t.document()
 	return out
+}
+
+// isDecimalFloat reports whether tok, as written, is a TOML 1.0 decimal
+// float (base#1441 review round 1, finding 1):
+//
+//	float = dec-int ( exp / frac [ exp ] )
+//	dec-int = [ "-" / "+" ] ( DIGIT / digit1-9 1*( DIGIT / "_" DIGIT ) )
+//	frac = "." zero-prefixable-int
+//	exp = ( "e" / "E" ) [ "-" / "+" ] zero-prefixable-int
+//	zero-prefixable-int = DIGIT *( DIGIT / "_" DIGIT )
+func isDecimalFloat(tok []byte) bool {
+	i := 0
+	if i < len(tok) && (tok[i] == '+' || tok[i] == '-') {
+		i++
+	}
+	if i < len(tok) && tok[i] == '0' {
+		i++
+	} else if i = digitRun(tok, i); i < 0 {
+		return false
+	}
+	more := false
+	if i < len(tok) && tok[i] == '.' {
+		if i = digitRun(tok, i+1); i < 0 {
+			return false
+		}
+		more = true
+	}
+	if i < len(tok) && (tok[i] == 'e' || tok[i] == 'E') {
+		i++
+		if i < len(tok) && (tok[i] == '+' || tok[i] == '-') {
+			i++
+		}
+		if i = digitRun(tok, i); i < 0 {
+			return false
+		}
+		more = true
+	}
+	return more && i == len(tok)
+}
+
+// digitRun returns the offset just past the zero-prefixable-int (a digit,
+// then digits each optionally after one underscore) that starts at offset
+// i of tok, or -1 when no digit is there.
+func digitRun(tok []byte, i int) int {
+	if i >= len(tok) || !isDigit(tok[i]) {
+		return -1
+	}
+	for i++; i < len(tok); i++ {
+		if tok[i] == '_' && i+1 < len(tok) && isDigit(tok[i+1]) {
+			i++
+		} else if !isDigit(tok[i]) {
+			break
+		}
+	}
+	return i
 }
 
 // isDigit reports whether b is an ASCII digit.
