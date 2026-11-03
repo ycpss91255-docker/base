@@ -790,8 +790,8 @@ merge: packages: write'
 # why: The platform listing is the other read a moving tag can split. If the
 # step lists the platforms under the tag BY NAME after resolving it, a tag
 # moved in between is listed on an index the comparison never reads, and a
-# publish that carried every arch is refused as having dropped one -- or a
-# publish that dropped one is passed. Here the tag first names run
+# publish that carried every arch is refused as having dropped one. Here the
+# tag first names run
 # 41451556967's flattened index (linux/amd64 and linux/arm64) and then moves
 # to its amd64 shard index (linux/amd64 alone), so only a listing read
 # through the pinned digest finds linux/arm64 (base#1514, base#1510).
