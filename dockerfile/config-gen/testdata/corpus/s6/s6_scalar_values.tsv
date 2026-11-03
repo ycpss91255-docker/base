@@ -1,0 +1,324 @@
+# class	section	key	toml-literal	verdict	event	branch
+value	security	privileged	"yes"	refuse	conf_value_invalid	privileged:other
+value	security	privileged	""	accept	-	empty:allow
+value	security	privileged	true	accept	-	privileged:bool
+value	security	privileged	"true"	accept	-	privileged:bool
+value	security	privileged	"TRUE"	refuse	conf_value_invalid	privileged:other
+value	security	privileged	false	accept	-	privileged:bool
+value	deploy	gpu_count	true	refuse	conf_value_invalid	gpu_count:other
+value	deploy	gpu_count	2	accept	-	gpu_count:int
+value	deploy	gpu_count	"02"	refuse	conf_value_invalid	gpu_count:other
+value	deploy	gpu_count	"all"	accept	-	gpu_count:all
+value	deploy	gpu_count	""	refuse	conf_value_invalid	empty:validate
+value	deploy	gpu_count	1.5	refuse	conf_value_invalid	gpu_count:other
+value	deploy	gpu_count	"１"	refuse	conf_value_invalid	gpu_count:other
+value	project	name	"my_repo-1"	accept	-	project_name:pattern
+value	project	name	"My"	refuse	conf_value_invalid	project_name:other
+value	project	name	"-x"	refuse	conf_value_invalid	project_name:other
+value	project	name	""	accept	-	empty:allow
+value	project	name	1979-05-27	accept	-	project_name:pattern
+value	project	name	1979-05-27T07:32:00Z	refuse	conf_value_invalid	project_name:other
+value	project	name	"a"	accept	-	project_name:pattern
+value	deploy	gpu_mode	"force"	accept	-	detect_mode:word
+value	deploy	gpu_mode	"on"	refuse	conf_value_invalid	detect_mode:other
+value	deploy	gpu_mode	"auto"	accept	-	detect_mode:word
+value	deploy	gpu_mode	"off"	accept	-	detect_mode:word
+value	gui	mode	"off"	accept	-	detect_mode:word
+value	gui	mode	"auto "	refuse	conf_value_invalid	detect_mode:other
+value	gui	mode	"auto"	accept	-	detect_mode:word
+value	gui	mode	"force"	accept	-	detect_mode:word
+value	deploy	gpu_capabilities	"gpu compute"	accept	-	gpu_capabilities:known
+value	deploy	gpu_capabilities	"  all  ngx "	accept	-	gpu_capabilities:known
+value	deploy	gpu_capabilities	""	refuse	conf_value_invalid	empty:validate
+value	deploy	gpu_capabilities	"gpu,compute"	refuse	conf_value_invalid	gpu_capabilities:unknown
+value	deploy	gpu_capabilities	"gpu compute"	refuse	conf_value_invalid	gpu_capabilities:unknown
+value	deploy	gpu_capabilities	1	refuse	conf_value_invalid	gpu_capabilities:unknown
+value	deploy	gpu_capabilities	"utility graphics video"	accept	-	gpu_capabilities:known
+value	deploy	gpu_capabilities	"display compat32"	accept	-	gpu_capabilities:known
+value	deploy	gpu_runtime	"nvidia"	accept	-	runtime:word
+value	deploy	gpu_runtime	"runc"	refuse	conf_value_invalid	runtime:other
+value	deploy	gpu_runtime	"auto"	accept	-	runtime:word
+value	deploy	gpu_runtime	"off"	accept	-	runtime:word
+value	deploy	runtime	"off"	accept	-	runtime:word
+value	deploy	runtime	"NVIDIA"	refuse	conf_value_invalid	runtime:other
+value	deploy	runtime	"auto"	accept	-	runtime:word
+value	deploy	runtime	"nvidia"	accept	-	runtime:word
+value	deploy	dri_groups	"auto"	accept	-	dri_groups:word
+value	deploy	dri_groups	"off"	accept	-	dri_groups:word
+value	deploy	dri_groups	"44  109"	accept	-	dri_groups:gids
+value	deploy	dri_groups	"0"	accept	-	dri_groups:gids
+value	deploy	dri_groups	"video"	refuse	conf_value_invalid	dri_groups:gid-bad
+value	deploy	dri_groups	"01"	refuse	conf_value_invalid	dri_groups:gid-bad
+value	deploy	dri_groups	"44 109"	refuse	conf_value_invalid	dri_groups:nonprint
+value	deploy	dri_groups	"1"	accept	-	dri_groups:gids
+value	resources	shm_size	"2GB"	accept	-	shm_size:pattern
+value	resources	shm_size	"2g"	accept	-	shm_size:pattern
+value	resources	shm_size	"512b"	accept	-	shm_size:pattern
+value	resources	shm_size	"1K"	accept	-	shm_size:pattern
+value	resources	shm_size	"64m"	accept	-	shm_size:pattern
+value	resources	shm_size	"1kB"	accept	-	shm_size:pattern
+value	resources	shm_size	"64Mb"	accept	-	shm_size:pattern
+value	resources	shm_size	"2t"	refuse	conf_value_invalid	shm_size:other
+value	resources	shm_size	"2 g"	refuse	conf_value_invalid	shm_size:other
+value	resources	shm_size	"1\u212A"	refuse	conf_value_invalid	shm_size:other
+value	resources	shm_size	"1\u212Ab"	refuse	conf_value_invalid	shm_size:other
+value	lifecycle	restart	"unless-stopped"	accept	-	restart:word
+value	lifecycle	restart	"no"	accept	-	restart:word
+value	lifecycle	restart	"always"	accept	-	restart:word
+value	lifecycle	restart	"on-failure"	accept	-	restart:word
+# tool-pin: ignore -- a restart policy value, not a version
+value	lifecycle	restart	"on-failure:3"	accept	-	restart:on-failure-n
+# tool-pin: ignore -- a restart policy value, not a version
+value	lifecycle	restart	"on-failure:0"	refuse	conf_value_invalid	restart:on-failure-n
+value	lifecycle	restart	"never"	refuse	conf_value_invalid	restart:other
+value	lifecycle	init	true	accept	-	init:bool
+value	lifecycle	init	"false"	accept	-	init:bool
+value	lifecycle	init	""	accept	-	empty:allow
+value	lifecycle	init	"yes"	refuse	conf_value_invalid	init:other
+value	lifecycle	watchdog_check	"curl -f localhost"	accept	-	watchdog_cmd:line
+value	lifecycle	watchdog_check	1	accept	-	watchdog_cmd:line
+value	lifecycle	watchdog_interval	30	accept	-	watchdog_posint:pattern
+value	lifecycle	watchdog_interval	"30"	accept	-	watchdog_posint:pattern
+value	lifecycle	watchdog_interval	0	refuse	conf_value_invalid	watchdog_posint:other
+value	lifecycle	watchdog_interval	1.0	refuse	conf_value_invalid	watchdog_posint:other
+value	lifecycle	watchdog_timeout	10	accept	-	watchdog_posint:pattern
+value	lifecycle	watchdog_timeout	-1	refuse	conf_value_invalid	watchdog_posint:other
+value	lifecycle	watchdog_start_period	0	accept	-	watchdog_nonneg:pattern
+value	lifecycle	watchdog_start_period	-5	refuse	conf_value_invalid	watchdog_nonneg:other
+value	lifecycle	watchdog_start_period	12	accept	-	watchdog_nonneg:pattern
+value	lifecycle	watchdog_start_period	"1x"	refuse	conf_value_invalid	watchdog_nonneg:other
+value	lifecycle	watchdog_failures	3	accept	-	watchdog_posint:pattern
+value	lifecycle	watchdog_failures	true	refuse	conf_value_invalid	watchdog_posint:other
+value	lifecycle	watchdog_on_fail	"restart-service"	accept	-	watchdog_on_fail:word
+value	lifecycle	watchdog_on_fail	"restart-container"	accept	-	watchdog_on_fail:word
+value	lifecycle	watchdog_on_fail	"restart"	refuse	conf_value_invalid	watchdog_on_fail:other
+value	lifecycle	watchdog_max_restarts	5	accept	-	watchdog_posint:pattern
+value	lifecycle	watchdog_max_restarts	"05"	refuse	conf_value_invalid	watchdog_posint:other
+value	lifecycle	watchdog_notify	"notify-send x"	accept	-	watchdog_cmd:line
+value	lifecycle	watchdog_notify	false	accept	-	watchdog_cmd:line
+value	build	target_arch	"arm64"	accept	-	target_arch:word
+value	build	target_arch	"amd64"	accept	-	target_arch:word
+value	build	target_arch	"arm"	accept	-	target_arch:word
+value	build	target_arch	"386"	accept	-	target_arch:word
+value	build	target_arch	"ppc64le"	accept	-	target_arch:word
+value	build	target_arch	"s390x"	accept	-	target_arch:word
+value	build	target_arch	"riscv64"	accept	-	target_arch:word
+value	build	target_arch	"x86_64"	refuse	conf_value_invalid	target_arch:other
+value	build	network	"default"	accept	-	build_network:word
+value	build	network	"auto"	accept	-	build_network:word
+value	build	network	"host"	accept	-	build_network:word
+value	build	network	"bridge"	accept	-	build_network:word
+value	build	network	"none"	accept	-	build_network:word
+value	build	network	"off"	accept	-	build_network:word
+value	build	network	"nat"	refuse	conf_value_invalid	build_network:other
+value	build	apt_mirror_ubuntu	"anything goes"	accept	-	freeform
+value	build	apt_mirror_debian	"http://deb.example/"	accept	-	freeform
+value	build	tz	7	accept	-	freeform
+value	network	network_name	"my.net-1"	accept	-	network_name:pattern
+value	network	network_name	"-net"	refuse	conf_value_invalid	network_name:other
+value	network	network_name	"_n"	refuse	conf_value_invalid	network_name:other
+value	network	network_name	"a"	accept	-	network_name:pattern
+value	network	network_name	"A_1"	accept	-	network_name:pattern
+value	network	network_name	"0aZ"	accept	-	network_name:pattern
+value	network	network_name	"a!"	refuse	conf_value_invalid	network_name:other
+value	network	mode	"container:db"	accept	-	network_mode:container
+value	network	mode	"host"	accept	-	network_mode:word
+value	network	mode	"bridge"	accept	-	network_mode:word
+value	network	mode	"none"	accept	-	network_mode:word
+value	network	mode	"container:"	refuse	conf_value_invalid	network_mode:other
+value	network	ipc	"shareable"	accept	-	ipc_mode:word
+value	network	ipc	"host"	accept	-	ipc_mode:word
+value	network	ipc	"private"	accept	-	ipc_mode:word
+value	network	ipc	"none"	accept	-	ipc_mode:word
+value	network	ipc	"container:db"	accept	-	ipc_mode:container
+value	network	ipc	"shared"	refuse	conf_value_invalid	ipc_mode:other
+value	network	pid	"private"	accept	-	pid_mode:word
+value	network	pid	"host"	accept	-	pid_mode:word
+value	network	pid	"container:db"	accept	-	pid_mode:container
+value	network	pid	"none"	refuse	conf_value_invalid	pid_mode:other
+value	logging	driver	"json-file"	accept	-	log_driver:pattern
+value	logging	driver	inf	accept	-	log_driver:pattern
+value	logging	driver	"1abc"	refuse	conf_value_invalid	log_driver:other
+value	logging	driver	1.5	refuse	conf_value_invalid	log_driver:other
+value	logging	driver	"a"	accept	-	log_driver:pattern
+value	logging	driver	"A0._-"	accept	-	log_driver:pattern
+value	logging	driver	"aZ"	accept	-	log_driver:pattern
+value	logging	driver	"a!"	refuse	conf_value_invalid	log_driver:other
+value	logging	max_size	"10m"	accept	-	log_max_size:pattern
+value	logging	max_size	"10M"	accept	-	log_max_size:pattern
+value	logging	max_size	"512b"	accept	-	log_max_size:pattern
+value	logging	max_size	"100K"	accept	-	log_max_size:pattern
+value	logging	max_size	"1g"	accept	-	log_max_size:pattern
+value	logging	max_size	"10mb"	refuse	conf_value_invalid	log_max_size:other
+value	logging	max_size	10	refuse	conf_value_invalid	log_max_size:other
+value	logging	max_size	"1\u212A"	refuse	conf_value_invalid	log_max_size:other
+value	logging	max_file	3	accept	-	log_max_file:pattern
+value	logging	max_file	0x1F	accept	-	log_max_file:pattern
+value	logging	max_file	0	refuse	conf_value_invalid	log_max_file:other
+value	logging	max_file	3.0	refuse	conf_value_invalid	log_max_file:other
+value	logging	compress	false	accept	-	log_compress:bool
+value	logging	compress	"no"	refuse	conf_value_invalid	log_compress:other
+value	logging	local_path	"/var/log/x"	accept	-	log_local_path:line
+value	logging	local_path	" "	refuse	conf_value_invalid	log_local_path:blank
+value	logging	container_log_keep	20	accept	-	container_log_keep:pattern
+value	logging	container_log_keep	0	refuse	conf_value_invalid	container_log_keep:other
+value	logging	container_log_days	1_000	accept	-	container_log_days:pattern
+value	logging	container_log_days	-14	refuse	conf_value_invalid	container_log_days:other
+value	logging	wrapper_transcript	true	accept	-	wrapper_transcript:bool
+value	logging	wrapper_transcript	false	accept	-	wrapper_transcript:bool
+value	logging	wrapper_transcript	1	refuse	conf_value_invalid	wrapper_transcript:other
+value	logging	wrapper_transcript	"1"	refuse	conf_value_invalid	wrapper_transcript:other
+value	logging	wrapper_transcript_keep	20	accept	-	wrapper_transcript_keep:pattern
+value	logging	wrapper_transcript_keep	"0"	refuse	conf_value_invalid	wrapper_transcript_keep:other
+value	logging	wrapper_transcript_days	14	accept	-	wrapper_transcript_days:pattern
+value	logging	wrapper_transcript_days	1e16	refuse	conf_value_invalid	wrapper_transcript_days:other
+value	image	rule_1	""	accept	-	empty:allow
+value	image	rule_2	"@basename"	accept	-	image_rule:at
+value	image	rule_3	"suffix:_ws"	accept	-	image_rule:suffix
+value	image	rule_4	"@default:x"	accept	-	image_rule:default
+value	image	rule_5	"prefix:ros_"	accept	-	image_rule:prefix
+value	image	rule_6	"prefix:"	refuse	conf_value_invalid	image_rule:other
+value	image	rule_7	"ros"	refuse	conf_value_invalid	image_rule:other
+value	image	rule_8	1	refuse	conf_value_invalid	image_rule:other
+value	image	rule_9	"string:ros"	accept	-	image_rule:string
+value	image	rule_10	"string:"	refuse	conf_value_invalid	image_rule:other
+value	security	security_opt_1	""	accept	-	empty:allow
+value	security	security_opt_2	"seccomp=unconfined"	accept	-	security_opt:kv
+value	security	security_opt_3	"label:disable"	accept	-	security_opt:colon
+value	security	security_opt_4	"a b=c"	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_5	"1x=y"	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_6	"no-new-privileges"	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_7	true	refuse	conf_value_invalid	security_opt:other
+value	security	security_opt_8	"a=b"	accept	-	security_opt:kv
+value	security	security_opt_9	"A_1-Zx=y"	accept	-	security_opt:kv
+value	security	security_opt_10	"a="	refuse	conf_value_invalid	security_opt:other
+value	build	arg_1	""	accept	-	empty:allow
+value	build	arg_2	"A=1"	accept	-	env_kv:kv
+value	build	arg_3	"_A="	accept	-	env_kv:kv
+value	build	arg_4	"1A=1"	refuse	conf_value_invalid	env_kv:other
+value	build	arg_5	"A"	refuse	conf_value_invalid	env_kv:other
+value	build	arg_6	7	refuse	conf_value_invalid	env_kv:other
+value	build	arg_7	"a0_b=x"	accept	-	env_kv:kv
+value	volumes	mount_1	""	accept	-	empty:allow
+value	volumes	mount_2	"/a:/b"	accept	-	mount:pair
+value	volumes	mount_3	"/a:/b:ro,rslave"	accept	-	mount:mode
+value	volumes	mount_4	"/a:/b:zz"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_5	"/a"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_6	":/b"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_7	"/a b:/c"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_8	"/a:/b:ro:x"	refuse	conf_value_invalid	mount:other
+value	volumes	mount_9	7	refuse	conf_value_invalid	mount:other
+value	volumes	mount_10	"/a:/b:rw,rshared"	accept	-	mount:mode
+value	volumes	mount_11	"/a:/b:rprivate,slave"	accept	-	mount:mode
+value	volumes	mount_12	"/a:/b:shared,private"	accept	-	mount:mode
+value	devices	device_1	""	accept	-	empty:allow
+value	devices	device_2	"/dev/x:/dev/x"	accept	-	mount:pair
+value	devices	device_3	"/dev/x:/dev/x:rw"	accept	-	mount:mode
+value	devices	device_4	"/dev/x"	refuse	conf_value_invalid	mount:other
+value	devices	device_5	false	refuse	conf_value_invalid	mount:other
+value	devices	device_6	"/dev/x:/dev/x:ro,rslave"	accept	-	mount:mode
+value	devices	device_7	"/dev/x:/dev/x:rshared,rprivate"	accept	-	mount:mode
+value	devices	device_8	"/dev/x:/dev/x:slave,shared,private"	accept	-	mount:mode
+value	devices	cgroup_rule_1	""	accept	-	empty:allow
+value	devices	cgroup_rule_2	"c 1:1 rwm"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_3	"a *:* m"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_4	"q 1:1 rwm"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_5	"c 1:1 x"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_6	1	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_7	"b 1:1 r"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_8	"c 12:34 r"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_9	"c  1:1  r"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_10	"c\f1:1\fr"	accept	-	cgroup_rule:rule
+value	devices	cgroup_rule_11	"c :1 r"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_12	"c 1: r"	refuse	conf_value_invalid	cgroup_rule:other
+# tool-pin: ignore -- a cgroup rule value, not a version
+value	devices	cgroup_rule_13	"c1:1 r"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_14	"c 1:1r"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_15	"c 1:1 "	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_16	"c 1:1 rx"	refuse	conf_value_invalid	cgroup_rule:other
+value	devices	cgroup_rule_17	"xc 1:1 r"	refuse	conf_value_invalid	cgroup_rule:other
+value	environment	env_1	""	accept	-	empty:allow
+value	environment	env_2	"A=b c"	accept	-	env_kv:kv
+value	environment	env_3	"A=b"	accept	-	env_kv:kv
+value	environment	env_4	"-A=b"	refuse	conf_value_invalid	env_kv:other
+value	environment	env_5	"1A=b"	refuse	conf_value_invalid	env_kv:other
+value	environment	env_6	true	refuse	conf_value_invalid	env_kv:other
+value	tmpfs	tmpfs_1	""	accept	-	empty:allow
+value	tmpfs	tmpfs_2	"/t"	accept	-	tmpfs:path
+value	tmpfs	tmpfs_3	"/t:size=64m,mode=1777"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_4	"t"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_5	"/t:size=64m:x"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_6	"/t x"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_7	"/t:1bad"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_8	64	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_9	"/t:ro"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_10	"/t:a=x"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_11	"/t:size=64m"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_12	"/t:_A-1=x"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_13	"/t:Ab_=+"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_14	"/tmp/x:ro"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_15	"/tmp/x"	accept	-	tmpfs:path
+value	tmpfs	tmpfs_16	"/t:a,b"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_17	"/t:a,_A-1=x"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_18	"/t:a,Ab_=+"	accept	-	tmpfs:opts
+value	tmpfs	tmpfs_19	"x/t"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_20	"/"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_21	"x/t:ro"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_22	"t:ro"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_23	"/:ro"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_24	"/t:a="	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_25	"/t:a!"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_26	"/t:a,b="	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_27	"/t:a,b!"	refuse	conf_value_invalid	tmpfs:other
+value	tmpfs	tmpfs_28	"/t:a,1b"	refuse	conf_value_invalid	tmpfs:other
+value	network	port_1	""	accept	-	empty:allow
+value	network	port_2	"8080:80"	accept	-	port_mapping:pair
+value	network	port_3	"53:53/udp"	accept	-	port_mapping:proto
+value	network	port_4	"80"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_5	"80:80/sctp"	refuse	conf_value_invalid	port_mapping:other
+# tool-pin: ignore -- a port mapping value, not a version
+value	network	port_6	"a:80"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_7	80	refuse	conf_value_invalid	port_mapping:other
+value	network	port_8	"80:80/tcp"	accept	-	port_mapping:proto
+value	network	port_9	":80"	refuse	conf_value_invalid	port_mapping:other
+value	network	port_10	"80:"	refuse	conf_value_invalid	port_mapping:other
+# tool-pin: ignore -- a port mapping value, not a version
+value	network	port_11	"x80:80"	refuse	conf_value_invalid	port_mapping:other
+value	additional_contexts	context_1	""	accept	-	empty:allow
+value	additional_contexts	context_2	"base=docker-image://x"	accept	-	additional_context:kv
+value	additional_contexts	context_3	"noeq"	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_4	"=x"	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_5	"a="	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_6	"-a=x"	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_7	1	refuse	conf_value_invalid	additional_context:other
+value	additional_contexts	context_8	"a=x"	accept	-	additional_context:kv
+value	additional_contexts	context_9	"0_A.-9=x"	accept	-	additional_context:kv
+value	additional_contexts	context_10	"Ab=x"	accept	-	additional_context:kv
+value	additional_contexts	context_11	"a!=x"	refuse	conf_value_invalid	additional_context:other
+value	security	cap_add_1	""	accept	-	empty:allow
+value	security	cap_add_2	"NET_ADMIN"	accept	-	capability:name
+value	security	cap_add_3	"net_admin"	refuse	conf_value_invalid	capability:other
+value	security	cap_add_4	1	refuse	conf_value_invalid	capability:other
+value	security	cap_drop_1	""	accept	-	empty:allow
+value	security	cap_drop_2	"ALL"	accept	-	capability:name
+value	security	cap_drop_3	"SYS-ADMIN"	refuse	conf_value_invalid	capability:other
+value	security	cap_drop_4	true	refuse	conf_value_invalid	capability:other
+value	logging	max_file	"3"	accept	-	log_max_file:pattern
+value	logging	compress	"true"	accept	-	log_compress:bool
+value	logging	max_file	""	accept	-	empty:allow
+value	deploy	gpu_mode	07:32:00	refuse	conf_value_invalid	detect_mode:other
+value	deploy	gpu_count	1979-05-27T07:32:00	refuse	conf_value_invalid	gpu_count:other
+value	lifecycle	watchdog_check	07:32:00.5	accept	-	watchdog_cmd:line
+value	logging.web	max_size	"10m"	accept	-	section:logging_service
+value	logging.web	max_size	"1x"	refuse	conf_value_invalid	section:logging_service
+value	stage:dev.logging	max_size	"10m"	accept	-	section:stage
+value	stage:dev.logging	max_size	"1x"	refuse	conf_value_invalid	section:stage
+value	stage:dev.resources	shm_size	"2g"	accept	-	section:stage
+value	stage:dev.resources	shm_size	"1x"	refuse	conf_value_invalid	section:stage
+value	stage:dev.logging.web	max_size	"1x"	refuse	conf_value_invalid	section:stage_logging_service
+value	stage:dev.volumes	mount_2	"/a:/b"	accept	-	section:stage_numbered
+value	stage:dev.volumes	mount_2	"/a"	refuse	conf_value_invalid	section:stage_numbered
+value	stage:dev.deploy	gpu_count	""	refuse	conf_value_invalid	section:stage_empty_validate
+value	stage:.logging	max_size	"1x"	refuse	conf_value_invalid	section:stage_empty_name
+value	stage:dev	max_size	"1x"	accept	-	section:stage_bare
+value	stage:a.b.logging	max_size	"1x"	accept	-	section:stage_shortest_strip

@@ -1,0 +1,7 @@
+# Locator parse-failure fixture (base#1442): the library refuses line 7,
+# after strings that hold a quote, a bracket and an equals sign.
+[deploy]
+gpu_mode = "a \" ] = still string"
+gpu_runtime = '[x] = y'
+[lifecycle]
+watchdog_check = = 1

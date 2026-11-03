@@ -7,11 +7,17 @@
 //	0  the command succeeded
 //	1  the command returned an error
 //	2  usage: no command was named, or the name is not registered;
-//	   nothing is written to stdout
-//	4  the command panicked
+//	   nothing is written to stdout; 2 also a command's usage error
+//	4  the command panicked; 4 also an I/O error (a diagnostic or output
+//	   write failed)
+//
+// A command reports its own usage or I/O status by returning
+// reported(status, err) (ADR-00000039 section 3, exit codes); invoke then
+// exits with that status and writes nothing more (base#1442).
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -54,7 +60,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return invoke(args[0], cmd, args[1:], stdout, stderr)
 }
 
-// invoke runs cmd, turning an error into 1 and a panic into 4.
+// invoke runs cmd, turning a reported error into its status, any other
+// error into 1 and a panic into 4.
 func invoke(name string, cmd Command, args []string, stdout, stderr io.Writer) (status int) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -63,6 +70,10 @@ func invoke(name string, cmd Command, args []string, stdout, stderr io.Writer) (
 		}
 	}()
 	if err := cmd(args, stdout, stderr); err != nil {
+		var re *reportedError
+		if errors.As(err, &re) {
+			return re.status
+		}
 		_, _ = fmt.Fprintf(stderr, "config-gen: %s: %v\n", name, err)
 		return exitError
 	}

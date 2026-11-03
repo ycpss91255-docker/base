@@ -1,0 +1,24 @@
+# file	event	line	key	source
+# One row per refusal config-gen check gives a corpus/s6/sections/ file,
+# or one "-" row for a file with none (base#1442). source=shell rows are
+# what the real _setup_conf_check_known reports for the file
+# (config_gen_schema_values_spec.bats); source=spec rows are refusals the
+# shell gives as a failed load instead (a root scalar, base#1308).
+s6_sec_dotted.toml	conf_unknown_table	2	deploy.x	shell
+s6_sec_empty_args.toml	conf_unknown_key	2	deploy.args	shell
+s6_sec_empty_cap_drop.toml	-	-	-	shell
+s6_sec_empty_unknown_table.toml	conf_unknown_table	1	deploy2	shell
+s6_sec_inline.toml	conf_unknown_table	2	deploy.x	shell
+s6_sec_logging_empty.toml	conf_unknown_table	1	logging.	shell
+s6_sec_logging_nested.toml	-	-	-	shell
+s6_sec_logging_quoted.toml	-	-	-	shell
+s6_sec_logging_typo.toml	conf_unknown_key	2	logging.web.typo	shell
+s6_sec_nested_unknown.toml	conf_unknown_table	1	deploy.x	shell
+s6_sec_project.toml	-	-	-	shell
+s6_sec_root_scalar.toml	conf_top_level_key	1	deploy	spec
+s6_sec_stage_bare.toml	-	-	-	shell
+s6_sec_stage_dotted.toml	-	-	-	shell
+s6_sec_stage_nested.toml	-	-	-	shell
+s6_sec_stage_quoted.toml	-	-	-	shell
+s6_sec_unknown_nested.toml	conf_unknown_table	1	foo	shell
+s6_sec_unknown_nested.toml	conf_unknown_table	1	foo.bar	shell

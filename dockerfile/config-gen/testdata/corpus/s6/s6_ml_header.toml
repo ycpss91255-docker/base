@@ -1,0 +1,4 @@
+[lifecycle]
+watchdog_check = """\
+[fake]\
+"""
