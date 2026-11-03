@@ -166,3 +166,32 @@ type Member struct {
 	Key   string
 	Value Value
 }
+
+// Family is one `[[array]]` family of the layer: its state, the 1-based
+// line of its first occurrence and its entries in written order
+// (base#1443).
+type Family struct {
+	State   State
+	Line    int
+	Entries []Entry
+}
+
+// Entry is one element of a family: its 1-based index in the family, the
+// 1-based line it starts on and its fields in written order.
+type Entry struct {
+	Index  int
+	Line   int
+	Fields []EntryField
+}
+
+// EntryField is one key of an entry and its value.
+type EntryField struct {
+	Key   string
+	Value Value
+}
+
+// Cleared reports an entry that carries no field, the cleared slot: it is
+// kept in its position as one empty entry (base#1443).
+func (e Entry) Cleared() bool {
+	return len(e.Fields) == 0
+}

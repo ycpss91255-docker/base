@@ -38,6 +38,9 @@ type Config struct {
 	// Deferred is every accepted array with its payload, in the order its
 	// ChildDeferred appears in the traversal; Child.Defer indexes it.
 	Deferred []Deferred
+	// Arrays is every accepted array of tables typed as a family, keyed by
+	// its TOML path joined with "." (base#1443).
+	Arrays map[string]Family
 }
 
 // known is the set of sections _setup_known_section accepts
@@ -178,6 +181,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 		Deprecated:  deprecated,
 		Tree:        tree,
 		Deferred:    deferred,
+		Arrays:      projectArrays(deferred),
 	}, d.refusals
 }
 
@@ -648,5 +652,27 @@ func ProjectServices(t *Tree) map[string]*Service {
 		}
 	}
 	walk(0)
+	return out
+}
+
+// projectArrays types each deferred array as a family: every table
+// element is one entry at its own position, a field-less one included
+// (base#1443).
+func projectArrays(deferred []Deferred) map[string]Family {
+	out := map[string]Family{}
+	for _, def := range deferred {
+		fam := Family{State: Set, Line: def.Line}
+		for _, item := range def.Value.Items {
+			if item.Kind != VTable {
+				continue
+			}
+			e := Entry{Index: len(fam.Entries) + 1, Line: item.Line}
+			for _, m := range item.Members {
+				e.Fields = append(e.Fields, EntryField{Key: m.Key, Value: m.Value})
+			}
+			fam.Entries = append(fam.Entries, e)
+		}
+		out[strings.Join(def.Path, ".")] = fam
+	}
 	return out
 }
