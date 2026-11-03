@@ -1,3 +1,4 @@
 [[tmpfs]]
 path = "/tmp"
 size = [1]
+# expect: verdict=refuse event=conf_value_type_refused line=3 col=1 key=tmpfs[1].size apply=refuse

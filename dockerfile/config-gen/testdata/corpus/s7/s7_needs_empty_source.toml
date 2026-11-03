@@ -1,3 +1,4 @@
 [[volumes]]
 source = ""
 mode = "ro"
+# expect: verdict=refuse event=conf_entry_field_needs line=3 col=1 key=volumes[1].mode apply=refuse

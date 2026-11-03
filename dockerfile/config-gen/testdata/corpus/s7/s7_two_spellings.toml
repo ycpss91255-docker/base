@@ -2,3 +2,4 @@
 cap_drop_1 = "ALL"
 [[security.cap_drop]]
 cap = "NET_RAW"
+# expect: verdict=refuse event=conf_family_two_spellings line=2 col=1 key=security.cap_drop_1 apply=refuse

@@ -1,2 +1,3 @@
 [[volumes]]
 zz = "x"
+# expect: verdict=refuse event=conf_entry_no_gating_field line=1 col=1 key=volumes[1] apply=refuse

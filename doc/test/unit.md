@@ -1947,14 +1947,16 @@ dockerfile/config-gen/testdata/corpus/s7/s7_array_homes.tsv. This half holds
 that table to the shell's word, so it is not the Go package's: its `writer`
 rows are exactly what the shell writers name and spell, and every row's
 bodies get from the bridge the verdict the Go tests expect of schema.Decode
--- an entry without its field and a string entry refused, a field-less and
-an all-empty entry kept as one empty row, the populated entry kept, and an
-unknown field beside it refused by name.
+-- an entry without its field and a string entry refused, a field-less
+entry, the writers' all-empty entry and the entry carrying every field its
+family reads, each empty, kept as one empty row, alone and between two
+populated ones, the populated entry kept, and an unknown field beside it
+refused by name.
 
 | Test | Description |
 |------|-------------|
 | `array homes: the writer rows are what the shell writers name and spell (base#1443)` | The Go half iterates schema.Homes() and takes each home's all-empty and populated bodies from the table's rows. This half holds the `writer` rows equal, in order, to what _conf_toml_aot_section over SCHEMA_SECTIONS names and _conf_toml_aot_fields spells for "" and for "a=b:c:d", so a home the writers gain, or a body they spell another way, fails here until the table knows it (base#1443). |
-| `array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)` | The Go half expects schema.Decode to refuse an entry without its field and a string entry, to keep a field-less and an all-empty entry as one empty entry, to keep the populated entry and to refuse an unknown field beside it. Each of those verdicts is the bridge's --kv verdict on the same body for every row, the legacy [[devices]] included, so the table the Go tests read is the shell's word (base#1443). |
+| `array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)` | The Go half expects schema.Decode to refuse an entry without its field and a string entry, to keep a field-less entry, the writers' all-empty entry and the entry carrying every field its family reads, each empty, as one empty entry, alone and between two populated ones, to keep the populated entry and to refuse an unknown field beside it. Each of those verdicts is the bridge's --kv verdict on the same body for every row, the legacy [[devices]] included, and the every-field-empty body names exactly the fields the bridge's _ARRAY_SPEC family reads, so the table the Go tests read is the shell's word (base#1443 review round 4 finding 2). |
 
 ### test/bats/unit/config_gen_coverage_spec.bats (15)
 
@@ -2095,21 +2097,22 @@ stderr line `cg_event config_gen_manifest_stale file=<f> reason=<r>`.
 
 ### test/bats/unit/config_gen_s7_verdicts_spec.bats (2)
 
-Every corpus/s7 fixture's expected verdict lives in one shared table,
-dockerfile/config-gen/testdata/corpus/s7/s7_verdicts.tsv, as S6's layers
-live in s6_layers.tsv. The Go half (TestCheckS7Corpus) holds `config-gen
-check` on each fixture to the row's verdict, event, position and key. This
-half holds the same row to the bridge's own output, so the table is not the
-Go package's word: a refuse row's event and key are read off the bridge's
-refusal message, an accept or a differs:<exception> row is one the bridge's
---kv accepts, and the apply column is what apply's per-layer checks
+Every corpus/s7 fixture carries its expected verdict on one `# expect:`
+comment line, so the readers discover fixtures by globbing and no index or
+manifest file lists them, as the base#1395 plan's corpus rule asks
+(base#1443 review round 4 finding 1). The Go half (TestCheckS7Corpus) holds
+`config-gen check` on each fixture to the line's verdict, event, position
+and key. This half holds the same line to the bridge's own output, so it is
+not the Go package's word: a refuse verdict's event and key are read off the
+bridge's refusal message, an accept or a differs:<exception> verdict is one
+the bridge's --kv accepts, and apply is what apply's per-layer checks
 (_layer_verdict) give the fixture. Line and column are counted from the
 fixture bytes, since the bridge reports no position.
 
 | Test | Description |
 |------|-------------|
-| `s7_verdicts: every row's verdict, event and key are the bridge's, its apply column _layer_verdict's` | Each row's verdict is the bridge's --kv status on the fixture: 1 for refuse, 0 for accept and for a differs:<exception> row, which the generator refuses on purpose while the bridge reads it. A refuse row's event and key are the ones the bridge's refusal message names, and every row's apply column is _layer_verdict's verdict on the fixture, so a fixture the generator accepts and apply refuses is recorded as such (base#1443). |
-| `s7_verdicts: every corpus/s7 fixture has exactly one row and every row its fixture` | The table and the corpus are held to each other both ways: every corpus/s7/*.toml has exactly one row and every row names a fixture, so a fixture added without its verdict, or a row left behind by a removed fixture, fails here and in the Go half (base#1443). |
+| `s7 corpus: every fixture's own verdict, event and key are the bridge's, its apply _layer_verdict's` | Each fixture's verdict is the bridge's --kv status on it: 1 for refuse, 0 for accept and for a differs:<exception> verdict, which the generator refuses on purpose while the bridge reads it. A refuse verdict's event and key are the ones the bridge's refusal message names, and every fixture's apply is _layer_verdict's verdict on it, so a fixture the generator accepts and apply refuses is recorded as such. A fixture with no `# expect:` line fails here, as in the Go half (base#1443 review round 4 finding 1). |
+| `s7 corpus: no file of corpus/s7 but a fixture names a fixture` | The base#1395 plan's corpus rule: readers discover fixtures by globbing and no index or manifest file lists them, so adding a fixture touches no shared file. No other file of corpus/s7 names a corpus/s7 fixture (base#1443 review round 4 finding 1). |
 
 ### test/bats/unit/config_gen_schema_values_spec.bats (8)
 

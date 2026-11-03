@@ -1,3 +1,4 @@
 [[tmpfs]]
 path = "/tmp"
 sise = "64m"
+# expect: verdict=refuse event=conf_entry_unknown_field line=3 col=1 key=tmpfs[1].sise apply=refuse

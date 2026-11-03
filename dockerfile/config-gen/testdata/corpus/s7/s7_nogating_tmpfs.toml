@@ -1,2 +1,3 @@
 [[tmpfs]]
 size = "64m"
+# expect: verdict=refuse event=conf_entry_no_gating_field line=1 col=1 key=tmpfs[1] apply=refuse

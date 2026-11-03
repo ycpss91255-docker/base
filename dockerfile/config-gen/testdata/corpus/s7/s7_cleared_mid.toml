@@ -5,3 +5,4 @@ source = "/a"
 
 [[volumes]]
 source = "/c"
+# expect: verdict=accept apply=refuse

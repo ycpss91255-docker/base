@@ -1,2 +1,3 @@
 [[volumes]]
 target = "/x"
+# expect: verdict=refuse event=conf_entry_field_needs line=2 col=1 key=volumes[1].target apply=refuse

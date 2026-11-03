@@ -1,1 +1,2 @@
 tmpfs = [1]
+# expect: verdict=refuse event=conf_entry_not_table line=1 col=10 key=tmpfs[1] apply=refuse

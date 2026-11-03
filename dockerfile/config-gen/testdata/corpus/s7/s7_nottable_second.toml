@@ -2,3 +2,4 @@ volumes = [
   { source = "/a" },
   "x",
 ]
+# expect: verdict=refuse event=conf_entry_not_table line=3 col=3 key=volumes[2] apply=refuse

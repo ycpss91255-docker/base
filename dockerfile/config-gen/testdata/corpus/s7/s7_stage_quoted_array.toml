@@ -1,2 +1,3 @@
 ["stage:dev"]
 "build.args" = [{ key = "A" }]
+# expect: verdict=refuse event=conf_unknown_key line=2 col=1 key=stage:dev.build.args apply=refuse

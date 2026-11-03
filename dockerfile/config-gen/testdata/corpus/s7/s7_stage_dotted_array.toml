@@ -1,2 +1,3 @@
 ["stage:dev"]
 build.args = [{ key = "A" }]
+# expect: verdict=accept apply=accept

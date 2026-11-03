@@ -1,3 +1,4 @@
 ["stage:dev"]
 "build.target_arch" = "amd64"
 "deploy.gpu_mode" = "off"
+# expect: verdict=accept apply=accept

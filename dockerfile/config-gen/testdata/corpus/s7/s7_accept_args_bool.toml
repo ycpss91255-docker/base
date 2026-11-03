@@ -1,3 +1,4 @@
 [[build.args]]
 key = "A"
 value = true
+# expect: verdict=accept apply=accept

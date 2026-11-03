@@ -9,3 +9,4 @@ path = "/dev/b"
 
 [[devices.cgroup_rules]]
 rule = "c 2:2 r"
+# expect: verdict=accept apply=refuse
