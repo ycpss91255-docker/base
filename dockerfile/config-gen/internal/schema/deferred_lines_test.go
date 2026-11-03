@@ -15,7 +15,7 @@ func valueLines(v Value) []string {
 		out = append(out, valueLines(it)...)
 	}
 	for _, m := range v.Members {
-		out = append(out, m.Key+":"+strconv.Itoa(m.Value.Line))
+		out = append(out, m.Key+"@"+strconv.Itoa(m.Value.Line))
 		out = append(out, valueLines(m.Value)...)
 	}
 	return out
@@ -33,10 +33,10 @@ func TestDecodeDeferredPayloadLines(t *testing.T) {
 	}{
 		{"F2 item on its own line",
 			"volumes = [\n  { source = \"/a\", target = \"/b\", \"bad\\tkey\" = \"x\" }\n]\n",
-			[]string{"2", "source:2", "target:2", "bad\tkey:2"}},
+			[]string{"2", "source@2", "target@2", "bad\tkey@2"}},
 		{"F5 nested inline array over lines",
 			"volumes = [\n  {\n    opts = [\n      { \"bad\\tk\" = 1 },\n    ],\n  },\n]\n",
-			[]string{"2", "opts:3", "4", "bad\tk:4"}},
+			[]string{"2", "opts@3", "4", "bad\tk@4"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

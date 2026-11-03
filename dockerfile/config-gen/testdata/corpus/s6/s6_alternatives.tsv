@@ -62,6 +62,7 @@ lifecycle.restart	no	lifecycle	restart	"no"
 lifecycle.restart	always	lifecycle	restart	"always"
 lifecycle.restart	unless-stopped	lifecycle	restart	"unless-stopped"
 lifecycle.restart	on-failure	lifecycle	restart	"on-failure"
+# tool-pin: ignore -- a restart policy value, not a version
 lifecycle.restart	on-failure:<n>	lifecycle	restart	"on-failure:3"
 lifecycle.watchdog_on_fail	restart-container	lifecycle	watchdog_on_fail	"restart-container"
 lifecycle.watchdog_on_fail	restart-service	lifecycle	watchdog_on_fail	"restart-service"

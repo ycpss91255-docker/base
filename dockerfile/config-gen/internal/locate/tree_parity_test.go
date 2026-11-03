@@ -14,7 +14,7 @@ import (
 // treeSeeds are the documents of base#1442 redesign r1-r3 that the corpus
 // does not hold: H1-H5 (header and dotted-key resolution), F1-F5 (the
 // review round 3 findings), and inputs FuzzTreeParity found, which the
-// parser refuses: a header whose last key is empty under a table that a
+// parser refuses -- a header whose last key is empty under a table that a
 // `[[a` line also wrote, a header through a key, a header through an
 // array of tables a `[a` line wrote a key under, a key redefining a dotted
 // table and a dotted key through an array, which BurntSushi v1.6.0 accepts
@@ -103,7 +103,7 @@ func treeParity(t *testing.T, name string, src []byte) {
 // siblings share a key, or a header or dotted key crosses a key, so a node
 // holding a scalar or an inline array has a child that is not its item.
 // TOML 1.0 refuses each. BurntSushi v1.6.0 accepts some (`a.b=0` then
-// `a=0`, and `a=[]` then `a.b=0`, each decode to map[a:map[b:0]]), so no
+// `a=0`, and `a=[]` then `a.b=0`, each decode to {"a":{"b":0}}), so no
 // tree can have their shape; the TOML 1.0 gate of base#1441 refuses them
 // before Decode.
 func redefines(n *Node) bool {

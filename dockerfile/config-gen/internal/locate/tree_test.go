@@ -127,9 +127,9 @@ func inlineShape(n *locate.Node, prefix string) string {
 
 // A header that crosses an array of tables lands in its last element
 // (base#1442 redesign r3, H2 and H5). BurntSushi decodes H2
-// `[[a]] x=1 [[a]] x=2 [a.b] y=3` as map[a:[map[x:1] map[b:map[y:3] x:2]]]
+// `[[a]] x=1 [[a]] x=2 [a.b] y=3` as {"a":[{"x":1},{"b":{"y":3},"x":2}]}
 // and H5 `[[a]] [[a.b]] k=1 [[a]] [[a.b]] k=2 [[a.b]] k=3` as
-// map[a:[map[b:[map[k:1]]] map[b:[map[k:2] map[k:3]]]]]; the bridge refuses
+// {"a":[{"b":[{"k":1}]},{"b":[{"k":2},{"k":3}]}]}; the bridge refuses
 // `[[volumes]]` twice then `[volumes.opts]` with "entry 2 of volumes
 // carries opts", so the table is the second element's.
 func TestHeaderThroughArrayOfTablesLandsInLastElement(t *testing.T) {
@@ -149,8 +149,8 @@ func TestHeaderThroughArrayOfTablesLandsInLastElement(t *testing.T) {
 // A dotted key resolves from the table or element the last header opened,
 // and each element owns its own dotted parents (base#1442 redesign r3, H3
 // and H4). BurntSushi decodes H3 `[a] b.c=1 [d] e=2` as
-// map[a:map[b:map[c:1]] d:map[e:2]] and H4 `[[a]] c.d=1 [[a]] c.d=2` as
-// map[a:[map[c:map[d:1]] map[c:map[d:2]]]]. The log records the implicit
+// {"a":{"b":{"c":1}},"d":{"e":2}} and H4 `[[a]] c.d=1 [[a]] c.d=2` as
+// {"a":[{"c":{"d":1}},{"c":{"d":2}}]}. The log records the implicit
 // table a.c once, for the first element; the second element's c still owns
 // one record of its own, at its own line.
 func TestDottedKeyResolvesFromCurrentTable(t *testing.T) {
@@ -194,7 +194,7 @@ func TestKeyNodeKeepsValueEnd(t *testing.T) {
 // and the members keep the order they are written in (base#1442 redesign
 // R3, finding F4 of review round 3). For
 // `volumes = [{ extra.z = 1, extra.a = 2 }]` BurntSushi decodes
-// map[volumes:[map[extra:map[a:2 z:1]]]], whose map has no order; the
+// {"volumes":[{"extra":{"a":2,"z":1}}]}, whose map has no order; the
 // positions are counted from the bytes: `extra.z` starts at column 14 and
 // `extra.a` at column 27.
 func TestInlineDottedKeyNodes(t *testing.T) {

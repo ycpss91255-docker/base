@@ -348,7 +348,7 @@ func (d *decoder) judge(b *bound, k []string) scope {
 }
 
 // judgeValues refuses each string in the deferred value b, written at
-// path p, that valueCharEvent refuses: at the position of the innermost
+// path p, that valueCharEvent refuses, at the position of the innermost
 // key holding it, line and col for b itself.
 func (d *decoder) judgeValues(p []string, b *bound, line, col int) {
 	if text, ok := b.value.(string); ok {
