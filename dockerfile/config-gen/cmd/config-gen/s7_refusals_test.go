@@ -62,11 +62,13 @@ var s7Refusals = map[string][]string{
 // refusal test asserts five things"; base#1443 review round 1 finding
 // 1): status 1, empty stdout and stderr wholly frames naming the
 // fixture as the file (runCheck), the event, and the line, column and
-// key of the one frame, whose display text is the event's own and names
-// the key (runCheck). A fixture with no row in s7Refusals is an accepted
-// layer: status 0 and no frame. So a refusal fixture added without a row
-// fails here, as does a rule that reports its refusal at another
-// position or key, or adds a second refusal beside it.
+// key of the one frame, whose display text equals the text check_test.go
+// states for its event with the key in place (runCheck's wantDisplay,
+// base#1443 review round 2 finding 1). A fixture with no row in
+// s7Refusals is an accepted layer: status 0 and no frame. So a refusal
+// fixture added without a row fails here, as does a rule that reports
+// its refusal at another position, key or text, or adds a second
+// refusal beside it.
 func TestCheckS7Corpus(t *testing.T) {
 	seen := map[string]bool{}
 	for _, path := range testcorpus.Glob(t, "corpus/s7/*.toml") {

@@ -1,16 +1,16 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
 // `config-gen check` reports each refusal the array-family rules add
-// (base#1443) as a whole frame: its event, line, column and key, and a
-// display text that names the key. A refusal of an entry or of one of
-// its fields names the entry by the bridge's 1-based entry number,
-// `<home>[<n>]` and `<home>[<n>].<field>` (design r1 cycle 20, design-r3
-// P4 default); a numbered table scalar keeps its own name.
+// (base#1443) as a whole frame: its event, line, column and key, and
+// the display text runCheck holds each conf_* frame to (wantDisplay in
+// check_test.go, base#1443 review round 2 finding 1). A refusal of an
+// entry or of one of its fields names the entry by the bridge's 1-based
+// entry number, `<home>[<n>]` and `<home>[<n>].<field>` (design r1 cycle
+// 20, design-r3 P4 default); a numbered table scalar keeps its own name.
 //
 // Expected values: the entry numbers, fields and homes are the bridge's
 // own refusals of the same bytes (toml_bridge.py --kv, rc 1, scratchpad
@@ -50,9 +50,6 @@ func TestCheckEntryRefusalFrames(t *testing.T) {
 			f := fr[0]
 			if f[2] != tc.want[0] || f[4] != tc.want[1] || f[5] != tc.want[2] || f[6] != tc.want[3] {
 				t.Errorf("frame = %q, want event %s line %s col %s key %q", f, tc.want[0], tc.want[1], tc.want[2], tc.want[3])
-			}
-			if !strings.Contains(f[7], tc.want[3]) || strings.Contains(f[7], "%!") {
-				t.Errorf("display = %q, want a text naming %q", f[7], tc.want[3])
 			}
 		})
 	}
