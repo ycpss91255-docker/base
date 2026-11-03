@@ -662,11 +662,15 @@ func ProjectServices(t *Tree) map[string]*Service {
 
 // projectArrays types each deferred array as a family: every table
 // element is one entry at its own position, a field-less one included
-// (base#1443).
+// (base#1443). A family written as `[]` is Empty; an unwritten one has
+// no row and reads as Absent.
 func projectArrays(deferred []Deferred) map[string]Family {
 	out := map[string]Family{}
 	for _, def := range deferred {
 		fam := Family{State: Set, Line: def.Line}
+		if len(def.Value.Items) == 0 {
+			fam.State = Empty
+		}
 		for _, item := range def.Value.Items {
 			if item.Kind != VTable {
 				continue
