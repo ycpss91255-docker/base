@@ -169,7 +169,7 @@ func TestMutation(t *testing.T) {
 		{"exactly the floor", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": killed(9, 1)}, 0,
 			mod + "/internal/a ok efficacy=90.0\n", ""},
-		{"a surviving mutant, whatever gremlins exits", mhead + "M\tdockerfile/config-gen/internal/a/a_test.go\n",
+		{"a surviving mutant, whatever efficacy gremlins writes", mhead + "M\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(0, 2)}, 1,
 			mod + "/internal/a failed reason=below measured=0.0\n", ""},
 		{"just under the floor", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",

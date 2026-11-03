@@ -18,13 +18,17 @@
 // buildgate.Map draws from the change manifest and `go list -json -test
 // -deps ./...` of the working directory (a refusal of Map is printed as its
 // cg_event line on stdout), with one worker and a timeout coefficient
-// of 10, its report written under <dir>. The verdict is the report's
-// KILLED over KILLED, LIVED and TIMED OUT, never gremlins' exit status
-// or its own efficacy figure: each package prints `<pkg> ok efficacy=<e>` or
-// `<pkg> failed reason=<r> [measured=<e>]` on stdout, reason
-// gremlins_failed (it exited non-zero), report (no report it could read)
-// or below (under 90.0). A package gremlins wrote no report for after
-// printing `No results to report.` prints `<pkg> no-mutants` and passes.
+// of 10, its report written under <dir>. Two checks judge each package,
+// in order. The first is gremlins' exit status: a non-zero exit fails the
+// package, reason gremlins_failed, and its report is not read, whatever
+// efficacy it holds. The second, after an exit of 0, is the report: the
+// efficacy is its KILLED over KILLED, LIVED and TIMED OUT, never the
+// efficacy figure gremlins writes itself, and a package fails with reason
+// report when there is no report it can read, or below when that efficacy
+// is under 90.0. A package gremlins wrote no report for after printing
+// `No results to report.` and exiting 0 prints `<pkg> no-mutants` and
+// passes. Each other package prints `<pkg> ok efficacy=<e>` or `<pkg>
+// failed reason=<r> [measured=<e>]` on stdout.
 // After the last package any failure puts
 // `config_gen_gate_mutation_failed` on stderr. Before any package, each
 // package the manifest deletes that the head tree no longer holds prints

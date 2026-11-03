@@ -228,8 +228,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 # The mutation gate (base#1467): cg-gates mutation, built by the coverage
 # RUN, runs gremlins on each package the change manifest in the mutation
-# context maps to, and fails below 90.0 efficacy counted from gremlins'
-# report, never from its exit status. GOFLAGS hands every go test gremlins
+# context maps to. A package fails when gremlins exits non-zero, whatever
+# its report holds; after an exit of 0 it fails below 90.0 efficacy,
+# counted from the report's KILLED, LIVED and TIMED OUT mutants rather than
+# the efficacy figure gremlins writes. GOFLAGS hands every go test gremlins
 # runs the corpus root the race RUN wrote, as -X tells internal/testcorpus
 # there. It prints no ok line: the runner's green callers expect exactly
 # the six gates above.
