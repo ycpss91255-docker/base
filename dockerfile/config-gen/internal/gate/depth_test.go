@@ -14,7 +14,8 @@ const wantDepthText = "nesting deeper than tomllib accepts (Python recursion lim
 // term at the bottom: arr `a = [[…]]`, it `a = {b = {b = …}}`, mix
 // `a = [{b = [{b = …}]}]` (n pairs), arr-in-hdr `[t.u]` then
 // `x.y.z = [[…]]`, arr-in-aot `[[t]]` then `x = [[…]]`, arr-ws `[ # c`
-// and a line ending per level, it-arr `a = {b = [[…]]}`.
+// and a line ending per level, it-arr `a = {b = [[…]]}`, ait
+// `a = [{b = [[…]]}]`.
 func nest(shape string, n int, term string) string {
 	r := strings.Repeat
 	switch shape {
@@ -32,6 +33,8 @@ func nest(shape string, n int, term string) string {
 		return "a = " + r("[ # c\n", n) + term + r("\n]", n) + "\n"
 	case "it-arr":
 		return "a = {b = " + r("[", n) + term + r("]", n) + "}\n"
+	case "ait":
+		return "a = [{b = " + r("[", n) + term + r("]", n) + "}]\n"
 	}
 	panic("nest: unknown shape " + shape)
 }
@@ -60,6 +63,15 @@ func TestCheckDepthBoundaries(t *testing.T) {
 		{"arr-in-aot", "1", 496, 2, 5},
 		{"arr-ws", "1", 496, 1, 5},
 		{"it-arr", "1", 495, 1, 5},
+		// A comment in the innermost array, at the frame parity where
+		// only its skip_until passes the limit: forms/depth it-c-* and
+		// ait-c-* (base#1441).
+		{"it-arr", "#c\n1", 494, 1, 5},
+		{"ait", "#c\n1", 493, 1, 5},
+		// An empty inline table one frame past the limit, which only the
+		// inline table's own depth check refuses: forms/depth
+		// it-arr-it-empty-* (base#1441).
+		{"it-arr", "{}", 494, 1, 5},
 	}
 	for _, tm := range []struct {
 		term    string

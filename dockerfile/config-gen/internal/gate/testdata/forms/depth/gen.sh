@@ -13,7 +13,8 @@
 # Names: <shape>-<terminal slug>-<N>.toml. Shapes: arr `a = [[…]]`, it
 # `a = {b = {b = …}}`, mix `a = [{b = …}]` pairs, arr-in-hdr `[t.u]` then
 # `x.y.z = [[…]]`, arr-in-aot `[[t]]` then `x = [[…]]`, arr-ws `[ # c`
-# plus a line ending per level, it-arr `a = {b = [[…]]}`.
+# plus a line ending per level, it-arr `a = {b = [[…]]}`. The shapes
+# whose terminal is fixed are named <shape>-<N>.toml (see _fixed).
 #
 # The backslash of the escaped terminal is written from its byte code
 # (\134), never typed: the six characters of a \u escape typed through
@@ -45,6 +46,8 @@ _doc() {
     arr-in-aot) printf '[[t]]\nx = %s%s%s\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
     arr-ws) printf 'a = %s%s%s\n' "$(_rep $'[ # c\n' "${n}")" "${t}" "$(_rep $'\n]' "${n}")" ;;
     it-arr) printf 'a = {b = %s%s%s}\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
+    it-c) printf 'a = {b = %s#c\n1%s}\n' "$(_rep '[' "${n}")" "$(_rep ']' "${n}")" ;;
+    ait-c) printf 'a = [{b = %s#c\n1%s}]\n' "$(_rep '[' "${n}")" "$(_rep ']' "${n}")" ;;
   esac
 }
 
@@ -52,6 +55,20 @@ _doc() {
 _pair() {
   _doc "$1" "$3" "$4" > "${_DIR}/$1-$2-$3.toml"
   _doc "$1" "$(( $3 + 1 ))" "$4" > "${_DIR}/$1-$2-$(( $3 + 1 )).toml"
+}
+
+# _fixed <shape> <n>... -- <shape>-<n>.toml for each n, for a shape whose
+# terminal is part of it: it-c `a = {b = [[… #c` a line ending `1 …]]}`,
+# a comment in the innermost of n arrays inside an inline table; ait-c the
+# same n arrays inside `a = [{b = …}]`. Both put the innermost array at
+# the frame parity where only its comment's skip_until passes the limit
+# (base#1441).
+_fixed() {
+  local s="$1" n
+  shift
+  for n in "$@"; do
+    _doc "${s}" "${n}" '' > "${_DIR}/${s}-${n}.toml"
+  done
 }
 
 main() {
@@ -91,6 +108,9 @@ main() {
     _pair arr "${slug}" "${amax}" "${term}"
     _pair it "${slug}" "${imax}" "${term}"
   done
+  _pair it-arr it-empty 494 '{}'
+  _fixed it-c 494 495
+  _fixed ait-c 493 494
 }
 
 main "$@"
