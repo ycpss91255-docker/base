@@ -19,11 +19,24 @@ var gatingFields = map[string][]string{
 	"additional_contexts": {"name"},
 }
 
+// alsoRead is, per array family, the fields its entries are read from
+// beyond gatingFields: the fourth element of the bridge's _ARRAY_SPEC.
+// The two together are every field the family reads (base#1443).
+var alsoRead = map[string][]string{
+	"args":                {"value"},
+	"ports":               {"container"},
+	"tmpfs":               {"size"},
+	"additional_contexts": {"source"},
+}
+
 // checkEntries refuses, as conf_entry_not_table at its position, each
 // element of the array b at path p that is not a table, and, as
 // conf_entry_no_gating_field at its first position, each table element
 // that carries fields but none of the fields its family is read from, as
-// the bridge's _check_entry does. A field-less element, the cleared
+// the bridge's _check_entry does. A table element that carries a gating
+// field and, beside it, a field its family does not read is refused as
+// conf_entry_unknown_field at that field, the first in sorted order, as
+// the bridge names them sorted. A field-less element, the cleared
 // slot, carries nothing and is not refused (base#1443). An element
 // holding a name that keyCharEvent refuses keeps that refusal as its only
 // one, as base#1442 decided.
@@ -38,12 +51,46 @@ func (d *decoder) checkEntries(p []string, b *bound) {
 			d.refuse("conf_entry_not_table", p, line, col)
 			continue
 		}
-		if len(e.children) == 0 || carriesAny(e, gating) || holdsBadName(e) {
+		if len(e.children) == 0 || holdsBadName(e) {
 			continue
 		}
-		line, col := e.firstPos()
-		d.refuse("conf_entry_no_gating_field", p, line, col)
+		if !carriesAny(e, gating) {
+			line, col := e.firstPos()
+			d.refuse("conf_entry_no_gating_field", p, line, col)
+			continue
+		}
+		if f := firstUnknown(e, gating, alsoRead[p[len(p)-1]]); f != nil {
+			line, col := f.declPos()
+			d.refuse("conf_entry_unknown_field", append(append([]string{}, p...), f.node.Key), line, col)
+		}
 	}
+}
+
+// firstUnknown is the member of the table e, first by name, that is
+// named in neither read list, or nil when every member is read.
+func firstUnknown(e *bound, read ...[]string) *bound {
+	var first *bound
+	for _, c := range e.children {
+		if carriedBy(c.node.Key, read...) {
+			continue
+		}
+		if first == nil || c.node.Key < first.node.Key {
+			first = c
+		}
+	}
+	return first
+}
+
+// carriedBy reports whether name is in one of the lists.
+func carriedBy(name string, lists ...[]string) bool {
+	for _, l := range lists {
+		for _, n := range l {
+			if n == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // holdsBadName reports whether a name at or under b draws keyCharEvent.

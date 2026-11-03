@@ -31,6 +31,21 @@ func memberKeys(v Value) []string {
 	return out
 }
 
+// onlyUnknownField reports whether every refusal is the entry rule's
+// conf_entry_unknown_field. The bridge refuses a `[[volumes]]` entry
+// carrying a member it does not read (`extra`, `a`, `opts`): `--kv` rc 1,
+// "entry 1 of volumes carries extra, which its family does not read"
+// (base#1443, scratchpad s7c4-s6probe.sh). The payload is still recorded
+// in Deferred, which is what these tests pin.
+func onlyUnknownField(refusals []Refusal) bool {
+	for _, r := range refusals {
+		if r.Event != "conf_entry_unknown_field" {
+			return false
+		}
+	}
+	return true
+}
+
 // Every inline table inside a deferred array keeps its members in the
 // order they are written, at any depth, whether the array is an inline
 // array or a `[[...]]` array of tables, and two items that write the same
@@ -63,8 +78,8 @@ func TestDecodeNestedInlineTablesKeepSourceOrder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, refusals := Decode([]byte(tc.src))
 
-			if len(refusals) != 0 || cfg == nil || len(cfg.Deferred) != 1 {
-				t.Fatalf("Decode = %+v, %+v; want one Deferred and no refusal", cfg, refusals)
+			if !onlyUnknownField(refusals) || cfg == nil || len(cfg.Deferred) != 1 {
+				t.Fatalf("Decode = %+v, %+v; want one Deferred and only conf_entry_unknown_field", cfg, refusals)
 			}
 			var got [][]string
 			for _, item := range cfg.Deferred[0].Value.Items {

@@ -13,7 +13,7 @@ import (
 // {'volumes': [{'source': '/a', 'extra': {'y': {'z': 1, 'a': 2}, 'b': 3}}]},
 // each dict in insertion order. The first case also carries `source`,
 // the field a volumes entry is read from, so the entry rule (base#1443)
-// does not refuse it.
+// refuses only `extra`, as a field its family does not read.
 func TestDecodeDottedKeysInDeferredInlineTablesKeepSourceOrder(t *testing.T) {
 	cases := []struct {
 		name string
@@ -31,8 +31,8 @@ func TestDecodeDottedKeysInDeferredInlineTablesKeepSourceOrder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, refusals := decodeNoPanic(t, []byte(tc.src))
 
-			if len(refusals) != 0 || cfg == nil || len(cfg.Deferred) != 1 {
-				t.Fatalf("Decode = %+v, %+v; want one Deferred and no refusal", cfg, refusals)
+			if !onlyUnknownField(refusals) || cfg == nil || len(cfg.Deferred) != 1 {
+				t.Fatalf("Decode = %+v, %+v; want one Deferred and only conf_entry_unknown_field", cfg, refusals)
 			}
 			var got [][]string
 			for _, item := range cfg.Deferred[0].Value.Items {
