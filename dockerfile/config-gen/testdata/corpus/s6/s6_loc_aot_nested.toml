@@ -1,0 +1,8 @@
+[devices]
+device_1 = "/dev/x:/dev/x"
+
+[[devices.bindings]]
+path = "/a"
+
+[[devices.bindings]]
+path = "/b"

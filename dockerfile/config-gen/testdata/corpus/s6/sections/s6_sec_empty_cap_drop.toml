@@ -1,0 +1,2 @@
+[security]
+cap_drop = []

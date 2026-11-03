@@ -465,6 +465,19 @@ config_gen_coverage_floor_stale
 config_gen_coverage_floor_none_misuse
 config_gen_coverage_floor_dropped
 
+# dockerfile/config-gen `check` (schema.Decode refusals and the command's
+# own diagnostics, base#1442). Emitted as diagnostic frames the shim
+# re-emits by event id.
+conf_unknown_table
+conf_top_level_key
+conf_value_type_refused
+conf_value_invalid
+conf_key_char_refused
+conf_value_newline_refused
+conf_value_nul_refused
+config_gen_check_usage
+config_gen_check_input_failed
+
 # script/test/drivers/mutation_required.sh (the required-kill roster runner,
 # base#1461) and the no-flag `just test` dispatch that runs it.
 mutation_required_usage_invalid

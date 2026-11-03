@@ -1,0 +1,86 @@
+# section	key	toml-literal	kind	event	cite
+# One row per value config-gen check judges at a key by its TOML kind
+# (base#1442). kind is the key's: int and bool keys are typed, so a value
+# of another kind is conf_value_type_refused (ADR-00000039 l.125); every
+# typed key has one row per wrong kind and one accept row. gpu_count is
+# string-or-int, and a string key takes any scalar kind and is judged on
+# the bridge's text (ADR-00000039 l.121). event "-" is no refusal. The
+# bats half holds the int and bool keys equal to the keys schema.sh types
+# on a pinned probe set.
+lifecycle	watchdog_interval	"3"	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_interval	3.0	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_interval	true	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_interval	1979-05-27	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_interval	3	int	-	adr:l125
+lifecycle	watchdog_timeout	"3"	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_timeout	3.0	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_timeout	true	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_timeout	1979-05-27	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_timeout	3	int	-	adr:l125
+lifecycle	watchdog_start_period	"3"	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_start_period	3.0	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_start_period	true	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_start_period	1979-05-27	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_start_period	3	int	-	adr:l125
+lifecycle	watchdog_failures	"3"	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_failures	3.0	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_failures	true	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_failures	1979-05-27	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_failures	3	int	-	adr:l125
+lifecycle	watchdog_max_restarts	"3"	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_max_restarts	3.0	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_max_restarts	true	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_max_restarts	1979-05-27	int	conf_value_type_refused	adr:l125
+lifecycle	watchdog_max_restarts	3	int	-	adr:l125
+logging	max_file	"3"	int	conf_value_type_refused	adr:l125
+logging	max_file	3.0	int	conf_value_type_refused	adr:l125
+logging	max_file	true	int	conf_value_type_refused	adr:l125
+logging	max_file	1979-05-27	int	conf_value_type_refused	adr:l125
+logging	max_file	3	int	-	adr:l125
+logging	container_log_keep	"3"	int	conf_value_type_refused	adr:l125
+logging	container_log_keep	3.0	int	conf_value_type_refused	adr:l125
+logging	container_log_keep	true	int	conf_value_type_refused	adr:l125
+logging	container_log_keep	1979-05-27	int	conf_value_type_refused	adr:l125
+logging	container_log_keep	3	int	-	adr:l125
+logging	container_log_days	"3"	int	conf_value_type_refused	adr:l125
+logging	container_log_days	3.0	int	conf_value_type_refused	adr:l125
+logging	container_log_days	true	int	conf_value_type_refused	adr:l125
+logging	container_log_days	1979-05-27	int	conf_value_type_refused	adr:l125
+logging	container_log_days	3	int	-	adr:l125
+logging	wrapper_transcript_keep	"3"	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_keep	3.0	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_keep	true	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_keep	1979-05-27	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_keep	3	int	-	adr:l125
+logging	wrapper_transcript_days	"3"	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_days	3.0	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_days	true	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_days	1979-05-27	int	conf_value_type_refused	adr:l125
+logging	wrapper_transcript_days	3	int	-	adr:l125
+security	privileged	"true"	bool	conf_value_type_refused	adr:l125
+security	privileged	1	bool	conf_value_type_refused	adr:l125
+security	privileged	1.0	bool	conf_value_type_refused	adr:l125
+security	privileged	true	bool	-	adr:l125
+lifecycle	init	"true"	bool	conf_value_type_refused	adr:l125
+lifecycle	init	1	bool	conf_value_type_refused	adr:l125
+lifecycle	init	1.0	bool	conf_value_type_refused	adr:l125
+lifecycle	init	true	bool	-	adr:l125
+logging	compress	"true"	bool	conf_value_type_refused	adr:l125
+logging	compress	1	bool	conf_value_type_refused	adr:l125
+logging	compress	1.0	bool	conf_value_type_refused	adr:l125
+logging	compress	true	bool	-	adr:l125
+logging	wrapper_transcript	"true"	bool	conf_value_type_refused	adr:l125
+logging	wrapper_transcript	1	bool	conf_value_type_refused	adr:l125
+logging	wrapper_transcript	1.0	bool	conf_value_type_refused	adr:l125
+logging	wrapper_transcript	true	bool	-	adr:l125
+security	privileged	"yes"	bool	conf_value_type_refused	adr:l125
+deploy	gpu_count	true	string|int	conf_value_type_refused	adr:l125
+deploy	gpu_count	1.5	string|int	conf_value_type_refused	adr:l125
+deploy	gpu_count	07:32:00	string|int	conf_value_type_refused	adr:l125
+deploy	gpu_count	"all"	string|int	-	adr:l121
+deploy	gpu_count	1	string|int	-	adr:l121
+build	tz	1979-05-27	string	-	adr:l121
+build	tz	1	string	-	adr:l121
+lifecycle	watchdog_check	1979-05-27	string	-	adr:l121
+network	network_name	1	string	-	adr:l121
+resources	shm_size	1.5	string	conf_value_invalid	shell:_schema_validate

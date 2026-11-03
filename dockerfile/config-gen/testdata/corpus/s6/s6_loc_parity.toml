@@ -1,0 +1,24 @@
+# Locator parity fixture (base#1442): comments, quoted and dotted keys,
+# inline values and repeated array tables.
+top = "v"
+
+[deploy]
+gpu_count = "all" # a trailing comment holding = and [x]
+"gpu_mode" = 'auto'
+
+[environment]
+env_1 = "A=b # not a comment"
+env_2 = { a = 1 }
+
+[build]
+"x.y" = 1
+ports = ["1", "2"]
+
+[logging]
+driver.name = "x"
+
+[[volumes]]
+source = "/a"
+
+[[volumes]]
+source = "/b"
