@@ -199,17 +199,6 @@ readonly _PIN_RESOLVERS=(
 #   this watch exists for, which is a version baked into a file this repo
 #   SHIPS going stale in silence in somebody else's repo.
 #
-#   Go tests (`*_test.go`) and TOML files (`*.toml`) below a `testdata`
-#   directory (base#1441). A Go test is a spec, and Go has no `#` comment,
-#   so no marker can stand above a line in one at all: an expected
-#   diagnostic such as "t.toml:1:7: " has the image-reference shape and
-#   could only be reworded to dodge the detector. A TOML case's bytes are
-#   what the test feeds its subject, and a vendored one (the toml-test
-#   cases under internal/gate/testdata) keeps upstream's bytes, so a
-#   marker line inserted into it changes the case. Only a whole path
-#   component named `testdata` counts, and any other file kind below it
-#   is read.
-#
 # The lint checks this list rather than trusting it: a `tool-pin:` marker
 # in an exempt file is a failure, so "exempt the shape the awkward pin
 # lives in" cannot quietly become a way to stop watching a pin.
@@ -220,7 +209,7 @@ readonly _PIN_RESOLVERS=(
 # predicate has to be answerable about a string rather than about a
 # directory entry.
 readonly _PIN_SCAN_EXEMPT_SHAPES=(
-  '*.md' '*.adoc' 'README' 'LICENSE' '*.bats' '*_test.go'
+  '*.md' '*.adoc' 'README' 'LICENSE' '*.bats'
 )
 
 # ── Declaration shapes the detector recognises ──────────────────────────────
@@ -381,13 +370,11 @@ readonly _PIN_ACTION_REF_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([
 
 # _pin_is_exempt_shape <repo-root-relative-path>
 #
-# TRUE when the path's BASENAME matches one of the exempt shapes, or the
-# path is a `*.toml` file below a directory component exactly named
-# `testdata`. Both halves of the walk partition one list of paths through
-# this, so a file is read by exactly one of them and neither can drift.
+# TRUE when the path's BASENAME matches one of the exempt shapes. Both
+# halves of the walk partition one list of paths through this, so a file
+# is read by exactly one of them and neither can drift.
 _pin_is_exempt_shape() {
   local _base="${1##*/}" _glob
-  [[ "/${1}" == */testdata/* && "${_base}" == *.toml ]] && return 0
   for _glob in "${_PIN_SCAN_EXEMPT_SHAPES[@]}"; do
     # Deliberately unquoted: _glob IS a pattern.
     # shellcheck disable=SC2053

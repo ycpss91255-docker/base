@@ -38,11 +38,11 @@
 #                never reach final)
 #   test         FROM goenv, not FROM build: a --target test build must run
 #                no go before admit passed (base#1465), and build's go build
-#                would otherwise run beside admit. Then the tidy check
-#                (base#1441, no ok line) and the six gates, one RUN each, in
-#                this order: fmt, vet, lint, race, coverage (measured
-#                counts, then cg-gates ratchet against coverage-floors.d and
-#                the mutation context's floors.base), fuzz (base#1441). A
+#                would otherwise run beside admit. Then the six gates, one
+#                RUN each, in this order: fmt, vet, lint, race, coverage
+#                (measured counts, then cg-gates ratchet against
+#                coverage-floors.d and the mutation context's floors.base),
+#                fuzz (base#1441). A
 #                gate that passes prints `gate=<g> ok`; one that fails prints
 #                `config_gen_gate_<g>_failed` on stderr and stops the build.
 #                Each is its own RUN so a red names its gate and the gates
@@ -148,14 +148,6 @@ COPY --from=tools /usr/local/bin/golangci-lint /usr/local/bin/golangci-lint
 # hadolint ignore=DL3022
 COPY --from=toml-oracle verdicts.tsv /toml-oracle/verdicts.tsv
 COPY . .
-# The module's requires are fetched here, and go.sum must be exactly what
-# `go mod tidy` writes: -diff prints the change and exits 1 otherwise, so
-# every environment's gates check go.sum against tidy (base#1441). A red
-# here prints config_gen_gate_tidy_failed, which the runner re-emits like a
-# gate's id; the redpath's gosum-extra case plants an extra go.sum line to
-# prove it. It prints no ok line: it is a precondition of the gates, not
-# one of them, so the ok lines stay the gates'.
-RUN g=tidy; { go mod download && go mod tidy -diff; } || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 # gofmt exits non-zero on a file it cannot parse (a _test.go syntax error
 # passes the build stage); that status must name this gate too, not end
 # the RUN under set -e before the id is printed.

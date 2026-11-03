@@ -509,9 +509,6 @@ config_gen_toml_oracle_failed
 # Dockerfile.config-gen's sixth gate, fuzz (base#1441): a Fuzz target's
 # 60 s search found a failing input; re-emitted by config_gen_gates.sh.
 config_gen_gate_fuzz_failed
-# Dockerfile.config-gen's tidy check (base#1441): go.sum is not
-# what `go mod tidy` writes; re-emitted by config_gen_gates.sh.
-config_gen_gate_tidy_failed
 
 # script/watch/pins.sh --set and _pin_go_mod_set_line: a bump refused with
 # the file left as it was (base#1463).

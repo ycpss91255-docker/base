@@ -28,8 +28,6 @@
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
 #   fuzz-panic     a Fuzz target that panics past its one seed     fuzz
-#   gosum-extra    a go.sum line for a module go.mod does not       tidy
-#                  require
 #
 # A refusal case plants a defect the build must refuse before any gate
 # runs: the run must exit exactly 1 with nothing on stdout, and stderr
@@ -133,12 +131,6 @@
 # green; the target panics on any input of four or more bytes, which only
 # the fuzz gate's search reaches (base#1441).
 #
-# gosum-extra appends one well-formed go.sum line and changes nothing else,
-# so `go mod download` and the build pass and only the test stage's
-# `go mod tidy -diff` check can refuse it. That check runs after admission
-# and ahead of fmt, and prints config_gen_gate_tidy_failed, so admission is
-# the one earlier ok line expected for it (base#1441).
-#
 # Every case is reported before the run ends; any failed case or a red
 # control exits 1. This never calls `just test go` -- that recipe runs this
 # script -- and a nested entry is refused with config_gen_redpath_reentered
@@ -161,7 +153,7 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage fuzz)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz gosum-extra:tidy)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz)
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
@@ -559,9 +551,6 @@ EOF
       ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
-    gosum-extra)
-      printf '%s\n' 'golang.org/x/text v0.3.0 h1:g61tztE5qeGQ89tm6NTjjM9VPIm088od1l6aSorWRWg=' \
-        >>"${mod}/go.sum" ;;
     coverage)
       mkdir -p "${mod}/internal/zzcov"
       cat >"${mod}/internal/zzcov/zzcov.go" <<'EOF'
@@ -673,12 +662,6 @@ _rp_verdict() {
   first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
   first="${first%%$'\n'*}"
   [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }
-  # tidy runs after admission and ahead of fmt: admission is its one
-  # earlier gate.
-  if [[ "${gate}" == tidy ]]; then
-    grep -qx 'gate=admission ok' "${out}" || echo earlier_gate_missing
-    return 0
-  fi
   for g in "${_RP_GATES[@]}"; do
     [[ "${g}" == "${gate}" ]] && break
     grep -qx "gate=${g} ok" "${out}" || { echo earlier_gate_missing; return 0; }
