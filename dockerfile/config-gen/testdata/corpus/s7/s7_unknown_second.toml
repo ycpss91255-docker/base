@@ -1,0 +1,6 @@
+[[volumes]]
+source = "/a"
+
+[[volumes]]
+source = "/b"
+zz = "x"

@@ -1,0 +1,3 @@
+[[devices]]
+path = "/dev/x"
+foo = 1

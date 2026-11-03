@@ -1,0 +1,3 @@
+[[tmpfs]]
+path = "/tmp"
+sise = "64m"
