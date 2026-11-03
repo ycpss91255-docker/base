@@ -917,6 +917,30 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A Go test file is a spec, as a .bats file is, and Go has no `#` comment,
+# so no marker can stand above a line in it: an expected diagnostic such as
+# "t.toml:1:7: x" has the image-reference shape (base#1530). The same version
+# in a Go file that is not a test is still read.
+@test "_run_pin_coverage: a Go test file needs no marker, a non-test Go file still does (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m"
+  printf '%s\n' \
+    'package m' \
+    'const want = "t.toml:1:7: x"' \
+    'const image = "alpine:3.21"' \
+    > "${SCRATCH}/dockerfile/m/m_test.go"
+  _lint
+  assert_success
+  printf '%s\n' \
+    'package m' \
+    'const image = "alpine:3.21"' \
+    > "${SCRATCH}/dockerfile/m/m.go"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/m/m.go:2:'
+  refute_output --partial 'm_test.go'
+}
+
 # why: The exemption list is the last hand-kept thing in the scan surface, so a
 # marker in an exempt file is a belief in watching that nothing reads
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
