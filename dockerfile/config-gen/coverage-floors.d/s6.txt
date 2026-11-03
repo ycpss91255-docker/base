@@ -1,4 +1,4 @@
 # Coverage floors of the packages S6 brings (base#1442): <pkg> <floor>|none,
 # pkg relative to the module. Ratcheted up by cg-gates ratchet, never lowered.
-internal/locate 96.3
-internal/schema 94.5
+# S7 (base#1443) extends both packages and carries their floors in s7.txt:
+# one package may sit in only one fragment (coverage_floor_duplicate).

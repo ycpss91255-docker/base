@@ -192,8 +192,13 @@ func Decode(src []byte) (*Config, []Refusal) {
 	d := decoder{refused: map[string]bool{}, tables: map[string]bool{}}
 	d.walk(root, nil, judging)
 	tree, deferred, arrays := buildTree(md, root)
+	// families is every deferred array the walk accepted as a family;
+	// one it refused, an array no family carries, is not typed
+	// (base#1443 review round 1 finding 1).
+	var families []Deferred
 	for i, def := range deferred {
 		if !d.refusedUnder(def.Path) {
+			families = append(families, def)
 			refused := d.checkEntries(def.Path, arrays[i])
 			line, col := arrays[i].declPos()
 			for _, e := range arrays[i].children {
@@ -213,7 +218,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 		Deprecated:  deprecated,
 		Tree:        tree,
 		Deferred:    deferred,
-		Arrays:      projectArrays(deferred),
+		Arrays:      projectArrays(families),
 		Stages:      projectStages(&tree),
 	}, d.refusals
 }
@@ -319,12 +324,18 @@ func (d *decoder) judge(b *bound, k []string) scope {
 		}
 		return judging
 	case len(k) == 1 && b.isArray():
-		// An array at a known section name, `[[volumes]]` or the inline
-		// `volumes = [{...}]`, is the legacy spelling the array stage
-		// handles. Any other root array is refused as what it is written
-		// as: an array-table header is a table, an inline array a root key.
+		// An array at a known section name that an array family carries,
+		// `[[volumes]]` or the inline `volumes = [{...}]`, is a root
+		// family the array stage handles: the bridge looks a root array
+		// up by its key in _ARRAY_SPEC and the shell knows the section
+		// it numbers into. Any other root array, a known section no
+		// family carries (`deploy = []`) included, is an array nothing
+		// reads and is refused as what it is written as: an array-table
+		// header is a table, an inline array a root key (base#1443
+		// review round 1 finding 1).
+		_, family := arrayFamily[key]
 		switch {
-		case known[key]:
+		case known[key] && family:
 		case tables:
 			d.refuseTable(k, b)
 		default:
@@ -709,7 +720,7 @@ func ProjectServices(t *Tree) map[string]*Service {
 	return out
 }
 
-// projectArrays types each deferred array as a family: every table
+// projectArrays types each accepted array as a family: every table
 // element is one entry at its own position, a field-less one included
 // (base#1443). A family written as `[]` is Empty; an unwritten one has
 // no row and reads as Absent.

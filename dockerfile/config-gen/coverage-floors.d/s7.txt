@@ -1,0 +1,5 @@
+# Coverage floors of the packages S7 extends (base#1443): <pkg> <floor>|none,
+# pkg relative to the module. Taken over from s6.txt, which may not repeat
+# them; ratcheted up by cg-gates ratchet, never lowered.
+internal/locate 96.3
+internal/schema 95.3
