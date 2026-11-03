@@ -36,7 +36,7 @@ func TestDevicesBindingsAndCgroupRulesAreIndependentInOneLayer(t *testing.T) {
 		t.Fatalf("Decode = %v, %+v, want a Config and no refusals", cfg, refusals)
 	}
 	if fam, ok := arrayAt(cfg, "devices"); ok {
-		t.Errorf("Arrays[devices] = %+v, want no legacy family", fam)
+		t.Errorf("Array(devices) = %+v, want no legacy family", fam)
 	}
 
 	type want struct {
@@ -49,7 +49,7 @@ func TestDevicesBindingsAndCgroupRulesAreIndependentInOneLayer(t *testing.T) {
 	} {
 		fam, ok := arrayAt(cfg, path)
 		if !ok || fam.State != Set || len(fam.Entries) != len(entries) {
-			t.Errorf("Arrays[%s] = %+v, want a Set family of %d entries", path, fam, len(entries))
+			t.Errorf("Array(%s) = %+v, want a Set family of %d entries", path, fam, len(entries))
 			continue
 		}
 		for i, w := range entries {

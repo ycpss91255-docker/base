@@ -50,7 +50,7 @@ func TestEveryHomeKeepsAnAllEmptyEntryInItsPosition(t *testing.T) {
 			}
 			fam, ok := arrayAt(cfg, path)
 			if !ok || fam.State != Set || len(fam.Entries) != 3 {
-				t.Fatalf("Arrays[%s] = %+v, want a Set family of three entries", path, fam)
+				t.Fatalf("Array(%s) = %+v, want a Set family of three entries", path, fam)
 			}
 			for i, want := range [][][2]string{full, empty, full} {
 				e := fam.Entries[i]

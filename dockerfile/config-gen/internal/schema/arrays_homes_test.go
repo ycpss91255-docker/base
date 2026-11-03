@@ -213,7 +213,7 @@ func TestEveryHomeRefusesAnEntryWithoutItsFieldAndKeepsAnEmptyOne(t *testing.T) 
 				}
 				fam, ok := arrayAt(cfg, path)
 				if !ok || fam.State != Set || len(fam.Entries) != 1 {
-					t.Errorf("%s: Arrays[%s] = %+v, want a Set family of one entry", c.name, path, fam)
+					t.Errorf("%s: Array(%s) = %+v, want a Set family of one entry", c.name, path, fam)
 					continue
 				}
 				e := fam.Entries[0]
@@ -268,7 +268,7 @@ func TestEveryHomeRefusesAnUnknownFieldBesideItsOwn(t *testing.T) {
 			}
 			fam, _ := arrayAt(cfg, path)
 			if fam.State != Set || len(fam.Entries) != 1 {
-				t.Fatalf("Arrays[%s] = %+v, want a Set family of one entry", path, fam)
+				t.Fatalf("Array(%s) = %+v, want a Set family of one entry", path, fam)
 			}
 			if got, want := entryFields(t, fam.Entries[0]), fieldsOf(t, r.full); !reflect.DeepEqual(got, want) {
 				t.Errorf("fields = %q, want %q", got, want)
