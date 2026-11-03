@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,15 +47,37 @@ func writeLayer(t *testing.T, src string) string {
 	return path
 }
 
+// wantDisplay is, per configuration refusal event, the display text a
+// frame of that event carries, with %s standing for the frame's key. It
+// is written here, apart from check.go's displays, so a frame is held to
+// text the test states rather than to whatever the production table
+// holds (base#1443 review round 2 finding 1).
+var wantDisplay = map[string]string{
+	"conf_unknown_key":           "unknown key %s; no reader reads it, so the default would apply instead",
+	"conf_unknown_table":         "unknown table [%s]; no reader knows it, so its settings would be dropped",
+	"conf_top_level_key":         "key %s is written outside any table",
+	"conf_value_type_refused":    "the value of %s is not of the type the key takes",
+	"conf_value_invalid":         "the value of %s is not one the key accepts",
+	"conf_key_char_refused":      "the name %s holds a tab, LF or CR",
+	"conf_value_newline_refused": "the value of %s holds an LF or CR",
+	"conf_value_nul_refused":     "%s holds U+0000",
+	"conf_toml_parse_failed":     "the layer is not valid TOML (near %s)",
+	"conf_entry_not_table":       "%s is not a table, so the entry cannot be read",
+	"conf_entry_no_gating_field": "%s carries none of the fields its family is read from",
+	"conf_entry_unknown_field":   "%s is a field its family does not read",
+	"conf_entry_field_needs":     "%s is written without the field it is read beside",
+	"conf_family_two_spellings":  "%s is carried two ways: as a numbered key and in its family's array",
+}
+
 // runCheck runs `config-gen check <path>` and returns its status and its
 // frames. Every call is held to the fixed points of the refusal-test
 // contract (base#1395 plan, "Every refusal test asserts five things"), so
 // no refusal test can leave one out: stdout stays empty, stderr is wholly
 // frames, every frame names path as its file, and a configuration
-// refusal's (conf_*) display text is the one registered for its event,
-// naming its key: an event with no display text renders a `%!` verb
-// (base#1443 review round 1 finding 1). The caller asserts the status,
-// the event, the position and the key.
+// refusal's (conf_*) display text equals wantDisplay's text for its
+// event with the frame's key in place (base#1443 review round 2 finding
+// 1). A conf_* event with no wantDisplay row fails. The caller asserts
+// the status, the event, the position and the key.
 func runCheck(t *testing.T, path string) (int, [][]string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -72,8 +95,13 @@ func runCheck(t *testing.T, path string) (int, [][]string) {
 		if !strings.HasPrefix(f[2], "conf_") {
 			continue
 		}
-		if _, ok := displays[f[2]]; !ok || strings.Contains(f[7], "%!") || !strings.Contains(f[7], f[6]) {
-			t.Errorf("check %s: frame %d display = %q, want the registered %s text naming %q", path, i, f[7], f[2], f[6])
+		text, ok := wantDisplay[f[2]]
+		if !ok {
+			t.Errorf("check %s: frame %d event %s has no wantDisplay row", path, i, f[2])
+			continue
+		}
+		if want := fmt.Sprintf(text, f[6]); f[7] != want {
+			t.Errorf("check %s: frame %d display = %q, want %q", path, i, f[7], want)
 		}
 	}
 	return status, fr
