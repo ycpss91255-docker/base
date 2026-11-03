@@ -1,0 +1,63 @@
+# fixture	verdict	event	line	col	key	apply
+# One row per corpus/s7/*.toml, the shared S7 verdict manifest (base#1443).
+# verdict: accept, refuse, or differs:<exception> for a fixture the bridge
+# reads and `config-gen check` refuses on purpose. event, line, col and key
+# are the one frame check gives a refuse or differs row ("-" on an accept
+# row). The bridge reports no position, so line and col are counted from
+# the fixture bytes: a `[[...]]` entry's header and a field's key at column
+# 1, an inline element at its first byte. apply is the verdict apply's
+# per-layer checks give the fixture (_layer_verdict); an accept row with
+# apply refuse is a value check accepts and _schema_validate refuses once
+# the bridge joins it, the open decision base#1539. The Go half
+# (TestCheckS7Corpus) holds check to verdict, event, line, col and key; the
+# bats half (config_gen_s7_verdicts_spec.bats) holds verdict, event and key
+# to the bridge's --kv and apply to _layer_verdict.
+s7_accept_args_bool.toml	accept	-	-	-	-	accept
+s7_accept_args_float.toml	accept	-	-	-	-	accept
+s7_accept_ports_int.toml	accept	-	-	-	-	accept
+s7_accept_rule_datetime.toml	accept	-	-	-	-	refuse
+s7_accept_volume_date.toml	accept	-	-	-	-	accept
+s7_accept_volume_int.toml	accept	-	-	-	-	accept
+s7_cleared.toml	accept	-	-	-	-	accept
+s7_cleared_mid.toml	accept	-	-	-	-	refuse
+s7_devices_both.toml	accept	-	-	-	-	refuse
+s7_needs_empty_source.toml	refuse	conf_entry_field_needs	3	1	volumes[1].mode	refuse
+s7_needs_mode.toml	refuse	conf_entry_field_needs	3	1	volumes[1].mode	refuse
+s7_needs_second.toml	refuse	conf_entry_field_needs	9	1	volumes[3].target	refuse
+s7_needs_target.toml	refuse	conf_entry_field_needs	2	1	volumes[1].target	refuse
+s7_nogating_args.toml	refuse	conf_entry_no_gating_field	1	1	build.args[1]	refuse
+s7_nogating_contexts.toml	refuse	conf_entry_no_gating_field	1	1	additional_contexts[1]	refuse
+s7_nogating_ports.toml	refuse	conf_entry_no_gating_field	1	1	network.ports[1]	refuse
+s7_nogating_second.toml	refuse	conf_entry_no_gating_field	3	1	volumes[2]	refuse
+s7_nogating_tmpfs.toml	refuse	conf_entry_no_gating_field	1	1	tmpfs[1]	refuse
+s7_nogating_volumes.toml	refuse	conf_entry_no_gating_field	1	1	volumes[1]	refuse
+s7_nottable_args.toml	refuse	conf_entry_not_table	2	9	build.args[1]	refuse
+s7_nottable_int.toml	refuse	conf_entry_not_table	1	10	tmpfs[1]	refuse
+s7_nottable_second.toml	refuse	conf_entry_not_table	3	3	volumes[2]	refuse
+s7_nottable_string.toml	refuse	conf_entry_not_table	1	12	volumes[1]	refuse
+s7_order_nogating_list.toml	refuse	conf_entry_no_gating_field	1	1	tmpfs[1]	refuse
+s7_order_nogating_newline.toml	refuse	conf_entry_no_gating_field	1	1	volumes[1]	refuse
+s7_order_nottable_newline.toml	refuse	conf_entry_not_table	1	12	volumes[1]	refuse
+s7_order_unknown_newline.toml	refuse	conf_entry_unknown_field	3	1	volumes[1].zz	refuse
+s7_presence_absent.toml	accept	-	-	-	-	accept
+s7_presence_empty.toml	accept	-	-	-	-	accept
+s7_presence_root_empty.toml	accept	-	-	-	-	accept
+s7_presence_set.toml	accept	-	-	-	-	refuse
+s7_stage_dotted_array.toml	accept	-	-	-	-	accept
+s7_stage_flat.toml	accept	-	-	-	-	accept
+s7_stage_known_keys.toml	accept	-	-	-	-	accept
+s7_stage_quoted_array.toml	refuse	conf_unknown_key	2	1	stage:dev.build.args	refuse
+s7_stage_subtable_dotted.toml	accept	-	-	-	-	accept
+s7_stage_subtable_header.toml	accept	-	-	-	-	accept
+s7_stage_unknown_build.toml	differs:unknown-key	conf_unknown_key	2	1	stage:dev.build.target	accept
+s7_stage_unknown_flat.toml	differs:unknown-key	conf_unknown_key	2	1	stage:dev.deploy.bogus	accept
+s7_stage_unknown_nested.toml	differs:unknown-key	conf_unknown_key	2	1	stage:dev.deploy.bogus	accept
+s7_two_spellings.toml	refuse	conf_family_two_spellings	2	1	security.cap_drop_1	refuse
+s7_type_args_inline.toml	refuse	conf_value_type_refused	2	22	build.args[1].value	refuse
+s7_type_second.toml	refuse	conf_value_type_refused	6	1	network.ports[2].container	refuse
+s7_type_tmpfs_list.toml	refuse	conf_value_type_refused	3	1	tmpfs[1].size	refuse
+s7_type_volumes_table.toml	refuse	conf_value_type_refused	3	1	volumes[1].mode	refuse
+s7_unknown_devices.toml	refuse	conf_entry_unknown_field	3	1	devices[1].foo	refuse
+s7_unknown_second.toml	refuse	conf_entry_unknown_field	6	1	volumes[2].zz	refuse
+s7_unknown_table_value.toml	refuse	conf_entry_unknown_field	3	1	volumes[1].zz	refuse
+s7_unknown_tmpfs.toml	refuse	conf_entry_unknown_field	3	1	tmpfs[1].sise	refuse
