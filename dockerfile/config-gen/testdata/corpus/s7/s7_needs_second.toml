@@ -1,0 +1,14 @@
+[[volumes]]
+source = "/a"
+target = "/b"
+
+[[volumes]]
+
+[[volumes]]
+mode = "ro"
+target = "/d"
+
+[[volumes]]
+source = "/c"
+target = ""
+mode = "rw"
