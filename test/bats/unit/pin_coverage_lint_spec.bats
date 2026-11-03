@@ -941,6 +941,35 @@ _one_good_pin() {
   refute_output --partial 'm_test.go'
 }
 
+# why: A vendored toml-test case below a testdata directory is upstream bytes,
+# so no marker line can be added to it (base#1530). The exemption is keyed on a
+# whole `testdata` path component and on the .toml suffix, so a .toml outside
+# it, a near-miss directory name, and a file named `testdata` are still read.
+@test "_run_pin_coverage: a .toml file below a testdata directory needs no marker, a near miss is still read (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata/toml-test/invalid" "${SCRATCH}/testdata"
+  # toml-fixture-lint: allow a toml-test invalid case is not TOML by design, and this row only asks whether pin-coverage skips it
+  printf 'foo = 1997-09-0909:09:09\n' > "${SCRATCH}/dockerfile/m/testdata/toml-test/invalid/x.toml"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/testdata/y.toml"
+  _lint
+  assert_success
+  mkdir -p "${SCRATCH}/dockerfile/mytestdata" "${SCRATCH}/dockerfile/testdata2"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/conf.toml"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/mytestdata/x.toml"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/testdata2/x.toml"
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/mytestdata/Dockerfile"
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/testdata"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/conf.toml:1:'
+  assert_output --partial 'dockerfile/mytestdata/x.toml:1:'
+  assert_output --partial 'dockerfile/testdata2/x.toml:1:'
+  assert_output --partial 'dockerfile/mytestdata/Dockerfile:1:'
+  assert_output --partial 'dockerfile/testdata:1:'
+  refute_output --partial 'invalid/x.toml'
+  refute_output --partial 'testdata/y.toml'
+}
+
 # why: The exemption list is the last hand-kept thing in the scan surface, so a
 # marker in an exempt file is a belief in watching that nothing reads
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
