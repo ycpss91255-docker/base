@@ -19,20 +19,26 @@ var gatingFields = map[string][]string{
 	"additional_contexts": {"name"},
 }
 
-// checkEntries refuses, as conf_entry_no_gating_field at its first
-// position, each table element of the array b at path p that carries
-// fields but none of the fields its family is read from, as the bridge's
-// _check_entry does. A field-less element, the cleared slot, carries
-// nothing and is not refused (base#1443). An element holding a name that
-// keyCharEvent refuses keeps that refusal as its only one, as base#1442
-// decided.
+// checkEntries refuses, as conf_entry_not_table at its position, each
+// element of the array b at path p that is not a table, and, as
+// conf_entry_no_gating_field at its first position, each table element
+// that carries fields but none of the fields its family is read from, as
+// the bridge's _check_entry does. A field-less element, the cleared
+// slot, carries nothing and is not refused (base#1443). An element
+// holding a name that keyCharEvent refuses keeps that refusal as its only
+// one, as base#1442 decided.
 func (d *decoder) checkEntries(p []string, b *bound) {
 	gating, ok := gatingFields[p[len(p)-1]]
 	if !ok {
 		return
 	}
 	for _, e := range b.children {
-		if !e.isTable() || len(e.children) == 0 || carriesAny(e, gating) || holdsBadName(e) {
+		if !e.isTable() {
+			line, col := e.firstPos()
+			d.refuse("conf_entry_not_table", p, line, col)
+			continue
+		}
+		if len(e.children) == 0 || carriesAny(e, gating) || holdsBadName(e) {
 			continue
 		}
 		line, col := e.firstPos()

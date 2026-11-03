@@ -66,7 +66,8 @@ func TestCheckArrayWithNoFamily(t *testing.T) {
 // of an inline array, is reported at its own line and column, not at the
 // key holding the inline value: an inline value may span lines. When the
 // same path is written in several items, the refusal names the item it is
-// in (base#1442 review round 1 finding 2).
+// in (base#1442 review round 1 finding 2). The cap_drop item is a table
+// carrying cap, so the entry rule (base#1443) does not refuse it.
 func TestCheckInlineKeyPositions(t *testing.T) {
 	cases := []struct {
 		name string
@@ -81,7 +82,7 @@ func TestCheckInlineKeyPositions(t *testing.T) {
 			[][]string{{"conf_value_nul_refused", "3", "4", "volumes.source"}}},
 		{"wrong type in an inline table", "security = { privileged = \"yes\" }\n",
 			[][]string{{"conf_value_type_refused", "1", "14", "security.privileged"}}},
-		{"wrong type after a multiline array in an inline table", "security = { cap_drop = [\n  \"ALL\",\n], privileged = \"yes\" }\n",
+		{"wrong type after a multiline array in an inline table", "security = { cap_drop = [\n  { cap = \"ALL\" },\n], privileged = \"yes\" }\n",
 			[][]string{{"conf_value_type_refused", "3", "4", "security.privileged"}}},
 	}
 	for _, tc := range cases {
