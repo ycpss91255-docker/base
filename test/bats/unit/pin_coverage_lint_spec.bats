@@ -970,6 +970,37 @@ _one_good_pin() {
   refute_output --partial 'testdata/y.toml'
 }
 
+# why: The testdata exemption is for TOML case bytes only (base#1530). Any other
+# file kind below a testdata directory can carry a marker, so it is still read:
+# exempting the whole directory would hide a real pin there.
+@test "_run_pin_coverage: a non-TOML file below a testdata directory is still read (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/m/testdata/x.toml"
+  _lint
+  assert_success
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/m/testdata/Dockerfile"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/m/testdata/Dockerfile:1:'
+  refute_output --partial 'x.toml'
+}
+
+# why: A marker in a testdata .toml would be a belief in watching that nothing
+# reads, now that the walk skips that shape (base#1530), so it is refused.
+@test "_run_pin_coverage: FAILS when a tool-pin marker sits in a .toml below a testdata directory (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata"
+  printf '%s\n' \
+    '# tool-pin: ghost github-release owner/ghost' \
+    'ghost_version = "1.0.0"' \
+    > "${SCRATCH}/dockerfile/m/testdata/x.toml"
+  _lint
+  assert_failure
+  assert_output --partial 'is not scanned'
+  assert_output --partial 'dockerfile/m/testdata/x.toml'
+}
+
 # why: The exemption list is the last hand-kept thing in the scan surface, so a
 # marker in an exempt file is a belief in watching that nothing reads
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
