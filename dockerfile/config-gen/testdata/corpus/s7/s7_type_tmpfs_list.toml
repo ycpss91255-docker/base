@@ -1,0 +1,3 @@
+[[tmpfs]]
+path = "/tmp"
+size = [1]

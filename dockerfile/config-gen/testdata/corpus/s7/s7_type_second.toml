@@ -1,0 +1,6 @@
+[[network.ports]]
+host = "80"
+
+[[network.ports]]
+host = "81"
+container = {}
