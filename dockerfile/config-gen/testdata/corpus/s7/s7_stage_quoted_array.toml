@@ -1,0 +1,2 @@
+["stage:dev"]
+"build.args" = [{ key = "A" }]
