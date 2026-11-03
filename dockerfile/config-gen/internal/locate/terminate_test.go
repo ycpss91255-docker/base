@@ -16,18 +16,24 @@ const terminationBound = time.Second
 // each with something after it, so a loop that stops advancing over that
 // form never returns: indentation and a comment line, a dotted header with
 // a basic and a literal component, a dotted key, a plain value, a
-// multi-line basic string holding an escaped byte and a line-ending
-// backslash, a multi-line literal string, basic strings holding each
+// multi-line basic string opening on a newline and holding an escaped
+// byte and a line-ending backslash, a multi-line literal string opening
+// on a newline, a multi-line basic string closed by a run of six quotes,
+// an empty basic and an empty literal string, a basic string holding each
 // escape form, an inline array spread over spaces, commas and a newline,
 // an inline table, and an inline table holding a byte that is neither a
-// key nor `=`, which the package contract says still ends the scan.
+// key nor `=`. The run of six quotes and the stray byte are documents the
+// parser refuses, which the package contract says still end the scan.
 var terminationInputs = []string{
 	" \t\r# comment\n\n[a]\n",
 	"[a.\"b\\tc\".'d']\nk = 1\n",
 	"x.y.z = 1\nw = 2\n",
 	"k = 12345\nw = 2\n",
-	"k = \"\"\"l1\n\\q\\\n\"\"\"\nw = 2\n",
-	"k = '''l1\nl2'''\nw = 2\n",
+	"k = \"\"\"\nl1\n\\q\\\n\"\"\"\nw = 2\n",
+	"k = '''\nl1\nl2'''\nw = 2\n",
+	"k = \"\"\"a\"\"\"\"\"\" { x = 1 }\nw = 2\n",
+	"k = \"\"\nw = 2\n",
+	"k = ''\nw = 2\n",
 	"k = \"a\\b\\t\\n\\f\\r\\e\\\"\\\\\\x41\\u0041\\U0001F600\"\nw = 2\n",
 	"k = [ 1 , 2,\n  3 , ]\nw = 2\n",
 	"k = { a = 1, b.c = 'x', d = [ \"y\" ] }\nw = 2\n",

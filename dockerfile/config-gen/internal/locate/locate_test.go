@@ -340,3 +340,32 @@ func TestIndexRepeatedInlineMemberOrdinals(t *testing.T) {
 		t.Errorf("Members(v.a) columns=%v ordinals=%v, want [8 19 30] [0 1 2]", cols, ords)
 	}
 }
+
+// TestIndexHexEscapeAtInputEnd checks that a hex escape whose digits are
+// the last bytes of the input is decoded, as hexRune decodes the n hex
+// digits at the current position: the unterminated header `["\u0041` is
+// the path ["A"] (base#1467: the S1f mutation gate found no input that
+// ends right after an escape's digits).
+func TestIndexHexEscapeAtInputEnd(t *testing.T) {
+	var got []string
+	for _, o := range Index([]byte(`["\u0041`)).Entries() {
+		got = append(got, fmt.Sprintf("%q", o.Path))
+	}
+	if want := []string{`["A"]`}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Entries() paths = %v, want %v", got, want)
+	}
+}
+
+// TestIndexMultilineCloseTakesAtMostFiveQuotes checks that the run of
+// quotes closing a multi-line basic string is consumed up to five bytes,
+// the content's two and the delimiter's three, so a sixth quote opens a
+// new string (base#1467: the S1f mutation gate found no input with a
+// longer run). In `k = """a"""""" { x = 1 }` the sixth quote's string
+// runs to the end of the line, so the braces after it are its content and
+// k has no member x.
+func TestIndexMultilineCloseTakesAtMostFiveQuotes(t *testing.T) {
+	m := Index([]byte("k = \"\"\"a\"\"\"\"\"\" { x = 1 }\n"))
+	if got := m.Members([]string{"k", "x"}); len(got) != 0 {
+		t.Errorf("Members(k.x) = %+v, want none", got)
+	}
+}
