@@ -540,17 +540,52 @@ jobs:
           VERIFIED_REF: ${{ steps.verify.outputs.ref }}
         run: |
           set -euo pipefail
-          # The image the smoke step ran, by CONFIG digest -- docker's image
-          # id -- and not by manifest digest. That is not a stylistic choice:
-          # provenance is on by default in docker/build-push-action, so each
-          # shard's `outputs.digest` names an INDEX carrying the platform
-          # image plus its attestation, and `imagetools create` FLATTENS those
-          # indexes into the published one. The shard digests the artifact
-          # files are named by are therefore absent from the published
-          # manifest, and a digest-set comparison would fail every ordinary
-          # publish -- after the tags had moved. The config digest survives
-          # both the flattening and the tag resolution.
-          want="$(docker image inspect --format '{{.Id}}' "${VERIFIED_REF}")"
+          # The image the smoke step ran, by the digest of its platform image
+          # manifest. Neither index digest can be compared: provenance is on
+          # by default in docker/build-push-action, so each shard's
+          # `outputs.digest` names an INDEX carrying the platform image plus
+          # its attestation, and `imagetools create` FLATTENS those indexes
+          # into the published one -- the verified ref and every tag are
+          # always two different indexes. `docker image inspect .Id` is no
+          # way out either: it depends on the local image store, the config
+          # digest on the classic graphdriver store but the pulled INDEX
+          # digest on the containerd store (base#1510, base#1514), where it
+          # failed every publish after the tags had moved. What both indexes
+          # must share is the image manifest for this platform, read from the
+          # registry, so the answer does not depend on the store; its digest
+          # pins config and layers. The platform is the one the verify step
+          # matched to this host: the artifact file named by the verified
+          # digest.
+          platform="$(cat "${VERIFIED_REF##*sha256:}")"
+          IFS='/' read -r p_os p_arch p_variant <<< "${platform}"
+          # _child <ref>: the digest of the single non-attestation descriptor
+          # in <ref>'s index whose os, architecture and (when the artifact
+          # names one) variant are this platform's; none or several refuse.
+          # Both sides go through it, so each is held to exactly one.
+          _child() {
+            local _ref="${1}" _found _n
+            _found="$(docker buildx imagetools inspect --raw "${_ref}" \
+              | jq -r --arg os "${p_os}" --arg arch "${p_arch}" \
+                  --arg variant "${p_variant:-}" '
+                (.manifests // [])[]
+                | select((.annotations // {})["vnd.docker.reference.type"]
+                    != "attestation-manifest")
+                | select(.platform.os == $os
+                    and .platform.architecture == $arch
+                    and ($variant == "" or .platform.variant == $variant))
+                | .digest')" || {
+              echo "::error::could not read the index ${_ref} names." >&2
+              return 1
+            }
+            _n="$(grep -c . <<< "${_found}" || true)"
+            if [[ "${_n}" -ne 1 ]]; then
+              echo "::error::${_ref} carries ${_n} image manifests for" \
+                "${platform}; exactly one is required." >&2
+              return 1
+            fi
+            printf '%s\n' "${_found}"
+          }
+          want="$(_child "${VERIFIED_REF}")" || exit 1
           IFS=',' read -ra _tags <<< "${TAGS}"
           for _t in "${_tags[@]}"; do
             # The tag resolves, and the manifest under it carries every
@@ -572,13 +607,13 @@ jobs:
             done
             # And for THIS runner's platform the tag resolves to the very
             # image the smoke step ran.
-            docker pull "${_t}"
-            got="$(docker image inspect --format '{{.Id}}' "${_t}")"
+            got="$(_child "${_t}")" || exit 1
             if [[ "${want}" != "${got}" ]]; then
-              echo "::error::${_t} resolves to ${got}, but the image this" \
-                "job verified is ${want}. The tags were attached to content" \
-                "the smoke step never ran." >&2
+              echo "::error::${_t} resolves to ${got} for ${platform}, but" \
+                "the image this job verified is ${want}. The tags were" \
+                "attached to content the smoke step never ran." >&2
               exit 1
             fi
-            echo "${_t} resolves to the verified image (${got})"
+            echo "${_t} resolves to the verified image for ${platform}" \
+              "(${got})"
           done
