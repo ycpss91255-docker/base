@@ -1,22 +1,25 @@
 # The array homes, one fixture row each, a newline written as \n
-# (base#1443): path, numbered prefix, the all-empty entry, the populated
-# entry, and who writes the home. A `writer` row is one the shell writers
-# name (_conf_toml_aot_section over SCHEMA_SECTIONS,
-# dist/script/docker/lib/conf.sh), in their order; its all-empty entry is
-# _conf_toml_aot_fields of "" and its populated one _conf_toml_aot_fields
-# of "a=b:c:d". The `legacy` row is the one-array `[[devices]]` spelling
-# the bridge still reads (dockerfile/toml_bridge.py _ARRAY_SPEC
+# (base#1443): path, numbered prefix, the writers' all-empty entry, the
+# populated entry, the every-field-empty entry, and who writes the home.
+# A `writer` row is one the shell writers name (_conf_toml_aot_section
+# over SCHEMA_SECTIONS, dist/script/docker/lib/conf.sh), in their order;
+# its all-empty entry is _conf_toml_aot_fields of "" and its populated
+# one _conf_toml_aot_fields of "a=b:c:d". The every-field-empty entry
+# carries every field its family reads (the bridge's _ARRAY_SPEC third
+# and fourth elements, in that order), each empty (base#1443 review
+# round 4 finding 2). The `legacy` row is the one-array `[[devices]]`
+# spelling the bridge still reads (dockerfile/toml_bridge.py _ARRAY_SPEC
 # "devices"), which no writer produces. Each body's verdict under the
 # bridge's --kv is held by test/bats/unit/config_gen_array_homes_spec.bats.
-image.rules	rule	rule = ""	rule = "a=b:c:d"	writer
-build.args	arg	key = ""	key = "a"\nvalue = "b:c:d"	writer
-network.ports	port	host = ""	host = "a=b"\ncontainer = "c:d"	writer
-security.cap_add	cap_add	cap = ""	cap = "a=b:c:d"	writer
-security.cap_drop	cap_drop	cap = ""	cap = "a=b:c:d"	writer
-security.security_opt	security_opt	opt = ""	opt = "a=b:c:d"	writer
-tmpfs	tmpfs	path = ""	path = "a=b:c:d"	writer
-devices.bindings	device	path = ""	path = "a=b:c:d"	writer
-devices.cgroup_rules	cgroup_rule	rule = ""	rule = "a=b:c:d"	writer
-volumes	mount	source = ""	source = "a=b"\ntarget = "c"\nmode = "d"	writer
-additional_contexts	context	name = ""	name = "a"\nsource = "b:c:d"	writer
-devices	device	path = ""	path = "a=b:c:d"	legacy
+image.rules	rule	rule = ""	rule = "a=b:c:d"	rule = ""	writer
+build.args	arg	key = ""	key = "a"\nvalue = "b:c:d"	key = ""\nvalue = ""	writer
+network.ports	port	host = ""	host = "a=b"\ncontainer = "c:d"	host = ""\ncontainer = ""	writer
+security.cap_add	cap_add	cap = ""	cap = "a=b:c:d"	cap = ""	writer
+security.cap_drop	cap_drop	cap = ""	cap = "a=b:c:d"	cap = ""	writer
+security.security_opt	security_opt	opt = ""	opt = "a=b:c:d"	opt = ""	writer
+tmpfs	tmpfs	path = ""	path = "a=b:c:d"	path = ""\nsize = ""	writer
+devices.bindings	device	path = ""	path = "a=b:c:d"	path = ""	writer
+devices.cgroup_rules	cgroup_rule	rule = ""	rule = "a=b:c:d"	rule = ""	writer
+volumes	mount	source = ""	source = "a=b"\ntarget = "c"\nmode = "d"	source = ""\ntarget = ""\nmode = ""	writer
+additional_contexts	context	name = ""	name = "a"\nsource = "b:c:d"	name = ""\nsource = ""	writer
+devices	device	path = ""	path = "a=b:c:d"	path = ""	legacy

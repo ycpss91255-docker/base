@@ -10,9 +10,10 @@
 # its `writer` rows are exactly what the shell writers name and spell,
 # and every row's bodies get from the bridge the verdict the Go tests
 # expect of schema.Decode -- an entry without its field and a string
-# entry refused, a field-less and an all-empty entry kept as one empty
-# row, the populated entry kept, and an unknown field beside it refused
-# by name.
+# entry refused, a field-less entry, the writers' all-empty entry and the
+# entry carrying every field its family reads, each empty, kept as one
+# empty row, alone and between two populated ones, the populated entry
+# kept, and an unknown field beside it refused by name.
 
 bats_require_minimum_version 1.5.0
 
@@ -29,7 +30,22 @@ setup() {
 # path TAB prefix TAB empty TAB full, `\n` decoded in the bodies only
 # when read by the caller.
 _rows() {
-  awk -F '\t' -v k="${1}" '!/^#/ && $5 == k { print $1 "\t" $2 "\t" $3 "\t" $4 }' "${TABLE}"
+  awk -F '\t' -v k="${1}" '!/^#/ && $6 == k { print $1 "\t" $2 "\t" $3 "\t" $4 }' "${TABLE}"
+}
+
+# _spec_fields <leaf> -- print every field the bridge's _ARRAY_SPEC
+# family <leaf> reads, its third element then its fourth, one per line.
+_spec_fields() {
+  python3 - "${BRIDGE_PY}" "${1}" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("toml_bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+family = bridge._ARRAY_SPEC[sys.argv[2]]
+print("\n".join(family[2] + family[3]))
+PY
 }
 
 # _kv <body> -- run the bridge's --kv on <body> (printf %b), leaving
@@ -67,14 +83,18 @@ _kv() {
 }
 
 # why: The Go half expects schema.Decode to refuse an entry without its
-# field and a string entry, to keep a field-less and an all-empty entry as
-# one empty entry, to keep the populated entry and to refuse an unknown
-# field beside it. Each of those verdicts is the bridge's --kv verdict on
-# the same body for every row, the legacy [[devices]] included, so the
-# table the Go tests read is the shell's word (base#1443).
+# field and a string entry, to keep a field-less entry, the writers'
+# all-empty entry and the entry carrying every field its family reads,
+# each empty, as one empty entry, alone and between two populated ones,
+# to keep the populated entry and to refuse an unknown field beside it.
+# Each of those verdicts is the bridge's --kv verdict on the same body for
+# every row, the legacy [[devices]] included, and the every-field-empty
+# body names exactly the fields the bridge's _ARRAY_SPEC family reads, so
+# the table the Go tests read is the shell's word (base#1443 review round
+# 4 finding 2).
 @test "array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)" {
-  local _path _prefix _empty _full _kind _leaf _section _str _n=0
-  while IFS=$'\t' read -r _path _prefix _empty _full _kind; do
+  local _path _prefix _empty _full _every _kind _leaf _section _str _mid _names _n=0
+  while IFS=$'\t' read -r _path _prefix _empty _full _every _kind; do
     [[ "${_path}" == \#* ]] && continue
     _section="${_path%%.*}"
     _leaf="${_path##*.}"
@@ -94,9 +114,19 @@ _kv() {
     assert_success
     assert_equal "${output}" "${_section}"$'\t'"${_prefix}_1"$'\t'
 
-    _kv "[[${_path}]]\n${_empty}\n"
-    assert_success
-    assert_equal "${output}" "${_section}"$'\t'"${_prefix}_1"$'\t'
+    _names="$(printf '%b\n' "${_every}" | sed -n 's/^\([a-z_]*\) = ""$/\1/p')"
+    assert_equal "$(printf '%b\n' "${_every}" | wc -l)" "$(printf '%s\n' "${_names}" | wc -l)"
+    assert_equal "${_names}" "$(_spec_fields "${_leaf}")"
+
+    for _mid in "${_empty}" "${_every}"; do
+      _kv "[[${_path}]]\n${_mid}\n"
+      assert_success
+      assert_equal "${output}" "${_section}"$'\t'"${_prefix}_1"$'\t'
+
+      _kv "[[${_path}]]\n${_full}\n\n[[${_path}]]\n${_mid}\n\n[[${_path}]]\n${_full}\n"
+      assert_success
+      assert_equal "${output}" "${_section}"$'\t'"${_prefix}_1"$'\t''a=b:c:d'$'\n'"${_section}"$'\t'"${_prefix}_2"$'\t'$'\n'"${_section}"$'\t'"${_prefix}_3"$'\t''a=b:c:d'
+    done
 
     _kv "[[${_path}]]\n${_full}\n"
     assert_success

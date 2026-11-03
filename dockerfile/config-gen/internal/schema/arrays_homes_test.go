@@ -11,15 +11,23 @@ import (
 )
 
 // homeFixture is one row of corpus/s7/s7_array_homes.tsv: a home's
-// numbered prefix, its all-empty and populated entry bodies, and whether
-// the shell writers produce it (`writer`) or only the bridge reads it
-// (`legacy`).
+// numbered prefix, the writers' all-empty entry body, its populated body,
+// the body carrying every field the family reads, each empty (base#1443
+// review round 4 finding 2), and whether the shell writers produce it
+// (`writer`) or only the bridge reads it (`legacy`).
 type homeFixture struct {
 	path   string
 	prefix string
 	empty  string
 	full   string
+	every  string
 	kind   string
+}
+
+// emptyBodies is r's two all-empty bodies: the writers' spelling of ""
+// and the one carrying every field the family reads.
+func (r homeFixture) emptyBodies() []struct{ name, body string } {
+	return []struct{ name, body string }{{"all-empty", r.empty}, {"every-field-empty", r.every}}
 }
 
 // readHomeFixtures reads corpus/s7/s7_array_homes.tsv in row order.
@@ -39,11 +47,11 @@ func readHomeFixtures(t *testing.T) []homeFixture {
 			continue
 		}
 		f := strings.Split(line, "\t")
-		if len(f) != 5 || (f[4] != "writer" && f[4] != "legacy") {
-			t.Fatalf("s7_array_homes.tsv line %d = %q, want path, prefix, empty, full and writer|legacy", i+1, line)
+		if len(f) != 6 || (f[5] != "writer" && f[5] != "legacy") {
+			t.Fatalf("s7_array_homes.tsv line %d = %q, want path, prefix, empty, full, every and writer|legacy", i+1, line)
 		}
 		unescape := func(s string) string { return strings.ReplaceAll(s, `\n`, "\n") }
-		rows = append(rows, homeFixture{f[0], f[1], unescape(f[2]), unescape(f[3]), f[4]})
+		rows = append(rows, homeFixture{f[0], f[1], unescape(f[2]), unescape(f[3]), unescape(f[4]), f[5]})
 	}
 	if len(rows) == 0 {
 		t.Fatal("s7_array_homes.tsv names no array home")
@@ -152,16 +160,18 @@ func TestHomesAreTheWritersHomesAndTheLegacyOne(t *testing.T) {
 // 3). An entry carrying only `zz` is refused as
 // conf_entry_no_gating_field and a plain string where a table belongs as
 // conf_entry_not_table, each at the home's path and as entry 1. A
-// field-less block is one cleared entry with no field; the block of
-// all-empty fields is one entry, not cleared, carrying exactly the
-// fixture's fields, each an empty string.
+// field-less block is one cleared entry with no field; the writers'
+// all-empty block and the block carrying every field its family reads,
+// each empty (base#1443 review round 4 finding 2), are each one entry,
+// not cleared, carrying exactly the fixture's fields, each an empty
+// string.
 //
 // Expected values: the fixture rows (s7_array_homes.tsv); main's
 // toml_bridge.py `--kv` gives, for every home, the legacy `[[devices]]`
 // included, rc 1 "carries none of the fields it is read from" for `zz`,
 // rc 1 "is 'x', not a table" for the string, and rc 0 with the one row
-// `<section> <prefix>_1 ""` for both empty bodies (scratchpad
-// s7c8-bridge.out, r1/bridge.out).
+// `<section> <prefix>_1 ""` for the three empty bodies (scratchpad
+// s7c8-bridge.out, r1/bridge.out, rr4b/allfields.sh).
 func TestEveryHomeRefusesAnEntryWithoutItsFieldAndKeepsAnEmptyOne(t *testing.T) {
 	rows := readHomeFixtures(t)
 	homes := Homes()
@@ -174,6 +184,13 @@ func TestEveryHomeRefusesAnEntryWithoutItsFieldAndKeepsAnEmptyOne(t *testing.T) 
 		seen[path] = true
 		r := fixtureFor(t, rows, path)
 		t.Run(path, func(t *testing.T) {
+			var names []string
+			for _, f := range fieldsOf(t, r.every) {
+				names = append(names, f[0])
+			}
+			if want := append(append([]string{}, h.Spec.Gating...), h.Spec.AlsoRead...); !reflect.DeepEqual(names, want) {
+				t.Errorf("every-field-empty body names %q, want every field the family reads, %q", names, want)
+			}
 			leaf := h.Path[len(h.Path)-1]
 			str := path + ` = ["x"]` + "\n"
 			if len(h.Path) > 1 {
@@ -198,14 +215,16 @@ func TestEveryHomeRefusesAnEntryWithoutItsFieldAndKeepsAnEmptyOne(t *testing.T) 
 				}
 			}
 
-			for _, c := range []struct {
+			type kept struct {
 				name string
 				body string
 				want [][2]string
-			}{
-				{"cleared", "[[" + path + "]]\n", nil},
-				{"all-empty", "[[" + path + "]]\n" + r.empty + "\n", fieldsOf(t, r.empty)},
-			} {
+			}
+			cases := []kept{{"cleared", "[[" + path + "]]\n", nil}}
+			for _, b := range r.emptyBodies() {
+				cases = append(cases, kept{b.name, "[[" + path + "]]\n" + b.body + "\n", fieldsOf(t, b.body)})
+			}
+			for _, c := range cases {
 				cfg, refusals := Decode([]byte(c.body))
 				if len(refusals) != 0 {
 					t.Errorf("%s: Decode(%q) refusals = %+v, want none", c.name, c.body, refusals)
