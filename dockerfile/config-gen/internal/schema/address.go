@@ -116,3 +116,25 @@ func familyAddress(section, prefix string) bool {
 	}
 	return false
 }
+
+// Entry is the entry of the layer the shell writes under that address:
+// entry N, counted in written order with the cleared slot kept in its
+// position, of the first family whose home the address's section and
+// prefix name and that the layer carries (base#1443).
+func (c *Config) Entry(a Address) (*Entry, error) {
+	for _, h := range homes {
+		if h.path[0] != a.Section || h.prefix != a.Prefix {
+			continue
+		}
+		fam, ok := c.Arrays[strings.Join(h.path, ".")]
+		if !ok {
+			continue
+		}
+		if a.Index > len(fam.Entries) {
+			break
+		}
+		e := fam.Entries[a.Index-1]
+		return &e, nil
+	}
+	return nil, fmt.Errorf("address %s.%s_%d names no entry of the layer", a.Section, a.Prefix, a.Index)
+}
