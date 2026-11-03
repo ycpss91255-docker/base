@@ -136,43 +136,108 @@ _compute_matrix_for() {
 # the published manifest would therefore fail every ordinary publish -- after
 # the tags had already moved.
 #
-# STUB_MODE picks which state is answered; see _confirm_step_for.
+# The registry state is files: every raw index lives in STUB_FX as
+# `<hex>.json`, stored under `sha256:<hex>`, and `${STUB_FX}/tags` maps each
+# tag name to the hex it resolves to (`<tag> <hex>` per line). Every answer is
+# read from those files, so the `Platform:` listing and the raw JSON cannot
+# disagree. Three switches vary that state: STUB_TAG_MOVED (every read of a
+# tag BY NAME after its first answers that hex instead), STUB_RAW_FAIL (the
+# raw read of that hex exits non-zero after writing its body) and
+# STUB_TAG_UNRESOLVED (resolving a tag by name exits 0 and prints
+# STUB_TAG_ANSWER, which is not a digest).
+#
+# The LOCAL image store is the containerd one (ubuntu-26.04 runners, Docker
+# 29), where `docker image inspect --format {{.Id}}` is the digest of the
+# INDEX that was pulled, not the config digest the classic overlay2 store
+# reports (base#1510, base#1514). The shard index and the published index
+# carry the same linux/amd64 child, yet their `.Id`s differ.
 _docker_stub() {
   mkdir -p "${SCRATCH}/bin"
   cat > "${SCRATCH}/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-_last="${*: -1}"
+# _hex <ref>: the stored digest a reference names, refusing any reference
+# the registry state does not hold.
+_hex() {
+  local _ref="${1}" _h _mark
+  if [[ "${_ref}" == *@sha256:* ]]; then
+    _h="${_ref##*@sha256:}"
+  else
+    _h="$(awk -v t="${_ref}" '$1 == t { print $2 }' "${STUB_FX}/tags")"
+    if [[ -z "${_h}" ]]; then
+      printf 'stub: unknown reference: %s\n' "${_ref}" >&2
+      exit 91
+    fi
+    # A tag is mutable: when STUB_TAG_MOVED is set, the first read of a tag
+    # by name answers its mapped hex and every later read by name answers
+    # the moved index, the way a concurrent publish would.
+    _mark="${STUB_FX}/.read-$(printf '%s' "${_ref}" | tr -c 'A-Za-z0-9' '_')"
+    if [[ -n "${STUB_TAG_MOVED:-}" && -f "${_mark}" ]]; then
+      _h="${STUB_TAG_MOVED}"
+    fi
+    : > "${_mark}"
+  fi
+  if [[ ! -f "${STUB_FX}/${_h}.json" ]]; then
+    printf 'stub: no manifest stored under sha256:%s\n' "${_h}" >&2
+    exit 92
+  fi
+  printf '%s\n' "${_h}"
+}
 case "${1:-}" in
   buildx)
-    # `docker buildx imagetools inspect <tag>`: the published index, whose
-    # descriptors are the CHILDREN of each shard's index. The shard digests
-    # the artifact directory is named by appear nowhere in it.
-    printf 'Name:      %s\n' "${_last}"
-    printf 'MediaType: application/vnd.oci.image.index.v1+json\n'
-    printf 'Digest:    sha256:9999\n\n'
-    printf 'Manifests: \n'
-    printf '  Name:        %s@sha256:c0de01\n' "${_last}"
-    printf '  Platform:    linux/amd64\n\n'
-    if [[ "${STUB_MODE}" != 'platform' ]]; then
-      printf '  Name:        %s@sha256:c0de02\n' "${_last}"
-      printf '  Platform:    linux/arm64\n\n'
+    [[ "${2:-}" == 'imagetools' && "${3:-}" == 'inspect' ]] || {
+      printf 'stub: unexpected docker invocation: %s\n' "${*}" >&2
+      exit 90
+    }
+    shift 3
+    _raw=0 _fmt='' _ref=''
+    while [[ $# -gt 0 ]]; do
+      case "${1}" in
+        --raw) _raw=1 ;;
+        --format) _fmt="${2}"; shift ;;
+        --format=*) _fmt="${1#--format=}" ;;
+        -*) printf 'stub: unexpected flag: %s\n' "${1}" >&2; exit 90 ;;
+        *) _ref="${1}" ;;
+      esac
+      shift
+    done
+    _h="$(_hex "${_ref}")"
+    if [[ -n "${_fmt}" ]]; then
+      [[ "${_fmt}" == '{{.Manifest.Digest}}' ]] || {
+        printf 'stub: unexpected format: %s\n' "${_fmt}" >&2
+        exit 90
+      }
+      if [[ -n "${STUB_TAG_UNRESOLVED:-}" && "${_ref}" != *@sha256:* ]]; then
+        printf '%s\n' "${STUB_TAG_ANSWER:-}"
+      else
+        printf 'sha256:%s\n' "${_h}"
+      fi
+    elif [[ "${_raw}" -eq 1 ]]; then
+      cat "${STUB_FX}/${_h}.json"
+      # A read that fails AFTER writing a usable body: the exit status is
+      # the only sign anything went wrong.
+      if [[ "${_h}" == "${STUB_RAW_FAIL:-}" ]]; then
+        printf 'stub: registry read of sha256:%s failed\n' "${_h}" >&2
+        exit 93
+      fi
+    else
+      # buildx's human listing, derived from the same raw index.
+      printf 'Name:      %s\n' "${_ref}"
+      printf 'MediaType: application/vnd.oci.image.index.v1+json\n'
+      printf 'Digest:    sha256:%s\n\n' "${_h}"
+      printf 'Manifests: \n'
+      _base="${_ref%@*}"
+      jq -r --arg base "${_base%:*}" '.manifests[] |
+          "  Name:        \($base)@\(.digest)\n  Platform:    \(.platform.os)/\(.platform.architecture)\(if .platform.variant then "/" + .platform.variant else "" end)\n"' \
+          "${STUB_FX}/${_h}.json"
     fi
-    printf '  Name:        %s@sha256:c0de03\n' "${_last}"
-    printf '  Platform:    unknown/unknown\n'
     ;;
   pull)
     ;;
   image)
-    # `docker image inspect --format {{.Id}} <ref>`: the config digest, which
-    # is what survives both the index flattening and the tag resolution.
-    if [[ "${_last}" == "${VERIFIED_REF}" ]]; then
-      printf 'sha256:aaaa\n'
-    elif [[ "${STUB_MODE}" == 'content' ]]; then
-      printf 'sha256:bbbb\n'
-    else
-      printf 'sha256:aaaa\n'
-    fi
+    # `docker image inspect --format {{.Id}} <ref>` on the containerd store:
+    # the digest of the pulled index.
+    printf 'sha256:%s\n' "$(_hex "${*: -1}")"
     ;;
   *)
     printf 'stub: unexpected docker invocation: %s\n' "${*}" >&2
@@ -183,6 +248,141 @@ SH
   chmod +x "${SCRATCH}/bin/docker"
 }
 
+# Digests of a real publish, run 41451556967 (base#1510): the two shard
+# indexes the build jobs pushed, and the flattened index the tag resolved to
+# after the create. Their raw JSON below is `docker buildx imagetools inspect
+# --raw` of each, read back from ghcr.io. That run published test-tools, not
+# a publish-worker image; the index shapes are the same ones this worker's
+# shards and `imagetools create` produce, and only the repository name the
+# spec serves them under differs.
+_FX_SHARD_AMD64='a56897231c4de305d13a4239d383b86eb6db31e23dbc580b5c533bcfbef275e2'
+_FX_SHARD_ARM64='b20adb715e65977b069de2ad2dbdb3e80cc702aaf39f361f865eca1581f240d1'
+_FX_MAIN='e1486c027549f20207f134ad554e6da5b2c3fa4f77953dcd281a67a75231cafd'
+
+# _fx <hex> -- store stdin as the raw index under sha256:<hex>.
+_fx() {
+  mkdir -p "${SCRATCH}/fx"
+  cat > "${SCRATCH}/fx/${1}.json"
+}
+
+# _fx_real -- the raw indexes of run 41451556967, verbatim.
+_fx_real() {
+  _fx "${_FX_SHARD_AMD64}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:9ab55cf32b5cde968311d1467b911ebe76da4e44240934ed53c268b2b985bdec",
+      "size": 838,
+      "annotations": {
+        "vnd.docker.reference.digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+        "vnd.docker.reference.type": "attestation-manifest"
+      },
+      "platform": {
+        "architecture": "unknown",
+        "os": "unknown"
+      }
+    }
+  ]
+}
+JSON
+  _fx "${_FX_MAIN}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:9ab55cf32b5cde968311d1467b911ebe76da4e44240934ed53c268b2b985bdec",
+      "size": 838,
+      "annotations": {
+        "vnd.docker.reference.digest": "sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98",
+        "vnd.docker.reference.type": "attestation-manifest"
+      },
+      "platform": {
+        "architecture": "unknown",
+        "os": "unknown"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:7b848e2be96d5e6b1a76f89d0d651053a342899d9c58289f6a11a08edfe1f304",
+      "size": 838,
+      "annotations": {
+        "vnd.docker.reference.digest": "sha256:7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89",
+        "vnd.docker.reference.type": "attestation-manifest"
+      },
+      "platform": {
+        "architecture": "unknown",
+        "os": "unknown"
+      }
+    }
+  ]
+}
+JSON
+}
+
+# _fx_content -- a tag index that lists both platforms under their correct
+# labels, but whose linux/amd64 child is an image nothing verified.
+_FX_CONTENT='deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+_fx_content() {
+  _fx "${_FX_CONTENT}" <<'JSON'
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11",
+      "size": 2769,
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89",
+      "size": 2770,
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    }
+  ]
+}
+JSON
+}
+
 # _confirm_step_for <mode> -- RUN the merge job's tag-confirmation step
 # against one registry state and return the step's OWN exit status, printing
 # whatever it printed.
@@ -190,16 +390,20 @@ SH
 # The body is read OUT OF THE WORKFLOW with yq instead of restated here: a
 # spec carrying its own copy of a check agrees with itself while the workflow
 # drifts. TAGS carries BOTH tags a caller with `is_latest: true` gets, so the
-# loop over them is exercised rather than assumed.
+# loop over them is exercised rather than assumed. The job verified the amd64
+# shard index; the artifact files are named by the real shard digests.
 #
 # <mode>:
-#   agree     an ordinary publish -- every tag carries every platform the
-#             matrix built and resolves, for this runner's arch, to the
-#             config digest the smoke step ran.
-#   content   a tag resolves to different content than was verified.
-#   platform  the published manifest is missing an arch the matrix built.
+#   agree     an ordinary publish, run 41451556967's indexes verbatim -- both
+#             tags resolve to the flattened index, a DIFFERENT index from the
+#             verified shard one, and both carry the same linux/amd64 child.
+#   content   the version tag is the ordinary flattened index, but
+#             `:latest` lists both platforms and its linux/amd64 child is
+#             different content than was verified.
+#   platform  both tags resolve to the amd64 shard index alone, so the
+#             published manifest is missing an arch the matrix built.
 _confirm_step_for() {
-  local _mode="${1}" _body _dir _base _status=0
+  local _mode="${1}" _body _dir _base _ver _latest _status=0
   _body="$(yaml_step_run "${WF}" merge "${_CONFIRM_STEP}")" || {
     printf 'BUG: yq could not read the confirmation step of %s\n' "${WF}"
     return 2
@@ -212,18 +416,28 @@ _confirm_step_for() {
   _dir="${SCRATCH}/confirm"
   mkdir -p "${_dir}/digests"
   printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  _fx_real
+  case "${_mode}" in
+    agree) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}" ;;
+    content) _fx_content; _ver="${_FX_MAIN}" _latest="${_FX_CONTENT}" ;;
+    platform) _ver="${_FX_SHARD_AMD64}" _latest="${_FX_SHARD_AMD64}" ;;
+    *) printf 'BUG: unknown registry state %s\n' "${_mode}"; return 2 ;;
+  esac
   # The artifact directory the step reads: one file per arch the matrix
   # built, named by that shard's digest and carrying the platform it built.
-  printf 'linux/amd64\n' > "${_dir}/digests/aa11"
-  printf 'linux/arm64\n' > "${_dir}/digests/bb22"
-  _docker_stub
+  printf 'linux/amd64\n' > "${_dir}/digests/${_FX_SHARD_AMD64}"
+  printf 'linux/arm64\n' > "${_dir}/digests/${_FX_SHARD_ARM64}"
   _base='ghcr.io/ycpss91255-docker/ros_distro'
+  printf '%s %s\n%s %s\n' \
+      "${_base}:v1.2.3-standard" "${_ver}" \
+      "${_base}:latest-standard" "${_latest}" > "${SCRATCH}/fx/tags"
+  _docker_stub
   (
     cd -- "${_dir}/digests" || exit 2
     PATH="${SCRATCH}/bin:${PATH}" \
-    STUB_MODE="${_mode}" \
+    STUB_FX="${SCRATCH}/fx" \
     TAGS="${_base}:v1.2.3-standard,${_base}:latest-standard" \
-    VERIFIED_REF="${_base}@sha256:aa11" \
+    VERIFIED_REF="${_base}@sha256:${_FX_SHARD_AMD64}" \
       bash "${_dir}/step.sh" 2>&1
   ) || _status=$?
   return "${_status}"
@@ -411,6 +625,22 @@ merge: packages: write'
   assert_output --partial 'ros_distro:latest-standard resolves to the verified image'
   assert_output --partial 'carries a manifest for linux/amd64'
   assert_output --partial 'carries a manifest for linux/arm64'
+}
+
+# why: On the containerd image store (Docker 29 on ubuntu-26.04, which is
+# `ubuntu-latest` today) `docker image inspect --format {{.Id}}` answers the
+# digest of the pulled INDEX, not the config digest. The verified ref names a
+# shard index and every tag names the flattened published index -- always two
+# different indexes -- so an `.Id` comparison refuses every ordinary publish
+# after its tags have moved. What both indexes share is the runner-platform
+# child, and that is the content the comparison has to be about. The child
+# digest asserted below is read from run 41451556967's raw indexes, not
+# computed by the step (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation passes when the verified shard index and the tag's index differ but share the runner-platform child (base#1514)" {
+  run _confirm_step_for agree
+  assert_success
+  assert_output --partial 'ros_distro:v1.2.3-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
+  assert_output --partial 'ros_distro:latest-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
 }
 
 # why: The failure this check exists for and the only one the reordering
