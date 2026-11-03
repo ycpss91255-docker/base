@@ -168,8 +168,14 @@ func valueCharEvent(text string) string {
 //   - a scalar at the root, whatever its name, is one conf_top_level_key;
 //   - a string value under a known table holding U+0000, LF or CR is
 //     refused (valueCharEvent);
-//   - anything else under a `["stage:<name>"]` table is not judged, as
-//     _setup_conf_check_known does not judge it;
+//   - an array under a `["stage:<name>"]` table is judged by its last
+//     segment, as the bridge's _array_spec looks it up by its key: one
+//     no family carries is conf_unknown_key (base#1443);
+//   - a scalar under a `["stage:<name>"]` table is judged on the
+//     stage-relative text the bridge flattens it to (`deploy.bogus`,
+//     written as one quoted key or under `["stage:<name>".deploy]`),
+//     split at its last dot into a section and key: one the schema does
+//     not know is conf_unknown_key (base#1443);
 //   - a scalar or an array under a known table is judged as
 //     _setup_known_key and _schema_validate judge its section text and
 //     key, the key registry first and the written kind second, so a
@@ -356,8 +362,9 @@ func (d *decoder) judge(b *bound, k []string) scope {
 		}
 		return inArray
 	case stage(k):
-		// A `["stage:<name>"]` table is not judged here; only a string
-		// value's characters are (below).
+		// A scalar under a `["stage:<name>"]` table: its string
+		// characters are judged first, then its stage-relative key
+		// (both below).
 	case b.isArray():
 		// An array of a numbered family is judged by the row its first
 		// entry takes: `[[security.cap_drop]]` and `cap_drop = []` are
