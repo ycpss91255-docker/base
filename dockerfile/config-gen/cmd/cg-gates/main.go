@@ -26,8 +26,10 @@
 // or below (under 90.0). A package gremlins wrote no report for after
 // printing `No results to report.` prints `<pkg> no-mutants` and passes.
 // After the last package any failure puts
-// `config_gen_gate_mutation_failed` on stderr. A manifest that maps to no
-// package prints `mutation targets none`.
+// `config_gen_gate_mutation_failed` on stderr. Before any package, each
+// package the manifest deletes that the head tree no longer holds prints
+// `removed <pkg>`, and a manifest that maps to no package prints
+// `mutation targets none`.
 //
 // sensitivity (base#1467) checks that each golden file under the corpus
 // root <root> fails every package its tests were handed it by. Each
@@ -169,16 +171,15 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
 		return exitFail
 	}
-	targets := m.Targets
-	if len(targets) == 0 {
+	for _, rel := range m.Removed {
+		_, _ = fmt.Fprintf(stdout, "removed %s\n", buildgate.ImportPath(*module, rel))
+	}
+	if len(m.Targets) == 0 {
 		_, _ = fmt.Fprintln(stdout, "mutation targets none")
 	}
 	bad := false
-	for i, rel := range targets {
-		pkg := *module
-		if rel != "." {
-			pkg += "/" + rel
-		}
+	for i, rel := range m.Targets {
+		pkg := buildgate.ImportPath(*module, rel)
 		out := filepath.Join(*reports, strconv.Itoa(i)+".json")
 		cmd := exec.Command("gremlins", "unleash", "--workers", "1", "--timeout-coefficient", "10",
 			"-o", out, "./"+rel)
@@ -282,7 +283,7 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 		cmd.Env = append(os.Environ(), buildgate.TraceEnv+"="+trace)
 		cmd.Stdout, cmd.Stderr = stderr, stderr
 		if err := cmd.Run(); err != nil {
-			_, _ = fmt.Fprintf(stdout, "%s/%s failed reason=baseline_failed\n", *module, rel)
+			_, _ = fmt.Fprintf(stdout, "%s failed reason=baseline_failed\n", buildgate.ImportPath(*module, rel))
 			_, _ = fmt.Fprintln(stderr, sensitivityFailed)
 			return exitFail
 		}
@@ -308,7 +309,7 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 			cmd := exec.Command("go", "test", "-count=1", x+flip, "./"+rel)
 			cmd.Stdout, cmd.Stderr = stderr, stderr
 			if cmd.Run() == nil {
-				_, _ = fmt.Fprintln(stdout, buildgate.SensitivityWeak(*module+"/"+rel, g).String())
+				_, _ = fmt.Fprintln(stdout, buildgate.SensitivityWeak(buildgate.ImportPath(*module, rel), g).String())
 				bad = true
 			}
 		}

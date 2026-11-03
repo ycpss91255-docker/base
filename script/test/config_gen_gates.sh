@@ -28,13 +28,11 @@
 #                printed is re-printed on stdout, and on a red build the first
 #                `config_gen_gate_<g>_failed` is re-emitted as an event with
 #                gate=<g> and the run exits with docker's status. A red
-#                build that printed allowlisted `cg_event <id>` lines
-#                (config_gen_manifest_missing: no mutation context;
-#                config_gen_manifest_stale: a module file changed after the
-#                baseline, with its file= and reason=; the coverage
-#                ratchet's config_gen_coverage_* refusals; base#1465; the
-#                ignored-input gate's config_gen_mutation_ignored_input
-#                file=, base#1467)
+#                build that printed `cg_event <id>` lines whose id the
+#                build's event table lists
+#                (dockerfile/config-gen/internal/buildgate/testdata/
+#                build-events.txt: admission's, the coverage ratchet's and
+#                the S1f gates' refusals; base#1465, base#1467)
 #                re-emits each <id>, in log order, then the gate id when
 #                there is one.
 #   3. contract  the `final` stage is built and its binary run with no
@@ -63,13 +61,13 @@ readonly _CG_SERVICE='config-gen'
 readonly _CG_OK_RE='^#[0-9]+ [0-9]+\.[0-9]+ gate=([a-z]+) ok$'
 # A gate id may hold an underscore (corpus_sensitivity, base#1467).
 readonly _CG_FAIL_RE='^#[0-9]+ [0-9]+\.[0-9]+ config_gen_gate_([a-z_]+)_failed( .*)?$'
-# A refusal the build prints as `cg_event <id>` (base#1465): admission's
-# before any gate, the coverage ratchet's inside the coverage gate, the
-# corpus sensitivity gate's weak golden/package pair and the ignored-input
-# gate's Git-ignored file in the build context (base#1467). Only
-# an id named here is re-emitted, so the build log can never put an
-# arbitrary body into the runner's own records.
-readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_manifest_missing|config_gen_manifest_stale|config_gen_corpus_sensitivity_weak|config_gen_mutation_ignored_input|config_gen_coverage_(fragment_invalid|floors_base_invalid|floors_dir_deleted|floor_(duplicate|missing|orphan|below|too_low|lowered|stale|none_misuse|dropped)))( .*)?$'
+# A refusal the build prints as `cg_event <id> [k=v...]` (base#1465). Only an
+# id the build's own table lists is re-emitted, so the build log can never
+# put an arbitrary body into the runner's own records: that table is
+# _CG_BUILD_EVENTS, the one internal/buildgate's tests hold every id the
+# Go gates print to (base#1467), read from this checkout as the logger is.
+readonly _CG_EVENT_RE='^#[0-9]+ [0-9]+\.[0-9]+ cg_event (config_gen_[a-z_]+)( .*)?$'
+readonly _CG_BUILD_EVENTS="${_CG_SCRIPT_DIR}/../../dockerfile/config-gen/internal/buildgate/testdata/build-events.txt"
 # The attributes a re-emitted event may carry, each `<key>=<value>` whose
 # value is bytes 0x21-0x7e only: config_gen_admit.sh and cg-gates write
 # every other byte, and the % itself, as %XX, so a value is one word and is
@@ -140,6 +138,26 @@ _cg_event() {
     "display=config-gen build refused with ${id}${keep[*]:+ (${keep[*]})} (docker exited ${2})"
 }
 
+# _cg_listed_events <log> -- each `cg_event` line of <log> whose id
+# _CG_BUILD_EVENTS lists, without its step, time and `cg_event ` prefix, in
+# log order. A table it cannot read fails the run.
+_cg_listed_events() {
+  local line
+  [[ -r "${_CG_BUILD_EVENTS}" ]] || {
+    _log_err "${_CG_SERVICE}" config_gen_root_invalid "root=${_CG_BUILD_EVENTS}" \
+      "display=config-gen build event table ${_CG_BUILD_EVENTS} is not readable"
+    return 1
+  }
+  local -A listed=()
+  while IFS= read -r line; do
+    [[ -z "${line}" || "${line}" == '#'* ]] || listed["${line}"]=1
+  done <"${_CG_BUILD_EVENTS}"
+  while IFS= read -r line; do
+    [[ "${line}" =~ ${_CG_EVENT_RE} && -n "${listed[${BASH_REMATCH[1]}]:-}" ]] || continue
+    printf '%s\n' "${line#* cg_event }"
+  done <"${1}"
+}
+
 # _cg_gates <root> <log> <context args...> -- build the test stage, stream
 # its log to stderr, re-print the ok lines; on red re-emit the first gate
 # id and exit with docker's status.
@@ -154,7 +172,7 @@ _cg_gates() {
   (( rc == 0 )) && return 0
   gate="$(sed -nE "s/${_CG_FAIL_RE}/\\1/p" "${log}")"
   gate="${gate%%$'\n'*}"
-  events="$(sed -nE "/${_CG_EVENT_RE}/s/^#[0-9]+ [0-9]+\\.[0-9]+ cg_event //p" "${log}")"
+  events="$(_cg_listed_events "${log}")"
   if [[ -n "${events}" ]]; then
     while IFS= read -r event; do
       _cg_event "${event}" "${rc}"

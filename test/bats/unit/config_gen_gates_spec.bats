@@ -1149,7 +1149,8 @@ _glibc_getconf() {
           "${S}/canned/${_case}.err"
         _reason=mutation_event_mismatch ;;
       twoevents) _case=notes _c="${S}/canned/notes.err"
-        grep '"body":"config_gen_mutation_unmapped"' "${_c}" >> "${_c}"
+        grep '"body":"config_gen_mutation_unmapped"' "${_c}" > "${S}/twice"
+        cat "${S}/twice" >> "${_c}"
         _reason=mutation_event_mismatch ;;
     esac
     _run_redpath "${_case}"

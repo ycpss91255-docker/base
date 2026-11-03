@@ -69,8 +69,8 @@ func DecodeList(body []byte) ([]Package, error) {
 // Mapping is what the change manifest makes the mutation gate test.
 type Mapping struct {
 	Targets []string
-	// Removed are the module-relative directories of deleted Go paths
-	// where the head tree holds no package any more.
+	// Removed are the module-relative directories of deleted paths that
+	// map to a package the head tree no longer holds.
 	Removed []string
 }
 
@@ -82,20 +82,22 @@ const testcorpus = "internal/testcorpus"
 var moduleWide = map[string]bool{"go.mod": true, "go.sum": true, ".golangci.yml": true}
 
 // Map returns the module-relative package directories the manifest
-// makes the gate test: the directory of every Go file (as Targets, except
-// that a deleted Go path whose directory holds no package in pkgs is
-// recorded in Removed instead, and any other Go path whose directory holds
-// no package is refused as config_gen_mutation_no_such_package pkg=), the
-// package that owns a file under its own testdata/, every package of the
-// module for go.mod, go.sum or .golangci.yml, and, when the manifest
-// lists a file under the module-root testdata/, every package whose test
-// binary depends on internal/testcorpus. A coverage-floors.d fragment maps
-// to no package. Any other module file is
-// refused as config_gen_mutation_unmapped, and a manifest that holds the
-// no-change marker beside any other line as config_gen_mutation_manifest_invalid
-// reason=marker_beside_lines, and one with neither a record nor the
-// marker after its header as reason=empty_manifest. module is the module
-// path; pkgs is `go list -json -test -deps ./...` of the module.
+// makes the gate test, each manifest path classified once by classify: a
+// Go file maps to its directory's package and a file under a package's own
+// testdata/ to that package (a .go file there is a fixture, never a
+// package), each refused as config_gen_mutation_no_such_package pkg= when
+// pkgs holds no package there and the head tree should hold the path, and
+// recorded in Removed instead when it is deleted (a D line, or the old side
+// of an R line); go.mod, go.sum or .golangci.yml map to every package of
+// the module, the root package included; a file under the module-root
+// testdata/ to every package whose test binary depends on
+// internal/testcorpus; a coverage-floors.d fragment (a name Ratchet reads
+// as one) to no package. Any other module file is refused as
+// config_gen_mutation_unmapped, and a manifest that holds the no-change
+// marker beside any other line as config_gen_mutation_manifest_invalid
+// reason=marker_beside_lines, and one with neither a record nor the marker
+// after its header as reason=empty_manifest. module is the module path;
+// pkgs is `go list -json -test -deps ./...` of the module.
 func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 	marker, other := scanLines(manifest)
 	if marker && other {
@@ -104,62 +106,100 @@ func Map(manifest, module string, pkgs []Package) (Mapping, error) {
 	if !marker && !other {
 		return Mapping{}, errors.New(ev("mutation_manifest_invalid", "reason", "empty_manifest").String())
 	}
-	seen := map[string]bool{}
-	out := []string{}
-	add := func(dir string) {
-		if !seen[dir] {
-			seen[dir] = true
-			out = append(out, dir)
-		}
-	}
-	removed := map[string]bool{}
-	for _, g := range goPaths(manifest) {
-		dir := path.Dir(g.rel)
-		if !hasPackage(pkgs, module, dir) {
-			if !g.deleted {
-				return Mapping{}, errors.New(ev("mutation_no_such_package", "pkg", importPath(module, dir)).String())
-			}
-			removed[dir] = true
-			continue
-		}
-		add(dir)
-	}
+	targets, removed := map[string]bool{}, map[string]bool{}
 	every, rootTestdata := false, false
-	for _, rel := range modulePaths(manifest) {
-		if strings.HasPrefix(rel, "testdata/") {
-			rootTestdata = true
-		}
-		switch dir, _, inPkgTestdata := strings.Cut(rel, "/testdata/"); {
-		case moduleWide[rel]:
+	for _, p := range manifestPaths(manifest) {
+		kind, dir := classify(p.rel)
+		switch kind {
+		case kindPackage:
+			if !hasPackage(pkgs, module, dir) {
+				if !p.deleted {
+					return Mapping{}, errors.New(ev("mutation_no_such_package", "pkg", ImportPath(module, dir)).String())
+				}
+				removed[dir] = true
+				continue
+			}
+			targets[dir] = true
+		case kindModuleWide:
 			every = true
-		case inPkgTestdata:
-			add(dir)
-		case strings.HasSuffix(rel, ".go"), strings.HasPrefix(rel, "testdata/"),
-			strings.HasPrefix(rel, "coverage-floors.d/"):
-		default:
-			return Mapping{}, errors.New(ev("mutation_unmapped", "file", modulePrefix+rel).String())
+		case kindRootTestdata:
+			rootTestdata = true
+		case kindFragment:
+		case kindUnmapped:
+			return Mapping{}, errors.New(ev("mutation_unmapped", "file", modulePrefix+p.rel).String())
 		}
 	}
 	if every {
 		for _, p := range pkgs {
-			if rel, ok := strings.CutPrefix(p.ImportPath, module+"/"); ok &&
-				!strings.Contains(rel, " ") && !strings.HasSuffix(rel, ".test") {
-				add(rel)
+			if dir, ok := moduleDir(module, p.ImportPath); ok {
+				targets[dir] = true
 			}
 		}
 	}
 	if rootTestdata {
-		for _, rel := range CorpusImporters(module, pkgs) {
-			add(rel)
+		for _, dir := range CorpusImporters(module, pkgs) {
+			targets[dir] = true
 		}
 	}
-	sort.Strings(out)
-	gone := []string{}
-	for dir := range removed {
-		gone = append(gone, dir)
+	return Mapping{Targets: sortedKeys(targets), Removed: sortedKeys(removed)}, nil
+}
+
+// pathKind is what one module path maps to.
+type pathKind int
+
+const (
+	kindUnmapped     pathKind = iota
+	kindPackage               // a Go file, or a file under a package's own testdata/
+	kindRootTestdata          // a file under the module-root testdata/
+	kindModuleWide            // go.mod, go.sum or .golangci.yml
+	kindFragment              // a coverage-floors.d fragment
+)
+
+// classify returns what the module-relative path rel maps to and, for
+// kindPackage, the package's module-relative directory. testdata/ is
+// looked at first, so a .go file under it is never a package of its own.
+func classify(rel string) (pathKind, string) {
+	if strings.HasPrefix(rel, "testdata/") {
+		return kindRootTestdata, ""
 	}
-	sort.Strings(gone)
-	return Mapping{Targets: out, Removed: gone}, nil
+	if dir, _, ok := strings.Cut(rel, "/testdata/"); ok {
+		return kindPackage, dir
+	}
+	if moduleWide[rel] {
+		return kindModuleWide, ""
+	}
+	if dir, name := path.Split(rel); dir == "coverage-floors.d/" && fragmentName.MatchString(name) {
+		return kindFragment, ""
+	}
+	if strings.HasSuffix(rel, ".go") {
+		return kindPackage, path.Dir(rel)
+	}
+	return kindUnmapped, ""
+}
+
+// moduleDir returns the module-relative directory (`.` for the root) of
+// the module package importPath names, and false for any other record of
+// `go list -json -test -deps`: a package outside the module, a test
+// variant (`<pkg> [<pkg>.test]`) or a test binary (`<pkg>.test`).
+func moduleDir(module, importPath string) (string, bool) {
+	if importPath == module {
+		return ".", true
+	}
+	rel, ok := strings.CutPrefix(importPath, module+"/")
+	if !ok || strings.Contains(rel, " ") || strings.HasSuffix(rel, ".test") {
+		return "", false
+	}
+	return rel, true
+}
+
+// sortedKeys returns the keys of set, sorted.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // noChange is the producer's no-change marker line
@@ -183,28 +223,28 @@ func scanLines(manifest string) (marker, other bool) {
 	return marker, other
 }
 
-// goPath is one Go path a manifest line names inside the module, and
-// whether the head tree no longer has it: the path of a D line or the
-// old side of an R line.
-type goPath struct {
+// manifestPath is one path a manifest line after the header names inside
+// the module, module-relative, and whether the head tree no longer has it:
+// the path of a D line or the old side of an R line.
+type manifestPath struct {
 	rel     string
 	deleted bool
 }
 
-// goPaths returns every Go path a manifest line after the header names
+// manifestPaths returns every path a manifest line after the header names
 // inside the module.
-func goPaths(manifest string) []goPath {
-	var out []goPath
+func manifestPaths(manifest string) []manifestPath {
+	var out []manifestPath
 	lines := strings.Split(manifest, "\n")
 	for _, line := range lines[1:] {
-		fields := strings.Split(line, "\t")
+		status, _, _ := strings.Cut(line, "\t")
 		for i, p := range linePaths(line) {
 			rel, ok := strings.CutPrefix(p, modulePrefix)
-			if !ok || !strings.HasSuffix(rel, ".go") {
+			if !ok {
 				continue
 			}
-			deleted := fields[0] == "D" || (strings.HasPrefix(fields[0], "R") && i == 0)
-			out = append(out, goPath{rel: rel, deleted: deleted})
+			deleted := status == "D" || (strings.HasPrefix(status, "R") && i == 0)
+			out = append(out, manifestPath{rel: rel, deleted: deleted})
 		}
 	}
 	return out
@@ -213,7 +253,7 @@ func goPaths(manifest string) []goPath {
 // hasPackage reports whether pkgs holds the package at the
 // module-relative directory dir (`.` for the module root).
 func hasPackage(pkgs []Package, module, dir string) bool {
-	want := importPath(module, dir)
+	want := ImportPath(module, dir)
 	for _, p := range pkgs {
 		if p.ImportPath == want {
 			return true
@@ -222,28 +262,13 @@ func hasPackage(pkgs []Package, module, dir string) bool {
 	return false
 }
 
-// importPath returns the import path of the package at the module-relative
+// ImportPath returns the import path of the package at the module-relative
 // directory dir (`.` for the module root).
-func importPath(module, dir string) string {
+func ImportPath(module, dir string) string {
 	if dir == "." {
 		return module
 	}
 	return module + "/" + dir
-}
-
-// modulePaths returns the module-relative form of every path a manifest
-// line after the header names inside the module.
-func modulePaths(manifest string) []string {
-	var out []string
-	lines := strings.Split(manifest, "\n")
-	for _, line := range lines[1:] {
-		for _, p := range linePaths(line) {
-			if rel, ok := strings.CutPrefix(p, modulePrefix); ok {
-				out = append(out, rel)
-			}
-		}
-	}
-	return out
 }
 
 // linePaths returns the raw paths one manifest line names: every field

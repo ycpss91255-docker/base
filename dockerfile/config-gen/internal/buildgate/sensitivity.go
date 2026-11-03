@@ -13,8 +13,9 @@ import (
 // the shared corpus, and the traced build of internal/testcorpus that
 // tells which golden files each of them was handed.
 
-// CorpusImporters returns, sorted, the module-relative directory of every
-// package whose test binary depends on internal/testcorpus, read from
+// CorpusImporters returns, sorted, the module-relative directory (`.` for
+// the root) of every package whose test binary depends on
+// internal/testcorpus, read from
 // `go list -json -test -deps ./...` of the module.
 func CorpusImporters(module string, pkgs []Package) []string {
 	corpus := module + "/" + testcorpus
@@ -24,7 +25,7 @@ func CorpusImporters(module string, pkgs []Package) []string {
 		if !ok {
 			continue
 		}
-		rel, ok := strings.CutPrefix(under, module+"/")
+		rel, ok := moduleDir(module, under)
 		if !ok {
 			continue
 		}

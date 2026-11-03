@@ -1,0 +1,26 @@
+# s1f.tsv -- the mutations base#1467 (config-gen S1f, the ignored-input,
+# corpus sensitivity and mutation gates and their redpath cases) requires
+# script/test/mutation-probe.sh to report PINNED. One row per behaviour:
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
+# once in <subject> and is replaced by <new> (empty <new> deletes), both
+# written with the three escapes \\ \t \n. `just test mutation-required`
+# probes every row and passes only when each one is PINNED.
+runner-event-table-filter	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	[[ "${line}" =~ ${_CG_EVENT_RE} && -n "${listed[${BASH_REMATCH[1]}]:-}" ]] || continue	[[ "${line}" =~ ${_CG_EVENT_RE} ]] || continue
+runner-event-table-read	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	[[ -z "${line}" || "${line}" == '#'* ]] || listed["${line}"]=1	:
+redpath-mutation-dirty	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	dirty=yes context=pr" "${err}"	dirty=(yes|no) context=pr" "${err}"
+redpath-mutation-line	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=mutation_line_missing	    :
+redpath-weak-records	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=weak_records_mismatch	    :
+redpath-mutation-event	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=mutation_event_mismatch	    :
+redpath-green-line	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=green_line_missing	    :
+redpath-after-admit-exit	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  after_exit="$(_rp_exit_one "${rc}")"	  after_exit=""
+redpath-after-admit-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    || { echo after_admit_detail_mismatch; return 0; }	    || true
+redpath-retro-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}" root="${2}" base="${3}"\n  (( rc == 0 )) || { echo rc_not_zero; return 0; }	  local rc="${1}" root="${2}" base="${3}"\n  :
+redpath-retro-clean	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    || { echo not_clean; return 0; }	    || true
+redpath-retro-unmapped	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	! grep -qF -- config_gen_mutation_unmapped "${root}.err" || { echo unmapped; return 0; }	true
+redpath-retro-package-set	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    || { echo package_set_mismatch; return 0; }	    || true
+df-ignored-refusal	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	--context /ctx \\\n      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	--context /ctx \\\n      || true
+df-sensitivity-refusal	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	--work "${w}"; } \\\n      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	--work "${w}"; } \\\n      || true
+df-sensitivity-root	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	--root "${r#*=}"	--root "${r}"
+df-mutation-refusal	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	--reports "${r}"; } \\\n      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	--reports "${r}"; } \\\n      || true
+df-mutation-goflags	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	      && GOFLAGS="-ldflags=-X=$(cat /tmp/config-gen-corpus-root)" \\\n	      && \\\n

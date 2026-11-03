@@ -516,9 +516,22 @@ config_gen_gate_mutation_failed
 # file=); both re-emitted by config_gen_gates.sh (base#1467).
 config_gen_gate_corpus_sensitivity_failed
 config_gen_corpus_sensitivity_weak
+# testcorpus.go holds no one top-level func Glob the gate can trace
+# (reason=glob_not_found); re-emitted by config_gen_gates.sh (base#1467).
+config_gen_corpus_sensitivity_invalid
 
 # Dockerfile.config-gen ignored-input gate: cg-gates ignored found a file
 # the producer listed in ignored.sha256 in the build context (file=); both
 # re-emitted by config_gen_gates.sh (base#1467).
 config_gen_gate_ignored_failed
 config_gen_mutation_ignored_input
+
+# Dockerfile.config-gen mutation gate, cg-gates mutation's mapping
+# (buildgate.Map) refusing the change manifest before gremlins runs: a
+# module file no mapping rule covers (file=), a manifest holding the
+# no-change marker beside a record or neither (reason=), and a listed path
+# whose package does not exist (pkg=); each re-emitted by
+# config_gen_gates.sh (base#1467).
+config_gen_mutation_unmapped
+config_gen_mutation_manifest_invalid
+config_gen_mutation_no_such_package

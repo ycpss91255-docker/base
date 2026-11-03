@@ -29,12 +29,15 @@
 #   corpus-var     a test spelling the path as "test"+"data"       race
 #   mut-unstaged   a committed package's test loses its assertion  mutation
 #                  as an unstaged edit, so every mutant survives
+#   mut-staged     the same edit, staged                           mutation
 #   mut-timeout    an untracked package whose loop mutant hangs:   mutation
 #                  3 mutants killed and 1 timed out is 75.0
 #   corpus         a committed importer of internal/testcorpus     mutation
 #                  whose result goes unasserted; the change is
 #                  only an untracked file under the module's
 #                  root testdata/
+#   notes          an untracked notes.txt at the module root, a    mutation
+#                  file no mapping rule covers
 #   sens-per-golden  an untracked golden whose one consumer reached  corpus_sensitivity
 #                  through a helper asserts only that it exists,
 #                  beside a strong reader of another golden
@@ -52,7 +55,10 @@
 # "config-gen redpath manifest: ", and the runner streams a step's stdout
 # to stderr. A mutation case listed in _RP_MUTATION_LINES must also end a
 # stderr line with " <its line>", the gate's verdict for that package as
-# the build log streams it (reason mutation_line_missing).
+# the build log streams it (reason mutation_line_missing). A mutation case
+# listed in _RP_MUTATION_EVENTS must carry exactly one runner JSON record
+# of its event, naming its file (reason mutation_event_mismatch): the
+# mapping's refusal of what the case planted, re-emitted with its file=.
 #
 # A refusal case plants a defect the build must refuse before any gate
 # runs: the run must exit exactly 1 with nothing on stdout, and stderr
@@ -105,6 +111,12 @@
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
 # the six ok lines below: admission accepts every baseline the producer
 # writes, and every gate still runs after it.
+#
+# docs-only (a green case, base#1467) changes only a file outside the
+# module: the producer writes the no-change marker, and the run must also
+# stream the mutation gate's `mutation targets none` (_RP_GREEN_LINES; a
+# green case listed there whose build log ends no line with " <its
+# line>" fails, reason green_line_missing).
 #
 # ign-excluded (a green case, base#1467) leaves cmd/config-gen/.main.go.swp,
 # an editor swap file, in the module, Git-ignored by the `*.swp` line the
@@ -207,15 +219,23 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-timeout:mutation corpus:mutation sens-per-golden:corpus_sensitivity)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # <case>|<the line the mutation gate must print for it> (base#1467). The
 # mut-timeout figure is 3 killed over 4 judged: gremlins reported its loop
 # fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
 # The corpus figure is 0 killed over 2 judged: Pos's boundary and negation
-# mutants of n > 0 both live, since no test asserts Pos's result.
+# mutants of n > 0 both live, since no test asserts Pos's result; so are
+# mut-unstaged's and mut-staged's, whose edited test asserts nothing.
 readonly -a _RP_MUTATION_LINES=(
+  'mut-unstaged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0'
+  'mut-staged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0'
   'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0'
   'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0'
+)
+# <case>|<event>|<file>: the one record of <event>, naming <file>, the
+# mutation gate's mapping must refuse <case> with (base#1467).
+readonly -a _RP_MUTATION_EVENTS=(
+  'notes|config_gen_mutation_unmapped|dockerfile/config-gen/notes.txt'
 )
 # <case>|<pkg>|<file>: each weak record the sensitivity gate must log for
 # <case>, in order (base#1467). sens-per-golden's one pair is its planted
@@ -269,7 +289,9 @@ readonly -a _RP_STALE=(
 )
 # The green cases: each a git state whose baseline must be admitted
 # (base#1465).
-readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded)
+readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded docs-only)
+# <case>|<a line its build log must end a line with> (base#1467).
+readonly -a _RP_GREEN_LINES=('docs-only|mutation targets none')
 # <case>|<gate>|<event>|<file>: a context the producer and admission both
 # accept, holding a Git-ignored module file the gate must refuse, naming
 # that file in each <event> record (base#1467).
@@ -645,11 +667,12 @@ func TestZzVar(t *testing.T) {
 }
 EOF
       ;;
-    mut-unstaged)
+    mut-unstaged | mut-staged)
       # zzmut and its floor are committed with a test that kills both of
       # Pos's mutants (n >= 0 fails Pos(0), n <= 0 fails all three rows).
-      # The edit, left unstaged, keeps every call (coverage stays 100.0)
-      # and drops the comparison, so both mutants survive (base#1467).
+      # The edit, left unstaged (mut-unstaged) or staged (mut-staged),
+      # keeps every call (coverage stays 100.0) and drops the comparison,
+      # so both mutants survive (base#1467).
       mkdir -p "${mod}/internal/zzmut"
       cat >"${mod}/internal/zzmut/zzmut.go" <<'EOF'
 // Package zzmut is a redpath fixture whose test kills every mutant.
@@ -686,7 +709,22 @@ func TestPos(t *testing.T) {
 	}
 }
 EOF
+      if [[ "${1}" == mut-staged ]]; then
+        _rp_git "${root}" add -- "${mod}/internal/zzmut/zzmut_test.go"
+      fi
       _rp_manifest_step "${root}"
+      ;;
+    notes)
+      # Untracked, so 00-manifest lists it as the one change; no mapping
+      # rule covers a text file at the module root (base#1467).
+      printf 'notes\n' >"${mod}/notes.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    docs-only)
+      # A change outside dockerfile/config-gen/, so 00-manifest writes the
+      # no-change marker (base#1467).
+      mkdir -p "${root}/doc"
+      printf 'docs only\n' >"${root}/doc/zz-docs-only.md"
       ;;
     mut-timeout)
       # Never committed. The test kills the boundary and negation mutants
@@ -986,6 +1024,17 @@ _rp_mutation_line() {
   return 0
 }
 
+# _rp_row <case> <entry>... -- the rest of the first `<case>|<rest>` entry,
+# empty when no entry is <case>'s.
+_rp_row() {
+  local name="${1}" entry
+  shift
+  for entry in "$@"; do
+    [[ "${entry%%|*}" == "${name}" ]] && { printf '%s\n' "${entry#*|}"; return 0; }
+  done
+  return 0
+}
+
 # _rp_weak_pairs <case> -- the `<pkg>|<file>` pairs _RP_WEAK holds for
 # <case>, one per line in table order; empty when it holds none.
 _rp_weak_pairs() {
@@ -1006,7 +1055,7 @@ _rp_line_ends() {
 # _rp_case <scratch> <case> <gate> -- run one planted case; non-zero when
 # it did not go red as planted.
 _rp_case() {
-  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason line weak
+  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason line weak event
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
   _rp_gates "${root}" "${name}" || rc=$?
@@ -1019,6 +1068,11 @@ _rp_case() {
   if [[ -z "${reason}" && -n "${weak}" ]] \
     && [[ "$(_rp_event_detail "${root}.err" config_gen_corpus_sensitivity_weak pkg file)" != "${weak}" ]]; then
     reason=weak_records_mismatch
+  fi
+  event="$(_rp_row "${name}" "${_RP_MUTATION_EVENTS[@]}")"
+  if [[ -z "${reason}" && -n "${event}" ]] \
+    && [[ "$(_rp_event_detail "${root}.err" "${event%%|*}" file file)" != "${event#*|}|${event#*|}" ]]; then
+    reason=mutation_event_mismatch
   fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
@@ -1208,13 +1262,18 @@ _rp_rerun() {
 }
 
 # _rp_green_case <scratch> <case> -- run one green case; non-zero when the
-# runner did not pass with exactly the six ok lines.
+# runner did not pass with exactly the six ok lines, or its build log lacks
+# the line _RP_GREEN_LINES holds for <case>.
 _rp_green_case() {
-  local root rc=0 reason
+  local root rc=0 reason line
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
+  line="$(_rp_row "${2}" "${_RP_GREEN_LINES[@]}")"
+  if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
+    reason=green_line_missing
+  fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" \
