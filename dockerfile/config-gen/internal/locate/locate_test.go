@@ -277,3 +277,30 @@ func TestIndexInlineDottedTables(t *testing.T) {
 		t.Errorf("Entries() = %+v, want only v", m.Entries())
 	}
 }
+
+// TestIndexInlineMemberRecordsMarkInlineValues checks that a member of an
+// inline table keeps whether its own value is an inline table or array
+// (base#1467, the member half of Occurrence.Inline). In
+// `a = { s = 1, t = { u = 2 }, v = [3] }` TOML gives a.s an integer, a.t
+// an inline table holding the integer a.t.u, and a.v an inline array, so
+// only a.t and a.v are Inline.
+func TestIndexInlineMemberRecordsMarkInlineValues(t *testing.T) {
+	m := Index([]byte("a = { s = 1, t = { u = 2 }, v = [3] }\n"))
+	for _, c := range []struct {
+		path []string
+		want bool
+	}{
+		{[]string{"a", "s"}, false},
+		{[]string{"a", "t"}, true},
+		{[]string{"a", "t", "u"}, false},
+		{[]string{"a", "v"}, true},
+	} {
+		ms := m.Members(c.path)
+		if len(ms) != 1 {
+			t.Fatalf("Members(%q) = %+v, want one", c.path, ms)
+		}
+		if got := ms[0].Inline; got != c.want {
+			t.Errorf("Members(%q) Inline = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
