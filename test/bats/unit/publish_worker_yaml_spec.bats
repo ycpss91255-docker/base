@@ -233,6 +233,9 @@ case "${1:-}" in
     fi
     ;;
   pull)
+    # The step itself reads no local image store. This arm and the next are
+    # kept so a step that pulls and reads `.Id` again gets the containerd
+    # store's answer rather than a stub error.
     ;;
   image)
     # `docker image inspect --format {{.Id}} <ref>` on the containerd store:
@@ -448,6 +451,23 @@ _FX_SHARD_ARMV7='a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a
 #             read of each tag BY NAME answers the flattened index, every
 #             later read by name answers an index whose linux/amd64 child is
 #             content nothing verified, the way a concurrent publish would.
+#   rawfail-tag / rawfail-verified
+#             an ordinary publish, but the raw read of the flattened index
+#             (the tags' side) or of the verified shard index exits non-zero
+#             after printing its full, valid body.
+#   attest-only
+#             both tags resolve to an index whose only linux/amd64 entry is
+#             annotated as an attestation-manifest.
+#   ambiguous-tag
+#             both tags resolve to an index with two linux/amd64 images, the
+#             verified one listed first.
+#   missing-verified / ambiguous-verified
+#             the tags are the ordinary flattened index, but the verified
+#             shard index has no linux/amd64 image, or has two.
+#   variant   the verified shard is linux/arm/v7; it and the tags' index
+#             both carry linux/arm/v6 and linux/arm/v7 images.
+#   unresolved
+#             resolving a tag by name to a digest exits 0 and prints nothing.
 _confirm_step_for() {
   local _mode="${1}" _body _dir _base _ver _latest _moved='' _rawfail=''
   local _status=0 _unresolved='' _verified="${_FX_SHARD_AMD64}"
