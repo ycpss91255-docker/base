@@ -686,14 +686,17 @@ _canned_correct() {
 # probes; `just test go` and the one full run below keep every case
 # (base#1465). Leading VAR=value words go to the redpath's environment.
 # RERUN_CALLS (default 2) is how many rerun calls the test expects: 1 when
-# its first call is the one that fails.
+# its first call is the one that fails. No call carries its own
+# `timeout N`: the bats per-test bound, which every driver scales, is the
+# only bound, and a fixed literal inside it expired first under parallel
+# probes (base#1527).
 _run_redpath() {
   local -a _env=()
   while [[ "${1:-}" =~ ^[A-Z_]+= ]]; do _env+=("${1}"); shift; done
   (( $# > 0 )) || fail "_run_redpath: name the case(s) this test asserts"
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" \
       LOG_FORMAT=json "${_env[@]}" CONFIG_GEN_REDPATH_ONLY="$*" \
-      timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+      bash "${S}/repo/script/test/config_gen_redpath.sh"
   local _want _got
   _want="$( { printf '%s\n' "$@" control; [[ " $* " == *" rerun "* && "${RERUN_CALLS:-2}" == 2 ]] && echo rerun; } | LC_ALL=C sort)"
   _got="$(_ran_cases | LC_ALL=C sort)"
@@ -702,10 +705,10 @@ _run_redpath() {
 }
 
 # _run_redpath_all [VAR=value...] -- the scratch redpath on every case, as
-# `just test go` runs it.
+# `just test go` runs it, bounded only by the per-test bound (base#1527).
 _run_redpath_all() {
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY PATH="${S}/bin:${PATH}" \
-      LOG_FORMAT=json "$@" timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+      LOG_FORMAT=json "$@" bash "${S}/repo/script/test/config_gen_redpath.sh"
 }
 
 # _case_failures -- every config_gen_redpath_case_failed record in
@@ -769,7 +772,7 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
   _redpath_repo
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
       CONFIG_GEN_REDPATH_ONLY='rerun cov-lowered stale-edit lint' \
-      timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+      bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_success
   assert_equal "$(_ran_cases | paste -sd' ')" 'lint stale-edit cov-lowered rerun rerun control'
 }
@@ -820,7 +823,7 @@ _glibc_getconf() {
   chmod +x "${S}/bin/localedef"
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
       CONFIG_GEN_REDPATH_ONLY='stale-edit-locale' \
-      timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+      bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_failure 1
   assert_equal "$(_case_failures)" "stale-edit-locale|locale_not_affected"
   assert_equal "$(_ran_cases | paste -sd' ')" control
@@ -839,7 +842,7 @@ _glibc_getconf() {
   assert_equal "$(PATH="${S}/bin:${PATH}" command -v localedef || echo none)" none
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
       CONFIG_GEN_REDPATH_ONLY='stale-edit-locale' \
-      timeout 120 bash "${S}/repo/script/test/config_gen_redpath.sh"
+      bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_failure 1
   assert_equal "$(_case_failures)" "stale-edit-locale|locale_not_affected"
   assert_equal "$(_ran_cases | paste -sd' ')" control
@@ -1281,7 +1284,7 @@ _admit_run() {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
   run --separate-stderr env CONFIG_GEN_REDPATH_ACTIVE=1 PATH="${S}/bin:${PATH}" \
-      LOG_FORMAT=json timeout 10 bash "${S}/repo/script/test/config_gen_redpath.sh"
+      LOG_FORMAT=json bash "${S}/repo/script/test/config_gen_redpath.sh"
   assert_refusal 1 config_gen_redpath_reentered
   [[ ! -e "${S}/runner.n" ]] || fail "the guarded redpath still called the runner $(cat "${S}/runner.n") time(s)"
   [[ ! -s "${S}/nested" ]] || fail "the guarded redpath reached just or docker: $(cat "${S}/nested")"
