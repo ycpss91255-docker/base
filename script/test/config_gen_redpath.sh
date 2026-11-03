@@ -581,7 +581,8 @@ _rp_copy() {
   cp -a "${_RP_ROOT}/test/fixtures/gomod" "${dst}/test/fixtures/"
   cp -a "${_RP_ROOT}/script/test/config_gen_mutation_targets.sh" \
     "${_RP_ROOT}/script/test/config_gen_mutation_lang.sh" \
-    "${_RP_ROOT}/script/test/config_gen_admit.sh" "${dst}/script/test/"
+    "${_RP_ROOT}/script/test/config_gen_admit.sh" \
+    "${_RP_ROOT}/script/test/config_gen_coverage.sh" "${dst}/script/test/"
   cp -a "${_RP_ROOT}/dist/script/docker/lib/log.sh" "${_RP_ROOT}/dist/script/docker/lib/log-events.txt" \
     "${dst}/dist/script/docker/lib/"
   git -C "${dst}" init -q

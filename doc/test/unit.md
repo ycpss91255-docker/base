@@ -4280,7 +4280,7 @@ replaces kcov_trace_volume_spec.bats.
 | `no lib module declares a variable the generated .env already names (base#1177)` | base#1177 put a `GPU_CAPABILITIES` array in the lib tree and measured what that costs: `_lib.sh` loads env_emit.sh and config_summary.sh into ONE process alongside every other module, and `.env` carries a variable of that exact name, so the array shadowed the operator's value and `${GPU_CAPABILITIES:--}` read back `gpu` -- the array's first element -- whatever the configuration said. Nothing failed; the summary just printed a different list. The population is DERIVED from the names env_emit.sh actually writes rather than listed here, because a guard naming today's twenty-four passes forever while the next emitted name is taken by a module variable (base#1089 / base#1090 / base#1214). The probe runs with those names cleared from the environment, so what it finds is what the TREE declares. |
 | `_summary_dump_section groups by the registry, not by the first dot (base#1185)` | base#1185 -- the splitter call the original blast-radius analysis missed; a wrong split here is a wrong SUMMARY, which no exit status reports |
 
-### test/bats/unit/lint_bare_stderr_spec.bats (7)
+### test/bats/unit/lint_bare_stderr_spec.bats (8)
 
 Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
 goes through lib/log.sh helpers" lint. The lint takes the repo root as `$1`,
@@ -4298,6 +4298,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `does NOT flag a printf of a cg_event line, but still flags any other bare stderr in the same file (base#1465)` | config-gen's in-image event protocol: the admit stage runs with no lib/log.sh, so its refusal is a `cg_event` line on stderr that the host runner reads back and re-emits through _log_err (base#1465) |
+| `does NOT flag a printf of a config_gen_gate_ id line, but still flags any other bare stderr in the same file (base#1467)` | the same protocol's gate id line: config_gen_coverage.sh runs in the config-gen test stage with no lib/log.sh, and the host runner reads its `config_gen_gate_<g>_failed` stderr line back as the gate that went red (base#1467) |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
 ### test/bats/unit/log_event_registry_lint_spec.bats (112)
