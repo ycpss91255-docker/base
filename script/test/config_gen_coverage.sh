@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #
-# coverage.sh -- the coverage gate of the config generator's test stage
-# (base#1462). Run from the module root inside the golang image:
+# config_gen_coverage.sh -- the coverage gate of the config generator's
+# test stage (base#1462). config_gen_steps/01-admit.sh installs it as
+# coverage.sh in the mutation context, so it lives outside the module the
+# mutation gate maps (base#1467); the coverage RUN runs it from the module
+# root inside the golang image:
 #
-#   bash gates/coverage.sh --measure <file> <corpus root record>
+#   bash /mutation/coverage.sh --measure <file> <corpus root record>
 #
 # The record is the one line the race RUN wrote,
 # <module>/internal/testcorpus.root=<dir> (base#1468).

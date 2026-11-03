@@ -123,6 +123,25 @@ EOF
   assert_output --partial "1 bare stderr output(s) found"
 }
 
+# why: the same protocol's gate id line: config_gen_coverage.sh runs in
+# the config-gen test stage with no lib/log.sh, and the host runner reads
+# its `config_gen_gate_<g>_failed` stderr line back as the gate that went
+# red (base#1467)
+@test "does NOT flag a printf of a config_gen_gate_ id line, but still flags any other bare stderr in the same file (base#1467)" {
+  cat > "${FIXTURE}/script/test/config_gen_thing.sh" <<'EOF'
+#!/usr/bin/env bash
+_thing() {
+  printf 'config_gen_gate_coverage_failed reason=%s pkg=%s\n' "${1}" "${2}" >&2
+  printf 'boom: %s\n' "${1}" >&2
+}
+EOF
+  run bash "${LINT}" "${FIXTURE}"
+  assert_equal "${status}" 1
+  assert_output --partial "script/test/config_gen_thing.sh:4:"
+  refute_output --partial "config_gen_thing.sh:3:"
+  assert_output --partial "1 bare stderr output(s) found"
+}
+
 # why: live-tree guard against path drift
 @test "the real repo tree (default root) is clean (#692)" {
   # No $1: the lint defaults its root to two levels up from the script,

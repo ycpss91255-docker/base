@@ -93,6 +93,11 @@ _is_allowlisted_line() {
   # with no lib/log.sh, so a refusal is a `cg_event` line on stderr that the
   # host runner reads back and re-emits through _log_err.
   [[ "${line}" == *"printf 'cg_event "* ]] && return 0
+  # The same protocol's gate id line (base#1467): config_gen_coverage.sh
+  # runs in the test stage as /mutation/coverage.sh, with no lib/log.sh,
+  # and its refusal is `config_gen_gate_coverage_failed reason= pkg=` on
+  # stderr, which the runner reads back as the gate that went red.
+  [[ "${line}" == *"printf 'config_gen_gate_"* ]] && return 0
 
   return 1
 }

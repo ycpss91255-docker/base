@@ -7,8 +7,10 @@
 # script/test/config_gen_admit.sh as $CONFIG_GEN_CTX/mutation/admit.sh, and
 # the constructor library it sources (config_gen_mutation_lang.sh, the one
 # the producer wrote the baseline with) beside it; the Dockerfile's admit
-# stage runs the checker against the build context. Both come from the
-# host checkout, never from the build context they judge.
+# stage runs the checker against the build context. It also installs
+# script/test/config_gen_coverage.sh as coverage.sh, which the test
+# stage's coverage RUN runs (base#1467). All come from the host checkout,
+# never from the build context they judge.
 #
 # Style: Google Shell Style Guide.
 
@@ -19,3 +21,4 @@ _dst="${CONFIG_GEN_CTX:?config_gen_steps run under CONFIG_GEN_CTX}/mutation"
 install -m 0644 "${_root}/script/test/config_gen_admit.sh" "${_dst}/admit.sh"
 install -m 0644 "${_root}/script/test/config_gen_mutation_lang.sh" \
   "${_dst}/config_gen_mutation_lang.sh"
+install -m 0644 "${_root}/script/test/config_gen_coverage.sh" "${_dst}/coverage.sh"
