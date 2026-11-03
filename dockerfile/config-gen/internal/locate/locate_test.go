@@ -304,3 +304,21 @@ func TestIndexInlineMemberRecordsMarkInlineValues(t *testing.T) {
 		}
 	}
 }
+
+// TestIndexRepeatedInlineMemberOrdinals checks that a member path written
+// once in each table item of an inline array keeps the Ordinal the
+// Occurrence contract gives it, the count of its earlier occurrences
+// (base#1467). In `v = [{ a = 1 }, { a = 2 }, { a = 3 }]` v.a is written
+// three times on line 1, its keys at the columns counted by hand, 8, 19
+// and 30, so its ordinals are 0, 1 and 2.
+func TestIndexRepeatedInlineMemberOrdinals(t *testing.T) {
+	m := Index([]byte("v = [{ a = 1 }, { a = 2 }, { a = 3 }]\n"))
+	var cols, ords []int
+	for _, o := range m.Members([]string{"v", "a"}) {
+		cols = append(cols, o.KeyCol)
+		ords = append(ords, o.Ordinal)
+	}
+	if !reflect.DeepEqual(cols, []int{8, 19, 30}) || !reflect.DeepEqual(ords, []int{0, 1, 2}) {
+		t.Errorf("Members(v.a) columns=%v ordinals=%v, want [8 19 30] [0 1 2]", cols, ords)
+	}
+}
