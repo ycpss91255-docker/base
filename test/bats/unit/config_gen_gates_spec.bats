@@ -561,7 +561,18 @@ _redpath_repo() {
   cp -a /source/script/watch "${_r}/script/"
   mkdir -p "${_r}/test/fixtures"
   cp -a /source/test/fixtures/gomod "${_r}/test/fixtures/"
-  cat > "${_r}/script/test/config_gen_gates.sh" <<EOF
+  _redpath_runner_stub "${_r}/script/test/config_gen_gates.sh"
+  # A just or docker reached from the redpath would be a nested run.
+  printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
+  cp "${S}/bin/just" "${S}/bin/docker"
+  chmod +x "${S}/bin/just" "${S}/bin/docker"
+  _canned_correct
+}
+
+# _redpath_runner_stub <path> -- write _redpath_repo's recording runner
+# stub to <path>, executable.
+_redpath_runner_stub() {
+  cat > "${1}" <<EOF
 #!$(command -v bash)
 n=\$(( \$(cat "${S}/runner.n" 2>/dev/null || echo 0) + 1 ))
 printf '%s\n' "\${n}" > "${S}/runner.n"
@@ -584,10 +595,11 @@ git -C "\${root}" rev-parse --verify -q 'refs/remotes/origin/main^{commit}' >> "
 [[ -d "\${root}/script/test/config_gen_steps" ]] && cp -a "\${root}/script/test/config_gen_steps" "${S}/runner.\${n}.steps"
 q="\${PPID}"
 while [[ "\${q}" =~ ^[0-9]+\$ ]] && (( q > 1 )) && [[ "\${q}" != "\${REDPATH_TOP:-}" ]]; do
-  w=()
-  [[ -r "/proc/\${q}/cmdline" ]] && mapfile -d '' -t w < "/proc/\${q}/cmdline"
+  w=(); st=''
+  mapfile -d '' -t w < "/proc/\${q}/cmdline" 2>/dev/null
   [[ "\${w[0]:-}" == timeout || "\${w[0]:-}" == */timeout ]] && printf '%s\n' "\${w[*]}" >> "${S}/runner.bounds"
-  q="\$(sed -E 's/^.*\) . ([0-9]+) .*\$/\1/' "/proc/\${q}/stat" 2>/dev/null)"
+  IFS= read -r st < "/proc/\${q}/stat" 2>/dev/null
+  st="\${st##*) }"; st="\${st#* }"; q="\${st%% *}"
 done
 a="${S}/canned/\${c}"
 [[ -e "\${a}.\${k}.rc" ]] && a="\${a}.\${k}"
@@ -595,12 +607,7 @@ cat "\${a}.out" 2>/dev/null
 cat "\${a}.err" >&2 2>/dev/null
 exit "\$(cat "\${a}.rc" 2>/dev/null || echo 9)"
 EOF
-  chmod +x "${_r}/script/test/config_gen_gates.sh"
-  # A just or docker reached from the redpath would be a nested run.
-  printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
-  cp "${S}/bin/just" "${S}/bin/docker"
-  chmod +x "${S}/bin/just" "${S}/bin/docker"
-  _canned_correct
+  chmod +x "${1}"
 }
 
 # _gate_record <id> [attr=value...] -- the JSON log record the real runner
@@ -816,8 +823,8 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
 # from the driver's bound is not refused.
 @test "config_gen_redpath.sh: a redpath call under a timeout shorter than the per-test bound is refused by name (base#1527)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  _redpath_repo
-  local _runner="${S}/repo/script/test/config_gen_gates.sh"
+  local _runner="${S}/runner-stub.sh"
+  _redpath_runner_stub "${_runner}"
   REDPATH_TOP="${BASHPID}" timeout 120 "${_runner}" >/dev/null 2>&1 || true
   run _redpath_bounds_check 480
   assert_failure
