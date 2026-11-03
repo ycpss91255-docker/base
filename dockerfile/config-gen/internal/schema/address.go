@@ -87,23 +87,24 @@ func ParseAddress(s string) (Address, error) {
 	if i < 0 {
 		return Address{}, fmt.Errorf("address %q has no entry number", s)
 	}
-	if !asciiDigits(strings.TrimPrefix(key[i+1:], "-")) {
+	prefix, number := key[:i], key[i+1:]
+	if !asciiDigits(strings.TrimPrefix(number, "-")) {
 		return Address{}, &AddressError{Kind: AddrNotNumeric, Addr: s}
 	}
-	if strings.HasPrefix(key[i+1:], "-") {
+	if strings.HasPrefix(number, "-") {
 		return Address{}, &AddressError{Kind: AddrNegative, Addr: s}
 	}
-	if knownKey(section, key[:i]) {
+	if knownKey(section, prefix) {
 		return Address{}, &AddressError{Kind: AddrThroughScalar, Addr: s}
 	}
-	if !familyAddress(section, key[:i]) {
+	if !familyAddress(section, prefix) {
 		return Address{}, &AddressError{Kind: AddrUnknown, Addr: s}
 	}
-	n, err := strconv.Atoi(key[i+1:])
+	n, err := strconv.Atoi(number)
 	if err != nil || n == 0 {
 		return Address{}, &AddressError{Kind: AddrOutOfRange, Addr: s}
 	}
-	return Address{Section: section, Prefix: key[:i], Index: n}, nil
+	return Address{Section: section, Prefix: prefix, Index: n}, nil
 }
 
 // familyAddress reports whether an array home of that section is

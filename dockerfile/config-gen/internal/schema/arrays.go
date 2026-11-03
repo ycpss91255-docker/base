@@ -1,6 +1,9 @@
 package schema
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // gatingFields is, per array family, the fields its entries are read
 // from: the third element of the bridge's _ARRAY_SPEC
@@ -60,10 +63,12 @@ var fieldNeeds = map[string]map[string]string{
 // that no value refusal is added beside the one it picked (base#1443).
 func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 	refused := map[*bound]bool{}
-	gating, ok := gatingFields[p[len(p)-1]]
+	leaf := p[len(p)-1]
+	gating, ok := gatingFields[leaf]
 	if !ok {
 		return refused
 	}
+	also, needs := alsoRead[leaf], fieldNeeds[leaf]
 	for i, e := range b.children {
 		n := i + 1
 		if !e.isTable() {
@@ -81,8 +86,9 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 			refused[e] = true
 			continue
 		}
-		read := [][]string{gating, alsoRead[p[len(p)-1]]}
-		if f := firstBy(e, func(c *bound) bool { return !carriedBy(c.node.Key, read...) }); f != nil {
+		if f := firstBy(e, func(c *bound) bool {
+			return !slices.Contains(gating, c.node.Key) && !slices.Contains(also, c.node.Key)
+		}); f != nil {
 			line, col := f.declPos()
 			d.refuseEntry("conf_entry_unknown_field", p, n, f.node.Key, line, col)
 			refused[e] = true
@@ -95,7 +101,7 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 			continue
 		}
 		if f := firstBy(e, func(c *bound) bool {
-			need, ok := fieldNeeds[p[len(p)-1]][c.node.Key]
+			need, ok := needs[c.node.Key]
 			return ok && !carriesAny(e, []string{need})
 		}); f != nil {
 			line, col := f.declPos()
@@ -134,18 +140,6 @@ func firstBy(e *bound, match func(*bound) bool) *bound {
 	return first
 }
 
-// carriedBy reports whether name is in one of the lists.
-func carriedBy(name string, lists ...[]string) bool {
-	for _, l := range lists {
-		for _, n := range l {
-			if n == name {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // holdsBadName reports whether a name at or under b draws keyCharEvent.
 func holdsBadName(b *bound) bool {
 	for _, c := range b.children {
@@ -158,14 +152,7 @@ func holdsBadName(b *bound) bool {
 
 // carriesAny reports whether the table e holds a key named in names.
 func carriesAny(e *bound, names []string) bool {
-	for _, c := range e.children {
-		for _, n := range names {
-			if c.node.Key == n {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(e.children, func(c *bound) bool { return slices.Contains(names, c.node.Key) })
 }
 
 // FamilySpec is what one array family reads: its last name, the
@@ -251,7 +238,7 @@ func (d *decoder) checkSpellings(b *bound, path []string) {
 			if !a.isArray() {
 				continue
 			}
-			prefix, ok := prefixOf(a.node.Key)
+			prefix, ok := arrayFamily[a.node.Key]
 			if !ok {
 				continue
 			}
@@ -265,17 +252,6 @@ func (d *decoder) checkSpellings(b *bound, path []string) {
 			}
 		}
 	}
-}
-
-// prefixOf is the numbered prefix the shell side writes the family whose
-// array is named leaf under, from homes.
-func prefixOf(leaf string) (string, bool) {
-	for _, h := range homes {
-		if h.path[len(h.path)-1] == leaf {
-			return h.prefix, true
-		}
-	}
-	return "", false
 }
 
 // numberedUnder reports whether key is prefix, "_" and one or more
