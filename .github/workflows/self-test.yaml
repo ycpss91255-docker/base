@@ -1701,8 +1701,12 @@ jobs:
     # stages, then the redpath's 60 cases (base#1465 added the admission,
     # producer-output and coverage-ratchet cases; most stop at the admit
     # stage) and its control. The redpath alone took 10m06s on a local
-    # run; a ceiling, not a budget.
-    timeout-minutes: 60
+    # run; a ceiling, not a budget. 120, not 60: base#1467 took the
+    # redpath to 73 cases. On PR #1538's run 41716884877 this job was
+    # cancelled at 60 minutes with the redpath still running after 56
+    # minutes; at f8a33289 `just test go` took 52m41s on a local run,
+    # 49m52s of it the redpath.
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v7
