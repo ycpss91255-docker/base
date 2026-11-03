@@ -205,6 +205,15 @@ readonly _PIN_RESOLVERS=(
 #   "t.toml:1:7: " has the image-reference shape and could only be
 #   reworded to dodge the detector. A non-test `.go` file is still read.
 #
+#   TOML files (`*.toml`) below a `testdata` directory (base#1530, for
+#   base#1441). A TOML case's bytes are what the test feeds its subject,
+#   and a vendored one (the toml-test cases under internal/gate/testdata)
+#   keeps upstream's bytes, so a marker line inserted into it changes the
+#   case. Only a whole path component named `testdata` counts:
+#   `mytestdata/`, `testdata2/` and a file named `testdata` are still
+#   read. Any other file kind below `testdata` is read too; the
+#   config-gen corpus `.tsv` files there carry markers.
+#
 # The lint checks this list rather than trusting it: a `tool-pin:` marker
 # in an exempt file is a failure, so "exempt the shape the awkward pin
 # lives in" cannot quietly become a way to stop watching a pin.
@@ -376,11 +385,13 @@ readonly _PIN_ACTION_REF_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([
 
 # _pin_is_exempt_shape <repo-root-relative-path>
 #
-# TRUE when the path's BASENAME matches one of the exempt shapes. Both
-# halves of the walk partition one list of paths through this, so a file
-# is read by exactly one of them and neither can drift.
+# TRUE when the path's BASENAME matches one of the exempt shapes, or the
+# path is a `*.toml` file below a directory component exactly named
+# `testdata`. Both halves of the walk partition one list of paths through
+# this, so a file is read by exactly one of them and neither can drift.
 _pin_is_exempt_shape() {
   local _base="${1##*/}" _glob
+  [[ "/${1}" == */testdata/* && "${_base}" == *.toml ]] && return 0
   for _glob in "${_PIN_SCAN_EXEMPT_SHAPES[@]}"; do
     # Deliberately unquoted: _glob IS a pattern.
     # shellcheck disable=SC2053
