@@ -8,8 +8,14 @@
 # probes every row and passes only when each one is PINNED.
 #
 # S7's refusal guards are Go (dockerfile/config-gen/internal/schema), and
-# this runner probes only bats specs, in an image with no Go toolchain;
-# the Go guards are held by the module's own tests under `just test go`.
+# this runner probes only bats specs, in an image with no Go toolchain: a
+# row whose spec is a Go test file is refused by --check as
+# spec_not_under_test_bats. The plan on base#1395 puts shell refusal
+# guards on this roster and holds Go packages to the gremlins efficacy
+# gate of base#1467 instead. Until that gate lands, each S7 Go guard was
+# mutated by hand and `./script/test/config_gen_gates.sh` went red on the
+# race gate for every one; the mutants and the tests that failed are
+# listed in the review round 2 commit of base#1443.
 # What a bats spec pins here is the shell's word those Go tests take
 # their expected verdicts from: each bridge entry rule
 # (dockerfile/toml_bridge.py _check_entry) whose verdict the fixture

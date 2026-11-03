@@ -118,11 +118,40 @@ func familyAddress(section, prefix string) bool {
 	return false
 }
 
+// String is the address as the shell spells it, `<section>.<prefix>_<N>`.
+func (a Address) String() string {
+	return fmt.Sprintf("%s.%s_%d", a.Section, a.Prefix, a.Index)
+}
+
+// check judges an Address however it was built, by the rules
+// ParseAddress applies to the text it reads: a prefix naming a scalar
+// key, a section and prefix no family is numbered under, a negative
+// entry number and entry number 0 are each refused by their kind
+// (base#1443 review round 2 finding 1).
+func (a Address) check() error {
+	switch {
+	case knownKey(a.Section, a.Prefix):
+		return &AddressError{Kind: AddrThroughScalar, Addr: a.String()}
+	case !familyAddress(a.Section, a.Prefix):
+		return &AddressError{Kind: AddrUnknown, Addr: a.String()}
+	case a.Index < 0:
+		return &AddressError{Kind: AddrNegative, Addr: a.String()}
+	case a.Index == 0:
+		return &AddressError{Kind: AddrOutOfRange, Addr: a.String()}
+	}
+	return nil
+}
+
 // Entry is the entry of the layer the shell writes under that address:
 // entry N, counted in written order with the cleared slot kept in its
 // position, of the first family whose home the address's section and
-// prefix name and that the layer carries (base#1443).
+// prefix name and that the layer carries (base#1443). The address is
+// judged first, so an Address built without ParseAddress is held to the
+// same rules (base#1443 review round 2 finding 1).
 func (c *Config) Entry(a Address) (*Entry, error) {
+	if err := a.check(); err != nil {
+		return nil, err
+	}
 	for _, h := range homes {
 		if h.path[0] != a.Section || h.prefix != a.Prefix {
 			continue
@@ -132,10 +161,10 @@ func (c *Config) Entry(a Address) (*Entry, error) {
 			continue
 		}
 		if a.Index > len(fam.Entries) {
-			return nil, &AddressError{Kind: AddrOutOfRange, Addr: fmt.Sprintf("%s.%s_%d", a.Section, a.Prefix, a.Index)}
+			return nil, &AddressError{Kind: AddrOutOfRange, Addr: a.String()}
 		}
 		e := fam.Entries[a.Index-1]
 		return &e, nil
 	}
-	return nil, fmt.Errorf("address %s.%s_%d names no entry of the layer", a.Section, a.Prefix, a.Index)
+	return nil, fmt.Errorf("address %s names no entry of the layer", a)
 }
