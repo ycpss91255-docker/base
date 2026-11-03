@@ -41,6 +41,9 @@ type Config struct {
 	// Arrays is every accepted array of tables typed as a family, keyed by
 	// its TOML path joined with "." (base#1443).
 	Arrays map[string]Family
+	// Stages is every `["stage:<name>"]` table, in traversal order
+	// (base#1443).
+	Stages []Stage
 }
 
 // known is the set of sections _setup_known_section accepts
@@ -188,6 +191,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 		Tree:        tree,
 		Deferred:    deferred,
 		Arrays:      projectArrays(deferred),
+		Stages:      projectStages(&tree),
 	}, d.refusals
 }
 
