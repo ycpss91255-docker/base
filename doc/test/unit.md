@@ -2093,6 +2093,24 @@ stderr line `cg_event config_gen_manifest_stale file=<f> reason=<r>`.
 | `config_gen_mutation_lang: _cgm_hash_line prints spelling TAB sha256 for a regular file and rc 1 for anything else (base#1465)` | A sha256 line binds a spelling to the bytes of a regular file; a path [[ -f ]] refuses (a dangling symlink, a fifo) has no bytes to bind. (base#1465) |
 | `config_gen_mutation_lang: _cgm_stale writes file= as one word, %XX outside ! to ~ and for % (base#1465)` | A refusal value is one word whatever the name holds: each byte outside ! to ~, and the % itself, is %XX. (base#1465) |
 
+### test/bats/unit/config_gen_s7_verdicts_spec.bats (2)
+
+Every corpus/s7 fixture's expected verdict lives in one shared table,
+dockerfile/config-gen/testdata/corpus/s7/s7_verdicts.tsv, as S6's layers
+live in s6_layers.tsv. The Go half (TestCheckS7Corpus) holds `config-gen
+check` on each fixture to the row's verdict, event, position and key. This
+half holds the same row to the bridge's own output, so the table is not the
+Go package's word: a refuse row's event and key are read off the bridge's
+refusal message, an accept or a differs:<exception> row is one the bridge's
+--kv accepts, and the apply column is what apply's per-layer checks
+(_layer_verdict) give the fixture. Line and column are counted from the
+fixture bytes, since the bridge reports no position.
+
+| Test | Description |
+|------|-------------|
+| `s7_verdicts: every row's verdict, event and key are the bridge's, its apply column _layer_verdict's` | Each row's verdict is the bridge's --kv status on the fixture: 1 for refuse, 0 for accept and for a differs:<exception> row, which the generator refuses on purpose while the bridge reads it. A refuse row's event and key are the ones the bridge's refusal message names, and every row's apply column is _layer_verdict's verdict on the fixture, so a fixture the generator accepts and apply refuses is recorded as such (base#1443). |
+| `s7_verdicts: every corpus/s7 fixture has exactly one row and every row its fixture` | The table and the corpus are held to each other both ways: every corpus/s7/*.toml has exactly one row and every row names a fixture, so a fixture added without its verdict, or a row left behind by a removed fixture, fails here and in the Go half (base#1443). |
+
 ### test/bats/unit/config_gen_schema_values_spec.bats (8)
 
 The Go generator's schema.Validate and the shell's _schema_validate must
