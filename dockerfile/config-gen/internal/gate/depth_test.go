@@ -74,8 +74,8 @@ func TestCheckDepthBoundaries(t *testing.T) {
 		{"it-arr", "#c\n1", 494, 1, 5},
 		{"ait", "#c\n1", 493, 1, 5},
 		// An empty inline table one frame past the limit, which only the
-		// inline table's own depth check refuses: forms/depth
-		// it-arr-it-empty-* (base#1441).
+		// inline table's own depth check refuses (forms/depth
+		// it-arr-it-empty-*, base#1441).
 		{"it-arr", "{}", 494, 1, 5},
 		// An empty inline table read after another inline table goes one
 		// frame deeper than the first one the document reads: forms/depth
