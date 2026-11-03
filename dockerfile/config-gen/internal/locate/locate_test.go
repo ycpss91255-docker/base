@@ -201,16 +201,25 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for n := 0; n <= len(src); n++ {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						t.Fatalf("%s: Index of the first %d bytes panicked: %v", file, n, r)
-					}
-				}()
-				Index(src[:n])
+		indexEveryPrefix(t, file, src)
+	}
+}
+
+// indexEveryPrefix indexes each byte prefix of src and fails the test if
+// one panics. Each prefix is passed with its capacity cut to its length,
+// so a read past the end panics instead of reading the bytes that follow
+// it (base#1467: with src[:n] a mutant that read past the end lived).
+func indexEveryPrefix(t *testing.T, label string, src []byte) {
+	t.Helper()
+	for n := 0; n <= len(src); n++ {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("%s: Index of the first %d bytes %q panicked: %v", label, n, src[:n], r)
+				}
 			}()
-		}
+			Index(src[:n:n])
+		}()
 	}
 }
 
@@ -218,21 +227,9 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 // key whose quoted names hold a \u and a \U escape, so input that ends
 // inside the hex digits of an escape cannot make the scan read past the
 // input (base#1467: the S1f mutation gate found no corpus file with a hex
-// escape, so no prefix of one was indexed). Each prefix is passed with its
-// capacity cut to its length, so a read past the end panics instead of
-// reading the bytes that follow it.
+// escape, so no prefix of one was indexed).
 func TestIndexCutHexEscapeIsSafe(t *testing.T) {
-	src := []byte("[\"\\u0041\"]\n\"\\U0001F600\" = 1\n")
-	for n := 0; n <= len(src); n++ {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("Index of the first %d bytes %q panicked: %v", n, src[:n], r)
-				}
-			}()
-			Index(src[:n:n])
-		}()
-	}
+	indexEveryPrefix(t, "hex escapes", []byte("[\"\\u0041\"]\n\"\\U0001F600\" = 1\n"))
 }
 
 // TestIndexInlineMembers checks that each key written inside an inline
