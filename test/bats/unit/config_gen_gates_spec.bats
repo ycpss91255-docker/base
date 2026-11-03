@@ -591,11 +591,11 @@ EOF
   printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
   cp "${S}/bin/just" "${S}/bin/docker"
   chmod +x "${S}/bin/just" "${S}/bin/docker"
-  # A fixed wall-clock `timeout N` around a redpath call expires under
-  # parallel probes before the per-test bound the drivers scale does, and
-  # test 18 went red with status 124 (base#1527). The per-test bound is the
-  # only bound: a redpath call wrapped in a PATH `timeout`, whatever its
-  # literal, answers as an expired timeout and says why.
+  # Test 18 went red in the mutation-required baseline on hosted lint-static
+  # while every redpath call sat under a fixed wall-clock `timeout N` that
+  # the drivers do not scale (base#1527). The per-test bound, which they do
+  # scale, is the only bound: a redpath call wrapped in a PATH `timeout`,
+  # whatever its literal, answers as an expired timeout and says why.
   printf '#!%s\necho "timeout $*" >> "%s/bounded"\necho "a fixed timeout wrapped the redpath (base#1527): timeout $*" >&2\nexit 124\n' \
     "$(command -v bash)" "${S}" > "${S}/bin/timeout"
   chmod +x "${S}/bin/timeout"
@@ -683,8 +683,8 @@ _canned_correct() {
 # no inherited CONFIG_GEN_REDPATH_ACTIVE or CONFIG_GEN_REDPATH_ONLY, and the
 # given VAR=value words on top. Every redpath call in this spec goes through
 # here, and none carries its own `timeout N`: the bats per-test bound, which
-# every driver scales, is the only bound, and a fixed literal inside it
-# expired first under parallel probes (base#1527). The `timeout` stub in
+# every driver scales, is the only bound, not a fixed literal inside it
+# (base#1527). The `timeout` stub in
 # _redpath_repo turns any such wrapper red.
 _redpath_exec() {
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY \
