@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 #
-# config_gen_coverage_spec.bats -- dockerfile/config-gen/gates/coverage.sh,
+# config_gen_coverage_spec.bats -- script/test/config_gen_coverage.sh,
 # the coverage gate the config-gen test stage runs (base#1462).
 #
 # why: The gate measures per-package profiles and writes, per package,
@@ -21,7 +21,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  GATE="/source/dockerfile/config-gen/gates/coverage.sh"
+  GATE="/source/script/test/config_gen_coverage.sh"
   S="${BATS_TEST_TMPDIR}"
   mkdir -p "${S}/bin" "${S}/prof" "${S}/mod"
   : > "${S}/list"

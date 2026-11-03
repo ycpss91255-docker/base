@@ -1,0 +1,23 @@
+# Locator string fixture (base#1442): escaped quotes, multi-line literal
+# strings, escaped triple quotes, quoted keys with escapes, an indented
+# header and a comment after a header.
+[environment] # a comment holding [x] and = after the header
+env_1 = "A=a\"b"
+env_2 = 'A=c'
+env_3 = "A=\\"
+  [deploy]
+gpu_capabilities = '''
+[fake]
+gpu = 1
+'''
+"gpu_count" = "all"
+[lifecycle]
+watchdog_check = """a \""" [b]
+[fake2]
+"""
+watchdog_notify = """x""""
+"q\"k" = 1
+"tAb" = 2
+tail = { a = "}" }
+[logging]
+driver = "local"

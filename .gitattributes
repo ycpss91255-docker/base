@@ -18,3 +18,7 @@ doc/changelog/v[0-9]*.md merge=union
 # endings on purpose, and a checkout or commit that normalised them would
 # test a different file than Go measured (base#1463).
 test/fixtures/gomod/*.mod -text
+
+# The locator lex fixture holds CRLF line ends on purpose (base#1442);
+# core.autocrlf=input would commit them as LF and drop the case.
+dockerfile/config-gen/testdata/corpus/s6/s6_loc_lex.toml -text

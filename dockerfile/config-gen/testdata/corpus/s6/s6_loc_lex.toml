@@ -1,0 +1,23 @@
+# Locator lex matrix (base#1442): each string form with an escaped or
+# doubled quote, a backslash before the close, a header-like line, a
+# line-ending backslash, CRLF line ends and a comment holding a quote.
+[environment] # a "quoted" comment with ' and [x]
+env_1 = "A=\"" # basic, escaped quote
+env_2 = "A=\\" # basic, backslash before the close
+env_3 = 'A=\' # literal, backslash before the close
+env_4 = """A=\""" [h]
+[not_a_header]
+"""
+env_5 = """A=\
+  b"""
+env_6 = '''A=''
+[still_string]
+'''
+env_7 = """A=\\"""
+[lifecycle]
+watchdog_check = "a \"q\" b"
+watchdog_notify = 'x # not a comment'
+"quoted key \" ]" = 1
+'lit key [x]' = 2 # comment " ' 
+[logging]
+driver = "local"
