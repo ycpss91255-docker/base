@@ -55,9 +55,11 @@
 # the 00-manifest step wrote with dirty=yes: a step planted after every
 # real one prints its header line, prefixed with
 # "config-gen redpath manifest: ", and the runner streams a step's stdout
-# to stderr. A mutation case listed in _RP_MUTATION_LINES must also end a
-# stderr line with " <its line>", the gate's verdict for that package as
-# the build log streams it (reason mutation_line_missing). A mutation case
+# to stderr. A mutation case listed in _RP_MUTATION_FAILED must also carry
+# exactly one runner JSON config_gen_mutation_package_failed record, and
+# it must name the row's package by pkg= with the row's reason and
+# measured efficacy (reason mutation_record_mismatch): the gate's verdict
+# on the planted package, attributed to it. A mutation case
 # listed in _RP_MUTATION_EVENTS must carry exactly one runner JSON record
 # of its event, naming its file (reason mutation_event_mismatch): the
 # mapping's refusal of what the case planted, re-emitted with its file=.
@@ -227,8 +229,10 @@ readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
 readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
-# <case>|<the line the mutation gate must print for it> (base#1467). The
-# mut-timeout figure is 3 killed over 4 judged: gremlins reported its loop
+# <case>|<pkg>|<reason>|<measured>: the one package failure record the
+# runner must log for <case>, re-emitted from the mutation gate's
+# config_gen_mutation_package_failed line (base#1467). The mut-timeout
+# figure is 3 killed over 4 judged: gremlins reported its loop
 # fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
 # The corpus figure is 0 killed over 2 judged: Pos's boundary and negation
 # mutants of n > 0 both live, since no test asserts Pos's result; so are
@@ -236,12 +240,12 @@ readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race covera
 # mut-untracked-lived's, an added package whose test asserts nothing: no
 # mutant there times out, so its 0.0 holds only if a LIVED mutant is
 # judged not killed.
-readonly -a _RP_MUTATION_LINES=(
-  'mut-unstaged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0'
-  'mut-staged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0'
-  'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0'
-  'mut-untracked-lived|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive failed reason=below measured=0.0'
-  'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0'
+readonly -a _RP_MUTATION_FAILED=(
+  'mut-unstaged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0'
+  'mut-staged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0'
+  'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop|below|75.0'
+  'mut-untracked-lived|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive|below|0.0'
+  'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak|below|0.0'
 )
 # <case>|<event>|<file>: the one record of <event>, naming <file>, the
 # mutation gate's mapping must refuse <case> with (base#1467).
@@ -1058,16 +1062,6 @@ _rp_verdict() {
     || { echo not_dirty; return 0; }
 }
 
-# _rp_mutation_line <case> -- the line _RP_MUTATION_LINES holds for
-# <case>, empty when it holds none.
-_rp_mutation_line() {
-  local entry
-  for entry in "${_RP_MUTATION_LINES[@]}"; do
-    [[ "${entry%%|*}" == "${1}" ]] && { printf '%s\n' "${entry#*|}"; return 0; }
-  done
-  return 0
-}
-
 # _rp_row <case> <entry>... -- the rest of the first `<case>|<rest>` entry,
 # empty when no entry is <case>'s.
 _rp_row() {
@@ -1099,14 +1093,17 @@ _rp_line_ends() {
 # _rp_case <scratch> <case> <gate> -- run one planted case; non-zero when
 # it did not go red as planted.
 _rp_case() {
-  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason line weak event
+  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason failed pkg want weak event
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
-  line="$(_rp_mutation_line "${name}")"
-  if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
-    reason=mutation_line_missing
+  failed="$(_rp_row "${name}" "${_RP_MUTATION_FAILED[@]}")"
+  if [[ -z "${reason}" && -n "${failed}" ]]; then
+    pkg="${failed%%|*}" want="${failed#*|}"
+    [[ "$(_rp_event_detail "${root}.err" config_gen_mutation_package_failed pkg reason)" == "${pkg}|${want%%|*}" \
+      && "$(_rp_event_detail "${root}.err" config_gen_mutation_package_failed pkg measured)" == "${pkg}|${want#*|}" ]] \
+      || reason=mutation_record_mismatch
   fi
   weak="$(_rp_weak_pairs "${name}")"
   if [[ -z "${reason}" && -n "${weak}" ]] \

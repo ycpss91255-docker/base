@@ -27,8 +27,10 @@
 // report when there is no report it can read, or below when that efficacy
 // is under 90.0. A package gremlins wrote no report for after printing
 // `No results to report.` and exiting 0 prints `<pkg> no-mutants` and
-// passes. Each other package prints `<pkg> ok efficacy=<e>` or `<pkg>
-// failed reason=<r> [measured=<e>]` on stdout.
+// passes. Each other package prints `<pkg> ok efficacy=<e>`, or, failed,
+// `cg_event config_gen_mutation_package_failed pkg=<pkg> reason=<r>
+// [measured=<e>]` (buildgate.PackageFailed) on stdout, which the runner
+// re-emits as a record naming the package.
 // After the last package any failure puts
 // `config_gen_gate_mutation_failed` on stderr. Before any package, each
 // package the manifest deletes that the head tree no longer holds prints
@@ -191,7 +193,7 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		w := io.MultiWriter(stderr, &said)
 		cmd.Stdout, cmd.Stderr = w, w
 		if err := cmd.Run(); err != nil {
-			_, _ = fmt.Fprintf(stdout, "%s failed reason=gremlins_failed\n", pkg)
+			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "gremlins_failed").String())
 			bad = true
 			continue
 		}
@@ -205,13 +207,13 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 			eff, err = buildgate.Efficacy(rep)
 		}
 		if err != nil {
-			_, _ = fmt.Fprintf(stdout, "%s failed reason=report\n", pkg)
+			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "report").String())
 			bad = true
 			continue
 		}
 		e := fmt.Sprintf("%d.%d", eff/10, eff%10)
 		if eff < buildgate.MutationFloor {
-			_, _ = fmt.Fprintf(stdout, "%s failed reason=below measured=%s\n", pkg, e)
+			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "below", "measured", e).String())
 			bad = true
 			continue
 		}

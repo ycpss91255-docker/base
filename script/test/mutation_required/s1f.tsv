@@ -9,7 +9,7 @@
 runner-event-table-filter	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	[[ "${line}" =~ ${_CG_EVENT_RE} && -n "${listed[${BASH_REMATCH[1]}]:-}" ]] || continue	[[ "${line}" =~ ${_CG_EVENT_RE} ]] || continue
 runner-event-table-read	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	[[ -z "${line}" || "${line}" == '#'* ]] || listed["${line}"]=1	:
 redpath-mutation-dirty	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	dirty=yes context=pr" "${err}"	dirty=(yes|no) context=pr" "${err}"
-redpath-mutation-line	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=mutation_line_missing	    :
+redpath-mutation-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	      || reason=mutation_record_mismatch	      || true
 redpath-weak-records	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=weak_records_mismatch	    :
 redpath-mutation-event	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=mutation_event_mismatch	    :
 redpath-green-line	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	    reason=green_line_missing	    :

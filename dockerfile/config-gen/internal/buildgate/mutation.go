@@ -20,6 +20,13 @@ const modulePrefix = "dockerfile/config-gen/"
 // integer tenths of a percent.
 const MutationFloor = 900
 
+// PackageFailed is the event the gate prints for each package it fails
+// (base#1467): pkg is the package's import path and reason why it failed,
+// followed by the key-value pairs kv (`measured`, <e> for reason below).
+func PackageFailed(pkg, reason string, kv ...string) Event {
+	return ev("mutation_package_failed", append([]string{"pkg", pkg, "reason", reason}, kv...)...)
+}
+
 // Targets returns the module-relative directory (`.` for the root) of
 // every Go file the change manifest lists, sorted and once each. The
 // manifest's first line is its header; every later line is a status

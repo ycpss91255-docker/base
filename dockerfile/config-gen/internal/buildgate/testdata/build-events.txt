@@ -33,3 +33,4 @@ config_gen_corpus_sensitivity_invalid
 config_gen_mutation_manifest_invalid
 config_gen_mutation_no_such_package
 config_gen_mutation_unmapped
+config_gen_mutation_package_failed
