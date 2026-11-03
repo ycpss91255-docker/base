@@ -402,8 +402,12 @@ JSON
 #             different content than was verified.
 #   platform  both tags resolve to the amd64 shard index alone, so the
 #             published manifest is missing an arch the matrix built.
+#   moved     an ordinary publish whose tags move under the step: the first
+#             read of each tag BY NAME answers the flattened index, every
+#             later read by name answers an index whose linux/amd64 child is
+#             content nothing verified, the way a concurrent publish would.
 _confirm_step_for() {
-  local _mode="${1}" _body _dir _base _ver _latest _status=0
+  local _mode="${1}" _body _dir _base _ver _latest _moved='' _status=0
   _body="$(yaml_step_run "${WF}" merge "${_CONFIRM_STEP}")" || {
     printf 'BUG: yq could not read the confirmation step of %s\n' "${WF}"
     return 2
@@ -421,6 +425,8 @@ _confirm_step_for() {
     agree) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}" ;;
     content) _fx_content; _ver="${_FX_MAIN}" _latest="${_FX_CONTENT}" ;;
     platform) _ver="${_FX_SHARD_AMD64}" _latest="${_FX_SHARD_AMD64}" ;;
+    moved) _fx_content; _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
+      _moved="${_FX_CONTENT}" ;;
     *) printf 'BUG: unknown registry state %s\n' "${_mode}"; return 2 ;;
   esac
   # The artifact directory the step reads: one file per arch the matrix
@@ -436,6 +442,7 @@ _confirm_step_for() {
     cd -- "${_dir}/digests" || exit 2
     PATH="${SCRATCH}/bin:${PATH}" \
     STUB_FX="${SCRATCH}/fx" \
+    STUB_TAG_MOVED="${_moved:-}" \
     TAGS="${_base}:v1.2.3-standard,${_base}:latest-standard" \
     VERIFIED_REF="${_base}@sha256:${_FX_SHARD_AMD64}" \
       bash "${_dir}/step.sh" 2>&1
@@ -651,6 +658,21 @@ merge: packages: write'
   run _confirm_step_for content
   assert_failure
   assert_output --partial 'The tags were attached to content'
+}
+
+# why: A tag is mutable, so every read of it BY NAME may answer a different
+# index: a concurrent publish can move it between the platform listing and
+# the content comparison. A step that reads the tag by name more than once
+# checks two different indexes and reports on neither -- here it would refuse
+# content the run never published. Each tag has to be resolved ONCE to a
+# digest and every later read made through that digest. The child asserted is
+# the linux/amd64 descriptor of run 41451556967's flattened index, the one the
+# tag answered first (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation reads each tag by name once, so a tag that moves mid-step is judged on the index it first named (base#1514)" {
+  run _confirm_step_for moved
+  assert_success
+  assert_output --partial 'ros_distro:v1.2.3-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
+  assert_output --partial 'ros_distro:latest-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
 }
 
 # why: The other half: a published index that silently lost an arch the
