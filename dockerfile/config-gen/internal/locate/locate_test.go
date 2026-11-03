@@ -214,6 +214,27 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 	}
 }
 
+// TestIndexCutHexEscapeIsSafe indexes every byte prefix of a header and a
+// key whose quoted names hold a \u and a \U escape, so input that ends
+// inside the hex digits of an escape cannot make the scan read past the
+// input (base#1467: the S1f mutation gate found no corpus file with a hex
+// escape, so no prefix of one was indexed). Each prefix is passed with its
+// capacity cut to its length, so a read past the end panics instead of
+// reading the bytes that follow it.
+func TestIndexCutHexEscapeIsSafe(t *testing.T) {
+	src := []byte("[\"\\u0041\"]\n\"\\U0001F600\" = 1\n")
+	for n := 0; n <= len(src); n++ {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Index of the first %d bytes %q panicked: %v", n, src[:n], r)
+				}
+			}()
+			Index(src[:n:n])
+		}()
+	}
+}
+
 // TestIndexInlineMembers checks that each key written inside an inline
 // value is a member at its own line and column, under the path the
 // library lists it by (base#1442 review round 1 finding 2): a bracket in
