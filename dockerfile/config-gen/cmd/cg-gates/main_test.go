@@ -424,10 +424,11 @@ func TestSensitivity(t *testing.T) {
 }
 
 // realModule is a module the real go toolchain builds: an
-// internal/testcorpus whose Glob resolves a pattern under its root, a
-// strong consumer whose test compares a.golden's bytes, and a weak one
-// whose test only asserts Glob returned one path. b.golden is handed to
-// no package.
+// internal/testcorpus whose Glob resolves a pattern under its root through
+// a helper, beside a method also named Glob; a strong consumer whose test
+// compares a.golden's bytes; a weak one whose test only asserts Glob
+// returned a.golden; and bweak, whose test only asserts Glob returned
+// b.golden. c.golden is handed to no package.
 var realModule = map[string]string{
 	"go.mod": "module example.com/m\n\ngo 1.21\n",
 	"internal/testcorpus/testcorpus.go": `// Package testcorpus resolves corpus paths.
@@ -440,10 +441,20 @@ import (
 
 var root string
 
+// Dir is a corpus directory.
+type Dir string
+
+// Glob is a method of the same name, which the gate must leave alone.
+func (d Dir) Glob() string { return string(d) }
+
 // Glob returns the corpus paths pattern matches.
 func Glob(t testing.TB, pattern string) []string {
 	t.Helper()
-	got, err := filepath.Glob(filepath.Join(root, pattern))
+	return resolve(t, Dir(root), pattern)
+}
+
+func resolve(t testing.TB, d Dir, pattern string) []string {
+	got, err := filepath.Glob(filepath.Join(d.Glob(), pattern))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,14 +493,36 @@ func TestA(t *testing.T) {
 	}
 }
 `,
+	"internal/bweak/bweak_test.go": `package bweak
+
+import (
+	"testing"
+
+	"example.com/m/internal/testcorpus"
+)
+
+func TestB(t *testing.T) {
+	if got := testcorpus.Glob(t, "golden/s1/b.golden"); len(got) != 1 {
+		t.Fatalf("Glob = %q", got)
+	}
+}
+`,
 	"root/golden/s1/a.golden": "a golden\n",
 	"root/golden/s1/b.golden": "b golden\n",
+	"root/golden/s1/c.golden": "c golden\n",
 }
 
 // The gate, run with the real go toolchain on realModule, finds each
 // golden's consumers through the traced Glob, flips each golden for them,
-// and reports exactly the consumer that still passes: the weak package
-// for a.golden, b.golden as handed to nobody. The corpus root and the
+// and reports exactly the consumers that still pass, each against the
+// golden its own tests were handed: weak for a.golden, bweak for b.golden,
+// and neither strong nor any package for c.golden, which is handed to
+// nobody. This is the gate's whole contract with buildgate.TraceOverlay
+// and buildgate.TraceSource: an overlay whose traced Glob did not reach
+// the renamed one, did not compile beside the method, or recorded nothing
+// would leave every golden with no consumer; one that attributed every
+// golden to every importer would also name bweak for a.golden, strong
+// and weak for b.golden, and all three for c.golden (base#1467). The corpus root and the
 // module's own testcorpus source are left as they were.
 func TestSensitivityWithTheGoToolchain(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
@@ -517,14 +550,16 @@ func TestSensitivityWithTheGoToolchain(t *testing.T) {
 		t.Fatalf("status %d, want 1; stderr %q", got, errOut.String())
 	}
 	want := "cg_event config_gen_corpus_sensitivity_weak pkg=example.com/m/internal/weak file=golden/s1/a.golden\n" +
-		"golden=golden/s1/b.golden consumers none\n"
+		"cg_event config_gen_corpus_sensitivity_weak pkg=example.com/m/internal/bweak file=golden/s1/b.golden\n" +
+		"golden=golden/s1/c.golden consumers none\n"
 	if out.String() != want {
 		t.Errorf("stdout %q, want %q", out.String(), want)
 	}
 	if !strings.HasSuffix(errOut.String(), "config_gen_gate_corpus_sensitivity_failed\n") {
 		t.Errorf("stderr does not end with the gate id: %q", errOut.String())
 	}
-	for _, name := range []string{"root/golden/s1/a.golden", "root/golden/s1/b.golden", "internal/testcorpus/testcorpus.go"} {
+	for _, name := range []string{"root/golden/s1/a.golden", "root/golden/s1/b.golden", "root/golden/s1/c.golden",
+		"internal/testcorpus/testcorpus.go"} {
 		if b, _ := os.ReadFile(filepath.Join(dir, name)); string(b) != realModule[name] {
 			t.Errorf("%s = %q after the gate, want it as it was", name, b)
 		}

@@ -552,6 +552,7 @@ green|rename-move|
 green|copies|
 green|typechange|
 green|ign-excluded|
+green|ign-excluded-go|
 green|docs-only|mutation targets none
 after|ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go
 after|untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt

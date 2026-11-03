@@ -124,7 +124,12 @@
 # lists it in ignored.sha256; Dockerfile.config-gen.dockerignore must keep
 # it out of the build context, admission must accept a listed ignored file
 # the context does not hold, and so the ignored-input gate has nothing to
-# refuse: the run passes with the six ok lines.
+# refuse: the run passes with the six ok lines. ign-excluded-go is the ign
+# case below, the same Git-ignored cmd/config-gen/zz_ign.go planted the
+# same way, with one more line in the copy's
+# Dockerfile.config-gen.dockerignore that drops it from the build context:
+# that line alone turns ign's refusal into a green run, so the gate judges
+# what the context holds, never the file's name or kind.
 #
 # An after-admit case (_RP_AFTER_ADMIT, base#1467) leaves a Git-ignored
 # module file in the build context, so the producer lists it in
@@ -289,7 +294,7 @@ readonly -a _RP_STALE=(
 )
 # The green cases: each a git state whose baseline must be admitted
 # (base#1465).
-readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded docs-only)
+readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded ign-excluded-go docs-only)
 # <case>|<a line its build log must end a line with> (base#1467).
 readonly -a _RP_GREEN_LINES=('docs-only|mutation targets none')
 # <case>|<gate>|<event>|<file>: a context the producer and admission both
@@ -503,13 +508,17 @@ EOF
     names | rename-recreate | untrack | rename-move | untrack-ignored | copies | typechange)
       _rp_green "${1}" "${root}"
       ;;
-    ign)
+    ign | ign-excluded-go)
       # Every gate before the ignored one passes on it: a package clause
       # and no statement. Ignored only by the copy's own .git/info/exclude,
-      # so nothing in the context names it.
+      # so nothing in the context names it. ign-excluded-go also has the
+      # copy's dockerignore drop it from the build context.
       printf 'zz_ign.go\n' >"${root}/.git/info/exclude"
       printf '// zz_ign.go is a Git-ignored file left in the build context.\npackage main\n' \
         >"${cmd}/zz_ign.go"
+      if [[ "${1}" == ign-excluded-go ]]; then
+        printf '**/zz_ign.go\n' >>"${root}/dockerfile/Dockerfile.config-gen.dockerignore"
+      fi
       ;;
     ign-excluded)
       # The swap file vim leaves beside main.go while it is open, ignored

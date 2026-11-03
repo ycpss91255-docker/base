@@ -1,9 +1,11 @@
 package buildgate
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -29,18 +31,75 @@ func TestCorpusImporters(t *testing.T) {
 	}
 }
 
+// TraceOverlay changes exactly one identifier: the name of the one
+// top-level func Glob, to a name no top-level declaration of the source
+// holds. Its doc, signature and body, a method named Glob and every other
+// declaration stay byte for byte. The new name is not this test's
+// business: that the traced Glob reaches the renamed one, and that a
+// consumer's reads are attributed through it, is what
+// TestSensitivityWithTheGoToolchain (cmd/cg-gates) runs through the gate's
+// own command.
 func TestTraceOverlay(t *testing.T) {
 	src := "package testcorpus\n\n// Glob doc.\nfunc Glob(t T, p string) []string { return Glob2(t, p) }\n\n" +
-		"func (x X) Glob() {}\n\nfunc Glob2(t T, p string) []string { return nil }\n"
-	want := "package testcorpus\n\n// Glob doc.\nfunc cgUntracedGlob(t T, p string) []string { return Glob2(t, p) }\n\n" +
 		"func (x X) Glob() {}\n\nfunc Glob2(t T, p string) []string { return nil }\n"
 	got, err := TraceOverlay([]byte(src))
 	if err != nil {
 		t.Fatalf("TraceOverlay: %v", err)
 	}
-	if string(got) != want {
-		t.Errorf("TraceOverlay = %q, want %q", got, want)
+	before, after := topFuncs(t, src), topFuncs(t, string(got))
+	if len(after) != len(before) {
+		t.Fatalf("TraceOverlay = %q: %d top-level funcs, want %d", got, len(after), len(before))
 	}
+	renamed := 0
+	for i, b := range before {
+		a := after[i]
+		if b.name != "Glob" || b.method {
+			continue
+		}
+		renamed++
+		for _, o := range before {
+			if !o.method && o.name == a.name {
+				t.Errorf("TraceOverlay renamed Glob to %q, a name the source already holds", a.name)
+			}
+		}
+		back := string(got[:a.at]) + "Glob" + string(got[a.at+len(a.name):])
+		if back != src {
+			t.Errorf("TraceOverlay = %q: more than Glob's name changed", got)
+		}
+	}
+	if renamed != 1 {
+		t.Fatalf("the source holds %d top-level func Glob, want 1", renamed)
+	}
+	for _, a := range after {
+		if a.name == "Glob" && !a.method {
+			t.Errorf("TraceOverlay = %q still holds a top-level func Glob", got)
+		}
+	}
+}
+
+// topFunc is one func declaration: its name, the byte offset of the name,
+// and whether it has a receiver.
+type topFunc struct {
+	name   string
+	at     int
+	method bool
+}
+
+// topFuncs returns src's func declarations in source order.
+func topFuncs(t *testing.T, src string) []topFunc {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "x.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse %q: %v", src, err)
+	}
+	out := []topFunc{}
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok {
+			out = append(out, topFunc{fd.Name.Name, fset.Position(fd.Name.Pos()).Offset, fd.Recv != nil})
+		}
+	}
+	return out
 }
 
 func TestTraceOverlayRefusesNoGlob(t *testing.T) {
@@ -59,18 +118,6 @@ func TestTraceOverlayRefusesNoGlob(t *testing.T) {
 				t.Fatalf("TraceOverlay = %q, %v; want the refusal %q", got, err, refusal)
 			}
 		})
-	}
-}
-
-func TestTraceSourceCallsTheRenamedGlob(t *testing.T) {
-	if !reflect.DeepEqual(TracedGoldens(TraceSource, "x"), []string{}) {
-		t.Fatal("TraceSource names a golden")
-	}
-	for _, want := range []string{"func Glob(t testing.TB, pattern string) []string",
-		"got := cgUntracedGlob(t, pattern)", `os.Getenv("CG_TESTCORPUS_TRACE")`} {
-		if !strings.Contains(TraceSource, want) {
-			t.Errorf("TraceSource lacks %q", want)
-		}
 	}
 }
 
