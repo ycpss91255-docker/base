@@ -168,13 +168,13 @@ func TestIndexKeyEscapes(t *testing.T) {
 }
 
 // TestIndexBareKeyEveryAllowedByte checks that a bare key runs through
-// every byte TOML allows in one, A-Z, a-z, 0-9, `_` and `-`, the first
-// and last byte of each range included, in a header and in a
-// `key = value` line (base#1467: the S1f mutation gate found no test that
-// writes A, Z or 9 in a bare key). The expected paths are the library's
-// md.Keys().
+// every byte TOML allows in one: the header holds A-Z, one key line a-z
+// and the other 0-9, `_` and `-`, so each range is written whole, its
+// first and last byte included (base#1467: the S1f mutation gate found no
+// test that writes A, Z or 9 in a bare key). The expected paths are the
+// library's md.Keys().
 func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
-	src := []byte("[AZaz09]\n_-Az = 1\nZ9 = 2\n")
+	src := []byte("[ABCDEFGHIJKLMNOPQRSTUVWXYZ]\nabcdefghijklmnopqrstuvwxyz = 1\n0123456789_- = 2\n")
 	md, err := toml.Decode(string(src), new(map[string]any))
 	if err != nil {
 		t.Fatalf("library refused %q: %v", src, err)
