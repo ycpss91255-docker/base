@@ -54,6 +54,14 @@ func TestCheckArrayWithNoFamily(t *testing.T) {
 			[][]string{{"conf_value_type_refused", "2", "1", "security.privileged"}}},
 		{"inline array of tables at a bool key", "[security]\nprivileged = [{ value = true }]\n",
 			[][]string{{"conf_value_type_refused", "2", "1", "security.privileged"}}},
+		// A known section that no array family carries, written as a
+		// root array: the bridge's --kv gives rc 1 "deploy is an array,
+		// and no numbered family of the shell view carries an array by
+		// that name" for both (base#1443 review round 1 finding 1).
+		{"inline array at a known section with no family", "deploy = []\n",
+			[][]string{{"conf_top_level_key", "1", "1", "deploy"}}},
+		{"array of tables at a known section with no family", "[[deploy]]\nzz = 1\n",
+			[][]string{{"conf_unknown_table", "1", "1", "deploy"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

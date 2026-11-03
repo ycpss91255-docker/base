@@ -1939,6 +1939,23 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
+### test/bats/unit/config_gen_array_homes_spec.bats (2)
+
+The Go generator's schema tests iterate schema.Homes() and take each home's
+expected bodies from one fixture table,
+dockerfile/config-gen/testdata/corpus/s7/s7_array_homes.tsv. This half holds
+that table to the shell's word, so it is not the Go package's: its `writer`
+rows are exactly what the shell writers name and spell, and every row's
+bodies get from the bridge the verdict the Go tests expect of schema.Decode
+-- an entry without its field and a string entry refused, a field-less and
+an all-empty entry kept as one empty row, the populated entry kept, and an
+unknown field beside it refused by name.
+
+| Test | Description |
+|------|-------------|
+| `array homes: the writer rows are what the shell writers name and spell (base#1443)` | The Go half iterates schema.Homes() and takes each home's all-empty and populated bodies from the table's rows. This half holds the `writer` rows equal, in order, to what _conf_toml_aot_section over SCHEMA_SECTIONS names and _conf_toml_aot_fields spells for "" and for "a=b:c:d", so a home the writers gain, or a body they spell another way, fails here until the table knows it (base#1443). |
+| `array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)` | The Go half expects schema.Decode to refuse an entry without its field and a string entry, to keep a field-less and an all-empty entry as one empty entry, to keep the populated entry and to refuse an unknown field beside it. Each of those verdicts is the bridge's --kv verdict on the same body for every row, the legacy [[devices]] included, so the table the Go tests read is the shell's word (base#1443). |
+
 ### test/bats/unit/config_gen_coverage_spec.bats (15)
 
 The gate measures per-package profiles and writes, per package, `<import
