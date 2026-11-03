@@ -131,7 +131,7 @@ func (c *Config) Entry(a Address) (*Entry, error) {
 			continue
 		}
 		if a.Index > len(fam.Entries) {
-			break
+			return nil, &AddressError{Kind: AddrOutOfRange, Addr: fmt.Sprintf("%s.%s_%d", a.Section, a.Prefix, a.Index)}
 		}
 		e := fam.Entries[a.Index-1]
 		return &e, nil
