@@ -21,14 +21,17 @@ import (
 // written on (0 when no position is known). A refusal of an array
 // entry also carries the entry's 1-based number in its family, Entry
 // (0 for any other refusal), and, when it names one field of that
-// entry, Field, the last segment of Path (base#1443).
+// entry, HasField true and Field, the last segment of Path. HasField,
+// not an empty Field, tells the two apart: a quoted "" key is a field
+// whose name is empty (base#1443 review round 1 finding 1).
 type Refusal struct {
-	Event string
-	Path  []string
-	Line  int
-	Col   int
-	Entry int
-	Field string
+	Event    string
+	Path     []string
+	Line     int
+	Col      int
+	Entry    int
+	Field    string
+	HasField bool
 }
 
 // Key is the name a diagnostic gives the refusal: Path joined with ".",
@@ -39,11 +42,11 @@ func (r Refusal) Key() string {
 		return strings.Join(r.Path, ".")
 	}
 	home := r.Path
-	if r.Field != "" {
+	if r.HasField {
 		home = r.Path[:len(r.Path)-1]
 	}
 	key := fmt.Sprintf("%s[%d]", strings.Join(home, "."), r.Entry)
-	if r.Field != "" {
+	if r.HasField {
 		key += "." + r.Field
 	}
 	return key

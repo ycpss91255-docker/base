@@ -210,7 +210,7 @@ func TestEveryHomeRefusesAnEntryWithoutItsFieldAndKeepsAnEmptyOne(t *testing.T) 
 					continue
 				}
 				rf := refusals[0]
-				if rf.Event != c.event || !reflect.DeepEqual(rf.Path, h.Path) || rf.Entry != 1 || rf.Field != "" {
+				if rf.Event != c.event || !reflect.DeepEqual(rf.Path, h.Path) || rf.Entry != 1 || rf.HasField || rf.Field != "" {
 					t.Errorf("%s: refusal = %+v, want {%s %q entry 1}", c.name, rf, c.event, h.Path)
 				}
 			}
@@ -300,7 +300,7 @@ func TestEveryHomeRefusesAnUnknownFieldBesideItsOwn(t *testing.T) {
 			}
 			rf := refusals[0]
 			wantPath := append(append([]string{}, h.Path...), "zz")
-			if rf.Event != "conf_entry_unknown_field" || !reflect.DeepEqual(rf.Path, wantPath) || rf.Entry != 1 || rf.Field != "zz" {
+			if rf.Event != "conf_entry_unknown_field" || !reflect.DeepEqual(rf.Path, wantPath) || rf.Entry != 1 || !rf.HasField || rf.Field != "zz" {
 				t.Errorf("refusal = %+v, want {conf_entry_unknown_field %q entry 1 field zz}", rf, wantPath)
 			}
 			if wantLine := strings.Count(body, "\n"); rf.Line != wantLine {

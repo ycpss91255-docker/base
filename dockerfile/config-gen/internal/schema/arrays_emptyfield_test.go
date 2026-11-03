@@ -23,9 +23,9 @@ func TestEntryRefusalKeepsAnEmptyFieldName(t *testing.T) {
 		key       string
 	}{
 		{"first entry", "[[volumes]]\nsource = \"/a\"\n\"\" = \"x\"\n",
-			Refusal{Event: "conf_entry_unknown_field", Path: []string{"volumes", ""}, Line: 3, Col: 1, Entry: 1}, "volumes[1]."},
+			Refusal{Event: "conf_entry_unknown_field", Path: []string{"volumes", ""}, Line: 3, Col: 1, Entry: 1, HasField: true}, "volumes[1]."},
 		{"second entry", "[[volumes]]\nsource = \"/a\"\n\n[[volumes]]\nsource = \"/b\"\n\"\" = \"x\"\n",
-			Refusal{Event: "conf_entry_unknown_field", Path: []string{"volumes", ""}, Line: 6, Col: 1, Entry: 2}, "volumes[2]."},
+			Refusal{Event: "conf_entry_unknown_field", Path: []string{"volumes", ""}, Line: 6, Col: 1, Entry: 2, HasField: true}, "volumes[2]."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -35,7 +35,7 @@ func TestEntryRefusalKeepsAnEmptyFieldName(t *testing.T) {
 				t.Fatalf("Decode refusals = %+v, want exactly one", refusals)
 			}
 			got := refusals[0]
-			if got.Event != c.want.Event || !reflect.DeepEqual(got.Path, c.want.Path) || got.Line != c.want.Line || got.Col != c.want.Col || got.Entry != c.want.Entry || got.Field != "" {
+			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("refusal = %+v, want %+v naming the empty field", got, c.want)
 			}
 			if k := got.Key(); k != c.key {
