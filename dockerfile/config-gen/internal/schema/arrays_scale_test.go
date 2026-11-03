@@ -47,7 +47,7 @@ func TestDecodeTenThousandEntriesInBoundedTime(t *testing.T) {
 	if len(refusals) != 0 {
 		t.Fatalf("Decode refusals = %+v, want none", refusals[:min(len(refusals), 3)])
 	}
-	fam := cfg.Arrays["volumes"]
+	fam, _ := arrayAt(cfg, "volumes")
 	if fam.State != Set || len(fam.Entries) != n {
 		t.Fatalf("volumes holds %d entries, state %v; want %d, Set", len(fam.Entries), fam.State, n)
 	}

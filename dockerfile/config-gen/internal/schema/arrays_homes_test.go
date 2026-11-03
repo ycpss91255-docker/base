@@ -99,6 +99,20 @@ func entryFields(t *testing.T, e Entry) [][2]string {
 // homePath is h's path joined with ".", the path its fixture is keyed by.
 func homePath(h Home) string { return strings.Join(h.Path, ".") }
 
+// arrayAt is cfg's family at the dotted path of a home or fixture row,
+// whose segments hold no "."; a path with a dotted segment is looked up
+// with Config.Array itself (base#1443 review round 4 finding 1).
+func arrayAt(cfg *Config, dotted string) (Family, bool) {
+	return cfg.Array(strings.Split(dotted, ".")...)
+}
+
+// familyAt is arrayAt's family alone, the zero Family when cfg carries
+// none there.
+func familyAt(cfg *Config, dotted string) Family {
+	fam, _ := arrayAt(cfg, dotted)
+	return fam
+}
+
 // The schema's homes are the writers' homes and the legacy one: the
 // homes of Homes() the shell writers produce are exactly the fixture's
 // `writer` rows, in their order, each with the writers' numbered prefix,
@@ -197,7 +211,7 @@ func TestEveryHomeRefusesAnEntryWithoutItsFieldAndKeepsAnEmptyOne(t *testing.T) 
 					t.Errorf("%s: Decode(%q) refusals = %+v, want none", c.name, c.body, refusals)
 					continue
 				}
-				fam, ok := cfg.Arrays[path]
+				fam, ok := arrayAt(cfg, path)
 				if !ok || fam.State != Set || len(fam.Entries) != 1 {
 					t.Errorf("%s: Arrays[%s] = %+v, want a Set family of one entry", c.name, path, fam)
 					continue
@@ -252,7 +266,7 @@ func TestEveryHomeRefusesAnUnknownFieldBesideItsOwn(t *testing.T) {
 			if len(refusals) != 0 {
 				t.Fatalf("Decode(%q) refusals = %+v, want none", body, refusals)
 			}
-			fam := cfg.Arrays[path]
+			fam, _ := arrayAt(cfg, path)
 			if fam.State != Set || len(fam.Entries) != 1 {
 				t.Fatalf("Arrays[%s] = %+v, want a Set family of one entry", path, fam)
 			}

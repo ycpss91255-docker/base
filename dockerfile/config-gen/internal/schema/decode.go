@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -61,9 +62,11 @@ type Config struct {
 	// Deferred is every accepted array with its payload, in the order its
 	// ChildDeferred appears in the traversal; Child.Defer indexes it.
 	Deferred []Deferred
-	// Arrays is every accepted array of tables typed as a family, keyed by
-	// its TOML path joined with "." (base#1443).
-	Arrays map[string]Family
+	// Arrays is every accepted array of tables typed as a family, in the
+	// order of Deferred. A family is named by its path segments, never by
+	// their joined text, which two distinct paths can share (base#1443
+	// review round 4 finding 1); Array looks one up.
+	Arrays []Family
 	// Stages is every `["stage:<name>"]` table, in traversal order
 	// (base#1443).
 	Stages []Stage
@@ -731,10 +734,10 @@ func ProjectServices(t *Tree) map[string]*Service {
 // element is one entry at its own position, a field-less one included
 // (base#1443). A family written as `[]` is Empty; an unwritten one has
 // no row and reads as Absent.
-func projectArrays(deferred []Deferred) map[string]Family {
-	out := map[string]Family{}
+func projectArrays(deferred []Deferred) []Family {
+	var out []Family
 	for _, def := range deferred {
-		fam := Family{State: Set, Line: def.Line}
+		fam := Family{Path: def.Path, State: Set, Line: def.Line}
 		if len(def.Value.Items) == 0 {
 			fam.State = Empty
 		}
@@ -748,7 +751,20 @@ func projectArrays(deferred []Deferred) map[string]Family {
 			}
 			fam.Entries = append(fam.Entries, e)
 		}
-		out[strings.Join(def.Path, ".")] = fam
+		out = append(out, fam)
 	}
 	return out
+}
+
+// Array is the family of the layer at path, compared segment by
+// segment, and whether the layer carries one there; an unwritten family
+// is the zero Family, which reads as Absent (base#1443 review round 4
+// finding 1).
+func (c *Config) Array(path ...string) (Family, bool) {
+	for _, fam := range c.Arrays {
+		if slices.Equal(fam.Path, path) {
+			return fam, true
+		}
+	}
+	return Family{}, false
 }

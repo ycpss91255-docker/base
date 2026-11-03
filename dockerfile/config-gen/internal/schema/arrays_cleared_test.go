@@ -35,7 +35,7 @@ func TestDecodeClearedSlotIsOneEmptyEntry(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("Decode returned no Config")
 	}
-	fam, ok := cfg.Arrays["volumes"]
+	fam, ok := arrayAt(cfg, "volumes")
 	if !ok {
 		t.Fatalf("Arrays = %+v, want a volumes family", cfg.Arrays)
 	}

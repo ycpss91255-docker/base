@@ -156,7 +156,7 @@ func (c *Config) Entry(a Address) (*Entry, error) {
 		if h.path[0] != a.Section || h.prefix != a.Prefix {
 			continue
 		}
-		fam, ok := c.Arrays[strings.Join(h.path, ".")]
+		fam, ok := c.Array(h.path...)
 		if !ok {
 			continue
 		}

@@ -167,10 +167,11 @@ type Member struct {
 	Value Value
 }
 
-// Family is one `[[array]]` family of the layer: its state, the 1-based
-// line of its first occurrence and its entries in written order
-// (base#1443).
+// Family is one `[[array]]` family of the layer: its TOML path as
+// written, one element per key segment, its state, the 1-based line of
+// its first occurrence and its entries in written order (base#1443).
 type Family struct {
+	Path    []string
 	State   State
 	Line    int
 	Entries []Entry

@@ -35,7 +35,7 @@ func TestDevicesBindingsAndCgroupRulesAreIndependentInOneLayer(t *testing.T) {
 	if len(refusals) != 0 || cfg == nil {
 		t.Fatalf("Decode = %v, %+v, want a Config and no refusals", cfg, refusals)
 	}
-	if fam, ok := cfg.Arrays["devices"]; ok {
+	if fam, ok := arrayAt(cfg, "devices"); ok {
 		t.Errorf("Arrays[devices] = %+v, want no legacy family", fam)
 	}
 
@@ -47,7 +47,7 @@ func TestDevicesBindingsAndCgroupRulesAreIndependentInOneLayer(t *testing.T) {
 		"devices.bindings":     {{1, 1, "path", "/dev/a"}, {2, 7, "path", "/dev/b"}},
 		"devices.cgroup_rules": {{1, 4, "rule", "c 1:1 rwm"}, {2, 10, "rule", "c 2:2 r"}},
 	} {
-		fam, ok := cfg.Arrays[path]
+		fam, ok := arrayAt(cfg, path)
 		if !ok || fam.State != Set || len(fam.Entries) != len(entries) {
 			t.Errorf("Arrays[%s] = %+v, want a Set family of %d entries", path, fam, len(entries))
 			continue

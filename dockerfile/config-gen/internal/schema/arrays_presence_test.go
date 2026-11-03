@@ -56,7 +56,7 @@ func TestDecodeFamilyPresenceFromDeclaration(t *testing.T) {
 			if cfg == nil {
 				t.Fatal("Decode returned no Config")
 			}
-			fam := cfg.Arrays[c.family]
+			fam, _ := arrayAt(cfg, c.family)
 			if fam.State != c.state {
 				t.Errorf("%s State = %v, want %v", c.family, fam.State, c.state)
 			}

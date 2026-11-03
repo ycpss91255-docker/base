@@ -57,7 +57,7 @@ func TestDecodeEntryScalarFieldOfAnyKindIsKept(t *testing.T) {
 			if len(refusals) != 0 {
 				t.Fatalf("Decode refusals = %+v, want none", refusals)
 			}
-			fam := cfg.Arrays[c.family]
+			fam, _ := arrayAt(cfg, c.family)
 			if fam.State != Set || len(fam.Entries) != 1 {
 				t.Fatalf("Arrays[%s] = %+v, want a Set family of one entry", c.family, fam)
 			}

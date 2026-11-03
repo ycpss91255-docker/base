@@ -31,8 +31,8 @@ func TestDecodeRootArrayAtAKnownSectionWithNoFamilyIsRefused(t *testing.T) {
 	for _, s := range sections {
 		if rootHomes[s] {
 			cfg, refusals := Decode([]byte(s + " = []\n"))
-			if len(refusals) != 0 || cfg.Arrays[s].State != Empty {
-				t.Errorf("%s = []: refusals %+v, family %+v; want none and an Empty family", s, refusals, cfg.Arrays[s])
+			if len(refusals) != 0 || familyAt(cfg, s).State != Empty {
+				t.Errorf("%s = []: refusals %+v, family %+v; want none and an Empty family", s, refusals, familyAt(cfg, s))
 			}
 			continue
 		}
@@ -55,8 +55,8 @@ func TestDecodeRootArrayAtAKnownSectionWithNoFamilyIsRefused(t *testing.T) {
 				t.Errorf("Decode(%q) refusal = %+v, want {%s [%s] 1 1}", c.body, r, c.event, s)
 			}
 			if cfg != nil {
-				if _, ok := cfg.Arrays[s]; ok {
-					t.Errorf("Decode(%q) typed %s as a family: %+v", c.body, s, cfg.Arrays[s])
+				if _, ok := arrayAt(cfg, s); ok {
+					t.Errorf("Decode(%q) typed %s as a family: %+v", c.body, s, familyAt(cfg, s))
 				}
 			}
 		}

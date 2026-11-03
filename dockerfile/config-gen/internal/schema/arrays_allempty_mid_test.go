@@ -48,7 +48,7 @@ func TestEveryHomeKeepsAnAllEmptyEntryInItsPosition(t *testing.T) {
 			if len(refusals) != 0 || cfg == nil {
 				t.Fatalf("Decode(%q) = %v, %+v, want a Config and no refusals", body.String(), cfg, refusals)
 			}
-			fam, ok := cfg.Arrays[path]
+			fam, ok := arrayAt(cfg, path)
 			if !ok || fam.State != Set || len(fam.Entries) != 3 {
 				t.Fatalf("Arrays[%s] = %+v, want a Set family of three entries", path, fam)
 			}
