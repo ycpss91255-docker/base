@@ -663,11 +663,22 @@ _pin_extract_value() {
 # Every verb takes one of three paths, and there is no fourth:
 #
 #   require                emitted, after the entry and version checks;
-#   module, go, toolchain  held to the checks Go's own parser makes (one
-#                          argument, the value grammar, not repeated) and
-#                          never emitted;
-#   anything else          refused BY NAME (replace, tool, ignore, godebug,
-#                          exclude, retract) or as unknown_verb.
+#   module, go, toolchain, held to the checks Go's own parser makes and
+#   godebug, exclude,      never emitted: module, go and toolchain take
+#   retract                one argument of their value grammar, not
+#                          repeated; godebug, exclude and retract, in
+#                          line and block form alike (base#1488), take
+#                          one `key=value` argument (else godebug_usage),
+#                          the require entry's arity and quote checks with
+#                          Go's own version and path-major checks (not
+#                          the require's record policy), and one version
+#                          or a `[low, high]`
+#                          interval, each version any token Go reads,
+#                          with no version grammar (a piece missing:
+#                          retract_interval; a token after the version
+#                          or interval: retract_trailer);
+#   anything else          refused BY NAME (replace, tool, ignore) or as
+#                          unknown_verb.
 #
 # So no directive anywhere in the file is skipped unread: a file Go rejects
 # for a malformed `exclude a` is refused here too, not read for the valid
@@ -771,6 +782,10 @@ _pin_go_mod_lex() {
     _j=$(( _i + 1 ))
     if [[ "${_c}" == '"' ]]; then
       while (( _j < _n )) && [[ "${_s:_j:1}" != '"' ]]; do
+        # An escaped quote or backslash stays in the string (base#1488):
+        # the pair is consumed whole, so the token ends at the true closing
+        # quote.
+        if [[ "${_s:_j:2}" == "\\\"" || "${_s:_j:2}" == "\\\\" ]]; then _j=$(( _j + 2 )); continue; fi
         if [[ "${_s:_j:1}" == "\\" ]]; then _pin_go_mod_refuse "${_ln}" quote_escape; return 1; fi
         _j=$(( _j + 1 ))
       done
@@ -811,9 +826,36 @@ _pin_go_mod_lex() {
 # Go reads; each of those is refused by name instead. It splits rather
 # than matches one regex, so each rule is its own check. On refusal the
 # reason is left in _PIN_GO_MOD_REASON. The major is compared as a string,
-# so a huge one cannot overflow into a pass.
+# so a huge one cannot overflow into a pass. The path-independent half is
+# _pin_go_mod_canonical_ok.
 _pin_go_mod_version_ok() {
-  local _path="${1}" _v="${2}" _core _pre="" _has_pre=0 _f _rest _id _major _last _dots
+  local _path="${1}" _v="${2}" _core _major _last
+  local LC_ALL=C
+  _pin_go_mod_canonical_ok "${_v}" || return 1
+  _core="${_v#v}"
+  _core="${_core%%-*}"
+  if [[ "${_path}" == gopkg.in/* ]]; then _PIN_GO_MOD_REASON=gopkg_in_path; return 1; fi
+  _major="${_core%%.*}"
+  _last=""
+  [[ "${_path}" == */* ]] && _last="${_path##*/}"
+  # module.SplitPathVersion: a final `/v<digits and dots>` is a major
+  # suffix; with a dot, a leading 0 or as /v1 it makes the path invalid.
+  if [[ "${_last}" =~ ^v[0-9.]+$ ]]; then
+    if [[ "${_last}" == *.* || "${_last}" == v0* || "${_last}" == v1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
+    if [[ "${_last#v}" != "${_major}" ]]; then _PIN_GO_MOD_REASON=path_major_mismatch; return 1; fi
+  elif [[ "${_major}" != 0 && "${_major}" != 1 ]]; then
+    _PIN_GO_MOD_REASON=path_major_mismatch
+    return 1
+  fi
+  return 0
+}
+
+# _pin_go_mod_canonical_ok <version> -- 0 only for a version that is
+# canonical semver on its own, with no module path to check it against:
+# the path-independent half of _pin_go_mod_version_ok (base#1488), its
+# only caller. On refusal the reason is left in _PIN_GO_MOD_REASON.
+_pin_go_mod_canonical_ok() {
+  local _v="${1}" _core _pre="" _has_pre=0 _f _rest _id _dots
   local LC_ALL=C
   _PIN_GO_MOD_REASON=""
   if [[ "${_v}" != v* ]]; then _PIN_GO_MOD_REASON=version_no_v; return 1; fi
@@ -843,40 +885,90 @@ _pin_go_mod_version_ok() {
       if [[ "${_id}" =~ ^0[0-9]+$ ]]; then _PIN_GO_MOD_REASON=version_prerelease_zero; return 1; fi
     done
   fi
-  if [[ "${_path}" == gopkg.in/* ]]; then _PIN_GO_MOD_REASON=gopkg_in_path; return 1; fi
-  _major="${_core%%.*}"
-  _last=""
-  [[ "${_path}" == */* ]] && _last="${_path##*/}"
-  # module.SplitPathVersion: a final `/v<digits and dots>` is a major
-  # suffix; with a dot, a leading 0 or as /v1 it makes the path invalid.
-  if [[ "${_last}" =~ ^v[0-9.]+$ ]]; then
-    if [[ "${_last}" == *.* || "${_last}" == v0* || "${_last}" == v1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
-    if [[ "${_last#v}" != "${_major}" ]]; then _PIN_GO_MOD_REASON=path_major_mismatch; return 1; fi
-  elif [[ "${_major}" != 0 && "${_major}" != 1 ]]; then
-    _PIN_GO_MOD_REASON=path_major_mismatch
-    return 1
-  fi
   return 0
 }
 
+# _pin_go_mod_exclude_ok <path> <version> -- 0 when Go's modfile parser
+# reads `exclude <path> <version>` (base#1488, review round 2): the version
+# through module.CanonicalVersion (semver: `v`, then MAJOR[.MINOR[.PATCH
+# [-pre][+build]]], numbers and numeric prerelease identifiers without a
+# leading zero), then module.CheckPathMajor against the major
+# module.SplitPathVersion reads off the path. An exclude emits no record,
+# so none of the require entry's record-fidelity refusals apply: Go keeps
+# +incompatible, reads a gopkg.in path, drops +build, completes a short
+# version and accepts an empty path. On refusal the reason is left in
+# _PIN_GO_MOD_REASON: version_invalid, path_major_invalid or
+# path_major_mismatch.
+_pin_go_mod_exclude_ok() {
+  local _path="${1}" _v="${2}" _n='(0|[1-9][0-9]*)' _id='[0-9A-Za-z-]+' _re
+  local _major _pre _build _run _i _suffix="" _pm=""
+  local LC_ALL=C
+  _PIN_GO_MOD_REASON=""
+  _re="^v${_n}(\.${_n}(\.${_n}(-${_id}(\.${_id})*)?(\+${_id}(\.${_id})*)?)?)?$"
+  if [[ ! "${_v}" =~ ${_re} ]]; then _PIN_GO_MOD_REASON=version_invalid; return 1; fi
+  _major="${BASH_REMATCH[1]}"
+  _pre="${BASH_REMATCH[6]}"
+  _build="${BASH_REMATCH[8]}"
+  if [[ ".${_pre#-}." =~ \.0[0-9]+\. ]]; then _PIN_GO_MOD_REASON=version_invalid; return 1; fi
+  # module.SplitPathVersion: gopkg.in/<x>.v<N>[-unstable], or a final
+  # /v<N>; a path with neither carries no major.
+  if [[ "${_path}" == gopkg.in/* ]]; then
+    _run="${_path%-unstable}"
+    [[ "${_run}" != "${_path}" ]] && _suffix=-unstable
+    _pm="${_run##*.v}"
+    if [[ "${_run}" != *.v* || ! "${_pm}" =~ ^[0-9]+$ ]] \
+      || [[ "${_pm}" == 0* && ".v${_pm}${_suffix}" != .v0 ]]; then
+      _PIN_GO_MOD_REASON=path_major_invalid
+      return 1
+    fi
+  else
+    _run="${_path##*[!0-9.]}"
+    _i=$(( ${#_path} - ${#_run} ))
+    if (( _i > 1 )) && [[ -n "${_run}" && "${_path:_i-2:2}" == /v ]]; then
+      if [[ "${_run}" == *.* || "${_run}" == 0* || "${_run}" == 1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi
+      _pm="${_run}"
+    fi
+  fi
+  # module.CheckPathMajor: gopkg.in's .v1 also takes a v0.0.0- pseudo-version.
+  [[ "${_v}" == v0.0.0-* && "${_pm}" == 1 && "${_path}" == gopkg.in/* ]] && return 0
+  if [[ -z "${_pm}" ]]; then
+    [[ "${_major}" == 0 || "${_major}" == 1 || "${_build}" == +incompatible ]] && return 0
+  elif [[ "${_major}" == "${_pm}" ]]; then
+    return 0
+  fi
+  _PIN_GO_MOD_REASON=path_major_mismatch
+  return 1
+}
+
 # _pin_go_mod_unquote <kind> <text> -- a path or version token as Go reads
-# it: a string loses its quotes (escapes never reach here: the lexer
-# refuses them). Non-zero when a word holds a quote character, which Go
+# it: a string loses its quotes and is decoded left to right, `\"` to `"`
+# and `\\` to `\` (base#1488; every other escape never reaches here: the
+# lexer refuses it). Non-zero when a word holds a quote character, which Go
 # reserves ("unquoted string cannot contain quote").
 _pin_go_mod_unquote() {
+  local _in _out="" _k=0
   if [[ "${1}" == s ]]; then
-    printf '%s' "${2:1:${#2}-2}"
+    _in="${2:1:${#2}-2}"
+    while (( _k < ${#_in} )); do
+      if [[ "${_in:_k:1}" == "\\" ]]; then _k=$(( _k + 1 )); fi
+      _out+="${_in:_k:1}"
+      _k=$(( _k + 1 ))
+    done
+    printf '%s' "${_out}"
     return 0
   fi
   [[ "${2}" != *[\"\']* ]] || return 1
   printf '%s' "${2}"
 }
 
-# _pin_go_mod_entry <lineno> <first> -- one require entry: the tokens of
-# the caller's `_gm_kind`/`_gm_text` from index <first>. Appends its record
-# to the caller's `_gm_out`; non-zero, refusal logged, otherwise.
+# _pin_go_mod_entry <lineno> <first> [emit] -- one require entry: the tokens
+# of the caller's `_gm_kind`/`_gm_text` from index <first>. Appends its
+# record to the caller's `_gm_out`; non-zero, refusal logged, otherwise.
+# With emit=0 (an exclude entry, base#1488) the path and version checks run
+# and nothing is recorded; Go ignores an exclude's comments, so neither the
+# record nor the indirect rule applies.
 _pin_go_mod_entry() {
-  local _ln="${1}" _first="${2}" _k _path _ver _cm _rec _tabs
+  local _ln="${1}" _first="${2}" _emit="${3:-1}" _k _path _ver _cm _rec _tabs
   local -a _f=()
   for (( _k = _first; _k < ${#_gm_kind[@]}; _k++ )); do
     if [[ "${_gm_kind[_k]}" == p ]]; then _pin_go_mod_refuse "${_ln}" punctuation; return 1; fi
@@ -884,6 +976,14 @@ _pin_go_mod_entry() {
   if (( ${#_gm_kind[@]} - _first != 2 )); then _pin_go_mod_refuse "${_ln}" arity; return 1; fi
   if ! _path="$(_pin_go_mod_unquote "${_gm_kind[_first]}" "${_gm_text[_first]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
   if ! _ver="$(_pin_go_mod_unquote "${_gm_kind[_first+1]}" "${_gm_text[_first+1]}")"; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+  # An exclude is held to Go's own checks only: it emits no record, so the
+  # record-fidelity refusals below (path_empty, version_ok) would refuse a
+  # file Go reads (review round 2, base#1488).
+  if (( ! _emit )); then
+    _pin_go_mod_exclude_ok "${_path}" "${_ver}" && return 0
+    _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"
+    return 1
+  fi
   # Go drops a requirement whose path is empty (`require "" v1.0.0` reads
   # as no requirement at all), so no record of it agrees with Go (review
   # round 2, base#1463).
@@ -909,6 +1009,63 @@ _pin_go_mod_entry() {
   _gm_out+="${_rec}"$'\n'
 }
 
+# _pin_go_mod_godebug <lineno> <first> -- check one godebug line, the line
+# form (first=1: its argument is token 1) or a block line (first=0), as
+# Go's f.add does: exactly one argument, whose raw text holds no quote,
+# backquote or comma and has a `=`; otherwise godebug_usage. Checked,
+# never emitted (base#1488).
+_pin_go_mod_godebug() {
+  local _ln="${1}" _first="${2}"
+  if (( ${#_gm_kind[@]} != _first + 1 )) || [[ "${_gm_text[_first]}" == *[\"\'\`,]* || "${_gm_text[_first]}" != *=* ]]; then
+    _pin_go_mod_refuse "${_ln}" godebug_usage
+    return 1
+  fi
+}
+
+# _pin_go_mod_retract <lineno> <first> -- check one retract line, the
+# line form (first=1: its arguments start at token 1) or a block line
+# (first=0), as Go's parseVersionInterval reads it: `<version>` or
+# `[ <low> , <high> ]`, walked token by token (base#1488). Go holds a
+# retract version to no version grammar: the oracle records Go rc 0 for
+# `retract v1.2`, `v1.0.0+incompatible`, `foo` and `]` (review round 1,
+# base#1488), so any token is a version here too, except a word holding a
+# quote, which Go's parseString rejects (word_quote). A
+# piece that is missing -- no argument, a leading `(`, no version after
+# `[` or `,`, no `,` or `]` where one belongs -- is retract_interval; a
+# token after the version or the interval is retract_trailer. Checked,
+# never emitted; the rationale comment is not read (Go does not check it).
+_pin_go_mod_retract() {
+  local _ln="${1}" _k="${2}" _n="${#_gm_kind[@]}" _step
+  local -a _want=(v)
+  if [[ "${_gm_kind[_k]:-}" == p && "${_gm_text[_k]:-}" == '(' ]]; then _pin_go_mod_refuse "${_ln}" retract_interval; return 1; fi
+  if [[ "${_gm_kind[_k]:-}" == p && "${_gm_text[_k]:-}" == '[' ]]; then _want=('[' v ',' v ']'); fi
+  for _step in "${_want[@]}"; do
+    if (( _k >= _n )); then _pin_go_mod_refuse "${_ln}" retract_interval; return 1; fi
+    if [[ "${_step}" == v ]]; then
+      if ! _pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}" > /dev/null; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi
+    elif [[ "${_gm_kind[_k]}" != p || "${_gm_text[_k]}" != "${_step}" ]]; then
+      _pin_go_mod_refuse "${_ln}" retract_interval
+      return 1
+    fi
+    _k=$(( _k + 1 ))
+  done
+  if (( _k < _n )); then _pin_go_mod_refuse "${_ln}" retract_trailer; return 1; fi
+}
+
+# _pin_go_mod_directive <verb> <lineno> <first> -- one require, godebug,
+# exclude or retract line: the line form (first=1: its arguments start at
+# token 1) or a line of a `<verb> (` block (first=0), read as the
+# arguments of <verb>, as Go's f.add reads it (base#1488). Only a require
+# appends a record; non-zero, refusal logged, otherwise.
+_pin_go_mod_directive() {
+  case "${1}" in
+    godebug) _pin_go_mod_godebug "${2}" "${3}" ;;
+    exclude) _pin_go_mod_entry "${2}" "${3}" 0 ;;
+    retract) _pin_go_mod_retract "${2}" "${3}" ;;
+    *) _pin_go_mod_entry "${2}" "${3}" ;;
+  esac
+}
+
 # _pin_go_mod_scan <file>
 #
 # One `lineno<TAB>path<TAB>version<TAB>comment` record per require entry,
@@ -921,7 +1078,7 @@ _pin_go_mod_entry() {
 # printed, so a bad directive AFTER a require still refuses the file --
 # Go rejects such a file too.
 _pin_go_mod_scan() {
-  local _gm_file="${1}" _gm_out="" _gm_comment="" _ln=0 _line _in_block=0 _block_ln=0
+  local _gm_file="${1}" _gm_out="" _gm_comment="" _ln=0 _line _block_verb="" _block_ln=0
   local _seen_module=0 _seen_go=0 _seen_toolchain=0 _verb _k _bad_ln
   local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
   local LC_ALL=C
@@ -937,16 +1094,16 @@ _pin_go_mod_scan() {
     _ln=$(( _ln + 1 ))
     _pin_go_mod_lex "${_line}" "${_ln}" || return 1
     (( ${#_gm_kind[@]} > 0 )) || continue
-    if (( _in_block )); then
+    if [[ -n "${_block_verb}" ]]; then
       if [[ "${_gm_text[0]}" == ')' && "${_gm_kind[0]}" == p ]]; then
         if (( ${#_gm_kind[@]} > 1 )); then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi
-        _in_block=0
+        _block_verb=""
         continue
       fi
       for (( _k = 1; _k < ${#_gm_kind[@]}; _k++ )); do
         if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi
       done
-      _pin_go_mod_entry "${_ln}" 0 || return 1
+      _pin_go_mod_directive "${_block_verb}" "${_ln}" 0 || return 1
       continue
     fi
     # The verb is the first token's TEXT: a string keeps its quotes, so
@@ -955,9 +1112,6 @@ _pin_go_mod_scan() {
     if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi
     if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi
     if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi
-    if [[ "${_verb}" == godebug ]]; then _pin_go_mod_refuse "${_ln}" godebug; return 1; fi
-    if [[ "${_verb}" == exclude ]]; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi
-    if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi
     case "${_verb}" in
       module | go | toolchain)
         if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi
@@ -984,14 +1138,14 @@ _pin_go_mod_scan() {
         if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
         _seen_toolchain=1
         ;;
-      require)
+      require | godebug | exclude | retract)
         if _pin_go_mod_opens_block; then
           if (( ${#_gm_kind[@]} > 2 )); then _pin_go_mod_refuse "${_ln}" paren_trailer; return 1; fi
-          _in_block=1
+          _block_verb="${_verb}"
           _block_ln="${_ln}"
           continue
         fi
-        _pin_go_mod_entry "${_ln}" 1 || return 1
+        _pin_go_mod_directive "${_verb}" "${_ln}" 1 || return 1
         ;;
       *)
         _pin_go_mod_refuse "${_ln}" unknown_verb
@@ -999,7 +1153,7 @@ _pin_go_mod_scan() {
         ;;
     esac
   done
-  if (( _in_block )); then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi
+  if [[ -n "${_block_verb}" ]]; then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi
   printf '%s' "${_gm_out}"
 }
 
@@ -1423,9 +1577,11 @@ _pin_uncovered() {
 # first, so a directive the scanner refuses is never half-read: rc 1 with
 # the scanner's refusal logged. The directive is the line whose first lexed
 # token is the word `go` and that is not a require entry the scanner
-# emitted (a block entry for a module path `go`) (base#1440).
+# emitted (a block entry for a module path `go`) (base#1440), nor any line
+# inside a `<verb> (` ... `)` block: a block line belongs to its block's
+# verb, so `go v1.0.0` in an exclude block is no go directive (base#1488).
 _pin_go_mod_go_line() {
-  local _gm_file="${1}" _emitted _line _ln=0 _gm_comment=""
+  local _gm_file="${1}" _emitted _line _ln=0 _gm_comment="" _in_block=0
   local -a _gm_kind=() _gm_text=() _gm_start=() _lines=()
   local LC_ALL=C
   _emitted="$(_pin_go_mod_scan "${_gm_file}")" || return 1
@@ -1433,6 +1589,11 @@ _pin_go_mod_go_line() {
   for _line in "${_lines[@]}"; do
     _ln=$(( _ln + 1 ))
     _pin_go_mod_lex "${_line}" "${_ln}" || return 1
+    if (( _in_block )); then
+      [[ "${_gm_text[0]:-}" == ')' && "${_gm_kind[0]:-}" == p ]] && _in_block=0
+      continue
+    fi
+    if _pin_go_mod_opens_block; then _in_block=1; continue; fi
     [[ "${_gm_text[0]:-}" == go && "${_gm_kind[0]:-}" == w ]] || continue
     [[ $'\n'"${_emitted}" == *$'\n'"${_ln}"$'\t'* ]] && continue
     printf '%s\t%s\n' "${_ln}" "${_gm_text[1]}"
