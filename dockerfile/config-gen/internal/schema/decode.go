@@ -307,6 +307,16 @@ func (d *decoder) judge(b *bound, k []string) scope {
 	case len(k) == 1:
 		d.refuse("conf_top_level_key", k, line, col)
 		return judging
+	case stage(k) && b.isArray():
+		// An array under a `["stage:<name>"]` table is looked up by its
+		// last segment, as the bridge's _array_spec looks it up by its
+		// key: the quoted `"build.args"` is one segment no family
+		// carries and is refused as unknown, while the dotted
+		// `build.args` is the args family (base#1443).
+		if _, ok := arrayFamily[key]; !ok {
+			d.refuse("conf_unknown_key", k, line, col)
+		}
+		return inArray
 	case stage(k):
 		// A `["stage:<name>"]` table is not judged here; only a string
 		// value's characters are (below).
