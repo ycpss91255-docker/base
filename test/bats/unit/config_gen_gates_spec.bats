@@ -443,6 +443,34 @@ _df_instructions() {
       'config_gen_gate_corpus_sensitivity_failed gate=corpus_sensitivity')"
 }
 
+# why: cg-gates mutation prints one `cg_event
+# config_gen_mutation_package_failed pkg= reason= [measured=]` line on
+# stdout for each package it fails (cmd/cg-gates TestMutation holds those
+# exact lines). The issue's gremlins criterion is that any per-package
+# failure fails the gate with pkg=; the build log reaches the JSON log
+# only through this runner, so its record must keep the package, the
+# reason and the measured efficacy, then the gate's own record (base#1467).
+@test "config_gen_gates.sh: a per-package mutation failure reaches the runner's records with its pkg, reason and measured (base#1467)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  local _p=github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/locate
+  _root
+  _stub_docker
+  { _gate_log admission fmt vet lint race coverage
+    printf '#30 1.00 cg_event config_gen_mutation_package_failed pkg=%s reason=below measured=80.4\n' "${_p}"
+    printf '#30 1.00 cg_event config_gen_mutation_package_failed pkg=%s/internal/schema reason=gremlins_failed\n' "${_p%/internal/locate}"
+    printf '#30 1.00 config_gen_gate_mutation_failed\n'; } > "${S}/build_test.err"
+  printf '1\n' > "${S}/build_test.rc"
+  _run_runner
+  assert_equal "${status}" 1
+  [[ "${stderr}" != *"unregistered log body"* ]] || fail "unregistered log body: ${stderr}"
+  assert_equal "$(jq -rR 'fromjson? | select(.attributes."service.name" == "config-gen")
+    | [.body, .attributes.pkg // "-", .attributes.reason // "-", .attributes.measured // "-",
+      .attributes.gate // "-"] | join(" ")' <<<"${stderr}")" \
+    "$(printf '%s\n' "config_gen_mutation_package_failed ${_p} below 80.4 -" \
+      "config_gen_mutation_package_failed ${_p%/internal/locate}/internal/schema gremlins_failed - -" \
+      'config_gen_gate_mutation_failed - - - mutation')"
+}
+
 # why: The ids the build may print are one table,
 # dockerfile/config-gen/internal/buildgate/testdata/build-events.txt, which
 # buildgate's own test holds every ev() id to. A runner with a second,
@@ -506,10 +534,12 @@ _df_instructions() {
 # redpath's own tables: a case dropped from the redpath must still get its
 # canned answer and its expected runner call, so the full run below fails
 # on it (base#1465). <want> is the gate (and, for a mutation case the
-# redpath's _RP_MUTATION_LINES names, `|<the gate's line>`; for a
-# sensitivity case its _RP_WEAK names, `|<line, may be empty>|<pkg>|<file>`
-# of its one weak record; for a mutation case its _RP_MUTATION_EVENTS
-# names, `|<line, may be empty>|<event>|<file>` of its one event record),
+# redpath's _RP_MUTATION_FAILED names,
+# `||config_gen_mutation_package_failed|<pkg>|<reason>|<measured>` of its
+# one package failure record; for a sensitivity case its _RP_WEAK names,
+# `|<line, may be empty>|<pkg>|<file>` of its one weak record; for a
+# mutation case its _RP_MUTATION_EVENTS names, `|<line, may be
+# empty>|<event>|<file>` of its one event record),
 # the event id, `<file>|<reason>`,
 # a green case's line (empty when _RP_GREEN_LINES names none, base#1467),
 # `<gate>|<event>|<file>` (an after-admit case, base#1467), or
@@ -526,11 +556,11 @@ gate|fmt-parse|fmt
 gate|corpus-join|race
 gate|corpus-helper|race
 gate|corpus-var|race
-gate|mut-unstaged|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0
-gate|mut-staged|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0
-gate|mut-timeout|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0
-gate|mut-untracked-lived|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive failed reason=below measured=0.0
-gate|corpus|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0
+gate|mut-unstaged|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0
+gate|mut-staged|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0
+gate|mut-timeout|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop|below|75.0
+gate|mut-untracked-lived|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive|below|0.0
+gate|corpus|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak|below|0.0
 gate|notes|mutation||config_gen_mutation_unmapped|dockerfile/config-gen/notes.txt
 gate|sens-per-golden|corpus_sensitivity||github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzglob|golden/s1/zz.golden
 refusal|no-context|config_gen_manifest_missing
@@ -731,10 +761,15 @@ _canned_correct() {
         [[ -z "${_reason}" ]] || printf '#12 3.21 %s\n' "${_reason}" >> "${_c}.err"
         # Its fifth and sixth fields are the pkg and file of the one weak
         # record the sensitivity gate logs for it, or the event and file of
-        # the one record the mutation gate's refusal leaves (base#1467).
+        # the one record the mutation gate's refusal leaves; a package
+        # failure's are its event, pkg, reason and measured (base#1467).
         if [[ -n "${_extra}" && "${_want}" == corpus_sensitivity ]]; then
           _gate_record config_gen_corpus_sensitivity_weak "pkg=${_extra%%|*}" "file=${_extra#*|}" status=1 \
             "display=weak" >> "${_c}.err"
+        elif [[ "${_extra}" == config_gen_mutation_package_failed\|* ]]; then
+          IFS='|' read -r _ _file _reason _extra <<<"${_extra}"
+          _gate_record config_gen_mutation_package_failed "pkg=${_file}" "reason=${_reason}" \
+            "measured=${_extra}" status=1 "display=package failed" >> "${_c}.err"
         elif [[ -n "${_extra}" ]]; then
           _gate_record "${_extra%%|*}" "file=${_extra#*|}" status=1 "display=refused" >> "${_c}.err"
         fi
@@ -1148,22 +1183,41 @@ _glibc_getconf() {
 
 # why: A mutation or sensitivity case passes only on the gate's own
 # verdict for what the case planted: an uncommitted change (dirty=yes in
-# the manifest the build was handed), the gate's line for the planted
-# package, the weak record for the planted golden, and the mapping's
+# the manifest the build was handed), the runner's one package failure
+# record naming the planted package by pkg= with its reason and measured
+# efficacy, the weak record for the planted golden, and the mapping's
 # refusal record naming the planted file. Each row breaks one part, which
-# would otherwise let a gate that judged another package, or refused for
-# another reason, pass the redpath (base#1467).
+# would otherwise let a gate that judged another package, failed one with
+# no pkg= attribution, or refused for another reason, pass the redpath
+# (base#1467).
 @test "config_gen_redpath.sh: a mutation or sensitivity case missing any part of its contract fails with that part's reason (base#1467)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   local _row _reason _case _c
-  for _row in clean staged-clean line weak noevent eventfile twoevents; do
+  for _row in clean staged-clean measured recpkg recreason norecord tworecords weak noevent eventfile twoevents; do
     rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
     _redpath_repo
     case "${_row}" in
       clean) _case=mut-unstaged; sed -i 's/ dirty=yes / dirty=no /' "${S}/canned/${_case}.err"; _reason=not_dirty ;;
       staged-clean) _case=mut-staged; sed -i 's/ dirty=yes / dirty=no /' "${S}/canned/${_case}.err"; _reason=not_dirty ;;
-      line) _case=mut-timeout; sed -i 's/measured=75.0$/measured=50.0/' "${S}/canned/${_case}.err"
-        _reason=mutation_line_missing ;;
+      measured) _case=mut-timeout
+        sed -i '/"body":"config_gen_mutation_package_failed"/s#"measured":"75.0"#"measured":"50.0"#' \
+          "${S}/canned/${_case}.err"
+        _reason=mutation_record_mismatch ;;
+      recpkg) _case=mut-unstaged
+        sed -i '/"body":"config_gen_mutation_package_failed"/s#/internal/zzmut"#/internal/zzother"#' \
+          "${S}/canned/${_case}.err"
+        _reason=mutation_record_mismatch ;;
+      recreason) _case=mut-staged
+        sed -i '/"body":"config_gen_mutation_package_failed"/s#"reason":"below"#"reason":"report"#' \
+          "${S}/canned/${_case}.err"
+        _reason=mutation_record_mismatch ;;
+      norecord) _case=mut-untracked-lived
+        sed -i '/"body":"config_gen_mutation_package_failed"/d' "${S}/canned/${_case}.err"
+        _reason=mutation_record_mismatch ;;
+      tworecords) _case=corpus _c="${S}/canned/corpus.err"
+        grep '"body":"config_gen_mutation_package_failed"' "${_c}" > "${S}/twice"
+        cat "${S}/twice" >> "${_c}"
+        _reason=mutation_record_mismatch ;;
       weak) _case=sens-per-golden
         sed -i '/"body":"config_gen_corpus_sensitivity_weak"/s#"file":"[^"]*"#"file":"golden/s1/seed.golden"#' \
           "${S}/canned/${_case}.err"
@@ -1178,6 +1232,15 @@ _glibc_getconf() {
         grep '"body":"config_gen_mutation_unmapped"' "${_c}" > "${S}/twice"
         cat "${S}/twice" >> "${_c}"
         _reason=mutation_event_mismatch ;;
+    esac
+    # The planted change must have reached the canned record.
+    case "${_row}" in
+      measured) assert grep -q '"measured":"50.0"' "${S}/canned/${_case}.err" ;;
+      recpkg) assert grep -q '/internal/zzother"' "${S}/canned/${_case}.err" ;;
+      recreason) assert grep -q '"body":"config_gen_mutation_package_failed".*"reason":"report"' \
+        "${S}/canned/${_case}.err" ;;
+      norecord) refute grep -q '"body":"config_gen_mutation_package_failed"' "${S}/canned/${_case}.err" ;;
+      tworecords) assert_equal "$(grep -c '"body":"config_gen_mutation_package_failed"' "${_c}")" 2 ;;
     esac
     _run_redpath "${_case}"
     assert_equal "${_row}:${status}" "${_row}:1"

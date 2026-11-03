@@ -155,6 +155,10 @@ func fake(t *testing.T, dir string, files map[string]string) string {
 
 const mhead = "base=a head=b dirty=yes context=pr\n"
 
+// pkgFailed starts the line the gate prints for each package it fails:
+// an event the runner re-emits with the package as pkg= (base#1467).
+const pkgFailed = "cg_event config_gen_mutation_package_failed pkg="
+
 func TestMutation(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -173,25 +177,25 @@ func TestMutation(t *testing.T) {
 			mod + "/internal/a ok efficacy=90.0\n", ""},
 		{"a surviving mutant, whatever efficacy gremlins writes", mhead + "M\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(0, 2)}, 1,
-			mod + "/internal/a failed reason=below measured=0.0\n", ""},
+			pkgFailed + mod + "/internal/a reason=below measured=0.0\n", ""},
 		{"just under the floor", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": killed(8, 1)}, 1,
-			mod + "/internal/a failed reason=below measured=88.8\n", ""},
+			pkgFailed + mod + "/internal/a reason=below measured=88.8\n", ""},
 		{"one red package does not stop the next", mhead +
 			"M\tdockerfile/config-gen/internal/a/a.go\nM\tdockerfile/config-gen/x.go\n",
 			map[string]string{"___.json": killed(1, 2), "__internal_a.json": killed(3, 0)}, 1,
-			mod + " failed reason=below measured=33.3\n" + mod + "/internal/a ok efficacy=100.0\n",
+			pkgFailed + mod + " reason=below measured=33.3\n" + mod + "/internal/a ok efficacy=100.0\n",
 			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./.\n" +
 				"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/1.json ./internal/a\n"},
 		{"gremlins exits non-zero", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.fail": "", "__internal_a.json": killed(1, 0)}, 1,
-			mod + "/internal/a failed reason=gremlins_failed\n", ""},
+			pkgFailed + mod + "/internal/a reason=gremlins_failed\n", ""},
 		{"no report written", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
-			map[string]string{}, 1, mod + "/internal/a failed reason=report\n", ""},
+			map[string]string{}, 1, pkgFailed + mod + "/internal/a reason=report\n", ""},
 		{"a package with no mutants passes as no-mutants", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.none": ""}, 0, mod + "/internal/a no-mutants\n", ""},
 		{"a report it cannot read", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
-			map[string]string{"__internal_a.json": "x"}, 1, mod + "/internal/a failed reason=report\n", ""},
+			map[string]string{"__internal_a.json": "x"}, 1, pkgFailed + mod + "/internal/a reason=report\n", ""},
 		{"no Go file", mhead + "none: no-go-change\n", map[string]string{}, 0, "mutation targets none\n", ""},
 		// A package the head tree no longer holds is named as removed, by
 		// its import path, before any package is judged (base#1467).

@@ -609,3 +609,22 @@ func TestMapCoverageFloorsFragmentsOnly(t *testing.T) {
 		}
 	}
 }
+
+// Each package the mutation gate fails is one event naming it by its
+// import path, with the reason and, for reason below, the efficacy it
+// measured, so the runner's record of the failure carries pkg= (base#1467).
+func TestPackageFailed(t *testing.T) {
+	cases := []struct {
+		got, want string
+	}{
+		{PackageFailed("m/internal/a", "below", "measured", "88.8").String(),
+			"cg_event config_gen_mutation_package_failed pkg=m/internal/a reason=below measured=88.8"},
+		{PackageFailed("m", "gremlins_failed").String(),
+			"cg_event config_gen_mutation_package_failed pkg=m reason=gremlins_failed"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("PackageFailed = %q, want %q", c.got, c.want)
+		}
+	}
+}
