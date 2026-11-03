@@ -383,6 +383,48 @@ _fx_content() {
 JSON
 }
 
+# _fx_index <hex> <entry>... -- store a hand-written raw index under
+# sha256:<hex>. Each <entry> is `<child hex> <os>/<arch>[/<variant>]`, or
+# `<child hex> attest <os>/<arch>` for a descriptor annotated as an
+# attestation-manifest that still carries a real platform label.
+_fx_index() {
+  local _h="${1}" _e _d _kind _p _os _arch _var _sep='' _ann _vj
+  shift
+  {
+    printf '{\n  "schemaVersion": 2,\n'
+    printf '  "mediaType": "application/vnd.oci.image.index.v1+json",\n'
+    printf '  "manifests": ['
+    for _e in "$@"; do
+      read -r _d _kind _p <<< "${_e}"
+      _ann=''
+      if [[ "${_kind}" == 'attest' ]]; then
+        _ann='"annotations": {"vnd.docker.reference.type": "attestation-manifest"}, '
+      else
+        _p="${_kind}"
+      fi
+      IFS='/' read -r _os _arch _var <<< "${_p}"
+      _vj=''
+      [[ -n "${_var}" ]] && _vj=", \"variant\": \"${_var}\""
+      printf '%s\n    {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:%s", "size": 1, %s"platform": {"architecture": "%s", "os": "%s"%s}}' \
+          "${_sep}" "${_d}" "${_ann}" "${_arch}" "${_os}" "${_vj}"
+      _sep=','
+    done
+    printf '\n  ]\n}\n'
+  } | _fx "${_h}"
+}
+
+# Hand-written child digests: the real linux/amd64 and linux/arm64 children of
+# run 41451556967, a second linux/amd64 image nothing verified, and two
+# linux/arm children that differ only in variant.
+_CH_AMD64='ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98'
+_CH_ARM64='7209dde70dcb2b29c3c146af1dc0a2f4e21a72a990b9498c9e67e48e478a8c89'
+_CH_OTHER='ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11ba5eba11'
+_CH_ARMV6='6666666666666666666666666666666666666666666666666666666666666666'
+_CH_ARMV7='7777777777777777777777777777777777777777777777777777777777777777'
+_FX_CASE='c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff'
+_FX_SHARD_ARMV6='a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6'
+_FX_SHARD_ARMV7='a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7'
+
 # _confirm_step_for <mode> -- RUN the merge job's tag-confirmation step
 # against one registry state and return the step's OWN exit status, printing
 # whatever it printed.
@@ -407,7 +449,10 @@ JSON
 #             later read by name answers an index whose linux/amd64 child is
 #             content nothing verified, the way a concurrent publish would.
 _confirm_step_for() {
-  local _mode="${1}" _body _dir _base _ver _latest _moved='' _status=0
+  local _mode="${1}" _body _dir _base _ver _latest _moved='' _rawfail=''
+  local _status=0 _unresolved='' _verified="${_FX_SHARD_AMD64}"
+  local -a _arts=("${_FX_SHARD_AMD64}" 'linux/amd64'
+    "${_FX_SHARD_ARM64}" 'linux/arm64')
   _body="$(yaml_step_run "${WF}" merge "${_CONFIRM_STEP}")" || {
     printf 'BUG: yq could not read the confirmation step of %s\n' "${WF}"
     return 2
@@ -427,12 +472,45 @@ _confirm_step_for() {
     platform) _ver="${_FX_SHARD_AMD64}" _latest="${_FX_SHARD_AMD64}" ;;
     moved) _fx_content; _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
       _moved="${_FX_CONTENT}" ;;
+    rawfail-tag) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
+      _rawfail="${_FX_MAIN}" ;;
+    rawfail-verified) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
+      _rawfail="${_FX_SHARD_AMD64}" ;;
+    attest-only)
+      _fx_index "${_FX_CASE}" "${_CH_AMD64} attest linux/amd64" \
+          "${_CH_ARM64} linux/arm64"
+      _ver="${_FX_CASE}" _latest="${_FX_CASE}" ;;
+    ambiguous-tag)
+      _fx_index "${_FX_CASE}" "${_CH_AMD64} linux/amd64" \
+          "${_CH_OTHER} linux/amd64" "${_CH_ARM64} linux/arm64"
+      _ver="${_FX_CASE}" _latest="${_FX_CASE}" ;;
+    missing-verified)
+      _fx_index "${_FX_SHARD_AMD64}" "${_CH_ARM64} linux/arm64" \
+          "${_CH_AMD64} attest linux/amd64"
+      _ver="${_FX_MAIN}" _latest="${_FX_MAIN}" ;;
+    ambiguous-verified)
+      _fx_index "${_FX_SHARD_AMD64}" "${_CH_AMD64} linux/amd64" \
+          "${_CH_OTHER} linux/amd64"
+      _ver="${_FX_MAIN}" _latest="${_FX_MAIN}" ;;
+    variant)
+      _fx_index "${_FX_SHARD_ARMV7}" "${_CH_ARMV6} linux/arm/v6" \
+          "${_CH_ARMV7} linux/arm/v7"
+      _fx_index "${_FX_SHARD_ARMV6}" "${_CH_ARMV6} linux/arm/v6"
+      _fx_index "${_FX_CASE}" "${_CH_ARMV6} linux/arm/v6" \
+          "${_CH_ARMV7} linux/arm/v7"
+      _ver="${_FX_CASE}" _latest="${_FX_CASE}"
+      _verified="${_FX_SHARD_ARMV7}"
+      _arts=("${_FX_SHARD_ARMV7}" 'linux/arm/v7'
+        "${_FX_SHARD_ARMV6}" 'linux/arm/v6') ;;
+    unresolved) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}" _unresolved=1 ;;
     *) printf 'BUG: unknown registry state %s\n' "${_mode}"; return 2 ;;
   esac
   # The artifact directory the step reads: one file per arch the matrix
   # built, named by that shard's digest and carrying the platform it built.
-  printf 'linux/amd64\n' > "${_dir}/digests/${_FX_SHARD_AMD64}"
-  printf 'linux/arm64\n' > "${_dir}/digests/${_FX_SHARD_ARM64}"
+  local _i
+  for (( _i = 0; _i < ${#_arts[@]}; _i += 2 )); do
+    printf '%s\n' "${_arts[_i+1]}" > "${_dir}/digests/${_arts[_i]}"
+  done
   _base='ghcr.io/ycpss91255-docker/ros_distro'
   printf '%s %s\n%s %s\n' \
       "${_base}:v1.2.3-standard" "${_ver}" \
@@ -443,8 +521,11 @@ _confirm_step_for() {
     PATH="${SCRATCH}/bin:${PATH}" \
     STUB_FX="${SCRATCH}/fx" \
     STUB_TAG_MOVED="${_moved:-}" \
+    STUB_RAW_FAIL="${_rawfail:-}" \
+    STUB_TAG_UNRESOLVED="${_unresolved:-}" \
+    STUB_TAG_ANSWER='' \
     TAGS="${_base}:v1.2.3-standard,${_base}:latest-standard" \
-    VERIFIED_REF="${_base}@sha256:${_FX_SHARD_AMD64}" \
+    VERIFIED_REF="${_base}@sha256:${_verified}" \
       bash "${_dir}/step.sh" 2>&1
   ) || _status=$?
   return "${_status}"
@@ -673,6 +754,87 @@ merge: packages: write'
   assert_success
   assert_output --partial 'ros_distro:v1.2.3-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
   assert_output --partial 'ros_distro:latest-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
+}
+
+# why: A registry read can write a complete, valid index body and still exit
+# non-zero. A step that trusts the stdout of a failed read compares content
+# the registry never confirmed, so a failed raw read of the TAG's index has
+# to refuse even though the body it printed carries the verified child
+# (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses when the raw read of a tag's index fails after printing a body (base#1514)" {
+  run _confirm_step_for rawfail-tag
+  assert_failure
+  refute_output --partial 'resolves to the verified image'
+}
+
+# why: The same refusal on the other side: a failed raw read of the VERIFIED
+# shard index leaves nothing confirmed to compare a tag with, whatever body
+# it printed (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses when the raw read of the verified index fails after printing a body (base#1514)" {
+  run _confirm_step_for rawfail-verified
+  assert_failure
+  refute_output --partial 'resolves to the verified image'
+}
+
+# why: With provenance on, every index carries attestation descriptors next
+# to the images. One annotated as an attestation-manifest is not an image the
+# smoke step could have run, even when it carries the runner's platform label
+# -- and the tag listing still shows that platform, so only the content
+# comparison can catch it (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses a tag whose only linux/amd64 entry is an attestation (base#1514)" {
+  run _confirm_step_for attest-only
+  assert_failure
+  assert_output --partial 'carries 0 image manifests for linux/amd64'
+}
+
+# why: A tag index with two image manifests for the runner's platform names
+# no single image, so it cannot be said to resolve to the verified one -- even
+# when the verified child is listed first, which a first-match pick would
+# accept (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses a tag index with two image manifests for the runner platform (base#1514)" {
+  run _confirm_step_for ambiguous-tag
+  assert_failure
+  assert_output --partial "ros_distro@sha256:${_FX_CASE} carries 2 image manifests for linux/amd64"
+  refute_output --partial 'resolves to the verified image'
+}
+
+# why: The verified side is held to the same rule. A verified index without
+# an image for the runner's platform leaves nothing to compare a tag with; a
+# step that let it through would compare an empty answer with an empty one
+# (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses when the verified index has no image for the runner platform (base#1514)" {
+  run _confirm_step_for missing-verified
+  assert_failure
+  assert_output --partial "ros_distro@sha256:${_FX_SHARD_AMD64} carries 0 image manifests for linux/amd64"
+  refute_output --partial 'resolves to the verified image'
+}
+
+# why: A verified index with two images for the runner's platform does not
+# say which one the smoke step ran (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses when the verified index has two images for the runner platform (base#1514)" {
+  run _confirm_step_for ambiguous-verified
+  assert_failure
+  assert_output --partial "ros_distro@sha256:${_FX_SHARD_AMD64} carries 2 image manifests for linux/amd64"
+}
+
+# why: A platform with a variant (linux/arm/v7) shares os and architecture
+# with its siblings. Matching on os/arch alone finds two images and refuses
+# an ordinary publish; the variant the shard recorded is what picks the one
+# that was verified. The child asserted is the hand-written v7 descriptor
+# (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation matches the platform variant the verified shard recorded (base#1514)" {
+  run _confirm_step_for variant
+  assert_success
+  assert_output --partial "ros_distro:v1.2.3-standard resolves to the verified image for linux/arm/v7 (sha256:${_CH_ARMV7})"
+  assert_output --partial "ros_distro:latest-standard resolves to the verified image for linux/arm/v7 (sha256:${_CH_ARMV7})"
+}
+
+# why: A tag that does not resolve to a digest cannot be pinned, and every
+# read after it would name nothing (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation refuses a tag that resolves to no digest (base#1514)" {
+  run _confirm_step_for unresolved
+  assert_failure
+  refute_output --partial 'resolves to the verified image'
 }
 
 # why: The other half: a published index that silently lost an arch the
