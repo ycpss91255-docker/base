@@ -50,8 +50,11 @@ func writeLayer(t *testing.T, src string) string {
 // frames. Every call is held to the fixed points of the refusal-test
 // contract (base#1395 plan, "Every refusal test asserts five things"), so
 // no refusal test can leave one out: stdout stays empty, stderr is wholly
-// frames, and every frame names path as its file. The caller asserts the
-// status, the event and the key.
+// frames, every frame names path as its file, and a configuration
+// refusal's (conf_*) display text is the one registered for its event,
+// naming its key: an event with no display text renders a `%!` verb
+// (base#1443 review round 1 finding 1). The caller asserts the status,
+// the event, the position and the key.
 func runCheck(t *testing.T, path string) (int, [][]string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -65,6 +68,12 @@ func runCheck(t *testing.T, path string) (int, [][]string) {
 	for i, f := range fr {
 		if f[3] != path {
 			t.Errorf("check %s: frame %d file = %q, want the layer's path", path, i, f[3])
+		}
+		if !strings.HasPrefix(f[2], "conf_") {
+			continue
+		}
+		if _, ok := displays[f[2]]; !ok || strings.Contains(f[7], "%!") || !strings.Contains(f[7], f[6]) {
+			t.Errorf("check %s: frame %d display = %q, want the registered %s text naming %q", path, i, f[7], f[2], f[6])
 		}
 	}
 	return status, fr
