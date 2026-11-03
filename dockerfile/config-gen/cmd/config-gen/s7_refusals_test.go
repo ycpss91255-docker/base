@@ -21,8 +21,9 @@ const s7ExpectPrefix = "# expect: "
 
 // s7Verdict is a fixture's `# expect:` line: the verdict `config-gen
 // check` gives it, and for a refuse or a differs:<exception> verdict the
-// one frame's event, line, column and key. Its apply field is read by
-// the bats half (config_gen_s7_verdicts_spec.bats) only.
+// one frame's event, line, column and key. The line's apply field has
+// no slot here: only the bats half (config_gen_s7_verdicts_spec.bats)
+// reads it.
 type s7Verdict struct {
 	verdict string
 	frame   []string // event, line, col, key

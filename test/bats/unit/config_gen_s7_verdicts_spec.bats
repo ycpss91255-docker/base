@@ -86,13 +86,15 @@ _expect() {
 # A fixture with no `# expect:` line fails here, as in the Go half
 # (base#1443 review round 4 finding 1).
 @test "s7 corpus: every fixture's own verdict, event and key are the bridge's, its apply _layer_verdict's" {
-  local _f _base _why _rc _err _got _n=0
+  local _f _base _rc _err _got _n=0
+  local _why="${BATS_TEST_TMPDIR}/expect_why"
   local -A _ex=()
   local _bad=()
   for _f in "${CORPUS}"/*.toml; do
     _base="${_f##*/}"
-    _why="$(_expect "${_f}" _ex)" || { _bad+=("${_base}: ${_why}"); continue; }
-    _expect "${_f}" _ex
+    # Not in $(...): _expect fills _ex through a nameref, which a
+    # subshell would drop, so its reason goes through a file instead.
+    _expect "${_f}" _ex > "${_why}" || { _bad+=("${_base}: $(< "${_why}")"); continue; }
     _rc=0
     _err="$(python3 "${BRIDGE_PY}" --kv < "${_f}" 2>&1 >/dev/null)" || _rc=$?
     case "${_ex[verdict]-}" in
