@@ -53,11 +53,11 @@ func TestDecodeNestedInlineTablesKeepSourceOrder(t *testing.T) {
 			"[[volumes]]\nsource = \"/a\"\nextra = {z = 1, a = {y = 1, b = 2}}\n",
 			[][]string{{"source", "extra", "{", "z", "a", "{", "y", "b", "}", "}"}}},
 		{"array of tables, the same inline key in two elements",
-			"[[volumes]]\nextra = {z = 1, a = 2}\n[[volumes]]\nextra = {b = 1, a = 2}\n",
-			[][]string{{"extra", "{", "z", "a", "}"}, {"extra", "{", "b", "a", "}"}}},
+			"[[volumes]]\nsource = \"/a\"\nextra = {z = 1, a = 2}\n[[volumes]]\nsource = \"/b\"\nextra = {b = 1, a = 2}\n",
+			[][]string{{"source", "extra", "{", "z", "a", "}"}, {"source", "extra", "{", "b", "a", "}"}}},
 		{"inline array of inline tables inside an inline table",
-			"volumes = [{opts = [{z = 1, a = 2}, {b = 1, a = 2}]}]\n",
-			[][]string{{"opts", "{", "z", "a", "}", "{", "b", "a", "}"}}},
+			"volumes = [{source = \"/a\", opts = [{z = 1, a = 2}, {b = 1, a = 2}]}]\n",
+			[][]string{{"source", "opts", "{", "z", "a", "}", "{", "b", "a", "}"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

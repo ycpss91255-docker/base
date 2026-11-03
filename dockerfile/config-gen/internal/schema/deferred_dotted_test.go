@@ -11,7 +11,9 @@ import (
 // bridge's fallback import) loads `volumes = [{ extra.z = 1, extra.a = 2 }]`
 // as {'volumes': [{'extra': {'z': 1, 'a': 2}}]} and the second case as
 // {'volumes': [{'source': '/a', 'extra': {'y': {'z': 1, 'a': 2}, 'b': 3}}]},
-// each dict in insertion order.
+// each dict in insertion order. The first case also carries `source`,
+// the field a volumes entry is read from, so the entry rule (base#1443)
+// does not refuse it.
 func TestDecodeDottedKeysInDeferredInlineTablesKeepSourceOrder(t *testing.T) {
 	cases := []struct {
 		name string
@@ -19,8 +21,8 @@ func TestDecodeDottedKeysInDeferredInlineTablesKeepSourceOrder(t *testing.T) {
 		want [][]string
 	}{
 		{"dotted keys in an inline array item",
-			"volumes = [{ extra.z = 1, extra.a = 2 }]\n",
-			[][]string{{"extra", "{", "z", "a", "}"}}},
+			"volumes = [{ source = \"/a\", extra.z = 1, extra.a = 2 }]\n",
+			[][]string{{"source", "extra", "{", "z", "a", "}"}}},
 		{"dotted keys in an inline table of an element",
 			"[[volumes]]\nsource = \"/a\"\nextra = { y.z = 1, y.a = 2, b = 3 }\n",
 			[][]string{{"source", "extra", "{", "y", "{", "z", "a", "}", "b", "}"}}},

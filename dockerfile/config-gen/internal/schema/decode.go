@@ -168,6 +168,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 	tree, deferred, arrays := buildTree(md, root)
 	for i, def := range deferred {
 		if !d.refusedUnder(def.Path) {
+			d.checkEntries(def.Path, arrays[i])
 			line, col := arrays[i].declPos()
 			d.judgeValues(def.Path, arrays[i], line, col)
 		}
