@@ -36,7 +36,11 @@ var alsoRead = map[string][]string{
 // the bridge's _check_entry does. A table element that carries a gating
 // field and, beside it, a field its family does not read is refused as
 // conf_entry_unknown_field at that field, the first in sorted order, as
-// the bridge names them sorted. A field-less element, the cleared
+// the bridge names them sorted. An element whose fields are all read
+// and one of which holds a list or a table, where a single value
+// belongs, is refused as conf_value_type_refused at that field, the
+// first in sorted order, as the bridge's _check_entry checks it after
+// the unknown field. A field-less element, the cleared
 // slot, carries nothing and is not refused (base#1443). An element
 // holding a name that keyCharEvent refuses keeps that refusal as its only
 // one, as base#1442 decided.
@@ -59,19 +63,25 @@ func (d *decoder) checkEntries(p []string, b *bound) {
 			d.refuse("conf_entry_no_gating_field", p, line, col)
 			continue
 		}
-		if f := firstUnknown(e, gating, alsoRead[p[len(p)-1]]); f != nil {
+		read := [][]string{gating, alsoRead[p[len(p)-1]]}
+		if f := firstBy(e, func(c *bound) bool { return !carriedBy(c.node.Key, read...) }); f != nil {
 			line, col := f.declPos()
 			d.refuse("conf_entry_unknown_field", append(append([]string{}, p...), f.node.Key), line, col)
+			continue
+		}
+		if f := firstBy(e, func(c *bound) bool { return c.isTable() || c.isArray() }); f != nil {
+			line, col := f.declPos()
+			d.refuse("conf_value_type_refused", append(append([]string{}, p...), f.node.Key), line, col)
 		}
 	}
 }
 
-// firstUnknown is the member of the table e, first by name, that is
-// named in neither read list, or nil when every member is read.
-func firstUnknown(e *bound, read ...[]string) *bound {
+// firstBy is the member of the table e, first by name, that match
+// reports, or nil when it reports none.
+func firstBy(e *bound, match func(*bound) bool) *bound {
 	var first *bound
 	for _, c := range e.children {
-		if carriedBy(c.node.Key, read...) {
+		if !match(c) {
 			continue
 		}
 		if first == nil || c.node.Key < first.node.Key {
