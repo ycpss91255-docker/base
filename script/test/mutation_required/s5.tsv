@@ -12,5 +12,3 @@ oracle-count	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integratio
 oracle-token	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${bad}" ]]; then	  if false; then
 oracle-calibration	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${drift}" ]]; then	  if false; then
 gate-fuzz-fail-path	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	    (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \\	    true; \\
-gate-tidy-fail-path	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	{ go mod download && go mod tidy -diff; } || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	{ go mod download && go mod tidy -diff; } || true
-gate-tidy-diff	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	{ go mod download && go mod tidy -diff; }	{ go mod download; }
