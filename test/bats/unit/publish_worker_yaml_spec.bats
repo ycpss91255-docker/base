@@ -452,6 +452,11 @@ _FX_SHARD_ARMV7='a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a
 #             read of each tag BY NAME answers the flattened index, every
 #             later read by name answers an index whose linux/amd64 child is
 #             content nothing verified, the way a concurrent publish would.
+#   moved-listing
+#             an ordinary publish whose tags move to the amd64 shard index
+#             after their first read by name: a later read of a tag by name
+#             lists linux/amd64 alone, while the index it first named lists
+#             both platforms.
 #   rawfail-tag / rawfail-verified
 #             an ordinary publish, but the raw read of the flattened index
 #             (the tags' side) or of the verified shard index exits non-zero
@@ -493,6 +498,8 @@ _confirm_step_for() {
     platform) _ver="${_FX_SHARD_AMD64}" _latest="${_FX_SHARD_AMD64}" ;;
     moved) _fx_content; _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
       _moved="${_FX_CONTENT}" ;;
+    moved-listing) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
+      _moved="${_FX_SHARD_AMD64}" ;;
     rawfail-tag) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
       _rawfail="${_FX_MAIN}" ;;
     rawfail-verified) _ver="${_FX_MAIN}" _latest="${_FX_MAIN}"
@@ -778,6 +785,22 @@ merge: packages: write'
   assert_success
   assert_output --partial 'ros_distro:v1.2.3-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
   assert_output --partial 'ros_distro:latest-standard resolves to the verified image for linux/amd64 (sha256:ce29e05dca4c43414a0a607c3cc714d8b249386e9af33c576bad38a17f967d98)'
+}
+
+# why: The platform listing is the other read a moving tag can split. If the
+# step lists the platforms under the tag BY NAME after resolving it, a tag
+# moved in between is listed on an index the comparison never reads, and a
+# publish that carried every arch is refused as having dropped one -- or a
+# publish that dropped one is passed. Here the tag first names run
+# 41451556967's flattened index (linux/amd64 and linux/arm64) and then moves
+# to its amd64 shard index (linux/amd64 alone), so only a listing read
+# through the pinned digest finds linux/arm64 (base#1514, base#1510).
+@test "publish-worker.yaml: the tag confirmation lists the platforms of the digest the tag first resolved to, not of the tag read again by name (base#1514)" {
+  run _confirm_step_for moved-listing
+  assert_success
+  assert_output --partial 'ros_distro:v1.2.3-standard carries a manifest for linux/arm64'
+  assert_output --partial 'ros_distro:latest-standard carries a manifest for linux/arm64'
+  refute_output --partial 'carries no manifest'
 }
 
 # why: A registry read can write a complete, valid index body and still exit
