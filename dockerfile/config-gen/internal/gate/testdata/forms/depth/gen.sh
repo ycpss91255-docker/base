@@ -13,8 +13,10 @@
 # Names: <shape>-<terminal slug>-<N>.toml. Shapes: arr `a = [[…]]`, it
 # `a = {b = {b = …}}`, mix `a = [{b = …}]` pairs, arr-in-hdr `[t.u]` then
 # `x.y.z = [[…]]`, arr-in-aot `[[t]]` then `x = [[…]]`, arr-ws `[ # c`
-# plus a line ending per level, it-arr `a = {b = [[…]]}`. The shapes
-# whose terminal is fixed are named <shape>-<N>.toml (see _fixed).
+# plus a line ending per level, it-arr `a = {b = [[…]]}`, warm-arr
+# `x = {}` then the arr shape, so an inline table was read before the
+# deepest one (base#1441). The shapes whose terminal is fixed are named
+# <shape>-<N>.toml (see _fixed).
 #
 # The backslash of the escaped terminal is written from its byte code
 # (\134), never typed: the six characters of a \u escape typed through
@@ -46,6 +48,8 @@ _doc() {
     arr-in-aot) printf '[[t]]\nx = %s%s%s\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
     arr-ws) printf 'a = %s%s%s\n' "$(_rep $'[ # c\n' "${n}")" "${t}" "$(_rep $'\n]' "${n}")" ;;
     it-arr) printf 'a = {b = %s%s%s}\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
+    warm-arr) printf 'x = {}\na = %s%s%s\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
+    arr-e) printf 'a = [%s{}%s]\n' "$(_rep '{b = ' "${n}")" "$(_rep '}' "${n}")" ;;
     it-c) printf 'a = {b = %s#c\n1%s}\n' "$(_rep '[' "${n}")" "$(_rep ']' "${n}")" ;;
     ait-c) printf 'a = [{b = %s#c\n1%s}]\n' "$(_rep '[' "${n}")" "$(_rep ']' "${n}")" ;;
   esac
@@ -58,10 +62,12 @@ _pair() {
 }
 
 # _fixed <shape> <n>... -- <shape>-<n>.toml for each n, for a shape whose
-# terminal is part of it: it-c `a = {b = [[… #c` a line ending `1 …]]}`,
-# a comment in the innermost of n arrays inside an inline table; ait-c the
-# same n arrays inside `a = [{b = …}]`. Both put the innermost array at
-# the frame parity where only its comment's skip_until passes the limit
+# terminal is part of it: arr-e `a = [{b = {b = … {}}}]`, an array
+# holding n nested inline tables around an empty one; it-c
+# `a = {b = [[… #c` a line ending `1 …]]}`, a comment in the innermost of
+# n arrays inside an inline table; ait-c the same n arrays inside
+# `a = [{b = …}]`. it-c and ait-c put the innermost array at the frame
+# parity where only its comment's skip_until passes the limit
 # (base#1441).
 _fixed() {
   local s="$1" n
@@ -109,6 +115,9 @@ main() {
     _pair it "${slug}" "${imax}" "${term}"
   done
   _pair it-arr it-empty 494 '{}'
+  _pair warm-arr it-empty 495 '{}'
+  _pair warm-arr int 496 '1'
+  _fixed arr-e 329 330 331
   _fixed it-c 494 495
   _fixed ait-c 493 494
 }

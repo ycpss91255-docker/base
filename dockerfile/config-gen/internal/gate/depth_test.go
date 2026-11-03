@@ -15,7 +15,8 @@ const wantDepthText = "nesting deeper than tomllib accepts (Python recursion lim
 // `a = [{b = [{b = …}]}]` (n pairs), arr-in-hdr `[t.u]` then
 // `x.y.z = [[…]]`, arr-in-aot `[[t]]` then `x = [[…]]`, arr-ws `[ # c`
 // and a line ending per level, it-arr `a = {b = [[…]]}`, ait
-// `a = [{b = [[…]]}]`.
+// `a = [{b = [[…]]}]`, arr-it `a = [{b = {b = …}}]`, warm-arr `x = {}`
+// then `a = [[…]]` on line 2.
 func nest(shape string, n int, term string) string {
 	r := strings.Repeat
 	switch shape {
@@ -35,6 +36,10 @@ func nest(shape string, n int, term string) string {
 		return "a = {b = " + r("[", n) + term + r("]", n) + "}\n"
 	case "ait":
 		return "a = [{b = " + r("[", n) + term + r("]", n) + "}]\n"
+	case "arr-it":
+		return "a = [" + r("{b = ", n) + term + r("}", n) + "]\n"
+	case "warm-arr":
+		return "x = {}\na = " + r("[", n) + term + r("]", n) + "\n"
 	}
 	panic("nest: unknown shape " + shape)
 }
@@ -72,6 +77,15 @@ func TestCheckDepthBoundaries(t *testing.T) {
 		// inline table's own depth check refuses: forms/depth
 		// it-arr-it-empty-* (base#1441).
 		{"it-arr", "{}", 494, 1, 5},
+		// An empty inline table read after another inline table goes one
+		// frame deeper than the first one the document reads: forms/depth
+		// arr-e-* (329 accept, 330 and 331 refuse) and warm-arr-it-empty-*
+		// (495 accept, 496 refuse), where arr-it-empty-496 without the
+		// earlier `x = {}` is accepted. warm-arr int is the control: the
+		// earlier inline table moves no other boundary (base#1441).
+		{"arr-it", "{}", 329, 1, 5},
+		{"warm-arr", "{}", 495, 2, 5},
+		{"warm-arr", "1", 496, 2, 5},
 	}
 	for _, tm := range []struct {
 		term    string
