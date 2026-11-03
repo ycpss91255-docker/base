@@ -419,6 +419,30 @@ _df_instructions() {
       'config_gen_gate_coverage_failed gate=coverage')"
 }
 
+# why: cg-gates sensitivity refuses a testcorpus with no top-level func
+# Glob by printing `cg_event config_gen_corpus_sensitivity_invalid
+# reason=glob_not_found` on stdout (cmd/cg-gates TestSensitivity holds
+# that exact line). Its only way into the JSON log is this runner, and the
+# test above feeds every listed id a file= only: a runner that dropped
+# reason= from its attributes, or skipped the event, would leave the
+# refusal with no cause in the records (base#1467).
+@test "config_gen_gates.sh: a corpus_sensitivity refusal reaches the runner's records with its reason (base#1467)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  { _gate_log admission fmt vet lint race coverage
+    printf '#30 1.00 cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n'
+    printf '#30 1.00 config_gen_gate_corpus_sensitivity_failed\n'; } > "${S}/build_test.err"
+  printf '1\n' > "${S}/build_test.rc"
+  _run_runner
+  assert_equal "${status}" 1
+  [[ "${stderr}" != *"unregistered log body"* ]] || fail "unregistered log body: ${stderr}"
+  assert_equal "$(jq -rR 'fromjson? | select(.attributes."service.name" == "config-gen")
+    | .body + " " + (.attributes.reason // ("gate=" + .attributes.gate))' <<<"${stderr}")" \
+    "$(printf '%s\n' 'config_gen_corpus_sensitivity_invalid glob_not_found' \
+      'config_gen_gate_corpus_sensitivity_failed gate=corpus_sensitivity')"
+}
+
 # why: The ids the build may print are one table,
 # dockerfile/config-gen/internal/buildgate/testdata/build-events.txt, which
 # buildgate's own test holds every ev() id to. A runner with a second,
@@ -505,6 +529,7 @@ gate|corpus-var|race
 gate|mut-unstaged|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0
 gate|mut-staged|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0
 gate|mut-timeout|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0
+gate|mut-untracked-lived|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive failed reason=below measured=0.0
 gate|corpus|mutation|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0
 gate|notes|mutation||config_gen_mutation_unmapped|dockerfile/config-gen/notes.txt
 gate|sens-per-golden|corpus_sensitivity||github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzglob|golden/s1/zz.golden

@@ -32,7 +32,9 @@
 #   mut-staged     the same edit, staged                           mutation
 #   mut-timeout    an untracked package whose loop mutant hangs:   mutation
 #                  3 mutants killed and 1 timed out is 75.0
-#   corpus         a committed importer of internal/testcorpus     mutation
+#   mut-untracked-lived  an untracked package whose test asserts   mutation
+#                  nothing: both mutants end and survive, 0.0
+#   corpus        a committed importer of internal/testcorpus     mutation
 #                  whose result goes unasserted; the change is
 #                  only an untracked file under the module's
 #                  root testdata/
@@ -224,17 +226,21 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # <case>|<the line the mutation gate must print for it> (base#1467). The
 # mut-timeout figure is 3 killed over 4 judged: gremlins reported its loop
 # fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
 # The corpus figure is 0 killed over 2 judged: Pos's boundary and negation
 # mutants of n > 0 both live, since no test asserts Pos's result; so are
-# mut-unstaged's and mut-staged's, whose edited test asserts nothing.
+# mut-unstaged's and mut-staged's, whose edited test asserts nothing, and
+# mut-untracked-lived's, an added package whose test asserts nothing: no
+# mutant there times out, so its 0.0 holds only if a LIVED mutant is
+# judged not killed.
 readonly -a _RP_MUTATION_LINES=(
   'mut-unstaged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0'
   'mut-staged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut failed reason=below measured=0.0'
   'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop failed reason=below measured=75.0'
+  'mut-untracked-lived|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive failed reason=below measured=0.0'
   'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak failed reason=below measured=0.0'
 )
 # <case>|<event>|<file>: the one record of <event>, naming <file>, the
@@ -769,6 +775,35 @@ func TestCount(t *testing.T) {
 }
 EOF
       printf 'internal/zzloop 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    mut-untracked-lived)
+      # Never committed. The test calls Pos on every row, so coverage is
+      # 100.0, and asserts nothing: the boundary and negation mutants of
+      # n > 0 both run to an end and survive. No loop, so no mutant can
+      # time out (base#1467).
+      mkdir -p "${mod}/internal/zzlive"
+      cat >"${mod}/internal/zzlive/zzlive.go" <<'EOF'
+// Package zzlive is a redpath fixture whose test asserts nothing.
+package zzlive
+
+// Pos reports whether n is positive.
+func Pos(n int) bool {
+	return n > 0
+}
+EOF
+      cat >"${mod}/internal/zzlive/zzlive_test.go" <<'EOF'
+package zzlive
+
+import "testing"
+
+func TestPos(t *testing.T) {
+	for _, n := range []int{-1, 0, 1} {
+		_ = Pos(n)
+	}
+}
+EOF
+      printf 'internal/zzlive 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
       _rp_manifest_step "${root}"
       ;;
     corpus)
