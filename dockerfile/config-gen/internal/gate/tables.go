@@ -115,10 +115,7 @@ func (t *tables) document() error {
 			} else {
 				t.i++ // the `[` checked above
 			}
-			for _, p := range t.pending {
-				p.explicit = true
-			}
-			t.pending = nil
+			t.closeSection()
 			n := t.root
 			err := t.key(func(part string, _ int, dotted bool) (err error) {
 				if dotted {
@@ -163,6 +160,15 @@ func (t *tables) document() error {
 			return errStop
 		}
 	}
+}
+
+// closeSection ends the current section at a header: the dotted-key
+// prefixes it made become explicit, so no later header reopens them.
+func (t *tables) closeSection() {
+	for _, p := range t.pending {
+		p.explicit = true
+	}
+	t.pending = nil
 }
 
 // headerStep passes a [parts] or [[parts]] header that starts at offset
@@ -262,15 +268,12 @@ func (t *tables) inline(f int) error {
 			if err = t.reach(f + 3 + cost); err != nil {
 				return err
 			}
-			if !dotted {
+			if dotted {
+				n, err = t.inlineStep(n, part, start)
+			} else {
 				n, err = t.define(n, part, start)
-				return err
 			}
-			if c, ok := n.kids[part]; ok && c.kind != nodeTable {
-				return t.refuse(start, ReasonDuplicate)
-			}
-			n = n.child(part)
-			return nil
+			return err
 		})
 		if err != nil {
 			return err
@@ -304,6 +307,17 @@ func (t *tables) inline(f int) error {
 			return commaRefusal(t.label, t.src, comma)
 		}
 	}
+}
+
+// inlineStep passes an inline-table member's dotted key that starts at
+// offset at through part, an ancestor of its last part, below n, and
+// returns part's node. It refuses a part the inline table already holds
+// as anything but a table.
+func (t *tables) inlineStep(n *node, part string, at int) (*node, error) {
+	if c, ok := n.kids[part]; ok && c.kind != nodeTable {
+		return nil, t.refuse(at, ReasonDuplicate)
+	}
+	return n.child(part), nil
 }
 
 // inlineBlank skips the spaces, tabs and comment at t.i inside an inline
