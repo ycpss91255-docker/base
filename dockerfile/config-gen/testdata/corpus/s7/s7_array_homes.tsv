@@ -1,0 +1,14 @@
+# The shell writers' array homes (_conf_toml_aot_section over SCHEMA_SECTIONS,
+# dist/script/docker/lib/conf.sh): path, prefix, and the all-empty entry
+# (_conf_toml_aot_fields of ""), a newline written as \n (base#1443).
+image.rules	rule	rule = ""
+build.args	arg	key = ""
+network.ports	port	host = ""
+security.cap_add	cap_add	cap = ""
+security.cap_drop	cap_drop	cap = ""
+security.security_opt	security_opt	opt = ""
+tmpfs	tmpfs	path = ""
+devices.bindings	device	path = ""
+devices.cgroup_rules	cgroup_rule	rule = ""
+volumes	mount	source = ""
+additional_contexts	context	name = ""
