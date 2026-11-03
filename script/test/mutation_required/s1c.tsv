@@ -22,9 +22,17 @@ scan-punctuation	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if 
 scan-replace	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == replace ]]; then _pin_go_mod_refuse "${_ln}" replace; return 1; fi	    if [[ "${_verb}" == replace ]]; then :; fi
 scan-tool	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi	    if [[ "${_verb}" == tool ]]; then :; fi
 scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi	    if [[ "${_verb}" == ignore ]]; then :; fi
-scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == godebug ]]; then _pin_go_mod_refuse "${_ln}" godebug; return 1; fi	    if [[ "${_verb}" == godebug ]]; then :; fi
-scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == exclude ]]; then _pin_go_mod_refuse "${_ln}" exclude; return 1; fi	    if [[ "${_verb}" == exclude ]]; then :; fi
-scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == retract ]]; then _pin_go_mod_refuse "${_ln}" retract; return 1; fi	    if [[ "${_verb}" == retract ]]; then :; fi
+scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[_first]}" != *=* ]]; then	"${_gm_text[_first]}" != *=* ]] && false; then
+scan-godebug-quote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	== *[\\"\\'\\`,]* ||	== *[,]* ||
+scan-godebug-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	if (( ${#_gm_kind[@]} != _first + 1 )) || [[ "${_gm_text[_first]}"	if (( 0 )) || [[ "${_gm_text[_first]}"
+scan-godebug-dispatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    godebug) _pin_go_mod_godebug "${2}" "${3}" ;;	    godebug) _pin_go_mod_entry "${2}" "${3}" ;;
+scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    exclude) _pin_go_mod_entry "${2}" "${3}" 0 ;;	    exclude) _pin_go_mod_entry "${2}" "${3}" ;;
+scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    elif [[ "${_gm_kind[_k]}" != p || "${_gm_text[_k]}" != "${_step}" ]]; then	    elif false; then
+scan-retract-interval	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if (( _k >= _n )); then _pin_go_mod_refuse "${_ln}" retract_interval; return 1; fi	    if (( _k >= _n )); then break; fi
+scan-retract-paren	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ "${_gm_kind[_k]:-}" == p && "${_gm_text[_k]:-}" == '(' ]]; then	  if false; then
+scan-retract-open	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	then _want=('[' v ',' v ']'); fi	then :; fi
+scan-retract-trailer	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if (( _k < _n )); then _pin_go_mod_refuse "${_ln}" retract_trailer; return 1; fi	  :
+scan-retract-word-quote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if ! _pin_go_mod_unquote "${_gm_kind[_k]}" "${_gm_text[_k]}" > /dev/null; then _pin_go_mod_refuse "${_ln}" word_quote; return 1; fi	      :
 scan-block-form-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if _pin_go_mod_opens_block; then _pin_go_mod_refuse "${_ln}" block_form_verb; return 1; fi	        if _pin_go_mod_opens_block; then :; fi
 scan-module-repeated	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( _seen_module )); then _pin_go_mod_refuse "${_ln}" module_repeated; return 1; fi	        if (( _seen_module )); then :; fi
 scan-module-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( ${#_gm_kind[@]} != 2 )); then _pin_go_mod_refuse "${_ln}" module_arity; return 1; fi	        if (( ${#_gm_kind[@]} != 2 )); then :; fi
@@ -42,10 +50,13 @@ scan-word-quote-version	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	
 scan-paren-close-trailer	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if (( ${#_gm_kind[@]} > 1 )); then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi	        if (( ${#_gm_kind[@]} > 1 )); then :; fi
 scan-paren-not-alone	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then _pin_go_mod_refuse "${_ln}" paren_not_alone; return 1; fi	        if [[ "${_gm_kind[_k]}" == p && "${_gm_text[_k]}" == ')' ]]; then :; fi
 scan-unknown-verb	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        _pin_go_mod_refuse "${_ln}" unknown_verb\n        return 1	        _pin_go_mod_refuse "${_ln}" unknown_verb\n        :
-scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if (( _in_block )); then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi	  if (( _in_block )); then :; fi
+scan-unterminated-block	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ -n "${_block_verb}" ]]; then _pin_go_mod_refuse "${_block_ln}" unterminated_block; return 1; fi	  if [[ -n "${_block_verb}" ]]; then :; fi
 scan-indirect	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ( "${#_f[@]}" -eq 1 && "${_f[0]}" == indirect ) || ( "${#_f[@]}" -gt 1 && "${_f[0]}" == 'indirect;' ) ]]; then	  if false; then
 scan-version-check	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if ! _pin_go_mod_version_ok "${_path}" "${_ver}"; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi	  if false; then _pin_go_mod_refuse "${_ln}" "${_PIN_GO_MOD_REASON}"; return 1; fi
-scan-string-unquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    printf '%s' "${2:1:${#2}-2}"	    printf "%s" "${2}"
+scan-string-unquote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    _in="${2:1:${#2}-2}"	    _in="${2}"
+scan-unquote-decode	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      if [[ "${_in:_k:1}" == "\\\\" ]]; then _k=$(( _k + 1 )); fi	      if false; then _k=$(( _k + 1 )); fi
+scan-lex-dquote-pair	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ "${_s:_j:2}" == "\\\\\\"" || "${_s:_j:2}" == "\\\\\\\\" ]]; then _j=$(( _j + 2 )); continue; fi	        if false; then _j=$(( _j + 2 )); continue; fi
+scan-lex-backslash-pair	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 || "${_s:_j:2}" == "\\\\\\\\" ]]; then _j	 ]]; then _j
 version-version-no-v	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ "${_v}" != v* ]]; then _PIN_GO_MOD_REASON=version_no_v; return 1; fi	  if [[ "${_v}" != v* ]]; then :; fi
 version-version-build	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ "${_v}" == *+* ]]; then _PIN_GO_MOD_REASON=version_build; return 1; fi	  if [[ "${_v}" == *+* ]]; then :; fi
 version-version-leading-zero	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_f}" =~ ^0[0-9]+$ ]]; then _PIN_GO_MOD_REASON=version_leading_zero; return 1; fi	    if [[ "${_f}" =~ ^0[0-9]+$ ]]; then :; fi
@@ -97,3 +108,15 @@ scan-go-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      
 scan-toolchain-raw-token	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	        if [[ ! "${_gm_text[1]}" =~ ^(default|go1(\\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi	        if [[ ! "$(_pin_go_mod_unquote "${_gm_kind[1]}" "${_gm_text[1]}")" =~ ^(default|go1(\\..*)?)$ ]]; then _pin_go_mod_refuse "${_ln}" toolchain_version; return 1; fi
 read-table-buffered	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	      _table+="${_record}"	      printf "%s" "${_record}"
 reader-marker-target-event	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	          _log_err pin go_mod_pin_target_not_require "file=${_file}" "line=${_target_no}" "pin=${_name}" \\	          printf "%s\\n" not_require_entry >&2; : \\
+exclude-check-call	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    _pin_go_mod_exclude_ok "${_path}" "${_ver}" && return 0	    return 0
+exclude-version-grammar	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ! "${_v}" =~ ${_re} ]]; then	  if false; then
+exclude-prerelease-zero	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  if [[ ".${_pre#-}." =~	  if false && [[ ".${_pre#-}." =~
+exclude-gopkg-unstable	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    _run="${_path%-unstable}"	    _run="${_path}"
+exclude-gopkg-invalid	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	      _PIN_GO_MOD_REASON=path_major_invalid\n      return 1	      _PIN_GO_MOD_REASON=path_major_invalid\n      :
+exclude-gopkg-v0	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 && ".v${_pm}${_suffix}" != .v0 ]]	 ]]
+exclude-path-invalid	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_run}" == 1 ]]; then _PIN_GO_MOD_REASON=path_major_invalid; return 1; fi	"${_run}" == 1 ]]; then :; fi
+exclude-path-suffix	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if (( _i > 1 )) && [[	    if false && [[
+exclude-gopkg-pseudo	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  [[ "${_v}" == v0.0.0-* &&	  false && [[ "${_v}" == v0.0.0-* &&
+exclude-incompatible	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 || "${_build}" == +incompatible ]] && return 0	 ]] && return 0
+exclude-major-match	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  elif [[ "${_major}" == "${_pm}" ]]; then	  elif false; then
+exclude-mismatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  _PIN_GO_MOD_REASON=path_major_mismatch\n  return 1	  _PIN_GO_MOD_REASON=path_major_mismatch\n  return 0

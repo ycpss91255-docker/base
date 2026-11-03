@@ -132,22 +132,32 @@ empty_pre_ident 3
 empty_pre 3
 exclude_arity_post 4
 exclude_arity_pre 3
-exclude_block_post 4
-exclude_block_pre 3
-exclude_ok_post 4
-exclude_ok_pre 3
+exclude_gopkg_in_mismatch 3
+exclude_gopkg_in_no_major 3
+exclude_gopkg_in_zero 3
+exclude_major_mismatch 3
+exclude_path_dot 3
+exclude_path_v02 3
+exclude_path_v1 3
+exclude_pre_zero 3
+exclude_short_pre 3
+exclude_version_invalid 3
 go_arity_post 4
 go_arity_pre 3
 go_bad_post 4
 go_bad_pre 3
-godebug_block_post 4
-godebug_block_pre 3
 godebug_comma_post 4
 godebug_comma_pre 3
 godebug_no_eq_post 4
 godebug_no_eq_pre 3
-godebug_ok_post 4
-godebug_ok_pre 3
+godebug_arity 3
+godebug_arity_block 4
+godebug_backquote 3
+godebug_empty 3
+godebug_quoted_block 4
+godebug_quoted_post 4
+godebug_quoted_pre 3
+godebug_squote 3
 go_locale_post 4
 go_locale_pre 3
 gopkg_in 3
@@ -192,14 +202,19 @@ punct_bracket 3
 punct_comma 3
 quote_escape 3
 replace 4
-retract_block_post 4
-retract_block_pre 3
-retract_interval_post 4
-retract_interval_pre 3
+retract_bare 3
+retract_block_paren 4
+retract_empty_interval 3
+retract_interval_trailer 3
+retract_missing_high 3
+retract_no_close 3
+retract_no_comma 3
+retract_open 3
 retract_trailer_post 4
 retract_trailer_pre 3
 retract_unclosed_post 4
 retract_unclosed_pre 3
+retract_word_quote 3
 short_v1_2 3
 short_v1 3
 string_verb 3
@@ -268,35 +283,342 @@ EOF
   [[ -z "${_bad}" ]] || fail "unclassified:${_bad}"
 }
 
+# ── godebug, exclude, retract: read with Go's own checks (base#1488) ────────
+
+# why: Go reads `godebug default=go1.27` (rc 0, issue observation in the
+# pinned golang image) and its only require is `a v1.0.0`. The scanner
+# refused godebug by name, so a go.mod Go accepts could not be read. The
+# godebug line is checked, never emitted, so it is not a declaration.
+@test "_pin_go_mod_scan: godebug default=go1.27 is read and the require after it is the one record (base#1488)" {
+  _scan godebug_default
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  cp "${FIX}/godebug_default.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'godebug default=go1.27' 2
+  assert_failure 1
+}
+
+# why: Go rejects `godebug foo` (no `=`) and `godebug a=1,b=2` (a comma);
+# these fixtures are go-invalid, held to Go by the oracle. A malformed
+# godebug must not be skipped unread: both refuse as godebug_usage, before
+# a require and after one.
+@test "_pin_go_mod_scan: godebug with no = or with a comma is refused as godebug_usage (base#1488)" {
+  _refused godebug_no_eq_pre godebug_usage 3
+  _refused godebug_no_eq_post godebug_usage 4
+  _refused godebug_comma_pre godebug_usage 3
+  _refused godebug_comma_post godebug_usage 4
+}
+
+# why: Go rejects a godebug argument holding a quote: the oracle records Go
+# rc 1 for `godebug "foo=1"` (line form, before and after a require, and in
+# a `godebug (` block) and for `godebug 'foo=1'`. The lexer reads `"foo=1"`
+# as one string token and `'foo=1'` as one word, both holding `=` and no
+# comma, so only the quote check refuses them; a godebug check that drops
+# it reads a file Go rejects (review round 4). Refused as godebug_usage,
+# nothing on stdout. A backquoted argument is refused earlier, by the
+# lexer, as backquote.
+@test "_pin_go_mod_scan: a quoted godebug argument is refused as godebug_usage, line and block form (base#1488)" {
+  _refused godebug_quoted_pre godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_quoted_post godebug_usage 4
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_quoted_block godebug_usage 4
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_squote godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_backquote backquote 3
+}
+
+# why: Go's godebug usage check takes exactly one argument: the oracle
+# records Go rc 1 for `godebug a=1 b=2` (line form and block form) and for
+# a bare `godebug`. The first argument of `a=1 b=2` holds `=` and no quote,
+# so only the argument count refuses it; a godebug check that drops the
+# count reads a file Go rejects. Refused as godebug_usage, nothing on
+# stdout.
+@test "_pin_go_mod_scan: a godebug with no argument or two arguments is refused as godebug_usage, line and block form (base#1488)" {
+  _refused godebug_arity godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_arity_block godebug_usage 4
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+  _refused godebug_empty godebug_usage 3
+  [[ -z "${output}" ]] || fail "a refusal prints no record: ${output}"
+}
+
+# why: Go reads a `godebug (` block holding `foo=1` (the oracle records Go
+# rc 0 for godebug_block_pre/post) and its only require is `a v1.0.0`. A
+# scanner that hands godebug block lines to the require entry would refuse
+# `foo=1` as arity; one that emits them would add a record. The block's
+# lines are checked, never emitted, so none of them is a declaration.
+@test "_pin_go_mod_scan: a godebug block is read and the require after it is the one record (base#1488)" {
+  _scan godebug_block_pre
+  assert_success
+  assert_output "$(printf '6\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan godebug_block_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  cp "${FIX}/godebug_block_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'godebug (' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" "$(printf '\tfoo=1')" 4
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" ')' 5
+  assert_failure 1
+}
+
+# why: Go reads `exclude a v1.0.0` beside `require a v1.0.0` (the oracle
+# records Go rc 0 for exclude_ok_pre/post) and its only require is
+# `a v1.0.0`; Go ignores an exclude's comments, so `// indirect` on an
+# exclude is no indirect requirement. A scanner that emits exclude as a
+# require would add a second record, and one that applies the indirect
+# refusal to exclude would refuse exclude_indirect. The exclude line is
+# checked, never emitted, so it is not a declaration.
+@test "_pin_go_mod_scan: an exclude line is read and the require beside it is the one record (base#1488)" {
+  _scan exclude_ok_pre
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan exclude_ok_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  _scan exclude_indirect
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  cp "${FIX}/exclude_ok_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'exclude a v1.0.0' 3
+  assert_failure 1
+}
+
+# why: Go rejects `exclude a` (one argument; the oracle records Go rc != 0
+# for exclude_arity_pre/post). exclude now takes the require entry's
+# checks, so a wrong argument count is the same `arity` a require with one
+# word gets -- not a by-name `exclude` refusal, and never skipped unread
+# (the base#1463 bug: the valid require beside it was emitted).
+@test "_pin_go_mod_scan: exclude with one argument is refused as arity, before a require and after one (base#1488)" {
+  _refused exclude_arity_pre arity 3
+  _refused exclude_arity_post arity 4
+}
+
+# why: Go's modfile parser holds an exclude to its own version and path
+# checks (CanonicalVersion, then CheckPathMajor), not to the require
+# entry's record-fidelity policy: it reads `exclude a v1.0.0+incompatible`,
+# `exclude gopkg.in/yaml.v2 v2.0.0`, a build suffix, a short version and an
+# empty path, in line and block form (review round 2, base#1488; the oracle
+# holds each supported header to Go's rc 0). An exclude emits no record, so
+# refusing these would only refuse a file Go reads. A scanner that hands
+# exclude the require's version_ok refuses them as version_build,
+# gopkg_in_path, version_noncanonical and path_empty.
+@test "_pin_go_mod_scan: an exclude takes Go's version and path-major checks, not the require entry's policy (base#1488)" {
+  local _n _ln
+  for _n in exclude_incompatible exclude_gopkg_in exclude_gopkg_in_unstable \
+    exclude_gopkg_in_v0 exclude_gopkg_in_v1_pseudo exclude_major_suffix_incompatible exclude_build_meta \
+    exclude_short exclude_path_empty; do
+    echo "fixture: ${_n}.mod"
+    _scan "${_n}"
+    assert_success
+    assert_output "$(printf '4\ta\tv1.0.0\t')"
+    [[ -z "${stderr}" ]] || fail "${_n}: a supported file logs nothing: ${stderr}"
+  done
+  for _n in exclude_incompatible_block exclude_gopkg_in_block; do
+    echo "fixture: ${_n}.mod"
+    _scan "${_n}"
+    assert_success
+    assert_output "$(printf '7\ta\tv1.0.0\t')"
+    [[ -z "${stderr}" ]] || fail "${_n}: a supported file logs nothing: ${stderr}"
+    cp "${FIX}/${_n}.mod" "${W}/go.mod"
+    for _ln in 3 4 5 6; do
+      run _pin_is_declaration "${W}/go.mod" "$(sed -n "${_ln}p" "${W}/go.mod")" "${_ln}"
+      assert_failure 1
+    done
+  done
+}
+
+# why: The same Go checks still refuse what Go refuses (the oracle records
+# Go rc != 0 for each): a version CanonicalVersion cannot read, a short
+# one with a prerelease or a numeric prerelease with a leading zero
+# (version_invalid), a major the path does not carry (path_major_mismatch,
+# for a plain path and a gopkg.in one) and a path SplitPathVersion rejects:
+# no .vN, a leading zero, /v1 or a dotted /vN (path_major_invalid). An
+# exclude check that accepts any version would read these files Go refuses.
+@test "_pin_go_mod_scan: an exclude Go rejects for its version or path major is refused by Go's reason (base#1488)" {
+  _refused exclude_version_invalid version_invalid 3
+  _refused exclude_short_pre version_invalid 3
+  _refused exclude_pre_zero version_invalid 3
+  _refused exclude_major_mismatch path_major_mismatch 3
+  _refused exclude_gopkg_in_mismatch path_major_mismatch 3
+  _refused exclude_gopkg_in_no_major path_major_invalid 3
+  _refused exclude_gopkg_in_zero path_major_invalid 3
+  _refused exclude_path_v1 path_major_invalid 3
+  _refused exclude_path_v02 path_major_invalid 3
+  _refused exclude_path_dot path_major_invalid 3
+}
+
+# why: Go reads an `exclude (` block holding `a v1.0.0` (the oracle records
+# Go rc 0 for exclude_block_pre/post) and its only require is `a v1.0.0`.
+# A scanner that still refuses the block by name refuses both; one that
+# emits the block's entry as a require adds a record. The block's lines are
+# checked, never emitted, so none of them is a declaration.
+@test "_pin_go_mod_scan: an exclude block is read and the require beside it is the one record (base#1488)" {
+  _scan exclude_block_pre
+  assert_success
+  assert_output "$(printf '6\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan exclude_block_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  cp "${FIX}/exclude_block_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'exclude (' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" "$(printf '\ta v1.0.0')" 4
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" ')' 5
+  assert_failure 1
+}
+
+# why: In Go's go.mod grammar a block line belongs to its block's verb, so
+# `go v1.0.0` inside `exclude (` is an exclude entry for a module named
+# `go`, not the go directive; the directive is the `go 1.27` line after
+# the block. A go-line finder that keys on the first token alone takes the
+# block line (line 3) and leaves the real directive (line 5) undeclared.
+@test "_pin_is_declaration: a go line inside an exclude block is not the go directive; the one after it is (base#1488)" {
+  _gomod 'module m' 'exclude (' '	go v1.0.0' ')' 'go 1.27' 'require a v1.0.0'
+  run _pin_is_declaration "${W}/go.mod" $'\tgo v1.0.0' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" 'go 1.27' 5
+  assert_success
+}
+
+# why: Go reads `retract [v1.0.0, v1.1.0] // why` and `retract v2.0.0` in
+# module example.com/m (the oracle holds these supported headers to Go's
+# rc 0) and the only require is `a v1.0.0`. A retract version is not tied
+# to a module path: run against the empty path, the require entry's version
+# check refuses v2.0.0 as path_major_mismatch, which Go does not. The
+# retract line is checked, never emitted, so it is not a declaration.
+@test "_pin_go_mod_scan: a retract version or interval is read and the require beside it is the one record (base#1488)" {
+  _scan retract_interval_pre
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan retract_interval_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  _scan retract_v2
+  assert_success
+  assert_output "$(printf '4\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  cp "${FIX}/retract_interval_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'retract [v1.0.0, v1.1.0] // why' 3
+  assert_failure 1
+}
+
+# why: Go rejects `retract [v1.0.0` (an interval with no `, high ]`; the
+# oracle records Go rc != 0 for retract_unclosed_pre/post). A retract read
+# by Go's parseVersionInterval names the missing piece: retract_interval,
+# before a require and after one -- not a by-name `retract` refusal.
+@test "_pin_go_mod_scan: an unclosed retract interval is refused as retract_interval (base#1488)" {
+  _refused retract_unclosed_pre retract_interval 3
+  _refused retract_unclosed_post retract_interval 4
+}
+
+# why: Go rejects `retract v1.0.0 x` (a token left after the version; the
+# oracle records Go rc != 0 for retract_trailer_pre/post). A retract read by
+# Go's parseVersionInterval names the leftover token: retract_trailer,
+# before a require and after one -- not a by-name `retract` refusal.
+@test "_pin_go_mod_scan: a token after a retract version is refused as retract_trailer (base#1488)" {
+  _refused retract_trailer_pre retract_trailer 3
+  _refused retract_trailer_post retract_trailer 4
+}
+
+# why: `go mod edit -json` holds a retract version to no version grammar: the oracle
+# records Go rc 0 for `retract v1.2`, `retract v1.0.0+incompatible`,
+# `retract [v1.2, v1.3]`, `retract foo` and even `retract ]` (review round
+# 1, base#1488). A scanner that holds a retract version to canonical
+# semver, or to any version grammar, refuses files Go reads; each one's
+# only record is the require beside it.
+@test "_pin_go_mod_scan: a retract version is any token Go reads (base#1488)" {
+  local _f
+  for _f in retract_short retract_incompatible retract_interval_short retract_any_word retract_punct_version; do
+    echo "fixture: ${_f}.mod"
+    _scan "${_f}"
+    assert_success
+    assert_output "$(printf '4\ta\tv1.0.0\t')"
+    [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  done
+}
+
+# why: Go rejects a retract with a piece of `<version>` or `[<low>, <high>]`
+# missing -- no argument, `[` alone, `[]`, no `,`, no high version, no `]`,
+# or a block line that is a `(` (the oracle records Go rc != 0 for each).
+# Every such shape is retract_interval at its own line; a scanner that
+# accepts any of them (`retract []` read as no retraction, review round 1)
+# reads a file Go refuses.
+@test "_pin_go_mod_scan: a retract interval missing any piece is refused as retract_interval (base#1488)" {
+  _refused retract_bare retract_interval 3
+  _refused retract_open retract_interval 3
+  _refused retract_empty_interval retract_interval 3
+  _refused retract_no_comma retract_interval 3
+  _refused retract_missing_high retract_interval 3
+  _refused retract_no_close retract_interval 3
+  _refused retract_block_paren retract_interval 4
+}
+
+# why: Go rejects a token after a complete interval (`[v1.0.0, v1.1.0]]`)
+# as it does one after a single version, and a retract version that is a
+# word holding a quote (`v1"0`, parseString's "unquoted string cannot
+# contain quote"); the oracle records Go rc != 0 for both.
+@test "_pin_go_mod_scan: a token after a retract interval is retract_trailer; a quoted word is word_quote (base#1488)" {
+  _refused retract_interval_trailer retract_trailer 3
+  _refused retract_word_quote word_quote 3
+}
+
+# why: Go reads a `retract (` block holding `v0.9.0` in module example.com/m
+# (the oracle records Go rc 0 for retract_block_pre/post) and its only
+# require is `a v1.0.0`. A scanner that still refuses the block by name
+# refuses both; one that hands the block's lines to the require entry
+# refuses `v0.9.0` as arity; one that emits them adds a record. The block's
+# lines are checked, never emitted, so none of them is a declaration.
+@test "_pin_go_mod_scan: a retract block is read and the require beside it is the one record (base#1488)" {
+  _scan retract_block_pre
+  assert_success
+  assert_output "$(printf '6\ta\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+  _scan retract_block_post
+  assert_success
+  assert_output "$(printf '3\ta\tv1.0.0\t')"
+  cp "${FIX}/retract_block_pre.mod" "${W}/go.mod"
+  run _pin_is_declaration "${W}/go.mod" 'retract (' 3
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" "$(printf '\tv0.9.0')" 4
+  assert_failure 1
+  run _pin_is_declaration "${W}/go.mod" ')' 5
+  assert_failure 1
+}
+
+# why: Go's parseString unquotes `"a\"b"` with strconv.Unquote to the path
+# `a"b` (base#1488). A lexer that ends the token at the escaped quote breaks
+# the line apart; an unquote that only strips the outer quotes keeps the
+# backslash (`a\"b`). The record carries the decoded path.
+@test "_pin_go_mod_scan: a quoted path with an escaped double quote is one record with the decoded path (base#1488)" {
+  _scan quote_escape_dquote
+  assert_success
+  assert_output "$(printf '3\ta"b\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+}
+
+# why: strconv.Unquote reads `"a\\b"` as `a\b` and `"c\\"` as `c\`
+# (base#1488). A lexer that takes any quote after a backslash as escaped
+# reads `"c\\"` as unterminated; an unquote that only strips the outer
+# quotes keeps both backslashes. Each record carries the decoded path.
+@test "_pin_go_mod_scan: a quoted path with an escaped backslash is one record with the decoded path (base#1488)" {
+  _scan quote_escape_backslash
+  assert_success
+  assert_output "$(printf '3\ta\\b\tv1.0.0\t\n4\tc\\\tv1.0.0\t')"
+  [[ -z "${stderr}" ]] || fail "a supported file logs nothing: ${stderr}"
+}
+
 # ── the skipped directives: refused by name (the blocking review point) ─────
-
-# why: Go rejects `exclude a` and the old design consumed exclude unread, so
-# a valid require after it was emitted for a file Go refuses. exclude is now
-# refused by name in any form: line and block, before and after a require.
-@test "_pin_go_mod_scan: exclude is refused by name, line form before a require and block form after one (base#1463)" {
-  _refused exclude_ok_pre exclude 3
-  _refused exclude_block_post exclude 4
-  _refused exclude_arity_pre exclude 3
-  _refused exclude_arity_post exclude 4
-}
-
-# why: Same point for retract: its interval grammar is not ported, so every
-# retract -- valid, unclosed or with a trailer -- is refused by name.
-@test "_pin_go_mod_scan: retract is refused by name in the line, interval and block forms (base#1463)" {
-  _refused retract_interval_pre retract 3
-  _refused retract_block_post retract 4
-  _refused retract_unclosed_post retract 4
-  _refused retract_trailer_pre retract 3
-}
-
-# why: Same point for godebug: `godebug foo` and `godebug a=1,b=2` are Go
-# errors the old scanner skipped.
-@test "_pin_go_mod_scan: godebug is refused by name in the line and block forms (base#1463)" {
-  _refused godebug_ok_post godebug 4
-  _refused godebug_block_pre godebug 3
-  _refused godebug_no_eq_pre godebug 3
-  _refused godebug_comma_post godebug 4
-}
 
 # why: replace, tool and ignore are three separate arms, each its own guard.
 @test "_pin_go_mod_scan: replace, tool and ignore are each refused by name (base#1463)" {

@@ -100,7 +100,7 @@ _green_set() {
   _requires ok $'a\tv1.0.0'
   _fixture rep '// class: policy-refused go_mod_unsupported_syntax replace' \
     'module example.com/m' 'require a v1.0.0' 'replace a => ./a'
-  _fixture bad '// class: go-invalid go_mod_unsupported_syntax exclude' \
+  _fixture bad '// class: go-invalid go_mod_unsupported_syntax arity' \
     'module example.com/m' 'require a v1.0.0' 'exclude a'
   _go bad 1
   _go ok 0 a v1.0.0
