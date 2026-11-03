@@ -1,19 +1,20 @@
 #!/usr/bin/env bats
 #
-# config_gen_s7_verdicts_spec.bats -- the bridge half of the S7 verdict
-# manifest (base#1443).
+# config_gen_s7_verdicts_spec.bats -- the bridge half of the verdict each
+# corpus/s7 fixture states for itself (base#1443).
 #
-# why: Every corpus/s7 fixture's expected verdict lives in one shared
-# table, dockerfile/config-gen/testdata/corpus/s7/s7_verdicts.tsv, as
-# S6's layers live in s6_layers.tsv. The Go half (TestCheckS7Corpus) holds
-# `config-gen check` on each fixture to the row's verdict, event,
-# position and key. This half holds the same row to the bridge's own
-# output, so the table is not the Go package's word: a refuse row's event
-# and key are read off the bridge's refusal message, an accept or a
-# differs:<exception> row is one the bridge's --kv accepts, and the
-# apply column is what apply's per-layer checks (_layer_verdict) give
-# the fixture. Line and column are counted from the fixture bytes, since
-# the bridge reports no position.
+# why: Every corpus/s7 fixture carries its expected verdict on one
+# `# expect:` comment line, so the readers discover fixtures by globbing
+# and no index or manifest file lists them, as the base#1395 plan's
+# corpus rule asks (base#1443 review round 4 finding 1). The Go half
+# (TestCheckS7Corpus) holds `config-gen check` on each fixture to the
+# line's verdict, event, position and key. This half holds the same line
+# to the bridge's own output, so it is not the Go package's word: a refuse
+# verdict's event and key are read off the bridge's refusal message, an
+# accept or a differs:<exception> verdict is one the bridge's --kv
+# accepts, and apply is what apply's per-layer checks (_layer_verdict)
+# give the fixture. Line and column are counted from the fixture bytes,
+# since the bridge reports no position.
 
 bats_require_minimum_version 1.5.0
 
@@ -22,7 +23,6 @@ setup() {
   LIB=/source/dist/script/docker/lib
   BRIDGE_PY=/source/dockerfile/toml_bridge.py
   CORPUS=/source/dockerfile/config-gen/testdata/corpus/s7
-  TABLE="${CORPUS}/s7_verdicts.tsv"
   export LC_ALL=C
   # shellcheck disable=SC1091
   source "${LIB}/schema.sh"
@@ -36,7 +36,7 @@ setup() {
 # _bridge_event <message> -- print "<event> <key>" for the first line of
 # a bridge --kv refusal, read by the phrase the bridge words each
 # refusal with, or nothing when no phrase matches. The phrases are
-# written here, apart from the Go side's events, so a row is held to
+# written here, apart from the Go side's events, so a verdict is held to
 # what the bridge says.
 _bridge_event() {
   local _m="${1%%$'\n'*}"
@@ -59,63 +59,78 @@ _bridge_event() {
   fi
 }
 
-# why: Each row's verdict is the bridge's --kv status on the fixture: 1
-# for refuse, 0 for accept and for a differs:<exception> row, which the
-# generator refuses on purpose while the bridge reads it. A refuse row's
-# event and key are the ones the bridge's refusal message names, and
-# every row's apply column is _layer_verdict's verdict on the fixture, so
-# a fixture the generator accepts and apply refuses is recorded as such
-# (base#1443).
-@test "s7_verdicts: every row's verdict, event and key are the bridge's, its apply column _layer_verdict's" {
-  local _fixture _verdict _event _line _col _key _apply _extra _f _rc _err _got
-  local _rows=0 _bad=()
-  while IFS=$'\t' read -r _fixture _verdict _event _line _col _key _apply _extra; do
-    [[ "${_fixture}" == \#* ]] && continue
-    [[ -n "${_apply}" && -z "${_extra}" ]] || { _bad+=("${_fixture}: want 7 columns"); continue; }
-    _f="${CORPUS}/${_fixture}"
-    [[ -f "${_f}" ]] || { _bad+=("${_fixture}: no such fixture"); continue; }
-    _rc=0
-    _err="$(python3 "${BRIDGE_PY}" --kv < "${_f}" 2>&1 >/dev/null)" || _rc=$?
-    case "${_verdict}" in
-      refuse)
-        [[ "${_rc}" -eq 1 ]] || _bad+=("${_fixture}: bridge rc=${_rc}, table refuse")
-        _got="$(_bridge_event "${_err}")"
-        [[ "${_got}" == "${_event} ${_key}" ]] \
-          || _bad+=("${_fixture}: bridge says '${_got}' (${_err%%$'\n'*}), table '${_event} ${_key}'") ;;
-      accept)
-        [[ "${_rc}" -eq 0 ]] || _bad+=("${_fixture}: bridge rc=${_rc}, table accept: ${_err%%$'\n'*}")
-        [[ "${_event}${_line}${_col}${_key}" == '----' ]] || _bad+=("${_fixture}: an accept row names a refusal") ;;
-      differs:?*)
-        [[ "${_rc}" -eq 0 ]] || _bad+=("${_fixture}: bridge rc=${_rc}, table ${_verdict}: ${_err%%$'\n'*}")
-        [[ "${_event}" != - && "${_key}" != - ]] || _bad+=("${_fixture}: a differs row names no refusal") ;;
-      *) _bad+=("${_fixture}: verdict ${_verdict}") ;;
-    esac
-    _got="$(_layer_verdict "${_f}")"
-    [[ "${_got}" == "${_apply}" ]] || _bad+=("${_fixture}: _layer_verdict ${_got}, table apply ${_apply}")
-    _rows=$((_rows + 1))
-  done < "${TABLE}"
-  printf '%s\n' "${_bad[@]}"
-  [ "${#_bad[@]}" -eq 0 ]
-  [ "${_rows}" -gt 0 ]
+# _expect <fixture> <outvar> -- read the fixture's one `# expect:` line
+# into the associative array <outvar>, name to value. Returns 1, with
+# the reason on stdout, when the fixture carries no such line or more
+# than one, or a field that is not one name=value.
+_expect() {
+  local _file="${1}" _line _field _n
+  local -n _ex_out="${2}"
+  _ex_out=()
+  _n="$(grep -c '^# expect: ' "${_file}")"
+  [[ "${_n}" -eq 1 ]] || { echo "${_n} '# expect:' lines, want exactly one"; return 1; }
+  _line="$(grep '^# expect: ' "${_file}")"
+  for _field in ${_line#\# expect: }; do
+    [[ "${_field}" =~ ^([a-z]+)=(.+)$ && -z "${_ex_out[${BASH_REMATCH[1]}]+x}" ]] \
+      || { echo "field '${_field}' is not one name=value"; return 1; }
+    _ex_out[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
+  done
 }
 
-# why: The table and the corpus are held to each other both ways: every
-# corpus/s7/*.toml has exactly one row and every row names a fixture, so
-# a fixture added without its verdict, or a row left behind by a removed
-# fixture, fails here and in the Go half (base#1443).
-@test "s7_verdicts: every corpus/s7 fixture has exactly one row and every row its fixture" {
-  local _f _base _n
+# why: Each fixture's verdict is the bridge's --kv status on it: 1 for
+# refuse, 0 for accept and for a differs:<exception> verdict, which the
+# generator refuses on purpose while the bridge reads it. A refuse
+# verdict's event and key are the ones the bridge's refusal message
+# names, and every fixture's apply is _layer_verdict's verdict on it, so
+# a fixture the generator accepts and apply refuses is recorded as such.
+# A fixture with no `# expect:` line fails here, as in the Go half
+# (base#1443 review round 4 finding 1).
+@test "s7 corpus: every fixture's own verdict, event and key are the bridge's, its apply _layer_verdict's" {
+  local _f _base _why _rc _err _got _n=0
+  local -A _ex=()
   local _bad=()
-  [ -f "${TABLE}" ]
   for _f in "${CORPUS}"/*.toml; do
     _base="${_f##*/}"
-    _n="$(awk -F'\t' -v f="${_base}" '$1 == f { n++ } END { print n + 0 }' "${TABLE}")"
-    [[ "${_n}" -eq 1 ]] || _bad+=("${_base}: ${_n} rows")
+    _why="$(_expect "${_f}" _ex)" || { _bad+=("${_base}: ${_why}"); continue; }
+    _expect "${_f}" _ex
+    _rc=0
+    _err="$(python3 "${BRIDGE_PY}" --kv < "${_f}" 2>&1 >/dev/null)" || _rc=$?
+    case "${_ex[verdict]-}" in
+      refuse)
+        [[ "${_rc}" -eq 1 ]] || _bad+=("${_base}: bridge rc=${_rc}, expect refuse")
+        _got="$(_bridge_event "${_err}")"
+        [[ "${_got}" == "${_ex[event]-} ${_ex[key]-}" ]] \
+          || _bad+=("${_base}: bridge says '${_got}' (${_err%%$'\n'*}), expect '${_ex[event]-} ${_ex[key]-}'") ;;
+      accept)
+        [[ "${_rc}" -eq 0 ]] || _bad+=("${_base}: bridge rc=${_rc}, expect accept: ${_err%%$'\n'*}")
+        [[ -z "${_ex[event]-}${_ex[line]-}${_ex[col]-}${_ex[key]-}" ]] || _bad+=("${_base}: an accept verdict names a refusal") ;;
+      differs:?*)
+        [[ "${_rc}" -eq 0 ]] || _bad+=("${_base}: bridge rc=${_rc}, expect ${_ex[verdict]}: ${_err%%$'\n'*}")
+        [[ -n "${_ex[event]-}" && -n "${_ex[key]-}" ]] || _bad+=("${_base}: a differs verdict names no refusal") ;;
+      *) _bad+=("${_base}: verdict '${_ex[verdict]-}'") ;;
+    esac
+    _got="$(_layer_verdict "${_f}")"
+    [[ "${_got}" == "${_ex[apply]-}" ]] || _bad+=("${_base}: _layer_verdict ${_got}, expect apply '${_ex[apply]-}'")
+    _n=$((_n + 1))
   done
-  while IFS=$'\t' read -r _base _; do
-    [[ "${_base}" == \#* ]] && continue
-    [[ -f "${CORPUS}/${_base}" ]] || _bad+=("${_base}: a row with no fixture")
-  done < "${TABLE}"
+  printf '%s\n' "${_bad[@]}"
+  [ "${#_bad[@]}" -eq 0 ]
+  [ "${_n}" -gt 0 ]
+}
+
+# why: The base#1395 plan's corpus rule: readers discover fixtures by
+# globbing and no index or manifest file lists them, so adding a fixture
+# touches no shared file. No other file of corpus/s7 names a corpus/s7
+# fixture (base#1443 review round 4 finding 1).
+@test "s7 corpus: no file of corpus/s7 but a fixture names a fixture" {
+  local _other _f
+  local _bad=()
+  for _other in "${CORPUS}"/*; do
+    [[ "${_other}" == *.toml ]] && continue
+    for _f in "${CORPUS}"/*.toml; do
+      grep -qF -- "${_f##*/}" "${_other}" && _bad+=("${_other##*/} names ${_f##*/}")
+    done
+  done
   printf '%s\n' "${_bad[@]}"
   [ "${#_bad[@]}" -eq 0 ]
 }
