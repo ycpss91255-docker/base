@@ -26,7 +26,19 @@ const (
 	// AddrNotNumeric: the entry number is not a run of ASCII digits
 	// (`mount_x`, `mount_+1`, a bare `mount_`, a fullwidth digit).
 	AddrNotNumeric
+	// AddrOutOfRange: the entry number is 0 (`mount_0`, `port_00`), which
+	// no entry carries since entries number from 1, or above the int
+	// range.
+	AddrOutOfRange
 )
+
+// addrKindText says what each AddressKind found wrong with the entry
+// number (base#1443).
+var addrKindText = map[AddressKind]string{
+	AddrNegative:   "is negative",
+	AddrNotNumeric: "is not a number",
+	AddrOutOfRange: "is out of range",
+}
 
 // AddressError is ParseAddress's typed refusal: its kind and the address
 // as given (base#1443).
@@ -36,10 +48,7 @@ type AddressError struct {
 }
 
 func (e *AddressError) Error() string {
-	if e.Kind == AddrNotNumeric {
-		return fmt.Sprintf("address %q: entry number is not a number", e.Addr)
-	}
-	return fmt.Sprintf("address %q: entry number is negative", e.Addr)
+	return fmt.Sprintf("address %q: entry number %s", e.Addr, addrKindText[e.Kind])
 }
 
 // asciiDigits reports whether s is a non-empty run of ASCII digits.
@@ -71,12 +80,12 @@ func ParseAddress(s string) (Address, error) {
 	if !asciiDigits(strings.TrimPrefix(key[i+1:], "-")) {
 		return Address{}, &AddressError{Kind: AddrNotNumeric, Addr: s}
 	}
-	n, err := strconv.Atoi(key[i+1:])
-	if err != nil {
-		return Address{}, fmt.Errorf("address %q: %w", s, err)
-	}
-	if n < 0 {
+	if strings.HasPrefix(key[i+1:], "-") {
 		return Address{}, &AddressError{Kind: AddrNegative, Addr: s}
+	}
+	n, err := strconv.Atoi(key[i+1:])
+	if err != nil || n == 0 {
+		return Address{}, &AddressError{Kind: AddrOutOfRange, Addr: s}
 	}
 	return Address{Section: section, Prefix: key[:i], Index: n}, nil
 }
