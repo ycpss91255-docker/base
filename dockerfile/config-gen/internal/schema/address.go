@@ -23,6 +23,9 @@ const (
 	// AddrNegative: the entry number is negative (`mount_-1`); entries
 	// number from 1, so no entry has one.
 	AddrNegative AddressKind = iota + 1
+	// AddrNotNumeric: the entry number is not a run of ASCII digits
+	// (`mount_x`, `mount_+1`, a bare `mount_`, a fullwidth digit).
+	AddrNotNumeric
 )
 
 // AddressError is ParseAddress's typed refusal: its kind and the address
@@ -33,7 +36,23 @@ type AddressError struct {
 }
 
 func (e *AddressError) Error() string {
+	if e.Kind == AddrNotNumeric {
+		return fmt.Sprintf("address %q: entry number is not a number", e.Addr)
+	}
 	return fmt.Sprintf("address %q: entry number is negative", e.Addr)
+}
+
+// asciiDigits reports whether s is a non-empty run of ASCII digits.
+func asciiDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ParseAddress reads a shell address into its section, its prefix (the
@@ -48,6 +67,9 @@ func ParseAddress(s string) (Address, error) {
 	i := strings.LastIndex(key, "_")
 	if i < 0 {
 		return Address{}, fmt.Errorf("address %q has no entry number", s)
+	}
+	if !asciiDigits(strings.TrimPrefix(key[i+1:], "-")) {
+		return Address{}, &AddressError{Kind: AddrNotNumeric, Addr: s}
 	}
 	n, err := strconv.Atoi(key[i+1:])
 	if err != nil {
