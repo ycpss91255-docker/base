@@ -151,3 +151,68 @@ func carriesAny(e *bound, names []string) bool {
 	}
 	return false
 }
+
+// FamilySpec is what one array family reads: its last name, the
+// numbered prefix the shell side writes its entries under, the fields
+// its entries are read from and those read beside them, and the fields
+// read only beside another one -- the bridge's _ARRAY_SPEC and
+// _FIELD_NEEDS (dockerfile/toml_bridge.py) for that name (base#1443).
+type FamilySpec struct {
+	Leaf     string
+	Prefix   string
+	Gating   []string
+	AlsoRead []string
+	Needs    map[string]string
+}
+
+// Home is one place an array family is written: its path, its family
+// and whether it is the legacy one-array `[[devices]]` spelling
+// (base#1443).
+type Home struct {
+	Path   []string
+	Spec   FamilySpec
+	Legacy bool
+}
+
+// homes is every array home in the order the shell writers number them
+// (_conf_toml_aot_section over SCHEMA_SECTIONS, dist/script/docker/lib/conf.sh),
+// with the prefix each is written under, the legacy `[[devices]]` last.
+var homes = []struct {
+	path   []string
+	prefix string
+	legacy bool
+}{
+	{[]string{"image", "rules"}, "rule", false},
+	{[]string{"build", "args"}, "arg", false},
+	{[]string{"network", "ports"}, "port", false},
+	{[]string{"security", "cap_add"}, "cap_add", false},
+	{[]string{"security", "cap_drop"}, "cap_drop", false},
+	{[]string{"security", "security_opt"}, "security_opt", false},
+	{[]string{"tmpfs"}, "tmpfs", false},
+	{[]string{"devices", "bindings"}, "device", false},
+	{[]string{"devices", "cgroup_rules"}, "cgroup_rule", false},
+	{[]string{"volumes"}, "mount", false},
+	{[]string{"additional_contexts"}, "context", false},
+	{[]string{"devices"}, "device", true},
+}
+
+// Homes is every array home, derived from the family tables the entry
+// check reads, in the shell writers' order (base#1443).
+func Homes() []Home {
+	out := make([]Home, 0, len(homes))
+	for _, h := range homes {
+		leaf := h.path[len(h.path)-1]
+		out = append(out, Home{
+			Path: append([]string{}, h.path...),
+			Spec: FamilySpec{
+				Leaf:     leaf,
+				Prefix:   h.prefix,
+				Gating:   gatingFields[leaf],
+				AlsoRead: alsoRead[leaf],
+				Needs:    fieldNeeds[leaf],
+			},
+			Legacy: h.legacy,
+		})
+	}
+	return out
+}
