@@ -13,7 +13,8 @@ import (
 //
 // Expected values: the addresses are those of the kind tests
 // (address_*_test.go, entry_*_test.go); each message is the address
-// quoted, then the kind's wording [lit].
+// quoted, then the kind's wording [lit]. A built Address is spelled
+// `<section>.<prefix>_<N>` in its message, as the shell writes it.
 func TestAddressRefusalText(t *testing.T) {
 	cfg, refusals := Decode([]byte("[[volumes]]\nsource = \"/a\"\n"))
 	if len(refusals) != 0 || cfg == nil {
@@ -43,16 +44,36 @@ func TestAddressRefusalText(t *testing.T) {
 			}
 		})
 	}
-	t.Run("entry 2 of a family with one", func(t *testing.T) {
-		e, err := cfg.Entry(Address{"volumes", "mount", 2})
+	// An Address built without ParseAddress is judged by Entry on the
+	// same rules, with the same messages; entry 2 of a family holding
+	// one is past its end.
+	for _, tc := range []struct {
+		a    Address
+		addr string
+		kind AddressKind
+		msg  string
+	}{
+		{Address{"volumes", "mount", 2}, "volumes.mount_2", AddrOutOfRange, `address "volumes.mount_2": entry number is out of range`},
+		{Address{"volumes", "mount", 0}, "volumes.mount_0", AddrOutOfRange, `address "volumes.mount_0": entry number is out of range`},
+		{Address{"volumes", "mount", -1}, "volumes.mount_-1", AddrNegative, `address "volumes.mount_-1": entry number is negative`},
+		{Address{"security", "privileged", 1}, "security.privileged_1", AddrThroughScalar, `address "security.privileged_1": entry number indexes through a scalar key`},
+		{Address{"gui", "foo", 1}, "gui.foo_1", AddrUnknown, `address "gui.foo_1": entry number is under no array family`},
+	} {
+		t.Run("Entry "+tc.addr, func(t *testing.T) {
+			defer func() {
+				if p := recover(); p != nil {
+					t.Fatalf("Entry(%+v) panicked: %v", tc.a, p)
+				}
+			}()
+			e, err := cfg.Entry(tc.a)
 
-		if e != nil {
-			t.Errorf("Entry = %+v, want no entry", *e)
-		}
-		const msg = `address "volumes.mount_2": entry number is out of range`
-		var ae *AddressError
-		if !errors.As(err, &ae) || ae.Kind != AddrOutOfRange || ae.Addr != "volumes.mount_2" || err.Error() != msg {
-			t.Errorf("Entry error = %v (%#v), want Kind AddrOutOfRange, Addr volumes.mount_2, message %q", err, ae, msg)
-		}
-	})
+			if e != nil {
+				t.Errorf("Entry = %+v, want no entry", *e)
+			}
+			var ae *AddressError
+			if !errors.As(err, &ae) || ae.Kind != tc.kind || ae.Addr != tc.addr || err.Error() != tc.msg {
+				t.Errorf("Entry error = %v (%#v), want Kind %v, Addr %q, message %q", err, ae, tc.kind, tc.addr, tc.msg)
+			}
+		})
+	}
 }
