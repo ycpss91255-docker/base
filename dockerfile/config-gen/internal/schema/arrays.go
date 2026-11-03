@@ -29,6 +29,14 @@ var alsoRead = map[string][]string{
 	"additional_contexts": {"source"},
 }
 
+// fieldNeeds is, per array family, the fields its entries read only
+// beside another one, mapped to that other field: the bridge's
+// _FIELD_NEEDS (dockerfile/toml_bridge.py). Presence, not truthiness,
+// supplies the needed field (base#1443).
+var fieldNeeds = map[string]map[string]string{
+	"volumes": {"target": "source", "mode": "target"},
+}
+
 // checkEntries refuses, as conf_entry_not_table at its position, each
 // element of the array b at path p that is not a table, and, as
 // conf_entry_no_gating_field at its first position, each table element
@@ -40,7 +48,10 @@ var alsoRead = map[string][]string{
 // and one of which holds a list or a table, where a single value
 // belongs, is refused as conf_value_type_refused at that field, the
 // first in sorted order, as the bridge's _check_entry checks it after
-// the unknown field. A field-less element, the cleared
+// the unknown field. An element carrying a field without the field its
+// family needs beside it (fieldNeeds) is refused, checked last, as
+// conf_entry_field_needs at that field, the first in sorted order, as
+// the bridge walks _FIELD_NEEDS sorted. A field-less element, the cleared
 // slot, carries nothing and is not refused (base#1443). An element
 // holding a name that keyCharEvent refuses keeps that refusal as its only
 // one, as base#1442 decided. It returns the elements it refused, so
@@ -77,6 +88,15 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 		if f := firstBy(e, func(c *bound) bool { return c.isTable() || c.isArray() }); f != nil {
 			line, col := f.declPos()
 			d.refuse("conf_value_type_refused", append(append([]string{}, p...), f.node.Key), line, col)
+			refused[e] = true
+			continue
+		}
+		if f := firstBy(e, func(c *bound) bool {
+			need, ok := fieldNeeds[p[len(p)-1]][c.node.Key]
+			return ok && !carriesAny(e, []string{need})
+		}); f != nil {
+			line, col := f.declPos()
+			d.refuse("conf_entry_field_needs", append(append([]string{}, p...), f.node.Key), line, col)
 			refused[e] = true
 		}
 	}
