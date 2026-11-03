@@ -73,6 +73,9 @@ type tables struct {
 	// already used in this document: tomllib builds each through an
 	// lru_cache, whose Python frame runs only on the first use.
 	tz map[string]bool
+	// inlineRead is set once the pass has begun an inline table: every
+	// later inline table's own frames reach one deeper (inline).
+	inlineRead bool
 }
 
 // tomllib's Python frame depth, as the pinned toml-bridge image calls it
@@ -248,9 +251,19 @@ func (t *tables) define(n *node, part string, at int) (*node, error) {
 // inline-table; base#1441). f is the frame of
 // tomllib's parse_inline_table; its skip_chars, flag and nest calls run
 // at f+1, and each pair's parse_key_value_pair at f+1, whose parse_key
-// runs at f+2 and whose value is read at f+2.
+// runs at f+2 and whose value is read at f+2. Those f+1 calls reach one
+// frame deeper, f+2, in every inline table after the first one the
+// document reads: measured in the pinned image, arr-it-empty-496 (an
+// empty inline table at f = 999, the document's first) is accepted while
+// warm-arr-it-empty-496 (the same after `x = {}`) and arr-e-330 (the
+// same f after 330 inline tables) are refused (forms/depth, base#1441).
 func (t *tables) inline(f int) error {
-	if err := t.reach(f + 1); err != nil {
+	own := f + 1
+	if t.inlineRead {
+		own++
+	}
+	t.inlineRead = true
+	if err := t.reach(own); err != nil {
 		return err
 	}
 	t.i++
