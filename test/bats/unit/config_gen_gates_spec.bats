@@ -547,7 +547,9 @@ _redpath_call() {
 # with a recording stub in place of the runner. Call <n> of the stub
 # writes its argv to ${S}/runner.<n>.argv and its CONFIG_GEN_REDPATH_CASE
 # to ${S}/runner.<n>.case, records whether its --root held a config-gen
-# tree and the LOG_FORMAT it was handed (${S}/runner.formats), and answers
+# tree and the LOG_FORMAT it was handed (${S}/runner.formats), appends the
+# argv of every `timeout` process between it and REDPATH_TOP (the test's
+# shell) to ${S}/runner.bounds, and answers
 # from ${S}/canned/<case>.<k>.{out,err,rc} for the k-th call of that case
 # when one exists, else ${S}/canned/<case>.{out,err,rc}.
 _redpath_repo() {
@@ -580,6 +582,13 @@ printf 'ctx=%s base=%s\n' "\${CONFIG_GEN_MUTATION_CONTEXT-unset}" "\${CONFIG_GEN
 git -C "\${root}" rev-parse --verify -q 'refs/remotes/origin/main^{commit}' >> "${S}/runner.git" 2>/dev/null || echo nogit >> "${S}/runner.git"
 [[ -d "\${root}/dockerfile/config-gen" ]] && cp -a "\${root}/dockerfile/config-gen" "${S}/runner.\${n}.mod"
 [[ -d "\${root}/script/test/config_gen_steps" ]] && cp -a "\${root}/script/test/config_gen_steps" "${S}/runner.\${n}.steps"
+q="\${PPID}"
+while [[ "\${q}" =~ ^[0-9]+\$ ]] && (( q > 1 )) && [[ "\${q}" != "\${REDPATH_TOP:-}" ]]; do
+  w=()
+  [[ -r "/proc/\${q}/cmdline" ]] && mapfile -d '' -t w < "/proc/\${q}/cmdline"
+  [[ "\${w[0]:-}" == timeout || "\${w[0]:-}" == */timeout ]] && printf '%s\n' "\${w[*]}" >> "${S}/runner.bounds"
+  q="\$(sed -E 's/^.*\) . ([0-9]+) .*\$/\1/' "/proc/\${q}/stat" 2>/dev/null)"
+done
 a="${S}/canned/\${c}"
 [[ -e "\${a}.\${k}.rc" ]] && a="\${a}.\${k}"
 cat "\${a}.out" 2>/dev/null
@@ -591,14 +600,6 @@ EOF
   printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
   cp "${S}/bin/just" "${S}/bin/docker"
   chmod +x "${S}/bin/just" "${S}/bin/docker"
-  # Test 18 went red in the mutation-required baseline on hosted lint-static
-  # while every redpath call sat under a fixed wall-clock `timeout N` that
-  # the drivers do not scale (base#1527). The per-test bound, which they do
-  # scale, is the only bound: a redpath call wrapped in a PATH `timeout`,
-  # whatever its literal, answers as an expired timeout and says why.
-  printf '#!%s\necho "timeout $*" >> "%s/bounded"\necho "a fixed timeout wrapped the redpath (base#1527): timeout $*" >&2\nexit 124\n' \
-    "$(command -v bash)" "${S}" > "${S}/bin/timeout"
-  chmod +x "${S}/bin/timeout"
   _canned_correct
 }
 
@@ -682,14 +683,50 @@ _canned_correct() {
 # `run --separate-stderr`, with the stubs first on PATH, LOG_FORMAT=json,
 # no inherited CONFIG_GEN_REDPATH_ACTIVE or CONFIG_GEN_REDPATH_ONLY, and the
 # given VAR=value words on top. Every redpath call in this spec goes through
-# here, and none carries its own `timeout N`: the bats per-test bound, which
-# every driver scales, is the only bound, not a fixed literal inside it
-# (base#1527). The `timeout` stub in
-# _redpath_repo turns any such wrapper red.
+# here. Each driver scales the bats per-test bound to its load (120 x jobs
+# under mutation-required, x3 under kcov), so the run is then held to
+# _redpath_bounds_check against that bound (base#1527).
 _redpath_exec() {
   run --separate-stderr env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY \
-      PATH="${S}/bin:${PATH}" LOG_FORMAT=json "$@" \
+      REDPATH_TOP="${BASHPID}" PATH="${S}/bin:${PATH}" LOG_FORMAT=json "$@" \
       bash "${S}/repo/script/test/config_gen_redpath.sh"
+  _redpath_bounds_check "${BATS_TEST_TIMEOUT:-}"
+}
+
+# _redpath_seconds <duration> -- a coreutils `timeout` DURATION (a number,
+# optional s, m, h or d) in seconds; non-zero when it is not one.
+_redpath_seconds() {
+  [[ "${1}" =~ ^([0-9]+(\.[0-9]*)?|\.[0-9]+)([smhd]?)$ ]] || return 1
+  awk -v n="${BASH_REMATCH[1]}" -v u="${BASH_REMATCH[3]}" \
+    'BEGIN { m = (u == "m") ? 60 : (u == "h") ? 3600 : (u == "d") ? 86400 : 1; print n * m }'
+}
+
+# _redpath_bounds_check <per-test-bound> -- fail when a runner call ran
+# under a `timeout` (${S}/runner.bounds) whose duration is shorter than
+# <per-test-bound> seconds: that bound would stop the run before the one
+# the driver chose (base#1527). A bound at or above it, or a duration of 0
+# (no limit), passes; an empty <per-test-bound> (bats run with no driver)
+# checks nothing.
+_redpath_bounds_check() {
+  local _bound="${1}" _line _d _secs
+  local -a _w
+  [[ -n "${_bound}" && -s "${S}/runner.bounds" ]] || return 0
+  while IFS= read -r _line; do
+    read -r -a _w <<<"${_line}"
+    _d=''
+    set -- "${_w[@]:1}"
+    while (( $# > 0 )); do
+      case "${1}" in
+        -k | -s | --kill-after | --signal) shift; (( $# == 0 )) || shift; continue ;;
+        -*) shift; continue ;;
+        *) _d="${1}"; break ;;
+      esac
+    done
+    _secs="$(_redpath_seconds "${_d}")" \
+      || fail "the redpath ran under '${_line}', whose duration '${_d}' this check cannot read (base#1527)"
+    awk -v d="${_secs}" -v b="${_bound}" 'BEGIN { exit !(d > 0 && d < b) }' || continue
+    fail "the redpath ran under '${_line}' (${_secs}s), shorter than the per-test bound of ${_bound}s, which stops the run first (base#1527)"
+  done < "${S}/runner.bounds"
 }
 
 # _run_redpath [VAR=value...] <case>... -- the scratch redpath run on only
@@ -767,6 +804,39 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
   run grep -Fx "${S}/repo" <<<"${_roots}"
   assert_failure
   [[ ! -s "${S}/nested" ]] || fail "the redpath reached just or docker itself: $(cat "${S}/nested")"
+}
+
+# why: Each driver scales the per-test bound to its load (base#1413), and
+# a redpath call held to a shorter wall-clock bound is stopped before the
+# one the driver chose (base#1527). The runner stub records every
+# `timeout` between it and the test; _redpath_bounds_check, which every
+# redpath call in this spec passes through, refuses one shorter than the
+# per-test bound by name. 480 s is mutation-required's bound at 4 jobs.
+# A bound at the per-test bound, or none, passes, so a wrapper derived
+# from the driver's bound is not refused.
+@test "config_gen_redpath.sh: a redpath call under a timeout shorter than the per-test bound is refused by name (base#1527)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _runner="${S}/repo/script/test/config_gen_gates.sh"
+  REDPATH_TOP="${BASHPID}" timeout 120 "${_runner}" >/dev/null 2>&1 || true
+  run _redpath_bounds_check 480
+  assert_failure
+  assert_output --partial "the redpath ran under 'timeout 120 ${_runner}' (120s), shorter than the per-test bound of 480s"
+  rm -f "${S}/runner.bounds"
+  REDPATH_TOP="${BASHPID}" timeout -k 5 --foreground 2m "${_runner}" >/dev/null 2>&1 || true
+  run _redpath_bounds_check 480
+  assert_failure
+  assert_output --partial "(120s), shorter than the per-test bound of 480s"
+  run _redpath_bounds_check 120
+  assert_success
+  rm -f "${S}/runner.bounds"
+  REDPATH_TOP="${BASHPID}" timeout 480 "${_runner}" >/dev/null 2>&1 || true
+  assert_equal "$(cat "${S}/runner.bounds")" "timeout 480 ${_runner}"
+  run _redpath_bounds_check 480
+  assert_success
+  rm -f "${S}/runner.bounds"
+  REDPATH_TOP="${BASHPID}" "${_runner}" >/dev/null 2>&1 || true
+  [[ ! -e "${S}/runner.bounds" ]] || fail "an unbounded runner call recorded a bound: $(cat "${S}/runner.bounds")"
 }
 
 # why: Each redpath test runs only the cases it asserts, so the spec stays
