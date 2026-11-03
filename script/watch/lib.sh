@@ -199,6 +199,12 @@ readonly _PIN_RESOLVERS=(
 #   this watch exists for, which is a version baked into a file this repo
 #   SHIPS going stale in silence in somebody else's repo.
 #
+#   Go tests (`*_test.go`, base#1530), for the same two reasons. A Go
+#   test is a spec, and Go has no `#` comment, so no marker can stand
+#   above a line in one at all: an expected diagnostic such as
+#   "t.toml:1:7: " has the image-reference shape and could only be
+#   reworded to dodge the detector. A non-test `.go` file is still read.
+#
 # The lint checks this list rather than trusting it: a `tool-pin:` marker
 # in an exempt file is a failure, so "exempt the shape the awkward pin
 # lives in" cannot quietly become a way to stop watching a pin.
@@ -209,7 +215,7 @@ readonly _PIN_RESOLVERS=(
 # predicate has to be answerable about a string rather than about a
 # directory entry.
 readonly _PIN_SCAN_EXEMPT_SHAPES=(
-  '*.md' '*.adoc' 'README' 'LICENSE' '*.bats'
+  '*.md' '*.adoc' 'README' 'LICENSE' '*.bats' '*_test.go'
 )
 
 # ── Declaration shapes the detector recognises ──────────────────────────────
