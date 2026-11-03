@@ -43,16 +43,19 @@ var alsoRead = map[string][]string{
 // the unknown field. A field-less element, the cleared
 // slot, carries nothing and is not refused (base#1443). An element
 // holding a name that keyCharEvent refuses keeps that refusal as its only
-// one, as base#1442 decided.
-func (d *decoder) checkEntries(p []string, b *bound) {
+// one, as base#1442 decided. It returns the elements it refused, so
+// that no value refusal is added beside the one it picked (base#1443).
+func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
+	refused := map[*bound]bool{}
 	gating, ok := gatingFields[p[len(p)-1]]
 	if !ok {
-		return
+		return refused
 	}
 	for _, e := range b.children {
 		if !e.isTable() {
 			line, col := e.firstPos()
 			d.refuse("conf_entry_not_table", p, line, col)
+			refused[e] = true
 			continue
 		}
 		if len(e.children) == 0 || holdsBadName(e) {
@@ -61,19 +64,23 @@ func (d *decoder) checkEntries(p []string, b *bound) {
 		if !carriesAny(e, gating) {
 			line, col := e.firstPos()
 			d.refuse("conf_entry_no_gating_field", p, line, col)
+			refused[e] = true
 			continue
 		}
 		read := [][]string{gating, alsoRead[p[len(p)-1]]}
 		if f := firstBy(e, func(c *bound) bool { return !carriedBy(c.node.Key, read...) }); f != nil {
 			line, col := f.declPos()
 			d.refuse("conf_entry_unknown_field", append(append([]string{}, p...), f.node.Key), line, col)
+			refused[e] = true
 			continue
 		}
 		if f := firstBy(e, func(c *bound) bool { return c.isTable() || c.isArray() }); f != nil {
 			line, col := f.declPos()
 			d.refuse("conf_value_type_refused", append(append([]string{}, p...), f.node.Key), line, col)
+			refused[e] = true
 		}
 	}
+	return refused
 }
 
 // firstBy is the member of the table e, first by name, that match

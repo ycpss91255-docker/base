@@ -168,9 +168,13 @@ func Decode(src []byte) (*Config, []Refusal) {
 	tree, deferred, arrays := buildTree(md, root)
 	for i, def := range deferred {
 		if !d.refusedUnder(def.Path) {
-			d.checkEntries(def.Path, arrays[i])
+			refused := d.checkEntries(def.Path, arrays[i])
 			line, col := arrays[i].declPos()
-			d.judgeValues(def.Path, arrays[i], line, col)
+			for _, e := range arrays[i].children {
+				if !refused[e] {
+					d.judgeValues(def.Path, e, line, col)
+				}
+			}
 		}
 	}
 	sort.SliceStable(d.refusals, func(i, j int) bool { return d.refusals[i].Line < d.refusals[j].Line })
