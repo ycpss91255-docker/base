@@ -20,6 +20,11 @@ type Stage struct {
 	Name    string
 	Line    int
 	Members []StageMember
+	// Deploy is the legacy alias read from the stage's flat
+	// `"deploy.gpu_runtime"` and `"deploy.runtime"` keys by the rule the
+	// root Deploy follows; a nested `["stage:<name>".deploy]` sub-table
+	// is not an alias and fills nothing (base#1443).
+	Deploy Deploy
 }
 
 // StageMember is one key of a stage table: the key exactly as written,
@@ -55,7 +60,7 @@ func projectStages(t *Tree) []Stage {
 			continue
 		}
 		n := t.Nodes[c.Node]
-		out = append(out, Stage{Name: name, Line: n.Line, Members: stageMembers(t, n)})
+		out = append(out, Stage{Name: name, Line: n.Line, Members: stageMembers(t, n), Deploy: stageDeploy(n)})
 	}
 	return out
 }
@@ -73,6 +78,25 @@ func stageMembers(t *Tree, n Node) []StageMember {
 		case ChildDeferred:
 			// An array is not modelled as a stage member.
 		}
+	}
+	return out
+}
+
+// stageDeploy is the legacy alias of a stage node n, read from its flat
+// `"deploy.gpu_runtime"` and `"deploy.runtime"` rows only.
+func stageDeploy(n Node) Deploy {
+	var out Deploy
+	for _, r := range n.Children {
+		switch {
+		case r.Kind != ChildRow:
+		case r.Key == "deploy.gpu_runtime":
+			out.GPURuntime = r.Row
+		case r.Key == "deploy.runtime":
+			out.Runtime = r.Row
+		}
+	}
+	if (out.GPURuntime.State != Set || out.GPURuntime.Value.Text == "") && out.Runtime.State == Set {
+		out.GPURuntime = out.Runtime
 	}
 	return out
 }
