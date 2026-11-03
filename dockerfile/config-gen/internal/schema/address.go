@@ -31,7 +31,7 @@ const (
 	// range.
 	AddrOutOfRange
 	// AddrThroughScalar: the prefix names a scalar key of its section
-	// (`security.privileged_1`), which _setup_known_key refuses: an entry
+	// (`security.privileged_1`), which _setup_known_key refuses, as an entry
 	// number indexes through a scalar.
 	AddrThroughScalar
 	// AddrUnknown: no array family is numbered under that section and
