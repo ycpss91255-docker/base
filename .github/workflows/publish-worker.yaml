@@ -541,21 +541,26 @@ jobs:
         run: |
           set -euo pipefail
           # The image the smoke step ran, by the digest of its platform image
-          # manifest. Neither index digest can be compared: provenance is on
+          # manifest. The index digests cannot be compared: provenance is on
           # by default in docker/build-push-action, so each shard's
           # `outputs.digest` names an INDEX carrying the platform image plus
-          # its attestation, and `imagetools create` FLATTENS those indexes
-          # into the published one -- the verified ref and every tag are
-          # always two different indexes. `docker image inspect .Id` is no
-          # way out either: it depends on the local image store, the config
-          # digest on the classic graphdriver store but the pulled INDEX
-          # digest on the containerd store (base#1510, base#1514), where it
-          # failed every publish after the tags had moved. What both indexes
-          # must share is the image manifest for this platform, read from the
-          # registry, so the answer does not depend on the store; its digest
-          # pins config and layers. The platform is the one the verify step
-          # matched to this host: the artifact file named by the verified
-          # digest.
+          # its attestation. With two or more shards `imagetools create`
+          # FLATTENS those indexes into a new published one, so in a
+          # multi-platform publish the verified ref and every tag are two
+          # different indexes. With a single shard (an arm64-only or
+          # amd64-only call) the create copies that one index unchanged and
+          # the digests do match -- an index comparison would pass there and
+          # refuse every multi-platform publish. `docker image inspect .Id`
+          # is no way out either: it depends on the local image store, the
+          # config digest on the classic graphdriver store but the pulled
+          # INDEX digest on the containerd store (base#1510, base#1514),
+          # where it failed every multi-platform publish after the tags had
+          # moved. What the verified index and each tag's index share in
+          # both configurations is the image manifest for this platform,
+          # read from the registry, so the answer does not depend on the
+          # store; its digest pins config and layers. The platform is the
+          # one the verify step matched to this host: the artifact file
+          # named by the verified digest.
           platform="$(cat "${VERIFIED_REF##*sha256:}")"
           IFS='/' read -r p_os p_arch p_variant <<< "${platform}"
           # _child <ref>: the digest of the single non-attestation descriptor

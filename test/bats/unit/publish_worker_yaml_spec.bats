@@ -439,9 +439,10 @@ _FX_SHARD_ARMV7='a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a
 # shard index; the artifact files are named by the real shard digests.
 #
 # <mode>:
-#   agree     an ordinary publish, run 41451556967's indexes verbatim -- both
-#             tags resolve to the flattened index, a DIFFERENT index from the
-#             verified shard one, and both carry the same linux/amd64 child.
+#   agree     an ordinary two-platform publish, run 41451556967's indexes
+#             verbatim -- both tags resolve to the flattened index, a
+#             DIFFERENT index from the verified shard one, and both carry the
+#             same linux/amd64 child.
 #   content   the version tag is the ordinary flattened index, but
 #             `:latest` lists both platforms and its linux/amd64 child is
 #             different content than was verified.
@@ -737,11 +738,14 @@ merge: packages: write'
 
 # why: On the containerd image store (Docker 29 on ubuntu-26.04, which is
 # `ubuntu-latest` today) `docker image inspect --format {{.Id}}` answers the
-# digest of the pulled INDEX, not the config digest. The verified ref names a
-# shard index and every tag names the flattened published index -- always two
-# different indexes -- so an `.Id` comparison refuses every ordinary publish
-# after its tags have moved. What both indexes share is the runner-platform
-# child, and that is the content the comparison has to be about. The child
+# digest of the pulled INDEX, not the config digest. In a multi-platform
+# publish the verified ref names a shard index and every tag names the
+# flattened published index -- two different indexes -- so an `.Id`
+# comparison refuses every multi-platform publish after its tags have moved.
+# (A single-platform call is the exception: `imagetools create` copies its one
+# shard index unchanged, so the two digests match there.) What both indexes
+# share in either configuration is the runner-platform child, and that is the
+# content the comparison has to be about. The child
 # digest asserted below is read from run 41451556967's raw indexes, not
 # computed by the step (base#1514, base#1510).
 @test "publish-worker.yaml: the tag confirmation passes when the verified shard index and the tag's index differ but share the runner-platform child (base#1514)" {
