@@ -17,12 +17,35 @@ import (
 
 // Refusal is one key the decode refused: the event id, the TOML path of
 // the key with its raw bytes, and the 1-based line and byte column it is
-// written on (0 when no position is known).
+// written on (0 when no position is known). A refusal of an array
+// entry also carries the entry's 1-based number in its family, Entry
+// (0 for any other refusal), and, when it names one field of that
+// entry, Field, the last segment of Path (base#1443).
 type Refusal struct {
 	Event string
 	Path  []string
 	Line  int
 	Col   int
+	Entry int
+	Field string
+}
+
+// Key is the name a diagnostic gives the refusal: Path joined with ".",
+// or, for an entry refusal, `<home>[<n>]` and `<home>[<n>].<field>`, the
+// bridge's entry number (base#1443).
+func (r Refusal) Key() string {
+	if r.Entry == 0 {
+		return strings.Join(r.Path, ".")
+	}
+	home := r.Path
+	if r.Field != "" {
+		home = r.Path[:len(r.Path)-1]
+	}
+	key := fmt.Sprintf("%s[%d]", strings.Join(home, "."), r.Entry)
+	if r.Field != "" {
+		key += "." + r.Field
+	}
+	return key
 }
 
 // Config is the decoded layer.
