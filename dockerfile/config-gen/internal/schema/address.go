@@ -30,14 +30,19 @@ const (
 	// no entry carries since entries number from 1, or above the int
 	// range.
 	AddrOutOfRange
+	// AddrThroughScalar: the prefix names a scalar key of its section
+	// (`security.privileged_1`), which _setup_known_key refuses: an entry
+	// number indexes through a scalar.
+	AddrThroughScalar
 )
 
 // addrKindText says what each AddressKind found wrong with the entry
 // number (base#1443).
 var addrKindText = map[AddressKind]string{
-	AddrNegative:   "is negative",
-	AddrNotNumeric: "is not a number",
-	AddrOutOfRange: "is out of range",
+	AddrNegative:      "is negative",
+	AddrNotNumeric:    "is not a number",
+	AddrOutOfRange:    "is out of range",
+	AddrThroughScalar: "indexes through a scalar key",
 }
 
 // AddressError is ParseAddress's typed refusal: its kind and the address
@@ -82,6 +87,9 @@ func ParseAddress(s string) (Address, error) {
 	}
 	if strings.HasPrefix(key[i+1:], "-") {
 		return Address{}, &AddressError{Kind: AddrNegative, Addr: s}
+	}
+	if knownKey(section, key[:i]) {
+		return Address{}, &AddressError{Kind: AddrThroughScalar, Addr: s}
 	}
 	n, err := strconv.Atoi(key[i+1:])
 	if err != nil || n == 0 {
