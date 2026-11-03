@@ -34,6 +34,10 @@ const (
 	// (`security.privileged_1`), which _setup_known_key refuses: an entry
 	// number indexes through a scalar.
 	AddrThroughScalar
+	// AddrUnknown: no array family is numbered under that section and
+	// prefix (`gui.foo_1`, `network.mount_1`, `bogus.mount_1`), which
+	// _setup_known_key refuses.
+	AddrUnknown
 )
 
 // addrKindText says what each AddressKind found wrong with the entry
@@ -43,6 +47,7 @@ var addrKindText = map[AddressKind]string{
 	AddrNotNumeric:    "is not a number",
 	AddrOutOfRange:    "is out of range",
 	AddrThroughScalar: "indexes through a scalar key",
+	AddrUnknown:       "is under no array family",
 }
 
 // AddressError is ParseAddress's typed refusal: its kind and the address
@@ -91,9 +96,23 @@ func ParseAddress(s string) (Address, error) {
 	if knownKey(section, key[:i]) {
 		return Address{}, &AddressError{Kind: AddrThroughScalar, Addr: s}
 	}
+	if !familyAddress(section, key[:i]) {
+		return Address{}, &AddressError{Kind: AddrUnknown, Addr: s}
+	}
 	n, err := strconv.Atoi(key[i+1:])
 	if err != nil || n == 0 {
 		return Address{}, &AddressError{Kind: AddrOutOfRange, Addr: s}
 	}
 	return Address{Section: section, Prefix: key[:i], Index: n}, nil
+}
+
+// familyAddress reports whether an array home of that section is
+// numbered under that prefix, as Homes lists them (base#1443).
+func familyAddress(section, prefix string) bool {
+	for _, h := range homes {
+		if h.path[0] == section && h.prefix == prefix {
+			return true
+		}
+	}
+	return false
 }
