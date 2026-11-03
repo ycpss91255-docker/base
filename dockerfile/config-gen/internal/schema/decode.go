@@ -177,6 +177,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 			}
 		}
 	}
+	d.checkSpellings(root, nil)
 	sort.SliceStable(d.refusals, func(i, j int) bool { return d.refusals[i].Line < d.refusals[j].Line })
 	deploy, deprecated := projectDeploy(&tree)
 	return &Config{

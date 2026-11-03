@@ -1,5 +1,7 @@
 package schema
 
+import "strings"
+
 // gatingFields is, per array family, the fields its entries are read
 // from: the third element of the bridge's _ARRAY_SPEC
 // (dockerfile/toml_bridge.py), keyed as the bridge keys it, by the
@@ -215,4 +217,64 @@ func Homes() []Home {
 		})
 	}
 	return out
+}
+
+// checkSpellings refuses, as conf_family_two_spellings at the scalar's
+// position, each table scalar `<prefix>_<digits>` of a table under the
+// root that also holds the array of the family numbered under that
+// prefix, as the bridge's _check_one_spelling does: the shell view would
+// carry that entry twice. Only a table below the root is walked, as the
+// bridge walks it; a root-level family cannot collide in one file
+// (base#1443).
+func (d *decoder) checkSpellings(b *bound, path []string) {
+	for _, c := range b.children {
+		if !c.isTable() || c.keyless() {
+			continue
+		}
+		p := append(append([]string{}, path...), c.node.Key)
+		d.checkSpellings(c, p)
+		for _, a := range c.children {
+			if !a.isArray() {
+				continue
+			}
+			prefix, ok := prefixOf(a.node.Key)
+			if !ok {
+				continue
+			}
+			for _, s := range c.children {
+				k := append(append([]string{}, p...), s.node.Key)
+				if s.isTable() || s.isArray() || !numberedUnder(s.node.Key, prefix) || d.refusedUnder(k) {
+					continue
+				}
+				line, col := s.declPos()
+				d.refuse("conf_family_two_spellings", k, line, col)
+			}
+		}
+	}
+}
+
+// prefixOf is the numbered prefix the shell side writes the family whose
+// array is named leaf under, from homes.
+func prefixOf(leaf string) (string, bool) {
+	for _, h := range homes {
+		if h.path[len(h.path)-1] == leaf {
+			return h.prefix, true
+		}
+	}
+	return "", false
+}
+
+// numberedUnder reports whether key is prefix, "_" and one or more
+// decimal digits, the suffix _scalar_spellings_of accepts.
+func numberedUnder(key, prefix string) bool {
+	rest, ok := strings.CutPrefix(key, prefix+"_")
+	if !ok || rest == "" {
+		return false
+	}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
