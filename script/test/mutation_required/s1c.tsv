@@ -23,6 +23,8 @@ scan-replace	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "
 scan-tool	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == tool ]]; then _pin_go_mod_refuse "${_ln}" tool; return 1; fi	    if [[ "${_verb}" == tool ]]; then :; fi
 scan-ignore	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    if [[ "${_verb}" == ignore ]]; then _pin_go_mod_refuse "${_ln}" ignore; return 1; fi	    if [[ "${_verb}" == ignore ]]; then :; fi
 scan-godebug	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	"${_gm_text[_first]}" != *=* ]]; then	"${_gm_text[_first]}" != *=* ]] && false; then
+scan-godebug-quote	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	== *[\\"\\'\\`,]* ||	== *[,]* ||
+scan-godebug-arity	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	if (( ${#_gm_kind[@]} != _first + 1 )) || [[ "${_gm_text[_first]}"	if (( 0 )) || [[ "${_gm_text[_first]}"
 scan-godebug-dispatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    godebug) _pin_go_mod_godebug "${2}" "${3}" ;;	    godebug) _pin_go_mod_entry "${2}" "${3}" ;;
 scan-exclude	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    exclude) _pin_go_mod_entry "${2}" "${3}" 0 ;;	    exclude) _pin_go_mod_entry "${2}" "${3}" ;;
 scan-retract	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	    elif [[ "${_gm_kind[_k]}" != p || "${_gm_text[_k]}" != "${_step}" ]]; then	    elif false; then
