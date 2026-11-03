@@ -351,6 +351,17 @@ func (d *decoder) judge(b *bound, k []string) scope {
 	}
 	switch {
 	case stage(k):
+		// A key under a `["stage:<name>"]` table is judged on the
+		// stage-relative text the bridge flattens it to, `deploy.bogus`
+		// whether written as one quoted key or under
+		// `["stage:<name>".deploy]`, split at its last dot into the
+		// section and key _setup_known_key takes: a key the schema does
+		// not know is refused (base#1443, differs:unknown-key).
+		text := strings.Join(k[1:], ".")
+		i := strings.LastIndex(text, ".")
+		if !knownKey(text[:max(i, 0)], text[i+1:]) {
+			d.refuse("conf_unknown_key", k, line, col)
+		}
 	case !knownKey(section, key):
 		d.refuse("conf_unknown_key", k, line, col)
 	default:
