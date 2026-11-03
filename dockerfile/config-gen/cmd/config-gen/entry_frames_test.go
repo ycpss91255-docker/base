@@ -18,7 +18,12 @@ import (
 // "entry 2 of volumes carries none of the fields it is read from",
 // "entry 2 of volumes carries zz", "entry 2 of network.ports gives
 // container an array or a table", "entry 3 of volumes carries target
-// without source", "security.cap_drop_1 is carried two ways". Lines and
+// without source", "security.cap_drop_1 is carried two ways", and for
+// an entry carrying a field whose quoted name is empty, "entry 1 of
+// volumes carries , which its family does not read" (toml_bridge.py
+// --kv, rc 1, scratchpad r1443e): the field is named, empty, so the key
+// keeps its empty segment, `volumes[1].` (base#1443 review round 1
+// finding 1). Lines and
 // columns are counted from the bytes below [lit]: a block's header, an
 // inline element's first byte, a field's key.
 func TestCheckEntryRefusalFrames(t *testing.T) {
@@ -33,6 +38,8 @@ func TestCheckEntryRefusalFrames(t *testing.T) {
 			[]string{"conf_entry_no_gating_field", "4", "1", "volumes[2]"}},
 		{"entry with an unknown field", "[[volumes]]\nsource = \"/a\"\n\n[[volumes]]\nsource = \"/b\"\nzz = \"x\"\n",
 			[]string{"conf_entry_unknown_field", "6", "1", "volumes[2].zz"}},
+		{"entry with an empty-named field", "[[volumes]]\nsource = \"/a\"\n\"\" = \"x\"\n",
+			[]string{"conf_entry_unknown_field", "3", "1", "volumes[1]."}},
 		{"entry field holding a table", "[[network.ports]]\nhost = \"80\"\n\n[[network.ports]]\nhost = \"81\"\ncontainer = {}\n",
 			[]string{"conf_value_type_refused", "6", "1", "network.ports[2].container"}},
 		{"entry field without the field it needs", "[[volumes]]\nsource = \"/a\"\ntarget = \"/b\"\n\n[[volumes]]\n\n[[volumes]]\nmode = \"ro\"\ntarget = \"/d\"\n\n[[volumes]]\nsource = \"/c\"\ntarget = \"\"\nmode = \"rw\"\n",
