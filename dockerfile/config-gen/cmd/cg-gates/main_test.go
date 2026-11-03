@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -339,6 +341,26 @@ func sensTree(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// treeBytes returns every regular file under dir, by its path relative to
+// dir, with its bytes.
+func treeBytes(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		rel, _ := filepath.Rel(dir, p)
+		out[rel] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func sensArgs(dir string) []string {
 	return []string{"sensitivity", "--module", mod, "--root", filepath.Join(dir, "root"),
 		"--work", filepath.Join(dir, "work")}
@@ -365,6 +387,7 @@ func corpus(extra map[string]string) map[string]string {
 
 func TestSensitivity(t *testing.T) {
 	const weak = "cg_event config_gen_corpus_sensitivity_weak pkg=" + mod
+	const invalid = "cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n"
 	strongA := map[string]string{"fake/__internal_a.trace": "ROOT/golden/s1/a.golden\n", "fake/__internal_a.reads": "golden/s1/a.golden"}
 	with := func(base map[string]string, kv ...string) map[string]string {
 		out := map[string]string{}
@@ -395,7 +418,15 @@ func TestSensitivity(t *testing.T) {
 		{"a baseline that fails", with(strongA, "fake/__internal_a.basefail", ""), 1,
 			mod + "/internal/a failed reason=baseline_failed\n"},
 		{"a testcorpus with no top-level Glob", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n"}, 1,
-			"cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n"},
+			invalid},
+		{"Glob only as a method", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n\ntype X int\n\nfunc (x X) Glob() {}\n"}, 1,
+			invalid},
+		// The one variant every caller still compiles against: Glob is
+		// there, but as a var, so no func Glob can be traced (base#1467).
+		{"var Glob = glob", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n\nvar Glob = glob\n\nfunc glob() {}\n"}, 1,
+			invalid},
+		{"unparseable testcorpus.go", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n\nfunc Glob( {\n"}, 1,
+			invalid},
 		{"go list fails", map[string]string{"fake/list.json": "-"}, 1, ""},
 		{"go list prints what it cannot decode", map[string]string{"fake/list.json": "x"}, 1, ""},
 		{"no testcorpus source", map[string]string{"mod/internal/testcorpus/testcorpus.go": "-"}, 1, ""},
@@ -406,9 +437,18 @@ func TestSensitivity(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := sensTree(t, corpus(c.extra))
+			before := treeBytes(t, filepath.Join(dir, "mod"))
 			var out, errOut bytes.Buffer
 			if got := run(sensArgs(dir), &out, &errOut); got != c.status {
 				t.Fatalf("status %d, want %d; stderr %q", got, c.status, errOut.String())
+			}
+			if c.status == 1 {
+				if after := treeBytes(t, filepath.Join(dir, "mod")); !maps.Equal(after, before) {
+					t.Errorf("the module tree changed: %q, was %q", after, before)
+				}
+				if _, err := os.Lstat(filepath.Join(dir, "mod", "internal", "testcorpus", "zz_cgtrace.go")); !os.IsNotExist(err) {
+					t.Errorf("zz_cgtrace.go was left in the module: %v", err)
+				}
 			}
 			if out.String() != c.out {
 				t.Errorf("stdout %q, want %q", out.String(), c.out)
