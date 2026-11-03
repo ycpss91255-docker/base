@@ -167,6 +167,30 @@ func TestIndexKeyEscapes(t *testing.T) {
 	}
 }
 
+// TestIndexBareKeyEveryAllowedByte checks that a bare key runs through
+// every byte TOML allows in one, A-Z, a-z, 0-9, `_` and `-`, the first
+// and last byte of each range included, in a header and in a
+// `key = value` line (base#1467: the S1f mutation gate found no test that
+// writes A, Z or 9 in a bare key). The expected paths are the library's
+// md.Keys().
+func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
+	src := []byte("[AZaz09]\n_-Az = 1\nZ9 = 2\n")
+	md, err := toml.Decode(string(src), new(map[string]any))
+	if err != nil {
+		t.Fatalf("library refused %q: %v", src, err)
+	}
+	var want, got []string
+	for _, k := range md.Keys() {
+		want = append(want, fmt.Sprintf("%q", []string(k)))
+	}
+	for _, o := range Index(src).Entries() {
+		got = append(got, fmt.Sprintf("%q", o.Path))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Entries() paths = %v, want md.Keys() %v", got, want)
+	}
+}
+
 // TestIndexEveryPrefixIsSafe indexes every byte prefix of every corpus
 // TOML file at any depth (CorpusTOML), so an unterminated string, escape, array or header at any point
 // cannot make the scan run past the input (base#1442, review round 1: an
