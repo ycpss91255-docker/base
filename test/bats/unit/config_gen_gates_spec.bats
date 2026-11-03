@@ -161,13 +161,21 @@ _df_instructions() {
 
 # why: The coverage gate is a script so the >= 90% rule and its refusals can
 # be tested on the host with a stub go; an inline awk in the RUN could not be.
-@test "Dockerfile.config-gen: the coverage RUN runs gates/coverage.sh (base#1462)" {
+# It runs from the mutation context, where 01-admit installs it from the
+# host checkout: a copy inside the module would be a module file no mapping
+# rule of the mutation gate covers, so every change to it, and every run
+# from an empty base, would be refused as unmapped (base#1467).
+@test "Dockerfile.config-gen: the coverage RUN runs the coverage.sh 01-admit installs in the mutation context (base#1467)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   _df_instructions > "${S}/df"
   run awk -F'\t' '$1 == "test" && $2 ~ /^RUN / && /gate=coverage ok/' "${S}/df"
   assert_success
   [[ -n "${output}" ]] || fail "no test-stage RUN prints gate=coverage ok"
-  assert_output --partial 'gates/coverage.sh'
+  assert_output --partial 'bash /mutation/coverage.sh --measure'
+  run grep -cxF 'install -m 0644 "${_root}/script/test/config_gen_coverage.sh" "${_dst}/coverage.sh"' \
+    /source/script/test/config_gen_steps/01-admit.sh
+  assert_success
+  assert_output 1
 }
 
 # why: The shipped stage holds only the binary; the runner's binary contract
@@ -358,21 +366,21 @@ _df_instructions() {
 # why: A coverage RUN that never got the corpus root record refuses with
 # reason=corpus_root_missing and an empty pkg (base#1468). The runner must
 # name the coverage gate from that printed refusal line, not from the RUN
-# line BuildKit echoes, whose command text names gates/coverage.sh too: the
+# line BuildKit echoes, whose command text names coverage.sh too: the
 # echoed line alone is a build that failed before any gate.
 @test "config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)" {
   assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
   _root
   _stub_docker
   { _gate_log fmt vet lint race
-    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'
+    printf '#12 [test 5/6] RUN bash /mutation/coverage.sh /tmp/config-gen-corpus-root\n'
     printf '#12 0.52 config_gen_gate_coverage_failed reason=corpus_root_missing pkg=\n'; } > "${S}/build_test.err"
   printf '1\n' > "${S}/build_test.rc"
   _run_runner
   assert_equal "${status}" 1
   assert_logged_event config_gen_gate_coverage_failed gate=coverage
   { _gate_log fmt vet lint race
-    printf '#12 [test 5/6] RUN bash gates/coverage.sh /tmp/config-gen-corpus-root\n'; } > "${S}/build_test.err"
+    printf '#12 [test 5/6] RUN bash /mutation/coverage.sh /tmp/config-gen-corpus-root\n'; } > "${S}/build_test.err"
   _run_runner
   assert_equal "${status}" 1
   assert_logged_event config_gen_build_failed status=1
@@ -392,7 +400,7 @@ _df_instructions() {
   _root
   _stub_docker
   { _gate_log admission fmt vet lint race
-    printf '#12 [test 8/8] RUN g=coverage; bash gates/coverage.sh --measure /tmp/measured\n'
+    printf '#12 [test 8/8] RUN g=coverage; bash /mutation/coverage.sh --measure /tmp/measured\n'
     printf '#12 1.069 cg_event config_gen_coverage_floor_dropped pkg=internal/testcorpus x=1\n'
     printf '#12 1.069 cg_event config_gen_coverage_floor_missing pkg=a%%20b\n'
     printf '#12 1.069 cg_event config_gen_coverage_floor_bogus pkg=z\n'

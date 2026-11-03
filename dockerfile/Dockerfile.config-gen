@@ -162,7 +162,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       && CGO_ENABLED=1 go test -race -count=1 -ldflags="-X=$(cat /tmp/config-gen-corpus-root)" ./...; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=race ok
-# The coverage gate: gates/coverage.sh measures every package's counts,
+# The coverage gate: coverage.sh, which 01-admit installed from the host
+# checkout's script/test/config_gen_coverage.sh into the mutation context
+# (outside the module the mutation gate maps, base#1467), measures every
+# package's counts,
 # then cg-gates ratchet (built here, never shipped) judges them against
 # the coverage-floors.d fragments and the base's floors, floors.base, which
 # the 05-floors-base step wrote into the mutation context. The context is
@@ -171,7 +174,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # the id is spelled from ${g} so BuildKit's echo of the RUN carries none.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,from=mutation,target=/mutation \
-    g=coverage; { bash gates/coverage.sh --measure /tmp/measured /tmp/config-gen-corpus-root \
+    g=coverage; { bash /mutation/coverage.sh --measure /tmp/measured /tmp/config-gen-corpus-root \
       && go build -o /tmp/cg-gates ./cmd/cg-gates \
       && /tmp/cg-gates ratchet --measured /tmp/measured --floors coverage-floors.d \
         --base /mutation/floors.base --module "$(go list -m)"; } \
