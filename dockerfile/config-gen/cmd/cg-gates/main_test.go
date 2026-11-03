@@ -557,8 +557,8 @@ func TestB(t *testing.T) {
 // and reports exactly the consumers that still pass, each against the
 // golden its own tests were handed: weak for a.golden, bweak for b.golden,
 // and neither strong nor any package for c.golden, which is handed to
-// nobody. This is the gate's whole contract with buildgate.TraceOverlay
-// and buildgate.TraceSource: an overlay whose traced Glob did not reach
+// nobody. This is the gate's whole contract with traceOverlay
+// and traceSource: an overlay whose traced Glob did not reach
 // the renamed one, did not compile beside the method, or recorded nothing
 // would leave every golden with no consumer; one that attributed every
 // golden to every importer would also name bweak for a.golden, strong

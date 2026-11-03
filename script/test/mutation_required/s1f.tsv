@@ -24,3 +24,4 @@ df-sensitivity-refusal	dockerfile/Dockerfile.config-gen	test/bats/unit/config_ge
 df-sensitivity-root	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	--root "${r#*=}"	--root "${r}"
 df-mutation-refusal	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	--reports "${r}"; } \\\n      || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }	--reports "${r}"; } \\\n      || true
 df-mutation-goflags	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	      && GOFLAGS="-ldflags=-X=$(cat /tmp/config-gen-corpus-root)" \\\n	      && \\\n
+runner-event-reason-attr	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	^(file|reason|pkg|	^(file|pkg|

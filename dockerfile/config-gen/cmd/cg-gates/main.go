@@ -38,7 +38,7 @@
 // sensitivity (base#1467) checks that each golden file under the corpus
 // root <root> fails every package its tests were handed it by. Each
 // package whose test binary depends on internal/testcorpus runs its tests
-// once with a traced Glob (buildgate.TraceOverlay, by `go test -overlay`,
+// once with a traced Glob (traceOverlay, by `go test -overlay`,
 // the source left as it is) against <root>; a red baseline prints
 // `<pkg> failed reason=baseline_failed`. The packages whose trace holds a
 // golden are its consumers. In a copy of <root> under the existing
@@ -249,7 +249,7 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return unreadable(err)
 	}
-	traced, err := buildgate.TraceOverlay(src)
+	traced, err := traceOverlay(src)
 	if err != nil {
 		_, _ = fmt.Fprintln(stdout, err.Error())
 		_, _ = fmt.Fprintln(stderr, sensitivityFailed)
@@ -263,7 +263,7 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 	flip := filepath.Join(*work, "corpus")
 	err = errors.Join(
 		os.WriteFile(filepath.Join(*work, "testcorpus.go"), traced, 0o644),
-		os.WriteFile(filepath.Join(*work, "zz_cgtrace.go"), []byte(buildgate.TraceSource), 0o644),
+		os.WriteFile(filepath.Join(*work, "zz_cgtrace.go"), []byte(traceSource), 0o644),
 		os.WriteFile(overlay, ov, 0o644),
 		os.CopyFS(flip, os.DirFS(*root)),
 	)
@@ -284,7 +284,7 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 	for i, rel := range buildgate.CorpusImporters(*module, pkgs) {
 		trace := filepath.Join(*work, "trace"+strconv.Itoa(i))
 		cmd := exec.Command("go", "test", "-count=1", "-overlay", overlay, x+*root, "./"+rel)
-		cmd.Env = append(os.Environ(), buildgate.TraceEnv+"="+trace)
+		cmd.Env = append(os.Environ(), traceEnv+"="+trace)
 		cmd.Stdout, cmd.Stderr = stderr, stderr
 		if err := cmd.Run(); err != nil {
 			_, _ = fmt.Fprintf(stdout, "%s failed reason=baseline_failed\n", buildgate.ImportPath(*module, rel))
