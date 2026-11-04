@@ -1,0 +1,12 @@
+[[devices.bindings]]
+path = "/dev/a"
+
+[[devices.cgroup_rules]]
+rule = "c 1:1 rwm"
+
+[[devices.bindings]]
+path = "/dev/b"
+
+[[devices.cgroup_rules]]
+rule = "c 2:2 r"
+# expect: verdict=accept apply=refuse

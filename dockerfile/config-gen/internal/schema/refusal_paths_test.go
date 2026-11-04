@@ -17,10 +17,13 @@ func TestDecodeRefusalPaths(t *testing.T) {
 		want []Refusal
 	}{
 		{
-			// Anything else under a `["stage:<name>"]` table is not judged:
-			// foo is no key of any section and is not refused.
-			name: "a key under a stage table is not judged",
+			// A scalar under a `["stage:<name>"]` table is judged on its
+			// stage-relative text (base#1443): foo, split at its last dot,
+			// is the empty section and foo, which the shell's
+			// _setup_known_key refuses (rc 1), so it is conf_unknown_key.
+			name: "an unknown key under a stage table is refused",
 			src:  "[\"stage:dev\"]\nfoo = 1\n",
+			want: []Refusal{{Event: "conf_unknown_key", Path: []string{"stage:dev", "foo"}, Line: 2, Col: 1}},
 		},
 		{
 			// The array is refused at its key, and nothing under a refused
