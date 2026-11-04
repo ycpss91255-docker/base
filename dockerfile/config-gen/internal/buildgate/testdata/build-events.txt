@@ -1,0 +1,36 @@
+# build-events.txt -- every `cg_event <id>` line the config generator's
+# build may print (base#1467), one id per line. Two readers hold it to
+# that: buildgate's TestBuildEventsListEveryEvId requires each id an ev()
+# call of this package names, and script/test/config_gen_gates.sh
+# re-emits a `cg_event` line from the build log only when its id is listed
+# here, so a refusal the build prints always reaches the runner's records.
+# Each id must also be registered in dist/script/docker/lib/log-events.txt
+# (config_gen_gates_spec.bats checks it).
+
+# The admit RUN of Dockerfile.config-gen and script/test/config_gen_admit.sh
+# (base#1465).
+config_gen_manifest_missing
+config_gen_manifest_stale
+
+# The coverage ratchet, buildgate.Ratchet (base#1465).
+config_gen_coverage_fragment_invalid
+config_gen_coverage_floors_base_invalid
+config_gen_coverage_floors_dir_deleted
+config_gen_coverage_floor_duplicate
+config_gen_coverage_floor_missing
+config_gen_coverage_floor_orphan
+config_gen_coverage_floor_below
+config_gen_coverage_floor_too_low
+config_gen_coverage_floor_lowered
+config_gen_coverage_floor_stale
+config_gen_coverage_floor_none_misuse
+config_gen_coverage_floor_dropped
+
+# The ignored-input, corpus sensitivity and mutation gates (base#1467).
+config_gen_mutation_ignored_input
+config_gen_corpus_sensitivity_weak
+config_gen_corpus_sensitivity_invalid
+config_gen_mutation_manifest_invalid
+config_gen_mutation_no_such_package
+config_gen_mutation_unmapped
+config_gen_mutation_package_failed

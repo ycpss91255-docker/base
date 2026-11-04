@@ -55,7 +55,7 @@ admit-paths-tgt-listed	script/test/config_gen_admit.sh	test/bats/integration/con
 admit-paths-recreate-only-add	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    [[ -z "${src["${p}"]+x}" || "${tgt["${p}"]}" == A ]] || _cga_stale manifest presence	    true
 admit-paths-src-listed	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    [[ -z "${listed["${p}"]+x}" ]] || _cga_stale manifest presence	    true
 admit-paths-recreated	script/test/config_gen_admit.sh	test/bats/integration/config_gen_admit_spec.bats	    [[ -z "${tgt["${p}"]+x}" ]] || continue	    :
-runner-event-reemit	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	  events="$(sed -nE "/${_CG_EVENT_RE}/s/^#[0-9]+ [0-9]+\\\\.[0-9]+ cg_event //p" "${log}")"	  events=""
+runner-event-reemit	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	  events="$(_cg_listed_events "${log}")"	  events=""
 runner-event-every	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	    while IFS= read -r event; do\n      _cg_event "${event}" "${rc}"\n    done <<<"${events}"	    _cg_event "${events%%$'\\n'*}" "${rc}"
 runner-event-attr	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	_cg_attr_ok "${word}" && keep+=("${word}")	keep+=("${word}")
 runner-step-stdout	script/test/config_gen_gates.sh	test/bats/unit/config_gen_gates_spec.bats	</dev/null >&2 || rc=$?	</dev/null || rc=$?
@@ -85,13 +85,13 @@ redpath-stale-go-step	script/test/config_gen_redpath.sh	test/bats/unit/config_ge
 redpath-stale-gate-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo gate_record_missing; return 0; }	|| true
 redpath-stale-record	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ -n "${got}" ]] || { echo stale_record_missing; return 0; }	  :
 redpath-stale-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${got}" == "${file}|${reason}" ]] || { echo stale_detail_mismatch; return 0; }	  :
-redpath-rerun-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  (( rc == 0 )) || { echo rc_not_zero; return 0; }	  :
-redpath-rerun-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	printf '%s\\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }	true
+redpath-rerun-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  local rc="${1}" out="${2}"\n  (( rc == 0 )) || { echo rc_not_zero; return 0; }	  local rc="${1}" out="${2}"\n  :
+redpath-rerun-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	{ echo rc_not_zero; return 0; }\n  printf '%s\\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }	{ echo rc_not_zero; return 0; }\n  true
 redpath-coverage-rc	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  coverage_exit="$(_rp_exit_one "${rc}")"	  coverage_exit=""
 redpath-coverage-stdout	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	printf '%s\\n' "${_RP_PRE_COVERAGE_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }	true
-redpath-coverage-unregistered	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }	  :
+redpath-coverage-unregistered	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	printf '%s\\n' "${_RP_PRE_COVERAGE_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }\n  ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }	printf '%s\\n' "${_RP_PRE_COVERAGE_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }\n  :
 redpath-coverage-gate	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  [[ "${first}" == config_gen_gate_coverage_failed ]] || { echo wrong_id; return 0; }	  :
-redpath-coverage-event	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_record_missing; return 0; }	|| true
+redpath-coverage-event	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_record_missing; return 0; }\n  [[ "$(_rp_event_detail "${err}" "${event}" pkg file)"	|| true\n  [[ "$(_rp_event_detail "${err}" "${event}" pkg file)"
 redpath-coverage-detail	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	|| { echo event_detail_mismatch; return 0; }	|| true
 df-admit-sentinel	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	if [[ -e /mutation/no-mutation-context ]]; then	if false; then
 df-admit-sentinel-exit	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	echo "cg_event config_gen_${e}" >&2; exit 1; fi	echo "cg_event config_gen_${e}" >&2; fi
