@@ -61,3 +61,50 @@ func TestDecodeEntryNotTableIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// An element of a family array that is not a table is no entry of the
+// typed family: `args = [1, { key = "A" }]` types build.args with the
+// one table element as its one entry (base#1443 review round 1, verify
+// finding 4). The scalar is refused as conf_entry_not_table, entry 1,
+// as the bridge's `--kv` refuses it, "entry 1 of build.args is 1, not a
+// table" (dockerfile/toml_bridge.py run with tomli). The bridge refuses
+// the file, so the family the decode types is not compared with any
+// bridge output: an entry is numbered within the typed family, and the
+// line is counted from the fixture bytes.
+func TestDecodeFamilyTypesOnlyItsTableElements(t *testing.T) {
+	files := testcorpus.Glob(t, "corpus/s7/s7_nottable_first.toml")
+	if len(files) != 1 {
+		t.Fatalf("Glob = %v, want s7_nottable_first.toml", files)
+	}
+	src, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, refusals := Decode(src)
+
+	wantRefusals := []Refusal{{Event: "conf_entry_not_table", Path: []string{"build", "args"}, Line: 2, Col: 9, Entry: 1}}
+	if !reflect.DeepEqual(refusals, wantRefusals) {
+		t.Errorf("Decode refusals = %+v, want %+v", refusals, wantRefusals)
+	}
+	if cfg == nil {
+		t.Fatal("Decode returned no Config")
+	}
+	fam, ok := cfg.Array("build", "args")
+	if !ok {
+		t.Fatalf("Arrays = %+v, want a build.args family", cfg.Arrays)
+	}
+	want := Family{
+		Path:  []string{"build", "args"},
+		State: Set,
+		Line:  2,
+		Entries: []Entry{{
+			Index:  1,
+			Line:   2,
+			Fields: []EntryField{{Key: "key", Value: Value{Kind: VScalar, Scalar: Scalar{Kind: KindString, Text: "A"}, Line: 2}}},
+		}},
+	}
+	if !reflect.DeepEqual(fam, want) {
+		t.Errorf("build.args = %+v, want %+v", fam, want)
+	}
+}

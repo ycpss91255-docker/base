@@ -37,7 +37,9 @@ setup() {
 # a bridge --kv refusal, read by the phrase the bridge words each
 # refusal with, or nothing when no phrase matches. The phrases are
 # written here, apart from the Go side's events, so a verdict is held to
-# what the bridge says.
+# what the bridge says. A message naming several fields names them
+# sorted, and the key is the first of them (base#1443 review round 1
+# finding 1).
 _bridge_event() {
   local _m="${1%%$'\n'*}"
   _m="${_m#toml-bridge: }"
@@ -46,9 +48,9 @@ _bridge_event() {
     printf 'conf_entry_not_table %s[%s]\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}"
   elif [[ "${_m}" =~ ${_entry}carries\ none\ of\ the\ fields ]]; then
     printf 'conf_entry_no_gating_field %s[%s]\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}"
-  elif [[ "${_m}" =~ ${_entry}carries\ ([^ ,]+),\ which\ its\ family\ does\ not\ read ]]; then
+  elif [[ "${_m}" =~ ${_entry}carries\ ([^ ,]+)(,\ [^ ,]+)*,\ which\ its\ family\ does\ not\ read ]]; then
     printf 'conf_entry_unknown_field %s[%s].%s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
-  elif [[ "${_m}" =~ ${_entry}gives\ ([^ ]+)\ an\ array\ or\ a\ table ]]; then
+  elif [[ "${_m}" =~ ${_entry}gives\ ([^ ,]+)(,\ [^ ,]+)*\ an\ array\ or\ a\ table ]]; then
     printf 'conf_value_type_refused %s[%s].%s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
   elif [[ "${_m}" =~ ${_entry}carries\ ([^ ]+)\ without\ ([^ ,]+), ]]; then
     printf 'conf_entry_field_needs %s[%s].%s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"

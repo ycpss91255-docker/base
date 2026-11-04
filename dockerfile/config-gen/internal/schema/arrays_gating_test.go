@@ -33,6 +33,11 @@ func TestDecodeEntryWithoutGatingFieldIsRefused(t *testing.T) {
 		// entry 2 of 2: the first entry is the field-less cleared slot,
 		// which carries no field and so is not refused.
 		{"s7_nogating_second.toml", []string{"volumes"}, 3},
+		// a family under a `["stage:<name>"]` table is held to its
+		// entry rules as at the top: "entry 1 of stage:dev.build.args
+		// carries none of the fields it is read from" (base#1443 review
+		// round 1 finding 2).
+		{"s7_stage_nogating.toml", []string{"stage:dev", "build", "args"}, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
