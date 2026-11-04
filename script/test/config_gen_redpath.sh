@@ -811,6 +811,10 @@ EOF
       _rp_manifest_step "${root}"
       ;;
     corpus)
+      # seed.golden is empty: it is the bridge's --tables answer for
+      # seed.toml, which declares no table (base#1469). An empty golden is
+      # given one byte by the sensitivity gate, so comparing it with "" still
+      # fails on the flip.
       # zzweak is committed with its floor, so the change 00-manifest lists
       # is only the untracked testdata/c.txt. Its test reads the golden
       # through internal/testcorpus and compares its bytes, but leaves
@@ -844,7 +848,7 @@ func TestPos(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+		if string(b) != "" {
 			t.Fatalf("%s = %q", p, b)
 		}
 	}
@@ -883,7 +887,7 @@ func TestSeed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+		if string(b) != "" {
 			t.Fatalf("%s = %q", p, b)
 		}
 	}
