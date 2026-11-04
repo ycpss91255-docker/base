@@ -18,7 +18,7 @@ import (
 // the class is `differs:unknown-key`, as for the other stage keys of
 // TestDecodeStageUnknownKeyIsRefused. The input is written here, not in
 // corpus/s7, because the locate parity test reads every corpus fixture
-// and does not yet hold an empty quoted key.
+// and fails on this one with locate unchanged (base#1542).
 func TestDecodeStageEmptyKeyIsRefused(t *testing.T) {
 	src := []byte("[\"stage:dev\"]\n\"\" = \"x\"\n")
 
