@@ -24,19 +24,36 @@ func (*failLeaf) UnmarshalTOML(any) error { return errors.New("locate oracle: pl
 
 // libraryLine is the line BurntSushi itself reports for path. The file is
 // decoded into Primitives, each table on the path is decoded into
-// Primitives again with md.PrimitiveDecode (the last element where the
-// table is an array of tables), and a failLeaf is decoded at the path, so
+// Primitives again with md.PrimitiveDecode (the last element holding the
+// path's next component where the table is an array of tables), and a failLeaf is decoded at the path, so
 // the library wraps the refusal in a ParseError carrying the position it
 // stored for that key path. Any key name works, the empty one included.
 // For a path written more than once the library keeps only the last
-// occurrence.
-func libraryLine(t *testing.T, src []byte, path toml.Key) int {
+// occurrence. The file is decoded once, by primitives, and every path of
+// it is looked up from that one decode: decoding it again per path costs
+// the file's length times its key count, which on the 108,951-byte
+// large_tables.toml fixture (base#1469) made this test the slowest in
+// the race gate.
+func libraryLine(t *testing.T, src []byte) func(path toml.Key) int {
 	t.Helper()
-	var cur map[string]toml.Primitive
-	md, err := toml.Decode(string(src), &cur)
+	var root map[string]toml.Primitive
+	md, err := toml.Decode(string(src), &root)
 	if err != nil {
 		t.Fatalf("decode into Primitives: %v", err)
 	}
+	return func(path toml.Key) int {
+		t.Helper()
+		return plantedLine(t, md, root, path)
+	}
+}
+
+// plantedLine decodes a failLeaf at path from root, the Primitives md
+// decoded the file into, and returns the line of the ParseError the
+// library wraps the refusal in.
+func plantedLine(t *testing.T, md toml.MetaData, root map[string]toml.Primitive, path toml.Key) int {
+	t.Helper()
+	cur := root
+	var err error
 	for i, name := range path[:len(path)-1] {
 		p, ok := cur[name]
 		if !ok {
@@ -44,10 +61,17 @@ func libraryLine(t *testing.T, src []byte, path toml.Key) int {
 		}
 		var next map[string]toml.Primitive
 		if md.Type(path[:i+1]...) == "ArrayHash" {
+			// The path goes on in the last element that holds its next
+			// component, which is not always the last element:
+			// `[[aot]] [aot.sub] [[aot]]` writes aot.sub in the first
+			// (base#1469: the s1 fixture aot_subtable.toml).
 			var elems []map[string]toml.Primitive
 			err = md.PrimitiveDecode(p, &elems)
-			if err == nil && len(elems) > 0 {
-				next = elems[len(elems)-1]
+			for j := len(elems) - 1; err == nil && j >= 0; j-- {
+				if _, ok := elems[j][path[i+1]]; ok {
+					next = elems[j]
+					break
+				}
 			}
 		} else {
 			err = md.PrimitiveDecode(p, &next)
@@ -181,8 +205,9 @@ func TestIndexOccurrenceParity(t *testing.T) {
 				}
 				return false
 			}
+			libLine := libraryLine(t, src)
 			for _, k := range keys {
-				lib := libraryLine(t, src, k)
+				lib := libLine(k)
 				typ := md.Type(k...)
 				table := typ == "ArrayHash" || (typ == "Hash" && !isInline(k))
 				var occ locate.Occurrence

@@ -96,6 +96,39 @@ func TestIndexRepeatedOccurrences(t *testing.T) {
 	})
 }
 
+// TestTableCountsImplicitOnlyWithoutAnExplicitRecord checks the unique
+// table lookup on a table a header under it creates (base#1469): declared
+// later by its own `[a]` it is Found at that header, written once, while
+// Tables still lists both records; never declared, like `c`, it is Found
+// at its creator's line. Lines are counted by hand from the text.
+func TestTableCountsImplicitOnlyWithoutAnExplicitRecord(t *testing.T) {
+	m := Index([]byte("[a.b]\nk = 1\n[a]\nz = 1\n[c.d]\n"))
+	if o, lk := m.Table([]string{"a"}); lk != Found || o.KeyLine != 3 || o.Implicit {
+		t.Errorf("Table(a) = %v %+v, want Found at the explicit header on line 3", lk, o)
+	}
+	if lines, _ := occLines(m.Tables([]string{"a"})); !reflect.DeepEqual(lines, []int{1, 3}) {
+		t.Errorf("Tables(a) lines = %v, want [1 3]: the implicit and the explicit record", lines)
+	}
+	if o, lk := m.Table([]string{"c"}); lk != Found || o.KeyLine != 5 || !o.Implicit {
+		t.Errorf("Table(c) = %v %+v, want Found at its implicit record on line 5", lk, o)
+	}
+}
+
+// TestIndexMultilineInlineTableEndsAtItsStart checks that a key whose
+// inline table spans lines (TOML 1.1) is given its start line as
+// ValueEndLine, as an inline array is, the line the library reports
+// (base#1469: the s1 fixture toml11_inline_newline.toml); the key after it
+// keeps its own line.
+func TestIndexMultilineInlineTableEndsAtItsStart(t *testing.T) {
+	m := Index([]byte("k = {\n  a = 1,\n  b = 2\n}\nw = 2\n"))
+	if o, lk := m.Key([]string{"k"}); lk != Found || o.KeyLine != 1 || o.ValueEndLine != 1 {
+		t.Errorf("Key(k) = %v %+v, want Found on line 1 ending on line 1", lk, o)
+	}
+	if o, lk := m.Key([]string{"w"}); lk != Found || o.KeyLine != 5 || o.ValueEndLine != 5 {
+		t.Errorf("Key(w) = %v %+v, want Found on line 5", lk, o)
+	}
+}
+
 // TestIndexHeaderInMultilineString checks that a header-like line inside a
 // multi-line basic string is string content, not a header (base#1442). The
 // bridge (`toml_bridge.py --tables`) prints only `lifecycle` for this file
