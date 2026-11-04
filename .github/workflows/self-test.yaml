@@ -700,8 +700,12 @@ jobs:
     # (base#1465) took the roster from 166 rows to 262, and on PR #1496's
     # run 41385653542 shard 1/4 was cancelled at 45 minutes with its
     # roster step still running after 43 minutes, while the other three
-    # legs finished in 34 to 36 minutes.
-    timeout-minutes: 90
+    # legs finished in 34 to 36 minutes. 150, not 90: base#1467 took the
+    # roster from 285 rows to 304 and config_gen_gates_spec.bats from 44
+    # tests to 52, and on PR #1538's run 41736192401 shards 1/4, 2/4 and
+    # 4/4 were cancelled at 90 minutes with their roster step still
+    # running after 87 minutes, while shard 3/4 finished in 84 minutes.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
