@@ -56,25 +56,8 @@ func runTables(args []string, stdout, stderr io.Writer) int {
 	}
 	label := args[1]
 	src, err := readRegular(args[2])
-	switch {
-	case errors.Is(err, errNotRegular):
-		return fail(stderr, exitError, diag.Frame{
-			Event: "config_gen_input_not_regular",
-			File:  label,
-			Text:  "input is not a regular file",
-		})
-	case errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR):
-		return fail(stderr, exitError, diag.Frame{
-			Event: "no_such_file",
-			File:  label,
-			Text:  "no such file",
-		})
-	case err != nil:
-		return fail(stderr, exitError, diag.Frame{
-			Event: "config_gen_input_unreadable",
-			File:  label,
-			Text:  err.Error(),
-		})
+	if err != nil {
+		return refuseInput(stderr, label, err)
 	}
 	out, err := tables.Emit(src)
 	if err != nil {
@@ -101,6 +84,34 @@ func runTables(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// refuseInput writes the one frame for readRegular's error err about the
+// input labelled label and returns exit 1 (base#1469 Input). open(2)
+// answers ENXIO for a socket and ENODEV for a device node with no driver
+// behind it: neither names a regular file, so both are the not-regular
+// frame, as a type fstat reports that is not S_IFREG is.
+func refuseInput(stderr io.Writer, label string, err error) int {
+	switch {
+	case errors.Is(err, errNotRegular) || errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.ENODEV):
+		return fail(stderr, exitError, diag.Frame{
+			Event: "config_gen_input_not_regular",
+			File:  label,
+			Text:  "input is not a regular file",
+		})
+	case errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR):
+		return fail(stderr, exitError, diag.Frame{
+			Event: "no_such_file",
+			File:  label,
+			Text:  "no such file",
+		})
+	default:
+		return fail(stderr, exitError, diag.Frame{
+			Event: "config_gen_input_unreadable",
+			File:  label,
+			Text:  err.Error(),
+		})
+	}
+}
+
 // fail writes f to stderr as one error-severity frame and returns rc.
 func fail(stderr io.Writer, rc int, f diag.Frame) int {
 	f.Sev = "error"
@@ -115,14 +126,12 @@ var errNotRegular = errors.New("not a regular file")
 
 // readRegular opens path without blocking (a FIFO with no writer, a socket
 // or a device does not hold open(2)), checks the opened descriptor is a
-// regular file, and reads it. Anything else is errNotRegular, including a
-// descriptor fstat(2) can not describe: what it names is not known to be
-// a regular file (base#1469).
+// regular file, and reads it. A descriptor that is not one is
+// errNotRegular, including one fstat(2) can not describe: what it names is
+// not known to be a regular file (base#1469). An open error is returned as
+// open(2) gave it; refuseInput classifies it.
 func readRegular(path string) ([]byte, error) {
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
-	if errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.ENODEV) {
-		return nil, errNotRegular
-	}
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}

@@ -307,6 +307,34 @@ func TestTablesNonRegularInputIsOneNotRegularFrame(t *testing.T) {
 	}
 }
 
+// open(2) answering ENODEV -- a device node with no driver behind it --
+// names a character or block device, not a regular file, so it is exit 1
+// and exactly one `config_gen_input_not_regular` frame naming the label,
+// like the /dev/null row above (base#1469 Input: a char device gives
+// config_gen_input_not_regular). No path an unprivileged test can open
+// returns ENODEV, so this hands refuseInput the error readRegular returns
+// for it; EACCES, the control, stays the unreadable frame, so the test
+// fails for a mapping that calls every open error not regular.
+func TestTablesOpenENODEVIsOneNotRegularFrame(t *testing.T) {
+	for _, tc := range []struct {
+		errno syscall.Errno
+		event string
+	}{
+		{syscall.ENODEV, "config_gen_input_not_regular"},
+		{syscall.ENXIO, "config_gen_input_not_regular"},
+		{syscall.EACCES, "config_gen_input_unreadable"},
+	} {
+		t.Run(tc.errno.Error(), func(t *testing.T) {
+			var stderr bytes.Buffer
+			err := &os.PathError{Op: "open", Path: "/p.toml", Err: tc.errno}
+			if rc := refuseInput(&stderr, "l.toml", err); rc != 1 {
+				t.Fatalf("refuseInput(%v) = %d, want 1 (stderr %q)", err, rc, stderr.Bytes())
+			}
+			refusal(t, stderr.Bytes(), tc.event, "l.toml")
+		})
+	}
+}
+
 // A path that names no file -- nothing at that name (ENOENT), or a name
 // under a regular file used as a directory (ENOTDIR) -- makes `config-gen
 // tables` exit 1 with nothing on stdout and exactly one `no_such_file`
