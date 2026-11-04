@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -191,17 +192,79 @@ func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
 	}
 }
 
-// TestIndexEveryPrefixIsSafe indexes every byte prefix of every corpus
-// TOML file at any depth (CorpusTOML), so an unterminated string, escape, array or header at any point
-// cannot make the scan run past the input (base#1442, review round 1: an
-// escaped quote used to start a scan beyond the end and panic).
+// prefixSweepBound is the largest input whose every byte prefix is
+// indexed. Indexing every prefix costs the square of the input's length:
+// the 108,951-byte large_tables.toml fixture (base#1469) alone made
+// 108,952 calls that scanned about 5.9e9 bytes, and the race gate's go
+// test ran into its 10-minute timeout on it. Every other corpus file is
+// at most 684 bytes, so each is still swept in full.
+const prefixSweepBound = 4096
+
+// cutContextLines is how many whole lines before a cut a larger input's
+// cut keeps (see indexCutPoints), so a string, array or inline table that
+// spans lines is still open when the input ends inside it.
+const cutContextLines = 8
+
+// TestIndexEveryPrefixIsSafe indexes the cut points of every corpus TOML
+// file at any depth (CorpusTOML; indexCutPoints), so an unterminated
+// string, escape, array or header at any point cannot make the scan run
+// past the input (base#1442, review round 1: an escaped quote used to
+// start a scan beyond the end and panic).
 func TestIndexEveryPrefixIsSafe(t *testing.T) {
 	for _, file := range CorpusTOML(t) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		indexEveryPrefix(t, file, src)
+		indexCutPoints(t, file, src)
+	}
+}
+
+// TestIndexCutPointsPastTheSweepBoundAreSafe holds indexCutPoints to its
+// claim on an input longer than prefixSweepBound: the header and key with
+// a \u and a \U escape come only after the swept head, so only the cuts
+// past it can end the input inside their hex digits (base#1469: a scan that
+// reads past the end there must still fail this package's tests).
+func TestIndexCutPointsPastTheSweepBoundAreSafe(t *testing.T) {
+	head := strings.Repeat("value = 0\n", prefixSweepBound/10+1)
+	if len(head) <= prefixSweepBound {
+		t.Fatalf("head is %d bytes, want more than prefixSweepBound (%d)", len(head), prefixSweepBound)
+	}
+	indexCutPoints(t, "hex escapes past the sweep bound", []byte(head+"[\"\\u0041\"]\n\"\\U0001F600\" = 1\n"))
+}
+
+// indexCutPoints indexes the cut points of src and fails the test if one
+// panics. An input of at most prefixSweepBound bytes has every byte prefix
+// indexed. A longer one has every prefix of its first prefixSweepBound
+// bytes indexed, the whole input indexed, and, for every byte offset n
+// past the start of each line, the bytes from the start of the line
+// cutContextLines lines earlier (or of the input) up to n: so the input
+// ends at every byte boundary, every token boundary among them, with the
+// lines before it in place, at a cost linear in the input's length. The
+// fuzz target FuzzTreeParity indexes any other input.
+func indexCutPoints(t *testing.T, label string, src []byte) {
+	t.Helper()
+	if len(src) <= prefixSweepBound {
+		indexEveryPrefix(t, label, src)
+		return
+	}
+	indexEveryPrefix(t, label, src[:prefixSweepBound])
+	indexSafe(t, label, 0, src)
+	starts := []int{0}
+	for i, c := range src {
+		if c == '\n' && i+1 < len(src) {
+			starts = append(starts, i+1)
+		}
+	}
+	for i, ls := range starts {
+		end := len(src)
+		if i+1 < len(starts) {
+			end = starts[i+1]
+		}
+		from := starts[max(0, i-cutContextLines)]
+		for n := ls + 1; n <= end; n++ {
+			indexSafe(t, label, from, src[from:n:n])
+		}
 	}
 }
 
@@ -212,15 +275,20 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 func indexEveryPrefix(t *testing.T, label string, src []byte) {
 	t.Helper()
 	for n := 0; n <= len(src); n++ {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("%s: Index of the first %d bytes %q panicked: %v", label, n, src[:n], r)
-				}
-			}()
-			Index(src[:n:n])
-		}()
+		indexSafe(t, label, 0, src[:n:n])
 	}
+}
+
+// indexSafe indexes doc, the bytes of label's input from offset from, and
+// fails the test if Index panics. doc's capacity must be its length.
+func indexSafe(t *testing.T, label string, from int, doc []byte) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("%s: Index of bytes %d-%d %q panicked: %v", label, from, from+len(doc), doc, r)
+		}
+	}()
+	Index(doc)
 }
 
 // TestIndexCutHexEscapeIsSafe indexes every byte prefix of a header and a
