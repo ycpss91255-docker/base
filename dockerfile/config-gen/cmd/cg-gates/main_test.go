@@ -417,8 +417,19 @@ func TestSensitivity(t *testing.T) {
 			with(strongA, "fake/__internal_w.trace", "ROOT/golden/s1/b.golden\nROOT/golden/s1/a.golden\n",
 				"fake/__internal_w.reads", "golden/s1/a.golden"), 1,
 			weak + "/internal/w file=golden/s1/b.golden\n"},
-		{"an empty golden a consumer is handed", with(strongA, "root/golden/s1/a.golden", ""), 1,
-			"golden=golden/s1/a.golden failed reason=empty\ngolden=golden/s1/b.golden consumers none\n"},
+		// An empty golden is given one byte, so the consumer that reads it
+		// fails and one that never does is weak; it is emptied again before
+		// the next golden, or w, which reads only the empty a.golden, would
+		// fail on b.golden's flip too (base#1469).
+		{"an empty golden a consumer reads", with(strongA, "root/golden/s1/a.golden", ""), 0,
+			"golden=golden/s1/b.golden consumers none\n"},
+		{"an empty golden a consumer never reads", with(strongA, "root/golden/s1/a.golden", "",
+			"fake/__internal_w.trace", "ROOT/golden/s1/a.golden\n"), 1,
+			weak + "/internal/w file=golden/s1/a.golden\n" + "golden=golden/s1/b.golden consumers none\n"},
+		{"an empty golden is emptied again before the next",
+			with(strongA, "root/golden/s1/a.golden", "", "fake/__internal_w.trace", "ROOT/golden/s1/b.golden\nROOT/golden/s1/a.golden\n",
+				"fake/__internal_w.reads", "golden/s1/a.golden"), 1,
+			weak + "/internal/w file=golden/s1/b.golden\n"},
 		{"a baseline that fails", with(strongA, "fake/__internal_a.basefail", ""), 1,
 			mod + "/internal/a failed reason=baseline_failed\n"},
 		{"a testcorpus with no top-level Glob", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n"}, 1,
