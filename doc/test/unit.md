@@ -4997,7 +4997,7 @@ the outer run's value, which is the wrong mode's value.
 | `per-test timeout: the local compose run of the suite is wrapped in timeout, ci and coverage` | Locally there is no job bound at all: `just test` and `just test coverage` run the suite in `docker compose run --rm`, and a hang there blocks the terminal forever. The compose run goes through `timeout`, in both the ci and the coverage dispatch. |
 | `per-test timeout: the local compose run forwards PER_TEST_TIMEOUT, ci and coverage` | PER_TEST_TIMEOUT is the documented knob, but `just test` and `just test coverage` read it on the HOST while the driver that honours it runs inside `docker compose run`. A dispatch that does not forward it leaves the override silently ignored on the user-facing path, while the knob tests above, which call the driver directly, still pass (base#1413). |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (77)
+### test/bats/unit/pin_coverage_lint_spec.bats (81)
 
 | Test | Description |
 |------|-------------|
@@ -5054,6 +5054,10 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: a digest is not a version` | A digest is already immutable, so there is no newer one to propose |
 | `_run_pin_coverage: a spec's fixture text needs no marker` | A spec's heredoc IS the fixture under test, and the marker grammar cannot reach inside one without changing what the test feeds its subject |
 | `_run_pin_coverage: prose needs no marker` | A version in prose is stale the way a sentence is stale -- a doc-review problem rather than a supply-chain one |
+| `_run_pin_coverage: a Go test file needs no marker, a non-test Go file still does (base#1530)` | A Go test file is a spec, as a .bats file is, and Go has no `#` comment, so no marker can stand above a line in it: an expected diagnostic such as "t.toml:1:7: x" has the image-reference shape (base#1530). The same version in a Go file that is not a test is still read. |
+| `_run_pin_coverage: a .toml file below a testdata directory needs no marker, a near miss is still read (base#1530)` | A vendored toml-test case below a testdata directory is upstream bytes, so no marker line can be added to it (base#1530). The exemption is keyed on a whole `testdata` path component and on the .toml suffix, so a .toml outside it, a near-miss directory name, and a file named `testdata` are still read. |
+| `_run_pin_coverage: a non-TOML file below a testdata directory is still read (base#1530)` | The testdata exemption is for TOML case bytes only (base#1530). Any other file kind below a testdata directory can carry a marker, so it is still read: exempting the whole directory would hide a real pin there. |
+| `_run_pin_coverage: FAILS when a tool-pin marker sits in a .toml below a testdata directory (base#1530)` | A marker in a testdata .toml would be a belief in watching that nothing reads, now that the walk skips that shape (base#1530), so it is refused. |
 | `_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file` | The exemption list is the last hand-kept thing in the scan surface, so a marker in an exempt file is a belief in watching that nothing reads |
 | `_run_pin_coverage: FAILS on a local= version with no marker` | local sat outside the keyword roster while the extraction regex already named it, so the convention pushed authors into the one invisible shape |
 | `_run_pin_coverage: FAILS on a readonly= version with no marker` | readonly is the spelling this repo's style guide asks for, which makes it the likeliest place for an unwatched pin to land |
