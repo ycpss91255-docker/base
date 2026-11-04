@@ -114,37 +114,8 @@ func TestTablesPrintsTheBridgeGolden(t *testing.T) {
 	}
 }
 
-// frames parses stderr as NUL-framed diagnostics and fails the test unless
-// all of it is frames: eight NUL-terminated fields each, the first being
-// the tag `D` and the second a non-empty severity (ADR-00000039 §3,
-// base#1469). It returns each frame's fields.
-func frames(t *testing.T, stderr []byte) [][]string {
-	t.Helper()
-	if len(stderr) == 0 {
-		return nil
-	}
-	if stderr[len(stderr)-1] != 0 {
-		t.Fatalf("stderr %q does not end in NUL, so it is not all frames", stderr)
-	}
-	fields := strings.Split(string(stderr[:len(stderr)-1]), "\x00")
-	if len(fields)%8 != 0 {
-		t.Fatalf("stderr %q has %d NUL-terminated fields, not a multiple of 8", stderr, len(fields))
-	}
-	var out [][]string
-	for i := 0; i < len(fields); i += 8 {
-		f := fields[i : i+8]
-		if f[0] != "D" {
-			t.Fatalf("frame %d of stderr %q starts with %q, want the tag D", i/8, stderr, f[0])
-		}
-		if f[1] == "" {
-			t.Fatalf("frame %d of stderr %q has an empty severity", i/8, stderr)
-		}
-		out = append(out, f)
-	}
-	return out
-}
-
-// refusal parses stderr fully as frames and fails the test unless it is
+// refusal parses stderr fully as frames (the package helper in
+// check_test.go) and fails the test unless it is
 // exactly one error-severity frame with the given event id, whose `file`
 // field is file byte for byte and whose `key` field is empty: every
 // refusal of `config-gen tables` is about the whole input, so it names the
@@ -152,7 +123,7 @@ func frames(t *testing.T, stderr []byte) [][]string {
 // key attribution). It returns that frame's eight fields.
 func refusal(t *testing.T, stderr []byte, event, file string) []string {
 	t.Helper()
-	got := frames(t, stderr)
+	got := frames(t, string(stderr))
 	if len(got) != 1 {
 		t.Fatalf("stderr holds %d frames, want exactly 1 (stderr %q)", len(got), stderr)
 	}
