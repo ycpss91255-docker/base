@@ -696,8 +696,16 @@ jobs:
     runs-on: ubuntu-latest
     # 45, not 30: each leg also runs its shard of the required-kill roster
     # (base#1461), measured at 13-20 minutes a shard on PR #1491's run
-    # 41226185346, on top of the lint group.
-    timeout-minutes: 45
+    # 41226185346, on top of the lint group. 90, not 45: the s1e rows
+    # (base#1465) took the roster from 166 rows to 262, and on PR #1496's
+    # run 41385653542 shard 1/4 was cancelled at 45 minutes with its
+    # roster step still running after 43 minutes, while the other three
+    # legs finished in 34 to 36 minutes. 150, not 90: base#1467 took the
+    # roster from 285 rows to 304 and config_gen_gates_spec.bats from 44
+    # tests to 52, and on PR #1538's run 41736192401 shards 1/4, 2/4 and
+    # 4/4 were cancelled at 90 minutes with their roster step still
+    # running after 87 minutes, while shard 3/4 finished in 84 minutes.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -1693,11 +1701,16 @@ jobs:
     # green with the gates unrun. Gated on code_changed, so ci-rollup
     # collapses its SKIPPED on a doc-only PR into a pass.
     runs-on: ubuntu-latest
-    # Eleven docker builds of a small module, measured on a green run: the
-    # gates' test and final stages, one test-stage build for each of seven
-    # planted cases, then the control's test and final; a ceiling, not a
-    # budget.
-    timeout-minutes: 30
+    # 74 docker builds of a small module: the gates' test and final
+    # stages, then the redpath's 60 cases (base#1465 added the admission,
+    # producer-output and coverage-ratchet cases; most stop at the admit
+    # stage) and its control. The redpath alone took 10m06s on a local
+    # run; a ceiling, not a budget. 120, not 60: base#1467 took the
+    # redpath to 73 cases. On PR #1538's run 41716884877 this job was
+    # cancelled at 60 minutes with the redpath still running after 56
+    # minutes; at f8a33289 `just test go` took 52m41s on a local run,
+    # 49m52s of it the redpath.
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v7

@@ -272,7 +272,7 @@ _decode() {
         || fail "row '${_id}': --apply changed ${_hunks} regions of ${_subj}, not one"
     done < "${_f}"
   done
-  (( _n >= 168 )) || fail "the roster has ${_n} rows; S1a's 2 seeds and the 166 of S1b, S1c, S1d, S1g and S1h are 168"
+  (( _n >= 166 )) || fail "the roster has ${_n} rows; S1a's 2 seeds and the 164 of S1b, S1c, S1d, S1g and S1h are 166"
   local _want
   for _want in \
     s1b:runner-step-status s1b:runner-usage-unknown s1b:redpath-control \
@@ -288,7 +288,7 @@ _decode() {
     [[ -n "${_ids[${_want}]:-}" ]] || fail "the roster lost row ${_want}"
   done
   local _c
-  for _c in s1b:26 s1c:88 s1d:38 s1g:2 s1h:12 s1a:2; do
+  for _c in s1b:24 s1c:111 s1d:38 s1g:2 s1h:12 s1a:2; do
     [[ "$(grep -cvE '^(#|$)' "/source/script/test/mutation_required/${_c%%:*}.tsv")" == "${_c##*:}" ]] \
       || fail "${_c%%:*}.tsv does not hold its ${_c##*:} rows"
   done

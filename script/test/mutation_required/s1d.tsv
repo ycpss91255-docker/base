@@ -37,9 +37,9 @@ publish-backup-early	script/test/config_gen_mutation_targets.sh	test/bats/integr
 publish-install-guard	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	  if ! mv -T "${tmp}" "${out}"; then	  mv -T "${tmp}" "${out}"; if false; then
 publish-restore-failed-keep	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	    _cgm_publish_failed install no "out=${out}" "backup=${old}/o"	    rm -rf "${old}"; _cgm_publish_failed install no "out=${out}" "backup=${old}/o"
 path-hash-nul	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	  while IFS= read -r -d '' path; do	  while IFS= read -r path; do
-path-quote-trigger	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	    *[[:cntrl:]\\"\\\\]*) ;;	    *[\\"\\\\]*) ;;
-path-quote-escape	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	      $'\\t') q+='\\t' ;;	      $'\\t') q+=$'\\t' ;;
-path-untracked-quote	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	    printf 'A\\t%s\\n' "$(_cgm_quote "${st}")"	    printf 'A\\t%s\\n' "${st}"
+path-quote-trigger	script/test/config_gen_mutation_lang.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	    *[[:cntrl:]\\"\\\\]*) ;;	    *[\\"\\\\]*) ;;
+path-quote-escape	script/test/config_gen_mutation_lang.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	      $'\\t') q+='\\t' ;;	      $'\\t') q+=$'\\t' ;;
+path-untracked-quote	script/test/config_gen_mutation_targets.sh	test/bats/integration/config_gen_mutation_targets_spec.bats	    _cgm_record A "${st}" || return 1	    printf 'A\\t%s\\n' "${st}"
 logger-caller-frame	dist/script/docker/lib/log.sh	test/bats/unit/log_spec.bats	  local caller_file="${BASH_SOURCE[3]:-unknown}"	  local caller_file="${BASH_SOURCE[2]:-unknown}"
 redpath-context-pin	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \\	  env -u CONFIG_GEN_MUTATION_BASE LOG_FORMAT=json \\
 redpath-base-unset	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \\	  env CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \\
