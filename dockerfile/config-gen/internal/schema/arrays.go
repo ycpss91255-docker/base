@@ -230,13 +230,20 @@ func Homes() []Home {
 // prefix, as the bridge's _check_one_spelling does: the shell view would
 // carry that entry twice. Only a table below the root is walked, as the
 // bridge walks it; a root-level family cannot collide in one file
-// (base#1443).
+// (base#1443). A table the walk refused is not walked: nothing under it
+// is judged. The scalar's own refusal, of its value or its kind, gives
+// way to this one, as the bridge's _emit_kv checks the spelling before
+// any row's value, and the scalar keeps one refusal however many arrays
+// of its prefix the table holds (base#1443 review round 1 finding 3).
 func (d *decoder) checkSpellings(b *bound, path []string) {
 	for _, c := range b.children {
 		if !c.isTable() || c.keyless() {
 			continue
 		}
 		p := append(append([]string{}, path...), c.node.Key)
+		if d.refusedUnder(p) {
+			continue
+		}
 		d.checkSpellings(c, p)
 		for _, a := range c.children {
 			if !a.isArray() {
@@ -247,10 +254,11 @@ func (d *decoder) checkSpellings(b *bound, path []string) {
 				continue
 			}
 			for _, s := range c.children {
-				k := append(append([]string{}, p...), s.node.Key)
-				if s.isTable() || s.isArray() || !numberedUnder(s.node.Key, prefix) || d.refusedUnder(k) {
+				if s.isTable() || s.isArray() || !numberedUnder(s.node.Key, prefix) {
 					continue
 				}
+				k := append(append([]string{}, p...), s.node.Key)
+				d.refusals = slices.DeleteFunc(d.refusals, func(r Refusal) bool { return slices.Equal(r.Path, k) })
 				line, col := s.declPos()
 				d.refuse("conf_family_two_spellings", k, line, col)
 			}
