@@ -72,8 +72,7 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 	for i, e := range b.children {
 		n := i + 1
 		if !e.isTable() {
-			line, col := e.firstPos()
-			d.refuseEntry("conf_entry_not_table", p, n, line, col)
+			d.refuseEntry("conf_entry_not_table", p, n, e)
 			refused[e] = true
 			continue
 		}
@@ -81,22 +80,19 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 			continue
 		}
 		if !carriesAny(e, gating) {
-			line, col := e.firstPos()
-			d.refuseEntry("conf_entry_no_gating_field", p, n, line, col)
+			d.refuseEntry("conf_entry_no_gating_field", p, n, e)
 			refused[e] = true
 			continue
 		}
 		if f := firstBy(e, func(c *bound) bool {
 			return !slices.Contains(gating, c.node.Key) && !slices.Contains(also, c.node.Key)
 		}); f != nil {
-			line, col := f.declPos()
-			d.refuseField("conf_entry_unknown_field", p, n, f.node.Key, line, col)
+			d.refuseField("conf_entry_unknown_field", p, n, f)
 			refused[e] = true
 			continue
 		}
 		if f := firstBy(e, func(c *bound) bool { return c.isTable() || c.isArray() }); f != nil {
-			line, col := f.declPos()
-			d.refuseField("conf_value_type_refused", p, n, f.node.Key, line, col)
+			d.refuseField("conf_value_type_refused", p, n, f)
 			refused[e] = true
 			continue
 		}
@@ -104,30 +100,33 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 			need, ok := needs[c.node.Key]
 			return ok && !carriesAny(e, []string{need})
 		}); f != nil {
-			line, col := f.declPos()
-			d.refuseField("conf_entry_field_needs", p, n, f.node.Key, line, col)
+			d.refuseField("conf_entry_field_needs", p, n, f)
 			refused[e] = true
 		}
 	}
 	return refused
 }
 
-// refuseEntry refuses entry n of the family at path p, as refuse does
-// at p, and records the entry number for Refusal.Key (base#1443).
-func (d *decoder) refuseEntry(event string, p []string, n int, line, col int) {
+// refuseEntry refuses entry n, the element e, of the family at path p,
+// as refuse does at p and at e's first position, and records the entry
+// number for Refusal.Key (base#1443).
+func (d *decoder) refuseEntry(event string, p []string, n int, e *bound) {
+	line, col := e.firstPos()
 	d.refuse(event, append([]string{}, p...), line, col)
 	d.refusals[len(d.refusals)-1].Entry = n
 }
 
-// refuseField refuses the field named field of entry n of the family at
-// path p, as refuse does at the field's path, and records the entry
-// number and the field for Refusal.Key. The field is named even when its
-// name is empty, a quoted "" key: an empty name is a field the entry
-// carries, not the absence of one (base#1443 review round 1 finding 1).
-func (d *decoder) refuseField(event string, p []string, n int, field string, line, col int) {
-	d.refuse(event, append(append([]string{}, p...), field), line, col)
+// refuseField refuses the field f of entry n of the family at path p,
+// as refuse does at the field's path and declaration, and records the
+// entry number and the field's name for Refusal.Key. The field is named
+// even when its name is empty, a quoted "" key: an empty name is a field
+// the entry carries, not the absence of one (base#1443 review round 1
+// finding 1).
+func (d *decoder) refuseField(event string, p []string, n int, f *bound) {
+	line, col := f.declPos()
+	d.refuse(event, append(append([]string{}, p...), f.node.Key), line, col)
 	r := &d.refusals[len(d.refusals)-1]
-	r.Entry, r.Field, r.HasField = n, field, true
+	r.Entry, r.Field, r.HasField = n, f.node.Key, true
 }
 
 // firstBy is the member of the table e, first by name, that match
