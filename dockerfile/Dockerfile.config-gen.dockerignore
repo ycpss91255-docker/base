@@ -1,0 +1,10 @@
+# Dockerfile.config-gen.dockerignore -- what BuildKit keeps out of the
+# config generator's build context, dockerfile/config-gen (base#1467).
+#
+# BuildKit reads this file, not the root .dockerignore, because it sits
+# beside the Dockerfile the build names with -f. A file it drops never
+# reaches the admit or test stage: admission accepts an ignored.sha256
+# entry the context does not hold, and the ignored-input gate has nothing
+# to refuse. Each pattern is one of the root .gitignore's that can match
+# inside the module, anchored at any depth; none matches a tracked file.
+**/*.swp

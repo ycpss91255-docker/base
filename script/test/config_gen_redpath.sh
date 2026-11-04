@@ -27,6 +27,42 @@
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
+#   mut-unstaged   a committed package's test loses its assertion  mutation
+#                  as an unstaged edit, so every mutant survives
+#   mut-staged     the same edit, staged                           mutation
+#   mut-timeout    an untracked package whose loop mutant hangs:   mutation
+#                  3 mutants killed and 1 timed out is 75.0
+#   mut-untracked-lived  an untracked package whose test asserts   mutation
+#                  nothing: both mutants end and survive, 0.0
+#   corpus        a committed importer of internal/testcorpus     mutation
+#                  whose result goes unasserted; the change is
+#                  only an untracked file under the module's
+#                  root testdata/
+#   notes          an untracked notes.txt at the module root, a    mutation
+#                  file no mapping rule covers
+#   sens-per-golden  an untracked golden whose one consumer reached  corpus_sensitivity
+#                  through a helper asserts only that it exists,
+#                  beside a strong reader of another golden
+#
+# A sensitivity case listed in _RP_WEAK (gate corpus_sensitivity,
+# base#1467) must also carry, as the runner's JSON
+# config_gen_corpus_sensitivity_weak records, exactly the `<pkg>|<file>`
+# pairs its row names, in that order (reason weak_records_mismatch): the
+# golden whose byte flip left that package's tests passing, and no record
+# for a package that reads another golden.
+#
+# A mutation case (gate mutation, base#1467) must also show the manifest
+# the 00-manifest step wrote with dirty=yes: a step planted after every
+# real one prints its header line, prefixed with
+# "config-gen redpath manifest: ", and the runner streams a step's stdout
+# to stderr. A mutation case listed in _RP_MUTATION_FAILED must also carry
+# exactly one runner JSON config_gen_mutation_package_failed record, and
+# it must name the row's package by pkg= with the row's reason and
+# measured efficacy (reason mutation_record_mismatch): the gate's verdict
+# on the planted package, attributed to it. A mutation case
+# listed in _RP_MUTATION_EVENTS must carry exactly one runner JSON record
+# of its event, naming its file (reason mutation_event_mismatch): the
+# mapping's refusal of what the case planted, re-emitted with its file=.
 #
 # A refusal case plants a defect the build must refuse before any gate
 # runs: the run must exit exactly 1 with nothing on stdout, and stderr
@@ -74,11 +110,45 @@
 # A green case (_RP_GREENS) brings the copy to a git state a real producer
 # run was observed to write (base#1465 redesign r2 §1) -- a rename with the
 # old path recreated, a tracked file untracked, a rename onto a moved file,
-# a removed path left ignored, two copies under diff.renames=copies, a
+# two copies under diff.renames=copies, a
 # typechange to a symlink -- or to a baseline holding café.txt, `a b.txt`
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
 # the six ok lines below: admission accepts every baseline the producer
 # writes, and every gate still runs after it.
+#
+# docs-only (a green case, base#1467) changes only a file outside the
+# module: the producer writes the no-change marker, and the run must also
+# stream the mutation gate's `mutation targets none` (_RP_GREEN_LINES; a
+# green case listed there whose build log ends no line with " <its
+# line>" fails, reason green_line_missing).
+#
+# ign-excluded (a green case, base#1467) leaves cmd/config-gen/.main.go.swp,
+# an editor swap file, in the module, Git-ignored by the `*.swp` line the
+# repository's own .gitignore holds. The producer
+# lists it in ignored.sha256; Dockerfile.config-gen.dockerignore must keep
+# it out of the build context, admission must accept a listed ignored file
+# the context does not hold, and so the ignored-input gate has nothing to
+# refuse: the run passes with the six ok lines. ign-excluded-go is the ign
+# case below, the same Git-ignored cmd/config-gen/zz_ign.go planted the
+# same way, with one more line in the copy's
+# Dockerfile.config-gen.dockerignore that drops it from the build context:
+# that line alone turns ign's refusal into a green run, so the gate judges
+# what the context holds, never the file's name or kind.
+#
+# An after-admit case (_RP_AFTER_ADMIT, base#1467) leaves a Git-ignored
+# module file in the build context, so the producer lists it in
+# ignored.sha256 and admission accepts the context: the ignored-input gate
+# must refuse it after every S1b gate. The run must exit exactly 1 with
+# exactly the rerun case's six ok lines on stdout, no "unregistered log body",
+# the runner's JSON config_gen_gate_<gate>_failed as its first gate record,
+# and exactly one runner JSON record of the row's event, naming the
+# row's file (reason after_admit_detail_mismatch).
+#
+#   case             ignored file left in the context               gate
+#   ign              cmd/config-gen/zz_ign.go, a Go file ignored     ignored
+#                    by .git/info/exclude
+#   untrack-ignored  testdata/zzg/a.txt, untracked and then         ignored
+#                    ignored (once a green case)
 #
 # A coverage case (_RP_COVERAGE) changes a package or a floor so the
 # coverage ratchet (cmd/cg-gates ratchet, base#1465) refuses it: the run
@@ -102,6 +172,17 @@
 #
 # on stdout, so a verdict RUN the second call took from the build cache
 # (it prints no line) fails the case instead of passing on cache state.
+#
+# The retro case (base#1467) plants nothing either: it puts an empty root
+# commit under the copy's one commit and runs the runner with
+# CONFIG_GEN_MUTATION_BASE set to it, so every tracked module file is an
+# `A` line of the manifest. It must exit 0 with exactly the six ok lines,
+# a manifest header with that base and dirty=no, no
+# config_gen_mutation_unmapped anywhere, and one mutation line, `<pkg> ok
+# efficacy=<e>` or `<pkg> no-mutants`, for exactly each package of the
+# copy: each directory holding a tracked .go file outside testdata/
+# (reason package_set_mismatch). A tracked module file no mapping rule
+# covers, or a real package below the mutation floor, turns it red.
 #
 # Each runner call is told its case in CONFIG_GEN_REDPATH_CASE (control for
 # the control), which the runner itself ignores.
@@ -147,7 +228,39 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
+# <case>|<pkg>|<reason>|<measured>: the one package failure record the
+# runner must log for <case>, re-emitted from the mutation gate's
+# config_gen_mutation_package_failed line (base#1467). The mut-timeout
+# figure is 3 killed over 4 judged: gremlins reported its loop
+# fixture as KILLED x3 and TIMED OUT x1 (design r1r2, gremlins v0.6.0).
+# The corpus figure is 0 killed over 2 judged: Pos's boundary and negation
+# mutants of n > 0 both live, since no test asserts Pos's result; so are
+# mut-unstaged's and mut-staged's, whose edited test asserts nothing, and
+# mut-untracked-lived's, an added package whose test asserts nothing: no
+# mutant there times out, so its 0.0 holds only if a LIVED mutant is
+# judged not killed.
+readonly -a _RP_MUTATION_FAILED=(
+  'mut-unstaged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0'
+  'mut-staged|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0'
+  'mut-timeout|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop|below|75.0'
+  'mut-untracked-lived|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzlive|below|0.0'
+  'corpus|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzweak|below|0.0'
+)
+# <case>|<event>|<file>: the one record of <event>, naming <file>, the
+# mutation gate's mapping must refuse <case> with (base#1467).
+readonly -a _RP_MUTATION_EVENTS=(
+  'notes|config_gen_mutation_unmapped|dockerfile/config-gen/notes.txt'
+)
+# <case>|<pkg>|<file>: each weak record the sensitivity gate must log for
+# <case>, in order (base#1467). sens-per-golden's one pair is its planted
+# tests' own contract: zzglob reaches zz.golden only through zzhelp and
+# asserts only that Glob returned it, so no byte of it can fail zzglob;
+# zzhelp compares zz.golden's bytes and zzseed seed.golden's, so neither
+# is weak.
+readonly -a _RP_WEAK=(
+  'sens-per-golden|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzglob|golden/s1/zz.golden'
+)
 # <case>:<the event id the build must refuse it with> (base#1465).
 readonly -a _RP_REFUSALS=(no-context:config_gen_manifest_missing)
 # <case>|<file>|<reason> the admission stale record must carry (base#1465).
@@ -160,7 +273,7 @@ readonly -a _RP_STALE=(
   'stale-dangling|dockerfile/config-gen/zz-dangling|not_regular'
   'stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch'
   'stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted'
-  'stale-names|dockerfile/config-gen/zznames/a%20b.txt|sha_mismatch'
+  'stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch'
   'stale-header|manifest|header'
   'no-checker|admit.sh|absent'
   'no-lib|config_gen_mutation_lang.sh|absent'
@@ -191,7 +304,16 @@ readonly -a _RP_STALE=(
 )
 # The green cases: each a git state whose baseline must be admitted
 # (base#1465).
-readonly -a _RP_GREENS=(names rename-recreate untrack rename-move untrack-ignored copies typechange)
+readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded ign-excluded-go docs-only)
+# <case>|<a line its build log must end a line with> (base#1467).
+readonly -a _RP_GREEN_LINES=('docs-only|mutation targets none')
+# <case>|<gate>|<event>|<file>: a context the producer and admission both
+# accept, holding a Git-ignored module file the gate must refuse, naming
+# that file in each <event> record (base#1467).
+readonly -a _RP_AFTER_ADMIT=(
+  'ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go'
+  'untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt'
+)
 # <case>|<the coverage ratchet event the build must refuse it with>|<its
 # pkg>|<its file, empty when the event names none> (base#1465).
 readonly -a _RP_COVERAGE=(
@@ -235,7 +357,7 @@ STEP
     # go refuses to parse the appended directive.
     stale-gomod) echo 'printf "\nzzstale after the manifest\n" >>"${_mod}/go.mod"' ;;
     stale-checker) echo 'printf "package buildgate\n\nfunc zz( {\n" >"${_mod}/internal/buildgate/zz.go"' ;;
-    stale-names) echo 'printf "edit\n" >>"${_mod}/zznames/a b.txt"' ;;
+    stale-names) echo 'printf "edit\n" >>"${_mod}/testdata/zznames/a b.txt"' ;;
     # The header without its context= field, which S1d's header never is.
     stale-header) echo 'sed -i "1s/ context=[^ ]*\$//" "${_m}/manifest"' ;;
     no-checker) echo 'rm "${_m}/admit.sh"' ;;
@@ -306,11 +428,15 @@ _rp_rebase() {
 }
 
 # _rp_green <case> <root> -- bring the copy to a green case's git state:
-# zzg/a.txt and zzg/c.txt committed as the base, then the case's change.
-# names commits zznames/ (café.txt, `a b.txt`, one name holding every byte
-# 0x01-0x7f but /) and leaves an untracked name the producer C-quotes.
+# testdata/zzg/a.txt and testdata/zzg/c.txt committed as the base, then
+# the case's change. names commits testdata/zznames/ (café.txt, `a b.txt`,
+# one name holding every byte 0x01-0x7f but /) and leaves an untracked name
+# the producer C-quotes. Both sit under the module-root testdata/, which the
+# mutation gate maps to the test importers of internal/testcorpus, so the
+# case stays green there (base#1467).
 _rp_green() {
-  local root="${2}" g="${2}/dockerfile/config-gen/zzg" n="${2}/dockerfile/config-gen/zznames"
+  local root="${2}" mod="${2}/dockerfile/config-gen"
+  local g="${mod}/testdata/zzg" n="${mod}/testdata/zznames"
   local name='' i
   if [[ "${1}" == names ]]; then
     mkdir -p "${n}"
@@ -335,7 +461,7 @@ _rp_green() {
     untrack) _rp_git "${root}" rm -q --cached "${g}/a.txt" ;;
     rename-move) _rp_git "${root}" mv "${g}/a.txt" "${g}/d.txt"; mv "${g}/c.txt" "${g}/a.txt" ;;
     untrack-ignored)
-      printf 'dockerfile/config-gen/zzg/a.txt\n' >"${root}/.git/info/exclude"
+      printf 'dockerfile/config-gen/testdata/zzg/a.txt\n' >"${root}/.git/info/exclude"
       _rp_git "${root}" rm -q --cached "${g}/a.txt"
       ;;
     copies)
@@ -352,6 +478,20 @@ _rp_green() {
 # coverage-floors.d/s1e.txt.
 _rp_floor() {
   sed -i "s#^${2} .*#${2} ${3}#" "${1}/dockerfile/config-gen/coverage-floors.d/s1e.txt"
+}
+
+# The prefix the manifest step puts before the manifest's header line.
+readonly _RP_MANIFEST_TAG='config-gen redpath manifest: '
+
+# _rp_manifest_step <root> -- write a step that runs after every real one
+# (C-locale glob order) and prints the header line of the manifest
+# 00-manifest wrote, prefixed with _RP_MANIFEST_TAG (base#1467).
+_rp_manifest_step() {
+  cat >"${1}/script/test/config_gen_steps/99-zz-manifest.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s%s\n' '${_RP_MANIFEST_TAG}' "\$(head -n 1 "\${CONFIG_GEN_CTX:?}/mutation/manifest")"
+EOF
 }
 
 # _rp_plant <case> <root> -- write the case's defect into the copy.
@@ -377,6 +517,25 @@ EOF
       ;;
     names | rename-recreate | untrack | rename-move | untrack-ignored | copies | typechange)
       _rp_green "${1}" "${root}"
+      ;;
+    ign | ign-excluded-go)
+      # Every gate before the ignored one passes on it: a package clause
+      # and no statement. Ignored only by the copy's own .git/info/exclude,
+      # so nothing in the context names it. ign-excluded-go also has the
+      # copy's dockerignore drop it from the build context.
+      printf 'zz_ign.go\n' >"${root}/.git/info/exclude"
+      printf '// zz_ign.go is a Git-ignored file left in the build context.\npackage main\n' \
+        >"${cmd}/zz_ign.go"
+      if [[ "${1}" == ign-excluded-go ]]; then
+        printf '**/zz_ign.go\n' >>"${root}/dockerfile/Dockerfile.config-gen.dockerignore"
+      fi
+      ;;
+    ign-excluded)
+      # The swap file vim leaves beside main.go while it is open, ignored
+      # by the copy's .git/info/exclude through the `*.swp` line the
+      # repository's own .gitignore holds.
+      printf '*.swp\n' >"${root}/.git/info/exclude"
+      printf 'zz editor swap file\n' >"${cmd}/.main.go.swp"
       ;;
     cov-drop)
       # Two statements no test reaches: cmd/config-gen falls below 100.0.
@@ -527,6 +686,268 @@ func TestZzVar(t *testing.T) {
 }
 EOF
       ;;
+    mut-unstaged | mut-staged)
+      # zzmut and its floor are committed with a test that kills both of
+      # Pos's mutants (n >= 0 fails Pos(0), n <= 0 fails all three rows).
+      # The edit, left unstaged (mut-unstaged) or staged (mut-staged),
+      # keeps every call (coverage stays 100.0) and drops the comparison,
+      # so both mutants survive (base#1467).
+      mkdir -p "${mod}/internal/zzmut"
+      cat >"${mod}/internal/zzmut/zzmut.go" <<'EOF'
+// Package zzmut is a redpath fixture whose test kills every mutant.
+package zzmut
+
+// Pos reports whether n is positive.
+func Pos(n int) bool {
+	return n > 0
+}
+EOF
+      cat >"${mod}/internal/zzmut/zzmut_test.go" <<'EOF'
+package zzmut
+
+import "testing"
+
+func TestPos(t *testing.T) {
+	for n, want := range map[int]bool{-1: false, 0: false, 1: true} {
+		if got := Pos(n); got != want {
+			t.Fatalf("Pos(%d) = %v, want %v", n, got, want)
+		}
+	}
+}
+EOF
+      printf 'internal/zzmut 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_rebase "${root}"
+      cat >"${mod}/internal/zzmut/zzmut_test.go" <<'EOF'
+package zzmut
+
+import "testing"
+
+func TestPos(t *testing.T) {
+	for n := range map[int]bool{-1: false, 0: false, 1: true} {
+		_ = Pos(n)
+	}
+}
+EOF
+      if [[ "${1}" == mut-staged ]]; then
+        _rp_git "${root}" add -- "${mod}/internal/zzmut/zzmut_test.go"
+      fi
+      _rp_manifest_step "${root}"
+      ;;
+    notes)
+      # Untracked, so 00-manifest lists it as the one change; no mapping
+      # rule covers a text file at the module root (base#1467).
+      printf 'notes\n' >"${mod}/notes.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    docs-only)
+      # A change outside dockerfile/config-gen/, so 00-manifest writes the
+      # no-change marker (base#1467).
+      mkdir -p "${root}/doc"
+      printf 'docs only\n' >"${root}/doc/zz-docs-only.md"
+      ;;
+    mut-timeout)
+      # Never committed. The test kills the boundary and negation mutants
+      # of i > 0 (Count(3) gives 4 and 0) and c-- (Count(3) gives -3); i++
+      # never ends for n = 3, so gremlins times that mutant out. No row
+      # has n = 0: under the negation i <= 0 that loop never ends either,
+      # which a run with a 0 row showed as a second TIMED OUT (base#1467).
+      mkdir -p "${mod}/internal/zzloop"
+      cat >"${mod}/internal/zzloop/zzloop.go" <<'EOF'
+// Package zzloop is a redpath fixture whose loop mutant never ends.
+package zzloop
+
+// Count returns how many times a loop from n down to 1 runs.
+func Count(n int) int {
+	c := 0
+	for i := n; i > 0; i-- {
+		c++
+	}
+	return c
+}
+EOF
+      cat >"${mod}/internal/zzloop/zzloop_test.go" <<'EOF'
+package zzloop
+
+import "testing"
+
+func TestCount(t *testing.T) {
+	for n, want := range map[int]int{1: 1, 3: 3} {
+		if got := Count(n); got != want {
+			t.Fatalf("Count(%d) = %d, want %d", n, got, want)
+		}
+	}
+}
+EOF
+      printf 'internal/zzloop 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    mut-untracked-lived)
+      # Never committed. The test calls Pos on every row, so coverage is
+      # 100.0, and asserts nothing: the boundary and negation mutants of
+      # n > 0 both run to an end and survive. No loop, so no mutant can
+      # time out (base#1467).
+      mkdir -p "${mod}/internal/zzlive"
+      cat >"${mod}/internal/zzlive/zzlive.go" <<'EOF'
+// Package zzlive is a redpath fixture whose test asserts nothing.
+package zzlive
+
+// Pos reports whether n is positive.
+func Pos(n int) bool {
+	return n > 0
+}
+EOF
+      cat >"${mod}/internal/zzlive/zzlive_test.go" <<'EOF'
+package zzlive
+
+import "testing"
+
+func TestPos(t *testing.T) {
+	for _, n := range []int{-1, 0, 1} {
+		_ = Pos(n)
+	}
+}
+EOF
+      printf 'internal/zzlive 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    corpus)
+      # zzweak is committed with its floor, so the change 00-manifest lists
+      # is only the untracked testdata/c.txt. Its test reads the golden
+      # through internal/testcorpus and compares its bytes, but leaves
+      # Pos(5) unasserted: every Pos mutant survives, and only a root
+      # testdata change that reaches the test importers of testcorpus can
+      # make zzweak a target (base#1467).
+      mkdir -p "${mod}/internal/zzweak"
+      cat >"${mod}/internal/zzweak/zzweak.go" <<'EOF'
+// Package zzweak is a redpath fixture whose test asserts nothing of Pos.
+package zzweak
+
+// Pos reports whether n is positive.
+func Pos(n int) bool {
+	return n > 0
+}
+EOF
+      cat >"${mod}/internal/zzweak/zzweak_test.go" <<'EOF'
+package zzweak
+
+import (
+	"os"
+	"testing"
+
+	"MODPATH/internal/testcorpus"
+)
+
+func TestPos(t *testing.T) {
+	_ = Pos(5)
+	for _, p := range testcorpus.Glob(t, "golden/s1/seed.golden") {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+			t.Fatalf("%s = %q", p, b)
+		}
+	}
+}
+EOF
+      sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
+        "${mod}/internal/zzweak/zzweak_test.go"
+      printf 'internal/zzweak 100.0\n' >"${mod}/coverage-floors.d/zz.txt"
+      _rp_rebase "${root}"
+      printf 'c\n' >"${mod}/testdata/c.txt"
+      _rp_manifest_step "${root}"
+      ;;
+    sens-per-golden)
+      # zzseed, zzhelp and zzglob are committed with their floors (the two
+      # test-only packages have no statements, so none); the change is
+      # only the untracked golden/s1/zz.golden. zzseed compares
+      # seed.golden's bytes and never reads zz.golden. zzhelp's Golden
+      # returns zz.golden through internal/testcorpus, and zzhelp's own
+      # test compares its bytes. zzglob calls zzhelp.Golden and asserts
+      # only that one path came back, so a flipped byte of zz.golden
+      # leaves it passing: the one weak pair (base#1467).
+      mkdir -p "${mod}/internal/zzseed" "${mod}/internal/zzhelp" "${mod}/internal/zzglob"
+      cat >"${mod}/internal/zzseed/zzseed_test.go" <<'EOF'
+package zzseed
+
+import (
+	"os"
+	"testing"
+
+	"MODPATH/internal/testcorpus"
+)
+
+func TestSeed(t *testing.T) {
+	for _, p := range testcorpus.Glob(t, "golden/s1/seed.golden") {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+			t.Fatalf("%s = %q", p, b)
+		}
+	}
+}
+EOF
+      cat >"${mod}/internal/zzhelp/zzhelp.go" <<'EOF'
+// Package zzhelp is a redpath fixture that hands its callers zz.golden.
+package zzhelp
+
+import (
+	"testing"
+
+	"MODPATH/internal/testcorpus"
+)
+
+// Golden returns zz.golden's path, read through internal/testcorpus.
+func Golden(t testing.TB) []string {
+	t.Helper()
+	return testcorpus.Glob(t, "golden/s1/zz.golden")
+}
+EOF
+      cat >"${mod}/internal/zzhelp/zzhelp_test.go" <<'EOF'
+package zzhelp
+
+import (
+	"os"
+	"testing"
+)
+
+func TestGolden(t *testing.T) {
+	for _, p := range Golden(t) {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b) != "zz golden for redpath sens-per-golden (base#1467)\n" {
+			t.Fatalf("%s = %q", p, b)
+		}
+	}
+}
+EOF
+      cat >"${mod}/internal/zzglob/zzglob_test.go" <<'EOF'
+package zzglob
+
+import (
+	"testing"
+
+	"MODPATH/internal/zzhelp"
+)
+
+func TestGlob(t *testing.T) {
+	if got := zzhelp.Golden(t); len(got) != 1 {
+		t.Fatalf("zzhelp.Golden = %q, want one path", got)
+	}
+}
+EOF
+      sed -i "s%MODPATH%$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")%" \
+        "${mod}/internal/zzseed/zzseed_test.go" "${mod}/internal/zzhelp/zzhelp.go" \
+        "${mod}/internal/zzglob/zzglob_test.go"
+      printf 'internal/zzseed none\ninternal/zzhelp 100.0\ninternal/zzglob none\n' \
+        >"${mod}/coverage-floors.d/zz.txt"
+      _rp_rebase "${root}"
+      printf 'zz golden for redpath sens-per-golden (base#1467)\n' >"${mod}/testdata/golden/s1/zz.golden"
+      ;;
     fmt-parse)
       printf 'package main\n\nfunc zzParse() {\n' >"${cmd}/zz_parse_test.go" ;;
     coverage)
@@ -610,7 +1031,7 @@ _rp_gates() {
 # from service config-gen whose body is exactly a gate id. The build log
 # streamed ahead of it, an id quoted inside other text and a longer id that
 # starts with one are none of them that record (base#1462).
-readonly _RP_GATE_RECORD_RE='^\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\{"service\.name":"config-gen",.*\}\}$'
+readonly _RP_GATE_RECORD_RE='^\{"timestamp":"[^"]*","severity_text":"ERROR","severity_number":[0-9]+,"body":"(config_gen_gate_[a-z_]+_failed)",("trace_id":"[^"]*","span_id":"[^"]*",)?"attributes":\{"service\.name":"config-gen",.*\}\}$'
 
 # _rp_exit_one <rc> -- empty when a refused run exited exactly 1, the
 # status every refusal ends with; else rc_zero or rc_not_one. A runner that
@@ -635,16 +1056,65 @@ _rp_verdict() {
     [[ "${g}" == "${gate}" ]] && break
     grep -qx "gate=${g} ok" "${out}" || { echo earlier_gate_missing; return 0; }
   done
+  # A mutation case is an uncommitted change: its manifest says so.
+  [[ "${gate}" != mutation ]] \
+    || grep -qxE "${_RP_MANIFEST_TAG}base=[0-9a-f]{40} head=[0-9a-f]{40} dirty=yes context=pr" "${err}" \
+    || { echo not_dirty; return 0; }
+}
+
+# _rp_row <case> <entry>... -- the rest of the first `<case>|<rest>` entry,
+# empty when no entry is <case>'s.
+_rp_row() {
+  local name="${1}" entry
+  shift
+  for entry in "$@"; do
+    [[ "${entry%%|*}" == "${name}" ]] && { printf '%s\n' "${entry#*|}"; return 0; }
+  done
+  return 0
+}
+
+# _rp_weak_pairs <case> -- the `<pkg>|<file>` pairs _RP_WEAK holds for
+# <case>, one per line in table order; empty when it holds none.
+_rp_weak_pairs() {
+  local entry
+  for entry in "${_RP_WEAK[@]}"; do
+    [[ "${entry%%|*}" == "${1}" ]] && printf '%s\n' "${entry#*|}"
+  done
+  return 0
+}
+
+# _rp_line_ends <err> <line> -- true when a line of <err> ends with
+# " <line>" (the build log puts its step and time first).
+_rp_line_ends() {
+  awk -v w=" ${2}" 'length($0) >= length(w) && substr($0, length($0) - length(w) + 1) == w { f = 1 }
+    END { exit !f }' "${1}"
 }
 
 # _rp_case <scratch> <case> <gate> -- run one planted case; non-zero when
 # it did not go red as planted.
 _rp_case() {
-  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason
+  local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason failed pkg want weak event
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
+  failed="$(_rp_row "${name}" "${_RP_MUTATION_FAILED[@]}")"
+  if [[ -z "${reason}" && -n "${failed}" ]]; then
+    pkg="${failed%%|*}" want="${failed#*|}"
+    [[ "$(_rp_event_detail "${root}.err" config_gen_mutation_package_failed pkg reason)" == "${pkg}|${want%%|*}" \
+      && "$(_rp_event_detail "${root}.err" config_gen_mutation_package_failed pkg measured)" == "${pkg}|${want#*|}" ]] \
+      || reason=mutation_record_mismatch
+  fi
+  weak="$(_rp_weak_pairs "${name}")"
+  if [[ -z "${reason}" && -n "${weak}" ]] \
+    && [[ "$(_rp_event_detail "${root}.err" config_gen_corpus_sensitivity_weak pkg file)" != "${weak}" ]]; then
+    reason=weak_records_mismatch
+  fi
+  event="$(_rp_row "${name}" "${_RP_MUTATION_EVENTS[@]}")"
+  if [[ -z "${reason}" && -n "${event}" ]] \
+    && [[ "$(_rp_event_detail "${root}.err" "${event%%|*}" file file)" != "${event#*|}|${event#*|}" ]]; then
+    reason=mutation_event_mismatch
+  fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${name}" "reason=${reason}" "gate=${gate}" \
@@ -833,17 +1303,122 @@ _rp_rerun() {
 }
 
 # _rp_green_case <scratch> <case> -- run one green case; non-zero when the
-# runner did not pass with exactly the six ok lines.
+# runner did not pass with exactly the six ok lines, or its build log lacks
+# the line _RP_GREEN_LINES holds for <case>.
 _rp_green_case() {
-  local root rc=0 reason
+  local root rc=0 reason line
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
+  line="$(_rp_row "${2}" "${_RP_GREEN_LINES[@]}")"
+  if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
+    reason=green_line_missing
+  fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" \
     "display=config-gen redpath green case ${2} did not pass with exactly the six ok lines: ${reason}"
+  return 1
+}
+
+# _rp_after_admit_verdict <rc> <out> <err> <gate> <event> <file> -- empty
+# when <gate> refused the case (exit exactly 1) after exactly the six ok
+# lines, with exactly one <event> record, naming <file>, else the reason
+# it did not.
+_rp_after_admit_verdict() {
+  local rc="${1}" out="${2}" err="${3}" gate="${4}" event="${5}" file="${6}" first after_exit
+  after_exit="$(_rp_exit_one "${rc}")"
+  [[ -z "${after_exit}" ]] || { echo "${after_exit}"; return 0; }
+  printf '%s\n' "${_RP_RERUN_OUT}" | cmp -s - "${out}" || { echo stdout_mismatch; return 0; }
+  ! grep -qF -- 'unregistered log body' "${err}" || { echo unregistered_body; return 0; }
+  first="$(sed -nE "s/${_RP_GATE_RECORD_RE}/\\1/p" "${err}")"
+  first="${first%%$'\n'*}"
+  [[ "${first}" == "config_gen_gate_${gate}_failed" ]] || { echo wrong_id; return 0; }
+  grep -qE "$(_rp_event_record_re "${event}")" "${err}" || { echo event_record_missing; return 0; }
+  [[ "$(_rp_event_detail "${err}" "${event}" file file)" == "${file}|${file}" ]] \
+    || { echo after_admit_detail_mismatch; return 0; }
+}
+
+# _rp_after_admit <scratch> <case> <gate> <event> <file> -- run one
+# after-admit case; non-zero when <gate> did not refuse it with <event>
+# naming <file>.
+_rp_after_admit() {
+  local root rc=0 reason
+  root="$(_rp_copy "${1}")"
+  _rp_plant "${2}" "${root}"
+  _rp_gates "${root}" "${2}" || rc=$?
+  reason="$(_rp_after_admit_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
+  [[ -z "${reason}" ]] && return 0
+  cat "${root}.err" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" "gate=${3}" \
+    "event=${4}" "display=config-gen redpath case ${2} was not refused by gate ${3} with ${4} file=${5}: ${reason}"
+  return 1
+}
+
+# _rp_retro_want <root> -- the packages of the copy's module, one import
+# path per line, sorted: each directory holding a tracked .go file, with
+# no testdata, `.` or `_` path component under the module (the rule
+# `go list ./...` documents), named under the module path go.mod declares.
+_rp_retro_want() {
+  local mod="${1}/dockerfile/config-gen" path
+  path="$(awk '$1 == "module" {print $2; exit}' "${mod}/go.mod")"
+  git -C "${mod}" ls-files -- '*.go' \
+    | awk -v m="${path}" '{
+        n = split($0, c, "/"); d = ""
+        for (i = 1; i < n; i++) {
+          if (c[i] == "testdata" || c[i] ~ /^[._]/) next
+          d = d "/" c[i]
+        }
+        print m d
+      }' \
+    | LC_ALL=C sort -u
+}
+
+# _rp_retro_got <err> -- the packages the mutation gate passed, one per
+# line, sorted: the build log lines ending `<pkg> ok efficacy=<e>` or
+# `<pkg> no-mutants`.
+_rp_retro_got() {
+  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ ([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\1/p' "${1}" \
+    | LC_ALL=C sort -u
+}
+
+# _rp_retro_verdict <rc> <root> <base> -- empty when the retro call passed
+# with the six ok lines, a clean manifest from <base>, nothing unmapped
+# and a passing mutation line for exactly each package, else the reason
+# it did not.
+_rp_retro_verdict() {
+  local rc="${1}" root="${2}" base="${3}"
+  (( rc == 0 )) || { echo rc_not_zero; return 0; }
+  printf '%s\n' "${_RP_RERUN_OUT}" | cmp -s - "${root}.out" || { echo stdout_mismatch; return 0; }
+  grep -qxE "${_RP_MANIFEST_TAG}base=${base} head=[0-9a-f]{40} dirty=no context=pr" "${root}.err" \
+    || { echo not_clean; return 0; }
+  ! grep -qF -- config_gen_mutation_unmapped "${root}.err" || { echo unmapped; return 0; }
+  [[ "$(_rp_retro_got "${root}.err")" == "$(_rp_retro_want "${root}")" ]] \
+    || { echo package_set_mismatch; return 0; }
+}
+
+# _rp_retro <scratch> -- the retro case: the copy's commit re-parented on
+# an empty root commit, the runner called with that root as
+# CONFIG_GEN_MUTATION_BASE; non-zero when it did not pass as planted.
+_rp_retro() {
+  local root rc=0 reason empty head
+  local -a id=(-c user.name=config-gen-redpath -c user.email=config-gen-redpath@localhost)
+  root="$(_rp_copy "${1}")"
+  empty="$(git -C "${root}" "${id[@]}" commit-tree --no-gpg-sign -m 'config-gen redpath empty root' \
+    "$(git -C "${root}" mktree </dev/null)")"
+  head="$(git -C "${root}" "${id[@]}" commit-tree --no-gpg-sign -p "${empty}" -m 'config-gen redpath copy' 'HEAD^{tree}')"
+  git -C "${root}" update-ref HEAD "${head}"
+  git -C "${root}" update-ref refs/remotes/origin/main "${head}"
+  _rp_manifest_step "${root}"
+  _rp_gates "${root}" retro "CONFIG_GEN_MUTATION_BASE=${empty}" || rc=$?
+  reason="$(_rp_retro_verdict "${rc}" "${root}" "${empty}")"
+  [[ -z "${reason}" ]] && return 0
+  cat "${root}.err" >&2
+  printf 'config-gen redpath retro: want packages:\n%s\ngot:\n%s\n' \
+    "$(_rp_retro_want "${root}")" "$(_rp_retro_got "${root}.err")" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=retro" "reason=${reason}" "gate=mutation" \
+    "display=config-gen redpath case retro (every module file added since an empty base) did not pass: ${reason}"
   return 1
 }
 
@@ -937,6 +1512,13 @@ main() {
     ran=$(( ran + 1 ))
     _rp_green_case "${scratch}" "${name}" || failed=1
   done
+  local gate
+  for entry in "${_RP_AFTER_ADMIT[@]}"; do
+    IFS='|' read -r name gate want file <<<"${entry}"
+    _rp_selected "${name}" || continue
+    ran=$(( ran + 1 ))
+    _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}" || failed=1
+  done
   for entry in "${_RP_COVERAGE[@]}"; do
     IFS='|' read -r name want pkg file <<<"${entry}"
     _rp_selected "${name}" || continue
@@ -946,6 +1528,10 @@ main() {
   if _rp_selected rerun; then
     ran=$(( ran + 1 ))
     _rp_rerun "${scratch}" || failed=1
+  fi
+  if _rp_selected retro; then
+    ran=$(( ran + 1 ))
+    _rp_retro "${scratch}" || failed=1
   fi
   _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
