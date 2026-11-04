@@ -222,7 +222,8 @@ readonly _PIN_RESOLVERS=(
 # were `find` predicates while the population came from `find`; both
 # halves of the walk now partition one list of tracked paths, so the
 # predicate has to be answerable about a string rather than about a
-# directory entry.
+# directory entry. The `testdata` TOML shape above needs the directory
+# part too, so it is not a glob here: _pin_is_exempt_shape tests it.
 readonly _PIN_SCAN_EXEMPT_SHAPES=(
   '*.md' '*.adoc' 'README' 'LICENSE' '*.bats' '*_test.go'
 )
