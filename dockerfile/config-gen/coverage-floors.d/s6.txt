@@ -1,4 +1,4 @@
 # Coverage floors of the packages S6 brings (base#1442): <pkg> <floor>|none,
 # pkg relative to the module. Ratcheted up by cg-gates ratchet, never lowered.
-internal/locate 96.3
-internal/schema 94.5
+internal/locate 97.3
+internal/schema 95.5
