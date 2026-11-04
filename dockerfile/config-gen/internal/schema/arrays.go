@@ -61,13 +61,13 @@ var fieldNeeds = map[string]map[string]string{
 // holding a name that keyCharEvent refuses keeps that refusal as its only
 // one, as base#1442 decided. It returns the elements it refused, so
 // that no value refusal is added beside the one it picked (base#1443).
+// A family gatingFields does not list has no field to be read from, so
+// each of its entries that carries a field is refused: a registry miss
+// refuses, it never accepts (base#1443 review round 1 mutation survey).
 func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 	refused := map[*bound]bool{}
 	leaf := p[len(p)-1]
-	gating, ok := gatingFields[leaf]
-	if !ok {
-		return refused
-	}
+	gating := gatingFields[leaf]
 	also, needs := alsoRead[leaf], fieldNeeds[leaf]
 	for i, e := range b.children {
 		n := i + 1
@@ -145,9 +145,10 @@ func firstBy(e *bound, match func(*bound) bool) *bound {
 }
 
 // holdsBadName reports whether a name at or under b draws keyCharEvent.
+// An element or item has the empty name, which draws nothing.
 func holdsBadName(b *bound) bool {
 	for _, c := range b.children {
-		if (!c.keyless() && keyCharEvent(c.node.Key) != "") || holdsBadName(c) {
+		if keyCharEvent(c.node.Key) != "" || holdsBadName(c) {
 			return true
 		}
 	}
@@ -237,7 +238,9 @@ func Homes() []Home {
 // of its prefix the table holds (base#1443 review round 1 finding 3).
 func (d *decoder) checkSpellings(b *bound, path []string) {
 	for _, c := range b.children {
-		if !c.isTable() || c.keyless() {
+		// A member of a table is named; only a table is walked, so no
+		// element or item is reached here.
+		if !c.isTable() {
 			continue
 		}
 		p := append(append([]string{}, path...), c.node.Key)
