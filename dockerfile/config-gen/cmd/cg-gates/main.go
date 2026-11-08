@@ -196,13 +196,13 @@ func mutation(args []string, _, stderr io.Writer) int {
 		w := io.MultiWriter(stderr, &said)
 		cmd.Stdout, cmd.Stderr = w, w
 		if err := cmd.Run(); err != nil {
-			_, _ = fmt.Fprintln(stderr, buildgate.PackageFailed(pkg, "gremlins_failed").String())
+			verdict(stderr, said.String(), buildgate.PackageFailed(pkg, "gremlins_failed").String()+"\n")
 			bad = true
 			continue
 		}
 		rep, err := os.ReadFile(out)
 		if errors.Is(err, os.ErrNotExist) && strings.Contains(said.String(), noMutants) {
-			_, _ = fmt.Fprintf(stderr, "%s no-mutants\n", pkg)
+			verdict(stderr, said.String(), pkg+" no-mutants\n")
 			continue
 		}
 		eff := 0
@@ -210,13 +210,13 @@ func mutation(args []string, _, stderr io.Writer) int {
 			eff, err = buildgate.Efficacy(rep)
 		}
 		if err != nil {
-			_, _ = fmt.Fprintln(stderr, buildgate.PackageFailed(pkg, "report").String())
+			verdict(stderr, said.String(), buildgate.PackageFailed(pkg, "report").String()+"\n")
 			bad = true
 			continue
 		}
 		e := fmt.Sprintf("%d.%d", eff/10, eff%10)
 		if eff < buildgate.MutationFloor {
-			_, _ = fmt.Fprintln(stderr, buildgate.PackageFailed(pkg, "below", "measured", e).String())
+			verdict(stderr, said.String(), buildgate.PackageFailed(pkg, "below", "measured", e).String()+"\n")
 			bad = true
 			continue
 		}
