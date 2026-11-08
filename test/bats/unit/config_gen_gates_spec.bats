@@ -29,9 +29,16 @@ bats_require_minimum_version 1.5.0
 # The canned runner answers depend only on /source and the row table, so
 # they are made once per file and _redpath_repo copies them (base#1555).
 setup_file() {
-  local S="${BATS_FILE_TMPDIR}/canned-template"
+  local S
+  S="$(_canned_template)"
   mkdir -p "${S}"
   _canned_correct
+}
+
+# _canned_template -- where setup_file builds the file's one set of canned
+# answers (under it, canned/), which every _redpath_repo copies (base#1555).
+_canned_template() {
+  printf '%s\n' "${BATS_FILE_TMPDIR}/canned-template"
 }
 
 setup() {
@@ -668,9 +675,13 @@ _redpath_call() {
 # from ${S}/canned/<case>.<k>.{out,err,rc} for the k-th call of that case
 # when one exists, else ${S}/canned/<case>.{out,err,rc}. The retro call
 # also prints the manifest header naming the base it was handed, dirty=no,
-# or dirty=yes when ${S}/canned/retro.dirty exists.
+# or dirty=yes when ${S}/canned/retro.dirty exists. ${S}/canned is a
+# private copy of setup_file's template; a missing template fails, naming
+# base#1555, and is never rebuilt here, which would bring back the per-call
+# cost.
 _redpath_repo() {
-  local _r="${S}/repo"
+  local _r="${S}/repo" _t
+  _t="$(_canned_template)"
   mkdir -p "${_r}/script/test" "${_r}/dist/script/docker"
   cp -a /source/dockerfile "${_r}/"
   cp -a /source/dist/script/docker/lib "${_r}/dist/script/docker/"
@@ -683,11 +694,9 @@ _redpath_repo() {
   printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
   cp "${S}/bin/just" "${S}/bin/docker"
   chmod +x "${S}/bin/just" "${S}/bin/docker"
-  # A missing template is refused, never rebuilt: rebuilding here would
-  # bring back the per-call cost (base#1555).
-  [[ -d "${BATS_FILE_TMPDIR}/canned-template/canned" ]] \
+  [[ -d "${_t}/canned" ]] \
     || fail "_redpath_repo: no canned template under ${BATS_FILE_TMPDIR}; setup_file builds it once per file (base#1555)"
-  cp -a "${BATS_FILE_TMPDIR}/canned-template/canned" "${S}/"
+  cp -a "${_t}/canned" "${S}/"
 }
 
 # _redpath_runner_stub <path> -- write _redpath_repo's recording runner
