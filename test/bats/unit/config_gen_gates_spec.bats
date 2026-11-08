@@ -1133,9 +1133,9 @@ _glibc_getconf() {
 }
 
 # why: The row-loop tests call _redpath_repo 10-11 times each. When every
-# call regenerated all the canned answers, that took 74-76% of their wall
-# on hosted runners and brought them to the 480s mutation-required bound
-# (base#1555). The answers depend only on /source and the row table, so
+# call regenerated all the canned answers, that took 74-83% of the wall of
+# tests 32/34/35 across 68 spec runs on hosted runners and brought them to
+# the 480s mutation-required bound (base#1555). The answers depend only on /source and the row table, so
 # they are made once per file, in setup_file, and each call copies them.
 @test "config_gen_redpath.sh: the canned answers are generated once per file and never by _redpath_repo (base#1555)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
