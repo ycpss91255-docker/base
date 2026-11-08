@@ -1391,6 +1391,31 @@ _glibc_getconf() {
   done
 }
 
+# why: BuildKit merges the mutation gate's streams into one step log, and a
+# package's verdict can land after gremlins' unfinished progress text on the
+# same line. The two lines below are the #1443 ship's build log verbatim
+# (lines 955-956), where the retro run judged cmd/cg-gates: the verdict is
+# still that package's, so the retro case must count it (base#1546).
+@test "config_gen_redpath.sh: a retro verdict glued after gremlins' Gathering coverage progress still counts (base#1546)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _c="${S}/canned/retro.err" _pkg='github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates'
+  assert grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
+  awk -v want="#30 1.00 ${_pkg} ok efficacy=100.0" '
+    $0 == want {
+      print "#24 3.653 Starting..."
+      print "#24 3.653 Gathering coverage... github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates ok efficacy=100.0"
+      next
+    }
+    { print }' "${_c}" > "${_c}.new"
+  mv "${_c}.new" "${_c}"
+  refute grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
+  assert grep -qxF "#24 3.653 Gathering coverage... ${_pkg} ok efficacy=100.0" "${_c}"
+  _run_redpath retro
+  assert_equal "$(_case_failures)" ""
+  assert_success
+}
+
 # why: The docs-only green case is a change outside the module: the
 # mutation gate must be handed the no-change marker and say it tests
 # nothing, not pass because it tested something else. A green case whose
