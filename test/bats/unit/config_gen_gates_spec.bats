@@ -1393,27 +1393,36 @@ _glibc_getconf() {
 
 # why: BuildKit merges the mutation gate's streams into one step log, and a
 # package's verdict can land after gremlins' unfinished progress text on the
-# same line. The two lines below are the base#1443 ship's build log verbatim
-# (lines 955-956), where the retro run judged cmd/cg-gates: the verdict is
-# still that package's, so the retro case must count it (base#1546).
+# same line. The ok row is the base#1443 ship's build log verbatim (lines
+# 955-956), where the retro run judged cmd/cg-gates; the no-mutants row is
+# the same two lines with the gate's other passing verdict. Each replaces
+# that package's sole passing line, and the verdict is still that
+# package's, so the retro case must count either form (base#1546).
 @test "config_gen_redpath.sh: a retro verdict glued after gremlins' Gathering coverage progress still counts (base#1546)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  _redpath_repo
-  local _c="${S}/canned/retro.err" _pkg='github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates'
-  assert grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
-  awk -v want="#30 1.00 ${_pkg} ok efficacy=100.0" '
-    $0 == want {
-      print "#24 3.653 Starting..."
-      print "#24 3.653 Gathering coverage... github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates ok efficacy=100.0"
-      next
-    }
-    { print }' "${_c}" > "${_c}.new"
-  mv "${_c}.new" "${_c}"
-  refute grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
-  assert grep -qxF "#24 3.653 Gathering coverage... ${_pkg} ok efficacy=100.0" "${_c}"
-  _run_redpath retro
-  assert_equal "$(_case_failures)" ""
-  assert_success
+  local _row _verdict _c="${S}/canned/retro.err" _pkg='github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates'
+  for _row in glued_ok glued_no_mutants; do
+    rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
+    _redpath_repo
+    case "${_row}" in
+      glued_ok) _verdict='ok efficacy=100.0' ;;
+      glued_no_mutants) _verdict='no-mutants' ;;
+    esac
+    assert grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
+    awk -v want="#30 1.00 ${_pkg} ok efficacy=100.0" -v verdict="${_verdict}" '
+      $0 == want {
+        print "#24 3.653 Starting..."
+        print "#24 3.653 Gathering coverage... github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates " verdict
+        next
+      }
+      { print }' "${_c}" > "${_c}.new"
+    mv "${_c}.new" "${_c}"
+    refute grep -qF "#30 1.00 ${_pkg} " "${_c}"
+    assert_equal "${_row}:$(grep -cF " ${_pkg} " "${_c}")" "${_row}:1"
+    assert grep -qxF "#24 3.653 Gathering coverage... ${_pkg} ${_verdict}" "${_c}"
+    _run_redpath retro
+    assert_equal "${_row}:${status}:$(_case_failures)" "${_row}:0:"
+  done
 }
 
 # why: The glued form the retro case counts is gremlins' own progress
@@ -1422,11 +1431,13 @@ _glibc_getconf() {
 # cut short, is not that package's verdict, so the retro case must still
 # report package_set_mismatch. The partial rows run on a plain line and on
 # one glued after gremlins' progress, so the glued form is held to the same
-# full verdict as the plain one (base#1546).
+# full verdict as the plain one, and the rows cover both passing verdicts,
+# ok and no-mutants (base#1546).
 @test "config_gen_redpath.sh: a retro verdict after other text than gremlins' progress, or cut short, does not count (base#1546)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   local _row _line _c="${S}/canned/retro.err" _pkg='github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates'
-  for _row in forged_fail forged_done partial_digit partial_value glued_partial_digit glued_partial_value; do
+  for _row in forged_fail forged_done partial_digit partial_value glued_partial_digit glued_partial_value \
+    forged_fail_no_mutants partial_no_mutants glued_partial_no_mutants; do
     rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
     _redpath_repo
     case "${_row}" in
@@ -1436,6 +1447,9 @@ _glibc_getconf() {
       partial_value) _line="#30 1.00 ${_pkg} ok efficacy=" ;;
       glued_partial_digit) _line="#30 1.00 Gathering coverage... ${_pkg} ok efficacy=100" ;;
       glued_partial_value) _line="#30 1.00 Gathering coverage... ${_pkg} ok efficacy=" ;;
+      forged_fail_no_mutants) _line="#30 1.00 FAIL ${_pkg} no-mutants" ;;
+      partial_no_mutants) _line="#30 1.00 ${_pkg} no-mutant" ;;
+      glued_partial_no_mutants) _line="#30 1.00 Gathering coverage... ${_pkg} no-mutant" ;;
     esac
     assert grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
     awk -v want="#30 1.00 ${_pkg} ok efficacy=100.0" -v line="${_line}" '
