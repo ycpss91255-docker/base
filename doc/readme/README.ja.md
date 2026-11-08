@@ -454,7 +454,7 @@ drift が報告されたら `.env` / `.env.generated` / `compose.yaml` を自動
 | `list [<section>]` | key = value 形式のダンプ |
 | `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加。空きスロットを優先、なければ `max+1`。`--local` 可 |
 | `remove <section>.<key>` / `<section>.<list> <value>` | キーまたは値の一致で削除。`--local` 可 |
-| `reset [-y\|--yes]` | テンプレート既定に戻す。旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.bak`。`.env.local` には触れない |
+| `reset [-y\|--yes]` | テンプレート既定に戻す。旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.generated.bak`。`.env.local` には触れない |
 | `deploy [--stage S] [-y] [--dry-run] [--allow-local-override]` | フィールド配備 bundle をビルド。[field-deploy.md](../guide/field-deploy.md) 参照 |
 
 型付きキーは `_tui_conf.sh` の validator（TUI と同じもの）で検証されます。

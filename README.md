@@ -476,7 +476,7 @@ you; invoke it directly for scripted / non-interactive use:
 | `list [<section>]` | key = value dump |
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1`. Takes `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match. Takes `--local` |
-| `reset [-y\|--yes]` | Restore template default; archives prior `setup.toml` → `setup.toml.bak`, prior `.env.generated` → `.env.bak`. Leaves `.env.local` alone |
+| `reset [-y\|--yes]` | Restore template default; archives prior `setup.toml` → `setup.toml.bak`, prior `.env.generated` → `.env.generated.bak`. Leaves `.env.local` alone |
 | `deploy [--stage S] [-y] [--dry-run] [--allow-local-override]` | Build a field-deploy bundle; see [field-deploy.md](doc/guide/field-deploy.md) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI

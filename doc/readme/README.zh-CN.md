@@ -432,7 +432,7 @@ host 比对，任一项自上次 setup 后改变就印 `[WARNING]`（不阻挡�
 | `list [<section>]` | key = value 形式的 dump |
 | `add <section>.<list> <value>` | 加到清单型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1`。可加 `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值删除。可加 `--local` |
-| `reset [-y\|--yes]` | 回复 template 默认；旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.bak`。不会动 `.env.local` |
+| `reset [-y\|--yes]` | 回复 template 默认；旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.generated.bak`。不会动 `.env.local` |
 | `deploy [--stage S] [-y] [--dry-run] [--allow-local-override]` | 打包 field 部署 bundle；见 [field-deploy.md](../guide/field-deploy.md) |
 
 有型别的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` /
