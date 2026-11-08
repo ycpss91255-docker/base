@@ -1939,6 +1939,25 @@ docker interaction from inside the test.
 | `_write_setup_conf: the rewritten setup.toml keeps its exact mode under umask 077 (base#1356)` | The template-rewrite writer behind TUI Save and `setup.sh remove` lands its rewrite the same way, so the same mode contract holds. |
 | `_write_setup_conf: a setup.toml the write creates gets the umask mode, not 0600 (base#1356)` | A setup.toml the write itself creates has no mode to keep; it must get what any new file gets under the caller's umask, not mktemp's 0600 (base#1356). The two existing-destination specs above pre-create the file, so they cannot see this branch. The expected mode is read off a probe file created under the same umask, never hardcoded; 022 and 002 are the umasks where 0600 and the umask mode differ. |
 
+### test/bats/unit/config_gen_array_homes_spec.bats (2)
+
+The Go generator's schema tests iterate schema.Homes() and take each home's
+expected bodies from one fixture table,
+dockerfile/config-gen/testdata/corpus/s7/s7_array_homes.tsv. This half holds
+that table to the shell's word, so it is not the Go package's: its `writer`
+rows are exactly what the shell writers name and spell, and every row's
+bodies get from the bridge the verdict the Go tests expect of schema.Decode
+-- an entry without its field and a string entry refused, a field-less
+entry, the writers' all-empty entry and the entry carrying every field its
+family reads, each empty, kept as one empty row, alone and between two
+populated ones, the populated entry kept, and an unknown field beside it
+refused by name.
+
+| Test | Description |
+|------|-------------|
+| `array homes: the writer rows are what the shell writers name and spell (base#1443)` | The Go half iterates schema.Homes() and takes each home's all-empty and populated bodies from the table's rows. This half holds the `writer` rows equal, in order, to what _conf_toml_aot_section over SCHEMA_SECTIONS names and _conf_toml_aot_fields spells for "" and for "a=b:c:d", so a home the writers gain, or a body they spell another way, fails here until the table knows it (base#1443). |
+| `array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)` | The Go half expects schema.Decode to refuse an entry without its field and a string entry, to keep a field-less entry, the writers' all-empty entry and the entry carrying every field its family reads, each empty, as one empty entry, alone and between two populated ones, to keep the populated entry and to refuse an unknown field beside it. Each of those verdicts is the bridge's --kv verdict on the same body for every row, the legacy [[devices]] included, and the every-field-empty body names exactly the fields the bridge's _ARRAY_SPEC family reads, so the table the Go tests read is the shell's word (base#1443 review round 4 finding 2). |
+
 ### test/bats/unit/config_gen_coverage_spec.bats (15)
 
 The gate measures per-package profiles and writes, per package, `<import
@@ -2084,6 +2103,25 @@ stderr line `cg_event config_gen_manifest_stale file=<f> reason=<r>`.
 | `config_gen_mutation_lang: _cgm_unquote inverts _cgm_quote for one name holding every byte 0x01-0xff but / (base#1465)` | The quoted spelling is the producer's; admission reads a spelling back with _cgm_unquote and must get the name on disk for every byte but / and NUL. (base#1465) |
 | `config_gen_mutation_lang: _cgm_hash_line prints spelling TAB sha256 for a regular file and rc 1 for anything else (base#1465)` | A sha256 line binds a spelling to the bytes of a regular file; a path [[ -f ]] refuses (a dangling symlink, a fifo) has no bytes to bind. (base#1465) |
 | `config_gen_mutation_lang: _cgm_stale writes file= as one word, %XX outside ! to ~ and for % (base#1465)` | A refusal value is one word whatever the name holds: each byte outside ! to ~, and the % itself, is %XX. (base#1465) |
+
+### test/bats/unit/config_gen_s7_verdicts_spec.bats (2)
+
+Every corpus/s7 fixture carries its expected verdict on one `# expect:`
+comment line, so the readers discover fixtures by globbing and no index or
+manifest file lists them, as the base#1395 plan's corpus rule asks
+(base#1443 review round 4 finding 1). The Go half (TestCheckS7Corpus) holds
+`config-gen check` on each fixture to the line's verdict, event, position
+and key. This half holds the same line to the bridge's own output, so it is
+not the Go package's word: a refuse verdict's event and key are read off the
+bridge's refusal message, an accept or a differs:<exception> verdict is one
+the bridge's --kv accepts, and apply is what apply's per-layer checks
+(_layer_verdict) give the fixture. Line and column are counted from the
+fixture bytes, since the bridge reports no position.
+
+| Test | Description |
+|------|-------------|
+| `s7 corpus: every fixture's own verdict, event and key are the bridge's, its apply _layer_verdict's` | Each fixture's verdict is the bridge's --kv status on it: 1 for refuse, 0 for accept and for a differs:<exception> verdict, which the generator refuses on purpose while the bridge reads it. A refuse verdict's event and key are the ones the bridge's refusal message names, and every fixture's apply is _layer_verdict's verdict on it, so a fixture the generator accepts and apply refuses is recorded as such. A fixture with no `# expect:` line fails here, as in the Go half (base#1443 review round 4 finding 1). |
+| `s7 corpus: no file of corpus/s7 but a fixture names a fixture` | The base#1395 plan's corpus rule: readers discover fixtures by globbing and no index or manifest file lists them, so adding a fixture touches no shared file. No other file of corpus/s7 names a corpus/s7 fixture (base#1443 review round 4 finding 1). |
 
 ### test/bats/unit/config_gen_schema_values_spec.bats (8)
 

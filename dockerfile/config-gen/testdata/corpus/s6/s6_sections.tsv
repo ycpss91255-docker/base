@@ -3,7 +3,10 @@
 # or one "-" row for a file with none (base#1442). source=shell rows are
 # what the real _setup_conf_check_known reports for the file
 # (config_gen_schema_values_spec.bats); source=spec rows are refusals the
-# shell gives as a failed load instead (a root scalar, base#1308).
+# shell gives as a failed load instead (a root scalar, base#1308), or a
+# key under a ["stage:<name>"] table that _setup_conf_check_known skips
+# and _setup_known_key does not know on its stage-relative section and
+# key (differs:unknown-key, base#1443).
 s6_sec_dotted.toml	conf_unknown_table	2	deploy.x	shell
 s6_sec_empty_args.toml	conf_unknown_key	2	deploy.args	shell
 s6_sec_empty_cap_drop.toml	-	-	-	shell
@@ -16,9 +19,9 @@ s6_sec_logging_typo.toml	conf_unknown_key	2	logging.web.typo	shell
 s6_sec_nested_unknown.toml	conf_unknown_table	1	deploy.x	shell
 s6_sec_project.toml	-	-	-	shell
 s6_sec_root_scalar.toml	conf_top_level_key	1	deploy	spec
-s6_sec_stage_bare.toml	-	-	-	shell
-s6_sec_stage_dotted.toml	-	-	-	shell
-s6_sec_stage_nested.toml	-	-	-	shell
-s6_sec_stage_quoted.toml	-	-	-	shell
+s6_sec_stage_bare.toml	conf_unknown_key	2	stage:dev.foo	spec
+s6_sec_stage_dotted.toml	conf_unknown_key	2	stage:dev.zz.yy	spec
+s6_sec_stage_nested.toml	conf_unknown_key	2	stage:dev.deploy.bogus	spec
+s6_sec_stage_quoted.toml	conf_unknown_key	2	stage:dev.deploy.gpu_cuont	spec
 s6_sec_unknown_nested.toml	conf_unknown_table	1	foo	shell
 s6_sec_unknown_nested.toml	conf_unknown_table	1	foo.bar	shell

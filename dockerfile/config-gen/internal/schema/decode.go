@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -17,12 +18,38 @@ import (
 
 // Refusal is one key the decode refused: the event id, the TOML path of
 // the key with its raw bytes, and the 1-based line and byte column it is
-// written on (0 when no position is known).
+// written on (0 when no position is known). A refusal of an array
+// entry also carries the entry's 1-based number in its family, Entry
+// (0 for any other refusal), and, when it names one field of that
+// entry, HasField true and Field, the last segment of Path. HasField,
+// not an empty Field, tells the two apart: a quoted "" key is a field
+// whose name is empty (base#1443 review round 1 finding 1).
 type Refusal struct {
-	Event string
-	Path  []string
-	Line  int
-	Col   int
+	Event    string
+	Path     []string
+	Line     int
+	Col      int
+	Entry    int
+	Field    string
+	HasField bool
+}
+
+// Key is the name a diagnostic gives the refusal: Path joined with ".",
+// or, for an entry refusal, `<home>[<n>]` and `<home>[<n>].<field>`, the
+// bridge's entry number (base#1443).
+func (r Refusal) Key() string {
+	if r.Entry == 0 {
+		return strings.Join(r.Path, ".")
+	}
+	home := r.Path
+	if r.HasField {
+		home = r.Path[:len(r.Path)-1]
+	}
+	key := fmt.Sprintf("%s[%d]", strings.Join(home, "."), r.Entry)
+	if r.HasField {
+		key += "." + r.Field
+	}
+	return key
 }
 
 // Config is the decoded layer.
@@ -38,6 +65,14 @@ type Config struct {
 	// Deferred is every accepted array with its payload, in the order its
 	// ChildDeferred appears in the traversal; Child.Defer indexes it.
 	Deferred []Deferred
+	// Arrays is every accepted array of tables typed as a family, in the
+	// order of Deferred. A family is named by its path segments, never by
+	// their joined text, which two distinct paths can share (base#1443
+	// review round 4 finding 1); Array looks one up.
+	Arrays []Family
+	// Stages is every `["stage:<name>"]` table, in traversal order
+	// (base#1443).
+	Stages []Stage
 }
 
 // known is the set of sections _setup_known_section accepts
@@ -139,8 +174,14 @@ func valueCharEvent(text string) string {
 //   - a scalar at the root, whatever its name, is one conf_top_level_key;
 //   - a string value under a known table holding U+0000, LF or CR is
 //     refused (valueCharEvent);
-//   - anything else under a `["stage:<name>"]` table is not judged, as
-//     _setup_conf_check_known does not judge it;
+//   - an array under a `["stage:<name>"]` table is judged by its last
+//     segment, as the bridge's _array_spec looks it up by its key: one
+//     no family carries is conf_unknown_key (base#1443);
+//   - a scalar under a `["stage:<name>"]` table is judged on the
+//     stage-relative text the bridge flattens it to (`deploy.bogus`,
+//     written as one quoted key or under `["stage:<name>".deploy]`),
+//     split at its last dot into a section and key: one the schema does
+//     not know is conf_unknown_key (base#1443);
 //   - a scalar or an array under a known table is judged as
 //     _setup_known_key and _schema_validate judge its section text and
 //     key, the key registry first and the written kind second, so a
@@ -163,12 +204,23 @@ func Decode(src []byte) (*Config, []Refusal) {
 	d := decoder{refused: map[string]bool{}, tables: map[string]bool{}}
 	d.walk(root, nil, judging)
 	tree, deferred, arrays := buildTree(md, root)
+	// families is every deferred array the walk accepted as a family;
+	// one it refused, an array no family carries, is not typed
+	// (base#1443 review round 1 finding 1).
+	var families []Deferred
 	for i, def := range deferred {
 		if !d.refusedUnder(def.Path) {
+			families = append(families, def)
+			refused := d.checkEntries(def.Path, arrays[i])
 			line, col := arrays[i].declPos()
-			d.judgeValues(def.Path, arrays[i], line, col)
+			for _, e := range arrays[i].children {
+				if !refused[e] {
+					d.judgeValues(def.Path, e, line, col)
+				}
+			}
 		}
 	}
+	d.checkSpellings(root, nil)
 	sort.SliceStable(d.refusals, func(i, j int) bool { return d.refusals[i].Line < d.refusals[j].Line })
 	deploy, deprecated := projectDeploy(&tree)
 	return &Config{
@@ -178,6 +230,8 @@ func Decode(src []byte) (*Config, []Refusal) {
 		Deprecated:  deprecated,
 		Tree:        tree,
 		Deferred:    deferred,
+		Arrays:      projectArrays(families),
+		Stages:      projectStages(&tree),
 	}, d.refusals
 }
 
@@ -282,12 +336,18 @@ func (d *decoder) judge(b *bound, k []string) scope {
 		}
 		return judging
 	case len(k) == 1 && b.isArray():
-		// An array at a known section name, `[[volumes]]` or the inline
-		// `volumes = [{...}]`, is the legacy spelling the array stage
-		// handles. Any other root array is refused as what it is written
-		// as: an array-table header is a table, an inline array a root key.
+		// An array at a known section name that an array family carries,
+		// `[[volumes]]` or the inline `volumes = [{...}]`, is a root
+		// family the array stage handles: the bridge looks a root array
+		// up by its key in _ARRAY_SPEC and the shell knows the section
+		// it numbers into. Any other root array, a known section no
+		// family carries (`deploy = []`) included, is an array nothing
+		// reads and is refused as what it is written as: an array-table
+		// header is a table, an inline array a root key (base#1443
+		// review round 1 finding 1).
+		_, family := arrayFamily[key]
 		switch {
-		case known[key]:
+		case known[key] && family:
 		case tables:
 			d.refuseTable(k, b)
 		default:
@@ -297,9 +357,20 @@ func (d *decoder) judge(b *bound, k []string) scope {
 	case len(k) == 1:
 		d.refuse("conf_top_level_key", k, line, col)
 		return judging
+	case stage(k) && b.isArray():
+		// An array under a `["stage:<name>"]` table is looked up by its
+		// last segment, as the bridge's _array_spec looks it up by its
+		// key: the quoted `"build.args"` is one segment no family
+		// carries and is refused as unknown, while the dotted
+		// `build.args` is the args family (base#1443).
+		if _, ok := arrayFamily[key]; !ok {
+			d.refuse("conf_unknown_key", k, line, col)
+		}
+		return inArray
 	case stage(k):
-		// A `["stage:<name>"]` table is not judged here; only a string
-		// value's characters are (below).
+		// A scalar under a `["stage:<name>"]` table: its string
+		// characters are judged first, then its stage-relative key
+		// (both below).
 	case b.isArray():
 		// An array of a numbered family is judged by the row its first
 		// entry takes: `[[security.cap_drop]]` and `cap_drop = []` are
@@ -331,6 +402,17 @@ func (d *decoder) judge(b *bound, k []string) scope {
 	}
 	switch {
 	case stage(k):
+		// A key under a `["stage:<name>"]` table is judged on the
+		// stage-relative text the bridge flattens it to, `deploy.bogus`
+		// whether written as one quoted key or under
+		// `["stage:<name>".deploy]`, split at its last dot into the
+		// section and key _setup_known_key takes: a key the schema does
+		// not know is refused (base#1443, differs:unknown-key).
+		text := strings.Join(k[1:], ".")
+		i := strings.LastIndex(text, ".")
+		if !knownKey(text[:max(i, 0)], text[i+1:]) {
+			d.refuse("conf_unknown_key", k, line, col)
+		}
 	case !knownKey(section, key):
 		d.refuse("conf_unknown_key", k, line, col)
 	default:
@@ -649,4 +731,43 @@ func ProjectServices(t *Tree) map[string]*Service {
 	}
 	walk(0)
 	return out
+}
+
+// projectArrays types each accepted array as a family: every table
+// element is one entry at its own position, a field-less one included
+// (base#1443). A family written as `[]` is Empty; an unwritten one has
+// no row and reads as Absent.
+func projectArrays(deferred []Deferred) []Family {
+	var out []Family
+	for _, def := range deferred {
+		fam := Family{Path: def.Path, State: Set, Line: def.Line}
+		if len(def.Value.Items) == 0 {
+			fam.State = Empty
+		}
+		for _, item := range def.Value.Items {
+			if item.Kind != VTable {
+				continue
+			}
+			e := Entry{Index: len(fam.Entries) + 1, Line: item.Line}
+			for _, m := range item.Members {
+				e.Fields = append(e.Fields, EntryField{Key: m.Key, Value: m.Value})
+			}
+			fam.Entries = append(fam.Entries, e)
+		}
+		out = append(out, fam)
+	}
+	return out
+}
+
+// Array is the family of the layer at path, compared segment by
+// segment, and whether the layer carries one there; an unwritten family
+// is the zero Family, which reads as Absent (base#1443 review round 4
+// finding 1).
+func (c *Config) Array(path ...string) (Family, bool) {
+	for _, fam := range c.Arrays {
+		if slices.Equal(fam.Path, path) {
+			return fam, true
+		}
+	}
+	return Family{}, false
 }

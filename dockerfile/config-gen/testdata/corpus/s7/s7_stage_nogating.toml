@@ -1,0 +1,3 @@
+[["stage:dev".build.args]]
+zz = "x"
+# expect: verdict=refuse event=conf_entry_no_gating_field line=1 col=1 key=stage:dev.build.args[1] apply=refuse

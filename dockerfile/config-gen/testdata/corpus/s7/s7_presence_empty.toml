@@ -1,0 +1,3 @@
+[build]
+args = []
+# expect: verdict=accept apply=accept

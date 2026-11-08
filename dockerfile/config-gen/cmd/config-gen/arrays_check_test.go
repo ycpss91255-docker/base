@@ -54,6 +54,14 @@ func TestCheckArrayWithNoFamily(t *testing.T) {
 			[][]string{{"conf_value_type_refused", "2", "1", "security.privileged"}}},
 		{"inline array of tables at a bool key", "[security]\nprivileged = [{ value = true }]\n",
 			[][]string{{"conf_value_type_refused", "2", "1", "security.privileged"}}},
+		// A known section that no array family carries, written as a
+		// root array: the bridge's --kv gives rc 1 "deploy is an array,
+		// and no numbered family of the shell view carries an array by
+		// that name" for both (base#1443 review round 1 finding 1).
+		{"inline array at a known section with no family", "deploy = []\n",
+			[][]string{{"conf_top_level_key", "1", "1", "deploy"}}},
+		{"array of tables at a known section with no family", "[[deploy]]\nzz = 1\n",
+			[][]string{{"conf_unknown_table", "1", "1", "deploy"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,7 +74,8 @@ func TestCheckArrayWithNoFamily(t *testing.T) {
 // of an inline array, is reported at its own line and column, not at the
 // key holding the inline value: an inline value may span lines. When the
 // same path is written in several items, the refusal names the item it is
-// in (base#1442 review round 1 finding 2).
+// in (base#1442 review round 1 finding 2). The cap_drop item is a table
+// carrying cap, so the entry rule (base#1443) does not refuse it.
 func TestCheckInlineKeyPositions(t *testing.T) {
 	cases := []struct {
 		name string
@@ -81,7 +90,7 @@ func TestCheckInlineKeyPositions(t *testing.T) {
 			[][]string{{"conf_value_nul_refused", "3", "4", "volumes.source"}}},
 		{"wrong type in an inline table", "security = { privileged = \"yes\" }\n",
 			[][]string{{"conf_value_type_refused", "1", "14", "security.privileged"}}},
-		{"wrong type after a multiline array in an inline table", "security = { cap_drop = [\n  \"ALL\",\n], privileged = \"yes\" }\n",
+		{"wrong type after a multiline array in an inline table", "security = { cap_drop = [\n  { cap = \"ALL\" },\n], privileged = \"yes\" }\n",
 			[][]string{{"conf_value_type_refused", "3", "4", "security.privileged"}}},
 	}
 	for _, tc := range cases {

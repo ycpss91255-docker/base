@@ -1,0 +1,5 @@
+[[volumes]]
+
+[[volumes]]
+zz = "x"
+# expect: verdict=refuse event=conf_entry_no_gating_field line=3 col=1 key=volumes[2] apply=refuse

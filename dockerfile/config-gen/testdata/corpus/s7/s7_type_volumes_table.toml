@@ -1,0 +1,4 @@
+[[volumes]]
+source = "/a"
+mode = { x = 1 }
+# expect: verdict=refuse event=conf_value_type_refused line=3 col=1 key=volumes[1].mode apply=refuse

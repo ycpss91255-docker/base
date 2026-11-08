@@ -1,0 +1,8 @@
+[[volumes]]
+source = "/a"
+
+[[volumes]]
+
+[[volumes]]
+source = "/c"
+# expect: verdict=accept apply=refuse
