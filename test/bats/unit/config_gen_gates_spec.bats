@@ -1420,11 +1420,13 @@ _glibc_getconf() {
 # literal and nothing else. A line with other text before the verdict
 # (a forged prefix, or progress text that already finished), or a verdict
 # cut short, is not that package's verdict, so the retro case must still
-# report package_set_mismatch. The two partial rows are guards (base#1546).
+# report package_set_mismatch. The partial rows run on a plain line and on
+# one glued after gremlins' progress, so the glued form is held to the same
+# full verdict as the plain one (base#1546).
 @test "config_gen_redpath.sh: a retro verdict after other text than gremlins' progress, or cut short, does not count (base#1546)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   local _row _line _c="${S}/canned/retro.err" _pkg='github.com/ycpss91255-docker/base/dockerfile/config-gen/cmd/cg-gates'
-  for _row in forged_fail forged_done partial_digit partial_value; do
+  for _row in forged_fail forged_done partial_digit partial_value glued_partial_digit glued_partial_value; do
     rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
     _redpath_repo
     case "${_row}" in
@@ -1432,6 +1434,8 @@ _glibc_getconf() {
       forged_done) _line="#30 1.00 Gathering coverage... done in 1s ${_pkg} ok efficacy=100.0" ;;
       partial_digit) _line="#30 1.00 ${_pkg} ok efficacy=100" ;;
       partial_value) _line="#30 1.00 ${_pkg} ok efficacy=" ;;
+      glued_partial_digit) _line="#30 1.00 Gathering coverage... ${_pkg} ok efficacy=100" ;;
+      glued_partial_value) _line="#30 1.00 Gathering coverage... ${_pkg} ok efficacy=" ;;
     esac
     assert grep -qxF "#30 1.00 ${_pkg} ok efficacy=100.0" "${_c}"
     awk -v want="#30 1.00 ${_pkg} ok efficacy=100.0" -v line="${_line}" '
