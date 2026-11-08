@@ -22,10 +22,14 @@
 #     That caller does not exist yet: `release-bump.sh` lives in
 #     `docker_harness`, and the wiring is tracked in `docker_harness#289`.
 #     Until it lands this is a hand-run step -- see Cadence below.
-#   - STAMPED WITH ITS VERSION. The badge reads `coverage vX.Y.Z`, so a
+#   - STAMPED WITH ITS VERSION. The badge reads `coverage | N% (vX.Y.Z)`:
+#     the label is the bare word, the version rides in the value, so a
 #     figure that is one release old cannot be misread as the coverage of
 #     `main`. A bare percentage is the same failure as the static badge: it
 #     looks current and is not.
+#   - BASH ONLY. N is the kcov line rate of the Bats suite over the Bash
+#     sources. The Go config generator is gated by its own per-package
+#     floors (`just test go`) and never reaches this figure.
 #
 # WHERE THE NUMBER COMES FROM: this script re-runs the gate's OWN merge math
 # (it sources coverage_gate.sh; the per-line union and the path-alias
@@ -457,7 +461,7 @@ main() {
   fi
 
   if (( _unmeasured == 1 )); then
-    write_badge "${_out}" "coverage ${_version}" "not measured" "#9f9f9f" \
+    write_badge "${_out}" "coverage" "not measured (${_version})" "#9f9f9f" \
       || return 2
     printf 'coverage badge: %s -> not measured\n' "${_version}"
     return 0
@@ -494,7 +498,7 @@ main() {
   local _value _colour
   _value="$(awk -v r="${_rate}" 'BEGIN{printf "%.1f", r}')%"
   _colour="$(grade_colour "${_rate}")"
-  write_badge "${_out}" "coverage ${_version}" "${_value}" "${_colour}" \
+  write_badge "${_out}" "coverage" "${_value} (${_version})" "${_colour}" \
     || return 2
   printf 'coverage badge: %s -> %s (%s)\n' "${_version}" "${_value}" "${_out}"
 }
