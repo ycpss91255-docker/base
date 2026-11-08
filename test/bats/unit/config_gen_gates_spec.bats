@@ -683,6 +683,10 @@ _redpath_repo() {
   printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
   cp "${S}/bin/just" "${S}/bin/docker"
   chmod +x "${S}/bin/just" "${S}/bin/docker"
+  # A missing template is refused, never rebuilt: rebuilding here would
+  # bring back the per-call cost (base#1555).
+  [[ -d "${BATS_FILE_TMPDIR}/canned-template/canned" ]] \
+    || fail "_redpath_repo: no canned template under ${BATS_FILE_TMPDIR}; setup_file builds it once per file (base#1555)"
   cp -a "${BATS_FILE_TMPDIR}/canned-template/canned" "${S}/"
 }
 
