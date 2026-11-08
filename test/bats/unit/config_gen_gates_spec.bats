@@ -1133,6 +1133,19 @@ _glibc_getconf() {
     "${BATS_FILE_TMPDIR}/canned-template"
 }
 
+# why: A missing canned template means setup_file did not run or did not
+# finish. Rebuilding it inside _redpath_repo would hide that and bring back
+# the per-call cost that took the row-loop tests to the 480s bound
+# (base#1555), so _redpath_repo refuses instead.
+@test "config_gen_redpath.sh: _redpath_repo refuses a missing canned template instead of rebuilding it (base#1555)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  mkdir -p "${S}/empty"
+  BATS_FILE_TMPDIR="${S}/empty" run _redpath_repo
+  assert_failure
+  assert_output --partial "base#1555"
+  assert [ ! -e "${S}/empty/canned.generations" ]
+}
+
 # why: The redpath's copies run the real steps, and the 00-manifest step
 # (base#1464) reads Git history: each copy must be a Git checkout with
 # origin/main, and must run with context pr and no override whatever the
