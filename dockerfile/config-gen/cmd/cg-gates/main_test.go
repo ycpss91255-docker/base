@@ -283,7 +283,8 @@ func TestMutationRefusesBeforeGremlins(t *testing.T) {
 // flipped run) it fails only when the root-relative file fake/<n>.reads
 // names differs in the root it was linked with from the same file under
 // fake/orig's root, so a package with no .reads file passes whatever byte
-// is flipped.
+// is flipped. fake/<n>.basehook runs (sh) in the traced baseline and
+// fake/<n>.fliphook in each flipped run, before the rest.
 const fakeSensitivityGo = `#!/bin/sh
 d="${0%/*}"
 if [ "$1" = list ]; then exec cat "$d/list.json"; fi
@@ -295,9 +296,11 @@ done
 n="$(printf '%s' "$p" | tr ./ __)"
 if [ -n "${CG_TESTCORPUS_TRACE:-}" ]; then
   [ -e "$d/$n.basefail" ] && exit 1
+  [ -e "$d/$n.basehook" ] && sh "$d/$n.basehook"
   [ -e "$d/$n.trace" ] && cat "$d/$n.trace" >>"$CG_TESTCORPUS_TRACE"
   exit 0
 fi
+[ -e "$d/$n.fliphook" ] && sh "$d/$n.fliphook"
 [ -e "$d/$n.reads" ] || exit 0
 f="$(cat "$d/$n.reads")"
 cmp -s "$r/$f" "$(cat "$d/orig")/$f" && exit 0
@@ -389,6 +392,10 @@ func corpus(extra map[string]string) map[string]string {
 	return files
 }
 
+// aGoldenDir is a fake hook that turns the flipped copy's a.golden into a
+// directory, so a write to it fails.
+const aGoldenDir = "rm -f ROOT/../work/corpus/golden/s1/a.golden && mkdir ROOT/../work/corpus/golden/s1/a.golden\n"
+
 func TestSensitivity(t *testing.T) {
 	const weak = "cg_event config_gen_corpus_sensitivity_weak pkg=" + mod
 	const invalid = "cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n"
@@ -432,6 +439,15 @@ func TestSensitivity(t *testing.T) {
 			weak + "/internal/w file=golden/s1/b.golden\n"},
 		{"a baseline that fails", with(strongA, "fake/__internal_a.basefail", ""), 1,
 			mod + "/internal/a failed reason=baseline_failed\n"},
+		// A golden the gate cannot write -- here the copy's a.golden made a
+		// directory -- fails the gate at once: a consumer run on a golden
+		// half-written, or never put back, says nothing about its
+		// sensitivity to the golden flipped next (base#1469 review round 2).
+		{"a golden the perturbing write cannot replace",
+			with(strongA, "fake/__internal_a.basehook", aGoldenDir), 1, ""},
+		{"a golden the restoring write cannot put back",
+			with(strongA, "fake/__internal_a.fliphook", aGoldenDir,
+				"fake/__internal_w.trace", "ROOT/golden/s1/b.golden\n"), 1, ""},
 		{"a testcorpus with no top-level Glob", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n"}, 1,
 			invalid},
 		{"Glob only as a method", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n\ntype X int\n\nfunc (x X) Glob() {}\n"}, 1,
@@ -471,8 +487,12 @@ func TestSensitivity(t *testing.T) {
 			if gate := bytes.Contains(errOut.Bytes(), []byte("config_gen_gate_corpus_sensitivity_failed")); gate != (c.status == 1) {
 				t.Errorf("stderr %q: gate id present %v, want %v", errOut.String(), gate, c.status == 1)
 			}
-			if c.status == 1 && c.out == "" && !bytes.Contains(errOut.Bytes(), []byte("_failed reason=unreadable")) {
-				t.Errorf("stderr %q names no unreadable refusal", errOut.String())
+			reason := "unreadable"
+			if strings.Contains(c.name, "cannot replace") || strings.Contains(c.name, "cannot put back") {
+				reason = "unwritable"
+			}
+			if c.status == 1 && c.out == "" && !bytes.Contains(errOut.Bytes(), []byte("_failed reason="+reason+"\n")) {
+				t.Errorf("stderr %q names no %s refusal", errOut.String(), reason)
 			}
 		})
 	}
