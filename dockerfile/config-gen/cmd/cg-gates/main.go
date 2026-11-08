@@ -50,7 +50,9 @@
 // `cg_event config_gen_corpus_sensitivity_weak pkg= file=` on stdout. The
 // golden is then put back as it was. A golden with no consumer prints
 // `golden=<file> consumers none`. After the last golden any weak pair puts
-// `config_gen_gate_corpus_sensitivity_failed` on stderr.
+// `config_gen_gate_corpus_sensitivity_failed` on stderr. A golden the
+// flip or the put-back cannot write stops the run at once with that id
+// and reason=unwritable on stderr.
 //
 // ignored (base#1467) refuses a build context holding a Git-ignored module
 // file: each path the producer's ignored.sha256 <file> lists that the
@@ -241,6 +243,10 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unreadable\n", err, sensitivityFailed)
 		return exitFail
 	}
+	unwritable := func(err error) int {
+		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unwritable\n", err, sensitivityFailed)
+		return exitFail
+	}
 	wd, _ := os.Getwd()
 	tc := filepath.Join(wd, "internal", "testcorpus")
 	pkgs, err := goList()
@@ -308,9 +314,13 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stdout, "golden=%s consumers none\n", g)
 			continue
 		}
-		// A write that fails leaves the golden as it was, so its consumers
-		// pass and are reported weak: the gate fails rather than passes.
-		_ = os.WriteFile(p, perturbed(bodies[p]), 0o644)
+		// A write that fails can leave the golden truncated or partly
+		// written, and a consumer run on it, or on the next golden's flip
+		// with this one never put back, says nothing about its
+		// sensitivity: the gate fails at once (base#1469 review round 2).
+		if err := os.WriteFile(p, perturbed(bodies[p]), 0o644); err != nil {
+			return unwritable(err)
+		}
 		for _, rel := range users {
 			cmd := exec.Command("go", "test", "-count=1", x+flip, "./"+rel)
 			cmd.Stdout, cmd.Stderr = stderr, stderr
@@ -319,7 +329,9 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 				bad = true
 			}
 		}
-		_ = os.WriteFile(p, bodies[p], 0o644)
+		if err := os.WriteFile(p, bodies[p], 0o644); err != nil {
+			return unwritable(err)
+		}
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, sensitivityFailed)

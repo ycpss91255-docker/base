@@ -291,8 +291,10 @@ type cutWindow struct{ from, end int }
 // one has every prefix of its first prefixSweepBound bytes, the whole
 // input, and, for every byte offset n past the start of each line, the
 // bytes from the start of the line cutContextLines lines earlier (or of
-// the input) up to n: so the input ends at every byte boundary, every
-// token boundary among them, with the lines before it in place. The fuzz
+// the input) up to n, cut to the last cutContextBytes of them: so the
+// input ends at every byte boundary, every token boundary among them,
+// with the lines before it in place, and Index is handed at most
+// cutContextBytes bytes per cut, whatever the line lengths. The fuzz
 // target FuzzTreeParity indexes any other input.
 func cutWindows(src []byte) []cutWindow {
 	var out []cutWindow
@@ -317,7 +319,7 @@ func cutWindows(src []byte) []cutWindow {
 		}
 		from := starts[max(0, i-cutContextLines)]
 		for n := ls + 1; n <= end; n++ {
-			out = append(out, cutWindow{from, n})
+			out = append(out, cutWindow{max(from, n-cutContextBytes), n})
 		}
 	}
 	return out
