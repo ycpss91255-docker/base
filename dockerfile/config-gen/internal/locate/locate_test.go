@@ -289,7 +289,8 @@ type cutWindow struct{ from, end int }
 // cutWindows lists the windows of src that indexCutPoints indexes. An
 // input of at most prefixSweepBound bytes has every byte prefix. A longer
 // one has every prefix of its first prefixSweepBound bytes, the whole
-// input, and, for every byte offset n past the start of each line, the
+// input, and, for every byte offset n past the start of each line and
+// past the swept head (whose cuts are whole prefixes already), the
 // bytes from the start of the line cutContextLines lines earlier (or of
 // the input) up to n, cut to the last cutContextBytes of them: so the
 // input ends at every byte boundary, every token boundary among them,
@@ -318,7 +319,7 @@ func cutWindows(src []byte) []cutWindow {
 			end = starts[i+1]
 		}
 		from := starts[max(0, i-cutContextLines)]
-		for n := ls + 1; n <= end; n++ {
+		for n := max(ls+1, prefixSweepBound+1); n <= end; n++ {
 			out = append(out, cutWindow{max(from, n-cutContextBytes), n})
 		}
 	}
