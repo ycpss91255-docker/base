@@ -120,3 +120,12 @@ exclude-gopkg-pseudo	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  [
 exclude-incompatible	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	 || "${_build}" == +incompatible ]] && return 0	 ]] && return 0
 exclude-major-match	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  elif [[ "${_major}" == "${_pm}" ]]; then	  elif false; then
 exclude-mismatch	script/watch/lib.sh	test/bats/unit/gomod_scan_spec.bats	  _PIN_GO_MOD_REASON=path_major_mismatch\n  return 1	  _PIN_GO_MOD_REASON=path_major_mismatch\n  return 0
+# base#1530: the pin-coverage walk's exempt shapes. A Go test file, and a
+# .toml below a whole `testdata` path component, top level included; any
+# other kind below testdata, and a near-miss path, is still read.
+exempt-go-test	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	'*.bats' '*_test.go'	'*.bats'
+exempt-testdata-guard	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	  [[ "/${1}" == */testdata/* && "${_base}" == *.toml ]] && return 0	  :
+exempt-testdata-left	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	"/${1}" == */testdata/*	"/${1}" == *testdata/*
+exempt-testdata-right	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	*/testdata/* &&	*/testdata* &&
+exempt-testdata-root	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	[[ "/${1}" ==	[[ "${1}" ==
+exempt-testdata-kind	script/watch/lib.sh	test/bats/unit/pin_coverage_lint_spec.bats	 && "${_base}" == *.toml ]]	 ]]
