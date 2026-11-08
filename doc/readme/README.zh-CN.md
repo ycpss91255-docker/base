@@ -1,10 +1,10 @@
-<!-- sync: base ff88fde1be47 1b3d9c14e036 -->
+<!-- sync: base 1a496212d858 81de30627b69 -->
 # base
 
-[![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
+[![CI](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
 
-![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
-![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
+![Language](https://img.shields.io/badge/Language-Bash%20%7C%20Go-blue?style=flat-square)
+![Testing](https://img.shields.io/badge/Testing-Bats%20%7C%20go%20test-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
 ![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
@@ -15,21 +15,22 @@
 
 ---
 
-<!-- sync: table-of-contents e989d6153818 e523936b7cf0 -->
+<!-- sync: table-of-contents 9cc5123f8582 b1e289517dfe -->
 ## 目录
 
 - [TL;DR](#tldr)
 - [必要条件](#必要条件)
 - [概述](#概述)
-- [快速开始](#快速开始)
+- [日常使用](#日常使用)
+- [各 repo runtime 配置](#各-repo-runtime-配置)
+- [升级](#升级)
 - [CI Reusable Workflows](#ci-reusable-workflows)
-- [本地运行测试](#本地运行测试)
-- [测试](#测试)
+- [开发与测试](#开发与测试)
 - [目录结构](#目录结构)
 
 ---
 
-<!-- sync: tldr ba8c00105790 7f0d44de466e -->
+<!-- sync: tldr e3106fd287a0 5a2258d43b26 -->
 ## TL;DR
 
 ```bash
@@ -41,20 +42,25 @@ git subtree add --prefix=.base \
     https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
 ./.base/dist/script/base/init.sh   # 一次性 bootstrap；之后用 just base init
 
-# 升级到最新版
-just base update   # 检查
-just base upgrade         # pull + 更新版本文件 + workflow tag
+# 升级
+just base update    # 有没有新 tag？
+just base upgrade   # subtree pull + resync + workflow ref（见「升级」）
 
-# 运行 CI
-just test   # ShellCheck + Hadolint + Bats（no kcov；覆盖率请用 just test coverage）
-just                       # 列出所有 recipe
+# 使用
+just docker build   # 构建 image（需要时先跑 setup.sh）
+just docker run     # 启动 devel 容器
+just                # 列出所有 namespace
 ```
 
-<!-- sync: prerequisites 6af9b726b732 c7a487d342cb -->
+`git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的
+repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has
+modifications`；空 commit 建立 `HEAD` 后，subtree 才能 merge 进来。
+
+<!-- sync: prerequisites 4fa4246972db a8faa5a1ee42 -->
 ## 必要条件
 
 容器操作透过 [`just`](https://github.com/casey/just)（command runner）搭配
-Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
+Docker 运行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
 - **Docker** + Docker Compose v2（`docker compose`）。
 - **just** -- 本 repo 只钉住一个版本。test-tools image、CI 与
@@ -73,21 +79,21 @@ Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
   `cargo install just`）是 **fallback 而非等价选项**：它安装的是各自 registry
   收录的版本，可能落后钉住的版本许多个 minor。完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
   `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
-  `./.base/dist/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
+  `./.base/dist/script/base/upgrade.sh`）-- 见[升级](#升级)。
 
-<!-- sync: overview 435906a68746 73d9fe303411 -->
+<!-- sync: overview f0da6f1fe447 928224bf160b -->
 ## 概述
 
-此 repo 集中管理所有 Docker 容器 repo 共用的脚本、测试和 CI workflow。各 repo 通过 **git subtree** 拉入此模板，并使用 symlink 引用共用文件。
+此 repo 集中管理所有 Docker 容器 repo 共用的脚本、测试和 CI workflow。各 repo 透过 **git subtree** 拉入此模板，并使用 symlink 引用共用文件。图解导览见 [doc/arch/overview.html](../arch/overview.html)。
 
-<!-- sync: architecture 2660c8dea634 5d6c062768ac -->
+<!-- sync: architecture 82511f59b040 7fdb6c66be69 -->
 ### 架构
 
 ```mermaid
 graph TB
     subgraph base["base（共用 repo）"]
         scripts["dist/.hadolint.yaml<br/>dist/script/justfile（consumer entry）<br/>dist/script/docker|base|template/"]
-        smoke["dist/test/bats/smoke/<br/>script_help.bats<br/>display_env.bats"]
+        smoke["dist/test/bats/smoke/{shared,devel-test,runtime-test}/"]
         config["dist/config/<br/>bashrc / tmux / terminator"]
         mgmt["dist/script/docker/wrapper/<br/>build.sh / run.sh / exec.sh / stop.sh / setup.sh"]
         workflows["可重用 Workflows<br/>build-worker.yaml<br/>release-worker.yaml<br/>publish-worker.yaml（opt-in）"]
@@ -106,19 +112,19 @@ graph TB
     workflows -. "@tag 引用" .-> main_yaml
 ```
 
-<!-- sync: cicd-flow 5bd0f36f76ac e672c33be923 -->
+<!-- sync: cicd-flow 45154f7b127c cbab4f2ca3b1 -->
 ### CI/CD 流程
 
 ```mermaid
 flowchart LR
     subgraph local["本地"]
-        just_test["just test"]
-        just_build["just docker build --stage test-tools"]
+        just_test["just test（构建 test-tools）"]
+        just_build["just docker build --target devel-test"]
     end
 
     subgraph ci_container["CI 容器（test-tools image，TEST_TOOLS_IMAGE）"]
         shellcheck["ShellCheck"]
-        hadolint["Hadolint（just test lint）"]
+        hadolint["Hadolint (just test lint)"]
         bats["Bats specs"]
     end
 
@@ -132,340 +138,157 @@ flowchart LR
     shellcheck --> hadolint --> bats
 
     push["git push / PR"] --> build_worker
-    build_worker -->|"docker build（devel-test stage）"| ci_container
+    build_worker -->|"docker build (devel-test stage)"| ci_container
     tag["git tag v*"] --> release_worker
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 28d6fbb66955 4a41e5b5394b -->
+<!-- sync: whats-included a0d828952feb dfeb2e2023cd -->
 ### 包含内容
 
 | 文件 | 说明 |
 |------|------|
-| `build.sh` | 构建容器（`--setup` 有 TTY 时启动 `setup_tui.sh`，否则调用 `setup.sh`） |
-| `run.sh` | 运行容器（支持 X11/Wayland；`--setup` 语义与 `build.sh` 相同） |
-| `exec.sh` | 进入运行中的容器 |
-| `stop.sh` | 停止并移除容器 |
-| `prune.sh` | 清理容器 / image / 构建缓存 |
-| `setup_tui.sh` | 交互式 setup.toml 编辑器（dialog / whiptail 前端） |
-| `dist/script/docker/wrapper/setup.sh` | 自动检测系统参数并生成 `.env` / `.env.generated` + `compose.yaml` |
-| `dist/script/docker/lib/_lib.sh` | 核心 wrapper helper（env 加载、compose 调用、project 命名） |
-| `dist/script/docker/lib/bootstrap.sh` | 共用 wrapper 初始化与参数解析 |
-| `dist/script/docker/lib/compose.sh` | Docker Compose YAML 生成与处理 |
-| `dist/script/docker/lib/conf.sh` | INI 解析器与 section 合并器 |
-| `dist/script/docker/lib/conf_logging.sh` | Logging 配置 helper |
-| `dist/script/docker/lib/env.sh` | 环境变量设置与默认值 |
-| `dist/script/docker/lib/gitignore.sh` | Gitignore 文件管理 |
-| `dist/script/docker/lib/hook.sh` | 每个 wrapper 的 pre/post hook 调用 |
-| `dist/script/docker/lib/i18n.sh` | 语言检测与本地化 |
-| `dist/script/docker/lib/log.sh` | 统一日志与输出 helper |
+| `script/build.sh` | 构建容器（`--setup` 有 TTY 时启动 `setup_tui.sh`，否则调用 `setup.sh`） |
+| `script/run.sh` | 运行容器（支持 X11/Wayland；`--setup` 语意与 `build.sh` 相同；`--build` 会先跑 `./script/build.sh test`，取得与 fresh-clone CI 相同的验证） |
+| `script/exec.sh` | 进入运行中的容器 |
+| `script/stop.sh` | 停止并移除容器 |
+| `script/prune.sh` | 清理这个 repo 的悬空 image / build cache |
+| `script/setup_tui.sh` | 互动式 setup.toml 编辑器（dialog / whiptail 前端） |
+| `dist/script/docker/wrapper/setup.sh` | 自动检测系统参数并产生 `.env` / `.env.generated` + `compose.yaml` |
+| `dist/script/docker/lib/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
+| `dist/script/docker/lib/bootstrap.sh` | wrapper 共用初始化与参数解析 |
+| `dist/script/docker/lib/compose.sh` | `docker compose` 调用包装 + project 命名 |
+| `dist/script/docker/lib/compose_emit.sh` | `compose.yaml` 产生器 |
+| `dist/script/docker/lib/conf.sh` | setup.toml 读写（TOML；迁移时读旧 INI） |
+| `dist/script/docker/lib/toml_bridge.sh` | TOML parser 桥接（原生或容器化） |
+| `dist/script/docker/lib/config_gen.sh` | Go 配置产生器的 shell 端（[ADR-00000039](../adr/00000039-config-generator-in-go.md)） |
+| `dist/script/docker/lib/conf_logging.sh` | logging 配置 helper |
+| `dist/script/docker/lib/env.sh` | 环境变数配置与默认值 |
+| `dist/script/docker/lib/gitignore.sh` | gitignore 文件管理 |
+| `dist/script/docker/lib/hook.sh` | 各 wrapper 的 pre/post hook 调用 |
+| `dist/script/docker/lib/i18n.sh` | 语言检测与在地化（`_detect_lang`、`_LANG`） |
+| `dist/script/docker/lib/log.sh` | 统一 logging 与输出工具 |
 | `dist/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
-| `dist/script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
-| `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
+| `dist/script/docker/lib/_tui_backend.sh` | `setup_tui.sh` 使用的 dialog / whiptail 包装函式 |
+| `dist/script/docker/lib/_tui_conf.sh` | setup.toml 值的 validator（`setup_tui.sh` 与 `setup.sh` 共用） |
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 文件 + 稳定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
 | `dist/script/docker/runtime/watchdog.sh` | 通用单服务 watchdog（重启 + 可插拔健康检查） |
 | `dist/script/docker/runtime/entrypoint.sh` | base 的 ENTRYPOINT orchestrator：开 log tee、source repo bringup、arm watchdog、exec workload |
-| `dist/dockerfile/entrypoint.sh` | bringup 模板，创建新 repo 时 seed 成 `script/entrypoint.sh`（repo 那一半，由 orchestrator source） |
-| `dist/test/bats/smoke/smoke.sh` | runtime 安装检查 smoke（ldd 缺依赖扫描） |
-| `script/test/test.sh` | base 自测调度器（本地 + container 内） |
-| `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
-| `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
+| `dist/dockerfile/entrypoint.sh` | bringup 模板，建立新 repo 时 seed 成 `script/entrypoint.sh`（repo 那一半，由 orchestrator source） |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 缺依赖扫描） |
+| `script/test/test.sh` | base 自身测试 dispatcher（本地 + 容器内） |
+| `script/test/drivers/` | 每个 lint/test 工具一支 driver |
+| `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查 |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator） |
 | `setup.toml` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
-| `dist/test/bats/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
-| `test/bats/unit/` | base 自测，unit（bats + kcov） |
-| `test/bats/integration/` | base 自测，init/upgrade 端到端 |
-| `test/bats/system/` | base 自测，System 层／Regression（runtime smoke gate，opt-in） |
-| `test/bats/acceptance/` | base 自测，Acceptance 层（UAT/OAT；保留，S5 #785） |
+| `dist/test/bats/smoke/` | 共用 smoke 测试 + runtime assertion helpers（[dockerfile-stages.md](../guide/dockerfile-stages.md#smoke-test-helpers-for-downstream-repos)） |
+| `test/bats/unit/` | base 自身测试，Unit 层（bats + kcov） |
+| `test/bats/integration/` | base 自身测试，Integration 层（init/upgrade 端对端） |
+| `test/bats/system/` | base 自身测试，System 层／Regression（runtime smoke gate，opt-in） |
+| `test/bats/acceptance/` | base 自身测试，Acceptance 层（UAT/OAT；保留，S5 #785） |
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
-| `justfile`（→ `script/justfile`） | Repo 命令入口 — 分层 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。sub-cmd 与 flag 透过 `{{args}}` 直接透传（`just docker build --no-cache --stage test-tools`）；裸 `just` 列出所有 namespace。 |
-| `dist/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
+| `justfile`（→ `script/justfile`） | Repo 命令入口 — 分层 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。Sub-cmd 与 flag 原封不动转交（`"$@"`），例如 `just docker build --no-cache --target devel`；无参的 `just` 列出所有 namespace。 |
+| `dist/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/start/exec/stop/prune/setup/setup-tui`）。 |
 | `dist/script/base/justfile.base` | `base` namespace — 管理 `.base` subtree（`just base init/update/upgrade/completions`）。 |
-| `dist/script/base/init.sh` | 首次初始化 symlinks + 新 repo 骨架生成（bootstrap：`./.base/dist/script/base/init.sh`；之后用 `just base init`）。 |
+| `dist/script/base/init.sh` | 首次初始化 symlinks + 新 repo 骨架产生（bootstrap：`./.base/dist/script/base/init.sh`；之后改用 `just base init`）。 |
 | `dist/script/base/upgrade.sh` | Subtree 版本升级（`just base upgrade [vX.Y.Z]`）。 |
-| `script/test/justfile.test` | base 自测入口（`just test`、`just test lint`、`just test coverage` …）。 |
+| `script/test/justfile.test` | base 自身测试入口（`just test`、`just test lint`、`just test coverage` …）。 |
 | `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
 | `script/watch/justfile.watch` | base `watch` namespace — 上游发布监控（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `dist/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、kcov） |
-| `.github/workflows/` | 可重用 CI workflows（build + release） |
+| `dockerfile/Dockerfile.config-gen` | 构建 Go 配置产生器（`config-gen`；只负责 provisioning，`compose.yaml` 仍由 `compose_emit.sh` 产生） |
+| `dockerfile/config-gen/go.mod` | Go 配置产生器的 module（[ADR-00000039](../adr/00000039-config-generator-in-go.md)） |
+| `.github/workflows/` | 可重用 worker + base 自身 CI |
 
-测试内容采用 **tool-first** 布局 — spec 放 `test/<tool>/<category>/`
-（如 `test/bats/unit/`），linter 放 `test/lint/<tool>/` — 加一个工具就
-是新增一个目录，而不是新增一个命令面。见
+测试内容采 **tool-first** 配置 -- spec 走 `test/<tool>/<category>/`
+（例如 `test/bats/unit/`）、linter 走 `test/lint/<tool>/` --
+新增一个工具就是开一个新文件夹，而非新增一个命令面。分类词汇对齐 ISTQB
+（Unit / Integration / System / Acceptance 四个层级 + Smoke 类型）；见
+[ADR-00000018](../adr/00000018-istqb-test-taxonomy.md) 与
 [ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
 的 ADR-00000004）。consumer 出货自己的 `test/bats/smoke/`；base 出货自己的
 `test/bats/{unit,integration,system,acceptance}/`。
 
-<!-- sync: dockerfile-stages-convention e8e20b69013a 66b69b96c536 -->
-### Dockerfile 分层（约定）
-
-下游 repo 遵循标准多阶段配置，定义于 `dist/dockerfile/Dockerfile`。
-所有阶段共用 `ARG BASE_IMAGE` 指定的基础镜像。
-
-| 阶段 | 父阶段 | 用途 | 是否出货 |
-|------|--------|------|---------|
-| `sys` | `${BASE_IMAGE}` | 用户/用户组、locale、时区、APT mirror、可复现性 manifest | 中间 |
-| `devel-base` | `sys` | 开发工具与语言套件 | 中间 |
-| `devel` | `devel-base` | 应用专属工具、entrypoint、config 分层 | **是**（主要产物） |
-| `devel-test` | `devel` | ShellCheck + Hadolint + Bats smoke（短暂：测试后丢弃） | 否（build 完即丢） |
-| `runtime-base`（可选） | `sys` | 最小 runtime 依赖（sudo、tini） | 中间 |
-| `runtime`（可选） | `runtime-base` | 仅含安装产物的精简 runtime 镜像 | 启用时出货 |
-| `runtime-test`（可选） | `runtime` | runtime 安装检查 smoke（短暂） | 否 |
-
-说明：
-- `BASE_IMAGE` 默认是会移动的 tag `ubuntu:24.04`，其上安装的 apt 套件也没有版本，
-  所以同一个 template 版本在不同时间并不会重现同一个 image。这个漂移是刻意的
-  （consumer 本来就会覆写 `BASE_IMAGE`，而 dev image 必须能在不发 template
-  release 的情况下拿到安全性更新），但它会被「记录」下来：`sys` 会写出
-  `/usr/local/share/base/base-image.env`（base reference、该 reference 是否
-  digest-pinned、build 被告知要记录的 digest、base OS）与 `/usr/local/share/base/packages.txt`
-  （每个套件与其确切版本，每个 apt layer 之后重写一次），并标上
-  `org.opencontainers.image.base.name` / `.base.digest` label。`runtime-base`
-  因为是全新的 `${BASE_IMAGE}`、什么都不继承，所以会再写一次。
-- 出货默认「没有」记录到的部分：照默认 build 出来的 manifest 会是
-  `base_image_pin=none`、`base_image_digest` 留空——build 内部无法向 daemon
-  询问某个 tag 解析到哪个 image。要补上就在 `BASE_IMAGE` 之外再传
-  `BASE_IMAGE_DIGEST`（那是「记录」不是 pin）。把 `BASE_IMAGE` pin 成 digest
-  本身就 build 得起来，也会记成 `base_image_pin=digest`，但那个字段仍会留空：
-  annotation 是由 `LABEL` 写的，而 `LABEL` 无法依「reference 有没有带 digest」
-  分支——同一个去头表达式在没有 digest 时会返回整个 reference——所以它只带
-  build arg。两个 sink 同时留空是诚实的「未另外记录」，build 不会因此拒绝；
-  真正会失败的是 `BASE_IMAGE_DIGEST` 指到与 reference 不同的 digest，由出货的
-  smoke spec 在 `-test` stage 挡下。
-- 只出货 developer image 的 repo（`env/*`）会跳过 `runtime-base` /
-  `runtime`——该 section 在 `Dockerfile` 保持注释状态。
-- `devel-test` 总是从 `devel` 继承，所以 `test/bats/smoke/<repo>_env.bats` 中的
-  runtime assertion 所看到的二进制与文件，就是用户 `docker run ...
-  <repo>:devel` 后会看到的内容。
-- `Dockerfile.test-tools` 构建 lint/test 工具集（bats + shellcheck + hadolint）。下游 `devel-test` 阶段通过 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 默认 `test-tools:local`（对应本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 构建到 host Docker daemon）。CI 则覆盖成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的预构建 multi-arch image）,buildx 直接从 registry 拉对应架构的 bats / shellcheck / hadolint binary,避开 `docker-container` buildx driver 跨 step 不共享 image store 的问题。
-
-<!-- sync: baked-artifacts-live-at-opt-not-home a29561d2cf43 ff4418095341 -->
-#### 自建产物放在 `/opt`，不要放 `$HOME`
-
-容器用户是在 **build** 时期烘进 image 的：`sys` 阶段吃
-`USER_NAME` / `USER_UID` / `USER_GID` build arg，`devel` 接着设置
-`ENV HOME="/home/${USER_NAME}"`。`just build` 注入本机 host 的用户，
-CI 与 release 路径则烘 `user`（UID 1000）——所以同一个 commit 构建出来的两个
-image，`$HOME` 可能不一样。
-
-因此凡是 image 烘在 **`$HOME` 底下** 的东西，都与 build 时期的用户名绑死，
-而且只有在部署时才会爆：用不同 `USER_NAME` 跑预构建 / GHCR /
-`docker save`+`load` 的 image（或用不同 `USER_NAME` 重建），每个相对于 home 的
-路径就指到另一个**空的** `/home/<other>/...`。烘好的 workspace 看不见，
-`source ~/some_ws/install/setup.bash` 直接失败。绝对路径 `/opt/...` 则免疫 ——
-根本没有 `$HOME` 这层间接。
-
-这个约定写在你会实际打开的那份 `Dockerfile` 里：
-
-1. 自建产物（colcon workspace、SDK、自行编译的工具）安装到绝对路径
-   `/opt/<name>`。`$HOME` 只留给 dotfile 与方便用的 symlink。
-2. entrypoint / bashrc 一律 source **绝对路径**，不要用 `~` 或 `$HOME`。
-   在 per-user `RUN` 区块建立 `~/<name> -> /opt/<name>` symlink 是鼓励的
-   （方便交互时查找），但任何东西都不可以去 *source* 它。
-3. 路径里永远不要写死具体用户名 —— 用 `${HOME}` / `${USER_NAME}`。
-
-第 3 条是机械式规则，因此有 gate：`home-literal` lint
-（`just test lint --home-literal`，CI job `lint-static` 的其中一组）会在
-`dist/` 或 `dockerfile/` 底下任何 home 路径出现具体用户名时失败。
-第 1、2 条属于判断题，grep 判不出来。设计理由见
-[ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
-
-<!-- sync: adding-extra-stages-215 46284b5d635f 09630aaacbc3 -->
-#### 添加额外 stage（#215）
-
-任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
-之外的（v0.21.x 过渡期同时接受旧名 `{base, test}`）
-`FROM <base> AS <stage>`，会被自动 emit 成一个 compose 服务 —
-`extends: devel`（继承 volumes / network / GPU / GUI / cap_add /
-additional_contexts），仅 override `build.target` / `image` /
-`stdin_open` / `tty` / `profiles`。典型用例是
-entrypoint 变体，如 NVIDIA Isaac Sim 在 `devel` 之上的
-`headless` + `gui` 两种启动模式。
-
-User 操作流程：
-
-```dockerfile
-# Dockerfile 加新 stage（不用动 setup.toml）
-FROM devel AS headless
-ENTRYPOINT ["/isaac-sim/runheadless.sh"]
-CMD ["-v"]
-
-FROM devel AS gui
-ENTRYPOINT ["/isaac-sim/runapp.sh"]
-```
-
-```bash
-just docker build                            # 重新生成 compose.yaml，build 所有 stages
-just docker run -t headless                  # 跑 headless 变体
-just docker run -t gui                       # 跑 gui 变体
-just docker exec -t headless bash            # 进入 running 的 headless container
-
-# Kit 风格的 `=` 参数可以直接传递：
-just docker exec -t headless-stream /isaac-sim/runheadless.sh -v --/app/livestream/port=49100
-
-# 等效直接 .sh 写法：
-./build.sh
-./run.sh -t headless
-./exec.sh -t headless bash
-```
-
-约束：
-
-- Stage 名必须符合 `^[a-z][a-z0-9_-]*$` — 大写 / 数字开头 / 点号
-  等会被拒（WARN + 跳过，其他 stage 继续解析）。
-- 撞到 baseline `{sys, devel-base, devel, runtime-test}`（v0.21.x
-  过渡期亦同时接受旧名 `{base, test}`）时，`setup.sh apply` hard error
-  退出 1。撞到 template 控制的 image tag namespace（`latest`、
-  `v[0-9]*`）也是 hard error。`devel-test` **不在**该集合里，也**不算**
-  撞名 — 它会通过 per-stage 模型 emit 成 `test` service（#493），这正是
-  `[stage:devel-test]` 有 runtime 控制面的原因。
-- 添加 / 移除 stage 会触发 `setup.sh check-drift`（通过 `.env.generated` 内
-  的 `SETUP_DOCKERFILE_HASH`），下次 wrapper 跑会自动 regen
-  `compose.yaml`。其他 `RUN apt-get install` 等修改**不会**触发 drift。
-
-<!-- sync: per-stage-setuptoml-overrides-220 02d674d1433e 0160467d8aa3 -->
-#### Per-stage `setup.toml` overrides（#220）
-
-#215 auto-emit 出的 stage 默认共用 devel 的 runtime 设置
-（volumes / GPU / network / GUI）。当某 stage 需要不同的 runtime
-设置 — 例如 NVIDIA Isaac Sim 的 `headless` 跑 WebRTC livestream
-要 `network=bridge` + 一个 port mapping + `gui=off`，但 `devel` 跟
-`gui` 维持 `network=host` + X11 — 在 repo 的 `setup.toml` 加上
-`[stage:<name>]` table。TOML 的 table 名称含冒号时必须加引号，
-所以实际写成 `["stage:headless"]`，底下点号形式的
-override key 也要加引号：
-
-```toml
-[gui]
-mode = "auto"
-
-[network]
-mode = "host"
-
-["stage:headless"]
-"gui.mode" = "off"
-"network.mode" = "bridge"
-"network.port_1" = "8080:80"
-"deploy.gpu_capabilities" = "gpu compute utility graphics video"
-```
-
-也可以用 `./setup_tui.sh` 走交互式编辑：
-
-- **Advanced → Per-stage overrides**：直接进编辑器；该 entry 仅
-  在 Dockerfile 有至少一个非 baseline stage 时才显示。
-- **Features → Per-stage overrides**（#221）：永久可见的功能总
-  览入口；条件已满足时点击等同上述 Advanced 路径，未满足时会
-  弹 msgbox 说明如何启用。
-
-允许 override 的 key（v1）：
-
-| Section | Keys |
-|---|---|
-| `[deploy]` | `gpu_mode`, `gpu_count`, `gpu_capabilities`, `gpu_runtime`（旧名 `runtime` 仍接受） |
-| `[gui]` | `mode` |
-| `[network]` | `mode`, `ipc`, `pid`, `network_name`, `port_<N>`, `port_inherit` |
-| `[security]` | `privileged`, `cap_add_<N>`, `cap_add_inherit`, `cap_drop_<N>`, `cap_drop_inherit`, `security_opt_<N>`, `security_opt_inherit` |
-| `[volumes]` | `mount_<N>`, `mount_inherit` |
-| `[environment]` | `env_<N>`, `env_inherit` |
-
-List 字段（`mount_*` / `port_*` / `env_*` / `cap_add_*` / `cap_drop_*` /
-`security_opt_*`）采 **append-default**：stage 的项目附加在 top-level
-之后。要完全取代 top-level，设 `<list>_inherit = false`（例：
-`volumes.mount_inherit = false`，或 `security.cap_add_inherit = false`
-清掉某 stage 继承的 caps —— #526：只读 probe stage 可清掉 flash stage
-的 `SYS_ADMIN`）。
-
-注意事项：
-
-- `[stage:devel]` 是**保留**的 (v1 no-op + WARN)。要调 devel 直接
-  改 top-level section。v2 会重新评估。
-- `[stage:sys|base|test]` 是 **hard error**（baseline collision）。
-- `[stage:foo]` 对应的 stage 在 Dockerfile 不存在 → **WARN + 跳过**
-  （`setup.sh apply` 其他流程继续）。
-- 不在 allowlist 内的 override key → **WARN + 跳过该 key**。
-
-<!-- sync: smoke-test-helpers-for-downstream-repos 86bd640f4dd5 3dc1ca61df98 -->
-### Smoke test helpers（供下游 repo 使用）
-
-`test/bats/smoke/test_helper.bash`（每个 smoke spec 通过
-`load "${BATS_TEST_DIRNAME}/test_helper"` 加载）提供一组 runtime
-assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
-`[ -f ... ]` / `command -v`，失败时会输出 decorated 诊断信息直指缺少
-的工件。
-
-| Helper | 用法 |
-|--------|------|
-| `assert_cmd_installed <cmd>` | `<cmd>` 不在 `PATH` 上时失败 |
-| `assert_cmd_runs <cmd> [flag]` | `<cmd> <flag>` 非 0 时失败（flag 默认 `--version`） |
-| `assert_file_exists <path>` | `<path>` 非 regular file 时失败 |
-| `assert_dir_exists <path>` | `<path>` 非目录时失败 |
-| `assert_file_owned_by <user> <path>` | `<path>` 所有者不是 `<user>` 时失败 |
-| `assert_pip_pkg <pkg>` | `pip show <pkg>` 非 0 时失败 |
-
-<!-- sync: what-stays-in-each-repo-not-shared 64249bb1afa8 1401030385e9 -->
+<!-- sync: what-stays-in-each-repo-not-shared dc4a422e6bf1 61e223176954 -->
 ### 各 repo 自行维护的文件（不共用）
 
 - `Dockerfile`
 - `compose.yaml`
 - `script/` — repo 本地的 **runtime helpers**（在 container 内被 `ENTRYPOINT` / `CMD` 或人工调用）
-  - `script/entrypoint.sh` — 这个 repo 的 **bringup**，由 base 的 orchestrator source；它本身不是 `ENTRYPOINT`（见英文版 README 的 Container entrypoint 一节）
+  - `script/entrypoint.sh` — 这个 repo 的 **bringup**，由 base 的 orchestrator source；它本身不是 `ENTRYPOINT`（见 [entrypoint.md](../guide/entrypoint.md)）
   - 任何 ros / app 启动 helper 等
 - `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `dist/dockerfile/Dockerfile`，#275）
 - `doc/` 和 `README.md`
 - Repo 专属的 smoke test
 
-<!-- sync: per-repo-runtime-configuration 75d2557836d2 3bef517dcf3e -->
+<!-- sync: everyday-use 2010a1303130 8f9fcfd769de -->
+## 日常使用
+
+「namespace vs recipe 的说明」与「Wrapper UX 速查表（#291）」两节只有英文版；
+请看 [README.md](../../README.md#everyday-use)。
+
+<!-- sync: per-repo-runtime-configuration 4f345e108457 99af3c4a373b -->
 ## 各 repo runtime 配置
 
-每个下游 repo 通过一个 `setup.toml`驱动自己的 runtime 配置
+每个下游 repo 透过一个 `setup.toml` 驱动自己的 runtime 配置
 （GPU 保留、GUI env/volumes、network mode、额外 volume mounts）。
-`setup.sh` 读它 + 系统检测后重新生成 `.env`、`.env.generated` 和
+`setup.sh` 读它 + 系统检测后重新产生 `.env`、`.env.generated` 与
 `compose.yaml`，这些衍生文件用户不用动手编辑。`.env.local` 才是另一个文件：
 setup 只在第一次 scaffold，之后永不覆写，你自己的值放在那里。
 
-所有文件名共用一条规则：**标准名是我们的，有 `.local` 后缀或中缀才是本机变体。**
-`Dockerfile`、`compose.yaml`、`setup.toml`、`.env` 都是生成或出货的，
-更新时会被替换;`setup.local.toml` 与 `.env.local` 是你的，永远不会被动。
+这些文件分成三组：
+
+- **每次 `setup.sh apply` 都重新产生**：`compose.yaml`、`.env.generated`、
+  `.env`。不要手改。
+- **repo 自有、永不覆写**：`setup.toml` 与 `Dockerfile`。工具只在你要求时
+  （`just docker setup set`、TUI）才写 `setup.toml`；升级时的具名 migration
+  列在 [upgrade.sh 会改写你 repo 里的哪些文件](#upgradesh-会改写你-repo-里的哪些文件)。
+- **本机**、gitignored、属于你：`setup.local.toml` 与 `.env.local`。
+
 `.env.generated` 保留后缀的理由不同 —— 它只喂 compose 的 `${VAR}` 插值、
 从不进容器，后缀标的是类别而非归属。
 
-<!-- sync: one-conf-15-sections 0fa80f1ce5cd fd28cb7e1236 -->
+首次运行 `setup.sh`（尚无 per-repo `setup.toml`）时，template 文件会被
+复制到 `<repo>/setup.toml`，并把检测到的 workspace 写入**第一个
+`[[volumes]]` block** —— 也就是 `volumes.mount_1` 所指的那一个。后续运行以
+`mount_1` 为真实来源；清空该栏即可放弃挂 workspace。
+`./.base/dist/script/base/init.sh --gen-conf` 做同样的单纯复制，该文件已存在时
+会拒绝（`--force` 会先备份成 `setup.toml.bak`）。
+
+<!-- sync: one-conf-15-sections a6f1ae3719e2 a76b0f30d345 -->
 ### 单一 conf、15 个 section
 
 下面这份 section 清单不是散文，而是 `SCHEMA_SECTIONS`
-（`dist/script/docker/lib/schema.sh`）— “有哪些 section、顺序为何”的唯一
+（`dist/script/docker/lib/schema.sh`）— 「有哪些 section、顺序为何」的唯一
 来源。这个区块或它的数量一旦与代码不一致，`derived-figures` lint 会失败。
 
 ```
 [project]  name — 这个 checkout 运行时所属的 compose project（留空 =
            推导出 <DOCKER_HUB_USER>-<IMAGE_NAME>）。想同时跑两个
-           checkout，就在 setup.local.toml 按 WORKTREE 各自设定
-[image]    rules = prefix:docker_, suffix:_ws, @default:unknown
+           checkout，就在 setup.local.toml 依 WORKTREE 各自配置
+[image]    rules = prefix:docker_, suffix:_ws, @basename
 [build]    apt_mirror_ubuntu、apt_mirror_debian            # Dockerfile build args
 [deploy]   gpu_mode (auto|force|off)、gpu_count、gpu_capabilities
            dri_groups (auto|off) — GUI service 上 iGPU /dev/dri 的 group_add
 [lifecycle] restart (no|always|unless-stopped|on-failure|on-failure:N)
-           默认 unless-stopped;属于 DEPLOY 范畴 — 只 emit 在 deployable
-           stage 的 service 上，devel 与任何 *-test stage 由 emitter 清空，
-           因此 devel 上不会有 restart: 让 extends:devel 继承。详见英文版
-           README 的 “Restart policy is deploy-scoped”。
-           init (true|false) — Docker init/PID1 reaper;默认 true。
-           watchdog_* — 容器内健康检查（opt-in）
+           默认 unless-stopped;属于 DEPLOY 范畴 — 见
+           doc/guide/lifecycle.md。init (true|false) — Docker init/PID1
+           reaper;默认 true。watchdog_* — 容器内健康检查（opt-in）
 [gui]      mode (auto|force|off)
 [network]  mode (host|bridge|none)、ipc、pid (host|private)、privileged
            port_N = host:container（只有 bridge 模式才会 publish）
 [security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
            （以及对应的 *_inherit 开关;默认精简，要用才开）
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once 默认值，写进生成的 .env
-           并 bake 成 deployable stage 的 ENV;每次任务都会变的变量请放
+[environment] env_N = KEY=VALUE — set-once 默认值，写进产生的 .env
+           并 bake 成 deployable stage 的 ENV;每次任务都会变的变数请放
            .env.local
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed 挂载点
 [devices]  device_N = host:container，以及 cgroup rule（要用才开）
 [volumes]  mount_1（workspace，首次运行时自动填入）
-           mount_2..mount_N（额外 host mount；设备走 /dev path）
+           mount_2..mount_N（额外 host mount；装置走 /dev path）
 [additional_contexts] context_N = name=source — 额外的具名 build context
 [logging]  driver（默认 json-file）、max_size、max_file、compress
            local_path（host 端 log 目录；bind-mount 到 /var/log/<repo>）
@@ -476,196 +299,91 @@ setup 只在第一次 scaffold，之后永不覆写，你自己的值放在那�
            [logging.<svc>] 可对单一 service 做 key-level override
 ```
 
-上面这些方括号名称是 section 名册，不是文件语法。标量 section 是 TOML 的
-`[table]`；列表形式的 section 是 `[[array of tables]]`，其中第 N 个 block
+上面这些方括号名称是 section 名册，不是文件语法。纯量 section 是 TOML 的
+`[table]`；清单形式的 section 是 `[[array of tables]]`，其中第 N 个 block
 就是 `<prefix>_N` 所指的那一个 —— `volumes.mount_1` 就是第一个
 `[[volumes]]` block。
 
 Template default 在 `.base/dist/setup.toml`；per-repo 覆盖放
-`<repo>/setup.toml`（由 `just setup` 工具管理，刻意不放进手动编辑的
-`config/` 界面）。合并是**类型感知**的
+`<repo>/setup.toml`（由 `just docker setup` 工具管理，刻意不放进手动编辑的
+`config/` 介面）。合并是**型别感知**的
 （[ADR-00000037](../adr/00000037-toml-config-format-unification.md)）：
-`[table]` 内的标量键走 key-level 合并 —— 定义该键的最上层胜出，它没提到
+`[table]` 内的纯量键走 key-level 合并 —— 定义该键的最上层胜出，它没提到
 的键则从下层继承 —— 而 `[[array of tables]]` 由定义它的最上层整份取代。
 没有任何一层提到的 section 则往下层落。
 
-<!-- sync: three-layers-the-third-is-yours-setuplocaltoml 7888e2447051 10e11455c3e5 -->
+<!-- sync: three-layers-the-third-is-yours-setuplocaltoml 0140754d2189 8b934fe4ceff -->
 #### 三层配置，第三层是你的（`setup.local.toml`）
 
-| 层 | 是否进版本控制 | 属于谁 |
+| 层 | 是否进版控 | 属于谁 |
 |---|---|---|
-| `.base/dist/setup.toml` | 随 subtree 出厂 | base 的默认 |
+| `.base/dist/setup.toml` | 随 subtree 出货 | base 的默认 |
 | `<repo>/setup.toml` | 已 commit | repo 的 —— CI 与其他所有 checkout 用的就是它 |
 | `<repo>/setup.local.toml` | **gitignored** | 你的，只在这台机器、这个 worktree |
 
-三层共用同一套语法、同一条类型感知合并规则。第三层用 `--local` 写：
+三层共用同一套语法、同一条型别感知合并规则。第三层用 `--local` 写：
 
 ```bash
-./setup.sh set --local project.name myrepo-wt2
+just docker setup set --local project.name myrepo-wt2
 ```
 
-为什么列表是整份取代而不是逐项合并：上面的 section 有八个是有序列表。
-只覆盖 `port_2` 会把两层拼成同一份有序列表，你永远无法「移除」某一项，
-要新增又得知道你看不到的那层当前最大的索引。相关键之间也互相制约
-（`[network] mode` 决定那些 port 会不会被 emit），半套覆盖会产生哪一层都
-没写过的组合。这套理由正是 ADR-00000037 保留下来、作为类型感知规则中
-array-replace 那一半的依据；它原本涵盖的标量 `[table]` 键改走 key-level
-合并。
+清单是整份取代而不是逐项合并，因为对有序清单做半套覆盖，永远无法移除某一项，
+还会拼出哪一层都没写过的组合。由此衍生三件事，而且全都会出声、不会默默发生：
 
-由此衍生三件事，而且全都会出声、不会默默发生：
-
-- `setup.local.toml` 已定义某 section 时，用普通的 `set` 写该 section 会
+- `setup.local.toml` 已定义某 section 时，用一般的 `set` 写该 section 会
   **警告**并指名该 section。不会拒绝 —— 那个值仍然是 CI 与其他 checkout
   会用的 committed 值 —— 但它在这台机器上不会有任何效果。
-- 每个 wrapper 执行前的摘要都会多一行 `local override:`，列出文件与被它
+- 每个 wrapper 运行前的摘要都会多一行 `local override:`，列出文件与被它
   取代的 section。
-- `just docker setup deploy` 只要该文件存在就**拒绝执行**（见
-  [Field 部署](#field-部署just-docker-setup-deploy)）。
+- `just docker setup deploy` 只要该文件存在就**拒绝运行**（见
+  [field-deploy.md](../guide/field-deploy.md)）。
 
-<!-- sync: running-two-worktrees-at-once efccbe6e6686 390f94b737b9 -->
-#### 同时跑两个 worktree
+<!-- sync: topic-guides 8ef0959e6ba4 51f561ff4b08 -->
+### 主题指南
 
-每个 checkout 都在某个 compose project name 之下运行，它创建的一切
-—— container、network、volume —— 都以此命名。两个 checkout 若解析出同一个
-名字就会撞在一起：第二次 `run` 会直接沿用第一个的 container。
+每个深入主题各有一页，放在 `doc/guide/`（仅英文；英文 README 为准）：
 
-`[project] name` 就是这个名字。它出厂时是**空的**，意思是「照旧推导
-`<DOCKER_HUB_USER>-<IMAGE_NAME>`」，所以在你设置之前什么都不会变。请设在
-*local* 那层，因为 per-worktree 的名字是你的、不是 repo 的：
+- [Dockerfile stages](../guide/dockerfile-stages.md) -- stage 表、bake 到
+  `/opt` 的 artifact、额外 stage、`[stage:<name>]` 覆写与 smoke 测试 helper。
+- [Container entrypoint](../guide/entrypoint.md) -- base 的 orchestrator、
+  你的 bringup，以及一次性的 `ENTRYPOINT` 迁移。
+- [Container lifecycle](../guide/lifecycle.md) -- 同时跑两个 worktree、
+  network mode、restart policy、init 与 watchdog。
+- [参数放哪里](../guide/env-vs-workload.md) -- `setup.toml`、`.env.local`、
+  `config/<component>/` 各自负责什么。
+- [Field 部署](../guide/field-deploy.md) -- `just docker setup deploy` 与
+  自带式 bundle。
+- [Logging](../guide/logging.md) -- 容器 log 输出到 host 与 wrapper transcript。
+- [setup.sh 流程](../guide/setup-workflow.md) -- TUI、host 检测覆写与各 wrapper 的 hook。
+- [命名规则](../guide/naming.md) -- image、project、container 名称，以及唯一的
+  `container_name` 例外。
+- [publish-worker.yaml 与 source archive](../guide/publish-worker.md)。
 
-```bash
-cd ~/work/myrepo-wt2
-./setup.sh set --local project.name myrepo-wt2
-just build            # 重新生成；两个 worktree 从此可并行
-```
+开发 stack 不 emit `container_name:`，唯一的例外是 field deploy bundle（`just docker setup deploy`），它确实会写死一个 `container_name:` —— 见 [naming.md](../guide/naming.md)。
 
-这个值只解析一次，写进 `.env.generated` 的 `PROJECT_NAME`，两边都从那里读：
-wrapper 的 `docker compose -p`，以及生成出来的 `compose.yaml` 里的
-`name: ${PROJECT_NAME}`（所以 `lazydocker`、`docker compose ps` 和 IDE 面板
-看到的会跟 wrapper 一致）。值的规则：小写英文字母、数字、`-`、`_`，开头必须
-是字母或数字 —— 就是 docker compose 自己的规则。
+<!-- sync: when-setupsh-runs c467aa1f8353 5ee4e4897809 -->
+### setup.sh 什么时候跑
 
-改这个值**不会**动到 image tag。那是 `[image]` / `DOCKER_HUB_USER`，刻意分
-成两个轴：一次运行拥有哪些 container、和它 build 出哪个 image，是两个问题。
-
-**权限默认关闭、要用才开**（#466）：template 出厂的 `[security]`
-（`privileged = false`，没有 `cap_add` / `security_opt`）与 `[devices]`
-（没有 `/dev:/dev`）都是精简默认，让轻量 repo 和工具 stage 保持干净。容器
-需要什么就开什么：走 `setup_tui.sh`（security / devices 页）、
-`setup.sh add security.cap_add SYS_ADMIN`，或把 template 里的示例取消注释。
-
-首次运行 `setup.sh`（尚无 per-repo `setup.toml`）时，template 文件会被
-复制到 `<repo>/setup.toml`，并把检测到的 workspace 写入**第一个
-`[[volumes]]` block** —— 也就是 `volumes.mount_1` 所指的那一个，因为第 N
-个 `[[volumes]]` block 就是 `mount_N`。后续运行以 `mount_1` 为真实来源 —
-清空该项即可放弃挂载 workspace。编辑方式：
-
-```bash
-./setup_tui.sh                      # 交互式 dialog/whiptail 编辑器
-./setup_tui.sh volumes              # 直接跳到指定 section
-./build.sh --setup            # 有 TTY 时启动 setup_tui.sh；无 TTY 时执行 setup.sh
-./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/setup.toml 到 <repo>/setup.toml；
-                              # 该文件已存在时会拒绝（--force 会先备份成 setup.toml.bak）
-```
-
-<!-- sync: logging-output-to-host 81a10abacbca c618de1095ce -->
-### 输出 log 到 host
-
-设 `[logging] local_path`，容器 stdout/stderr 会 tee 一份到 host 上的
-文件，docker daemon 原本的 json-file log 同时保留：
-
-```ini
-[logging]
-local_path = ./log/     # 相对 repo 根；或 /abs/、~/dir/ 也可
-container_log_keep = 20  # 最多保留 N 份最近的 per-start 文件
-container_log_days = 14  # 且丢掉超过 D 天的文件（两者取严）
-```
-
-跑任何 wrapper 重新生成 `compose.yaml`。每次容器启动，tee 会写一份
-per-start 文件 `<local_path>/<svc>_<ts>.log`，并把稳定的 symlink
-`<local_path>/<svc>.log` 重新指向它（glog 风格）：`tail <svc>.log`
-永远看得到当前这次运行，先前几次则留在磁盘上。旧的 per-start 文件
-按 `container_log_keep`（保留最近几份）与 `container_log_days`
-（保留几天）两者取严清掉，symlink 本身不会被清。`docker logs <ct>`
-行为不变（json-file 维持 rolling 历史）。
-
-跑 base ENTRYPOINT orchestrator 的 repo，设 `[logging] local_path`
-就是唯一一步：helper 由 orchestrator source，bringup 什么都不用加，
-base 之后改了也会随 subtree 一起到。**还在用自己 `/entrypoint.sh`
-当 `ENTRYPOINT` 的 repo**：在最终 `exec` 之前加下面这一行，或直接做
-英文版 README「Container entrypoint」那一节的一次性迁移：
-
-```bash
-. /usr/local/lib/base/logging.sh
-```
-
-Helper 由 `Dockerfile` 的 devel stage COPY 到 image 内稳定路径
-`/usr/local/lib/base/logging.sh`（refs #368），连同它的 `logrotate.sh`
-同伴文件（refs #805），所以这条 source line 在 build-time 与 runtime、
-各种 workspace 结构下都能 work — 不需要 `$USER`，也不依赖 workspace
-bind mount。
-
-疑难排查：`local_path` 设了但 host 文件没东西 → 先看这个 repo 是哪一种
-模型（`grep ENTRYPOINT Dockerfile`）。跑 orchestrator 的不用再做任何事；
-还在跑自己 `/entrypoint.sh` 的，确认那个文件真的有那行 source
-（`grep logging.sh script/entrypoint.sh`）。
-
-<!-- sync: interactive-tui 23df6f6f09ab 7cbfc4b1f489 -->
-### 交互式 TUI
-
-`./setup_tui.sh` 打开主菜单。底层是 `dialog` 或 `whiptail`（两者
-都缺时会打印 `sudo apt install dialog` 提示并退出）。按 Cancel /
-Esc 不存档离开；存档后会自动调用 `setup.sh` 重新生成 `.env.generated` +
-`compose.yaml`。
-
-`./setup_tui.sh <SECTION>` 可直接跳到某个编辑器。`[deploy]` section 只设置
-GPU 预留 —— 名称沿用 Compose 的 `deploy:` key，和会打包 field bundle 的
-`./setup.sh deploy` 无关。因此本编辑器没有歧义的名称是 `gpu`
-（`just docker setup-tui gpu`）；`deploy` 仍可用，并会先弹出说明是哪一个。
-
-主菜单结构（#221）：
-
-```
-Main
-├─ image            IMAGE_NAME 检测规则
-├─ build            APT mirrors + Dockerfile build args
-├─ Runtime  ──→     network / deploy（GPU）/ gui / environment / logging
-├─ Mounts   ──→     volumes / devices / tmpfs
-├─ Advanced ──→     security / additional_contexts
-│                   / per_stage（条件式）/ Reset
-├─ Features         条件式 / 进阶使用功能总览（含 per_stage 状态）
-└─ Save & Exit
-```
-
-`./setup_tui.sh <section>` 仍可直接跳到任意 section 的编辑器
-（如 `./setup_tui.sh volumes`），不必走主菜单。
-
-<!-- sync: when-setupsh-runs 4b98ca4c7af4 1b90f8b73c0f -->
-### setup.sh 什么时候运行
-
-`setup.sh` 不会在每次 build / run 都重跑，但也不是只有你显式要求时才
+`setup.sh` 不会在每次 build / run 都重跑，但也不是只有你明确要求时才
 跑 — 以下都会触发它：
 
-- **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自动运行一次
-- **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 后通过 init.sh
-  再跑一次，所以升级总是会用新版 baseline 重新生成 `.env` /
+- **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自动跑一次
+- **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 后透过 init.sh
+  再跑一次，所以升级永远会用新版 baseline 重新产出 `.env` /
   `.env.generated` / `compose.yaml`
-- **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 用户手动触发重跑；
-  有 TTY 时先启动 `setup_tui.sh` 让用户修改 `setup.toml`，无 TTY 时直接调用 `setup.sh`
-- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env.generated`
-  尚未存在，例如 CI 新 clone）会自动走相同的 TTY-aware 流程，不用带
+- **`just docker build --setup` / `just docker run --setup`**（或 `-s`）— 手动触发重跑
+- **首次 bootstrap**：`just docker build` / `just docker run` 首次运行
+  （`.env.generated` 尚未存在，例如 CI 新 clone）会自动跑 setup.sh，不用带
   `--setup`
-- **Drift**：每次 `./build.sh` / `./run.sh` 都会先跑 `setup.sh check-drift`，
-  报出 drift 时自行重跑 `setup.sh apply`，不用打 `--setup` — 见下方
-  Drift 检测
+- **Drift**：每次 build 与 run 都会先跑 `setup.sh check-drift` — 见
+  [Drift 检测](#drift-检测)
 
-> **Fresh-clone lint 覆盖率（#216）**：`./run.sh` 在本机没 image
+> **Fresh-clone lint 覆盖率（#216）**：`just docker run` 在本机没 image
 > cached 时会走 Compose auto-build — 但 auto-build **只 build
 > `target: devel`**（或 `-t` 指定的 target），会跳过 `target:
-> devel-test`（pre-#243 该 stage 名为 `test`）那层的 ShellCheck /
-> Hadolint / Bats smoke。`run.sh` 检测到这个情况
-> 会在 `compose up` 前打印一段 `[run] INFO:` 提示（只在 TTY 环境）。
-> 想要一次取得跟 CI 同样的完整验证，加 `--build` flag：
+> devel-test` 那层的 ShellCheck / Hadolint / Bats smoke。`run.sh` 检测到
+> 这个情况会印一段 `[run] INFO:` 提醒（只在 TTY 环境）。想要一次取得跟 CI
+> 同样的完整验证，加 `--build` flag：
 >
 > ```bash
 > just docker build test                   # 显式跑 lint + smoke
@@ -673,18 +391,18 @@ Main
 > just docker run                          # 默认 — 快速路径，跳过 lint/smoke
 > ```
 
-`setup.sh apply` 每次都会从头重新生成 `compose.yaml`，但会保留既有
+`setup.sh apply` 每次都会从头重生 `compose.yaml`，但会保留既有
 `.env.generated` 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` /
 `APT_MIRROR_DEBIAN`，所以手动调过的 workspace 路径或 apt mirror 升级时
-不会被覆盖。
+不会被盖掉。
 
-<!-- sync: drift-detection 2dc72e3cf7bd 9eadb94e64f2 -->
+<!-- sync: drift-detection 2ebe5e1725e2 d7a1ea5f1506 -->
 ### Drift 检测
 
 `setup.sh apply` 会把五个值写进 `.env.generated`：`SETUP_CONF_HASH`、
 `SETUP_DOCKERFILE_HASH`、`SETUP_GUI_DETECTED`、`GPU_ENABLED`、`USER_UID`。
-每次 `./build.sh` / `./run.sh` 都会拿这些值跟当前的 tree 与 host 比对，
-任一项自上次 setup 后改变就打印 `[WARNING]`（不阻止执行）：
+每次 `just docker build` / `just docker run` 都会拿这些值跟当前的 tree 与
+host 比对，任一项自上次 setup 后改变就印 `[WARNING]`（不阻挡运行）：
 
 - `setup.toml` 内容（`SETUP_CONF_HASH`）
 - Dockerfile stage 清单（`SETUP_DOCKERFILE_HASH`）— 新增或移除
@@ -693,287 +411,71 @@ Main
 - GUI 检测结果（`SETUP_GUI_DETECTED`）
 - `USER_UID`（用户身份改变）
 
-不需要手动重跑：下一次 `just docker build` / `just docker run` 会跑
-`setup.sh check-drift`，报出 drift 时自行重新生成 `.env` /
-`.env.generated` / `compose.yaml` — 这些都是派生文件，不含用户数据，
-重生永远安全。带 `--setup` 可以立即强制重生，在 TTY 下会先开
+不需要手动重跑：wrapper 会跑 `setup.sh check-drift`，报出 drift 时自行重新
+产生 `.env` / `.env.generated` / `compose.yaml` — 这些都是衍生文件，不含用户
+资料，重生永远安全。带 `--setup` 可以立刻强制重生，在 TTY 下会先开
 `setup_tui.sh`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 8f177949750f fab90845fb39 -->
-### Field 部署（`just docker setup deploy`）
+<!-- sync: setupsh-subcommands f2810d447771 cb8833bab63d -->
+### setup.sh 子命令
 
-`just docker setup deploy`（或直接调用 `./setup.sh deploy`）用同一份 `setup.toml` 打包出自带式的 field 部署**目录** —— 即上述路由模型的 deploy 半边（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修订 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它针对 *field 导向* 的 stage（默认 `runtime`；**绝不**是 `devel` 或任何 `*-test` stage），产出的目录带齐目标主机需要的一切 —— field 主机不会看到 base 的工具链、源码树或 `setup.toml`。
-
-```bash
-just docker setup deploy                      # 打包 runtime bundle（会先确认）
-just docker setup deploy --stage runtime      # 显式指定 field stage
-just docker setup deploy --dry-run            # 只打印 build plan，不实际 build
-just docker setup deploy --stage runtime -y   # 跳过确认提示
-just docker setup deploy -o /tmp/robot-bundle # 自定义输出目录
-```
-
-Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 目录已被 gitignore；`<version>` = `git describe --tags --always --dirty`，镜像 tag 为 `<repo>:<stage>-<version>`，所以同一台主机加载多个 field 版本不会互相冲突）。内含：
-
-| 文件 | 是什么 |
-|---|---|
-| `image.tar.xz` | `xz` 压缩过的镜像（`deploy.sh` 会 `docker load` 它） |
-| `compose.yaml` | 完全解析、自带式的 compose —— 全是字面值、**没有 `${VAR}` 插值**（GUI stage 的 `${DISPLAY}` host passthrough 除外），不依赖 `setup.toml` / `.env`；带 `restart: unless-stopped` |
-| `config/` | 每个可由操作者调整之文件的可编辑副本（见下） |
-| `deploy.sh` | 轻量的 `up` / `down` / `logs` 启动器 |
-| `README` | 给 field 操作者的说明 |
-
-依序做这些事：
-
-1. 把 `[environment]` 默认烤成镜像的真 `ENV`（S3），每个 `config/<component>/` 都 `COPY` 进镜像的 `/opt/app/config/<component>`（S4）—— 使 field 镜像自带（不带 env 文件、不带 config bind）；
-2. `docker build --target <stage>` 出不可变镜像，tag 为 `<repo>:<stage>-<version>`；
-3. `docker save | xz` 成 `image.tar.xz`；
-4. 写出完全解析的 `compose.yaml`（与 `apply` 共用同一套 resolver，所以 field 永远不会跟 dev 漂移）、`deploy.sh` 启动器与 `README`，再把每个可调整文件 baked 的默认抽出来放进 `config/`。
-
-build 前会打印解析后的 `compose.yaml`，让你逐项检视每个解析后的参数再确认（`-y` 跳过；`--dry-run` 只打印 plan 不 build；非交互 shell 未带 `-y` 会拒绝）。
-
-**只要 `<repo>/setup.local.toml` 存在，它就直接拒绝。** 该文件是 gitignored 的，因此从干净 checkout 无法重现用它 build 出来的 bundle —— 而 bundle 本身不会有任何说明（[PRD invariant 8](../PRD.md)、[ADR-00000025](../adr/00000025-per-worktree-setup-conf-local-override.md)）。拒绝发生在预览之前、任何 build 步骤之前，所以 `--dry-run` 也会报告。`--allow-local-override` 会照样 build，并把取自那个未进版本控制文件的 section 记进 bundle 自己的 `README` —— 因为在 field 运行这个 bundle 的人，不是当初决定绕过这道关卡的人。
-
-**在 field 机器上** —— 把整个目录复制过去，再用 `deploy.sh` 启动器操作（它会加载镜像并驱动 `docker compose`；不用 `docker run`、不用 `setup.toml`、不用 base 工具链）：
-
-```bash
-cd <repo>-runtime-<version>
-./deploy.sh up      # unxz | docker load 镜像，再 docker compose up -d
-./deploy.sh logs    # docker compose logs（加 -f 可跟随）
-./deploy.sh down    # docker compose down
-```
-
-`restart: unless-stopped` 表示主机重启后容器会自动起来；要停掉请用 `./deploy.sh down`。
-
-**在 field 调整配置（免 rebuild）**：组件在 committed 的 `config/<component>/deploy.manifest`（INI-lite，每个 stage 一个 section，各自列出容器内绝对路径）声明哪些容器内路径允许 field 操作者重新调整。Bundle 会为每个声明的文件附上一份可编辑副本放在 `config/`，解析后的 `compose.yaml` 再把它 bind mount 盖过镜像里 baked 的默认（**mount-wins**）。改完 `config/` 下的文件，重跑 `./deploy.sh up` 即可 —— 挂载的副本胜出，不用 rebuild。**没有**声明的路径维持只有 baked 版本。镜像必须在每个声明的路径都 bake 一份默认文件，否则 deploy 生成阶段会明确报错并给出可行的修法。
-
-这些 bind **默认是只读（`:ro`）**：由操作者在 host 上编辑、容器只负责读。要让容器可写，必须在路径后面明确加上 `rw` flag，让例外变成可 review 的数据而不是一律放行：
-
-```ini
-[runtime]
-/etc/myapp/camera.yaml                  # 只读，默认值
-/var/lib/myapp/calibration.yaml rw      # 这一个容器可以写
-```
-
-路径后面出现其他东西（打错字、多一个 token）一律视为 manifest 格式错误，明确报错并指出文件名与行号 —— 不会静默跳过，也不会静默退回只读。默认不放宽的理由是：「操作者调整某个值」本来就不需要容器写入，而可写的 mount 会悄悄依赖容器 build 时 bake 的 user id 刚好等于在 field 主机解开 bundle 的人：读都没问题，写则会在最要命的那台机器上失败。改成只读后，这件事会在开发阶段就立刻、明显地失败，同时把 user id 的问题限缩在真正声明 `rw` 的那几个路径（见 [#870](https://github.com/ycpss91255-docker/base/issues/870)）。
-
-workload 环境变量以 baked `ENV` 默认的形式随镜像走（GUI stage 另外会从 field 主机自己的 shell 读 `${DISPLAY}` / `${XAUTHORITY}` 等）；dev 的 workspace bind 刻意舍弃（field 镜像自带代码）。`--group-add` 的 GID（iGPU `/dev/dri`）读自生成主机，换到不同 field 机器可能需调整。
-
-**持续部署（CD）**：deploy 工具只诚实标记、从不阻挡 —— 它会盖上 `-dirty` / short-commit 的 `<version>`，所以任何树状态都能做 review 部署。自动化 CD 请先调用 base 出货的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作树不干净**或** HEAD 不在 tag 上时会拒绝部署，确保出货的 field bundle 永远可以追溯到某个已发布版本。
-
-<!-- sync: setupsh-subcommands-v0110 032cfb44b789 127ecb7e6a5d -->
-### setup.sh 子命令（v0.11.0+）
-
-`setup.sh` 是 git 风格的后端，提供明确的子命令。build / run / TUI 脚本会代为调用；直接调用适合脚本化 / 非交互场景：
+`setup.sh` 是 git 风格的后端，提供明确的子命令，入口是
+`just docker setup <子命令>`。build / run / TUI 脚本会代为调用；直接调用适合
+脚本化／非互动情境：
 
 | 子命令 | 用途 |
 |---|---|
-| `apply` | 从 setup.toml + 系统检测重新生成 `.env` + `.env.generated` + `compose.yaml`（不会动 `.env.local`） |
-| `check-drift` | 同步返回 0、漂移返回 1（漂移描述输出到 stderr） |
-| `set <section>.<key> <value>` | 写入单个键值。`--local` 改写 gitignored 的 `setup.local.toml` 而非已 commit 的 `setup.toml`；不加时，若写的 section 已被 `setup.local.toml` 定义会指名警告 |
-| `show <section>[.<key>]` | 读取单键或整个 section |
-| `list [<section>]` | INI 风格 dump |
-| `add <section>.<list> <value>` | 加到列表型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1`。可加 `--local` |
+| `apply` | 从 setup.toml + 系统检测重新产生 `.env` + `.env.generated` + `compose.yaml`（不会动 `.env.local`） |
+| `check-drift` | 同步回 0、漂移回 1（漂移描述印到 stderr） |
+| `set <section>.<key> <value>` | 写单一键值。`--local` 改写 gitignored 的 `setup.local.toml` 而非已 commit 的 `setup.toml`；不加时，若写的 section 已被 `setup.local.toml` 定义会指名警告 |
+| `show <section>[.<key>]` | 读单键或整 section |
+| `list [<section>]` | key = value 形式的 dump |
+| `add <section>.<list> <value>` | 加到清单型 section（`mount_*` / `env_*` / `port_*` …）；优先填空 slot，否则用 `max+1`。可加 `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值删除。可加 `--local` |
-| `reset [-y\|--yes]` | 恢复 template 默认；旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.bak`。不会动 `.env.local` |
-| `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自带式的 field 部署**目录**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可编辑的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 默认 `runtime`（不可为 `devel` / `*-test`）；build 前先预览解析后的 `compose.yaml` 并确认。`setup.local.toml` 存在时会拒绝，除非加 `--allow-local-override`。见 [Field 部署](#field-部署just-docker-setup-deploy) |
+| `reset [-y\|--yes]` | 回复 template 默认；旧 `setup.toml` → `setup.toml.bak`、旧 `.env.generated` → `.env.bak`。不会动 `.env.local` |
+| `deploy [--stage S] [-y] [--dry-run] [--allow-local-override]` | 打包 field 部署 bundle；见 [field-deploy.md](../guide/field-deploy.md) |
 
-带类型的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**会自动重新生成 `.env.generated` — 需要时自行接 `apply`，或下次 `build.sh` / `run.sh` 检测到 drift 也会自动重新生成。
+有型别的键会走 `_tui_conf.sh` 的 validator（与 TUI 同一套）。`set` / `add` /
+`remove` / `reset` **不**会自动重新产 `.env.generated` — 需要时自行接
+`apply`，或下次 build / run 检测到 drift 也会自动重产。无参数的 `setup.sh`
+只印 help：v0.11.0 拿掉隐式 `apply` 的纪录见
+[doc/deprecations.md](../deprecations.md)。
 
-<!-- sync: migration-from-v010x-breaking 6bd85945e2d2 e3b0aa4e832d -->
-#### v0.10.x 升级（BREAKING）
-
-`setup.sh`（无参数）与 `setup.sh --base-path X --lang Y`（无子命令）以前会 silently 走到 `apply`。v0.11.0 移除这个 fall-through：
-
-| 调用方式 | v0.11 之前 | v0.11+ |
-|---|---|---|
-| `setup.sh` | 跑 apply | 打印 help，exit 0 |
-| `setup.sh --base-path X --lang Y` | 跑 apply | exit 1「Unknown subcommand」 |
-| `setup.sh apply [...]` | 跑 apply | 跑 apply（不变） |
-
-下游 repo 若有自定脚本直接调用 `setup.sh`，前面加 `apply`。template 内附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
-
-<!-- sync: derived-artifacts-gitignored a3a31b52be28 074353a6c37a -->
+<!-- sync: derived-artifacts-gitignored a3a31b52be28 4265c52867d3 -->
 ### 衍生文件（gitignored）
 
-- `.env.generated` — compose 插值用的变量（含解析后的 `PROJECT_NAME`）
+- `.env.generated` — compose 插值用的变数（含解析后的 `PROJECT_NAME`）
   + `SETUP_*` drift metadata;从不进容器
-- `.env` — 进容器的默认值：`[environment]` 列表与 `[lifecycle] watchdog_*`
-  区块，以填好的列表呈现
+- `.env` — 进容器的默认值：`[environment]` 清单与 `[lifecycle] watchdog_*`
+  区块，以填好的清单呈现
 - `compose.yaml` — 含 baseline 与条件区块的完整 compose
 
 任何时候打开 `compose.yaml` 都能看到当下完整 runtime 配置。每次
-`just base upgrade` 都会重新生成这三个文件（init.sh 在 subtree pull 后重跑
+`just base upgrade` 都会重生这三个文件（init.sh 在 subtree pull 后重跑
 `setup.sh apply`）— 不要手改，需要 override 写到 `setup.toml`。
 
-`.env.local` 同样被 gitignore，但**不是**衍生文件：它是你的，第一次 apply 时
-scaffold 一次，之后永不覆写。可以放心编辑，跑 setup 也不会覆盖。compose 在
-`.env` 之后才加载它，所以同名 key 以你的值为准。
+`.env.local` 一样被 gitignore，但**不是**衍生文件：它是你的，第一次 apply 时
+scaffold 一次，之后永不覆写。可以放心编辑，跑 setup 也不会盖掉。compose 在
+`.env` 之后才载入它，所以同名 key 以你的值为准。
 
 > **从 v0.43.0 之前升级**：`.env` 以前是手写文件。`just base upgrade` 会在任何
-> 东西重新生成它之前，先帮你把手写的 `.env` 改名为 `.env.local`。若你跳过那条
+> 东西重生它之前，先帮你把手写的 `.env` 改名成 `.env.local`。若你略过那条
 > 升级路径而先跑了 `setup`，只有当该文件是旧的插值 cache 时值才会留在
 > `.env.bak`，否则请从自己的备份还原。
 
 `setup.local.toml` 在上一层是同样的形状：gitignored、属于你、工具永不改写。
-它是配置的*输入*而不是产物 —— 见
+它是配置的*输入*而不是产出 —— 见
 [三层配置](#三层配置第三层是你的setuplocaltoml)。
 
-<!-- sync: per-wrapper-hooks-440 3f5c5d24592f 1aedc627edbc -->
-### 每个 wrapper 的 pre/post hook（#440）
+<!-- sync: upgrading 56de8c94ebd2 cda6dbd6204d -->
+## 升级
 
-每个 wrapper（`run` / `build` / `exec` / `stop` / `prune` / `setup` /
-`setup_tui`）会检测以下两个可选的 repo-local script：
+<!-- sync: updating 0c4663a7ac2e 879f1b5ae15d -->
+### 更新
 
-```
-script/hooks/pre/<wrapper>.sh    # env 准备完成后、主逻辑前
-script/hooks/post/<wrapper>.sh   # 主逻辑后（run.sh 则在 EXIT trap 内）
-```
-
-`init.sh` 自动创建 14 个 executable stub（默认 `exit 0`），所以
-hook 框架开箱即用。把 `exit 0` 换成你的 host-side 步骤（如
-`multiarch/qemu-user-static` binfmt 注册、mount 目录创建、硬件预检）。
-Stub 对 upgrade 幂等 — pre-#440 的 template 跑 `just base upgrade` 后自动
-补齐 scaffolding。
-
-**Contract：**
-
-| 方面 | 行为 |
-|---|---|
-| 参数 | 跟 wrapper 收到的 `"$@"` 一样 |
-| 执行位置 | 主机（**不是** container 内） |
-| `pre` 非零 | abort wrapper |
-| `post` 非零 | override wrapper exit code；cleanup 照跑（run.sh） |
-| 非 executable | hard fail + `chmod +x` 提示 |
-| `--dry-run` | 两个 hook 都 silent skip |
-
-**示例 — jetson_sdk_manager binfmt 注册：**
-
-```bash
-# script/hooks/pre/run.sh
-#!/usr/bin/env bash
-if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
-  docker run --rm --privileged \
-    multiarch/qemu-user-static --reset -p yes
-fi
-```
-
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 610767fed195 538934143ad9 -->
-### 命名规则：三个 namespace、两个 user 身份
-
-`setup.sh` 会在 `.env` / `compose.yaml` 产生两个名称，第三个由
-compose 自己推导。它们在单人开发机上看起来很像，但其实分布在**三个
-独立的 namespace**，并使用两个**不同的 user 身份**作前缀。多 user
-共用主机的场景下这层差异会浮现；个人开发机上两个身份通常一致可以
-不必深究。
-
-| 名称 | 格式 | Namespace | User 前缀 |
-|---|---|---|---|
-| `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（界定 container / 默认 network / volume label） | `DOCKER_HUB_USER`（没有登录时检测为 OS user） |
-| container 名称 | `<project>-<service>-<n>`，由 compose 推导 | **本地 daemon**（flat 全局） | 继承自 project |
-
-- `DOCKER_HUB_USER` — 你的 Docker Hub 账号，用于在 registry 端把
-  image 加上命名空间。即使从未实际 push，image tag 也以这个
-  identity 拼成 `<DOCKER_HUB_USER>/<repo>:<tag>`。机器上没有登录
-  Docker Hub 时，`setup.sh` 不会让它留空，而是检测成你的 **OS
-  user**（`${USER}`，否则 `id -un`）。
-- `USER_NAME` — 主机 OS user（`id -un`），以 build arg 传进去让
-  container 内的用户与家目录和你一致。它不是上表任何名称的前缀。
-
-刻意把两个身份分开。Image 用 Docker Hub 身份是因为 image 是会在
-registry 上被定址的；如果以 OS user 做前缀，buildx cache 与
-Docker Hub layer 共享会直接失效。Project name 用的就是同一个身份，
-单人机上两者才会对齐 — 而在共享机器上，因为上面那层检测本来就会
-退回 OS user，不需要第二条规则、也不需要任何配置，project name 就
-已经因人而异。这个身份唯一分不开的情况，是两个 OS user 共用同一个
-Docker Hub 登录；见下方示例。
-
-**开发 stack 不 emit `container_name:`，唯一的例外是 field deploy
-bundle（`just docker setup deploy`）。** Container 名称属于 daemon 层的
-namespace、不属于 project 层，所以写死一个名字等于把该 service 绑
-在「每台 host 只能有一份」：同一个 repo 的第二份 stack 无论取什么
-project name，都会以 `name ... is already in use` 起不来，而且只要
-这个字段还在，compose 就拒绝 `--scale`。交给 compose 推导
-`<project>-<service>-<n>`，名字天生唯一 — 于是 host 层的隔离完全
-落在 project name 上。
-
-唯一的例外是 field deploy bundle（`just docker setup deploy`），它确实会
-写死一个 `container_name:`。那份 bundle 是完全 resolve 过、自带所有
-内容的单机 artifact — 一台设备一份 stack、不会和别人同机共存、也没有
-任何 overlay 会展开它 — 操作者要的就是一个固定名字可以 `docker
-logs`。两个 emitter、两套规则；上面共存的论述讲的是开发 stack。
-
-```
-COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
-COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
-```
-
-使用方式没有任何改变：`just exec -t <target>` 收的一直是 compose
-**service** 名称（它本来就直接转交给 `compose exec`），`just run` /
-`just stop` 本来就以 project 为范围。真正改变的是：手动
-`docker exec <固定名称>` 不再有固定名称可用 — 改问 compose（`just
-exec`）。
-
-base 自己的操作面仍是**单一 instance**（#600）：每个 repo 一个
-project，由 `setup apply` 解析一次。把同一个 repo 跑成 N 份并行
-stack 属于 compose 那一层，就像 `docker` 本身没有 project 概念、
-`-p` 归 `docker compose` 管一样。
-
-同一个 repo 的两个 *checkout* 是另一个问题，而这个 base 有解：用
-`setup.local.toml` 的 `[project] name` 给每个 checkout 自己的
-project name — 见[同时跑两个 worktree](#同时跑两个-worktree)。
-
-示例。OS user `alice`、Docker Hub user `alice-hub`、repo
-`claude_code`：
-
-```
-image:          alice-hub/claude_code:devel
-project name:   alice-hub-claude_code
-container:      alice-hub-claude_code-devel-1   (compose 推导)
-```
-
-第二位 OS user `bob` 在同台机器上，且没有配置 Docker Hub 账号：
-
-```
-image:          bob/claude_code:devel           (hub user 检测成 OS user)
-project name:   bob-claude_code                 (同一个前缀,零配置)
-container:      bob-claude_code-devel-1         (compose 推导)
-```
-
-若 `alice` 与 `bob` 共用同一个 `DOCKER_HUB_USER`（例如共用 CI
-service 账号），连 project name 都会一样 — 这正是该设
-`[project] name` 的场景：这个配置本来就存在，而现在没有
-`container_name` 盖在上面，它才真的管得到 container。
-
-<!-- sync: quick-start 629a4900e292 af008f0c036e -->
-## 快速开始
-
-<!-- sync: adding-to-a-new-repo 9d28519b56a5 4e22102bf728 -->
-### 添加到新 repo
-
-```bash
-# 1. 初始化空的 repo（若已有 repo 且至少一个 commit 则跳过）
-mkdir <repo_name> && cd <repo_name>
-git init
-git commit --allow-empty -m "chore: initial commit"
-
-# 2. 添加 subtree（钉到指定的 release tag，不要用会移动的 branch）
-git subtree add --prefix=.base \
-    https://github.com/ycpss91255-docker/base.git vX.Y.Z --squash
-
-# 3. 初始化 symlinks（一次性 bootstrap；底层会跑 setup.sh）。
-#    之后改用 `just base init`（symlink 后的入口）。
-./.base/dist/script/base/init.sh
-```
-
-> `git subtree add` 需要 `HEAD` 存在。在刚 `git init` 且没有任何 commit 的 repo 上会报错 `ambiguous argument 'HEAD'` 与 `working tree has modifications`。用空 commit 建立 `HEAD`，subtree 才能 merge 进来。
-
-<!-- sync: updating 11a2eb107f15 56790c23019f -->
-### 升级
-
-前置条件：`git config user.name` / `user.email` 必须有设置，working tree
+前置条件：`git config user.name` / `user.email` 必须有设，working tree
 不能在进行中的 merge / rebase / cherry-pick / revert — upgrade.sh 会
-fail-fast 并打印可操作信息，避免半套 pull。
+fail-fast 带可操作讯息，避免半套 pull。
 
 ```bash
 # 检查是否有新版
@@ -993,32 +495,34 @@ just base upgrade v0.3.0
 ```
 
 `upgrade.sh` 一次完成。**它会写入你的 repo，而且其中一部分写的是你自己的
-文件** — 如果这个 repo 有正在跑的 field 部署，请先读下一小节。流程：
+文件** — 如果这个 repo 有正在跑的 field 部署，请先读
+[upgrade.sh 会改写你 repo 里的哪些文件](#upgradesh-会改写你-repo-里的哪些文件)。流程：
 
-0. **Migration，在所有步骤之前执行，各自独立 commit。** 见
-   [upgrade.sh 会改写你 repo 里的哪些文件](#upgradesh-会改写你-repo-里的哪些文件)。
-1. `git subtree pull --prefix=.base ... --squash`
+1. `git subtree pull --prefix=.base ... --squash`，commit 讯息为
+   `chore: upgrade .base subtree to <version>`
 2. Post-pull 完整性检查 — subtree marker（`.base/.version`、
    `.base/dist/script/base/init.sh`、`.base/dist/script/docker/wrapper/setup.sh`）若不见了会
    `git reset --hard` rollback（防旧版 `git-subtree.sh` destructive FF）
-3. `./.base/dist/script/base/init.sh` 重跑：重整 root symlinks（`build.sh` / `run.sh`
-   / `justfile` …）、把 `.gitignore` 同步到 canonical entry set、
+3. `./.base/dist/script/base/init.sh` 重跑：重整 `script/*.sh` wrapper symlink
+   与根目录的 `justfile`、移除已退役的根目录连结、运行依版本区间选出的具名
+   migration、把 `.gitignore` 同步到 canonical entry set、
    `git rm --cached` 已经变成 derived artifact 的旧 tracked 文件
    （`.env.generated`、`compose.yaml`、…），最后调用 `setup.sh apply`
-   重新生成 `.env.generated` + `compose.yaml`
-4. `sed` 改写 `.github/workflows/main.yaml` 的
-   `build-worker.yaml@vX.Y.Z` / `release-worker.yaml@vX.Y.Z`
+   重生 `.env.generated` + `compose.yaml`
+4. `sed` 改写 `.github/workflows/main.yaml` 里每一个
+   `ycpss91255-docker/base/.github/workflows/<file>@vX.Y.Z` ref，连同步骤 3
+   的变更一起 commit 为 `chore: update template references to <version>`
 5. `apply_migrations`（`lib/dockerfile_migrate.sh`）修补 **repo 根目录的
    `Dockerfile`** 与 **`script/entrypoint.sh`**（base contract 在它们底下
    改变时），并把结果放进与步骤 3-4 同一个 commit
 
 不要手动 `git subtree pull` — 完整性检查、init.sh resync、sed 与 migration
-步骤容易漏掉。
+步骤很容易漏掉。
 
-**pull 之后任何一步失败，整个升级都会被回滚。** pull 会先 commit，步骤
+**pull 之后任何一步失败，整个升级都会被还原。** pull 会先 commit，步骤
 2-5 才跑，所以以前在那里中断会留下一个「版本号已经跳、resync 从没跑过」
 的 repo — 一堆断掉的 wrapper 配上干净的 `git status`。现在整个 run 会
-reset 回它开始时的 commit，并把自己创建的文件清掉，失败的升级留下的是
+reset 回它开始时的 commit，并把自己建立的文件清掉，失败的升级留下的是
 「没有任何变化，加上一个错误」。你手上未 commit 的东西不会有风险：
 `git subtree` 本来就拒绝在 dirty tree 上启动，所以 pull 之后出现的每个
 变更都是这次升级自己造成的。
@@ -1026,7 +530,7 @@ reset 回它开始时的 commit，并把自己创建的文件清掉，失败的�
 > **从 `v0.41.0`（或更早）升级到已经搬过文件的 tree。** 驱动升级的脚本
 > 是你自己 `.base/` 里 vendored 的那一份，所以实际跑的是旧 release 的版
 > 本。`v0.41.0` 以前的 release 调用 `./.base/init.sh`，而 `dist/` 重整
-> 把它搬走了；旧路径上的兼容转发器让它们继续可用。如果你已经踩到这个失
+> 把它搬走了；旧路径上的相容转发器让它们继续可用。如果你已经踩到这个失
 > 败（`.base/.version` 已经跳版、`just --list` 说找不到 justfile），没
 > 有任何东西损坏 — 只是 resync 没跑到。手动跑一次并 commit：
 >
@@ -1035,8 +539,8 @@ reset 回它开始时的 commit，并把自己创建的文件清掉，失败的�
 > git add -A && git commit -m "chore: resync .base wrappers"
 > ```
 
-<!-- sync: pointing-base-at-a-different-upstream 46d9dded3008 86c69973b62d -->
-#### 把 `.base` 指向别的 upstream
+<!-- sync: pointing-base-at-a-different-upstream 9621cc89b4d5 a38b608bdda8 -->
+#### 把 `.base` 指到别的 upstream
 
 `TEMPLATE_REMOTE` 是所有 `.base` 操作读的 git remote：查「有没有新 tag」
 以及那个会改写你 working tree 里 `.base/` 的 `git subtree pull`。默认是
@@ -1053,85 +557,78 @@ TEMPLATE_REMOTE=git@github.com:ycpss91255-docker/base.git just base upgrade
 TEMPLATE_REMOTE=git@github.com:acme/base.git just base upgrade v1.2.0
 ```
 
-**`.base/dist/` 底下的每个文件都是从这个 URL 抓下来、然后被执行的** —
+**`.base/dist/` 底下的每个文件都是从这个 URL 抓下来、然后被运行的** —
 wrapper、lib、Dockerfile、entrypoint 都是。只把它指向你信任程度等同自己
-repo 的来源：控制那个 repo 的人，就控制了你下次 `just build` 跑的东西。
-这也是它被设计成逐次调用的环境变量、而不是 conf key 的原因 — 改指向这件事
+repo 的来源：控制那个 repo 的人，就控制了你下次 `just docker build` 跑的东西。
+这也是它被设计成逐次调用的环境变数、而不是 conf key 的原因 — 改指向这件事
 会留在你看得到的那行命令里，而不是躺在某个文件里默默影响之后每一次升级。
 长期维护的 fork 应该明确写进你自己的工具链，而不是在 shell profile 里
 export。
 
-每周的升级「提醒」（`check-base-version.sh`）读的是另一个变量 `BASE_REPO`；
+每周的升级「提醒」（`check-base-version.sh`）读的是另一个变数 `BASE_REPO`；
 见 [CONTEXT.md](../../CONTEXT.md) 的 base version monitor。
 
-<!-- sync: what-upgradesh-rewrites-in-your-repo 2d72a78fe44c fee12d943744 -->
+<!-- sync: what-upgradesh-rewrites-in-your-repo a9b5fd89f4c4 9b719b04073f -->
 #### upgrade.sh 会改写你 repo 里的哪些文件
 
 `.base/` 是 base 的，其他都是你的。即使如此，升级对 `.base/` 以外**并非**
-只读：无法在 subtree 内部吸收的 base contract 变更，会改在你的文件上修补，
+唯读：无法在 subtree 内部吸收的 base contract 变更，会改在你的文件上修补，
 而且 upgrade.sh 是用 **commit** 的方式做，所以这些变更会以你的名义进入你的
-history。过程都会打印到 stdout，不是静默的 — 但信息会滚过去，所以完整清单如下。
+history。过程都会印在 stdout，不是静默的 — 但讯息会卷过去，所以完整清单如下。
 
-| 时机 | 改写什么 | Commit 信息 |
+| 时机 | 改写什么 | Commit 讯息 |
 |---|---|---|
-| 步骤 1 之前 | `config/docker/setup.conf` → `.setup.conf`（`git mv`；若两者都存在则拒绝改动并提示，以根目录的文件为准） | `chore: relocate setup.conf override to repo-root .setup.conf` |
-| 步骤 1 之前 | `.setup.conf` 的 `[lifecycle] restart = no` → `unless-stopped` | `chore: migrate [lifecycle] restart default to unless-stopped` |
+| 步骤 1 | `.base/`（subtree pull） | `chore: upgrade .base subtree to <version>` |
+| 步骤 3 | 搬迁前的 `config/docker/setup.conf` 移到根目录的 `.setup.conf`（两者都存在时合并，`lib/setup_conf_migrate.sh`） | 并入步骤 4 的 commit |
+| 步骤 3 | 旧 INI 格式的 `.setup.conf` 转成 `setup.toml`（`lib/ini_to_toml_migrate.sh`） | 并入步骤 4 的 commit |
+| 步骤 3 | 手写的 `.env` 改名成 `.env.local` | 并入步骤 4 的 commit |
+| 步骤 3 | `setup.toml` 的 `[lifecycle] restart = "no"` → `"unless-stopped"`，依跨越的版本区间选出（`lib/version_migrate.sh`） | 并入步骤 4 的 commit |
 | 步骤 3 | `.gitignore` canonical entry；`git rm --cached` 已变成 derived 的文件 | 并入步骤 4 的 commit |
-| 步骤 4 | `.github/workflows/main.yaml` 的 worker `@tag` | `chore: update template references to <version>` |
-| 步骤 5 | repo 根目录的 `Dockerfile`、`script/entrypoint.sh` | 并入步骤 4 的 commit |
+| 步骤 4 | `.github/workflows/main.yaml` 的 worker `@vX.Y.Z` ref | `chore: update template references to <version>` |
+| 步骤 5 | repo 根目录的 `Dockerfile`、`script/entrypoint.sh`（`apply_migrations`） | 并入步骤 4 的 commit |
 
 > **restart 这条 migration 会改变 runtime 行为。** `[lifecycle] restart`
 > 以前属于 devel 范畴、template 默认是 `no`，而 `init.sh --gen-conf` 会整份
 > 复制 template，所以几乎每个 repo 都带着一个没有人真的选过的
-> `restart = no`。这个 key 现在属于 deploy 范畴（见英文版 README 的
-> “Restart policy is deploy-scoped”），那个被复制过来的 `no` 因此在结构上
-> 就是过期的。所以它会被改写 — **原本 host 重启后不会自己起来的
-> deployable stage 容器，之后会自己起来。** 若这不是你要的，升级后把它改回
-> `no`；migration 从此不会再动它。
->
-> 它只会在跨越这次 rescope 的那一次升级触发（判断依据是 *pull 之前*
-> vendored 的 template 仍然出货 `restart = no`），只在你的值刚好是 `no` 时
-> 触发，选过其他值的 repo 一律不动。
+> `restart = no`。这个 key 现在属于 deploy 范畴（见
+> [lifecycle.md](../guide/lifecycle.md#restart-policy-is-deploy-scoped-841)），
+> 那个被复制过来的 `no` 因此在结构上就是过期的。所以它会被改写 —
+> **原本 host 重开机后不会自己起来的 deployable stage 容器，之后会自己起来。**
+> 它只在版本区间跨越这次 rescope 的那一次升级运行，只在你的值刚好是 `no` 时
+> 触发，选过其他值的 repo 一律不动。若 `no` 才是你要的，升级后改回去；之后
+> 不会再被改写。
 
 **升级后想确认到底动了哪些文件：**
 
 ```bash
-git log --oneline <升级前的 sha>..HEAD          # 按名称列出 migration commit
+git log --oneline <升级前的 sha>..HEAD          # 依名称列出升级 commit
 git diff <升级前的 sha>..HEAD -- . ':!.base'    # .base/ 以外的所有变更
 ```
 
-upgrade.sh **不会**动的：`setup.toml` 里除了那一行 `[lifecycle] restart`
-以外的内容，以及 `<repo>/config/`（bashrc / tmux / terminator …）完全不动 —
+upgrade.sh **不会**动的：`setup.toml` 里除了上面这些 migration 以外的内容，
+以及 `<repo>/config/`（bashrc / tmux / terminator …）完全不动 —
 若上游 `.base/dist/config/` 或 `.base/dist/setup.toml` 自上次 pull 后有变动，
 upgrade.sh 会打印 `diff -ruN .base/dist/config config` 提示，由你自行
 reconcile，而不是替你合并。
 
-<!-- sync: automated-version-bumps-optional 7a8394ea238f fbbb90caed03 -->
-#### 自动升版（可选）
+<!-- sync: automated-version-bumps-optional 885a5a03faa6 37860298e460 -->
+#### 自动升版（选用）
 
-下游 repo 可以让 Dependabot 在 `base` 出新 tag 时自动开 PR。加入 `.github/dependabot.yml`：
+Dependabot 可以在 base 出新 tag 时自动开 PR：加一个 `.github/dependabot.yml`，
+用 `github-actions` ecosystem、`directory: "/"`。它只会更新 `main.yaml` 里的
+`uses: ycpss91255-docker/base/...@vX.Y.Z` ref；subtree 本身仍需在本地跑
+`just base upgrade vX.Y.Z`。
 
-```yaml
-version: 2
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-```
-
-Dependabot 会读 `main.yaml` 里的 `uses: ycpss91255-docker/base/...@vX.Y.Z` ref，比对 base 最新 tag 后开 PR。subtree 本身仍需在本地跑 `just base upgrade vX.Y.Z` — Dependabot 只负责 workflow ref。
-
-<!-- sync: ci-reusable-workflows 037f8d72c0f1 ff9a12c82cb8 -->
+<!-- sync: ci-reusable-workflows 5b9ed4f4572c a655ce93185a -->
 ## CI Reusable Workflows
 
-各 repo 将本地的 `build-worker.yaml` / `release-worker.yaml` 替换为调用此 repo 的 reusable workflows：
+下游 repo 从 `.github/workflows/main.yaml` 调用这些 reusable workflow：
 
 ```yaml
 # .github/workflows/main.yaml
 jobs:
   call-docker-build:
-    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@vX.Y.Z
     with:
       image_name: my_app
       build_args: |
@@ -1142,28 +639,34 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
-    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v1
+    permissions:
+      contents: write
+    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@vX.Y.Z
     with:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 40409afe0592 769ad3ce8903 -->
-### build-worker.yaml 参数
+<!-- sync: build-workeryaml-common-inputs 22209d9818e6 70e1b636d063 -->
+### build-worker.yaml 常用参数
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `image_name` | string | 是 | - | 容器镜像名称 |
 | `build_args` | string | 否 | `""` | 多行 KEY=VALUE 构建参数 |
-| `build_runtime` | boolean | 否 | `true` | 退出 runtime 构建(`false`)。stage 是否存在改由 Dockerfile 决定:有声明 `runtime` / `runtime-test` 才构建,没有就跳过,所以没有 runtime stage 的 repo 不必改这一项 |
-| `platforms` | string | 否 | `"linux/amd64"` | 逗号分隔的目标平台；每个在原生 runner 上并行运行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
+| `build_runtime` | boolean | 否 | `true` | 退出 runtime 构建(`false`)。stage 是否存在改由 Dockerfile 决定:有宣告 `runtime` / `runtime-test` 才构建,没有就跳过,所以没有 runtime stage 的 repo 不必改这一项 |
+| `platforms` | string | 否 | `"linux/amd64"` | 逗号分隔的目标平台；每个会在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
+
+全部 11 个参数：见 `.github/workflows/build-worker.yaml` 的
+`on.workflow_call.inputs`
+（[ADR-00000028](../adr/00000028-documentation-is-derived-not-duplicated.md)）。
 
 `devel-test` / `runtime-test` stage 构建时 FROM 的工具镜像不是参数。它由
 worker 以自身 ref 取出的 base checkout 中的 `.version` 推导而来，那也是
-`release-test-tools.yaml` 发布该镜像所用的 tag——所以你固定 worker 的
-`@vX.Y.Z`，同时也固定了工具镜像。这件事以前由 `test_tools_version` 参数
-承载，默认是滚动的 `latest`；仍在传该参数的调用方必须删除那一行。
+`release-test-tools.yaml` 发布该镜像所用的 tag——所以你钉住 worker 的
+`@vX.Y.Z`，同时也钉住了工具镜像。这件事以前由 `test_tools_version` 参数
+承载，默认是滚动的 `latest`；仍在传该参数的调用端必须移除那一行。
 
-<!-- sync: release-workeryaml-inputs 76c6974e7c8c 85321649f314 -->
+<!-- sync: release-workeryaml-inputs 89f7de4f5d1a 52af940d9817 -->
 ### release-worker.yaml 参数
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
@@ -1172,129 +675,63 @@ worker 以自身 ref 取出的 base checkout 中的 `.version` 推导而来，�
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
 | `version` | string | 否 | `""` | 要发布的版本（`vX.Y.Z`）。走 tag 触发路径时留空，版本会从所推的 tag 读出。若要从非 tag 的 run 直接调用这个 worker 就传入它：用默认 `GITHUB_TOKEN` 产生的事件不会启动新的 workflow run，所以要自动发布已合并变更的 repo，靠推 tag 到不了这里。不是 `vX.Y.Z[-suffix]` 的值会被拒绝，而不是照样拿来发布 |
 
-<!-- sync: running-template-tests d17e2a643fbc 52e3c3eb0eb1 -->
-## 本地运行测试
+`publish-worker.yaml`（opt-in，给其他 repo 会 `FROM` 的基础 image repo）在推
+tag 时把 Dockerfile 的某个 target stage 推到 registry；它的参数、多变体的调用
+范例，以及 base release 的 source archive 与下游 release 有何不同，见
+[publish-worker.md](../guide/publish-worker.md)。
 
-base 自测入口 `just test`：
+<!-- sync: development-and-tests 750400f91f7b b75bafeb43e0 -->
+## 开发与测试
+
+在 base checkout 内（`script/test/justfile.test`）：
+
 ```bash
-just test        # 快速 CI（ShellCheck + Hadolint + Bats，no kcov）通过 docker compose
-just test coverage    # Bats 全套跑在 kcov 下；不跑 lint 阶段
-just test lint        # lint 阶段的全部 linter（ShellCheck + Hadolint 及其余）
-just test clean       # 清除覆盖率报告
-just test stop        # 停掉本 checkout 自测的容器
-just                            # 显示 repo 命令
-just --list        # 显示 CI 命令
+just test               # 所有 linter + Bats（no kcov），透过 docker compose
+just test lint          # lint 阶段的全部 linter
+just test lint --shellcheck   # 只跑一个 linter（--hadolint、--readme-sync、...）
+just test coverage      # Bats 全套跑在 kcov 下；不跑 lint 阶段
+just test coverage-local      # 同样的 kcov 运行，本机 in-job 模式
+just test go            # Go config-gen：build、lint、test、覆盖率 floor、mutation
+just test system        # opt-in 的 System 层（需要 host docker）
+just test acceptance    # Acceptance 层：真的 scaffold 一个 consumer
+just test smoke         # 出货的 smoke spec
+just release coverage-badge   # 从 coverage/ 重新产生 doc/badge/coverage.svg
 ```
 
-或直接运行：
-```bash
-./script/test/test.sh          # 快速 CI（通过 docker compose，no kcov）
-./script/test/test.sh --ci     # 在容器内运行（由 compose 调用）
-```
+覆盖率徽章是 Bats 全套对 Bash 原始码量到的 kcov 行覆盖率，每次 release 量一次；
+Go 包由各自的 per-package floor 把关（`just test go`）。量测方式见
+[ADR-00000008](../adr/00000008-coverage-sharded-pr-gate.md)，测试索引见
+[TEST.md](../test/TEST.md)（各类型清单：[unit](../test/unit.md) /
+[integration](../test/integration.md) / [system](../test/system.md) /
+[acceptance](../test/acceptance.md) / [smoke](../test/smoke.md)），所有 recipe
+见 `script/test/justfile.test`。
 
-<!-- sync: tests 4b88c3ca9f6c d9fbea9d8010 -->
-## 测试
-
-详见 [TEST.md](../test/TEST.md) 测试索引（各类型清单：
-[unit](../test/unit.md) / [integration](../test/integration.md) /
-[system](../test/system.md) / [acceptance](../test/acceptance.md) /
-[smoke](../test/smoke.md)）。
-
-<!-- sync: directory-structure b4011532c7d5 38b21a11a076 -->
+<!-- sync: directory-structure ab00213e0736 0d9b23cc91fd -->
 ## 目录结构
 
 ```
-.base/                                  # subtree 固定在 consumer 的 <repo>/.base/
-├── .version                            # 锁定的 base release tag
-├── justfile                            # base 自身的自测/release 入口（mods test + release）
-├── compose.yaml                        # base CI runner（test-tools services）
-├── .dockerignore                       # canonical ignore set（同步进 consumers）
-├── dist/                         # 出货的工具 + 内容（单一来源）
-│   ├── .hadolint.yaml                  # 共用 Hadolint 规则（symlink 进 consumers）
-│   ├── .setup.conf                     # 已退役的 INI template；仅供一次性 INI→TOML 转换使用
-│   ├── setup.toml                      # Template runtime 配置默认（生成 <repo>/setup.toml）
-│   ├── dockerfile/
-│   │   └── Dockerfile                  # 新 repo 的多阶段 Dockerfile 模板
-│   ├── config/                         # Container 内部 shell/工具配置（可手改）
-│   │   └── shell/
-│   │       ├── bashrc
-│   │       ├── bashrc.d/               # 交互式 shell bootstrap drop-ins
-│   │       ├── terminator/             # setup.sh + config
-│   │       └── tmux/                   # setup.sh + tmux.conf + README.adoc
-│   ├── script/                         # 通用工具（consumers 逐 sub symlink）
-│   │   ├── justfile                    # Consumer 容器操作入口（mods docker/base/template）
-│   │   ├── docker/                     # `docker` namespace
-│   │   │   ├── justfile.docker         # just docker build/run/exec/stop/prune/setup/setup-tui
-│   │   │   ├── wrapper/                # build.sh / run.sh / exec.sh / stop.sh / prune.sh
-│   │   │   │                           #   / setup.sh / setup_tui.sh
-│   │   │   ├── lib/                    # 共用 helper 模块（_lib / compose / conf / log
-│   │   │   │                           #   / i18n / hook / wrapper / schema / transcript / ...）
-│   │   │   └── runtime/                # Container 内：entrypoint.sh / logging.sh / smoke.sh
-│   │   ├── base/                       # `base` namespace（管理 .base subtree）
-│   │   │   ├── justfile.base           # just base init/update/upgrade/completions
-│   │   │   ├── init.sh                 # 首次 bootstrap + symlink/.gitignore resync
-│   │   │   ├── upgrade.sh              # Subtree 版本升级（向上找到 .base root）
-│   │   │   └── completions.sh          # opt-in shell tab-completion installer
-│   │   └── template/                   # `template` namespace（scaffold repo-local groups）
-│   │       ├── justfile.template       # just template new <name>
-│   │       ├── new.sh
-│   │       └── skel/                   # justfile.skel + skel.sh
-│   └── test/
-│       └── bats/
-│           └── smoke/                  # Build-time smoke spec，每个 `-test` stage 一个目录
-│               ├── shared/             # 每个 `-test` stage 都会跑
-│               │   ├── test_helper.bash #  assert_cmd_installed / _runs / file / dir / ...
-│               │   └── entrypoint.bats
-│               ├── devel-test/         # 只在 devel-test 跑的断言
-│               │   ├── script_help.bats
-│               │   └── display_env.bats
-│               └── runtime-test/       # 只在 runtime-test 跑的断言（默认为空）
-├── script/                             # base 自身的自测/release 工具（不 symlink）
-│   ├── test/
-│   │   ├── justfile.test               # just test / lint / coverage / system
-│   │   ├── test.sh                     # 调度器（本地 + container 内）
-│   │   ├── lint_bare_stderr.sh
-│   │   └── drivers/                    # 每个 lint/test 工具一个 driver（bats / shellcheck / hadolint
-│   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
-│   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
-│   └── release/
-│       └── justfile.release            # just release <recipe>
-├── dockerfile/
-│   └── Dockerfile.test-tools           # 预构建 lint/test 工具 image（shellcheck/hadolint/bats）
-├── test/                               # base 自身的 specs（tool-first：test/<tool>/<category>/）
-│   └── bats/
-│       ├── unit/                       # Unit 层 spec + bash helper（bats + kcov）
-│       ├── integration/                # Integration 层 init/upgrade 端到端 spec
-│       ├── system/                     # System 层／Regression（opt-in；runtime-test smoke + deploy bundle e2e）
-│       └── acceptance/                 # Acceptance 层（UAT/OAT；保留，S5 #785）
-├── .github/
-│   ├── dependabot.yml
-│   └── workflows/
-│       ├── self-test.yaml              # base CI（ShellCheck + Bats + Kcov 覆盖率 gate）
-│       ├── build-worker.yaml           # 可重用 build + smoke-test workflow
-│       ├── release-worker.yaml         # 可重用 release（source archive）workflow
-│       ├── publish-worker.yaml         # 可重用 image publish workflow（opt-in）
-│       ├── multi-distro-build-worker.yaml # Multi-distro build workflow
-│       ├── release-test-tools.yaml     # base 自身的 test-tools image release
-│       └── ghcr-cleanup.yaml           # 每周清理 GHCR 上 test-tools 的 untagged orphan
+.base/                                  # subtree 钉在 consumer 的 <repo>/.base/
+├── .version                            # 钉住的 base release tag
+├── justfile                            # base 自身的入口（mods test / release / watch）
+├── compose.yaml                        # base CI runner（test-tools 服务）
+├── dist/                               # 出货内容：setup.toml、env.toml、.hadolint.yaml、
+│                                       #   config/、dockerfile/、script/{docker,base,template}/、
+│                                       #   deploy/（cd-guard + bundle README）、test/bats/smoke/
+├── script/                             # base 自身的工具：test/、release/、watch/、ci/
+├── dockerfile/                         # Dockerfile.test-tools / .config-gen / .smoke /
+│                                       #   .toml-bridge、config-gen/ Go module、kcov patch
+├── test/                               # base 自身 spec：bats/{unit,integration,system,acceptance}/
+├── .github/                            # 可重用 worker + base CI workflow、dependabot.yml
 ├── doc/
-│   ├── badge/                          # 生成的发布覆盖率徽章（release 时 hand-run，bump caller 待接：docker_harness#289）
+│   ├── badge/                          # 产生的发布覆盖率徽章（release 时 hand-run，bump caller 待接：docker_harness#289）
+│   ├── guide/                          # README 连过去的主题指南
 │   ├── readme/                         # README 翻译（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records
-│   ├── test/
-│   │   ├── TEST.md                     # 测试索引（各类型链接；不记总计，ADR-00000028）
-│   │   ├── unit.md                     # 单元测试清单
-│   │   ├── integration.md             # 集成测试清单
-│   │   ├── system.md             # System／Regression 测试清单
-│   │   ├── acceptance.md         # Acceptance 测试清单（保留，S5 #785）
-│   │   └── smoke.md                   # smoke 测试清单
-│   ├── changelog/                     # 生成的索引之下，每个 0.Y 系列一个文件
-│   │   ├── CHANGELOG.md                # 索引：每个系列、其日期与 BREAKING 条目（生成）
-│   │   ├── CONVENTIONS.md              # 如何写一条条目
-│   │   └── v0.NN.md                    # 每个 0.Y 系列一个；最新的那个带有 [Unreleased]
+│   ├── arch/                           # 架构图（自带式 HTML）
+│   ├── test/                           # 测试索引 + 各层级 spec 清单
+│   ├── changelog/                      # 生成的索引之下，每个 0.Y 系列一个文件
 │   └── deprecations.md
 ├── CONTEXT.md
-├── .gitignore
 ├── LICENSE
 └── README.md
 ```
@@ -1308,13 +745,3 @@ just --list        # 显示 CI 命令
      translated heading. -->
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: container-entrypoint-the-orchestrator-and-your-bringup -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: watchdog-supervised-restart-797 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: where-each-parameter-lives-env-vs-workload -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
