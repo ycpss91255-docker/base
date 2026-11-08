@@ -51,6 +51,7 @@ value	deploy	dri_groups	"video"	refuse	conf_value_invalid	dri_groups:gid-bad
 value	deploy	dri_groups	"01"	refuse	conf_value_invalid	dri_groups:gid-bad
 value	deploy	dri_groups	"44 109"	refuse	conf_value_invalid	dri_groups:nonprint
 value	deploy	dri_groups	"1"	accept	-	dri_groups:gids
+value	deploy	dri_groups	"1\t2"	refuse	conf_value_invalid	dri_groups:nonprint
 value	resources	shm_size	"2GB"	accept	-	shm_size:pattern
 value	resources	shm_size	"2g"	accept	-	shm_size:pattern
 value	resources	shm_size	"512b"	accept	-	shm_size:pattern
@@ -58,6 +59,8 @@ value	resources	shm_size	"1K"	accept	-	shm_size:pattern
 value	resources	shm_size	"64m"	accept	-	shm_size:pattern
 value	resources	shm_size	"1kB"	accept	-	shm_size:pattern
 value	resources	shm_size	"64Mb"	accept	-	shm_size:pattern
+value	resources	shm_size	"9m"	accept	-	shm_size:pattern
+value	resources	shm_size	"m"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"2t"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"2 g"	refuse	conf_value_invalid	shm_size:other
 value	resources	shm_size	"1\u212A"	refuse	conf_value_invalid	shm_size:other

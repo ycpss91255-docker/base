@@ -23,7 +23,12 @@ import (
 // opening with a byte-order mark, which the parser skips; a key of 2000
 // empty dotted parts, on which the locator once took over a minute; and
 // keys spelled
-// with the TOML 1.1 escapes \e and \xHH, which the parser decodes.
+// with the TOML 1.1 escapes \e and \xHH, which the parser decodes; and a
+// multi-line basic string ending in an escaped backslash and six quotes
+// inside an array and an inline table (base#1526), which BurntSushi v1.6.0
+// accepts (the first decodes to one item, a backslash and three quotes)
+// and the bridge refuses ("Unclosed array (at line 1, column 14)",
+// "Unclosed inline table (at line 1, column 16)").
 var treeSeeds = []string{
 	"[logging.web]\ndriver = \"json-file\"\n[logging]\ndriver = \"local\"\n",
 	"[[a]]\nx = 1\n[[a]]\nx = 2\n[a.b]\ny = 3\n",
@@ -45,6 +50,8 @@ var treeSeeds = []string{
 	"\xfe\xff0=\"\"",
 	"\xef\xbb\xbfa = 1\n",
 	strings.Repeat(".", 2000) + "0=0.++++++++",
+	`0=["""\\""""""]#",1]`,
+	`0={a="""\\""""""}#",b=1}`,
 }
 
 // treeParity holds the tree of src to the log it is built beside and to

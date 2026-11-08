@@ -12,3 +12,5 @@ lifecycle	watchdog_check	1979-05-27	date-local	1979-05-27
 lifecycle	watchdog_check	true	bool	true
 lifecycle	watchdog_check	0x1F	int	31
 lifecycle	watchdog_check	1e16	float	1e+16
+lifecycle	watchdog_check	0.0001	float	0.0001
+lifecycle	watchdog_check	1.25	float	1.25

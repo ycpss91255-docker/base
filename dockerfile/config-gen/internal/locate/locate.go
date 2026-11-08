@@ -632,7 +632,11 @@ func (s *scanner) skipBlank() {
 // (q is `"`) a backslash escapes the byte after it, so `\"""` does not
 // close the string. The closing delimiter may follow one or two quote
 // bytes of the content (`"""a""""` is `a"`), so a run of up to five q
-// bytes is consumed whole.
+// bytes is consumed whole. In a basic string BurntSushi also accepts a run
+// of six when the byte before it is a backslash (`"""\\""""""` is `\"""`):
+// its lexer refuses a run ending `"""""` unless it ends `\"""""`. That
+// backslash is content, since an escaping one consumes the byte after it,
+// so the run follows the parser and takes six (base#1526).
 func (s *scanner) multiline(q byte) {
 	s.pos += 3
 	for s.pos < len(s.src) {
@@ -647,8 +651,12 @@ func (s *scanner) multiline(q byte) {
 				s.pos++
 			}
 		case c == q && s.pos+2 < len(s.src) && s.src[s.pos+1] == q && s.src[s.pos+2] == q:
+			limit := 5
+			if q == '"' && s.src[s.pos-1] == '\\' {
+				limit = 6
+			}
 			n := 0
-			for n < 5 && s.pos < len(s.src) && s.src[s.pos] == q {
+			for n < limit && s.pos < len(s.src) && s.src[s.pos] == q {
 				s.pos++
 				n++
 			}

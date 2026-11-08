@@ -4992,7 +4992,10 @@ _host_direct_lint_arms() {
   # This is what notices a Dockerfile added beside the others and never
   # added to it.
   local _found _listed
-  _found="$( (cd /source && ls dockerfile/Dockerfile.* dist/dockerfile/Dockerfile) | sort)"
+  # A `<Dockerfile>.dockerignore` beside one is BuildKit's per-Dockerfile
+  # ignore file (Dockerfile.config-gen.dockerignore, base#1467), not a
+  # Dockerfile.
+  _found="$( (cd /source && ls dockerfile/Dockerfile.* dist/dockerfile/Dockerfile) | grep -v '\.dockerignore$' | sort)"
   _listed="$(bash -c '
     source /source/script/test/test.sh
     printf "%s\n" "${_HADOLINT_DOCKERFILES[@]}"' | sort)"

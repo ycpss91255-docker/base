@@ -167,6 +167,30 @@ func TestIndexKeyEscapes(t *testing.T) {
 	}
 }
 
+// TestIndexBareKeyEveryAllowedByte checks that a bare key runs through
+// every byte TOML allows in one: the header holds A-Z, one key line a-z
+// and the other 0-9, `_` and `-`, so each range is written whole, its
+// first and last byte included (base#1467: the S1f mutation gate found no
+// test that writes A, Z or 9 in a bare key). The expected paths are the
+// library's md.Keys().
+func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
+	src := []byte("[ABCDEFGHIJKLMNOPQRSTUVWXYZ]\nabcdefghijklmnopqrstuvwxyz = 1\n0123456789_- = 2\n")
+	md, err := toml.Decode(string(src), new(map[string]any))
+	if err != nil {
+		t.Fatalf("library refused %q: %v", src, err)
+	}
+	var want, got []string
+	for _, k := range md.Keys() {
+		want = append(want, fmt.Sprintf("%q", []string(k)))
+	}
+	for _, o := range Index(src).Entries() {
+		got = append(got, fmt.Sprintf("%q", o.Path))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Entries() paths = %v, want md.Keys() %v", got, want)
+	}
+}
+
 // TestIndexEveryPrefixIsSafe indexes every byte prefix of every corpus
 // TOML file at any depth (CorpusTOML), so an unterminated string, escape, array or header at any point
 // cannot make the scan run past the input (base#1442, review round 1: an
@@ -177,17 +201,35 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for n := 0; n <= len(src); n++ {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						t.Fatalf("%s: Index of the first %d bytes panicked: %v", file, n, r)
-					}
-				}()
-				Index(src[:n])
-			}()
-		}
+		indexEveryPrefix(t, file, src)
 	}
+}
+
+// indexEveryPrefix indexes each byte prefix of src and fails the test if
+// one panics. Each prefix is passed with its capacity cut to its length,
+// so a read past the end panics instead of reading the bytes that follow
+// it (base#1467: with src[:n] a mutant that read past the end lived).
+func indexEveryPrefix(t *testing.T, label string, src []byte) {
+	t.Helper()
+	for n := 0; n <= len(src); n++ {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("%s: Index of the first %d bytes %q panicked: %v", label, n, src[:n], r)
+				}
+			}()
+			Index(src[:n:n])
+		}()
+	}
+}
+
+// TestIndexCutHexEscapeIsSafe indexes every byte prefix of a header and a
+// key whose quoted names hold a \u and a \U escape, so input that ends
+// inside the hex digits of an escape cannot make the scan read past the
+// input (base#1467: the S1f mutation gate found no corpus file with a hex
+// escape, so no prefix of one was indexed).
+func TestIndexCutHexEscapeIsSafe(t *testing.T) {
+	indexEveryPrefix(t, "hex escapes", []byte("[\"\\u0041\"]\n\"\\U0001F600\" = 1\n"))
 }
 
 // TestIndexInlineMembers checks that each key written inside an inline
@@ -251,5 +293,79 @@ func TestIndexInlineDottedTables(t *testing.T) {
 	}
 	if len(m.Entries()) != 1 {
 		t.Errorf("Entries() = %+v, want only v", m.Entries())
+	}
+}
+
+// TestIndexInlineMemberRecordsMarkInlineValues checks that a member of an
+// inline table keeps whether its own value is an inline table or array
+// (base#1467, the member half of Occurrence.Inline). In
+// `a = { s = 1, t = { u = 2 }, v = [3] }` TOML gives a.s an integer, a.t
+// an inline table holding the integer a.t.u, and a.v an inline array, so
+// only a.t and a.v are Inline.
+func TestIndexInlineMemberRecordsMarkInlineValues(t *testing.T) {
+	m := Index([]byte("a = { s = 1, t = { u = 2 }, v = [3] }\n"))
+	for _, c := range []struct {
+		path []string
+		want bool
+	}{
+		{[]string{"a", "s"}, false},
+		{[]string{"a", "t"}, true},
+		{[]string{"a", "t", "u"}, false},
+		{[]string{"a", "v"}, true},
+	} {
+		ms := m.Members(c.path)
+		if len(ms) != 1 {
+			t.Fatalf("Members(%q) = %+v, want one", c.path, ms)
+		}
+		if got := ms[0].Inline; got != c.want {
+			t.Errorf("Members(%q) Inline = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
+
+// TestIndexRepeatedInlineMemberOrdinals checks that a member path written
+// once in each table item of an inline array keeps the Ordinal the
+// Occurrence contract gives it, the count of its earlier occurrences
+// (base#1467). In `v = [{ a = 1 }, { a = 2 }, { a = 3 }]` v.a is written
+// three times on line 1, its keys at the columns counted by hand, 8, 19
+// and 30, so its ordinals are 0, 1 and 2.
+func TestIndexRepeatedInlineMemberOrdinals(t *testing.T) {
+	m := Index([]byte("v = [{ a = 1 }, { a = 2 }, { a = 3 }]\n"))
+	var cols, ords []int
+	for _, o := range m.Members([]string{"v", "a"}) {
+		cols = append(cols, o.KeyCol)
+		ords = append(ords, o.Ordinal)
+	}
+	if !reflect.DeepEqual(cols, []int{8, 19, 30}) || !reflect.DeepEqual(ords, []int{0, 1, 2}) {
+		t.Errorf("Members(v.a) columns=%v ordinals=%v, want [8 19 30] [0 1 2]", cols, ords)
+	}
+}
+
+// TestIndexHexEscapeAtInputEnd checks that a hex escape whose digits are
+// the last bytes of the input is decoded, as hexRune decodes the n hex
+// digits at the current position: the unterminated header `["\u0041` is
+// the path ["A"] (base#1467: the S1f mutation gate found no input that
+// ends right after an escape's digits).
+func TestIndexHexEscapeAtInputEnd(t *testing.T) {
+	var got []string
+	for _, o := range Index([]byte(`["\u0041`)).Entries() {
+		got = append(got, fmt.Sprintf("%q", o.Path))
+	}
+	if want := []string{`["A"]`}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Entries() paths = %v, want %v", got, want)
+	}
+}
+
+// TestIndexMultilineCloseTakesAtMostFiveQuotes checks that the run of
+// quotes closing a multi-line basic string is consumed up to five bytes,
+// the content's two and the delimiter's three, so a sixth quote opens a
+// new string (base#1467: the S1f mutation gate found no input with a
+// longer run). In `k = """a"""""" { x = 1 }` the sixth quote's string
+// runs to the end of the line, so the braces after it are its content and
+// k has no member x.
+func TestIndexMultilineCloseTakesAtMostFiveQuotes(t *testing.T) {
+	m := Index([]byte("k = \"\"\"a\"\"\"\"\"\" { x = 1 }\n"))
+	if got := m.Members([]string{"k", "x"}); len(got) != 0 {
+		t.Errorf("Members(k.x) = %+v, want none", got)
 	}
 }

@@ -27,8 +27,10 @@
 #                 producer's sha256 line (_cgm_hash_line) for every entry
 #                 under <src> that is not a directory -- an entry [[ -f ]]
 #                 refuses (a dangling symlink, a fifo) is file=<it>
-#                 reason=not_regular -- must equal, sorted, the two lists
-#                 together. The first line that differs names the file: in
+#                 reason=not_regular -- must equal, sorted, visible.sha256
+#                 together with the ignored.sha256 entries <src> holds (an
+#                 ignored entry the build's dockerignore dropped is not
+#                 compared, base#1467). The first line that differs names the file: in
 #                 both with another sha256, reason=sha_mismatch; only in a
 #                 list, reason=missing; only on disk, reason=unlisted.
 #   3. manifest   it ends in LF (reason=malformed). Line 1 is four words
@@ -116,7 +118,13 @@ _cga_lists() {
       || _cga_stale "${_CGA_MOD}${rel}" not_regular
   done < <(cd -- "${src}" && find -P . ! -type d -print0 | sort -z)
   sort -- "${_CGA_TMP}/e" >"${_CGA_TMP}/e.sorted"
-  cat -- "${v}" "${i}" | sort >"${_CGA_TMP}/r.sorted"
+  # An ignored entry the context does not hold is one the build's
+  # dockerignore dropped (base#1467): only the ones on disk are compared.
+  : >"${_CGA_TMP}/i.held"
+  while IFS= read -r line; do
+    ! _cga_listed "${_CGA_TMP}/e.sorted" "${line%%$'\t'*}" || printf '%s\n' "${line}" >>"${_CGA_TMP}/i.held"
+  done <"${i}"
+  cat -- "${v}" "${_CGA_TMP}/i.held" | sort >"${_CGA_TMP}/r.sorted"
   cmp -s -- "${_CGA_TMP}/r.sorted" "${_CGA_TMP}/e.sorted" && return 0
   # The first line only one side holds names the file.
   IFS= read -r line < <(comm -3 -- "${_CGA_TMP}/r.sorted" "${_CGA_TMP}/e.sorted") || true

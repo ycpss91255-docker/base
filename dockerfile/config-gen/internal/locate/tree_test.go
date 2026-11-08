@@ -215,3 +215,24 @@ func TestInlineDottedKeyNodes(t *testing.T) {
 		}
 	}
 }
+
+// An item of an inline array keeps whether its own value is an inline
+// table or array (base#1467, the item half of Occurrence.Inline). In
+// `ports = [80, [1, 2], { host = 8080 }]` TOML gives an integer, an
+// inline array and an inline table, in that order, so only the second and
+// third items' records are Inline.
+func TestInlineArrayItemRecordsMarkInlineValues(t *testing.T) {
+	root := locate.Index([]byte("ports = [80, [1, 2], { host = 8080 }]\n")).Root()
+	if got, want := shape(root), "ports=[_ [_ _] {host}]"; got != want {
+		t.Fatalf("tree = %s, want %s", got, want)
+	}
+	items := child(t, root, "ports").Children
+	for i, want := range []bool{false, true, true} {
+		if len(items[i].Occ) != 1 {
+			t.Fatalf("item %d records = %q, want one", i, occs(items[i]))
+		}
+		if got := items[i].Occ[0].Inline; got != want {
+			t.Errorf("item %d Inline = %v, want %v", i, got, want)
+		}
+	}
+}

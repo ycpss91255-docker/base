@@ -258,7 +258,9 @@ _tamper() {
     dual) printf '%s\n' "${vis}" > "${m}/ignored.sha256" ;;
     short-hex) { printf '%s\n' "${vis:0:${#vis}-1}"; tail -n +2 "${m}/visible.sha256"; } > "${m}/v" && mv "${m}/v" "${m}/visible.sha256" ;;
     list-nul) { printf '%s\0\n' "${vis}"; tail -n +2 "${m}/visible.sha256"; } > "${m}/v" && mv "${m}/v" "${m}/visible.sha256" ;;
-    list-ghost) printf '%s/ghost\t%s\n' "${P}" "${H64}" >> "${m}/ignored.sha256" ;;
+    # A visible entry: an ignored one the context lacks is the build's
+    # dockerignore at work and is admitted (base#1467).
+    list-ghost) printf '%s/ghost\t%s\n' "${P}" "${H64}" >> "${m}/visible.sha256" ;;
     *) fail "_tamper: no case ${1}" ;;
   esac
 }

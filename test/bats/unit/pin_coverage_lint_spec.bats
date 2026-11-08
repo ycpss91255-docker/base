@@ -917,6 +917,90 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A Go test file is a spec, as a .bats file is, and Go has no `#` comment,
+# so no marker can stand above a line in it: an expected diagnostic such as
+# "t.toml:1:7: x" has the image-reference shape (base#1530). The same version
+# in a Go file that is not a test is still read.
+@test "_run_pin_coverage: a Go test file needs no marker, a non-test Go file still does (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m"
+  printf '%s\n' \
+    'package m' \
+    'const want = "t.toml:1:7: x"' \
+    'const image = "alpine:3.21"' \
+    > "${SCRATCH}/dockerfile/m/m_test.go"
+  _lint
+  assert_success
+  printf '%s\n' \
+    'package m' \
+    'const image = "alpine:3.21"' \
+    > "${SCRATCH}/dockerfile/m/m.go"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/m/m.go:2:'
+  refute_output --partial 'm_test.go'
+}
+
+# why: A vendored toml-test case below a testdata directory is upstream bytes,
+# so no marker line can be added to it (base#1530). The exemption is keyed on a
+# whole `testdata` path component and on the .toml suffix, so a .toml outside
+# it, a near-miss directory name, and a file named `testdata` are still read.
+@test "_run_pin_coverage: a .toml file below a testdata directory needs no marker, a near miss is still read (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata/toml-test/invalid" "${SCRATCH}/testdata"
+  # toml-fixture-lint: allow a toml-test invalid case is not TOML by design, and this row only asks whether pin-coverage skips it
+  printf 'foo = 1997-09-0909:09:09\n' > "${SCRATCH}/dockerfile/m/testdata/toml-test/invalid/x.toml"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/testdata/y.toml"
+  _lint
+  assert_success
+  mkdir -p "${SCRATCH}/dockerfile/mytestdata" "${SCRATCH}/dockerfile/testdata2"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/conf.toml"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/mytestdata/x.toml"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/testdata2/x.toml"
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/mytestdata/Dockerfile"
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/testdata"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/conf.toml:1:'
+  assert_output --partial 'dockerfile/mytestdata/x.toml:1:'
+  assert_output --partial 'dockerfile/testdata2/x.toml:1:'
+  assert_output --partial 'dockerfile/mytestdata/Dockerfile:1:'
+  assert_output --partial 'dockerfile/testdata:1:'
+  refute_output --partial 'invalid/x.toml'
+  refute_output --partial 'testdata/y.toml'
+}
+
+# why: The testdata exemption is for TOML case bytes only (base#1530). Any other
+# file kind below a testdata directory can carry a marker, so it is still read:
+# exempting the whole directory would hide a real pin there.
+@test "_run_pin_coverage: a non-TOML file below a testdata directory is still read (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata"
+  printf 'image = "alpine:3.21"\n' > "${SCRATCH}/dockerfile/m/testdata/x.toml"
+  _lint
+  assert_success
+  printf 'FROM alpine:3.21\n' > "${SCRATCH}/dockerfile/m/testdata/Dockerfile"
+  _lint
+  assert_failure
+  assert_output --partial 'dockerfile/m/testdata/Dockerfile:1:'
+  refute_output --partial 'x.toml'
+}
+
+# why: A marker in a testdata .toml would be a belief in watching that nothing
+# reads, now that the walk skips that shape (base#1530), so it is refused.
+@test "_run_pin_coverage: FAILS when a tool-pin marker sits in a .toml below a testdata directory (base#1530)" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/dockerfile/m/testdata"
+  printf '%s\n' \
+    '# tool-pin: ghost github-release owner/ghost' \
+    'ghost_version = "1.0.0"' \
+    > "${SCRATCH}/dockerfile/m/testdata/x.toml"
+  _lint
+  assert_failure
+  assert_output --partial 'is not scanned'
+  assert_output --partial 'dockerfile/m/testdata/x.toml'
+}
+
 # why: The exemption list is the last hand-kept thing in the scan surface, so a
 # marker in an exempt file is a belief in watching that nothing reads
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
