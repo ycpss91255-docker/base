@@ -99,14 +99,19 @@ func TestMain_ExitsWithRunStatus(t *testing.T) {
 // file makes it exit 3 instead. A fake/<n>.none file makes it do what
 // gremlins was measured doing on a package with no mutants (design run2
 // r1, ./internal/testcorpus): print `No results to report.`, write no
-// report and exit 0.
+// report and exit 0. A fake/<n>.partial file makes it first print the
+// bytes gremlins was seen leaving unfinished in the base#1443 step log,
+// `Starting...` then `Gathering coverage... ` with no newline
+// (base#1546), and then follow .fail / .json as above.
 
 const fakeGremlins = `#!/bin/sh
 printf '%s\n' "$*" >>"${0%/*}/argv"
 n="$(printf '%s' "$8" | tr ./ __)"
 [ -e "${0%/*}/${n}.none" ] && { echo 'No results to report.'; exit 0; }
+p=
+[ -e "${0%/*}/${n}.partial" ] && { printf 'Starting...\nGathering coverage... '; p=1; }
 [ -e "${0%/*}/${n}.fail" ] && exit 3
-[ -e "${0%/*}/${n}.json" ] && { echo 'Starting...'; cp "${0%/*}/${n}.json" "$7"; }
+[ -e "${0%/*}/${n}.json" ] && { [ -n "$p" ] || echo 'Starting...'; cp "${0%/*}/${n}.json" "$7"; }
 exit 0
 `
 
@@ -209,6 +214,11 @@ func TestMutation(t *testing.T) {
 		// its import path, before any package is judged (base#1467).
 		{"a deleted package", mhead + "D\tdockerfile/config-gen/internal/gone/gone.go\n",
 			map[string]string{}, 0, "removed " + mod + "/internal/gone\nmutation targets none\n", ""},
+		// gremlins stops mid-line, as the base#1443 step log shows it did:
+		// the verdict still starts its own line (base#1546).
+		{"a verdict after gremlins text cut mid-line", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
+			map[string]string{"__internal_a.partial": "", "__internal_a.json": killed(2, 0)}, 0,
+			"Starting...\nGathering coverage... \n" + mod + "/internal/a ok efficacy=100.0\n", ""},
 		{"a package move", mhead +
 			"R100\tdockerfile/config-gen/internal/old/a.go\tdockerfile/config-gen/internal/a/a.go\n" +
 			"R100\tdockerfile/config-gen/internal/old/a_test.go\tdockerfile/config-gen/internal/a/a_test.go\n",
