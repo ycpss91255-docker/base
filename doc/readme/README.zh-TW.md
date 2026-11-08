@@ -251,8 +251,10 @@ setup 只在第一次 scaffold，之後永不覆寫，你自己的值放在那�
 從不進容器，後綴標的是類別而非歸屬。
 
 首次執行 `setup.sh`（尚無 per-repo `setup.toml`）時，template 檔會被
-複製到 `<repo>/setup.toml`，並把偵測到的 workspace 寫入**第一個
-`[[volumes]]` block** —— 也就是 `volumes.mount_1` 所指的那一個。後續執行以
+複製到 `<repo>/setup.toml`，並在**第一個 `[[volumes]]` block** —— 也就是
+`volumes.mount_1` 所指的那一個 —— 寫入可攜的
+`${WS_PATH}:/home/${USER_NAME}/work` workspace 掛載；偵測到的 host 路徑本身
+寫進 `.env.generated` 的 `WS_PATH`，所以提交的檔案與機器無關。後續執行以
 `mount_1` 為真實來源；清空該欄即可放棄掛 workspace。
 `./.base/dist/script/base/init.sh --gen-conf` 做同樣的單純複製，該檔已存在時
 會拒絕（`--force` 會先備份成 `setup.toml.bak`）。

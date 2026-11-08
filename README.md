@@ -284,10 +284,12 @@ compose's `${VAR}` interpolation and never enters a container, so the
 suffix marks a category, not ownership.
 
 On the first `setup.sh` run (no per-repo `setup.toml` yet), the template
-file is copied to `<repo>/setup.toml` and the detected workspace is written
-to the **first `[[volumes]]` block** — the block `volumes.mount_1`
-addresses. Subsequent runs read `mount_1` as source of truth; clear it to
-opt out of mounting a workspace. `./.base/dist/script/base/init.sh
+file is copied to `<repo>/setup.toml` and the **first `[[volumes]]` block**
+— the block `volumes.mount_1` addresses — gets the portable
+`${WS_PATH}:/home/${USER_NAME}/work` workspace mount; the detected host path
+itself goes to `WS_PATH` in `.env.generated`, so the committed file stays
+machine-independent. Subsequent runs read `mount_1` as source of truth;
+clear it to opt out of mounting a workspace. `./.base/dist/script/base/init.sh
 --gen-conf` makes the same plain copy, refusing if the file exists
 (`--force` backs it up to `setup.toml.bak`).
 

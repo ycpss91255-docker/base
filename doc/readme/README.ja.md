@@ -262,9 +262,11 @@ Acceptance の 4 レベル + Smoke タイプ）です。
 表します。
 
 初回の `setup.sh` 実行時（repo ごとの `setup.toml` がまだない場合）、
-テンプレートが `<repo>/setup.toml` にコピーされ、検出した workspace が
-**最初の `[[volumes]]` block** —— `volumes.mount_1` が指す block —— に
-書き込まれます。以降の実行は `mount_1` を正とし、空にすれば workspace の
+テンプレートが `<repo>/setup.toml` にコピーされ、**最初の `[[volumes]]` block**
+—— `volumes.mount_1` が指す block —— にポータブルな
+`${WS_PATH}:/home/${USER_NAME}/work` workspace マウントが書き込まれます。
+検出したホストパス自体は `.env.generated` の `WS_PATH` に入るので、コミット
+されるファイルはマシンに依存しません。以降の実行は `mount_1` を正とし、空にすれば workspace の
 マウントをやめられます。`./.base/dist/script/base/init.sh --gen-conf` も同じ
 単純コピーを行い、ファイルが既にあれば拒否します（`--force` は
 `setup.toml.bak` にバックアップ）。
