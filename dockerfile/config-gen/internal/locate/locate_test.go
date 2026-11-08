@@ -238,6 +238,12 @@ const prefixSweepBound = 4096
 // spans lines is still open when the input ends inside it.
 const cutContextLines = 8
 
+// cutContextBytes is the most bytes before a cut a larger input's cut
+// keeps, so a long line does not make each cut in it cost the line's
+// length (base#1469 review round 2). Every s1 corpus line is at most 60
+// bytes, so cutContextLines lines of it fit.
+const cutContextBytes = 512
+
 // TestIndexEveryPrefixIsSafe indexes the cut points of every corpus TOML
 // file at any depth (CorpusTOML; indexCutPoints), so an unterminated
 // string, escape, array or header at any point cannot make the scan run
@@ -266,23 +272,38 @@ func TestIndexCutPointsPastTheSweepBoundAreSafe(t *testing.T) {
 	indexCutPoints(t, "hex escapes past the sweep bound", []byte(head+"[\"\\u0041\"]\n\"\\U0001F600\" = 1\n"))
 }
 
-// indexCutPoints indexes the cut points of src and fails the test if one
-// panics. An input of at most prefixSweepBound bytes has every byte prefix
-// indexed. A longer one has every prefix of its first prefixSweepBound
-// bytes indexed, the whole input indexed, and, for every byte offset n
-// past the start of each line, the bytes from the start of the line
-// cutContextLines lines earlier (or of the input) up to n: so the input
-// ends at every byte boundary, every token boundary among them, with the
-// lines before it in place, at a cost linear in the input's length. The
-// fuzz target FuzzTreeParity indexes any other input.
+// indexCutPoints indexes each window cutWindows lists for src and fails
+// the test if one panics. Each is passed with its capacity cut to its
+// length, so a read past its end panics.
 func indexCutPoints(t *testing.T, label string, src []byte) {
 	t.Helper()
-	if len(src) <= prefixSweepBound {
-		indexEveryPrefix(t, label, src)
-		return
+	for _, w := range cutWindows(src) {
+		indexSafe(t, label, w.from, src[w.from:w.end:w.end])
 	}
-	indexEveryPrefix(t, label, src[:prefixSweepBound])
-	indexSafe(t, label, 0, src)
+}
+
+// cutWindow is the bytes src[from:end] of an input: end is where the
+// indexed input stops.
+type cutWindow struct{ from, end int }
+
+// cutWindows lists the windows of src that indexCutPoints indexes. An
+// input of at most prefixSweepBound bytes has every byte prefix. A longer
+// one has every prefix of its first prefixSweepBound bytes, the whole
+// input, and, for every byte offset n past the start of each line, the
+// bytes from the start of the line cutContextLines lines earlier (or of
+// the input) up to n: so the input ends at every byte boundary, every
+// token boundary among them, with the lines before it in place. The fuzz
+// target FuzzTreeParity indexes any other input.
+func cutWindows(src []byte) []cutWindow {
+	var out []cutWindow
+	sweep := min(len(src), prefixSweepBound)
+	for n := 0; n <= sweep; n++ {
+		out = append(out, cutWindow{0, n})
+	}
+	if len(src) <= prefixSweepBound {
+		return out
+	}
+	out = append(out, cutWindow{0, len(src)})
 	starts := []int{0}
 	for i, c := range src {
 		if c == '\n' && i+1 < len(src) {
@@ -296,8 +317,53 @@ func indexCutPoints(t *testing.T, label string, src []byte) {
 		}
 		from := starts[max(0, i-cutContextLines)]
 		for n := ls + 1; n <= end; n++ {
-			indexSafe(t, label, from, src[from:n:n])
+			out = append(out, cutWindow{from, n})
 		}
+	}
+	return out
+}
+
+// TestCutWindowsEndEverywhereAtBoundedCost holds cutWindows to its cost:
+// the bytes it hands Index are at most the square of the swept head plus
+// cutContextBytes per byte past it, whatever the input's line lengths
+// (base#1469 review round 2: a bound in lines alone left a single
+// 108,951-byte line costing about 5.94e9 bytes). An input of one long
+// line, one of many short lines (the large_tables.toml fixture) and one
+// of short lines then a long one are each checked, and every byte offset
+// of each must still be where some window ends, so the cost is not bought
+// by leaving cut points out.
+func TestCutWindowsEndEverywhereAtBoundedCost(t *testing.T) {
+	const size = 108951
+	large, err := os.ReadFile(testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  []byte
+	}{
+		{"one long comment line", []byte("#" + strings.Repeat("x", size-1))},
+		{"large_tables.toml", large},
+		{"short lines then a long one", []byte(strings.Repeat("a = 1\n", 1000) + "b = \"" + strings.Repeat("y", size) + "\"\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := len(tc.src)
+			bound := prefixSweepBound*(prefixSweepBound+1)/2 + n + (n-prefixSweepBound)*cutContextBytes
+			ends := make([]bool, n+1)
+			cost := 0
+			for _, w := range cutWindows(tc.src) {
+				cost += w.end - w.from
+				ends[w.end] = true
+			}
+			if cost > bound {
+				t.Errorf("cutWindows of %d bytes hands Index %d bytes, want at most %d", n, cost, bound)
+			}
+			for e, ok := range ends {
+				if !ok {
+					t.Fatalf("no window of the %d-byte input ends at offset %d", n, e)
+				}
+			}
+		})
 	}
 }
 
