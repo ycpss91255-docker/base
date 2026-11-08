@@ -229,8 +229,8 @@ func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
 // indexed. Indexing every prefix costs the square of the input's length:
 // the 108,951-byte large_tables.toml fixture (base#1469) alone made
 // 108,952 calls that scanned about 5.9e9 bytes, and the race gate's go
-// test ran into its 10-minute timeout on it. Every other corpus file is
-// at most 684 bytes, so each is still swept in full.
+// test ran into its 10-minute timeout on it. An input of at most this
+// many bytes is swept in full; a larger one is indexed at its cut points.
 const prefixSweepBound = 4096
 
 // cutContextLines is how many whole lines before a cut a larger input's
@@ -240,8 +240,9 @@ const cutContextLines = 8
 
 // cutContextBytes is the most bytes before a cut a larger input's cut
 // keeps, so a long line does not make each cut in it cost the line's
-// length (base#1469 review round 2). Every s1 corpus line is at most 60
-// bytes, so cutContextLines lines of it fit.
+// length (base#1469 review round 2). The window keeps up to
+// cutContextLines lines before the cut, cut to the last cutContextBytes
+// bytes, so when those lines are longer the window starts mid-line.
 const cutContextBytes = 512
 
 // TestIndexEveryPrefixIsSafe indexes the cut points of every corpus TOML
