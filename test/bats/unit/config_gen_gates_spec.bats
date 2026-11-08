@@ -26,6 +26,14 @@
 
 bats_require_minimum_version 1.5.0
 
+# The canned runner answers depend only on /source and the row table, so
+# they are made once per file and _redpath_repo copies them (base#1555).
+setup_file() {
+  local S="${BATS_FILE_TMPDIR}/canned-template"
+  mkdir -p "${S}"
+  _canned_correct
+}
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   RUNNER="/source/script/test/config_gen_gates.sh"
@@ -675,7 +683,7 @@ _redpath_repo() {
   printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
   cp "${S}/bin/just" "${S}/bin/docker"
   chmod +x "${S}/bin/just" "${S}/bin/docker"
-  _canned_correct
+  cp -a "${BATS_FILE_TMPDIR}/canned-template/canned" "${S}/"
 }
 
 # _redpath_runner_stub <path> -- write _redpath_repo's recording runner
