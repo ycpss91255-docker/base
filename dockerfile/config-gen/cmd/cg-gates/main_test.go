@@ -219,6 +219,11 @@ func TestMutation(t *testing.T) {
 		{"a verdict after gremlins text cut mid-line", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.partial": "", "__internal_a.json": killed(2, 0)}, 0,
 			"Starting...\nGathering coverage... \n" + mod + "/internal/a ok efficacy=100.0\n", ""},
+		// The package_failed event the runner reads (_CG_EVENT_RE, anchored
+		// at line start) also starts its own line after a cut (base#1546).
+		{"a package_failed event after gremlins text cut mid-line", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
+			map[string]string{"__internal_a.partial": "", "__internal_a.fail": ""}, 1,
+			"Starting...\nGathering coverage... \n" + pkgFailed + mod + "/internal/a reason=gremlins_failed\n" + gate, ""},
 		{"a package move", mhead +
 			"R100\tdockerfile/config-gen/internal/old/a.go\tdockerfile/config-gen/internal/a/a.go\n" +
 			"R100\tdockerfile/config-gen/internal/old/a_test.go\tdockerfile/config-gen/internal/a/a_test.go\n",
