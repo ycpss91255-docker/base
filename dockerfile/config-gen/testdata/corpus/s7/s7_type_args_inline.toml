@@ -1,0 +1,3 @@
+[build]
+args = [{ key = "A", value = [1] }]
+# expect: verdict=refuse event=conf_value_type_refused line=2 col=22 key=build.args[1].value apply=refuse

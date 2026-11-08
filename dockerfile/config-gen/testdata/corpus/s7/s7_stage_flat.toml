@@ -1,0 +1,4 @@
+["stage:dev"]
+"deploy.gpu_mode" = "off"
+"volumes.mount_1" = "/a:/b"
+# expect: verdict=accept apply=accept

@@ -1,0 +1,6 @@
+[build]
+arg_1 = "x\ny"
+
+[[build.args]]
+key = "A"
+# expect: verdict=refuse event=conf_family_two_spellings line=2 col=1 key=build.arg_1 apply=refuse

@@ -1,0 +1,3 @@
+["stage:dev".deploy]
+bogus = 1
+# expect: verdict=differs:unknown-key event=conf_unknown_key line=2 col=1 key=stage:dev.deploy.bogus apply=accept

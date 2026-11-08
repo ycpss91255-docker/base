@@ -1,0 +1,7 @@
+[[network.ports]]
+host = "80"
+
+[[network.ports]]
+host = "81"
+container = {}
+# expect: verdict=refuse event=conf_value_type_refused line=6 col=1 key=network.ports[2].container apply=refuse
