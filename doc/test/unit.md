@@ -2151,7 +2151,7 @@ empty setup.toml section and answer zero (base#1398).
 | `_print_config_summary refuses a setup.toml that cannot be parsed (base#1398)` | The summary is the screen a user reads before a build; an empty setup.toml section over a file that failed to parse tells them their configuration is the template defaults when nothing was read (base#1398). |
 | `_print_config_summary refuses a malformed setup.toml with no recognised header (base#1398)` | The empty-file hint is chosen by a header grep, and a malformed file the grep does not recognise (`[gui` unclosed, or a bare unterminated `mode = "off`) took that branch: it printed "no section overrides -- using template defaults" with rc 0 and never parsed the file. The parse decides, not the grep (base#1398). |
 
-### test/bats/unit/coverage_badge_spec.bats (47)
+### test/bats/unit/coverage_badge_spec.bats (49)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -2168,6 +2168,8 @@ three tests assert the repo's own published figure, not the generator.
 | Test | Description |
 |------|-------------|
 | `coverage_badge: renders the measured rate into a self-contained SVG` | The output is an SVG carrying the measured percentage |
+| `coverage_badge: the label reads coverage and the value carries rate and version (base#1545)` | The visible label is the bare word `coverage`; the version rides in the value block, so the figure still names its release (base#1545) |
+| `coverage_badge: --unmeasured keeps the label bare and the version in the value (base#1545)` | The unmeasured rendering moves the version the same way (base#1545) |
 | `coverage_badge: the SVG carries the version the figure belongs to` | Defaults to `.version`, so the figure names its release |
 | `coverage_badge: --version overrides the .version default` | The bump passes the version it is promoting to |
 | `coverage_badge: the SVG references no external host` | No renderer, no fetch -- it ports to GitLab unchanged |
@@ -2558,7 +2560,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (119)
+### test/bats/unit/derived_figures_lint_spec.bats (121)
 
 | Test | Description |
 |------|-------------|
@@ -2577,6 +2579,8 @@ refused before any build or bundle step.
 | `_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)` | - |
 | `_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)` | - |
 | `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
+| `_run_derived_figures: scans the doc/guide pages too (base#1545)` | The README's deep sections moved to doc/guide/; a stale stage set or a kcov claim there must stay inside the lint's reach (base#1545) |
+| `_run_derived_figures: a tree with no doc/guide pages is still clean (base#1545)` | A tree with no doc/guide/ at all is still clean -- the glob is a reach, not a requirement (base#1545) |
 | `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
 | `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |
 | `_run_derived_figures: FAILS when the count is a number but the wrong one (#874)` | - |
