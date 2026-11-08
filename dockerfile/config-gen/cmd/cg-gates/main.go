@@ -220,13 +220,24 @@ func mutation(args []string, _, stderr io.Writer) int {
 			bad = true
 			continue
 		}
-		_, _ = fmt.Fprintf(stderr, "%s ok efficacy=%s\n", pkg, e)
+		verdict(stderr, said.String(), fmt.Sprintf("%s ok efficacy=%s\n", pkg, e))
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
 		return exitFail
 	}
 	return exitOK
+}
+
+// verdict writes line on w so that it starts its own line: when the
+// bytes gremlins wrote (said) stop mid-line, a newline goes first. The
+// base#1443 step log showed gremlins leaving `Gathering coverage... `
+// unfinished, so the verdict landed glued to it (base#1546).
+func verdict(w io.Writer, said, line string) {
+	if said != "" && !strings.HasSuffix(said, "\n") {
+		_, _ = io.WriteString(w, "\n")
+	}
+	_, _ = io.WriteString(w, line)
 }
 
 func sensitivity(args []string, stdout, stderr io.Writer) int {
