@@ -445,8 +445,8 @@ _df_instructions() {
 
 # why: cg-gates mutation prints one `cg_event
 # config_gen_mutation_package_failed pkg= reason= [measured=]` line on
-# stdout for each package it fails (cmd/cg-gates TestMutation holds those
-# exact lines). The issue's gremlins criterion is that any per-package
+# stderr, the writer gremlins shares, for each package it fails
+# (cmd/cg-gates TestMutation holds those exact lines; base#1546). The issue's gremlins criterion is that any per-package
 # failure fails the gate with pkg=; the build log reaches the JSON log
 # only through this runner, so its record must keep the package, the
 # reason and the measured efficacy, then the gate's own record (base#1467).
@@ -1393,7 +1393,7 @@ _glibc_getconf() {
 
 # why: BuildKit merges the mutation gate's streams into one step log, and a
 # package's verdict can land after gremlins' unfinished progress text on the
-# same line. The two lines below are the #1443 ship's build log verbatim
+# same line. The two lines below are the base#1443 ship's build log verbatim
 # (lines 955-956), where the retro run judged cmd/cg-gates: the verdict is
 # still that package's, so the retro case must count it (base#1546).
 @test "config_gen_redpath.sh: a retro verdict glued after gremlins' Gathering coverage progress still counts (base#1546)" {
