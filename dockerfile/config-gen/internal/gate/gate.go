@@ -180,7 +180,12 @@ func Normalize(src []byte) []byte {
 		if tok[0] == '+' || tok[0] == '-' {
 			inf = tok[:1] + inf
 		}
-		copy(out[start:end], inf+strings.Repeat(" ", end-start-len(inf)))
+		// The literal's bytes become spaces, then inf over its start.
+		pad := out[start:end]
+		for k := range pad {
+			pad[k] = ' '
+		}
+		copy(pad, inf)
 	}
 	_ = t.document()
 	return out
@@ -232,9 +237,8 @@ func digitRun(tok []byte, i int) int {
 		return -1
 	}
 	for i++; i < len(tok); i++ {
-		if tok[i] == '_' && i+1 < len(tok) && isDigit(tok[i+1]) {
-			i++
-		} else if !isDigit(tok[i]) {
+		// A digit goes on, and so does an underscore with a digit after it.
+		if !isDigit(tok[i]) && (tok[i] != '_' || i+1 == len(tok) || !isDigit(tok[i+1])) {
 			break
 		}
 	}

@@ -372,8 +372,8 @@ func (t *tables) value(f int) (byte, error) {
 	}
 	end := t.i
 	if at, reason, text, bad := dateRule(t.src[start:end]); bad {
-		if reason == ReasonDateRange {
-			return 0, oracleRefusal(t.label, t.src, start+at, reason, msgDateRange)
+		if reason == ReasonDateRange { // at the token's first byte (dateRule)
+			return 0, oracleRefusal(t.label, t.src, start, reason, msgDateRange)
 		}
 		return 0, refusal(t.label, t.src, start+at, reason, text)
 	}
@@ -595,9 +595,9 @@ func (t *tables) skipBlank(lines bool) (comment bool) {
 			t.i++
 		case c == '#':
 			comment = true
-			for t.i < len(t.src) && t.src[t.i] != '\n' {
-				t.i++
-			}
+			// The comment runs to the line ending or the end of src.
+			line, _, _ := bytes.Cut(t.src[t.i:], []byte{'\n'})
+			t.i += len(line)
 		default:
 			return comment
 		}
