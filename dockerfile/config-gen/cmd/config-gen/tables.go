@@ -39,15 +39,22 @@ func init() {
 // only this command does so, other commands keep the default.
 func tablesCmd(args []string, stdout, stderr io.Writer) error {
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
-	if rc := runTables(args, stdout, stderr); rc != exitOK {
+	if rc := runTables(args, stdout, stderr, syscall.Open); rc != exitOK {
 		osExit(rc)
 	}
 	return nil
 }
 
-// runTables does the work of tablesCmd and returns its exit status; every
-// non-zero status has written exactly one frame to stderr.
-func runTables(args []string, stdout, stderr io.Writer) int {
+// openFunc is open(2) as syscall.Open has it: the one filesystem call
+// whose answer decides an input refusal before any descriptor exists.
+// tablesCmd passes syscall.Open; a test passes an errno no path it can
+// make answers with (ENODEV, base#1469 review round 2).
+type openFunc func(path string, mode int, perm uint32) (int, error)
+
+// runTables does the work of tablesCmd, opening the input with open, and
+// returns its exit status; every non-zero status has written exactly one
+// frame to stderr.
+func runTables(args []string, stdout, stderr io.Writer, open openFunc) int {
 	if len(args) != 3 || args[0] != "--name" {
 		return fail(stderr, exitUsage, diag.Frame{
 			Event: "config_gen_usage_invalid",
@@ -55,7 +62,7 @@ func runTables(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 	label := args[1]
-	src, err := readRegular(args[2])
+	src, err := readRegular(open, args[2])
 	if err != nil {
 		return refuseInput(stderr, label, err)
 	}
@@ -124,14 +131,14 @@ const exitOutput = 4
 
 var errNotRegular = errors.New("not a regular file")
 
-// readRegular opens path without blocking (a FIFO with no writer, a socket
+// readRegular opens path with open, without blocking (a FIFO with no writer, a socket
 // or a device does not hold open(2)), checks the opened descriptor is a
 // regular file, and reads it. A descriptor that is not one is
 // errNotRegular, including one fstat(2) can not describe: what it names is
 // not known to be a regular file (base#1469). An open error is returned as
 // open(2) gave it; refuseInput classifies it.
-func readRegular(path string) ([]byte, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+func readRegular(open openFunc, path string) ([]byte, error) {
+	fd, err := open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}

@@ -308,14 +308,22 @@ func TestTablesNonRegularInputIsOneNotRegularFrame(t *testing.T) {
 }
 
 // open(2) answering ENODEV -- a device node with no driver behind it --
-// names a character or block device, not a regular file, so it is exit 1
-// and exactly one `config_gen_input_not_regular` frame naming the label,
-// like the /dev/null row above (base#1469 Input: a char device gives
-// config_gen_input_not_regular). No path an unprivileged test can open
-// returns ENODEV, so this hands refuseInput the error readRegular returns
-// for it; EACCES, the control, stays the unreadable frame, so the test
+// names a character or block device, not a regular file, so the command
+// exits 1 with nothing on stdout and exactly one
+// `config_gen_input_not_regular` frame naming the label, like the
+// /dev/null row above (base#1469 Input: a char device gives
+// config_gen_input_not_regular). No path an unprivileged test can make
+// opens with ENODEV, so the command is run with an open(2) that answers
+// the errno, and the answer goes through readRegular and the refusal as
+// syscall.Open's would (base#1469 review round 2). ENXIO is the socket
+// answer; EACCES, the control, stays the unreadable frame, so the test
 // fails for a mapping that calls every open error not regular.
 func TestTablesOpenENODEVIsOneNotRegularFrame(t *testing.T) {
+	const label = "l.toml"
+	path := filepath.Join(t.TempDir(), "p.toml")
+	if err := os.WriteFile(path, []byte("[a]\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 	for _, tc := range []struct {
 		errno syscall.Errno
 		event string
@@ -325,12 +333,23 @@ func TestTablesOpenENODEVIsOneNotRegularFrame(t *testing.T) {
 		{syscall.EACCES, "config_gen_input_unreadable"},
 	} {
 		t.Run(tc.errno.Error(), func(t *testing.T) {
-			var stderr bytes.Buffer
-			err := &os.PathError{Op: "open", Path: "/p.toml", Err: tc.errno}
-			if rc := refuseInput(&stderr, "l.toml", err); rc != 1 {
-				t.Fatalf("refuseInput(%v) = %d, want 1 (stderr %q)", err, rc, stderr.Bytes())
+			var opened []string
+			open := func(p string, _ int, _ uint32) (int, error) {
+				opened = append(opened, p)
+				return -1, tc.errno
 			}
-			refusal(t, stderr.Bytes(), tc.event, "l.toml")
+			var stdout, stderr bytes.Buffer
+			rc := runTables([]string{"--name", label, path}, &stdout, &stderr, open)
+			if rc != 1 {
+				t.Fatalf("config-gen tables with open(2) = %v exited %d, want 1 (stderr %q)", tc.errno, rc, stderr.Bytes())
+			}
+			if len(opened) != 1 || opened[0] != path {
+				t.Fatalf("config-gen tables opened %q, want [%q]", opened, path)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("config-gen tables with open(2) = %v stdout = %q, want empty", tc.errno, stdout.Bytes())
+			}
+			refusal(t, stderr.Bytes(), tc.event, label)
 		})
 	}
 }
