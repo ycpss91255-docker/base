@@ -229,7 +229,7 @@ flowchart LR
 「namespace vs recipe 的說明」與「Wrapper UX 速查表（#291）」兩節只有英文版；
 請看 [README.md](../../README.md#everyday-use)。
 
-<!-- sync: per-repo-runtime-configuration 4f345e108457 8709ab924d8a -->
+<!-- sync: per-repo-runtime-configuration 75128bf3ed59 daa2a397292e -->
 ## 各 repo runtime 配置
 
 每個下游 repo 透過一個 `setup.toml` 驅動自己的 runtime 配置
@@ -418,7 +418,7 @@ host 比對，任一項自上次 setup 後改變就印 `[WARNING]`（不阻擋�
 資料，重生永遠安全。帶 `--setup` 可以立刻強制重生，在 TTY 下會先開
 `setup_tui.sh`。
 
-<!-- sync: setupsh-subcommands f2810d447771 cfbdbc49e21d -->
+<!-- sync: setupsh-subcommands f50975a62b81 5be8c379c0e6 -->
 ### setup.sh 子指令
 
 `setup.sh` 是 git 風格的後端，提供明確的子指令，入口是

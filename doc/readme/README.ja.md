@@ -236,7 +236,7 @@ Acceptance の 4 レベル + Smoke タイプ）です。
 「namespace と recipe のヘルプ」と「Wrapper UX チートシート（#291）」は英語版
 のみです。[README.md](../../README.md#everyday-use) を参照してください。
 
-<!-- sync: per-repo-runtime-configuration 4f345e108457 ab1539763dce -->
+<!-- sync: per-repo-runtime-configuration 75128bf3ed59 a3d53a03c049 -->
 ## repo ごとのランタイム設定
 
 各下流 repo は 1 つの `setup.toml` で自身のランタイム設定
@@ -440,7 +440,7 @@ drift が報告されたら `.env` / `.env.generated` / `compose.yaml` を自動
 再生成は常に安全です。`--setup` はその場で再生成を強制し、TTY では
 `setup_tui.sh` を先に開きます。
 
-<!-- sync: setupsh-subcommands f2810d447771 91bb36cd4566 -->
+<!-- sync: setupsh-subcommands f50975a62b81 1ed7209d0be9 -->
 ### setup.sh のサブコマンド
 
 `setup.sh` は git 風のバックエンドで、明示的なサブコマンドを持ち、
