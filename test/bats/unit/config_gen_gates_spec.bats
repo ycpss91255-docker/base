@@ -754,6 +754,9 @@ _ok_lines() {
 # config_gen_gate_coverage_failed, rc 1.
 _canned_correct() {
   local _kind _case _want _file _reason _extra _c
+  # One line per generation, naming where it wrote, so a test can count
+  # them (base#1555).
+  printf '%s\n' "${S}" >> "${BATS_FILE_TMPDIR}/canned.generations"
   mkdir -p "${S}/canned"
   while IFS='|' read -r _kind _case _want _reason _extra; do
     _c="${S}/canned/${_case}"
@@ -1106,6 +1109,20 @@ _glibc_getconf() {
   for (( _n = 1; _n <= $(cat "${S}/runner.n"); _n++ )); do
     assert_equal "${_n}:$(cat "${S}/runner.${_n}.copied" 2>/dev/null)" "${_n}:${_want}"
   done
+}
+
+# why: The row-loop tests call _redpath_repo 10-11 times each. When every
+# call regenerated all the canned answers, that took 74-76% of their wall
+# on hosted runners and brought them to the 480s mutation-required bound
+# (base#1555). The answers depend only on /source and the row table, so
+# they are made once per file, in setup_file, and each call copies them.
+@test "config_gen_redpath.sh: the canned answers are generated once per file and never by _redpath_repo (base#1555)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  rm -rf "${S}/repo" "${S}/canned"
+  _redpath_repo
+  assert_equal "$(cat "${BATS_FILE_TMPDIR}/canned.generations" 2>/dev/null)" \
+    "${BATS_FILE_TMPDIR}/canned-template"
 }
 
 # why: The redpath's copies run the real steps, and the 00-manifest step
