@@ -17,7 +17,7 @@
 // mutation (base#1467) runs gremlins once on each package
 // buildgate.Map draws from the change manifest and `go list -json -test
 // -deps ./...` of the working directory (a refusal of Map is printed as its
-// cg_event line on stdout), with one worker and a timeout coefficient
+// cg_event line), with one worker and a timeout coefficient
 // of 10, its report written under <dir>. Two checks judge each package,
 // in order. The first is gremlins' exit status: a non-zero exit fails the
 // package, reason gremlins_failed, and its report is not read, whatever
@@ -29,13 +29,16 @@
 // `No results to report.` and exiting 0 prints `<pkg> no-mutants` and
 // passes. Each other package prints `<pkg> ok efficacy=<e>`, or, failed,
 // `cg_event config_gen_mutation_package_failed pkg=<pkg> reason=<r>
-// [measured=<e>]` (buildgate.PackageFailed) on stdout, which the runner
+// [measured=<e>]` (buildgate.PackageFailed), which the runner
 // re-emits as a record naming the package.
 // After the last package any failure puts
-// `config_gen_gate_mutation_failed` on stderr. Before any package, each
+// `config_gen_gate_mutation_failed`. Before any package, each
 // package the manifest deletes that the head tree no longer holds prints
 // `removed <pkg>`, and a manifest that maps to no package prints
-// `mutation targets none`.
+// `mutation targets none`. mutation writes every line on stderr, the
+// writer gremlins' own output goes to, and nothing on stdout: on a second
+// pipe a verdict lost its order against gremlins' text and BuildKit put it
+// inside gremlins' unfinished progress line (base#1546).
 //
 // sensitivity (base#1467) checks that each golden file under the corpus
 // root <root> fails every package its tests were handed it by. Each
@@ -150,7 +153,7 @@ func ratchet(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func mutation(args []string, stdout, stderr io.Writer) int {
+func mutation(args []string, _, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mutation", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	manifest := fs.String("manifest", "", "the change manifest the 00-manifest step wrote")
@@ -173,15 +176,15 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 	}
 	m, err := buildgate.Map(string(body), *module, pkgs)
 	if err != nil {
-		_, _ = fmt.Fprintln(stdout, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
 		return exitFail
 	}
 	for _, rel := range m.Removed {
-		_, _ = fmt.Fprintf(stdout, "removed %s\n", buildgate.ImportPath(*module, rel))
+		_, _ = fmt.Fprintf(stderr, "removed %s\n", buildgate.ImportPath(*module, rel))
 	}
 	if len(m.Targets) == 0 {
-		_, _ = fmt.Fprintln(stdout, "mutation targets none")
+		_, _ = fmt.Fprintln(stderr, "mutation targets none")
 	}
 	bad := false
 	for i, rel := range m.Targets {
@@ -193,13 +196,13 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		w := io.MultiWriter(stderr, &said)
 		cmd.Stdout, cmd.Stderr = w, w
 		if err := cmd.Run(); err != nil {
-			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "gremlins_failed").String())
+			_, _ = fmt.Fprintln(stderr, buildgate.PackageFailed(pkg, "gremlins_failed").String())
 			bad = true
 			continue
 		}
 		rep, err := os.ReadFile(out)
 		if errors.Is(err, os.ErrNotExist) && strings.Contains(said.String(), noMutants) {
-			_, _ = fmt.Fprintf(stdout, "%s no-mutants\n", pkg)
+			_, _ = fmt.Fprintf(stderr, "%s no-mutants\n", pkg)
 			continue
 		}
 		eff := 0
@@ -207,17 +210,17 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 			eff, err = buildgate.Efficacy(rep)
 		}
 		if err != nil {
-			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "report").String())
+			_, _ = fmt.Fprintln(stderr, buildgate.PackageFailed(pkg, "report").String())
 			bad = true
 			continue
 		}
 		e := fmt.Sprintf("%d.%d", eff/10, eff%10)
 		if eff < buildgate.MutationFloor {
-			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "below", "measured", e).String())
+			_, _ = fmt.Fprintln(stderr, buildgate.PackageFailed(pkg, "below", "measured", e).String())
 			bad = true
 			continue
 		}
-		_, _ = fmt.Fprintf(stdout, "%s ok efficacy=%s\n", pkg, e)
+		_, _ = fmt.Fprintf(stderr, "%s ok efficacy=%s\n", pkg, e)
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
