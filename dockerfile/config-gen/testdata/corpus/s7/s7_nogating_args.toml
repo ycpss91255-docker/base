@@ -1,0 +1,3 @@
+[[build.args]]
+value = "1"
+# expect: verdict=refuse event=conf_entry_no_gating_field line=1 col=1 key=build.args[1] apply=refuse

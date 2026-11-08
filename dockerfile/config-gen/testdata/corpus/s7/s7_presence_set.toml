@@ -1,0 +1,3 @@
+[[build.args]]
+key = "A"
+# expect: verdict=accept apply=refuse

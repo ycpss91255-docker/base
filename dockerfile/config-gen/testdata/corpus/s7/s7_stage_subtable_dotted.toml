@@ -1,0 +1,3 @@
+["stage:dev"]
+deploy.gpu_mode = "off"
+# expect: verdict=accept apply=accept
