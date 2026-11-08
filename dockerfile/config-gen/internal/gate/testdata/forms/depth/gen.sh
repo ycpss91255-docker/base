@@ -15,8 +15,12 @@
 # `x.y.z = [[…]]`, arr-in-aot `[[t]]` then `x = [[…]]`, arr-ws `[ # c`
 # plus a line ending per level, it-arr `a = {b = [[…]]}`, warm-arr
 # `x = {}` then the arr shape, so an inline table was read before the
-# deepest one (base#1441). The shapes whose terminal is fixed are named
-# <shape>-<N>.toml (see _fixed).
+# deepest one (base#1441), tz-it-arr `p = 1979-05-27T07:32:00+01:00`
+# then the it-arr shape, so the +01:00 offset was used before the deepest
+# value. it-arr puts the innermost value at the frame parity where one
+# frame of a terminal's own cost moves the boundary: an offset datetime's
+# first use of its offset, and each string escape class (base#1441). The
+# shapes whose terminal is fixed are named <shape>-<N>.toml (see _fixed).
 #
 # The backslash of the escaped terminal is written from its byte code
 # (\134), never typed: the six characters of a \u escape typed through
@@ -49,6 +53,7 @@ _doc() {
     arr-ws) printf 'a = %s%s%s\n' "$(_rep $'[ # c\n' "${n}")" "${t}" "$(_rep $'\n]' "${n}")" ;;
     it-arr) printf 'a = {b = %s%s%s}\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
     warm-arr) printf 'x = {}\na = %s%s%s\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
+    tz-it-arr) printf 'p = 1979-05-27T07:32:00+01:00\na = {b = %s%s%s}\n' "$(_rep '[' "${n}")" "${t}" "$(_rep ']' "${n}")" ;;
     arr-e) printf 'a = [%s{}%s]\n' "$(_rep '{b = ' "${n}")" "$(_rep '}' "${n}")" ;;
     it-c) printf 'a = {b = %s#c\n1%s}\n' "$(_rep '[' "${n}")" "$(_rep ']' "${n}")" ;;
     ait-c) printf 'a = [{b = %s#c\n1%s}]\n' "$(_rep '[' "${n}")" "$(_rep ']' "${n}")" ;;
@@ -120,6 +125,28 @@ main() {
   _fixed arr-e 329 330 331
   _fixed it-c 494 495
   _fixed ait-c 493 494
+  # Terminal costs one frame apart, at it-arr's parity (base#1441): an
+  # offset datetime whose offset is used first (+ and -) against a Z one
+  # and one whose offset was used before, and each basic-string escape
+  # class, one-line and multi-line, alone and mixed. bs is the backslash,
+  # q3 a multi-line basic string's delimiter.
+  local bs q3
+  bs="$(printf '\134')"
+  q3='"""'
+  _pair it-arr odt 495 '1979-05-27T07:32:00Z'
+  _pair it-arr odt-plus 494 '1979-05-27T07:32:00+01:00'
+  _pair it-arr odt-minus 494 '1979-05-27T07:32:00-01:00'
+  _pair tz-it-arr odt-plus 495 '1979-05-27T07:32:00+01:00'
+  _pair tz-it-arr odt-minus 494 '1979-05-27T07:32:00-01:00'
+  _pair arr esc-n 495 "\"${bs}n\""
+  _pair it-arr esc-n 494 "\"${bs}n\""
+  _pair it-arr ml-esc-n 493 "${q3}${bs}n${q3}"
+  _pair arr ml-ws 494 "${q3}${bs}"$'\n'"${q3}"
+  _pair it-arr ml-ws 493 "${q3}${bs}"$'\n'"${q3}"
+  _pair it-arr esc-u0041 493 "\"${bs}u0041\""
+  _pair it-arr ml-esc-u0041 492 "${q3}${bs}u0041${q3}"
+  _pair it-arr esc-mixed 493 "\"${bs}n${bs}u0041\""
+  _pair it-arr ml-mixed 492 "${q3}${bs}"$'\n'"${bs}u0041${q3}"
 }
 
 main "$@"

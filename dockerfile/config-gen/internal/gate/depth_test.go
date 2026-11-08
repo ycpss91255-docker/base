@@ -16,7 +16,8 @@ const wantDepthText = "nesting deeper than tomllib accepts (Python recursion lim
 // `x.y.z = [[…]]`, arr-in-aot `[[t]]` then `x = [[…]]`, arr-ws `[ # c`
 // and a line ending per level, it-arr `a = {b = [[…]]}`, ait
 // `a = [{b = [[…]]}]`, arr-it `a = [{b = {b = …}}]`, warm-arr `x = {}`
-// then `a = [[…]]` on line 2.
+// then `a = [[…]]` on line 2, tz-it-arr `p = 1979-05-27T07:32:00+01:00`
+// then the it-arr shape on line 2.
 func nest(shape string, n int, term string) string {
 	r := strings.Repeat
 	switch shape {
@@ -40,6 +41,8 @@ func nest(shape string, n int, term string) string {
 		return "a = [" + r("{b = ", n) + term + r("}", n) + "]\n"
 	case "warm-arr":
 		return "x = {}\na = " + r("[", n) + term + r("]", n) + "\n"
+	case "tz-it-arr":
+		return "p = 1979-05-27T07:32:00+01:00\na = {b = " + r("[", n) + term + r("]", n) + "}\n"
 	}
 	panic("nest: unknown shape " + shape)
 }
@@ -86,6 +89,30 @@ func TestCheckDepthBoundaries(t *testing.T) {
 		{"arr-it", "{}", 329, 1, 5},
 		{"warm-arr", "{}", 495, 2, 5},
 		{"warm-arr", "1", 496, 2, 5},
+		// Terminals whose own cost is one frame apart, at it-arr's
+		// parity (forms/depth it-arr-*, tz-it-arr-*, arr-esc-n-*,
+		// arr-ml-ws-*, base#1441). An offset datetime goes one frame
+		// deeper on the first use of its offset, + or -, than a Z one or
+		// one whose offset an earlier value used (tz-it-arr). A basic
+		// string escape goes deeper by its class: a one-line escape, the
+		// same in a multi-line string, a multi-line line-ending
+		// backslash, a \u escape one-line and multi-line, and mixed
+		// escapes, which cost what their deepest escape costs. \x5c is
+		// the backslash.
+		{"it-arr", "1979-05-27T07:32:00Z", 495, 1, 5},
+		{"it-arr", "1979-05-27T07:32:00+01:00", 494, 1, 5},
+		{"it-arr", "1979-05-27T07:32:00-01:00", 494, 1, 5},
+		{"tz-it-arr", "1979-05-27T07:32:00+01:00", 495, 2, 5},
+		{"tz-it-arr", "1979-05-27T07:32:00-01:00", 494, 2, 5},
+		{"arr", "\"\x5cn\"", 495, 1, 5},
+		{"it-arr", "\"\x5cn\"", 494, 1, 5},
+		{"it-arr", "\"\"\"\x5cn\"\"\"", 493, 1, 5},
+		{"arr", "\"\"\"\x5c\n\"\"\"", 494, 1, 5},
+		{"it-arr", "\"\"\"\x5c\n\"\"\"", 493, 1, 5},
+		{"it-arr", "\"\x5cu0041\"", 493, 1, 5},
+		{"it-arr", "\"\"\"\x5cu0041\"\"\"", 492, 1, 5},
+		{"it-arr", "\"\x5cn\x5cu0041\"", 493, 1, 5},
+		{"it-arr", "\"\"\"\x5c\n\x5cu0041\"\"\"", 492, 1, 5},
 	}
 	for _, tm := range []struct {
 		term    string
