@@ -1378,9 +1378,11 @@ _rp_retro_want() {
 # _rp_retro_got <err> -- the packages the mutation gate passed, one per
 # line, sorted: the build log lines ending `<pkg> ok efficacy=<e>` or
 # `<pkg> no-mutants`. BuildKit merges the gate's streams into one step log,
-# so a verdict can land after other text on the same line (base#1546).
+# so a verdict can land after gremlins' unfinished `Gathering coverage... `
+# on the same line (base#1546); only that literal may precede it, so a
+# verdict after any other text, or cut short, does not count.
 _rp_retro_got() {
-  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ (.* )?([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\2/p' "${1}" \
+  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ (Gathering coverage\.\.\. )?([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\2/p' "${1}" \
     | LC_ALL=C sort -u
 }
 
