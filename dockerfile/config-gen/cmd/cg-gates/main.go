@@ -195,14 +195,16 @@ func mutation(args []string, _, stderr io.Writer) int {
 		var said strings.Builder
 		w := io.MultiWriter(stderr, &said)
 		cmd.Stdout, cmd.Stderr = w, w
-		if err := cmd.Run(); err != nil {
-			verdict(stderr, said.String(), buildgate.PackageFailed(pkg, "gremlins_failed").String()+"\n")
+		err := cmd.Run()
+		text := said.String()
+		if err != nil {
+			verdict(stderr, text, buildgate.PackageFailed(pkg, "gremlins_failed").String())
 			bad = true
 			continue
 		}
 		rep, err := os.ReadFile(out)
-		if errors.Is(err, os.ErrNotExist) && strings.Contains(said.String(), noMutants) {
-			verdict(stderr, said.String(), pkg+" no-mutants\n")
+		if errors.Is(err, os.ErrNotExist) && strings.Contains(text, noMutants) {
+			verdict(stderr, text, pkg+" no-mutants")
 			continue
 		}
 		eff := 0
@@ -210,17 +212,17 @@ func mutation(args []string, _, stderr io.Writer) int {
 			eff, err = buildgate.Efficacy(rep)
 		}
 		if err != nil {
-			verdict(stderr, said.String(), buildgate.PackageFailed(pkg, "report").String()+"\n")
+			verdict(stderr, text, buildgate.PackageFailed(pkg, "report").String())
 			bad = true
 			continue
 		}
 		e := fmt.Sprintf("%d.%d", eff/10, eff%10)
 		if eff < buildgate.MutationFloor {
-			verdict(stderr, said.String(), buildgate.PackageFailed(pkg, "below", "measured", e).String()+"\n")
+			verdict(stderr, text, buildgate.PackageFailed(pkg, "below", "measured", e).String())
 			bad = true
 			continue
 		}
-		verdict(stderr, said.String(), fmt.Sprintf("%s ok efficacy=%s\n", pkg, e))
+		verdict(stderr, text, pkg+" ok efficacy="+e)
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
@@ -229,15 +231,16 @@ func mutation(args []string, _, stderr io.Writer) int {
 	return exitOK
 }
 
-// verdict writes line on w so that it starts its own line: when the
-// bytes gremlins wrote (said) stop mid-line, a newline goes first. The
-// base#1443 step log showed gremlins leaving `Gathering coverage... `
-// unfinished, so the verdict landed glued to it (base#1546).
+// verdict writes line and a newline on w so that line starts its own
+// line: when the bytes gremlins wrote (said) stop mid-line, a newline goes
+// first. The base#1443 step log showed gremlins leaving
+// `Gathering coverage... ` unfinished, so the verdict landed glued to it
+// (base#1546).
 func verdict(w io.Writer, said, line string) {
 	if said != "" && !strings.HasSuffix(said, "\n") {
-		_, _ = io.WriteString(w, "\n")
+		line = "\n" + line
 	}
-	_, _ = io.WriteString(w, line)
+	_, _ = fmt.Fprintln(w, line)
 }
 
 func sensitivity(args []string, stdout, stderr io.Writer) int {
