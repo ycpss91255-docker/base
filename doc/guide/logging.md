@@ -23,7 +23,24 @@ Old per-start files are pruned by `container_log_keep` most-recent AND
 Setting `[logging] local_path` is the only step for any repo running
 base's `ENTRYPOINT` orchestrator, which sources the helper for you. A repo
 still running its own `/entrypoint.sh` as the `ENTRYPOINT` should take the
-one-time migration in [entrypoint.md](entrypoint.md).
+one-time migration in [entrypoint.md](entrypoint.md). Until it migrates,
+that file needs this single un-guarded line before its final `exec`:
+
+```bash
+. /usr/local/lib/base/logging.sh
+```
+
+The helper is COPY'd into the image at the stable in-image path
+`/usr/local/lib/base/logging.sh` by `Dockerfile`'s devel stage (refs
+#368), together with its `logrotate.sh` sibling (refs #805), so the
+source line works at build-time AND runtime in every workspace layout —
+no `$USER` deref, no workspace bind-mount dependence.
+
+Troubleshooting: `local_path` set but the host file stays empty → check
+which model the repo is on (`grep ENTRYPOINT Dockerfile`). On the
+orchestrator, nothing else is needed; on its own `/entrypoint.sh`, check
+that file actually contains the source line
+(`grep logging.sh script/entrypoint.sh`).
 
 ## Wrapper transcripts
 
