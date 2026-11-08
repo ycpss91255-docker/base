@@ -1149,7 +1149,7 @@ _glibc_getconf() {
 # why: A missing canned template means setup_file did not run or did not
 # finish. Rebuilding it inside _redpath_repo would hide that and bring back
 # the per-call cost that took the row-loop tests to the 480s bound
-# (base#1555), so _redpath_repo refuses instead.
+# (base#1555), so _redpath_repo refuses instead, naming base#1555.
 @test "config_gen_redpath.sh: _redpath_repo refuses a missing canned template instead of rebuilding it (base#1555)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   mkdir -p "${S}/empty"
