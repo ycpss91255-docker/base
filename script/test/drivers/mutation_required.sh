@@ -26,7 +26,10 @@
 # --check       validate the roster and run nothing.
 # --shard <n>/<total>
 #               validate every row, then probe only row k (counted over
-#               every roster file, from 0) with k mod <total> == n-1; the
+#               every roster file, from 0) with k mod <total> == n-1, or,
+#               when the roster holds seconds.txt (<file> TAB <id> TAB
+#               <seconds>), deal rows heaviest first, each to the shard
+#               with the fewest seconds so far (base#1571); the
 #               hosted mutation-roster legs each run one shard, which a full
 #               roster per leg could not finish inside the job's timeout.
 #               1 <= n <= total <= 99; a shard with no row is roster_empty.
@@ -304,11 +307,44 @@ _mr_validate() {
   return 0
 }
 
-# _mr_shard <n> <total> -- keep only the validated rows of shard <n>.
+# _mr_shard_pick <root> <n> <total> -- print the row indexes of shard <n>.
+# With no seconds file, row k goes to shard (k mod <total>) + 1. With one,
+# rows go heaviest first (ties by index), each to the shard holding the
+# fewest seconds so far (ties to the lowest shard); a row the file does
+# not name weighs 0 (base#1571).
+_mr_shard_pick() {
+  local _root="${1}" _n="${2}" _t="${3}" _i _loc _file
+  local _sec="${_root}/${_MR_ROSTER_REL}/seconds.txt"
+  if [[ ! -f "${_sec}" ]]; then
+    for (( _i = _n - 1; _i < ${#_MR_ROWS_LOC[@]}; _i += _t )); do
+      printf '%s\n' "${_i}"
+    done
+    return 0
+  fi
+  for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
+    _loc="${_MR_ROWS_LOC[_i]}"
+    _file="${_loc%:*}"
+    printf '%s\t%s\t%s\n' "${_i}" "${_file##*/}" "${_MR_ROWS_ID[_i]}"
+  done | LC_ALL=C awk -F '\t' -v OFS='\t' '
+    NR == FNR { w[$1 FS $2] = $3 + 0; next }
+    { print ((($2 FS $3) in w) ? w[$2 FS $3] : 0), $1 }
+  ' "${_sec}" - \
+    | LC_ALL=C sort -t $'\t' -k1,1gr -k2,2n \
+    | LC_ALL=C awk -F '\t' -v n="${_n}" -v t="${_t}" '
+      BEGIN { for (s = 1; s <= t; s++) load[s] = 0 }
+      { best = 1
+        for (s = 2; s <= t; s++) if (load[s] < load[best]) best = s
+        load[best] += $1
+        if (best == n) print $2 }
+    ' | LC_ALL=C sort -n
+}
+
+# _mr_shard <root> <n> <total> -- keep only the validated rows of shard <n>.
 _mr_shard() {
-  local _n="${1}" _t="${2}" _i
-  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=() _s_wit=()
-  for (( _i = _n - 1; _i < ${#_MR_ROWS_LOC[@]}; _i += _t )); do
+  local _root="${1}" _n="${2}" _t="${3}" _i
+  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=() _s_wit=() _pick=()
+  mapfile -t _pick < <(_mr_shard_pick "${_root}" "${_n}" "${_t}")
+  for _i in "${_pick[@]+"${_pick[@]}"}"; do
     _s_loc+=( "${_MR_ROWS_LOC[_i]}" )
     _s_id+=( "${_MR_ROWS_ID[_i]}" )
     _s_subj+=( "${_MR_ROWS_SUBJ[_i]}" )
@@ -920,7 +956,7 @@ main() {
   fi
   (( _check == 0 )) || return 0
   if [[ -n "${_shard}" ]]; then
-    _mr_shard "${_shard%/*}" "${_shard#*/}" || return 1
+    _mr_shard "${_root}" "${_shard%/*}" "${_shard#*/}" || return 1
   fi
   _mr_run "${_root}" "${_jobs}"
 }
