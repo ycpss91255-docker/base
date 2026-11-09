@@ -1299,3 +1299,33 @@ STUB
   run grep -cF right "${_root}/subject.sh"
   assert_output "1"
 }
+
+# ── a mutated pass narrowed to its witnesses ────────────────────────────────
+
+# why: a roster row's verdict rests on a few witness tests, yet its mutated
+# pass ran every @test in the spec -- 65 for gomod_scan, 54 for
+# config_gen_gates (base#1571). With --filter <regex> the probe hands the
+# filter to the runner for the mutated pass, as a third argument after the
+# root and the spec (the default runner turns it into test.sh --filter), so
+# only the witnesses run, and a red among them is still reported PINNED.
+@test "_mutation_probe: --filter runs the mutated pass under the witness filter (base#1571)" {
+  local _root _runner _calls="${BATS_TEST_TMPDIR}/calls"
+  _root="$(_probe_fixture)"
+  _runner="${BATS_TEST_TMPDIR}/runner-filtered"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' "printf '%s\n' \"\${3-<none>}\" >> '${_calls}'"
+    printf '%s\n' 'if grep -F wrong "${1}/subject.sh" >/dev/null 2>&1; then'
+    printf '%s\n' '  printf "not ok 1 the witness\n"'
+    printf '%s\n' 'else'
+    printf '%s\n' '  printf "ok 1 the witness\n"'
+    printf '%s\n' 'fi'
+  } > "${_runner}"
+  chmod +x "${_runner}"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+  # The last runner call is the mutated pass, and it ran under the filter.
+  run tail -n 1 "${_calls}"
+  assert_output '^the witness$'
+}
