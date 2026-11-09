@@ -265,16 +265,16 @@
 #
 # - `classify` doc-only allow-list + system block-list + non-PR default
 #
-# - `bats-fragile`/`bats-integration`/`integration-e2e`/`system` declare
+# - `bats-fragile`/`integration-e2e`/`system` declare
 # `needs: [actionlint, classify]`
 #
-# - `bats-fragile`/`bats-integration` job-level `if: code_changed == 'true'`
+# - `bats-fragile` job-level `if: code_changed == 'true'`
 # + no remaining monolithic `test:` job (#377, #677)
 #
 # - `integration-e2e` job-level `if: code_changed == 'true'` + `system`
 # job-level `if: system_relevant == 'true'` (#317 P3 tightens)
 #
-# - `bats-fragile`/`bats-integration`/`system` use
+# - `bats-fragile`/`system` use
 # `docker/build-push-action@v6` with `scope=test-tools` GHA cache
 #
 # - `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317
@@ -282,8 +282,6 @@
 #
 # - `bats-fragile` Obtain step pulls `:main` with 3-layer fallback + Build
 # step gated on `build_local` (#317 P2 + #677)
-#
-# - `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377)
 #
 # - `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no
 # `driver: docker` pin (#317 P2)
@@ -301,7 +299,7 @@
 # `lib/**` + `prune.sh` (#317 P3 gotcha-5)
 #
 # - `ci-rollup` declared + `needs: [actionlint, classify, shellcheck,
-# hadolint, bats-fragile, bats-integration, coverage, coverage-gate,
+# hadolint, bats-fragile, coverage, coverage-gate,
 # integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 +
 # #677 + #710)
 #
@@ -327,8 +325,8 @@
 # - `bats-fragile` declared + is a single job (no shard matrix) + invokes
 # `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677)
 #
-# - `bats-integration` declared + invokes `test.sh --bats-integration`
-# (#377)
+# - no `bats-integration` job, and neither `ci-rollup` nor `release` needs
+# it: the coverage shards run every integration spec (base#1573)
 #
 # - `coverage` declared (#377) + runs on PRs via `if: code_changed ==
 # 'true'` (not main-only) + primary kcov unit gate over `matrix.shard:
@@ -341,7 +339,7 @@
 # `coverage_gate.sh`
 #
 # - `release` job needs `[shellcheck, hadolint, bats-fragile,
-# bats-integration, coverage, integration-e2e, system]` before publishing a
+# coverage, integration-e2e, system]` before publishing a
 # tag (#376 + #377 + #677)
 #
 # - Probe-and-rebuild against a stale/racing `:main`: every job that
@@ -512,12 +510,6 @@ _acceptance_code() {
 
 @test "self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)" {
   run yaml_job_lines "${WF}" bats-fragile
-  assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
-}
-
-@test "self-test.yaml: bats-integration job declares needs on actionlint AND classify (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
@@ -706,12 +698,6 @@ _acceptance_code() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: bats-integration job-level if: gates on code_changed (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
-}
-
 @test "self-test.yaml: no monolithic 'test:' job remains after #377 split" {
   # a `test` job ran shellcheck + bats sequentially.
   # peeled shellcheck out, splits the rest into bats-unit
@@ -763,14 +749,6 @@ _acceptance_code() {
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
 
-@test "self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial 'uses: docker/build-push-action@'
-  assert_output --partial 'cache-from: type=gha,scope=test-tools'
-  assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
-}
-
 @test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
   run yaml_job_lines "${WF}" system
   assert_success
@@ -799,14 +777,6 @@ _acceptance_code() {
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial "steps.obtain.outputs.build_local == 'true'"
-}
-
-@test "self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial 'Obtain the run-scoped test-tools image'
-  assert_output --partial 'script/ci/obtain_test_tools.sh'
-  assert_output --partial '--local-build delegate'
 }
 
 # why: the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that
@@ -1054,7 +1024,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   # which always probes. Named per job AND counted, because the count is
   # what the earlier form got wrong.
   local _job
-  for _job in hadolint bats-fragile bats-integration coverage system acceptance; do
+  for _job in hadolint bats-fragile coverage system acceptance; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
     assert_output --partial './script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"'
@@ -1126,8 +1096,8 @@ _builder_setups_out_of_step_with_their_consumer() {
 @test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {
   # The "PR changed Dockerfile.test-tools" decision is computed ONCE in
   # classify (its checkout is fetch-depth: 0, so the three-dot merge-base
-  # resolves). The 6 image jobs (hadolint, bats-fragile, bats-integration,
-  # coverage, acceptance, system) used to repeat that diff on a
+  # resolves). The image jobs (hadolint, bats-fragile, then also
+  # bats-integration, coverage, acceptance, system) used to repeat that diff on a
   # shallow (fetch-depth: 1) checkout where no merge-base is reachable, so it
   # reported every file as changed and rebuilt the image on EVERY PR. They now
   # read needs.classify.outputs.testtools_changed instead -- so `git fetch
@@ -1285,8 +1255,8 @@ _builder_setups_out_of_step_with_their_consumer() {
 # merge; the exact list is what makes adding or dropping one a reviewed edit.
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
-  # hadolint + bats-fragile + bats-integration + coverage + acceptance
-  # + system so its result reflects every PR check. (ADR-8)
+  # hadolint + bats-fragile + coverage + acceptance + system so its
+  # result reflects every PR check. (ADR-8)
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
@@ -1300,7 +1270,29 @@ _builder_setups_out_of_step_with_their_consumer() {
   # same way: a code-gated job whose red would otherwise be one nobody sees.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  #
+  # `bats-integration` left it with base#1573: the coverage shards run
+  # every integration spec, so that job ran each one a second time.
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+}
+
+# why: The coverage shards already run every integration spec (the pool in
+# script/test/drivers/bats.sh holds test/bats/integration), so a separate
+# bats-integration job ran each of them a second time. With the job gone,
+# neither the merge gate nor the tag gate may still wait on it: the two lists
+# below are main's lists at b091f8e3 with that one entry removed, written out
+# by hand rather than read back from the workflow.
+@test "self-test.yaml: no bats-integration job, and neither ci-rollup nor release needs it (base#1573)" {
+  run code_grep -E '^  bats-integration:' "${WF}"
+  assert_failure
+
+  run yaml_job_lines "${WF}" ci-rollup
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+
+  run yaml_job_lines "${WF}" release
+  assert_success
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -1339,7 +1331,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'needs.shellcheck.result'
   assert_output --partial 'needs.hadolint.result'
   assert_output --partial 'needs.bats-fragile.result'
-  assert_output --partial 'needs.bats-integration.result'
+  refute_output --partial 'needs.bats-integration.result'
   assert_output --partial 'needs.compute-shards.result'
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.coverage-gate.result'
@@ -3095,7 +3087,7 @@ _lint_probe_fixture() {
 
 # why: A tag produces the artifact users consume, so it must clear every
 # gate a merge clears; the exact list makes a dropped gate a reviewed edit.
-@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
+@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
@@ -3110,7 +3102,9 @@ _lint_probe_fixture() {
   # ci-rollup: the tag path requires exactly what the merge gate requires.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  #
+  # `bats-integration` left it with base#1573, as it left ci-rollup.
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3211,17 +3205,6 @@ _lint_probe_fixture() {
   # primary unit gate and bats-fragile covers the kcov-skipped delta.
   run code_grep -E '^  bats-unit:' "${WF}"
   assert_failure
-}
-
-@test "self-test.yaml: declares bats-integration job (#377)" {
-  run code_grep -E '^  bats-integration:' "${WF}"
-  assert_success
-}
-
-@test "self-test.yaml: bats-integration invokes test.sh --bats-integration (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial './script/test/test.sh --bats-integration'
 }
 
 @test "self-test.yaml: declares coverage job (#377)" {
@@ -3440,8 +3423,8 @@ _lint_probe_fixture() {
 # in-flight cache, which is the very thing the unique naming protects.
 
 @test "self-test.yaml: every job that puts an image in the host daemon tears it down (#900)" {
-  # The six docker-using jobs: hadolint, bats-fragile, bats-integration,
-  # coverage, acceptance, system. Each one loads a test-tools image into
+  # The docker-using jobs: hadolint, bats-fragile, coverage, acceptance,
+  # system (bats-integration was the sixth until base#1573). Each one loads a test-tools image into
   # the runner's daemon, so each one has to hand it back.
   run code_grep -c 'script/ci/reclaim.sh' "${WF}"
   assert_success
@@ -3642,33 +3625,13 @@ _lint_tools_table() {
 BATS_DRIVER='/source/script/test/drivers/bats.sh'
 SELF_SPEC='/source/test/bats/unit/self_test_yaml_spec.bats'
 
-# The driver's own kcov-skip regex, read out of the driver rather than
-# respelled here: a second copy of it is the two-sources-of-truth shape the
-# runtime-computed fragile set was built to avoid.
-_fragile_guard_re() {
-  sed -n "s/^readonly _FRAGILE_GUARD_RE='\(.*\)'\$/\1/p" "${BATS_DRIVER}"
-}
-
-# The spec files bats-fragile selects, by the driver's own rule.
-_fragile_selected_files() {
-  local _re
-  _re="$(_fragile_guard_re)"
-  [[ -n "${_re}" ]] || return 1
-  grep -rlE "${_re}" /source/test/bats/unit | LC_ALL=C sort
-}
-
-# `<tests> <guards>`: `@test` declarations in the selected files, and how many
-# of them carry the kcov-skip guard. The difference is what runs in BOTH legs.
-_fragile_overlap_counts() {
-  local _re _f _tests=0 _guards=0
-  _re="$(_fragile_guard_re)"
-  [[ -n "${_re}" ]] || return 1
-  while IFS= read -r _f; do
-    [[ -n "${_f}" ]] || continue
-    _tests=$(( _tests + $(grep -c '^@test' "${_f}") ))
-    _guards=$(( _guards + $(grep -cE "${_re}" "${_f}") ))
-  done < <(_fragile_selected_files)
-  printf '%s %s\n' "${_tests}" "${_guards}"
+# True when the driver's bats-fragile runner selects by TEST, through bats'
+# tag filter (base#1573). Read out of the driver rather than assumed: a
+# runner that went back to handing bats whole files would bring the overlap
+# back.
+_fragile_selects_by_tag() {
+  awk '/^_run_bats_fragile\(\)/ { on = 1 } on && /^}/ { exit }
+       on' "${BATS_DRIVER}" | grep -qF -- '--filter-tags kcov-fragile'
 }
 
 # Every authored line that explains the bats-fragile mechanism, from the three
@@ -3698,24 +3661,14 @@ _fragile_rationale_lines() {
       "${BATS_DRIVER}"
   assert_success
 
-  local _counts _tests _guards _overlap
-  _counts="$(_fragile_overlap_counts)" \
-    || fail "could not read _FRAGILE_GUARD_RE out of ${BATS_DRIVER}"
-  _tests="${_counts%% *}"
-  _guards="${_counts##* }"
-  [ "${_tests}" -ge 100 ] \
-    || fail "counted ${_tests} @test declarations in the fragile files; the selector did not resolve and the check below would be vacuous"
-  _overlap=$(( _tests - _guards ))
-
   local -a _lines=()
   mapfile -t _lines < <(_fragile_rationale_lines)
   [ "${#_lines[@]}" -ge 10 ] \
     || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved and this guard would be vacuous"
 
-  # Only forbidden while the overlap is real: a selector that became a true
-  # partition may say so, and the granularity guard below is what would then
-  # require the rest of the wording to follow.
-  [ "${_overlap}" -gt 0 ] || return 0
+  # A runner that selects by test through the tag filter runs only the
+  # tests coverage skips, so there is no overlap to deny (base#1573).
+  _fragile_selects_by_tag && return 0
 
   local -a _claims=( 'zero double' 'no double-run' 'no double run' \
       'without double-run' 'runs exactly those fragile specs' )
@@ -3726,7 +3679,7 @@ _fragile_rationale_lines() {
     done
   done
   [[ -z "${_bad}" ]] || fail \
-      "a bats-fragile rationale denies a double run that the selector has: ${_guards} of ${_tests} @test declarations in the selected files carry the kcov-skip guard, so ${_overlap} run under kcov in the coverage matrix AND plain here. Offending line(s):
+      "a bats-fragile rationale denies a double run, but ${BATS_DRIVER} no longer selects by the kcov-fragile tag, so whole files run under kcov in the coverage matrix AND plain here. Offending line(s):
 ${_bad}"
 }
 
