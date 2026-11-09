@@ -261,7 +261,7 @@ _cg_contract() {
 }
 
 main() {
-  local root="${_CG_SCRIPT_DIR}/../.." tmp
+  local root="${_CG_SCRIPT_DIR}/../.." tmp steps_only=0
   while (( $# > 0 )); do
     case "${1}" in
       --root)
@@ -273,9 +273,15 @@ main() {
         root="${2}"
         shift 2
         ;;
+      --steps-only)
+        # Run the steps, then stop before the docker build: the redpath's
+        # shared pass (base#1547).
+        steps_only=1
+        shift
+        ;;
       *)
         _log_err "${_CG_SERVICE}" config_gen_usage_invalid "arg=${1}" \
-          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>]"
+          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>] [--steps-only]"
         exit 2
         ;;
     esac
@@ -290,6 +296,7 @@ main() {
   trap "rm -rf '${tmp}'" EXIT
   mkdir "${tmp}/ctx"
   _cg_run_steps "${root}" "${tmp}/ctx"
+  (( steps_only == 0 )) || return 0
   local -a ctx_args=()
   local ctx_list
   ctx_list="$(_cg_context_args "${tmp}/ctx")" || exit 1

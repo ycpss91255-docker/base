@@ -1508,6 +1508,23 @@ _rp_control() {
   return 1
 }
 
+# _rp_shared <root> -- the shared pass (base#1547): the runner's
+# --steps-only on the pristine copy <root>, so the steps whose verdict
+# does not depend on a plant run once per job, before any case. Its
+# stdout goes to <root>.shared.out and its stderr to <root>.shared.err.
+_rp_shared() {
+  local rc=0
+  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
+    CONFIG_GEN_REDPATH_CASE=shared \
+    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" --steps-only \
+    >"${1}.shared.out" 2>"${1}.shared.err" || rc=$?
+  (( rc == 0 )) && return 0
+  cat "${1}.shared.err" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_shared_failed "status=${rc}" \
+    "display=config-gen redpath shared pass (--steps-only on the unmodified copy) exited ${rc}"
+  return 1
+}
+
 # _rp_now -- the wall clock in seconds with microseconds, from
 # EPOCHREALTIME.
 _rp_now() {
@@ -1536,11 +1553,13 @@ main() {
     exit 1
   fi
   export CONFIG_GEN_REDPATH_ACTIVE=1
-  local scratch entry failed=0 ran=0
+  local scratch pristine entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
   trap "rm -rf '${scratch}'" EXIT
-  _RP_PRISTINE_DIGEST="$(_rp_digest "$(_rp_copy "${scratch}")")"
+  pristine="$(_rp_copy "${scratch}")"
+  _RP_PRISTINE_DIGEST="$(_rp_digest "${pristine}")"
+  _rp_shared "${pristine}" || exit 1
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
