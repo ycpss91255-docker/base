@@ -759,6 +759,27 @@ _timing_attr() {
   assert_equal "${_mutated}" 3
 }
 
+# ── one sandbox per worker slot ─────────────────────────────────────────────
+
+# why: Each row built its own sandbox (mktemp, a tar copy of every tracked
+# file, verify, git init and commit) and its own compose project, so 314
+# rows built 314 sandboxes, up to 81 of them identical (base#1571). Under
+# MUTATION_REQUIRED_JOBS=1 there is one worker slot: its three rows run in
+# one sandbox under one project, and the sandbox is reset between rows, so
+# each mutated pass sees its own row's edit and no other row's.
+@test "sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows (base#1571)" {
+  _three_rows
+  MUTATION_REQUIRED_JOBS=1 _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one three two "
+  assert_equal "$(awk '$1 == "start" { print $4 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
+  assert_equal "$(awk '$1 == "start" { print $5 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
+  local _d
+  for _d in "${MR_DIFF_DIR}"/diff.*; do
+    assert_equal "$(grep -c '^-[^-]' "${_d}")" 1
+  done
+}
+
 # ── parallel rows ───────────────────────────────────────────────────────────
 
 # why: 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
