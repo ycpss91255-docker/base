@@ -10,7 +10,10 @@
 #
 # Each row is the one-line weaker implementation a base#1571 test claims to
 # rule out, so the claim is re-checked by running that mutant on every run
-# of the roster rather than once at review:
+# of the roster rather than once at review. The checks that read every
+# committed row against its subject's bytes are in
+# test/bats/unit/mutation_roster_spec.bats, which no row may name, so a
+# driver row here is not PINNED by its own <old> going missing:
 # - baseline-key-tree-hash: the --baseline-in key is the commit, not the
 #   tree, so a baseline is refused for the same tree under a new commit.
 # - slot-reset-hard / slot-reset-clean: a kept worker slot's sandbox is

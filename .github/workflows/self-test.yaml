@@ -768,7 +768,7 @@ jobs:
     # was sized seconds.txt summed to 8304.6 worker-seconds, which dealt
     # four legs 517.9 to 520.2 s each over 4 worker slots, over the 300 s
     # (5 minute) per-job target (base#1571). Whether every leg still fits
-    # 300 s is decided by the mutation_required_spec case "every
+    # 300 s is decided by the mutation_roster_spec case "every
     # mutation-roster leg's measured seconds over its worker slots fit
     # 300 s", a sum over seconds.txt, not a timed job.
     needs: [actionlint, classify]
