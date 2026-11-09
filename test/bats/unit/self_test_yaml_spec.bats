@@ -4249,29 +4249,40 @@ _roster_runs() {
   awk -F'\t' -v p="${2}" '$1 == "roster" && index($2, p) == 1' <<< "${1}"
 }
 
-# why: The hosted environment. Every lint-static leg runs the roster
-# exactly once, on its own shard (`--shard <its group>`, so the four legs
-# together probe every row), with no `if:` and no continue-on-error, and a
-# red roster fails the step.
-@test "self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)" {
+# why: The hosted environment. The roster runs in a job matrix of its own,
+# `mutation-roster`, named for what it does, and not inside lint-static,
+# where it took about 97% of each shard and was invisible from the checks
+# page (base#1571). Its legs are exactly shards 1/N..N/N, so together they
+# probe every row; each leg runs the roster exactly once, on its own shard,
+# with no `if:` and no continue-on-error, and a red roster fails the step.
+# No lint-static leg runs it at all.
+@test "self-test.yaml: the required-kill roster runs once per mutation-roster leg, on its shard, gated, and never in lint-static (base#1571)" {
   local _root
   _root="$(_roster_probe_root)" || fail "${_root}"
-  LP_JOBS=lint-static LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
+  [ "$(yq '.jobs | has("mutation-roster")' "${WF}")" = true ] \
+    || fail "self-test.yaml has no mutation-roster job, so the roster has no job of its own"
+  local -a _shards=()
+  mapfile -t _shards < <(yq '.jobs.mutation-roster.strategy.matrix | to_entries | .[0].value[]' "${WF}")
+  local _n="${#_shards[@]}" _want
+  (( _n >= 2 )) || fail "mutation-roster has ${_n} leg(s); a single leg is the unsplit roster"
+  _want="$(seq 1 "${_n}" | sed "s|.*|&/${_n}|")"
+  [ "$(printf '%s\n' "${_shards[@]}" | sort)" = "$(sort <<< "${_want}")" ] \
+    || fail "mutation-roster legs are [$(printf '%s ' "${_shards[@]}")], not exactly 1/${_n}..${_n}/${_n}, so the legs do not cover the roster once"
+  LP_JOBS='mutation-roster lint-static' LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
   assert_success
-  local _probe="${output}" _group _runs _st
-  local -a _groups=()
-  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}")
-  (( ${#_groups[@]} == 4 )) || fail "lint-static has ${#_groups[@]} legs, not 4"
-  for _group in "${_groups[@]}"; do
-    _runs="$(_roster_runs "${_probe}" "self-test.yaml:lint-static#" | grep -F "\"group\":\"${_group}\"" || true)"
+  local _probe="${output}" _shard _runs _st
+  [ -z "$(_roster_runs "${_probe}" "self-test.yaml:lint-static#")" ] \
+    || fail "a lint-static leg still runs the roster:"$'\n'"$(_roster_runs "${_probe}" "self-test.yaml:lint-static#")"
+  for _shard in "${_shards[@]}"; do
+    _runs="$(_roster_runs "${_probe}" "self-test.yaml:mutation-roster#" | grep -F ":\"${_shard}\"" || true)"
     [ "$(grep -c . <<< "${_runs}" || true)" = 1 ] \
-      || fail "lint-static leg ${_group} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
+      || fail "mutation-roster leg ${_shard} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
     _st="$(cut -f3 <<< "${_runs}")"
-    [ "${_st}" != 0 ] || fail "lint-static leg ${_group}: a red roster leaves its step green"
-    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_group} "* ]] \
-      || fail "lint-static leg ${_group} does not run the roster on shard ${_group}: $(cut -f4 <<< "${_runs}")"
+    [ "${_st}" != 0 ] || fail "mutation-roster leg ${_shard}: a red roster leaves its step green"
+    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_shard} "* ]] \
+      || fail "mutation-roster leg ${_shard} does not run the roster on shard ${_shard}: $(cut -f4 <<< "${_runs}")"
   done
-  run _lint_probe_gating_errors "${_probe}" "${WF}" lint-static roster
+  run _lint_probe_gating_errors "${_probe}" "${WF}" mutation-roster roster
   assert_output ""
 }
 
