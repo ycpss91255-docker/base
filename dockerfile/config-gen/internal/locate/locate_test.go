@@ -233,9 +233,11 @@ func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
 // many bytes is swept in full; a larger one is indexed at its cut points.
 const prefixSweepBound = 4096
 
-// cutContextLines is how many whole lines before a cut a larger input's
-// cut keeps (see indexCutPoints), so a string, array or inline table that
-// spans lines is still open when the input ends inside it.
+// cutContextLines is the most lines before a cut that a larger input's
+// cut window starts from (see cutWindows). The window is then cut to its
+// last cutContextBytes bytes, so it can start mid-line, and a string,
+// array or inline table opened before the window's start is not open in
+// the window.
 const cutContextLines = 8
 
 // cutContextBytes is the most bytes before a cut a larger input's cut
@@ -293,11 +295,12 @@ type cutWindow struct{ from, end int }
 // input, and, for every byte offset n past the start of each line and
 // past the swept head (whose cuts are whole prefixes already), the
 // bytes from the start of the line cutContextLines lines earlier (or of
-// the input) up to n, cut to the last cutContextBytes of them: so the
-// input ends at every byte boundary, every token boundary among them,
-// with the lines before it in place, and Index is handed at most
-// cutContextBytes bytes per cut, whatever the line lengths. The fuzz
-// target FuzzTreeParity indexes any other input.
+// the input) up to n, cut to the last cutContextBytes of them: so a
+// window ends at every byte boundary, every token boundary among them,
+// and Index is handed at most cutContextBytes bytes per cut, whatever the
+// line lengths. A window past the head can start mid-line, and a string,
+// array or inline table opened before its start is not open in it. The
+// fuzz target FuzzTreeParity indexes any other input.
 func cutWindows(src []byte) []cutWindow {
 	var out []cutWindow
 	sweep := min(len(src), prefixSweepBound)
