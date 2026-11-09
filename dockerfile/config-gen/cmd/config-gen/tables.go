@@ -30,13 +30,13 @@ func init() {
 // names no file (ENOENT, or ENOTDIR for a name under a regular file)
 // exits 1 with one `no_such_file` frame; an fstat error on the opened
 // descriptor is the not-regular frame. Any other open or read error
-// (EACCES, EPERM, ...) exits 1 with one
-// `config_gen_input_unreadable` frame. The answer is
-// one stdout write; a write error or a short count exits 4 with one
-// `config_gen_output_failed` frame. That includes a stdout pipe whose
-// reader is gone: SIGPIPE is routed to a channel here, so the write
-// returns EPIPE instead of the Go runtime killing the process (os/signal);
-// only this command does so, other commands keep the default.
+// (EACCES, EPERM, ...) exits 1 with one `config_gen_input_unreadable`
+// frame. The answer is one stdout write; a write error or a short count
+// exits 4 with one `config_gen_output_failed` frame. That includes a
+// stdout pipe whose reader is gone: SIGPIPE is routed to a channel here,
+// so the write returns EPIPE instead of the Go runtime killing the
+// process (os/signal); only this command does so, other commands keep
+// the default.
 func tablesCmd(args []string, stdout, stderr io.Writer) error {
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
 	if rc := runTables(args, stdout, stderr, syscall.Open); rc != exitOK {
@@ -97,26 +97,14 @@ func runTables(args []string, stdout, stderr io.Writer, open openFunc) int {
 // behind it: neither names a regular file, so both are the not-regular
 // frame, as a type fstat reports that is not S_IFREG is.
 func refuseInput(stderr io.Writer, label string, err error) int {
+	event, text := "config_gen_input_unreadable", err.Error()
 	switch {
 	case errors.Is(err, errNotRegular) || errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.ENODEV):
-		return fail(stderr, exitError, diag.Frame{
-			Event: "config_gen_input_not_regular",
-			File:  label,
-			Text:  "input is not a regular file",
-		})
+		event, text = "config_gen_input_not_regular", "input is not a regular file"
 	case errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR):
-		return fail(stderr, exitError, diag.Frame{
-			Event: "no_such_file",
-			File:  label,
-			Text:  "no such file",
-		})
-	default:
-		return fail(stderr, exitError, diag.Frame{
-			Event: "config_gen_input_unreadable",
-			File:  label,
-			Text:  err.Error(),
-		})
+		event, text = "no_such_file", "no such file"
 	}
+	return fail(stderr, exitError, diag.Frame{Event: event, File: label, Text: text})
 }
 
 // fail writes f to stderr as one error-severity frame and returns rc.
@@ -131,12 +119,12 @@ const exitOutput = 4
 
 var errNotRegular = errors.New("not a regular file")
 
-// readRegular opens path with open, without blocking (a FIFO with no writer, a socket
-// or a device does not hold open(2)), checks the opened descriptor is a
-// regular file, and reads it. A descriptor that is not one is
-// errNotRegular, including one fstat(2) can not describe: what it names is
-// not known to be a regular file (base#1469). An open error is returned as
-// open(2) gave it; refuseInput classifies it.
+// readRegular opens path with open, without blocking (a FIFO with no
+// writer, a socket or a device does not hold open(2)), checks the opened
+// descriptor is a regular file, and reads it. A descriptor that is not
+// one is errNotRegular, including one fstat(2) cannot describe: what it
+// names is not known to be a regular file (base#1469). An open error is
+// returned as open(2) gave it; refuseInput classifies it.
 func readRegular(open openFunc, path string) ([]byte, error) {
 	fd, err := open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
