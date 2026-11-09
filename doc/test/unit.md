@@ -1187,6 +1187,18 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
+### test/bats/unit/ci_retry_spec.bats (1)
+
+A CI job failed on one upstream 5xx (a Docker Hub 502 on the actionlint
+pull, a GitHub API 504 in the just install) because no step retried the
+fetch. These specs pin the retry contract by behaviour: a transient failure
+then success passes, a persistent failure still fails loud with its own exit
+code, base#1562.
+
+| Test | Description |
+|------|-------------|
+| `retry.sh: a command that fails twice then succeeds exits 0 after 3 runs (base#1562)` | - |
+
 ### test/bats/unit/ci_spec.bats (195)
 
 | Test | Description |
