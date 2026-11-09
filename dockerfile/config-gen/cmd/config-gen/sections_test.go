@@ -47,9 +47,11 @@ func readSectionRows(t *testing.T) map[string][]string {
 // shell gets for it, as _setup_known_section judges it: `[logging.""]` is
 // the text `logging.`, an unknown table, while `["logging.web"]` and
 // `[logging.web.x]` name a service. Every table text under an unknown
-// one is reported too (`[foo.bar]` is foo and foo.bar), anything under a
-// `["stage:<name>"]` table is not judged, and an empty array is judged by
-// the row its first entry would take: `[security] cap_drop = []` is
+// one is reported too (`[foo.bar]` is foo and foo.bar), a key under a
+// `["stage:<name>"]` table is judged on its stage-relative section and
+// key, which the shell skips (source=spec, base#1443), and an empty
+// array is judged by the row its first entry would take:
+// `[security] cap_drop = []` is
 // security.cap_drop_1, known, and `[deploy] args = []` is deploy.arg_1,
 // an unknown key. The source=shell rows are what the real
 // _setup_conf_check_known reports for the same files

@@ -1,0 +1,15 @@
+[[volumes]]
+source = "/a"
+target = "/b"
+
+[[volumes]]
+
+[[volumes]]
+mode = "ro"
+target = "/d"
+
+[[volumes]]
+source = "/c"
+target = ""
+mode = "rw"
+# expect: verdict=refuse event=conf_entry_field_needs line=9 col=1 key=volumes[3].target apply=refuse

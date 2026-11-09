@@ -1,0 +1,6 @@
+[[volumes]]
+source = "/a"
+zz = "x"
+aa = "y"
+mm = "z"
+# expect: verdict=refuse event=conf_entry_unknown_field line=4 col=1 key=volumes[1].aa apply=refuse

@@ -193,25 +193,23 @@ func TestDecodeArrayOfTablesIsDeferred(t *testing.T) {
 // `_setup_known_key devices bindings` both return 1, so a lookup by name
 // would refuse bindings too; the array stage owns it instead. device_1
 // holds a value the shared value table accepts (`/dev/x:/dev/x`,
-// mount:pair). The only refusal is conf_unknown_key at devices.bogus,
+// mount:pair), but it is also block 1 of the bindings family spelled as
+// a table scalar: main's dockerfile/toml_bridge.py `--kv` on this input
+// gives rc 1, "devices.device_1 is carried two ways in one
+// configuration" (base#1443). The refusals are conf_family_two_spellings
+// at devices.device_1, line 2, and conf_unknown_key at devices.bogus,
 // line 3, counted from the input bytes.
 func TestDecodeNestedArrayOfTablesIsDeferred(t *testing.T) {
 	src := []byte("[devices]\ndevice_1 = \"/dev/x:/dev/x\"\nbogus = 1\n\n[[devices.bindings]]\npath = \"/dev/y\"\n")
 
 	_, refusals := Decode(src)
 
-	if len(refusals) != 1 {
-		t.Fatalf("Decode refusals = %d (%+v), want exactly 1", len(refusals), refusals)
+	want := []Refusal{
+		{Event: "conf_family_two_spellings", Path: []string{"devices", "device_1"}, Line: 2, Col: 1},
+		{Event: "conf_unknown_key", Path: []string{"devices", "bogus"}, Line: 3, Col: 1},
 	}
-	got := refusals[0]
-	if got.Event != "conf_unknown_key" {
-		t.Errorf("Event = %q, want %q", got.Event, "conf_unknown_key")
-	}
-	if want := []string{"devices", "bogus"}; !reflect.DeepEqual(got.Path, want) {
-		t.Errorf("Path = %q, want %q", got.Path, want)
-	}
-	if got.Line != 3 {
-		t.Errorf("Line = %d, want 3", got.Line)
+	if !reflect.DeepEqual(refusals, want) {
+		t.Errorf("Decode refusals =\n  %+v\nwant\n  %+v", refusals, want)
 	}
 }
 

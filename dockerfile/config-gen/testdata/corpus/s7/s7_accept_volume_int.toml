@@ -1,0 +1,4 @@
+[[volumes]]
+source = 1
+target = "/d"
+# expect: verdict=accept apply=accept

@@ -1,0 +1,4 @@
+[[devices]]
+path = "/dev/x"
+foo = 1
+# expect: verdict=refuse event=conf_entry_unknown_field line=3 col=1 key=devices[1].foo apply=refuse

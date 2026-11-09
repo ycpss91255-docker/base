@@ -1,0 +1,4 @@
+[[volumes]]
+source = 1979-05-27
+target = "/d"
+# expect: verdict=accept apply=accept

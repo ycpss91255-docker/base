@@ -57,8 +57,8 @@ func TestDecodeDeferredArrayKeepsNestedMembers(t *testing.T) {
 			cfgA, refA := decodeNoPanic(t, []byte(tc.a))
 			cfgB, refB := decodeNoPanic(t, []byte(tc.b))
 
-			if len(refA) != 0 || len(refB) != 0 {
-				t.Fatalf("refusals = %+v / %+v, want none", refA, refB)
+			if !onlyUnknownField(refA) || !onlyUnknownField(refB) {
+				t.Fatalf("refusals = %+v / %+v, want only conf_entry_unknown_field", refA, refB)
 			}
 			if reflect.DeepEqual(cfgA.Deferred, cfgB.Deferred) {
 				t.Errorf("Deferred of %q and %q are equal; the payloads differ", tc.a, tc.b)

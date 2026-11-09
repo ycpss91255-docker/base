@@ -1,0 +1,7 @@
+[[volumes]]
+source = "/a"
+
+[[volumes]]
+source = "/b"
+zz = "x"
+# expect: verdict=refuse event=conf_entry_unknown_field line=6 col=1 key=volumes[2].zz apply=refuse

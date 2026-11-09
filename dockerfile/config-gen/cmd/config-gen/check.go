@@ -51,6 +51,11 @@ var displays = map[string]string{
 	"conf_value_newline_refused": "the value of %s holds an LF or CR",
 	"conf_value_nul_refused":     "%s holds U+0000",
 	"conf_toml_parse_failed":     "the layer is not valid TOML (near %s)",
+	"conf_entry_not_table":       "%s is not a table, so the entry cannot be read",
+	"conf_entry_no_gating_field": "%s carries none of the fields its family is read from",
+	"conf_entry_unknown_field":   "%s is a field its family does not read",
+	"conf_entry_field_needs":     "%s is written without the field it is read beside",
+	"conf_family_two_spellings":  "%s is carried two ways: as a numbered key and in its family's array",
 }
 
 // check is `config-gen check [--] <layer>...` (base#1442): it reads and
@@ -80,7 +85,7 @@ func check(args []string, _, stderr io.Writer) error {
 		}
 		_, refusals := schema.Decode(src)
 		for _, r := range refusals {
-			key := strings.Join(r.Path, ".")
+			key := r.Key()
 			frames = append(frames, frame{event: r.Event, file: path, line: r.Line, col: r.Col, key: key, display: fmt.Sprintf(displays[r.Event], key)})
 			if status == exitOK {
 				status = exitError

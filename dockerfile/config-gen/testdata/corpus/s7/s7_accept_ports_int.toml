@@ -1,0 +1,4 @@
+[[network.ports]]
+host = 8080
+container = 80
+# expect: verdict=accept apply=accept
