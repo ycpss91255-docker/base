@@ -13,7 +13,8 @@
 # every row is PINNED.
 #
 # Row contract, one for every roster file:
-#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new>
+#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new> [TAB <witness>]
+# <witness>, optional, is the mutated pass's test.sh --filter (base#1571).
 # `#` lines and blank lines are skipped. <old> and <new> are decoded with
 # exactly three escapes, `\\` `\t` `\n`; any other `\x` or a trailing `\`
 # is reason=bad_escape. <old> must occur exactly once in <subject>; <new>
@@ -377,10 +378,11 @@ SEEDS
   _runner_never_ran
 }
 
-# why: A sixth field is a row whose fields are not where the reader thinks.
-@test "validation: a six-field row is refused before any baseline (base#1461)" {
+# why: A seventh field is a row whose fields are not where the reader
+# thinks; the sixth is the optional witness filter (base#1571).
+@test "validation: a seven-field row is refused before any baseline (base#1461)" {
   _pin_row a.tsv good
-  _row a.tsv long lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2' extra
+  _row a.tsv long lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2' '^guard$' extra
   _commit_live
   _run_mr
   _assert_mr_refusal 1 mutation_required_row_invalid \

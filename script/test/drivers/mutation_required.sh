@@ -15,8 +15,9 @@
 # roster: a pinning test could be deleted with every gate green.
 #
 # Row contract, one for every roster file:
-#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new>
-# `#` lines and blank lines are skipped. <old> and <new> are decoded with
+#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new> [TAB <witness>]
+# <witness>, optional, is a test.sh --filter regex: the row's mutated pass
+# runs under it (mutation-probe.sh --filter), base#1571. `#` lines and blank lines are skipped. <old> and <new> are decoded with
 # exactly three escapes, `\\` `\t` `\n`; any other `\x` or a trailing `\`
 # is reason=bad_escape. <old> must occur exactly once in <subject>; <new>
 # may be empty (a deletion) and must differ from <old>.
@@ -154,13 +155,14 @@ _mr_apply() {
 # ── validation, before any baseline ─────────────────────────────────────────
 
 # Per row, filled by _mr_validate: the location, id, subject, spec, decoded
-# old and new.
+# old and new, and the witness filter (empty: none).
 _MR_ROWS_LOC=()
 _MR_ROWS_ID=()
 _MR_ROWS_SUBJ=()
 _MR_ROWS_SPEC=()
 _MR_ROWS_OLD=()
 _MR_ROWS_NEW=()
+_MR_ROWS_WIT=()
 
 # _mr_invalid <loc> <id> <reason> <display> -- one refused row.
 _mr_invalid() {
@@ -219,9 +221,9 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" cr "the row carries a carriage return"
         _bad=1; continue
       fi
-      if (( ${#_fl[@]} != 5 )); then
+      if (( ${#_fl[@]} != 5 && ${#_fl[@]} != 6 )); then
         _mr_invalid "${_loc}" "${_id}" field_count \
-          "${#_fl[@]} TAB-separated fields, the contract is <id> <subject> <spec> <old> <new>"
+          "${#_fl[@]} TAB-separated fields, the contract is <id> <subject> <spec> <old> <new> [<witness>]"
         _bad=1; continue
       fi
       _subj="${_fl[1]}"; _spec="${_fl[2]}"
@@ -290,6 +292,7 @@ _mr_validate() {
       _MR_ROWS_SPEC+=( "${_spec}" )
       _MR_ROWS_OLD+=( "${_old}" )
       _MR_ROWS_NEW+=( "${_new}" )
+      _MR_ROWS_WIT+=( "${_fl[5]:-}" )
     done < "${_f}"
   done
   (( _bad == 0 )) || return 1
@@ -304,7 +307,7 @@ _mr_validate() {
 # _mr_shard <n> <total> -- keep only the validated rows of shard <n>.
 _mr_shard() {
   local _n="${1}" _t="${2}" _i
-  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=()
+  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=() _s_wit=()
   for (( _i = _n - 1; _i < ${#_MR_ROWS_LOC[@]}; _i += _t )); do
     _s_loc+=( "${_MR_ROWS_LOC[_i]}" )
     _s_id+=( "${_MR_ROWS_ID[_i]}" )
@@ -312,6 +315,7 @@ _mr_shard() {
     _s_spec+=( "${_MR_ROWS_SPEC[_i]}" )
     _s_old+=( "${_MR_ROWS_OLD[_i]}" )
     _s_new+=( "${_MR_ROWS_NEW[_i]}" )
+    _s_wit+=( "${_MR_ROWS_WIT[_i]}" )
   done
   _MR_ROWS_LOC=( "${_s_loc[@]}" )
   _MR_ROWS_ID=( "${_s_id[@]}" )
@@ -319,6 +323,7 @@ _mr_shard() {
   _MR_ROWS_SPEC=( "${_s_spec[@]}" )
   _MR_ROWS_OLD=( "${_s_old[@]}" )
   _MR_ROWS_NEW=( "${_s_new[@]}" )
+  _MR_ROWS_WIT=( "${_s_wit[@]}" )
   if (( ${#_MR_ROWS_LOC[@]} == 0 )); then
     _log_err "${_MR_SERVICE}" mutation_required_roster_empty "dir=${_MR_ROSTER_REL}" \
       "shard=${_n}/${_t}" \
@@ -471,8 +476,9 @@ _mrw_verdict() {
 }
 
 # _mr_worker <row-dir> -- probe the row described in <row-dir>/meta (NUL
-# fields: subject, spec, the spec's baseline file, and `out` when this row
-# runs and writes that baseline or `in` when it reads it), with <row-dir>/old
+# fields: subject, spec, the spec's baseline file, `out` when this row
+# runs and writes that baseline or `in` when it reads it, and the witness
+# filter, empty for none), with <row-dir>/old
 # and <row-dir>/new. Root, probe and the names to avoid come from MR_W_* in
 # the environment.
 _mr_worker() {
@@ -482,7 +488,7 @@ _mr_worker() {
   local -a _meta=()
   mapfile -d '' -t _meta < "${_MRW_DIR}/meta"
   local _subj="${_meta[0]}" _spec="${_meta[1]}" _root="${MR_W_ROOT}"
-  local _base="${_meta[2]}" _role="${_meta[3]}"
+  local _base="${_meta[2]}" _role="${_meta[3]}" _wit="${_meta[4]:-}"
   local _sbx='' _name='' _rc=0 _mut _slot="${MR_W_SLOT:?}" _kept=0
   local -a _verdict=()
 
@@ -621,10 +627,12 @@ _mrw_run_probe() {
     fi
   fi
   printf -v _mut '%q ' bash "${_MR_SELF}" --apply "${_subj}" "${_MRW_DIR}/old" "${_MRW_DIR}/new"
+  local -a _flt=()
+  [[ -z "${_wit}" ]] || _flt=( --filter "${_wit}" )
   _rc=0
   set -m
   COMPOSE_PROJECT_NAME="${_name}" bash "${MR_W_PROBE:?}" --root "${_sbx}" --subject "${_subj}" \
-    --spec "${_spec}" --mutate "${_mut}" "--baseline-${_role}" "${_base}" \
+    --spec "${_spec}" --mutate "${_mut}" "--baseline-${_role}" "${_base}" "${_flt[@]+"${_flt[@]}"}" \
     < /dev/null > "${_MRW_DIR}/out" 2> "${_MRW_DIR}/err" &
   _MRW_PROBE="$!"
   set +m
@@ -736,8 +744,8 @@ _mr_run() {
       _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
       _role=out
     fi
-    printf '%s\0%s\0%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" \
-      "${_base["${_MR_ROWS_SPEC[_i]}"]}" "${_role}" > "${_MR_WORK}/row${_i}/meta"
+    printf '%s\0%s\0%s\0%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" \
+      "${_base["${_MR_ROWS_SPEC[_i]}"]}" "${_role}" "${_MR_ROWS_WIT[_i]}" > "${_MR_WORK}/row${_i}/meta"
     printf '%s' "${_MR_ROWS_OLD[_i]}" > "${_MR_WORK}/row${_i}/old"
     printf '%s' "${_MR_ROWS_NEW[_i]}" > "${_MR_WORK}/row${_i}/new"
     while (( ${#_MR_LIVE[@]} >= _jobs )) && [[ -z "${_MR_SIG}" ]]; do
