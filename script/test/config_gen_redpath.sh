@@ -1574,6 +1574,11 @@ main() {
     _log_info "${_RP_SERVICE}" config_gen_redpath_shared_reused shared=reused-from-gates \
       "display=config-gen redpath shared=reused-from-gates: the gates' steps verdict matches this copy's digest" >&2
   else
+    if [[ -n "${CONFIG_GEN_STEPS_VERDICT:-}" ]] \
+      && ! grep -q "^digest=${_RP_PRISTINE_DIGEST} " "${CONFIG_GEN_STEPS_VERDICT}" 2>/dev/null; then
+      _log_info "${_RP_SERVICE}" config_gen_redpath_shared_ran shared=ran reason=digest_mismatch \
+        "display=config-gen redpath shared=ran reason=digest_mismatch: the gates' steps verdict names another digest than this copy's" >&2
+    fi
     _rp_shared "${pristine}" || exit 1
   fi
   for entry in "${_RP_CASES[@]}"; do
