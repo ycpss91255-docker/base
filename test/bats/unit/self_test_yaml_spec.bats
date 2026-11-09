@@ -2111,6 +2111,61 @@ YAML
     || fail "the lint-static matrix repeats a group index; ${_seen} of ${_total} are distinct"
 }
 
+# why: A leg named only `lint-static (2/4)` says nothing on the checks
+# page about which lints it ran (base#1571). The membership is computed
+# from test.sh's _LINT_TOOLS table (base#1071), so a list written into
+# the workflow would be a roster; the name of the step that runs the
+# group must instead read the members from an earlier step's output.
+# The test runs that earlier step for every group, renders the step name
+# with what it wrote, and checks the name against the group's members as
+# `test.sh --lint-group-members` prints them.
+@test "self-test.yaml: each lint-static leg's lint step is named for every lint its group runs (base#1571)" {
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" \
+      "the self-test dispatcher that lists a lint group's members"
+  local -a _groups=()
+  mapfile -t _groups < <(lint_static_groups "${WF}")
+  [ "${#_groups[@]}" -ge 2 ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} group entries"
+
+  local _name
+  _name="$(yq '.jobs.lint-static.steps[] | select((.run // "") | test("--lint --group")) | .name' "${WF}")"
+  [ -n "${_name}" ] || fail "no lint-static step runs test.sh --lint --group"
+  local _expr_re='\$\{\{ *steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+) *\}\}'
+  [[ "${_name}" =~ ${_expr_re} ]] \
+    || fail "the lint step is named '${_name}', which reads no step output, so it cannot name the lints its group runs"
+  local _expr="${BASH_REMATCH[0]}" _id="${BASH_REMATCH[1]}" _key="${BASH_REMATCH[2]}"
+
+  local _run
+  _run="$(yq ".jobs.lint-static.steps[] | select(.id == \"${_id}\") | .run" "${WF}")"
+  [ -n "${_run}" ] && [ "${_run}" != null ] \
+    || fail "the lint step's name reads steps.${_id}, but no lint-static step with id '${_id}' has a run script"
+  local -a _env=()
+  mapfile -t _env < <(yq ".jobs.lint-static.steps[] | select(.id == \"${_id}\") | .env // {} | to_entries | .[] | .key + \"=\" + .value" "${WF}")
+
+  local _g _out _value _rendered _m _e
+  local -a _members=() _envg=()
+  for _g in "${_groups[@]}"; do
+    _out="${BATS_TEST_TMPDIR}/github_output"
+    : > "${_out}"
+    _envg=()
+    for _e in "${_env[@]}"; do
+      [ -n "${_e}" ] && _envg+=( "${_e//\$\{\{ matrix.group \}\}/${_g}}" )
+    done
+    run env "${_envg[@]}" GITHUB_OUTPUT="${_out}" bash -c "cd /source && ${_run//\$\{\{ matrix.group \}\}/${_g}}"
+    assert_success
+    _value="$(sed -n "s/^${_key}=//p" "${_out}")"
+    _rendered="${_name//"${_expr}"/${_value}}"
+    _rendered="${_rendered//\$\{\{ matrix.group \}\}/${_g}}"
+    mapfile -t _members < <("${_test_sh}" --lint-group-members "${_g}")
+    [ "${#_members[@]}" -gt 0 ] || fail "lint group ${_g} has no members"
+    for _m in "${_members[@]}"; do
+      tr -cs 'A-Za-z0-9_-' '\n' <<< "${_rendered}" | grep -qx -- "${_m}" \
+        || fail "lint group ${_g} runs '${_m}', but its lint step is named '${_rendered}'"
+    done
+  done
+}
+
 @test "self-test.yaml: declares hadolint job (#376)" {
   run code_grep -E '^  hadolint:' "${WF}"
   assert_success
