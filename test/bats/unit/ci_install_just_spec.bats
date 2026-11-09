@@ -124,3 +124,21 @@ _calls() {
   # `just 9.9.9` = the literal the fixture's just script prints.
   assert_output "just 9.9.9"
 }
+
+# why: A download that arrives but is not the release's bytes (a proxy
+# error page, a truncated or tampered tarball) must fail the job, not be
+# installed. The install checks the tarball against the release's
+# SHA256SUMS before it publishes a PATH dir, base#1562.
+@test "install-just.sh: a tarball whose digest does not match SHA256SUMS fails and leaves GITHUB_PATH untouched (base#1562)" {
+  # 64 zeros = a digest no real tarball has, in sha256sum's own
+  # two-space line format for the asset.
+  printf '%s  %s\n' \
+    "0000000000000000000000000000000000000000000000000000000000000000" \
+    "just-9.9.9-x86_64-unknown-linux-musl.tar.gz" > "${FIXTURE}/SHA256SUMS"
+
+  PATH="${STUB_BIN}:${PATH}" run "${INSTALL_JUST}" 9.9.9
+  assert_failure
+
+  [[ ! -s "${GITHUB_PATH}" ]] \
+    || fail "GITHUB_PATH was written on a digest mismatch: $(cat "${GITHUB_PATH}")"
+}
