@@ -1256,3 +1256,46 @@ STUB
   run grep -cF right "${_root}/sub/s.sh"
   assert_output "1"
 }
+
+# ── a baseline read from another probe ──────────────────────────────────────
+
+# why: a roster reads one spec's clean baseline into every row on that spec
+# instead of running it once per row (base#1571), and the "fewer assertions
+# than the baseline" refusal is only sound when those counts came from the
+# same tree and the same spec. So a baseline written with --baseline-out is
+# keyed by the tree it ran on and the spec it ran: the same key reads it,
+# while a different spec or a tree that has since changed is refused before
+# anything is mutated, rather than compared against counts measured elsewhere.
+@test "_mutation_probe: --baseline-in reads a baseline only for the tree hash and spec it was written for (base#1571)" {
+  local _root _runner _base="${BATS_TEST_TMPDIR}/x.baseline"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing keyed '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-out '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert [ -f "${_base}" ]
+
+  # Same tree, same spec: the baseline is read, not run.
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+
+  # Same tree, another spec: refused, and the subject never mutated.
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/y_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  assert_output --partial "was written for"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+
+  # Same spec, a tree whose content has changed since: refused the same way.
+  printf '%s\n' 'changed' > "${_root}/bystander.txt"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm changed
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  assert_output --partial "was written for"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
