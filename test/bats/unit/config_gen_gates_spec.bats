@@ -388,6 +388,71 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# _digest_tree <dir> -- a fixture tree for _cg_inputs_digest at <dir>: step
+# 20-x with its .inputs listing the file lib/a.sh and the directory fix
+# (fix/one.txt, fix/sub/two.txt), and other.txt, which nothing declares.
+_digest_tree() {
+  local _d="${1}/script/test/config_gen_steps"
+  mkdir -p "${_d}" "${1}/lib" "${1}/fix/sub"
+  printf 'echo x\n' > "${_d}/20-x.sh"
+  printf 'lib/a.sh\nfix\n' > "${_d}/20-x.inputs"
+  printf 'a\n' > "${1}/lib/a.sh"
+  printf '1\n' > "${1}/fix/one.txt"
+  printf '2\n' > "${1}/fix/sub/two.txt"
+  printf 'o\n' > "${1}/other.txt"
+}
+
+# _digest_of <dir> <step>... -- _cg_inputs_digest run from <dir>, the
+# runner sourced; the argument after the path keeps an unguarded main from
+# reaching a step or docker.
+_digest_of() {
+  run --separate-stderr bash -c 'r="$1" d="$2"; shift 2; source "$r" --digest-probe; cd "$d"; _cg_inputs_digest "$@"' \
+    _ "${RUNNER}" "$@"
+}
+
+# why: A step's verdict is reused only while its digest D is unchanged
+# (base#1547). D must cover the step's own script, its .inputs and every
+# file that .inputs lists, a listed directory expanded to each file under
+# it, so editing the step, shrinking its declaration, adding a file to a
+# declared fixture directory or renaming one there (same content) each
+# change D, while a file nothing declares does not. The literals are
+# sha256 over `<relpath>\0<sha256 of content>\n` per file in C-sorted path
+# order, the design's definition, worked out apart from the runner.
+@test "config_gen_gates.sh: _cg_inputs_digest covers the step script, its .inputs and every declared file, nothing else (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  local _base=2e75b8e63b65729e0019b8d07c8a35be9d1bee28a81408b3d42078e89d25f698
+  local _s=script/test/config_gen_steps
+  _digest_tree "${S}/t0"
+  _digest_of "${S}/t0" 20-x
+  assert_success
+  assert_output "${_base}"
+  _digest_tree "${S}/t1"
+  printf 'echo y\n' > "${S}/t1/${_s}/20-x.sh"
+  _digest_of "${S}/t1" 20-x
+  assert_success
+  assert_output 35edbd7b65dfcdba6f615ae0eaddaf80f313cd31292566fee65e40423b695f0a
+  _digest_tree "${S}/t2"
+  printf 'lib/a.sh\n' > "${S}/t2/${_s}/20-x.inputs"
+  _digest_of "${S}/t2" 20-x
+  assert_success
+  assert_output 916e2398fc49c392076f832b690b7b326d2f6c2d3447ba4fc889c14aaf4211ec
+  _digest_tree "${S}/t3"
+  printf '3\n' > "${S}/t3/fix/sub/three.txt"
+  _digest_of "${S}/t3" 20-x
+  assert_success
+  assert_output 22b7de88b7a9568255433b8cbea649cb7e17b91cd96976ef8e1a854d78a1eccf
+  _digest_tree "${S}/t4"
+  mv "${S}/t4/fix/one.txt" "${S}/t4/fix/uno.txt"
+  _digest_of "${S}/t4" 20-x
+  assert_success
+  assert_output 49a16c4d3d6cd98c779847dcef8f945f37e708f0b6e24b3ae88b254eef61caa0
+  _digest_tree "${S}/t5"
+  printf 'changed\n' > "${S}/t5/other.txt"
+  _digest_of "${S}/t5" 20-x
+  assert_success
+  assert_output "${_base}"
+}
+
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
 # the six ok lines, a refusal nothing at all; base#1465). A step's own
