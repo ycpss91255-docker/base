@@ -3440,6 +3440,40 @@ _skip_audit_run() {
   assert_success
 }
 
+# why: base#1573 the plain leg runs exactly the coverage-skipped tests
+@test "kcov-fragile tag: selects exactly the 33 coverage-guarded tests of the 11 real unit specs (base#1573)" {
+  # Expected counts are the guard lines per file today (grep -c of the
+  # in-body COVERAGE skip guard) and sum to the 33 `# skip` lines of
+  # coverage run 42576563105's shards -- not the tag filter's own output.
+  # Each file must select exactly that many tests, every one `ok ... # skip`
+  # under COVERAGE=1: fewer is a missed tag, an ok without skip is a tag on
+  # an unguarded test, a `not ok` is a skip point that broke teardown.
+  local -A _want=(
+    [lib_spec]=1 [entrypoint_logging_spec]=1 [conf_accessor_spec]=6
+    [build_sh_spec]=1 [gitignore_spec]=1 [stop_sh_spec]=1 [exec_sh_spec]=1
+    [transcript_spec]=1 [watchdog_supervision_spec]=16
+    [conf_refusal_event_spec]=3 [run_sh_spec]=1
+  )
+  local _f _n _total=0 _bad=""
+  for _f in "${!_want[@]}"; do
+    _n="${_want[${_f}]}"
+    _total=$(( _total + _n ))
+    run env COVERAGE=1 bats --filter-tags kcov-fragile \
+      "/source/test/bats/unit/${_f}.bats"
+    local _plan _skips _oks _notok
+    _plan="$(head -n1 <<< "${output}")"
+    _skips="$(grep -c '^ok .* # skip' <<< "${output}" || true)"
+    _oks="$(grep -c '^ok ' <<< "${output}" || true)"
+    _notok="$(grep -c '^not ok ' <<< "${output}" || true)"
+    if (( status != 0 )) || [[ "${_plan}" != "1..${_n}" ]] \
+      || (( _skips != _n || _oks != _n || _notok != 0 )); then
+      _bad+="${_f}: want ${_n}, status=${status} plan=${_plan} ok=${_oks} skip=${_skips} notok=${_notok}"$'\n'
+    fi
+  done
+  [[ -z "${_bad}" ]] || { printf '%s' "${_bad}"; return 1; }
+  (( _total == 33 ))
+}
+
 # ════════════════════════════════════════════════════════════════════
 # --bats-fragile: the kcov-fragile unit specs run in plain mode
 #
