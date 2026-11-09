@@ -694,18 +694,9 @@ jobs:
     # dedicated job runs it or exactly one group holds it.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
-    # 45, not 30: each leg also runs its shard of the required-kill roster
-    # (base#1461), measured at 13-20 minutes a shard on PR #1491's run
-    # 41226185346, on top of the lint group. 90, not 45: the s1e rows
-    # (base#1465) took the roster from 166 rows to 262, and on PR #1496's
-    # run 41385653542 shard 1/4 was cancelled at 45 minutes with its
-    # roster step still running after 43 minutes, while the other three
-    # legs finished in 34 to 36 minutes. 150, not 90: base#1467 took the
-    # roster from 285 rows to 304 and config_gen_gates_spec.bats from 44
-    # tests to 52, and on PR #1538's run 41736192401 shards 1/4, 2/4 and
-    # 4/4 were cancelled at 90 minutes with their roster step still
-    # running after 87 minutes, while shard 3/4 finished in 84 minutes.
-    timeout-minutes: 150
+    # 30: the lint group alone. The required-kill roster that pushed this
+    # to 150 runs in the mutation-roster job below (base#1571).
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -744,12 +735,62 @@ jobs:
           LINT_GROUP: ${{ matrix.group }}
         run: ./script/test/test.sh --lint --group "${LINT_GROUP}"
 
-      # The required-kill mutation roster (base#1461), the hosted leg of the
-      # check the no-flag `just test` runs between lint and bats. Every leg
-      # runs it, ungated, through `just`, on the shard named by its group:
-      # the four legs together probe every row, and a full roster per leg
-      # did not finish inside this job's timeout. The just-pin steps are
-      # copied from the acceptance job, which carries their rationale.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        continue-on-error: true
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  mutation-roster:
+    # The required-kill mutation roster (base#1461), the hosted leg of the
+    # check the no-flag `just test` runs between lint and bats. It ran
+    # inside the lint-static legs until base#1571, where it took most of
+    # each leg's time and the checks page named it as a lint group; it is
+    # a job of its own so its name says what it runs. Every leg runs it,
+    # ungated, through `just`, on the shard named by its matrix entry: the
+    # four legs together probe every row, and a full roster per leg did
+    # not finish inside one job's timeout.
+    needs: [actionlint, classify]
+    runs-on: ubuntu-latest
+    # 150, carried over from lint-static, whose roster step it was: on PR
+    # #1538's run 41736192401 shards 1/4, 2/4 and 4/4 were cancelled at 90
+    # minutes with their roster step still running after 87 minutes, while
+    # shard 3/4 finished in 84 minutes.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/4', '2/4', '3/4', '4/4']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        # The same obtain / build / reclaim shape as the hadolint job, which
+        # carries the reasoning for each step (base#1412).
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      # The just-pin steps are copied from the acceptance job, which
+      # carries their rationale.
       - name: Resolve the pinned just version
         id: just-pin
         run: |
@@ -769,9 +810,9 @@ jobs:
           ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
           echo "just: ${observed}, which is the pin"
 
-      - name: Run the required-kill mutation roster (shard ${{ matrix.group }})
+      - name: Run the required-kill mutation roster (shard ${{ matrix.shard }})
         env:
-          ROSTER_SHARD: ${{ matrix.group }}
+          ROSTER_SHARD: ${{ matrix.shard }}
         run: just test mutation-required --shard "${ROSTER_SHARD}"
 
       - name: Reclaim this run's docker artifacts
@@ -1753,8 +1794,8 @@ jobs:
     # `ci-summary` and env/* `ci-passed`.
     #
     # Hard-mandatory jobs (actionlint / classify / doc-counts /
-    # lint-static / compute-shards) must succeed: SKIPPED there indicates
-    # a workflow bug,
+    # lint-static / mutation-roster / compute-shards) must succeed:
+    # SKIPPED there indicates a workflow bug,
     # not an intentional gate. doc-counts is hard-mandatory because it
     # carries no `if:` -- the generated doc/test catalogue can be broken by
     # a doc-only edit, so gating it on code_changed would skip it on
@@ -1788,7 +1829,7 @@ jobs:
     # compute-shards failure cascaded into two skips and the required
     # check went green with the whole unit suite and the coverage floor
     # never run. A skipped shard computation is not a pass.
-    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1800,6 +1841,7 @@ jobs:
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
           DOC_COUNTS_RESULT: ${{ needs.doc-counts.result }}
           LINT_STATIC_RESULT: ${{ needs.lint-static.result }}
+          MUTATION_ROSTER_RESULT: ${{ needs.mutation-roster.result }}
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
           BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
@@ -1837,6 +1879,7 @@ jobs:
           echo "shellcheck:       ${SHELLCHECK_RESULT}"
           echo "doc-counts:       ${DOC_COUNTS_RESULT}"
           echo "lint-static:      ${LINT_STATIC_RESULT}"
+          echo "mutation-roster:  ${MUTATION_ROSTER_RESULT}"
           echo "hadolint:         ${HADOLINT_RESULT}"
           echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
@@ -1848,16 +1891,17 @@ jobs:
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           echo "config-gen:       ${CONFIG_GEN_RESULT}"
           fail=0
-          # doc-counts, lint-static and compute-shards carry no `if:`
-          # gate, so SKIPPED means a workflow bug, not an intentional
-          # skip -- they are hard-mandatory like actionlint / classify.
-          # lint-static is a matrix; its entries fold into one result, so
-          # a single failing lint fails the rollup. compute-shards is the
+          # doc-counts, lint-static, mutation-roster and compute-shards
+          # carry no `if:` gate, so SKIPPED means a workflow bug, not an
+          # intentional skip -- they are hard-mandatory like actionlint /
+          # classify. lint-static and mutation-roster are matrices; each
+          # folds its entries into one result, so a single failing lint or
+          # roster shard fails the rollup. compute-shards is the
           # producer coverage expands, so its skip is what silently
           # removes the unit suite AND the coverage floor from this run.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
                    "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
-                   "${COMPUTE_SHARDS_RESULT}"; do
+                   "${MUTATION_ROSTER_RESULT}" "${COMPUTE_SHARDS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
@@ -1892,7 +1936,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
+    needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30

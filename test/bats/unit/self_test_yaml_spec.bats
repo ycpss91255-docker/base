@@ -1298,9 +1298,12 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `config-gen` (the config generator's Go gates, base#1462) joins it the
   # same way: a code-gated job whose red would otherwise be one nobody sees.
+  #
+  # `mutation-roster` (the required-kill roster, base#1571) joins it when
+  # the roster leaves lint-static for a job of its own.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -3108,9 +3111,10 @@ _lint_probe_fixture() {
   #
   # `config-gen` (base#1462) joins it for the same reason it joins
   # ci-rollup: the tag path requires exactly what the merge gate requires.
+  # `mutation-roster` (base#1571) joins both for the same reason.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {

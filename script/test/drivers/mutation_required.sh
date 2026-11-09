@@ -26,7 +26,7 @@
 # --shard <n>/<total>
 #               validate every row, then probe only row k (counted over
 #               every roster file, from 0) with k mod <total> == n-1; the
-#               hosted lint-static legs each run one shard, which a full
+#               hosted mutation-roster legs each run one shard, which a full
 #               roster per leg could not finish inside the job's timeout.
 #               1 <= n <= total <= 99; a shard with no row is roster_empty.
 # --apply       the one way a row edits its subject, run by the probe from

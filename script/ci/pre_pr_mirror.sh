@@ -146,6 +146,7 @@ _table() {
     "attested${t}shellcheck${t}${_CMD_TEST}" \
     "attested${t}doc-counts${t}${_CMD_TEST}" \
     "attested${t}lint-static${t}${_CMD_TEST}" \
+    "attested${t}mutation-roster${t}${_CMD_TEST}" \
     "attested${t}hadolint${t}${_CMD_TEST}" \
     "attested${t}bats-fragile${t}${_CMD_TEST}" \
     "attested${t}bats-integration${t}${_CMD_TEST}" \
