@@ -881,6 +881,9 @@ _mutation_probe_usage() {
     printf '             root as its working directory\n'
     printf '  --spec     narrow the run to one spec. A green then reports\n'
     printf '             INCONCLUSIVE, not NOT PINNED\n'
+    printf '  --baseline-out <file>  write the clean baseline to <file>\n'
+    printf '  --baseline-in <file>   read the baseline from a --baseline-out\n'
+    printf '             <file> of the same scope and tree instead of running it\n'
   } >&2
 }
 
@@ -900,10 +903,10 @@ _mutation_probe() {
   _MUTATION_PROBE_ROOT_ID="$(_mutation_probe_root_id "${_root}")"
 
   local -a _subjects=()
-  local _mutate='' _spec=''
+  local _mutate='' _spec='' _base_in='' _base_out=''
   while (( $# > 0 )); do
     case "${1}" in
-      --subject|--mutate|--spec)
+      --subject|--mutate|--spec|--baseline-in|--baseline-out)
         if (( $# < 2 )); then
           _mutation_probe_err "${1} needs a value."
           return 3
@@ -912,6 +915,8 @@ _mutation_probe() {
           --subject) _subjects+=( "${2}" ) ;;
           --mutate) _mutate="${2}" ;;
           --spec) _spec="${2}" ;;
+          --baseline-in) _base_in="${2}" ;;
+          --baseline-out) _base_out="${2}" ;;
         esac
         shift 2
         ;;
@@ -1021,8 +1026,24 @@ _mutation_probe() {
   trap _mutation_probe_emergency_restore EXIT
   trap _mutation_probe_signal_restore INT TERM
 
-  _mutation_probe_say "baseline: running scope=${_scope} unmutated"
-  _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+  # --baseline-in reads a clean baseline another probe of the same scope on
+  # the same tree wrote with --baseline-out, instead of running it again: a
+  # roster ran one spec's baseline once per row, 314 times for 17 specs
+  # (base#1571). Only a baseline that passed every check below is written,
+  # and the checks still run on what is read.
+  if [[ -n "${_base_in}" ]]; then
+    _mutation_probe_say "baseline: reading scope=${_scope} unmutated from ${_base_in}"
+    if ! cp -- "${_base_in}" "${_work}/baseline" 2>/dev/null; then
+      _mutation_probe_err "--baseline-in ${_base_in} could not be read, so there is no baseline to compare a mutated run against."
+      trap - EXIT INT TERM
+      rm -rf "${_work}"
+      return 3
+    fi
+    _MUTATION_PROBE_RUN_STATUS=0
+  else
+    _mutation_probe_say "baseline: running scope=${_scope} unmutated"
+    _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+  fi
   local _base_ok _base_not _base_skip
   read -r _base_ok _base_not _base_skip \
     < <(_mutation_probe_tap_counts "${_work}/baseline")
@@ -1045,6 +1066,13 @@ _mutation_probe() {
     return 3
   fi
   _mutation_probe_say "baseline: ${_base_ok} executed / 0 not ok / ${_base_skip} skipped -- clean, so a red below is the mutation's"
+  if [[ -n "${_base_out}" ]] \
+    && ! { cp -- "${_work}/baseline" "${_base_out}.tmp" && mv -f -- "${_base_out}.tmp" "${_base_out}"; }; then
+    _mutation_probe_err "the clean baseline could not be written to --baseline-out ${_base_out}."
+    trap - EXIT INT TERM
+    rm -rf "${_work}"
+    return 3
+  fi
 
   if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
     _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."

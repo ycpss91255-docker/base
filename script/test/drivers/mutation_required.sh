@@ -47,7 +47,9 @@
 # every step fail-closed), derive the sandbox's own compose project from
 # its path (an inherited COMPOSE_PROJECT_NAME is not used), probe, and tear
 # down -- a container of that project still running keeps the sandbox and
-# fails the row. Verdicts are published only after every worker is reaped,
+# fails the row. A spec's unmutated baseline runs once, in its first row's
+# probe (--baseline-out); every other row on that spec reads it
+# (--baseline-in) and runs only its mutated pass. Verdicts are published only after every worker is reaped,
 # and a failing run publishes no pass. The first INT / TERM is forwarded to
 # every worker, which forwards it to its probe; the run then exits 130 /
 # 143 with no verdict.
@@ -469,8 +471,10 @@ _mrw_verdict() {
 }
 
 # _mr_worker <row-dir> -- probe the row described in <row-dir>/meta (NUL
-# fields: subject, spec), with <row-dir>/old and <row-dir>/new. Root, probe
-# and the names to avoid come from MR_W_* in the environment.
+# fields: subject, spec, the spec's baseline file, and `out` when this row
+# runs and writes that baseline or `in` when it reads it), with <row-dir>/old
+# and <row-dir>/new. Root, probe and the names to avoid come from MR_W_* in
+# the environment.
 _mr_worker() {
   _MRW_DIR="${1}"
   trap '_mrw_on_signal INT' INT
@@ -478,6 +482,7 @@ _mr_worker() {
   local -a _meta=()
   mapfile -d '' -t _meta < "${_MRW_DIR}/meta"
   local _subj="${_meta[0]}" _spec="${_meta[1]}" _root="${MR_W_ROOT}"
+  local _base="${_meta[2]}" _role="${_meta[3]}"
   local _sbx='' _name='' _rc=0 _mut
   local -a _verdict=()
 
@@ -557,11 +562,27 @@ _mr_worker() {
     return 0
   fi
 
+  # One baseline per spec (base#1571): the spec's first row runs it and
+  # writes it; every other row on that spec waits for it and reads it. Its
+  # `.done` marker, written when that row's worker ends, says a missing
+  # baseline will not come.
+  if [[ "${_role}" == in ]]; then
+    while [[ ! -f "${_base}" && ! -f "${_base}.done" && -z "${_MRW_SIG}" ]]; do
+      sleep 0.1
+    done
+    if [[ -n "${_MRW_SIG}" ]]; then _mrw_finish; return 0; fi
+    if [[ ! -f "${_base}" ]]; then
+      _verdict=( mutation_required_probe_refused rc=baseline \
+        "detail=the row that runs the unmutated baseline of ${_spec} ended without a clean one" )
+      _mrw_finish
+      return 0
+    fi
+  fi
   printf -v _mut '%q ' bash "${_MR_SELF}" --apply "${_subj}" "${_MRW_DIR}/old" "${_MRW_DIR}/new"
   _rc=0
   set -m
   COMPOSE_PROJECT_NAME="${_name}" bash "${MR_W_PROBE:?}" --root "${_sbx}" --subject "${_subj}" \
-    --spec "${_spec}" --mutate "${_mut}" \
+    --spec "${_spec}" --mutate "${_mut}" "--baseline-${_role}" "${_base}" \
     < /dev/null > "${_MRW_DIR}/out" 2> "${_MRW_DIR}/err" &
   _MRW_PROBE="$!"
   set +m
@@ -649,15 +670,22 @@ _mr_publish_interrupted() {
 # _mr_run <root> <jobs> -- probe every validated row, at most <jobs> at a
 # time, then publish.
 _mr_run() {
-  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0
+  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0 _role
   local -a _r=()
+  local -A _base=()
   _probe="${MUTATION_REQUIRED_PROBE:-${_MR_DIR}/../mutation-probe.sh}"
   _MR_WORK="$(mktemp -d "${TMPDIR:-/tmp}/mutation-required-run.XXXXXX")" || return 1
   _live="$(env -u COMPOSE_PROJECT_NAME "${_root}/script/test/test.sh" --compose-project-name 2>/dev/null)" || _live=''
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
     [[ -z "${_MR_SIG}" ]] || break
     mkdir -p "${_MR_WORK}/row${_i}"
-    printf '%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" > "${_MR_WORK}/row${_i}/meta"
+    _role=in
+    if [[ -z "${_base["${_MR_ROWS_SPEC[_i]}"]:-}" ]]; then
+      _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
+      _role=out
+    fi
+    printf '%s\0%s\0%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" \
+      "${_base["${_MR_ROWS_SPEC[_i]}"]}" "${_role}" > "${_MR_WORK}/row${_i}/meta"
     printf '%s' "${_MR_ROWS_OLD[_i]}" > "${_MR_WORK}/row${_i}/old"
     printf '%s' "${_MR_ROWS_NEW[_i]}" > "${_MR_WORK}/row${_i}/new"
     while (( ${#_MR_LIVE[@]} >= _jobs )) && [[ -z "${_MR_SIG}" ]]; do
@@ -756,6 +784,7 @@ main() {
     local _t0="${EPOCHREALTIME}"
     _mr_worker "${2:?}"
     printf '%s\n%s\n' "${_t0}" "${EPOCHREALTIME}" > "${2}/time"
+    : > "${2}/baseline.done"
     return 0
   fi
   trap '_mr_on_signal INT' INT
