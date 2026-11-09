@@ -1373,6 +1373,25 @@ EOF
     || fail "the redpath did not log shared=reused-from-gates; stderr: ${stderr}"
 }
 
+# why: A CONFIG_GEN_STEPS_VERDICT is the gates' verdict on the tree they
+# saw; when its digest is not the one a pristine copy gives, the inputs
+# of 20-gomod-oracle and 30-watch-gosum changed since, and that verdict
+# says nothing about them (base#1547). The redpath then runs its shared
+# pass itself, exactly once, and says why on stderr as shared=ran
+# reason=digest_mismatch. The file's digest is 64 zeros, which no
+# sha256 over the scratch repo's inputs gives.
+@test "config_gen_redpath.sh: a CONFIG_GEN_STEPS_VERDICT with another digest runs the shared pass once, as digest_mismatch (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  printf 'digest=%s steps=20-gomod-oracle,30-watch-gosum status=0\n' \
+    0000000000000000000000000000000000000000000000000000000000000000 > "${S}/steps.verdict"
+  _run_redpath CONFIG_GEN_STEPS_VERDICT="${S}/steps.verdict" vet
+  assert_success
+  assert_equal "$(grep -cx 'steps-only start' "${S}/runner.order")" 1
+  grep -qF 'shared=ran reason=digest_mismatch' <<<"${stderr}" \
+    || fail "the redpath did not log shared=ran reason=digest_mismatch; stderr: ${stderr}"
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
