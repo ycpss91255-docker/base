@@ -8,8 +8,20 @@
 # not fail the job, base#1562.
 set -euo pipefail
 
-attempts="$1"
-delay="$2"
+usage() {
+  printf 'retry.sh: usage: retry.sh <attempts> <first-delay-s> -- <cmd...>\n' >&2
+  exit 2
+}
+
+# A malformed call is refused before the command runs, base#1562.
+(( $# >= 4 )) || usage
+[[ "$1" =~ ^[0-9]+$ ]] || usage
+(( 10#$1 >= 1 )) || usage
+[[ "$2" =~ ^[0-9]+$ ]] || usage
+[[ "$3" == "--" ]] || usage
+
+attempts=$(( 10#$1 ))
+delay=$(( 10#$2 ))
 shift 3
 
 i=1
