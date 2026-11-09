@@ -19,8 +19,8 @@
 #                stops the run with its status. A step named in the
 #                space-separated CONFIG_GEN_STEPS_REUSED is skipped and
 #                logged as config_gen_step_reused; a name there that is no
-#                step is refused as usage, status 2, before any step
-#                (base#1547). Each
+#                step, or a step with no <step>.inputs, is refused as usage,
+#                status 2, before any step (base#1547). Each
 #                directory a step leaves under CONFIG_GEN_CTX becomes a named build context, `--build-context
 #                <name>=<path>`, so a later slice's inputs reach the build
 #                without an edit here. A name outside [a-z0-9-] is refused:
@@ -107,6 +107,13 @@ _cg_run_steps() {
     if [[ "${name}" == */* || ! -f "${root}/script/test/config_gen_steps/${name}.sh" ]]; then
       _log_err "${_CG_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_STEPS_REUSED" "step=${name}" \
         "display=config_gen_gates.sh: CONFIG_GEN_STEPS_REUSED names ${name}, which is no step in config_gen_steps"
+      exit 2
+    fi
+    # A step with no .inputs declares nothing a digest could cover, so its
+    # verdict cannot be shown to still hold (base#1547).
+    if [[ ! -f "${root}/script/test/config_gen_steps/${name}.inputs" ]]; then
+      _log_err "${_CG_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_STEPS_REUSED" "step=${name}" \
+        "display=config_gen_gates.sh: CONFIG_GEN_STEPS_REUSED names ${name}, which has no ${name}.inputs"
       exit 2
     fi
   done
