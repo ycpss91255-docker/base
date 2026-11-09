@@ -758,8 +758,11 @@ jobs:
     # each leg's time and the checks page named it as a lint group; it is
     # a job of its own so its name says what it runs. Every leg runs it,
     # ungated, through `just`, on the shard named by its matrix entry: the
-    # four legs together probe every row, and a full roster per leg did
-    # not finish inside one job's timeout.
+    # eight legs together probe every row, and a full roster per leg did
+    # not finish inside one job's timeout. Eight, because the committed
+    # seconds.txt sums to 8304.6 worker-seconds: four legs dealt 517.9 to
+    # 520.2 s per leg over its 4 worker slots, over the 300 s (5 minute)
+    # per-job target (base#1571).
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR
@@ -770,7 +773,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/4', '2/4', '3/4', '4/4']
+        shard: ['1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8']
     steps:
       - name: Checkout
         uses: actions/checkout@v7

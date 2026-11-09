@@ -503,8 +503,9 @@ forwarded to every row's probe, which restores and stops; the run exits
 **Where it runs.** The no-flag `just test` runs it on the host after the
 lint phase and before bats, and a red roster stops the run before bats.
 Every leg of the hosted `mutation-roster` job runs `just test
-mutation-required --shard <its shard>` (row k of the roster, counted from 0, belongs to shard
-(k mod 4) + 1, so the four legs together probe every row; every leg still
+mutation-required --shard <its shard>` (rows are dealt by their seconds in
+`seconds.txt`, heaviest first, each to the shard holding the fewest seconds
+so far, so the eight legs together probe every row; every leg still
 validates every row), and the self-hosted `config-gen` job in
 `coverage-local.yaml` runs the whole roster; each as a step of its own, with
 no `if:` and no `continue-on-error`. The pre-PR mirror covers it through
