@@ -1002,6 +1002,45 @@ _three_rows() {
   assert_equal "${_got}" "${_want}"
 }
 
+# why: The owner's target is at most 5 minutes per CI job (base#1571), and
+# the roster's matrix is to be balanced by the measured per-row times so
+# that each mutation-roster leg fits it. For every leg k/N of
+# self-test.yaml's mutation-roster matrix, the rows `--check --shard k/N`
+# deals are looked up in the committed seconds.txt (each row=<file>:<line>
+# is read back from its TSV line to its <file> TAB <id>), summed, and
+# spread over the leg's worker slots (MUTATION_REQUIRED_JOBS on the job,
+# else the driver's documented default of 4). That leg budget must be at
+# most 300 seconds; a matrix too small for the measured roster fails here.
+@test "shards: every mutation-roster leg's measured seconds over its worker slots fit 300 s (base#1571)" {
+  assert_spec_subject_dir /source/script/test/mutation_required "the committed roster"
+  local _wf=/source/.github/workflows/self-test.yaml
+  local _sec=/source/script/test/mutation_required/seconds.txt _t _k _jobs _rows _budget _over=""
+  [[ -f "${_sec}" ]] || fail "the committed roster has no seconds.txt"
+  _t="$(yq '.jobs.mutation-roster.strategy.matrix.shard | length' "${_wf}")"
+  [[ "${_t}" =~ ^[1-9][0-9]*$ ]] && (( _t >= 2 )) \
+    || fail "self-test.yaml's mutation-roster matrix has '${_t}' shards"
+  _jobs="$(yq '.jobs.mutation-roster.env.MUTATION_REQUIRED_JOBS // 4' "${_wf}")"
+  [[ "${_jobs}" =~ ^[1-9][0-9]*$ ]] || fail "mutation-roster sets MUTATION_REQUIRED_JOBS to '${_jobs}'"
+  for (( _k = 1; _k <= _t; _k++ )); do
+    run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source --shard "${_k}/${_t}"
+    assert_success
+    _rows="$(grep -F '"body":"mutation_required_row_dealt"' <<< "${stderr}" \
+      | sed -n 's/.*"row":"\([^"]*\)".*/\1/p')"
+    [[ -n "${_rows}" ]] || fail "--check --shard ${_k}/${_t} dealt no row"
+    printf '%s\n' "${_rows}" > "${BATS_TEST_TMPDIR}/dealt"
+    _budget="$(cd /source && LC_ALL=C awk -F '\t' -v jobs="${_jobs}" '
+      FILENAME ~ /dealt$/ { split($0, r, ":"); want[r[1] FS r[2]] = 1; next }
+      FILENAME ~ /seconds\.txt$/ { sec[$1 FS $2] = $3 + 0; next }
+      (FILENAME FS FNR) in want { n = FILENAME; sub(/.*\//, "", n); s += sec[n FS $1] }
+      END { printf "%.1f\n", s / jobs }
+    ' "${BATS_TEST_TMPDIR}/dealt" "${_sec}" script/test/mutation_required/*.tsv)"
+    awk -v b="${_budget}" 'BEGIN { exit !(b + 0 <= 300) }' \
+      || _over+="leg ${_k}/${_t}: ${_budget} s over ${_jobs} worker slots"$'\n'
+  done
+  [[ -z "${_over}" ]] \
+    || fail "mutation-roster legs whose measured roster time exceeds 300 s:"$'\n'"${_over}"
+}
+
 # why: A shard only narrows what is probed; every row is still validated,
 # so an invalid row outside the shard still fails the run.
 @test "shards: an invalid row outside the shard is still refused (base#1461)" {
