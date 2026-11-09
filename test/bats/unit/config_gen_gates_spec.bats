@@ -350,6 +350,25 @@ _df_instructions() {
   assert_logged_event config_gen_step_reused step=20-x
 }
 
+# why: CONFIG_GEN_STEPS_REUSED is matched against step names, so a typo in
+# it (20-nope for 20-x) would match nothing and every step would run while
+# the caller believed one was reused (base#1547). A name that is no step in
+# config_gen_steps is a usage refusal: status 2, the name in the record,
+# and no step or docker reached.
+@test "config_gen_gates.sh: a CONFIG_GEN_STEPS_REUSED name that is no step is refused as usage before any step (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  local _d="${S}/root/script/test/config_gen_steps"
+  printf 'echo 00-a >> "%s/steps"\n' "${S}" > "${_d}/00-a.sh"
+  printf 'echo 20-x >> "%s/steps"\n' "${S}" > "${_d}/20-x.sh"
+  printf 'script/test/config_gen_steps/20-x.sh\n' > "${_d}/20-x.inputs"
+  CONFIG_GEN_STEPS_REUSED='20-x 20-nope' _run_runner
+  assert_refusal 2 config_gen_usage_invalid arg=CONFIG_GEN_STEPS_REUSED step=20-nope
+  [[ ! -e "${S}/steps" ]] || fail "a step ran before the refusal: $(paste -sd' ' "${S}/steps")"
+  assert_equal "$(_docker_calls)" 0
+}
+
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
 # the six ok lines, a refusal nothing at all; base#1465). A step's own
