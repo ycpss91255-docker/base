@@ -917,6 +917,7 @@ printf '%s\n' "\${k}" > "${S}/calls.\${c}"
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
 printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
 printf '%s|%s\n' "\${LC_ALL-unset}" "\${LOCPATH-unset}" > "${S}/runner.\${n}.locale"
+printf '%s\n' "\${CONFIG_GEN_STEPS_REUSED-unset}" > "${S}/runner.\${n}.reused"
 for p in script/watch/lib.sh dist/script/docker/lib/log.sh test/fixtures/gomod; do
   [[ -e "\${root}/\${p}" ]] && printf '%s\n' "\${p}" >> "${S}/runner.\${n}.copied"
 done
@@ -1360,6 +1361,27 @@ EOF
   assert_equal "$(grep -cx 'steps-only start' "${S}/runner.order")" 1
   assert_equal "$(sed -n '1,2p' "${S}/runner.order")" $'steps-only start\nsteps-only end'
   assert_equal "$(grep -c '^case ' "${S}/runner.order")" "$(_redpath_sequence | grep -c .)"
+}
+
+# why: The shared pass already ran 20-gomod-oracle and 30-watch-gosum on a
+# pristine copy, and each case's reuse check proves its plant left their
+# inputs unchanged, so a case call that runs them again repeats work whose
+# verdict is known: 75 serial reruns of them made most of the redpath's
+# 91 min (base#1547). Every case call, both rerun calls included, tells the
+# runner CONFIG_GEN_STEPS_REUSED='20-gomod-oracle 30-watch-gosum', the two
+# names typed from the issue.
+@test "config_gen_redpath.sh: every case call, both rerun calls included, tells the runner the shared steps are reused (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath_all
+  assert_success
+  local _n _calls
+  _calls="$(cat "${S}/runner.n" 2>/dev/null || echo 0)"
+  assert_equal "${_calls}" "$(_redpath_sequence | grep -c .)"
+  for (( _n = 1; _n <= _calls; _n++ )); do
+    assert_equal "$(cat "${S}/runner.${_n}.case"):$(cat "${S}/runner.${_n}.reused")" \
+      "$(cat "${S}/runner.${_n}.case"):20-gomod-oracle 30-watch-gosum"
+  done
 }
 
 # why: `just test go` runs the gates first, and their 20-gomod-oracle and
