@@ -854,7 +854,8 @@ _redpath_call() {
 # a call sleeps the seconds in ${S}/canned/<case>.sleep when that exists,
 # and copies what the outermost redpath process has written to its stderr
 # so far to ${S}/runner.<n>.snap when ${S}/canned/<case>.snap exists
-# (base#1547). The retro call
+# (base#1547); it logs its start and end times to ${S}/runner.spans when
+# ${S}/canned/<case>.span exists (base#1547). The retro call
 # also prints the manifest header naming the base it was handed, dirty=no,
 # or dirty=yes when ${S}/canned/retro.dirty exists. ${S}/canned is a
 # private copy of setup_file's template; a missing template fails, naming
@@ -914,6 +915,9 @@ printf '%s\n' "\${n}" > "${S}/runner.n"
 rmdir "${S}/runner.lock"
 printf '%s\n' "\$@" > "${S}/runner.\${n}.argv"
 c="\${CONFIG_GEN_REDPATH_CASE:-unset}"
+# A case with a canned <case>.span logs '<case> start|end <epoch>' to
+# runner.spans as its call begins and just before it exits (base#1547).
+[[ ! -e "${S}/canned/\${c}.span" ]] || printf '%s start %s\n' "\${c}" "\$(date +%s.%N)" >> "${S}/runner.spans"
 printf '%s\n' "\${c}" > "${S}/runner.\${n}.case"
 fp > "${S}/runner.\${n}.fp"
 k=\$(( \$(cat "${S}/calls.\${c}" 2>/dev/null || echo 0) + 1 ))
@@ -961,6 +965,7 @@ if [[ -e "${S}/canned/\${c}.barrier" ]]; then
     || { : > "${S}/barrier.missed.\${c}"; exit 9; }
 fi
 [[ ! -e "${S}/canned/\${c}.snap" || -z "\${rp}" ]] || cat "/proc/\${rp}/fd/2" > "${S}/runner.\${n}.snap" 2>/dev/null
+[[ ! -e "${S}/canned/\${c}.span" ]] || printf '%s end %s\n' "\${c}" "\$(date +%s.%N)" >> "${S}/runner.spans"
 exit "\$(cat "\${a}.rc" 2>/dev/null || echo 9)"
 EOF
   chmod +x "${1}"
@@ -1586,6 +1591,45 @@ _procs_with() {
     kill -KILL ${_left} 2>/dev/null
     fail "SIGTERM to the redpath left vet's stub running: pid(s) $(paste -sd' ' <<<"${_left}")"
   fi
+}
+
+# why: mut-timeout's expected record counts a timed-out mutant (3 killed,
+# 1 timed out), and a timeout count depends on how loaded the host is
+# while the mutants run, so the case must not share the host with other
+# cases once cases run in parallel (base#1547). With JOBS=4 and four cases
+# selected, each stub sleeps 1 s and logs its own start and end: fmt, vet
+# and lint overlap one another (the pool is parallel), and mut-timeout's
+# interval overlaps none of theirs.
+@test "config_gen_redpath.sh: mut-timeout runs alone, its call overlapping no other case's, while the others run in parallel (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _c
+  for _c in fmt vet lint mut-timeout; do
+    printf '1\n' > "${S}/canned/${_c}.sleep"
+    : > "${S}/canned/${_c}.span"
+  done
+  _redpath_exec CONFIG_GEN_REDPATH_JOBS=4 CONFIG_GEN_REDPATH_ONLY='fmt vet lint mut-timeout'
+  assert_success
+  [[ -s "${S}/runner.spans" ]] || fail "no stub logged a span"
+  # _span <case> <start|end> -- the time the case's stub logged.
+  _span() { awk -v c="${1}" -v k="${2}" '$1 == c && $2 == k { print $3 }' "${S}/runner.spans"; }
+  for _c in fmt vet lint mut-timeout; do
+    [[ -n "$(_span "${_c}" start)" && -n "$(_span "${_c}" end)" ]] \
+      || fail "${_c}'s stub logged no full span: $(paste -sd' ' "${S}/runner.spans")"
+  done
+  # _overlap <a> <b> -- true when the two cases' stub calls overlapped.
+  _overlap() {
+    awk -v s1="$(_span "${1}" start)" -v e1="$(_span "${1}" end)" \
+        -v s2="$(_span "${2}" start)" -v e2="$(_span "${2}" end)" \
+        'BEGIN { exit !(s1 < e2 && s2 < e1) }'
+  }
+  _overlap fmt vet && _overlap vet lint \
+    || fail "fmt, vet and lint did not run at the same time: $(paste -sd' ' "${S}/runner.spans")"
+  for _c in fmt vet lint; do
+    if _overlap mut-timeout "${_c}"; then
+      fail "mut-timeout ran at the same time as ${_c}: $(paste -sd' ' "${S}/runner.spans")"
+    fi
+  done
 }
 
 # why: The runner's attribute filter matched no file= or reason= word
