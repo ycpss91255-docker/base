@@ -1023,10 +1023,13 @@ _rp_copy() {
 # log is JSON whatever the caller set, because the verdicts read its
 # records. The mutation context is pr with no base override whatever the
 # caller inherited (base#1464): a CI main push exports main-push, and a
-# one-commit copy has no HEAD^1.
+# one-commit copy has no HEAD^1. The steps in _RP_REUSED_STEPS are
+# named in CONFIG_GEN_STEPS_REUSED, so the runner skips them: the shared
+# pass already ran them, and the caller's _rp_reuse_check proved <root>
+# reads what that pass read (base#1547).
 _rp_gates() {
   env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
-    CONFIG_GEN_REDPATH_CASE="${2}" "${@:3}" \
+    CONFIG_GEN_REDPATH_CASE="${2}" CONFIG_GEN_STEPS_REUSED="${_RP_REUSED_STEPS[*]}" "${@:3}" \
     bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
 }
 
@@ -1319,6 +1322,7 @@ _rp_rerun() {
   root="$(_rp_copy "${1}")"
   for call in 1 2; do
     rc=0
+    _rp_reuse_check "${root}" rerun || return 1
     _rp_gates "${root}" rerun || rc=$?
     reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
     [[ -z "${reason}" ]] && continue
@@ -1440,6 +1444,7 @@ _rp_retro() {
   git -C "${root}" update-ref HEAD "${head}"
   git -C "${root}" update-ref refs/remotes/origin/main "${head}"
   _rp_manifest_step "${root}"
+  _rp_reuse_check "${root}" retro || return 1
   _rp_gates "${root}" retro "CONFIG_GEN_MUTATION_BASE=${empty}" || rc=$?
   reason="$(_rp_retro_verdict "${rc}" "${root}" "${empty}")"
   [[ -z "${reason}" ]] && return 0
