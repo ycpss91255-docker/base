@@ -1550,22 +1550,38 @@ _rp_timed() {
 # the background through _rp_timed, once fewer than _RP_JOBS cases are
 # running (base#1547). Each case has its own copy, so cases share
 # nothing; its stderr goes to its own file under <scratch>, printed whole
-# when it is reaped, so no two cases' output interleaves.
+# when it is reaped, so no two cases' output interleaves. Monitor mode
+# is on only for the fork, so the case is the leader of its own process
+# group and _rp_stop can signal the case and every child it started.
 _rp_spawn() {
   local err
   while (( ${#_RP_PIDS[@]} >= _RP_JOBS )); do _rp_reap; done
   err="$(mktemp "${1}/case.XXXXXX")"
+  set -m
   _rp_timed "${@:2}" 2>"${err}" &
+  set +m
   _RP_PIDS+=("$!") _RP_ERRS+=("${err}")
+}
+
+# _rp_stop <status> -- the INT/TERM trap (base#1547): send TERM to the
+# process group of every running case, wait for each by its pid, then
+# exit <status>, so a stopped redpath leaves no case or runner behind.
+_rp_stop() {
+  local pid
+  trap '' INT TERM
+  for pid in "${_RP_PIDS[@]}"; do kill -TERM -- "-${pid}" 2>/dev/null || true; done
+  for pid in "${_RP_PIDS[@]}"; do wait "${pid}" 2>/dev/null || true; done
+  exit "${1}"
 }
 
 # _rp_reap -- wait for the oldest running case by its pid, print its
 # stderr, and set _RP_FAILED when it failed; never a bare wait, so no
-# status is lost.
+# status is lost. The pid leaves _RP_PIDS only once it is reaped, so
+# _rp_stop still signals the case this wait is on.
 _rp_reap() {
   local pid="${_RP_PIDS[0]}" err="${_RP_ERRS[0]}"
-  _RP_PIDS=("${_RP_PIDS[@]:1}") _RP_ERRS=("${_RP_ERRS[@]:1}")
   wait "${pid}" || _RP_FAILED=1
+  _RP_PIDS=("${_RP_PIDS[@]:1}") _RP_ERRS=("${_RP_ERRS[@]:1}")
   cat "${err}" >&2
 }
 
@@ -1592,6 +1608,9 @@ main() {
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
   trap "rm -rf '${scratch}'" EXIT
+  _RP_PIDS=()
+  trap '_rp_stop 130' INT
+  trap '_rp_stop 143' TERM
   pristine="$(_rp_copy "${scratch}")"
   _RP_PRISTINE_DIGEST="$(_rp_digest "${pristine}")"
   if _rp_verdict_reusable "${CONFIG_GEN_STEPS_VERDICT:-}"; then
