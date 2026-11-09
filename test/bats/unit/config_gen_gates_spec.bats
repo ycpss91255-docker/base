@@ -1534,6 +1534,60 @@ _unplanted_cases() {
   done
 }
 
+# _procs_with <argv> -- the pid of every live process whose argv, words
+# joined by single spaces, is exactly <argv>, read from /proc so no
+# pgrep flavour decides what matches.
+_procs_with() {
+  local _f _p
+  local -a _w
+  for _f in /proc/[0-9]*/cmdline; do
+    _w=()
+    mapfile -d '' -t _w < "${_f}" 2>/dev/null || continue
+    [[ "${_w[*]:-}" == "${1}" ]] || continue
+    _p="${_f#/proc/}"
+    echo "${_p%/cmdline}"
+  done
+}
+
+# why: Cases run in the background (base#1547), and a background child of
+# a bash script outlives the script when the script is stopped: a
+# cancelled CI job would leave docker builds running into the next job.
+# So SIGTERM to the redpath stops every running case with it. vet's stub
+# sleeps for a marker number of seconds no other process uses; once that
+# sleep is live the redpath gets SIGTERM, and within 10 s of it exiting no
+# process may still be running that sleep. Any left over are killed here
+# before the test fails, so a red run leaves nothing behind.
+@test "config_gen_redpath.sh: SIGTERM to the redpath leaves no case process running (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _mark=$(( 900000 + BASHPID )) _rp _t _left
+  printf '%s\n' "${_mark}" > "${S}/canned/vet.sleep"
+  env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY \
+    REDPATH_TOP="${BASHPID}" PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+    CONFIG_GEN_REDPATH_ONLY=vet \
+    bash "${S}/repo/script/test/config_gen_redpath.sh" > "${S}/term.out" 2> "${S}/term.err" &
+  _rp=$!
+  for (( _t = 0; _t < 100; _t++ )); do
+    [[ -z "$(_procs_with "sleep ${_mark}")" ]] || break
+    sleep 0.1
+  done
+  if [[ -z "$(_procs_with "sleep ${_mark}")" ]]; then
+    kill -KILL "${_rp}" 2>/dev/null
+    fail "vet's stub never reached its sleep: $(paste -sd' ' "${S}/runner.order" 2>/dev/null)"
+  fi
+  kill -TERM "${_rp}"
+  wait "${_rp}" || true
+  for (( _t = 0; _t < 100; _t++ )); do
+    _left="$(_procs_with "sleep ${_mark}")"
+    [[ -n "${_left}" ]] || break
+    sleep 0.1
+  done
+  if [[ -n "${_left}" ]]; then
+    kill -KILL ${_left} 2>/dev/null
+    fail "SIGTERM to the redpath left vet's stub running: pid(s) $(paste -sd' ' <<<"${_left}")"
+  fi
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
