@@ -906,8 +906,12 @@ for a in "\$@"; do
   exit "\$(cat "${S}/canned/steps-only.rc" 2>/dev/null || echo 0)"
 done
 printf 'case %s\n' "\${CONFIG_GEN_REDPATH_CASE:-unset}" >> "${S}/runner.order"
+# Cases may run in parallel (base#1547): the call counter is taken under
+# a mkdir lock, so two calls never get one n.
+until mkdir "${S}/runner.lock" 2>/dev/null; do sleep 0.01; done
 n=\$(( \$(cat "${S}/runner.n" 2>/dev/null || echo 0) + 1 ))
 printf '%s\n' "\${n}" > "${S}/runner.n"
+rmdir "${S}/runner.lock"
 printf '%s\n' "\$@" > "${S}/runner.\${n}.argv"
 c="\${CONFIG_GEN_REDPATH_CASE:-unset}"
 printf '%s\n' "\${c}" > "${S}/runner.\${n}.case"
@@ -942,6 +946,20 @@ d=no; [[ -e "${S}/canned/retro.dirty" ]] && d=yes
 [[ "\${c}" != retro ]] || printf 'config-gen redpath manifest: base=%s head=%s dirty=%s context=pr\n' \
   "\${CONFIG_GEN_MUTATION_BASE-}" "\$(git -C "\${root}" rev-parse HEAD)" "\${d}" >&2
 [[ ! -e "${S}/canned/\${c}.sleep" ]] || sleep "\$(cat "${S}/canned/\${c}.sleep")"
+# A case with a canned <case>.barrier marks itself arrived, then waits up
+# to 5 s for every barrier case to arrive; one that never sees them all
+# records barrier.missed.<case> and exits 9 (base#1547). Only cases that
+# run at the same time get past it: a serial loop leaves the first alone.
+if [[ -e "${S}/canned/\${c}.barrier" ]]; then
+  : > "${S}/barrier.arrived.\${c}"
+  want=\$(find "${S}/canned" -maxdepth 1 -name '*.barrier' | wc -l)
+  for (( t = 0; t < 50; t++ )); do
+    (( \$(find "${S}" -maxdepth 1 -name 'barrier.arrived.*' | wc -l) >= want )) && break
+    sleep 0.1
+  done
+  (( \$(find "${S}" -maxdepth 1 -name 'barrier.arrived.*' | wc -l) >= want )) \
+    || { : > "${S}/barrier.missed.\${c}"; exit 9; }
+fi
 [[ ! -e "${S}/canned/\${c}.snap" || -z "\${rp}" ]] || cat "/proc/\${rp}/fd/2" > "${S}/runner.\${n}.snap" 2>/dev/null
 exit "\$(cat "\${a}.rc" 2>/dev/null || echo 9)"
 EOF
@@ -1469,6 +1487,25 @@ _unplanted_cases() {
   assert_success
   assert_equal "$(_unplanted_cases | paste -sd' ')" 'rerun rerun'
   assert_equal "$(_ran_cases | grep -cx control)" 0
+}
+
+# why: The redpath runs its cases one after another, so a job's time is the
+# sum of every case's build (base#1547). With CONFIG_GEN_REDPATH_JOBS=4 up
+# to four cases run at once. fmt, vet, lint and race each wait at a barrier
+# until all four have reached the runner: a serial loop leaves the first
+# one waiting alone until its stub gives up and exits 9, so only cases run
+# at the same time pass.
+@test "config_gen_redpath.sh: with CONFIG_GEN_REDPATH_JOBS=4, four cases run at the same time (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _c
+  for _c in fmt vet lint race; do : > "${S}/canned/${_c}.barrier"; done
+  _redpath_exec CONFIG_GEN_REDPATH_JOBS=4 CONFIG_GEN_REDPATH_ONLY='fmt vet lint race'
+  local _missed
+  _missed="$(ls "${S}" | sed -n 's/^barrier\.missed\.//p' | LC_ALL=C sort | paste -sd' ')"
+  assert_equal "missed:${_missed}" 'missed:'
+  assert_equal "$(ls "${S}" | grep -c '^barrier\.arrived\.')" 4
+  assert_success
 }
 
 # why: The runner's attribute filter matched no file= or reason= word
