@@ -291,6 +291,44 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: The config-gen job spent its time where no log said (base#1547): the
+# runner printed nothing that named a stage and how long it took. Each
+# stage the runner reaches now streams one stderr line, `config-gen
+# stage=<step|gates|contract> start= end= secs= status=`, steps included,
+# so a time spent before docker is shown too. 10-a sleeps 1 s, so a secs
+# written down instead of measured fails; 20-b exits 3, so its line carries
+# that status and no stage after it has a line.
+@test "config_gen_gates.sh: each step it reaches streams a timed stage line with its status, and no later stage has one (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  local _d="${S}/root/script/test/config_gen_steps"
+  printf 'sleep 1\n' > "${_d}/10-a.sh"
+  printf 'exit 3\n' > "${_d}/20-b.sh"
+  printf 'true\n' > "${_d}/30-c.sh"
+  _run_runner
+  assert_failure 3
+  local _lines _l _num='^[0-9]+(\.[0-9]+)?$'
+  _lines="$(grep -E '^config-gen stage=' <<<"${stderr}" || true)"
+  assert_equal "$(sed -E 's/^config-gen stage=([^ ]+) .*status=([0-9]+)$/\1 \2/' <<<"${_lines}" | paste -sd' ')" \
+    "10-a 0 20-b 3"
+  for _l in 10-a 20-b; do
+    local _line _start _end _secs
+    _line="$(grep -E "^config-gen stage=${_l} " <<<"${_lines}")"
+    _start="$(sed -nE 's/.* start=([^ ]+).*/\1/p' <<<"${_line}")"
+    _end="$(sed -nE 's/.* end=([^ ]+).*/\1/p' <<<"${_line}")"
+    _secs="$(sed -nE 's/.* secs=([^ ]+).*/\1/p' <<<"${_line}")"
+    [[ "${_start}" =~ ${_num} && "${_end}" =~ ${_num} && "${_secs}" =~ ${_num} ]] \
+      || fail "${_l}'s stage line has no numeric start, end and secs: ${_line}"
+    awk -v s="${_start}" -v e="${_end}" -v d="${_secs}" \
+      'BEGIN { x = e - s - d; exit !(x <= 0.5 && x >= -0.5) }' \
+      || fail "${_l}'s secs is not end minus start: ${_line}"
+  done
+  awk -v d="$(sed -nE 's/^config-gen stage=10-a .* secs=([^ ]+).*/\1/p' <<<"${_lines}")" 'BEGIN { exit !(d >= 1) }' \
+    || fail "10-a slept 1 s, its stage line says less: ${_lines}"
+  assert_equal "$(_docker_calls)" 0
+}
+
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
 # the six ok lines, a refusal nothing at all; base#1465). A step's own
