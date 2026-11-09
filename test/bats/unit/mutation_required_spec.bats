@@ -802,13 +802,33 @@ STUB
 # file, verify, git init and commit) and its own compose project, so 314
 # rows built 314 sandboxes, up to 81 of them identical (base#1571). Under
 # MUTATION_REQUIRED_JOBS=1 there is one worker slot: its three rows run in
-# one sandbox under one project, and the sandbox is reset between rows, so
-# each mutated pass sees its own row's edit and no other row's.
+# one sandbox under one project. A row's own edit is put back by the probe,
+# so the diffs alone do not show the slot's reset; a wrapper around the
+# stub runner logs, at each call's start, whether an ignored file an earlier
+# call left in the sandbox is still there, and then leaves it. Only the
+# slot's reset (git clean -x) removes it, so each of the three rows' first
+# calls finds it gone, and every later call of the same row finds it.
 @test "sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows (base#1571)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+root="${@: -2:1}"
+grep -qxF leftover "${root}/.git/info/exclude" 2>/dev/null \
+  || printf 'leftover\n' >> "${root}/.git/info/exclude"
+if [[ -e "${root}/leftover" ]]; then
+  printf 'seen\n' >> "${MR_RUNNER_LOG:?}.leftover"
+else
+  printf 'gone\n' >> "${MR_RUNNER_LOG:?}.leftover"
+fi
+: > "${root}/leftover"
+exec "${0}.inner" "$@"
+STUB
+  chmod +x "${S}/runner"
   _three_rows
   MUTATION_REQUIRED_JOBS=1 _run_mr
   assert_success
   assert_equal "$(_pinned_ids)" "one three two "
+  assert_equal "$(grep -c '^gone$' "${MR_RUNNER_LOG}.leftover")" 3
   assert_equal "$(awk '$1 == "start" { print $4 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
   assert_equal "$(awk '$1 == "start" { print $5 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
   local _d
