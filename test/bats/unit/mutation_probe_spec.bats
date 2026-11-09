@@ -1329,3 +1329,41 @@ STUB
   run tail -n 1 "${_calls}"
   assert_output '^the witness$'
 }
+
+# why: a witness filter can be too narrow -- the pinned witnesses come from an
+# older run, and a mutant the named witnesses miss can still be caught by
+# another @test in the spec. A filtered green is therefore not a verdict: the
+# probe falls back to the whole spec, so a row is never reported as surviving
+# only because the filter left out the test that notices (base#1571). Here
+# the filtered pass stays green and the whole-spec pass has a red, so the
+# answer is PINNED, the red comes from the fallback run, and the last runner
+# call had no filter.
+@test "_mutation_probe: a --filter mutant that stays green falls back to the whole spec (base#1571)" {
+  local _root _runner _calls="${BATS_TEST_TMPDIR}/calls"
+  _root="$(_probe_fixture)"
+  _runner="${BATS_TEST_TMPDIR}/runner-fallback"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' "printf '%s\n' \"\${3-<none>}\" >> '${_calls}'"
+    printf '%s\n' 'if [[ -n "${3-}" ]]; then'
+    printf '%s\n' '  printf "ok 1 the witness\n"'
+    printf '%s\n' 'elif grep -F wrong "${1}/subject.sh" >/dev/null 2>&1; then'
+    printf '%s\n' '  printf "ok 1 the witness\nnot ok 2 the other test\n"'
+    printf '%s\n' 'else'
+    printf '%s\n' '  printf "ok 1 the witness\nok 2 the other test\n"'
+    printf '%s\n' 'fi'
+  } > "${_runner}"
+  chmod +x "${_runner}"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+  assert_output --partial "not ok 2 the other test"
+  # The filtered pass ran, and the last call was the whole-spec fallback.
+  run grep -cxF '^the witness$' "${_calls}"
+  assert_output "1"
+  run tail -n 1 "${_calls}"
+  assert_output '<none>'
+  # The fallback put the subject back.
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
