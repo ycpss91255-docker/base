@@ -3353,10 +3353,14 @@ AWK
 # ════════════════════════════════════════════════════════════════════
 
 # _skip_audit_fixture <dir> <body>
-#   Write one spec file into <dir> holding <body> verbatim.
+#   Write one spec file into <dir> holding <body>, with the leading "|" of
+#   each line removed. Every body line carries that "|" so no line of THIS
+#   file starts with the test keyword or a test_tags comment except its
+#   own: bats would rewrite such a line inside the string literal, and the
+#   fixture on disk would lose its tags.
 _skip_audit_fixture() {
   mkdir -p "${1}"
-  printf '%s\n' "${2}" > "${1}/fixture_spec.bats"
+  printf '%s\n' "${2}" | sed 's/^|//' > "${1}/fixture_spec.bats"
 }
 
 # _skip_audit_run <dir>
@@ -3364,9 +3368,12 @@ _skip_audit_fixture() {
 #   report), then audit that report against the same target.
 _skip_audit_run() {
   local _dir="${1}"
+  # bats refuses --output to a directory that does not exist.
+  mkdir -p "${_dir}/junit"
   COVERAGE=1 bats --recursive --report-formatter junit \
     --output "${_dir}/junit" "${_dir}/tree" > "${_dir}/slice.log" 2>&1 || true
-  run bash -c '
+  # JSON log lines carry the event name; text lines carry only the message.
+  run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
     _coverage_skip_audit "$1/junit/report.xml" "$1/tree"
   ' _ "${_dir}"
@@ -3378,16 +3385,16 @@ _skip_audit_run() {
   # spelling no grep for the old guard matches is not. Only the untagged
   # test may be named: an audit that names every skip fails here.
   local _a="${BATS_TEST_TMPDIR}/a"
-  _skip_audit_fixture "${_a}/tree" '# bats test_tags=kcov-fragile
-@test "tagged guarded skip" {
-  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
-  true
-}
-
-@test "untagged hidden skip" {
-  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
-  true
-}'
+  _skip_audit_fixture "${_a}/tree" '|# bats test_tags=kcov-fragile
+|@test "tagged guarded skip" {
+|  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+|  true
+|}
+|
+|@test "untagged hidden skip" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+|  true
+|}'
   _skip_audit_run "${_a}"
   assert_failure
   assert_output --partial "ci_coverage_unexplained_skip"
@@ -3397,15 +3404,15 @@ _skip_audit_run() {
   # (b) One tagged test that never skips plus one untagged test that does:
   # the counts match (one skip, one tag), the names do not. Both are named.
   local _b="${BATS_TEST_TMPDIR}/b"
-  _skip_audit_fixture "${_b}/tree" '# bats test_tags=kcov-fragile
-@test "tagged never skips" {
-  true
-}
-
-@test "untagged hidden skip" {
-  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
-  true
-}'
+  _skip_audit_fixture "${_b}/tree" '|# bats test_tags=kcov-fragile
+|@test "tagged never skips" {
+|  true
+|}
+|
+|@test "untagged hidden skip" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+|  true
+|}'
   _skip_audit_run "${_b}"
   assert_failure
   assert_output --partial "ci_coverage_unexplained_skip"
@@ -3414,21 +3421,21 @@ _skip_audit_run() {
 
   # (c) Every skip tagged, every tag skipping: the audit passes.
   local _c="${BATS_TEST_TMPDIR}/c"
-  _skip_audit_fixture "${_c}/tree" '# bats test_tags=kcov-fragile
-@test "tagged guarded skip" {
-  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
-  true
-}
-
-# bats test_tags=other,kcov-fragile
-@test "second tagged guarded skip" {
-  [[ ${COVERAGE:-0} == 1 ]] && skip "kcov-fragile"
-  true
-}
-
-@test "untagged plain test" {
-  true
-}'
+  _skip_audit_fixture "${_c}/tree" '|# bats test_tags=kcov-fragile
+|@test "tagged guarded skip" {
+|  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+|  true
+|}
+|
+|# bats test_tags=other,kcov-fragile
+|@test "second tagged guarded skip" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "kcov-fragile"
+|  true
+|}
+|
+|@test "untagged plain test" {
+|  true
+|}'
   _skip_audit_run "${_c}"
   assert_success
 }
