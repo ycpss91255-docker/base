@@ -1581,6 +1581,13 @@ main() {
       "display=config_gen_redpath.sh: CONFIG_GEN_STEPS_VERDICT names no file: ${CONFIG_GEN_STEPS_VERDICT}"
     exit 2
   fi
+  # CONFIG_GEN_REDPATH_JOBS is a pool size: unset or empty means nproc,
+  # anything else must be a positive integer (base#1547).
+  if [[ -n "${CONFIG_GEN_REDPATH_JOBS:-}" && ! "${CONFIG_GEN_REDPATH_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
+    _log_err "${_RP_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_REDPATH_JOBS" \
+      "display=config_gen_redpath.sh: CONFIG_GEN_REDPATH_JOBS must be a positive integer, got: ${CONFIG_GEN_REDPATH_JOBS}"
+    exit 2
+  fi
   local scratch pristine entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
