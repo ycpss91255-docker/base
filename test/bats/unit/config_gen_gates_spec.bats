@@ -673,7 +673,11 @@ _redpath_call() {
 # argv of every `timeout` process between it and REDPATH_TOP (the test's
 # shell) to ${S}/runner.bounds, and answers
 # from ${S}/canned/<case>.<k>.{out,err,rc} for the k-th call of that case
-# when one exists, else ${S}/canned/<case>.{out,err,rc}. The retro call
+# when one exists, else ${S}/canned/<case>.{out,err,rc}. Before it exits,
+# a call sleeps the seconds in ${S}/canned/<case>.sleep when that exists,
+# and copies what the outermost redpath process has written to its stderr
+# so far to ${S}/runner.<n>.snap when ${S}/canned/<case>.snap exists
+# (base#1547). The retro call
 # also prints the manifest header naming the base it was handed, dirty=no,
 # or dirty=yes when ${S}/canned/retro.dirty exists. ${S}/canned is a
 # private copy of setup_file's template; a missing template fails, naming
@@ -723,11 +727,12 @@ printf 'ctx=%s base=%s\n' "\${CONFIG_GEN_MUTATION_CONTEXT-unset}" "\${CONFIG_GEN
 git -C "\${root}" rev-parse --verify -q 'refs/remotes/origin/main^{commit}' >> "${S}/runner.git" 2>/dev/null || echo nogit >> "${S}/runner.git"
 [[ -d "\${root}/dockerfile/config-gen" ]] && cp -a "\${root}/dockerfile/config-gen" "${S}/runner.\${n}.mod"
 [[ -d "\${root}/script/test/config_gen_steps" ]] && cp -a "\${root}/script/test/config_gen_steps" "${S}/runner.\${n}.steps"
-q="\${PPID}"
+q="\${PPID}"; rp=''
 while [[ "\${q}" =~ ^[0-9]+\$ ]] && (( q > 1 )) && [[ "\${q}" != "\${REDPATH_TOP:-}" ]]; do
   w=(); st=''
   mapfile -d '' -t w < "/proc/\${q}/cmdline" 2>/dev/null
   [[ "\${w[0]:-}" == timeout || "\${w[0]:-}" == */timeout ]] && printf '%s\n' "\${w[*]}" >> "${S}/runner.bounds"
+  [[ "\${w[*]:-}" == *config_gen_redpath.sh* ]] && rp="\${q}"
   IFS= read -r st < "/proc/\${q}/stat" 2>/dev/null
   st="\${st##*) }"; st="\${st#* }"; q="\${st%% *}"
 done
@@ -738,6 +743,8 @@ cat "\${a}.err" >&2 2>/dev/null
 d=no; [[ -e "${S}/canned/retro.dirty" ]] && d=yes
 [[ "\${c}" != retro ]] || printf 'config-gen redpath manifest: base=%s head=%s dirty=%s context=pr\n' \
   "\${CONFIG_GEN_MUTATION_BASE-}" "\$(git -C "\${root}" rev-parse HEAD)" "\${d}" >&2
+[[ ! -e "${S}/canned/\${c}.sleep" ]] || sleep "\$(cat "${S}/canned/\${c}.sleep")"
+[[ ! -e "${S}/canned/\${c}.snap" || -z "\${rp}" ]] || cat "/proc/\${rp}/fd/2" > "${S}/runner.\${n}.snap" 2>/dev/null
 exit "\$(cat "\${a}.rc" 2>/dev/null || echo 9)"
 EOF
   chmod +x "${1}"
@@ -1046,6 +1053,59 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
   _redpath_exec CONFIG_GEN_REDPATH_ONLY='rerun cov-lowered stale-edit lint'
   assert_success
   assert_equal "$(_ran_cases | paste -sd' ')" 'lint stale-edit cov-lowered rerun rerun control'
+}
+
+# _case_line <case> -- the redpath's timed line for <case> in ${stderr},
+# `config-gen redpath case=<case> start= end= secs= result=` (base#1547).
+_case_line() {
+  grep -E "^config-gen redpath case=${1} " <<<"${stderr}" || true
+}
+
+# _case_field <line> <field> -- the value of <field>= in <line>.
+_case_field() {
+  tr ' ' '\n' <<<"${1}" | sed -n "s/^${2}=//p"
+}
+
+# why: The redpath took 91 min in CI with no word of which case took the
+# time (base#1547). Each case streams one line when it finishes, naming
+# when it started and ended and how long it took. vet's stub sleeps 1 s and
+# lint's 2 s, so a secs written down instead of measured, or an end-of-run
+# summary in place of a streamed line, fails: lint's stub copies the
+# redpath's stderr as it ends, and vet's line must already be in it.
+@test "config_gen_redpath.sh: streams a timed line for each case as it finishes (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  printf '1\n' > "${S}/canned/vet.sleep"
+  printf '2\n' > "${S}/canned/lint.sleep"
+  : > "${S}/canned/lint.snap"
+  _redpath_exec CONFIG_GEN_REDPATH_ONLY='vet lint'
+  assert_success
+  local _c _line _start _end _secs _num='^[0-9]+(\.[0-9]+)?$'
+  for _c in vet lint; do
+    _line="$(_case_line "${_c}")"
+    [[ "$(grep -c . <<<"${_line}")" == 1 ]] \
+      || fail "the redpath printed $(grep -c . <<<"${_line}") timed lines for ${_c}, not 1: ${_line}"
+    _start="$(_case_field "${_line}" start)"
+    _end="$(_case_field "${_line}" end)"
+    _secs="$(_case_field "${_line}" secs)"
+    [[ "${_start}" =~ ${_num} && "${_end}" =~ ${_num} && "${_secs}" =~ ${_num} ]] \
+      || fail "${_c}'s line has no numeric start, end and secs: ${_line}"
+    [[ -n "$(_case_field "${_line}" result)" ]] || fail "${_c}'s line names no result: ${_line}"
+    awk -v s="${_start}" -v e="${_end}" -v d="${_secs}" \
+      'BEGIN { x = e - s - d; exit !(x <= 0.5 && x >= -0.5) }' \
+      || fail "${_c}'s secs is not end minus start: ${_line}"
+  done
+  awk -v d="$(_case_field "$(_case_line vet)" secs)" 'BEGIN { exit !(d >= 1) }' \
+    || fail "vet's stub slept 1 s, its line says less: $(_case_line vet)"
+  awk -v d="$(_case_field "$(_case_line lint)" secs)" 'BEGIN { exit !(d >= 2) }' \
+    || fail "lint's stub slept 2 s, its line says less: $(_case_line lint)"
+  local _snap
+  _snap="${S}/runner.$(_redpath_call lint).snap"
+  [[ -f "${_snap}" ]] || fail "lint's stub found no redpath stderr to copy"
+  grep -qE '^config-gen redpath case=vet ' "${_snap}" \
+    || fail "vet's line was not on the redpath's stderr when lint ended: it is not streamed"
+  run grep -qE '^config-gen redpath case=lint ' "${_snap}"
+  assert_failure
 }
 
 # why: The runner's attribute filter matched no file= or reason= word
