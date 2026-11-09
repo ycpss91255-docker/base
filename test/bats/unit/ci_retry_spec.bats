@@ -113,3 +113,38 @@ EOS
       || fail "retry.sh ${row} <cmd>: the command ran $(wc -l < "${FAKE_COUNT}") time(s), want 0"
   done
 }
+
+# why: A Docker Hub 502 on the actionlint image pull failed the lint job
+# because the only pull was the implicit `--pull missing` of the
+# `docker run`, with no retry. Every step that names ACTIONLINT_IMAGE
+# must pre-pull it through retry.sh (more than one attempt) before the
+# run, and the run must say `--pull never`, so dropping the pre-pull or
+# its retry fails loud instead of falling back to the unretried pull,
+# base#1562.
+@test "workflows: every ACTIONLINT_IMAGE step pulls via script/ci/retry.sh before a --pull never run (base#1562)" {
+  local wf found=0 run_text pull_line run_line n
+  for wf in /source/.github/workflows/*.yaml; do
+    while IFS= read -r -d '' run_text; do
+      [[ -n "${run_text}" ]] || continue
+      found=$((found + 1))
+      pull_line="$(printf '%s\n' "${run_text}" \
+        | grep -nE 'script/ci/retry\.sh [0-9]+ [0-9]+ -- docker pull "\$\{ACTIONLINT_IMAGE\}"' \
+        | head -n 1)"
+      [[ -n "${pull_line}" ]] \
+        || fail "${wf##*/}: an ACTIONLINT_IMAGE step has no retry.sh docker pull: ${run_text}"
+      n="$(printf '%s\n' "${pull_line}" | sed -E 's/.*retry\.sh ([0-9]+) .*/\1/')"
+      # >= 2 = at least one retry after the first pull.
+      [[ "${n}" -ge 2 ]] \
+        || fail "${wf##*/}: the actionlint pull makes ${n} attempt(s), want >= 2"
+      run_line="$(printf '%s\n' "${run_text}" | grep -n 'docker run' | head -n 1)"
+      [[ -n "${run_line}" ]] \
+        || fail "${wf##*/}: an ACTIONLINT_IMAGE step has no docker run"
+      [[ "${pull_line%%:*}" -lt "${run_line%%:*}" ]] \
+        || fail "${wf##*/}: the retried pull does not precede the docker run"
+      [[ "${run_line}" == *"--pull never"* ]] \
+        || fail "${wf##*/}: the actionlint docker run lacks --pull never: ${run_line#*:}"
+    done < <(yq -0 '.jobs[].steps[] | select(.env.ACTIONLINT_IMAGE != null) | .run' "${wf}")
+  done
+  # >= 1 = the step exists, so the check cannot pass vacuously.
+  [[ "${found}" -ge 1 ]] || fail "no workflow step names ACTIONLINT_IMAGE"
+}
