@@ -1525,6 +1525,17 @@ _rp_shared() {
   return 1
 }
 
+# _rp_verdict_reusable <file> -- zero when <file> (CONFIG_GEN_STEPS_VERDICT,
+# written after the gates' steps pass) names status 0 and the digest a
+# pristine copy gives, so the shared pass already passed on these inputs
+# (base#1547).
+_rp_verdict_reusable() {
+  local steps
+  [[ -n "${1}" && -f "${1}" ]] || return 1
+  steps="$(IFS=,; printf '%s' "${_RP_REUSED_STEPS[*]}")"
+  grep -qx "digest=${_RP_PRISTINE_DIGEST} steps=${steps} status=0" "${1}"
+}
+
 # _rp_now -- the wall clock in seconds with microseconds, from
 # EPOCHREALTIME.
 _rp_now() {
@@ -1559,7 +1570,12 @@ main() {
   trap "rm -rf '${scratch}'" EXIT
   pristine="$(_rp_copy "${scratch}")"
   _RP_PRISTINE_DIGEST="$(_rp_digest "${pristine}")"
-  _rp_shared "${pristine}" || exit 1
+  if _rp_verdict_reusable "${CONFIG_GEN_STEPS_VERDICT:-}"; then
+    _log_info "${_RP_SERVICE}" config_gen_redpath_shared_reused shared=reused-from-gates \
+      "display=config-gen redpath shared=reused-from-gates: the gates' steps verdict matches this copy's digest" >&2
+  else
+    _rp_shared "${pristine}" || exit 1
+  fi
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
