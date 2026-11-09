@@ -547,6 +547,64 @@ _run_bats_fragile() {
   bats "${_bats_args[@]}" ${_files}
 }
 
+# _junit_case_pairs <junit_xml> <mode>
+#   Echo one `<testsuite>\t<testcase>` line per test case in a bats junit
+#   report, sorted and unique. <mode> `skipped` keeps only the cases that
+#   hold a <skipped> element; `all` keeps every case. Names stay as the
+#   report spells them (XML-escaped): both sides of a comparison come from
+#   bats' own junit writer, so they are spelled alike.
+_junit_case_pairs() {
+  local _xml="${1:?BUG: _junit_case_pairs expects a junit xml path}"
+  local _mode="${2:?BUG: _junit_case_pairs expects a mode}"
+  [[ -f "${_xml}" ]] || return 0
+  awk -v mode="${_mode}" '
+    function attr(key,   re) {
+      re = "[ ]" key "=\"[^\"]*\""
+      if (match($0, re)) return substr($0, RSTART + length(key) + 3, RLENGTH - length(key) - 4)
+      return ""
+    }
+    /<testsuite[ >]/ { suite = attr("name") }
+    /<testcase[ >]/ {
+      cur = suite "\t" attr("name")
+      if (mode == "all") print cur
+    }
+    /<skipped[ >\/]/ { if (mode == "skipped" && cur != "") print cur }
+    /<\/testcase>/ { cur = "" }
+  ' "${_xml}" | sort -u
+}
+
+# _coverage_skip_audit <slice_junit_xml> <target>...
+#   Fail with ci_coverage_unexplained_skip unless the tests a coverage slice
+#   skipped are exactly the tests tagged kcov-fragile among the same
+#   targets (base#1573). S is the (testsuite, testcase) pairs
+#   <slice_junit_xml> marks skipped. T is the pairs `COVERAGE=1 bats
+#   --filter-tags kcov-fragile` selects over the same targets, run without
+#   kcov. A skip outside T is a test no plain leg selects, and a tag
+#   outside S marks a test that did not skip. Both differences are named.
+#   No source text is read: a guard in any spelling, wrapper or position
+#   is judged by what bats did.
+_coverage_skip_audit() {
+  local _xml="${1:?BUG: _coverage_skip_audit expects a junit xml path}"
+  shift
+  (( $# > 0 )) || _die ci_coverage_unexplained_skip "BUG: _coverage_skip_audit expects targets"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _junit_case_pairs "${_xml}" skipped > "${_tmp}/S"
+  # The tagged tests' exit status is not the question here: a tagged test
+  # that fails instead of skipping is absent from S, so it is named below.
+  COVERAGE=1 bats --recursive --filter-tags kcov-fragile --formatter junit \
+    "$@" > "${_tmp}/tagged.xml" 2> "${_tmp}/tagged.err" || true
+  _junit_case_pairs "${_tmp}/tagged.xml" all > "${_tmp}/T"
+  local _untagged _unskipped
+  _untagged="$(comm -23 "${_tmp}/S" "${_tmp}/T" | tr '\t' ' ' | paste -sd ';' -)"
+  _unskipped="$(comm -13 "${_tmp}/S" "${_tmp}/T" | tr '\t' ' ' | paste -sd ';' -)"
+  rm -rf "${_tmp}"
+  if [[ -n "${_untagged}" || -n "${_unskipped}" ]]; then
+    _die ci_coverage_unexplained_skip \
+      "skipped under coverage without the kcov-fragile tag: [${_untagged}]; tagged kcov-fragile but not skipped under coverage: [${_unskipped}]"
+  fi
+}
+
 # ── Kcov coverage ────────────────────────────────────────────────────────────
 
 # _coverage_exclude_path
