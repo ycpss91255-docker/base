@@ -2,8 +2,12 @@ package tables
 
 import (
 	"bytes"
+	"errors"
 	"os"
+	"reflect"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
@@ -130,6 +134,81 @@ func TestEmitListsInlineTablesAsTables(t *testing.T) {
 			}
 			if !bytes.Equal(got, want) {
 				t.Fatalf("Emit = %q, want the bridge golden %q", got, want)
+			}
+		})
+	}
+}
+
+// A key-value whose last key part is "" and whose context is not empty --
+// `a."" = []`, `"" = []` under `[a]`, a `""` member of an inline table or
+// of an array-of-tables element -- is refused with an *EmptyNameError that
+// names that key, deepest member first for a chain of such parts. On these
+// inputs the parser files the value's type at the parent's path: measured
+// against the bridge's `toml_bridge.py --tables`, the valid ones printed
+// different bytes or lost tables, and the invalid ones (a duplicate key
+// after the `""` line) were accepted while the bridge refused them
+// (base#1469). A `""` key at the root, a table named `""` and a dotted key
+// through `""` are typed at their own path and keep the bridge's bytes.
+func TestEmitRefusesEmptyNameValueBelowRoot(t *testing.T) {
+	refused := []struct {
+		name string
+		src  string
+		key  []string
+	}{
+		{"c1", "a.k = {}\na.\"\" = []\na.x = 1\n", []string{"a", ""}},
+		{"c2", "\"\".k = {}\n\"\".\"\" = []\n\"\".x = 1\n", []string{"", ""}},
+		{"c3", "[t]\na.k = {}\na.\"\" = []\na.x = 1\n", []string{"t", "a", ""}},
+		{"c5", "a.k = 1\na.\"\" = []\na.y = 2\na.k = 3\n", []string{"a", ""}},
+		{"d1", "a.\"\" = []\na.y = 1\na.\"\" = []\n", []string{"a", ""}},
+		{"r3a", "[a]\n\"\" = []\n[a.b]\n", []string{"a", ""}},
+		{"r3b", "[\"\"]\n\"\" = []\n", []string{"", ""}},
+		{"d2", "[a]\n\"\" = {}\n[a.b]\n", []string{"a", ""}},
+		{"c7", "a = { k = {}, \"\" = [], x = 1 }\n", []string{"a", ""}},
+		{"c9", "[[t]]\na.k = {}\na.\"\" = []\na.x = 1\n", []string{"t", "a", ""}},
+		{"d3", "a.\"\".\"\" = 1\n", []string{"a", "", ""}},
+		{"d4", "[[t]]\n\"\" = []\n[t.b]\n[c]\n", []string{"t", ""}},
+		{"d5", "x = [{ \"\" = 1 }]\n[y]\n", []string{"x", ""}},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Emit([]byte(tc.src))
+			var en *EmptyNameError
+			if !errors.As(err, &en) {
+				t.Fatalf("Emit = %q, %v; want an *EmptyNameError", got, err)
+			}
+			if got != nil {
+				t.Fatalf("Emit output = %q, want nil with the error", got)
+			}
+			if !reflect.DeepEqual([]string(en.Key), tc.key) {
+				t.Fatalf("EmptyNameError.Key = %q, want %q", []string(en.Key), tc.key)
+			}
+			want := "key " + toml.Key(tc.key).String() +
+				`: a key-value named "" below the root is not supported (base#1565)`
+			if err.Error() != want {
+				t.Fatalf("Error() = %q, want %q", err.Error(), want)
+			}
+		})
+	}
+
+	accepted := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"k1", "\"\" = []\n", "\n"},
+		{"k2", "[a.\"\"]\nq = 1\n", "a\na.\n"},
+		{"k3", "[a]\n\"\".x = 1\n", "a\na.\n"},
+		{"k4", "[\"\"]\narr = [1]\n", "\narr\n"},
+		{"k5", "[a]\nx = []\n", "a\n"},
+	}
+	for _, tc := range accepted {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Emit([]byte(tc.src))
+			if err != nil {
+				t.Fatalf("Emit: unexpected error %v", err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("Emit = %q, want the bridge's %q", got, tc.want)
 			}
 		})
 	}
