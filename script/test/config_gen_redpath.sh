@@ -1546,6 +1546,29 @@ _rp_timed() {
   return "${rc}"
 }
 
+# _rp_spawn <scratch> <case> <fn> [arg...] -- start <fn> as <case> in
+# the background through _rp_timed, once fewer than _RP_JOBS cases are
+# running (base#1547). Each case has its own copy, so cases share
+# nothing; its stderr goes to its own file under <scratch>, printed whole
+# when it is reaped, so no two cases' output interleaves.
+_rp_spawn() {
+  local err
+  while (( ${#_RP_PIDS[@]} >= _RP_JOBS )); do _rp_reap; done
+  err="$(mktemp "${1}/case.XXXXXX")"
+  _rp_timed "${@:2}" 2>"${err}" &
+  _RP_PIDS+=("$!") _RP_ERRS+=("${err}")
+}
+
+# _rp_reap -- wait for the oldest running case by its pid, print its
+# stderr, and set _RP_FAILED when it failed; never a bare wait, so no
+# status is lost.
+_rp_reap() {
+  local pid="${_RP_PIDS[0]}" err="${_RP_ERRS[0]}"
+  _RP_PIDS=("${_RP_PIDS[@]:1}") _RP_ERRS=("${_RP_ERRS[@]:1}")
+  wait "${pid}" || _RP_FAILED=1
+  cat "${err}" >&2
+}
+
 main() {
   if [[ -n "${CONFIG_GEN_REDPATH_ACTIVE:-}" ]]; then
     _log_err "${_RP_SERVICE}" config_gen_redpath_reentered \
@@ -1575,41 +1598,46 @@ main() {
     fi
     _rp_shared "${pristine}" || exit 1
   fi
+  # The planted cases run in the background, at most
+  # CONFIG_GEN_REDPATH_JOBS at a time, nproc when unset (base#1547).
+  _RP_JOBS="${CONFIG_GEN_REDPATH_JOBS:-$(nproc)}" _RP_PIDS=() _RP_ERRS=() _RP_FAILED=0
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
-    _rp_timed "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+    _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
   done
   for entry in "${_RP_REFUSALS[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
-    _rp_timed "${entry%%:*}" _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+    _rp_spawn "${scratch}" "${entry%%:*}" _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}"
   done
   local name file want pkg
   for entry in "${_RP_STALE[@]}"; do
     IFS='|' read -r name file want <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_timed "${name}" _rp_stale "${scratch}" "${name}" "${file}" "${want}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_stale "${scratch}" "${name}" "${file}" "${want}"
   done
   for name in "${_RP_GREENS[@]}"; do
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_timed "${name}" _rp_green_case "${scratch}" "${name}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_green_case "${scratch}" "${name}"
   done
   local gate
   for entry in "${_RP_AFTER_ADMIT[@]}"; do
     IFS='|' read -r name gate want file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_timed "${name}" _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}"
   done
   for entry in "${_RP_COVERAGE[@]}"; do
     IFS='|' read -r name want pkg file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_timed "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}"
   done
+  while (( ${#_RP_PIDS[@]} > 0 )); do _rp_reap; done
+  (( _RP_FAILED == 0 )) || failed=1
   # rerun is the only check on the unmodified copy (base#1547): its
   # first call is the control, held to rc 0 and exactly the six ok lines.
   # A CONFIG_GEN_REDPATH_ONLY run that does not name it still runs it, so

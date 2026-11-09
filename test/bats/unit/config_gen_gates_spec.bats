@@ -1214,7 +1214,9 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
 @test "config_gen_redpath.sh: runs the runner once per case and twice for rerun on one copy, each other case on its own copy (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  _run_redpath_all
+  # One case at a time, so the calls reach the runner in run order
+  # (base#1547: cases otherwise run in parallel).
+  _run_redpath_all CONFIG_GEN_REDPATH_JOBS=1
   assert_success
   assert_equal "$(_ran_cases)" "$(_redpath_sequence)"
   assert_equal "$(grep -c . "${S}/runner.trees")" "$(_redpath_sequence | grep -c .)"
@@ -1268,7 +1270,9 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
 @test "config_gen_redpath.sh: CONFIG_GEN_REDPATH_ONLY runs only the named cases and rerun, in run order (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  _redpath_exec CONFIG_GEN_REDPATH_ONLY='rerun cov-lowered stale-edit lint'
+  # One case at a time, so the calls reach the runner in run order
+  # (base#1547: cases otherwise run in parallel).
+  _redpath_exec CONFIG_GEN_REDPATH_JOBS=1 CONFIG_GEN_REDPATH_ONLY='rerun cov-lowered stale-edit lint'
   assert_success
   assert_equal "$(_ran_cases | paste -sd' ')" 'lint stale-edit cov-lowered rerun rerun'
 }
@@ -1518,7 +1522,9 @@ _unplanted_cases() {
 @test "config_gen_redpath.sh: stale-edit-locale runs the runner under LC_ALL=en_US.UTF-8, stale-edit under the caller's locale (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  _run_redpath LC_ALL=C stale-edit stale-edit-locale
+  # One case at a time, so the calls reach the runner in run order
+  # (base#1547: cases otherwise run in parallel).
+  _run_redpath LC_ALL=C CONFIG_GEN_REDPATH_JOBS=1 stale-edit stale-edit-locale
   assert_success
   local _n _got=""
   for (( _n = 1; _n <= $(cat "${S}/runner.n"); _n++ )); do
