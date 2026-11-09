@@ -3622,7 +3622,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_managed_entries: appends without a spurious blank line (#876)` | - |
 | `_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)` | - |
 
-### test/bats/unit/gomod_oracle_spec.bats (8)
+### test/bats/unit/gomod_oracle_spec.bats (9)
 
 _pin_go_mod_scan (script/watch/lib.sh) is a bash port of Go's modfile lexer.
 A port drifts silently, so script/test/config_gen_steps/ 20-gomod-oracle.sh
@@ -3653,6 +3653,7 @@ requirement Go read (the gomod-oracle helper's output for that file).
 | Test | Description |
 |------|-------------|
 | `20-gomod-oracle.sh: fixtures that agree with Go pass, in one offline run of the pinned golang image (base#1463)` | The agreeing case: one docker run, offline, in the pinned image, with Go's toolchain switching off, and a green step. |
+| `20-gomod-oracle.sh: the tar the container receives holds exactly the files its .inputs declares (base#1547)` | The redpath reuses this step's verdict while the digest of what its .inputs declares is unchanged (base#1547). A declared set smaller than what the container reads would let a plant change the step's answer and still reuse it, so the tar the container gets is built from .inputs itself: every file it declares, nothing else. The expected list is the 20-gomod-oracle.inputs paths expanded by hand over this root, plus one path appended to .inputs here: a member list of the step's own would not grow with it. |
 | `20-gomod-oracle.sh: a fixture with no class header is go_mod_fixture_unclassified (base#1463)` | A fixture with no class header carries no verdict to hold either side to, and a loop that skipped it would shrink the oracle silently. |
 | `20-gomod-oracle.sh: a '# class:' header is go_mod_fixture_unclassified (base#1463)` | `#` is not a go.mod comment; a `# class:` header is a typo, not a class. |
 | `20-gomod-oracle.sh: a supported fixture whose requires differ from Go's is go_mod_oracle_mismatch (base#1463)` | Go canonicalises; a supported fixture whose records differ from Go's is exactly the drift the oracle exists to catch. |
