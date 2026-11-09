@@ -369,6 +369,25 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: A step's verdict may be reused only when the caller can prove its
+# inputs unchanged, and the inputs it proves are the ones the step lists
+# in <step>.inputs (base#1547). A step with no .inputs declares nothing a
+# digest could cover, so reusing it would skip a check on inputs nobody
+# compared. Naming such a step in CONFIG_GEN_STEPS_REUSED is a usage
+# refusal: status 2, the step in the record, and no step or docker reached.
+@test "config_gen_gates.sh: a CONFIG_GEN_STEPS_REUSED step with no .inputs is refused as usage before any step (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  local _d="${S}/root/script/test/config_gen_steps"
+  printf 'echo 00-a >> "%s/steps"\n' "${S}" > "${_d}/00-a.sh"
+  printf 'echo 30-y >> "%s/steps"\n' "${S}" > "${_d}/30-y.sh"
+  CONFIG_GEN_STEPS_REUSED=30-y _run_runner
+  assert_refusal 2 config_gen_usage_invalid arg=CONFIG_GEN_STEPS_REUSED step=30-y
+  [[ ! -e "${S}/steps" ]] || fail "a step ran before the refusal: $(paste -sd' ' "${S}/steps")"
+  assert_equal "$(_docker_calls)" 0
+}
+
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
 # the six ok lines, a refusal nothing at all; base#1465). A step's own
