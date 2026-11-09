@@ -329,6 +329,27 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: The redpath ran 20-gomod-oracle and 30-watch-gosum again in every
+# one of its 75 runner calls, on inputs no plant touches (base#1547). A
+# step named in CONFIG_GEN_STEPS_REUSED has a verdict its caller already
+# holds, so the runner skips it and logs config_gen_step_reused with
+# step=<n>; every other step still runs, in order. 20-x declares its
+# inputs (20-x.inputs), which is what makes it reusable at all.
+@test "config_gen_gates.sh: a step named in CONFIG_GEN_STEPS_REUSED is skipped and logged as reused, the others run (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  local _d="${S}/root/script/test/config_gen_steps"
+  printf 'echo 00-a >> "%s/steps"\n' "${S}" > "${_d}/00-a.sh"
+  printf 'echo 20-x >> "%s/steps"\n' "${S}" > "${_d}/20-x.sh"
+  printf 'script/test/config_gen_steps/20-x.sh\n' > "${_d}/20-x.inputs"
+  printf 'echo 99-z >> "%s/steps"\n' "${S}" > "${_d}/99-z.sh"
+  CONFIG_GEN_STEPS_REUSED=20-x _run_runner
+  assert_success
+  assert_equal "$(paste -sd' ' "${S}/steps")" "00-a 99-z"
+  assert_logged_event config_gen_step_reused step=20-x
+}
+
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
 # the six ok lines, a refusal nothing at all; base#1465). A step's own
