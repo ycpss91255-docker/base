@@ -6,14 +6,19 @@
 # mutation gate maps (base#1467); the coverage RUN runs it from the module
 # root inside the golang image:
 #
-#   bash /mutation/coverage.sh --measure <file> <corpus root record>
+#   bash /mutation/coverage.sh --measure <file> <corpus root record> \
+#     [--profile <merged profile>]
 #
 # The record is the one line the race RUN wrote,
 # <module>/internal/testcorpus.root=<dir> (base#1468).
 #
 # Every package `go list ./...` names is tested into a profile of its own,
 # and one line per package, `<import path>\t<statements>\t<covered>`, is
-# written to <file> (a package with no statements is `<pkg>\t0\t0`). The
+# written to <file> (a package with no statements is `<pkg>\t0\t0`).
+# With --profile, no go test runs: the one merged atomic profile the race
+# RUN wrote is split per listed package, a block going to the package whose
+# import path equals its file's directory, and each part is counted the
+# same way (base#1547). The
 # gate judges no floor: cmd/cg-gates ratchet reads <file> and judges each
 # package against coverage-floors.d and floors.base (base#1465).
 # Fail-closed: every way the measurement can go missing is a refusal,
@@ -63,6 +68,23 @@ _measure() {
   printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
 }
 
+# _split <dir> <index> <import path> <merged profile> -- write the merged
+# profile's header and the blocks whose file's directory is exactly
+# <pkg> to <dir>/<index>.out, then count it as _measure does.
+_split() {
+  local dir="${1}" i="${2}" pkg="${3}" prof="${1}/${2}.out" counts
+  awk -v pkg="${pkg}" '
+    NR == 1 { print; next }
+    {
+      d = $0
+      sub(/:.*/, "", d)
+      sub(/\/[^\/]*$/, "", d)
+      if (d == pkg) print
+    }' "${4}" > "${prof}"
+  counts="$(_count "${prof}" "${pkg}")" || _refuse profile_invalid "${pkg}"
+  printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
+}
+
 # _count <profile> <import path> -- print `<stmts>\t<covered>`; exit 1 when
 # the profile is not a valid profile of <pkg>.
 # A block a profile repeats (one per test binary that ran it) counts once,
@@ -91,7 +113,7 @@ _count() {
 }
 
 main() {
-  local listing dir pkg out="" x='' i=0
+  local listing dir pkg out="" x='' i=0 merged=''
   if [[ "${1:-}" != --measure || -z "${2:-}" ]]; then
     _refuse usage
   fi
@@ -100,6 +122,10 @@ main() {
   if [[ -f "${1:-}" ]]; then IFS= read -r x <"${1}" || true; fi
   [[ -n "${x}" ]] || _refuse corpus_root_missing
   _CG_X="${x}"
+  if [[ "${2:-}" == --profile ]]; then
+    [[ -f "${3:-}" ]] || _refuse profile_invalid
+    merged="${3}"
+  fi
   listing="$(go list -f '{{.ImportPath}}' ./...)" || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
   dir="$(mktemp -d)"
@@ -109,7 +135,11 @@ main() {
   while IFS=$'\t' read -r pkg _; do
     [[ -n "${pkg}" ]] || continue
     i=$(( i + 1 ))
-    _measure "${dir}" "${i}" "${pkg}"
+    if [[ -n "${merged}" ]]; then
+      _split "${dir}" "${i}" "${pkg}" "${merged}"
+    else
+      _measure "${dir}" "${i}" "${pkg}"
+    fi
   done <<<"${listing}"
   cp "${dir}/measured" "${out}"
 }
