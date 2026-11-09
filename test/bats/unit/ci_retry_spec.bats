@@ -87,3 +87,29 @@ EOS
   run cat "${SLEEP_LOG}"
   assert_output "$(printf '5\n10\n20')"
 }
+
+# why: A typo in a workflow call (a non-integer count, a count of 0, a
+# dropped `--`) must not quietly turn the retry into zero or one attempt,
+# or run the wrong argv as the command. Every malformed call is refused
+# with exit 2 before the command runs at all, base#1562.
+@test "retry.sh: a malformed call exits 2 and never runs the command (base#1562)" {
+  # Each row breaks the documented usage
+  # `retry.sh <attempts> <first-delay-s> -- <cmd...>` in one way.
+  local -a rows=(
+    "x 0 --"   # attempts is not an integer
+    "0 0 --"   # attempts < 1
+    "3 0"      # no `--` before the command
+    "3 y --"   # first-delay-s is not an integer
+  )
+  local row
+  for row in "${rows[@]}"; do
+    : > "${FAKE_COUNT}"
+    # shellcheck disable=SC2086  # row is split into argv on purpose
+    run "${RETRY}" ${row} "${FAKE}" 0 0
+    [[ "${status}" -eq 2 ]] \
+      || fail "retry.sh ${row} <cmd>: exit ${status}, want 2"
+    # 0 = the fake never ran: a refused call must not run the command.
+    [[ "$(wc -l < "${FAKE_COUNT}")" -eq 0 ]] \
+      || fail "retry.sh ${row} <cmd>: the command ran $(wc -l < "${FAKE_COUNT}") time(s), want 0"
+  done
+}
