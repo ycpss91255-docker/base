@@ -25,6 +25,13 @@ mkdir -p "${dl}" "${bin}"
 "${retry}" 5 5 -- curl -fsSL --max-time 60 -o "${dl}/${asset}" "${rel}/${asset}"
 "${retry}" 5 5 -- curl -fsSL --max-time 60 -o "${dl}/SHA256SUMS" "${rel}/SHA256SUMS"
 
+# The tarball must be the release's bytes: its SHA256SUMS line must be
+# present and match, or nothing reaches PATH, base#1562.
+sum_line="$(awk -v a="${asset}" '$2 == a || $2 == "*" a' "${dl}/SHA256SUMS")"
+[[ -n "${sum_line}" ]] \
+  || { printf 'install-just: %s is not listed in SHA256SUMS\n' "${asset}" >&2; exit 1; }
+(cd "${dl}" && printf '%s\n' "${sum_line}" | sha256sum -c --quiet -)
+
 tar -xzf "${dl}/${asset}" -C "${bin}" just
 
 printf '%s\n' "${bin}" >> "${GITHUB_PATH}"
