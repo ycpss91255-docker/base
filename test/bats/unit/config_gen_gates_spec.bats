@@ -813,11 +813,13 @@ EOF
 }
 
 # _redpath_sequence -- the case each runner call of one full redpath run
-# is told, in call order: every row, rerun twice, retro (base#1467). There
-# is no control call: rerun's first call is the control (base#1547).
+# is told, in call order: every row but mut-timeout, then mut-timeout,
+# which runs alone once the pool drains (base#1547), rerun twice, retro
+# (base#1467). There is no control call: rerun's first call is the
+# control (base#1547).
 _redpath_sequence() {
-  _redpath_rows | cut -d'|' -f2
-  printf '%s\n' rerun rerun retro
+  _redpath_rows | cut -d'|' -f2 | grep -vx mut-timeout
+  printf '%s\n' mut-timeout rerun rerun retro
 }
 
 # _ran_cases -- the case each runner call was told, in call order.

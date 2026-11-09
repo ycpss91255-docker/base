@@ -231,6 +231,12 @@ source "${_RP_SCRIPT_DIR}/config_gen_inputs.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
+# Cases that run after the pool drains, one at a time, with no other case
+# running (base#1547). The rule: a case whose expected record holds a
+# timed-out or killed count belongs here, since that count depends on how
+# loaded the host is while its mutants run. mut-timeout expects 3 killed
+# and 1 timed out.
+readonly -a _RP_SERIAL=(mut-timeout)
 readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # <case>|<pkg>|<reason>|<measured>: the one package failure record the
 # runner must log for <case>, re-emitted from the mutation gate's
@@ -1585,6 +1591,13 @@ _rp_reap() {
   cat "${err}" >&2
 }
 
+# _rp_serial <case> -- true when <case> is in _RP_SERIAL (base#1547).
+_rp_serial() {
+  local c
+  for c in "${_RP_SERIAL[@]}"; do [[ "${c}" == "${1}" ]] && return 0; done
+  return 1
+}
+
 main() {
   if [[ -n "${CONFIG_GEN_REDPATH_ACTIVE:-}" ]]; then
     _log_err "${_RP_SERVICE}" config_gen_redpath_reentered \
@@ -1629,6 +1642,7 @@ main() {
   _RP_JOBS="${CONFIG_GEN_REDPATH_JOBS:-$(nproc)}" _RP_PIDS=() _RP_ERRS=() _RP_FAILED=0
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
+    _rp_serial "${entry%%:*}" && continue
     ran=$(( ran + 1 ))
     _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
   done
@@ -1663,6 +1677,15 @@ main() {
     _rp_spawn "${scratch}" "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}"
   done
   while (( ${#_RP_PIDS[@]} > 0 )); do _rp_reap; done
+  # The _RP_SERIAL cases, each alone: spawned once the pool is empty and
+  # reaped before the next one starts (base#1547).
+  for entry in "${_RP_CASES[@]}"; do
+    _rp_selected "${entry%%:*}" || continue
+    _rp_serial "${entry%%:*}" || continue
+    ran=$(( ran + 1 ))
+    _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
+    _rp_reap
+  done
   (( _RP_FAILED == 0 )) || failed=1
   # rerun is the only check on the unmodified copy (base#1547): its
   # first call is the control, held to rc 0 and exactly the six ok lines.
