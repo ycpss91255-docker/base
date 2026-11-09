@@ -150,6 +150,13 @@ _cg_inputs_digest() {
     files+=("${dir}/${step}.sh" "${dir}/${step}.inputs")
     while IFS= read -r path || [[ -n "${path}" ]]; do
       [[ -n "${path}" ]] || continue
+      # A missing path would add nothing to D, so the declaration would
+      # cover less than it says while D still matched (base#1547).
+      if [[ ! -e "${path}" ]]; then
+        _log_err "${_CG_SERVICE}" config_gen_usage_invalid "step=${step}" "path=${path}" \
+          "display=config_gen_gates.sh: ${step}.inputs lists ${path}, which does not exist"
+        return 2
+      fi
       found="$(find "${path}" -type f)" || return 1
       [[ -z "${found}" ]] || mapfile -t -O "${#files[@]}" files <<<"${found}"
     done <"${dir}/${step}.inputs"
