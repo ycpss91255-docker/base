@@ -1284,6 +1284,33 @@ _case_field() {
   assert_failure
 }
 
+# why: The redpath hands each case's runner the verdict of 20-gomod-oracle
+# and 30-watch-gosum instead of running them again (base#1547). That verdict
+# holds only while no plant touches what those steps read, so each case
+# recomputes their digest on its planted copy first. Here vet's plant also
+# appends a line to script/watch/lib.sh, a file 30-watch-gosum reads: vet
+# fails reused_input_changed, and lint, whose plant leaves those inputs as
+# they were, does not.
+@test "config_gen_redpath.sh: a case whose plant changes an input of a reused step fails reused_input_changed (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _rp="${S}/repo/script/test/config_gen_redpath.sh"
+  cat > "${S}/plant-extra.sh" <<'EOF'
+eval "_rp_plant_real () $(declare -f _rp_plant | tail -n +2)"
+_rp_plant() {
+  _rp_plant_real "$@"
+  [[ "${1}" != vet ]] || printf '# zz base#1547\n' >> "${2}/script/watch/lib.sh"
+}
+EOF
+  awk -v f="${S}/plant-extra.sh" '/^if \[\[ "\$\{BASH_SOURCE\[0\]/ { while ((getline l < f) > 0) print l } { print }' \
+    "${_rp}" > "${_rp}.new"
+  mv "${_rp}.new" "${_rp}"
+  grep -qF '_rp_plant_real "$@"' "${_rp}" || fail "the plant wrapper was not inserted into the scratch redpath"
+  _redpath_exec CONFIG_GEN_REDPATH_ONLY='vet lint'
+  assert_failure
+  assert_equal "$(_case_failures)" 'vet|reused_input_changed'
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
