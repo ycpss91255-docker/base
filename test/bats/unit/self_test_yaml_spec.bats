@@ -1303,6 +1303,25 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
+# why: The coverage shards already run every integration spec (the pool in
+# script/test/drivers/bats.sh holds test/bats/integration), so a separate
+# bats-integration job ran each of them a second time. With the job gone,
+# neither the merge gate nor the tag gate may still wait on it: the two lists
+# below are main's lists at b091f8e3 with that one entry removed, written out
+# by hand rather than read back from the workflow.
+@test "self-test.yaml: no bats-integration job, and neither ci-rollup nor release needs it (base#1573)" {
+  run code_grep -E '^  bats-integration:' "${WF}"
+  assert_failure
+
+  run yaml_job_lines "${WF}" ci-rollup
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+
+  run yaml_job_lines "${WF}" release
+  assert_success
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+}
+
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
 # kcov failure would merge.
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
