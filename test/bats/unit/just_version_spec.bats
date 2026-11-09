@@ -163,7 +163,7 @@ _seed_tree() {
 # converted for: yaml_job_lines strips comment-only lines, so prose about
 # an accessor cannot vouch for the check that sits under it.
 
-@test "self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)" {
+@test "self-test.yaml: the just install is pinned from the accessor, not left to install latest (#948)" {
   local _wf=/source/.github/workflows/self-test.yaml
   local _body _pin_id
   _body="$(yaml_job_lines "${_wf}" acceptance)"
@@ -172,7 +172,7 @@ _seed_tree() {
   # The resolve step runs the accessor into a step output ...
   [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
     || fail "the acceptance job installs just but never reads the declaration through dist/script/base/just-version.sh"
-  # ... and setup-just consumes THAT step's output. yaml_step_id_for names
+  # ... and the install step consumes THAT step's output. yaml_step_id_for names
   # the step the job's first accessor call sits in -- derived from the
   # workflow, so renaming the step moves this assertion with it -- and the
   # input is then required to read that id. The assertion therefore says
@@ -189,8 +189,8 @@ _seed_tree() {
     'dist/script/base/just-version[.]sh')"
   [ -n "${_pin_id}" ] \
     || fail "the accessor call sits in a step with no 'id:', so no other step can consume what it resolved"
-  [[ "${_body}" == *"just-version: \${{ steps.${_pin_id}.outputs."* ]] \
-    || fail "setup-just's just-version input does not read step '${_pin_id}' -- what it installs is not the declared pin"
+  [[ "${_body}" == *"JUST_VERSION: \${{ steps.${_pin_id}.outputs."* ]] \
+    || fail "the install step's JUST_VERSION does not read step '${_pin_id}' -- what it installs is not the declared pin"
 }
 
 @test "release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)" {

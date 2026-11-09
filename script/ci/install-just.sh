@@ -12,7 +12,7 @@ JUST_VERSION="${1:?usage: install-just.sh <version>}"
 : "${RUNNER_TEMP:?RUNNER_TEMP is not set}"
 : "${GITHUB_PATH:?GITHUB_PATH is not set}"
 
-retry="$(dirname "${BASH_SOURCE[0]}")/retry.sh"
+retry="$(dirname "${BASH_SOURCE[0]:-$0}")/retry.sh"
 
 arch="$(uname -m)"
 asset="just-${JUST_VERSION}-${arch}-unknown-linux-musl.tar.gz"
