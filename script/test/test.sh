@@ -2509,8 +2509,8 @@ _run_via_compose() {
   #
   # BATS_UNIT_SHARD / BATS_FRAGILE / BATS_INTEGRATION route the
   # coverage-slice / bats-fragile GHA jobs and the local --bats-integration
-  # run to the right subset inside the container; empty / 0 keep the local `just test` path
-  # unchanged (full unit + integration).
+  # run to the right subset inside the container; empty / 0 keep the
+  # local `just test` path unchanged (full unit + integration).
   #
   # LINT_ONLY / LINT_TOOL route `just test lint [--shellcheck |
   # --hadolint]` to the lint phase only (skip bats) inside the container:

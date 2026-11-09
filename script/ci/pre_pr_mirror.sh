@@ -48,8 +48,8 @@
 #
 #   always            actionlint, and `just test` -- every linter of the
 #                     _LINT_TOOLS table, then the whole bats suite plain.
-#                     The lint jobs and bats-fragile run
-#                     subsets of exactly that, plain, in CI. Run on every
+#                     The lint jobs and bats-fragile run subsets of
+#                     exactly that, plain, in CI. Run on every
 #                     diff, because a superset costs a minute and a
 #                     classification this mirror got wrong would cost a PR.
 #   code changed      `--coverage-matrix` -- every shard of CI's coverage
