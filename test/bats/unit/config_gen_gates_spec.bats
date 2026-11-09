@@ -1512,6 +1512,28 @@ _unplanted_cases() {
   assert_success
 }
 
+# why: CONFIG_GEN_REDPATH_JOBS is how many cases run at once (base#1547).
+# 0, a negative number or a word is not a pool size, so the redpath
+# refuses each as usage, exit 2, naming the variable, before the runner is
+# called at all. Each value runs under `timeout 30`, so a redpath that
+# loops on a bad value fails here instead of hanging the suite.
+@test "config_gen_redpath.sh: a CONFIG_GEN_REDPATH_JOBS of 0, -1 or x is refused as usage before any runner call (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _j
+  for _j in 0 -1 x; do
+    rm -f "${S}/runner.order"
+    run --separate-stderr timeout 30 env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY \
+        REDPATH_TOP="${BASHPID}" PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+        CONFIG_GEN_REDPATH_JOBS="${_j}" CONFIG_GEN_REDPATH_ONLY=vet \
+        bash "${S}/repo/script/test/config_gen_redpath.sh"
+    assert_refusal 2 config_gen_usage_invalid arg=CONFIG_GEN_REDPATH_JOBS
+    if [[ -s "${S}/runner.order" ]]; then
+      fail "JOBS=${_j}: the runner was called: $(paste -sd' ' "${S}/runner.order")"
+    fi
+  done
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
