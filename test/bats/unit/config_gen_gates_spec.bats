@@ -884,11 +884,23 @@ _redpath_repo() {
 _redpath_runner_stub() {
   cat > "${1}" <<EOF
 #!$(command -v bash)
+root=""; prev=""
+for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
+# fp -- one sha256 over the copy's files (outside .git), its index, its
+# HEAD tree and its status: what a plant changes, in any of them.
+fp() {
+  ( cd "\${root}" || exit 1
+    find . -path ./.git -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+    git ls-files -s; git rev-parse 'HEAD^{tree}'; git status --porcelain
+  ) 2>/dev/null | sha256sum | cut -d' ' -f1
+}
 # A --steps-only call is the redpath's shared pass (base#1547): it is
-# logged in runner.order, start and end, and is no case call.
+# logged in runner.order, start and end, and is no case call; the
+# fingerprint of its pristine copy goes to runner.pristine.fp.
 for a in "\$@"; do
   [[ "\${a}" == --steps-only ]] || continue
   echo 'steps-only start' >> "${S}/runner.order"
+  fp > "${S}/runner.pristine.fp"
   echo 'steps-only end' >> "${S}/runner.order"
   exit "\$(cat "${S}/canned/steps-only.rc" 2>/dev/null || echo 0)"
 done
@@ -898,10 +910,9 @@ printf '%s\n' "\${n}" > "${S}/runner.n"
 printf '%s\n' "\$@" > "${S}/runner.\${n}.argv"
 c="\${CONFIG_GEN_REDPATH_CASE:-unset}"
 printf '%s\n' "\${c}" > "${S}/runner.\${n}.case"
+fp > "${S}/runner.\${n}.fp"
 k=\$(( \$(cat "${S}/calls.\${c}" 2>/dev/null || echo 0) + 1 ))
 printf '%s\n' "\${k}" > "${S}/calls.\${c}"
-root=""; prev=""
-for a in "\$@"; do [[ "\${prev}" == --root ]] && root="\${a}"; prev="\${a}"; done
 [[ -f "\${root}/dockerfile/Dockerfile.config-gen" ]] && echo tree >> "${S}/runner.trees"
 printf '%s\n' "\${LOG_FORMAT:-unset}" >> "${S}/runner.formats"
 printf '%s|%s\n' "\${LC_ALL-unset}" "\${LOCPATH-unset}" > "${S}/runner.\${n}.locale"
@@ -1405,6 +1416,34 @@ EOF
   if [[ -s "${S}/runner.order" ]]; then
     fail "the runner was called although the verdict file is missing: $(paste -sd' ' "${S}/runner.order")"
   fi
+}
+
+# _unplanted_cases -- the case each runner call was told whose copy's
+# fingerprint (files, index, HEAD tree, status) equals that of the shared
+# pass's pristine copy, in call order.
+_unplanted_cases() {
+  local _n _p
+  _p="$(cat "${S}/runner.pristine.fp")" || fail "_unplanted_cases: no shared pass recorded a pristine fingerprint"
+  for (( _n = 1; _n <= $(cat "${S}/runner.n" 2>/dev/null || echo 0); _n++ )); do
+    [[ "$(cat "${S}/runner.${_n}.fp")" == "${_p}" ]] || continue
+    cat "${S}/runner.${_n}.case"
+  done
+}
+
+# why: The unmodified copy's verdict is one value per commit, but a control
+# run on every redpath invocation repeats it once per way the run is split;
+# rerun's first call already holds that copy to rc 0 and exactly the six ok
+# lines, a stronger check than the control's (base#1547). So rerun is the
+# only check on the unmodified copy: an unsharded run calls the runner on
+# an unplanted copy exactly twice, both told rerun, and no call is told
+# control.
+@test "config_gen_redpath.sh: an unsharded run calls the runner on the unmodified copy twice, both as rerun, and never as control (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath_all
+  assert_success
+  assert_equal "$(_unplanted_cases | paste -sd' ')" 'rerun rerun'
+  assert_equal "$(_ran_cases | grep -cx control)" 0
 }
 
 # why: The runner's attribute filter matched no file= or reason= word
