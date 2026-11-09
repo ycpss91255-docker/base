@@ -147,6 +147,15 @@ main() {
   _pair it-arr ml-esc-u0041 492 "${q3}${bs}u0041${q3}"
   _pair it-arr esc-mixed 493 "\"${bs}n${bs}u0041\""
   _pair it-arr ml-mixed 492 "${q3}${bs}"$'\n'"${bs}u0041${q3}"
+  # At the arr shape a multi-line letter escape and a multi-line
+  # line-ending backslash are one frame apart, so each byte the
+  # continuation may hold before its line ending gets a pair: space, tab
+  # and CR LF, beside the letter escape \n (base#1441). The crlf files
+  # keep their CR through .gitattributes -text.
+  _pair arr ml-esc-n 495 "${q3}${bs}n${q3}"
+  _pair arr ml-ws-sp 494 "${q3}${bs} "$'\n'"${q3}"
+  _pair arr ml-ws-tab 494 "${q3}${bs}"$'\t\n'"${q3}"
+  _pair arr ml-ws-crlf 494 "${q3}${bs}"$'\r\n'"${q3}"
 }
 
 main "$@"

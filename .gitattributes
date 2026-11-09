@@ -28,3 +28,8 @@ dockerfile/config-gen/internal/gate/testdata/toml-test/** -text
 # The locator lex fixture holds CRLF line ends on purpose (base#1442);
 # core.autocrlf=input would commit them as LF and drop the case.
 dockerfile/config-gen/testdata/corpus/s6/s6_loc_lex.toml -text
+
+# The depth forms whose multi-line string holds a backslash before CR LF
+# keep the CR on purpose (base#1441); a normalised file would be the LF
+# pair already there.
+dockerfile/config-gen/internal/gate/testdata/forms/depth/*-crlf-*.toml -text

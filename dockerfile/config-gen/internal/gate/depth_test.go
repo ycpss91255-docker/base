@@ -113,6 +113,15 @@ func TestCheckDepthBoundaries(t *testing.T) {
 		{"it-arr", "\"\"\"\x5cu0041\"\"\"", 492, 1, 5},
 		{"it-arr", "\"\x5cn\x5cu0041\"", 493, 1, 5},
 		{"it-arr", "\"\"\"\x5c\n\x5cu0041\"\"\"", 492, 1, 5},
+		// At the arr shape a multi-line letter escape and a multi-line
+		// line-ending backslash are one frame apart: \n, then the
+		// backslash before a space, a tab and a CR, each before its line
+		// ending (forms/depth arr-ml-esc-n-*, arr-ml-ws-sp-*,
+		// arr-ml-ws-tab-*, arr-ml-ws-crlf-*, base#1441).
+		{"arr", "\"\"\"\x5cn\"\"\"", 495, 1, 5},
+		{"arr", "\"\"\"\x5c \n\"\"\"", 494, 1, 5},
+		{"arr", "\"\"\"\x5c\t\n\"\"\"", 494, 1, 5},
+		{"arr", "\"\"\"\x5c\r\n\"\"\"", 494, 1, 5},
 	}
 	for _, tm := range []struct {
 		term    string
