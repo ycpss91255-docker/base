@@ -1287,8 +1287,25 @@ STUB
   run grep -cF right "${_root}/subject.sh"
   assert_output "1"
 
-  # Same spec, a tree whose content has changed since: refused the same way.
+  # Same tree under a new commit: still read. The key is the tree, not the
+  # commit, because every worker slot's sandbox makes its own commit.
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -q --allow-empty -m 'same tree, new commit'
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+
+  # Same commit, an uncommitted edit to the tree: refused.
   printf '%s\n' 'changed' > "${_root}/bystander.txt"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  assert_output --partial "was written for"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+
+  # Same spec, a tree whose content has changed since, now committed:
+  # refused the same way.
   git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
   git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
     commit -qm changed
