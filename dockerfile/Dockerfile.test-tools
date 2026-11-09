@@ -348,9 +348,11 @@ FROM alpine-apk
 # a bare alpine, about +41 MB uncompressed on a 350 MB image.
 # util-linux-misc (base#1469): the config-gen output-failure spec
 # (test/bats/integration/config_gen_bridge_golden_spec.bats) needs
-# `prlimit --fsize` to make the binary's one stdout write land short and
-# then fail with EFBIG; /dev/full only ever takes 0 bytes, so it cannot
-# reach the short-count branch. busybox has no prlimit applet. The package
+# `prlimit --fsize` to make the binary's one stdout write take some bytes
+# and then fail with EFBIG (a partial write that is an error); /dev/full
+# only ever takes 0 bytes, with ENOSPC. Both reach the command's write
+# error branch; a short count with no error is reached only by the
+# in-process fault writer. busybox has no prlimit applet. The package
 # is `util-linux-misc`, not `util-linux`: it is the split package that owns
 # /usr/bin/prlimit in main on both architectures this image publishes on
 # this Alpine branch, while the `util-linux` meta package pulls the rest
