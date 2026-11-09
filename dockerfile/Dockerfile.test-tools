@@ -83,7 +83,8 @@ ARG ALPINE_VERSION=3.23
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
 # THE declaration of the `just` runner version, for this image and for
-# every other path that installs it: the CI e2e job's setup-just input,
+# every other path that installs it: script/ci/install-just.sh in each CI
+# job that installs just (fed JUST_VERSION by that job's just-pin step),
 # init.sh's install hint and its --bootstrap-just installer, all read this
 # value through dist/script/base/just-version.sh. It lives HERE, and not
 # in a data file of its own, because script/test/test.sh derives the local
