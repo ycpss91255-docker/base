@@ -220,6 +220,33 @@ _passed() {
   _passed "m/a"$'\t'"1000"$'\t'"900"
 }
 
+# why: The race RUN's one go test writes a single merged atomic profile
+# (base#1547), so the coverage RUN must not run go test again: --profile
+# splits that profile per listed package and counts each as today. A block
+# belongs to the package whose import path equals its file's directory, so
+# m/a/sub is counted on its own and never folded into m/a, and a block the
+# profile repeats counts once, at its highest count. The expected lines are
+# worked by hand from the literal profile: m/a holds 2+1 statements, 2 of
+# them covered (its first block's repeat carries count 1); m/a/sub 5, none
+# covered; m/b 4, all covered.
+@test "coverage.sh: --profile splits one merged profile per package, nested dirs apart, and runs no go test (base#1547)" {
+  _pkg m/a 1
+  _pkg m/a/sub 1
+  _pkg m/b 1
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 0' \
+    'm/a/a.go:3.1,4.2 1 0' \
+    'm/a/sub/s.go:1.1,2.2 5 0' \
+    'm/a/a.go:1.1,2.2 2 1' \
+    'm/b/b.go:1.1,2.2 4 7' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _passed "m/a"$'\t'"3"$'\t'"2" "m/a/sub"$'\t'"5"$'\t'"0" "m/b"$'\t'"4"$'\t'"4"
+  if grep -q '^test ' "${S}/go.calls"; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
 # why: One profile per package is what makes the attribution check possible;
 # a single ./... profile cannot say which package a line came from.
 @test "coverage.sh: runs one atomic-mode go test per listed package (base#1462)" {
