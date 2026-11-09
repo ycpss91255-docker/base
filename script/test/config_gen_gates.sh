@@ -138,6 +138,29 @@ _cg_run_steps() {
   done
 }
 
+# _cg_inputs_digest <step>... -- print the digest D of the named steps,
+# run from the root: sha256 over `<relpath>\0<sha256 of content>\n` for
+# each file, C-sorted, the files being each step's .sh, its .inputs and
+# every path that .inputs lists, a directory expanded to each file under
+# it. A reused step's verdict holds only while D is unchanged (base#1547).
+_cg_inputs_digest() {
+  local step dir='script/test/config_gen_steps' path found file
+  local -a files=()
+  for step in "$@"; do
+    files+=("${dir}/${step}.sh" "${dir}/${step}.inputs")
+    while IFS= read -r path || [[ -n "${path}" ]]; do
+      [[ -n "${path}" ]] || continue
+      found="$(find "${path}" -type f)" || return 1
+      [[ -z "${found}" ]] || mapfile -t -O "${#files[@]}" files <<<"${found}"
+    done <"${dir}/${step}.inputs"
+  done
+  for file in "${files[@]}"; do
+    printf '%s\n' "${file}"
+  done | LC_ALL=C sort -u | while IFS= read -r file; do
+    printf '%s\0%s\n' "${file}" "$(sha256sum <"${file}" | cut -d' ' -f1)"
+  done | sha256sum | cut -d' ' -f1
+}
+
 # _cg_context_args <ctx> -- one `--build-context <name>=<path>` pair per
 # directory under <ctx>, one argument per line; refuses an unsafe name.
 _cg_context_args() {
@@ -296,4 +319,7 @@ main() {
   _cg_contract "${root}" "${tmp}" "${ctx_args[@]}"
 }
 
-main "$@"
+# Sourced (the redpath reads _cg_inputs_digest, base#1547), main stays idle.
+if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
+  main "$@"
+fi
