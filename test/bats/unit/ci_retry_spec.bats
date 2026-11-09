@@ -47,3 +47,19 @@ EOS
   run wc -l < "${FAKE_COUNT}"
   assert_output "3"
 }
+
+# why: A real outage must still fail the job loud. If retry.sh swallowed
+# the failure (exit 0), replaced the command's code with a generic 1, or
+# ran one attempt too few or too many, a broken fetch would pass or burn
+# CI time unbounded, base#1562.
+@test "retry.sh: a command that always fails exits with its own code after exactly <attempts> runs and says so (base#1562)" {
+  run --separate-stderr "${RETRY}" 3 0 -- "${FAKE}" 99 7
+  # 7 = the fake's scripted exit code, not a generic 1 and not 0.
+  assert_failure 7
+  # The last attempt is reported on stderr in the documented shape.
+  [[ "${stderr}" == *"retry: attempt 3/3 failed (exit 7)"* ]] \
+    || fail "stderr lacks 'retry: attempt 3/3 failed (exit 7)': ${stderr}"
+  # 3 = <attempts>: no run is skipped and no fourth run is made.
+  run wc -l < "${FAKE_COUNT}"
+  assert_output "3"
+}
