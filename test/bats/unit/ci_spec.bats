@@ -3474,6 +3474,57 @@ _skip_audit_run() {
   (( _total == 33 ))
 }
 
+# why: base#1573 an audit nothing calls guards nothing
+@test "_run_coverage: an untagged coverage skip fails the run with ci_coverage_unexplained_skip (base#1573)" {
+  # The coverage runner itself, not the audit called by hand: kcov is a
+  # shim that drops its own flags, leaves a report and execs the bats it
+  # wraps, so the slice's junit is real bats output. The unit pool holds
+  # one tagged in-body guard and one untagged guard in a spelling the old
+  # grep never matched; the run must fail naming only the untagged one.
+  mock_cmd "kcov" '
+    if [ "$1" = "--merge" ]; then
+      mkdir -p "$2/kcov-merged" && : > "$2/kcov-merged/cobertura.xml"
+      exit 0
+    fi
+    while [ $# -gt 0 ]; do
+      case "$1" in --*) shift ;; *) break ;; esac
+    done
+    mkdir -p "$1/bats" && : > "$1/bats/cobertura.xml"
+    shift
+    exec "$@"'
+
+  run bash -c '
+    set -e
+    _repo="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${_repo}/coverage" "${_repo}/test/bats/unit" \
+             "${_repo}/test/bats/integration"
+    cat > "${_repo}/test/bats/unit/a_spec.bats" <<"BATS"
+# bats test_tags=kcov-fragile
+@test "tagged guarded skip" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+  true
+}
+
+@test "untagged hidden skip" {
+  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+  true
+}
+BATS
+    printf "@test \"plain integration\" { :; }\n" \
+      > "${_repo}/test/bats/integration/i_spec.bats"
+    export COVERAGE=1
+    REPO_ROOT="${_repo}"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage
+  '
+  assert_failure
+  # The slice log replay names every test, so the names are read off the
+  # refusal line alone.
+  assert_output --regexp "DIE: ci_coverage_unexplained_skip.*untagged hidden skip"
+  refute_output --regexp "DIE: .*tagged guarded skip"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # --bats-fragile: the kcov-fragile unit specs run in plain mode
 #
