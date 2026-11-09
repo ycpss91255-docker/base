@@ -424,6 +424,7 @@ config_gen_gate_race_failed
 config_gen_gate_coverage_failed
 config_gen_build_failed
 config_gen_step_failed
+config_gen_step_reused
 config_gen_context_invalid
 config_gen_root_invalid
 config_gen_usage_invalid

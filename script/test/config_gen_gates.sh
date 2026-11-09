@@ -16,8 +16,10 @@
 #                glob order, run with CONFIG_GEN_CTX set to a fresh
 #                directory, its stdout sent to stderr (stdout carries only
 #                the ok lines below; base#1465). The first step that fails
-#                stops the run with its status. Each directory a step leaves under CONFIG_GEN_CTX
-#                becomes a named build context, `--build-context
+#                stops the run with its status. A step named in the
+#                space-separated CONFIG_GEN_STEPS_REUSED is skipped and
+#                logged as config_gen_step_reused (base#1547). Each
+#                directory a step leaves under CONFIG_GEN_CTX becomes a named build context, `--build-context
 #                <name>=<path>`, so a later slice's inputs reach the build
 #                without an edit here. A name outside [a-z0-9-] is refused:
 #                it is spliced into that argument.
@@ -98,6 +100,12 @@ _cg_run_steps() {
   for step in "${steps[@]}"; do
     [[ -n "${step}" ]] || continue
     name="$(basename -- "${step}" .sh)"
+    # The info record goes to stderr: stdout holds only the ok lines.
+    if [[ " ${CONFIG_GEN_STEPS_REUSED:-} " == *" ${name} "* ]]; then
+      _log_info "${_CG_SERVICE}" config_gen_step_reused "step=${name}" \
+        "display=config-gen step ${name} reused, not run" >&2
+      continue
+    fi
     rc=0
     start="$(_cg_now)"
     CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || rc=$?
