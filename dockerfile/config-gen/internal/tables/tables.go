@@ -9,6 +9,21 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// EmptyNameError is Emit's refusal of a key-value whose last key part is
+// the empty name and whose context is not empty (base#1469). The parser
+// records such a value's type at its parent's path and none at its own, so
+// every decision Emit takes from the type metadata would be wrong for it;
+// whether to accept the shape is base#1565.
+type EmptyNameError struct {
+	Key toml.Key
+}
+
+// Error names the key, as the parser quotes it, and the issue that holds
+// the decision.
+func (e *EmptyNameError) Error() string {
+	return "key " + e.Key.String() + `: a key-value named "" below the root is not supported (base#1565)`
+}
+
 // node is one key of the parsed document, with its children in the order
 // they were first seen.
 type node struct {
@@ -39,11 +54,24 @@ func (n *node) child(name string) *node {
 // array is a leaf: one whose parent's path is empty -- at the root, or
 // under tables named "" -- is listed by its name, any other is not, and no
 // key inside an array's elements enters the tree.
+//
+// A key-value named "" below the root -- `a."" = 1`, `"" = 1` under a
+// table, a "" member of an inline table or of an array-of-tables element --
+// is refused with an *EmptyNameError before any output: the parser files
+// its type at the parent's path, which, measured against the bridge, gave
+// wrong bytes, lost tables, or accepted a duplicate key the bridge refuses.
+// The refused key is the first one, in declaration order, that has no type
+// of its own.
 func Emit(src []byte) ([]byte, error) {
 	var doc map[string]any
 	md, err := toml.Decode(string(src), &doc)
 	if err != nil {
 		return nil, err
+	}
+	for _, key := range md.Keys() {
+		if len(key) >= 2 && key[len(key)-1] == "" && md.Type(key...) == "" {
+			return nil, &EmptyNameError{Key: key}
+		}
 	}
 	root := &node{}
 keys:

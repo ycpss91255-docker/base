@@ -244,6 +244,36 @@ func TestTablesParseErrorIsOneFrameNamingTheLabel(t *testing.T) {
 	}
 }
 
+// A key-value named "" below the root, which tables.Emit refuses with an
+// *EmptyNameError, makes `config-gen tables` exit 1 with nothing on stdout
+// and exactly one `conf_toml_parse_failed` frame: `file` is the label,
+// `text` is the error's message verbatim, and `line` and `col` are 0,
+// since the refusal is not a parser ParseError and carries no position
+// (base#1469). `[a]` `"" = []` `[a.b]` is valid TOML the bridge prints as
+// a, a.b; whether to accept it is base#1565.
+func TestTablesEmptyNameValueIsOneParseFailedFrameAtLineZero(t *testing.T) {
+	const label = "lab.toml"
+	path := filepath.Join(t.TempDir(), "f.toml")
+	if err := os.WriteFile(path, []byte("[a]\n\"\" = []\n[a.b]\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	rc, stdout, stderr := cli(t, "tables", "--name", label, path)
+	if rc != 1 {
+		t.Fatalf("config-gen tables exited %d, want 1 (stderr %q)", rc, stderr)
+	}
+	if len(stdout) != 0 {
+		t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
+	}
+	f := refusal(t, stderr, "conf_toml_parse_failed", label)
+	const text = `key a."": a key-value named "" below the root is not supported (base#1565)`
+	if f[7] != text {
+		t.Fatalf("frame text = %q, want %q", f[7], text)
+	}
+	if f[4] != "0" || f[5] != "0" {
+		t.Fatalf("frame line, col = %q, %q, want 0, 0", f[4], f[5])
+	}
+}
+
 // An input that is not a regular file -- a directory, a FIFO with no
 // writer, the character device /dev/null, or a listening unix socket --
 // makes `config-gen tables` exit 1 with nothing on stdout and exactly one
