@@ -884,6 +884,15 @@ _redpath_repo() {
 _redpath_runner_stub() {
   cat > "${1}" <<EOF
 #!$(command -v bash)
+# A --steps-only call is the redpath's shared pass (base#1547): it is
+# logged in runner.order, start and end, and is no case call.
+for a in "\$@"; do
+  [[ "\${a}" == --steps-only ]] || continue
+  echo 'steps-only start' >> "${S}/runner.order"
+  echo 'steps-only end' >> "${S}/runner.order"
+  exit "\$(cat "${S}/canned/steps-only.rc" 2>/dev/null || echo 0)"
+done
+printf 'case %s\n' "\${CONFIG_GEN_REDPATH_CASE:-unset}" >> "${S}/runner.order"
 n=\$(( \$(cat "${S}/runner.n" 2>/dev/null || echo 0) + 1 ))
 printf '%s\n' "\${n}" > "${S}/runner.n"
 printf '%s\n' "\$@" > "${S}/runner.\${n}.argv"
@@ -1320,6 +1329,23 @@ EOF
   _redpath_exec CONFIG_GEN_REDPATH_ONLY='vet lint'
   assert_failure
   assert_equal "$(_case_failures)" 'vet|reused_input_changed'
+}
+
+# why: 20-gomod-oracle and 30-watch-gosum read the same files in every
+# copy, so the redpath runs them once per job, on a pristine copy, through
+# the runner's --steps-only, and finishes that shared pass before any case
+# starts (base#1547). On the whole table the runner sees --steps-only
+# exactly once, and its start and end are the first two entries of the
+# order log, ahead of every case call.
+@test "config_gen_redpath.sh: runs the shared --steps-only pass exactly once, before the first case call (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath_all
+  assert_success
+  [[ -s "${S}/runner.order" ]] || fail "the runner was never called"
+  assert_equal "$(grep -cx 'steps-only start' "${S}/runner.order")" 1
+  assert_equal "$(sed -n '1,2p' "${S}/runner.order")" $'steps-only start\nsteps-only end'
+  assert_equal "$(grep -c '^case ' "${S}/runner.order")" "$(_redpath_sequence | grep -c .)"
 }
 
 # why: The runner's attribute filter matched no file= or reason= word
