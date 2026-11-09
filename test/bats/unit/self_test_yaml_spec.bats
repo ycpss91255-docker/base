@@ -2152,7 +2152,15 @@ YAML
     for _e in "${_env[@]}"; do
       [ -n "${_e}" ] && _envg+=( "${_e//\$\{\{ matrix.group \}\}/${_g}}" )
     done
-    run env "${_envg[@]}" GITHUB_OUTPUT="${_out}" bash -c "cd /source && ${_run//\$\{\{ matrix.group \}\}/${_g}}"
+    # GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail
+    # {0}`, a script file. Under `bash -c` BASH_SOURCE is empty, and kcov's
+    # PS4 (`kcov@${BASH_SOURCE}@...`) made the step's `set -u` refuse its
+    # first traced line, red under coverage only.
+    printf '%s\n' "${_run//\$\{\{ matrix.group \}\}/${_g}}" > "${BATS_TEST_TMPDIR}/step.sh"
+    pushd /source > /dev/null
+    run env "${_envg[@]}" GITHUB_OUTPUT="${_out}" \
+      bash --noprofile --norc -eo pipefail "${BATS_TEST_TMPDIR}/step.sh"
+    popd > /dev/null
     assert_success
     _value="$(sed -n "s/^${_key}=//p" "${_out}")"
     _rendered="${_name//"${_expr}"/${_value}}"

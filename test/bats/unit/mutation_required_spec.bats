@@ -42,7 +42,7 @@ setup() {
   # container does not mount.
   cd "${S}"
   unset COMPOSE_PROJECT_NAME MUTATION_REQUIRED_JOBS MUTATION_REQUIRED_PROBE \
-    GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP \
+    GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP MR_RUNNER_MEET \
     MR_DOCKER_NETS MR_DOCKER_NET_RM_RC PER_TEST_TIMEOUT
   export GIT_CONFIG_NOSYSTEM=1
   export GIT_CONFIG_GLOBAL="${S}/gitconfig"
@@ -88,7 +88,9 @@ STUB
 # lib/guard.sh differs from the sandbox's commit, so it goes red on mutated
 # bytes and nothing else; it records its pid, its COMPOSE_PROJECT_NAME, its
 # root, the root's mode, the PER_TEST_TIMEOUT it was given and its start
-# and end times, and the diff it saw.
+# and end times, and the diff it saw. With MR_RUNNER_MEET=<n> it holds until
+# <n> runner calls have started, so a call that ends sees the others alive;
+# one that waits 30 s for them is recorded in ${MR_RUNNER_LOG}.alone.
 _runner() {
   cat > "${S}/runner" <<'STUB'
 #!/usr/bin/env bash
@@ -97,6 +99,16 @@ printf 'start %s %s %s %s %s %s\n' "${EPOCHREALTIME}" "$$" "${root}" \
   "${COMPOSE_PROJECT_NAME:-}" "$(stat -c %a -- "${root}")" \
   "${PER_TEST_TIMEOUT:-unset}" >> "${MR_RUNNER_LOG:?}"
 [[ -z "${MR_RUNNER_SLEEP:-}" ]] || sleep "${MR_RUNNER_SLEEP}"
+if [[ -n "${MR_RUNNER_MEET:-}" ]]; then
+  tries=0
+  until (( $(grep -c '^start ' "${MR_RUNNER_LOG}") >= MR_RUNNER_MEET )); do
+    if (( tries++ >= 300 )); then
+      printf 'alone %s\n' "$$" >> "${MR_RUNNER_LOG}.alone"
+      break
+    fi
+    sleep 0.1
+  done
+fi
 git -C "${root}" ls-files | LC_ALL=C sort > "${MR_DIFF_DIR}/files.$$"
 if git -C "${root}" diff --quiet -- lib/guard.sh; then
   printf 'ok 1 the guard holds\n'
@@ -747,12 +759,19 @@ STUB
 
 # why: 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
 # (default 4); a runner that only runs serially costs every gate the sum.
+# The two rows are on two specs: a row on a spec another row runs the
+# baseline of waits for that baseline (base#1571), so with one spec only
+# the mutated passes could overlap, and a loaded runner that started the
+# second one late saw no overlap at all (PR #1580, mutation-roster 3/8).
 @test "parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)" {
   _pin_row a.tsv one
-  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  cp "${LIVE}/test/bats/unit/guard_spec.bats" "${LIVE}/test/bats/unit/guard2_spec.bats"
+  _row a.tsv two lib/guard.sh test/bats/unit/guard2_spec.bats 'tail=1' 'tail=2'
   _commit_live
-  MUTATION_REQUIRED_JOBS=2 MR_RUNNER_SLEEP=1 _run_mr
+  MUTATION_REQUIRED_JOBS=2 MR_RUNNER_MEET=2 _run_mr
   assert_success
+  [[ ! -e "${MR_RUNNER_LOG}.alone" ]] \
+    || fail "a runner call waited alone under JOBS=2: $(cat "${MR_RUNNER_LOG}")"
   [[ "$(_max_concurrent)" -ge 2 ]] \
     || fail "the rows did not overlap under JOBS=2: $(cat "${MR_RUNNER_LOG}")"
 }
