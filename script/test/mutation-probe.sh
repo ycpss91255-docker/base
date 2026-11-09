@@ -570,12 +570,13 @@ _mutation_probe_changed_paths() {
 
 # ── reading the run ────────────────────────────────────────────────────────
 
-# _mutation_probe_run <root> <spec-or-empty> <out-file> -- run the suite and
-# capture everything it said.
+# _mutation_probe_run <root> <spec-or-empty> <out-file> [<filter>] -- run the
+# suite and capture everything it said.
 #
 # MUTATION_PROBE_RUNNER overrides the command, which is what lets this loop be
 # tested without a docker build inside every case. It receives the root and
-# the spec (empty for a tier run) as its last two arguments.
+# the spec (empty for a tier run) as its last two arguments, and the filter as
+# a third after them when one is given (base#1571).
 #
 # The status is KEPT, in _MUTATION_PROBE_RUN_STATUS, and it is not the verdict:
 # a red suite exits non-zero and a red suite is the answer this tool is looking
@@ -590,11 +591,12 @@ _mutation_probe_changed_paths() {
 # a tree that is about to be restored under it. `exec` in the subshell makes
 # that pid the runner's own rather than a shell that would outlive the kill.
 _mutation_probe_run() {
-  local _root="${1}" _spec="${2}" _out="${3}"
+  local _root="${1}" _spec="${2}" _out="${3}" _filter="${4:-}"
   local -a _cmd=()
   if [[ -n "${MUTATION_PROBE_RUNNER:-}" ]]; then
     read -r -a _cmd <<< "${MUTATION_PROBE_RUNNER}"
     _cmd+=( "${_root}" "${_spec}" )
+    [[ -n "${_filter}" ]] && _cmd+=( "${_filter}" )
   else
     _MUTATION_PROBE_DEFAULT_RUNNER=1
     if [[ -n "${_spec}" ]]; then
@@ -602,6 +604,7 @@ _mutation_probe_run() {
     else
       _cmd=( "${_root}/script/test/test.sh" --bats-only )
     fi
+    [[ -n "${_filter}" ]] && _cmd+=( --filter "${_filter}" )
   fi
   # Job control on for the fork, so the child is its own process-group leader
   # and a signal handler can reach the WHOLE suite -- test.sh waits on
@@ -906,6 +909,8 @@ _mutation_probe_usage() {
     printf '  --baseline-out <file>  write the clean baseline to <file>\n'
     printf '  --baseline-in <file>   read the baseline from a --baseline-out\n'
     printf '             <file> of the same scope and tree hash instead of running it\n'
+    printf '  --filter <regex>       run the mutated pass under this test-name\n'
+    printf '             filter (test.sh --filter), so only the witnesses run\n'
   } >&2
 }
 
@@ -925,10 +930,10 @@ _mutation_probe() {
   _MUTATION_PROBE_ROOT_ID="$(_mutation_probe_root_id "${_root}")"
 
   local -a _subjects=()
-  local _mutate='' _spec='' _base_in='' _base_out=''
+  local _mutate='' _spec='' _base_in='' _base_out='' _filter=''
   while (( $# > 0 )); do
     case "${1}" in
-      --subject|--mutate|--spec|--baseline-in|--baseline-out)
+      --subject|--mutate|--spec|--baseline-in|--baseline-out|--filter)
         if (( $# < 2 )); then
           _mutation_probe_err "${1} needs a value."
           return 3
@@ -939,6 +944,7 @@ _mutation_probe() {
           --spec) _spec="${2}" ;;
           --baseline-in) _base_in="${2}" ;;
           --baseline-out) _base_out="${2}" ;;
+          --filter) _filter="${2}" ;;
         esac
         shift 2
         ;;
@@ -1222,7 +1228,7 @@ _mutation_probe() {
     return 3
   fi
 
-  _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
+  _mutation_probe_run "${_root}" "${_spec}" "${_work}/run" "${_filter}"
 
   local _ok _not _skip
   read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
