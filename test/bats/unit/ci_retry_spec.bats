@@ -148,3 +148,34 @@ EOS
   # >= 1 = the step exists, so the check cannot pass vacuously.
   [[ "${found}" -ge 1 ]] || fail "no workflow step names ACTIONLINT_IMAGE"
 }
+
+# why: A GitHub API 504 in extractions/setup-just failed the just install
+# after three quick tries a `uses:` step gives the workflow no way to
+# extend. Every job that checks the just on PATH is the pin must install
+# it through script/ci/install-just.sh (which fetches through retry.sh),
+# fed the pin step's output, and no workflow may keep the unretried
+# action -- so one job (the self-hosted coverage-local one included)
+# reverting to setup-just is a finding, base#1562.
+@test "workflows: every just-pin job installs just via script/ci/install-just.sh and none uses extractions/setup-just (base#1562)" {
+  local wf found=0 job hits
+  for wf in /source/.github/workflows/*.yaml; do
+    hits="$(yq '[.jobs[].steps[] | select((.uses // "") | test("^extractions/setup-just"))] | length' "${wf}")"
+    # 0 = the unretried action is gone from this file.
+    [[ "${hits}" -eq 0 ]] \
+      || fail "${wf##*/}: ${hits} step(s) still use extractions/setup-just"
+    while IFS= read -r job; do
+      [[ -n "${job}" ]] || continue
+      found=$((found + 1))
+      hits="$(J="${job}" yq '[.jobs[strenv(J)].steps[]
+        | select(.run == "./script/ci/install-just.sh \"${JUST_VERSION}\"")
+        | select(.env.JUST_VERSION == "${{ steps.just-pin.outputs.version }}")] | length' "${wf}")"
+      # 1 = exactly one install step, in the documented shape.
+      [[ "${hits}" -eq 1 ]] \
+        || fail "${wf##*/}: job ${job} has ${hits} install-just.sh step(s) fed by steps.just-pin, want 1"
+    done < <(yq '.jobs | to_entries[]
+      | select([.value.steps[] | select(.name == "Check the just on PATH is the pin")] | length > 0)
+      | .key' "${wf}")
+  done
+  # >= 1 = a pin-check job exists, so the check cannot pass vacuously.
+  [[ "${found}" -ge 1 ]] || fail "no workflow job checks the just on PATH is the pin"
+}
