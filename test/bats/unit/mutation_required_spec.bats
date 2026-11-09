@@ -805,9 +805,12 @@ STUB
 # one sandbox under one project. A row's own edit is put back by the probe,
 # so the diffs alone do not show the slot's reset; a wrapper around the
 # stub runner logs, at each call's start, whether an ignored file an earlier
-# call left in the sandbox is still there, and then leaves it. Only the
-# slot's reset (git clean -x) removes it, so each of the three rows' first
-# calls finds it gone, and every later call of the same row finds it.
+# call left in the sandbox is still there, and whether a tracked file it
+# edited still holds that edit, and then leaves both. Only the slot's reset
+# puts them back (git clean -x the ignored file, git reset --hard the
+# tracked one), so each of the three rows' first calls finds them put back,
+# and every later call of the same row finds them left. Each half of the
+# reset is a row of script/test/mutation_required/s1571.tsv.
 @test "sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows (base#1571)" {
   mv "${S}/runner" "${S}/runner.inner"
   cat > "${S}/runner" <<'STUB'
@@ -821,14 +824,18 @@ else
   printf 'gone\n' >> "${MR_RUNNER_LOG:?}.leftover"
 fi
 : > "${root}/leftover"
+printf '%s\n' "$(cat "${root}/note")" >> "${MR_RUNNER_LOG:?}.note"
+printf 'edited\n' > "${root}/note"
 exec "${0}.inner" "$@"
 STUB
   chmod +x "${S}/runner"
+  printf 'committed\n' > "${LIVE}/note"
   _three_rows
   MUTATION_REQUIRED_JOBS=1 _run_mr
   assert_success
   assert_equal "$(_pinned_ids)" "one three two "
   assert_equal "$(grep -c '^gone$' "${MR_RUNNER_LOG}.leftover")" 3
+  assert_equal "$(grep -c '^committed$' "${MR_RUNNER_LOG}.note")" 3
   assert_equal "$(awk '$1 == "start" { print $4 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
   assert_equal "$(awk '$1 == "start" { print $5 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
   local _d
@@ -919,11 +926,13 @@ _three_rows() {
   _commit_live
 }
 
-# why: The four hosted lint-static legs each run the roster. 168 rows probed
-# in full by every leg did not finish inside the job's 30 minutes (PR #1491,
-# run 41222344327: the roster step cancelled at 29 minutes on all four
-# legs), so a leg probes the rows of its own shard: row k (counted over
-# every roster file, from 0) belongs to shard (k mod <total>) + 1.
+# why: Every hosted leg that runs the roster (the lint-static legs when
+# base#1461 added this, the mutation-roster matrix since base#1571) probes
+# only its own shard. 168 rows probed in full by every leg did not finish
+# inside the job's 30 minutes (PR #1491, run 41222344327: the roster step
+# cancelled at 29 minutes on all four legs then). With no seconds.txt, row k
+# (counted over every roster file, from 0) belongs to shard (k mod <total>)
+# + 1.
 @test "shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)" {
   _three_rows
   _run_mr --shard 1/2
@@ -941,25 +950,27 @@ _three_rows() {
 # deals by the measured per-row seconds the roster records in
 # script/test/mutation_required/seconds.txt (<file> TAB <id> TAB <seconds>,
 # from the mutation_required_row_timed lines): rows heaviest first, each to
-# the shard holding the fewest seconds so far. Here one row costs 10 s and
-# three cost 1 s: dealt by index, shard 1 would hold one+three (11 s) and
-# shard 2 two+four (2 s); dealt by seconds, shard 1 holds one alone (10 s)
-# and shard 2 the other three (3 s). The two shards still cover every row
-# exactly once.
+# the shard holding the fewest seconds so far. Here the last row, four,
+# costs 10 s and the other three 1 s each. Dealt by index, shard 1 would
+# hold one+three (2 s) and shard 2 two+four (11 s). Dealt in roster order to
+# the lightest shard, it is the same split, because four comes last. Dealt
+# heaviest first, shard 1 holds four alone (10 s) and shard 2 the other
+# three (3 s). The two shards still cover every row exactly once. The
+# roster-order deal is a row of script/test/mutation_required/s1571.tsv.
 @test "shards: --shard deals rows by their recorded seconds, heaviest first, to the lightest shard (base#1571)" {
   _pin_row a.tsv one
   _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
   _row a.tsv three lib/guard.sh test/bats/unit/guard_spec.bats 'drop_me=1' 'drop_me=2'
   _row a.tsv four lib/guard.sh test/bats/unit/guard_spec.bats 'tabbed=1' 'tabbed=2'
-  printf 'a.tsv\tone\t10\na.tsv\ttwo\t1\na.tsv\tthree\t1\na.tsv\tfour\t1\n' \
+  printf 'a.tsv\tone\t1\na.tsv\ttwo\t1\na.tsv\tthree\t1\na.tsv\tfour\t10\n' \
     > "${ROSTER}/seconds.txt"
   _commit_live
   _run_mr --shard 1/2
   assert_success
-  assert_equal "$(_pinned_ids)" "one "
+  assert_equal "$(_pinned_ids)" "four "
   _run_mr --shard 2/2
   assert_success
-  assert_equal "$(_pinned_ids)" "four three two "
+  assert_equal "$(_pinned_ids)" "one three two "
 }
 
 # why: The roster leaves lint-static for the mutation-roster matrix, and
