@@ -247,6 +247,29 @@ _passed() {
   fi
 }
 
+# why: A merged profile holds exactly one `mode: atomic` header (base#1547).
+# A second mode line means two profiles were concatenated, or the file is
+# not what the race RUN wrote; splitting it would silently drop that line
+# and count the rest. It is refused as profile_invalid, before any count is
+# written and without go test.
+@test "coverage.sh: --profile refuses a merged profile with a second mode line as profile_invalid (base#1547)" {
+  _pkg m/a 1
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 1' \
+    'mode: atomic' \
+    'm/a/a.go:3.1,4.2 1 1' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  assert_equal "${status}" 1
+  assert_equal "${output}" ""
+  [[ "${stderr}" =~ ^config_gen_gate_coverage_failed\ reason=profile_invalid(\ pkg=[^$'\n']*)?$ ]] \
+    || fail "want one profile_invalid line on stderr, got: ${stderr}"
+  [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
+  if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
 # why: One profile per package is what makes the attribution check possible;
 # a single ./... profile cannot say which package a line came from.
 @test "coverage.sh: runs one atomic-mode go test per listed package (base#1462)" {
