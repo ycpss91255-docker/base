@@ -496,6 +496,7 @@ mutation_required_sandbox_held
 mutation_required_pinned
 mutation_required_interrupted
 mutation_required_row_timed
+mutation_required_row_dealt
 ci_mutation_required_failed
 
 # script/watch/lib.sh (the go.mod scanner of the pin registry) and

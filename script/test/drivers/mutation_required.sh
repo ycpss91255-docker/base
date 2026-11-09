@@ -33,6 +33,9 @@
 #               hosted mutation-roster legs each run one shard, which a full
 #               roster per leg could not finish inside the job's timeout.
 #               1 <= n <= total <= 99; a shard with no row is roster_empty.
+#               With --check, it probes nothing and logs one
+#               mutation_required_row_dealt (row=<file>:<line>) per row of
+#               the shard (base#1571).
 # --apply       the one way a row edits its subject, run by the probe from
 #               the sandbox root: replace the one occurrence of <old-file>'s
 #               bytes in <subject> with <new-file>'s, keeping the mode;
@@ -954,9 +957,21 @@ main() {
     _mr_publish_interrupted
     return
   fi
-  (( _check == 0 )) || return 0
+  [[ "${_check}" == 0 || -n "${_shard}" ]] || return 0
   if [[ -n "${_shard}" ]]; then
     _mr_shard "${_root}" "${_shard%/*}" "${_shard#*/}" || return 1
+  fi
+  if (( _check == 1 )); then
+    # --check --shard probes nothing and names each row of the shard, so
+    # the union of the shard lists can be compared with the roster
+    # (base#1571).
+    local _i
+    for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
+      _log_info "${_MR_SERVICE}" mutation_required_row_dealt "row=${_MR_ROWS_LOC[_i]}" \
+        "id=${_MR_ROWS_ID[_i]}" "shard=${_shard}" \
+        "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}) is in shard ${_shard}" >&2
+    done
+    return 0
   fi
   _mr_run "${_root}" "${_jobs}"
 }
