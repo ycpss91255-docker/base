@@ -1564,6 +1564,11 @@ main() {
     exit 1
   fi
   export CONFIG_GEN_REDPATH_ACTIVE=1
+  if [[ -n "${CONFIG_GEN_STEPS_VERDICT:-}" && ! -f "${CONFIG_GEN_STEPS_VERDICT}" ]]; then
+    _log_err "${_RP_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_STEPS_VERDICT" \
+      "display=config_gen_redpath.sh: CONFIG_GEN_STEPS_VERDICT names no file: ${CONFIG_GEN_STEPS_VERDICT}"
+    exit 2
+  fi
   local scratch pristine entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
