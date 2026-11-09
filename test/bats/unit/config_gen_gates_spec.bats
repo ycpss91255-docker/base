@@ -1392,6 +1392,21 @@ EOF
     || fail "the redpath did not log shared=ran reason=digest_mismatch; stderr: ${stderr}"
 }
 
+# why: A CONFIG_GEN_STEPS_VERDICT that names no file is a caller's mistake
+# (a wrong tmp path, a gates run that never wrote it), not a reason to
+# rerun the shared pass quietly as if nothing had been asked (base#1547).
+# The redpath refuses it as usage, exit 2, naming the variable, before the
+# runner is called at all.
+@test "config_gen_redpath.sh: a CONFIG_GEN_STEPS_VERDICT naming no file is refused as usage before any runner call (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _redpath_exec CONFIG_GEN_STEPS_VERDICT="${S}/no-such.verdict" CONFIG_GEN_REDPATH_ONLY=vet
+  assert_refusal 2 config_gen_usage_invalid arg=CONFIG_GEN_STEPS_VERDICT
+  if [[ -s "${S}/runner.order" ]]; then
+    fail "the runner was called although the verdict file is missing: $(paste -sd' ' "${S}/runner.order")"
+  fi
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
