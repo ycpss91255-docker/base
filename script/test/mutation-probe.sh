@@ -244,6 +244,28 @@ _mutation_probe_git_state() {
   printf '%s' "${_hash}"
 }
 
+# _mutation_probe_tree_hash <root> -- the git tree object of <root>'s working
+# tree as it stands (tracked and untracked files, not ignored ones), written
+# through a scratch copy of the index so the real one is untouched. It is the
+# content, not a commit, so two sandboxes holding the same files hash alike.
+_mutation_probe_tree_hash() {
+  local _idx _real _hash _rc=0
+  _idx="$(mktemp "${TMPDIR:-/tmp}/mutation-probe-index.XXXXXX")" || return 1
+  _real="$(git -C "${1}" rev-parse --path-format=absolute --git-path index 2>/dev/null)" || _real=''
+  if [[ -n "${_real}" && -f "${_real}" ]]; then
+    cp -- "${_real}" "${_idx}" || _rc=1
+  else
+    rm -f -- "${_idx}"
+  fi
+  if (( _rc == 0 )); then
+    _hash="$(GIT_INDEX_FILE="${_idx}" git -C "${1}" add -A 2>/dev/null \
+      && GIT_INDEX_FILE="${_idx}" git -C "${1}" write-tree 2>/dev/null)" || _rc=1
+  fi
+  rm -f -- "${_idx}"
+  (( _rc == 0 )) || return 1
+  printf '%s' "${_hash}"
+}
+
 # _mutation_probe_root_id <root> -- the root's device and inode, or empty.
 _mutation_probe_root_id() {
   stat -c '%d:%i' -- "${1}" 2>/dev/null || printf ''
@@ -883,7 +905,7 @@ _mutation_probe_usage() {
     printf '             INCONCLUSIVE, not NOT PINNED\n'
     printf '  --baseline-out <file>  write the clean baseline to <file>\n'
     printf '  --baseline-in <file>   read the baseline from a --baseline-out\n'
-    printf '             <file> of the same scope and tree instead of running it\n'
+    printf '             <file> of the same scope and tree hash instead of running it\n'
   } >&2
 }
 
@@ -1031,10 +1053,31 @@ _mutation_probe() {
   # roster ran one spec's baseline once per row, 314 times for 17 specs
   # (base#1571). Only a baseline that passed every check below is written,
   # and the checks still run on what is read.
+  # The file's first line keys it to the tree hash and the scope it ran, so
+  # a baseline from another spec or from a tree that has changed since is
+  # refused rather than compared against.
+  local _base_key='' _tree=''
+  if [[ -n "${_base_in}" || -n "${_base_out}" ]]; then
+    if ! _tree="$(_mutation_probe_tree_hash "${_root}")"; then
+      _mutation_probe_err "could not hash the tree at ${_root}, so a --baseline-in / --baseline-out baseline cannot be keyed to it."
+      trap - EXIT INT TERM
+      rm -rf "${_work}"
+      return 3
+    fi
+    _base_key="mutation-probe-baseline tree=${_tree} scope=${_scope}"
+  fi
   if [[ -n "${_base_in}" ]]; then
     _mutation_probe_say "baseline: reading scope=${_scope} unmutated from ${_base_in}"
-    if ! cp -- "${_base_in}" "${_work}/baseline" 2>/dev/null; then
+    local _got_key=''
+    if ! IFS= read -r _got_key < "${_base_in}" 2>/dev/null \
+      || ! tail -n +2 -- "${_base_in}" > "${_work}/baseline" 2>/dev/null; then
       _mutation_probe_err "--baseline-in ${_base_in} could not be read, so there is no baseline to compare a mutated run against."
+      trap - EXIT INT TERM
+      rm -rf "${_work}"
+      return 3
+    fi
+    if [[ "${_got_key}" != "${_base_key}" ]]; then
+      _mutation_probe_err "--baseline-in ${_base_in} was written for '${_got_key#mutation-probe-baseline }', not for 'tree=${_tree} scope=${_scope}', so its counts are not this run's baseline."
       trap - EXIT INT TERM
       rm -rf "${_work}"
       return 3
@@ -1067,7 +1110,8 @@ _mutation_probe() {
   fi
   _mutation_probe_say "baseline: ${_base_ok} executed / 0 not ok / ${_base_skip} skipped -- clean, so a red below is the mutation's"
   if [[ -n "${_base_out}" ]] \
-    && ! { cp -- "${_work}/baseline" "${_base_out}.tmp" && mv -f -- "${_base_out}.tmp" "${_base_out}"; }; then
+    && ! { { printf '%s\n' "${_base_key}" && cat -- "${_work}/baseline"; } > "${_base_out}.tmp" \
+           && mv -f -- "${_base_out}.tmp" "${_base_out}"; }; then
     _mutation_probe_err "the clean baseline could not be written to --baseline-out ${_base_out}."
     trap - EXIT INT TERM
     rm -rf "${_work}"
