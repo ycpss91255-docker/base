@@ -942,6 +942,42 @@ _three_rows() {
   assert_equal "$(_pinned_ids)" "four three two "
 }
 
+# why: The roster leaves lint-static for the mutation-roster matrix, and
+# its rows are dealt by recorded seconds, not by index (base#1571). The set
+# of rows a PR run probes must still be the whole roster, each row once,
+# and a spec has to compare the union of the shard row lists with the full
+# roster to show it. `--check --shard <n>/<total>` validates every row,
+# probes nothing, and logs one mutation_required_row_dealt line per row of
+# shard <n> (row=<file>:<line>). Over the committed roster, with the shard
+# count of self-test.yaml's mutation-roster matrix, the union of those
+# lists is every non-blank, non-`#` line of every roster file, read here
+# straight from the TSVs, and no row is in two shards.
+@test "shards: over the committed roster the mutation-roster shards' row lists are every row, each once (base#1571)" {
+  assert_spec_subject_dir /source/script/test/mutation_required "the committed roster"
+  local _wf=/source/.github/workflows/self-test.yaml _t _k _want _got
+  _t="$(yq '.jobs.mutation-roster.strategy.matrix.shard | length' "${_wf}")"
+  [[ "${_t}" =~ ^[1-9][0-9]*$ ]] && (( _t >= 2 )) \
+    || fail "self-test.yaml's mutation-roster matrix has '${_t}' shards"
+  _want="$(cd /source && LC_ALL=C awk '
+    FNR == 1 { f = FILENAME }
+    $0 != "" && substr($0, 1, 1) != "#" { print f ":" FNR }
+  ' script/test/mutation_required/*.tsv | LC_ALL=C sort)"
+  [[ -n "${_want}" ]] || fail "the committed roster holds no row"
+  _got=""
+  for (( _k = 1; _k <= _t; _k++ )); do
+    run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source --shard "${_k}/${_t}"
+    assert_success
+    _got+="$(grep -F '"body":"mutation_required_row_dealt"' <<< "${stderr}" \
+      | sed -n 's/.*"row":"\([^"]*\)".*/\1/p')"$'\n'
+  done
+  _got="$(grep -v '^$' <<< "${_got}" | LC_ALL=C sort || true)"
+  [[ -n "${_got}" ]] || fail "--check --shard logged no mutation_required_row_dealt line for any of the ${_t} shards"
+  local _dups
+  _dups="$(uniq -d <<< "${_got}")"
+  [[ -z "${_dups}" ]] || fail "rows dealt to more than one shard:"$'\n'"${_dups}"
+  assert_equal "${_got}" "${_want}"
+}
+
 # why: A shard only narrows what is probed; every row is still validated,
 # so an invalid row outside the shard still fails the run.
 @test "shards: an invalid row outside the shard is still refused (base#1461)" {
