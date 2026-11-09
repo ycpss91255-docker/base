@@ -1479,6 +1479,27 @@ _rp_control() {
   return 1
 }
 
+# _rp_now -- the wall clock in seconds with microseconds, from
+# EPOCHREALTIME.
+_rp_now() {
+  printf '%s' "${EPOCHREALTIME/,/.}"
+}
+
+# _rp_timed <case> <cmd> [arg...] -- run <cmd>, then print one line to
+# stderr as the case finishes: `config-gen redpath case=<case> start=
+# end= secs= result=pass|fail` (base#1547). Returns <cmd>'s status.
+_rp_timed() {
+  local name="${1}" start end rc=0 result=pass
+  shift
+  start="$(_rp_now)"
+  "$@" || rc=$?
+  end="$(_rp_now)"
+  (( rc == 0 )) || result=fail
+  printf 'config-gen redpath case=%s start=%s end=%s secs=%s result=%s\n' "${name}" "${start}" "${end}" \
+    "$(awk -v s="${start}" -v e="${end}" 'BEGIN { printf "%.3f", e - s }')" "${result}" >&2
+  return "${rc}"
+}
+
 main() {
   if [[ -n "${CONFIG_GEN_REDPATH_ACTIVE:-}" ]]; then
     _log_err "${_RP_SERVICE}" config_gen_redpath_reentered \
@@ -1493,45 +1514,45 @@ main() {
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
-    _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+    _rp_timed "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
   done
   for entry in "${_RP_REFUSALS[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
-    _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+    _rp_timed "${entry%%:*}" _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
   done
   local name file want pkg
   for entry in "${_RP_STALE[@]}"; do
     IFS='|' read -r name file want <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_stale "${scratch}" "${name}" "${file}" "${want}" || failed=1
+    _rp_timed "${name}" _rp_stale "${scratch}" "${name}" "${file}" "${want}" || failed=1
   done
   for name in "${_RP_GREENS[@]}"; do
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_green_case "${scratch}" "${name}" || failed=1
+    _rp_timed "${name}" _rp_green_case "${scratch}" "${name}" || failed=1
   done
   local gate
   for entry in "${_RP_AFTER_ADMIT[@]}"; do
     IFS='|' read -r name gate want file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}" || failed=1
+    _rp_timed "${name}" _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}" || failed=1
   done
   for entry in "${_RP_COVERAGE[@]}"; do
     IFS='|' read -r name want pkg file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}" || failed=1
+    _rp_timed "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}" || failed=1
   done
   if _rp_selected rerun; then
     ran=$(( ran + 1 ))
-    _rp_rerun "${scratch}" || failed=1
+    _rp_timed rerun _rp_rerun "${scratch}" || failed=1
   fi
   if _rp_selected retro; then
     ran=$(( ran + 1 ))
-    _rp_retro "${scratch}" || failed=1
+    _rp_timed retro _rp_retro "${scratch}" || failed=1
   fi
   _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
