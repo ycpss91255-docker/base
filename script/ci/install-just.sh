@@ -22,8 +22,13 @@ dl="${RUNNER_TEMP}/just-${JUST_VERSION}-dl"
 bin="${RUNNER_TEMP}/just-${JUST_VERSION}/bin"
 mkdir -p "${dl}" "${bin}"
 
-"${retry}" 5 5 -- curl -fsSL --max-time 60 -o "${dl}/${asset}" "${rel}/${asset}"
-"${retry}" 5 5 -- curl -fsSL --max-time 60 -o "${dl}/SHA256SUMS" "${rel}/SHA256SUMS"
+# fetch <name>: download one release file into ${dl}, retried.
+fetch() {
+  "${retry}" 5 5 -- curl -fsSL --max-time 60 -o "${dl}/$1" "${rel}/$1"
+}
+
+fetch "${asset}"
+fetch SHA256SUMS
 
 # The tarball must be the release's bytes: its SHA256SUMS line must be
 # present and match, or nothing reaches PATH, base#1562.
