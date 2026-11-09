@@ -312,3 +312,9 @@ s7.tsv	entry-cleared-slot-kept	21.7
 s7.tsv	entry-no-gating-field	23.5
 s7.tsv	entry-not-table	23.3
 s7.tsv	entry-unknown-field	20.5
+s1571.tsv	baseline-key-tree-hash	39.4
+s1571.tsv	slot-reset-hard	84.6
+s1571.tsv	slot-reset-clean	85.4
+s1571.tsv	baseline-per-row	79.6
+s1571.tsv	filter-no-fallback	36.6
+s1571.tsv	deal-by-index	80.9

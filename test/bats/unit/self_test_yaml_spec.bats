@@ -3898,7 +3898,8 @@ _cg_mut_ctx() {
 # CONFIG_GEN_MUTATION_CONTEXT env. Every step is a literal here, so no file
 # under test can move its own expectation. The self-hosted job then runs the
 # required-kill roster (base#1461); the hosted job does not, because the
-# hosted lint-static legs run it.
+# hosted mutation-roster matrix runs it (base#1571; decided by the case
+# "the required-kill roster runs once per mutation-roster leg").
 _cg_expected_steps() {
   local _pin _ctx _tail='[]'
   _pin="$(_cg_just_pin_steps)" || return 1
@@ -4271,7 +4272,8 @@ _rollup_honours_every_need() {
 
 # ── the required-kill roster runs in every CI environment (base#1461) ────────
 #
-# Local `just test`, the hosted lint-static legs and the self-hosted
+# Local `just test`, the hosted mutation-roster matrix (base#1571; the
+# hosted lint-static legs ran it before that) and the self-hosted
 # coverage-local workflow all run `just test mutation-required`. Which
 # steps run it is decided the way the lint parity is (base#1412): by
 # RUNNING every `run:` step of the job in a checkout copy whose roster
