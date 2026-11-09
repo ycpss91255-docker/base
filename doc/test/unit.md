@@ -6397,7 +6397,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (150)
+### test/bats/unit/self_test_yaml_spec.bats (145)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6634,25 +6634,23 @@ Grouped by concern:
 
 - `classify` doc-only allow-list + system block-list + non-PR default
 
-- `bats-fragile`/`bats-integration`/`integration-e2e`/`system` declare
-`needs: [actionlint, classify]`
+- `bats-fragile`/`integration-e2e`/`system` declare `needs: [actionlint,
+classify]`
 
-- `bats-fragile`/`bats-integration` job-level `if: code_changed == 'true'` +
-no remaining monolithic `test:` job (#377, #677)
+- `bats-fragile` job-level `if: code_changed == 'true'` + no remaining
+monolithic `test:` job (#377, #677)
 
 - `integration-e2e` job-level `if: code_changed == 'true'` + `system`
 job-level `if: system_relevant == 'true'` (#317 P3 tightens)
 
-- `bats-fragile`/`bats-integration`/`system` use
-`docker/build-push-action@v6` with `scope=test-tools` GHA cache
+- `bats-fragile`/`system` use `docker/build-push-action@v6` with
+`scope=test-tools` GHA cache
 
 - `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317
 gotcha-1/2)
 
 - `bats-fragile` Obtain step pulls `:main` with 3-layer fallback + Build
 step gated on `build_local` (#317 P2 + #677)
-
-- `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377)
 
 - `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no
 `driver: docker` pin (#317 P2)
@@ -6670,9 +6668,8 @@ jobs, #317 P2 reuses P1 gotcha-2 fix)
 + `prune.sh` (#317 P3 gotcha-5)
 
 - `ci-rollup` declared + `needs: [actionlint, classify, shellcheck,
-hadolint, bats-fragile, bats-integration, coverage, coverage-gate,
-integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 + #677
-+ #710)
+hadolint, bats-fragile, coverage, coverage-gate, integration-e2e, system]` +
+`if: always()` (#337 + #376 + #377 + #615 + #677 + #710)
 
 - `ci-rollup` DOES need `coverage` now (#615 amends #377)
 
@@ -6696,7 +6693,8 @@ code_changed == 'true'` + lints both template-owned Dockerfiles via
 - `bats-fragile` declared + is a single job (no shard matrix) + invokes
 `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677)
 
-- `bats-integration` declared + invokes `test.sh --bats-integration` (#377)
+- no `bats-integration` job, and neither `ci-rollup` nor `release` needs it:
+the coverage shards run every integration spec (base#1573)
 
 - `coverage` declared (#377) + runs on PRs via `if: code_changed == 'true'`
 (not main-only) + primary kcov unit gate over `matrix.shard: ['1/4'..'4/4']`
@@ -6708,9 +6706,8 @@ matrix.shard }}` + uploads each shard report as a CI artifact (#615 + #677 +
 + a `coverage-gate` job downloads the shard artifacts and runs
 `coverage_gate.sh`
 
-- `release` job needs `[shellcheck, hadolint, bats-fragile,
-bats-integration, coverage, integration-e2e, system]` before publishing a
-tag (#376 + #377 + #677)
+- `release` job needs `[shellcheck, hadolint, bats-fragile, coverage,
+integration-e2e, system]` before publishing a tag (#376 + #377 + #677)
 
 - Probe-and-rebuild against a stale/racing `:main`: every job that consumes
 the image obtains it through `script/ci/obtain_test_tools.sh`, which always
@@ -6731,7 +6728,6 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: classify omits set -e to fail-open on diff errors (#317 gotcha-1)` | - |
 | `self-test.yaml: classify pre-fetches base ref before diff (#317 gotcha-2)` | - |
 | `self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)` | - |
-| `self-test.yaml: bats-integration job declares needs on actionlint AND classify (#377)` | - |
 | `self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)` | - |
 | `self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)` | a consumer reaches the container only through `just`, so a broken container-ops justfile is invisible to an acceptance run that calls the wrappers directly -- it would stay green on exactly the defect a consumer hits first. Read over the job and script/ci/acceptance.sh together, so the move into the script (base#1409) cannot drop a verb unseen. |
 | `self-test.yaml: acceptance asserts the runnability contract (#579)` | the v0.41.0 user-args bug printed `initial` from whoami while the job stayed green, because nothing compared the output. These literals are the comparisons themselves; without them the job runs the steps and asserts nothing. |
@@ -6744,16 +6740,13 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)` | - |
 | `self-test.yaml: system job declares needs on actionlint AND classify (#317)` | - |
 | `self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)` | - |
-| `self-test.yaml: bats-integration job-level if: gates on code_changed (#377)` | - |
 | `self-test.yaml: no monolithic 'test:' job remains after #377 split` | - |
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
-| `self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
 | `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
-| `self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)` | - |
 | `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that skips the obtain path builds against a stale or absent tooling image. This step stays in the job when the rest moved into script/ci/acceptance.sh (base#1409), because only a runner can obtain the run-scoped image. |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | with the docker-container driver the obtained image lives in buildx's private store, and the consumer build's FROM falls through to a registry pull that fails. The driver is runner setup, so it stays in the job, not in the script `just test acceptance` shares (base#1409). |
 | `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
@@ -6775,6 +6768,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)` | - |
 | `self-test.yaml: declares ci-rollup job (#337)` | Branch protection requires ci-rollup alone; without the job every other check is advisory. |
 | `self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)` | A PR check outside ci-rollup's needs is one whose red never blocks a merge; the exact list is what makes adding or dropping one a reviewed edit. |
+| `self-test.yaml: no bats-integration job, and neither ci-rollup nor release needs it (base#1573)` | The coverage shards already run every integration spec (the pool in script/test/drivers/bats.sh holds test/bats/integration), so a separate bats-integration job ran each of them a second time. With the job gone, neither the merge gate nor the tag gate may still wait on it: the two lists below are main's lists at b091f8e3 with that one entry removed, written out by hand rather than read back from the workflow. |
 | `self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)` | The sharded kcov run is the primary unit gate; out of the rollup, a kcov failure would merge. |
 | `self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)` | Without it a failed need skips the rollup, and branch protection reads a skipped required check as missing rather than red. |
 | `self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)` | A need the verify step never reads is waited on and then ignored: its failure turns nothing red. |
@@ -6820,7 +6814,7 @@ rolling tag itself (#697, #1010)
 | `lint probe: a step is run under every value of a runtime expression, and an unknown one is unresolved (base#1412)` | base#1412 review round 6. A step can branch on a value only the run has -- a `needs` output, an input -- and reading that value as empty ran one branch and never the other, so a host lint behind the other passed. A value the workflow declares (a boolean or choice input) is run under every value it takes; one nothing declares is not run under a guess but reported `unresolved`. |
 | `lint probe: a matrix leg that lints another leg's group is caught (base#1412)` | base#1412 review round 6. Every leg reaching the image is not every lint being run: a matrix whose legs all lint one group skips the others. The selection check holds each leg to its own group. |
 | `lint probe: an image lint in a step that may be skipped or ignored is not credited (base#1412)` | base#1412 review round 7. The probe runs every step, the runner does not: a lint step under `if: false` is skipped on the runner yet credited here, and one under `continue-on-error` runs without gating. A crediting step has to run and gate whenever its job runs. |
-| `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | A tag produces the artifact users consume, so it must clear every gate a merge clears; the exact list makes a dropped gate a reviewed edit. |
+| `self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)` | A tag produces the artifact users consume, so it must clear every gate a merge clears; the exact list makes a dropped gate a reviewed edit. |
 | `self-test.yaml: the release job assembles no source archive of its own (#924)` | - |
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
 | `self-test.yaml: the release body is assembled by a script that can refuse (#926)` | The extraction has to live somewhere a spec can drive it AND somewhere that can exit non-zero; inline in the workflow it was neither. This is what stops it drifting back into a `run:` block where a no-match is a silent success. |
@@ -6829,8 +6823,6 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile is a single job (no shard matrix) (#677)` | - |
 | `self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)` | - |
 | `self-test.yaml: no bats-unit shard matrix remains after #677` | - |
-| `self-test.yaml: declares bats-integration job (#377)` | - |
-| `self-test.yaml: bats-integration invokes test.sh --bats-integration (#377)` | - |
 | `self-test.yaml: declares coverage job (#377)` | - |
 | `self-test.yaml: coverage now runs on PRs (gated on code_changed), not main-only (#615 amends #377)` | - |
 | `self-test.yaml: coverage runs as the primary kcov unit gate over a DYNAMIC shard matrix (#615 + #677 + #725)` | - |

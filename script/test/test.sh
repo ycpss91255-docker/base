@@ -48,8 +48,9 @@
 #                                  # skips). Used by the bats-fragile job in
 #                                  # self-test.yaml
 #   ./test.sh --bats-integration     # Run integration tests only (skip
-#                                  # ShellCheck + unit). Used by the
-#                                  # bats-integration job in self-test.yaml
+#                                  # ShellCheck + unit). A local entry
+#                                  # point: in CI the coverage shards run
+#                                  # these specs (base#1573)
 #                                  #
 #   ./test.sh --coverage        # Run the full Bats suite under Kcov. The
 #                             # lint phase is SKIPPED on every coverage
@@ -930,8 +931,8 @@ Options:
                           self-test.yaml runs them so no test goes unrun
                           (#677, base#1573)
   --bats-integration      Run integration tests only (skip ShellCheck +
-                          unit). Used by the bats-integration job in
-                          self-test.yaml (#377)
+                          unit). A local entry point: in CI the coverage
+                          shards run these specs (#377, base#1573)
   --bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
                           relative, e.g. test/bats/unit/ci_spec.bats) via the ci
                           container. Skips ShellCheck + kcov for a fast TDD
@@ -2507,8 +2508,8 @@ _run_via_compose() {
   # path unchanged (full shellcheck + bats).
   #
   # BATS_UNIT_SHARD / BATS_FRAGILE / BATS_INTEGRATION route the
-  # coverage-slice / bats-fragile / bats-integration GHA jobs to the right
-  # subset inside the container; empty / 0 keep the local `just test` path
+  # coverage-slice / bats-fragile GHA jobs and the local --bats-integration
+  # run to the right subset inside the container; empty / 0 keep the local `just test` path
   # unchanged (full unit + integration).
   #
   # LINT_ONLY / LINT_TOOL route `just test lint [--shellcheck |
@@ -3090,9 +3091,8 @@ main() {
       # `_run_via_compose`) skips the ShellCheck phase — the dedicated
       # self-test.yaml shellcheck job covers it in parallel.
       # BATS_UNIT_SHARD / BATS_INTEGRATION route this dispatch
-      # to a matrix-shard / integration-only subset; the dedicated GHA
-      # bats-unit / bats-integration jobs set these via the outer
-      # `--bats-unit-shard` / `--bats-integration` flags so the
+      # to a matrix-shard / integration-only subset; the outer
+      # `--bats-unit-shard` / `--bats-integration` flags set these so the
       # in-container path matches the local dev path.
       #
       # Arm the handback FIRST, above every phase and every early
