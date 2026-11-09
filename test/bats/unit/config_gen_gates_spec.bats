@@ -1348,6 +1348,31 @@ EOF
   assert_equal "$(grep -c '^case ' "${S}/runner.order")" "$(_redpath_sequence | grep -c .)"
 }
 
+# why: `just test go` runs the gates first, and their 20-gomod-oracle and
+# 30-watch-gosum already passed on the same tree, so the redpath reuses
+# that verdict instead of running its shared pass again (base#1547). A
+# CONFIG_GEN_STEPS_VERDICT file naming status 0 and the digest D that a
+# pristine copy gives means no --steps-only call, and the redpath says so
+# on stderr as shared=reused-from-gates. D is taken on the scratch repo,
+# whose reused-step inputs every copy carries unchanged, by
+# _cg_inputs_digest, whose output the digest test pins to worked literals.
+@test "config_gen_redpath.sh: a CONFIG_GEN_STEPS_VERDICT with the pristine digest and status 0 skips the shared pass (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _d
+  _d="$(cd "${S}/repo" && bash -c 'source "$1"; source "$2"; _cg_inputs_digest 20-gomod-oracle 30-watch-gosum' \
+    _ /source/dist/script/docker/lib/log.sh /source/script/test/config_gen_inputs.sh)"
+  [[ "${_d}" =~ ^[0-9a-f]{64}$ ]] || fail "no digest of the scratch repo's reused-step inputs: '${_d}'"
+  printf 'digest=%s steps=20-gomod-oracle,30-watch-gosum status=0\n' "${_d}" > "${S}/steps.verdict"
+  _run_redpath CONFIG_GEN_STEPS_VERDICT="${S}/steps.verdict" vet
+  assert_success
+  if grep -qx 'steps-only start' "${S}/runner.order"; then
+    fail "the runner was called with --steps-only although the verdict file matched"
+  fi
+  grep -qF 'shared=reused-from-gates' <<<"${stderr}" \
+    || fail "the redpath did not log shared=reused-from-gates; stderr: ${stderr}"
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
