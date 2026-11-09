@@ -4879,7 +4879,7 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: --filter runs the mutated pass under the witness filter (base#1571)` | a roster row's verdict rests on a few witness tests, yet its mutated pass ran every @test in the spec -- 65 for gomod_scan, 54 for config_gen_gates (base#1571). With --filter <regex> the probe hands the filter to the runner for the mutated pass, as a third argument after the root and the spec (the default runner turns it into test.sh --filter), so only the witnesses run, and a red among them is still reported PINNED. |
 | `_mutation_probe: a --filter mutant that stays green falls back to the whole spec (base#1571)` | a witness filter can be too narrow -- the pinned witnesses come from an older run, and a mutant the named witnesses miss can still be caught by another @test in the spec. A filtered green is therefore not a verdict: the probe falls back to the whole spec, so a row is never reported as surviving only because the filter left out the test that notices (base#1571). Here the filtered pass stays green and the whole-spec pass has a red, so the answer is PINNED, the red comes from the fallback run, and the last runner call had no filter. |
 
-### test/bats/unit/mutation_required_spec.bats (61)
+### test/bats/unit/mutation_required_spec.bats (66)
 
 Every shell refusal guard a config-gen slice adds is listed, with the
 mutation that disables it, in script/test/mutation_required/<slice>.tsv.
@@ -4890,10 +4890,11 @@ of them before any baseline runs, probes each row in a private sandbox copy
 through its own fixed --apply, and exits 0 only when every row is PINNED.
 
 Row contract, one for every roster file: <id> TAB <subject> TAB <spec> TAB
-<old> TAB <new> `#` lines and blank lines are skipped. <old> and <new> are
-decoded with exactly three escapes, `\\` `\t` `\n`; any other `\x` or a
-trailing `\` is reason=bad_escape. <old> must occur exactly once in
-<subject>; <new> may be empty (a deletion) and must differ from <old>.
+<old> TAB <new> [TAB <witness>] <witness>, optional, is the mutated pass's
+test.sh --filter (base#1571). `#` lines and blank lines are skipped. <old>
+and <new> are decoded with exactly three escapes, `\\` `\t` `\n`; any other
+`\x` or a trailing `\` is reason=bad_escape. <old> must occur exactly once
+in <subject>; <new> may be empty (a deletion) and must differ from <old>.
 
 Seams the cases use: --root <dir> names the checkout whose roster is read
 (default: this checkout); MUTATION_PROBE_RUNNER is the probe's own runner
@@ -4912,7 +4913,7 @@ Every refusal holds assert_refusal's five points.
 | `validation: an empty roster directory is refused (base#1461)` | A roster directory with no roster file is a gate that checks nothing; reading it as "every row PINNED" is the false green this runner exists to remove. |
 | `validation: roster files with no rows are refused (base#1461)` | The same false green one step later: roster files that carry only comments are zero rows. |
 | `validation: a four-field row is refused before any baseline (base#1461)` | The committed rows are four columns wide in the sed form; a runner that took a four-field row would read the sed command as <old>. |
-| `validation: a six-field row is refused before any baseline (base#1461)` | A sixth field is a row whose fields are not where the reader thinks. |
+| `validation: a seven-field row is refused before any baseline (base#1461)` | A seventh field is a row whose fields are not where the reader thinks; the sixth is the optional witness filter (base#1571). |
 | `validation: a row whose subject does not exist is refused (base#1461)` | A row naming a subject that is not there would probe nothing. |
 | `validation: a row whose spec does not exist is refused (base#1461)` | A row naming a spec that is not there is a pinning test that was deleted -- the exact event the roster exists to catch. |
 | `validation: a spec outside test/bats is refused (base#1461)` | A spec path outside test/bats is not a spec the suite runs. |
@@ -4940,6 +4941,7 @@ Every refusal holds assert_refusal's five points.
 | `verdict: one survivor fails the run and no row is reported pinned (base#1461)` | Verdicts are published only after every row finished, and a failing run publishes no pass: a pinned row 1 inside a run whose row 2 survived says nothing that reads as green. |
 | `timing: a row reports its start, end and duration, and the probe ran inside that window (base#1571)` | The roster logged no per-row time, so where its 271 job-min went could only be modelled, not measured (base#1571). Each row reports when it started, when it ended and how long it took, and the window it reports holds the probe's own run: a timer that started after the probe, or a duration that is not end minus start, would mislead every shard balance built on it. |
 | `baseline: three rows on one spec run its unmutated baseline once, not once per row (base#1571)` | Each row ran its whole spec unmutated before its mutated pass, so the roster ran the same baseline 314 times for 17 specs on one tree (base#1571). Three rows on one spec, all three in flight at once, run the spec's unmutated baseline once and each row's mutated pass once: four runner calls, of which exactly one saw lib/guard.sh unchanged, and every row is still reported pinned. |
+| `witness: a row with a sixth column runs its mutated pass under that filter (base#1571)` | The row contract had no test selector, so every row's mutated pass ran every @test in its spec, 14,451 tests a pass over the roster, when the pinned lines name a median of one witness (base#1571). A row may carry an optional sixth column, its witness filter (a test.sh --filter regex); the probe then runs that row's mutated pass under the filter. The probe hands a filter to MUTATION_PROBE_RUNNER as one more argument after the root and the spec, so a wrapper records each call's argv under its pid and the stub runner, exec'd in the same pid, marks the mutated calls with diff.<pid>. |
 | `sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows (base#1571)` | Each row built its own sandbox (mktemp, a tar copy of every tracked file, verify, git init and commit) and its own compose project, so 314 rows built 314 sandboxes, up to 81 of them identical (base#1571). Under MUTATION_REQUIRED_JOBS=1 there is one worker slot: its three rows run in one sandbox under one project, and the sandbox is reset between rows, so each mutated pass sees its own row's edit and no other row's. |
 | `parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)` | 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time (default 4); a runner that only runs serially costs every gate the sum. |
 | `parallel: MUTATION_REQUIRED_JOBS=1 runs one row at a time (base#1461)` | The bound holds: JOBS=1 is one row at a time. |
@@ -4948,6 +4950,10 @@ Every refusal holds assert_refusal's five points.
 | `parallel: MUTATION_REQUIRED_JOBS=0 is refused (base#1461)` | A job count that is not 1..99 is refused before anything runs: 0 would run nothing and report the empty run. |
 | `parallel: MUTATION_REQUIRED_JOBS=abc is refused (base#1461)` | The same for a value that is not a number. |
 | `shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)` | The four hosted lint-static legs each run the roster. 168 rows probed in full by every leg did not finish inside the job's 30 minutes (PR #1491, run 41222344327: the roster step cancelled at 29 minutes on all four legs), so a leg probes the rows of its own shard: row k (counted over every roster file, from 0) belongs to shard (k mod <total>) + 1. |
+| `shards: --shard deals rows by their recorded seconds, heaviest first, to the lightest shard (base#1571)` | Dealing row k to shard (k mod <total>) + 1 balances row counts, not time, and the roster's rows differ in cost by spec (base#1571: the config_gen_gates and gomod_scan rows were 88% of roster work). The mutation-roster legs must each finish in at most 5 minutes, so --shard deals by the measured per-row seconds the roster records in script/test/mutation_required/seconds.txt (<file> TAB <id> TAB <seconds>, from the mutation_required_row_timed lines): rows heaviest first, each to the shard holding the fewest seconds so far. Here one row costs 10 s and three cost 1 s: dealt by index, shard 1 would hold one+three (11 s) and shard 2 two+four (2 s); dealt by seconds, shard 1 holds one alone (10 s) and shard 2 the other three (3 s). The two shards still cover every row exactly once. |
+| `shards: over the committed roster the mutation-roster shards' row lists are every row, each once (base#1571)` | The roster leaves lint-static for the mutation-roster matrix, and its rows are dealt by recorded seconds, not by index (base#1571). The set of rows a PR run probes must still be the whole roster, each row once, and a spec has to compare the union of the shard row lists with the full roster to show it. `--check --shard <n>/<total>` validates every row, probes nothing, and logs one mutation_required_row_dealt line per row of shard <n> (row=<file>:<line>). Over the committed roster, with the shard count of self-test.yaml's mutation-roster matrix, the union of those lists is every non-blank, non-`#` line of every roster file, read here straight from the TSVs, and no row is in two shards. |
+| `shards: the committed seconds.txt weighs every committed roster row once, each with positive seconds (base#1571)` | --shard deals by script/test/mutation_required/seconds.txt, and a row the file does not name weighs 0 (base#1571), so a shard balanced on a file that misses rows is balanced on a guess, not on a measurement. The committed file must name every committed roster row -- the pair <roster file basename> TAB <id>, read here straight from the TSVs -- exactly once, each with a positive number of seconds, and no row that the roster does not hold. |
+| `shards: every mutation-roster leg's measured seconds over its worker slots fit 300 s (base#1571)` | The owner's target is at most 5 minutes per CI job (base#1571), and the roster's matrix is to be balanced by the measured per-row times so that each mutation-roster leg fits it. For every leg k/N of self-test.yaml's mutation-roster matrix, the rows `--check --shard k/N` deals are looked up in the committed seconds.txt (each row=<file>:<line> is read back from its TSV line to its <file> TAB <id>), summed, and spread over the leg's worker slots (MUTATION_REQUIRED_JOBS on the job, else the driver's documented default of 4). That leg budget must be at most 300 seconds; a matrix too small for the measured roster fails here. |
 | `shards: an invalid row outside the shard is still refused (base#1461)` | A shard only narrows what is probed; every row is still validated, so an invalid row outside the shard still fails the run. |
 | `shards: a malformed --shard is refused (base#1461)` | A shard spec that is not <n>/<total> with 1 <= n <= total <= 99 is refused before anything runs. |
 | `shards: a shard with no rows is refused as an empty roster (base#1461)` | A shard that selects no row would pass having probed nothing. |
@@ -6371,7 +6377,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (150)
+### test/bats/unit/self_test_yaml_spec.bats (151)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6784,6 +6790,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: every lint the just test lint phase runs has a CI join (#866)` | - |
 | `self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)` | The shape itself. One job per DRIVER spent more runner startup than the drivers spent working, and took up to twenty of the free plan's ~twenty org-wide concurrent slots in the same second the coverage shards -- the run's critical path -- asked for theirs. One job per GROUP is the trade, and it is only a trade if the job still runs the same drivers the local phase runs, in the same test-tools image (base#1412), with one failing group not cancelling its siblings. |
 | `self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)` | The anti-roster assertion, stated over the workflow rather than over the partition. A matrix entry that NAMES a driver is the roster coming back: the day a driver is added it is not in the list, and nothing says so. Every entry must therefore be a position in the partition and nothing else -- and the positions must be a partition: one total shared by all of them, each index once, as many entries as the total. A matrix of ['1/4', '2/4'] would run half the lint phase and go green over it. |
+| `self-test.yaml: each lint-static leg's lint step is named for every lint its group runs (base#1571)` | A leg named only `lint-static (2/4)` says nothing on the checks page about which lints it ran (base#1571). The membership is computed from test.sh's _LINT_TOOLS table (base#1071), so a list written into the workflow would be a roster; the name of the step that runs the group must instead read the members from an earlier step's output. The test runs that earlier step for every group, renders the step name with what it wrote, and checks the name against the group's members as `test.sh --lint-group-members` prints them. |
 | `self-test.yaml: declares hadolint job (#376)` | - |
 | `self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |

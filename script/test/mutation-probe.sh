@@ -1054,6 +1054,15 @@ _mutation_probe() {
   trap _mutation_probe_emergency_restore EXIT
   trap _mutation_probe_signal_restore INT TERM
 
+  # _probe_abandon <message> -- refuse before any subject is mutated: say
+  # why, disarm the restore traps (there is nothing to put back) and drop
+  # the work dir. The caller returns 3.
+  _probe_abandon() {
+    _mutation_probe_err "${1}"
+    trap - EXIT INT TERM
+    rm -rf "${_work}"
+  }
+
   # --baseline-in reads a clean baseline another probe of the same scope on
   # the same tree wrote with --baseline-out, instead of running it again: a
   # roster ran one spec's baseline once per row, 314 times for 17 specs
@@ -1065,9 +1074,7 @@ _mutation_probe() {
   local _base_key='' _tree=''
   if [[ -n "${_base_in}" || -n "${_base_out}" ]]; then
     if ! _tree="$(_mutation_probe_tree_hash "${_root}")"; then
-      _mutation_probe_err "could not hash the tree at ${_root}, so a --baseline-in / --baseline-out baseline cannot be keyed to it."
-      trap - EXIT INT TERM
-      rm -rf "${_work}"
+      _probe_abandon "could not hash the tree at ${_root}, so a --baseline-in / --baseline-out baseline cannot be keyed to it."
       return 3
     fi
     _base_key="mutation-probe-baseline tree=${_tree} scope=${_scope}"
@@ -1077,15 +1084,11 @@ _mutation_probe() {
     local _got_key=''
     if ! IFS= read -r _got_key < "${_base_in}" 2>/dev/null \
       || ! tail -n +2 -- "${_base_in}" > "${_work}/baseline" 2>/dev/null; then
-      _mutation_probe_err "--baseline-in ${_base_in} could not be read, so there is no baseline to compare a mutated run against."
-      trap - EXIT INT TERM
-      rm -rf "${_work}"
+      _probe_abandon "--baseline-in ${_base_in} could not be read, so there is no baseline to compare a mutated run against."
       return 3
     fi
     if [[ "${_got_key}" != "${_base_key}" ]]; then
-      _mutation_probe_err "--baseline-in ${_base_in} was written for '${_got_key#mutation-probe-baseline }', not for 'tree=${_tree} scope=${_scope}', so its counts are not this run's baseline."
-      trap - EXIT INT TERM
-      rm -rf "${_work}"
+      _probe_abandon "--baseline-in ${_base_in} was written for '${_got_key#mutation-probe-baseline }', not for 'tree=${_tree} scope=${_scope}', so its counts are not this run's baseline."
       return 3
     fi
     _MUTATION_PROBE_RUN_STATUS=0
@@ -1097,37 +1100,27 @@ _mutation_probe() {
   read -r _base_ok _base_not _base_skip \
     < <(_mutation_probe_tap_counts "${_work}/baseline")
   if (( _base_ok + _base_not == 0 )); then
-    _mutation_probe_err "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
     return 3
   fi
   if (( _base_not > 0 )); then
-    _mutation_probe_err "the baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. Get the scope green first, or narrow it with --spec. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. Get the scope green first, or narrow it with --spec. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
     return 3
   fi
   if (( _MUTATION_PROBE_RUN_STATUS != 0 )); then
-    _mutation_probe_err "the baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
     return 3
   fi
   _mutation_probe_say "baseline: ${_base_ok} executed / 0 not ok / ${_base_skip} skipped -- clean, so a red below is the mutation's"
   if [[ -n "${_base_out}" ]] \
     && ! { { printf '%s\n' "${_base_key}" && cat -- "${_work}/baseline"; } > "${_base_out}.tmp" \
            && mv -f -- "${_base_out}.tmp" "${_base_out}"; }; then
-    _mutation_probe_err "the clean baseline could not be written to --baseline-out ${_base_out}."
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the clean baseline could not be written to --baseline-out ${_base_out}."
     return 3
   fi
 
   if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
-    _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
     return 3
   fi
 

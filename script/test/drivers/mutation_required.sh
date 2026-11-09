@@ -17,7 +17,8 @@
 # Row contract, one for every roster file:
 #   <id> TAB <subject> TAB <spec> TAB <old> TAB <new> [TAB <witness>]
 # <witness>, optional, is a test.sh --filter regex: the row's mutated pass
-# runs under it (mutation-probe.sh --filter), base#1571. `#` lines and blank lines are skipped. <old> and <new> are decoded with
+# runs under it (mutation-probe.sh --filter), base#1571.
+# `#` lines and blank lines are skipped. <old> and <new> are decoded with
 # exactly three escapes, `\\` `\t` `\n`; any other `\x` or a trailing `\`
 # is reason=bad_escape. <old> must occur exactly once in <subject>; <new>
 # may be empty (a deletion) and must differ from <old>.
@@ -54,10 +55,12 @@
 # every step fail-closed), derive the sandbox's own compose project from
 # its path (an inherited COMPOSE_PROJECT_NAME is not used), probe, and tear
 # down -- a container of that project still running keeps the sandbox and
-# fails the row. A spec's unmutated baseline runs once, in its first row's
-# probe (--baseline-out); every other row on that spec reads it
-# (--baseline-in) and runs only its mutated pass. Verdicts are published only after every worker is reaped,
-# and a failing run publishes no pass. The first INT / TERM is forwarded to
+# fails the row. A clean sandbox stays in its worker slot, and the slot's
+# next row resets it to its commit instead of building another (base#1571).
+# A spec's unmutated baseline runs once, in its first row's probe
+# (--baseline-out); every other row on that spec reads it (--baseline-in)
+# and runs only its mutated pass. Verdicts are published only after every
+# worker is reaped, and a failing run publishes no pass. The first INT / TERM is forwarded to
 # every worker, which forwards it to its probe; the run then exits 130 /
 # 143 with no verdict.
 #
@@ -517,9 +520,9 @@ _mrw_verdict() {
 # _mr_worker <row-dir> -- probe the row described in <row-dir>/meta (NUL
 # fields: subject, spec, the spec's baseline file, `out` when this row
 # runs and writes that baseline or `in` when it reads it, and the witness
-# filter, empty for none), with <row-dir>/old
-# and <row-dir>/new. Root, probe and the names to avoid come from MR_W_* in
-# the environment.
+# filter, empty for none), with <row-dir>/old and <row-dir>/new. Root,
+# probe, worker slot and the names to avoid come from MR_W_* in the
+# environment.
 _mr_worker() {
   _MRW_DIR="${1}"
   trap '_mrw_on_signal INT' INT
