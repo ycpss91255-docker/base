@@ -18,6 +18,7 @@ while :; do
   if (( rc == 0 )); then
     exit 0
   fi
+  printf 'retry: attempt %d/%d failed (exit %d)\n' "${i}" "${attempts}" "${rc}" >&2
   if (( i >= attempts )); then
     exit "${rc}"
   fi
