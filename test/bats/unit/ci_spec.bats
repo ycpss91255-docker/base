@@ -3569,72 +3569,15 @@ ok unit tagged fragile"
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --bats-fragile: the kcov-fragile unit specs run in plain mode
+# --bats-fragile: the kcov-fragile tests run in plain mode
 #
-# The coverage matrix is the primary unit gate but SKIPS the kcov-fragile
-# tests (guarded by `[ "${COVERAGE:-0}" = 1 ] && skip`). The bats-fragile
-# job runs exactly those spec files in plain mode so no unit test goes
-# unrun. _fragile_unit_files computes the set at runtime (grep for the skip
-# guard) so it self-maintains; these guards pin the contract.
+# The coverage matrix is the primary gate but SKIPS the kcov-fragile
+# tests (each tagged `# bats test_tags=kcov-fragile` and guarded in its
+# body by a COVERAGE == 1 skip). The bats-fragile job runs exactly the
+# tagged tests in plain mode so no test goes unrun; which tests that is
+# is bats' tag filter's answer, and _coverage_skip_audit holds the tags
+# to what coverage skips (base#1573).
 # ════════════════════════════════════════════════════════════════════
-
-# why: #677 runtime fragile-set == anchored grep
-@test "_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)" {
-  # The runtime-computed set must equal an independent grep for the
-  # line-anchored skip guard — a NEW fragile-skip in a 10th file is picked
-  # up automatically. The anchor (leading whitespace + literal bracket)
-  # excludes comments that merely mention the guard.
-  run bash -c '
-    source /source/script/test/test.sh
-    want=$(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
-    got=$(_fragile_unit_files | sort)
-    [[ "${want}" == "${got}" ]] || { echo "MISMATCH"; printf "want:\n%s\ngot:\n%s\n" "${want}" "${got}"; exit 1; }
-    echo OK
-  '
-  assert_success
-  assert_output --partial "OK"
-}
-
-# why: #677 inverse-direction completeness guard
-@test "_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)" {
-  # Coverage skips a test only in files in the fragile set; this asserts
-  # the inverse direction too — there is NO file containing a kcov-skip
-  # guard that is missing from _fragile_unit_files. Together with the
-  # coverage partition this proves every unit test runs SOMEWHERE.
-  run bash -c '
-    source /source/script/test/test.sh
-    fragile=$(_fragile_unit_files | sort)
-    while IFS= read -r f; do
-      [[ -n "${f}" ]] || continue
-      printf "%s\n" "${fragile}" | grep -qxF "${f}" \
-        || { echo "MISSING: ${f}"; exit 1; }
-    done < <(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
-    echo OK
-  '
-  assert_success
-  assert_output --partial "OK"
-}
-
-# why: #677 fragile job targets only fragile files
-@test "_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)" {
-  local _log="${BATS_TEST_TMPDIR}/bats.log"
-  mock_cmd "bats" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
-
-  run bash -c '
-    source /source/script/test/test.sh
-    _run_bats_fragile
-  '
-  assert_success
-  assert_output --partial "kcov-fragile"
-
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "_spec.bats"
-  # The whole-unit-dir target must NOT be passed (that is coverage's job).
-  refute_output --partial "test/bats/unit/ "
-}
 
 # why: #677 plain mode runs the skipped tests
 @test "_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)" {

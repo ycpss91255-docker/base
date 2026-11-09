@@ -893,35 +893,24 @@ jobs:
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   bats-fragile:
-    # The kcov-fragile unit spec FILES, run in PLAIN mode (no COVERAGE), as
-    # a SINGLE job (#677). After #686 unified the coverage job onto the same
-    # alpine test-tools image, the old 4-shard `bats-unit` matrix and the
-    # 4-shard `coverage` matrix ran the WHOLE unit suite twice per PR (8
-    # parallel jobs), differing only by COVERAGE=1. The coverage matrix is
-    # now the PRIMARY unit gate (kcov over every non-fragile test); the only
-    # delta it cannot cover is the tests it SKIPS via
-    # `[ "${COVERAGE:-0}" = 1 ] && skip` because kcov's ptrace wrapper
-    # perturbs them.
+    # The kcov-fragile TESTS, run in PLAIN mode (no COVERAGE), as a SINGLE
+    # job (#677). After #686 unified the coverage job onto the same alpine
+    # test-tools image, the old 4-shard `bats-unit` matrix and the 4-shard
+    # `coverage` matrix ran the WHOLE unit suite twice per PR (8 parallel
+    # jobs), differing only by COVERAGE=1. The coverage matrix is now the
+    # PRIMARY gate (kcov over every test that is not kcov-fragile); the only
+    # delta it cannot cover is the tests it SKIPS under COVERAGE=1 because
+    # kcov's ptrace wrapper perturbs them.
     #
-    # What this job preserves is that every unit test runs SOMEWHERE
-    # (non-fragile under coverage/kcov, fragile here) -- not that nothing is
-    # executed more than once. The selection is by FILE: drivers/bats.sh
-    # greps `-rl` for that guard and hands bats whole filenames, and
-    # `_COVERAGE_FULL_SUITE_POOLS` puts `test/bats/unit` in the coverage pool
-    # with no exclusion for them, so the tests in a selected file that carry
-    # no guard of their own run in both legs. That residual is deliberate: it
-    # is CI's only remaining plain-mode unit signal, and kcov perturbation
-    # has been diagnosed in this repo four times. It is also off the critical
-    # path -- this job is tens of seconds while the slowest coverage shard is
-    # minutes. The size of it is DERIVED from the driver's selector by
-    # self_test_yaml_spec.bats, which is also what keeps this paragraph from
-    # drifting back into a promise the mechanism cannot keep.
-    #
-    # The fragile set is computed at RUNTIME (test.sh --bats-fragile ->
-    # _fragile_unit_files greps for the skip guard), so a new fragile-skip
-    # in a 10th file is picked up automatically (a ci_spec guard asserts the
-    # current set). Same Obtain (probe-and-rebuild) pattern as the other
-    # jobs; ci-rollup folds the result into needs.bats-fragile.result.
+    # Each such test carries `# bats test_tags=kcov-fragile`, and
+    # test.sh --bats-fragile runs `bats --filter-tags kcov-fragile` over
+    # every coverage pool (`_COVERAGE_FULL_SUITE_POOLS`), so the selection
+    # is by TEST, not by file: an untagged test beside a tagged one runs
+    # under kcov only (base#1573). Every coverage slice also audits its
+    # skips against the tag by test name (_coverage_skip_audit), so a skip
+    # without the tag fails the coverage job instead of going unrun. Same
+    # Obtain (probe-and-rebuild) pattern as the other jobs; ci-rollup folds
+    # the result into needs.bats-fragile.result.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest

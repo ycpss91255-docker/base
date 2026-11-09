@@ -489,62 +489,30 @@ _run_unit_shard() {
   bats "${_bats_args[@]}" ${_files}
 }
 
-# ── kcov-fragile unit specs ────────────────────────────────────────────
-
-readonly _FRAGILE_GUARD_RE='^[[:space:]]*\[ "\$\{COVERAGE:-0\}" = 1 \] &&[[:space:]]*skip'
-
-_fragile_unit_files() {
-  # Echo the newline-separated set of test/bats/unit/*_spec.bats files that
-  # contain at least one kcov-fragile test — those guarded inside a test
-  # body by `[ "${COVERAGE:-0}" = 1 ] && skip ...`. The coverage matrix
-  # SKIPS those tests (they perturb the kcov ptrace wrapper), so the plain
-  # bats-fragile job runs this set of FILES with COVERAGE unset, which is
-  # what keeps the skipped tests from going unrun. `-l` is the whole of the
-  # granularity: a file is selected for one guarded test and bats then runs
-  # all of it, so the unguarded tests in it run here as well as under kcov.
-  # Computed at runtime by grepping for the skip guard so it self-maintains
-  # both ways: a NEW fragile-skip in a file not yet in the set is picked
-  # up automatically, and a file whose last guard is removed leaves the
-  # set -- conf_abnormal_input_spec.bats left it when its 1 MiB test was
-  # unskipped (base#1414), so the bats-fragile job no longer runs it (a
-  # spec asserts the set). The regex is line-anchored on
-  # leading whitespace + the literal bracket so a COMMENT that merely
-  # mentions the guard (e.g. this driver's own spec) is NOT matched.
-  # _die's on an empty match (the guard pattern changed or the fragile
-  # tests were all removed — both want a human).
-  local _files
-  _files=$(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
-  if [[ -z "${_files}" ]]; then
-    _die ci_no_fragile_files \
-      "No kcov-fragile spec files matched the skip guard in test/bats/unit/. Did the guard pattern change?"
-  fi
-  printf '%s\n' "${_files}"
-}
+# ── kcov-fragile tests ─────────────────────────────────────────────────
 
 _run_bats_fragile() {
-  # Run ONLY the kcov-fragile unit spec FILES in PLAIN mode (COVERAGE
-  # unset), for the GHA bats-fragile job. Those files hold the tests the
-  # coverage matrix skips, so running them here is what leaves no unit test
-  # unrun: the skipped tests run plain here, every other unit test runs
-  # under kcov in the coverage matrix. It is not a partition -- selection is
-  # by file (_fragile_unit_files), so the unguarded tests in a selected file
-  # run in both legs. Runtime-computed, so the set self-maintains; the size
-  # of the overlap is derived in self_test_yaml_spec.bats rather than
-  # restated here.
-  local _files
-  _files="$(_fragile_unit_files)"
+  # Run the kcov-fragile TESTS in PLAIN mode (COVERAGE unset), for the GHA
+  # bats-fragile job. The coverage runs skip those tests, so running them
+  # here is what leaves no test unrun. Selection is by test, through bats'
+  # own tag filter over every coverage pool, so an untagged test beside a
+  # tagged one runs under kcov only, and a tagged test in the integration
+  # pool runs here too (base#1573). _coverage_skip_audit holds the tags
+  # to what coverage actually skips, by test name.
+  local -a _pools=()
+  local _pool
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    _pools+=("${REPO_ROOT}/${_pool}")
+  done
   local -a _bats_args
   local _label
   _bats_args_with_label _bats_args _label
-  echo "--- Running Bats kcov-fragile Unit Specs (plain; ${_label}) ---"
-  # Word-split intentional: print one line per fragile file.
-  # shellcheck disable=SC2086
-  printf '  fragile:%s\n' ${_files}
-  # Word-split intentional: bats accepts multiple file args. COVERAGE is
-  # NOT set, so the [ "${COVERAGE:-0}" = 1 ] && skip guards fall through
-  # and the fragile tests actually run.
-  # shellcheck disable=SC2086
-  bats "${_bats_args[@]}" ${_files}
+  echo "--- Running Bats kcov-fragile tests (plain; ${_label}) ---"
+  printf '  pool:%s\n' "${_pools[@]}"
+  # COVERAGE is NOT set, so the in-body `COVERAGE == 1 && skip` guards
+  # fall through and the fragile tests actually run.
+  bats "${_bats_args[@]}" --recursive --filter-tags kcov-fragile \
+    "${_pools[@]}"
 }
 
 # _junit_case_pairs <junit_xml> <mode>

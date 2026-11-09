@@ -3642,33 +3642,13 @@ _lint_tools_table() {
 BATS_DRIVER='/source/script/test/drivers/bats.sh'
 SELF_SPEC='/source/test/bats/unit/self_test_yaml_spec.bats'
 
-# The driver's own kcov-skip regex, read out of the driver rather than
-# respelled here: a second copy of it is the two-sources-of-truth shape the
-# runtime-computed fragile set was built to avoid.
-_fragile_guard_re() {
-  sed -n "s/^readonly _FRAGILE_GUARD_RE='\(.*\)'\$/\1/p" "${BATS_DRIVER}"
-}
-
-# The spec files bats-fragile selects, by the driver's own rule.
-_fragile_selected_files() {
-  local _re
-  _re="$(_fragile_guard_re)"
-  [[ -n "${_re}" ]] || return 1
-  grep -rlE "${_re}" /source/test/bats/unit | LC_ALL=C sort
-}
-
-# `<tests> <guards>`: `@test` declarations in the selected files, and how many
-# of them carry the kcov-skip guard. The difference is what runs in BOTH legs.
-_fragile_overlap_counts() {
-  local _re _f _tests=0 _guards=0
-  _re="$(_fragile_guard_re)"
-  [[ -n "${_re}" ]] || return 1
-  while IFS= read -r _f; do
-    [[ -n "${_f}" ]] || continue
-    _tests=$(( _tests + $(grep -c '^@test' "${_f}") ))
-    _guards=$(( _guards + $(grep -cE "${_re}" "${_f}") ))
-  done < <(_fragile_selected_files)
-  printf '%s %s\n' "${_tests}" "${_guards}"
+# True when the driver's bats-fragile runner selects by TEST, through bats'
+# tag filter (base#1573). Read out of the driver rather than assumed: a
+# runner that went back to handing bats whole files would bring the overlap
+# back.
+_fragile_selects_by_tag() {
+  awk '/^_run_bats_fragile\(\)/ { on = 1 } on && /^}/ { exit }
+       on' "${BATS_DRIVER}" | grep -qF -- '--filter-tags kcov-fragile'
 }
 
 # Every authored line that explains the bats-fragile mechanism, from the three
@@ -3698,24 +3678,14 @@ _fragile_rationale_lines() {
       "${BATS_DRIVER}"
   assert_success
 
-  local _counts _tests _guards _overlap
-  _counts="$(_fragile_overlap_counts)" \
-    || fail "could not read _FRAGILE_GUARD_RE out of ${BATS_DRIVER}"
-  _tests="${_counts%% *}"
-  _guards="${_counts##* }"
-  [ "${_tests}" -ge 100 ] \
-    || fail "counted ${_tests} @test declarations in the fragile files; the selector did not resolve and the check below would be vacuous"
-  _overlap=$(( _tests - _guards ))
-
   local -a _lines=()
   mapfile -t _lines < <(_fragile_rationale_lines)
   [ "${#_lines[@]}" -ge 10 ] \
     || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved and this guard would be vacuous"
 
-  # Only forbidden while the overlap is real: a selector that became a true
-  # partition may say so, and the granularity guard below is what would then
-  # require the rest of the wording to follow.
-  [ "${_overlap}" -gt 0 ] || return 0
+  # A runner that selects by test through the tag filter runs only the
+  # tests coverage skips, so there is no overlap to deny (base#1573).
+  _fragile_selects_by_tag && return 0
 
   local -a _claims=( 'zero double' 'no double-run' 'no double run' \
       'without double-run' 'runs exactly those fragile specs' )
@@ -3726,7 +3696,7 @@ _fragile_rationale_lines() {
     done
   done
   [[ -z "${_bad}" ]] || fail \
-      "a bats-fragile rationale denies a double run that the selector has: ${_guards} of ${_tests} @test declarations in the selected files carry the kcov-skip guard, so ${_overlap} run under kcov in the coverage matrix AND plain here. Offending line(s):
+      "a bats-fragile rationale denies a double run, but ${BATS_DRIVER} no longer selects by the kcov-fragile tag, so whole files run under kcov in the coverage matrix AND plain here. Offending line(s):
 ${_bad}"
 }
 
