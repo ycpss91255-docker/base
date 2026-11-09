@@ -759,6 +759,41 @@ _timing_attr() {
   assert_equal "${_mutated}" 3
 }
 
+# ── witness-filtered mutated pass ───────────────────────────────────────────
+
+# why: The row contract had no test selector, so every row's mutated pass
+# ran every @test in its spec, 14,451 tests a pass over the roster, when
+# the pinned lines name a median of one witness (base#1571). A row may
+# carry an optional sixth column, its witness filter (a test.sh --filter
+# regex); the probe then runs that row's mutated pass under the filter.
+# The probe hands a filter to MUTATION_PROBE_RUNNER as one more argument
+# after the root and the spec, so a wrapper records each call's argv under
+# its pid and the stub runner, exec'd in the same pid, marks the mutated
+# calls with diff.<pid>.
+@test "witness: a row with a sixth column runs its mutated pass under that filter (base#1571)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\t%s\n' "$$" "${@: -1}" >> "${MR_RUNNER_LOG:?}.argv"
+if [[ "${@: -1}" == *.bats ]]; then
+  exec "${0}.inner" "$@"
+fi
+exec "${0}.inner" "${@:1:$#-1}"
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  local -a _diffs=()
+  mapfile -t _diffs < <(find "${MR_DIFF_DIR}" -name 'diff.*')
+  assert_equal "${#_diffs[@]}" 1
+  local _pid="${_diffs[0]##*.}"
+  assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 == p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
+}
+
 # ── one sandbox per worker slot ─────────────────────────────────────────────
 
 # why: Each row built its own sandbox (mktemp, a tar copy of every tracked
