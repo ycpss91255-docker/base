@@ -1233,6 +1233,16 @@ _mutation_probe() {
   local _ok _not _skip
   read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
 
+  # A filtered green is not a verdict: the witnesses come from an older run,
+  # and another @test in the spec can still notice the mutant. Fall back to
+  # the whole spec, so a row never survives only because the filter left out
+  # the test that notices (base#1571). The checks below then read that run.
+  if [[ -n "${_filter}" ]] && (( _not == 0 )); then
+    _mutation_probe_say "the filtered pass stayed green; running the whole spec"
+    _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
+    read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
+  fi
+
   if (( _ok + _not == 0 )); then
     _probe_refuse "the run executed no tests at all (${_skip} skipped). Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
     return 3
