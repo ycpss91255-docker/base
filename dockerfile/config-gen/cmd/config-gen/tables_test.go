@@ -354,6 +354,83 @@ func TestTablesOpenENODEVIsOneNotRegularFrame(t *testing.T) {
 	}
 }
 
+// The command opens its input once, read-only and non-blocking, and
+// decides "regular file" from an fstat of the descriptor that open gave
+// it, never from a second look at the path (base#1469 Input: open with
+// O_RDONLY|O_NONBLOCK, then fstat the fd; the descriptor race, base#1469
+// review round 2). The path always names a regular file here, so a
+// check of the path passes every row; the open hands back a descriptor
+// the test opened itself. When that descriptor is a FIFO or a directory
+// the command must exit 1 with nothing on stdout and one
+// `config_gen_input_not_regular` frame; when it is a regular file the
+// command prints its tables, so a command that refuses every substituted
+// descriptor fails the control row. Every open must be read-only and
+// carry O_NONBLOCK.
+func TestTablesRegularityIsTheOpenedDescriptors(t *testing.T) {
+	const label = "l.toml"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "p.toml")
+	if err := os.WriteFile(path, []byte("[x]\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	other := filepath.Join(dir, "other.toml")
+	if err := os.WriteFile(other, []byte("[a.b]\n[c]\n[a.d]\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", other, err)
+	}
+	fifo := filepath.Join(dir, "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatalf("mkfifo %s: %v", fifo, err)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", sub, err)
+	}
+	for _, tc := range []struct {
+		name   string
+		target string
+		rc     int
+		stdout string
+		event  string
+	}{
+		{"fifo", fifo, 1, "", "config_gen_input_not_regular"},
+		{"directory", sub, 1, "", "config_gen_input_not_regular"},
+		{"regular", other, 0, "a\na.b\na.d\nc\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var opened []string
+			open := func(p string, mode int, _ uint32) (int, error) {
+				opened = append(opened, p)
+				if mode&syscall.O_ACCMODE != syscall.O_RDONLY {
+					t.Errorf("open(%q) access mode = %#o, want O_RDONLY", p, mode&syscall.O_ACCMODE)
+				}
+				if mode&syscall.O_NONBLOCK == 0 {
+					t.Errorf("open(%q) mode = %#o, want O_NONBLOCK set", p, mode)
+				}
+				// The FIFO has no writer: only a non-blocking open returns.
+				return syscall.Open(tc.target, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+			}
+			var stdout, stderr bytes.Buffer
+			rc := runTables([]string{"--name", label, path}, &stdout, &stderr, open)
+			if len(opened) != 1 || opened[0] != path {
+				t.Fatalf("config-gen tables opened %q, want exactly [%q]", opened, path)
+			}
+			if rc != tc.rc {
+				t.Fatalf("config-gen tables on a %s descriptor exited %d, want %d (stderr %q)", tc.name, rc, tc.rc, stderr.Bytes())
+			}
+			if stdout.String() != tc.stdout {
+				t.Fatalf("config-gen tables on a %s descriptor stdout = %q, want %q", tc.name, stdout.Bytes(), tc.stdout)
+			}
+			if tc.event == "" {
+				if stderr.Len() != 0 {
+					t.Fatalf("config-gen tables on a %s descriptor stderr = %q, want empty", tc.name, stderr.Bytes())
+				}
+				return
+			}
+			refusal(t, stderr.Bytes(), tc.event, label)
+		})
+	}
+}
+
 // A path that names no file -- nothing at that name (ENOENT), or a name
 // under a regular file used as a directory (ENOTDIR) -- makes `config-gen
 // tables` exit 1 with nothing on stdout and exactly one `no_such_file`
