@@ -978,6 +978,30 @@ _three_rows() {
   assert_equal "${_got}" "${_want}"
 }
 
+# why: --shard deals by script/test/mutation_required/seconds.txt, and a
+# row the file does not name weighs 0 (base#1571), so a shard balanced on
+# a file that misses rows is balanced on a guess, not on a measurement.
+# The committed file must name every committed roster row -- the pair
+# <roster file basename> TAB <id>, read here straight from the TSVs --
+# exactly once, each with a positive number of seconds, and no row that
+# the roster does not hold.
+@test "shards: the committed seconds.txt weighs every committed roster row once, each with positive seconds (base#1571)" {
+  assert_spec_subject_dir /source/script/test/mutation_required "the committed roster"
+  local _sec=/source/script/test/mutation_required/seconds.txt _want _got _bad _dups
+  [[ -f "${_sec}" ]] \
+    || fail "the committed roster has no seconds.txt, so --shard deals every row at weight 0"
+  _want="$(cd /source/script/test/mutation_required && LC_ALL=C awk -F '\t' '
+    $0 != "" && substr($0, 1, 1) != "#" { print FILENAME "\t" $1 }
+  ' ./*.tsv | sed 's|^\./||' | LC_ALL=C sort)"
+  [[ -n "${_want}" ]] || fail "the committed roster holds no row"
+  _bad="$(LC_ALL=C awk -F '\t' 'NF != 3 || $3 !~ /^[0-9]+(\.[0-9]+)?$/ || $3 + 0 <= 0' "${_sec}")"
+  [[ -z "${_bad}" ]] || fail "seconds.txt lines that are not <file> TAB <id> TAB <positive seconds>:"$'\n'"${_bad}"
+  _got="$(cut -f1,2 "${_sec}" | LC_ALL=C sort)"
+  _dups="$(uniq -d <<< "${_got}")"
+  [[ -z "${_dups}" ]] || fail "seconds.txt weighs these rows more than once:"$'\n'"${_dups}"
+  assert_equal "${_got}" "${_want}"
+}
+
 # why: A shard only narrows what is probed; every row is still validated,
 # so an invalid row outside the shard still fails the run.
 @test "shards: an invalid row outside the shard is still refused (base#1461)" {
