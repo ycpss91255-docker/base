@@ -914,6 +914,34 @@ _three_rows() {
   assert_equal "$(_pinned_ids)" "two "
 }
 
+# why: Dealing row k to shard (k mod <total>) + 1 balances row counts, not
+# time, and the roster's rows differ in cost by spec (base#1571: the
+# config_gen_gates and gomod_scan rows were 88% of roster work). The
+# mutation-roster legs must each finish in at most 5 minutes, so --shard
+# deals by the measured per-row seconds the roster records in
+# script/test/mutation_required/seconds.txt (<file> TAB <id> TAB <seconds>,
+# from the mutation_required_row_timed lines): rows heaviest first, each to
+# the shard holding the fewest seconds so far. Here one row costs 10 s and
+# three cost 1 s: dealt by index, shard 1 would hold one+three (11 s) and
+# shard 2 two+four (2 s); dealt by seconds, shard 1 holds one alone (10 s)
+# and shard 2 the other three (3 s). The two shards still cover every row
+# exactly once.
+@test "shards: --shard deals rows by their recorded seconds, heaviest first, to the lightest shard (base#1571)" {
+  _pin_row a.tsv one
+  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  _row a.tsv three lib/guard.sh test/bats/unit/guard_spec.bats 'drop_me=1' 'drop_me=2'
+  _row a.tsv four lib/guard.sh test/bats/unit/guard_spec.bats 'tabbed=1' 'tabbed=2'
+  printf 'a.tsv\tone\t10\na.tsv\ttwo\t1\na.tsv\tthree\t1\na.tsv\tfour\t1\n' \
+    > "${ROSTER}/seconds.txt"
+  _commit_live
+  _run_mr --shard 1/2
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  _run_mr --shard 2/2
+  assert_success
+  assert_equal "$(_pinned_ids)" "four three two "
+}
+
 # why: A shard only narrows what is probed; every row is still validated,
 # so an invalid row outside the shard still fails the run.
 @test "shards: an invalid row outside the shard is still refused (base#1461)" {
