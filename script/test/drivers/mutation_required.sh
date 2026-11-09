@@ -895,6 +895,9 @@ main() {
     local _t0="${EPOCHREALTIME}"
     _mr_worker "${2:?}"
     printf '%s\n%s\n' "${_t0}" "${EPOCHREALTIME}" > "${2}/time"
+    # Ends the wait of every row reading this row's baseline in
+    # _mrw_run_probe: with no baseline beside it, they are refused
+    # rc=baseline instead of waiting forever (base#1571).
     : > "${2}/baseline.done"
     return 0
   fi
