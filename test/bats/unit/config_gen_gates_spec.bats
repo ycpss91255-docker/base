@@ -453,6 +453,20 @@ _digest_of() {
   assert_output "${_base}"
 }
 
+# why: D proves a reused step's inputs unchanged only over the files its
+# .inputs names (base#1547). A listed path that does not exist (a renamed
+# fixture, a typo) would add nothing to D, so the declaration would cover
+# less than it says while D still matched. _cg_inputs_digest refuses it as
+# usage: status 2, the step and the missing path in the record, no digest
+# on stdout.
+@test "config_gen_gates.sh: _cg_inputs_digest refuses a .inputs path that does not exist as usage (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _digest_tree "${S}/t0"
+  printf 'lib/a.sh\nlib/gone.sh\nfix\n' > "${S}/t0/script/test/config_gen_steps/20-x.inputs"
+  _digest_of "${S}/t0" 20-x
+  assert_refusal 2 config_gen_usage_invalid step=20-x path=lib/gone.sh
+}
+
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
 # the six ok lines, a refusal nothing at all; base#1465). A step's own
