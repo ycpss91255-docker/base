@@ -627,6 +627,28 @@ _timing_attr() {
   assert_equal "${_mutated}" 3
 }
 
+# why: A row that reads its spec's shared baseline waits for the row that
+# writes it (base#1571). When that row ends without a clean baseline, the
+# baseline file never appears; the reader must be refused rc=baseline, not
+# wait forever. The probe stub here exits 2 and writes no baseline, the way
+# a red baseline ends; the run is bounded at 60 s, so a reader that keeps
+# waiting fails the case instead of hanging it.
+@test "baseline: a row whose spec's baseline row ended without a clean baseline is refused rc=baseline, not left waiting (base#1571)" {
+  _pin_row a.tsv one
+  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  _commit_live
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 2' > "${S}/probe-red"
+  chmod +x "${S}/probe-red"
+  run --separate-stderr env PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+    TMPDIR="${S}/tmp" MUTATION_PROBE_RUNNER="${S}/runner" \
+    MUTATION_REQUIRED_PROBE="${S}/probe-red" MUTATION_REQUIRED_JOBS=2 \
+    timeout 60 bash "${MR}" --root "${LIVE}"
+  assert_equal "${status}" 1
+  grep -F '"body":"mutation_required_probe_refused"' <<< "${stderr}" \
+    | grep -F '"id":"two"' | grep -qF '"rc":"baseline"' \
+    || fail "row two was not refused rc=baseline: ${stderr}"
+}
+
 # ── witness-filtered mutated pass ───────────────────────────────────────────
 
 # why: The row contract had no test selector, so every row's mutated pass
