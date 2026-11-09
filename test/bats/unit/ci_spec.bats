@@ -3343,6 +3343,97 @@ AWK
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _coverage_skip_audit: every test that skips under kcov is tagged
+#
+# The coverage shards skip the kcov-fragile tests, and bats-fragile runs
+# them plain by bats' own tag filter. The audit compares, by (testsuite,
+# testcase) pair, what a slice's junit marks skipped with what
+# `COVERAGE=1 bats --filter-tags kcov-fragile` selects over the same
+# targets. It reads no source text, so a guard in any spelling counts.
+# ════════════════════════════════════════════════════════════════════
+
+# _skip_audit_fixture <dir> <body>
+#   Write one spec file into <dir> holding <body> verbatim.
+_skip_audit_fixture() {
+  mkdir -p "${1}"
+  printf '%s\n' "${2}" > "${1}/fixture_spec.bats"
+}
+
+# _skip_audit_run <dir>
+#   Run the fixture tree the way a coverage slice does (COVERAGE=1, junit
+#   report), then audit that report against the same target.
+_skip_audit_run() {
+  local _dir="${1}"
+  COVERAGE=1 bats --recursive --report-formatter junit \
+    --output "${_dir}/junit" "${_dir}/tree" > "${_dir}/slice.log" 2>&1 || true
+  run bash -c '
+    source /source/script/test/test.sh
+    _coverage_skip_audit "$1/junit/report.xml" "$1/tree"
+  ' _ "${_dir}"
+}
+
+# why: base#1573 a skip outside the plain leg runs nowhere
+@test "_coverage_skip_audit: fails a coverage skip with no kcov-fragile tag, by name (base#1573)" {
+  # (a) A tagged in-body guard is explained; an untagged guard in a
+  # spelling no grep for the old guard matches is not. Only the untagged
+  # test may be named: an audit that names every skip fails here.
+  local _a="${BATS_TEST_TMPDIR}/a"
+  _skip_audit_fixture "${_a}/tree" '# bats test_tags=kcov-fragile
+@test "tagged guarded skip" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+  true
+}
+
+@test "untagged hidden skip" {
+  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+  true
+}'
+  _skip_audit_run "${_a}"
+  assert_failure
+  assert_output --partial "ci_coverage_unexplained_skip"
+  assert_output --partial "untagged hidden skip"
+  refute_output --partial "tagged guarded skip"
+
+  # (b) One tagged test that never skips plus one untagged test that does:
+  # the counts match (one skip, one tag), the names do not. Both are named.
+  local _b="${BATS_TEST_TMPDIR}/b"
+  _skip_audit_fixture "${_b}/tree" '# bats test_tags=kcov-fragile
+@test "tagged never skips" {
+  true
+}
+
+@test "untagged hidden skip" {
+  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+  true
+}'
+  _skip_audit_run "${_b}"
+  assert_failure
+  assert_output --partial "ci_coverage_unexplained_skip"
+  assert_output --partial "tagged never skips"
+  assert_output --partial "untagged hidden skip"
+
+  # (c) Every skip tagged, every tag skipping: the audit passes.
+  local _c="${BATS_TEST_TMPDIR}/c"
+  _skip_audit_fixture "${_c}/tree" '# bats test_tags=kcov-fragile
+@test "tagged guarded skip" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+  true
+}
+
+# bats test_tags=other,kcov-fragile
+@test "second tagged guarded skip" {
+  [[ ${COVERAGE:-0} == 1 ]] && skip "kcov-fragile"
+  true
+}
+
+@test "untagged plain test" {
+  true
+}'
+  _skip_audit_run "${_c}"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
 # --bats-fragile: the kcov-fragile unit specs run in plain mode
 #
 # The coverage matrix is the primary unit gate but SKIPS the kcov-fragile
