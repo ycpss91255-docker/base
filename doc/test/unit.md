@@ -1216,7 +1216,7 @@ code, base#1562.
 | `workflows: every ACTIONLINT_IMAGE step pulls via script/ci/retry.sh before a --pull never run (base#1562)` | A Docker Hub 502 on the actionlint image pull failed the lint job because the only pull was the implicit `--pull missing` of the `docker run`, with no retry. Every step that names ACTIONLINT_IMAGE must pre-pull it through retry.sh (more than one attempt) before the run, and the run must say `--pull never`, so dropping the pre-pull or its retry fails loud instead of falling back to the unretried pull, base#1562. |
 | `workflows: every just-pin job installs just via script/ci/install-just.sh and none uses extractions/setup-just (base#1562)` | A GitHub API 504 in extractions/setup-just failed the just install after three quick tries a `uses:` step gives the workflow no way to extend. Every job that checks the just on PATH is the pin must install it through script/ci/install-just.sh (which fetches through retry.sh), fed the pin step's output, and no workflow may keep the unretried action -- so one job (the self-hosted coverage-local one included) reverting to setup-just is a finding, base#1562. |
 
-### test/bats/unit/ci_spec.bats (196)
+### test/bats/unit/ci_spec.bats (197)
 
 | Test | Description |
 |------|-------------|
@@ -1316,6 +1316,7 @@ code, base#1562.
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
 | `no spec drives a coverage run against the mounted checkout (#952)` | - |
 | `_coverage_skip_audit: fails a coverage skip with no kcov-fragile tag, by name (base#1573)` | base#1573 a skip outside the plain leg runs nowhere |
+| `kcov-fragile tag: selects exactly the 33 coverage-guarded tests of the 11 real unit specs (base#1573)` | base#1573 the plain leg runs exactly the coverage-skipped tests |
 | `_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)` | #677 runtime fragile-set == anchored grep |
 | `_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)` | #677 inverse-direction completeness guard |
 | `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
