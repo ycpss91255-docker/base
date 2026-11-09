@@ -74,10 +74,24 @@ readonly _CG_BUILD_EVENTS="${_CG_SCRIPT_DIR}/../../dockerfile/config-gen/interna
 # kept here verbatim, still encoded. Any other word on the line is dropped.
 readonly _CG_EVENT_ATTR_RE='^(file|reason|pkg|other|line|floor|measured|base)=[!-~]+$'
 
-# _cg_run_steps <root> <ctx> -- run each step; the first red one ends the
-# run with its status.
+# _cg_now -- the wall clock in seconds with microseconds, from
+# EPOCHREALTIME.
+_cg_now() {
+  printf '%s' "${EPOCHREALTIME/,/.}"
+}
+
+# _cg_stage_line <stage> <start> <end> <status> -- print the stage's one
+# stderr line, `config-gen stage=<stage> start= end= secs= status=`
+# (base#1547).
+_cg_stage_line() {
+  printf 'config-gen stage=%s start=%s end=%s secs=%s status=%s\n' "${1}" "${2}" "${3}" \
+    "$(awk -v s="${2}" -v e="${3}" 'BEGIN { printf "%.3f", e - s }')" "${4}" >&2
+}
+
+# _cg_run_steps <root> <ctx> -- run each step, streaming its stage line;
+# the first red one ends the run with its status.
 _cg_run_steps() {
-  local root="${1}" ctx="${2}" step name rc
+  local root="${1}" ctx="${2}" step name rc start
   local -a steps=()
   [[ -d "${root}/script/test/config_gen_steps" ]] || return 0
   mapfile -t steps < <(LC_ALL=C compgen -G "${root}/script/test/config_gen_steps/*.sh" | LC_ALL=C sort)
@@ -85,7 +99,9 @@ _cg_run_steps() {
     [[ -n "${step}" ]] || continue
     name="$(basename -- "${step}" .sh)"
     rc=0
+    start="$(_cg_now)"
     CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || rc=$?
+    _cg_stage_line "${name}" "${start}" "$(_cg_now)" "${rc}"
     if (( rc != 0 )); then
       _log_err "${_CG_SERVICE}" config_gen_step_failed "step=${name}" "status=${rc}" \
         "display=config-gen step ${name} exited ${rc}"
