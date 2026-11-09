@@ -739,6 +739,26 @@ _timing_attr() {
     || fail "window ${_start}..${_end} (duration_s=${_dur}) does not hold the probe's run ${_rs}..${_re}, or duration_s is not end - start"
 }
 
+# ── baseline once per spec ──────────────────────────────────────────────────
+
+# why: Each row ran its whole spec unmutated before its mutated pass, so the
+# roster ran the same baseline 314 times for 17 specs on one tree
+# (base#1571). Three rows on one spec, all three in flight at once, run the
+# spec's unmutated baseline once and each row's mutated pass once: four
+# runner calls, of which exactly one saw lib/guard.sh unchanged, and every
+# row is still reported pinned.
+@test "baseline: three rows on one spec run its unmutated baseline once, not once per row (base#1571)" {
+  _three_rows
+  MUTATION_REQUIRED_JOBS=3 _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one three two "
+  local _calls _mutated
+  _calls="$(grep -c '^start ' "${MR_RUNNER_LOG}")"
+  _mutated="$(find "${MR_DIFF_DIR}" -name 'diff.*' | wc -l)"
+  assert_equal "$(( _calls - _mutated ))" 1
+  assert_equal "${_mutated}" 3
+}
+
 # ── parallel rows ───────────────────────────────────────────────────────────
 
 # why: 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
