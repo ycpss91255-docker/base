@@ -54,6 +54,8 @@ _CG_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _CG_SCRIPT_DIR
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_CG_SCRIPT_DIR}/../../dist/script/docker/lib/log.sh"
+# shellcheck source=script/test/config_gen_inputs.sh
+source "${_CG_SCRIPT_DIR}/config_gen_inputs.sh"
 
 readonly _CG_SERVICE='config-gen'
 
@@ -136,36 +138,6 @@ _cg_run_steps() {
       exit "${rc}"
     fi
   done
-}
-
-# _cg_inputs_digest <step>... -- print the digest D of the named steps,
-# run from the root: sha256 over `<relpath>\0<sha256 of content>\n` for
-# each file, C-sorted, the files being each step's .sh, its .inputs and
-# every path that .inputs lists, a directory expanded to each file under
-# it. A reused step's verdict holds only while D is unchanged (base#1547).
-_cg_inputs_digest() {
-  local step dir='script/test/config_gen_steps' path found file
-  local -a files=()
-  for step in "$@"; do
-    files+=("${dir}/${step}.sh" "${dir}/${step}.inputs")
-    while IFS= read -r path || [[ -n "${path}" ]]; do
-      [[ -n "${path}" ]] || continue
-      # A missing path would add nothing to D, so the declaration would
-      # cover less than it says while D still matched (base#1547).
-      if [[ ! -e "${path}" ]]; then
-        _log_err "${_CG_SERVICE}" config_gen_usage_invalid "step=${step}" "path=${path}" \
-          "display=config_gen_gates.sh: ${step}.inputs lists ${path}, which does not exist"
-        return 2
-      fi
-      found="$(find "${path}" -type f)" || return 1
-      [[ -z "${found}" ]] || mapfile -t -O "${#files[@]}" files <<<"${found}"
-    done <"${dir}/${step}.inputs"
-  done
-  for file in "${files[@]}"; do
-    printf '%s\n' "${file}"
-  done | LC_ALL=C sort -u | while IFS= read -r file; do
-    printf '%s\0%s\n' "${file}" "$(sha256sum <"${file}" | cut -d' ' -f1)"
-  done | sha256sum | cut -d' ' -f1
 }
 
 # _cg_context_args <ctx> -- one `--build-context <name>=<path>` pair per

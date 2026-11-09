@@ -224,6 +224,8 @@ readonly _RP_SCRIPT_DIR
 readonly _RP_ROOT="${_RP_SCRIPT_DIR}/../.."
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
+# shellcheck source=script/test/config_gen_inputs.sh
+source "${_RP_SCRIPT_DIR}/config_gen_inputs.sh"
 
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
@@ -1027,6 +1029,27 @@ _rp_gates() {
     bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
 }
 
+# The steps whose verdict does not depend on a case's plant (base#1547).
+readonly -a _RP_REUSED_STEPS=(20-gomod-oracle 30-watch-gosum)
+
+# _rp_digest <root> -- the digest of what _RP_REUSED_STEPS read in <root>.
+_rp_digest() {
+  (cd "${1}" && _cg_inputs_digest "${_RP_REUSED_STEPS[@]}")
+}
+
+# _rp_reuse_check <root> <case> -- non-zero, with the case's failure
+# logged as reused_input_changed, when <case>'s plant changed what a
+# reused step reads: <root>'s digest is not _RP_PRISTINE_DIGEST, the one a
+# pristine copy gives, so the reused verdict would not hold (base#1547).
+_rp_reuse_check() {
+  local got
+  got="$(_rp_digest "${1}")" || return 1
+  [[ "${got}" == "${_RP_PRISTINE_DIGEST}" ]] && return 0
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=reused_input_changed" \
+    "display=config-gen redpath case ${2} changed an input of ${_RP_REUSED_STEPS[*]}, whose verdict it would reuse"
+  return 1
+}
+
 # The runner's own record of the gate that went red: a whole JSON log line
 # from service config-gen whose body is exactly a gate id. The build log
 # streamed ahead of it, an id quoted inside other text and a longer id that
@@ -1096,6 +1119,7 @@ _rp_case() {
   local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason failed pkg want weak event
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
+  _rp_reuse_check "${root}" "${name}" || return 1
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
   failed="$(_rp_row "${name}" "${_RP_MUTATION_FAILED[@]}")"
@@ -1162,6 +1186,7 @@ _rp_refusal() {
   local scratch="${1}" name="${2}" id="${3}" root rc=0 reason
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
+  _rp_reuse_check "${root}" "${name}" || return 1
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_refusal_verdict "${rc}" "${root}.out" "${root}.err" "${id}")"
   [[ -z "${reason}" ]] && return 0
@@ -1251,6 +1276,7 @@ _rp_stale() {
   fi
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
+  _rp_reuse_check "${root}" "${name}" || return 1
   _rp_gates "${root}" "${name}" "${env_words[@]}" || rc=$?
   reason="$(_rp_stale_verdict "${rc}" "${root}.out" "${root}.err" "${file}" "${want}")"
   [[ -z "${reason}" ]] && return 0
@@ -1309,6 +1335,7 @@ _rp_green_case() {
   local root rc=0 reason line
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
+  _rp_reuse_check "${root}" "${2}" || return 1
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
   line="$(_rp_row "${2}" "${_RP_GREEN_LINES[@]}")"
@@ -1347,6 +1374,7 @@ _rp_after_admit() {
   local root rc=0 reason
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
+  _rp_reuse_check "${root}" "${2}" || return 1
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_after_admit_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
   [[ -z "${reason}" ]] && return 0
@@ -1446,6 +1474,7 @@ _rp_coverage() {
   local root rc=0 reason
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
+  _rp_reuse_check "${root}" "${2}" || return 1
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_coverage_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
   [[ -z "${reason}" ]] && return 0
@@ -1511,6 +1540,7 @@ main() {
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
   trap "rm -rf '${scratch}'" EXIT
+  _RP_PRISTINE_DIGEST="$(_rp_digest "$(_rp_copy "${scratch}")")"
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
