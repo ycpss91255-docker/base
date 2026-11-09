@@ -1187,7 +1187,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_retry_spec.bats (2)
+### test/bats/unit/ci_retry_spec.bats (3)
 
 A CI job failed on one upstream 5xx (a Docker Hub 502 on the actionlint
 pull, a GitHub API 504 in the just install) because no step retried the
@@ -1199,6 +1199,7 @@ code, base#1562.
 |------|-------------|
 | `retry.sh: a command that fails twice then succeeds exits 0 after 3 runs (base#1562)` | - |
 | `retry.sh: a command that always fails exits with its own code after exactly <attempts> runs and says so (base#1562)` | A real outage must still fail the job loud. If retry.sh swallowed the failure (exit 0), replaced the command's code with a generic 1, or ran one attempt too few or too many, a broken fetch would pass or burn CI time unbounded, base#1562. |
+| `retry.sh: the delay doubles from <first-delay-s> between attempts and none follows the last (base#1562)` | A 5xx outage needs time to clear. A fixed or zero delay would burn every attempt inside the same outage; the delay doubles from <first-delay-s> between attempts and no sleep follows the last attempt, so a persistent failure is reported without a wasted wait, base#1562. |
 
 ### test/bats/unit/ci_spec.bats (195)
 

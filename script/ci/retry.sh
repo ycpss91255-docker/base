@@ -9,6 +9,7 @@
 set -euo pipefail
 
 attempts="$1"
+delay="$2"
 shift 3
 
 i=1
@@ -22,5 +23,7 @@ while :; do
   if (( i >= attempts )); then
     exit "${rc}"
   fi
+  sleep "${delay}"
+  delay=$(( delay * 2 ))
   i=$(( i + 1 ))
 done
