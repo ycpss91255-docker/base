@@ -1113,6 +1113,18 @@ fail on the next formatting change for a reason none of them is about.
 | `_check_test_md_drift: counts a shipped smoke spec as spec files (#848)` | - |
 | `_check_test_md_drift: FAILS when a row is deleted from the generated region (#859)` | The rot this closes: the heading count was regenerated -- so the gate said in sync -- while the per-test table next to it stayed short, 36 rows against 43 tests. The region is generated wholesale now, so a hand-edited row IS drift, and the gate names it. |
 
+### test/bats/unit/ci_install_just_spec.bats (2)
+
+A CI job failed on one upstream 5xx (a GitHub API 504 inside setup-just)
+because the just install had no retry we control. These specs run the real
+install script against a failing download, so the retry is proven by
+behaviour, base#1562.
+
+| Test | Description |
+|------|-------------|
+| `install-just.sh: one failed fetch of the tarball and of SHA256SUMS is retried and just lands on GITHUB_PATH (base#1562)` | The just install must ride out one upstream 5xx on EITHER of its two fetches (the tarball and its SHA256SUMS) instead of failing the job, and must publish a PATH dir only once that dir holds a working binary. A retry on just one fetch, a swap to a tool other than curl, or a PATH entry without the binary would each leave a job red or wrong, base#1562. |
+| `install-just.sh: a tarball whose digest does not match SHA256SUMS fails and leaves GITHUB_PATH untouched (base#1562)` | A download that arrives but is not the release's bytes (a proxy error page, a truncated or tampered tarball) must fail the job, not be installed. The install checks the tarball against the release's SHA256SUMS before it publishes a PATH dir, base#1562. |
+
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
 Unit tests for `script/ci/preflight.sh`, the caller-contract validator the
@@ -1186,6 +1198,23 @@ between them can be asserted at all.
 | `reclaim.sh --stale ignores artifacts that are not CI-owned` | - |
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
+
+### test/bats/unit/ci_retry_spec.bats (6)
+
+A CI job failed on one upstream 5xx (a Docker Hub 502 on the actionlint
+pull, a GitHub API 504 in the just install) because no step retried the
+fetch. These specs pin the retry contract by behaviour: a transient failure
+then success passes, a persistent failure still fails loud with its own exit
+code, base#1562.
+
+| Test | Description |
+|------|-------------|
+| `retry.sh: a command that fails twice then succeeds exits 0 after 3 runs (base#1562)` | - |
+| `retry.sh: a command that always fails exits with its own code after exactly <attempts> runs and says so (base#1562)` | A real outage must still fail the job loud. If retry.sh swallowed the failure (exit 0), replaced the command's code with a generic 1, or ran one attempt too few or too many, a broken fetch would pass or burn CI time unbounded, base#1562. |
+| `retry.sh: the delay doubles from <first-delay-s> between attempts and none follows the last (base#1562)` | A 5xx outage needs time to clear. A fixed or zero delay would burn every attempt inside the same outage; the delay doubles from <first-delay-s> between attempts and no sleep follows the last attempt, so a persistent failure is reported without a wasted wait, base#1562. |
+| `retry.sh: a malformed call exits 2 and never runs the command (base#1562)` | A typo in a workflow call (a non-integer count, a count of 0, a dropped `--`) must not quietly turn the retry into zero or one attempt, or run the wrong argv as the command. Every malformed call is refused with exit 2 before the command runs at all, base#1562. |
+| `workflows: every ACTIONLINT_IMAGE step pulls via script/ci/retry.sh before a --pull never run (base#1562)` | A Docker Hub 502 on the actionlint image pull failed the lint job because the only pull was the implicit `--pull missing` of the `docker run`, with no retry. Every step that names ACTIONLINT_IMAGE must pre-pull it through retry.sh (more than one attempt) before the run, and the run must say `--pull never`, so dropping the pre-pull or its retry fails loud instead of falling back to the unretried pull, base#1562. |
+| `workflows: every just-pin job installs just via script/ci/install-just.sh and none uses extractions/setup-just (base#1562)` | A GitHub API 504 in extractions/setup-just failed the just install after three quick tries a `uses:` step gives the workflow no way to extend. Every job that checks the just on PATH is the pin must install it through script/ci/install-just.sh (which fetches through retry.sh), fed the pin step's output, and no workflow may keep the unretried action -- so one job (the self-hosted coverage-local one included) reverting to setup-just is a finding, base#1562. |
 
 ### test/bats/unit/ci_spec.bats (195)
 
@@ -4121,7 +4150,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `just-version.sh: fails loud when the declaration file is gone (#948)` | - |
 | `just-version.sh: fails loud when the declaration is duplicated (#948)` | - |
 | `just-version.sh: fails loud when the declaration is empty (#948)` | - |
-| `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
+| `self-test.yaml: the just install is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 ### test/bats/unit/justfile_spec.bats (32)
@@ -6467,7 +6496,7 @@ user equals the configured `USER_NAME` (catches the v0.41.0 user-args
 entrypoint `set -u` insta-exit class), the wired ENTRYPOINT is
 `/entrypoint.sh`, the `~/work` mount is present and writable, and `just
 stop` removes both the container and the compose project network. `just` is
-installed via the `extractions/setup-just` action.
+installed via script/ci/install-just.sh (base#1562).
 
 `ci-rollup needs:` is `[actionlint, classify, shellcheck, hadolint,
 bats-unit, bats-integration, coverage, integration-e2e, system]` (9 jobs
@@ -8720,7 +8749,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: an untracked tree contributes nothing` | Every version in a shipped release is supposed to be stale, so a bump inside .prev-release/ would be meaningless -- and nothing tracks it |
 | `pins: check.sh dispatches every resolver the registry declares` | A resolver the lint accepts and check.sh does not implement blesses a pin that then fails weeks later, unattended |
 | `pins: the CI just install reads the pin instead of repeating it` | Otherwise the workflow carries a fourth copy, and a bump moving only the Dockerfile leaves CI testing a different just than the image ships |
-| `pins: setup-just is no longer invoked without a just-version` | An unversioned setup-just installs whatever released most recently, so the e2e job turns red on a day nobody touched the repo |
+| `pins: the CI just install is never invoked without the pin` | An unversioned just install takes whatever released most recently, so the e2e job turns red on a day nobody touched the repo |
 
 ### test/bats/unit/tool_provenance_lint_spec.bats (22)
 

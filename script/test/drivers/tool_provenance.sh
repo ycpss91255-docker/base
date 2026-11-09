@@ -111,8 +111,9 @@
 # satisfy this while still running the runner's binary. The reason it is
 # not tightened into "the job must be seen installing it" is that the one
 # job here obtaining a pinned tool from the declaration does so through a
-# setup ACTION (`extractions/setup-just` with a `just-version:` input), and
-# there is no install command in its shell to find. What the job then owes
+# helper script (`script/ci/install-just.sh "${JUST_VERSION}"`, base#1562),
+# and the install commands live in that script, not in the job's shell
+# this scan reads. What the job then owes
 # its readers is the assertion the shellcheck job carries: ask the binary
 # on PATH its version and compare it to the pin. That is a property of the
 # job, not of this scan.

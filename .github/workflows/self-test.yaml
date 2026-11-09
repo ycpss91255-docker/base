@@ -146,7 +146,12 @@ jobs:
           # actionlint ships the property in its type. No count is written here:
           # it moves with every worker that version-matches a checkout, and a
           # figure nothing re-derives goes stale on the next one.
-          docker run --rm \
+          # The image is pulled through retry.sh first: one Docker Hub 502
+          # on a layer pull failed this job with exit 125 (base#1562).
+          # `--pull never` makes a dropped pre-pull fail loud instead of
+          # falling back to the run's own unretried pull.
+          ./script/ci/retry.sh 5 5 -- docker pull "${ACTIONLINT_IMAGE}"
+          docker run --rm --pull never \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
             "${ACTIONLINT_IMAGE}" \
@@ -550,7 +555,7 @@ jobs:
     #                     than over the rendered table
     #   just-provenance   every site that OBTAINS the `just` runner names
     #                     the one pinned version -- the image's fetch, the
-    #                     setup-just input, the just.systems installer's
+    #                     install-just.sh download, the just.systems installer's
     #                     --tag -- or carries a justified advisory marker
     #                     saying it cannot be pinned. `just` is the only
     #                     control surface, so a version spread across the
@@ -758,9 +763,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install just (container-ops entry point)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         run: |
@@ -1496,8 +1501,7 @@ jobs:
         # rather than a command substitution inside the line that writes
         # the output: an accessor that fails would otherwise still write
         # an empty `version=` and leave the step green, which hands
-        # setup-just a blank input and puts the job back on whatever
-        # released most recently.
+        # the install step a blank version.
         run: |
           set -euo pipefail
           version="$(./dist/script/base/just-version.sh)"
@@ -1509,11 +1513,14 @@ jobs:
         # entry is `just`), so a broken script/docker/justfile is caught
         # here. `just` ships nowhere on ubuntu-latest; the other CI jobs
         # call ./script/test/test.sh directly and need no just. (The official
-        # `just.systems/install.sh` returns 403 from GHA runners, so use
-        # the maintained setup action instead.)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        # `just.systems/install.sh` returns 403 from GHA runners.) The
+        # install fetches the release tarball and SHA256SUMS through
+        # script/ci/retry.sh, so one upstream 5xx does not fail the job;
+        # the setup-just action it replaced gave up after three tries on a
+        # GitHub API 504, base#1562.
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         # Naming the pin is not proof of the binary: ask the `just` the
@@ -1728,9 +1735,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install just (container-ops entry point)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         run: |
