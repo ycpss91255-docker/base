@@ -1158,6 +1158,10 @@ _coverage_parallel_launch() {
     # _coverage_parallel_merge to key each timing on its repo-relative path
     # (base#1410).
     _junit_base_dir "${_cpl_slices[_i - 1]%%$'\n'*}" > "${_work}/base-${_i}"
+    # The slice's bats arguments, read back by _coverage_parallel_collect so
+    # the skip audit runs over the same targets (base#1573).
+    # shellcheck disable=SC2086
+    printf '%s\n' "${_cpl_extra[@]}" ${_cpl_slices[_i - 1]} > "${_work}/args-${_i}"
     # Word-split intentional: one bats target per slice file. Each slice's
     # bats is SERIAL, and that is the mode's whole shape: the cores come from
     # separate kcov processes, each with its own parser. Handing a slice's
@@ -1196,6 +1200,14 @@ _coverage_parallel_collect() {
     cat "${_work}/log-${_i}" 2>/dev/null || true
     _coverage_stderr_replay "${_work}/err-${_i}"
     (( _prc == 0 )) || _rc="${_prc}"
+  done
+  # After every replay, so a refusal never hides a later slice's output.
+  # Each slice's skips must be exactly its kcov-fragile tests (base#1573).
+  local -a _args
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    [[ -f "${_work}/junit-${_i}/report.xml" && -s "${_work}/args-${_i}" ]] || continue
+    mapfile -t _args < "${_work}/args-${_i}"
+    _coverage_skip_audit "${_work}/junit-${_i}/report.xml" "${_args[@]}"
   done
   return "${_rc}"
 }
