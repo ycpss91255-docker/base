@@ -3525,6 +3525,49 @@ BATS
   refute_output --regexp "DIE: .*tagged guarded skip"
 }
 
+# why: base#1573 the plain leg runs the tagged tests, not their files
+@test "_run_bats_fragile: runs exactly the kcov-fragile tagged tests of the unit and integration pools (base#1573)" {
+  # A fixture REPO_ROOT holds both coverage pools, each with one tagged
+  # test beside an untagged one. Real bats runs them, so the TAP lines are
+  # bats' own. Selecting by file would also run the untagged unit test;
+  # a pool of unit alone would miss the integration test.
+  local _repo="${BATS_TEST_TMPDIR}/repo"
+  _skip_audit_fixture "${_repo}/test/bats/unit" '|# bats test_tags=kcov-fragile
+|@test "unit tagged fragile" {
+|  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+|  true
+|}
+|
+|@test "unit untagged neighbour" {
+|  true
+|}'
+  _skip_audit_fixture "${_repo}/test/bats/integration" '|@test "integration untagged neighbour" {
+|  true
+|}
+|
+|# bats test_tags=other,kcov-fragile
+|@test "integration tagged fragile" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "kcov-fragile"
+|  true
+|}'
+
+  run bash -c '
+    unset COVERAGE
+    cd "${BATS_TEST_TMPDIR}"
+    REPO_ROOT="$1"
+    source /source/script/test/drivers/bats.sh
+    _run_bats_fragile
+  ' _ "${_repo}"
+  assert_success
+
+  local _tap
+  _tap="$(grep -E '^(1\.\.|ok |not ok )' <<< "${output}" \
+    | sed -E 's/^(ok|not ok) [0-9]+ /\1 /' | sort)"
+  assert_equal "${_tap}" "1..2
+ok integration tagged fragile
+ok unit tagged fragile"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # --bats-fragile: the kcov-fragile unit specs run in plain mode
 #
