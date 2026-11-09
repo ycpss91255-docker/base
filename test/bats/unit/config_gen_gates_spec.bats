@@ -1302,10 +1302,21 @@ _rp_plant() {
   [[ "${1}" != vet ]] || printf '# zz base#1547\n' >> "${2}/script/watch/lib.sh"
 }
 EOF
-  awk -v f="${S}/plant-extra.sh" '/^if \[\[ "\$\{BASH_SOURCE\[0\]/ { while ((getline l < f) > 0) print l } { print }' \
+  # The wrapper goes in once, before the last BASH_SOURCE guard (the main
+  # guard): the redpath has an earlier one, above _rp_plant's definition,
+  # where the wrapper would wrap nothing and be overwritten by the real plant.
+  local _main _def _wrap
+  _main="$(grep -nE '^if \[\[ "\$\{BASH_SOURCE\[0\]' "${_rp}" | tail -n 1 | cut -d: -f1)"
+  [[ -n "${_main}" ]] || fail "no main guard found in the scratch redpath"
+  awk -v f="${S}/plant-extra.sh" -v n="${_main}" 'NR == n { while ((getline l < f) > 0) print l; close(f) } { print }' \
     "${_rp}" > "${_rp}.new"
   mv "${_rp}.new" "${_rp}"
-  grep -qF '_rp_plant_real "$@"' "${_rp}" || fail "the plant wrapper was not inserted into the scratch redpath"
+  _def="$(grep -nE '^_rp_plant ?\(\)' "${_rp}" | head -n 1 | cut -d: -f1)"
+  _wrap="$(grep -nF '_rp_plant_real "$@"' "${_rp}" | cut -d: -f1)"
+  [[ -n "${_def}" ]] || fail "no _rp_plant definition found in the scratch redpath"
+  [[ "$(grep -cF '_rp_plant_real "$@"' "${_rp}")" == 1 ]] \
+    || fail "the plant wrapper was not inserted exactly once into the scratch redpath"
+  (( _wrap > _def )) || fail "the plant wrapper sits above _rp_plant's definition, so it wraps nothing"
   _redpath_exec CONFIG_GEN_REDPATH_ONLY='vet lint'
   assert_failure
   assert_equal "$(_case_failures)" 'vet|reused_input_changed'
