@@ -730,7 +730,18 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run lint group ${{ matrix.group }} inside the test-tools image
+      # The step name lists the lints its group runs, so the checks page
+      # says which lints a leg ran rather than only its group number
+      # (base#1571).
+      - name: List the lints of group ${{ matrix.group }}
+        id: members
+        env:
+          LINT_GROUP: ${{ matrix.group }}
+        run: |
+          set -euo pipefail
+          echo "list=$(./script/test/test.sh --lint-group-members "${LINT_GROUP}" | paste -sd' ')" >> "${GITHUB_OUTPUT}"
+
+      - name: Run lint group ${{ matrix.group }} (${{ steps.members.outputs.list }})
         env:
           LINT_GROUP: ${{ matrix.group }}
         run: ./script/test/test.sh --lint --group "${LINT_GROUP}"
