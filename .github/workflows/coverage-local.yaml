@@ -183,9 +183,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install just (container-ops entry point)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         run: |

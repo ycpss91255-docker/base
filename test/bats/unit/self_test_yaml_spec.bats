@@ -129,7 +129,7 @@
 # the entrypoint `set -u` insta-exit class), the wired ENTRYPOINT is
 # `/entrypoint.sh`, the `~/work` mount is present and writable, and `just
 # stop` removes both the container and the compose project network. `just`
-# is installed via the `extractions/setup-just` action.
+# is installed via script/ci/install-just.sh (base#1562).
 #
 # `ci-rollup needs:` is `[actionlint, classify, shellcheck, hadolint,
 # bats-unit, bats-integration, coverage, integration-e2e, system]` (9 jobs
@@ -3862,9 +3862,9 @@ _cg_just_pin_steps() {
     version="$(./dist/script/base/just-version.sh)"
     echo "version=${version}" >> "${GITHUB_OUTPUT}"
 - name: Install just (container-ops entry point)
-  uses: extractions/setup-just@v4
-  with:
-    just-version: "${{ steps.just-pin.outputs.version }}"
+  env:
+    JUST_VERSION: "${{ steps.just-pin.outputs.version }}"
+  run: ./script/ci/install-just.sh "${JUST_VERSION}"
 - name: Check the just on PATH is the pin
   run: |
     set -euo pipefail
