@@ -26,6 +26,21 @@
 
 bats_require_minimum_version 1.5.0
 
+# The canned runner answers depend only on /source and the row table, so
+# they are made once per file and _redpath_repo copies them (base#1555).
+setup_file() {
+  local S
+  S="$(_canned_template)"
+  mkdir -p "${S}"
+  _canned_correct
+}
+
+# _canned_template -- where setup_file builds the file's one set of canned
+# answers (under it, canned/), which every _redpath_repo copies (base#1555).
+_canned_template() {
+  printf '%s\n' "${BATS_FILE_TMPDIR}/canned-template"
+}
+
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   RUNNER="/source/script/test/config_gen_gates.sh"
@@ -660,9 +675,13 @@ _redpath_call() {
 # from ${S}/canned/<case>.<k>.{out,err,rc} for the k-th call of that case
 # when one exists, else ${S}/canned/<case>.{out,err,rc}. The retro call
 # also prints the manifest header naming the base it was handed, dirty=no,
-# or dirty=yes when ${S}/canned/retro.dirty exists.
+# or dirty=yes when ${S}/canned/retro.dirty exists. ${S}/canned is a
+# private copy of setup_file's template; a missing template fails, naming
+# base#1555, and is never rebuilt here, which would bring back the per-call
+# cost.
 _redpath_repo() {
-  local _r="${S}/repo"
+  local _r="${S}/repo" _t
+  _t="$(_canned_template)"
   mkdir -p "${_r}/script/test" "${_r}/dist/script/docker"
   cp -a /source/dockerfile "${_r}/"
   cp -a /source/dist/script/docker/lib "${_r}/dist/script/docker/"
@@ -675,7 +694,9 @@ _redpath_repo() {
   printf '#!%s\necho "$0 $*" >> "%s/nested"\nexit 0\n' "$(command -v bash)" "${S}" > "${S}/bin/just"
   cp "${S}/bin/just" "${S}/bin/docker"
   chmod +x "${S}/bin/just" "${S}/bin/docker"
-  _canned_correct
+  [[ -d "${_t}/canned" ]] \
+    || fail "_redpath_repo: no canned template under ${BATS_FILE_TMPDIR}; setup_file builds it once per file (base#1555)"
+  cp -a "${_t}/canned" "${S}/"
 }
 
 # _redpath_runner_stub <path> -- write _redpath_repo's recording runner
@@ -754,6 +775,9 @@ _ok_lines() {
 # config_gen_gate_coverage_failed, rc 1.
 _canned_correct() {
   local _kind _case _want _file _reason _extra _c
+  # One line per generation, naming where it wrote, so a test can count
+  # them (base#1555).
+  printf '%s\n' "${S}" >> "${BATS_FILE_TMPDIR}/canned.generations"
   mkdir -p "${S}/canned"
   while IFS='|' read -r _kind _case _want _reason _extra; do
     _c="${S}/canned/${_case}"
@@ -1106,6 +1130,33 @@ _glibc_getconf() {
   for (( _n = 1; _n <= $(cat "${S}/runner.n"); _n++ )); do
     assert_equal "${_n}:$(cat "${S}/runner.${_n}.copied" 2>/dev/null)" "${_n}:${_want}"
   done
+}
+
+# why: The row-loop tests call _redpath_repo 10-11 times each. When every
+# call regenerated all the canned answers, that took 74-83% of the wall of
+# tests 32/34/35 across 68 spec runs on hosted runners and brought them to
+# the 480s mutation-required bound (base#1555). The answers depend only on /source and the row table, so
+# they are made once per file, in setup_file, and each call copies them.
+@test "config_gen_redpath.sh: the canned answers are generated once per file and never by _redpath_repo (base#1555)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  rm -rf "${S}/repo" "${S}/canned"
+  _redpath_repo
+  assert_equal "$(cat "${BATS_FILE_TMPDIR}/canned.generations" 2>/dev/null)" \
+    "${BATS_FILE_TMPDIR}/canned-template"
+}
+
+# why: A missing canned template means setup_file did not run or did not
+# finish. Rebuilding it inside _redpath_repo would hide that and bring back
+# the per-call cost that took the row-loop tests to the 480s bound
+# (base#1555), so _redpath_repo refuses instead, naming base#1555.
+@test "config_gen_redpath.sh: _redpath_repo refuses a missing canned template instead of rebuilding it (base#1555)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  mkdir -p "${S}/empty"
+  BATS_FILE_TMPDIR="${S}/empty" run _redpath_repo
+  assert_failure
+  assert_output --partial "base#1555"
+  assert [ ! -e "${S}/empty/canned.generations" ]
 }
 
 # why: The redpath's copies run the real steps, and the 00-manifest step
