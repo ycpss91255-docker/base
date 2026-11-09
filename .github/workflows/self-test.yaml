@@ -767,7 +767,9 @@ jobs:
     # not finish inside one job's timeout. Eight, because the committed
     # seconds.txt sums to 8304.6 worker-seconds: four legs dealt 517.9 to
     # 520.2 s per leg over its 4 worker slots, over the 300 s (5 minute)
-    # per-job target (base#1571).
+    # per-job target; eight legs are dealt 258.9 to 261.3 s. That is a sum
+    # over seconds.txt (one unsharded local run), not a timed job
+    # (base#1571).
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR

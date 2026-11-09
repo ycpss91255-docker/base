@@ -57,8 +57,9 @@
 # down -- a container of that project still running keeps the sandbox and
 # fails the row. A clean sandbox stays in its worker slot, and the slot's
 # next row resets it to its commit instead of building another (base#1571).
-# A spec's unmutated baseline runs once, in its first row's probe
-# (--baseline-out); every other row on that spec reads it (--baseline-in)
+# Within one run (one shard), a spec's unmutated baseline runs once, in
+# its first row's probe (--baseline-out); every other row on that spec in
+# the run reads it (--baseline-in)
 # and runs only its mutated pass. Verdicts are published only after every
 # worker is reaped, and a failing run publishes no pass. The first INT / TERM is forwarded to
 # every worker, which forwards it to its probe; the run then exits 130 /
