@@ -649,7 +649,7 @@ _mr_publish_interrupted() {
 # _mr_run <root> <jobs> -- probe every validated row, at most <jobs> at a
 # time, then publish.
 _mr_run() {
-  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _fail=0
+  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0
   local -a _r=()
   _probe="${MUTATION_REQUIRED_PROBE:-${_MR_DIR}/../mutation-probe.sh}"
   _MR_WORK="$(mktemp -d "${TMPDIR:-/tmp}/mutation-required-run.XXXXXX")" || return 1
@@ -688,6 +688,13 @@ _mr_run() {
   # Every worker is reaped: publish. Failures first decide the run; a
   # failing run publishes no pass.
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
+    if [[ -f "${_MR_WORK}/row${_i}/time" ]]; then
+      mapfile -t _r < "${_MR_WORK}/row${_i}/time"
+      _dur="$(awk -v s="${_r[0]}" -v e="${_r[1]}" 'BEGIN { printf "%.6f", e - s }')"
+      _log_info "${_MR_SERVICE}" mutation_required_row_timed "row=${_MR_ROWS_LOC[_i]}" \
+        "id=${_MR_ROWS_ID[_i]}" "start=${_r[0]}" "end=${_r[1]}" "duration_s=${_dur}" \
+        "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}) took ${_dur} s" >&2
+    fi
     if [[ ! -f "${_MR_WORK}/row${_i}/res" ]]; then
       _mr_row_err mutation_required_sandbox_failed "${_i}" step=worker rc=unknown \
         "display=the worker for row ${_MR_ROWS_LOC[_i]} ended without a result"
@@ -744,8 +751,12 @@ main() {
     return
   fi
   if [[ "${1:-}" == --worker ]]; then
+    # The row's own window, sandbox build to teardown, so a shard balance
+    # is built on measured per-row time (base#1571).
+    local _t0="${EPOCHREALTIME}"
     _mr_worker "${2:?}"
-    return
+    printf '%s\n%s\n' "${_t0}" "${EPOCHREALTIME}" > "${2}/time"
+    return 0
   fi
   trap '_mr_on_signal INT' INT
   trap '_mr_on_signal TERM' TERM
