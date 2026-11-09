@@ -17,8 +17,9 @@
 #                                     contexts, the docker build, the gate id
 #                                     re-emitted, and the binary contract.
 #   script/test/config_gen_redpath.sh one planted defect per gate plus an
-#                                     unmodified control, each run through
-#                                     the runner on a scratch copy.
+#                                     unmodified copy run twice as rerun,
+#                                     each through the runner on a scratch
+#                                     copy.
 #   `go` recipe in justfile.test      the runner, then the redpath.
 #
 # docker, just and the runner are stubbed here; the real `just test go` is
@@ -812,11 +813,11 @@ EOF
 }
 
 # _redpath_sequence -- the case each runner call of one full redpath run
-# is told, in call order: every row, rerun twice, retro (base#1467), the
-# control last.
+# is told, in call order: every row, rerun twice, retro (base#1467). There
+# is no control call: rerun's first call is the control (base#1547).
 _redpath_sequence() {
   _redpath_rows | cut -d'|' -f2
-  printf '%s\n' rerun rerun retro control
+  printf '%s\n' rerun rerun retro
 }
 
 # _ran_cases -- the case each runner call was told, in call order.
@@ -969,8 +970,8 @@ _ok_lines() {
 # case (base#1465) is an empty stdout, the runner's record of its event and
 # rc 1; a stale case is an empty stdout, the runner's records of
 # config_gen_manifest_stale (the row's file and reason) and
-# config_gen_gate_admission_failed, rc 1; a green case, both rerun calls
-# and the control are the six ok lines and rc 0; an after-admit case
+# config_gen_gate_admission_failed, rc 1; a green case and both rerun
+# calls are the six ok lines and rc 0; an after-admit case
 # (base#1467) is the six ok lines, the runner's records of the row's gate
 # id and of its event naming the row's file, rc 1; a coverage case is the
 # five pre-coverage ok lines, the runner's records of the row's event
@@ -1059,11 +1060,9 @@ _canned_correct() {
     esac
     printf '1\n' > "${_c}.rc"
   done < <(_redpath_rows)
-  for _c in rerun control; do
-    _ok_lines "" > "${S}/canned/${_c}.out"
-    : > "${S}/canned/${_c}.err"
-    printf '0\n' > "${S}/canned/${_c}.rc"
-  done
+  _ok_lines "" > "${S}/canned/rerun.out"
+  : > "${S}/canned/rerun.err"
+  printf '0\n' > "${S}/canned/rerun.rc"
   # retro (base#1467): the six ok lines, one passing mutation line per
   # package of the module (each directory holding a .go file outside
   # testdata/), rc 0; the stub runner adds the manifest header naming the
@@ -1129,20 +1128,24 @@ _redpath_bounds_check() {
 }
 
 # _run_redpath [VAR=value...] <case>... -- the scratch redpath run on only
-# the named cases (CONFIG_GEN_REDPATH_ONLY) and the control, then held to
-# exactly that: the runner was told each named case once (rerun twice) and
-# the control, and nothing else. A whole redpath per test overran the
-# per-test bound under parallel mutation probes; `just test go` and the one
-# full run below keep every case (base#1465). Leading VAR=value words go to
-# the redpath's environment. RERUN_CALLS (default 2) is how many rerun
-# calls the test expects: 1 when its first call is the one that fails.
+# the named cases (CONFIG_GEN_REDPATH_ONLY) and rerun, which runs whether
+# named or not (base#1547), then held to exactly that: the runner was told
+# each named case once and rerun twice, and nothing else. A whole redpath
+# per test overran the per-test bound under parallel mutation probes;
+# `just test go` and the one full run below keep every case (base#1465).
+# Leading VAR=value words go to the redpath's environment. RERUN_CALLS
+# (default 2) is how many rerun calls the test expects when it names
+# rerun: 1 when its first call is the one that fails.
 _run_redpath() {
   local -a _env=()
   while [[ "${1:-}" =~ ^[A-Z_]+= ]]; do _env+=("${1}"); shift; done
   (( $# > 0 )) || fail "_run_redpath: name the case(s) this test asserts"
   _redpath_exec "${_env[@]}" CONFIG_GEN_REDPATH_ONLY="$*"
   local _want _got
-  _want="$( { printf '%s\n' "$@" control; [[ " $* " == *" rerun "* && "${RERUN_CALLS:-2}" == 2 ]] && echo rerun; } | LC_ALL=C sort)"
+  local _calls=2 _c
+  [[ " $* " == *" rerun "* ]] && _calls="${RERUN_CALLS:-2}"
+  _want="$( { for _c in "$@"; do [[ "${_c}" == rerun ]] || echo "${_c}"; done
+    for (( _c = 0; _c < _calls; _c++ )); do echo rerun; done; } | LC_ALL=C sort)"
   _got="$(_ran_cases | LC_ALL=C sort)"
   [[ "${_got}" == "${_want}" ]] \
     || fail "_run_redpath $*: the runner was told $(paste -sd' ' <<<"${_got}"), not $(paste -sd' ' <<<"${_want}")"
@@ -1183,13 +1186,13 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
 
 # why: The redpath proves each gate CAN fail; calling `just test go` from it
 # would recurse into itself, and reusing one scratch tree would let one
-# case's defect leak into the next. The control proves the reds come from
-# the defects and not from the copy. Each call is told its case. The case
+# case's defect leak into the next. rerun's first call, the control, proves
+# the reds come from the defects and not from the copy (base#1547). Each call is told its case. The case
 # list is this spec's own, so a case dropped from the redpath's tables is
 # a missing call here, and the canned answers (built from this spec's
 # wants) pass only when the redpath judges each case by the same want
 # (base#1465).
-@test "config_gen_redpath.sh: runs the runner once per case and once for the control, each on its own copy (base#1462)" {
+@test "config_gen_redpath.sh: runs the runner once per case and twice for rerun on one copy, each other case on its own copy (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
   _run_redpath_all
@@ -1241,14 +1244,14 @@ _ONE_PER_KIND='vet no-context stale-edit rename-move cov-lowered rerun'
 # why: Each redpath test runs only the cases it asserts, so the spec stays
 # inside the per-test bound under parallel mutation probes (base#1465).
 # CONFIG_GEN_REDPATH_ONLY is what scopes a run: the named cases in the
-# redpath's own order, whatever order they are named in, then the control,
-# and no other call.
-@test "config_gen_redpath.sh: CONFIG_GEN_REDPATH_ONLY runs only the named cases, in run order, then the control (base#1465)" {
+# redpath's own order, whatever order they are named in, rerun twice in
+# its own place (base#1547), and no other call.
+@test "config_gen_redpath.sh: CONFIG_GEN_REDPATH_ONLY runs only the named cases and rerun, in run order (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
   _redpath_exec CONFIG_GEN_REDPATH_ONLY='rerun cov-lowered stale-edit lint'
   assert_success
-  assert_equal "$(_ran_cases | paste -sd' ')" 'lint stale-edit cov-lowered rerun rerun control'
+  assert_equal "$(_ran_cases | paste -sd' ')" 'lint stale-edit cov-lowered rerun rerun'
 }
 
 # _case_line <case> -- the redpath's timed line for <case> in ${stderr},
@@ -1464,7 +1467,8 @@ _unplanted_cases() {
   done
   assert_equal "${_got%$'\n'}" "stale-edit C|unset
 stale-edit-locale en_US.UTF-8|unset
-control C|unset"
+rerun C|unset
+rerun C|unset"
 }
 
 # _glibc_getconf -- put a getconf on ${S}/bin that answers
@@ -1493,7 +1497,7 @@ _glibc_getconf() {
   _redpath_exec CONFIG_GEN_REDPATH_ONLY='stale-edit-locale'
   assert_failure 1
   assert_equal "$(_case_failures)" "stale-edit-locale|locale_not_affected"
-  assert_equal "$(_ran_cases | paste -sd' ')" control
+  assert_equal "$(_ran_cases | paste -sd' ')" 'rerun rerun'
 }
 
 # why: A glibc host with no localedef and no en_US.UTF-8 installed falls
@@ -1510,7 +1514,7 @@ _glibc_getconf() {
   _redpath_exec CONFIG_GEN_REDPATH_ONLY='stale-edit-locale'
   assert_failure 1
   assert_equal "$(_case_failures)" "stale-edit-locale|locale_not_affected"
-  assert_equal "$(_ran_cases | paste -sd' ')" control
+  assert_equal "$(_ran_cases | paste -sd' ')" 'rerun rerun'
 }
 
 # why: The go.mod oracle step (base#1463) runs the scanner from
@@ -2159,14 +2163,17 @@ _test_gate_run() {
 }
 
 # why: A control whose runner exited non-zero means the copy itself is red,
-# so no case's red can be attributed to its defect.
-@test "config_gen_redpath.sh: a red control fails the run with the control's status (base#1462)" {
+# so no case's red can be attributed to its defect. rerun's first call is
+# the control (base#1547): a scoped run that does not name rerun still
+# runs it, and a red first call fails the run as case=rerun call=1.
+@test "config_gen_redpath.sh: a red control (rerun call 1) fails the run (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '1\n' > "${S}/canned/control.rc"
-  _run_redpath vet
+  printf '1\n' > "${S}/canned/rerun.rc"
+  _redpath_exec CONFIG_GEN_REDPATH_ONLY=vet
   assert_equal "${status}" 1
-  assert_logged_event config_gen_redpath_control_failed status=1
+  assert_equal "$(_ran_cases | paste -sd' ')" 'vet rerun'
+  assert_logged_event config_gen_redpath_case_failed case=rerun call=1 reason=rc_not_zero
 }
 
 # why: `just test go` runs the redpath, and the redpath runs the runner; a

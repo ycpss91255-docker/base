@@ -12,9 +12,10 @@
 # go.mod fixtures) into a fresh scratch root, plants one defect there, and
 # runs ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
 # its own gate's id first, and show every earlier gate ok -- the last is
-# what tells "this gate caught it" from "the build broke first". An
-# unmodified copy, the control, runs last and must pass all six gates, so
-# the reds are the defects' and not the copy's.
+# what tells "this gate caught it" from "the build broke first". The
+# unmodified copy runs only as rerun (base#1547), twice on one copy; its
+# first call is the control and must pass all six gates, so the reds are
+# the defects' and not the copy's.
 #
 #   case           defect                                          gate
 #   fmt            a misformatted .go file                         fmt
@@ -184,13 +185,13 @@
 # (reason package_set_mismatch). A tracked module file no mapping rule
 # covers, or a real package below the mutation floor, turns it red.
 #
-# Each runner call is told its case in CONFIG_GEN_REDPATH_CASE (control for
-# the control), which the runner itself ignores.
+# Each runner call is told its case in CONFIG_GEN_REDPATH_CASE, which the
+# runner itself ignores.
 #
 # CONFIG_GEN_REDPATH_ONLY, when set, is a space-separated list of case
-# names: only those cases run, then the control. config_gen_gates_spec
-# scopes each test this way; `just test go` unsets it, so the recipe
-# always runs every case (base#1465).
+# names: only those cases run, and rerun with them when not named
+# (base#1547). config_gen_gates_spec scopes each test this way; `just test
+# go` unsets it, so the recipe always runs every case (base#1465).
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -206,8 +207,8 @@
 # string testdata never appears in the planted source, so a scan of the
 # source text for it cannot be what turns the gate red.
 #
-# Every case is reported before the run ends; any failed case or a red
-# control exits 1. This never calls `just test go` -- that recipe runs this
+# Every case is reported before the run ends; any failed case, a red
+# rerun call 1 (the control) among them, exits 1. This never calls `just test go` -- that recipe runs this
 # script -- and a nested entry is refused with config_gen_redpath_reentered
 # before anything runs. Sourced, it defines its tables and functions and
 # runs nothing.
@@ -1287,7 +1288,7 @@ _rp_stale() {
   return 1
 }
 
-# The six lines each green, rerun and control call must print, typed from
+# The six lines each green and rerun call must print, typed from
 # the issue's gate list (base#1465), not derived from _RP_GATES.
 readonly _RP_RERUN_OUT='gate=admission ok
 gate=fmt ok
@@ -1491,23 +1492,6 @@ _rp_selected() {
   [[ " ${CONFIG_GEN_REDPATH_ONLY} " == *" ${1} "* ]]
 }
 
-# _rp_control <scratch> -- the unmodified copy must pass every gate.
-_rp_control() {
-  local root rc=0 g
-  root="$(_rp_copy "${1}")"
-  _rp_gates "${root}" control || rc=$?
-  if (( rc == 0 )); then
-    for g in "${_RP_GATES[@]}"; do
-      grep -qx "gate=${g} ok" "${root}.out" || rc=1
-    done
-    (( rc == 0 )) && return 0
-  fi
-  cat "${root}.err" >&2
-  _log_err "${_RP_SERVICE}" config_gen_redpath_control_failed "status=${rc}" \
-    "display=config-gen redpath control (no defect) did not pass every gate: status ${rc}"
-  return 1
-}
-
 # _rp_shared <root> -- the shared pass (base#1547): the runner's
 # --steps-only on the pristine copy <root>, so the steps whose verdict
 # does not depend on a plant run once per job, before any case. Its
@@ -1621,17 +1605,18 @@ main() {
     ran=$(( ran + 1 ))
     _rp_timed "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}" || failed=1
   done
-  if _rp_selected rerun; then
-    ran=$(( ran + 1 ))
-    _rp_timed rerun _rp_rerun "${scratch}" || failed=1
-  fi
+  # rerun is the only check on the unmodified copy (base#1547): its
+  # first call is the control, held to rc 0 and exactly the six ok lines.
+  # A CONFIG_GEN_REDPATH_ONLY run that does not name it still runs it, so
+  # a scoped run is held to a passing baseline.
+  ran=$(( ran + 1 ))
+  _rp_timed rerun _rp_rerun "${scratch}" || failed=1
   if _rp_selected retro; then
     ran=$(( ran + 1 ))
     _rp_timed retro _rp_retro "${scratch}" || failed=1
   fi
-  _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
-  echo "config-gen redpath: ${ran} planted cases went red, were refused or passed as planted; the control passed"
+  echo "config-gen redpath: ${ran} planted cases went red, were refused or passed as planted; the control passed (rerun call 1)"
 }
 
 if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
