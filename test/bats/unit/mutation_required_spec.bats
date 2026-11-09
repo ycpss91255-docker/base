@@ -701,6 +701,44 @@ STUB
   _no_probe_lines
 }
 
+# ── per-row timing ──────────────────────────────────────────────────────────
+
+# _timing_attr <name> -- the numeric value of attribute <name> on the
+# mutation_required_row_timed line; empty when there is none.
+_timing_attr() {
+  local _line
+  _line="$(log_event_line mutation_required_row_timed "${stderr}")"
+  [[ "${_line}" =~ \"${1}\":\"([0-9]+(\.[0-9]+)?)\" ]] && printf '%s' "${BASH_REMATCH[1]}"
+  return 0
+}
+
+# why: The roster logged no per-row time, so where its 271 job-min went
+# could only be modelled, not measured (base#1571). Each row reports when
+# it started, when it ended and how long it took, and the window it reports
+# holds the probe's own run: a timer that started after the probe, or a
+# duration that is not end minus start, would mislead every shard balance
+# built on it.
+@test "timing: a row reports its start, end and duration, and the probe ran inside that window (base#1571)" {
+  _pin_row a.tsv kill
+  _commit_live
+  MR_RUNNER_SLEEP=1 _run_mr
+  assert_success
+  assert_logged_event mutation_required_row_timed \
+    "row=script/test/mutation_required/a.tsv:1" id=kill
+  local _start _end _dur _rs _re
+  _start="$(_timing_attr start)"
+  _end="$(_timing_attr end)"
+  _dur="$(_timing_attr duration_s)"
+  [[ -n "${_start}" && -n "${_end}" && -n "${_dur}" ]] \
+    || fail "the timing event lacks a numeric start, end or duration_s: $(log_event_line mutation_required_row_timed "${stderr}")"
+  _rs="$(awk '$1 == "start" { print $2; exit }' "${MR_RUNNER_LOG}")"
+  _re="$(awk '$1 == "end" { v = $2 } END { print v }' "${MR_RUNNER_LOG}")"
+  awk -v s="${_start}" -v e="${_end}" -v d="${_dur}" -v rs="${_rs}" -v re="${_re}" \
+    'BEGIN { x = d - (e - s); if (x < 0) x = -x
+             exit !(s <= rs && re <= e && d >= 1 && x < 0.01) }' \
+    || fail "window ${_start}..${_end} (duration_s=${_dur}) does not hold the probe's run ${_rs}..${_re}, or duration_s is not end - start"
+}
+
 # ── parallel rows ───────────────────────────────────────────────────────────
 
 # why: 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
