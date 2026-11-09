@@ -63,3 +63,27 @@ EOS
   run wc -l < "${FAKE_COUNT}"
   assert_output "3"
 }
+
+# why: A 5xx outage needs time to clear. A fixed or zero delay would burn
+# every attempt inside the same outage; the delay doubles from
+# <first-delay-s> between attempts and no sleep follows the last attempt,
+# so a persistent failure is reported without a wasted wait, base#1562.
+@test "retry.sh: the delay doubles from <first-delay-s> between attempts and none follows the last (base#1562)" {
+  # Stub sleep on PATH: logs each argument instead of waiting.
+  SLEEP_LOG="${BATS_TEST_TMPDIR}/sleep-log"
+  export SLEEP_LOG
+  : > "${SLEEP_LOG}"
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  cat > "${BATS_TEST_TMPDIR}/bin/sleep" <<'EOS'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SLEEP_LOG}"
+EOS
+  chmod +x "${BATS_TEST_TMPDIR}/bin/sleep"
+
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run "${RETRY}" 4 5 -- "${FAKE}" 99 7
+  assert_failure 7
+  # 5 10 20 worked by hand: first delay 5, doubled after each of the
+  # first three failures; the fourth (last) failure sleeps no more.
+  run cat "${SLEEP_LOG}"
+  assert_output "$(printf '5\n10\n20')"
+}
