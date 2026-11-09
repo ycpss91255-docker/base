@@ -732,6 +732,17 @@ STUB
   done
 }
 
+# why: A worker slot keeps its sandbox past its last row for a next row
+# that never comes (base#1571); only the run's cleanup removes it. A run
+# that ends must leave nothing under its TMPDIR: no kept sandbox, no work
+# directory.
+@test "sandbox: a finished run leaves no sandbox under TMPDIR (base#1571)" {
+  _three_rows
+  MUTATION_REQUIRED_JOBS=2 _run_mr
+  assert_success
+  assert_equal "$(ls -A "${S}/tmp")" ""
+}
+
 # ── parallel rows ───────────────────────────────────────────────────────────
 
 # why: 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
