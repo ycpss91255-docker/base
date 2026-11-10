@@ -187,6 +187,7 @@ jobs:
       # reads it to tell a skip classify decided from one it did not.
       select_config_gen: ${{ steps.diff.outputs.select_config_gen }}
       select_mutation_roster: ${{ steps.diff.outputs.select_mutation_roster }}
+      select_acceptance: ${{ steps.diff.outputs.select_acceptance }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1840,6 +1841,9 @@ jobs:
           # classify's own answer for mutation-roster (base#1584): its skip
           # passes only when this is `false`.
           SELECT_MUTATION_ROSTER: ${{ needs.classify.outputs.select_mutation_roster }}
+          # classify's own answer for acceptance (base#1584): its skip
+          # passes only when this is `false`.
+          SELECT_ACCEPTANCE: ${{ needs.classify.outputs.select_acceptance }}
           # The gate system's `if:` reads (base#1584): a system skip passes
           # only when this is `false`.
           SYSTEM_RELEVANT: ${{ needs.classify.outputs.system_relevant }}
@@ -1887,9 +1891,9 @@ jobs:
           # `true` answer makes the skip a failure. Each row is
           # <job> <result> <the classify answer its skip needs>.
           # mutation-roster is a matrix that folds every roster shard into
-          # one result. coverage, coverage-gate and acceptance read
-          # code_changed, and system reads system_relevant, so their own
-          # answer is that gate output.
+          # one result. coverage and coverage-gate read code_changed, and
+          # system reads system_relevant, so their own answer is that gate
+          # output.
           while read -r job res sel; do
             if [[ "${res}" == "skipped" && "${sel}" != "false" \
                   && "${CODE_CHANGED:-}" != "false" ]]; then
@@ -1901,7 +1905,7 @@ jobs:
           config-gen ${CONFIG_GEN_RESULT:--} ${SELECT_CONFIG_GEN:--}
           coverage ${COVERAGE_RESULT:--} ${CODE_CHANGED:--}
           coverage-gate ${COVERAGE_GATE_RESULT:--} ${CODE_CHANGED:--}
-          acceptance ${ACCEPTANCE_RESULT:--} ${CODE_CHANGED:--}
+          acceptance ${ACCEPTANCE_RESULT:--} ${SELECT_ACCEPTANCE:--}
           system ${SYSTEM_RESULT:--} ${SYSTEM_RELEVANT:--}
           EOF
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
