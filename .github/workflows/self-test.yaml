@@ -13,6 +13,10 @@ on:
     tags:
       - 'v*'
   pull_request:
+  # The merge queue runs the full suite on the queued group before it
+  # reaches main (base#1587).
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 # ── Run identity: the one value every name this workflow creates is keyed
@@ -47,9 +51,11 @@ on:
 # GitHub resolves the whole block against `github` only.
 # ── The default grant, written down ───────────────────────────────────
 #
-# Of the jobs below, two declare a `permissions:` block of their own
-# (`release` needs `contents: write` to publish a tag's release, and
-# `worker-selftest` hands the reusable worker a read-only token). Every
+# Of the jobs below, three declare a `permissions:` block of their own
+# (`release` needs `contents: write` to publish a tag's release,
+# `worker-selftest` hands the reusable worker a read-only token, and
+# `classify` adds `pull-requests: read` to read the merge queue on a
+# merge_group run, base#1587). Every
 # other job used to take whatever the repository's Settings page said, and
 # the page says read -- so the posture was right and no reader of this tree
 # could tell, because a checkbox leaves no diff and no spec can assert it.
@@ -165,8 +171,9 @@ jobs:
 
   classify:
     # Per-PR diff classifier (pure shell, no third-party GHA action — same
-    # spirit as #273 Phase 2's build-worker.yaml classifier). Emits two
-    # outputs for downstream jobs:
+    # spirit as #273 Phase 2's build-worker.yaml classifier). Emits one
+    # select_<job> output per gated job (base#1584, below), and these
+    # outputs, which other readers keep using:
     #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE + CONTEXT.md
     #   system_relevant      — false if the PR touches no pathspec emitted
     #                          by script/ci/system_paths.sh. The pathspecs
@@ -184,14 +191,49 @@ jobs:
     needs: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The trust step reads the merge queue through the API, which needs
+    # `pull-requests: read` on top of the workflow's `contents: read`
+    # (base#1587).
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       code_changed: ${{ steps.diff.outputs.code_changed }}
       system_relevant: ${{ steps.diff.outputs.system_relevant }}
       testtools_changed: ${{ steps.diff.outputs.testtools_changed }}
+      # A skipped trust step (push, pull_request) reads as untrusted.
+      merge_group_same_repo: ${{ steps.trust.outputs.same_repo || 'false' }}
+      # select_<job>: whether the diff can affect each classify-gated job
+      # (base#1584). Each gated job's `if:` reads its own key, and the
+      # rollup passes that job's skip only when the same key is `false`.
+      # The nine names are script/ci/check_selection.sh --jobs.
+      select_config_gen: ${{ steps.diff.outputs.select_config_gen }}
+      select_coverage: ${{ steps.diff.outputs.select_coverage }}
+      select_coverage_gate: ${{ steps.diff.outputs.select_coverage_gate }}
+      select_acceptance: ${{ steps.diff.outputs.select_acceptance }}
+      select_system: ${{ steps.diff.outputs.select_system }}
+      select_worker_selftest: ${{ steps.diff.outputs.select_worker_selftest }}
+      select_shellcheck: ${{ steps.diff.outputs.select_shellcheck }}
+      select_hadolint: ${{ steps.diff.outputs.select_hadolint }}
+      select_bats_fragile: ${{ steps.diff.outputs.select_bats_fragile }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # A merge_group payload has no pull_request object, so only the API
+      # can say whether every pull request in the group is same-repository.
+      # The script fails closed and exits 0, printing why (base#1587).
+      - name: Ask the merge queue whether the group is same-repository
+        id: trust
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.merge_group.base_ref }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: bash ./script/ci/merge_group_trust.sh >> "${GITHUB_OUTPUT}"
 
       - id: diff
         env:
@@ -266,6 +308,12 @@ jobs:
               echo "code_changed=true"
               echo "system_relevant=true"
               echo "testtools_changed=${testtools}"
+              # Every gated job is selected off a pull request, so main
+              # runs the full suite (owner decision, base#1584).
+              for job in config_gen coverage coverage_gate acceptance system \
+                         worker_selftest shellcheck hadolint bats_fragile; do
+                echo "select_${job}=true"
+              done
             } >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -280,6 +328,22 @@ jobs:
             "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
             --depth=200 >/dev/null 2>&1 || true
           BASE="origin/${BASE_REF}"
+          # select_<job>: which gated jobs this diff can affect (base#1584).
+          # script/ci/selection_at_base.sh runs the BASE side's map, read
+          # with `git show`, never this checkout's, so a PR that edits the
+          # map is judged by the map as it was before the edit, to which
+          # the edited file is an unknown path. Fails CLOSED: a selection
+          # that exits non-zero, leaves a job out, or writes anything but
+          # `false` for it selects that job; the only `false` written here
+          # is the selection's own.
+          sel_out="$(bash ./script/ci/selection_at_base.sh --base "${BASE}" \
+                       --event "${EVENT_NAME}" --diff)" || sel_out=""
+          for job in config-gen coverage coverage-gate acceptance system \
+                     worker-selftest shellcheck hadolint bats-fragile; do
+            val="$(sed -n "s/^${job}=//p" <<< "${sel_out}")"
+            [[ "${val}" == "false" ]] || val=true
+            echo "select_${job//-/_}=${val}" >> "${GITHUB_OUTPUT}"
+          done
           # code_changed: anything outside the doc-only allow-list.
           if git diff --quiet "${BASE}"...HEAD \
                -- ':!doc/**' ':!README.md' ':!LICENSE' ':!CONTEXT.md'; then
@@ -517,7 +581,7 @@ jobs:
     # brings the pinned SHELLCHECK_VERSION with it, which is the version
     # the local gate runs.
     needs: [actionlint, classify, test-tools-image-amd64]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_shellcheck == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -964,6 +1028,10 @@ jobs:
     # Whether every leg still fits is decided by the mutation_roster_spec
     # case "every mutation-roster leg's list-scheduling bound over its
     # worker slots fits 240 s", a bound over seconds.txt, not a timed job.
+    #
+    # It has no `if:`: it runs on every pull request, as on main, because
+    # choosing roster rows from a diff belongs to base#1604, not to the
+    # job selection of base#1584.
     needs: [actionlint, classify, test-tools-image-amd64]
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR
@@ -1058,7 +1126,7 @@ jobs:
     # in, so this job obtains that image (mirroring the bats jobs' #317 P2
     # 3-layer fallback) and runs the driver inside it via the ci service.
     needs: [actionlint, classify, test-tools-image-amd64]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_hadolint == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1181,7 +1249,7 @@ jobs:
     # Obtain (probe-and-rebuild) pattern as the other jobs; ci-rollup folds
     # the result into needs.bats-fragile.result.
     needs: [actionlint, classify, test-tools-image-amd64]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_bats_fragile == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -1395,7 +1463,7 @@ jobs:
     # installed ~24 packages every shard every PR. The per-shard apt
     # rebuild (and its APT_MIRROR_DEBIAN fragility) is gone.
     needs: [actionlint, classify, compute-shards, test-tools-image-amd64]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_coverage == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -1532,7 +1600,7 @@ jobs:
     # (after the move) GitLab CI. Joins ci-rollup's needs:, so a coverage
     # drop below the floor blocks merge -- no branch-protection change.
     needs: [classify, coverage]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_coverage_gate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1611,7 +1679,10 @@ jobs:
   acceptance:
     name: Acceptance (${{ matrix.platform }})
     needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64]
-    if: needs.classify.outputs.code_changed == 'true'
+    # classify's map decides (base#1584): the consumer gets the whole
+    # checkout (script/ci/acceptance.sh:90, `cp -a`), so only a diff of
+    # docs or `*_spec.bats` leaves drops it. Off a pull request it runs.
+    if: needs.classify.outputs.select_acceptance == 'true'
     # Acceptance level (ISTQB, ADR-00000018): verify what the downstream
     # CONSUMER receives -- scaffold a synthesized downstream repo via
     # init.sh, then drive the delivered framework + its UX (`just docker`
@@ -1777,15 +1848,13 @@ jobs:
   system:
     name: System Regression Test (runtime-test smoke gate, #249)
     needs: [actionlint, classify, test-tools-image-amd64]
-    # P3 (#317): gate on the narrower `system_relevant` output so
-    # PRs that change pure lint / unit-test / doc paths (already covered
-    # by `test`) don't burn the docker.sock-mounted compose run. What makes
-    # a PR system-relevant is decided by script/ci/system_paths.sh, which
-    # the `classify` job above reads: it selects the system these specs
-    # exercise -- the shipped template, base's own harness, the images they
-    # build and the workflows that run them -- rather than listing the
-    # files somebody remembered (#1011).
-    if: needs.classify.outputs.system_relevant == 'true'
+    # P3 (#317) gated this on the narrower `system_relevant` output so
+    # PRs that change pure lint / unit-test / doc paths don't burn the
+    # docker.sock-mounted compose run (script/ci/system_paths.sh, #1011).
+    # Since base#1584 classify's map decides, like every gated job: docs
+    # and unit or integration `*_spec.bats` leaves drop it; a system spec,
+    # a justfile and any other path run it.
+    if: needs.classify.outputs.select_system == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -1886,11 +1955,11 @@ jobs:
     # Distinct level from the #800 Acceptance-level preflight contract test
     # (does the CONSUMER get told what to supply) and from the `system` job
     # above (base's own image lifecycle): this asks "does the worker itself
-    # build". Gated on system_relevant so pure lint / unit-test / doc PRs
-    # skip it (`.github/workflows/**` is one of the pathspecs
-    # script/ci/system_paths.sh emits, so any change to the worker or this
-    # job re-runs it); ci-rollup collapses
-    # SKIPPED into pass, and the `release` gate requires it before a tag.
+    # build". Gated on classify's select_worker_selftest, which carries
+    # the map's system answer (base#1584), so doc and unit-spec PRs skip
+    # it and a workflow change re-runs it; ci-rollup passes that skip only
+    # when the key is `false`, and the `release` gate requires it before a
+    # tag.
     #
     # The pyramid is pushed down first: the worker's matrix + cache-scope
     # logic is unit-tested by build_worker_compute_matrix_spec.bats /
@@ -1899,18 +1968,19 @@ jobs:
     # prove the orchestration wires together and really builds. The fixture
     # is a trivial alpine no-op (test/fixtures/build-worker/Dockerfile) that
     # builds in seconds: we test the worker, not a real image.
-    if: needs.classify.outputs.system_relevant == 'true'
+    if: needs.classify.outputs.select_worker_selftest == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/build-worker.yaml
     with:
       image_name: worker-selftest
       context_path: test/fixtures/build-worker
+      merge_group_same_repo: ${{ needs.classify.outputs.merge_group_same_repo }}
 
   config-gen-gates:
     name: Config-gen Go gates (base#1462)
     needs: [classify]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_config_gen == 'true'
     # The config generator's Go gates (ADR-00000039): fmt, vet, lint, race
     # and coverage in dockerfile/Dockerfile.config-gen's test stage and the
     # binary's usage contract, as ONE command, `just test go-gates`. With
@@ -1930,8 +2000,11 @@ jobs:
     # `continue-on-error`, a job or workflow `env:` such as BASH_ENV, a
     # `defaults:` block, a setup step that exports BASH_ENV through
     # $GITHUB_ENV -- fails that spec rather than leaving this job green
-    # with the gates unrun. Gated on code_changed, so ci-rollup collapses
-    # its SKIPPED on a doc-only PR into a pass.
+    # with the gates unrun. Both config-gen jobs read the same inputs, so
+    # both gate on the one classify key select_config_gen (base#1584): the
+    # map drops it for docs, spec leaves and exact config-gen deny-list
+    # paths, and ci-rollup passes either job's skip only when that key is
+    # `false`.
     runs-on: ubuntu-latest
     # The gates' test and final stages: two docker builds and the mutation
     # gate over the changed packages. A ceiling, not a budget; not raised
@@ -1975,7 +2048,7 @@ jobs:
   config-gen-redpath:
     name: Config-gen redpath shard ${{ matrix.shard }}/5${{ matrix.label }} (base#1547)
     needs: [classify]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_config_gen == 'true'
     # The redpath, which plants one defect per gate in a scratch copy and
     # requires each to go red on its own gate, split into the shards
     # script/test/config_gen_redpath_shards.tsv names (base#1547): each job
@@ -2039,24 +2112,33 @@ jobs:
     # change to track new sub-jobs. Pattern mirrors ros1_bridge's
     # `ci-summary` and env/* `ci-passed`.
     #
-    # Hard-mandatory jobs (actionlint / classify / doc-counts /
-    # lint-static / mutation-roster / compute-shards / the two
-    # test-tools-image builders, base#1588) must succeed:
-    # SKIPPED there indicates a workflow bug,
-    # not an intentional gate. doc-counts is hard-mandatory because it
-    # carries no `if:` -- the generated doc/test catalogue can be broken by
-    # a doc-only edit, so gating it on code_changed would skip it on
-    # exactly that PR; lint-static is ungated for the same reason (#866),
-    # two of its matrix entries read doc/adr/ and the READMEs. The
-    # post-#377 rollup has no remaining always-running test gate — bats
-    # is now split into shard'd jobs that SKIP on doc-only PRs along
-    # with everything else.
+    # One rule for every job in `needs:` (base#1584): a job passes when it
+    # succeeded, or when it skipped AND classify deselected it, i.e. the
+    # classify key its `if:` reads is exactly `false`. The verify step
+    # finds that key through an explicit job-to-key map, never a rewrite
+    # of the job name. A job with no key in the map (actionlint /
+    # classify / test-tools-image-amd64 / test-tools-image-arm64 /
+    # doc-counts / lint-static / mutation-roster / compute-shards) carries
+    # no `if:`, so its SKIPPED is a workflow bug
+    # and fails, as does a skip whose key is `true`, empty or missing, and
+    # every failure or cancel. The job set is read from `needs` itself, so
+    # a job added there is covered with no edit here; one that gains an
+    # `if:` but no map entry fails on its first skip. doc-counts and lint-static carry no `if:` because a doc-only
+    # edit can break them (#866); mutation-roster has none because roster
+    # row selection belongs to base#1604. The two test-tools-image
+    # builders (base#1588) have none because doc-counts, lint-static and
+    # mutation-roster always run and consume the amd64 tar, so the
+    # builders always run too and stay out of the map on purpose.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # coverage / acceptance / system / config-gen) carry
-    # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
-    # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
-    # for those, otherwise doc-only PRs cannot merge.
+    # coverage / coverage-gate / acceptance / system / worker-selftest)
+    # each run under `if: needs.classify.outputs.select_<job> == 'true'`;
+    # config-gen-gates and config-gen-redpath both run under
+    # `select_config_gen` (base#1547 split one job into two). Each key is
+    # one classify writes from the base side's map
+    # (script/ci/selection_at_base.sh). The `if:` and this rollup read the
+    # same key, so a skip passes only where classify decided it (#317
+    # P1/P3, #376, #377, #615, #677, base#1584).
     #
     # `coverage` is IN `needs:` (#615, ADR-00000008): a sharded kcov PR
     # gate -- a kcov test failure fails the matrix and this rollup. The
@@ -2068,14 +2150,13 @@ jobs:
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
     #
-    # `compute-shards` is IN `needs:` and in the HARD-mandatory loop. It
-    # is the producer the coverage matrix expands via fromJSON, and it
-    # carries no `if:`, so a SKIPPED there is a workflow bug. Leaving it
-    # out was not a missing decoration: coverage needs it, coverage-gate
-    # needs coverage, and both live in the skip-tolerant bucket, so a
-    # compute-shards failure cascaded into two skips and the required
-    # check went green with the whole unit suite and the coverage floor
-    # never run. A skipped shard computation is not a pass.
+    # `compute-shards` is IN `needs:` and has no select_* key, so only its
+    # success passes. It is the producer the coverage matrix expands via
+    # fromJSON. Leaving it out was not a missing decoration: coverage
+    # needs it and coverage-gate needs coverage, so a compute-shards
+    # failure cascaded into two skips and the required check went green
+    # with the whole unit suite and the coverage floor never run. Those
+    # two skips fail too, because classify selected both jobs.
     needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
@@ -2083,86 +2164,73 @@ jobs:
     steps:
       - name: Verify upstream jobs
         env:
-          ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
-          CLASSIFY_RESULT: ${{ needs.classify.result }}
-          TEST_TOOLS_IMAGE_AMD64_RESULT: ${{ needs.test-tools-image-amd64.result }}
-          TEST_TOOLS_IMAGE_ARM64_RESULT: ${{ needs.test-tools-image-arm64.result }}
-          SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
-          DOC_COUNTS_RESULT: ${{ needs.doc-counts.result }}
-          LINT_STATIC_RESULT: ${{ needs.lint-static.result }}
-          MUTATION_ROSTER_RESULT: ${{ needs.mutation-roster.result }}
-          HADOLINT_RESULT: ${{ needs.hadolint.result }}
-          BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
-          COMPUTE_SHARDS_RESULT: ${{ needs.compute-shards.result }}
-          COVERAGE_RESULT: ${{ needs.coverage.result }}
-          COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
-          ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
-          SYSTEM_RESULT: ${{ needs.system.result }}
-          WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
-          CONFIG_GEN_GATES_RESULT: ${{ needs.config-gen-gates.result }}
-          CONFIG_GEN_REDPATH_RESULT: ${{ needs.config-gen-redpath.result }}
+          # Every job's result and classify's outputs, read in one place
+          # (base#1584). The step prints names and results only, never this
+          # JSON: classify's outputs are in it.
+          NEEDS_JSON: ${{ toJSON(needs) }}
           # A fork PR is the one run in which SKIPPED stops being
           # trustworthy. `worker-selftest` calls build-worker.yaml, whose
           # `build` job carries the same-repo guard; on a fork PR that job
           # skips while the worker's other jobs succeed, so
-          # needs.worker-selftest.result is `success` and the loop below
+          # needs.worker-selftest.result is `success` and the walk below
           # would collapse a build that never happened into a green
           # required check -- for exactly the untrusted PR. The guard is
           # correct (untrusted code must not reach a self-hosted-eligible
           # job); what would be wrong is reporting the resulting run as a
           # full one. So say so, loudly, instead.
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          # The classification the gated jobs already consumed, consumed
-          # once more HERE so the rollup can say what it passed on. A
-          # doc-only PR resolves this check green beside nine grey skips:
-          # a reviewer reading the checks list sees that, and a reviewer
-          # reading only the required check sees a green identical to the
-          # one a full run produces. The results are printed either way;
-          # what was missing was the sentence naming WHY almost nothing
-          # ran.
-          CODE_CHANGED: ${{ needs.classify.outputs.code_changed }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && needs.classify.outputs.merge_group_same_repo != 'true' }}
         run: |
           set -euo pipefail
-          echo "actionlint:       ${ACTIONLINT_RESULT}"
-          echo "classify:         ${CLASSIFY_RESULT}"
-          echo "test-tools-image-amd64: ${TEST_TOOLS_IMAGE_AMD64_RESULT}"
-          echo "test-tools-image-arm64: ${TEST_TOOLS_IMAGE_ARM64_RESULT}"
-          echo "shellcheck:       ${SHELLCHECK_RESULT}"
-          echo "doc-counts:       ${DOC_COUNTS_RESULT}"
-          echo "lint-static:      ${LINT_STATIC_RESULT}"
-          echo "mutation-roster:  ${MUTATION_ROSTER_RESULT}"
-          echo "hadolint:         ${HADOLINT_RESULT}"
-          echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
-          echo "compute-shards:   ${COMPUTE_SHARDS_RESULT}"
-          echo "coverage:         ${COVERAGE_RESULT}"
-          echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
-          echo "acceptance:       ${ACCEPTANCE_RESULT}"
-          echo "system:           ${SYSTEM_RESULT}"
-          echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
-          echo "config-gen-gates:   ${CONFIG_GEN_GATES_RESULT}"
-          echo "config-gen-redpath: ${CONFIG_GEN_REDPATH_RESULT}"
+          # No readable needs context is no evidence anything ran.
+          if ! jq -e 'type == "object" and length > 0' \
+              <<<"${NEEDS_JSON}" >/dev/null 2>&1; then
+            echo "::error::ci-rollup could not read the needs context"
+            exit 1
+          fi
+          # One `<verdict> <job> <result>` line per key of `needs`. A skip
+          # is excused only when the classify key the job's `if:` reads is
+          # exactly "false"; a failed classify leaves every key empty, so
+          # then no skip is. The job-to-key map is explicit, never a
+          # rewrite of the job name: config-gen-gates and
+          # config-gen-redpath both read select_config_gen (base#1547),
+          # and a job the map does not name has no key, so its skip fails.
+          verdicts="$(jq -r '
+            {
+              "shellcheck": "select_shellcheck",
+              "hadolint": "select_hadolint",
+              "bats-fragile": "select_bats_fragile",
+              "coverage": "select_coverage",
+              "coverage-gate": "select_coverage_gate",
+              "acceptance": "select_acceptance",
+              "system": "select_system",
+              "worker-selftest": "select_worker_selftest",
+              "config-gen-gates": "select_config_gen",
+              "config-gen-redpath": "select_config_gen"
+            } as $keys
+            | (.classify.outputs // {}) as $c
+            | to_entries[]
+            | .key as $j
+            | (.value.result // "") as $r
+            | (if $keys[$j] then ($c[$keys[$j]] // "") else "" end) as $k
+            | (if $r == "success" then "pass"
+               elif $r == "skipped" and $k == "false" then "excused"
+               elif $r == "skipped" then "unexcused"
+               else "fail" end) + " " + $j + " " + $r
+          ' <<<"${NEEDS_JSON}")"
           fail=0
-          # doc-counts, lint-static, mutation-roster and compute-shards
-          # carry no `if:` gate, so SKIPPED means a workflow bug, not an
-          # intentional skip -- they are hard-mandatory like actionlint /
-          # classify. lint-static and mutation-roster are matrices; each
-          # folds its entries into one result, so a single failing lint or
-          # roster shard fails the rollup. compute-shards is the
-          # producer coverage expands, so its skip is what silently
-          # removes the unit suite AND the coverage floor from this run.
-          for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
-                   "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
-                   "${MUTATION_ROSTER_RESULT}" "${TEST_TOOLS_IMAGE_AMD64_RESULT}" "${TEST_TOOLS_IMAGE_ARM64_RESULT}" "${COMPUTE_SHARDS_RESULT}"; do
-            [[ "${r}" == "success" ]] || fail=1
-          done
-          for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
-                   "${BATS_FRAGILE_RESULT}" "${COVERAGE_RESULT}" \
-                   "${COVERAGE_GATE_RESULT}" \
-                   "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
-                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_GATES_RESULT}" \
-                   "${CONFIG_GEN_REDPATH_RESULT}"; do
-            [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
-          done
+          deselected=""
+          while read -r verdict job result; do
+            printf '%-18s%s\n' "${job}:" "${result:-}"
+            case "${verdict}" in
+              pass) ;;
+              excused) deselected+=" ${job}" ;;
+              unexcused)
+                echo "::error::${job} skipped although classify did not deselect it"
+                fail=1
+                ;;
+              *) fail=1 ;;
+            esac
+          done <<<"${verdicts}"
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
           # failure and not a warning: a required check is a claim that the
           # commit was fully tested, and on a fork PR that claim is false
@@ -2171,14 +2239,23 @@ jobs:
           # branch, which is the standard posture for a public repo whose
           # org has a self-hosted runner.
           if [[ "${IS_FORK_PR}" == "true" ]]; then
-            echo "::error::Fork PR: the self-hosted-eligible jobs were skipped by the same-repo guard, so this run does not certify the commit. Re-push the contribution as a same-repository branch to get a full run."
+            echo "::error::Fork PR, or a merge group not proven same-repository: the self-hosted-eligible jobs were skipped by the same-repo guard, so this run does not certify the commit. Re-push the contribution as a same-repository branch to get a full run."
             fail=1
           fi
           # Said only where it is true, and only when the answer is a
-          # pass: a doc-only run that FAILED is described by its failure,
-          # not by what it skipped.
-          if [[ "${fail}" -eq 0 && "${CODE_CHANGED}" == "false" ]]; then
-            echo "::notice::Passed as a doc-only change: the diff touched nothing outside doc/, README.md, LICENSE and CONTEXT.md, so every gated job above skipped by design. This green means the classification held, not that the suite ran."
+          # pass: a run that FAILED is described by its failure, not by
+          # what it skipped. A doc-only PR resolves this check green beside
+          # a row of grey skips, and a reviewer reading only the required
+          # check would see a green identical to a full run's.
+          if [[ "${fail}" -eq 0 && -n "${deselected}" ]]; then
+            doc_only="$(jq -r '[(.classify.outputs // {}) | to_entries[]
+                | select(.key | startswith("select_")) | .value]
+                | (length > 0 and all(. == "false"))' <<<"${NEEDS_JSON}")"
+            if [[ "${doc_only}" == "true" ]]; then
+              echo "::notice::Passed as a doc-only change: the diff touched nothing outside doc/, README.md, LICENSE and CONTEXT.md, so every gated job above skipped by design. This green means the classification held, not that the suite ran."
+            else
+              echo "::notice::Passed with jobs classify deselected for this diff, skipped by design:${deselected}"
+            fi
           fi
           exit "${fail}"
 

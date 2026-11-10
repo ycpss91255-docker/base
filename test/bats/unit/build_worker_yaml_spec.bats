@@ -895,8 +895,11 @@ _classify() {
   run yaml_job_lines "${WF}" build
   assert_success
   assert_output --partial "needs.path-filter.outputs.code_changed == 'true' &&"
-  assert_output --partial "(github.event_name != 'pull_request' ||"
-  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository)'
+  assert_output --partial "(github.event_name != 'pull_request' &&"
+  assert_output --partial "github.event_name != 'merge_group' ||"
+  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository ||'
+  # The group closes after the merge_group trust term (base#1587).
+  assert_output --partial "inputs.merge_group_same_repo == 'true')"
 }
 
 @test "build-worker.yaml: the guard tests the FORK, not the PR (#766)" {
@@ -909,6 +912,42 @@ _classify() {
   assert_output --partial "github.event_name != 'pull_request'"
   # The negated form would invert the meaning: only fork PRs would run.
   refute_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
+}
+
+# why: The guard canon fails closed on merge_group, whose payload names no
+# head repository. The build job may open on a queue run only when the
+# caller passes a resolved answer that the whole group is same-repository,
+# and a caller that passes nothing must stay closed (base#1587).
+@test "build-worker.yaml: build opens on merge_group only on a merge_group_same_repo input that defaults to 'false' (base#1587)" {
+  # Expected values are the approved design's literals (design-r2
+  # section 2): a string input `merge_group_same_repo` with default
+  # 'false', and the build `if:` below, read through the YAML parser so
+  # the folded `>-` block is compared as GitHub sees it.
+  run _yaml_eval "${WF}" '.on.workflow_call.inputs.merge_group_same_repo.type'
+  assert_success
+  assert_output "string"
+  run _yaml_eval "${WF}" '.on.workflow_call.inputs.merge_group_same_repo.default | tag'
+  assert_success
+  assert_output '!!str'
+  run _yaml_eval "${WF}" '.on.workflow_call.inputs.merge_group_same_repo.default'
+  assert_success
+  assert_output "false"
+  run _yaml_eval "${WF}" '.jobs.build.if'
+  assert_success
+  assert_output "needs.path-filter.outputs.code_changed == 'true' && (github.event_name != 'pull_request' && github.event_name != 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'merge_group' && inputs.merge_group_same_repo == 'true')"
+}
+
+# why: On merge_group `build` is skipped unless the caller proved the group
+# same-repository, and docker-build must then refuse to certify, as it does
+# for a fork PR, or an unproven queue group would pass on a build that never
+# ran (base#1587).
+@test "build-worker.yaml: docker-build IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # today's pull_request expression, `||` the merge_group term that reads
+  # the merge_group_same_repo input and fails closed on anything but 'true'.
+  run _yaml_eval "${WF}" '.jobs["docker-build"].steps[] | select(.env.IS_FORK_PR != null) | .env.IS_FORK_PR'
+  assert_success
+  assert_output "\${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && inputs.merge_group_same_repo != 'true' }}"
 }
 
 # ── Per-job least privilege ────────────────────────────────────

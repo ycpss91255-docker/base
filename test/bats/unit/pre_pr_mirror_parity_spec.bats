@@ -60,19 +60,21 @@ test-tools-image-amd64
 test-tools-image-arm64
 worker-selftest"
 
-# Diffs whose classification is known, and the CI gates each one fires:
-# `code` is classify's code_changed (anything outside doc/**, README.md,
-# LICENSE, CONTEXT.md), `system` is system_relevant (script/ci/system_paths.sh).
-PROBES="doc/test/TEST.md|
-test/bats/unit/bashrc_spec.bats|code
-compose.yaml|code system
-dockerfile/config-gen/cmd/config-gen/main.go|code system
-dockerfile/config-gen/testdata/x|code system"
+# Diffs the plan check probes. Which jobs CI runs for each is asked of
+# classify's own map (_selected), not written here.
+PROBES="doc/test/TEST.md
+test/bats/unit/bashrc_spec.bats
+compose.yaml
+dockerfile/config-gen/cmd/config-gen/main.go
+dockerfile/config-gen/testdata/x
+script/ci/reclaim.sh
+zz/unknown.txt"
 
-# The two job-level gates, as the strings classify's consumers spell them.
-# _ci_gate compares a job's whole `if:` against these, never a substring.
-CODE_GATE="needs.classify.outputs.code_changed == 'true'"
-SYSTEM_GATE="needs.classify.outputs.system_relevant == 'true'"
+# The one job-level gate form (base#1584): a job gated on its own classify
+# select_<job> output. _ci_gate compares a job's whole `if:` against it,
+# never a substring.
+SELECT_GATE_RE="^needs\\.classify\\.outputs\\.select_([a-z_]+) == 'true'$"
+SELECTION="/source/script/ci/check_selection.sh"
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -191,11 +193,11 @@ _local_mode() {
   echo "${_mode}"
 }
 
-# _ci_gate <job> -- `code`, `system` or `always`, read from the job's own
-# job-level `if:` as one value and compared whole against CODE_GATE /
-# SYSTEM_GATE; anything else is `unknown:<value>` so a new gate shape fails
-# loudly rather than reading as ungated. A substring match read
-# `<code gate> && false` as `code` (base#1462).
+# _ci_gate <job> -- `select:<job>` or `always`, read from the job's own
+# job-level `if:` as one value and matched whole against SELECT_GATE_RE;
+# anything else is `unknown:<value>` so a new gate shape fails loudly
+# rather than reading as ungated. A substring match read
+# `<gate> && false` as gated (base#1462).
 _ci_gate() {
   local _tag _if
   _tag="$(LP_J="${1}" yq '.jobs[strenv(LP_J)].if | tag' "${WF}")"
@@ -205,11 +207,17 @@ _ci_gate() {
     *) echo "unknown:${_tag}"; return 0 ;;
   esac
   _if="$(LP_J="${1}" yq '.jobs[strenv(LP_J)].if' "${WF}")"
-  case "${_if}" in
-    "${CODE_GATE}") echo code ;;
-    "${SYSTEM_GATE}") echo system ;;
-    *) echo "unknown:${_if}" ;;
-  esac
+  if [[ "${_if}" =~ ${SELECT_GATE_RE} ]]; then
+    echo "select:${BASH_REMATCH[1]//_/-}"
+  else
+    echo "unknown:${_if}"
+  fi
+}
+
+# _selected <job> <path> -- succeed when classify's map selects <job> for a
+# pull request touching only <path> (base#1584).
+_selected() {
+  printf '%s\0' "${2}" | bash "${SELECTION}" --event pull_request --paths | grep -Fxq "${1}=true"
 }
 
 # _make_mirror_repo -- a git repo holding a copy of the mirror and what it
@@ -217,7 +225,8 @@ _ci_gate() {
 _make_mirror_repo() {
   local _r="${SCRATCH}/repo"
   mkdir -p "${_r}/script/ci" "${_r}/.github/workflows"
-  cp "${MIRROR}" /source/script/ci/system_paths.sh "${_r}/script/ci/"
+  cp "${MIRROR}" /source/script/ci/system_paths.sh /source/script/ci/check_selection.sh \
+    /source/script/ci/config_gen_paths.sh "${_r}/script/ci/"
   cp "${WF}" "${_r}/.github/workflows/"
   git -C "${_r}" init -q
   git -C "${_r}" -c user.name=t -c user.email=t@t add -A
@@ -347,18 +356,16 @@ ${_table}"
 # acceptance ran in CI on every code change and locally only on system paths.
 # Reading each job's own if: gate makes such a drift red here.
 @test "pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)" {
-  local _table _job _cmd _gate _probe _path _fires _plan _part _rest _missing=""
+  local _table _job _cmd _gate _path _plan _part _rest _missing=""
   _table="$(_mirror_table)" || return 1
-  while IFS= read -r _probe; do
-    _path="${_probe%%|*}"
-    _fires="${_probe#*|}"
+  while IFS= read -r _path; do
     _plan="$(bash "${MIRROR}" --plan <<<"${_path}")" || fail "--plan failed for ${_path}"
     while IFS=$'\t' read -r _job _cmd; do
       [[ -n "${_job}" ]] || continue
       _gate="$(_ci_gate "${_job}")"
       case "${_gate}" in
         always) ;;
-        code|system) [[ " ${_fires} " == *" ${_gate} "* ]] || continue ;;
+        select:*) _selected "${_gate#select:}" "${_path}" || continue ;;
         *) _missing+="
   ${_job}: CI gate not recognised: ${_gate#unknown:}"; continue ;;
       esac
@@ -389,6 +396,25 @@ ${_table}"
   refute_line 'just test system'
   assert_line 'just test acceptance'
   assert_line "${COVERAGE_MATRIX}"
+}
+
+# why: CI gates system on classify's map, which selects it for a path
+# system_paths.sh does not name; a plan that read system_paths.sh alone
+# skipped `just test system` for such a diff (base#1584).
+@test "pre-PR mirror: a diff the map selects system for but system_paths.sh does not match plans system (base#1584)" {
+  _require_mirror
+  _selected system "zz/unknown.txt" || fail "classify's map no longer selects system for zz/unknown.txt; pick another probe"
+  run bash /source/script/ci/system_paths.sh
+  assert_success
+  local _spec
+  while IFS= read -r _spec; do
+    [[ -n "${_spec}" ]] || continue
+    # shellcheck disable=SC2053 # the pattern is a glob on purpose
+    [[ "zz/unknown.txt" != ${_spec} ]] || fail "system_paths.sh pattern ${_spec} matches zz/unknown.txt, so this probe no longer isolates the map gate"
+  done <<<"${output}"
+  run bash "${MIRROR}" --plan <<<"zz/unknown.txt"
+  assert_success
+  assert_line 'just test system'
 }
 
 @test "pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)" {
@@ -860,17 +886,17 @@ ${_recipe}"
 
 # ── config-gen: just test go is attested and planned (base#1462) ─────────────
 
-# why: A gate read by substring took `<code gate> && false` -- a job that
-# never runs -- for a code-gated job, so the plan check demanded a local
+# why: A gate read by substring took `<gate> && false` -- a job that
+# never runs -- for a gated job, so the plan check demanded a local
 # command for it and the mirror attested a job CI never ran.
 @test "pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)" {
   local _wf="${SCRATCH}/self-test.yaml"
   cp "${WF}" "${_wf}"
   yq -i '.jobs.shellcheck.if += " && false"' "${_wf}"
   WF="${_wf}" run _ci_gate shellcheck
-  assert_output "unknown:${CODE_GATE} && false"
+  assert_output "unknown:needs.classify.outputs.select_shellcheck == 'true' && false"
   WF="${_wf}" run _ci_gate hadolint
-  assert_output code
+  assert_output select:hadolint
   WF="${_wf}" run _ci_gate actionlint
   assert_output always
 }
@@ -879,7 +905,9 @@ ${_recipe}"
 # one command CI runs for it, and that command must resolve to a recipe.
 # base#1547 split the hosted job into config-gen-gates and the
 # config-gen-redpath shard matrix, which run `just test go`'s two recipes;
-# the mirror runs `just test go` itself, their union, for both.
+# the mirror runs `just test go` itself, their union, for both. Both
+# jobs gate on the one select_config_gen key (base#1584), so _ci_gate
+# reads the same map job, config-gen, from each.
 @test "pre-PR mirror: config-gen is attested by exactly just test go (base#1462)" {
   local _table _job
   _table="$(_mirror_table)" || return 1
@@ -887,7 +915,7 @@ ${_recipe}"
     run _attested_cmd "${_table}" "${_job}"
     assert_output 'just test go'
     run _ci_gate "${_job}"
-    assert_output code
+    assert_output select:config-gen
   done
   run _local_mode 'just test go'
   assert_output plain

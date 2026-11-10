@@ -48,3 +48,22 @@ v1.0.0** and remove every entry's legacy path.
   `_LEGACY_ALIASES`. Downstream `setup.conf` still carrying `runtime` will
   then error -- the v1.0.0 downstream-upgrade workflow must rewrite the
   key first.
+
+## Removed in v0.11.0: `setup.sh` without a subcommand (BREAKING, no alias)
+
+Not a kept alias, so it has no row in the table above; it is recorded here
+because the README used to carry it (moved by #1545).
+
+`setup.sh` (no args) and `setup.sh --base-path X --lang Y` (no subcommand)
+used to silently fall through to `apply`. v0.11.0 removed that
+fall-through:
+
+| Invocation | Pre-v0.11 | v0.11+ |
+|---|---|---|
+| `setup.sh` | runs apply | prints help, exits 0 |
+| `setup.sh --base-path X --lang Y` | runs apply | exit 1 "Unknown subcommand" |
+| `setup.sh apply [...]` | runs apply | runs apply (unchanged) |
+
+If a downstream repo has custom scripts invoking `setup.sh` directly,
+prepend `apply`. The bundled `build.sh` / `run.sh` / `init.sh` /
+`setup_tui.sh` already do.

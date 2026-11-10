@@ -171,7 +171,7 @@ a refusal as "do not release".
 | `R1: a code span naming a script does not state a trigger (#726)` | dropping `.yaml` spans covered the case above and left the property the case NAMES uncovered -- a span naming a file is only one of the spans that say nothing about a trigger. Any code span whose text merely CONTAINS an event name opened the hatch, and a repo's scripts are named after what they do: `script/ci/schedule.sh` beside a workflow whose statable trigger is `schedule` waved a false tag claim about it straight through, with no `.yaml` anywhere for the exclusion to catch. |
 | `R1: a code span quoting a command does not state a trigger (#726)` | the same hole with a command rather than a path, which is the form an ADR reaches for most often. `gh issues list` is a code span that states nothing about what starts anything, and it contains the only statable trigger `triage-label.yaml` has -- so it excused a tag claim about that workflow exactly as the block's own subject word would have, which is the failure the case above this one was written to close. |
 | `R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)` | the other half of that change, and the reason it does not weaken the rule: naming the workflow in a trigger claim and saying nothing about what actually starts it is still the ADR-00000027 defect, whichever trigger the workflow has. |
-| `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. |
+| `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. Its events include `merge_group:`, the merge queue trigger base#1587 added. |
 | `R1: a nested tags key that is not a push filter is not a tag trigger (#726)` | the unfixed half of that same reading. Anchoring the EVENTS on the first key's indentation was done precisely so a nested key is not read as a top-level event -- while the tag question beside it stayed a substring search over the whole `on:` block. `tags:` is not only a push filter: it is a legal name for a `workflow_dispatch` input, a `workflow_call` input or a job-level key, and any of them made the workflow read as tag-triggered. The two readings have to agree, or the block's structure means one thing to one line and another to the next. |
 | `R1: FAILS a tag claim about a workflow whose only tags key is an input (#726)` | and what that costs R1, which is worse than a wrong answer to one question. A workflow that reads as tag-triggered is `continue`d past before the rule looks at the block at all, so a false tag claim about it is not merely under-checked -- it is waved through with no check. The report has to name the trigger the block should have stated instead. |
 | `R1: saying 'push' does not excuse a claim about a tag-less push workflow (#726)` | the second new way to be wrong, and the reason `push` is the one event excluded: a tag push IS a push, so "push" said about a workflow whose `on: push:` carries no `tags:` filter answers nothing the rule asked. Such a block must still be reported -- and with nothing truthful left to name, the message says so rather than offering an empty list. |
@@ -691,7 +691,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (65)
+### test/bats/unit/build_worker_yaml_spec.bats (67)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -859,6 +859,8 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: downstream cleanup is ownership-scoped too (#900)` | - |
 | `build-worker.yaml: the build job carries the same-repo guard AND-ed with its code_changed gate (#766)` | - |
 | `build-worker.yaml: the guard tests the FORK, not the PR (#766)` | - |
+| `build-worker.yaml: build opens on merge_group only on a merge_group_same_repo input that defaults to 'false' (base#1587)` | The guard canon fails closed on merge_group, whose payload names no head repository. The build job may open on a queue run only when the caller passes a resolved answer that the whole group is same-repository, and a caller that passes nothing must stay closed (base#1587). |
+| `build-worker.yaml: docker-build IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group `build` is skipped unless the caller proved the group same-repository, and docker-build must then refuse to certify, as it does for a fork PR, or an unproven queue group would pass on a build that never ran (base#1587). |
 | `build-worker.yaml: every job declares its own permissions block (#957)` | - |
 | `build-worker.yaml: no job requests packages: write (#957)` | - |
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
@@ -1084,6 +1086,49 @@ Pure git + filesystem, no docker.
 | `changelog layout: no [Unreleased] anywhere is refused, not passed` | The same rule in the direction that fails open: with no live series every placement rule holds and the tree reports clean, while there is nowhere left to write the next entry. |
 | `changelog layout: a changelog directory with no series files DIES` | The vacuous pass this repo keeps paying for. With nothing to walk, every rule above holds and the lint prints a green line that means the scan found nothing, not that nothing is wrong. |
 
+### test/bats/unit/check_selection_spec.bats (25)
+
+classify gave every heavy job one answer, code_changed, so a PR that touched
+one config-gen spec and two docs ran config-gen and all twelve coverage
+shards (112 min wall). script/ci/check_selection.sh maps a diff to one
+answer per classify-gated job, and script/ci/selection_at_base.sh runs the
+BASE side's copy of it, so a PR cannot narrow its own checks by editing the
+map.
+
+The map reads the PR's changed paths NUL-separated from stdin (`--paths`,
+the shape `git diff -z --name-only` prints) or diffs `--base <ref>...HEAD`
+itself, and prints one `<job>=<true|false>` line per gated job. Expected
+values come from the issue text, what each job reads, git's own behaviour
+and the probes cited per case, never from the map's own output.
+
+| Test | Description |
+|------|-------------|
+| `check_selection: a pull request touching only a path no row names selects every gated job (base#1584)` | the issue's fail-closed rule, "an unknown path selects every job". |
+| `check_selection: a pull request touching only docs selects no gated job (base#1584)` | the docs allow-list classify's code_changed gate already uses (doc/**, README.md, LICENSE, CONTEXT.md) and the issue's "a docs-only PR": a docs-only diff affects no gated job. |
+| `check_selection: --jobs prints the nine map names, one per select key (base#1584)` | cycle 4's job list. The map's names are the nine select_* keys of design r7, config-gen standing for both config-gen jobs; --jobs must name exactly those, in the output order. |
+| `check_selection: a push run selects every gated job even when its diff is docs only (base#1584)` | the issue's rule "On push, tag and workflow_dispatch everything runs" (main runs the full suite, owner 2026-11-10). |
+| `check_selection: a deny-list path drops config-gen and keeps every other gated job (base#1584)` | cycle 15. dist/script/base/init.sh and script/release/changelog_index.sh are non-readers in the traced config-gen host run (config_gen_paths_spec.bats re-runs the tracer), and neither is in _rp_copy (script/test/config_gen_redpath.sh). Each drops config-gen and keeps every other job, so the deny list is not too small to ever narrow. |
+| `check_selection: a new or nested path under dist/ or script/ runs config-gen (base#1584)` | cycle 16 (R2-F1, RR4-F3). A path the deny list does not name exactly -- a new file, a file in a new directory -- runs config-gen. The first two printed config-gen=false through the old glob rows (review round 1, F1). |
+| `check_selection: a renamed deny-list file runs config-gen (base#1584)` | cycle 16, the rename half. `git diff --no-renames` lists a rename as its delete and its add. The delete side alone, a deny-list path, drops config-gen; the add side is a new name, so the rename runs it. |
+| `check_selection: a tracked symlink path selects every gated job (base#1584)` | cycle 17 (RR4-F2). script/build.sh is a tracked symlink (mode 120000, -> ../dist/script/docker/wrapper/build.sh), never a deny entry, so it runs every job (it printed config-gen=false before, review round 1, F1). |
+| `check_selection: a record holding a control byte selects every gated job (base#1584)` | cycle 18 (RR3-F4, RR6-F2). A record holding a control byte is not one path git printed under -z: bash `case` `*` matches a newline, so `doc/a.md<LF>script/x.sh` was ONE record that matched the doc row and selected nothing (review round 1, F4). Each such input selects every job and names bad_record. |
+| `check_selection: empty input selects every gated job (base#1584)` | cycle 18. Empty stdin is no diff the map read, so nothing may be dropped; it printed all false before (review round 1, F4). |
+| `check_selection: an unterminated last record is still read (base#1584)` | cycle 18. `read -d ''` drops a final record with no NUL, so `doc/a.md<NUL>zz/x` read as docs only. zz/x is an unknown path. |
+| `check_selection: a clean NUL-terminated docs record selects nothing (base#1584)` | cycle 18's control: a clean docs record still selects nothing, so the control-byte check does not reject clean input. |
+| `check_selection: an unreadable diff base selects every gated job with its reason (base#1584)` | cycle 19 (RR3-F3). An empty base reads as HEAD to git (`git diff "...HEAD"` exits 0 with no output, measured), a missing ref names no commit, base == HEAD is a diff with no path, and an orphan HEAD has no merge base (`git diff main...HEAD` exits 128 there, measured). Each selects every job and names its reason. |
+| `check_selection: an unreadable deny list selects every gated job (base#1584)` | cycle 20. A deny list that exits non-zero or prints nothing cannot say which paths config-gen ignores, so nothing may be dropped. |
+| `check_selection: a unit spec runs coverage and the code checks only (base#1584)` | the E1 row. A unit or integration spec is a leaf -- no file under test/ or script/ loads or sources a `*_spec.bats` -- so config-gen, acceptance and system never execute it; it is code, so coverage and the code checks run. |
+| `check_selection: a system spec runs coverage, system and the code checks (base#1584)` | the E1 row for a system spec: system runs the system specs, so it and worker-selftest stay; config-gen and acceptance drop. |
+| `check_selection: a justfile anywhere selects every gated job (base#1584)` | every justfile loads with the root one, and a syntax error in one module made `just a go` exit 1 in a scratch probe, so any justfile can break `just test go`. |
+| `check_selection: the workflow, a driver, the selection files and the unit helper select every gated job (base#1584)` | the issue's rule: "A change to the map itself, the workflow, the test drivers or shared libraries selects every job (fail closed)". None of these is a docs path, a spec leaf or a deny entry. |
+| `selection_at_base: a working tree without the map gets the base map's answer (base#1584)` | cycle 28. The base map is run from a scratch directory, so it must read nothing but the deny list beside it: a working tree with NO selection files still gets the base map's answer. |
+| `selection_at_base: a working-tree map cannot narrow the selection (base#1584)` | cycle 28, the narrowing half. A working-tree map that drops config-gen for everything must not narrow anything: the base map runs. |
+| `selection_at_base: a base it cannot judge from selects every gated job with its reason (base#1584)` | selection_at_base.sh's own fail-closed reasons: an empty or bad base, and a base that has no map or no deny list (main before this change, and any base older than it). The names come from the working tree's --jobs. |
+| `selection_at_base: a base map that fails selects every gated job (base#1584)` | a base map that exits non-zero gave no answer, so nothing may be dropped. |
+| `selection: test.sh and classify reach the map only through selection_at_base.sh (base#1584)` | cycle 25 (issue item 5). Local and CI reach the map through one entry: test.sh --selection and classify's step both call selection_at_base.sh, and neither calls check_selection.sh directly. |
+| `test.sh --selection --base --paths prints the base map's per-job selection (base#1584)` | cycle 25. test.sh --selection judges with the named base's map: the scratch repo's main holds the real map, so a docs path selects nothing and a deny-list path drops config-gen only. |
+| `test.sh --paths or --base without --selection is refused (base#1584)` | --paths and --base only shape --selection's answer; alone they would be silently ignored, so test.sh refuses them. |
+
 ### test/bats/unit/check_test_md_drift_spec.bats (11)
 
 The read-only validating twin of `sync-doc-counts.sh`. It runs THAT
@@ -1124,6 +1169,29 @@ behaviour, base#1562.
 |------|-------------|
 | `install-just.sh: one failed fetch of the tarball and of SHA256SUMS is retried and just lands on GITHUB_PATH (base#1562)` | The just install must ride out one upstream 5xx on EITHER of its two fetches (the tarball and its SHA256SUMS) instead of failing the job, and must publish a PATH dir only once that dir holds a working binary. A retry on just one fetch, a swap to a tool other than curl, or a PATH entry without the binary would each leave a job red or wrong, base#1562. |
 | `install-just.sh: a tarball whose digest does not match SHA256SUMS fails and leaves GITHUB_PATH untouched (base#1562)` | A download that arrives but is not the release's bytes (a proxy error page, a truncated or tampered tarball) must fail the job, not be installed. The install checks the tarball against the release's SHA256SUMS before it publishes a PATH dir, base#1562. |
+
+### test/bats/unit/ci_merge_group_trust_spec.bats (12)
+
+The self-hosted fork guard fails closed on merge_group, and a site opens
+only on this resolver's answer. These specs pin that the answer is false
+when the call or the queue proves nothing, false when a pull request at or
+ahead of the HEAD_SHA entry is cross-repository or names another head
+repository, and true when the only fork sits behind that entry, base#1587.
+
+| Test | Description |
+|------|-------------|
+| `merge_group_trust.sh: a group of three same-repository pull requests is trusted (base#1587)` | The only case that opens a self-hosted runner on a queue run. A resolver that always answered false would pass every other spec here and skip `build` on every merge_group run, so the queue could never go green (base#1587). |
+| `merge_group_trust.sh: a failed gh call leaves the group untrusted and exits 0 (base#1587)` | An API outage proves nothing about the group, so it must not read as trusted; and a non-zero exit would turn classify red and hide the reason the rollup is meant to print (base#1587). |
+| `merge_group_trust.sh: a gh call that fails once and then answers is retried and trusted (base#1587)` | One transient API 5xx must not mark the group untrusted: the rollup would then fail every queue run on a blip. The call goes through retry.sh, so a gh that fails once and then answers still proves the group same-repository; a bare `gh api graphql` call fails this spec (base#1587). |
+| `merge_group_trust.sh: a null merge queue leaves the group untrusted and names why (base#1587)` | A merge_group run while the queue is off (or turned off mid-run) has no entries to prove anything with; treating null as "no forks" would open the runner on an unproven group (base#1587). |
+| `merge_group_trust.sh: an empty merge queue leaves the group untrusted and names why (base#1587)` | The queue exists, so the null-queue case does not cover it; a resolver that read "no cross-repository entry found" as trust would answer true here with nothing proven (base#1587). |
+| `merge_group_trust.sh: a queue with no entry for HEAD_SHA leaves the group untrusted and names why (base#1587)` | Other groups in the queue being same-repository says nothing about this run's commit; trusting them would let a run whose own group is not listed borrow their answer (base#1587). |
+| `merge_group_trust.sh: an entry whose pull request is not HEAD_REF's pr-<N> leaves the group untrusted and names why (base#1587)` | The commit and the group ref must name the same entry, or the group whose code is running is not proven to be the one that was checked (base#1587). |
+| `merge_group_trust.sh: an entry whose head repository is null leaves the group untrusted and names why (base#1587)` | A deleted head repository leaves isCrossRepository false as the only signal; a resolver that read that field alone would answer true for code whose author is no longer provable (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request ahead of the HEAD_SHA entry leaves the group untrusted (base#1587)` | The load-bearing case: a group builds the code of every pull request ahead of its head, so a fork there runs on the self-hosted runner unless the resolver checks the whole group, not only the head entry or HEAD_REF's pull request (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request as the HEAD_SHA entry leaves the group untrusted (base#1587)` | The group head is the pull request the run is named after; a resolver that checked only the entries ahead of it would let a fork at the head through (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request behind the HEAD_SHA entry does not block the group (base#1587)` | Pins the position filter from the other side: checking the whole queue would make one parked fork block every same-repository group ahead of it, and the queue would stall (base#1587). |
+| `merge_group_trust.sh: a head repository named for another repository leaves the group untrusted (base#1587)` | isCrossRepository alone is one field; the resolver also requires nameWithOwner to be REPO, and this is the only case where the two disagree, so dropping the second check is caught here (base#1587). |
 
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
@@ -1419,7 +1487,7 @@ code, base#1562.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/classify_testtools_spec.bats (9)
+### test/bats/unit/classify_testtools_spec.bats (23)
 
 `testtools_changed` tells every image-consuming job whether to rebuild the
 tooling image from source instead of pulling the rolling `:main`. On a pull
@@ -1445,6 +1513,20 @@ reads the output the step writes.
 | `classify: a PR that changes a file the Dockerfile COPYs rebuilds it (#1171)` | The same miss on the arm every pull request takes, which is the expensive one: the PR arm's `false` sends `obtain_test_tools.sh` down its layer-2 path, so the whole suite runs inside the rolling `:main` -- an image built before the edit, and one nothing on the PR path refreshes. |
 | `classify: a PR that changes nothing the image reads still pulls (#1171)` | The guard that keeps the two cases above from being bought by answering `true` to everything. "Anything changed" would rebuild the tooling image on every pull request and throw away the pull path the rolling tag exists for. |
 | `classify: a PR that changes the test-tools Dockerfile rebuilds it (#1171)` | The Dockerfile's own case on the PR arm, pinned alongside the two above so a rewrite that reaches for the derivation cannot drop the one input the signal already had. |
+| `classify: a push writes every gated job's selection as true (base#1584)` | cycle 6. Main runs the full suite (owner decision, base#1584), so the push arm writes all nine select_* keys `true`. |
+| `classify: a merge_group run writes every gated job's selection as true (base#1584, base#1587)` | a merge group is the last run before main (base#1587), and only a pull request narrows the selection (base#1584). So a merge_group run writes all nine select_* keys `true` even when its diff is docs only, or the queue would land a commit whose gated jobs never ran. |
+| `self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)` | cycle 6. mutation-roster keeps main's form: no `if:` (roster row selection belongs to base#1604), and the workflow's job list is main's (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in redesign r6). |
+| `classify: a pull request touching an unknown path writes every gated job's selection as true (base#1584)` | cycle 24, the issue's fail-closed rule: a pull request touching a path the map does not know runs every gated job. `zz-new/thing.txt` names no directory the repo has. |
+| `classify: a docs-only pull request writes every gated job's selection as false (base#1584)` | cycle 21 (RR3-F1). A docs path selects nothing: the map's doc row is the code_changed allow-list (doc/**, README.md, LICENSE, CONTEXT.md). The base commit holds a real copy of /source/script, so the real map and deny list are read from the base through `git show`. Each value is exact: a classify that never carries a `false` through fails here. |
+| `classify: a pull request changing one unit spec selects coverage and the code checks only (base#1584)` | cycle 22 (RR3-F1). A unit spec is a leaf (row E1): coverage and the code checks run; config-gen, acceptance, system and worker-selftest do not. |
+| `classify: a base map that fails or leaves a job out selects it (base#1584)` | cycle 23. A selection that exits non-zero gave no answer, and a line the selection leaves out is no `false`: classify writes `true` for both, and keeps the map's own values for every line it did print. |
+| `classify: a pull request that edits a selection file is judged by the base map (base#1584)` | cycle 26 (RR6-F1). A PR is judged by the BASE side's map, never its own: a PR whose map selects nothing for an unknown path, and which changes that map, would otherwise classify itself with it and skip every job (RR6-F1's probe printed all five false). Each selection file a PR edits is an unknown path to the base map, so every job runs. |
+| `classify: a base without the map or its deny list selects every gated job (base#1584)` | cycle 27, the bootstrap. A base with no map or no deny list (main when this change lands, and any older base) cannot judge the PR, so every job runs, naming map_missing_on_base. |
+| `classify: the diff step's only select_* false is the selection's own (base#1584)` | cycle 29. The classify step cannot invent a `false`: its one selection call is selection_at_base.sh, the only `false` it can write for a select_* key is the one it read (`[[ "${val}" == "false" ]]`), and no line writes a literal select_*=false. |
+| `chain: a PR changing one unit spec runs the code checks and mutation-roster, skips the other gated jobs, and the rollup passes (base#1584)` | cycle 1, end to end on a PR that changes one unit spec. The expected set comes from the issue and the design, not from the map: a unit spec cannot affect config-gen, acceptance, system or worker-selftest, so those skip (config-gen is two jobs since base#1547, config-gen-gates and config-gen-redpath, on one key); it is code, so shellcheck, hadolint, bats-fragile, coverage and coverage-gate run; and mutation-roster keeps main's form, no `if:` (roster row selection belongs to base#1604), so it runs on every PR. Read through classify's real step, its `outputs:` map, every job's parsed `if:` and the real rollup step, so a gate that reads the wrong output, an output classify does not export, or a classify that never carries a `false` all change the set, and the rollup must pass the run that results. |
+| `chain: a docs-only PR skips every gated job, runs mutation-roster, and the rollup passes as doc-only (base#1584)` | cycle 2. A docs-only PR skips every gated job (ten: the nine keys, with select_config_gen gating both config-gen jobs), still runs mutation-roster (no `if:`), and the rollup passes and says so. |
+| `chain: a workflow, driver or unknown-path PR skips no gated job (base#1584)` | cycle 3, issue criterion 1: a workflow change, a driver change and an unknown path each skip no gated job. |
+| `chain: the gated jobs, the map's job list and classify's loop are one set, and each selected skip fails the rollup (base#1584)` | cycle 4. One source for every gate: the nine names of design r7, the map's --jobs, classify's loop list and the keys the gated jobs' `if:`s read are the same set. Each gated job reads exactly one select_* key, the one its `if:` names; config-gen-gates and config-gen-redpath both read select_config_gen (base#1547 split one job into two, addendum point 2). The rollup must resolve each gated job to that same key: its skip fails while the key is `true` and passes once that key alone is `false`. The key comes from the job's `if:`, never from a rewrite of the job's name, so a rollup that guesses the key from the name fails here. |
 
 ### test/bats/unit/code_lines_spec.bats (46)
 
@@ -1990,6 +2072,13 @@ refused by name.
 | `array homes: the writer rows are what the shell writers name and spell (base#1443)` | The Go half iterates schema.Homes() and takes each home's all-empty and populated bodies from the table's rows. This half holds the `writer` rows equal, in order, to what _conf_toml_aot_section over SCHEMA_SECTIONS names and _conf_toml_aot_fields spells for "" and for "a=b:c:d", so a home the writers gain, or a body they spell another way, fails here until the table knows it (base#1443). |
 | `array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)` | The Go half expects schema.Decode to refuse an entry without its field and a string entry, to keep a field-less entry, the writers' all-empty entry and the entry carrying every field its family reads, each empty, as one empty entry, alone and between two populated ones, to keep the populated entry and to refuse an unknown field beside it. Each of those verdicts is the bridge's --kv verdict on the same body for every row, the legacy [[devices]] included, and the every-field-empty body names exactly the fields the bridge's _ARRAY_SPEC family reads, so the table the Go tests read is the shell's word (base#1443 review round 4 finding 2). |
 
+### test/bats/unit/config_gen_bin_provision_spec.bats (2)
+
+| Test | Description |
+|------|-------------|
+| `the provisioned binary comes from this checkout's image, not an inherited CONFIG_GEN_IMAGE override` | a CONFIG_GEN_IMAGE pin inherited from the caller must not choose which binary the golden spec runs; it is the only poison, so a resolve that drops the memo but keeps the override names the poison image. |
+| `the provisioned binary comes from this checkout's image, not an inherited _CONFIG_GEN_RESOLVED memo` | a _CONFIG_GEN_RESOLVED memo inherited from the caller must not choose which binary the golden spec runs; it is the only poison, so a resolve that drops the override but keeps the memo names the poison image. |
+
 ### test/bats/unit/config_gen_coverage_spec.bats (20)
 
 The gate measures per-package profiles and writes, per package, `<import
@@ -2045,7 +2134,7 @@ scratch file beside it.
 | `05-floors-base: a base with fragments writes their concatenation in lexical order, each ending in LF (base#1465)` | The ratchet compares per package across the base's union, so every fragment must be in it, each line whole: one without a final LF would fuse with the next fragment's first line. The expected bytes are git show's, worked by hand. (base#1465) |
 | `05-floors-base: a base it cannot read is refused by reason, the old floors.base kept (base#1465)` | Each refusal is a base the step could not read faithfully; writing anything, or `absent`, would let the ratchet judge without the base's floors. (base#1465) |
 
-### test/bats/unit/config_gen_gates_spec.bats (80)
+### test/bats/unit/config_gen_gates_spec.bats (82)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2090,7 +2179,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)` | A coverage RUN that never got the corpus root record refuses with reason=corpus_root_missing and an empty pkg (base#1468). The runner must name the coverage gate from that printed refusal line, not from the RUN line BuildKit echoes, whose command text names coverage.sh too: the echoed line alone is a build that failed before any gate. |
 | `config_gen_gates.sh: a red build re-emits every allowlisted cg_event line in log order with only its allowed words, then the gate id (base#1465)` | The coverage ratchet prints one cg_event line per refusal, and one red build can carry several (a dropped fragment leaves a dropped and a missing package); each must reach the runner's records, in log order, before the gate's own, and an id outside the allowlist or a word outside file\|reason\|pkg\|other\|line\|floor\|measured\|base must not, so the build log can never put an arbitrary body or attribute into them (base#1465). |
 | `config_gen_gates.sh: a corpus_sensitivity refusal reaches the runner's records with its reason (base#1467)` | cg-gates sensitivity refuses a testcorpus with no top-level func Glob by printing `cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found` on stdout (cmd/cg-gates TestSensitivity holds that exact line). Its only way into the JSON log is this runner, and the test above feeds every listed id a file= only: a runner that dropped reason= from its attributes, or skipped the event, would leave the refusal with no cause in the records (base#1467). |
-| `config_gen_gates.sh: a per-package mutation failure reaches the runner's records with its pkg, reason and measured (base#1467)` | cg-gates mutation prints one `cg_event config_gen_mutation_package_failed pkg= reason= [measured=]` line on stdout for each package it fails (cmd/cg-gates TestMutation holds those exact lines). The issue's gremlins criterion is that any per-package failure fails the gate with pkg=; the build log reaches the JSON log only through this runner, so its record must keep the package, the reason and the measured efficacy, then the gate's own record (base#1467). |
+| `config_gen_gates.sh: a per-package mutation failure reaches the runner's records with its pkg, reason and measured (base#1467)` | cg-gates mutation prints one `cg_event config_gen_mutation_package_failed pkg= reason= [measured=]` line on stderr, the writer gremlins shares, for each package it fails (cmd/cg-gates TestMutation holds those exact lines; base#1546). The issue's gremlins criterion is that any per-package failure fails the gate with pkg=; the build log reaches the JSON log only through this runner, so its record must keep the package, the reason and the measured efficacy, then the gate's own record (base#1467). |
 | `config_gen_gates.sh: every id build-events.txt lists is re-emitted with its file= and registered with the logger (base#1467)` | The ids the build may print are one table, dockerfile/config-gen/internal/buildgate/testdata/build-events.txt, which buildgate's own test holds every ev() id to. A runner with a second, hand-kept list dropped the mutation gate's unmapped, manifest_invalid and no_such_package refusals, so a notes.txt refusal reached the runner's records with no file= (base#1467). Every listed id must be re-emitted with its file=, and be registered with the logger. |
 | `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
 | `config_gen_redpath.sh: sourced, it leaves its caller's nounset, errexit and pipefail as they were (base#1465)` | Sourced, the redpath only defines its tables and functions (the case tables are read that way); a caller that sources it must not come back with nounset or errexit turned on, the #869 contract (base#1465). |
@@ -2129,6 +2218,8 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: a mutation or sensitivity case missing any part of its contract fails with that part's reason (base#1467)` | A mutation or sensitivity case passes only on the gate's own verdict for what the case planted: an uncommitted change (dirty=yes in the manifest the build was handed), the runner's one package failure record naming the planted package by pkg= with its reason and measured efficacy, the weak record for the planted golden, and the mapping's refusal record naming the planted file. Each row breaks one part, which would otherwise let a gate that judged another package, failed one with no pkg= attribution, or refused for another reason, pass the redpath (base#1467). |
 | `config_gen_redpath.sh: an after-admit case missing any part of its contract fails with that part's reason (base#1467)` | An after-admit case passes only when the ignored-input gate refused it after every S1b gate: exit exactly 1, the six ok lines, the gate's record first, and one record of its event naming the planted file. Each row breaks one part (base#1467). |
 | `config_gen_redpath.sh: a retro answer missing any part of its contract fails with that part's reason (base#1467)` | The retro case passes only on a clean run from the empty base it planted that judged every package of the module and mapped every module file: a run that exited non-zero, printed other than the six ok lines, was handed a dirty manifest, refused a file as unmapped or judged another package set is each a gate that did not see the whole module (base#1467). |
+| `config_gen_redpath.sh: a retro verdict glued after gremlins' Gathering coverage progress still counts (base#1546)` | BuildKit merges the mutation gate's streams into one step log, and a package's verdict can land after gremlins' unfinished progress text on the same line. The ok row is the base#1443 ship's build log verbatim (lines 955-956), where the retro run judged cmd/cg-gates; the no-mutants row is the same two lines with the gate's other passing verdict. Each replaces that package's sole passing line, and the verdict is still that package's, so the retro case must count either form (base#1546). |
+| `config_gen_redpath.sh: a retro verdict after other text than gremlins' progress, or cut short, does not count (base#1546)` | The glued form the retro case counts is gremlins' own progress literal and nothing else. A line with other text before the verdict (a forged prefix, or progress text that already finished), or a verdict cut short, is not that package's verdict, so the retro case must still report package_set_mismatch. The partial rows run on a plain line and on one glued after gremlins' progress, so the glued form is held to the same full verdict as the plain one, and the rows cover both passing verdicts, ok and no-mutants (base#1546). |
 | `config_gen_redpath.sh: a green case whose build log lacks its line fails with reason green_line_missing (base#1467)` | The docs-only green case is a change outside the module: the mutation gate must be handed the no-change marker and say it tests nothing, not pass because it tested something else. A green case whose build log lacks the line its row names fails (base#1467). |
 | `config_gen_redpath.sh: a stale case changes the copy in a step after every real one, and a green case reaches the runner as its git state (base#1465)` | A stale case's change must happen after 00-manifest wrote the baseline and 01-admit installed the checker, or the baseline already holds it and admission has nothing to refuse; a green case's change must reach 00-manifest as the git state it names. The steps and module each call ran with are what the real build would see (base#1465). |
 | `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
@@ -2168,6 +2259,57 @@ stderr line `cg_event config_gen_manifest_stale file=<f> reason=<r>`.
 | `config_gen_mutation_lang: _cgm_unquote inverts _cgm_quote for one name holding every byte 0x01-0xff but / (base#1465)` | The quoted spelling is the producer's; admission reads a spelling back with _cgm_unquote and must get the name on disk for every byte but / and NUL. (base#1465) |
 | `config_gen_mutation_lang: _cgm_hash_line prints spelling TAB sha256 for a regular file and rc 1 for anything else (base#1465)` | A sha256 line binds a spelling to the bytes of a regular file; a path [[ -f ]] refuses (a dangling symlink, a fifo) has no bytes to bind. (base#1465) |
 | `config_gen_mutation_lang: _cgm_stale writes file= as one word, %XX outside ! to ~ and for % (base#1465)` | A refusal value is one word whatever the name holds: each byte outside ! to ~, and the % itself, is %XX. (base#1465) |
+
+### test/bats/unit/config_gen_paths_spec.bats (10)
+
+script/ci/config_gen_paths.sh is the config-gen DENY list: an exact path on
+it drops the config-gen job (check_selection.sh, row 3). The list is checked
+from both sides. List side: each entry is a tracked regular file outside
+config-gen's drivers and the trees it reads whole. Reader side: no entry is
+a file the traced config-gen host run read
+(script/ci/config_gen_readers.sh), and no config-gen input text names one. A
+file that becomes a reader fails this spec in the PR that makes it one,
+because that PR changes a file under script/test/, script/ci/,
+dist/script/docker/lib/ or dockerfile/, which runs coverage.
+
+Expected values come from the four rules in config_gen_paths.sh's header,
+the canaries r3's traced run saw (scratchpad 1584-r3d/bashenv-out.txt) and
+the workflow and scripts themselves, never from the deny list's own output.
+
+| Test | Description |
+|------|-------------|
+| `config_gen_paths: every entry is a regular file outside config-gen's own trees (base#1584)` | cycle 10, rules (a) and (b). An entry that is a symlink would let a change to the target's twin path skip config-gen (RR4-F2): the 8 tracked symlinks (script/{build,exec,prune,run,setup,setup_tui,stop}.sh, script/docker/justfile.docker) must never be entries. An entry under config-gen's drivers, the selection's own files or a tree config-gen reads whole (_rp_copy, config_gen_redpath.sh; the just-pin step) would drop config-gen for a change it reads. git cannot read /source when it is a mounted worktree (coverage_badge_spec.bats), so the tracked check runs where git can, and the regular-file check runs everywhere. |
+| `config_gen_paths: no entry is a file the traced config-gen host run read (base#1584)` | cycle 11, rule (c). The traced run must have traced config-gen (every canary), and no entry may be a file it read, logically or physically, in either tracer channel. |
+| `config_gen_paths: an entry the traced run read is reported (base#1584)` | cycle 11's red, kept as a case: an entry that IS a reader must be reported. dist/script/base/just-version.sh is the just-pin step's own script. |
+| `config_gen_paths: every sourced canary is in the xtrace channel alone (base#1584)` | cycle 11, the xtrace channel's own check. A canary a host step sources (`source` / `.` in script/test/config_gen* or script/watch) must be in the xtrace lines alone, so a blind xtrace channel fails here even while the DEBUG channel still sees the canaries. |
+| `config_gen_paths: the traced run ran every config_gen_redpath.sh case (base#1584)` | cycle 31. config_gen_redpath.sh must run in full: a run cut down to a subset of its cases (CONFIG_GEN_REDPATH_ONLY, a timeout) could miss a file one case reads. Every case of _RP_CASES, read from the script itself, must have an `_rp_case` record, and its main's last call, `_rp_retro` (main's order at base#1547's split), one too. |
+| `config_gen_paths: no config-gen input text names an entry (base#1584)` | cycle 12, rule (d). An entry a config-gen input text names may be read through a path the tracer cannot see (a data read), so the name alone removes it. |
+| `config_gen_paths: an entry a config-gen step names is reported (base#1584)` | cycle 12's red, kept as a case: a scratch copy whose 30-watch-gosum step names dist/env.toml (an entry) must report it. |
+| `config_gen_paths: an entry a config-gen-redpath run block names is reported (base#1584)` | review round 2. base#1547 split the config-gen job in two, and a rule (d) that read the old job `config-gen` read no run block at all. A run block of either split job that names an entry must be reported: here config-gen-redpath's go-redpath line names dist/env.toml. |
+| `config_gen_paths: rule (d) fails when no config-gen job is found (base#1584)` | review round 2. With no job that gates on select_config_gen, rule (d) has no run block to read; that fails rather than passing on an empty text. |
+| `config_gen_paths: no host-side shell code can blind the reader tracer (base#1584)` | the tracer cannot fail open quietly: no host-side file may install a DEBUG trap, turn off functrace or xtrace, or move the xtrace fd or prompt. Any of these in a host step would blind a channel, so its mere presence in shell code under script/, dist/, dockerfile/ or a justfile fails here. |
+
+### test/bats/unit/config_gen_readers_spec.bats (8)
+
+script/ci/config_gen_readers.sh is the reader side of the config-gen deny
+list (config_gen_paths_spec.bats). A sourced file it misses could stay a
+deny entry while config-gen reads it, so its channels are proven on planted
+steps: a path built at runtime (no text names it), a sourced file that only
+defines functions (the DEBUG channel never sees it, r7 probe), one that does
+not parse, and a read through a symlink.
+
+The planted copy is traced once per file and shared by every case.
+
+| Test | Description |
+|------|-------------|
+| `config_gen_readers: a source through a runtime-built path is a reader (base#1584)` | cycle 13 (a). A step sources dist/script/base/init.sh through `${d}` set at runtime, so no text names the path and shellcheck passes the line; the trace must still hold it, so the deny entry fails config_gen_paths_spec. |
+| `config_gen_readers: a sourced file that only defines functions is a reader (base#1584)` | cycle 13 (b) (RR6-F3). A sourced file that only defines a function never runs a command, so the DEBUG channel alone misses it (r7 probe: defs.sh absent from the DEBUG log). The xtrace channel logs the source. |
+| `config_gen_readers: a sourced file that does not parse is a reader (base#1584)` | cycle 13 (c). A sourced file that does not parse runs nothing either; the source command is still logged before it fails. |
+| `config_gen_readers: a read through a symlink names the link and its target (base#1584)` | cycle 14 (RR4-F2). A read through a symlink names both the link and its target, so a deny entry for either fails. |
+| `config_gen_readers: the config-gen jobs are the jobs that gate on select_config_gen (base#1584)` | cycle 30, review round 2. The traced commands are what the config-gen jobs run, so the job set comes from the workflow: every job whose `if:` reads classify's select_config_gen key. base#1547 split the one config-gen job into config-gen-gates and config-gen-redpath (d6dfdb08), and a reader keyed on the old name `config-gen` read no run block at all. The expected names are main's two jobs. |
+| `config_gen_readers: no config-gen job, or one with no run step, is refused (base#1584)` | cycle 30, review round 2. A workflow where no job gates on select_config_gen, or where a config-gen job has no `run:` step, gives the tracer nothing to run. That must fail the deny-list spec, never read as an empty reader set. |
+| `config_gen_readers: the run blocks are both config-gen jobs', each matrix value expanded (base#1584)` | cycle 30, review round 2. Each run block runs as the job runs it, so a `${{ matrix.<key> }}` is expanded once per value of the job's matrix: config-gen-redpath runs `just test go-redpath <n>/5` for shards 1..5 (its matrix, which self_test_yaml_spec holds to the shard table), and together the five shards run every redpath case. Both jobs' just-pin blocks are there too. |
+| `config_gen_readers: a run block with an expression it cannot evaluate is refused (base#1584)` | cycle 30, review round 2. An expression other than one matrix key is a value this script would have to guess, so the block is refused rather than run with the expression left in or dropped. |
 
 ### test/bats/unit/config_gen_s7_verdicts_spec.bats (2)
 
@@ -2254,7 +2396,7 @@ empty setup.toml section and answer zero (base#1398).
 | `_print_config_summary refuses a setup.toml that cannot be parsed (base#1398)` | The summary is the screen a user reads before a build; an empty setup.toml section over a file that failed to parse tells them their configuration is the template defaults when nothing was read (base#1398). |
 | `_print_config_summary refuses a malformed setup.toml with no recognised header (base#1398)` | The empty-file hint is chosen by a header grep, and a malformed file the grep does not recognise (`[gui` unclosed, or a bare unterminated `mode = "off`) took that branch: it printed "no section overrides -- using template defaults" with rc 0 and never parsed the file. The parse decides, not the grep (base#1398). |
 
-### test/bats/unit/coverage_badge_spec.bats (47)
+### test/bats/unit/coverage_badge_spec.bats (49)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -2271,6 +2413,8 @@ three tests assert the repo's own published figure, not the generator.
 | Test | Description |
 |------|-------------|
 | `coverage_badge: renders the measured rate into a self-contained SVG` | The output is an SVG carrying the measured percentage |
+| `coverage_badge: the label reads coverage and the value carries rate and version (base#1545)` | The visible label is the bare word `coverage`; the version rides in the value block, so the figure still names its release (base#1545) |
+| `coverage_badge: --unmeasured keeps the label bare and the version in the value (base#1545)` | The unmeasured rendering moves the version the same way (base#1545) |
 | `coverage_badge: the SVG carries the version the figure belongs to` | Defaults to `.version`, so the figure names its release |
 | `coverage_badge: --version overrides the .version default` | The bump passes the version it is promoting to |
 | `coverage_badge: the SVG references no external host` | No renderer, no fetch -- it ports to GitLab unchanged |
@@ -2661,7 +2805,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (119)
+### test/bats/unit/derived_figures_lint_spec.bats (121)
 
 | Test | Description |
 |------|-------------|
@@ -2680,6 +2824,8 @@ refused before any build or bundle step.
 | `_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)` | - |
 | `_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)` | - |
 | `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
+| `_run_derived_figures: scans the doc/guide pages too (base#1545)` | The README's deep sections moved to doc/guide/; a stale stage set or a kcov claim there must stay inside the lint's reach (base#1545) |
+| `_run_derived_figures: a tree with no doc/guide pages is still clean (base#1545)` | A tree with no doc/guide/ at all is still clean -- the glob is a reach, not a requirement (base#1545) |
 | `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
 | `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |
 | `_run_derived_figures: FAILS when the count is a number but the wrong one (#874)` | - |
@@ -5222,7 +5368,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (37)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (38)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -5269,6 +5415,7 @@ local mode with it.
 | `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | The plan's gates were hand-written and drifted from the workflow: acceptance ran in CI on every code change and locally only on system paths. Reading each job's own if: gate makes such a drift red here. |
 | `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
 | `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
+| `pre-PR mirror: a diff the map selects system for but system_paths.sh does not match plans system (base#1584)` | CI gates system on classify's map, which selects it for a path system_paths.sh does not name; a plan that read system_paths.sh alone skipped `just test system` for such a diff (base#1584). |
 | `pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)` | - |
 | `pre-PR mirror: the coverage matrix is the one compute-shards computes for the same CI_SHARDS (base#1409)` | The mirror ran the unsharded `just test coverage`, one serial kcov over the suite, while CI runs a matrix of weighted shards, each dealt into COVERAGE_JOBS concurrent kcov slices (base#1410, base#1414); a failure that only that shape produces passed the mirror and went red in CI (base#1409 landing review). The matrix the mirror runs is held to the matrix compute-shards computes from the same variable. |
 | `pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)` | The shard list alone proves nothing if each shard runs another command or slice count than CI's, or if one shard's tree carries another run's reports: a coverage run merges into whatever coverage/ holds, so the matrix carried earlier reports into every later shard and the floor read lines that shard never covered (base#1409 review round 10). |
@@ -5289,8 +5436,8 @@ local mode with it.
 | `acceptance job: CI runs the amd64 acceptance steps through script/ci/acceptance.sh (base#1409)` | - |
 | `acceptance job: checks the just it runs against the pin in its own shell (base#1409)` | Moving every acceptance step into script/ci/acceptance.sh took the job's only `just` invocation out of its `run:` shells, which is all the tool provenance lint reads; the lint then saw no job reach any pinned tool and failed its demand floor. The job runs `just`, so its own shell asks that binary for its version and holds it to the pin. |
 | `acceptance job: just test acceptance runs the same script CI runs (base#1409)` | - |
-| `pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)` | A gate read by substring took `<code gate> && false` -- a job that never runs -- for a code-gated job, so the plan check demanded a local command for it and the mirror attested a job CI never ran. |
-| `pre-PR mirror: config-gen is attested by exactly just test go (base#1462)` | config-gen joins ci-rollup's needs, so the mirror must run the same one command CI runs for it, and that command must resolve to a recipe. base#1547 split the hosted job into config-gen-gates and the config-gen-redpath shard matrix, which run `just test go`'s two recipes; the mirror runs `just test go` itself, their union, for both. |
+| `pre-PR mirror: a job if: that only contains the code gate reads as unknown (base#1462)` | A gate read by substring took `<gate> && false` -- a job that never runs -- for a gated job, so the plan check demanded a local command for it and the mirror attested a job CI never ran. |
+| `pre-PR mirror: config-gen is attested by exactly just test go (base#1462)` | config-gen joins ci-rollup's needs, so the mirror must run the same one command CI runs for it, and that command must resolve to a recipe. base#1547 split the hosted job into config-gen-gates and the config-gen-redpath shard matrix, which run `just test go`'s two recipes; the mirror runs `just test go` itself, their union, for both. Both jobs gate on the one select_config_gen key (base#1584), so _ci_gate reads the same map job, config-gen, from each. |
 | `pre-PR mirror: a config-gen diff plans just test go and a docs-only diff does not (base#1462)` | The config generator's sources are code paths; a diff touching only them must plan the Go gates, and a docs-only diff must not. |
 | `pre-PR mirror: a mutation-baseline diff plans just test go and just test (base#1464)` | The mutation baseline (base#1464) is a script the 00-manifest step runs inside `just test go`, and its spec is integration tier. A diff that touches only one of the three must plan both, so the mirror runs the step and the spec that pins it. The mirror sets no CONFIG_GEN_MUTATION_CONTEXT, so it runs the pr default the spec proves. |
 | `pre-PR mirror: a config-gen diff calls just with argv test go, and its red fails the mirror (base#1462)` | The plan naming `just test go` is a string; what CI attests is the recipe `just` runs for argv `test go`, and that its red reaches the mirror's own exit status (base#1462). |
@@ -6436,7 +6583,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate gates the [security] keys the resolver reads (#876)` | - |
 | `_schema_validate gates image.rule_N against the dispatch prefixes (#876)` | - |
 
-### test/bats/unit/self_hosted_guard_lint_spec.bats (23)
+### test/bats/unit/self_hosted_guard_lint_spec.bats (24)
 
 | Test | Description |
 |------|-------------|
@@ -6458,13 +6605,14 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: PASSES an eligible job that carries the guard alone` | - |
 | `self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate` | - |
 | `self-hosted guard: FAILS an eligible job whose if: is a near-miss reword` | - |
+| `self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)` | The first slice of base#1587: the old canon passed this fixture (lint exit 0), so a queue run could put a group holding fork-authored code on a self-hosted runner. Leaving the canon unchanged fails here. |
 | `self-hosted guard: an unrelated job-level if: does not satisfy the guard` | - |
 | `self-hosted guard: FAILS when the workflow directory is missing` | - |
 | `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (151)
+### test/bats/unit/self_test_yaml_spec.bats (158)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6681,13 +6829,14 @@ file instead: every job the workflow declares is named DIRECTLY in
 `ci-rollup`'s `needs:` (directly, because `if: always()` means it can only
 see its own needs, and a job reached through a failed one arrives as
 SKIPPED, which the tolerant bucket passes); every job `ci-rollup` needs is
-bound to a `*_RESULT` and compared in EXACTLY ONE of the two result loops (a
-needed job nothing compares is waited for and ignored); and `release`'s
-transitive `needs:` closure equals the set `ci-rollup` names, since the tag
-path does not go through `ci-rollup`. The two defects that motivated this
-land with it: `compute-shards` joins `ci-rollup` in the STRICT loop, and
-`coverage-gate` joins `release`'s `needs:` so a tag cannot cut a Release
-below `COVERAGE_MIN`. Because the roster prose in this blurb is hand-kept in
+read by the verify step (a needed job nothing compares is waited for and
+ignored; since base#1584 the step walks ${{ toJSON(needs) }} and the guard
+runs it with each need red in turn); and `release`'s transitive `needs:`
+closure equals the set `ci-rollup` names, since the tag path does not go
+through `ci-rollup`. The two defects that motivated this land with it:
+`compute-shards` joins `ci-rollup` in the STRICT loop, and `coverage-gate`
+joins `release`'s `needs:` so a tag cannot cut a Release below
+`COVERAGE_MIN`. Because the roster prose in this blurb is hand-kept in
 exactly the way the guards forbid, the file -- not this paragraph -- is now
 the record of who needs whom.
 
@@ -6806,10 +6955,11 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance shards run on the matrix runner (#603)` | - |
 | `self-test.yaml: acceptance Obtain step pulls the matrix platform, not a hardcoded amd64 (#603)` | - |
 | `self-test.yaml: system job declares needs on actionlint AND classify (#317)` | - |
-| `self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)` | - |
+| `self-test.yaml: bats-fragile job-level if: gates on classify's select_bats_fragile (#677, base#1584)` | - |
 | `self-test.yaml: no monolithic 'test:' job remains after #377 split` | - |
-| `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
-| `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
+| `self-test.yaml: acceptance job-level if: gates on classify's select_acceptance (#317, base#1584)` | #317 gated acceptance on code_changed. base#1584 narrows it to classify's map: the consumer gets the whole checkout (script/ci/acceptance.sh:90), so only docs and `*_spec.bats` leaves drop it, and a spec-only PR no longer pays for both arch legs. |
+| `self-test.yaml: system job-level if: gates on classify's select_system (#317 P3, base#1584)` | - |
+| `self-test.yaml: both config-gen jobs' job-level if: gates on classify's select_config_gen (base#1584)` | PR base#1559 changed one spec and two docs, code_changed was true, and config-gen ran 111 min (run 42549448309). base#1584 has a pull request run a heavy job only when classify's map selected it, so config-gen must read its own select_config_gen output, not the shared code_changed answer. base#1547 split config-gen into config-gen-gates and the config-gen-redpath matrix; both read the same inputs, so both gate on the one select_config_gen key, the whole `if:` compared, not a substring. |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
 | `self-test.yaml: only the builders' push-main steps write the test-tools cache, and no other cache-to form slips past (base#1588)` | - |
@@ -6843,25 +6993,31 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)` | The sharded kcov run is the primary unit gate; out of the rollup, a kcov failure would merge. |
 | `self-test.yaml: ci-rollup runs unconditionally via if: always() (#337)` | Without it a failed need skips the rollup, and branch protection reads a skipped required check as missing rather than red. |
 | `self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)` | A need the verify step never reads is waited on and then ignored: its failure turns nothing red. |
-| `self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)` | The gated jobs skip on doc-only PRs by design; without the tolerant loop those PRs could never merge. |
+| `self-test.yaml: ci-rollup needs every conditionally-gated job (#337 + #377)` | The gated jobs skip on doc-only PRs by design; without skip tolerance those PRs could never merge. Since base#1584 the tolerance is the rollup's skip table, and it is proven by running the lifted step, not by matching its text: workflow_failure_surface_spec.bats skips every gated job ci-rollup needs, in turn, with the classify answer its own `if:` reads set `false` (must pass) and set `true` (must fail), and runs a doc-only run with every gated job skipped (#1014, must pass). This case keeps only the membership half: every gated job is one ci-rollup needs, so none of them can drop out of the required check unseen. |
 | `self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)` | The ungated jobs never skip on purpose, so a SKIPPED there is a workflow bug the strict loop must not collapse into a pass. |
+| `self-test.yaml: the test-tools-image builders always run and their skip fails ci-rollup (base#1588, base#1584)` | The two test-tools-image builders (base#1588) feed doc-counts, lint-static and mutation-roster, which carry no `if:`, so the builders must run on every event too -- merge_group included (base#1587). The rollup's job-to-key map (base#1584) excuses a skip only for a job it names, so the decision is explicit: the builders carry no job-level `if:` and the map does not name them, which makes their skip fail. |
 | `self-test.yaml: ci-rollup treats compute-shards as hard-mandatory, not SKIPPED-tolerant (#1009)` | compute-shards carries no `if:` gate, so a SKIPPED there is a workflow bug and not a conditional job declining to run. It is also the one job whose FAILURE is otherwise invisible: coverage needs it and coverage-gate needs coverage, and both of those sit in the rollup's skipped-tolerant bucket, so putting compute-shards in the tolerant bucket too leaves the required check green with the entire unit suite and the coverage floor never run. |
 | `self-test.yaml: every job the workflow declares is named directly in ci-rollup's needs (#1009)` | This is the guard that makes the merge gate's roster DERIVED rather than hand-kept, and it is the recurrence #1009 asks to close: adding a job to the workflow used to update neither ci-rollup's needs nor any assertion, so the new job gated nothing and every existing test stayed green. Directly and not transitively, because ci-rollup runs under `if: always()` and reads each upstream's `.result`: GitHub reports a job whose need failed as SKIPPED, and SKIPPED is pass-equivalent in the tolerant bucket, so a job reached only through another is invisible to it. |
-| `self-test.yaml: ci-rollup inspects every job it needs, in exactly one result bucket (#1009)` | Joining `needs:` is only half a gate, so the guard above is not enough on its own. The rollup's verdict is the two loops over the `*_RESULT` variables: a job that is needed but compared in neither loop is waited for and then ignored, which is the same green as never having been needed, with a needs list that reads as correct. Exactly one bucket rather than at least one, because a variable in both is strict and tolerant at once. No pre-existing test caught a `*_RESULT` dropped from a loop. |
+| `self-test.yaml: ci-rollup inspects every job it needs (#1009)` | Joining `needs:` is only half a gate, so the guard above is not enough on its own. A job that is needed but whose result the verify step never reads is waited for and then ignored, which is the same green as never having been needed, with a needs list that reads as correct. Since base#1584 the step walks every key of ${{ toJSON(needs) }}, so the proof is behavioural: every need's failure, cancel and unexcused skip fails the step, and an all-success run passes. |
 | `self-test.yaml: the tag path requires exactly what the merge gate requires (#1009)` | The two guards above cover the PR path only. `release` does not go through ci-rollup -- ci-rollup is not in its `needs:` -- so the merge gate and the tag path were independent hand-kept lists of the same thing with nothing making them agree, and coverage-gate sat in one of them only. That left the coverage floor enforced on every PR and unenforced on the one path that publishes a Release, which is the half of #1009 no assertion about either roster could have found. |
 | `self-test.yaml: the closure walk reports a dangling needs: entry instead of walking forever (#1009)` | The guard above compares a transitive closure, so it is worth no more than the walk that computes it -- this is the test that keeps that one from being vacuous. `yaml_job_needs` answers an undeclared job id with a `BUG:` line and a non-zero status; a walk that reads the line and drops the status queues the diagnostic as another job id, and since each bogus id yields a new and longer line the seen-set never dedupes, the walk never ends. That turns exactly the roster drift this spec exists to catch -- a renamed job still named in a `needs:` entry -- into `just test` hanging with no TAP output and a container left spinning, which is the worst failure mode available to it. |
 | `self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)` | - |
 | `self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)` | - |
 | `self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)` | - |
+| `self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)` | A merge_group payload has no pull_request object, so only the API can say whether a queued group is same-repository; classify must ask it on merge_group and publish the answer, failing closed (base#1587) |
+| `self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)` | build-worker's merge_group_same_repo input defaults to 'false', so a worker-selftest that passes nothing would skip `build` on every queue run and fail the gate even for a proven same-repo group (base#1587) |
+| `self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group the build guard skips `build` unless classify proved the group same-repository, and SKIPPED is pass-equivalent in the rollup; the rollup must apply the fork rule there too, or an unproven queue group would go green on a build that never ran (base#1587) |
+| `self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)` | IS_FORK_PR is now also true for a merge group not proven same-repository, so the rollup's red must say that case too, or a queue run reads as a fork PR that does not exist (base#1587) |
 | `self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate` | The CI run on a watch/ branch IS the proposal's whole answer; a branches: filter here would leave every proposal green with zero checks |
+| `self-test.yaml: on: listens for merge_group checks_requested (base#1587)` | A merge queue only runs the suite on the queued group when the workflow listens for merge_group; without the trigger the queue's required checks never report and nothing reaches main (base#1587) |
 | `self-test.yaml: the pin-coverage lint has a lint-static CI join` | A PR is the only moment pin-coverage can fire; with no CI join it would gate a local just test and nothing a reviewer ever sees |
 | `self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)` | - |
 | `self-test.yaml: worker-selftest drives the worker with a minimal fixture repo (#802)` | - |
-| `self-test.yaml: worker-selftest needs actionlint + classify and gates on system_relevant (#802)` | - |
+| `self-test.yaml: worker-selftest needs actionlint + classify and gates on select_worker_selftest (#802, base#1584)` | - |
 | `self-test.yaml: ci-rollup consumes worker-selftest as a SKIPPED-tolerant gate (#802)` | - |
 | `self-test.yaml: release gate requires worker-selftest before publishing a tag (#802)` | The tag path does not go through ci-rollup; a gate missing from release's needs is one a release can ship past. |
 | `self-test.yaml: declares shellcheck job (#376)` | - |
-| `self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)` | - |
+| `self-test.yaml: shellcheck job needs actionlint + classify and gates on select_shellcheck (#376, base#1584)` | - |
 | `self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)` | - |
 | `self-test.yaml: shellcheck job installs no shellcheck on the runner (base#1412)` | base#1080 made the runner install the pinned tarball so CI stopped running whatever ubuntu-latest shipped. base#1412 moved the job into the test-tools image, which carries the pin; a tarball install left behind would be a second, unused route to the binary, and a runner-side shellcheck is exactly what the image path exists to retire. |
 | `self-test.yaml: shellcheck job does not restate a tool version (#1080)` | One declaration, not a second copy of the number. The version lives in dockerfile/Dockerfile.test-tools and reaches this job through the image, so a version literal in the job would be a second place to forget. |
@@ -6877,7 +7033,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)` | The anti-roster assertion, stated over the workflow rather than over the partition. A matrix entry that NAMES a driver is the roster coming back: the day a driver is added it is not in the list, and nothing says so. Every entry must therefore be a position in the partition and nothing else -- and the positions must be a partition: one total shared by all of them, each index once, as many entries as the total. A matrix of ['1/4', '2/4'] would run half the lint phase and go green over it. |
 | `self-test.yaml: each lint-static leg's lint step is named for every lint its group runs (base#1571)` | A leg named only `lint-static (2/4)` says nothing on the checks page about which lints it ran (base#1571). The membership is computed from test.sh's _LINT_TOOLS table (base#1071), so a list written into the workflow would be a roster; the name of the step that runs the group must instead read the members from an earlier step's output. The test runs that earlier step for every group, renders the step name with what it wrote, and checks the name against the group's members as `test.sh --lint-group-members` prints them. |
 | `self-test.yaml: declares hadolint job (#376)` | - |
-| `self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)` | - |
+| `self-test.yaml: hadolint job needs actionlint + classify and gates on select_hadolint (#376, base#1584)` | - |
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |
 | `workflows: no step runs a lint on the host, whatever the spelling (base#1412)` | base#1412, the negative half. No step of any workflow may reach a lint on the host: that is the parity the local gate and CI share, and it is decided by what the step does when bash runs it, so no spelling of a host arm is invisible to it. |
 | `self-test.yaml: every lint job runs its lint inside the test-tools image (base#1412)` | base#1412, the positive half. Not linting on the host would also be satisfied by a lint job that stopped linting. Each lint job has to reach the image the one way every image job does and run its lint there: the probe has to see `compose run ... ci` with LINT_ONLY=1 under the workflow's own TEST_TOOLS_IMAGE, which is the image compose.yaml's `ci` service runs. |
@@ -6896,7 +7052,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)` | - |
 | `self-test.yaml: no bats-unit shard matrix remains after #677` | - |
 | `self-test.yaml: declares coverage job (#377)` | - |
-| `self-test.yaml: coverage now runs on PRs (gated on code_changed), not main-only (#615 amends #377)` | - |
+| `self-test.yaml: coverage now runs on PRs (gated on classify's select_coverage), not main-only (#615 amends #377, base#1584)` | - |
 | `self-test.yaml: coverage runs as the primary kcov unit gate over a DYNAMIC shard matrix (#615 + #677 + #725)` | - |
 | `self-test.yaml: compute-shards job emits a dynamic shard array from vars.CI_SHARDS (default 8, clamped) (#725)` | - |
 | `self-test.yaml: coverage invokes test.sh --coverage-shard + uploads each shard report as a CI artifact (#710)` | - |
@@ -6929,8 +7085,8 @@ rolling tag itself (#697, #1010)
 | `config-gen parity: a BASH_ENV exported by a setup step on self-hosted is refused (base#1462)` | The same mutation on the self-hosted copy, whose expectation is built from the same steps. |
 | `self-test.yaml: acceptance's three just-pin steps equal the config-gen literal (base#1462)` | The config-gen job's just-pin steps are copies of acceptance's, and the workflow comments say the parity spec holds them equal. With the expectation a literal here, acceptance is held to the same literal. |
 | `self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)` | Branch protection requires ci-rollup alone; a config-gen job outside its needs, or whose result the step never reads, is a red nobody sees. The step is run, not grepped, for every need. |
-| `self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)` | config-gen is gated on code_changed, so on a doc-only diff it skips; the rollup must read that skip as a pass and a failure or cancel as red. |
-| `ci-rollup check: a need whose result no loop reads is caught (base#1462)` | The rollup check must see a need that is listed and keyed but left out of every loop, or it proves nothing about the next job added. |
+| `self-test.yaml: ci-rollup passes config-gen success and a decided skip, fails failure and cancelled (base#1462)` | config-gen skips where classify's map deselects it; the rollup must read that skip as a pass and a failure or cancel as red. The skip passes only on the classify answer it came from (select_config_gen=false); a skip classify did not decide fails, whatever code_changed says (base#1584). |
+| `ci-rollup check: a need the verify step leaves out is caught (base#1462)` | The rollup check must see a need the verify step leaves out, or it proves nothing about the next job added. A mutant whose walk drops config-gen-gates must be reported. |
 | `self-test.yaml: the required-kill roster runs once per mutation-roster leg, on its shard, gated, and never in lint-static (base#1571)` | The hosted environment. The roster runs in a job matrix of its own, `mutation-roster`, named for what it does, and not inside lint-static, where it took about 97% of each shard and was invisible from the checks page (base#1571). Its legs are exactly shards 1/N..N/N, so together they probe every row; each leg runs the roster exactly once, on its own shard, with no `if:` and no continue-on-error, and a red roster fails the step. No lint-static leg runs it at all. |
 | `coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)` | The self-hosted environment runs the same command beside `just test go`, gated the same way. |
 | `roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)` | The probe decides by execution. Each spelling that runs the driver is seen once, a step that does not run it is not seen, and the two ways a step can run it without gating -- `\|\| true` and an `if:` -- are caught. |
@@ -10014,7 +10170,7 @@ than by the caller who follows it.
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
 
-### test/bats/unit/workflow_failure_surface_spec.bats (12)
+### test/bats/unit/workflow_failure_surface_spec.bats (20)
 
 Five properties of the workflow tree, four of them about what a reader
 learns from a failed run and the fifth about what the tree itself records. A
@@ -10045,8 +10201,16 @@ before reading an empty result as a clean one.
 | `build-worker: the aggregator still passes a doc-only PR and a green matrix (#1014)` | The two passes the aggregator owes, asserted so the message work above cannot quietly turn either into a failure: a doc-only PR short- circuits green (the required check still has to resolve), and a matrix that succeeded is a pass. |
 | `build-worker: a cancelled matrix reads as cancelled, not as a broken build (#1014)` | The cost of a concurrency group, paid where it lands. A cancelled run still executes an `if: always()` aggregator, so a superseded PR push arrives here as `cancelled` -- which is not a build failure and must not be reported as one. Asserted on the sentence only the cancelled branch prints, and against the generic one: the word `cancel` alone is bought by the result line the step echoes before any branch runs, so a test spelled that way stays green with the branch deleted. |
 | `build-worker: a failed matrix is reported as a failed build (#1014)` | The third red, which nothing else pins. Delete it and a plain `failure` falls off the end of the script and exits 0 -- a failed matrix reported as a passed required check -- while the two reds above stay green. It has to say which red it is for the same reason they do: a build that failed is neither a fork refusal nor a superseded run. |
-| `self-test: the rollup names the doc-only classification it passed on (#1014)` | A doc-only PR emits nine grey skips beside a green `ci-rollup`. A reviewer reading the checks list can see that; a reviewer reading only the required check sees an undifferentiated green, and the rollup's summary was identical for "everything passed" and "almost nothing ran". The classification the rollup already consumes is the answer, said out loud. |
+| `self-test: the rollup names the doc-only classification it passed on (#1014)` | A doc-only PR emits nine grey skips beside a green `ci-rollup`. A reviewer reading only the required check saw an undifferentiated green, and the rollup's summary was identical for "everything passed" and "almost nothing ran". The classification is the answer, said out loud. |
 | `self-test: a full green run is not announced as doc-only (#1014)` | The opposite direction, so the notice cannot be bought by printing it always: a full run that passed everything is not a doc-only run and must not claim to be one. |
+| `self-test: a run with some jobs deselected names them and is not doc-only (base#1584)` | a run where classify deselected some jobs is not doc-only either; the notice names the jobs classify skipped instead. |
+| `self-test: the rollup fails a classify-selected skip even when code_changed is false (base#1584)` | cycle 5 (redesign-r1 sec. 1, review round 1 F2). The old rollup passed a skip when `sel == false \|\| CODE_CHANGED == false`, so a config-gen skip classify had SELECTED passed on a doc-only diff. The job's own key is the only excuse. |
+| `self-test: the rollup passes a gated skip only when its own select key is false (base#1584)` | every gated job ci-rollup needs, in turn: its skip passes with its own select_* key `false` and fails with it `true`. The job set is read from `needs` and each job's `if:`, not from the rollup's text, and the key is the one the job's `if:` reads, never a rewrite of the job's name: config-gen-gates and config-gen-redpath both read select_config_gen (base#1547 split one job into two), and a rollup that guessed select_config_gen_gates from the name failed both decided skips. |
+| `self-test: the rollup fails the skip of a job its key map does not name, even when its name matches a key (base#1584)` | addendum point 2 (base#1547 split config-gen in two). The rollup finds a job's select_* key through an explicit job-to-key map; a job missing from the map has no excuse, so its skip fails even with every key `false`. The probe is a needs entry named `config-gen`: no such job gates on anything now, but its name rewritten (select_config_gen) is a real key, so a rollup that derives the key from the name excuses it. |
+| `self-test: the rollup fails every needed job's failure or cancel, whatever classify said (base#1584)` | cycle 7 (R1-F1). A skipped-only walk would pass a failure; every job ci-rollup needs fails it as `failure` and as `cancelled`, even with every select_* key `false`, the most permissive classify. |
+| `self-test: the rollup fails a compute-shards or mutation-roster skip (base#1584)` | cycle 8. compute-shards and mutation-roster carry no `if:` and no select_* key; on main both sit in the hard-mandatory success-only loop (`git show origin/main:.github/workflows/self-test.yaml`). A skip of either fails, even with every key `false`. |
+| `self-test: the rollup fails a skip when classify failed or its key is missing (base#1584)` | cycle 9. A failed classify leaves every output empty, so no skip is a decision; a key missing from the needs context is none either. |
+| `self-test: the rollup fails when the needs context is empty or unreadable (base#1584)` | no readable needs context is no evidence anything ran. |
 | `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |
 | `workflows: no concurrency group cancels a run whose verdict is the record (#1014)` | Cancellation is only free where the cancelled run's verdict no longer matters. On a PR branch a superseded push replaces it; on a main push or a tag the run IS the record, and on the publish path a cancelled `imagetools create` is how a rolling tag loses an arch. So a group may cancel a pull_request and nothing else -- and an `if: always()` aggregator turns whatever it cancels into a red required check. |
 | `workflows: every job that runs steps bounds them (#1014)` | A hung buildx burns GitHub's six-hour default before anyone sees it. The population is every workflow file, not the reusable workers alone: the workers were bounded first because a worker spends the CALLER's minutes, but the jobs that actually run a build here are self-test's eight-shard coverage matrix and its two-arch `acceptance` matrix, both self-hosted-eligible and both unbounded -- so the hazard the rule names lived entirely outside the set the rule scanned. The bound is per job rather than per workflow because that is the only place GitHub accepts one, and the roster is derived from the directory so the ninth workflow cannot land unbounded. |

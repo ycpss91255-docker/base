@@ -192,9 +192,26 @@ _gates() {
   done < <(_system_pathspecs)
   git -C "${repo}" diff --quiet "$@" -- "${_CODE_PATHSPECS[@]}" || echo code
   if (( ${#specs[@]} == 0 )) \
-      || ! git -C "${repo}" diff --quiet "$@" -- "${specs[@]}"; then
+      || ! git -C "${repo}" diff --quiet "$@" -- "${specs[@]}" \
+      || _map_selects_system "${repo}" "$@"; then
     echo system
   fi
+}
+
+# _map_selects_system <repo> <diff-arg>... -- succeeds when classify's map
+# (script/ci/check_selection.sh) selects the system job for the diff, or
+# cannot answer. Since base#1584 CI gates system on the map's job list,
+# which also selects it for a path system_paths.sh does not name (a path
+# no rule of the map claims, such as zz/unknown.txt), so the plan widens to
+# match; a map that
+# fails or prints no `system=false` fires the gate.
+_map_selects_system() {
+  local repo="$1" out
+  shift
+  out="$(git -C "${repo}" diff -z --name-only --no-renames "$@" \
+    | bash "${_MIRROR_ROOT}/script/ci/check_selection.sh" --event pull_request --paths 2>/dev/null)" \
+    || return 0
+  ! grep -qx 'system=false' <<<"${out}"
 }
 
 # _commands <gates> -- the commands to run for the gates _gates printed.

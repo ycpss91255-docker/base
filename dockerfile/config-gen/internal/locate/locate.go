@@ -42,8 +42,9 @@ type Occurrence struct {
 	// first byte on KeyLine; an implicit table's is its first creator's.
 	KeyCol int
 	// ValueEndLine is the 1-based line the key's value ends on (KeyLine
-	// for a header). An array value is given its start line, the line the
-	// library reports for it.
+	// for a header). An inline array or inline table value is given its
+	// start line, the line the library reports for it; under TOML 1.1 an
+	// inline table, like an array, may span lines (base#1469).
 	ValueEndLine int
 }
 
@@ -221,8 +222,24 @@ func (m *Map) InlineTables(path []string) []Occurrence {
 	return out
 }
 
-// Table is the unique lookup of a table path.
-func (m *Map) Table(path []string) (Occurrence, Lookup) { return unique(m.Tables(path)) }
+// Table is the unique lookup of a table path. An implicit record counts
+// only when the path has no explicit one: a table a header under it
+// creates and a later `[path]` declares is written once, at its header,
+// the line the library reports for it (base#1469: the s1 fixtures
+// interleaved.toml and empty_name_parent.toml).
+func (m *Map) Table(path []string) (Occurrence, Lookup) {
+	all := m.Tables(path)
+	var explicit []Occurrence
+	for _, o := range all {
+		if !o.Implicit {
+			explicit = append(explicit, o)
+		}
+	}
+	if len(explicit) > 0 {
+		return unique(explicit)
+	}
+	return unique(all)
+}
 
 // Key is the unique lookup of a key path.
 func (m *Map) Key(path []string) (Occurrence, Lookup) { return unique(m.Keys(path)) }
@@ -383,12 +400,11 @@ func (s *scanner) keyValue() {
 	for i := len(s.table) + 1; i < len(path); i++ {
 		n = s.open(n, path[:i], line, col)
 	}
-	array := s.peek() == '['
-	inline := s.peek() == '{' || array
+	inline := s.peek() == '{' || s.peek() == '['
 	k := n.add(parts[len(parts)-1], NKey, nil)
 	s.value(path, k)
 	end := s.line
-	if array {
+	if inline {
 		end = line
 	}
 	k.Occ = append(k.Occ, s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end}))

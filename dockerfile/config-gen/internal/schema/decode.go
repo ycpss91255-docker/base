@@ -191,14 +191,23 @@ func valueCharEvent(text string) string {
 //     (kindRefused) is conf_value_type_refused, and a scalar whose text
 //     Validate refuses is one refusal with Validate's event.
 func Decode(src []byte) (*Config, []Refusal) {
+	cfg, refusals, _ := decode(src)
+	return cfg, refusals
+}
+
+// decode is Decode plus the count of entry visits its loops over array
+// entries made, one per entry each loop visits. The scale check reads
+// the count, which grows with the work and not with the host's load
+// (base#1617).
+func decode(src []byte) (*Config, []Refusal, int) {
 	var doc map[string]any
 	md, err := toml.Decode(string(src), &doc)
 	lines := locate.Index(src)
 	if err != nil {
-		return nil, []Refusal{parseRefusal(lines, err)}
+		return nil, []Refusal{parseRefusal(lines, err)}, 0
 	}
 	if line, col, ok := undecodable(src); ok {
-		return nil, []Refusal{attributed(lines, line, col)}
+		return nil, []Refusal{attributed(lines, line, col)}, 0
 	}
 	root := bind(lines.Root(), doc, nil)
 	d := decoder{refused: map[string]bool{}, tables: map[string]bool{}}
@@ -214,6 +223,7 @@ func Decode(src []byte) (*Config, []Refusal) {
 			refused := d.checkEntries(def.Path, arrays[i])
 			line, col := arrays[i].declPos()
 			for _, e := range arrays[i].children {
+				d.visits++
 				if !refused[e] {
 					d.judgeValues(def.Path, e, line, col)
 				}
@@ -230,9 +240,9 @@ func Decode(src []byte) (*Config, []Refusal) {
 		Deprecated:  deprecated,
 		Tree:        tree,
 		Deferred:    deferred,
-		Arrays:      projectArrays(families),
+		Arrays:      projectArrays(families, &d.visits),
 		Stages:      projectStages(&tree),
-	}, d.refusals
+	}, d.refusals, d.visits
 }
 
 // decoder collects the refusals of one Decode.
@@ -242,6 +252,8 @@ type decoder struct {
 	refused map[string]bool
 	// tables holds the section text of every refused table.
 	tables map[string]bool
+	// visits counts the entry visits of the loops over array entries.
+	visits int
 }
 
 // scope is what the walk judges under a node.
@@ -736,8 +748,8 @@ func ProjectServices(t *Tree) map[string]*Service {
 // projectArrays types each accepted array as a family: every table
 // element is one entry at its own position, a field-less one included
 // (base#1443). A family written as `[]` is Empty; an unwritten one has
-// no row and reads as Absent.
-func projectArrays(deferred []Deferred) []Family {
+// no row and reads as Absent. Each item visited adds one to visits.
+func projectArrays(deferred []Deferred, visits *int) []Family {
 	var out []Family
 	for _, def := range deferred {
 		fam := Family{Path: def.Path, State: Set, Line: def.Line}
@@ -745,6 +757,7 @@ func projectArrays(deferred []Deferred) []Family {
 			fam.State = Empty
 		}
 		for _, item := range def.Value.Items {
+			*visits++
 			if item.Kind != VTable {
 				continue
 			}
