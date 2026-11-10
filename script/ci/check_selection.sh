@@ -59,6 +59,14 @@ main() {
       script/watch/* | script/test/* | script/ci/*)
         for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
         ;;
+      # Every justfile keeps every job, wherever it sits: the root
+      # justfile loads the docker, test, release and watch modules, and a
+      # syntax error in one unrelated module made `just a go` exit 1 in a
+      # scratch probe, so a broken justfile.release fails `just test go`
+      # (base#1584).
+      justfile* | */justfile*)
+        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        ;;
       # E4: config-gen never reads init.sh. Its host side traced under
       # strace -f opened only dist/script/base/just-version.sh under
       # dist/, and the redpath's _rp_copy
