@@ -1738,6 +1738,31 @@ YAML
     || fail "the self-hosted guard lint is in ${_hits} lint-static groups; a fork-PR guard that runs in none gates nothing"
 }
 
+# why: A merge_group payload has no pull_request object, so only the API
+# can say whether a queued group is same-repository; classify must ask it
+# on merge_group and publish the answer, failing closed (base#1587)
+@test "self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)" {
+  # Expected literals are the approved design's (design-r2 section 2):
+  # job permissions `contents: read` + `pull-requests: read`, a step
+  # `id: trust` gated `if: github.event_name == 'merge_group'` that runs
+  # script/ci/merge_group_trust.sh, and the output
+  # `merge_group_same_repo: ${{ steps.trust.outputs.same_repo || 'false' }}`
+  # so a skipped step (push, pull_request) reads as untrusted.
+  local _classify _id
+  _classify="$(yaml_job_lines "${WF}" classify)"
+  _id="$(yaml_step_id_for "${WF}" classify 'merge_group_trust\.sh')"
+  [ "${_id}" = "trust" ] \
+    || fail "no classify step with id 'trust' runs merge_group_trust.sh (got '${_id}')"
+  run grep -F "if: github.event_name == 'merge_group'" <<<"${_classify}"
+  assert_success
+  run grep -F "merge_group_same_repo: \${{ steps.trust.outputs.same_repo || 'false' }}" <<<"${_classify}"
+  assert_success
+  run grep -F 'pull-requests: read' <<<"${_classify}"
+  assert_success
+  run grep -F 'contents: read' <<<"${_classify}"
+  assert_success
+}
+
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
 # branches: filter here would leave every proposal green with zero checks
 @test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
