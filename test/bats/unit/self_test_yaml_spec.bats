@@ -511,13 +511,13 @@ _acceptance_code() {
 @test "self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)" {
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
 }
 
 @test "self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64]'
 }
 
 # why: a consumer reaches the container only through `just`, so a broken
@@ -685,7 +685,7 @@ _acceptance_code() {
 @test "self-test.yaml: system job declares needs on actionlint AND classify (#317)" {
   run yaml_job_lines "${WF}" system
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
 }
 
 # ── Conditional gating ───────────────────────────────────
@@ -2098,7 +2098,7 @@ YAML
   # doc-only short-circuit still skips lint runs.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
@@ -2149,7 +2149,7 @@ YAML
   # and it runs the driver in the image the local gate uses (base#1412).
   run yaml_job_lines "${WF}" doc-counts
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial './script/test/test.sh --lint --doc-counts'
 }
@@ -2313,7 +2313,7 @@ YAML
 @test "self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)" {
   run yaml_job_lines "${WF}" lint-static
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial 'fail-fast: false'
   assert_output --partial './script/test/test.sh --lint --group'
@@ -2427,7 +2427,7 @@ YAML
 @test "self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)" {
   run yaml_job_lines "${WF}" hadolint
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
@@ -3651,15 +3651,32 @@ _lint_probe_fixture() {
   # to either is identical to the attempt that just left the leftovers
   # behind -- exactly when a stale artifact would be reused. run_attempt is
   # what separates them.
+  #
+  # One name is run-scoped on purpose: TEST_TOOLS_ARTIFACT_TAG, the tag a
+  # test-tools-image builder writes into the tar it uploads (base#1588). A
+  # re-run of the failed jobs keeps the builder's earlier attempt, so the
+  # tar a re-run consumer loads carries that attempt's tag; the consumer
+  # loads the tar, which replaces whatever the tag pointed at, and re-tags
+  # it as the attempt-scoped TEST_TOOLS_IMAGE. It is the only exception,
+  # and it still differs between two runs (the test above).
   local -a _a=() _b=()
+  local -a _run_scoped=(TEST_TOOLS_ARTIFACT_TAG)
   mapfile -t _a < <(_render_run_names 1001 1)
   mapfile -t _b < <(_render_run_names 1001 2)
   [ "${#_a[@]}" -ge 3 ]
-  local _i
+  local _i _key _n_exempt=0
   for _i in "${!_a[@]}"; do
+    _key="${_a[${_i}]%%:*}"
+    _key="${_key#"${_key%%[![:space:]]*}"}"
+    if [[ " ${_run_scoped[*]} " == *" ${_key} "* ]]; then
+      _n_exempt=$((_n_exempt + 1))
+      continue
+    fi
     [ "${_a[${_i}]}" != "${_b[${_i}]}" ] \
       || fail "name is CONSTANT across a re-run: ${_a[${_i}]}"
   done
+  [ "${_n_exempt}" -eq "${#_run_scoped[@]}" ] \
+    || fail "expected ${#_run_scoped[@]} run-scoped name(s) in the env block, found ${_n_exempt}"
 }
 
 @test "self-test.yaml: run identity is not a timestamp and not the commit SHA (#900)" {
@@ -4057,7 +4074,7 @@ CG_CODE_IF="needs.classify.outputs.code_changed == 'true'"
 CG_STEP_NAME='Run the config-gen gates'
 CG_STEP_RUN='just test go'
 CG_SELF_TEST_TOP='["concurrency","env","jobs","name","on","permissions"]'
-CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_IMAGE"]'
+CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_ARTIFACT_TAG","TEST_TOOLS_IMAGE"]'
 CG_COV_LOCAL_TOP='["concurrency","jobs","name","on","permissions"]'
 CG_COV_LOCAL_ENV='[]'
 COV_LOCAL_WF="/source/.github/workflows/coverage-local.yaml"

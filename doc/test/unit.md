@@ -6423,7 +6423,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (147)
+### test/bats/unit/self_test_yaml_spec.bats (148)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6772,6 +6772,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
 | `self-test.yaml: only the builders' push-main steps write the test-tools cache, and no other cache-to form slips past (base#1588)` | - |
+| `self-test.yaml: every obtain leg downloads its arch's builder artifact by name and is handed the path the tar lands at (base#1588)` | - |
 | `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
 | `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that skips the obtain path builds against a stale or absent tooling image. This step stays in the job when the rest moved into script/ci/acceptance.sh (base#1409), because only a runner can obtain the run-scoped image. |

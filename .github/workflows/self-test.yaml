@@ -97,6 +97,11 @@ concurrency:
 env:
   CI_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
   TEST_TOOLS_IMAGE: test-tools:ci-${{ github.run_id }}-${{ github.run_attempt }}
+  # The tag the test-tools-image builders write into the tar they upload
+  # (base#1588); a consumer loads it and re-tags it as TEST_TOOLS_IMAGE.
+  # run_id, not run_attempt: a re-run consumer reads the tar of the
+  # attempt whose builder produced it.
+  TEST_TOOLS_ARTIFACT_TAG: test-tools:artifact-${{ github.run_id }}
   COMPOSE_PROJECT_NAME: base-ci-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
@@ -341,6 +346,8 @@ jobs:
     # cache is read everywhere and written only here, and only on a push
     # to main: a PR reads what main wrote and never overwrites it.
     needs: [actionlint, classify]
+    outputs:
+      produced: ${{ steps.mark.outputs.produced == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -368,12 +375,28 @@ jobs:
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
-          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          tags: ${{ env.TEST_TOOLS_ARTIFACT_TAG }}
           labels: |
             base.ci.run=${{ env.CI_RUN_KEY }}
-          load: true
+          outputs: type=docker,dest=${{ runner.temp }}/test-tools.tar
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
+
+      - name: Upload the test-tools image for this run's consumers
+        # The one build of this arch in the run (base#1588): each
+        # consumer downloads this tar by name and loads it.
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/test-tools.tar
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Mark the artifact produced
+        id: mark
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "produced=true" >> "${GITHUB_OUTPUT}"
 
       - name: Reclaim this run's docker artifacts
         if: always()
@@ -385,6 +408,8 @@ jobs:
     # runner as acceptance's arm64 leg is. Its cache has a scope of its own
     # so the two arches never overwrite each other's layers.
     needs: [actionlint, classify]
+    outputs:
+      produced: ${{ steps.mark.outputs.produced == 'true' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
@@ -408,12 +433,28 @@ jobs:
         with:
           context: .
           file: dockerfile/Dockerfile.test-tools
-          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          tags: ${{ env.TEST_TOOLS_ARTIFACT_TAG }}
           labels: |
             base.ci.run=${{ env.CI_RUN_KEY }}
-          load: true
+          outputs: type=docker,dest=${{ runner.temp }}/test-tools.tar
           cache-from: type=gha,scope=test-tools-arm64
           cache-to: type=gha,scope=test-tools-arm64,mode=max
+
+      - name: Upload the test-tools image for this run's consumers
+        # The one build of this arch in the run (base#1588): each
+        # consumer downloads this tar by name and loads it.
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-tools-arm64
+          path: ${{ runner.temp }}/test-tools.tar
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Mark the artifact produced
+        id: mark
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "produced=true" >> "${GITHUB_OUTPUT}"
 
       - name: Reclaim this run's docker artifacts
         if: always()
@@ -435,7 +476,7 @@ jobs:
     # same commit could still be judged by two sets of tools. The image
     # brings the pinned SHELLCHECK_VERSION with it, which is the version
     # the local gate runs.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -443,13 +484,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The same obtain / build / reclaim shape as the hadolint job, which
         # carries the reasoning for each step (base#1412).
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         if: steps.obtain.outputs.build_local == 'true'
@@ -495,20 +545,29 @@ jobs:
     # the runner's bash, coreutils and diff, and the local gate runs it on
     # the image's. One host for both gates is what makes a green local
     # gate predict this job.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The same obtain / build / reclaim shape as the hadolint job, which
         # carries the reasoning for each step (base#1412).
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         if: steps.obtain.outputs.build_local == 'true'
@@ -781,7 +840,7 @@ jobs:
     # completeness guard in test/bats/unit/self_test_yaml_spec.bats, which
     # reads test.sh's _LINT_TOOLS table and asks, of every entry, whether a
     # dedicated job runs it or exactly one group holds it.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     runs-on: ubuntu-latest
     # 30: the lint group alone. The required-kill roster that pushed this
     # to 150 runs in the mutation-roster job below (base#1571).
@@ -794,13 +853,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The same obtain / build / reclaim shape as the hadolint job, which
         # carries the reasoning for each step (base#1412).
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         if: steps.obtain.outputs.build_local == 'true'
@@ -854,7 +922,7 @@ jobs:
     # 300 s is decided by the mutation_roster_spec case "every
     # mutation-roster leg's measured seconds over its worker slots fit
     # 300 s", a sum over seconds.txt, not a timed job.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR
     # #1538's run 41736192401 shards 1/4, 2/4 and 4/4 were cancelled at 90
@@ -869,13 +937,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The same obtain / build / reclaim shape as the hadolint job, which
         # carries the reasoning for each step (base#1412).
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         if: steps.obtain.outputs.build_local == 'true'
@@ -936,7 +1013,7 @@ jobs:
     # driver needs the `hadolint` binary, which the test-tools image bakes
     # in, so this job obtains that image (mirroring the bats jobs' #317 P2
     # 3-layer fallback) and runs the driver inside it via the ci service.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -944,10 +1021,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The whole decision -- rebuild because this PR changed an input of
         # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
@@ -961,7 +1047,7 @@ jobs:
         # cache and gates on this step's `build_local` output -- as does
         # the builder setup that step needs, which is why both sit after
         # this one.
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         # Gated on the same output as the Build step below, because that
@@ -1050,7 +1136,7 @@ jobs:
     # without the tag fails the coverage job instead of going unrun. Same
     # Obtain (probe-and-rebuild) pattern as the other jobs; ci-rollup folds
     # the result into needs.bats-fragile.result.
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -1058,10 +1144,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # Layer 1: PR touched an input of the tooling image -> must rebuild
         # from source (the :main rolling tag still reflects the pre-PR
         # state). Layer 2: try pulling the rolling :main tag and re-tag
@@ -1083,7 +1178,7 @@ jobs:
         # cache and gates on this step's `build_local` output -- as does
         # the builder setup that step needs, which is why both sit after
         # this one.
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         # Gated on the same output as the Build step below, because that
@@ -1255,7 +1350,7 @@ jobs:
     # bats-unit) instead of the old debian kcov/kcov image that apt-
     # installed ~24 packages every shard every PR. The per-shard apt
     # rebuild (and its APT_MIRROR_DEBIAN fragility) is gone.
-    needs: [actionlint, classify, compute-shards]
+    needs: [actionlint, classify, compute-shards, test-tools-image-amd64]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1270,10 +1365,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # #686: the coverage service now runs on the SAME pre-baked alpine
         # test-tools image as bats-unit (kcov is source-built into it), so
         # this job obtains it via the identical 3-layer fallback the
@@ -1295,7 +1399,7 @@ jobs:
         # cache and gates on this step's `build_local` output -- as does
         # the builder setup that step needs, which is why both sit after
         # this one.
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         # Gated on the same output as the Build step below, because that
@@ -1462,7 +1566,7 @@ jobs:
 
   acceptance:
     name: Acceptance (${{ matrix.platform }})
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64]
     if: needs.classify.outputs.code_changed == 'true'
     # Acceptance level (ISTQB, ADR-00000018): verify what the downstream
     # CONSUMER receives -- scaffold a synthesized downstream repo via
@@ -1487,9 +1591,11 @@ jobs:
           - platform: linux/amd64
             runner: ubuntu-latest
             hardware: amd64
+            arch: amd64
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
             hardware: arm64
+            arch: arm64
     runs-on: ${{ matrix.runner }}
     # The heaviest job here: it scaffolds a consumer repo and builds its
     # image stages, once per arch, on a runner that may be self-hosted.
@@ -1522,9 +1628,18 @@ jobs:
         with:
           driver: docker
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs[format('test-tools-image-{0}', matrix.arch)].outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs[format('test-tools-image-{0}', matrix.arch)].outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The same obtain script the other five consumers call, and this
         # job is the reason it is a script. It used to pull the rolling tag
         # and `exit 0` -- no probe, alone among the six -- so a stale
@@ -1538,7 +1653,7 @@ jobs:
         # `docker compose build`'s `FROM ${TEST_TOOLS_IMAGE}` resolves
         # against the host daemon; the container driver's isolated store
         # cannot serve it, and that driver has no GHA cache to lose.
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Resolve the pinned just version
         id: just-pin
@@ -1617,7 +1732,7 @@ jobs:
 
   system:
     name: System Regression Test (runtime-test smoke gate, #249)
-    needs: [actionlint, classify]
+    needs: [actionlint, classify, test-tools-image-amd64]
     # P3 (#317): gate on the narrower `system_relevant` output so
     # PRs that change pure lint / unit-test / doc paths (already covered
     # by `test`) don't burn the docker.sock-mounted compose run. What makes
@@ -1633,10 +1748,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Download this run's test-tools image
+        # Built once per arch by its test-tools-image builder (base#1588).
+        if: needs.test-tools-image-amd64.outputs.produced == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: test-tools-amd64
+          path: ${{ runner.temp }}/tt
+
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+          TT_ARTIFACT: ${{ needs.test-tools-image-amd64.outputs.produced == 'true' && format('{0}/tt/test-tools.tar', runner.temp) || '' }}
         # The whole decision -- rebuild because this PR changed an input of
         # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
@@ -1650,7 +1774,7 @@ jobs:
         # cache and gates on this step's `build_local` output -- as does
         # the builder setup that step needs, which is why both sit after
         # this one.
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate ${TT_ARTIFACT:+--artifact "${TT_ARTIFACT}"}
 
       - name: Set up Docker Buildx
         # Gated on the same output as the Build step below, because that
