@@ -8,6 +8,13 @@
 # build: each attempt refreshes the index before the install, base#1602.
 set -eu
 
+usage() {
+  printf 'apt-retry.sh: usage: apt-retry.sh <attempts> <first-delay-s> -- <cmd...>\n' >&2
+  exit 2
+}
+
+[ "${3:-}" = "--" ] || usage
+
 attempts="$1"
 delay="$2"
 shift 3
