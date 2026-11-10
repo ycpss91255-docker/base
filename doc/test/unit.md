@@ -2101,7 +2101,7 @@ scratch file beside it.
 | `05-floors-base: a base with fragments writes their concatenation in lexical order, each ending in LF (base#1465)` | The ratchet compares per package across the base's union, so every fragment must be in it, each line whole: one without a final LF would fuse with the next fragment's first line. The expected bytes are git show's, worked by hand. (base#1465) |
 | `05-floors-base: a base it cannot read is refused by reason, the old floors.base kept (base#1465)` | Each refusal is a base the step could not read faithfully; writing anything, or `absent`, would let the ratchet judge without the base's floors. (base#1465) |
 
-### test/bats/unit/config_gen_gates_spec.bats (80)
+### test/bats/unit/config_gen_gates_spec.bats (82)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
@@ -2146,7 +2146,7 @@ end-to-end proof that the planted defects go red.
 | `config_gen_gates.sh: a coverage refusal for a missing corpus root names the coverage gate, the echoed RUN line alone does not (base#1468)` | A coverage RUN that never got the corpus root record refuses with reason=corpus_root_missing and an empty pkg (base#1468). The runner must name the coverage gate from that printed refusal line, not from the RUN line BuildKit echoes, whose command text names coverage.sh too: the echoed line alone is a build that failed before any gate. |
 | `config_gen_gates.sh: a red build re-emits every allowlisted cg_event line in log order with only its allowed words, then the gate id (base#1465)` | The coverage ratchet prints one cg_event line per refusal, and one red build can carry several (a dropped fragment leaves a dropped and a missing package); each must reach the runner's records, in log order, before the gate's own, and an id outside the allowlist or a word outside file\|reason\|pkg\|other\|line\|floor\|measured\|base must not, so the build log can never put an arbitrary body or attribute into them (base#1465). |
 | `config_gen_gates.sh: a corpus_sensitivity refusal reaches the runner's records with its reason (base#1467)` | cg-gates sensitivity refuses a testcorpus with no top-level func Glob by printing `cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found` on stdout (cmd/cg-gates TestSensitivity holds that exact line). Its only way into the JSON log is this runner, and the test above feeds every listed id a file= only: a runner that dropped reason= from its attributes, or skipped the event, would leave the refusal with no cause in the records (base#1467). |
-| `config_gen_gates.sh: a per-package mutation failure reaches the runner's records with its pkg, reason and measured (base#1467)` | cg-gates mutation prints one `cg_event config_gen_mutation_package_failed pkg= reason= [measured=]` line on stdout for each package it fails (cmd/cg-gates TestMutation holds those exact lines). The issue's gremlins criterion is that any per-package failure fails the gate with pkg=; the build log reaches the JSON log only through this runner, so its record must keep the package, the reason and the measured efficacy, then the gate's own record (base#1467). |
+| `config_gen_gates.sh: a per-package mutation failure reaches the runner's records with its pkg, reason and measured (base#1467)` | cg-gates mutation prints one `cg_event config_gen_mutation_package_failed pkg= reason= [measured=]` line on stderr, the writer gremlins shares, for each package it fails (cmd/cg-gates TestMutation holds those exact lines; base#1546). The issue's gremlins criterion is that any per-package failure fails the gate with pkg=; the build log reaches the JSON log only through this runner, so its record must keep the package, the reason and the measured efficacy, then the gate's own record (base#1467). |
 | `config_gen_gates.sh: every id build-events.txt lists is re-emitted with its file= and registered with the logger (base#1467)` | The ids the build may print are one table, dockerfile/config-gen/internal/buildgate/testdata/build-events.txt, which buildgate's own test holds every ev() id to. A runner with a second, hand-kept list dropped the mutation gate's unmapped, manifest_invalid and no_such_package refusals, so a notes.txt refusal reached the runner's records with no file= (base#1467). Every listed id must be re-emitted with its file=, and be registered with the logger. |
 | `config_gen_gates.sh: the built binary must exit 2 with empty stdout on no arguments (base#1462)` | The final image is what ships. A binary that exits 0 with no arguments, or writes usage to stdout, breaks the rc 2 / empty stdout contract callers rely on, whatever the gates said. |
 | `config_gen_redpath.sh: sourced, it leaves its caller's nounset, errexit and pipefail as they were (base#1465)` | Sourced, the redpath only defines its tables and functions (the case tables are read that way); a caller that sources it must not come back with nounset or errexit turned on, the #869 contract (base#1465). |
@@ -2185,6 +2185,8 @@ end-to-end proof that the planted defects go red.
 | `config_gen_redpath.sh: a mutation or sensitivity case missing any part of its contract fails with that part's reason (base#1467)` | A mutation or sensitivity case passes only on the gate's own verdict for what the case planted: an uncommitted change (dirty=yes in the manifest the build was handed), the runner's one package failure record naming the planted package by pkg= with its reason and measured efficacy, the weak record for the planted golden, and the mapping's refusal record naming the planted file. Each row breaks one part, which would otherwise let a gate that judged another package, failed one with no pkg= attribution, or refused for another reason, pass the redpath (base#1467). |
 | `config_gen_redpath.sh: an after-admit case missing any part of its contract fails with that part's reason (base#1467)` | An after-admit case passes only when the ignored-input gate refused it after every S1b gate: exit exactly 1, the six ok lines, the gate's record first, and one record of its event naming the planted file. Each row breaks one part (base#1467). |
 | `config_gen_redpath.sh: a retro answer missing any part of its contract fails with that part's reason (base#1467)` | The retro case passes only on a clean run from the empty base it planted that judged every package of the module and mapped every module file: a run that exited non-zero, printed other than the six ok lines, was handed a dirty manifest, refused a file as unmapped or judged another package set is each a gate that did not see the whole module (base#1467). |
+| `config_gen_redpath.sh: a retro verdict glued after gremlins' Gathering coverage progress still counts (base#1546)` | BuildKit merges the mutation gate's streams into one step log, and a package's verdict can land after gremlins' unfinished progress text on the same line. The ok row is the base#1443 ship's build log verbatim (lines 955-956), where the retro run judged cmd/cg-gates; the no-mutants row is the same two lines with the gate's other passing verdict. Each replaces that package's sole passing line, and the verdict is still that package's, so the retro case must count either form (base#1546). |
+| `config_gen_redpath.sh: a retro verdict after other text than gremlins' progress, or cut short, does not count (base#1546)` | The glued form the retro case counts is gremlins' own progress literal and nothing else. A line with other text before the verdict (a forged prefix, or progress text that already finished), or a verdict cut short, is not that package's verdict, so the retro case must still report package_set_mismatch. The partial rows run on a plain line and on one glued after gremlins' progress, so the glued form is held to the same full verdict as the plain one, and the rows cover both passing verdicts, ok and no-mutants (base#1546). |
 | `config_gen_redpath.sh: a green case whose build log lacks its line fails with reason green_line_missing (base#1467)` | The docs-only green case is a change outside the module: the mutation gate must be handed the no-change marker and say it tests nothing, not pass because it tested something else. A green case whose build log lacks the line its row names fails (base#1467). |
 | `config_gen_redpath.sh: a stale case changes the copy in a step after every real one, and a green case reaches the runner as its git state (base#1465)` | A stale case's change must happen after 00-manifest wrote the baseline and 01-admit installed the checker, or the baseline already holds it and admission has nothing to refuse; a green case's change must reach 00-manifest as the git state it names. The steps and module each call ran with are what the real build would see (base#1465). |
 | `config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)` | - |
@@ -2361,7 +2363,7 @@ empty setup.toml section and answer zero (base#1398).
 | `_print_config_summary refuses a setup.toml that cannot be parsed (base#1398)` | The summary is the screen a user reads before a build; an empty setup.toml section over a file that failed to parse tells them their configuration is the template defaults when nothing was read (base#1398). |
 | `_print_config_summary refuses a malformed setup.toml with no recognised header (base#1398)` | The empty-file hint is chosen by a header grep, and a malformed file the grep does not recognise (`[gui` unclosed, or a bare unterminated `mode = "off`) took that branch: it printed "no section overrides -- using template defaults" with rc 0 and never parsed the file. The parse decides, not the grep (base#1398). |
 
-### test/bats/unit/coverage_badge_spec.bats (47)
+### test/bats/unit/coverage_badge_spec.bats (49)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -2378,6 +2380,8 @@ three tests assert the repo's own published figure, not the generator.
 | Test | Description |
 |------|-------------|
 | `coverage_badge: renders the measured rate into a self-contained SVG` | The output is an SVG carrying the measured percentage |
+| `coverage_badge: the label reads coverage and the value carries rate and version (base#1545)` | The visible label is the bare word `coverage`; the version rides in the value block, so the figure still names its release (base#1545) |
+| `coverage_badge: --unmeasured keeps the label bare and the version in the value (base#1545)` | The unmeasured rendering moves the version the same way (base#1545) |
 | `coverage_badge: the SVG carries the version the figure belongs to` | Defaults to `.version`, so the figure names its release |
 | `coverage_badge: --version overrides the .version default` | The bump passes the version it is promoting to |
 | `coverage_badge: the SVG references no external host` | No renderer, no fetch -- it ports to GitLab unchanged |
@@ -2768,7 +2772,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (119)
+### test/bats/unit/derived_figures_lint_spec.bats (121)
 
 | Test | Description |
 |------|-------------|
@@ -2787,6 +2791,8 @@ refused before any build or bundle step.
 | `_run_derived_figures: catches a stale set wrapped across two shell comment lines (#874)` | - |
 | `_run_derived_figures: ignores a brace EXPANSION glued to a path (#874)` | - |
 | `_run_derived_figures: scans CONTEXT.md and the localized READMEs too (#874)` | - |
+| `_run_derived_figures: scans the doc/guide pages too (base#1545)` | The README's deep sections moved to doc/guide/; a stale stage set or a kcov claim there must stay inside the lint's reach (base#1545) |
+| `_run_derived_figures: a tree with no doc/guide pages is still clean (base#1545)` | A tree with no doc/guide/ at all is still clean -- the glob is a reach, not a requirement (base#1545) |
 | `_run_derived_figures: ignores a ${VAR} expansion that is not a stage set (#874)` | - |
 | `_run_derived_figures: FAILS when the README section count disagrees with SCHEMA_SECTIONS (#874)` | - |
 | `_run_derived_figures: FAILS when the count is a number but the wrong one (#874)` | - |
