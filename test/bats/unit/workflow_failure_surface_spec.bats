@@ -267,12 +267,14 @@ _rollup_selected() {
 
 # _rollup_env_for <classify-output>
 #   The `Verify upstream jobs` env key bound to
-#   needs.classify.outputs.<classify-output>, or nothing.
+#   needs.classify.outputs.<classify-output>, or nothing. yq unescapes a
+#   string literal before the regex sees it, so each regex escape is
+#   doubled (`\\.`, `\\b`); a single `\b` would become a backspace.
 _rollup_env_for() {
   _yaml_eval "${SELF_WF}" \
       '.jobs."ci-rollup".steps[]
          | select(.name == "Verify upstream jobs") | .env | to_entries[]
-         | select(.value | test("needs\.classify\.outputs\.'"${1}"'\b"))
+         | select(.value | test("needs\\.classify\\.outputs\\.'"${1}"'\\b"))
          | .key'
 }
 
