@@ -1241,6 +1241,39 @@ _mutation_probe() {
     _mutation_probe_say "the filtered pass stayed green; running the whole spec"
     _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
     read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
+    # A baseline that ran under the filter counted only the witness tests,
+    # so the whole-spec run is not compared against it: a red the spec had
+    # unmutated outside the filter would read as the mutation's. Put the
+    # tree back and run the whole spec unmutated, and the checks below read
+    # that pair (base#1582). The traps stay armed; the put-back at the end
+    # restores again, which is the same idempotent copy.
+    if [[ -n "${_base_flt}" ]]; then
+      local _run_status="${_MUTATION_PROBE_RUN_STATUS}"
+      _mutation_probe_stop_child
+      if ! _mutation_probe_await_daemon "${_root}" \
+        || ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}" \
+        || ! _mutation_probe_verify_restored "${_rec}" "${_root}" "${_subjects[@]}"; then
+        _probe_refuse "the tree could not be put back before the whole-spec baseline, so there is no baseline to compare the whole-spec run against."
+        return 3
+      fi
+      _mutation_probe_say "baseline: running scope=${_scope} unmutated"
+      _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+      read -r _base_ok _base_not _base_skip \
+        < <(_mutation_probe_tap_counts "${_work}/baseline")
+      if (( _base_ok + _base_not == 0 )); then
+        _probe_refuse "the whole-spec baseline run reported no test results at all, so there is nothing to compare the whole-spec run against. Its output: $(cat "${_work}/baseline")"
+        return 3
+      fi
+      if (( _base_not > 0 )); then
+        _probe_refuse "the whole-spec baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
+        return 3
+      fi
+      if (( _MUTATION_PROBE_RUN_STATUS != 0 )); then
+        _probe_refuse "the whole-spec baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
+        return 3
+      fi
+      _MUTATION_PROBE_RUN_STATUS="${_run_status}"
+    fi
   fi
 
   if (( _ok + _not == 0 )); then
