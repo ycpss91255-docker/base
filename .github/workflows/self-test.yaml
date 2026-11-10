@@ -1891,9 +1891,9 @@ jobs:
           # `true` answer makes the skip a failure. Each row is
           # <job> <result> <the classify answer its skip needs>.
           # mutation-roster is a matrix that folds every roster shard into
-          # one result. coverage and coverage-gate read code_changed, and
-          # system reads system_relevant, so their own answer is that gate
-          # output.
+          # one result. shellcheck, hadolint, bats-fragile, coverage and
+          # coverage-gate read code_changed, and system reads
+          # system_relevant, so their own answer is that gate output.
           while read -r job res sel; do
             if [[ "${res}" == "skipped" && "${sel}" != "false" \
                   && "${CODE_CHANGED:-}" != "false" ]]; then
@@ -1901,6 +1901,9 @@ jobs:
               fail=1
             fi
           done <<EOF
+          shellcheck ${SHELLCHECK_RESULT:--} ${CODE_CHANGED:--}
+          hadolint ${HADOLINT_RESULT:--} ${CODE_CHANGED:--}
+          bats-fragile ${BATS_FRAGILE_RESULT:--} ${CODE_CHANGED:--}
           mutation-roster ${MUTATION_ROSTER_RESULT:--} ${SELECT_MUTATION_ROSTER:--}
           config-gen ${CONFIG_GEN_RESULT:--} ${SELECT_CONFIG_GEN:--}
           coverage ${COVERAGE_RESULT:--} ${CODE_CHANGED:--}
