@@ -270,3 +270,18 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "test.sh --selection --paths prints the same per-job selection the CI map prints (base#1584)" {
+  # Expected: the issue's "Expose the same selection locally (just test,
+  # through script/test/test.sh)". A docs-only diff runs no heavy job --
+  # the docs rule classify's code_changed list already applies (doc/**
+  # is never read by dist/ or acceptance.sh) -- so the local entry point
+  # must answer all five false, line for line as in CI.
+  run bash -c "printf '%s\0' doc/x.md | bash /source/script/test/test.sh --selection --paths"
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=false
+coverage=false
+acceptance=false
+system=false"
+}
