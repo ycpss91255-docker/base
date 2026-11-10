@@ -5,23 +5,38 @@
 #
 # Usage:
 #   config_gen_readers.sh [--root <checkout>] [--by-channel]
-#   config_gen_readers.sh --parse-recipe   # `just --show` body on stdin
+#   config_gen_readers.sh [--root <checkout>] --jobs        # the config-gen jobs
+#   config_gen_readers.sh [--root <checkout>] --run-blocks  # their run blocks
 #
 # The config-gen deny list (config_gen_paths.sh) may name a path only when
 # this set does not hold it. The deny-list spec computes the set and fails
 # on any overlap, so a file that becomes a config-gen reader cannot stay a
 # reason to skip config-gen.
 #
-# What runs. The commands come from the parsed workflow and justfile, not
-# from a hand list:
-#   1. every config-gen job `run:` block of .github/workflows/self-test.yaml
-#      that runs a `./` command, except the one whose only `./` command is
-#      script/ci/install-just.sh (it downloads a binary);
-#   2. every body line `just --show test::go` prints, parsed by
-#      --parse-recipe below, run in full (config_gen_redpath.sh runs every
-#      case; a subset would be a hand list);
-#   3. every script/test/config_gen_steps/*.sh, with CONFIG_GEN_CTX set;
-#   4. config_gen_redpath.sh's `_rp_copy`, whose copy is added file by file.
+# What runs. The commands come from the parsed workflow, not from a hand
+# list:
+#   1. every `run:` block of every config-gen job of
+#      .github/workflows/self-test.yaml, as the job runs it, except the one
+#      whose only `./` command is script/ci/install-just.sh (it downloads a
+#      binary). The config-gen jobs are the jobs whose `if:` reads
+#      classify's select_config_gen key (config-gen-gates and the
+#      config-gen-redpath matrix since base#1547). A `${{ matrix.<key> }}`
+#      in a block runs it once per value of that matrix key, so the five
+#      redpath shards together run every case (a subset would be a hand
+#      list); any other expression is refused. No config-gen job, or one
+#      with no run step, is refused too, so the set is never read from
+#      nothing. --jobs and --run-blocks print the jobs and the expanded
+#      blocks (the deny-list spec reads its rule (d) text from the latter);
+#   2. every script/test/config_gen_steps/*.sh, with CONFIG_GEN_CTX set;
+#   3. config_gen_redpath.sh's `_rp_copy`, whose copy is added file by file.
+# The redpath's shared pass (its runner --steps-only on its own scratch
+# copy) exits non-zero against the docker stub (20-gomod-oracle needs Go,
+# measured at base#1584), and the redpath then runs no case. So each block
+# runs with CONFIG_GEN_STEPS_VERDICT naming a verdict this script writes
+# with the redpath's own _rp_copy and _rp_digest and checks with its own
+# _rp_verdict_reusable, which is how `just test go` hands the gates'
+# verdict on. Nothing traced is lost: the shared pass reads its scratch
+# copy, outside <checkout>, and step 2 traces each step on the checkout.
 # Everything runs in a scratch git copy of <checkout>, with a `docker` stub
 # first on PATH and under `timeout`, so nothing is written to <checkout>. A
 # step that fails against the stub is expected: only its trace is used.
@@ -60,49 +75,6 @@ _cgr_die() {
   exit 1
 }
 
-# _cgr_parse_recipe -- reads `just --show` output on stdin and prints one
-# `<command>\t<unset names>\t<NAME=VALUE words>` line per body line. A
-# body line is `[env (-u NAME | NAME=VALUE)...] ./<path>`; any other shape
-# (a pipe, `&&`, a variable, a recipe call) is refused, so a recipe this
-# parser cannot run fails the caller instead of being skipped.
-_cgr_parse_recipe() {
-  local _line _w _unset _set _cmd _n=0
-  local -a _words
-  while IFS= read -r _line; do
-    [[ "${_line}" =~ ^[[:space:]] ]] || continue
-    [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
-    _line="${_line#"${_line%%[![:space:]]*}"}"
-    [[ -n "${_line}" ]] || continue
-    if [[ "${_line}" =~ [\|\&\;\<\>\$\`\"\'\(\)\\] ]]; then
-      _cgr_die "recipe line has a shape this parser does not run: ${_line}"
-    fi
-    read -r -a _words <<<"${_line}"
-    _unset="" _set="" _cmd=""
-    if [[ "${_words[0]}" == env ]]; then
-      local _i=1
-      while ((_i < ${#_words[@]})); do
-        _w="${_words[_i]}"
-        if [[ "${_w}" == -u ]] && ((_i + 1 < ${#_words[@]})); then
-          _unset+="${_unset:+ }${_words[_i + 1]}"
-          _i=$((_i + 2))
-        elif [[ "${_w}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-          _set+="${_set:+ }${_w}"
-          _i=$((_i + 1))
-        else
-          break
-        fi
-      done
-      _words=("${_words[@]:_i}")
-    fi
-    ((${#_words[@]} == 1)) || _cgr_die "recipe line is not one ./ command: ${_line}"
-    _cmd="${_words[0]}"
-    [[ "${_cmd}" == ./* ]] || _cgr_die "recipe line does not run a ./ command: ${_line}"
-    printf '%s\t%s\t%s\n' "${_cmd}" "${_unset}" "${_set}"
-    _n=$((_n + 1))
-  done
-  ((_n > 0)) || _cgr_die "recipe has no body line"
-}
-
 # _cgr_write_tracer <file> -- the BASH_ENV tracer.
 _cgr_write_tracer() {
   cat >"$1" <<'TRACER'
@@ -122,41 +94,88 @@ TRACER
 _cgr_traced() {
   local _dir="$1"
   shift
-  (cd "${_dir}" && env BASH_ENV="${_cgr_tracer}" CGR_TRACE_LOG="${_cgr_fifo}" \
-    PATH="${_cgr_bin}:${PATH}" GITHUB_OUTPUT=/dev/null \
+  (cd "${_dir}" && env -u CONFIG_GEN_REDPATH_ACTIVE BASH_ENV="${_cgr_tracer}" CGR_TRACE_LOG="${_cgr_fifo}" \
+    PATH="${_cgr_bin}:${PATH}" GITHUB_OUTPUT=/dev/null CONFIG_GEN_STEPS_VERDICT="${_cgr_verdict}" \
     timeout "${_CGR_TIMEOUT}" "$@" </dev/null >/dev/null 2>&1) || true
+}
+
+# _cgr_jobs <workflow> -- the config-gen jobs, one per line: every job
+# whose `if:` reads needs.classify.outputs.select_config_gen.
+_cgr_jobs() {
+  local _jobs
+  _jobs="$(yq -o json '.jobs' "$1" | jq -r 'to_entries[]
+      | select((.value.if // "") | tostring | test("needs\\.classify\\.outputs\\.select_config_gen\\b"))
+      | .key')" || _cgr_die "cannot read the jobs of $1"
+  [[ -n "${_jobs}" ]] || _cgr_die "no job of $1 gates on select_config_gen"
+  printf '%s\n' "${_jobs}"
+}
+
+# _cgr_expand <block> <matrix-json> -- prints <block> base64-encoded, once
+# per value of the one matrix key its `${{ matrix.<key> }}` names, or once
+# when it holds no expression. Any other expression is refused.
+_cgr_expand() {
+  local _block="$1" _matrix="$2" _e _key="" _v _out
+  local -a _exprs=() _vals=()
+  while IFS= read -r _e; do
+    [[ -n "${_e}" ]] || continue
+    if [[ "${_e}" =~ ^\$\{\{[[:space:]]*matrix\.([A-Za-z0-9_-]+)[[:space:]]*\}\}$ ]] \
+      && [[ -z "${_key}" || "${_key}" == "${BASH_REMATCH[1]}" ]]; then
+      _key="${BASH_REMATCH[1]}"
+      _exprs+=("${_e}")
+    else
+      _cgr_die "run block holds an expression this script cannot evaluate: ${_e}"
+    fi
+  done < <(grep -oE '\$\{\{[^}]*\}\}' <<<"${_block}" | sort -u || true)
+  if [[ -z "${_key}" ]]; then
+    printf '%s' "${_block}" | base64 -w0
+    printf '\n'
+    return 0
+  fi
+  mapfile -t _vals < <(jq -r --arg k "${_key}" '.[$k]
+      | if type == "array" and all(.[]; type != "object" and type != "array")
+        then .[] | tostring else empty end' <<<"${_matrix}")
+  ((${#_vals[@]} > 0)) || _cgr_die "matrix.${_key} is not a list of values"
+  for _v in "${_vals[@]}"; do
+    _out="${_block}"
+    for _e in "${_exprs[@]}"; do _out="${_out//"${_e}"/${_v}}"; done
+    printf '%s' "${_out}" | base64 -w0
+    printf '\n'
+  done
+}
+
+# _cgr_blocks <workflow> -- every config-gen job's run blocks, expanded,
+# one base64 line each.
+_cgr_blocks() {
+  local _wf="$1" _job _json _matrix _n _b
+  local _jobs
+  _jobs="$(_cgr_jobs "${_wf}")" || exit 1
+  while IFS= read -r _job; do
+    _json="$(CGR_JOB="${_job}" yq -o json '.jobs[strenv(CGR_JOB)]' "${_wf}")" \
+      || _cgr_die "cannot read job ${_job}"
+    _matrix="$(jq -c '.strategy.matrix // {}' <<<"${_json}")"
+    _n="$(jq '[.steps[]? | select(has("run"))] | length' <<<"${_json}")"
+    ((_n > 0)) || _cgr_die "config-gen job ${_job} has no run step"
+    while IFS= read -r _b; do
+      _cgr_expand "$(printf '%s' "${_b}" | base64 -d)" "${_matrix}" || exit 1
+    done < <(jq -r '.steps[] | select(has("run")) | .run | @base64' <<<"${_json}")
+  done <<<"${_jobs}"
 }
 
 # _cgr_run_blocks <copy> <workflow> -- step 1.
 _cgr_run_blocks() {
-  local _copy="$1" _wf="$2" _b _text _cmds
+  local _copy="$1" _wf="$2" _b _text _cmds _all
+  _all="$(_cgr_blocks "${_wf}")" || exit 1
   while IFS= read -r _b; do
     _text="$(printf '%s' "${_b}" | base64 -d)"
     _cmds="$(grep -oE '(^|[^A-Za-z0-9_./-])\./[A-Za-z0-9_./-]+' <<<"${_text}" \
       | sed -E 's/^[^.]//' | sort -u)" || true
-    [[ -n "${_cmds}" ]] || continue
     [[ "${_cmds}" != "./script/ci/install-just.sh" ]] || continue
     printf '%s\n' "${_text}" >"${_cgr_work}/block.sh"
     _cgr_traced "${_copy}" bash "${_cgr_work}/block.sh"
-  done < <(yq -o json '[.jobs."config-gen".steps[] | select(has("run")) | .run]' "${_wf}" \
-    | jq -r '.[] | @base64')
+  done <<<"${_all}"
 }
 
-# _cgr_run_recipe <copy> -- step 2.
-_cgr_run_recipe() {
-  local _copy="$1" _show _cmd _unset _set _u _s
-  _show="$(cd "${_copy}" && just --show test::go)" || _cgr_die "just --show test::go failed"
-  local _parsed
-  _parsed="$(_cgr_parse_recipe <<<"${_show}")" || exit 1
-  while IFS=$'\t' read -r _cmd _unset _set; do
-    local -a _env=(env -u CONFIG_GEN_REDPATH_ACTIVE)
-    for _u in ${_unset}; do _env+=(-u "${_u}"); done
-    for _s in ${_set}; do _env+=("${_s}"); done
-    _cgr_traced "${_copy}" "${_env[@]}" bash "${_cmd}"
-  done <<<"${_parsed}"
-}
-
-# _cgr_run_steps <copy> -- step 3: every step in C-locale glob order,
+# _cgr_run_steps <copy> -- step 2: every step in C-locale glob order,
 # sharing one fresh CONFIG_GEN_CTX as config_gen_gates.sh runs them, but
 # going on past a red step so each one is traced.
 _cgr_run_steps() {
@@ -169,7 +188,7 @@ _cgr_run_steps() {
   done < <(LC_ALL=C compgen -G "${_copy}/script/test/config_gen_steps/*.sh" | LC_ALL=C sort)
 }
 
-# _cgr_rp_copy <copy> -- step 4: what _rp_copy copies, as paths.
+# _cgr_rp_copy <copy> -- step 3: what _rp_copy copies, as paths.
 _cgr_rp_copy() {
   local _copy="$1" _dst
   mkdir -p "${_cgr_work}/rp"
@@ -178,6 +197,23 @@ _cgr_rp_copy() {
     'source ./script/test/config_gen_redpath.sh && _rp_copy "$1"' _ "${_cgr_work}/rp" 2>/dev/null)" \
     || _cgr_die "_rp_copy failed"
   git -C "${_dst}" ls-files | sed 's/^/copy\t/'
+}
+
+# _cgr_write_verdict <copy> -- writes ${_cgr_verdict}: the steps verdict
+# the redpath reuses in place of its shared pass, held to the redpath's
+# own _rp_verdict_reusable so a change of its format fails here.
+_cgr_write_verdict() {
+  local _copy="$1"
+  mkdir -p "${_cgr_work}/vd"
+  # shellcheck disable=SC2016 # $1 and $2 are the child shell's own arguments
+  (cd "${_copy}" && env -u CONFIG_GEN_REDPATH_ACTIVE bash -c '
+    source ./script/test/config_gen_redpath.sh || exit 1
+    p="$(_rp_copy "$1")" || exit 1
+    _RP_PRISTINE_DIGEST="$(_rp_digest "${p}")" || exit 1
+    printf "digest=%s steps=%s status=0\n" "${_RP_PRISTINE_DIGEST}" \
+      "$(IFS=,; printf "%s" "${_RP_REUSED_STEPS[*]}")" >"$2"
+    _rp_verdict_reusable "$2"' _ "${_cgr_work}/vd" "${_cgr_verdict}" >/dev/null 2>&1) \
+    || _cgr_die "cannot write a steps verdict config_gen_redpath.sh reuses"
 }
 
 # _cgr_paths <copy> -- the filtered trace log as `<channel>\t<path>`,
@@ -240,10 +276,10 @@ _cgr_copy_checkout() {
 }
 
 main() {
-  local _root="" _by_channel=0
+  local _root="" _by_channel=0 _mode=trace
   while (($# > 0)); do
     case "$1" in
-      --parse-recipe) _cgr_parse_recipe; return 0 ;;
+      --jobs | --run-blocks) _mode="${1#--}"; shift ;;
       --root) (($# >= 2)) || _cgr_die "--root needs a directory"; _root="$2"; shift 2 ;;
       --by-channel) _by_channel=1; shift ;;
       *) _cgr_die "unknown argument: $1" ;;
@@ -251,6 +287,16 @@ main() {
   done
   [[ -n "${_root}" ]] || _root="${_CGR_SELF_DIR}/../.."
   _root="$(cd -- "${_root}" && pwd -P)" || _cgr_die "no such checkout: ${_root}"
+  local _wf="${_root}/.github/workflows/self-test.yaml"
+  case "${_mode}" in
+    jobs) _cgr_jobs "${_wf}"; return 0 ;;
+    run-blocks)
+      local _all _b
+      _all="$(_cgr_blocks "${_wf}")" || exit 1
+      while IFS= read -r _b; do printf '%s\n' "$(printf '%s' "${_b}" | base64 -d)"; done <<<"${_all}"
+      return 0
+      ;;
+  esac
 
   _cgr_work="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand now; the dir is local to this run
@@ -263,6 +309,7 @@ main() {
   _cgr_fifo="${_cgr_work}/trace.fifo"
   _cgr_log="${_cgr_work}/trace.log"
   _cgr_bin="${_cgr_work}/bin"
+  _cgr_verdict="${_cgr_work}/steps.verdict"
   _cgr_write_tracer "${_cgr_tracer}"
   printf '#!/usr/bin/env bash\nexit 0\n' >"${_cgr_bin}/docker"
   chmod +x "${_cgr_bin}/docker"
@@ -272,10 +319,10 @@ main() {
   # Held open so the reader sees no end of file between two traced runs.
   exec {_keep}>"${_cgr_fifo}"
 
+  _cgr_write_verdict "${_copy}"
   local _rc=0
   {
     _cgr_run_blocks "${_copy}" "${_copy}/.github/workflows/self-test.yaml"
-    _cgr_run_recipe "${_copy}"
     _cgr_run_steps "${_copy}"
   } || _rc=$?
   exec {_keep}>&-
