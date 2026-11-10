@@ -56,6 +56,15 @@ if ! reply="$("${retry}" 3 5 -- gh api graphql \
   exit 0
 fi
 
+# A null queue (the queue is off for BASE_REF) proves nothing: say why,
+# then answer false, base#1587.
+if [[ "$(jq -r '.data.repository.mergeQueue == null' <<<"${reply}")" == "true" ]]; then
+  printf '::error::merge_group_trust: %s has no merge queue for %s\n' \
+    "${REPO}" "${branch}" >&2
+  printf 'same_repo=false\n'
+  exit 0
+fi
+
 # The group head ref is .../pr-<N>-<sha>; N names the entry's pull request.
 pr=""
 if [[ "${HEAD_REF}" =~ /pr-([0-9]+)-[0-9a-f]+$ ]]; then
