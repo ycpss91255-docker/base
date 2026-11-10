@@ -1130,3 +1130,18 @@ figure its meaning, and that is what is refused.
   non-fragile unit specs. A main push re-partitions with consistent
   weights, so a spec that slipped past a PR gate goes red on the merge
   commit -- the escape was a PR gate that lies once, not a durable hole.
+
+> **Amendment (base#1573, 2026-11-10): each test runs in exactly one CI leg.**
+> The `bats-integration` job is gone: the coverage shards already ran every
+> integration spec (`_COVERAGE_FULL_SUITE_POOLS` holds `test/bats/integration`),
+> and its lines count toward the gated figure, so integration stays in the
+> pool and `./test.sh --bats-integration` stays as a local entry point only.
+> `bats-fragile` no longer picks whole files by grepping for the skip guard:
+> each test whose body skips under `COVERAGE=1` carries
+> `# bats test_tags=kcov-fragile`, and the job runs
+> `bats --filter-tags kcov-fragile` over every coverage pool. Every coverage
+> slice is then audited by `_coverage_skip_audit`: the (testsuite, testcase)
+> pairs its junit marks skipped must equal the pairs the tag filter selects
+> over the same targets, or the run fails with `ci_coverage_unexplained_skip`.
+> The scope note above ("integration specs are re-run in full by
+> `bats-integration`") describes the gate before this amendment.

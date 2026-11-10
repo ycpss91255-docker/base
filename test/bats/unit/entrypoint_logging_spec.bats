@@ -292,6 +292,7 @@ EOF
   assert_output --partial "should still print"
 }
 
+# bats test_tags=kcov-fragile
 # why: tee-missing branch (stub PATH)
 @test "entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "tee-less PATH stub perturbs the kcov wrapper (#613)"

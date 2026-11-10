@@ -310,6 +310,7 @@ ci_invalid_per_test_timeout
 ci_no_fragile_files
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
+ci_coverage_unexplained_skip
 ci_coverage_merge_failed
 ci_coverage_union_unevidenced
 ci_coverage_union_incomplete
@@ -425,6 +426,7 @@ config_gen_gate_race_failed
 config_gen_gate_coverage_failed
 config_gen_build_failed
 config_gen_step_failed
+config_gen_step_reused
 config_gen_context_invalid
 config_gen_root_invalid
 config_gen_usage_invalid
@@ -432,6 +434,10 @@ config_gen_binary_contract_failed
 config_gen_redpath_reentered
 config_gen_redpath_case_failed
 config_gen_redpath_control_failed
+config_gen_redpath_shared_failed
+config_gen_redpath_shared_reused
+config_gen_redpath_shared_ran
+config_gen_redpath_reap_lost
 config_gen_building
 config_gen_unprovisionable
 config_gen_docker_missing
@@ -503,6 +509,8 @@ mutation_required_probe_refused
 mutation_required_sandbox_held
 mutation_required_pinned
 mutation_required_interrupted
+mutation_required_row_timed
+mutation_required_row_dealt
 ci_mutation_required_failed
 
 # script/watch/lib.sh (the go.mod scanner of the pin registry) and

@@ -129,7 +129,7 @@
 # the entrypoint `set -u` insta-exit class), the wired ENTRYPOINT is
 # `/entrypoint.sh`, the `~/work` mount is present and writable, and `just
 # stop` removes both the container and the compose project network. `just`
-# is installed via the `extractions/setup-just` action.
+# is installed via script/ci/install-just.sh (base#1562).
 #
 # `ci-rollup needs:` is `[actionlint, classify, shellcheck, hadolint,
 # bats-unit, bats-integration, coverage, integration-e2e, system]` (9 jobs
@@ -265,16 +265,16 @@
 #
 # - `classify` doc-only allow-list + system block-list + non-PR default
 #
-# - `bats-fragile`/`bats-integration`/`integration-e2e`/`system` declare
+# - `bats-fragile`/`integration-e2e`/`system` declare
 # `needs: [actionlint, classify]`
 #
-# - `bats-fragile`/`bats-integration` job-level `if: code_changed == 'true'`
+# - `bats-fragile` job-level `if: code_changed == 'true'`
 # + no remaining monolithic `test:` job (#377, #677)
 #
 # - `integration-e2e` job-level `if: code_changed == 'true'` + `system`
 # job-level `if: system_relevant == 'true'` (#317 P3 tightens)
 #
-# - `bats-fragile`/`bats-integration`/`system` use
+# - `bats-fragile`/`system` use
 # `docker/build-push-action@v6` with `scope=test-tools` GHA cache
 #
 # - `classify` fail-open (`set -uo pipefail`) + pre-fetch base ref (#317
@@ -282,8 +282,6 @@
 #
 # - `bats-fragile` Obtain step pulls `:main` with 3-layer fallback + Build
 # step gated on `build_local` (#317 P2 + #677)
-#
-# - `bats-integration` Obtain step + 3-layer fallback (#317 P2 + #377)
 #
 # - `integration-e2e` Obtain step + `TEST_TOOLS_IMAGE` env passthrough + no
 # `driver: docker` pin (#317 P2)
@@ -301,7 +299,7 @@
 # `lib/**` + `prune.sh` (#317 P3 gotcha-5)
 #
 # - `ci-rollup` declared + `needs: [actionlint, classify, shellcheck,
-# hadolint, bats-fragile, bats-integration, coverage, coverage-gate,
+# hadolint, bats-fragile, coverage, coverage-gate,
 # integration-e2e, system]` + `if: always()` (#337 + #376 + #377 + #615 +
 # #677 + #710)
 #
@@ -327,8 +325,8 @@
 # - `bats-fragile` declared + is a single job (no shard matrix) + invokes
 # `test.sh --bats-fragile` + no `bats-unit` matrix remains (#677)
 #
-# - `bats-integration` declared + invokes `test.sh --bats-integration`
-# (#377)
+# - no `bats-integration` job, and neither `ci-rollup` nor `release` needs
+# it: the coverage shards run every integration spec (base#1573)
 #
 # - `coverage` declared (#377) + runs on PRs via `if: code_changed ==
 # 'true'` (not main-only) + primary kcov unit gate over `matrix.shard:
@@ -341,7 +339,7 @@
 # `coverage_gate.sh`
 #
 # - `release` job needs `[shellcheck, hadolint, bats-fragile,
-# bats-integration, coverage, integration-e2e, system]` before publishing a
+# coverage, integration-e2e, system]` before publishing a
 # tag (#376 + #377 + #677)
 #
 # - Probe-and-rebuild against a stale/racing `:main`: every job that
@@ -512,12 +510,6 @@ _acceptance_code() {
 
 @test "self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)" {
   run yaml_job_lines "${WF}" bats-fragile
-  assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
-}
-
-@test "self-test.yaml: bats-integration job declares needs on actionlint AND classify (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
 }
@@ -706,12 +698,6 @@ _acceptance_code() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: bats-integration job-level if: gates on code_changed (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
-}
-
 @test "self-test.yaml: no monolithic 'test:' job remains after #377 split" {
   # a `test` job ran shellcheck + bats sequentially.
   # peeled shellcheck out, splits the rest into bats-unit
@@ -763,14 +749,6 @@ _acceptance_code() {
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
 
-@test "self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial 'uses: docker/build-push-action@'
-  assert_output --partial 'cache-from: type=gha,scope=test-tools'
-  assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
-}
-
 @test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
   run yaml_job_lines "${WF}" system
   assert_success
@@ -799,14 +777,6 @@ _acceptance_code() {
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial "steps.obtain.outputs.build_local == 'true'"
-}
-
-@test "self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial 'Obtain the run-scoped test-tools image'
-  assert_output --partial 'script/ci/obtain_test_tools.sh'
-  assert_output --partial '--local-build delegate'
 }
 
 # why: the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that
@@ -1054,7 +1024,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   # which always probes. Named per job AND counted, because the count is
   # what the earlier form got wrong.
   local _job
-  for _job in hadolint bats-fragile bats-integration coverage system acceptance; do
+  for _job in hadolint bats-fragile coverage system acceptance; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
     assert_output --partial './script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"'
@@ -1126,8 +1096,8 @@ _builder_setups_out_of_step_with_their_consumer() {
 @test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {
   # The "PR changed Dockerfile.test-tools" decision is computed ONCE in
   # classify (its checkout is fetch-depth: 0, so the three-dot merge-base
-  # resolves). The 6 image jobs (hadolint, bats-fragile, bats-integration,
-  # coverage, acceptance, system) used to repeat that diff on a
+  # resolves). The image jobs (hadolint, bats-fragile, then also
+  # bats-integration, coverage, acceptance, system) used to repeat that diff on a
   # shallow (fetch-depth: 1) checkout where no merge-base is reachable, so it
   # reported every file as changed and rebuilt the image on EVERY PR. They now
   # read needs.classify.outputs.testtools_changed instead -- so `git fetch
@@ -1285,8 +1255,8 @@ _builder_setups_out_of_step_with_their_consumer() {
 # merge; the exact list is what makes adding or dropping one a reviewed edit.
 @test "self-test.yaml: ci-rollup needs every sibling PR-check job incl coverage (#337 + #376 + #377 + #615 + #677)" {
   # The aggregator waits on actionlint + classify + shellcheck +
-  # hadolint + bats-fragile + bats-integration + coverage + acceptance
-  # + system so its result reflects every PR check. (ADR-8)
+  # hadolint + bats-fragile + coverage + acceptance + system so its
+  # result reflects every PR check. (ADR-8)
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
@@ -1298,9 +1268,37 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `config-gen` (the config generator's Go gates, base#1462) joins it the
   # same way: a code-gated job whose red would otherwise be one nobody sees.
+  # base#1547 split it into `config-gen-gates` and the `config-gen-redpath`
+  # shard matrix, and both join it.
+  #
+  # `mutation-roster` (the required-kill roster, base#1571) joins it when
+  # the roster leaves lint-static for a job of its own.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  #
+  # `bats-integration` left it with base#1573: the coverage shards run
+  # every integration spec, so that job ran each one a second time.
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+}
+
+# why: The coverage shards already run every integration spec (the pool in
+# script/test/drivers/bats.sh holds test/bats/integration), so a separate
+# bats-integration job ran each of them a second time. With the job gone,
+# neither the merge gate nor the tag gate may still wait on it: the two lists
+# below are main's lists at b091f8e3 with that one entry removed and the
+# mutation-roster job (base#1571) added, written out by hand rather than read
+# back from the workflow.
+@test "self-test.yaml: no bats-integration job, and neither ci-rollup nor release needs it (base#1573)" {
+  run code_grep -E '^  bats-integration:' "${WF}"
+  assert_failure
+
+  run yaml_job_lines "${WF}" ci-rollup
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+
+  run yaml_job_lines "${WF}" release
+  assert_success
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -1339,7 +1337,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'needs.shellcheck.result'
   assert_output --partial 'needs.hadolint.result'
   assert_output --partial 'needs.bats-fragile.result'
-  assert_output --partial 'needs.bats-integration.result'
+  refute_output --partial 'needs.bats-integration.result'
   assert_output --partial 'needs.compute-shards.result'
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.coverage-gate.result'
@@ -2106,6 +2104,69 @@ YAML
   _seen="$(printf '%s\n' "${_indices[@]}" | sort -n | uniq | wc -l)"
   [ "${_seen}" -eq "${_total}" ] \
     || fail "the lint-static matrix repeats a group index; ${_seen} of ${_total} are distinct"
+}
+
+# why: A leg named only `lint-static (2/4)` says nothing on the checks
+# page about which lints it ran (base#1571). The membership is computed
+# from test.sh's _LINT_TOOLS table (base#1071), so a list written into
+# the workflow would be a roster; the name of the step that runs the
+# group must instead read the members from an earlier step's output.
+# The test runs that earlier step for every group, renders the step name
+# with what it wrote, and checks the name against the group's members as
+# `test.sh --lint-group-members` prints them.
+@test "self-test.yaml: each lint-static leg's lint step is named for every lint its group runs (base#1571)" {
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" \
+      "the self-test dispatcher that lists a lint group's members"
+  local -a _groups=()
+  mapfile -t _groups < <(lint_static_groups "${WF}")
+  [ "${#_groups[@]}" -ge 2 ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} group entries"
+
+  local _name
+  _name="$(yq '.jobs.lint-static.steps[] | select((.run // "") | test("--lint --group")) | .name' "${WF}")"
+  [ -n "${_name}" ] || fail "no lint-static step runs test.sh --lint --group"
+  local _expr_re='\$\{\{ *steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+) *\}\}'
+  [[ "${_name}" =~ ${_expr_re} ]] \
+    || fail "the lint step is named '${_name}', which reads no step output, so it cannot name the lints its group runs"
+  local _expr="${BASH_REMATCH[0]}" _id="${BASH_REMATCH[1]}" _key="${BASH_REMATCH[2]}"
+
+  local _run
+  _run="$(yq ".jobs.lint-static.steps[] | select(.id == \"${_id}\") | .run" "${WF}")"
+  [ -n "${_run}" ] && [ "${_run}" != null ] \
+    || fail "the lint step's name reads steps.${_id}, but no lint-static step with id '${_id}' has a run script"
+  local -a _env=()
+  mapfile -t _env < <(yq ".jobs.lint-static.steps[] | select(.id == \"${_id}\") | .env // {} | to_entries | .[] | .key + \"=\" + .value" "${WF}")
+
+  local _g _out _value _rendered _m _e
+  local -a _members=() _envg=()
+  for _g in "${_groups[@]}"; do
+    _out="${BATS_TEST_TMPDIR}/github_output"
+    : > "${_out}"
+    _envg=()
+    for _e in "${_env[@]}"; do
+      [ -n "${_e}" ] && _envg+=( "${_e//\$\{\{ matrix.group \}\}/${_g}}" )
+    done
+    # GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail
+    # {0}`, a script file. Under `bash -c` BASH_SOURCE is empty, and kcov's
+    # PS4 (`kcov@${BASH_SOURCE}@...`) made the step's `set -u` refuse its
+    # first traced line, red under coverage only.
+    printf '%s\n' "${_run//\$\{\{ matrix.group \}\}/${_g}}" > "${BATS_TEST_TMPDIR}/step.sh"
+    pushd /source > /dev/null
+    run env "${_envg[@]}" GITHUB_OUTPUT="${_out}" \
+      bash --noprofile --norc -eo pipefail "${BATS_TEST_TMPDIR}/step.sh"
+    popd > /dev/null
+    assert_success
+    _value="$(sed -n "s/^${_key}=//p" "${_out}")"
+    _rendered="${_name//"${_expr}"/${_value}}"
+    _rendered="${_rendered//\$\{\{ matrix.group \}\}/${_g}}"
+    mapfile -t _members < <("${_test_sh}" --lint-group-members "${_g}")
+    [ "${#_members[@]}" -gt 0 ] || fail "lint group ${_g} has no members"
+    for _m in "${_members[@]}"; do
+      tr -cs 'A-Za-z0-9_-' '\n' <<< "${_rendered}" | grep -qx -- "${_m}" \
+        || fail "lint group ${_g} runs '${_m}', but its lint step is named '${_rendered}'"
+    done
+  done
 }
 
 @test "self-test.yaml: declares hadolint job (#376)" {
@@ -3095,7 +3156,7 @@ _lint_probe_fixture() {
 
 # why: A tag produces the artifact users consume, so it must clear every
 # gate a merge clears; the exact list makes a dropped gate a reviewed edit.
-@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + bats-integration + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
+@test "self-test.yaml: release job gates on shellcheck + hadolint + bats-fragile + coverage + acceptance + system before publishing a tag (#376 + #377 + #677)" {
   # release fires on tag push only, but if any PR-check job fails the
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
@@ -3107,10 +3168,14 @@ _lint_probe_fixture() {
   # users consume was the one path the floor did not gate.
   #
   # `config-gen` (base#1462) joins it for the same reason it joins
-  # ci-rollup: the tag path requires exactly what the merge gate requires.
+  # ci-rollup: the tag path requires exactly what the merge gate requires;
+  # base#1547 split it into config-gen-gates and config-gen-redpath.
+  # `mutation-roster` (base#1571) joins both for the same reason.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  #
+  # `bats-integration` left it with base#1573, as it left ci-rollup.
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3211,17 +3276,6 @@ _lint_probe_fixture() {
   # primary unit gate and bats-fragile covers the kcov-skipped delta.
   run code_grep -E '^  bats-unit:' "${WF}"
   assert_failure
-}
-
-@test "self-test.yaml: declares bats-integration job (#377)" {
-  run code_grep -E '^  bats-integration:' "${WF}"
-  assert_success
-}
-
-@test "self-test.yaml: bats-integration invokes test.sh --bats-integration (#377)" {
-  run yaml_job_lines "${WF}" bats-integration
-  assert_success
-  assert_output --partial './script/test/test.sh --bats-integration'
 }
 
 @test "self-test.yaml: declares coverage job (#377)" {
@@ -3440,8 +3494,8 @@ _lint_probe_fixture() {
 # in-flight cache, which is the very thing the unique naming protects.
 
 @test "self-test.yaml: every job that puts an image in the host daemon tears it down (#900)" {
-  # The six docker-using jobs: hadolint, bats-fragile, bats-integration,
-  # coverage, acceptance, system. Each one loads a test-tools image into
+  # The docker-using jobs: hadolint, bats-fragile, coverage, acceptance,
+  # system (bats-integration was the sixth until base#1573). Each one loads a test-tools image into
   # the runner's daemon, so each one has to hand it back.
   run code_grep -c 'script/ci/reclaim.sh' "${WF}"
   assert_success
@@ -3642,33 +3696,13 @@ _lint_tools_table() {
 BATS_DRIVER='/source/script/test/drivers/bats.sh'
 SELF_SPEC='/source/test/bats/unit/self_test_yaml_spec.bats'
 
-# The driver's own kcov-skip regex, read out of the driver rather than
-# respelled here: a second copy of it is the two-sources-of-truth shape the
-# runtime-computed fragile set was built to avoid.
-_fragile_guard_re() {
-  sed -n "s/^readonly _FRAGILE_GUARD_RE='\(.*\)'\$/\1/p" "${BATS_DRIVER}"
-}
-
-# The spec files bats-fragile selects, by the driver's own rule.
-_fragile_selected_files() {
-  local _re
-  _re="$(_fragile_guard_re)"
-  [[ -n "${_re}" ]] || return 1
-  grep -rlE "${_re}" /source/test/bats/unit | LC_ALL=C sort
-}
-
-# `<tests> <guards>`: `@test` declarations in the selected files, and how many
-# of them carry the kcov-skip guard. The difference is what runs in BOTH legs.
-_fragile_overlap_counts() {
-  local _re _f _tests=0 _guards=0
-  _re="$(_fragile_guard_re)"
-  [[ -n "${_re}" ]] || return 1
-  while IFS= read -r _f; do
-    [[ -n "${_f}" ]] || continue
-    _tests=$(( _tests + $(grep -c '^@test' "${_f}") ))
-    _guards=$(( _guards + $(grep -cE "${_re}" "${_f}") ))
-  done < <(_fragile_selected_files)
-  printf '%s %s\n' "${_tests}" "${_guards}"
+# True when the driver's bats-fragile runner selects by TEST, through bats'
+# tag filter (base#1573). Read out of the driver rather than assumed: a
+# runner that went back to handing bats whole files would bring the overlap
+# back.
+_fragile_selects_by_tag() {
+  awk '/^_run_bats_fragile\(\)/ { on = 1 } on && /^}/ { exit }
+       on' "${BATS_DRIVER}" | grep -qF -- '--filter-tags kcov-fragile'
 }
 
 # Every authored line that explains the bats-fragile mechanism, from the three
@@ -3698,24 +3732,14 @@ _fragile_rationale_lines() {
       "${BATS_DRIVER}"
   assert_success
 
-  local _counts _tests _guards _overlap
-  _counts="$(_fragile_overlap_counts)" \
-    || fail "could not read _FRAGILE_GUARD_RE out of ${BATS_DRIVER}"
-  _tests="${_counts%% *}"
-  _guards="${_counts##* }"
-  [ "${_tests}" -ge 100 ] \
-    || fail "counted ${_tests} @test declarations in the fragile files; the selector did not resolve and the check below would be vacuous"
-  _overlap=$(( _tests - _guards ))
-
   local -a _lines=()
   mapfile -t _lines < <(_fragile_rationale_lines)
   [ "${#_lines[@]}" -ge 10 ] \
     || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved and this guard would be vacuous"
 
-  # Only forbidden while the overlap is real: a selector that became a true
-  # partition may say so, and the granularity guard below is what would then
-  # require the rest of the wording to follow.
-  [ "${_overlap}" -gt 0 ] || return 0
+  # A runner that selects by test through the tag filter runs only the
+  # tests coverage skips, so there is no overlap to deny (base#1573).
+  _fragile_selects_by_tag && return 0
 
   local -a _claims=( 'zero double' 'no double-run' 'no double run' \
       'without double-run' 'runs exactly those fragile specs' )
@@ -3726,7 +3750,7 @@ _fragile_rationale_lines() {
     done
   done
   [[ -z "${_bad}" ]] || fail \
-      "a bats-fragile rationale denies a double run that the selector has: ${_guards} of ${_tests} @test declarations in the selected files carry the kcov-skip guard, so ${_overlap} run under kcov in the coverage matrix AND plain here. Offending line(s):
+      "a bats-fragile rationale denies a double run, but ${BATS_DRIVER} no longer selects by the kcov-fragile tag, so whole files run under kcov in the coverage matrix AND plain here. Offending line(s):
 ${_bad}"
 }
 
@@ -3783,6 +3807,12 @@ ${_bad}"
 CG_CODE_IF="needs.classify.outputs.code_changed == 'true'"
 CG_STEP_NAME='Run the config-gen gates'
 CG_STEP_RUN='just test go'
+# The hosted workflow splits `just test go` into its two recipes (base#1547):
+# one gates job, and one redpath job per shard of the shard table.
+CG_GATES_JOB='config-gen-gates'
+CG_REDPATH_JOB='config-gen-redpath'
+CG_GATES_RUN='just test go-gates'
+CG_SHARDS_TSV='/source/script/test/config_gen_redpath_shards.tsv'
 CG_SELF_TEST_TOP='["concurrency","env","jobs","name","on","permissions"]'
 CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_IMAGE"]'
 CG_COV_LOCAL_TOP='["concurrency","jobs","name","on","permissions"]'
@@ -3803,9 +3833,9 @@ _cg_just_pin_steps() {
     version="$(./dist/script/base/just-version.sh)"
     echo "version=${version}" >> "${GITHUB_OUTPUT}"
 - name: Install just (container-ops entry point)
-  uses: extractions/setup-just@v4
-  with:
-    just-version: "${{ steps.just-pin.outputs.version }}"
+  env:
+    JUST_VERSION: "${{ steps.just-pin.outputs.version }}"
+  run: ./script/ci/install-just.sh "${JUST_VERSION}"
 - name: Check the just on PATH is the pin
   run: |
     set -euo pipefail
@@ -3839,14 +3869,15 @@ _cg_mut_ctx() {
 # CONFIG_GEN_MUTATION_CONTEXT env. Every step is a literal here, so no file
 # under test can move its own expectation. The self-hosted job then runs the
 # required-kill roster (base#1461); the hosted job does not, because the
-# hosted lint-static legs run it.
+# hosted mutation-roster matrix runs it (base#1571; decided by the case
+# "the required-kill roster runs once per mutation-roster leg").
 _cg_expected_steps() {
-  local _pin _ctx _tail='[]'
+  local _pin _ctx _tail='[]' _run="${2:-${CG_STEP_RUN}}"
   _pin="$(_cg_just_pin_steps)" || return 1
   _ctx="$(_cg_mut_ctx "${1}")" || { printf '%s\n' "${_ctx}"; return 1; }
   [[ "${1}" != coverage-local ]] \
     || _tail='[{"name": "Run the required-kill mutation roster", "run": "just test mutation-required"}]'
-  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" CG_TAIL="${_tail}" yq -n -o json -I0 '
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${_run}" CG_PIN="${_pin}" CG_CTX="${_ctx}" CG_TAIL="${_tail}" yq -n -o json -I0 '
       [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
       + env(CG_PIN)
       + [{"name": strenv(CG_NAME), "env": {"CONFIG_GEN_MUTATION_CONTEXT": strenv(CG_CTX)}, "run": strenv(CG_RUN)}]
@@ -3872,16 +3903,54 @@ want
   ${_want}"; return 1; }
 }
 
-# _cg_expected_job <self-test|coverage-local> -- the config-gen job less its
-# free-text name and timeout, canonical JSON. coverage-local's `if` is the
-# fork guard its sibling job carries.
+# _cg_shards -- the shard table's N, from its `# shards=<N>` header.
+_cg_shards() {
+  sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${CG_SHARDS_TSV}"
+}
+
+# _cg_rerun_shard -- the one shard the shard table gives rerun.
+_cg_rerun_shard() {
+  awk -F'\t' '$1 == "rerun" { print $2 }' "${CG_SHARDS_TSV}"
+}
+
+# _cg_job_id <self-test|self-test-redpath|coverage-local> -- the job that
+# variant names: the hosted gates job, the hosted redpath matrix, or the
+# self-hosted job, which runs the whole `just test go`.
+_cg_job_id() {
+  case "${1}" in
+    self-test) echo "${CG_GATES_JOB}" ;;
+    self-test-redpath) echo "${CG_REDPATH_JOB}" ;;
+    coverage-local) echo config-gen ;;
+    *) echo "BUG: _cg_job_id ${1}"; return 1 ;;
+  esac
+}
+
+# _cg_expected_job <self-test|self-test-redpath|coverage-local> -- that
+# job less its free-text name and timeout, canonical JSON. coverage-local's
+# `if` is the fork guard its sibling job carries. The redpath matrix is
+# shard 1..N, N read from the shard table's header and never from the
+# workflow, with the shard holding rerun's one row labelled (base#1547).
 _cg_expected_job() {
-  local _steps _if
-  _steps="$(_cg_expected_steps "${1}")" || { printf '%s\n' "${_steps}"; return 1; }
+  local _steps _if _n _k
+  case "${1}" in
+    self-test-redpath)
+      _n="$(_cg_shards)" _k="$(_cg_rerun_shard)"
+      [[ -n "${_n}" && -n "${_k}" ]] || { echo "the shard table names no shard count or no rerun shard"; return 1; }
+      _steps="$(_cg_expected_steps self-test "just test go-redpath \${{ matrix.shard }}/${_n}")" \
+        || { printf '%s\n' "${_steps}"; return 1; } ;;
+    self-test) _steps="$(_cg_expected_steps "${1}" "${CG_GATES_RUN}")" || { printf '%s\n' "${_steps}"; return 1; } ;;
+    *) _steps="$(_cg_expected_steps "${1}")" || { printf '%s\n' "${_steps}"; return 1; } ;;
+  esac
   case "${1}" in
     self-test)
       CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
         '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest", "steps": env(CG_STEPS)} | sort_keys(..)' ;;
+    self-test-redpath)
+      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" CG_SHARD_LIST="[$(seq -s, 1 "${_n}")]" CG_K="${_k}" \
+        yq -n -o json -I0 '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest",
+          "strategy": {"fail-fast": false, "matrix": {"shard": env(CG_SHARD_LIST),
+            "include": [{"shard": env(CG_K), "label": " + rerun, the baseline"}]}},
+          "steps": env(CG_STEPS)} | sort_keys(..)' ;;
     coverage-local)
       _if="$(yq '.jobs["coverage-local"].if' "${COV_LOCAL_WF}")"
       CG_IF="${_if}" CG_STEPS="${_steps}" yq -n -o json -I0 \
@@ -3907,54 +3976,80 @@ _workflow_frame_exact() {
     || { echo "workflow env keys: ${_f} has ${_env}, want exactly ${3}"; return 1; }
 }
 
-# _cg_job_exact <file> <expected-job-json> -- the config-gen job: its key
-# set is the expected keys plus name and timeout-minutes, name is a string,
-# timeout-minutes an int, and the rest equals <expected-job-json>.
+# _cg_job_exact <file> <expected-job-json> [job] -- the config-gen job
+# <job> (default config-gen): its key set is the expected keys plus name
+# and timeout-minutes, name is a string, timeout-minutes an int, and the
+# rest equals <expected-job-json>.
 _cg_job_exact() {
-  local _f="${1}" _want="${2}" _tag _keys _wantkeys _have
-  _tag="$(yq '.jobs["config-gen"] | tag' "${_f}")"
+  local _f="${1}" _want="${2}" _j="${3:-config-gen}" _tag _keys _wantkeys _have
+  _tag="$(CG_J="${_j}" yq '.jobs[strenv(CG_J)] | tag' "${_f}")"
   [[ "${_tag}" == '!!map' ]] \
-    || { echo "config-gen job: ${_f} declares no config-gen job (it reads as ${_tag})"; return 1; }
-  _keys="$(yq -o json -I0 '.jobs["config-gen"] | keys | sort' "${_f}")"
+    || { echo "${_j} job: ${_f} declares no ${_j} job (it reads as ${_tag})"; return 1; }
+  _keys="$(CG_J="${_j}" yq -o json -I0 '.jobs[strenv(CG_J)] | keys | sort' "${_f}")"
   _wantkeys="$(yq -p json -o json -I0 '. + {"name": "", "timeout-minutes": 0} | keys | sort' <<<"${_want}")"
   [[ "${_keys}" == "${_wantkeys}" ]] \
-    || { echo "config-gen job keys: ${_f} has ${_keys}, want exactly ${_wantkeys}"; return 1; }
-  [[ "$(yq '.jobs["config-gen"].name | tag' "${_f}")" == '!!str' ]] \
-    || { echo "config-gen job name: ${_f} has a non-string name"; return 1; }
-  [[ "$(yq '.jobs["config-gen"]["timeout-minutes"] | tag' "${_f}")" == '!!int' ]] \
-    || { echo "config-gen job timeout-minutes: ${_f} has a non-integer timeout"; return 1; }
-  _have="$(yq -o json -I0 '.jobs["config-gen"] | del(.name) | del(.["timeout-minutes"]) | sort_keys(..)' "${_f}")"
+    || { echo "${_j} job keys: ${_f} has ${_keys}, want exactly ${_wantkeys}"; return 1; }
+  [[ "$(CG_J="${_j}" yq '.jobs[strenv(CG_J)].name | tag' "${_f}")" == '!!str' ]] \
+    || { echo "${_j} job name: ${_f} has a non-string name"; return 1; }
+  [[ "$(CG_J="${_j}" yq '.jobs[strenv(CG_J)]["timeout-minutes"] | tag' "${_f}")" == '!!int' ]] \
+    || { echo "${_j} job timeout-minutes: ${_f} has a non-integer timeout"; return 1; }
+  _have="$(CG_J="${_j}" yq -o json -I0 '.jobs[strenv(CG_J)] | del(.name) | del(.["timeout-minutes"]) | sort_keys(..)' "${_f}")"
   [[ "${_have}" == "${_want}" ]] \
-    || { echo "config-gen job body: ${_f} has
+    || { echo "${_j} job body: ${_f} has
   ${_have}
 want
   ${_want}"; return 1; }
 }
 
-# _cg_parity <file> <expected-job-json> <top-keys-json> <env-keys-json>
+# _cg_parity <file> <expected-job-json> <top-keys-json> <env-keys-json> [job]
 _cg_parity() {
   _workflow_frame_exact "${1}" "${3}" "${4}" || return 1
-  _cg_job_exact "${1}" "${2}"
+  _cg_job_exact "${1}" "${2}" "${5:-config-gen}"
 }
 
 # _cg_fixture <src> <self-test|coverage-local> -- a scratch copy of <src>
 # with the canonical config-gen job written in; prints its path.
 _cg_fixture() {
-  local _out="${BATS_TEST_TMPDIR}/fixture-${2}.yaml" _job
+  local _out="${BATS_TEST_TMPDIR}/fixture-${2}.yaml" _job _id
   _job="$(_cg_expected_job "${2}")" || { printf '%s\n' "${_job}"; return 1; }
+  _id="$(_cg_job_id "${2}")" || { printf '%s\n' "${_id}"; return 1; }
   cp "${1}" "${_out}"
-  CG_JOB="${_job}" yq -i '.jobs["config-gen"] = (env(CG_JOB) + {"name": "Config-gen gates", "timeout-minutes": 30})' "${_out}"
+  CG_JOB="${_job}" CG_ID="${_id}" yq -i '.jobs[strenv(CG_ID)] = (env(CG_JOB) + {"name": "Config-gen gates", "timeout-minutes": 30})' "${_out}"
   printf '%s\n' "${_out}"
 }
 
-# why: Nothing ran the Go gates in CI before base#1462. The hosted job is
-# compared whole, so a spelling of the step that does not run `just test go`
-# under a plain bash cannot pass for one that does.
-@test "self-test.yaml: the config-gen job runs exactly just test go under an unmodified shell (base#1462)" {
+# why: Nothing ran the Go gates in CI before base#1462. The hosted gates
+# job is compared whole, so a spelling of the step that does not run `just
+# test go-gates` under a plain bash cannot pass for one that does. base#1547
+# split the hosted `just test go` into this job and the redpath matrix, so
+# each ends inside its bound.
+@test "self-test.yaml: the config-gen-gates job runs exactly just test go-gates under an unmodified shell (base#1462)" {
   local _want
   _want="$(_cg_expected_job self-test)" || fail "${_want}"
-  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_GATES_JOB}"
   assert_success
+  run yq '.jobs | has("config-gen")' "${WF}"
+  assert_output false
+}
+
+# why: The redpath matrix must run every shard the shard table names, and
+# only those: a matrix 1..3 against a five-shard table skips shards 4 and
+# 5, rerun among them (base#1547). So the matrix is exactly 1..N with N read
+# from the table's header, each job runs `just test go-redpath
+# <shard>/<N>` with that same N, which the redpath refuses unless it is the
+# header's, and the job holding rerun's one row is labelled from that row.
+# The job is compared whole, as the gates job is. Its timeout is not
+# raised above the gates job's.
+@test "self-test.yaml: the config-gen-redpath matrix runs go-redpath on every shard 1..N the shard table names (base#1547)" {
+  local _want _name
+  _want="$(_cg_expected_job self-test-redpath)" || fail "${_want}"
+  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_REDPATH_JOB}"
+  assert_success
+  _name="$(yq '.jobs["config-gen-redpath"].name' "${WF}")"
+  [[ "${_name}" == *'${{ matrix.shard }}'* && "${_name}" == *'${{ matrix.label }}'* ]] \
+    || fail "the redpath job's name does not say its shard and label: ${_name}"
+  run yq '.jobs["config-gen-redpath"]["timeout-minutes"] <= 120 and .jobs["config-gen-gates"]["timeout-minutes"] <= 120' "${WF}"
+  assert_output true
 }
 
 # why: The self-hosted environment runs the same command; coverage-local.yaml
@@ -3975,7 +4070,10 @@ _cg_fixture() {
 @test "config-gen: each workflow hands just test go its CONFIG_GEN_MUTATION_CONTEXT expression (base#1464)" {
   assert_spec_subject "${COV_LOCAL_WF}" "the self-hosted workflow"
   local _expr='.jobs["config-gen"].steps[] | select(.run == "just test go") | .env.CONFIG_GEN_MUTATION_CONTEXT'
-  run yq "${_expr}" "${WF}"
+  run yq '.jobs["config-gen-gates"].steps[] | select(.run == "just test go-gates") | .env.CONFIG_GEN_MUTATION_CONTEXT' "${WF}"
+  assert_success
+  assert_output "${CG_MUT_CTX_SELF_TEST}"
+  run yq '.jobs["config-gen-redpath"].steps[] | select(.run | test("^just test go-redpath ")) | .env.CONFIG_GEN_MUTATION_CONTEXT' "${WF}"
   assert_success
   assert_output "${CG_MUT_CTX_SELF_TEST}"
   run yq "${_expr}" "${COV_LOCAL_WF}"
@@ -4007,7 +4105,7 @@ _cg_fixture_must_fail() {
   cp "${1}" "${_m}"
   yq -i "${5}" "${_m}" || { echo "yq refused ${5}"; return 0; }
   cmp -s "${1}" "${_m}" && { echo "${5}: the mutation changed nothing"; return 0; }
-  run _cg_parity "${_m}" "${4}" "${2}" "${3}"
+  run _cg_parity "${_m}" "${4}" "${2}" "${3}" "${7:-config-gen}"
   if [[ "${status}" -eq 0 ]]; then
     echo "${5}: passed the parity check"
   elif [[ "${output}" != *"${6}"* ]]; then
@@ -4025,31 +4123,31 @@ _cg_fixture_must_fail() {
   local _fx _want _bad=""
   _want="$(_cg_expected_job self-test)" || fail "${_want}"
   _fx="$(_cg_fixture "${WF}" self-test)" || fail "${_fx}"
-  run _cg_parity "${_fx}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  run _cg_parity "${_fx}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_GATES_JOB}"
   assert_success
-  export CG_MULTI=$'just test \\\ngo\n'
+  export CG_MULTI=$'just test \\\ngo-gates\n'
   local -a _rows=(
     '.env.BASH_ENV = "/tmp/x"|workflow env keys'
     '.env.SHELLOPTS = "x"|workflow env keys'
     'del(.env.CI_RUN_KEY)|workflow env keys'
     '.defaults.run.shell = "sh -c true {0}"|workflow defaults'
-    '.jobs["config-gen"].env.BASH_ENV = "/tmp/x"|config-gen job keys'
-    '.jobs["config-gen"].defaults.run.shell = "sh -c true {0}"|config-gen job keys'
-    '.jobs["config-gen"]["continue-on-error"] = true|config-gen job keys'
-    '.jobs["config-gen"].container = "alpine"|config-gen job keys'
-    '.jobs["config-gen"].if = false|config-gen job body'
-    '.jobs["config-gen"].if += " && false"|config-gen job body'
-    '.jobs["config-gen"].steps[-1].if = false|config-gen job body'
-    '.jobs["config-gen"].steps[-1].shell = "sh -c true {0}"|config-gen job body'
-    '.jobs["config-gen"].steps[-1]["continue-on-error"] = true|config-gen job body'
-    ".jobs[\"config-gen\"].steps[-1].run = \"just test 'go'\"|config-gen job body"
-    '.jobs["config-gen"].steps[-1].run = strenv(CG_MULTI)|config-gen job body'
-    '.jobs["config-gen"].steps += [{"name": "x", "run": "bash -c \"just test go\""}]|config-gen job body'
+    '.jobs["config-gen-gates"].env.BASH_ENV = "/tmp/x"|config-gen-gates job keys'
+    '.jobs["config-gen-gates"].defaults.run.shell = "sh -c true {0}"|config-gen-gates job keys'
+    '.jobs["config-gen-gates"]["continue-on-error"] = true|config-gen-gates job keys'
+    '.jobs["config-gen-gates"].container = "alpine"|config-gen-gates job keys'
+    '.jobs["config-gen-gates"].if = false|config-gen-gates job body'
+    '.jobs["config-gen-gates"].if += " && false"|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps[-1].if = false|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps[-1].shell = "sh -c true {0}"|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps[-1]["continue-on-error"] = true|config-gen-gates job body'
+    ".jobs[\"config-gen-gates\"].steps[-1].run = \"just test 'go-gates'\"|config-gen-gates job body"
+    '.jobs["config-gen-gates"].steps[-1].run = strenv(CG_MULTI)|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps += [{"name": "x", "run": "bash -c \"just test go-gates\""}]|config-gen-gates job body'
   )
   local _row _line
   for _row in "${_rows[@]}"; do
     _line="$(_cg_fixture_must_fail "${_fx}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" \
-        "${_want}" "${_row%|*}" "${_row##*|}")"
+        "${_want}" "${_row%|*}" "${_row##*|}" "${CG_GATES_JOB}")"
     [[ -z "${_line}" ]] || _bad+="${_line}"$'\n'
   done
   [[ -z "${_bad}" ]] || fail "the parity check let a non-canonical config-gen through:
@@ -4094,11 +4192,15 @@ _cg_bash_env_setup_mutant() {
 # spec's own literal, and acceptance must still equal it.
 @test "config-gen parity: a BASH_ENV exported by a setup step is refused even when acceptance carries it too (base#1462)" {
   local _m _want
-  _m="$(_cg_bash_env_setup_mutant "${WF}" acceptance config-gen)" || fail "${_m}"
+  _m="$(_cg_bash_env_setup_mutant "${WF}" acceptance config-gen-gates config-gen-redpath)" || fail "${_m}"
   _want="$(WF="${_m}" _cg_expected_job self-test)" || fail "${_want}"
-  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_GATES_JOB}"
   assert_failure
-  assert_output --partial 'config-gen job body'
+  assert_output --partial 'config-gen-gates job body'
+  _want="$(WF="${_m}" _cg_expected_job self-test-redpath)" || fail "${_want}"
+  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_REDPATH_JOB}"
+  assert_failure
+  assert_output --partial 'config-gen-redpath job body'
   run _cg_acceptance_just_pin_exact "${_m}"
   assert_failure
   assert_output --partial 'acceptance just-pin steps'
@@ -4178,9 +4280,11 @@ _rollup_honours_every_need() {
 @test "self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)" {
   run yaml_job_needs "${WF}" ci-rollup
   assert_success
-  assert_line config-gen
+  assert_line config-gen-gates
+  assert_line config-gen-redpath
   run _rollup_result_keys "${WF}"
-  assert_line 'CONFIG_GEN_RESULT config-gen'
+  assert_line 'CONFIG_GEN_GATES_RESULT config-gen-gates'
+  assert_line 'CONFIG_GEN_REDPATH_RESULT config-gen-redpath'
   run _rollup_honours_every_need "${WF}"
   assert_output ""
 }
@@ -4188,12 +4292,15 @@ _rollup_honours_every_need() {
 # why: config-gen is gated on code_changed, so on a doc-only diff it skips;
 # the rollup must read that skip as a pass and a failure or cancel as red.
 @test "self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)" {
-  run _rollup_result_keys "${WF}"
-  assert_line 'CONFIG_GEN_RESULT config-gen'
-  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=success)" 0
-  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=skipped)" 0
-  [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=failure)" != 0 ]] || fail "ci-rollup passes a failed config-gen"
-  [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=cancelled)" != 0 ]] || fail "ci-rollup passes a cancelled config-gen"
+  local _k
+  for _k in CONFIG_GEN_GATES_RESULT CONFIG_GEN_REDPATH_RESULT; do
+    run _rollup_result_keys "${WF}"
+    assert_line --regexp "^${_k} config-gen-(gates|redpath)\$"
+    assert_equal "$(_rollup_rc "${WF}" "${_k}=success")" 0
+    assert_equal "$(_rollup_rc "${WF}" "${_k}=skipped")" 0
+    [[ "$(_rollup_rc "${WF}" "${_k}=failure")" != 0 ]] || fail "ci-rollup passes a failed ${_k}"
+    [[ "$(_rollup_rc "${WF}" "${_k}=cancelled")" != 0 ]] || fail "ci-rollup passes a cancelled ${_k}"
+  done
 }
 
 # why: The rollup check must see a need that is listed and keyed but left
@@ -4212,7 +4319,8 @@ _rollup_honours_every_need() {
 
 # ── the required-kill roster runs in every CI environment (base#1461) ────────
 #
-# Local `just test`, the hosted lint-static legs and the self-hosted
+# Local `just test`, the hosted mutation-roster matrix (base#1571; the
+# hosted lint-static legs ran it before that) and the self-hosted
 # coverage-local workflow all run `just test mutation-required`. Which
 # steps run it is decided the way the lint parity is (base#1412): by
 # RUNNING every `run:` step of the job in a checkout copy whose roster
@@ -4249,29 +4357,40 @@ _roster_runs() {
   awk -F'\t' -v p="${2}" '$1 == "roster" && index($2, p) == 1' <<< "${1}"
 }
 
-# why: The hosted environment. Every lint-static leg runs the roster
-# exactly once, on its own shard (`--shard <its group>`, so the four legs
-# together probe every row), with no `if:` and no continue-on-error, and a
-# red roster fails the step.
-@test "self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)" {
+# why: The hosted environment. The roster runs in a job matrix of its own,
+# `mutation-roster`, named for what it does, and not inside lint-static,
+# where it took about 97% of each shard and was invisible from the checks
+# page (base#1571). Its legs are exactly shards 1/N..N/N, so together they
+# probe every row; each leg runs the roster exactly once, on its own shard,
+# with no `if:` and no continue-on-error, and a red roster fails the step.
+# No lint-static leg runs it at all.
+@test "self-test.yaml: the required-kill roster runs once per mutation-roster leg, on its shard, gated, and never in lint-static (base#1571)" {
   local _root
   _root="$(_roster_probe_root)" || fail "${_root}"
-  LP_JOBS=lint-static LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
+  [ "$(yq '.jobs | has("mutation-roster")' "${WF}")" = true ] \
+    || fail "self-test.yaml has no mutation-roster job, so the roster has no job of its own"
+  local -a _shards=()
+  mapfile -t _shards < <(yq '.jobs.mutation-roster.strategy.matrix | to_entries | .[0].value[]' "${WF}")
+  local _n="${#_shards[@]}" _want
+  (( _n >= 2 )) || fail "mutation-roster has ${_n} leg(s); a single leg is the unsplit roster"
+  _want="$(seq 1 "${_n}" | sed "s|.*|&/${_n}|")"
+  [ "$(printf '%s\n' "${_shards[@]}" | sort)" = "$(sort <<< "${_want}")" ] \
+    || fail "mutation-roster legs are [$(printf '%s ' "${_shards[@]}")], not exactly 1/${_n}..${_n}/${_n}, so the legs do not cover the roster once"
+  LP_JOBS='mutation-roster lint-static' LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
   assert_success
-  local _probe="${output}" _group _runs _st
-  local -a _groups=()
-  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}")
-  (( ${#_groups[@]} == 4 )) || fail "lint-static has ${#_groups[@]} legs, not 4"
-  for _group in "${_groups[@]}"; do
-    _runs="$(_roster_runs "${_probe}" "self-test.yaml:lint-static#" | grep -F "\"group\":\"${_group}\"" || true)"
+  local _probe="${output}" _shard _runs _st
+  [ -z "$(_roster_runs "${_probe}" "self-test.yaml:lint-static#")" ] \
+    || fail "a lint-static leg still runs the roster:"$'\n'"$(_roster_runs "${_probe}" "self-test.yaml:lint-static#")"
+  for _shard in "${_shards[@]}"; do
+    _runs="$(_roster_runs "${_probe}" "self-test.yaml:mutation-roster#" | grep -F ":\"${_shard}\"" || true)"
     [ "$(grep -c . <<< "${_runs}" || true)" = 1 ] \
-      || fail "lint-static leg ${_group} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
+      || fail "mutation-roster leg ${_shard} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
     _st="$(cut -f3 <<< "${_runs}")"
-    [ "${_st}" != 0 ] || fail "lint-static leg ${_group}: a red roster leaves its step green"
-    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_group} "* ]] \
-      || fail "lint-static leg ${_group} does not run the roster on shard ${_group}: $(cut -f4 <<< "${_runs}")"
+    [ "${_st}" != 0 ] || fail "mutation-roster leg ${_shard}: a red roster leaves its step green"
+    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_shard} "* ]] \
+      || fail "mutation-roster leg ${_shard} does not run the roster on shard ${_shard}: $(cut -f4 <<< "${_runs}")"
   done
-  run _lint_probe_gating_errors "${_probe}" "${WF}" lint-static roster
+  run _lint_probe_gating_errors "${_probe}" "${WF}" mutation-roster roster
   assert_output ""
 }
 
