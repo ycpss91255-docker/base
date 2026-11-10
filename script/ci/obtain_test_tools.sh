@@ -183,6 +183,12 @@ main() {
       --artifact)
         _artifact="${2:-}"
         shift 2 || return 2
+        # An empty value is a caller whose artifact path was lost on the
+        # way; reading it as "no artifact" would pull or build (base#1588).
+        if [[ -z "${_artifact}" ]]; then
+          printf 'obtain: --artifact takes a tar path, not an empty value\n' >&2
+          return 2
+        fi
         ;;
       -*)
         printf 'obtain: unknown option %s\n' "${1}" >&2
