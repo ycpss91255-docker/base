@@ -281,6 +281,16 @@ _assert_keys() {
   _assert_keys "${output}" true
 }
 
+# why: a merge group is the last run before main (base#1587), and only a
+# pull request narrows the selection (base#1584). So a merge_group run
+# writes all nine select_* keys `true` even when its diff is docs only,
+# or the queue would land a commit whose gated jobs never ran.
+@test "classify: a merge_group run writes every gated job's selection as true (base#1584, base#1587)" {
+  run _classify_event merge_group doc/guide.md
+  assert_success
+  _assert_keys "${output}" true
+}
+
 # why: cycle 6. mutation-roster keeps main's form: no `if:` (roster row
 # selection belongs to base#1604), and the workflow's job list is main's
 # (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in

@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **19 tests**.
+System specs under `test/bats/system/`: **20 tests**.
 
 > **Not** part of the `just test` self-test suite -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -79,6 +79,12 @@ behaviour with the variable unset is unchanged.
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/system/cache_export_ignore_error_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `a failed cache export with ignore-error=true leaves a green build and one ::warning:: from the export vertex; without it the build fails (base#1602)` | The reported failure (isaac run 42753553284, `#26 exporting to GitHub Actions Cache` / `#26 ERROR: error writing layer blob`) was an image that BUILT and a cache export that failed, and the export error became the build's error. ignore-error=true must keep such a build green, and the warn script must then find the failed export vertex in that build's record and report it -- not fall back to "no export vertex" or "history call failed", which would warn for a reason that has nothing to do with the export. The control without ignore-error is the reported red, base#1602. |
 
 ### test/bats/system/compose_multi_stack_e2e_spec.bats (3)
 

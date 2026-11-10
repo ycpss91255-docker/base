@@ -171,7 +171,7 @@ a refusal as "do not release".
 | `R1: a code span naming a script does not state a trigger (#726)` | dropping `.yaml` spans covered the case above and left the property the case NAMES uncovered -- a span naming a file is only one of the spans that say nothing about a trigger. Any code span whose text merely CONTAINS an event name opened the hatch, and a repo's scripts are named after what they do: `script/ci/schedule.sh` beside a workflow whose statable trigger is `schedule` waved a false tag claim about it straight through, with no `.yaml` anywhere for the exclusion to catch. |
 | `R1: a code span quoting a command does not state a trigger (#726)` | the same hole with a command rather than a path, which is the form an ADR reaches for most often. `gh issues list` is a code span that states nothing about what starts anything, and it contains the only statable trigger `triage-label.yaml` has -- so it excused a tag claim about that workflow exactly as the block's own subject word would have, which is the failure the case above this one was written to close. |
 | `R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)` | the other half of that change, and the reason it does not weaken the rule: naming the workflow in a trigger claim and saying nothing about what actually starts it is still the ADR-00000027 defect, whichever trigger the workflow has. |
-| `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. |
+| `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. Its events include `merge_group:`, the merge queue trigger base#1587 added. |
 | `R1: a nested tags key that is not a push filter is not a tag trigger (#726)` | the unfixed half of that same reading. Anchoring the EVENTS on the first key's indentation was done precisely so a nested key is not read as a top-level event -- while the tag question beside it stayed a substring search over the whole `on:` block. `tags:` is not only a push filter: it is a legal name for a `workflow_dispatch` input, a `workflow_call` input or a job-level key, and any of them made the workflow read as tag-triggered. The two readings have to agree, or the block's structure means one thing to one line and another to the next. |
 | `R1: FAILS a tag claim about a workflow whose only tags key is an input (#726)` | and what that costs R1, which is worse than a wrong answer to one question. A workflow that reads as tag-triggered is `continue`d past before the rule looks at the block at all, so a false tag claim about it is not merely under-checked -- it is waved through with no check. The report has to name the trigger the block should have stated instead. |
 | `R1: saying 'push' does not excuse a claim about a tag-less push workflow (#726)` | the second new way to be wrong, and the reason `push` is the one event excluded: a tag push IS a push, so "push" said about a workflow whose `on: push:` carries no `tags:` filter answers nothing the rule asked. Such a block must still be reported -- and with nothing truthful left to name, the message says so rather than offering an empty list. |
@@ -286,6 +286,21 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 | `APK_MIRROR: an override repoints every repository line (#1008)` | EVERY line moves, not just the first. The seed file carries two repositories because that is the shape alpine ships, and a rule that stops after `main` leaves `community` pointing at the host the caller cannot reach -- a build that then dies halfway through, on the mirror that was supposed to have fixed it. |
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
 | `APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)` | The file runs apk in four stages, so a knob wired into one leaves the build dying in the next -- later, and with the same misleading message. This is the assertion that names a newly added alpine stage here, on any machine, rather than on the one host that cannot reach dl-cdn and would otherwise be the only place it shows up. |
+
+### test/bats/unit/apt_retry_spec.bats (5)
+
+An image build failed on one `404 Not Found` from a skewed apt mirror (base
+run 42770963035, devel-base layer) because the layer ran one update and one
+install, so the first failed fetch was final. A fresh `apt-get update`
+before each retried install lets a skewed index recover, base#1602.
+
+| Test | Description |
+|------|-------------|
+| `apt-retry.sh: an install that fails once (exit 100) then passes exits 0, with a fresh update before each install (base#1602)` | The reported 404 is a transient mirror skew: one failed install followed by a passing one must leave the layer green, and the retry must refresh the index first, so the call order is update, install, update, install -- not a bare second install against the same stale index, base#1602. |
+| `apt-retry.sh 3 5: an install that always fails sleeps 5 then 10, and not after the last attempt (base#1602)` | Backoff, not a fixed pause: a skewed mirror needs longer to settle on each try, so the delay doubles after every failed attempt, and no sleep follows the last attempt (the build would only wait to fail), base#1602. |
+| `apt-retry.sh 3 5 apt-get install (no --): refused with exit 2 and apt-get never runs (base#1602)` | A call that forgets the `--` separator is a typo in the Dockerfile, not a mirror fault: like script/ci/retry.sh (base#1562), the helper refuses it with exit 2 (usage) before any apt-get runs, so the layer fails at once instead of shifting the install command into the attempt/delay arguments and retrying the wrong thing, base#1602. |
+| `apt-retry.sh 0 5 -- apt-get install: zero attempts is refused with exit 2 and apt-get never runs (base#1602)` | `apt-retry.sh 0 ...` asks for zero attempts, which is a typo in the Dockerfile, not a request to install once: like script/ci/retry.sh (base#1562, `(( 10#$1 >= 1 )) \|\| usage`), the helper refuses it with exit 2 before any apt-get runs, base#1602. |
+| `apt-retry.sh 3 x -- apt-get install: a non-numeric delay is refused with exit 2 and apt-get never runs (base#1602)` | A non-numeric first delay (`apt-retry.sh 3 x -- ...`) is a typo in the Dockerfile; left unchecked it passes silently when the first attempt succeeds and only breaks on a retry, at `sleep x`. Like script/ci/retry.sh (base#1562, `[[ "$2" =~ ^[0-9]+$ ]] \|\| usage`), the helper refuses it with exit 2 before any apt-get runs, base#1602. |
 
 ### test/bats/unit/arch_literal_lint_spec.bats (19)
 
@@ -587,6 +602,22 @@ runs).
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
 
+### test/bats/unit/build_worker_cache_export_warn_spec.bats (6)
+
+With ignore-error=true a failed cache export no longer fails the build, so
+without this step it would also leave no trace. These specs pin that a good
+export stays silent and a failed one warns, without ever failing the job,
+base#1602.
+
+| Test | Description |
+|------|-------------|
+| `cache_export_warn: an export vertex that ends in DONE prints nothing and exits 0 (base#1602)` | A good cache export must stay silent: a script that warned on every build would bury the one real export failure in noise, base#1602. |
+| `cache_export_warn: an export vertex that ends in ERROR prints one ::warning:: with the error and exits 0 (base#1602)` | The reported failure: with ignore-error=true the export error no longer fails the build, so this warning, carrying the error text, is the only trace of it, and the step itself must not turn red, base#1602. |
+| `cache_export_warn: an export vertex with no final DONE or ERROR line prints one ::warning:: and exits 0 (base#1602)` | A record that never says how the export ended cannot show a success, so the script warns instead of assuming DONE, base#1602. |
+| `cache_export_warn: a record with no cache export vertex prints one ::warning:: and exits 0 (base#1602)` | The build asked for a cache export; a record without one cannot show it ran, so the script warns rather than stay silent, base#1602. |
+| `cache_export_warn: metadata with no buildx.build.ref prints one ::warning:: and exits 0 (base#1602)` | Without a ref the script cannot read this build's own record; it must warn, not fall back to some other record that ended DONE, base#1602. |
+| `cache_export_warn: a docker buildx history call that exits 1 prints one ::warning:: and exits 0 (base#1602)` | A failed history replay cannot vouch for the record, so the exit code wins over any DONE line it printed, and the step still exits 0, base#1602. |
+
 ### test/bats/unit/build_worker_cache_scope_spec.bats (4)
 
 Unit tests for `script/ci/build_worker/cache_scope.sh`, the buildx
@@ -691,7 +722,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (65)
+### test/bats/unit/build_worker_yaml_spec.bats (72)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -833,6 +864,11 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)` | The early-close-reader lint cannot reach here -- it scans *.sh under dist/ and script/, and a workflow `run:` block is not a shell file -- so this is the only thing standing between the step and a `grep -q` whose SIGPIPE 141 becomes the pipeline's status under `pipefail`, turning a stage that WAS found into one that reads as absent. |
 | `build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)` | - |
 | `build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)` | - |
+| `build-worker.yaml + self-test.yaml: every type=gha cache-to carries ignore-error=true (base#1602)` | A GitHub Actions Cache export is its own buildx vertex after the image built, and without `ignore-error=true` its failure becomes the solve error: isaac run 42753553284 went red on `#26 ERROR: error writing layer blob` after the image built (base#1602). The class is every `type=gha` cache-to a build step requests in either workflow, not the four lines the issue names. The floor 12 is the count of `cache-to:` keys found by grepping both files at base a61b898d (4 in build-worker.yaml, 8 in self-test.yaml), so a spec that matches nothing cannot pass. |
+| `build-worker.yaml: every --cache-to the extra-stages step passes ends in ignore-error=true (base#1602)` | The extra-stages loop builds its cache-to in shell (cache_to_for), so the yq enumeration above cannot see it. Read off what the step's own buildx calls receive: with a stage and its -test companion the step runs two builds, and each `--cache-to` it passes must end in `,ignore-error=true`, or a failed export there still fails the job (base#1602). |
+| `build-worker.yaml: an extra stage with no -test companion gets one cache-export warn call, labelled with the stage (base#1602)` | The extra-stages loop drives buildx itself, so its warn calls are not steps the outcome gate can reach: each build that RUNS is followed by one cache_export_warn.sh call labelled with its stage, and a -test companion the Dockerfile does not declare is neither built nor warned about (base#1602). The warn script runs for real against the stubbed docker; its `::warning` lines are what a job log would show. |
+| `build-worker.yaml: an extra stage and its -test companion each get one cache-export warn call, labelled with their own stage (base#1602)` | The -test companion is a build of its own with its own cache export, so when the Dockerfile declares it and it RUNS, it is followed by its own warn call labelled with its own stage, not folded into the stage's (base#1602). Two builds ran, so the log carries two warn lines. |
+| `build-worker.yaml + self-test.yaml: every cache-to build step is followed by a warn step gated on its own outcome (base#1602)` | ignore-error=true turns a failed cache export green, so each build that requests one must be followed by a step that reads that build's own record and warns (base#1602). The warn step is gated on the build's outcome: GitHub's steps context gives a skipped step outcome `skipped` and a failed one `failure`, so `steps.<id>.outcome == 'success'` runs the warn only after a build that ran and passed, never after a build skipped by its own `if:` (10 of the 12 have one) and never on top of a red build. The 12-line roster is the enumeration of every step with `with.cache-to` in both files at base a61b898d, so a new producer without a warn step, or a gate naming another step, fails here. |
 | `build-worker.yaml: the buildx cache has exactly one backend, chosen by no input (#980)` | The deletion asserted as a property rather than as the absence of one string. `cache_backend: registry` could never work -- its cache export needed `packages: write` on a job that declares a read-only block, and a called job gets exactly the block it declares (#957) -- so every line reachable only through it was unreachable from the day it shipped. What must not come back is any SECOND cache backend selected by an input, because `permissions:` accepts no expression and the next one is unreachable for the same reason. |
 | `build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)` | - |
 | `build-worker.yaml: declares path-filter job (#273)` | - |
@@ -859,6 +895,8 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: downstream cleanup is ownership-scoped too (#900)` | - |
 | `build-worker.yaml: the build job carries the same-repo guard AND-ed with its code_changed gate (#766)` | - |
 | `build-worker.yaml: the guard tests the FORK, not the PR (#766)` | - |
+| `build-worker.yaml: build opens on merge_group only on a merge_group_same_repo input that defaults to 'false' (base#1587)` | The guard canon fails closed on merge_group, whose payload names no head repository. The build job may open on a queue run only when the caller passes a resolved answer that the whole group is same-repository, and a caller that passes nothing must stay closed (base#1587). |
+| `build-worker.yaml: docker-build IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group `build` is skipped unless the caller proved the group same-repository, and docker-build must then refuse to certify, as it does for a fork PR, or an unproven queue group would pass on a build that never ran (base#1587). |
 | `build-worker.yaml: every job declares its own permissions block (#957)` | - |
 | `build-worker.yaml: no job requests packages: write (#957)` | - |
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
@@ -1168,6 +1206,29 @@ behaviour, base#1562.
 | `install-just.sh: one failed fetch of the tarball and of SHA256SUMS is retried and just lands on GITHUB_PATH (base#1562)` | The just install must ride out one upstream 5xx on EITHER of its two fetches (the tarball and its SHA256SUMS) instead of failing the job, and must publish a PATH dir only once that dir holds a working binary. A retry on just one fetch, a swap to a tool other than curl, or a PATH entry without the binary would each leave a job red or wrong, base#1562. |
 | `install-just.sh: a tarball whose digest does not match SHA256SUMS fails and leaves GITHUB_PATH untouched (base#1562)` | A download that arrives but is not the release's bytes (a proxy error page, a truncated or tampered tarball) must fail the job, not be installed. The install checks the tarball against the release's SHA256SUMS before it publishes a PATH dir, base#1562. |
 
+### test/bats/unit/ci_merge_group_trust_spec.bats (12)
+
+The self-hosted fork guard fails closed on merge_group, and a site opens
+only on this resolver's answer. These specs pin that the answer is false
+when the call or the queue proves nothing, false when a pull request at or
+ahead of the HEAD_SHA entry is cross-repository or names another head
+repository, and true when the only fork sits behind that entry, base#1587.
+
+| Test | Description |
+|------|-------------|
+| `merge_group_trust.sh: a group of three same-repository pull requests is trusted (base#1587)` | The only case that opens a self-hosted runner on a queue run. A resolver that always answered false would pass every other spec here and skip `build` on every merge_group run, so the queue could never go green (base#1587). |
+| `merge_group_trust.sh: a failed gh call leaves the group untrusted and exits 0 (base#1587)` | An API outage proves nothing about the group, so it must not read as trusted; and a non-zero exit would turn classify red and hide the reason the rollup is meant to print (base#1587). |
+| `merge_group_trust.sh: a gh call that fails once and then answers is retried and trusted (base#1587)` | One transient API 5xx must not mark the group untrusted: the rollup would then fail every queue run on a blip. The call goes through retry.sh, so a gh that fails once and then answers still proves the group same-repository; a bare `gh api graphql` call fails this spec (base#1587). |
+| `merge_group_trust.sh: a null merge queue leaves the group untrusted and names why (base#1587)` | A merge_group run while the queue is off (or turned off mid-run) has no entries to prove anything with; treating null as "no forks" would open the runner on an unproven group (base#1587). |
+| `merge_group_trust.sh: an empty merge queue leaves the group untrusted and names why (base#1587)` | The queue exists, so the null-queue case does not cover it; a resolver that read "no cross-repository entry found" as trust would answer true here with nothing proven (base#1587). |
+| `merge_group_trust.sh: a queue with no entry for HEAD_SHA leaves the group untrusted and names why (base#1587)` | Other groups in the queue being same-repository says nothing about this run's commit; trusting them would let a run whose own group is not listed borrow their answer (base#1587). |
+| `merge_group_trust.sh: an entry whose pull request is not HEAD_REF's pr-<N> leaves the group untrusted and names why (base#1587)` | The commit and the group ref must name the same entry, or the group whose code is running is not proven to be the one that was checked (base#1587). |
+| `merge_group_trust.sh: an entry whose head repository is null leaves the group untrusted and names why (base#1587)` | A deleted head repository leaves isCrossRepository false as the only signal; a resolver that read that field alone would answer true for code whose author is no longer provable (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request ahead of the HEAD_SHA entry leaves the group untrusted (base#1587)` | The load-bearing case: a group builds the code of every pull request ahead of its head, so a fork there runs on the self-hosted runner unless the resolver checks the whole group, not only the head entry or HEAD_REF's pull request (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request as the HEAD_SHA entry leaves the group untrusted (base#1587)` | The group head is the pull request the run is named after; a resolver that checked only the entries ahead of it would let a fork at the head through (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request behind the HEAD_SHA entry does not block the group (base#1587)` | Pins the position filter from the other side: checking the whole queue would make one parked fork block every same-repository group ahead of it, and the queue would stall (base#1587). |
+| `merge_group_trust.sh: a head repository named for another repository leaves the group untrusted (base#1587)` | isCrossRepository alone is one field; the resolver also requires nameWithOwner to be REPO, and this is the only case where the two disagree, so dropping the second check is caught here (base#1587). |
+
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
 Unit tests for `script/ci/preflight.sh`, the caller-contract validator the
@@ -1462,7 +1523,7 @@ code, base#1562.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/classify_testtools_spec.bats (22)
+### test/bats/unit/classify_testtools_spec.bats (23)
 
 `testtools_changed` tells every image-consuming job whether to rebuild the
 tooling image from source instead of pulling the rolling `:main`. On a pull
@@ -1489,6 +1550,7 @@ reads the output the step writes.
 | `classify: a PR that changes nothing the image reads still pulls (#1171)` | The guard that keeps the two cases above from being bought by answering `true` to everything. "Anything changed" would rebuild the tooling image on every pull request and throw away the pull path the rolling tag exists for. |
 | `classify: a PR that changes the test-tools Dockerfile rebuilds it (#1171)` | The Dockerfile's own case on the PR arm, pinned alongside the two above so a rewrite that reaches for the derivation cannot drop the one input the signal already had. |
 | `classify: a push writes every gated job's selection as true (base#1584)` | cycle 6. Main runs the full suite (owner decision, base#1584), so the push arm writes all nine select_* keys `true`. |
+| `classify: a merge_group run writes every gated job's selection as true (base#1584, base#1587)` | a merge group is the last run before main (base#1587), and only a pull request narrows the selection (base#1584). So a merge_group run writes all nine select_* keys `true` even when its diff is docs only, or the queue would land a commit whose gated jobs never ran. |
 | `self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)` | cycle 6. mutation-roster keeps main's form: no `if:` (roster row selection belongs to base#1604), and the workflow's job list is main's (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in redesign r6). |
 | `classify: a pull request touching an unknown path writes every gated job's selection as true (base#1584)` | cycle 24, the issue's fail-closed rule: a pull request touching a path the map does not know runs every gated job. `zz-new/thing.txt` names no directory the repo has. |
 | `classify: a docs-only pull request writes every gated job's selection as false (base#1584)` | cycle 21 (RR3-F1). A docs path selects nothing: the map's doc row is the code_changed allow-list (doc/**, README.md, LICENSE, CONTEXT.md). The base commit holds a real copy of /source/script, so the real map and deny list are read from the base through `git show`. Each value is exact: a classify that never carries a `false` through fails here. |
@@ -4532,7 +4594,7 @@ replaces kcov_trace_volume_spec.bats.
 | `no lib module declares a variable the generated .env already names (base#1177)` | base#1177 put a `GPU_CAPABILITIES` array in the lib tree and measured what that costs: `_lib.sh` loads env_emit.sh and config_summary.sh into ONE process alongside every other module, and `.env` carries a variable of that exact name, so the array shadowed the operator's value and `${GPU_CAPABILITIES:--}` read back `gpu` -- the array's first element -- whatever the configuration said. Nothing failed; the summary just printed a different list. The population is DERIVED from the names env_emit.sh actually writes rather than listed here, because a guard naming today's twenty-four passes forever while the next emitted name is taken by a module variable (base#1089 / base#1090 / base#1214). The probe runs with those names cleared from the environment, so what it finds is what the TREE declares. |
 | `_summary_dump_section groups by the registry, not by the first dot (base#1185)` | base#1185 -- the splitter call the original blast-radius analysis missed; a wrong split here is a wrong SUMMARY, which no exit status reports |
 
-### test/bats/unit/lint_bare_stderr_spec.bats (9)
+### test/bats/unit/lint_bare_stderr_spec.bats (10)
 
 Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
 goes through lib/log.sh helpers" lint. The lint takes the repo root as `$1`,
@@ -4549,6 +4611,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag an allowlisted _log_* line (#692)` | `_log_*` line exempt |
 | `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
+| `does NOT flag bare stderr in the in-image apt-retry.sh helper (base#1602)` | the in-image apt retry helper is excluded (base#1602): it is a /bin/sh script copied into the image and run by Dockerfile RUN layers, where no lib/log.sh exists, so its per-attempt failure line goes straight to fd 2 -- the build log |
 | `does NOT flag a printf of a cg_event line, but still flags any other bare stderr in the same file (base#1465)` | config-gen's in-image event protocol: the admit stage runs with no lib/log.sh, so its refusal is a `cg_event` line on stderr that the host runner reads back and re-emits through _log_err (base#1465) |
 | `does NOT flag a printf of a config_gen_gate_ id line, but still flags any other bare stderr in the same file (base#1467)` | the same protocol's gate id line: config_gen_coverage.sh runs in the config-gen test stage with no lib/log.sh, and the host runner reads its `config_gen_gate_<g>_failed` stderr line back as the gate that went red (base#1467) |
 | `does NOT flag a printf of a config-gen stage= or redpath case= timing line, but still flags any other bare stderr in the same file (base#1547)` | config-gen's timing lines are read back by line shape, the gates runner's `config-gen stage=` and the redpath's `config-gen redpath case=`, so a _log_* prefix would break their readers (base#1547) |
@@ -6553,7 +6616,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate gates the [security] keys the resolver reads (#876)` | - |
 | `_schema_validate gates image.rule_N against the dispatch prefixes (#876)` | - |
 
-### test/bats/unit/self_hosted_guard_lint_spec.bats (23)
+### test/bats/unit/self_hosted_guard_lint_spec.bats (24)
 
 | Test | Description |
 |------|-------------|
@@ -6575,13 +6638,14 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: PASSES an eligible job that carries the guard alone` | - |
 | `self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate` | - |
 | `self-hosted guard: FAILS an eligible job whose if: is a near-miss reword` | - |
+| `self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)` | The first slice of base#1587: the old canon passed this fixture (lint exit 0), so a queue run could put a group holding fork-authored code on a self-hosted runner. Leaving the canon unchanged fails here. |
 | `self-hosted guard: an unrelated job-level if: does not satisfy the guard` | - |
 | `self-hosted guard: FAILS when the workflow directory is missing` | - |
 | `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (148)
+### test/bats/unit/self_test_yaml_spec.bats (153)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6968,7 +7032,12 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)` | - |
 | `self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)` | - |
 | `self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)` | - |
+| `self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)` | A merge_group payload has no pull_request object, so only the API can say whether a queued group is same-repository; classify must ask it on merge_group and publish the answer, failing closed (base#1587) |
+| `self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)` | build-worker's merge_group_same_repo input defaults to 'false', so a worker-selftest that passes nothing would skip `build` on every queue run and fail the gate even for a proven same-repo group (base#1587) |
+| `self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group the build guard skips `build` unless classify proved the group same-repository, and SKIPPED is pass-equivalent in the rollup; the rollup must apply the fork rule there too, or an unproven queue group would go green on a build that never ran (base#1587) |
+| `self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)` | IS_FORK_PR is now also true for a merge group not proven same-repository, so the rollup's red must say that case too, or a queue run reads as a fork PR that does not exist (base#1587) |
 | `self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate` | The CI run on a watch/ branch IS the proposal's whole answer; a branches: filter here would leave every proposal green with zero checks |
+| `self-test.yaml: on: listens for merge_group checks_requested (base#1587)` | A merge queue only runs the suite on the queued group when the workflow listens for merge_group; without the trigger the queue's required checks never report and nothing reaches main (base#1587) |
 | `self-test.yaml: the pin-coverage lint has a lint-static CI join` | A PR is the only moment pin-coverage can fire; with no CI join it would gate a local just test and nothing a reviewer ever sees |
 | `self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)` | - |
 | `self-test.yaml: worker-selftest drives the worker with a minimal fixture repo (#802)` | - |
@@ -8256,7 +8325,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (168)
+### test/bats/unit/template_spec.bats (170)
 
 | Test | Description |
 |------|-------------|
@@ -8394,6 +8463,8 @@ Unit tests for the repo-local command-group scaffolder
 | `Dockerfile.example states what the UNPINNED default does not record (#951)` | read from the note's own window: the digest half AC1 asks for is empty in the shipped default, the note says so, and the recipe it gives strips to `sha256:<hex>` so both routes record the same shape |
 | `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, the digest on both routes it can be known, OCI base-name/base-digest labels |
 | `Dockerfile.example rewrites the package manifest after every apt layer (#951)` | a relation over the apt layers, not a tally: every RUN block that installs apt packages (`apt-get install`, `apt install` or `rosdep install`, indented or not, live or commented-for-uncommenting) must refresh `packages.txt` |
+| `Dockerfile.example runs every apt install through apt-retry.sh 4 15 (base#1602)` | an image build failed on one `404 Not Found` from a skewed apt mirror (base run 42770963035, devel-base layer) because the layer ran one update and one install, so the first failed fetch was final. Every apt layer -- live, and commented for a consumer to uncomment -- runs its install through the bounded retry helper, which refreshes the index before each attempt, base#1602. The call `apt-retry.sh 4 15 --` is the literal of the approved design; the install has to be the helper's own argument, not a sibling command the helper never retries. |
+| `Dockerfile.example: every apt-retry.sh call sits on a FROM chain that copies the helper and 80-base-retries (base#1602)` | the retry helper and the `Acquire::Retries` config only help a layer whose image has them: a stage built from a fresh ${BASE_IMAGE} (the commented runtime-base) inherits nothing sys copied in, so its apt layer could not run the helper, base#1602. Every helper call, live and commented, must sit on a FROM chain that COPYs both files first; the design's config literal is `Acquire::Retries "3";`. The fixture is the negative control: a fresh `FROM ${BASE_IMAGE} AS r` calling the helper without the COPYs is flagged. |
 | `_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)` | pins the helper behind that relation against a scratch fixture: `RUN <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must be closed by its delimiter -- live and commented, order enforced inside it, and `<<<` opening nothing |
 | `Dockerfile.example commented runtime-base records its own manifest (#951)` | read from that stage's own window, since the same commented lines appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented |
 | `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | read from DL3008's own rationale block, and it must name the downstream repos the symlinked config reaches whose Dockerfile predates the manifest |
