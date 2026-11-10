@@ -5,6 +5,7 @@
 #
 # Usage:
 #   check_selection.sh --event <event> --paths     # NUL-separated paths on stdin
+#   check_selection.sh --event <event> --base <ref> # paths from git diff <ref>...HEAD
 #
 # Prints one `<job>=<true|false>` line per heavy job, in a fixed order.
 #
@@ -18,7 +19,7 @@ set -euo pipefail
 readonly -a _CS_JOBS=(config-gen mutation-roster coverage acceptance system)
 
 _cs_usage() {
-  printf 'usage: %s --event <event> --paths\n' "${0##*/}" >&2
+  printf 'usage: %s --event <event> (--base <ref> | --paths)\n' "${0##*/}" >&2
 }
 
 # _cs_in_roster <spec>
@@ -40,7 +41,7 @@ _cs_in_roster() {
 }
 
 main() {
-  local _event="" _from_stdin=0
+  local _event="" _from_stdin=0 _base=""
   while (($# > 0)); do
     case "$1" in
       --event)
@@ -52,13 +53,19 @@ main() {
         _from_stdin=1
         shift
         ;;
+      --base)
+        (($# >= 2)) || { _cs_usage; return 2; }
+        _base="$2"
+        shift 2
+        ;;
       *)
         _cs_usage
         return 2
         ;;
     esac
   done
-  [[ -n "${_event}" && "${_from_stdin}" -eq 1 ]] || { _cs_usage; return 2; }
+  [[ -n "${_event}" ]] || { _cs_usage; return 2; }
+  [[ "${_from_stdin}" -eq 1 || -n "${_base}" ]] || { _cs_usage; return 2; }
 
   # The selection is the union over every changed path. A path that no
   # row names selects every job.
@@ -70,6 +77,20 @@ main() {
   if [[ "${_event}" != pull_request ]]; then
     for _job in "${_CS_JOBS[@]}"; do printf '%s=true\n' "${_job}"; done
     return 0
+  fi
+  # With --base the paths come from the PR diff. A diff that cannot be
+  # read names no path, so nothing may be dropped: every job is selected
+  # (fail closed, base#1584).
+  if [[ -n "${_base}" && "${_from_stdin}" -eq 0 ]]; then
+    local _diff
+    _diff="$(mktemp)"
+    if ! git diff -z --name-only --no-renames "${_base}...HEAD" >"${_diff}" 2>/dev/null; then
+      rm -f "${_diff}"
+      for _job in "${_CS_JOBS[@]}"; do printf '%s=true\n' "${_job}"; done
+      return 0
+    fi
+    exec 0<"${_diff}"
+    rm -f "${_diff}"
   fi
   for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=false; done
   while IFS= read -r -d '' _path; do
