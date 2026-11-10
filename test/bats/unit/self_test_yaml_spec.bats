@@ -1763,6 +1763,17 @@ YAML
   assert_success
 }
 
+# why: build-worker's merge_group_same_repo input defaults to 'false', so a
+# worker-selftest that passes nothing would skip `build` on every queue run
+# and fail the gate even for a proven same-repo group (base#1587)
+@test "self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # `merge_group_same_repo: ${{ needs.classify.outputs.merge_group_same_repo }}`.
+  run _yaml_eval "${WF}" '.jobs["worker-selftest"].with.merge_group_same_repo'
+  assert_success
+  assert_output '${{ needs.classify.outputs.merge_group_same_repo }}'
+}
+
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
 # branches: filter here would leave every proposal green with zero checks
 @test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
