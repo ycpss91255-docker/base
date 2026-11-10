@@ -830,7 +830,7 @@ stale|stale-symlink|dockerfile/config-gen/cmd/config-gen/zz.go|unlisted
 stale|stale-dangling|dockerfile/config-gen/zz-dangling|not_regular
 stale|stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch
 stale|stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted
-stale|stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch
+stale|stale-names|dockerfile/config-gen/cmd/config-gen/testdata/zznames/a%20b.txt|sha_mismatch
 stale|stale-header|manifest|header
 stale|no-checker|admit.sh|absent
 stale|no-lib|config_gen_mutation_lang.sh|absent
@@ -868,7 +868,7 @@ green|ign-excluded|
 green|ign-excluded-go|
 green|docs-only|mutation targets none
 after|ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go
-after|untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt
+after|untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/testdata/zzg/a.txt
 coverage|cov-drop|config_gen_coverage_floor_below|cmd/config-gen|
 coverage|cov-lowered|config_gen_coverage_floor_lowered|internal/buildgate|
 coverage|cov-stale|config_gen_coverage_floor_stale|internal/buildgate|
