@@ -1048,6 +1048,16 @@ Options:
                           checkouts sharing a directory basename do not
                           share a project) and exit. COMPOSE_PROJECT_NAME,
                           when set, is echoed verbatim.
+  --selection [--base REF] [--paths]
+                          Print the per-job selection CI's classify job
+                          computes: the map and deny list of REF (default
+                          origin/main), read with git show, judge the diff
+                          REF...HEAD, or with --paths the NUL-separated
+                          paths on stdin. When REF does not resolve
+                          (reason=bad_base) or does not hold the map and
+                          deny list (reason=map_missing_on_base), every
+                          job prints true (script/ci/selection_at_base.sh,
+                          base#1584)
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -2772,6 +2782,11 @@ main() {
   # `--await-project`. Recorded rather than answered on the spot: see the
   # dispatch below the flag-combination guards.
   local name_query="" repair=""
+  # `--selection [--base <ref>] [--paths]` (base#1584): the per-job
+  # selection CI's classify job computes, judged by <ref>'s map, for the
+  # diff <ref>...HEAD or the NUL-separated paths on stdin. A query like the
+  # ones above, so it is answered below the guards too.
+  local selection_paths="" selection_base="origin/main" selection_base_set=""
   # Neither a query nor a repair: a CHECK over a file the caller names.
   # Recorded rather than answered on the spot, for the same reason the
   # queries are -- see the dispatch below the flag-combination guards.
@@ -2869,6 +2884,15 @@ main() {
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
       --compose-project-name) name_query="compose-project-name"; shift ;;
+      --selection) name_query="selection"; shift ;;
+      --paths) selection_paths=1; shift ;;
+      --base)
+        [[ $# -ge 2 ]] || _die ci_paths_without_selection \
+          "--base needs a ref; use './test.sh --selection --base <ref>'."
+        selection_base="$2"
+        selection_base_set=1
+        shift 2
+        ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
@@ -2929,8 +2953,19 @@ main() {
   # the rest of the command line has even been read: `--jobs 4
   # --compose-project-name` printed a name and swallowed the typo, and a
   # misspelt flag after one of these was never reported either.
+  if [[ -n "${selection_paths}${selection_base_set}" && "${name_query}" != "selection" ]]; then
+    _die ci_paths_without_selection \
+      "--paths and --base shape the answer of --selection; use './test.sh --selection [--base <ref>] [--paths]'."
+  fi
   if [[ -n "${name_query}" ]]; then
     case "${name_query}" in
+      selection)
+        local _mode=--diff
+        [[ -z "${selection_paths}" ]] || _mode=--paths
+        bash "${REPO_ROOT}/script/ci/selection_at_base.sh" \
+          --base "${selection_base}" --event pull_request "${_mode}"
+        return $?
+        ;;
       test-tools-image) _resolve_test_tools_image; return 0 ;;
       compose-project-name) _resolve_compose_project_name; return 0 ;;
       await-project)
