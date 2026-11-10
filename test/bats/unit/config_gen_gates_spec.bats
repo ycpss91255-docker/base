@@ -2508,6 +2508,39 @@ _glibc_getconf() {
   assert_equal "$(cat "${S}/runner.${_n}.mod/testdata/zzg/a.txt")" c
 }
 
+# why: The mutation gate maps a file under the module-root testdata/ to
+# every corpus importer, so a green case planted there re-mutates four
+# unchanged packages. Each producer-state green case, and untrack-ignored
+# that shares its path, must leave its files under the one small package's
+# cmd/config-gen/testdata/ and nothing under the module-root testdata/zzg
+# or testdata/zznames; a half move or a leftover copy would keep the slow
+# mapping (base#1615).
+@test "config_gen_redpath.sh: the producer-state green cases plant under cmd/config-gen/testdata, not the module-root testdata (base#1615)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _case _n _m _row
+  # case|file the case's git state leaves in the copy, under cmd/config-gen/testdata/
+  local -a _rows=(
+    'names|zznames/a b.txt'
+    'rename-recreate|zzg/d.txt'
+    'untrack|zzg/a.txt'
+    'rename-move|zzg/d.txt'
+    'untrack-ignored|zzg/a.txt'
+    'copies|zzg/e.txt'
+    'typechange|zzg/c.txt'
+  )
+  _run_redpath names rename-recreate untrack rename-move untrack-ignored copies typechange
+  for _row in "${_rows[@]}"; do
+    _case="${_row%%|*}"
+    _n="$(_redpath_call "${_case}")"
+    _m="${S}/runner.${_n}.mod"
+    [[ -f "${_m}/cmd/config-gen/testdata/${_row#*|}" ]] \
+      || fail "${_case} did not plant cmd/config-gen/testdata/${_row#*|}"
+    [[ ! -e "${_m}/testdata/zzg" && ! -e "${_m}/testdata/zznames" ]] \
+      || fail "${_case} left a plant under the module-root testdata/"
+  done
+}
+
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
