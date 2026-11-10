@@ -145,7 +145,7 @@ printf "%s\n" "${MOCK_REPLY}"
   run --separate-stderr bash "${TRUST}"
   assert_success
   assert_output "same_repo=false"
-  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+  [[ "${stderr}" == *"::error::merge_group_trust: "*"has no merge queue for main"* ]]
 }
 
 # why: The queue exists, so the null-queue case does not cover it; a
@@ -162,7 +162,7 @@ printf "%s\n" "${MOCK_REPLY}"
   run --separate-stderr bash "${TRUST}"
   assert_success
   assert_output "same_repo=false"
-  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+  [[ "${stderr}" == *"::error::merge_group_trust: "*"merge queue for main has no entries"* ]]
 }
 
 # why: Other groups in the queue being same-repository says nothing about
@@ -183,7 +183,7 @@ printf "%s\n" "${MOCK_REPLY}"
   run --separate-stderr bash "${TRUST}"
   assert_success
   assert_output "same_repo=false"
-  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+  [[ "${stderr}" == *"::error::merge_group_trust: "*"has no entry for ${HEAD_SHA}"* ]]
 }
 
 # why: The commit and the group ref must name the same entry, or the
@@ -205,7 +205,7 @@ printf "%s\n" "${MOCK_REPLY}"
   run --separate-stderr bash "${TRUST}"
   assert_success
   assert_output "same_repo=false"
-  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+  [[ "${stderr}" == *"::error::merge_group_trust: the entry for ${HEAD_SHA} is pull request 103, but ${HEAD_REF} names pr-999"* ]]
 }
 
 # why: A deleted head repository leaves isCrossRepository false as the
@@ -228,7 +228,7 @@ printf "%s\n" "${MOCK_REPLY}"
   run --separate-stderr bash "${TRUST}"
   assert_success
   assert_output "same_repo=false"
-  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+  [[ "${stderr}" == *"::error::merge_group_trust: pull request 102 in the group has no head repository"* ]]
 }
 
 # why: The load-bearing case: a group builds the code of every pull
