@@ -1,7 +1,7 @@
 # s7.tsv -- the mutations base#1443 (config-gen S7, schema II: array
 # families) requires script/test/mutation-probe.sh to report PINNED. One
 # row per behaviour:
-# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new> TAB <witness>, the contract of
 # script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
 # written with the three escapes \\ \t \n. `just test mutation-required`
@@ -22,7 +22,7 @@
 # table corpus/s7/s7_array_homes.tsv records, through
 # config_gen_array_homes_spec.bats. A table that drifted from the bridge
 # would carry the Go tests with it.
-entry-not-table	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if not isinstance(elem, dict):\n        print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "	    if False:\n        print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "
-entry-no-gating-field	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if elem and not any(name in elem for name in fields):	    if False:
-entry-cleared-slot-kept	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if elem and not any(name in elem for name in fields):	    if not any(name in elem for name in fields):
-entry-unknown-field	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if unknown:	    if False:
+entry-not-table	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if not isinstance(elem, dict):\n        print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "	    if False:\n        print(f"toml-bridge: entry {index} of {path} is {elem!r}, not a "	^array homes: every row's bodies get from the bridge the verdict the Go schema tests expect \(base#1443\)$
+entry-no-gating-field	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if elem and not any(name in elem for name in fields):	    if False:	^array homes: every row's bodies get from the bridge the verdict the Go schema tests expect \(base#1443\)$
+entry-cleared-slot-kept	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if elem and not any(name in elem for name in fields):	    if not any(name in elem for name in fields):	^array homes: every row's bodies get from the bridge the verdict the Go schema tests expect \(base#1443\)$
+entry-unknown-field	dockerfile/toml_bridge.py	test/bats/unit/config_gen_array_homes_spec.bats	    if unknown:	    if False:	^array homes: every row's bodies get from the bridge the verdict the Go schema tests expect \(base#1443\)$

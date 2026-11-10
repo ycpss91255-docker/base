@@ -791,14 +791,16 @@ jobs:
     # each leg's time and the checks page named it as a lint group; it is
     # a job of its own so its name says what it runs. Every leg runs it,
     # ungated, through `just`, on the shard named by its matrix entry: the
-    # eight legs together probe every row, and a full roster per leg did
-    # not finish inside one job's timeout. Eight, because when the matrix
-    # was sized seconds.txt summed to 8304.6 worker-seconds, which dealt
-    # four legs 517.9 to 520.2 s each over 4 worker slots, over the 300 s
-    # (5 minute) per-job target (base#1571). Whether every leg still fits
-    # 300 s is decided by the mutation_roster_spec case "every
-    # mutation-roster leg's measured seconds over its worker slots fit
-    # 300 s", a sum over seconds.txt, not a timed job.
+    # twenty legs together probe every row, and a full roster per leg did
+    # not finish inside one job's timeout. Twenty, because seconds.txt
+    # holds the row times PR #1589's run 42755258486 measured on eight
+    # legs (13195.8 worker-seconds, the heaviest row 98.2 s), and twenty
+    # is the fewest legs whose worst list-scheduling bound over 4 worker
+    # slots, 239.0 s, is at most 240 s; nineteen gives 248.3 s
+    # (base#1582). Those eight legs took 5 min 32 s to 8 min 22 s each.
+    # Whether every leg still fits is decided by the mutation_roster_spec
+    # case "every mutation-roster leg's list-scheduling bound over its
+    # worker slots fits 240 s", a bound over seconds.txt, not a timed job.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR
@@ -809,7 +811,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8']
+        shard: ['1/20', '2/20', '3/20', '4/20', '5/20', '6/20', '7/20',
+                '8/20', '9/20', '10/20', '11/20', '12/20', '13/20', '14/20',
+                '15/20', '16/20', '17/20', '18/20', '19/20', '20/20']
     steps:
       - name: Checkout
         uses: actions/checkout@v7

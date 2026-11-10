@@ -1317,6 +1317,32 @@ STUB
   assert_output "1"
 }
 
+# why: without --baseline-in a --filter narrows the baseline too (base#1582),
+# so a baseline written with --filter and --baseline-out counts only the
+# witnesses. Read as a whole-scope baseline, those few counts would make the
+# "fewer assertions than the baseline" check pass for a whole-spec run that
+# skipped most of the spec. So the key a filtered baseline is written under
+# names its filter, and a whole-scope --baseline-in on the same tree and
+# spec refuses it with rc=3 before anything is mutated.
+@test "_mutation_probe: a --filter baseline written with --baseline-out is refused by a whole-scope --baseline-in (base#1582)" {
+  local _root _runner _base="${BATS_TEST_TMPDIR}/filtered.baseline"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing filtered-key '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --baseline-out '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+  assert [ -f "${_base}" ]
+
+  # Same tree, same spec, no filter: the filtered baseline is not this
+  # run's baseline, so the run is refused and the subject never mutated.
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_equal "${status}" 3
+  assert_output --partial "was written for"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
+
 # ── a mutated pass narrowed to its witnesses ────────────────────────────────
 
 # why: a roster row's verdict rests on a few witness tests, yet its mutated
@@ -1375,12 +1401,84 @@ STUB
   assert_success
   assert_output --partial "PINNED"
   assert_output --partial "not ok 2 the other test"
-  # The filtered pass ran, and the last call was the whole-spec fallback.
+  # The filtered baseline and the filtered pass ran (the baseline takes the
+  # filter since base#1582), and the last call was the whole-spec fallback.
   run grep -cxF '^the witness$' "${_calls}"
-  assert_output "1"
+  assert_output "2"
   run tail -n 1 "${_calls}"
   assert_output '<none>'
   # The fallback put the subject back.
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
+
+# _fallback_runner <path> <clean-whole-body> -- a runner whose filtered
+# calls print one green witness, whose whole-spec call on the mutated tree
+# prints a red, and whose whole-spec call on the clean tree runs the shell
+# lines in <clean-whole-body>. So the filtered pass stays green and the
+# probe falls back to the whole spec, and only the fall-back's own
+# whole-spec baseline decides the answer.
+_fallback_runner() {
+  local _runner="${1}" _clean="${2}"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' 'if [[ -n "${3-}" ]]; then'
+    printf '%s\n' '  printf "ok 1 the witness\n"'
+    printf '%s\n' 'elif grep -F wrong "${1}/subject.sh" >/dev/null 2>&1; then'
+    printf '%s\n' '  printf "ok 1 the witness\nnot ok 2 the other test\n"'
+    printf '%s\n' '  exit 1'
+    printf '%s\n' 'else'
+    printf '%s\n' "${_clean}"
+    printf '%s\n' 'fi'
+  } > "${_runner}"
+  chmod +x "${_runner}"
+}
+
+# why: the fall-back judges the whole-spec run against a whole-spec
+# baseline (base#1582). A spec already red outside the filter before any
+# mutation is red the same way under it, so that red says nothing about the
+# mutation: the probe refuses rather than report PINNED, and puts the
+# subject back. Here the whole spec is red both mutated and clean.
+@test "_mutation_probe: a --filter fall-back whose whole-spec baseline is red is refused (base#1582)" {
+  local _root _runner="${BATS_TEST_TMPDIR}/runner-red-base"
+  _root="$(_probe_fixture)"
+  _fallback_runner "${_runner}" \
+    '  printf "ok 1 the witness\nnot ok 2 the other test\n"; exit 1'
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_equal "${status}" 3
+  assert_output --partial "the whole-spec baseline is already red: 1 ok / 1 not ok"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
+
+# why: a whole-spec baseline that printed no test result is no baseline,
+# so the fall-back has nothing to compare its whole-spec run against and
+# refuses (base#1582).
+@test "_mutation_probe: a --filter fall-back whose whole-spec baseline has no results is refused (base#1582)" {
+  local _root _runner="${BATS_TEST_TMPDIR}/runner-empty-base"
+  _root="$(_probe_fixture)"
+  _fallback_runner "${_runner}" '  printf "nothing ran\n"'
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_equal "${status}" 3
+  assert_output --partial "the whole-spec baseline run reported no test results at all"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
+
+# why: a whole-spec baseline that printed only greens and then exited
+# non-zero did not finish, so its count is not a baseline and the
+# fall-back refuses (base#1582).
+@test "_mutation_probe: a --filter fall-back whose whole-spec baseline did not finish is refused (base#1582)" {
+  local _root _runner="${BATS_TEST_TMPDIR}/runner-unfinished-base"
+  _root="$(_probe_fixture)"
+  _fallback_runner "${_runner}" \
+    '  printf "ok 1 the witness\nok 2 the other test\n"; exit 1'
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_equal "${status}" 3
+  assert_output --partial "the whole-spec baseline runner did not finish: 2 ok / 0 not ok and then exit 1"
+  refute_output --partial "PINNED"
   run grep -cF right "${_root}/subject.sh"
   assert_output "1"
 }

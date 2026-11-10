@@ -60,7 +60,8 @@
 # Within one run (one shard), a spec's unmutated baseline runs once, in
 # its first row's probe (--baseline-out); every other row on that spec in
 # the run reads it (--baseline-in)
-# and runs only its mutated pass. Verdicts are published only after every
+# and runs only its mutated pass. A row with a witness takes no part: it
+# runs its own baseline under its filter (base#1582). Verdicts are published only after every
 # worker is reaped, and a failing run publishes no pass. The first INT / TERM is forwarded to
 # every worker, which forwards it to its probe; the run then exits 130 /
 # 143 with no verdict.
@@ -201,9 +202,9 @@ _mr_path_reason() {
 # fill _MR_ROWS_*. 0 when every row is valid and there is at least one.
 _mr_validate() {
   local _root="${1}" _dir="${1}/${_MR_ROSTER_REL}" _f _rel _line _n _bad=0
-  local _id _subj _spec _old _new _rest _reason _count _key _loc
+  local _id _subj _spec _old _new _rest _reason _count _key _loc _p
   local -a _fl=() _files=()
-  local -A _ids=() _tuples=()
+  local -A _ids=() _tuples=() _reason_of=() _subj_nul=()
   if [[ -d "${_dir}" ]]; then
     mapfile -t _files < <(LC_ALL=C find "${_dir}" -maxdepth 1 -name '*.tsv' -type f | LC_ALL=C sort)
   fi
@@ -245,8 +246,17 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" id_invalid "an id is [a-z0-9-]+"
         _bad=1; continue
       fi
-      if _reason="$(_mr_path_reason "${_root}" "${_subj}")" \
-        || _reason="$(_mr_path_reason "${_root}" "${_spec}")"; then
+      # Each path is judged once per run, and each subject is scanned for a
+      # NUL once: 320 rows name 22 subjects and 19 specs, and every --check
+      # --shard leg revalidates them all (base#1582). In _reason_of, `-`
+      # marks a plain path.
+      for _p in "${_subj}" "${_spec}"; do
+        [[ -n "${_reason_of["${_p}"]:-}" ]] \
+          || _reason_of["${_p}"]="$(_mr_path_reason "${_root}" "${_p}" || printf -- '-')"
+      done
+      _reason="${_reason_of["${_subj}"]}"
+      [[ "${_reason}" != - ]] || _reason="${_reason_of["${_spec}"]}"
+      if [[ "${_reason}" != - ]]; then
         _mr_invalid "${_loc}" "${_id}" "${_reason}" "subject and spec are plain paths under the root"
         _bad=1; continue
       fi
@@ -254,7 +264,11 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" subject_missing "no file ${_subj}"
         _bad=1; continue
       fi
-      if _mr_has_nul "${_root}/${_subj}"; then
+      if [[ -z "${_subj_nul["${_subj}"]:-}" ]]; then
+        _subj_nul["${_subj}"]=no
+        ! _mr_has_nul "${_root}/${_subj}" || _subj_nul["${_subj}"]=yes
+      fi
+      if [[ "${_subj_nul["${_subj}"]}" == yes ]]; then
         _mr_invalid "${_loc}" "${_id}" subject_has_nul \
           "${_subj} carries a NUL byte, which --apply cannot carry through a byte-exact edit"
         _bad=1; continue
@@ -520,8 +534,9 @@ _mrw_verdict() {
 
 # _mr_worker <row-dir> -- probe the row described in <row-dir>/meta (NUL
 # fields: subject, spec, the spec's baseline file, `out` when this row
-# runs and writes that baseline or `in` when it reads it, and the witness
-# filter, empty for none), with <row-dir>/old and <row-dir>/new. Root,
+# runs and writes that baseline or `in` when it reads it (both empty for a
+# row with a witness, which runs its own filtered baseline, base#1582), and
+# the witness filter, empty for none), with <row-dir>/old and <row-dir>/new. Root,
 # probe, worker slot and the names to avoid come from MR_W_* in the
 # environment.
 _mr_worker() {
@@ -670,12 +685,13 @@ _mrw_run_probe() {
     fi
   fi
   printf -v _mut '%q ' bash "${_MR_SELF}" --apply "${_subj}" "${_MRW_DIR}/old" "${_MRW_DIR}/new"
-  local -a _flt=()
+  local -a _flt=() _bl=()
   [[ -z "${_wit}" ]] || _flt=( --filter "${_wit}" )
+  [[ -z "${_role}" ]] || _bl=( "--baseline-${_role}" "${_base}" )
   _rc=0
   set -m
   COMPOSE_PROJECT_NAME="${_name}" bash "${MR_W_PROBE:?}" --root "${_sbx}" --subject "${_subj}" \
-    --spec "${_spec}" --mutate "${_mut}" "--baseline-${_role}" "${_base}" "${_flt[@]+"${_flt[@]}"}" \
+    --spec "${_spec}" --mutate "${_mut}" "${_bl[@]+"${_bl[@]}"}" "${_flt[@]+"${_flt[@]}"}" \
     < /dev/null > "${_MRW_DIR}/out" 2> "${_MRW_DIR}/err" &
   _MRW_PROBE="$!"
   set +m
@@ -773,7 +789,7 @@ _mr_publish_interrupted() {
 # _mr_run <root> <jobs> -- probe every validated row, at most <jobs> at a
 # time, then publish.
 _mr_run() {
-  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0 _role _slot
+  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0 _role _rbase _slot
   local -a _r=()
   local -A _base=() _busy=()
   _probe="${MUTATION_REQUIRED_PROBE:-${_MR_DIR}/../mutation-probe.sh}"
@@ -782,13 +798,19 @@ _mr_run() {
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
     [[ -z "${_MR_SIG}" ]] || break
     mkdir -p "${_MR_WORK}/row${_i}"
-    _role=in
-    if [[ -z "${_base["${_MR_ROWS_SPEC[_i]}"]:-}" ]]; then
-      _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
-      _role=out
+    # A row with a witness runs its own filtered baseline: no shared
+    # baseline role, so it waits on no other row (base#1582).
+    _role='' _rbase=''
+    if [[ -z "${_MR_ROWS_WIT[_i]}" ]]; then
+      _role=in
+      if [[ -z "${_base["${_MR_ROWS_SPEC[_i]}"]:-}" ]]; then
+        _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
+        _role=out
+      fi
+      _rbase="${_base["${_MR_ROWS_SPEC[_i]}"]}"
     fi
     printf '%s\0%s\0%s\0%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" \
-      "${_base["${_MR_ROWS_SPEC[_i]}"]}" "${_role}" "${_MR_ROWS_WIT[_i]}" > "${_MR_WORK}/row${_i}/meta"
+      "${_rbase}" "${_role}" "${_MR_ROWS_WIT[_i]}" > "${_MR_WORK}/row${_i}/meta"
     printf '%s' "${_MR_ROWS_OLD[_i]}" > "${_MR_WORK}/row${_i}/old"
     printf '%s' "${_MR_ROWS_NEW[_i]}" > "${_MR_WORK}/row${_i}/new"
     while (( ${#_MR_LIVE[@]} >= _jobs )) && [[ -z "${_MR_SIG}" ]]; do
