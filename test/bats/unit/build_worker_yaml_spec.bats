@@ -937,6 +937,19 @@ _classify() {
   assert_output "needs.path-filter.outputs.code_changed == 'true' && (github.event_name != 'pull_request' && github.event_name != 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'merge_group' && inputs.merge_group_same_repo == 'true')"
 }
 
+# why: On merge_group `build` is skipped unless the caller proved the group
+# same-repository, and docker-build must then refuse to certify, as it does
+# for a fork PR, or an unproven queue group would pass on a build that never
+# ran (base#1587).
+@test "build-worker.yaml: docker-build IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # today's pull_request expression, `||` the merge_group term that reads
+  # the merge_group_same_repo input and fails closed on anything but 'true'.
+  run _yaml_eval "${WF}" '.jobs["docker-build"].steps[] | select(.env.IS_FORK_PR != null) | .env.IS_FORK_PR'
+  assert_success
+  assert_output "\${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && inputs.merge_group_same_repo != 'true' }}"
+}
+
 # ── Per-job least privilege ────────────────────────────────────
 
 # Print the name of every job in the worker that declares no permission
