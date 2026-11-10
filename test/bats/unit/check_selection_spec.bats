@@ -97,3 +97,20 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only script/release/justfile.release selects every heavy job (base#1584)" {
+  # Expected, from the justfile module probe, not from the map: the root
+  # justfile loads `mod? release 'script/release/justfile.release'`, and
+  # in a scratch dir a `x := (` syntax error in one module made `just a
+  # go` of an unrelated module exit 1 (`expected backtick ...`). Every
+  # heavy job runs a `just` recipe, so a broken justfile.release fails
+  # all five -- matching a justfile by its directory (script/release)
+  # would wrongly drop config-gen.
+  run _select pull_request script/release/justfile.release
+  assert_success
+  assert_output "config-gen=true
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
