@@ -1,0 +1,5 @@
+dist/script/docker/lib/log.sh
+dist/script/docker/lib/log-events.txt
+script/watch/lib.sh
+script/watch/pins.sh
+dockerfile/Dockerfile.config-gen

@@ -875,15 +875,20 @@ ${_recipe}"
 
 # why: config-gen joins ci-rollup's needs, so the mirror must run the same
 # one command CI runs for it, and that command must resolve to a recipe.
+# base#1547 split the hosted job into config-gen-gates and the
+# config-gen-redpath shard matrix, which run `just test go`'s two recipes;
+# the mirror runs `just test go` itself, their union, for both.
 @test "pre-PR mirror: config-gen is attested by exactly just test go (base#1462)" {
-  local _table
+  local _table _job
   _table="$(_mirror_table)" || return 1
-  run _attested_cmd "${_table}" config-gen
-  assert_output 'just test go'
+  for _job in config-gen-gates config-gen-redpath; do
+    run _attested_cmd "${_table}" "${_job}"
+    assert_output 'just test go'
+    run _ci_gate "${_job}"
+    assert_output code
+  done
   run _local_mode 'just test go'
   assert_output plain
-  run _ci_gate config-gen
-  assert_output code
 }
 
 # why: The config generator's sources are code paths; a diff touching only
