@@ -288,6 +288,7 @@ teardown() {
   assert_success
 }
 
+# bats test_tags=kcov-fragile
 @test "stop.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)" {
   run --separate-stderr bash "${SANDBOX}/stop.sh" -vv --dry-run
   assert_success

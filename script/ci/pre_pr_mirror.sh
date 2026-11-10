@@ -48,8 +48,8 @@
 #
 #   always            actionlint, and `just test` -- every linter of the
 #                     _LINT_TOOLS table, then the whole bats suite plain.
-#                     The lint jobs and bats-fragile / bats-integration run
-#                     subsets of exactly that, plain, in CI. Run on every
+#                     The lint jobs and bats-fragile run subsets of
+#                     exactly that, plain, in CI. Run on every
 #                     diff, because a superset costs a minute and a
 #                     classification this mirror got wrong would cost a PR.
 #   code changed      `--coverage-matrix` -- every shard of CI's coverage
@@ -149,7 +149,6 @@ _table() {
     "attested${t}mutation-roster${t}${_CMD_TEST}" \
     "attested${t}hadolint${t}${_CMD_TEST}" \
     "attested${t}bats-fragile${t}${_CMD_TEST}" \
-    "attested${t}bats-integration${t}${_CMD_TEST}" \
     "attested${t}coverage${t}${_CMD_COVERAGE}" \
     "attested${t}coverage-gate${t}${_CMD_MERGE} && ${_CMD_VERDICT}" \
     "attested${t}system${t}${_CMD_SYSTEM}" \
