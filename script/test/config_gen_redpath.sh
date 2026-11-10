@@ -1384,7 +1384,7 @@ _rp_rerun() {
 # the line _RP_GREEN_LINES holds for <case>, or the packages the mutation
 # gate passed are not exactly the one _RP_GREEN_SCOPE holds for <case>.
 _rp_green_case() {
-  local root rc=0 reason line scope mod
+  local root rc=0 reason line scope path
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
   _rp_reuse_check "${root}" "${2}" || return 1
@@ -1396,8 +1396,8 @@ _rp_green_case() {
   fi
   scope="$(_rp_row "${2}" "${_RP_GREEN_SCOPE[@]}")"
   if [[ -z "${reason}" && -n "${scope}" ]]; then
-    mod="$(awk '$1 == "module" {print $2; exit}' "${root}/dockerfile/config-gen/go.mod")"
-    [[ "$(_rp_mutation_got "${root}.err")" == "${mod}/${scope}" ]] || reason=mutation_scope_mismatch
+    path="$(awk '$1 == "module" {print $2; exit}' "${root}/dockerfile/config-gen/go.mod")"
+    [[ "$(_rp_mutation_got "${root}.err")" == "${path}/${scope}" ]] || reason=mutation_scope_mismatch
   fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
