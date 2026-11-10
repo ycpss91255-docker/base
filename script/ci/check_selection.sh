@@ -42,13 +42,21 @@ main() {
   done
   [[ -n "${_event}" && "${_from_stdin}" -eq 1 ]] || { _cs_usage; return 2; }
 
-  # Read the whole diff so the writer never sees a closed pipe.
-  cat >/dev/null
+  # The selection is the union over every changed path. A path that no
+  # row names selects every job.
+  local _all=false _path
+  while IFS= read -r -d '' _path; do
+    case "${_path}" in
+      # Docs select nothing: the doc-only allow-list classify's
+      # code_changed gate already uses (.github/workflows/self-test.yaml).
+      doc/* | README.md | LICENSE | CONTEXT.md) ;;
+      *) _all=true ;;
+    esac
+  done
 
-  # Every job starts selected; no exclusion row exists yet.
   local _job
   for _job in "${_CS_JOBS[@]}"; do
-    printf '%s=true\n' "${_job}"
+    printf '%s=%s\n' "${_job}" "${_all}"
   done
 }
 
