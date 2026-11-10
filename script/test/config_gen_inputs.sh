@@ -20,7 +20,7 @@
 # Style: Google Shell Style Guide.
 
 _cg_inputs_digest() {
-  local step dir='script/test/config_gen_steps' path found file
+  local step dir='script/test/config_gen_steps' path found
   local -a files=()
   for step in "$@"; do
     files+=("${dir}/${step}.sh" "${dir}/${step}.inputs")
@@ -37,9 +37,20 @@ _cg_inputs_digest() {
       [[ -z "${found}" ]] || mapfile -t -O "${#files[@]}" files <<<"${found}"
     done <"${dir}/${step}.inputs"
   done
-  for file in "${files[@]}"; do
-    printf '%s\n' "${file}"
-  done | LC_ALL=C sort -u | while IFS= read -r file; do
-    printf '%s\0%s\n' "${file}" "$(sha256sum <"${file}" | cut -d' ' -f1)"
+  local -a sorted=() sums=()
+  local out sum i
+  mapfile -t sorted < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort -u)
+  # One sha256sum over every file, its lines in argument order, rather than
+  # one sha256sum and one cut per file: the redpath takes D once per case,
+  # and ~1000 forks a case made D most of a whole-table run's time
+  # (base#1547). D is byte-for-byte the one the per-file loop gave.
+  out="$(sha256sum -- "${sorted[@]}")" || return 1
+  mapfile -t sums <<<"${out}"
+  (( ${#sums[@]} == ${#sorted[@]} )) || return 1
+  for i in "${!sorted[@]}"; do
+    # A name holding a backslash is printed with a leading one (GNU).
+    sum="${sums[i]%% *}"
+    sum="${sum#\\}"
+    printf '%s\0%s\n' "${sorted[i]}" "${sum}"
   done | sha256sum | cut -d' ' -f1
 }

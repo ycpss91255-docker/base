@@ -1019,13 +1019,16 @@ d=no; [[ -e "${S}/canned/retro.dirty" ]] && d=yes
   "\${CONFIG_GEN_MUTATION_BASE-}" "\$(git -C "\${root}" rev-parse HEAD)" "\${d}" >&2
 [[ ! -e "${S}/canned/\${c}.sleep" ]] || sleep "\$(cat "${S}/canned/\${c}.sleep")"
 # A case with a canned <case>.barrier marks itself arrived, then waits up
-# to 5 s for every barrier case to arrive; one that never sees them all
-# records barrier.missed.<case> and exits 9 (base#1547). Only cases that
-# run at the same time get past it: a serial loop leaves the first alone.
+# to 30 s of wall clock for every barrier case to arrive; one that never
+# sees them all records barrier.missed.<case> and exits 9 (base#1547).
+# Only cases that run at the same time get past it: a serial loop leaves
+# the first alone. The bound is wide because parallel cases reach the
+# stub seconds apart on a loaded host (each first builds its own copy),
+# and only a case left alone ever waits it out.
 if [[ -e "${S}/canned/\${c}.barrier" ]]; then
   : > "${S}/barrier.arrived.\${c}"
   want=\$(find "${S}/canned" -maxdepth 1 -name '*.barrier' | wc -l)
-  for (( t = 0; t < 50; t++ )); do
+  for (( t = SECONDS + 30; SECONDS < t; )); do
     (( \$(find "${S}" -maxdepth 1 -name 'barrier.arrived.*' | wc -l) >= want )) && break
     sleep 0.1
   done
@@ -1278,6 +1281,44 @@ _run_redpath_all() {
   _redpath_exec "$@"
 }
 
+# _redpath_all_shared -- point ${S} at the file's one unsharded run of the
+# scratch redpath on every case, as _run_redpath_all runs it, and load
+# its status, output and stderr; read it, never write under it
+# (base#1547). The four tests that only read such a run share it rather
+# than each running its own: under mutation-required (four specs at once
+# on a four-core runner, 32 bats jobs each) the file's whole-table runs
+# starved one another and the spec's other tests past the 480 s per-test
+# bound. The first caller runs it under BATS_FILE_TMPDIR, the mkdir lock
+# making it the only one, in a subshell with errexit on, so any failed
+# step, a failed bound check included, ends it before its status is
+# written; it then writes the done marker whatever the run's fate. Every
+# other caller waits for that marker, and each fails with the run's own
+# messages when the run recorded no status.
+_redpath_all_shared() {
+  local _d="${BATS_FILE_TMPDIR}/redpath-all"
+  if mkdir "${_d}" 2>/dev/null; then
+    set +e
+    (
+      set -e
+      S="${_d}/S"
+      mkdir -p "${S}/bin"
+      _redpath_repo
+      _run_redpath_all
+      printf '%s' "${output}" > "${_d}/output"
+      printf '%s' "${stderr}" > "${_d}/stderr"
+      printf '%s\n' "${status}" > "${_d}/status"
+    ) > "${_d}/log" 2>&1
+    set -e
+    : > "${_d}/done"
+  fi
+  until [[ -e "${_d}/done" ]]; do sleep 0.2; done
+  [[ -s "${_d}/status" ]] || fail "the shared whole-table redpath run recorded no status: $(cat "${_d}/log")"
+  S="${_d}/S"
+  status="$(cat "${_d}/status")"
+  output="$(cat "${_d}/output")"
+  stderr="$(cat "${_d}/stderr")"
+}
+
 # _case_failures -- every config_gen_redpath_case_failed record in
 # ${stderr} as `<case>|<reason>`, one per line.
 _case_failures() {
@@ -1507,8 +1548,7 @@ EOF
 # order log, ahead of every case call.
 @test "config_gen_redpath.sh: runs the shared --steps-only pass exactly once, before the first case call (base#1547)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  _redpath_repo
-  _run_redpath_all
+  _redpath_all_shared
   assert_success
   [[ -s "${S}/runner.order" ]] || fail "the runner was never called"
   assert_equal "$(grep -cx 'steps-only start' "${S}/runner.order")" 1
@@ -1525,8 +1565,7 @@ EOF
 # names typed from the issue.
 @test "config_gen_redpath.sh: every case call, both rerun calls included, tells the runner the shared steps are reused (base#1547)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  _redpath_repo
-  _run_redpath_all
+  _redpath_all_shared
   assert_success
   local _n _calls
   _calls="$(cat "${S}/runner.n" 2>/dev/null || echo 0)"
@@ -1617,8 +1656,7 @@ _unplanted_cases() {
 # control.
 @test "config_gen_redpath.sh: an unsharded run calls the runner on the unmodified copy twice, both as rerun, and never as control (base#1547)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  _redpath_repo
-  _run_redpath_all
+  _redpath_all_shared
   assert_success
   assert_equal "$(_unplanted_cases | paste -sd' ')" 'rerun rerun'
   assert_equal "$(_ran_cases | grep -cx control)" 0
@@ -1651,10 +1689,13 @@ _redpath_reset() {
   [[ -n "${_n}" ]] || fail "the shard table's first line is not '# shards=<N>': $(head -n 1 "${_tsv}")"
   _k="$(awk -F'\t' '$1 == "rerun" { print $2 }' "${_tsv}")"
   [[ "${_k}" =~ ^[1-9][0-9]*$ ]] || fail "the shard table gives rerun no single shard: '${_k}'"
-  _run_redpath_all
+  # The unsharded run is the file's shared one, read under its own ${S};
+  # the shards then run on this test's scratch repo.
+  _redpath_all_shared
   assert_success
   _u="$(_ran_cases | LC_ALL=C sort)"
   assert_equal "$(_unplanted_cases | paste -sd' ')" 'rerun rerun'
+  S="${BATS_TEST_TMPDIR}"
   for (( _i = 1; _i <= _n; _i++ )); do
     _redpath_reset
     _redpath_exec CONFIG_GEN_REDPATH_SHARD="${_i}/${_n}"
@@ -1870,7 +1911,11 @@ _procs_with() {
 # cases once cases run in parallel (base#1547). With JOBS=4 and four cases
 # selected, each stub sleeps 1 s and logs its own start and end: fmt, vet
 # and lint overlap one another (the pool is parallel), and mut-timeout's
-# interval overlaps none of theirs.
+# interval overlaps none of theirs. fmt, vet and lint also wait at the
+# barrier for one another, so their overlap does not rest on the 1 s
+# sleep: on a loaded host each case builds its own copy first and the
+# three reached the stub up to 3 s apart, after the earlier ones had
+# already ended.
 @test "config_gen_redpath.sh: mut-timeout runs alone, its call overlapping no other case's, while the others run in parallel (base#1547)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
@@ -1879,6 +1924,7 @@ _procs_with() {
     printf '1\n' > "${S}/canned/${_c}.sleep"
     : > "${S}/canned/${_c}.span"
   done
+  for _c in fmt vet lint; do : > "${S}/canned/${_c}.barrier"; done
   _redpath_exec CONFIG_GEN_REDPATH_JOBS=4 CONFIG_GEN_REDPATH_ONLY='fmt vet lint mut-timeout'
   assert_success
   [[ -s "${S}/runner.spans" ]] || fail "no stub logged a span"
