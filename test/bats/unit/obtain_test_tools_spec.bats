@@ -150,6 +150,21 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
   assert_line 'build_local=false'
 }
 
+# why: base#1588. A caller passes --artifact only when its builder job
+# reported that it produced one, so a tar that is not there is a lost
+# artifact, not a reason to fall back. Pulling or building here would hide
+# the loss and rebuild the image the builder job exists to build once.
+@test "obtain: a given artifact that is missing fails loudly, never pulled or built (base#1588)" {
+  local _tar="${BATS_TEST_TMPDIR}/absent/test-tools.tar"
+  run bash -c "$(_src); $(_seams 0 0 0); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
+      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '${_tar}' --local-build inline"
+  assert_failure 1
+  assert_line --partial '::error::'
+  refute_output --partial 'pull '
+  refute_output --partial 'build '
+}
+
 # ── no job reaches past it ────────────────────────────────────────────
 
 # _hand_rolled_obtains
