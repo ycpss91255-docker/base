@@ -914,7 +914,7 @@ jobs:
           # job's own guard applies: under `workflow_call` the github
           # context is the CALLER's, so this reads "the calling repo's run
           # was started by a fork PR against that repo".
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && inputs.merge_group_same_repo != 'true' }}
         run: |
           set -uo pipefail
           if [ "${CODE_CHANGED}" = "false" ]; then
