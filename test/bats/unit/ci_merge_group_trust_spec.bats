@@ -177,3 +177,70 @@ _queue() {
   assert_output "same_repo=false"
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
+
+@test "merge_group_trust.sh: a cross-repository pull request ahead of the HEAD_SHA entry leaves the group untrusted (base#1587)" {
+  # Entry 2 is in the group (ahead of entry 3) and comes from a fork, so
+  # the group holds fork-authored code. The answer is false.
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    "$(_entry 2 2222222222222222222222222222222222222222 102 true someone/base)" \
+    "$(_entry 3 3333333333333333333333333333333333333333 103 false ycpss91255-docker/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+}
+
+@test "merge_group_trust.sh: a cross-repository pull request as the HEAD_SHA entry leaves the group untrusted (base#1587)" {
+  # The group head itself, entry 3, comes from a fork. The answer is false.
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    "$(_entry 2 2222222222222222222222222222222222222222 102 false ycpss91255-docker/base)" \
+    "$(_entry 3 3333333333333333333333333333333333333333 103 true someone/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+}
+
+@test "merge_group_trust.sh: a cross-repository pull request behind the HEAD_SHA entry does not block the group (base#1587)" {
+  # Entry 4 comes from a fork but sits behind entry 3, so it is not in
+  # this run's group (a group holds the entry and those ahead of it). A
+  # fork parked in the queue must not block same-repository groups ahead
+  # of it. The answer is true.
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    "$(_entry 2 2222222222222222222222222222222222222222 102 false ycpss91255-docker/base)" \
+    "$(_entry 3 3333333333333333333333333333333333333333 103 false ycpss91255-docker/base)" \
+    "$(_entry 4 4444444444444444444444444444444444444444 104 true someone/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=true"
+}
+
+@test "merge_group_trust.sh: a head repository named for another repository leaves the group untrusted (base#1587)" {
+  # Entry 2 says isCrossRepository false but its head repository is not
+  # REPO, so the two fields disagree and same-repository is not proven.
+  # The answer is false.
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    "$(_entry 2 2222222222222222222222222222222222222222 102 false someone/base)" \
+    "$(_entry 3 3333333333333333333333333333333333333333 103 false ycpss91255-docker/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+}
