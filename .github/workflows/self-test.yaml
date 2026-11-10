@@ -186,7 +186,6 @@ jobs:
       # Whether the diff can affect config-gen (base#1584). The rollup
       # reads it to tell a skip classify decided from one it did not.
       select_config_gen: ${{ steps.diff.outputs.select_config_gen }}
-      select_mutation_roster: ${{ steps.diff.outputs.select_mutation_roster }}
       select_acceptance: ${{ steps.diff.outputs.select_acceptance }}
     steps:
       - uses: actions/checkout@v7
@@ -793,13 +792,10 @@ jobs:
     # mutation-roster leg's measured seconds over its worker slots fit
     # 300 s", a sum over seconds.txt, not a timed job.
     #
-    # It runs only when classify's map selects it (base#1584): on a pull
-    # request whose diff is docs or `*_spec.bats` leaves that no roster
-    # TSV names, the roster cannot change, so it skips, and the rollup
-    # accepts that skip only because select_mutation_roster is `false`.
-    # Off a pull request the map selects it, so main runs it.
+    # It has no `if:`: it runs on every pull request, as on main, because
+    # choosing roster rows from a diff belongs to base#1604, not to the
+    # job selection of base#1584.
     needs: [actionlint, classify]
-    if: needs.classify.outputs.select_mutation_roster == 'true'
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR
     # #1538's run 41736192401 shards 1/4, 2/4 and 4/4 were cancelled at 90
@@ -1779,7 +1775,7 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # coverage / acceptance / system / config-gen / mutation-roster) carry
+    # coverage / acceptance / system / config-gen) carry
     # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
     # P1/P3, #376, #377, #615, #677), or where classify's map drops them
     # (base#1584); the rollup passes a SKIPPED there only when the
@@ -1849,9 +1845,6 @@ jobs:
           # skip on a run where classify selected the job is not a
           # decision, it is a job that never ran, so it must not pass.
           SELECT_CONFIG_GEN: ${{ needs.classify.outputs.select_config_gen }}
-          # classify's own answer for mutation-roster (base#1584): its skip
-          # passes only when this is `false`.
-          SELECT_MUTATION_ROSTER: ${{ needs.classify.outputs.select_mutation_roster }}
           # classify's own answer for acceptance (base#1584): its skip
           # passes only when this is `false`.
           SELECT_ACCEPTANCE: ${{ needs.classify.outputs.select_acceptance }}
@@ -1876,16 +1869,17 @@ jobs:
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           echo "config-gen:       ${CONFIG_GEN_RESULT}"
           fail=0
-          # doc-counts, lint-static and compute-shards carry no `if:`
-          # gate, so SKIPPED means a workflow bug, not an intentional skip
-          # -- they are hard-mandatory like actionlint / classify.
-          # lint-static is a matrix; it folds its entries into one result,
-          # so a single failing lint fails the rollup. compute-shards is the
+          # doc-counts, lint-static, mutation-roster and compute-shards
+          # carry no `if:` gate, so SKIPPED means a workflow bug, not an
+          # intentional skip -- they are hard-mandatory like actionlint /
+          # classify. lint-static and mutation-roster are matrices; each
+          # folds its entries into one result, so a single failing leg
+          # fails the rollup. compute-shards is the
           # producer coverage expands, so its skip is what silently
           # removes the unit suite AND the coverage floor from this run.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
                    "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
-                   "${COMPUTE_SHARDS_RESULT}"; do
+                   "${MUTATION_ROSTER_RESULT}" "${COMPUTE_SHARDS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           # Every gated job (one with an `if:`) is a row of this table, and
@@ -1899,8 +1893,7 @@ jobs:
           # <result> <the classify answer its if: reads> <job>; the job name
           # goes last so no row starts with a tool name the tool-provenance
           # lint would read as a command.
-          # mutation-roster is a matrix that folds every roster shard into
-          # one result. shellcheck, hadolint, bats-fragile, coverage and
+          # shellcheck, hadolint, bats-fragile, coverage and
           # coverage-gate read code_changed, and system and worker-selftest
           # read system_relevant, so their own answer is that gate output.
           while read -r res sel job; do
@@ -1917,7 +1910,6 @@ jobs:
           ${SHELLCHECK_RESULT:--} ${CODE_CHANGED:--} shellcheck
           ${HADOLINT_RESULT:--} ${CODE_CHANGED:--} hadolint
           ${BATS_FRAGILE_RESULT:--} ${CODE_CHANGED:--} bats-fragile
-          ${MUTATION_ROSTER_RESULT:--} ${SELECT_MUTATION_ROSTER:--} mutation-roster
           ${CONFIG_GEN_RESULT:--} ${SELECT_CONFIG_GEN:--} config-gen
           ${COVERAGE_RESULT:--} ${CODE_CHANGED:--} coverage
           ${COVERAGE_GATE_RESULT:--} ${CODE_CHANGED:--} coverage-gate

@@ -295,21 +295,6 @@ _rollup_env_for() {
   [ -n "${_sel_var}" ]
 }
 
-# why: mutation-roster had no `if:` and sat in the rollup's hard-mandatory
-# loop, so a PR whose diff cannot reach a roster spec still paid for the
-# whole roster. The issue (base#1584) asks that a PR run only the checks
-# its diff can affect, so a mutation-roster skip that classify decided
-# (it did not select the job) must let the required check pass.
-@test "self-test: the rollup accepts a mutation-roster skip that classify decided (base#1584)" {
-  local _sel_var
-  _sel_var="$(_rollup_env_for select_mutation_roster)"
-  run _rollup_selected MUTATION_ROSTER_RESULT=skipped \
-      "${_sel_var:-SELECT_MUTATION_ROSTER}=false"
-  assert_success
-  assert_output --partial 'mutation-roster:  skipped'
-  [ -n "${_sel_var}" ]
-}
-
 # why: acceptance copies the whole checkout into the consumer
 # (script/test/acceptance.sh:90, `cp -a "${_ACCEPTANCE_ROOT}/." ...`), so
 # the map drops it only for a diff of `*_spec.bats` leaves (design row E1,
@@ -534,8 +519,8 @@ _triggerable_workflows_without_a_declared_default() {
 # selection is no decision: classify failed to write the output, or the
 # step reads a name classify never emits. The design's rule is that every
 # select_* left empty plus a skip of a job it gates fails the rollup, for
-# each job the map selects (config-gen, mutation-roster, coverage and its
-# coverage-gate, acceptance, system). The control run, with the same empty
+# each job the map selects (config-gen, coverage and its coverage-gate,
+# acceptance, system). The control run, with the same empty
 # selections and no skip, must still pass, so the failure is the skip's.
 @test "self-test: the rollup fails a skip of a selected job when every classify selection is empty (base#1584)" {
   local -a _empty=()
@@ -545,8 +530,7 @@ _triggerable_workflows_without_a_declared_default() {
   done < <(_rollup_env_for 'select_[a-z_]+')
   run _rollup_selected "${_empty[@]}"
   assert_success
-  for _r in CONFIG_GEN MUTATION_ROSTER COVERAGE COVERAGE_GATE \
-            ACCEPTANCE SYSTEM; do
+  for _r in CONFIG_GEN COVERAGE COVERAGE_GATE ACCEPTANCE SYSTEM; do
     run _rollup_selected "${_empty[@]}" "${_r}_RESULT=skipped"
     if [[ "${status}" -ne 1 ]]; then
       echo "${_r}_RESULT=skipped with empty selections exited ${status}"
@@ -604,7 +588,7 @@ ${_bad}"
         '[.jobs[] | .if // "" | select(contains(strenv(LP_O)))] | length > 0' \
         "${SELF_WF}" >/dev/null || _bad+="${_o} "
   done < <(yq '.jobs.classify.outputs | keys | .[] | select(test("^select_"))' "${SELF_WF}")
-  [[ "${_n}" -ge 3 ]] || fail "expected classify's select_* outputs, read ${_n}"
+  [[ "${_n}" -ge 2 ]] || fail "expected classify's select_* outputs, read ${_n}"
   [[ -z "${_bad}" ]] || fail "select_* outputs no job's if: reads: ${_bad}"
 }
 
@@ -635,7 +619,7 @@ ${_bad}"
     [[ "${status}" -eq 1 ]] \
       || _bad+="${_job} (${_var}=skipped with every classify answer true exited ${status})"$'\n'
   done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
-  [[ "${_n}" -ge 10 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
+  [[ "${_n}" -ge 9 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
   [[ -z "${_bad}" ]] || fail "gated jobs whose classify-selected skip the rollup passes:
 ${_bad}"
 }
@@ -668,7 +652,7 @@ ${_bad}"
     [[ "${status}" -eq 0 ]] \
       || _bad+="${_job} (${_key}=false ${_var}=skipped exited ${status})"$'\n'
   done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
-  [[ "${_n}" -ge 10 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
+  [[ "${_n}" -ge 9 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
   [[ -z "${_bad}" ]] || fail "gated jobs whose classify-decided skip the rollup fails:
 ${_bad}"
 }
