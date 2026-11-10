@@ -1105,6 +1105,101 @@ _tt_builder_builds() {
   assert_success
 }
 
+# ── A builder makes what its consumers load (base#1588) ──
+#
+# _tt_builder_shape <workflow> -- succeeds iff each builder hands its arch's
+# consumers the image they expect: it runs on the runner every consumer leg
+# of that arch runs on, obtains for `linux/<arch>`, tags every build with
+# the run-scoped TEST_TOOLS_ARTIFACT_TAG the consumers re-tag from, reads
+# the cache of its own arch's scope, fails its upload when the tar is
+# missing, and reports `produced` from the `mark` step that writes it. The
+# consumer side is _tt_artifact_paths; this is the producer side it trusts.
+_tt_builder_shape() {
+  local _wf="${1}" _rc=0 _arch _b _job _leg _run _plat _runner _want _n _i _uses _v
+  local _tagexpr='${{ env.TEST_TOOLS_ARTIFACT_TAG }}'
+  local _produced="\${{ steps.mark.outputs.produced == 'true' }}"
+  local -A _scope=([amd64]=test-tools [arm64]=test-tools-arm64) _runners=()
+  local -a _jobs=() _legs=() _obt=()
+  if [ -z "$(yq '.env.TEST_TOOLS_ARTIFACT_TAG // ""' "${_wf}")" ]; then
+    echo "the workflow env defines no TEST_TOOLS_ARTIFACT_TAG"; _rc=1
+  fi
+  # Every consumer leg's runner, by the arch its obtain step names.
+  mapfile -t _jobs < <(yq '.jobs | to_entries | .[] | select(.key | test("^test-tools-image-") | not)
+      | select([.value.steps[]? | select((.run // "") | test("obtain_test_tools\\.sh"))] | length > 0) | .key' "${_wf}")
+  for _job in "${_jobs[@]}"; do
+    _run="$(LP_J="${_job}" yq '[.jobs[strenv(LP_J)].steps[] | select((.run // "") | test("obtain_test_tools\\.sh"))][0].run' "${_wf}")"
+    mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
+    for _leg in "${_legs[@]}"; do
+      [[ "$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "${_run}")" =~ --platform[[:space:]]+\"?linux/([^[:space:]\"]+) ]] || continue
+      _arch="${BASH_REMATCH[1]}"
+      _runner="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(LP_J="${_job}" yq '.jobs[strenv(LP_J)]["runs-on"] // ""' "${_wf}")")"
+      _runners[${_arch}]+="${_runner}"$'\n'
+    done
+  done
+  for _arch in amd64 arm64; do
+    _b="test-tools-image-${_arch}"
+    _runner="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)]["runs-on"] // ""' "${_wf}")"
+    _want="$(sort -u <<< "${_runners[${_arch}]:-}" | sed '/^$/d')"
+    if [ -z "${_want}" ] || [ "${_runner}" != "${_want}" ]; then
+      echo "${_b}: runs on '${_runner}', its consumers' ${_arch} legs run on '${_want//$'\n'/, }'"; _rc=1
+    fi
+    mapfile -t _obt < <(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps[] | select((.run // "") | test("obtain_test_tools\\.sh")) | .run' "${_wf}")
+    _plat=""
+    if [ "${#_obt[@]}" -eq 1 ] && [[ "${_obt[0]}" =~ --platform[[:space:]]+\"?([^[:space:]\"]+) ]]; then
+      _plat="${BASH_REMATCH[1]}"
+    fi
+    if [ "${_plat}" != "linux/${_arch}" ]; then
+      echo "${_b}: obtains for '${_plat}' (${#_obt[@]} obtain steps), want one for linux/${_arch}"; _rc=1
+    fi
+    _v="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)].outputs.produced // ""' "${_wf}")"
+    if [ "${_v}" != "${_produced}" ]; then
+      echo "${_b}: outputs.produced is '${_v}', want '${_produced}'"; _rc=1
+    fi
+    _v="$(LP_J="${_b}" yq '[.jobs[strenv(LP_J)].steps[] | select(.id == "mark") | .run] | join("|")' "${_wf}")"
+    if [[ "${_v}" != *'produced=true'*'GITHUB_OUTPUT'* ]]; then
+      echo "${_b}: no mark step writes produced=true to GITHUB_OUTPUT ('${_v}')"; _rc=1
+    fi
+    _n="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps | length' "${_wf}")"
+    for (( _i = 0; _i < _n; _i++ )); do
+      _uses="$(_tt_step "${_wf}" "${_b}" "${_i}" '.uses // ""')"
+      case "${_uses}" in
+        docker/build-push-action@*)
+          _v="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with.tags // ""')"
+          if [ "${_v}" != "${_tagexpr}" ]; then
+            echo "${_b} step ${_i}: tags '${_v}', want '${_tagexpr}'"; _rc=1
+          fi
+          _v="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with["cache-from"] // ""')"
+          if [ "$(_scope_of "${_v}")" != "${_scope[${_arch}]}" ]; then
+            echo "${_b} step ${_i}: cache-from '${_v}', want scope ${_scope[${_arch}]}"; _rc=1
+          fi ;;
+        actions/upload-artifact@*)
+          _v="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with["if-no-files-found"] // ""')"
+          if [ "${_v}" != error ]; then
+            echo "${_b} step ${_i}: if-no-files-found '${_v}', want error"; _rc=1
+          fi ;;
+      esac
+    done
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: each builder runs on its arch's runner and tags, caches, uploads and reports what its consumers load (base#1588)" {
+  run _tt_builder_shape "${WF}"
+  assert_success
+
+  # Each producer-side drift the consumers would trust: mutants of a temp
+  # copy, each red.
+  local -a _mutants=(
+    '(.jobs["test-tools-image-amd64"].steps[] | select((.uses // "") | test("^docker/build-push-action@")) | .with.tags) = "${{ env.TEST_TOOLS_IMAGE }}"'
+    '.jobs["test-tools-image-arm64"]["runs-on"] = "ubuntu-latest"'
+    '(.jobs["test-tools-image-arm64"].steps[] | select((.run // "") | test("obtain_test_tools")) | .run) |= sub("linux/arm64", "linux/amd64")'
+    '.jobs["test-tools-image-amd64"].outputs.produced = "true"'
+    '(.jobs["test-tools-image-arm64"].steps[] | select((.uses // "") | test("^docker/build-push-action@")) | select(.with["cache-to"] == null) | .with["cache-from"]) = "type=gha,scope=test-tools"'
+    'del(.jobs["test-tools-image-amd64"].steps[] | select((.uses // "") | test("^actions/upload-artifact@")) | .with["if-no-files-found"])'
+  )
+  _assert_mutants_fail _tt_builder_shape "${_mutants[@]}"
+}
+
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
 @test "self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)" {
