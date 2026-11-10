@@ -200,6 +200,20 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
   refute_output --partial 'build '
 }
 
+# why: base#1588. `--artifact ''` is a caller that meant to hand over an
+# artifact and lost its path on the way (an empty expression). Treating it
+# as "no artifact" would quietly pull or build instead, so it is a usage
+# error, the same exit 2 as any other malformed option.
+@test "obtain: --artifact with an empty value is a usage error, never pulled or built (base#1588)" {
+  run bash -c "$(_src); $(_seams 0 0 0); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
+      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '' --local-build inline"
+  assert_failure 2
+  refute_output --partial 'pull '
+  refute_output --partial 'build '
+  refute_output --partial 'load '
+}
+
 # ── no job reaches past it ────────────────────────────────────────────
 
 # _hand_rolled_obtains
