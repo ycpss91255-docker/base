@@ -109,3 +109,17 @@ EOS
   run cat "${APT_LOG}"
   assert_output ""
 }
+
+# why: A non-numeric first delay (`apt-retry.sh 3 x -- ...`) is a typo in
+# the Dockerfile; left unchecked it passes silently when the first attempt
+# succeeds and only breaks on a retry, at `sleep x`. Like
+# script/ci/retry.sh (base#1562, `[[ "$2" =~ ^[0-9]+$ ]] || usage`), the
+# helper refuses it with exit 2 before any apt-get runs, base#1602.
+@test "apt-retry.sh 3 x -- apt-get install: a non-numeric delay is refused with exit 2 and apt-get never runs (base#1602)" {
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${APT_RETRY}" 3 x -- apt-get install -y curl
+  # Exit 2 is the usage code script/ci/retry.sh uses for a malformed call.
+  assert_failure 2
+  run cat "${APT_LOG}"
+  assert_output ""
+}
