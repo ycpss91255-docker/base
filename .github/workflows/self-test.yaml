@@ -1429,7 +1429,7 @@ jobs:
     name: Acceptance (${{ matrix.platform }})
     needs: [actionlint, classify]
     # classify's map decides (base#1584): the consumer gets the whole
-    # checkout (script/test/acceptance.sh:90, `cp -a`), so only a diff of
+    # checkout (script/ci/acceptance.sh:90, `cp -a`), so only a diff of
     # docs or `*_spec.bats` leaves drops it. Off a pull request it runs.
     if: needs.classify.outputs.select_acceptance == 'true'
     # Acceptance level (ISTQB, ADR-00000018): verify what the downstream

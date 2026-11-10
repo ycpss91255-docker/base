@@ -99,7 +99,7 @@ _cs_classify() {
 #   caller's _deny map; fails when it exits non-zero or prints nothing.
 _cs_load_deny() {
   local _list _p
-  _list="$(bash "$(dirname "${BASH_SOURCE[0]}")/config_gen_paths.sh")" || return 1
+  _list="$(bash "$(dirname "${BASH_SOURCE[0]:-$0}")/config_gen_paths.sh")" || return 1
   [[ -n "${_list}" ]] || return 1
   while IFS= read -r _p; do
     [[ -n "${_p}" ]] && _deny["${_p}"]=1

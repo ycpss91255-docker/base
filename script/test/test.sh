@@ -1053,8 +1053,11 @@ Options:
                           computes: the map and deny list of REF (default
                           origin/main), read with git show, judge the diff
                           REF...HEAD, or with --paths the NUL-separated
-                          paths on stdin. Without REF every job prints
-                          true (script/ci/selection_at_base.sh, base#1584)
+                          paths on stdin. When REF does not resolve
+                          (reason=bad_base) or does not hold the map and
+                          deny list (reason=map_missing_on_base), every
+                          job prints true (script/ci/selection_at_base.sh,
+                          base#1584)
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no

@@ -710,7 +710,7 @@ _acceptance_code() {
 
 # why: #317 gated acceptance on code_changed. base#1584 narrows it to
 # classify's map: the consumer gets the whole checkout
-# (script/test/acceptance.sh:90), so only docs and `*_spec.bats` leaves
+# (script/ci/acceptance.sh:90), so only docs and `*_spec.bats` leaves
 # drop it, and a spec-only PR no longer pays for both arch legs.
 @test "self-test.yaml: acceptance job-level if: gates on classify's select_acceptance (#317, base#1584)" {
   run yaml_job_lines "${WF}" acceptance

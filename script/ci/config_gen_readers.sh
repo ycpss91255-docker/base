@@ -47,7 +47,7 @@
 
 set -euo pipefail
 
-_CGR_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_CGR_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _CGR_SELF_DIR
 # Per-command limit. config_gen_redpath.sh must run every case, and with
 # docker stubbed it did not finish inside 300 s (r3's per-step limit)

@@ -274,8 +274,8 @@ _commit() {
   assert_output "$(_expect all)"
 }
 
-# why: the issue's rule: "Changes to the map, the workflow, the test
-# drivers (script/test/**) or shared libraries select every job". None of
+# why: the issue's rule: "A change to the map itself, the workflow, the
+# test drivers or shared libraries selects every job (fail closed)". None of
 # these is a docs path, a spec leaf or a deny entry.
 @test "check_selection: the workflow, a driver, the selection files and the unit helper select every gated job (base#1584)" {
   local _p

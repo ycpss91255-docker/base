@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-_SAB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_SAB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _SAB_DIR
 readonly -a _SAB_FILES=(check_selection.sh config_gen_paths.sh)
 
