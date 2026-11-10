@@ -621,6 +621,25 @@ FROM debian:bookworm AS foo-test' foo
   assert_output "1"
 }
 
+# why: The -test companion is a build of its own with its own cache
+# export, so when the Dockerfile declares it and it RUNS, it is followed by
+# its own warn call labelled with its own stage, not folded into the
+# stage's (base#1602). Two builds ran, so the log carries two warn lines.
+@test "build-worker.yaml: an extra stage and its -test companion each get one cache-export warn call, labelled with their own stage (base#1602)" {
+  local _warns
+  run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  _warns="$(grep -E '^::warning title=cache export::' <<<"${output}" || true)"
+  run grep -c . <<<"${_warns}"
+  assert_output "2"
+  run grep -cE '^::warning title=cache export::foo-test: ' <<<"${_warns}"
+  assert_output "1"
+  run grep -cE '^::warning title=cache export::foo: ' <<<"${_warns}"
+  assert_output "1"
+}
+
 # why: ignore-error=true turns a failed cache export green, so each build
 # that requests one must be followed by a step that reads that build's own
 # record and warns (base#1602). The warn step is gated on the build's
