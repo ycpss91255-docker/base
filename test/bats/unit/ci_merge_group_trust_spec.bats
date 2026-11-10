@@ -91,3 +91,18 @@ _queue() {
   assert_success
   assert_output "same_repo=false"
 }
+
+@test "merge_group_trust.sh: a null merge queue leaves the group untrusted and names why (base#1587)" {
+  # `repository.mergeQueue(branch:"main")` returned null in a live
+  # GraphQL query while the queue was off. Nothing is proven, so the
+  # answer is false, and an `::error::` line says why: classify stays
+  # green (exit 0), so this line is the only place the reason shows.
+  export MOCK_REPLY='{"data":{"repository":{"mergeQueue":null}}}'
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+}
