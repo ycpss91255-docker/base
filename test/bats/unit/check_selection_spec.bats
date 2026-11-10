@@ -76,3 +76,24 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only a script/ file outside script/watch drops config-gen and keeps the other four (base#1584)" {
+  # Expected, from what each job reads, not from the map:
+  # - config-gen=false: under script/, the redpath's _rp_copy
+  #   (script/test/config_gen_redpath.sh) copies only script/watch and
+  #   script/test files, and the strace -f trace of the job's host side
+  #   opened no script/release/ file. changelog_index.sh is run only by
+  #   justfile.release's changelog recipe and the changelog_layout driver.
+  # - acceptance=true: acceptance.sh copies the whole checkout into the
+  #   consumer (`cp -a "${_ACCEPTANCE_ROOT}/." ...`).
+  # - coverage=true: no exclusion ever drops coverage.
+  # - mutation-roster=true: changelog_index.sh is not a spec.
+  # - system=true: script/ci/system_paths.sh lists `script/**`.
+  run _select pull_request script/release/changelog_index.sh
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
