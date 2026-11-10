@@ -547,6 +547,31 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
   assert_output "4"
 }
 
+# why: A GitHub Actions Cache export is its own buildx vertex after the
+# image built, and without `ignore-error=true` its failure becomes the solve
+# error: isaac run 42753553284 went red on `#26 ERROR: error writing layer
+# blob` after the image built (base#1602). The class is every `type=gha`
+# cache-to a build step requests in either workflow, not the four lines the
+# issue names. The floor 12 is the count of `cache-to:` keys found by
+# grepping both files at base a61b898d (4 in build-worker.yaml, 8 in
+# self-test.yaml), so a spec that matches nothing cannot pass.
+@test "build-worker.yaml + self-test.yaml: every type=gha cache-to carries ignore-error=true (base#1602)" {
+  local _st="/source/.github/workflows/self-test.yaml" _all _bad
+  _all="$(yq -N '.. | select(tag == "!!map" and has("cache-to")) | .["cache-to"]' "${WF}" "${_st}" | grep -F 'type=gha')"
+  run grep -c . <<<"${_all}"
+  assert_success
+  [ "${output}" -ge 12 ] || {
+    echo "only ${output} type=gha cache-to found, floor is 12" >&2
+    return 1
+  }
+  _bad="$(grep -vE '(^|,)ignore-error=true(,|$)' <<<"${_all}" || true)"
+  [ -z "${_bad}" ] || {
+    echo "type=gha cache-to without ignore-error=true:" >&2
+    printf '%s\n' "${_bad}" >&2
+    return 1
+  }
+}
+
 # why: The deletion asserted as a property rather than as the absence of
 # one string. `cache_backend: registry` could never work -- its cache
 # export needed `packages: write` on a job that declares a read-only block,
