@@ -2,10 +2,8 @@ package schema
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 // manyVolumes is n `[[volumes]]` blocks of three lines each, a header, a
@@ -18,38 +16,15 @@ func manyVolumes(n int) []byte {
 	return []byte(b.String())
 }
 
-// leastDecodeCPU is the least thread CPU time Decode takes on small and
-// on large over rounds of one decode of each, every decode after a collection
-// so it does not pay for the garbage of the one before. The least of each
-// is the run least disturbed by the cache and the collector; alternating
-// spreads any slow stretch over both sizes. The goroutine is locked to its
-// thread so the clock read is the one that ran Decode.
-func leastDecodeCPU(t *testing.T, small, large []byte, rounds int) (ts, tl time.Duration) {
-	t.Helper()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	one := func(src []byte) time.Duration {
-		runtime.GC()
-		start := threadCPU(t)
-		Decode(src)
-		return threadCPU(t) - start
-	}
-	one(small) // warm-up, not counted
-	ts, tl = time.Duration(1<<63-1), time.Duration(1<<63-1)
-	for range rounds {
-		ts, tl = min(ts, one(small)), min(tl, one(large))
-	}
-	return ts, tl
-}
-
 // A family of 10,000 entries is typed whole, each entry at its own index
 // and line, and decoding grows with the entries, not with their square:
-// 40,000 entries take less than 14 times the CPU time of 5,000, where
-// linear work takes about 8 times and quadratic work 64 times (base#1443
+// 40,000 entries take at most 9 times the entry visits of 5,000, where
+// linear work takes 8 times and quadratic work 64 times (base#1443
 // review round 1 finding 5, design r1 cycle 18). A per-entry step that
 // walks every earlier entry, the planted O(n^2), turns it red. The check
-// counts thread CPU time, not wall time, so a neighbour process that
-// deschedules the test does not move the ratio (base#1614).
+// counts entry visits, not time, so neither a neighbour process nor a
+// shared cache moves it (base#1614, base#1617). Each of the 5,000
+// entries is visited at least once, so a count that never steps fails.
 //
 // Expected values: the line of entry i is 3i-2, counted from the
 // fixture's three-line blocks; the source of entry i is "/s<i>", the text
@@ -71,11 +46,15 @@ func TestDecodeTenThousandEntriesInBoundedTime(t *testing.T) {
 		}
 	}
 
-	const small, large, rounds, maxRatio = 5000, 40000, 5, 14
-	ts, tl := leastDecodeCPU(t, manyVolumes(small), manyVolumes(large), rounds)
-	if ratio := float64(tl) / float64(ts); ratio >= maxRatio {
-		t.Errorf("Decode of %d entries took %v of CPU, %.1f times the %v of %d; want under %d (linear is about %d)",
-			large, tl, ratio, ts, small, maxRatio, large/small)
+	const small, large, maxRatio = 5000, 40000, 9
+	_, _, vs := decode(manyVolumes(small))
+	_, _, vl := decode(manyVolumes(large))
+	if vs < small {
+		t.Fatalf("Decode of %d entries made %d entry visits; want at least one per entry", small, vs)
+	}
+	if ratio := float64(vl) / float64(vs); ratio > maxRatio {
+		t.Errorf("Decode of %d entries made %d entry visits, %.1f times the %d of %d; want at most %d (linear is %d)",
+			large, vl, ratio, vs, small, maxRatio, large/small)
 	}
 }
 
