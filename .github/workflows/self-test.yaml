@@ -284,6 +284,17 @@ jobs:
             "${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
             --depth=200 >/dev/null 2>&1 || true
           BASE="origin/${BASE_REF}"
+          # select_<job>: which heavy jobs this diff can affect, from the
+          # subtractive map in script/ci/check_selection.sh (base#1584).
+          # Fails CLOSED: a map that exits non-zero, or that leaves a job
+          # out of its answer, selects that job.
+          sel_out="$(bash ./script/ci/check_selection.sh \
+                       --event "${EVENT_NAME}" --base "${BASE}")" || sel_out=""
+          for job in config-gen mutation-roster coverage acceptance system; do
+            val="$(sed -n "s/^${job}=//p" <<< "${sel_out}")"
+            [[ "${val}" == "false" ]] || val=true
+            echo "select_${job//-/_}=${val}" >> "${GITHUB_OUTPUT}"
+          done
           # code_changed: anything outside the doc-only allow-list.
           if git diff --quiet "${BASE}"...HEAD \
                -- ':!doc/**' ':!README.md' ':!LICENSE' ':!CONTEXT.md'; then
