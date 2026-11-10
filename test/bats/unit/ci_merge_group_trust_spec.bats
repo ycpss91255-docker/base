@@ -77,3 +77,17 @@ _queue() {
   assert_success
   assert_line "same_repo=true"
 }
+
+@test "merge_group_trust.sh: a failed gh call leaves the group untrusted and exits 0 (base#1587)" {
+  # gh fails on every attempt; retry.sh's back-off sleep is stubbed so
+  # the spec does not wait. Exit 0 with same_repo=false keeps classify
+  # green, so the ci-rollup can name the reason (fail closed).
+  mock_cmd "gh" 'printf "gh: HTTP 502\n" >&2; exit 1'
+  mock_cmd "sleep" 'exit 0'
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+}
