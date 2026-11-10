@@ -113,15 +113,21 @@ main() {
       justfile* | */justfile*)
         for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
         ;;
-      # E4: config-gen never reads init.sh. Its host side traced under
-      # strace -f opened only dist/script/base/just-version.sh under
-      # dist/, and the redpath's _rp_copy
-      # (script/test/config_gen_redpath.sh) copies no dist/script/base/
-      # file (base#1584).
+      # config-gen reads dist/script/base/just-version.sh (its just-pin
+      # step, and the strace -f trace of its host side) and
+      # dist/script/docker/lib/ (the redpath's _rp_copy,
+      # script/test/config_gen_redpath.sh, copies lib/log.*). Both keep
+      # every job (base#1584).
+      dist/script/base/just-version.sh | dist/script/docker/lib/*)
+        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        ;;
+      # E2/E4: config-gen reads no other dist/ file. The trace opened
+      # only just-version.sh under dist/, and _rp_copy copies no other
+      # dist/ file (base#1584).
       # E3: under script/, the trace and _rp_copy read only script/watch,
       # script/test and script/ci (kept above), so every other script/
       # path drops config-gen (base#1584).
-      dist/script/base/init.sh | script/*)
+      dist/* | script/*)
         for _job in "${_CS_JOBS[@]}"; do
           [[ "${_job}" == config-gen ]] || _sel["${_job}"]=true
         done
