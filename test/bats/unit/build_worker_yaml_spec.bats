@@ -415,15 +415,40 @@ _extra_stages() {
   mkdir -p "${_dir}/bin"
   ln -s /source "${_dir}/.worker-base"
   printf '%s\n' "${1}" > "${_dir}/Dockerfile"
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "docker %s\n" "$*"' \
-      > "${_dir}/bin/docker"
+  mkdir -p "${_dir}/runner-temp"
+  # The stub also answers `--metadata-file F` the way buildx does, by
+  # writing a metadata JSON that names a build record of that build's own
+  # (`rec-<target>`), and answers `buildx history logs --progress plain
+  # <id>` on stderr, as buildx does, with a record whose cache export
+  # vertex ends in ERROR naming <id>. So a warning carries that error
+  # text only when the step handed the warn script its own build's
+  # metadata (base#1602).
+  cat > "${_dir}/bin/docker" <<'STUB'
+#!/usr/bin/env bash
+printf 'docker %s\n' "$*"
+if [ "${1:-}" = buildx ] && [ "${2:-}" = history ] && [ "${3:-}" = logs ]; then
+  printf '#9 exporting to GitHub Actions Cache\n#9 ERROR: export failed for record %s\n' "${!#}" >&2
+  exit 0
+fi
+target='' meta=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) [ "$#" -gt 1 ] && target="$2" ;;
+    --metadata-file) [ "$#" -gt 1 ] && meta="$2" ;;
+  esac
+  shift
+done
+if [ -n "${meta}" ]; then
+  printf '{"buildx.build.ref":"builder/node/rec-%s"}\n' "${target}" > "${meta}"
+fi
+STUB
   chmod +x "${_dir}/bin/docker"
   yaml_step_run "${WF}" build 'Build extra stages' > "${_dir}/step.sh"
   [ -s "${_dir}/step.sh" ] || return 2
   (
     cd "${_dir}" || return 2
     env "PATH=${_dir}/bin:${PATH}" \
-        EXTRA_STAGES="${2}" CACHE_KEY=key \
+        EXTRA_STAGES="${2}" CACHE_KEY=key RUNNER_TEMP="${_dir}/runner-temp" \
         CONTEXT_PATH=. DOCKERFILE=Dockerfile \
         BUILD_CONTEXTS_INPUT= BUILD_ARGS_INPUT= \
         PLATFORM=linux/amd64 HARDWARE=x86_64 TEST_TOOLS_IMAGE=tools:1 \
@@ -542,9 +567,162 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
 @test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
   # mode=max exports all intermediate stage layers (including the heavy
   # builder / source-build stages). One cache-to line per target.
-  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max$' "${WF}"
+  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max,ignore-error=true$' "${WF}"
   assert_success
   assert_output "4"
+}
+
+# why: A GitHub Actions Cache export is its own buildx vertex after the
+# image built, and without `ignore-error=true` its failure becomes the solve
+# error: isaac run 42753553284 went red on `#26 ERROR: error writing layer
+# blob` after the image built (base#1602). The class is every `type=gha`
+# cache-to a build step requests in either workflow, not the four lines the
+# issue names. The floor 12 is the count of `cache-to:` keys found by
+# grepping both files at base a61b898d (4 in build-worker.yaml, 8 in
+# self-test.yaml), so a spec that matches nothing cannot pass.
+@test "build-worker.yaml + self-test.yaml: every type=gha cache-to carries ignore-error=true (base#1602)" {
+  local _st="/source/.github/workflows/self-test.yaml" _all _bad
+  _all="$(yq -N '.. | select(tag == "!!map" and has("cache-to")) | .["cache-to"]' "${WF}" "${_st}" | grep -F 'type=gha')"
+  run grep -c . <<<"${_all}"
+  assert_success
+  [ "${output}" -ge 12 ] || {
+    echo "only ${output} type=gha cache-to found, floor is 12" >&2
+    return 1
+  }
+  _bad="$(grep -vE '(^|,)ignore-error=true(,|$)' <<<"${_all}" || true)"
+  [ -z "${_bad}" ] || {
+    echo "type=gha cache-to without ignore-error=true:" >&2
+    printf '%s\n' "${_bad}" >&2
+    return 1
+  }
+}
+
+# why: The extra-stages loop builds its cache-to in shell (cache_to_for),
+# so the yq enumeration above cannot see it. Read off what the step's own
+# buildx calls receive: with a stage and its -test companion the step runs
+# two builds, and each `--cache-to` it passes must end in
+# `,ignore-error=true`, or a failed export there still fails the job (base#1602).
+@test "build-worker.yaml: every --cache-to the extra-stages step passes ends in ignore-error=true (base#1602)" {
+  local _tos _bad
+  run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  _tos="$(grep -oE -e '--cache-to [^ ]+' <<<"${output}" || true)"
+  run grep -c . <<<"${_tos}"
+  assert_output "2"
+  _bad="$(grep -vE ',ignore-error=true$' <<<"${_tos}" || true)"
+  [ -z "${_bad}" ] || {
+    echo "extra-stages --cache-to without a trailing ignore-error=true:" >&2
+    printf '%s\n' "${_bad}" >&2
+    return 1
+  }
+}
+
+# why: The extra-stages loop drives buildx itself, so its warn calls are
+# not steps the outcome gate can reach: each build that RUNS is followed by
+# one cache_export_warn.sh call labelled with its stage, and a -test
+# companion the Dockerfile does not declare is neither built nor warned
+# about (base#1602). The warn script runs for real against the stubbed
+# docker; its `::warning` lines are what a job log would show.
+@test "build-worker.yaml: an extra stage with no -test companion gets one cache-export warn call, labelled with the stage (base#1602)" {
+  local _warns
+  run _extra_stages 'FROM debian:bookworm AS foo' foo
+  assert_success
+  assert_output --partial '--target foo'
+  refute_output --partial '--target foo-test'
+  _warns="$(grep -E '^::warning title=cache export::' <<<"${output}" || true)"
+  run grep -c . <<<"${_warns}"
+  assert_output "1"
+  run grep -cE '^::warning title=cache export::foo: ' <<<"${_warns}"
+  assert_output "1"
+  # The warning is the stage's own record's export error, not the
+  # no-record fallback a missing --metadata-file falls back to.
+  assert_equal "${_warns}" \
+      '::warning title=cache export::foo: export failed for record rec-foo'
+}
+
+# why: The -test companion is a build of its own with its own cache
+# export, so when the Dockerfile declares it and it RUNS, it is followed by
+# its own warn call labelled with its own stage, not folded into the
+# stage's (base#1602). Two builds ran, so the log carries two warn lines.
+@test "build-worker.yaml: an extra stage and its -test companion each get one cache-export warn call, labelled with their own stage (base#1602)" {
+  local _warns
+  run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  _warns="$(grep -E '^::warning title=cache export::' <<<"${output}" || true)"
+  run grep -c . <<<"${_warns}"
+  assert_output "2"
+  run grep -cE '^::warning title=cache export::foo-test: ' <<<"${_warns}"
+  assert_output "1"
+  run grep -cE '^::warning title=cache export::foo: ' <<<"${_warns}"
+  assert_output "1"
+  # Each warning is its own build's record's export error: the -test
+  # build reads rec-foo-test and the stage build reads rec-foo.
+  assert_equal "${_warns}" \
+      "$(printf '%s\n' \
+          '::warning title=cache export::foo-test: export failed for record rec-foo-test' \
+          '::warning title=cache export::foo: export failed for record rec-foo')"
+}
+
+# why: ignore-error=true turns a failed cache export green, so each build
+# that requests one must be followed by a step that reads that build's own
+# record and warns (base#1602). The warn step is gated on the build's
+# outcome: GitHub's steps context gives a skipped step outcome `skipped` and
+# a failed one `failure`, so `steps.<id>.outcome == 'success'` runs the warn
+# only after a build that ran and passed, never after a build skipped by its
+# own `if:` (10 of the 12 have one) and never on top of a red build. The
+# 12-line roster is the enumeration of every step with `with.cache-to` in
+# both files at base a61b898d, so a new producer without a warn step, or a
+# gate naming another step, fails here.
+@test "build-worker.yaml + self-test.yaml: every cache-to build step is followed by a warn step gated on its own outcome (base#1602)" {
+  local _st="/source/.github/workflows/self-test.yaml" _rows _roster _expected
+  local _job _name _id _run _meta _if _bad=""
+  _rows="$(yq -N '
+    filename as $f
+    | .jobs | to_entries | .[] | .key as $j
+    | (.value.steps // []) as $s
+    | $s | to_entries | .[]
+    | select(.value.with["cache-to"] != null)
+    | .key as $i
+    | ($s | .[$i + 1]) as $n
+    | [($f | split("/") | .[-1]) + " " + $j, .value.name, (.value.id // "-"),
+       ((($n.run // "") | contains("cache_export_warn.sh")) | tostring),
+       ($n.env.BUILD_METADATA // "-"), ($n.if // "-")]
+    | @tsv' "${WF}" "${_st}" | grep .)"
+  _roster="$(cut -f1,2 <<<"${_rows}")"
+  _expected="$(printf '%s\t%s\n' \
+    'build-worker.yaml build' 'Build devel-test stage (includes lint + bats smoke)' \
+    'build-worker.yaml build' 'Build devel stage' \
+    'build-worker.yaml build' 'Build runtime-test stage (install check)' \
+    'build-worker.yaml build' 'Build runtime stage' \
+    'self-test.yaml shellcheck' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml doc-counts' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml lint-static' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml mutation-roster' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml hadolint' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml bats-fragile' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml coverage' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml system' 'Build the run-scoped test-tools image (with GHA cache)')"
+  assert_equal "${_roster}" "${_expected}"
+  while IFS=$'\t' read -r _job _name _id _run _meta _if; do
+    _if="${_if#\$\{\{ }"
+    _if="${_if% \}\}}"
+    if [[ "${_id}" == "-" ]]; then
+      _bad+="${_job} '${_name}': no id"$'\n'
+    elif [[ "${_run}" != "true" ]]; then
+      _bad+="${_job} '${_name}': next step does not run cache_export_warn.sh"$'\n'
+    elif [[ "${_meta}" != *"steps.${_id}.outputs.metadata"* ]]; then
+      _bad+="${_job} '${_name}': warn step BUILD_METADATA is '${_meta}'"$'\n'
+    elif [[ "${_if}" != "steps.${_id}.outcome == 'success'" ]]; then
+      _bad+="${_job} '${_name}': warn step if: is '${_if}'"$'\n'
+    fi
+  done <<<"${_rows}"
+  [ -z "${_bad}" ] || {
+    printf '%s' "${_bad}" >&2
+    return 1
+  }
 }
 
 # why: The deletion asserted as a property rather than as the absence of

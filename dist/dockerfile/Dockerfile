@@ -235,12 +235,21 @@ ARG BASE_IMAGE_DIGEST=""
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
+# Every apt layer of this file installs through this helper: each attempt
+# runs a fresh `apt-get update` before the install, so one failed fetch
+# from a skewed mirror is retried rather than final; after the last
+# attempt the layer still fails, base#1602. Stages built FROM sys inherit
+# it; a stage built from a fresh ${BASE_IMAGE} copies it again. The apt
+# config sets `Acquire::Retries "3";` so one transient fetch error is
+# retried inside an attempt.
+COPY --chmod=0755 .base/dist/script/docker/build/apt-retry.sh /usr/local/libexec/base/apt-retry.sh
+COPY .base/dist/script/docker/build/80-base-retries /etc/apt/apt.conf.d/80-base-retries
+
 # tool-pin: unpinned sys-apt-packages -- an apt package names no version
 # here, and the base image it resolves against is itself a moving tag, so
 # there is no bound at all. Recorded so the watch says so every run.
 RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list || true; \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
+    /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
         tzdata \
         locales \
         && \
@@ -306,8 +315,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 # tool-pin: unpinned devel-apt-packages -- same as the sys stage above:
 # unversioned apt packages on a moving base image.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
         -o Dpkg::Options::="--force-confdef" \
         -o Dpkg::Options::="--force-confold" \
         sudo \
@@ -347,8 +355,7 @@ ARG CONFIG_SRC="config"
 # Add your application-specific packages here. Keep the trailing
 # dpkg-query: it rewrites the reproducibility manifest so YOUR packages
 # and their versions are recorded too (see the BASE_IMAGE note at the top).
-# RUN apt-get update && \
-#     apt-get install -y --no-install-recommends \
+# RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
 #         your-package \
 #         && \
 #     apt-get clean && \
@@ -663,8 +670,7 @@ RUN bats /smoke_test/
 # # Build-time deps. KEEP source / build intermediates -- devel
 # # inherits this stage for the dev workflow, and runtime
 # # COPY --from=builder only the install trees (not the source).
-# RUN apt-get update && \
-#     apt-get install -y --no-install-recommends \
+# RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
 #         build-essential \
 #         cmake \
 #         pkg-config \
@@ -677,8 +683,7 @@ RUN bats /smoke_test/
 # # Fetch + build (example: a colcon workspace).
 # WORKDIR /build_ws
 # COPY src/ /build_ws/src/
-# RUN apt-get update && \
-#     rosdep install --from-paths ./src --ignore-src -y && \
+# RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- rosdep install --from-paths ./src --ignore-src -y && \
 #     apt-get clean && \
 #     rm -rf /var/lib/apt/lists/* && \
 #     dpkg-query -W > /usr/local/share/base/packages.txt
@@ -709,9 +714,12 @@ RUN bats /smoke_test/
 # # Minimal runtime apt: sudo (entrypoint usually needs it), tini
 # # (PID 1 signal-handler), plus the ldd-identified shared libs that
 # # the install trees need. Keep this list short -- bloat here
-# # defeats the purpose of the builder/runtime split.
-# RUN apt-get update && \
-#     apt-get install -y --no-install-recommends \
+# # defeats the purpose of the builder/runtime split. A fresh
+# # ${BASE_IMAGE} lacks the apt retry helper and config sys copies in,
+# # base#1602.
+# COPY --chmod=0755 .base/dist/script/docker/build/apt-retry.sh /usr/local/libexec/base/apt-retry.sh
+# COPY .base/dist/script/docker/build/80-base-retries /etc/apt/apt.conf.d/80-base-retries
+# RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
 #         sudo \
 #         tini \
 #         # libboost-chrono1.74.0 \
@@ -905,8 +913,7 @@ RUN bats /smoke_test/
 # COPY test/bats/smoke/runtime-test/            /smoke_test/
 # # Flavour-specific runtime test deps are the consumer's job -- install
 # # them HERE on top of the common toolchain, e.g. for ROS:
-# #   RUN sudo apt-get update && \
-# #       sudo apt-get install -y --no-install-recommends \
+# #   RUN sudo /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
 # #           python3-colcon-common-extensions \
 # #           && \
 # #       sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*

@@ -287,6 +287,21 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
 | `APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)` | The file runs apk in four stages, so a knob wired into one leaves the build dying in the next -- later, and with the same misleading message. This is the assertion that names a newly added alpine stage here, on any machine, rather than on the one host that cannot reach dl-cdn and would otherwise be the only place it shows up. |
 
+### test/bats/unit/apt_retry_spec.bats (5)
+
+An image build failed on one `404 Not Found` from a skewed apt mirror (base
+run 42770963035, devel-base layer) because the layer ran one update and one
+install, so the first failed fetch was final. A fresh `apt-get update`
+before each retried install lets a skewed index recover, base#1602.
+
+| Test | Description |
+|------|-------------|
+| `apt-retry.sh: an install that fails once (exit 100) then passes exits 0, with a fresh update before each install (base#1602)` | The reported 404 is a transient mirror skew: one failed install followed by a passing one must leave the layer green, and the retry must refresh the index first, so the call order is update, install, update, install -- not a bare second install against the same stale index, base#1602. |
+| `apt-retry.sh 3 5: an install that always fails sleeps 5 then 10, and not after the last attempt (base#1602)` | Backoff, not a fixed pause: a skewed mirror needs longer to settle on each try, so the delay doubles after every failed attempt, and no sleep follows the last attempt (the build would only wait to fail), base#1602. |
+| `apt-retry.sh 3 5 apt-get install (no --): refused with exit 2 and apt-get never runs (base#1602)` | A call that forgets the `--` separator is a typo in the Dockerfile, not a mirror fault: like script/ci/retry.sh (base#1562), the helper refuses it with exit 2 (usage) before any apt-get runs, so the layer fails at once instead of shifting the install command into the attempt/delay arguments and retrying the wrong thing, base#1602. |
+| `apt-retry.sh 0 5 -- apt-get install: zero attempts is refused with exit 2 and apt-get never runs (base#1602)` | `apt-retry.sh 0 ...` asks for zero attempts, which is a typo in the Dockerfile, not a request to install once: like script/ci/retry.sh (base#1562, `(( 10#$1 >= 1 )) \|\| usage`), the helper refuses it with exit 2 before any apt-get runs, base#1602. |
+| `apt-retry.sh 3 x -- apt-get install: a non-numeric delay is refused with exit 2 and apt-get never runs (base#1602)` | A non-numeric first delay (`apt-retry.sh 3 x -- ...`) is a typo in the Dockerfile; left unchecked it passes silently when the first attempt succeeds and only breaks on a retry, at `sleep x`. Like script/ci/retry.sh (base#1562, `[[ "$2" =~ ^[0-9]+$ ]] \|\| usage`), the helper refuses it with exit 2 before any apt-get runs, base#1602. |
+
 ### test/bats/unit/arch_literal_lint_spec.bats (19)
 
 | Test | Description |
@@ -587,6 +602,22 @@ runs).
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
 
+### test/bats/unit/build_worker_cache_export_warn_spec.bats (6)
+
+With ignore-error=true a failed cache export no longer fails the build, so
+without this step it would also leave no trace. These specs pin that a good
+export stays silent and a failed one warns, without ever failing the job,
+base#1602.
+
+| Test | Description |
+|------|-------------|
+| `cache_export_warn: an export vertex that ends in DONE prints nothing and exits 0 (base#1602)` | A good cache export must stay silent: a script that warned on every build would bury the one real export failure in noise, base#1602. |
+| `cache_export_warn: an export vertex that ends in ERROR prints one ::warning:: with the error and exits 0 (base#1602)` | The reported failure: with ignore-error=true the export error no longer fails the build, so this warning, carrying the error text, is the only trace of it, and the step itself must not turn red, base#1602. |
+| `cache_export_warn: an export vertex with no final DONE or ERROR line prints one ::warning:: and exits 0 (base#1602)` | A record that never says how the export ended cannot show a success, so the script warns instead of assuming DONE, base#1602. |
+| `cache_export_warn: a record with no cache export vertex prints one ::warning:: and exits 0 (base#1602)` | The build asked for a cache export; a record without one cannot show it ran, so the script warns rather than stay silent, base#1602. |
+| `cache_export_warn: metadata with no buildx.build.ref prints one ::warning:: and exits 0 (base#1602)` | Without a ref the script cannot read this build's own record; it must warn, not fall back to some other record that ended DONE, base#1602. |
+| `cache_export_warn: a docker buildx history call that exits 1 prints one ::warning:: and exits 0 (base#1602)` | A failed history replay cannot vouch for the record, so the exit code wins over any DONE line it printed, and the step still exits 0, base#1602. |
+
 ### test/bats/unit/build_worker_cache_scope_spec.bats (4)
 
 Unit tests for `script/ci/build_worker/cache_scope.sh`, the buildx
@@ -691,7 +722,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (67)
+### test/bats/unit/build_worker_yaml_spec.bats (72)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -833,6 +864,11 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)` | The early-close-reader lint cannot reach here -- it scans *.sh under dist/ and script/, and a workflow `run:` block is not a shell file -- so this is the only thing standing between the step and a `grep -q` whose SIGPIPE 141 becomes the pipeline's status under `pipefail`, turning a stage that WAS found into one that reads as absent. |
 | `build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)` | - |
 | `build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)` | - |
+| `build-worker.yaml + self-test.yaml: every type=gha cache-to carries ignore-error=true (base#1602)` | A GitHub Actions Cache export is its own buildx vertex after the image built, and without `ignore-error=true` its failure becomes the solve error: isaac run 42753553284 went red on `#26 ERROR: error writing layer blob` after the image built (base#1602). The class is every `type=gha` cache-to a build step requests in either workflow, not the four lines the issue names. The floor 12 is the count of `cache-to:` keys found by grepping both files at base a61b898d (4 in build-worker.yaml, 8 in self-test.yaml), so a spec that matches nothing cannot pass. |
+| `build-worker.yaml: every --cache-to the extra-stages step passes ends in ignore-error=true (base#1602)` | The extra-stages loop builds its cache-to in shell (cache_to_for), so the yq enumeration above cannot see it. Read off what the step's own buildx calls receive: with a stage and its -test companion the step runs two builds, and each `--cache-to` it passes must end in `,ignore-error=true`, or a failed export there still fails the job (base#1602). |
+| `build-worker.yaml: an extra stage with no -test companion gets one cache-export warn call, labelled with the stage (base#1602)` | The extra-stages loop drives buildx itself, so its warn calls are not steps the outcome gate can reach: each build that RUNS is followed by one cache_export_warn.sh call labelled with its stage, and a -test companion the Dockerfile does not declare is neither built nor warned about (base#1602). The warn script runs for real against the stubbed docker; its `::warning` lines are what a job log would show. |
+| `build-worker.yaml: an extra stage and its -test companion each get one cache-export warn call, labelled with their own stage (base#1602)` | The -test companion is a build of its own with its own cache export, so when the Dockerfile declares it and it RUNS, it is followed by its own warn call labelled with its own stage, not folded into the stage's (base#1602). Two builds ran, so the log carries two warn lines. |
+| `build-worker.yaml + self-test.yaml: every cache-to build step is followed by a warn step gated on its own outcome (base#1602)` | ignore-error=true turns a failed cache export green, so each build that requests one must be followed by a step that reads that build's own record and warns (base#1602). The warn step is gated on the build's outcome: GitHub's steps context gives a skipped step outcome `skipped` and a failed one `failure`, so `steps.<id>.outcome == 'success'` runs the warn only after a build that ran and passed, never after a build skipped by its own `if:` (10 of the 12 have one) and never on top of a red build. The 12-line roster is the enumeration of every step with `with.cache-to` in both files at base a61b898d, so a new producer without a warn step, or a gate naming another step, fails here. |
 | `build-worker.yaml: the buildx cache has exactly one backend, chosen by no input (#980)` | The deletion asserted as a property rather than as the absence of one string. `cache_backend: registry` could never work -- its cache export needed `packages: write` on a job that declares a read-only block, and a called job gets exactly the block it declares (#957) -- so every line reachable only through it was unreachable from the day it shipped. What must not come back is any SECOND cache backend selected by an input, because `permissions:` accepts no expression and the next one is unreachable for the same reason. |
 | `build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)` | - |
 | `build-worker.yaml: declares path-filter job (#273)` | - |
@@ -4556,7 +4592,7 @@ replaces kcov_trace_volume_spec.bats.
 | `no lib module declares a variable the generated .env already names (base#1177)` | base#1177 put a `GPU_CAPABILITIES` array in the lib tree and measured what that costs: `_lib.sh` loads env_emit.sh and config_summary.sh into ONE process alongside every other module, and `.env` carries a variable of that exact name, so the array shadowed the operator's value and `${GPU_CAPABILITIES:--}` read back `gpu` -- the array's first element -- whatever the configuration said. Nothing failed; the summary just printed a different list. The population is DERIVED from the names env_emit.sh actually writes rather than listed here, because a guard naming today's twenty-four passes forever while the next emitted name is taken by a module variable (base#1089 / base#1090 / base#1214). The probe runs with those names cleared from the environment, so what it finds is what the TREE declares. |
 | `_summary_dump_section groups by the registry, not by the first dot (base#1185)` | base#1185 -- the splitter call the original blast-radius analysis missed; a wrong split here is a wrong SUMMARY, which no exit status reports |
 
-### test/bats/unit/lint_bare_stderr_spec.bats (9)
+### test/bats/unit/lint_bare_stderr_spec.bats (10)
 
 Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all stderr
 goes through lib/log.sh helpers" lint. The lint takes the repo root as `$1`,
@@ -4573,6 +4609,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag an allowlisted _log_* line (#692)` | `_log_*` line exempt |
 | `does NOT flag an allowlisted getopts / [y/N] prompt line (#692)` | getopts / prompt lines exempt |
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
+| `does NOT flag bare stderr in the in-image apt-retry.sh helper (base#1602)` | the in-image apt retry helper is excluded (base#1602): it is a /bin/sh script copied into the image and run by Dockerfile RUN layers, where no lib/log.sh exists, so its per-attempt failure line goes straight to fd 2 -- the build log |
 | `does NOT flag a printf of a cg_event line, but still flags any other bare stderr in the same file (base#1465)` | config-gen's in-image event protocol: the admit stage runs with no lib/log.sh, so its refusal is a `cg_event` line on stderr that the host runner reads back and re-emits through _log_err (base#1465) |
 | `does NOT flag a printf of a config_gen_gate_ id line, but still flags any other bare stderr in the same file (base#1467)` | the same protocol's gate id line: config_gen_coverage.sh runs in the config-gen test stage with no lib/log.sh, and the host runner reads its `config_gen_gate_<g>_failed` stderr line back as the gate that went red (base#1467) |
 | `does NOT flag a printf of a config-gen stage= or redpath case= timing line, but still flags any other bare stderr in the same file (base#1547)` | config-gen's timing lines are read back by line shape, the gates runner's `config-gen stage=` and the redpath's `config-gen redpath case=`, so a _log_* prefix would break their readers (base#1547) |
@@ -8286,7 +8323,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (168)
+### test/bats/unit/template_spec.bats (170)
 
 | Test | Description |
 |------|-------------|
@@ -8424,6 +8461,8 @@ Unit tests for the repo-local command-group scaffolder
 | `Dockerfile.example states what the UNPINNED default does not record (#951)` | read from the note's own window: the digest half AC1 asks for is empty in the shipped default, the note says so, and the recipe it gives strips to `sha256:<hex>` so both routes record the same shape |
 | `Dockerfile.example sys stage records the base ref it resolved (#951)` | bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env` write, digest-pin flag, the digest on both routes it can be known, OCI base-name/base-digest labels |
 | `Dockerfile.example rewrites the package manifest after every apt layer (#951)` | a relation over the apt layers, not a tally: every RUN block that installs apt packages (`apt-get install`, `apt install` or `rosdep install`, indented or not, live or commented-for-uncommenting) must refresh `packages.txt` |
+| `Dockerfile.example runs every apt install through apt-retry.sh 4 15 (base#1602)` | an image build failed on one `404 Not Found` from a skewed apt mirror (base run 42770963035, devel-base layer) because the layer ran one update and one install, so the first failed fetch was final. Every apt layer -- live, and commented for a consumer to uncomment -- runs its install through the bounded retry helper, which refreshes the index before each attempt, base#1602. The call `apt-retry.sh 4 15 --` is the literal of the approved design; the install has to be the helper's own argument, not a sibling command the helper never retries. |
+| `Dockerfile.example: every apt-retry.sh call sits on a FROM chain that copies the helper and 80-base-retries (base#1602)` | the retry helper and the `Acquire::Retries` config only help a layer whose image has them: a stage built from a fresh ${BASE_IMAGE} (the commented runtime-base) inherits nothing sys copied in, so its apt layer could not run the helper, base#1602. Every helper call, live and commented, must sit on a FROM chain that COPYs both files first; the design's config literal is `Acquire::Retries "3";`. The fixture is the negative control: a fresh `FROM ${BASE_IMAGE} AS r` calling the helper without the COPYs is flagged. |
 | `_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)` | pins the helper behind that relation against a scratch fixture: `RUN <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must be closed by its delimiter -- live and commented, order enforced inside it, and `<<<` opening nothing |
 | `Dockerfile.example commented runtime-base records its own manifest (#951)` | read from that stage's own window, since the same commented lines appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented |
 | `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | read from DL3008's own rationale block, and it must name the downstream repos the symlinked config reaches whose Dockerfile predates the manifest |
