@@ -171,7 +171,7 @@ func TestMutation(t *testing.T) {
 		{"a package that kills every mutant", mhead + "M\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(2, 0)}, 0,
 			mod + "/internal/a ok efficacy=100.0\n",
-			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
+			"unleash --workers 7 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
 		{"exactly the floor", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": killed(9, 1)}, 0,
 			mod + "/internal/a ok efficacy=90.0\n", ""},
@@ -185,8 +185,8 @@ func TestMutation(t *testing.T) {
 			"M\tdockerfile/config-gen/internal/a/a.go\nM\tdockerfile/config-gen/x.go\n",
 			map[string]string{"___.json": killed(1, 2), "__internal_a.json": killed(3, 0)}, 1,
 			pkgFailed + mod + " reason=below measured=33.3\n" + mod + "/internal/a ok efficacy=100.0\n",
-			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./.\n" +
-				"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/1.json ./internal/a\n"},
+			"unleash --workers 7 --timeout-coefficient 10 -o REPORTS/0.json ./.\n" +
+				"unleash --workers 7 --timeout-coefficient 10 -o REPORTS/1.json ./internal/a\n"},
 		{"gremlins exits non-zero", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.fail": "", "__internal_a.json": killed(1, 0)}, 1,
 			pkgFailed + mod + "/internal/a reason=gremlins_failed\n", ""},
@@ -206,7 +206,7 @@ func TestMutation(t *testing.T) {
 			"R100\tdockerfile/config-gen/internal/old/a_test.go\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(2, 0)}, 0,
 			"removed " + mod + "/internal/old\n" + mod + "/internal/a ok efficacy=100.0\n",
-			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
+			"unleash --workers 7 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
 		{"a module file the mapping refuses", mhead + "A\tdockerfile/config-gen/notes.txt\n",
 			map[string]string{}, 1, "cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt\n", ""},
 		{"go list fails", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
@@ -225,7 +225,7 @@ func TestMutation(t *testing.T) {
 			}
 			var out, errOut bytes.Buffer
 			got := run([]string{"mutation", "--manifest", filepath.Join(dir, "manifest"), "--module", mod,
-				"--reports", reports}, &out, &errOut)
+				"--reports", reports, "--workers", "7"}, &out, &errOut)
 			if got != c.status {
 				t.Fatalf("status %d, want %d; stderr %q", got, c.status, errOut.String())
 			}
