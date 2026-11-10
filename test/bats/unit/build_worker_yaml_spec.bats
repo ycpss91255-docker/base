@@ -572,6 +572,27 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
   }
 }
 
+# why: The extra-stages loop builds its cache-to in shell (cache_to_for),
+# so the yq enumeration above cannot see it. Read off what the step's own
+# buildx calls receive: with a stage and its -test companion the step runs
+# two builds, and each `--cache-to` it passes must end in
+# `,ignore-error=true`, or a failed export there still fails the job (base#1602).
+@test "build-worker.yaml: every --cache-to the extra-stages step passes ends in ignore-error=true (base#1602)" {
+  local _tos _bad
+  run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  _tos="$(grep -oE -e '--cache-to [^ ]+' <<<"${output}" || true)"
+  run grep -c . <<<"${_tos}"
+  assert_output "2"
+  _bad="$(grep -vE ',ignore-error=true$' <<<"${_tos}" || true)"
+  [ -z "${_bad}" ] || {
+    echo "extra-stages --cache-to without a trailing ignore-error=true:" >&2
+    printf '%s\n' "${_bad}" >&2
+    return 1
+  }
+}
+
 # why: The deletion asserted as a property rather than as the absence of
 # one string. `cache_backend: registry` could never work -- its cache
 # export needed `packages: write` on a job that declares a read-only block,
