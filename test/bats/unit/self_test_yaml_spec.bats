@@ -1270,31 +1270,35 @@ _builder_setups_out_of_step_with_their_consumer() {
   # same way: a code-gated job whose red would otherwise be one nobody sees.
   # base#1547 split it into `config-gen-gates` and the `config-gen-redpath`
   # shard matrix, and both join it.
+  #
+  # `mutation-roster` (the required-kill roster, base#1571) joins it when
+  # the roster leaves lint-static for a job of its own.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
 # script/test/drivers/bats.sh holds test/bats/integration), so a separate
 # bats-integration job ran each of them a second time. With the job gone,
 # neither the merge gate nor the tag gate may still wait on it: the two lists
-# below are main's lists at b091f8e3 with that one entry removed, written out
-# by hand rather than read back from the workflow.
+# below are main's lists at b091f8e3 with that one entry removed and the
+# mutation-roster job (base#1571) added, written out by hand rather than read
+# back from the workflow.
 @test "self-test.yaml: no bats-integration job, and neither ci-rollup nor release needs it (base#1573)" {
   run code_grep -E '^  bats-integration:' "${WF}"
   assert_failure
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -2100,6 +2104,69 @@ YAML
   _seen="$(printf '%s\n' "${_indices[@]}" | sort -n | uniq | wc -l)"
   [ "${_seen}" -eq "${_total}" ] \
     || fail "the lint-static matrix repeats a group index; ${_seen} of ${_total} are distinct"
+}
+
+# why: A leg named only `lint-static (2/4)` says nothing on the checks
+# page about which lints it ran (base#1571). The membership is computed
+# from test.sh's _LINT_TOOLS table (base#1071), so a list written into
+# the workflow would be a roster; the name of the step that runs the
+# group must instead read the members from an earlier step's output.
+# The test runs that earlier step for every group, renders the step name
+# with what it wrote, and checks the name against the group's members as
+# `test.sh --lint-group-members` prints them.
+@test "self-test.yaml: each lint-static leg's lint step is named for every lint its group runs (base#1571)" {
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" \
+      "the self-test dispatcher that lists a lint group's members"
+  local -a _groups=()
+  mapfile -t _groups < <(lint_static_groups "${WF}")
+  [ "${#_groups[@]}" -ge 2 ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} group entries"
+
+  local _name
+  _name="$(yq '.jobs.lint-static.steps[] | select((.run // "") | test("--lint --group")) | .name' "${WF}")"
+  [ -n "${_name}" ] || fail "no lint-static step runs test.sh --lint --group"
+  local _expr_re='\$\{\{ *steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+) *\}\}'
+  [[ "${_name}" =~ ${_expr_re} ]] \
+    || fail "the lint step is named '${_name}', which reads no step output, so it cannot name the lints its group runs"
+  local _expr="${BASH_REMATCH[0]}" _id="${BASH_REMATCH[1]}" _key="${BASH_REMATCH[2]}"
+
+  local _run
+  _run="$(yq ".jobs.lint-static.steps[] | select(.id == \"${_id}\") | .run" "${WF}")"
+  [ -n "${_run}" ] && [ "${_run}" != null ] \
+    || fail "the lint step's name reads steps.${_id}, but no lint-static step with id '${_id}' has a run script"
+  local -a _env=()
+  mapfile -t _env < <(yq ".jobs.lint-static.steps[] | select(.id == \"${_id}\") | .env // {} | to_entries | .[] | .key + \"=\" + .value" "${WF}")
+
+  local _g _out _value _rendered _m _e
+  local -a _members=() _envg=()
+  for _g in "${_groups[@]}"; do
+    _out="${BATS_TEST_TMPDIR}/github_output"
+    : > "${_out}"
+    _envg=()
+    for _e in "${_env[@]}"; do
+      [ -n "${_e}" ] && _envg+=( "${_e//\$\{\{ matrix.group \}\}/${_g}}" )
+    done
+    # GitHub runs a `run:` step as `bash --noprofile --norc -eo pipefail
+    # {0}`, a script file. Under `bash -c` BASH_SOURCE is empty, and kcov's
+    # PS4 (`kcov@${BASH_SOURCE}@...`) made the step's `set -u` refuse its
+    # first traced line, red under coverage only.
+    printf '%s\n' "${_run//\$\{\{ matrix.group \}\}/${_g}}" > "${BATS_TEST_TMPDIR}/step.sh"
+    pushd /source > /dev/null
+    run env "${_envg[@]}" GITHUB_OUTPUT="${_out}" \
+      bash --noprofile --norc -eo pipefail "${BATS_TEST_TMPDIR}/step.sh"
+    popd > /dev/null
+    assert_success
+    _value="$(sed -n "s/^${_key}=//p" "${_out}")"
+    _rendered="${_name//"${_expr}"/${_value}}"
+    _rendered="${_rendered//\$\{\{ matrix.group \}\}/${_g}}"
+    mapfile -t _members < <("${_test_sh}" --lint-group-members "${_g}")
+    [ "${#_members[@]}" -gt 0 ] || fail "lint group ${_g} has no members"
+    for _m in "${_members[@]}"; do
+      tr -cs 'A-Za-z0-9_-' '\n' <<< "${_rendered}" | grep -qx -- "${_m}" \
+        || fail "lint group ${_g} runs '${_m}', but its lint step is named '${_rendered}'"
+    done
+  done
 }
 
 @test "self-test.yaml: declares hadolint job (#376)" {
@@ -3103,11 +3170,12 @@ _lint_probe_fixture() {
   # `config-gen` (base#1462) joins it for the same reason it joins
   # ci-rollup: the tag path requires exactly what the merge gate requires;
   # base#1547 split it into config-gen-gates and config-gen-redpath.
+  # `mutation-roster` (base#1571) joins both for the same reason.
   run yaml_job_lines "${WF}" release
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3801,7 +3869,8 @@ _cg_mut_ctx() {
 # CONFIG_GEN_MUTATION_CONTEXT env. Every step is a literal here, so no file
 # under test can move its own expectation. The self-hosted job then runs the
 # required-kill roster (base#1461); the hosted job does not, because the
-# hosted lint-static legs run it.
+# hosted mutation-roster matrix runs it (base#1571; decided by the case
+# "the required-kill roster runs once per mutation-roster leg").
 _cg_expected_steps() {
   local _pin _ctx _tail='[]' _run="${2:-${CG_STEP_RUN}}"
   _pin="$(_cg_just_pin_steps)" || return 1
@@ -4250,7 +4319,8 @@ _rollup_honours_every_need() {
 
 # ── the required-kill roster runs in every CI environment (base#1461) ────────
 #
-# Local `just test`, the hosted lint-static legs and the self-hosted
+# Local `just test`, the hosted mutation-roster matrix (base#1571; the
+# hosted lint-static legs ran it before that) and the self-hosted
 # coverage-local workflow all run `just test mutation-required`. Which
 # steps run it is decided the way the lint parity is (base#1412): by
 # RUNNING every `run:` step of the job in a checkout copy whose roster
@@ -4287,29 +4357,40 @@ _roster_runs() {
   awk -F'\t' -v p="${2}" '$1 == "roster" && index($2, p) == 1' <<< "${1}"
 }
 
-# why: The hosted environment. Every lint-static leg runs the roster
-# exactly once, on its own shard (`--shard <its group>`, so the four legs
-# together probe every row), with no `if:` and no continue-on-error, and a
-# red roster fails the step.
-@test "self-test.yaml: every lint-static leg runs the required-kill roster once, on its shard, gated (base#1461)" {
+# why: The hosted environment. The roster runs in a job matrix of its own,
+# `mutation-roster`, named for what it does, and not inside lint-static,
+# where it took about 97% of each shard and was invisible from the checks
+# page (base#1571). Its legs are exactly shards 1/N..N/N, so together they
+# probe every row; each leg runs the roster exactly once, on its own shard,
+# with no `if:` and no continue-on-error, and a red roster fails the step.
+# No lint-static leg runs it at all.
+@test "self-test.yaml: the required-kill roster runs once per mutation-roster leg, on its shard, gated, and never in lint-static (base#1571)" {
   local _root
   _root="$(_roster_probe_root)" || fail "${_root}"
-  LP_JOBS=lint-static LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
+  [ "$(yq '.jobs | has("mutation-roster")' "${WF}")" = true ] \
+    || fail "self-test.yaml has no mutation-roster job, so the roster has no job of its own"
+  local -a _shards=()
+  mapfile -t _shards < <(yq '.jobs.mutation-roster.strategy.matrix | to_entries | .[0].value[]' "${WF}")
+  local _n="${#_shards[@]}" _want
+  (( _n >= 2 )) || fail "mutation-roster has ${_n} leg(s); a single leg is the unsplit roster"
+  _want="$(seq 1 "${_n}" | sed "s|.*|&/${_n}|")"
+  [ "$(printf '%s\n' "${_shards[@]}" | sort)" = "$(sort <<< "${_want}")" ] \
+    || fail "mutation-roster legs are [$(printf '%s ' "${_shards[@]}")], not exactly 1/${_n}..${_n}/${_n}, so the legs do not cover the roster once"
+  LP_JOBS='mutation-roster lint-static' LP_ALL_STEPS=1 LINT_PROBE_ROSTER_RC=1 run _lint_probe "${_root}" "${WF}"
   assert_success
-  local _probe="${output}" _group _runs _st
-  local -a _groups=()
-  mapfile -t _groups < <(yq '.jobs.lint-static.strategy.matrix.group[]' "${WF}")
-  (( ${#_groups[@]} == 4 )) || fail "lint-static has ${#_groups[@]} legs, not 4"
-  for _group in "${_groups[@]}"; do
-    _runs="$(_roster_runs "${_probe}" "self-test.yaml:lint-static#" | grep -F "\"group\":\"${_group}\"" || true)"
+  local _probe="${output}" _shard _runs _st
+  [ -z "$(_roster_runs "${_probe}" "self-test.yaml:lint-static#")" ] \
+    || fail "a lint-static leg still runs the roster:"$'\n'"$(_roster_runs "${_probe}" "self-test.yaml:lint-static#")"
+  for _shard in "${_shards[@]}"; do
+    _runs="$(_roster_runs "${_probe}" "self-test.yaml:mutation-roster#" | grep -F ":\"${_shard}\"" || true)"
     [ "$(grep -c . <<< "${_runs}" || true)" = 1 ] \
-      || fail "lint-static leg ${_group} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
+      || fail "mutation-roster leg ${_shard} runs the roster $(grep -c . <<< "${_runs}" || true) times, not once:"$'\n'"${_probe}"
     _st="$(cut -f3 <<< "${_runs}")"
-    [ "${_st}" != 0 ] || fail "lint-static leg ${_group}: a red roster leaves its step green"
-    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_group} "* ]] \
-      || fail "lint-static leg ${_group} does not run the roster on shard ${_group}: $(cut -f4 <<< "${_runs}")"
+    [ "${_st}" != 0 ] || fail "mutation-roster leg ${_shard}: a red roster leaves its step green"
+    [[ " $(cut -f4 <<< "${_runs}") " == *" --shard ${_shard} "* ]] \
+      || fail "mutation-roster leg ${_shard} does not run the roster on shard ${_shard}: $(cut -f4 <<< "${_runs}")"
   done
-  run _lint_probe_gating_errors "${_probe}" "${WF}" lint-static roster
+  run _lint_probe_gating_errors "${_probe}" "${WF}" mutation-roster roster
   assert_output ""
 }
 

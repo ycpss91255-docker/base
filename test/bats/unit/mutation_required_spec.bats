@@ -13,7 +13,8 @@
 # every row is PINNED.
 #
 # Row contract, one for every roster file:
-#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new>
+#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new> [TAB <witness>]
+# <witness>, optional, is the mutated pass's test.sh --filter (base#1571).
 # `#` lines and blank lines are skipped. <old> and <new> are decoded with
 # exactly three escapes, `\\` `\t` `\n`; any other `\x` or a trailing `\`
 # is reason=bad_escape. <old> must occur exactly once in <subject>; <new>
@@ -41,7 +42,7 @@ setup() {
   # container does not mount.
   cd "${S}"
   unset COMPOSE_PROJECT_NAME MUTATION_REQUIRED_JOBS MUTATION_REQUIRED_PROBE \
-    GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP \
+    GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE MR_DOCKER_PS MR_RUNNER_SLEEP MR_RUNNER_MEET \
     MR_DOCKER_NETS MR_DOCKER_NET_RM_RC PER_TEST_TIMEOUT
   export GIT_CONFIG_NOSYSTEM=1
   export GIT_CONFIG_GLOBAL="${S}/gitconfig"
@@ -87,7 +88,9 @@ STUB
 # lib/guard.sh differs from the sandbox's commit, so it goes red on mutated
 # bytes and nothing else; it records its pid, its COMPOSE_PROJECT_NAME, its
 # root, the root's mode, the PER_TEST_TIMEOUT it was given and its start
-# and end times, and the diff it saw.
+# and end times, and the diff it saw. With MR_RUNNER_MEET=<n> it holds until
+# <n> runner calls have started, so a call that ends sees the others alive;
+# one that waits 30 s for them is recorded in ${MR_RUNNER_LOG}.alone.
 _runner() {
   cat > "${S}/runner" <<'STUB'
 #!/usr/bin/env bash
@@ -96,6 +99,16 @@ printf 'start %s %s %s %s %s %s\n' "${EPOCHREALTIME}" "$$" "${root}" \
   "${COMPOSE_PROJECT_NAME:-}" "$(stat -c %a -- "${root}")" \
   "${PER_TEST_TIMEOUT:-unset}" >> "${MR_RUNNER_LOG:?}"
 [[ -z "${MR_RUNNER_SLEEP:-}" ]] || sleep "${MR_RUNNER_SLEEP}"
+if [[ -n "${MR_RUNNER_MEET:-}" ]]; then
+  tries=0
+  until (( $(grep -c '^start ' "${MR_RUNNER_LOG}") >= MR_RUNNER_MEET )); do
+    if (( tries++ >= 300 )); then
+      printf 'alone %s\n' "$$" >> "${MR_RUNNER_LOG}.alone"
+      break
+    fi
+    sleep 0.1
+  done
+fi
 git -C "${root}" ls-files | LC_ALL=C sort > "${MR_DIFF_DIR}/files.$$"
 if git -C "${root}" diff --quiet -- lib/guard.sh; then
   printf 'ok 1 the guard holds\n'
@@ -209,140 +222,6 @@ _max_concurrent() {
     | awk '{ n += $2; if (n > m) m = n } END { print m + 0 }'
 }
 
-# _decode <text> -- the contract's three escapes, decoded independently of
-# the driver; non-zero on any other escape.
-_decode() {
-  local _in="${1}" _out="" _c _i
-  for (( _i = 0; _i < ${#_in}; _i++ )); do
-    _c="${_in:_i:1}"
-    if [[ "${_c}" == '\' ]]; then
-      _i=$(( _i + 1 ))
-      case "${_in:_i:1}" in
-        '\') _out+='\' ;;
-        t) _out+=$'\t' ;;
-        n) _out+=$'\n' ;;
-        *) return 1 ;;
-      esac
-    else
-      _out+="${_c}"
-    fi
-  done
-  printf '%s' "${_out}"
-}
-
-# ── the committed roster ────────────────────────────────────────────────────
-
-# why: The roster already holds 166 rows from S1b, S1c, S1d, S1g and S1h in a
-# four-column `sed -i` form, and the runner's contract is the declarative
-# five-column one. Adopting them means every committed row is in that
-# contract, applies through the runner's own --apply to exactly one changed
-# region, and survives the runner's validation pass -- a contract that
-# rejects or mis-splits the committed rows fails here, as does a roster that
-# lost one of them on the way.
-@test "roster: every committed row is a five-column row that --apply changes in exactly one region (base#1461)" {
-  assert_spec_subject_dir /source/script/test/mutation_required "the committed roster"
-  local _f _line _n=0 _id _subj _spec _old _new _work _hunks
-  local -A _ids=()
-  for _f in /source/script/test/mutation_required/*.tsv; do
-    while IFS= read -r _line || [[ -n "${_line}" ]]; do
-      [[ -z "${_line}" || "${_line}" == '#'* ]] && continue
-      _n=$(( _n + 1 ))
-      # cut, not `read`: TAB is IFS whitespace, so `read` folds an empty
-      # <new> into its neighbour.
-      _id="$(cut -f1 <<< "${_line}")"
-      _subj="$(cut -f2 <<< "${_line}")"
-      _spec="$(cut -f3 <<< "${_line}")"
-      _old="$(cut -f4 <<< "${_line}")"
-      _new="$(cut -f5 <<< "${_line}")"
-      [[ "$(awk -F'\t' '{ print NF }' <<< "${_line}")" == 5 ]] \
-        || fail "$(basename "${_f}"): row '${_id}' is not <id> TAB <subject> TAB <spec> TAB <old> TAB <new>: ${_line}"
-      _ids["$(basename "${_f}" .tsv):${_id}"]=1
-      _work="${S}/adopt/${_n}"
-      mkdir -p "${_work}/$(dirname "${_subj}")"
-      cp -p "/source/${_subj}" "${_work}/${_subj}"
-      # The pristine copy is the diff baseline, not /source: a concurrent
-      # writer to the live tree must not supply half the verdict (base#965).
-      cp -p "${_work}/${_subj}" "${_work}/.orig"
-      _decode "${_old}" > "${_work}/.old" || fail "row '${_id}': old carries an escape outside \\\\ \\t \\n"
-      _decode "${_new}" > "${_work}/.new" || fail "row '${_id}': new carries an escape outside \\\\ \\t \\n"
-      ( cd "${_work}" && bash "${MR}" --apply "${_subj}" .old .new ) \
-        || fail "row '${_id}': --apply refused against /source/${_subj}"
-      _hunks="$(diff -U0 "${_work}/.orig" "${_work}/${_subj}" | grep -c '^@@' || true)"
-      [[ "${_hunks}" == 1 ]] \
-        || fail "row '${_id}': --apply changed ${_hunks} regions of ${_subj}, not one"
-    done < "${_f}"
-  done
-  (( _n >= 166 )) || fail "the roster has ${_n} rows; S1a's 2 seeds and the 164 of S1b, S1c, S1d, S1g and S1h are 166"
-  local _want
-  for _want in \
-    s1b:runner-step-status s1b:runner-usage-unknown s1b:redpath-control \
-    s1b:coverage-profile-missing s1b:spec-workflow-env-keys \
-    s1c:scan-unsupported-byte s1c:oracle-pin-missing s1c:read-gomod-target \
-    s1c:pins-commit-final-newline s1c:reader-marker-target-event \
-    s1d:base-pr-mergebase s1d:base-origin-missing s1d:base-main-push-missing \
-    s1d:usage-unknown-option s1d:publish-restore-failed-keep \
-    s1d:logger-caller-frame s1d:redpath-git-copy \
-    s1g:corpus-root-guard s1g:corpus-root-forward \
-    s1h:override-verbatim s1h:build-exit s1h:build-fold s1h:digest-content \
-    s1h:digest-failure-status; do
-    [[ -n "${_ids[${_want}]:-}" ]] || fail "the roster lost row ${_want}"
-  done
-  local _c
-  for _c in s1b:24 s1c:117 s1d:38 s1g:2 s1h:12 s1a:2; do
-    [[ "$(grep -cvE '^(#|$)' "/source/script/test/mutation_required/${_c%%:*}.tsv")" == "${_c##*:}" ]] \
-      || fail "${_c%%:*}.tsv does not hold its ${_c##*:} rows"
-  done
-}
-
-# why: A seed row names its subject, but what it must disable is one guard:
-# setup_cmd.sh's refusal of a non-regular-file apply output and
-# setup_conf.sh's refusal of a local layer not named *.toml. A row that
-# mutated any other line of either file would still go red somewhere in the
-# spec and read PINNED. So each seed's decoded <old> must be the `if` whose
-# body logs that guard's refusal event, holding the guard's own test, and
-# its decoded <new> must be the same `if` made never-true.
-@test "roster: each S1a seed row disables the guard it is named for (base#1461)" {
-  local _id _subj _test _event _line _old _new _ind _after _rows=0
-  local _tsv=/source/script/test/mutation_required/s1a.tsv
-  while IFS='|' read -r _id _subj _test _event; do
-    _line="$(awk -F'\t' -v id="${_id}" '!/^#/ && $1 == id' "${_tsv}")"
-    [[ -n "${_line}" ]] || fail "s1a.tsv has no row ${_id}"
-    [[ "$(cut -f2 <<< "${_line}")" == "${_subj}" ]] \
-      || fail "row ${_id} does not mutate ${_subj}"
-    _old="$(_decode "$(cut -f4 <<< "${_line}")")" || fail "row ${_id}: bad escape in old"
-    _new="$(_decode "$(cut -f5 <<< "${_line}")")" || fail "row ${_id}: bad escape in new"
-    [[ "${_old}" =~ ^([[:space:]]*)if\ .*\;\ then$ ]] \
-      || fail "row ${_id}: old is not one if-guard line: ${_old}"
-    _ind="${BASH_REMATCH[1]}"
-    [[ "${_old}" == *"${_test}"* ]] \
-      || fail "row ${_id}: old does not carry the guard's test '${_test}': ${_old}"
-    assert_equal "${_new}" "${_ind}if false; then"
-    # The line right after <old> in the subject is the guard's body: it has
-    # to be the refusal this row is named for.
-    _after="$(awk -v o="${_old}" 'f { print; exit } $0 == o { f = 1 }' "/source/${_subj}")"
-    [[ "${_after}" == *"_log_err "*" ${_event}"* ]] \
-      || fail "row ${_id}: the guard after old does not log ${_event}: ${_after}"
-    _rows=$(( _rows + 1 ))
-  done <<'SEEDS'
-setup-cmd-non-regular-file|dist/script/docker/lib/setup_cmd.sh|[[ ! -f "${_d}" ]]|apply_output_unusable
-setup-conf-toml-suffix|dist/script/docker/lib/setup_conf.sh|"${_p}" != *.toml|conf_local_override_unusable
-SEEDS
-  assert_equal "${_rows}" 2
-}
-
-# why: The runner's own validation over the committed roster, not the
-# spec's re-reading of it: a contract the runner reads differently from the
-# documented one (a lost empty <new>, a decoder that is not the three
-# escapes) refuses a committed row here.
-@test "roster: the runner's validation pass accepts every committed row (base#1461)" {
-  run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source
-  assert_success
-  [[ "${stderr}" != *mutation_required_row_invalid* ]] \
-    || fail "the runner refused a committed row: ${stderr}"
-  [[ "${stderr}" != *mutation_required_roster_empty* ]] \
-    || fail "the runner saw no rows in the committed roster: ${stderr}"
-}
-
 # ── validation before any baseline ──────────────────────────────────────────
 
 # why: A roster directory with no roster file is a gate that checks nothing;
@@ -377,10 +256,11 @@ SEEDS
   _runner_never_ran
 }
 
-# why: A sixth field is a row whose fields are not where the reader thinks.
-@test "validation: a six-field row is refused before any baseline (base#1461)" {
+# why: A seventh field is a row whose fields are not where the reader
+# thinks; the sixth is the optional witness filter (base#1571).
+@test "validation: a seven-field row is refused before any baseline (base#1461)" {
   _pin_row a.tsv good
-  _row a.tsv long lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2' extra
+  _row a.tsv long lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2' '^guard$' extra
   _commit_live
   _run_mr
   _assert_mr_refusal 1 mutation_required_row_invalid \
@@ -701,16 +581,197 @@ STUB
   _no_probe_lines
 }
 
+# ── per-row timing ──────────────────────────────────────────────────────────
+
+# _timing_attr <name> -- the numeric value of attribute <name> on the
+# mutation_required_row_timed line; empty when there is none.
+_timing_attr() {
+  local _line
+  _line="$(log_event_line mutation_required_row_timed "${stderr}")"
+  [[ "${_line}" =~ \"${1}\":\"([0-9]+(\.[0-9]+)?)\" ]] && printf '%s' "${BASH_REMATCH[1]}"
+  return 0
+}
+
+# why: The roster logged no per-row time, so where its 271 job-min went
+# could only be modelled, not measured (base#1571). Each row reports when
+# it started, when it ended and how long it took, and the window it reports
+# holds the probe's own run: a timer that started after the probe, or a
+# duration that is not end minus start, would mislead every shard balance
+# built on it.
+@test "timing: a row reports its start, end and duration, and the probe ran inside that window (base#1571)" {
+  _pin_row a.tsv kill
+  _commit_live
+  MR_RUNNER_SLEEP=1 _run_mr
+  assert_success
+  assert_logged_event mutation_required_row_timed \
+    "row=script/test/mutation_required/a.tsv:1" id=kill
+  local _start _end _dur _rs _re
+  _start="$(_timing_attr start)"
+  _end="$(_timing_attr end)"
+  _dur="$(_timing_attr duration_s)"
+  [[ -n "${_start}" && -n "${_end}" && -n "${_dur}" ]] \
+    || fail "the timing event lacks a numeric start, end or duration_s: $(log_event_line mutation_required_row_timed "${stderr}")"
+  _rs="$(awk '$1 == "start" { print $2; exit }' "${MR_RUNNER_LOG}")"
+  _re="$(awk '$1 == "end" { v = $2 } END { print v }' "${MR_RUNNER_LOG}")"
+  awk -v s="${_start}" -v e="${_end}" -v d="${_dur}" -v rs="${_rs}" -v re="${_re}" \
+    'BEGIN { x = d - (e - s); if (x < 0) x = -x
+             exit !(s <= rs && re <= e && d >= 1 && x < 0.01) }' \
+    || fail "window ${_start}..${_end} (duration_s=${_dur}) does not hold the probe's run ${_rs}..${_re}, or duration_s is not end - start"
+}
+
+# ── baseline once per spec ──────────────────────────────────────────────────
+
+# why: Each row ran its whole spec unmutated before its mutated pass, so the
+# roster ran the same baseline 314 times for 17 specs on one tree
+# (base#1571). Three rows on one spec, all three in flight at once, run the
+# spec's unmutated baseline once and each row's mutated pass once: four
+# runner calls, of which exactly one saw lib/guard.sh unchanged, and every
+# row is still reported pinned.
+@test "baseline: three rows on one spec run its unmutated baseline once, not once per row (base#1571)" {
+  _three_rows
+  MUTATION_REQUIRED_JOBS=3 _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one three two "
+  local _calls _mutated
+  _calls="$(grep -c '^start ' "${MR_RUNNER_LOG}")"
+  _mutated="$(find "${MR_DIFF_DIR}" -name 'diff.*' | wc -l)"
+  assert_equal "$(( _calls - _mutated ))" 1
+  assert_equal "${_mutated}" 3
+}
+
+# why: A row that reads its spec's shared baseline waits for the row that
+# writes it (base#1571). When that row ends without a clean baseline, the
+# baseline file never appears; the reader must be refused rc=baseline, not
+# wait forever. The probe stub here exits 2 and writes no baseline, the way
+# a red baseline ends; the run is bounded at 60 s, so a reader that keeps
+# waiting fails the case instead of hanging it.
+@test "baseline: a row whose spec's baseline row ended without a clean baseline is refused rc=baseline, not left waiting (base#1571)" {
+  _pin_row a.tsv one
+  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  _commit_live
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 2' > "${S}/probe-red"
+  chmod +x "${S}/probe-red"
+  run --separate-stderr env PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+    TMPDIR="${S}/tmp" MUTATION_PROBE_RUNNER="${S}/runner" \
+    MUTATION_REQUIRED_PROBE="${S}/probe-red" MUTATION_REQUIRED_JOBS=2 \
+    timeout 60 bash "${MR}" --root "${LIVE}"
+  assert_equal "${status}" 1
+  grep -F '"body":"mutation_required_probe_refused"' <<< "${stderr}" \
+    | grep -F '"id":"two"' | grep -qF '"rc":"baseline"' \
+    || fail "row two was not refused rc=baseline: ${stderr}"
+}
+
+# ── witness-filtered mutated pass ───────────────────────────────────────────
+
+# why: The row contract had no test selector, so every row's mutated pass
+# ran every @test in its spec, 14,451 tests a pass over the roster, when
+# the pinned lines name a median of one witness (base#1571). A row may
+# carry an optional sixth column, its witness filter (a test.sh --filter
+# regex); the probe then runs that row's mutated pass under the filter.
+# The probe hands a filter to MUTATION_PROBE_RUNNER as one more argument
+# after the root and the spec, so a wrapper records each call's argv under
+# its pid and the stub runner, exec'd in the same pid, marks the mutated
+# calls with diff.<pid>.
+@test "witness: a row with a sixth column runs its mutated pass under that filter (base#1571)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\t%s\n' "$$" "${@: -1}" >> "${MR_RUNNER_LOG:?}.argv"
+if [[ "${@: -1}" == *.bats ]]; then
+  exec "${0}.inner" "$@"
+fi
+exec "${0}.inner" "${@:1:$#-1}"
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  local -a _diffs=()
+  mapfile -t _diffs < <(find "${MR_DIFF_DIR}" -name 'diff.*')
+  assert_equal "${#_diffs[@]}" 1
+  local _pid="${_diffs[0]##*.}"
+  assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 == p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
+}
+
+# ── one sandbox per worker slot ─────────────────────────────────────────────
+
+# why: Each row built its own sandbox (mktemp, a tar copy of every tracked
+# file, verify, git init and commit) and its own compose project, so 314
+# rows built 314 sandboxes, up to 81 of them identical (base#1571). Under
+# MUTATION_REQUIRED_JOBS=1 there is one worker slot: its three rows run in
+# one sandbox under one project. A row's own edit is put back by the probe,
+# so the diffs alone do not show the slot's reset; a wrapper around the
+# stub runner logs, at each call's start, whether an ignored file an earlier
+# call left in the sandbox is still there, and whether a tracked file it
+# edited still holds that edit, and then leaves both. Only the slot's reset
+# puts them back (git clean -x the ignored file, git reset --hard the
+# tracked one), so each of the three rows' first calls finds them put back,
+# and every later call of the same row finds them left. Each half of the
+# reset is a row of script/test/mutation_required/s1571.tsv.
+@test "sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows (base#1571)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+root="${@: -2:1}"
+grep -qxF leftover "${root}/.git/info/exclude" 2>/dev/null \
+  || printf 'leftover\n' >> "${root}/.git/info/exclude"
+if [[ -e "${root}/leftover" ]]; then
+  printf 'seen\n' >> "${MR_RUNNER_LOG:?}.leftover"
+else
+  printf 'gone\n' >> "${MR_RUNNER_LOG:?}.leftover"
+fi
+: > "${root}/leftover"
+printf '%s\n' "$(cat "${root}/note")" >> "${MR_RUNNER_LOG:?}.note"
+printf 'edited\n' > "${root}/note"
+exec "${0}.inner" "$@"
+STUB
+  chmod +x "${S}/runner"
+  printf 'committed\n' > "${LIVE}/note"
+  _three_rows
+  MUTATION_REQUIRED_JOBS=1 _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one three two "
+  assert_equal "$(grep -c '^gone$' "${MR_RUNNER_LOG}.leftover")" 3
+  assert_equal "$(grep -c '^committed$' "${MR_RUNNER_LOG}.note")" 3
+  assert_equal "$(awk '$1 == "start" { print $4 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
+  assert_equal "$(awk '$1 == "start" { print $5 }' "${MR_RUNNER_LOG}" | sort -u | wc -l)" 1
+  local _d
+  for _d in "${MR_DIFF_DIR}"/diff.*; do
+    assert_equal "$(grep -c '^-[^-]' "${_d}")" 1
+  done
+}
+
+# why: A worker slot keeps its sandbox past its last row for a next row
+# that never comes (base#1571); only the run's cleanup removes it. A run
+# that ends must leave nothing under its TMPDIR: no kept sandbox, no work
+# directory.
+@test "sandbox: a finished run leaves no sandbox under TMPDIR (base#1571)" {
+  _three_rows
+  MUTATION_REQUIRED_JOBS=2 _run_mr
+  assert_success
+  assert_equal "$(ls -A "${S}/tmp")" ""
+}
+
 # ── parallel rows ───────────────────────────────────────────────────────────
 
 # why: 168 rows at about 10 s each are run MUTATION_REQUIRED_JOBS at a time
 # (default 4); a runner that only runs serially costs every gate the sum.
+# The two rows are on two specs: a row on a spec another row runs the
+# baseline of waits for that baseline (base#1571), so with one spec only
+# the mutated passes could overlap, and a loaded runner that started the
+# second one late saw no overlap at all (PR #1580, mutation-roster 3/8).
 @test "parallel: two rows under MUTATION_REQUIRED_JOBS=2 overlap (base#1461)" {
   _pin_row a.tsv one
-  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  cp "${LIVE}/test/bats/unit/guard_spec.bats" "${LIVE}/test/bats/unit/guard2_spec.bats"
+  _row a.tsv two lib/guard.sh test/bats/unit/guard2_spec.bats 'tail=1' 'tail=2'
   _commit_live
-  MUTATION_REQUIRED_JOBS=2 MR_RUNNER_SLEEP=1 _run_mr
+  MUTATION_REQUIRED_JOBS=2 MR_RUNNER_MEET=2 _run_mr
   assert_success
+  [[ ! -e "${MR_RUNNER_LOG}.alone" ]] \
+    || fail "a runner call waited alone under JOBS=2: $(cat "${MR_RUNNER_LOG}")"
   [[ "$(_max_concurrent)" -ge 2 ]] \
     || fail "the rows did not overlap under JOBS=2: $(cat "${MR_RUNNER_LOG}")"
 }
@@ -783,11 +844,13 @@ _three_rows() {
   _commit_live
 }
 
-# why: The four hosted lint-static legs each run the roster. 168 rows probed
-# in full by every leg did not finish inside the job's 30 minutes (PR #1491,
-# run 41222344327: the roster step cancelled at 29 minutes on all four
-# legs), so a leg probes the rows of its own shard: row k (counted over
-# every roster file, from 0) belongs to shard (k mod <total>) + 1.
+# why: Every hosted leg that runs the roster (the lint-static legs when
+# base#1461 added this, the mutation-roster matrix since base#1571) probes
+# only its own shard. 168 rows probed in full by every leg did not finish
+# inside the job's 30 minutes (PR #1491, run 41222344327: the roster step
+# cancelled at 29 minutes on all four legs then). With no seconds.txt, row k
+# (counted over every roster file, from 0) belongs to shard (k mod <total>)
+# + 1.
 @test "shards: --shard 1/2 and 2/2 probe disjoint rows that together are every row (base#1461)" {
   _three_rows
   _run_mr --shard 1/2
@@ -796,6 +859,36 @@ _three_rows() {
   _run_mr --shard 2/2
   assert_success
   assert_equal "$(_pinned_ids)" "two "
+}
+
+# why: Dealing row k to shard (k mod <total>) + 1 balances row counts, not
+# time, and the roster's rows differ in cost by spec (base#1571: the
+# config_gen_gates and gomod_scan rows were 88% of roster work). The
+# mutation-roster legs must each finish in at most 5 minutes, so --shard
+# deals by the measured per-row seconds the roster records in
+# script/test/mutation_required/seconds.txt (<file> TAB <id> TAB <seconds>,
+# from the mutation_required_row_timed lines): rows heaviest first, each to
+# the shard holding the fewest seconds so far. Here the last row, four,
+# costs 10 s and the other three 1 s each. Dealt by index, shard 1 would
+# hold one+three (2 s) and shard 2 two+four (11 s). Dealt in roster order to
+# the lightest shard, it is the same split, because four comes last. Dealt
+# heaviest first, shard 1 holds four alone (10 s) and shard 2 the other
+# three (3 s). The two shards still cover every row exactly once. The
+# roster-order deal is a row of script/test/mutation_required/s1571.tsv.
+@test "shards: --shard deals rows by their recorded seconds, heaviest first, to the lightest shard (base#1571)" {
+  _pin_row a.tsv one
+  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats 'tail=1' 'tail=2'
+  _row a.tsv three lib/guard.sh test/bats/unit/guard_spec.bats 'drop_me=1' 'drop_me=2'
+  _row a.tsv four lib/guard.sh test/bats/unit/guard_spec.bats 'tabbed=1' 'tabbed=2'
+  printf 'a.tsv\tone\t1\na.tsv\ttwo\t1\na.tsv\tthree\t1\na.tsv\tfour\t10\n' \
+    > "${ROSTER}/seconds.txt"
+  _commit_live
+  _run_mr --shard 1/2
+  assert_success
+  assert_equal "$(_pinned_ids)" "four "
+  _run_mr --shard 2/2
+  assert_success
+  assert_equal "$(_pinned_ids)" "one three two "
 }
 
 # why: A shard only narrows what is probed; every row is still validated,

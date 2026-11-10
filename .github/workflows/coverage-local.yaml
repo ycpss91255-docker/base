@@ -205,8 +205,10 @@ jobs:
         run: just test go
 
       - name: Run the required-kill mutation roster
-        # The self-hosted leg of the roster the no-flag `just test` and the
-        # hosted lint-static legs run (base#1461), ungated.
+        # The self-hosted run of the roster that the no-flag `just test` and
+        # the hosted mutation-roster matrix also run (base#1461, base#1571),
+        # ungated. Which jobs run it is decided by the self_test_yaml_spec
+        # case "the required-kill roster runs once per mutation-roster leg".
         run: just test mutation-required
 
 # No reclaim step. `script/test/test.sh` arms an EXIT-trap sweep of
