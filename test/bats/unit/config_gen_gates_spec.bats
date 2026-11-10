@@ -1949,6 +1949,47 @@ _procs_with() {
   done
 }
 
+# why: names is a green case whose plant reaches module-root testdata/,
+# so its mutation gate mutates the real locate and schema packages; once
+# cg-gates runs gremlins with one worker per CPU (base#1606) that pass
+# uses every CPU, and a case that does must run alone, not in the pool.
+# The serial phase must therefore cover green cases, not only _RP_CASES
+# entries. Same shape as the mut-timeout test above: JOBS=4, four cases
+# selected, each stub sleeps 1 s and logs its span; fmt, vet and lint
+# meet at a barrier.
+@test "config_gen_redpath.sh: the green case names runs alone, its call overlapping no other case's, while the others run in parallel (base#1606)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _c
+  for _c in fmt vet lint names; do
+    printf '1\n' > "${S}/canned/${_c}.sleep"
+    : > "${S}/canned/${_c}.span"
+  done
+  for _c in fmt vet lint; do : > "${S}/canned/${_c}.barrier"; done
+  _redpath_exec CONFIG_GEN_REDPATH_JOBS=4 CONFIG_GEN_REDPATH_ONLY='fmt vet lint names'
+  assert_success
+  [[ -s "${S}/runner.spans" ]] || fail "no stub logged a span"
+  # _span <case> <start|end> -- the time the case's stub logged.
+  _span() { awk -v c="${1}" -v k="${2}" '$1 == c && $2 == k { print $3 }' "${S}/runner.spans"; }
+  for _c in fmt vet lint names; do
+    [[ -n "$(_span "${_c}" start)" && -n "$(_span "${_c}" end)" ]] \
+      || fail "${_c}'s stub logged no full span: $(paste -sd' ' "${S}/runner.spans")"
+  done
+  # _overlap <a> <b> -- true when the two cases' stub calls overlapped.
+  _overlap() {
+    awk -v s1="$(_span "${1}" start)" -v e1="$(_span "${1}" end)" \
+        -v s2="$(_span "${2}" start)" -v e2="$(_span "${2}" end)" \
+        'BEGIN { exit !(s1 < e2 && s2 < e1) }'
+  }
+  _overlap fmt vet && _overlap vet lint \
+    || fail "fmt, vet and lint did not run at the same time: $(paste -sd' ' "${S}/runner.spans")"
+  for _c in fmt vet lint; do
+    if _overlap names "${_c}"; then
+      fail "names ran at the same time as ${_c}: $(paste -sd' ' "${S}/runner.spans")"
+    fi
+  done
+}
+
 # why: The runner's attribute filter matched no file= or reason= word
 # under en_US.UTF-8 on a glibc host until _cg_attr_ok pinned LC_ALL=C
 # (base#1465); a host whose own locale is C never runs that filter under
