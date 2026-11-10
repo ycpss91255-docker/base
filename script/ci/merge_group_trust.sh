@@ -13,6 +13,11 @@
 # the entry whose head commit is HEAD_SHA, and takes the group as that
 # entry plus every entry ahead of it. The group is trusted only when every
 # pull request in it is same-repository, base#1587.
+#
+# Every case that proves nothing (failed call, no queue, no entry, a
+# mismatched entry, a null head repository) prints `same_repo=false`, an
+# `::error::` line naming why, and exits 0: a red classify would hide the
+# reason, so classify stays green and the ci-rollup fails the run instead.
 set -euo pipefail
 
 : "${REPO:?REPO is not set}"
@@ -25,6 +30,14 @@ retry="$(dirname "${BASH_SOURCE[0]:-$0}")/retry.sh"
 owner="${REPO%%/*}"
 name="${REPO#*/}"
 branch="${BASE_REF#refs/heads/}"
+
+# untrusted <reason>: name why the group is unproven, answer false, and
+# exit 0, base#1587.
+untrusted() {
+  printf '::error::merge_group_trust: %s\n' "$1" >&2
+  printf 'same_repo=false\n'
+  exit 0
+}
 
 # The $-names are GraphQL variables, filled by gh's -F flags below.
 # shellcheck disable=SC2016
@@ -46,91 +59,55 @@ query='query($owner: String!, $name: String!, $branch: String!) {
   }
 }'
 
-# A failed call leaves the group unproven: print false and exit 0, so
-# classify stays green and the ci-rollup names the reason, base#1587.
 if ! reply="$("${retry}" 3 5 -- gh api graphql \
   -f query="${query}" -F owner="${owner}" -F name="${name}" \
   -F branch="${branch}")"; then
-  printf '::error::merge_group_trust: the merge queue query failed\n' >&2
-  printf 'same_repo=false\n'
-  exit 0
+  untrusted "the merge queue query failed"
 fi
 
-# A null queue (the queue is off for BASE_REF) proves nothing: say why,
-# then answer false, base#1587.
+# A null queue means the queue is off for BASE_REF.
 if [[ "$(jq -r '.data.repository.mergeQueue == null' <<<"${reply}")" == "true" ]]; then
-  printf '::error::merge_group_trust: %s has no merge queue for %s\n' \
-    "${REPO}" "${branch}" >&2
-  printf 'same_repo=false\n'
-  exit 0
+  untrusted "${REPO} has no merge queue for ${branch}"
 fi
 
-# An empty queue holds no entry for HEAD_SHA, so nothing about the group
-# is proven: say why, then answer false, base#1587.
-if [[ "$(jq -r '[.data.repository.mergeQueue.entries.nodes[]?] | length' <<<"${reply}")" == "0" ]]; then
-  printf '::error::merge_group_trust: the %s merge queue for %s has no entries\n' \
-    "${REPO}" "${branch}" >&2
-  printf 'same_repo=false\n'
-  exit 0
+nodes="$(jq -c '[.data.repository.mergeQueue.entries.nodes[]?]' <<<"${reply}")"
+if [[ "$(jq -r 'length' <<<"${nodes}")" == "0" ]]; then
+  untrusted "the ${REPO} merge queue for ${branch} has no entries"
 fi
 
-# No entry has HEAD_SHA as its head commit, so this run's group is not in
-# the queue and nothing about it is proven: say why, then answer false,
-# base#1587.
-if [[ "$(jq -r --arg sha "${HEAD_SHA}" \
-  '[.data.repository.mergeQueue.entries.nodes[]? | select(.headCommit.oid == $sha)] | length' \
-  <<<"${reply}")" == "0" ]]; then
-  printf '::error::merge_group_trust: the %s merge queue for %s has no entry for %s\n' \
-    "${REPO}" "${branch}" "${HEAD_SHA}" >&2
-  printf 'same_repo=false\n'
-  exit 0
+# The entry whose head commit is HEAD_SHA is this run's group head.
+entry="$(jq -c --arg sha "${HEAD_SHA}" \
+  'map(select(.headCommit.oid == $sha)) | first // empty' <<<"${nodes}")"
+if [[ -z "${entry}" ]]; then
+  untrusted "the ${REPO} merge queue for ${branch} has no entry for ${HEAD_SHA}"
 fi
 
-# The group head ref is .../pr-<N>-<sha>; N names the entry's pull request.
+# The group head ref is .../pr-<N>-<sha>; N must be the entry's pull
+# request, or the group is not proven to be that entry.
 pr=""
 if [[ "${HEAD_REF}" =~ /pr-([0-9]+)-[0-9a-f]+$ ]]; then
   pr="${BASH_REMATCH[1]}"
 fi
-
-# The entry for HEAD_SHA must belong to the pull request HEAD_REF names;
-# when they disagree the group is not proven to be that entry: say why,
-# then answer false, base#1587.
-entry_pr="$(jq -r --arg sha "${HEAD_SHA}" \
-  '[.data.repository.mergeQueue.entries.nodes[]? | select(.headCommit.oid == $sha)] | first | .pullRequest.number // "" | tostring' \
-  <<<"${reply}")"
+entry_pr="$(jq -r '.pullRequest.number // "" | tostring' <<<"${entry}")"
 if [[ "${entry_pr}" != "${pr}" ]]; then
-  printf '::error::merge_group_trust: the entry for %s is pull request %s, but %s names pr-%s\n' \
-    "${HEAD_SHA}" "${entry_pr:-none}" "${HEAD_REF}" "${pr:-none}" >&2
-  printf 'same_repo=false\n'
-  exit 0
+  untrusted "the entry for ${HEAD_SHA} is pull request ${entry_pr:-none}, but ${HEAD_REF} names pr-${pr:-none}"
 fi
 
-# A pull request in the group whose head repository is null (deleted)
-# does not prove who wrote the code: say which, then answer false,
-# base#1587.
-null_head="$(jq -r --arg sha "${HEAD_SHA}" '
-  [.data.repository.mergeQueue.entries.nodes[]?] as $all
-  | ([$all[] | select(.headCommit.oid == $sha)] | first) as $e
-  | [$all[] | select(.position <= $e.position)
-      | select(.pullRequest.headRepository == null)
-      | .pullRequest.number | tostring] | join(" ")' <<<"${reply}")"
+# The group: the entry plus every entry ahead of it in the queue.
+group="$(jq -c --argjson e "${entry}" \
+  'map(select(.position <= $e.position))' <<<"${nodes}")"
+
+# A null head repository (deleted) does not prove who wrote the code.
+null_head="$(jq -r \
+  'map(select(.pullRequest.headRepository == null) | .pullRequest.number | tostring) | join(" ")' \
+  <<<"${group}")"
 if [[ -n "${null_head}" ]]; then
-  printf '::error::merge_group_trust: pull request %s in the group has no head repository\n' \
-    "${null_head}" >&2
-  printf 'same_repo=false\n'
-  exit 0
+  untrusted "pull request ${null_head} in the group has no head repository"
 fi
 
-same_repo="$(jq -r --arg sha "${HEAD_SHA}" --arg pr "${pr}" \
-  --arg repo "${REPO}" '
-  [.data.repository.mergeQueue.entries.nodes[]?] as $all
-  | ([$all[] | select(.headCommit.oid == $sha)] | first) as $e
-  | if $e == null or ($e.pullRequest.number | tostring) != $pr then false
-    else
-      [$all[] | select(.position <= $e.position)]
-      | length > 0 and all(
-          .pullRequest.isCrossRepository == false
-          and .pullRequest.headRepository.nameWithOwner == $repo)
-    end' <<<"${reply}")"
+same_repo="$(jq -r --arg repo "${REPO}" '
+  length > 0 and all(
+    .pullRequest.isCrossRepository == false
+    and .pullRequest.headRepository.nameWithOwner == $repo)' <<<"${group}")"
 
 printf 'same_repo=%s\n' "${same_repo}"
