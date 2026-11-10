@@ -1579,6 +1579,34 @@ _redpath_reset() {
   assert_equal "holders:${_holders}" 'holders:1'
 }
 
+# why: CONFIG_GEN_REDPATH_SHARD=<n>/<N> picks one of the N shards the
+# shard table's header names (base#1547). A value that is not two positive
+# integers, or whose n is past N, names no shard: read as a filter it
+# would select nothing, or the wrong rows, and the job would pass having
+# checked nothing. So the redpath refuses each such value as usage, exit
+# 2, naming the variable, before the runner is called at all, the shared
+# pass included. N is read from the real table's header so the values stay
+# malformed when the table is rebalanced.
+@test "config_gen_redpath.sh: a malformed CONFIG_GEN_REDPATH_SHARD is refused as usage before any runner call (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _n _v
+  _n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${S}/repo/script/test/config_gen_redpath_shards.tsv")"
+  [[ -n "${_n}" ]] || fail "the shard table's first line is not '# shards=<N>'"
+  for _v in "0/${_n}" "$(( _n + 1 ))/${_n}" 1/0 x 1/ "1/${_n}/"; do
+    rm -f "${S}/runner.order"
+    run --separate-stderr timeout 30 env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY \
+        REDPATH_TOP="${BASHPID}" PATH="${S}/bin:${PATH}" LOG_FORMAT=json \
+        CONFIG_GEN_REDPATH_SHARD="${_v}" \
+        bash "${S}/repo/script/test/config_gen_redpath.sh"
+    (( status == 2 )) || fail "SHARD=${_v}: exited ${status}, not 2: $(tail -n 1 <<<"${output}")"
+    assert_refusal 2 config_gen_usage_invalid arg=CONFIG_GEN_REDPATH_SHARD
+    if [[ -s "${S}/runner.order" ]]; then
+      fail "SHARD=${_v}: the runner was called: $(paste -sd' ' "${S}/runner.order")"
+    fi
+  done
+}
+
 # why: The redpath runs its cases one after another, so a job's time is the
 # sum of every case's build (base#1547). With CONFIG_GEN_REDPATH_JOBS=4 up
 # to four cases run at once. fmt, vet, lint and race each wait at a barrier
