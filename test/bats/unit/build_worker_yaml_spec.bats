@@ -593,6 +593,65 @@ FROM debian:bookworm AS foo-test' foo
   }
 }
 
+# why: ignore-error=true turns a failed cache export green, so each build
+# that requests one must be followed by a step that reads that build's own
+# record and warns (base#1602). The warn step is gated on the build's
+# outcome: GitHub's steps context gives a skipped step outcome `skipped` and
+# a failed one `failure`, so `steps.<id>.outcome == 'success'` runs the warn
+# only after a build that ran and passed, never after a build skipped by its
+# own `if:` (10 of the 12 have one) and never on top of a red build. The
+# 12-line roster is the enumeration of every step with `with.cache-to` in
+# both files at base a61b898d, so a new producer without a warn step, or a
+# gate naming another step, fails here.
+@test "build-worker.yaml + self-test.yaml: every cache-to build step is followed by a warn step gated on its own outcome (base#1602)" {
+  local _st="/source/.github/workflows/self-test.yaml" _rows _roster _expected
+  local _job _name _id _run _meta _if _bad=""
+  _rows="$(yq -N '
+    filename as $f
+    | .jobs | to_entries | .[] | .key as $j
+    | (.value.steps // []) as $s
+    | $s | to_entries | .[]
+    | select(.value.with["cache-to"] != null)
+    | .key as $i
+    | ($s | .[$i + 1]) as $n
+    | [($f | split("/") | .[-1]) + " " + $j, .value.name, (.value.id // "-"),
+       ((($n.run // "") | contains("cache_export_warn.sh")) | tostring),
+       ($n.env.BUILD_METADATA // "-"), ($n.if // "-")]
+    | @tsv' "${WF}" "${_st}" | grep .)"
+  _roster="$(cut -f1,2 <<<"${_rows}")"
+  _expected="$(printf '%s\t%s\n' \
+    'build-worker.yaml build' 'Build devel-test stage (includes lint + bats smoke)' \
+    'build-worker.yaml build' 'Build devel stage' \
+    'build-worker.yaml build' 'Build runtime-test stage (install check)' \
+    'build-worker.yaml build' 'Build runtime stage' \
+    'self-test.yaml shellcheck' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml doc-counts' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml lint-static' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml mutation-roster' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml hadolint' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml bats-fragile' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml coverage' 'Build the run-scoped test-tools image (with GHA cache)' \
+    'self-test.yaml system' 'Build the run-scoped test-tools image (with GHA cache)')"
+  assert_equal "${_roster}" "${_expected}"
+  while IFS=$'\t' read -r _job _name _id _run _meta _if; do
+    _if="${_if#\$\{\{ }"
+    _if="${_if% \}\}}"
+    if [[ "${_id}" == "-" ]]; then
+      _bad+="${_job} '${_name}': no id"$'\n'
+    elif [[ "${_run}" != "true" ]]; then
+      _bad+="${_job} '${_name}': next step does not run cache_export_warn.sh"$'\n'
+    elif [[ "${_meta}" != *"steps.${_id}.outputs.metadata"* ]]; then
+      _bad+="${_job} '${_name}': warn step BUILD_METADATA is '${_meta}'"$'\n'
+    elif [[ "${_if}" != "steps.${_id}.outcome == 'success'" ]]; then
+      _bad+="${_job} '${_name}': warn step if: is '${_if}'"$'\n'
+    fi
+  done <<<"${_rows}"
+  [ -z "${_bad}" ] || {
+    printf '%s' "${_bad}" >&2
+    return 1
+  }
+}
+
 # why: The deletion asserted as a property rather than as the absence of
 # one string. `cache_backend: registry` could never work -- its cache
 # export needed `packages: write` on a job that declares a read-only block,
