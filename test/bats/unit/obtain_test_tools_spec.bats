@@ -37,17 +37,19 @@ _src() {
   printf 'source %s' "${OBTAIN}"
 }
 
-# _seams <pull-status> <probe-status>
-#   Stand-ins for the four docker / probe seams, so the decision is
+# _seams <pull-status> <probe-status> [load-status]
+#   Stand-ins for the five docker / probe seams, so the decision is
 #   exercised with no daemon and every side effect is observable as a
-#   line on stdout.
+#   line on stdout. The retag line names its source as well as its
+#   target, so a test can tell which image was re-tagged.
 _seams() {
   printf '
 _obtain_pull() { printf "pull %%s\\n" "$1"; return %s; }
-_obtain_retag() { printf "retag %%s\\n" "$2"; }
+_obtain_retag() { printf "retag %%s -> %%s\\n" "$1" "$2"; }
 _obtain_probe() { printf "probe %%s\\n" "$1"; return %s; }
 _obtain_build() { printf "build %%s\\n" "$1"; }
-' "${1}" "${2}"
+_obtain_load() { printf "load %%s\\n" "$1"; return %s; }
+' "${1}" "${2}" "${3:-0}"
 }
 
 # why: The hot path. A `:main` that corresponds to this checkout is used
@@ -123,6 +125,29 @@ _obtain_build() { printf "build %%s\\n" "$1"; }
   refute_output --partial 'build img'
   run cat "${OUT}"
   assert_line 'build_local=true'
+}
+
+# why: base#1588. The image is built once per architecture and handed to
+# every other job as a `docker save` artifact. A job given that artifact
+# loads it, re-tags the loaded image under its own run-scoped name and
+# probes it -- and does neither pull nor build, even when the PR changed
+# the Dockerfile, because the artifact IS this checkout's build. The tag
+# is the one the builder job wrote, read from TEST_TOOLS_ARTIFACT_TAG, not
+# a fixed spelling in the script.
+@test "obtain: a given artifact is loaded, re-tagged and probed, never pulled or built (base#1588)" {
+  local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
+  : > "${_tar}"
+  run bash -c "$(_src); $(_seams 0 0 0); TESTTOOLS_CHANGED=true CI_RUN_KEY=k \
+      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '${_tar}' --local-build inline"
+  assert_success
+  assert_line "load ${_tar}"
+  assert_line 'retag test-tools:artifact-42 -> img'
+  assert_line 'probe img'
+  refute_output --partial 'pull '
+  refute_output --partial 'build '
+  run cat "${OUT}"
+  assert_line 'build_local=false'
 }
 
 # ── no job reaches past it ────────────────────────────────────────────
