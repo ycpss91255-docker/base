@@ -297,21 +297,45 @@ _passed() {
   fi
 }
 
-# why: In the merged profile a package that has test files but no block is
-# a package whose tests never reached the profile (base#1547): the race
-# RUN's go test skipped it, or the profile is from another tree. Splitting
-# would count it as 0 0, which reads as measured. It is refused as
-# profile_invalid naming that package, before any count is written and
-# without go test. m/b has only an external test file (XTestGoFiles 1), so
-# a check that reads only TestGoFiles still passes it as 0 0.
-@test "coverage.sh: --profile refuses a package with test files but no block in the merged profile as profile_invalid (base#1547)" {
+# why: A package with no statements has no block in any profile: go test
+# writes only the `mode:` header for it, which today's per-package
+# _measure counts as `<pkg>\t0\t0` (base#1547). The planted
+# internal/zzglob holds only zzglob_test.go, and a package of types or
+# constants alone is the same, so a merged profile with no block for such
+# a package is what a complete profile looks like. --profile must count
+# both as 0 0, the line _measure gives them, and not refuse them: a
+# refusal keyed on test files failed the redpath's sens-per-golden case,
+# which passes on origin/main (base#1547 review round 1 finding 1).
+@test "coverage.sh: --profile counts a test-only package and a package with no statements as 0 0, as _measure does (base#1547)" {
   _tested_pkg m/a 1 1 0
-  _tested_pkg m/b 1 0 1
+  _tested_pkg m/zz 0 1 0
+  _tested_pkg m/types 1 1 0
   printf '%s\n' 'mode: atomic' \
     'm/a/a.go:1.1,2.2 2 1' > "${S}/all.out"
   printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
   _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
-  _refused profile_invalid m/b
+  _passed "m/a"$'\t'"2"$'\t'"2" "m/zz"$'\t'"0"$'\t'"0" "m/types"$'\t'"0"$'\t'"0"
+  if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
+# why: Today each package's own profile is refused when it carries a line
+# from any other package (_count, base#1462): such a profile is not the
+# package's. The merged profile's counterpart is a block whose file's
+# directory is no package `go list ./...` names here: the profile was
+# written for another tree, so its counts are not this module's (base#1547).
+# Splitting would drop that block silently and count the rest. It is
+# refused as profile_invalid naming the stray directory, before any count
+# is written and without go test.
+@test "coverage.sh: --profile refuses a block of a package go list does not name as profile_invalid (base#1547)" {
+  _tested_pkg m/a 1 1 0
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 1' \
+    'm/gone/g.go:1.1,2.2 3 1' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _refused profile_invalid m/gone
   [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
   if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
     fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
