@@ -30,6 +30,11 @@ setup() {
 }
 
 # _stub_go -- `go list ...` prints ${S}/list and exits ${S}/list.rc.
+# When ${S}/pkgs exists (rows `<pkg>\t<gofiles>\t<testgofiles>\t<xtestgofiles>`,
+# written by _tested_pkg), `go list -f <template> ...` instead renders the
+# template once per row, filling {{.ImportPath}}, {{len .GoFiles}},
+# {{len .TestGoFiles}} and {{len .XTestGoFiles}}; any other action makes
+# the stub exit 3, so a template it cannot answer never reads as a listing.
 # `go test ... -coverprofile=<f> ... <pkg>` copies ${S}/prof/<key> to <f>
 # when it exists (<key> is <pkg> with / as _) and exits ${S}/prof/<key>.rc,
 # 0 when there is none. Every call is logged to ${S}/go.calls.
@@ -39,6 +44,21 @@ _stub_go() {
 printf '%s\n' "\$*" >> "${S}/go.calls"
 case "\${1:-}" in
   list)
+    if [[ -f "${S}/pkgs" && "\${2:-}" == -f ]]; then
+      while IFS=\$'\t' read -r p g t x; do
+        line="\${3}"
+        line="\${line//'{{.ImportPath}}'/\${p}}"
+        line="\${line//'{{len .GoFiles}}'/\${g}}"
+        line="\${line//'{{len .TestGoFiles}}'/\${t}}"
+        line="\${line//'{{len .XTestGoFiles}}'/\${x}}"
+        if [[ "\${line}" == *'{{'* ]]; then
+          printf 'go stub: unsupported list template: %s\n' "\${3}" >&2
+          exit 3
+        fi
+        printf '%s\n' "\${line}"
+      done < "${S}/pkgs"
+      exit "\$(cat "${S}/list.rc")"
+    fi
     cat "${S}/list"
     exit "\$(cat "${S}/list.rc")" ;;
   test)
@@ -57,6 +77,13 @@ EOF
 # _pkg <import-path> <gofiles> [cgofiles] -- add a package to the listing.
 _pkg() {
   printf '%s\t%s\t%s\n' "${1}" "${2}" "${3:-0}" >> "${S}/list"
+}
+
+# _tested_pkg <import-path> <gofiles> <testgofiles> <xtestgofiles> -- add a
+# package, with its test file counts, to the listing a `go list -f`
+# template is rendered from.
+_tested_pkg() {
+  printf '%s\t%s\t%s\t%s\n' "${1}" "${2}" "${3}" "${4}" >> "${S}/pkgs"
 }
 
 # _profile <import-path> <line>... -- the package's canned profile: a
@@ -264,6 +291,27 @@ _passed() {
   assert_equal "${output}" ""
   [[ "${stderr}" =~ ^config_gen_gate_coverage_failed\ reason=profile_invalid(\ pkg=[^$'\n']*)?$ ]] \
     || fail "want one profile_invalid line on stderr, got: ${stderr}"
+  [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
+  if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
+# why: In the merged profile a package that has test files but no block is
+# a package whose tests never reached the profile (base#1547): the race
+# RUN's go test skipped it, or the profile is from another tree. Splitting
+# would count it as 0 0, which reads as measured. It is refused as
+# profile_invalid naming that package, before any count is written and
+# without go test. m/b has only an external test file (XTestGoFiles 1), so
+# a check that reads only TestGoFiles still passes it as 0 0.
+@test "coverage.sh: --profile refuses a package with test files but no block in the merged profile as profile_invalid (base#1547)" {
+  _tested_pkg m/a 1 1 0
+  _tested_pkg m/b 1 0 1
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 1' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _refused profile_invalid m/b
   [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
   if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
     fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
