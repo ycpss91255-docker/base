@@ -1729,10 +1729,11 @@ jobs:
     # `continue-on-error`, a job or workflow `env:` such as BASH_ENV, a
     # `defaults:` block, a setup step that exports BASH_ENV through
     # $GITHUB_ENV -- fails that spec rather than leaving this job green
-    # with the gates unrun. Gated on classify's select_config_gen
-    # (base#1584): the map drops it for docs, spec leaves and exact
-    # config-gen deny-list paths, and ci-rollup passes that skip only when
-    # the key is `false`.
+    # with the gates unrun. Both config-gen jobs read the same inputs, so
+    # both gate on the one classify key select_config_gen (base#1584): the
+    # map drops it for docs, spec leaves and exact config-gen deny-list
+    # paths, and ci-rollup passes either job's skip only when that key is
+    # `false`.
     runs-on: ubuntu-latest
     # The gates' test and final stages: two docker builds and the mutation
     # gate over the changed packages. A ceiling, not a budget; not raised
@@ -1776,7 +1777,7 @@ jobs:
   config-gen-redpath:
     name: Config-gen redpath shard ${{ matrix.shard }}/5${{ matrix.label }} (base#1547)
     needs: [classify]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_config_gen == 'true'
     # The redpath, which plants one defect per gate in a scratch copy and
     # requires each to go red on its own gate, split into the shards
     # script/test/config_gen_redpath_shards.tsv names (base#1547): each job
