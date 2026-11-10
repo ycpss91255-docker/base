@@ -65,6 +65,15 @@ if [[ "$(jq -r '.data.repository.mergeQueue == null' <<<"${reply}")" == "true" ]
   exit 0
 fi
 
+# An empty queue holds no entry for HEAD_SHA, so nothing about the group
+# is proven: say why, then answer false, base#1587.
+if [[ "$(jq -r '[.data.repository.mergeQueue.entries.nodes[]?] | length' <<<"${reply}")" == "0" ]]; then
+  printf '::error::merge_group_trust: the %s merge queue for %s has no entries\n' \
+    "${REPO}" "${branch}" >&2
+  printf 'same_repo=false\n'
+  exit 0
+fi
+
 # The group head ref is .../pr-<N>-<sha>; N names the entry's pull request.
 pr=""
 if [[ "${HEAD_REF}" =~ /pr-([0-9]+)-[0-9a-f]+$ ]]; then
