@@ -2,9 +2,9 @@
 #
 # obtain_test_tools.sh -- get this run the tooling image it runs inside.
 #
-# Six jobs of self-test.yaml need `test-tools`, and there are four ways to
-# have it. The PR changed an input of the image, so the rolling `:main` is
-# stale for it by definition and it is built from source. Or `:main`
+# The jobs of self-test.yaml run inside `test-tools`, and there are four
+# ways to have it. The PR changed an input of the image, so the rolling
+# `:main` is stale for it by definition and it is built from source. Or `:main`
 # corresponds to this checkout and is pulled, re-tagged under the run's own
 # name, and used -- the hot path, and the reason a PR that touches nothing
 # related does not pay for a multi-arch build. Or it does not correspond,
@@ -135,7 +135,8 @@ _obtain_build() {
 }
 
 # _obtain_decide <image> [platform]
-#   The verdict, and the only place the three ways are weighed. Writes
+#   The verdict, and the only place the pull-or-build ways are weighed
+#   (an --artifact caller never reaches it: _obtain_from_artifact). Writes
 #   `build_local=true|false` to GITHUB_OUTPUT when that is set, and leaves
 #   the same answer in `_OBTAIN_BUILD_LOCAL` for `main`.
 #
@@ -166,6 +167,48 @@ _obtain_decide() {
     printf 'build_local=%s\n' "${_local}" >> "${GITHUB_OUTPUT}"
   fi
   _OBTAIN_BUILD_LOCAL="${_local}"
+}
+
+# _obtain_from_artifact <tar> <image>
+#   The fourth way (base#1588): load the tar a builder job of this run
+#   saved, re-tag what it holds as <image>, and probe it. Strict: the
+#   caller passes --artifact only when its builder reported one, so every
+#   failure here is red and nothing falls back to a pull or a build.
+#   Returns 2 when TEST_TOOLS_ARTIFACT_TAG is unset, 1 on a missing tar, a
+#   failed load or a refused probe, 0 with `build_local=false` written.
+_obtain_from_artifact() {
+  local _tar="${1}" _image="${2}"
+  # The loaded image is found by the run-scoped tag its builder gave it;
+  # without that tag the re-tag would name nothing.
+  if [[ -z "${TEST_TOOLS_ARTIFACT_TAG:-}" ]]; then
+    printf 'obtain: --artifact needs TEST_TOOLS_ARTIFACT_TAG set\n' >&2
+    return 2
+  fi
+  if [[ ! -f "${_tar}" ]]; then
+    echo "::error::test-tools artifact ${_tar} is missing; the" \
+         "builder job reported one, so it is not pulled or built here"
+    return 1
+  fi
+  # A load that fails is a corrupt or truncated artifact: re-tagging
+  # would name whatever image already sat under the artifact tag.
+  if ! _obtain_load "${_tar}"; then
+    echo "::error::test-tools artifact ${_tar} did not load; it is" \
+         "not re-tagged, pulled or built here"
+    return 1
+  fi
+  _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
+    "${CI_RUN_KEY:-unattributed}"
+  # A loaded image the probe refuses is not this checkout's image; there
+  # is nothing to fall back to without hiding the mismatch.
+  if ! _obtain_probe "${_image}"; then
+    echo "::error::test-tools artifact ${_tar} loaded an image the" \
+         "probe refuses; it is not used, pulled or built here"
+    return 1
+  fi
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf 'build_local=false\n' >> "${GITHUB_OUTPUT}"
+  fi
+  return 0
 }
 
 main() {
@@ -214,43 +257,10 @@ main() {
       ;;
   esac
 
-  # A builder job of this run already built this checkout's image and
-  # saved it (base#1588): load that, under this job's own name, and probe
-  # it, rather than pulling or building a second time.
+  # A saved artifact is the whole answer (base#1588).
   if [[ -n "${_artifact}" ]]; then
-    # The loaded image is found by the run-scoped tag its builder gave it;
-    # without that tag the re-tag would name nothing (base#1588).
-    if [[ -z "${TEST_TOOLS_ARTIFACT_TAG:-}" ]]; then
-      printf 'obtain: --artifact needs TEST_TOOLS_ARTIFACT_TAG set\n' >&2
-      return 2
-    fi
-    # The caller passes --artifact only when its builder reported one, so
-    # a missing tar is a lost artifact: fail, never fall back.
-    if [[ ! -f "${_artifact}" ]]; then
-      echo "::error::test-tools artifact ${_artifact} is missing; the" \
-           "builder job reported one, so it is not pulled or built here"
-      return 1
-    fi
-    # A load that fails is a corrupt or truncated artifact: re-tagging
-    # would name whatever image already sat under the artifact tag.
-    if ! _obtain_load "${_artifact}"; then
-      echo "::error::test-tools artifact ${_artifact} did not load; it is" \
-           "not re-tagged, pulled or built here"
-      return 1
-    fi
-    _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
-      "${CI_RUN_KEY:-unattributed}"
-    # A loaded image the probe refuses is not this checkout's image; there
-    # is nothing to fall back to without hiding the mismatch.
-    if ! _obtain_probe "${_image}"; then
-      echo "::error::test-tools artifact ${_artifact} loaded an image the" \
-           "probe refuses; it is not used, pulled or built here"
-      return 1
-    fi
-    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-      printf 'build_local=false\n' >> "${GITHUB_OUTPUT}"
-    fi
-    return 0
+    _obtain_from_artifact "${_artifact}" "${_image}"
+    return
   fi
 
   _OBTAIN_BUILD_LOCAL=true

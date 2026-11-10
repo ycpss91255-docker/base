@@ -127,6 +127,16 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
   assert_line 'build_local=true'
 }
 
+# _artifact_main <pull-status> <probe-status> <load-status> <changed> <tar>
+#   `main img --artifact <tar> --local-build inline` over the _seams
+#   stand-ins, with the tag a builder job would give its tar
+#   (test-tools:artifact-42) and TESTTOOLS_CHANGED=<changed> (base#1588).
+_artifact_main() {
+  bash -c "$(_src); $(_seams "${1}" "${2}" "${3}"); TESTTOOLS_CHANGED=${4} CI_RUN_KEY=k \
+      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '${5}' --local-build inline"
+}
+
 # why: base#1588. The image is built once per architecture and handed to
 # every other job as a `docker save` artifact. A job given that artifact
 # loads it, re-tags the loaded image under its own run-scoped name and
@@ -137,9 +147,7 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
 @test "obtain: a given artifact is loaded, re-tagged and probed, never pulled or built (base#1588)" {
   local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
   : > "${_tar}"
-  run bash -c "$(_src); $(_seams 0 0 0); TESTTOOLS_CHANGED=true CI_RUN_KEY=k \
-      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
-      main img --artifact '${_tar}' --local-build inline"
+  run _artifact_main 0 0 0 true "${_tar}"
   assert_success
   assert_line "load ${_tar}"
   assert_line 'retag test-tools:artifact-42 -> img'
@@ -156,9 +164,7 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
 # the loss and rebuild the image the builder job exists to build once.
 @test "obtain: a given artifact that is missing fails loudly, never pulled or built (base#1588)" {
   local _tar="${BATS_TEST_TMPDIR}/absent/test-tools.tar"
-  run bash -c "$(_src); $(_seams 0 0 0); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
-      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
-      main img --artifact '${_tar}' --local-build inline"
+  run _artifact_main 0 0 0 false "${_tar}"
   assert_failure 1
   assert_line --partial '::error::'
   refute_output --partial 'pull '
@@ -172,9 +178,7 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
 @test "obtain: a given artifact that fails to load fails loudly, never re-tagged or built (base#1588)" {
   local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
   : > "${_tar}"
-  run bash -c "$(_src); $(_seams 0 0 1); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
-      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
-      main img --artifact '${_tar}' --local-build inline"
+  run _artifact_main 0 0 1 false "${_tar}"
   assert_failure 1
   assert_line "load ${_tar}"
   assert_line --partial '::error::'
@@ -190,9 +194,7 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
 @test "obtain: a given artifact whose image the probe refuses fails loudly, never built (base#1588)" {
   local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
   : > "${_tar}"
-  run bash -c "$(_src); $(_seams 0 1 0); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
-      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
-      main img --artifact '${_tar}' --local-build inline"
+  run _artifact_main 0 1 0 false "${_tar}"
   assert_failure 1
   assert_line 'probe img'
   assert_line --partial '::error::'
@@ -205,9 +207,7 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
 # as "no artifact" would quietly pull or build instead, so it is a usage
 # error, the same exit 2 as any other malformed option.
 @test "obtain: --artifact with an empty value is a usage error, never pulled or built (base#1588)" {
-  run bash -c "$(_src); $(_seams 0 0 0); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
-      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
-      main img --artifact '' --local-build inline"
+  run _artifact_main 0 0 0 false ""
   assert_failure 2
   refute_output --partial 'pull '
   refute_output --partial 'build '

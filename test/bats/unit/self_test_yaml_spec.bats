@@ -829,28 +829,36 @@ _cache_writers() {
   return "${_rc}"
 }
 
+# _assert_mutants_fail <checker> <yq expr>... -- for each expression, a
+# temp copy of the workflow mutated by it must differ from a plain yq
+# round-trip (a mutant that changes nothing would pass vacuously) and must
+# make <checker> fail (base#1588).
+_assert_mutants_fail() {
+  local _check="${1}" _expr
+  local _m="${BATS_TEST_TMPDIR}/mutant.yaml" _base="${BATS_TEST_TMPDIR}/roundtrip.yaml"
+  shift
+  yq '.' "${WF}" > "${_base}"
+  for _expr in "$@"; do
+    yq "${_expr}" "${WF}" > "${_m}"
+    run cmp -s "${_base}" "${_m}"
+    assert_failure
+    run "${_check}" "${_m}"
+    assert_failure
+  done
+}
+
 @test "self-test.yaml: only the builders' push-main steps write the test-tools cache, and no other cache-to form slips past (base#1588)" {
   run _cache_writers "${WF}"
   assert_success
 
   # The checker must see each form the design names, not just the one the
   # workflow uses today: three mutants of a temp copy, each red.
-  local _m="${BATS_TEST_TMPDIR}/mutant.yaml"
   local -a _mutants=(
     '(.jobs["test-tools-image-amd64"].steps[] | select(.with["cache-to"] != null) | .if) |= . + " || github.event_name == '"'"'pull_request'"'"'"'
     '.jobs.shellcheck.steps += [{"name": "mutant", "run": "docker buildx build --cache-to type=gha,scope=x ."}]'
     '.jobs.coverage.steps += [{"name": "mutant", "uses": "docker/build-push-action@v6", "with": {"cache-to": "type=gha,scope=test-tools,mode=max"}}]'
   )
-  local _base="${BATS_TEST_TMPDIR}/roundtrip.yaml" _expr
-  yq '.' "${WF}" > "${_base}"
-  for _expr in "${_mutants[@]}"; do
-    yq "${_expr}" "${WF}" > "${_m}"
-    # A mutant that changes nothing would pass this test vacuously.
-    run cmp -s "${_base}" "${_m}"
-    assert_failure
-    run _cache_writers "${_m}"
-    assert_failure
-  done
+  _assert_mutants_fail _cache_writers "${_mutants[@]}"
 }
 
 # ── Consumers read the tar their arch's builder wrote (base#1588) ──
@@ -990,22 +998,12 @@ _tt_artifact_paths() {
 
   # A path drift, a pattern download and an arch whose names disagree must
   # each be caught: three mutants of a temp copy, each red.
-  local _m="${BATS_TEST_TMPDIR}/mutant.yaml"
   local -a _mutants=(
     '(.jobs.shellcheck.steps[] | select((.uses // "") | test("^actions/download-artifact@")) | .with.path) |= . + "/x"'
     '(.jobs.shellcheck.steps[] | select((.uses // "") | test("^actions/download-artifact@")) | .with) |= {"pattern": .name, "path": .path}'
     '(.jobs["test-tools-image-arm64"].steps[] | select((.uses // "") | test("^actions/upload-artifact@")) | .with.name) |= . + "-x"'
   )
-  local _base="${BATS_TEST_TMPDIR}/roundtrip.yaml" _expr
-  yq '.' "${WF}" > "${_base}"
-  for _expr in "${_mutants[@]}"; do
-    yq "${_expr}" "${WF}" > "${_m}"
-    # A mutant that changes nothing would pass this test vacuously.
-    run cmp -s "${_base}" "${_m}"
-    assert_failure
-    run _tt_artifact_paths "${_m}"
-    assert_failure
-  done
+  _assert_mutants_fail _tt_artifact_paths "${_mutants[@]}"
 }
 
 # ── A builder builds whenever obtain says build, on every event (base#1588) ──

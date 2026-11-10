@@ -466,6 +466,8 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the test-tools image (writes the GHA cache)
+        # A push to main only (base#1588). The literal is pinned by
+        # test/bats/unit/self_test_yaml_spec.bats.
         if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v7
         with:
