@@ -2,13 +2,16 @@
 #
 # obtain_test_tools.sh -- get this run the tooling image it runs inside.
 #
-# Six jobs of self-test.yaml need `test-tools`, and there are three ways to
+# Six jobs of self-test.yaml need `test-tools`, and there are four ways to
 # have it. The PR changed an input of the image, so the rolling `:main` is
 # stale for it by definition and it is built from source. Or `:main`
 # corresponds to this checkout and is pulled, re-tagged under the run's own
 # name, and used -- the hot path, and the reason a PR that touches nothing
 # related does not pay for a multi-arch build. Or it does not correspond,
 # or cannot be pulled at all, and the image is built from source again.
+# Or a builder job of this run already built it and saved it as an
+# artifact, and it is loaded (base#1588): the fourth way, taken only when
+# the caller passes --artifact.
 #
 # The decision is here rather than in the jobs because it USED to be in the
 # jobs: a block of shell pasted into each of them, and a paste is something
@@ -32,6 +35,9 @@
 #                               source"
 #     --local-build delegate    leave that build to the caller's own step
 #                               (the default)
+#     --artifact <tar>          load the image a builder job of this run
+#                               saved, instead of pulling or building
+#                               (base#1588)
 #
 #   `delegate` is for the jobs whose build runs through
 #   docker/build-push-action, so the GHA layer cache applies; they gate
@@ -52,6 +58,9 @@
 #   CI_RUN_KEY          the run identity stamped as the ownership label, so
 #                       a sweep can tell whose image this is.
 #   GITHUB_OUTPUT       where `build_local=true|false` is written, when set.
+#   TEST_TOOLS_ARTIFACT_TAG
+#                       the tag the builder job gave the image it saved;
+#                       read with --artifact, to re-tag what was loaded.
 #
 # Style: Google Shell Style Guide.
 
@@ -76,7 +85,7 @@ _obtain_dockerfile() {
   printf '%s\n' "${_root}/dockerfile/Dockerfile.test-tools"
 }
 
-# ── the four seams through which this script touches docker ──────────────
+# ── the five seams through which this script touches docker ──────────────
 #
 # Each is one command, so the decision above them is drivable from a unit
 # spec with no daemon.
@@ -92,6 +101,12 @@ _obtain_pull() {
     return
   fi
   docker pull "${_OBTAIN_ROLLING_TAG}" 2>/dev/null
+}
+
+# _obtain_load <tar>
+#   Load the image a builder job of this run saved with `docker save`.
+_obtain_load() {
+  docker load -i "${1}"
 }
 
 # _obtain_retag <source> <target> <run-key>
@@ -154,7 +169,7 @@ _obtain_decide() {
 }
 
 main() {
-  local _image="" _platform="" _mode="delegate"
+  local _image="" _platform="" _mode="delegate" _artifact=""
   while [[ "$#" -gt 0 ]]; do
     case "${1}" in
       --platform)
@@ -163,6 +178,10 @@ main() {
         ;;
       --local-build)
         _mode="${2:-}"
+        shift 2 || return 2
+        ;;
+      --artifact)
+        _artifact="${2:-}"
         shift 2 || return 2
         ;;
       -*)
@@ -177,7 +196,7 @@ main() {
   done
 
   if [[ -z "${_image}" ]]; then
-    printf 'usage: obtain_test_tools.sh <image-tag> [--platform <p>] [--local-build inline|delegate]\n' >&2
+    printf 'usage: obtain_test_tools.sh <image-tag> [--platform <p>] [--local-build inline|delegate] [--artifact <tar>]\n' >&2
     return 2
   fi
   case "${_mode}" in
@@ -188,6 +207,20 @@ main() {
       return 2
       ;;
   esac
+
+  # A builder job of this run already built this checkout's image and
+  # saved it (base#1588): load that, under this job's own name, and probe
+  # it, rather than pulling or building a second time.
+  if [[ -n "${_artifact}" ]]; then
+    _obtain_load "${_artifact}"
+    _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
+      "${CI_RUN_KEY:-unattributed}"
+    _obtain_probe "${_image}"
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      printf 'build_local=false\n' >> "${GITHUB_OUTPUT}"
+    fi
+    return 0
+  fi
 
   _OBTAIN_BUILD_LOCAL=true
   _obtain_decide "${_image}" "${_platform}"
