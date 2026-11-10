@@ -97,25 +97,74 @@ _seen() {
   _seen any script/release/real/x.sh || fail "the link's target is not in the reader set"
 }
 
-# why: cycle 30 (RR6-F4). The readers script runs `just --show test::go`'s
-# body, so it must read each line's command and environment as the recipe
-# states them: config_gen_gates.sh with an unchanged environment, and
-# config_gen_redpath.sh with CONFIG_GEN_REDPATH_ONLY unset.
-@test "config_gen_readers: the recipe parser reads test::go's commands and environment (base#1584)" {
-  local _show
-  _show="$(cd /source && just --show test::go)"
-  run bash -c "bash '${READERS_SH}' --parse-recipe <<<\"\$1\"" _ "${_show}"
-  assert_success
-  assert_output "./script/test/config_gen_gates.sh"$'\t\t'"
-./script/test/config_gen_redpath.sh"$'\t'"CONFIG_GEN_REDPATH_ONLY"$'\t'
+# _wf_root <dir> -- a checkout holding only a copy of self-test.yaml, for
+# the cases that edit the workflow.
+_wf_root() {
+  mkdir -p "$1/.github/workflows"
+  cp /source/.github/workflows/self-test.yaml "$1/.github/workflows/"
 }
 
-# why: cycle 30. Any other line shape -- a pipe or `&&`, a variable -- is
-# a command this parser would have to guess at, so it refuses.
-@test "config_gen_readers: the recipe parser refuses a line it cannot run as one ./ command (base#1584)" {
-  local _line
-  for _line in '    foo && ./x.sh' '    "${X}"/y.sh' '    other-recipe'; do
-    run bash -c "printf 'go:\n%s\n' \"\$1\" | bash '${READERS_SH}' --parse-recipe" _ "${_line}"
+# why: cycle 30, review round 2. The traced commands are what the
+# config-gen jobs run, so the job set comes from the workflow: every job
+# whose `if:` reads classify's select_config_gen key. base#1547 split the
+# one config-gen job into config-gen-gates and config-gen-redpath
+# (d6dfdb08), and a reader keyed on the old name `config-gen` read no run
+# block at all. The expected names are main's two jobs.
+@test "config_gen_readers: the config-gen jobs are the jobs that gate on select_config_gen (base#1584)" {
+  run bash "${READERS_SH}" --root /source --jobs
+  assert_success
+  assert_output "config-gen-gates
+config-gen-redpath"
+}
+
+# why: cycle 30, review round 2. A workflow where no job gates on
+# select_config_gen, or where a config-gen job has no `run:` step, gives
+# the tracer nothing to run. That must fail the deny-list spec, never
+# read as an empty reader set.
+@test "config_gen_readers: no config-gen job, or one with no run step, is refused (base#1584)" {
+  local _r="${BATS_TEST_TMPDIR}/r" _flag
+  _wf_root "${_r}"
+  yq -i 'del(.jobs."config-gen-gates") | del(.jobs."config-gen-redpath")' "${_r}/.github/workflows/self-test.yaml"
+  for _flag in --jobs --run-blocks; do
+    run bash "${READERS_SH}" --root "${_r}" "${_flag}"
     assert_failure
   done
+  _wf_root "${_r}"
+  yq -i '.jobs."config-gen-redpath".steps |= map(select(has("run") | not))' "${_r}/.github/workflows/self-test.yaml"
+  run bash "${READERS_SH}" --root "${_r}" --run-blocks
+  assert_failure
+  assert_output --partial config-gen-redpath
+}
+
+# why: cycle 30, review round 2. Each run block runs as the job runs it,
+# so a `${{ matrix.<key> }}` is expanded once per value of the job's
+# matrix: config-gen-redpath runs `just test go-redpath <n>/5` for shards
+# 1..5 (its matrix, which self_test_yaml_spec holds to the shard table),
+# and together the five shards run every redpath case. Both jobs'
+# just-pin blocks are there too.
+@test "config_gen_readers: the run blocks are both config-gen jobs', each matrix value expanded (base#1584)" {
+  local _n
+  run bash "${READERS_SH}" --root /source --run-blocks
+  assert_success
+  assert_line 'just test go-gates'
+  for _n in 1 2 3 4 5; do
+    assert_line "just test go-redpath ${_n}/5"
+  done
+  [[ "$(grep -cF 'version="$(./dist/script/base/just-version.sh)"' <<<"${output}")" -eq 2 ]] \
+    || fail "expected the just-pin block of both jobs"
+  refute_output --partial '${{'
+}
+
+# why: cycle 30, review round 2. An expression other than one matrix key
+# is a value this script would have to guess, so the block is refused
+# rather than run with the expression left in or dropped.
+@test "config_gen_readers: a run block with an expression it cannot evaluate is refused (base#1584)" {
+  local _r="${BATS_TEST_TMPDIR}/r"
+  _wf_root "${_r}"
+  yq -i '(.jobs."config-gen-gates".steps[] | select(.run == "just test go-gates") | .run) = "just test go-gates ${{ github.sha }}"' \
+    "${_r}/.github/workflows/self-test.yaml"
+  grep -qF 'just test go-gates ${{ github.sha }}' "${_r}/.github/workflows/self-test.yaml"
+  run bash "${READERS_SH}" --root "${_r}" --run-blocks
+  assert_failure
+  assert_output --partial 'github.sha'
 }

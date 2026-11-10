@@ -68,12 +68,13 @@ _overlap() {
 }
 
 # _input_texts <root> -- every config-gen input text under <root>: the
-# config-gen job's parsed `run:` blocks, dockerfile/Dockerfile.config-gen
-# and every file under script/test/config_gen* (steps included).
+# config-gen jobs' `run:` blocks as config_gen_readers.sh --run-blocks
+# reads them (every job that gates on select_config_gen; it fails when
+# there is none), dockerfile/Dockerfile.config-gen and every file under
+# script/test/config_gen* (steps included).
 _input_texts() {
   local _r="$1" _f
-  yq '.jobs."config-gen".steps[] | select(has("run")) | .run' \
-    "${_r}/.github/workflows/self-test.yaml"
+  bash /source/script/ci/config_gen_readers.sh --root "${_r}" --run-blocks || return 1
   cat "${_r}/dockerfile/Dockerfile.config-gen"
   while IFS= read -r _f; do
     cat "${_f}"
@@ -84,7 +85,7 @@ _input_texts() {
 # config-gen input text under <root> names literally.
 _named_entries() {
   local _text _e
-  _text="$(_input_texts "$1")"
+  _text="$(_input_texts "$1")" || return 1
   while IFS= read -r _e; do
     [[ -n "${_e}" ]] || continue
     grep -qF -- "${_e}" <<<"${_text}" && printf '%s\n' "${_e}"
@@ -185,7 +186,7 @@ ${_bad}"
 # a subset of its cases (CONFIG_GEN_REDPATH_ONLY, a timeout) could miss a
 # file one case reads. Every case of _RP_CASES, read from the script
 # itself, must have an `_rp_case` record, and its main's last call,
-# `_rp_control`, one too.
+# `_rp_retro` (main's order at base#1547's split), one too.
 @test "config_gen_paths: the traced run ran every config_gen_redpath.sh case (base#1584)" {
   _require_readers
   local _c _miss=""
@@ -195,7 +196,7 @@ ${_bad}"
   for _c in "${_cases[@]}"; do
     grep -qxF -- "rp"$'\t'"_rp_case"$'\t'"${_c}" "${READERS}" || _miss+=" ${_c}"
   done
-  grep -qE $'^rp\t_rp_control\t' "${READERS}" || _miss+=" _rp_control"
+  grep -qE $'^rp\t_rp_retro\t' "${READERS}" || _miss+=" _rp_retro"
   [[ -z "${_miss}" ]] || fail "the traced run never reached:${_miss}"
 }
 
@@ -222,6 +223,39 @@ ${_bad}"
   _deny_list >"${_deny}"
   run _named_entries "${_r}" "${_deny}"
   assert_output dist/env.toml
+}
+
+# why: review round 2. base#1547 split the config-gen job in two, and a
+# rule (d) that read the old job `config-gen` read no run block at all.
+# A run block of either split job that names an entry must be reported:
+# here config-gen-redpath's go-redpath line names dist/env.toml.
+@test "config_gen_paths: an entry a config-gen-redpath run block names is reported (base#1584)" {
+  local _r="${BATS_TEST_TMPDIR}/r" _deny="${BATS_TEST_TMPDIR}/deny"
+  mkdir -p "${_r}/.github/workflows" "${_r}/dockerfile" "${_r}/script/test"
+  cp /source/.github/workflows/self-test.yaml "${_r}/.github/workflows/"
+  cp /source/dockerfile/Dockerfile.config-gen "${_r}/dockerfile/"
+  cp -R /source/script/test/config_gen_steps "${_r}/script/test/"
+  yq -i '(.jobs."config-gen-redpath".steps[] | select(.run == "just test go-redpath ${{ matrix.shard }}/5") | .run) += " # dist/env.toml"' \
+    "${_r}/.github/workflows/self-test.yaml"
+  grep -qF 'go-redpath ${{ matrix.shard }}/5 # dist/env.toml' "${_r}/.github/workflows/self-test.yaml"
+  _deny_list >"${_deny}"
+  run _named_entries "${_r}" "${_deny}"
+  assert_output dist/env.toml
+}
+
+# why: review round 2. With no job that gates on select_config_gen, rule
+# (d) has no run block to read; that fails rather than passing on an
+# empty text.
+@test "config_gen_paths: rule (d) fails when no config-gen job is found (base#1584)" {
+  local _r="${BATS_TEST_TMPDIR}/r" _deny="${BATS_TEST_TMPDIR}/deny"
+  mkdir -p "${_r}/.github/workflows" "${_r}/dockerfile" "${_r}/script/test"
+  cp /source/.github/workflows/self-test.yaml "${_r}/.github/workflows/"
+  cp /source/dockerfile/Dockerfile.config-gen "${_r}/dockerfile/"
+  cp -R /source/script/test/config_gen_steps "${_r}/script/test/"
+  yq -i 'del(.jobs."config-gen-gates") | del(.jobs."config-gen-redpath")' "${_r}/.github/workflows/self-test.yaml"
+  _deny_list >"${_deny}"
+  run _named_entries "${_r}" "${_deny}"
+  assert_failure
 }
 
 # why: the tracer cannot fail open quietly: no host-side file may install
