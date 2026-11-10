@@ -106,3 +106,17 @@ _queue() {
   assert_output "same_repo=false"
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
+
+@test "merge_group_trust.sh: an empty merge queue leaves the group untrusted and names why (base#1587)" {
+  # The queue exists but lists no entries, so no entry holds HEAD_SHA and
+  # nothing about the group is proven. The answer is false, and an
+  # `::error::` line says why, since classify stays green (exit 0).
+  export MOCK_REPLY='{"data":{"repository":{"mergeQueue":{"entries":{"nodes":[]}}}}}'
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+}
