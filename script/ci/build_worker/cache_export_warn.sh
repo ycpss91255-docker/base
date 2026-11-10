@@ -28,17 +28,19 @@ main() {
     return 0
   fi
   # A history call that fails cannot vouch for the record, whatever it
-  # printed before failing.
-  if ! logs="$(docker buildx history logs --progress plain "${ref##*/}" 2>/dev/null)"; then
+  # printed before failing. `history logs` prints the record on stderr
+  # (observed in the base#1602 system spec), so both streams are read.
+  if ! logs="$(docker buildx history logs --progress plain "${ref##*/}" 2>&1)"; then
     printf '::warning title=cache export::%s: docker buildx history logs failed for build record %s\n' "${CACHE_EXPORT_LABEL:-}" "${ref##*/}"
     return 0
   fi
-  # Each cache export vertex: remember its number, then report the error
-  # text of an `#N ERROR: ...` line that ends it. A vertex the record never
-  # ends (no `#N DONE`, no `#N ERROR:`) cannot be shown to have succeeded,
-  # so it warns too.
+  # Each cache export vertex (`exporting to GitHub Actions Cache` for
+  # type=gha, `exporting cache ...` for the other cache backends): remember
+  # its number, then report the error text of an `#N ERROR: ...` line that
+  # ends it. A vertex the record never ends (no `#N DONE`, no `#N ERROR:`)
+  # cannot be shown to have succeeded, so it warns too.
   printf '%s\n' "${logs}" | awk -v label="${CACHE_EXPORT_LABEL:-}" '
-    $0 ~ /^#[0-9]+ exporting to GitHub Actions Cache$/ {
+    $0 ~ /^#[0-9]+ (exporting to GitHub Actions Cache|exporting cache( to .+)?)$/ {
       export[$1] = 1; order[++n] = $1; next
     }
     ($1 in export) && $2 == "DONE" { ended[$1] = 1; next }
