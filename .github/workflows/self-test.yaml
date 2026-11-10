@@ -1828,7 +1828,7 @@ jobs:
           # correct (untrusted code must not reach a self-hosted-eligible
           # job); what would be wrong is reporting the resulting run as a
           # full one. So say so, loudly, instead.
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && needs.classify.outputs.merge_group_same_repo != 'true' }}
           # The classification the gated jobs already consumed, consumed
           # once more HERE so the rollup can say what it passed on. A
           # doc-only PR resolves this check green beside nine grey skips:
