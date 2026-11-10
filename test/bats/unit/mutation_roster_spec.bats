@@ -269,8 +269,10 @@ _leg_bound() {
 }
 
 # why: The owner's target is at most 5 minutes per CI job (base#1582).
-# With a witness on every row (base#1582) a row costs only its own sandbox
-# reset and two filtered runs, so row seconds add up, and the
+# With a witness on every row (base#1582) a row waits on no other row's
+# baseline, so its measured seconds are its own work: two filtered runs,
+# or those plus the whole spec mutated and unmutated when the filtered
+# pass stays green. Row seconds therefore add up, and the
 # list-scheduling bound sum/J + max*(1-1/J) turns them into a wall-time
 # bound for J worker slots whatever order the rows are dispatched in;
 # sum/J alone is not one (worked literal: J=4, rows 100,10,10,10 ->
