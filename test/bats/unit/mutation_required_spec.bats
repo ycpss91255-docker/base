@@ -728,6 +728,44 @@ STUB
   assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 != p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
 }
 
+# why: A filtered pass that stays green is not a verdict, so the probe
+# falls back to the whole spec mutated (base#1571). Once the baseline runs
+# under the filter (base#1582), that whole-spec run would be judged against
+# a baseline of the witness tests alone: a red the spec already had
+# unmutated outside the filter would read as the mutation's. The fall-back
+# therefore also runs the whole spec unmutated, after the tree is put back.
+# This runner stays green under any filter and goes red unfiltered only
+# while lib/guard.sh differs from the commit; it logs one line per call,
+# "<filter or whole> <mutated or clean>", in call order.
+@test "witness: a row whose filtered pass stays green is judged on the whole spec against a whole-spec baseline (base#1582)" {
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${@: -1}" == *.bats ]]; then
+  root="${@: -2:1}" scope=whole
+else
+  root="${@: -3:1}" scope="${@: -1}"
+fi
+state=clean
+git -C "${root}" diff --quiet -- lib/guard.sh || state=mutated
+printf '%s %s\n' "${scope}" "${state}" >> "${MR_RUNNER_LOG:?}.calls"
+if [[ "${scope}" == whole && "${state}" == mutated ]]; then
+  printf 'not ok 1 the guard noticed\n'
+  exit 1
+fi
+printf 'ok 1 the guard holds\n'
+exit 0
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  assert_equal "$(cat "${MR_RUNNER_LOG}.calls")" \
+    $'^guard$ clean\n^guard$ mutated\nwhole mutated\nwhole clean'
+}
+
 # ── one sandbox per worker slot ─────────────────────────────────────────────
 
 # why: Each row built its own sandbox (mktemp, a tar copy of every tracked
