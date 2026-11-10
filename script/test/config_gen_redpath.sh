@@ -1630,14 +1630,14 @@ _rp_now() {
 # stderr as the case finishes: `config-gen redpath case=<case> start=
 # end= secs= result=pass|fail` (base#1547). Returns <cmd>'s status.
 _rp_timed() {
-  local name="${1}" start end rc=0 result=pass
+  local name="${1}" start end secs rc=0 result=pass
   shift
   start="$(_rp_now)"
   "$@" || rc=$?
   end="$(_rp_now)"
   (( rc == 0 )) || result=fail
-  printf 'config-gen redpath case=%s start=%s end=%s secs=%s result=%s\n' "${name}" "${start}" "${end}" \
-    "$(awk -v s="${start}" -v e="${end}" 'BEGIN { printf "%.3f", e - s }')" "${result}" >&2
+  secs="$(awk -v s="${start}" -v e="${end}" 'BEGIN { printf "%.3f", e - s }')"
+  printf 'config-gen redpath case=%s start=%s end=%s secs=%s result=%s\n' "${name}" "${start}" "${end}" "${secs}" "${result}" >&2
   return "${rc}"
 }
 

@@ -103,8 +103,9 @@ _cg_now() {
 # stderr line, `config-gen stage=<stage> start= end= secs= status=`
 # (base#1547).
 _cg_stage_line() {
-  printf 'config-gen stage=%s start=%s end=%s secs=%s status=%s\n' "${1}" "${2}" "${3}" \
-    "$(awk -v s="${2}" -v e="${3}" 'BEGIN { printf "%.3f", e - s }')" "${4}" >&2
+  local secs
+  secs="$(awk -v s="${2}" -v e="${3}" 'BEGIN { printf "%.3f", e - s }')"
+  printf 'config-gen stage=%s start=%s end=%s secs=%s status=%s\n' "${1}" "${2}" "${3}" "${secs}" "${4}" >&2
 }
 
 # _cg_run_steps <root> <ctx> -- run each step, streaming its stage line;
