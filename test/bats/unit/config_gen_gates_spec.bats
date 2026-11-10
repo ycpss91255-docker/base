@@ -1813,6 +1813,30 @@ _redpath_plan_refused() {
     CONFIG_GEN_REDPATH_SHARD="1/$(( _n + 1 ))"
 }
 
+# why: The shard table is dealt by measured seconds, not by count
+# (base#1606): a count deal put corpus, names and copies, each over 900 s
+# on a hosted runner, on one shard. The deal and its bound read
+# script/test/config_gen_redpath_seconds.tsv, `<case> TAB <seconds>`, so a
+# case the file does not name would weigh 0 and a shard balanced on it is
+# balanced on a guess. The committed file must name every case the redpath
+# can run -- the list its own _rp_case_names prints, rerun and retro
+# included -- exactly once, each with a positive number of seconds, and no
+# name that is no case.
+@test "config_gen_redpath.sh: the committed seconds file weighs every redpath case once, each with positive seconds (base#1606)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  local _sec=/source/script/test/config_gen_redpath_seconds.tsv _want _got _bad _dups
+  _want="$(bash -c 'source "$1" && _rp_case_names' _ "${REDPATH}" | LC_ALL=C sort)"
+  [[ -n "${_want}" ]] || fail "_rp_case_names printed no case"
+  [[ -f "${_sec}" ]] \
+    || fail "no seconds file at script/test/config_gen_redpath_seconds.tsv, so the shard deal weighs every case at 0"
+  _bad="$(LC_ALL=C awk -F '\t' 'NF != 2 || $2 !~ /^[0-9]+(\.[0-9]+)?$/ || $2 + 0 <= 0' "${_sec}")"
+  [[ -z "${_bad}" ]] || fail "seconds file lines that are not <case> TAB <positive seconds>:"$'\n'"${_bad}"
+  _got="$(cut -f1 "${_sec}" | LC_ALL=C sort)"
+  _dups="$(uniq -d <<< "${_got}")"
+  [[ -z "${_dups}" ]] || fail "the seconds file weighs these cases more than once:"$'\n'"${_dups}"
+  assert_equal "${_got}" "${_want}"
+}
+
 # why: The redpath runs its cases one after another, so a job's time is the
 # sum of every case's build (base#1547). With CONFIG_GEN_REDPATH_JOBS=4 up
 # to four cases run at once. fmt, vet, lint and race each wait at a barrier
