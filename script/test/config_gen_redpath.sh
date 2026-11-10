@@ -824,6 +824,10 @@ EOF
       _rp_manifest_step "${root}"
       ;;
     corpus)
+      # seed.golden is empty: it is the bridge's --tables answer for
+      # seed.toml, which declares no table (base#1469). An empty golden is
+      # given one byte by the sensitivity gate, so comparing it with "" still
+      # fails on the flip.
       # zzweak is committed with its floor, so the change 00-manifest lists
       # is only the untracked testdata/c.txt. Its test reads the golden
       # through internal/testcorpus and compares its bytes, but leaves
@@ -857,7 +861,7 @@ func TestPos(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+		if string(b) != "" {
 			t.Fatalf("%s = %q", p, b)
 		}
 	}
@@ -896,7 +900,7 @@ func TestSeed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+		if string(b) != "" {
 			t.Fatalf("%s = %q", p, b)
 		}
 	}
@@ -1435,9 +1439,12 @@ _rp_retro_want() {
 
 # _rp_retro_got <err> -- the packages the mutation gate passed, one per
 # line, sorted: the build log lines ending `<pkg> ok efficacy=<e>` or
-# `<pkg> no-mutants`.
+# `<pkg> no-mutants`. BuildKit merges the gate's streams into one step log,
+# so a verdict can land after gremlins' unfinished `Gathering coverage... `
+# on the same line (base#1546); only that literal may precede it, so a
+# verdict after any other text, or cut short, does not count.
 _rp_retro_got() {
-  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ ([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\1/p' "${1}" \
+  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ (Gathering coverage\.\.\. )?([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\2/p' "${1}" \
     | LC_ALL=C sort -u
 }
 

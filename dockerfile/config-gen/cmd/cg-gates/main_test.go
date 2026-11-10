@@ -99,14 +99,19 @@ func TestMain_ExitsWithRunStatus(t *testing.T) {
 // file makes it exit 3 instead. A fake/<n>.none file makes it do what
 // gremlins was measured doing on a package with no mutants (design run2
 // r1, ./internal/testcorpus): print `No results to report.`, write no
-// report and exit 0.
+// report and exit 0. A fake/<n>.partial file makes it first print the
+// bytes gremlins was seen leaving unfinished in the base#1443 step log,
+// `Starting...` then `Gathering coverage... ` with no newline
+// (base#1546), and then follow .fail / .json as above.
 
 const fakeGremlins = `#!/bin/sh
 printf '%s\n' "$*" >>"${0%/*}/argv"
 n="$(printf '%s' "$8" | tr ./ __)"
 [ -e "${0%/*}/${n}.none" ] && { echo 'No results to report.'; exit 0; }
+p=
+[ -e "${0%/*}/${n}.partial" ] && { printf 'Starting...\nGathering coverage... '; p=1; }
 [ -e "${0%/*}/${n}.fail" ] && exit 3
-[ -e "${0%/*}/${n}.json" ] && cp "${0%/*}/${n}.json" "$7"
+[ -e "${0%/*}/${n}.json" ] && { [ -n "$p" ] || echo 'Starting...'; cp "${0%/*}/${n}.json" "$7"; }
 exit 0
 `
 
@@ -160,57 +165,77 @@ const mhead = "base=a head=b dirty=yes context=pr\n"
 const pkgFailed = "cg_event config_gen_mutation_package_failed pkg="
 
 func TestMutation(t *testing.T) {
+	// errOut is the whole stream gremlins shares: its own text, then
+	// each package's verdict, in program order, then the gate id; stdout
+	// stays empty, so no verdict lands inside an unfinished gremlins line
+	// on a second pipe (base#1546).
+	const start, gate = "Starting...\n", mutationFailed + "\n"
 	cases := []struct {
 		name     string
 		manifest string
 		files    map[string]string
 		status   int
-		out      string
+		errOut   string
 		argv     string
 	}{
 		{"a package that kills every mutant", mhead + "M\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(2, 0)}, 0,
-			mod + "/internal/a ok efficacy=100.0\n",
+			start + mod + "/internal/a ok efficacy=100.0\n",
 			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
 		{"exactly the floor", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": killed(9, 1)}, 0,
-			mod + "/internal/a ok efficacy=90.0\n", ""},
+			start + mod + "/internal/a ok efficacy=90.0\n", ""},
 		{"a surviving mutant, whatever efficacy gremlins writes", mhead + "M\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(0, 2)}, 1,
-			pkgFailed + mod + "/internal/a reason=below measured=0.0\n", ""},
+			start + pkgFailed + mod + "/internal/a reason=below measured=0.0\n" + gate, ""},
 		{"just under the floor", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.json": killed(8, 1)}, 1,
-			pkgFailed + mod + "/internal/a reason=below measured=88.8\n", ""},
+			start + pkgFailed + mod + "/internal/a reason=below measured=88.8\n" + gate, ""},
 		{"one red package does not stop the next", mhead +
 			"M\tdockerfile/config-gen/internal/a/a.go\nM\tdockerfile/config-gen/x.go\n",
 			map[string]string{"___.json": killed(1, 2), "__internal_a.json": killed(3, 0)}, 1,
-			pkgFailed + mod + " reason=below measured=33.3\n" + mod + "/internal/a ok efficacy=100.0\n",
+			start + pkgFailed + mod + " reason=below measured=33.3\n" +
+				start + mod + "/internal/a ok efficacy=100.0\n" + gate,
 			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./.\n" +
 				"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/1.json ./internal/a\n"},
 		{"gremlins exits non-zero", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
 			map[string]string{"__internal_a.fail": "", "__internal_a.json": killed(1, 0)}, 1,
-			pkgFailed + mod + "/internal/a reason=gremlins_failed\n", ""},
+			pkgFailed + mod + "/internal/a reason=gremlins_failed\n" + gate, ""},
 		{"no report written", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
-			map[string]string{}, 1, pkgFailed + mod + "/internal/a reason=report\n", ""},
+			map[string]string{}, 1, pkgFailed + mod + "/internal/a reason=report\n" + gate, ""},
 		{"a package with no mutants passes as no-mutants", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
-			map[string]string{"__internal_a.none": ""}, 0, mod + "/internal/a no-mutants\n", ""},
+			map[string]string{"__internal_a.none": ""}, 0,
+			"No results to report.\n" + mod + "/internal/a no-mutants\n", ""},
 		{"a report it cannot read", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
-			map[string]string{"__internal_a.json": "x"}, 1, pkgFailed + mod + "/internal/a reason=report\n", ""},
+			map[string]string{"__internal_a.json": "x"}, 1,
+			start + pkgFailed + mod + "/internal/a reason=report\n" + gate, ""},
 		{"no Go file", mhead + "none: no-go-change\n", map[string]string{}, 0, "mutation targets none\n", ""},
 		// A package the head tree no longer holds is named as removed, by
 		// its import path, before any package is judged (base#1467).
 		{"a deleted package", mhead + "D\tdockerfile/config-gen/internal/gone/gone.go\n",
 			map[string]string{}, 0, "removed " + mod + "/internal/gone\nmutation targets none\n", ""},
+		// gremlins stops mid-line, as the base#1443 step log shows it did:
+		// the verdict still starts its own line (base#1546).
+		{"a verdict after gremlins text cut mid-line", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
+			map[string]string{"__internal_a.partial": "", "__internal_a.json": killed(2, 0)}, 0,
+			"Starting...\nGathering coverage... \n" + mod + "/internal/a ok efficacy=100.0\n", ""},
+		// The package_failed event the runner reads (_CG_EVENT_RE, anchored
+		// at line start) also starts its own line after a cut (base#1546).
+		{"a package_failed event after gremlins text cut mid-line", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
+			map[string]string{"__internal_a.partial": "", "__internal_a.fail": ""}, 1,
+			"Starting...\nGathering coverage... \n" + pkgFailed + mod + "/internal/a reason=gremlins_failed\n" + gate, ""},
 		{"a package move", mhead +
 			"R100\tdockerfile/config-gen/internal/old/a.go\tdockerfile/config-gen/internal/a/a.go\n" +
 			"R100\tdockerfile/config-gen/internal/old/a_test.go\tdockerfile/config-gen/internal/a/a_test.go\n",
 			map[string]string{"__internal_a.json": killed(2, 0)}, 0,
-			"removed " + mod + "/internal/old\n" + mod + "/internal/a ok efficacy=100.0\n",
+			"removed " + mod + "/internal/old\n" + start + mod + "/internal/a ok efficacy=100.0\n",
 			"unleash --workers 1 --timeout-coefficient 10 -o REPORTS/0.json ./internal/a\n"},
 		{"a module file the mapping refuses", mhead + "A\tdockerfile/config-gen/notes.txt\n",
-			map[string]string{}, 1, "cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt\n", ""},
+			map[string]string{}, 1,
+			"cg_event config_gen_mutation_unmapped file=dockerfile/config-gen/notes.txt\n" + gate, ""},
 		{"go list fails", mhead + "M\tdockerfile/config-gen/internal/a/a.go\n",
-			map[string]string{"go": "#!/bin/sh\nexit 1\n"}, 1, "", ""},
+			map[string]string{"go": "#!/bin/sh\nexit 1\n"}, 1,
+			"cg-gates: mutation: go list: exit status 1\n" + mutationFailed + " reason=unreadable\n", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -229,11 +254,11 @@ func TestMutation(t *testing.T) {
 			if got != c.status {
 				t.Fatalf("status %d, want %d; stderr %q", got, c.status, errOut.String())
 			}
-			if out.String() != c.out {
-				t.Errorf("stdout %q, want %q", out.String(), c.out)
+			if out.Len() != 0 {
+				t.Errorf("stdout %q, want none", out.String())
 			}
-			if gate := bytes.Contains(errOut.Bytes(), []byte("config_gen_gate_mutation_failed")); gate != (c.status == 1) {
-				t.Errorf("stderr %q: gate id present %v, want %v", errOut.String(), gate, c.status == 1)
+			if errOut.String() != c.errOut {
+				t.Errorf("stderr %q, want %q", errOut.String(), c.errOut)
 			}
 			if c.argv != "" {
 				argv, _ := os.ReadFile(filepath.Join(bin, "argv"))
@@ -283,7 +308,8 @@ func TestMutationRefusesBeforeGremlins(t *testing.T) {
 // flipped run) it fails only when the root-relative file fake/<n>.reads
 // names differs in the root it was linked with from the same file under
 // fake/orig's root, so a package with no .reads file passes whatever byte
-// is flipped.
+// is flipped. fake/<n>.basehook runs (sh) in the traced baseline and
+// fake/<n>.fliphook in each flipped run, before the rest.
 const fakeSensitivityGo = `#!/bin/sh
 d="${0%/*}"
 if [ "$1" = list ]; then exec cat "$d/list.json"; fi
@@ -295,9 +321,11 @@ done
 n="$(printf '%s' "$p" | tr ./ __)"
 if [ -n "${CG_TESTCORPUS_TRACE:-}" ]; then
   [ -e "$d/$n.basefail" ] && exit 1
+  [ -e "$d/$n.basehook" ] && sh "$d/$n.basehook"
   [ -e "$d/$n.trace" ] && cat "$d/$n.trace" >>"$CG_TESTCORPUS_TRACE"
   exit 0
 fi
+[ -e "$d/$n.fliphook" ] && sh "$d/$n.fliphook"
 [ -e "$d/$n.reads" ] || exit 0
 f="$(cat "$d/$n.reads")"
 cmp -s "$r/$f" "$(cat "$d/orig")/$f" && exit 0
@@ -389,6 +417,10 @@ func corpus(extra map[string]string) map[string]string {
 	return files
 }
 
+// aGoldenDir is a fake hook that turns the flipped copy's a.golden into a
+// directory, so a write to it fails.
+const aGoldenDir = "rm -f ROOT/../work/corpus/golden/s1/a.golden && mkdir ROOT/../work/corpus/golden/s1/a.golden\n"
+
 func TestSensitivity(t *testing.T) {
 	const weak = "cg_event config_gen_corpus_sensitivity_weak pkg=" + mod
 	const invalid = "cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n"
@@ -417,10 +449,30 @@ func TestSensitivity(t *testing.T) {
 			with(strongA, "fake/__internal_w.trace", "ROOT/golden/s1/b.golden\nROOT/golden/s1/a.golden\n",
 				"fake/__internal_w.reads", "golden/s1/a.golden"), 1,
 			weak + "/internal/w file=golden/s1/b.golden\n"},
-		{"an empty golden a consumer is handed", with(strongA, "root/golden/s1/a.golden", ""), 1,
-			"golden=golden/s1/a.golden failed reason=empty\ngolden=golden/s1/b.golden consumers none\n"},
+		// An empty golden is given one byte, so the consumer that reads it
+		// fails and one that never does is weak; it is emptied again before
+		// the next golden, or w, which reads only the empty a.golden, would
+		// fail on b.golden's flip too (base#1469).
+		{"an empty golden a consumer reads", with(strongA, "root/golden/s1/a.golden", ""), 0,
+			"golden=golden/s1/b.golden consumers none\n"},
+		{"an empty golden a consumer never reads", with(strongA, "root/golden/s1/a.golden", "",
+			"fake/__internal_w.trace", "ROOT/golden/s1/a.golden\n"), 1,
+			weak + "/internal/w file=golden/s1/a.golden\n" + "golden=golden/s1/b.golden consumers none\n"},
+		{"an empty golden is emptied again before the next",
+			with(strongA, "root/golden/s1/a.golden", "", "fake/__internal_w.trace", "ROOT/golden/s1/b.golden\nROOT/golden/s1/a.golden\n",
+				"fake/__internal_w.reads", "golden/s1/a.golden"), 1,
+			weak + "/internal/w file=golden/s1/b.golden\n"},
 		{"a baseline that fails", with(strongA, "fake/__internal_a.basefail", ""), 1,
 			mod + "/internal/a failed reason=baseline_failed\n"},
+		// A golden the gate cannot write -- here the copy's a.golden made a
+		// directory -- fails the gate at once: a consumer run on a golden
+		// half-written, or never put back, says nothing about its
+		// sensitivity to the golden flipped next (base#1469 review round 2).
+		{"a golden the perturbing write cannot replace",
+			with(strongA, "fake/__internal_a.basehook", aGoldenDir), 1, ""},
+		{"a golden the restoring write cannot put back",
+			with(strongA, "fake/__internal_a.fliphook", aGoldenDir,
+				"fake/__internal_w.trace", "ROOT/golden/s1/b.golden\n"), 1, ""},
 		{"a testcorpus with no top-level Glob", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n"}, 1,
 			invalid},
 		{"Glob only as a method", map[string]string{"mod/internal/testcorpus/testcorpus.go": "package testcorpus\n\ntype X int\n\nfunc (x X) Glob() {}\n"}, 1,
@@ -460,8 +512,12 @@ func TestSensitivity(t *testing.T) {
 			if gate := bytes.Contains(errOut.Bytes(), []byte("config_gen_gate_corpus_sensitivity_failed")); gate != (c.status == 1) {
 				t.Errorf("stderr %q: gate id present %v, want %v", errOut.String(), gate, c.status == 1)
 			}
-			if c.status == 1 && c.out == "" && !bytes.Contains(errOut.Bytes(), []byte("_failed reason=unreadable")) {
-				t.Errorf("stderr %q names no unreadable refusal", errOut.String())
+			reason := "unreadable"
+			if strings.Contains(c.name, "cannot replace") || strings.Contains(c.name, "cannot put back") {
+				reason = "unwritable"
+			}
+			if c.status == 1 && c.out == "" && !bytes.Contains(errOut.Bytes(), []byte("_failed reason="+reason+"\n")) {
+				t.Errorf("stderr %q names no %s refusal", errOut.String(), reason)
 			}
 		})
 	}
