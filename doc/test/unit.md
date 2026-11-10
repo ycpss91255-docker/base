@@ -1990,11 +1990,12 @@ refused by name.
 | `array homes: the writer rows are what the shell writers name and spell (base#1443)` | The Go half iterates schema.Homes() and takes each home's all-empty and populated bodies from the table's rows. This half holds the `writer` rows equal, in order, to what _conf_toml_aot_section over SCHEMA_SECTIONS names and _conf_toml_aot_fields spells for "" and for "a=b:c:d", so a home the writers gain, or a body they spell another way, fails here until the table knows it (base#1443). |
 | `array homes: every row's bodies get from the bridge the verdict the Go schema tests expect (base#1443)` | The Go half expects schema.Decode to refuse an entry without its field and a string entry, to keep a field-less entry, the writers' all-empty entry and the entry carrying every field its family reads, each empty, as one empty entry, alone and between two populated ones, to keep the populated entry and to refuse an unknown field beside it. Each of those verdicts is the bridge's --kv verdict on the same body for every row, the legacy [[devices]] included, and the every-field-empty body names exactly the fields the bridge's _ARRAY_SPEC family reads, so the table the Go tests read is the shell's word (base#1443 review round 4 finding 2). |
 
-### test/bats/unit/config_gen_bin_provision_spec.bats (1)
+### test/bats/unit/config_gen_bin_provision_spec.bats (2)
 
 | Test | Description |
 |------|-------------|
-| `the provisioned binary comes from this checkout's image, not an inherited override or memo` | an override or memo inherited from the caller must not choose which binary the golden spec runs; both are poisoned at once, so dropping only one of them from the resolve's environment still names a poison image. |
+| `the provisioned binary comes from this checkout's image, not an inherited CONFIG_GEN_IMAGE override` | a CONFIG_GEN_IMAGE pin inherited from the caller must not choose which binary the golden spec runs; it is the only poison, so a resolve that drops the memo but keeps the override names the poison image. |
+| `the provisioned binary comes from this checkout's image, not an inherited _CONFIG_GEN_RESOLVED memo` | a _CONFIG_GEN_RESOLVED memo inherited from the caller must not choose which binary the golden spec runs; it is the only poison, so a resolve that drops the override but keeps the memo names the poison image. |
 
 ### test/bats/unit/config_gen_coverage_spec.bats (20)
 

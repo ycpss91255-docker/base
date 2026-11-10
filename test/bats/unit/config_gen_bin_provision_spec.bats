@@ -44,33 +44,51 @@ teardown() {
   rm -rf "${TEMP_DIR}"
 }
 
-# why: an override or memo inherited from the caller must not choose which
-# binary the golden spec runs; both are poisoned at once, so dropping only
-# one of them from the resolve's environment still names a poison image.
-@test "the provisioned binary comes from this checkout's image, not an inherited override or memo" {
-  # The independent answer: config_gen_resolve under env -i, no poison.
+# The image config_gen_resolve answers in a clean environment (env -i, no
+# override, no memo), then the image _prepare_config_gen_bin passed to
+# `docker create` when the calling shell exported <var>=<value>.
+_resolve_clean() {
   run env -i PATH="${BIN_DIR}:${PATH}" DOCKER_STUB_DIR="${DOCKER_STUB_DIR}" \
     LOG_FORMAT=text bash -c \
     'source /source/dist/script/docker/lib/config_gen.sh && config_gen_resolve && printf "%s" "${_CONFIG_GEN_RESOLVED}"'
   assert_success
-  local _expected="${output}"
+  _expected="${output}"
   [[ "${_expected}" =~ ^config-gen:[0-9a-f]{12}$ ]] \
     || fail "clean resolve answered '${_expected}', not a config-gen:<12 hex> tag"
   rm -f "${DOCKER_STUB_DIR}/calls"
+}
 
+_provision_with() {
   run bash -c "
     export PATH='${BIN_DIR}:'\"\${PATH}\"
     export DOCKER_STUB_DIR='${DOCKER_STUB_DIR}'
     export LOG_FORMAT=text
-    export CONFIG_GEN_IMAGE=poison-override:latest
-    export _CONFIG_GEN_RESOLVED=poison-memo:latest
+    export ${1}=${2}
     source /source/script/test/test.sh
     declare -F _prepare_config_gen_bin >/dev/null || exit 99
     _prepare_config_gen_bin
   " 2>&1
   assert_success
-
   run grep -E '^create( |$)' "${DOCKER_STUB_DIR}/calls"
   assert_success
+}
+
+# why: a CONFIG_GEN_IMAGE pin inherited from the caller must not choose
+# which binary the golden spec runs; it is the only poison, so a resolve
+# that drops the memo but keeps the override names the poison image.
+@test "the provisioned binary comes from this checkout's image, not an inherited CONFIG_GEN_IMAGE override" {
+  local _expected
+  _resolve_clean
+  _provision_with CONFIG_GEN_IMAGE poison-override:latest
+  assert_output "create ${_expected}"
+}
+
+# why: a _CONFIG_GEN_RESOLVED memo inherited from the caller must not
+# choose which binary the golden spec runs; it is the only poison, so a
+# resolve that drops the override but keeps the memo names the poison image.
+@test "the provisioned binary comes from this checkout's image, not an inherited _CONFIG_GEN_RESOLVED memo" {
+  local _expected
+  _resolve_clean
+  _provision_with _CONFIG_GEN_RESOLVED poison-memo:latest
   assert_output "create ${_expected}"
 }
