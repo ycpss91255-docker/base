@@ -1645,7 +1645,8 @@ _rp_timed() {
 # the background through _rp_timed, once fewer than _RP_JOBS cases are
 # running (base#1547). Each case has its own copy, so cases share
 # nothing; its stderr goes to its own file under <scratch>, printed whole
-# when it is reaped, so no two cases' output interleaves. Monitor mode
+# when it is reaped, so no two cases' output interleaves. A full pool
+# reaps whichever case ends first, so the slot is reused at once. Monitor mode
 # is on only for the fork, so the case is the leader of its own process
 # group and _rp_stop can signal the case and every child it started.
 _rp_spawn() {
@@ -1669,15 +1670,27 @@ _rp_stop() {
   exit "${1}"
 }
 
-# _rp_reap -- wait for the oldest running case by its pid, print its
-# stderr, and set _RP_FAILED when it failed; never a bare wait, so no
-# status is lost. The pid leaves _RP_PIDS only once it is reaped, so
-# _rp_stop still signals the case this wait is on.
+# _rp_reap -- wait for whichever running case ends first (`wait -n -p`
+# over the pids in _RP_PIDS), print its stderr, and set _RP_FAILED when
+# it failed (base#1547). A case that ended before the wait began is
+# returned with its own status, so no status is lost, and its timed line
+# is printed as it finishes, not behind an older case still running; its
+# pool slot is free at once. The pid leaves _RP_PIDS only once it is
+# reaped, so _rp_stop still signals every case this wait is on.
 _rp_reap() {
-  local pid="${_RP_PIDS[0]}" err="${_RP_ERRS[0]}"
-  wait "${pid}" || _RP_FAILED=1
-  _RP_PIDS=("${_RP_PIDS[@]:1}") _RP_ERRS=("${_RP_ERRS[@]:1}")
-  cat "${err}" >&2
+  local got='' i rc=0
+  wait -n -p got "${_RP_PIDS[@]}" || rc=$?
+  for i in "${!_RP_PIDS[@]}"; do
+    [[ "${_RP_PIDS[i]}" == "${got}" ]] || continue
+    (( rc == 0 )) || _RP_FAILED=1
+    cat "${_RP_ERRS[i]}" >&2
+    unset '_RP_PIDS[i]' '_RP_ERRS[i]'
+    _RP_PIDS=("${_RP_PIDS[@]}") _RP_ERRS=("${_RP_ERRS[@]}")
+    return 0
+  done
+  _log_err "${_RP_SERVICE}" config_gen_redpath_reap_lost "rc=${rc}" \
+    "display=config_gen_redpath.sh: wait -n returned no running case (rc=${rc})"
+  exit 1
 }
 
 # _rp_serial <case> -- true when <case> is in _RP_SERIAL (base#1547).
