@@ -114,3 +114,23 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only a unit spec outside every roster TSV keeps coverage and drops the other four (base#1584)" {
+  # Expected, from what each job reads, not from the map:
+  # - coverage=true: the coverage shards run test/bats/unit/*_spec.bats,
+  #   ci_spec.bats included.
+  # - config-gen=false, acceptance=false: a spec file is a leaf -- no
+  #   file under test/ or script/ loads or sources a `*_spec.bats` (grep
+  #   finds only comments naming them), so neither job executes it.
+  # - mutation-roster=false: `grep -c ci_spec` is 0 in every
+  #   script/test/mutation_required/*.tsv.
+  # - system=false: script/ci/system_paths.sh lists test/bats/system/**
+  #   only, not test/bats/unit/.
+  run _select pull_request test/bats/unit/ci_spec.bats
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=false
+coverage=true
+acceptance=false
+system=false"
+}
