@@ -26,8 +26,12 @@ setup() {
   AT_BASE_SH=/source/script/ci/selection_at_base.sh
 }
 
-# The nine classify-gated jobs, in the map's output order (design r7
-# sec. 2): the jobs of self-test.yaml whose `if:` reads classify.
+# The nine map names, in the map's output order (design r7 sec. 2): one
+# per select_* key classify writes. Each self-test.yaml job whose `if:`
+# reads classify reads one of these keys; config-gen names the one key,
+# select_config_gen, that both config-gen-gates and config-gen-redpath
+# read (base#1547 split one job in two). classify_testtools_spec.bats
+# (cycle 4) holds the workflow's gated jobs to these keys.
 GATED_JOBS="config-gen coverage coverage-gate acceptance system worker-selftest shellcheck hadolint bats-fragile"
 # Every gated job but config-gen: what a config-gen deny-list path runs.
 NOT_CONFIG_GEN="coverage coverage-gate acceptance system worker-selftest shellcheck hadolint bats-fragile"
@@ -102,10 +106,10 @@ _commit() {
   assert_output "$(_expect)"
 }
 
-# why: cycle 4's job list. The gated set is the nine jobs whose `if:`
-# reads classify (self-test.yaml), as design r7 lists them; --jobs must
+# why: cycle 4's job list. The map's names are the nine select_* keys of
+# design r7, config-gen standing for both config-gen jobs; --jobs must
 # name exactly those, in the output order.
-@test "check_selection: --jobs prints the nine classify-gated jobs (base#1584)" {
+@test "check_selection: --jobs prints the nine map names, one per select key (base#1584)" {
   run bash "${SELECTION_SH}" --jobs
   assert_success
   assert_output "$(tr ' ' '\n' <<<"${GATED_JOBS}")"

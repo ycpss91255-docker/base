@@ -1103,7 +1103,7 @@ and the probes cited per case, never from the map's own output.
 |------|-------------|
 | `check_selection: a pull request touching only a path no row names selects every gated job (base#1584)` | the issue's fail-closed rule, "an unknown path selects every job". |
 | `check_selection: a pull request touching only docs selects no gated job (base#1584)` | the docs allow-list classify's code_changed gate already uses (doc/**, README.md, LICENSE, CONTEXT.md) and the issue's "a docs-only PR": a docs-only diff affects no gated job. |
-| `check_selection: --jobs prints the nine classify-gated jobs (base#1584)` | cycle 4's job list. The gated set is the nine jobs whose `if:` reads classify (self-test.yaml), as design r7 lists them; --jobs must name exactly those, in the output order. |
+| `check_selection: --jobs prints the nine map names, one per select key (base#1584)` | cycle 4's job list. The map's names are the nine select_* keys of design r7, config-gen standing for both config-gen jobs; --jobs must name exactly those, in the output order. |
 | `check_selection: a push run selects every gated job even when its diff is docs only (base#1584)` | the issue's rule "On push, tag and workflow_dispatch everything runs" (main runs the full suite, owner 2026-11-10). |
 | `check_selection: a deny-list path drops config-gen and keeps every other gated job (base#1584)` | cycle 15. dist/script/base/init.sh and script/release/changelog_index.sh are non-readers in the traced config-gen host run (config_gen_paths_spec.bats re-runs the tracer), and neither is in _rp_copy (script/test/config_gen_redpath.sh). Each drops config-gen and keeps every other job, so the deny list is not too small to ever narrow. |
 | `check_selection: a new or nested path under dist/ or script/ runs config-gen (base#1584)` | cycle 16 (R2-F1, RR4-F3). A path the deny list does not name exactly -- a new file, a file in a new directory -- runs config-gen. The first two printed config-gen=false through the old glob rows (review round 1, F1). |
@@ -2225,7 +2225,7 @@ stderr line `cg_event config_gen_manifest_stale file=<f> reason=<r>`.
 | `config_gen_mutation_lang: _cgm_hash_line prints spelling TAB sha256 for a regular file and rc 1 for anything else (base#1465)` | A sha256 line binds a spelling to the bytes of a regular file; a path [[ -f ]] refuses (a dangling symlink, a fifo) has no bytes to bind. (base#1465) |
 | `config_gen_mutation_lang: _cgm_stale writes file= as one word, %XX outside ! to ~ and for % (base#1465)` | A refusal value is one word whatever the name holds: each byte outside ! to ~, and the % itself, is %XX. (base#1465) |
 
-### test/bats/unit/config_gen_paths_spec.bats (8)
+### test/bats/unit/config_gen_paths_spec.bats (10)
 
 script/ci/config_gen_paths.sh is the config-gen DENY list: an exact path on
 it drops the config-gen job (check_selection.sh, row 3). The list is checked
@@ -2247,12 +2247,14 @@ the workflow and scripts themselves, never from the deny list's own output.
 | `config_gen_paths: no entry is a file the traced config-gen host run read (base#1584)` | cycle 11, rule (c). The traced run must have traced config-gen (every canary), and no entry may be a file it read, logically or physically, in either tracer channel. |
 | `config_gen_paths: an entry the traced run read is reported (base#1584)` | cycle 11's red, kept as a case: an entry that IS a reader must be reported. dist/script/base/just-version.sh is the just-pin step's own script. |
 | `config_gen_paths: every sourced canary is in the xtrace channel alone (base#1584)` | cycle 11, the xtrace channel's own check. A canary a host step sources (`source` / `.` in script/test/config_gen* or script/watch) must be in the xtrace lines alone, so a blind xtrace channel fails here even while the DEBUG channel still sees the canaries. |
-| `config_gen_paths: the traced run ran every config_gen_redpath.sh case (base#1584)` | cycle 31. config_gen_redpath.sh must run in full: a run cut down to a subset of its cases (CONFIG_GEN_REDPATH_ONLY, a timeout) could miss a file one case reads. Every case of _RP_CASES, read from the script itself, must have an `_rp_case` record, and its main's last call, `_rp_control`, one too. |
+| `config_gen_paths: the traced run ran every config_gen_redpath.sh case (base#1584)` | cycle 31. config_gen_redpath.sh must run in full: a run cut down to a subset of its cases (CONFIG_GEN_REDPATH_ONLY, a timeout) could miss a file one case reads. Every case of _RP_CASES, read from the script itself, must have an `_rp_case` record, and its main's last call, `_rp_retro` (main's order at base#1547's split), one too. |
 | `config_gen_paths: no config-gen input text names an entry (base#1584)` | cycle 12, rule (d). An entry a config-gen input text names may be read through a path the tracer cannot see (a data read), so the name alone removes it. |
 | `config_gen_paths: an entry a config-gen step names is reported (base#1584)` | cycle 12's red, kept as a case: a scratch copy whose 30-watch-gosum step names dist/env.toml (an entry) must report it. |
+| `config_gen_paths: an entry a config-gen-redpath run block names is reported (base#1584)` | review round 2. base#1547 split the config-gen job in two, and a rule (d) that read the old job `config-gen` read no run block at all. A run block of either split job that names an entry must be reported: here config-gen-redpath's go-redpath line names dist/env.toml. |
+| `config_gen_paths: rule (d) fails when no config-gen job is found (base#1584)` | review round 2. With no job that gates on select_config_gen, rule (d) has no run block to read; that fails rather than passing on an empty text. |
 | `config_gen_paths: no host-side shell code can blind the reader tracer (base#1584)` | the tracer cannot fail open quietly: no host-side file may install a DEBUG trap, turn off functrace or xtrace, or move the xtrace fd or prompt. Any of these in a host step would blind a channel, so its mere presence in shell code under script/, dist/, dockerfile/ or a justfile fails here. |
 
-### test/bats/unit/config_gen_readers_spec.bats (6)
+### test/bats/unit/config_gen_readers_spec.bats (8)
 
 script/ci/config_gen_readers.sh is the reader side of the config-gen deny
 list (config_gen_paths_spec.bats). A sourced file it misses could stay a
@@ -2269,8 +2271,10 @@ The planted copy is traced once per file and shared by every case.
 | `config_gen_readers: a sourced file that only defines functions is a reader (base#1584)` | cycle 13 (b) (RR6-F3). A sourced file that only defines a function never runs a command, so the DEBUG channel alone misses it (r7 probe: defs.sh absent from the DEBUG log). The xtrace channel logs the source. |
 | `config_gen_readers: a sourced file that does not parse is a reader (base#1584)` | cycle 13 (c). A sourced file that does not parse runs nothing either; the source command is still logged before it fails. |
 | `config_gen_readers: a read through a symlink names the link and its target (base#1584)` | cycle 14 (RR4-F2). A read through a symlink names both the link and its target, so a deny entry for either fails. |
-| `config_gen_readers: the recipe parser reads test::go's commands and environment (base#1584)` | cycle 30 (RR6-F4). The readers script runs `just --show test::go`'s body, so it must read each line's command and environment as the recipe states them: config_gen_gates.sh with an unchanged environment, and config_gen_redpath.sh with CONFIG_GEN_REDPATH_ONLY unset. |
-| `config_gen_readers: the recipe parser refuses a line it cannot run as one ./ command (base#1584)` | cycle 30. Any other line shape -- a pipe or `&&`, a variable -- is a command this parser would have to guess at, so it refuses. |
+| `config_gen_readers: the config-gen jobs are the jobs that gate on select_config_gen (base#1584)` | cycle 30, review round 2. The traced commands are what the config-gen jobs run, so the job set comes from the workflow: every job whose `if:` reads classify's select_config_gen key. base#1547 split the one config-gen job into config-gen-gates and config-gen-redpath (d6dfdb08), and a reader keyed on the old name `config-gen` read no run block at all. The expected names are main's two jobs. |
+| `config_gen_readers: no config-gen job, or one with no run step, is refused (base#1584)` | cycle 30, review round 2. A workflow where no job gates on select_config_gen, or where a config-gen job has no `run:` step, gives the tracer nothing to run. That must fail the deny-list spec, never read as an empty reader set. |
+| `config_gen_readers: the run blocks are both config-gen jobs', each matrix value expanded (base#1584)` | cycle 30, review round 2. Each run block runs as the job runs it, so a `${{ matrix.<key> }}` is expanded once per value of the job's matrix: config-gen-redpath runs `just test go-redpath <n>/5` for shards 1..5 (its matrix, which self_test_yaml_spec holds to the shard table), and together the five shards run every redpath case. Both jobs' just-pin blocks are there too. |
+| `config_gen_readers: a run block with an expression it cannot evaluate is refused (base#1584)` | cycle 30, review round 2. An expression other than one matrix key is a value this script would have to guess, so the block is refused rather than run with the expression left in or dropped. |
 
 ### test/bats/unit/config_gen_s7_verdicts_spec.bats (2)
 

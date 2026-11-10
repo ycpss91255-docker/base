@@ -255,8 +255,10 @@ _context_copy_paths() {
   assert_line 'testtools_changed=true'
 }
 
-# The nine classify-gated jobs as their select_* keys (design r7 sec. 2):
-# the jobs of self-test.yaml whose `if:` reads classify.
+# The nine select_* keys classify writes (design r7 sec. 2). Each
+# self-test.yaml job whose `if:` reads classify reads one of them, and
+# select_config_gen gates both config-gen jobs (base#1547 split one job
+# in two), so ten jobs read these nine keys (cycle 4 below).
 SELECT_KEYS="select_config_gen select_coverage select_coverage_gate select_acceptance select_system select_worker_selftest select_shellcheck select_hadolint select_bats_fragile"
 
 # _assert_keys <output> <value> [<key>...] -- every select_* key named (all
