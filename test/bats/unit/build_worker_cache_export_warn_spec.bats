@@ -135,3 +135,26 @@ EOS
   assert_equal "${#lines[@]}" 1
   assert_output --regexp '^::warning title=cache export::devel-test: .+$'
 }
+
+@test "cache_export_warn: a docker buildx history call that exits 1 prints one ::warning:: and exits 0 (base#1602)" {
+  # The history call fails (exit 1, an error on stderr) after printing the
+  # good vertex #63 of ycpss91255-docker/isaac run 42753553284 attempt 1.
+  # A failed replay cannot vouch for the record, so a script that ignores
+  # the exit code and reads the DONE line stays silent and fails this test.
+  cat > "${RECORD}" <<'EOS'
+#63 exporting to GitHub Actions Cache
+#63 sending cache export 1773.6s done
+#63 DONE 2056.9s
+EOS
+  cat > "${STUB_BIN}/docker" <<'EOS'
+#!/usr/bin/env bash
+cat "${RECORD}"
+echo "ERROR: failed to get build history" >&2
+exit 1
+EOS
+  chmod +x "${STUB_BIN}/docker"
+  run bash "${SCRIPT}"
+  assert_success
+  assert_equal "${#lines[@]}" 1
+  assert_output --regexp '^::warning title=cache export::devel-test: .+$'
+}
