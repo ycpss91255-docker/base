@@ -2502,10 +2502,11 @@ _glibc_getconf() {
   run diff -r "${S}/runner.${_n}.mod" "${S}/repo/dockerfile/config-gen"
   assert_success
   _n="$(_redpath_call rename-move)"
-  [[ -f "${S}/runner.${_n}.mod/testdata/zzg/a.txt" && -f "${S}/runner.${_n}.mod/testdata/zzg/d.txt" ]] \
-    || fail "rename-move did not leave testdata/zzg/a.txt and testdata/zzg/d.txt"
-  [[ ! -e "${S}/runner.${_n}.mod/testdata/zzg/c.txt" ]] || fail "rename-move left testdata/zzg/c.txt"
-  assert_equal "$(cat "${S}/runner.${_n}.mod/testdata/zzg/a.txt")" c
+  local _g="${S}/runner.${_n}.mod/cmd/config-gen/testdata/zzg"
+  [[ -f "${_g}/a.txt" && -f "${_g}/d.txt" ]] \
+    || fail "rename-move did not leave cmd/config-gen/testdata/zzg/a.txt and d.txt"
+  [[ ! -e "${_g}/c.txt" ]] || fail "rename-move left cmd/config-gen/testdata/zzg/c.txt"
+  assert_equal "$(cat "${_g}/a.txt")" c
 }
 
 # why: The mutation gate maps a file under the module-root testdata/ to

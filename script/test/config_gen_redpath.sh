@@ -151,8 +151,8 @@
 #   case             ignored file left in the context               gate
 #   ign              cmd/config-gen/zz_ign.go, a Go file ignored     ignored
 #                    by .git/info/exclude
-#   untrack-ignored  testdata/zzg/a.txt, untracked and then         ignored
-#                    ignored (once a green case)
+#   untrack-ignored  cmd/config-gen/testdata/zzg/a.txt, untracked   ignored
+#                    and then ignored (once a green case)
 #
 # A coverage case (_RP_COVERAGE) changes a package or a floor so the
 # coverage ratchet (cmd/cg-gates ratchet, base#1465) refuses it: the run
@@ -456,15 +456,17 @@ _rp_rebase() {
 }
 
 # _rp_green <case> <root> -- bring the copy to a green case's git state:
-# testdata/zzg/a.txt and testdata/zzg/c.txt committed as the base, then
-# the case's change. names commits testdata/zznames/ (café.txt, `a b.txt`,
-# one name holding every byte 0x01-0x7f but /) and leaves an untracked name
-# the producer C-quotes. Both sit under the module-root testdata/, which the
-# mutation gate maps to the test importers of internal/testcorpus, so the
-# case stays green there (base#1467).
+# cmd/config-gen/testdata/zzg/a.txt and cmd/config-gen/testdata/zzg/c.txt
+# committed as the base, then the case's change. names commits
+# cmd/config-gen/testdata/zznames/ (café.txt, `a b.txt`, one name holding
+# every byte 0x01-0x7f but /) and leaves an untracked name the producer
+# C-quotes (base#1467). Both sit under the testdata/ of the one package
+# cmd/config-gen, which the mutation gate maps to that package alone; the
+# module-root testdata/ maps to every corpus importer, which corpus and
+# retro still cover (base#1615).
 _rp_green() {
   local root="${2}" mod="${2}/dockerfile/config-gen"
-  local g="${mod}/testdata/zzg" n="${mod}/testdata/zznames"
+  local g="${mod}/cmd/config-gen/testdata/zzg" n="${mod}/cmd/config-gen/testdata/zznames"
   local name='' i
   if [[ "${1}" == names ]]; then
     mkdir -p "${n}"
@@ -489,7 +491,7 @@ _rp_green() {
     untrack) _rp_git "${root}" rm -q --cached "${g}/a.txt" ;;
     rename-move) _rp_git "${root}" mv "${g}/a.txt" "${g}/d.txt"; mv "${g}/c.txt" "${g}/a.txt" ;;
     untrack-ignored)
-      printf 'dockerfile/config-gen/testdata/zzg/a.txt\n' >"${root}/.git/info/exclude"
+      printf 'dockerfile/config-gen/cmd/config-gen/testdata/zzg/a.txt\n' >"${root}/.git/info/exclude"
       _rp_git "${root}" rm -q --cached "${g}/a.txt"
       ;;
     copies)
