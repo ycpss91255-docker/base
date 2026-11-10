@@ -120,3 +120,21 @@ _queue() {
   assert_output "same_repo=false"
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
+
+@test "merge_group_trust.sh: a queue with no entry for HEAD_SHA leaves the group untrusted and names why (base#1587)" {
+  # The queue holds same-repository entries, but none has HEAD_SHA as its
+  # head commit, so this run's group is not among them and nothing about
+  # it is proven. The answer is false, and an `::error::` line says why,
+  # since classify stays green (exit 0).
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    "$(_entry 2 2222222222222222222222222222222222222222 102 false ycpss91255-docker/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+}
