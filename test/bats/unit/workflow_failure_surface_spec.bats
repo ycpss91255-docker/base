@@ -327,6 +327,24 @@ _rollup_env_for() {
   [ -n "${_sel_var}" ]
 }
 
+# why: shellcheck, hadolint and bats-fragile each run under
+# `if: needs.classify.outputs.code_changed == 'true'` (self-test.yaml),
+# so on a code change classify selected them and their skip is no
+# decision. The rollup accepted any `skipped` for these three, so one
+# that never ran on a code change still turned the required check green.
+# The design (base#1584, section 2) ties each skip to its own gate
+# output: for these three, code_changed=true makes the skip a failure.
+@test "self-test: the rollup fails a shellcheck, hadolint or bats-fragile skip on a code change (base#1584)" {
+  local _r
+  for _r in SHELLCHECK HADOLINT BATS_FRAGILE; do
+    run _rollup_selected CODE_CHANGED=true "${_r}_RESULT=skipped"
+    if [[ "${status}" -ne 1 ]]; then
+      echo "${_r}_RESULT=skipped with code_changed=true exited ${status}"
+      return 1
+    fi
+  done
+}
+
 # ── 4. concurrency and timeouts ───────────────────────────────────────
 
 # _triggerable_workflows
