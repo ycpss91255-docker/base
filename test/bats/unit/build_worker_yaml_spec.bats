@@ -912,6 +912,29 @@ _classify() {
   refute_output --partial "github.event.pull_request.head.repo.full_name != github.repository"
 }
 
+# why: The guard canon fails closed on merge_group, whose payload names no
+# head repository. The build job may open on a queue run only when the
+# caller passes a resolved answer that the whole group is same-repository,
+# and a caller that passes nothing must stay closed (base#1587).
+@test "build-worker.yaml: build opens on merge_group only on a merge_group_same_repo input that defaults to 'false' (base#1587)" {
+  # Expected values are the approved design's literals (design-r2
+  # section 2): a string input `merge_group_same_repo` with default
+  # 'false', and the build `if:` below, read through the YAML parser so
+  # the folded `>-` block is compared as GitHub sees it.
+  run _yaml_eval "${WF}" '.on.workflow_call.inputs.merge_group_same_repo.type'
+  assert_success
+  assert_output "string"
+  run _yaml_eval "${WF}" '.on.workflow_call.inputs.merge_group_same_repo.default | tag'
+  assert_success
+  assert_output '!!str'
+  run _yaml_eval "${WF}" '.on.workflow_call.inputs.merge_group_same_repo.default'
+  assert_success
+  assert_output "false"
+  run _yaml_eval "${WF}" '.jobs.build.if'
+  assert_success
+  assert_output "needs.path-filter.outputs.code_changed == 'true' && (github.event_name != 'pull_request' && github.event_name != 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'merge_group' && inputs.merge_group_same_repo == 'true')"
+}
+
 # ── Per-job least privilege ────────────────────────────────────
 
 # Print the name of every job in the worker that declares no permission
