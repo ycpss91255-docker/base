@@ -199,8 +199,9 @@ _gates() {
 # _map_selects_system <repo> <diff-arg>... -- succeeds when classify's map
 # (script/ci/check_selection.sh) selects the system job for the diff, or
 # cannot answer. Since base#1584 CI gates system on the map's job list,
-# which also selects it for a path system_paths.sh does not name (a new
-# file, a script under script/), so the plan widens to match; a map that
+# which also selects it for a path system_paths.sh does not name (a path
+# no rule of the map claims, such as zz/unknown.txt), so the plan widens to
+# match; a map that
 # fails or prints no `system=false` fires the gate.
 _map_selects_system() {
   local repo="$1" out
