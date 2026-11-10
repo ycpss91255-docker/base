@@ -138,3 +138,22 @@ _queue() {
   assert_output "same_repo=false"
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
+
+@test "merge_group_trust.sh: an entry whose pull request is not HEAD_REF's pr-<N> leaves the group untrusted and names why (base#1587)" {
+  # The entry with HEAD_SHA as its head commit belongs to PR 103, but the
+  # group head ref names pr-999. The two disagree, so this run's group is
+  # not proven to be that entry. The answer is false, and an `::error::`
+  # line says why, since classify stays green (exit 0).
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    "$(_entry 2 2222222222222222222222222222222222222222 102 false ycpss91255-docker/base)" \
+    "$(_entry 3 3333333333333333333333333333333333333333 103 false ycpss91255-docker/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-999-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+}
