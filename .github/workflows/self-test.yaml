@@ -1824,6 +1824,9 @@ jobs:
           # classify's own answer for mutation-roster (base#1584): its skip
           # passes only when this is `false`.
           SELECT_MUTATION_ROSTER: ${{ needs.classify.outputs.select_mutation_roster }}
+          # The gate system's `if:` reads (base#1584): a system skip passes
+          # only when this is `false`.
+          SYSTEM_RELEVANT: ${{ needs.classify.outputs.system_relevant }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1862,23 +1865,29 @@ jobs:
                    "${MUTATION_ROSTER_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
+          # A skip of a job classify selects passes only when classify
+          # decided it (base#1584): the job's own selection is `false`, or
+          # the whole diff is doc-only (code_changed=false). An empty or
+          # `true` answer makes the skip a failure. Each row is
+          # <job> <result> <the classify answer its skip needs>.
           # mutation-roster is a matrix that folds every roster shard into
-          # one result. Its skip passes only when classify did not select
-          # the job: an empty or `true` selection makes the skip a failure
-          # (base#1584).
-          if [[ "${MUTATION_ROSTER_RESULT}" == "skipped" \
-                && "${SELECT_MUTATION_ROSTER:-}" != "false" ]]; then
-            echo "::error::mutation-roster skipped although classify did not deselect it"
-            fail=1
-          fi
-          # A config-gen skip passes only when classify did not select the
-          # job: with select_config_gen=true the skip was nobody's decision
-          # (base#1584).
-          if [[ "${CONFIG_GEN_RESULT}" == "skipped" \
-                && "${SELECT_CONFIG_GEN:-}" == "true" ]]; then
-            echo "::error::config-gen skipped although classify selected it"
-            fail=1
-          fi
+          # one result. coverage, coverage-gate and acceptance read
+          # code_changed, and system reads system_relevant, so their own
+          # answer is that gate output.
+          while read -r job res sel; do
+            if [[ "${res}" == "skipped" && "${sel}" != "false" \
+                  && "${CODE_CHANGED:-}" != "false" ]]; then
+              echo "::error::${job} skipped although classify did not deselect it"
+              fail=1
+            fi
+          done <<EOF
+          mutation-roster ${MUTATION_ROSTER_RESULT:--} ${SELECT_MUTATION_ROSTER:--}
+          config-gen ${CONFIG_GEN_RESULT:--} ${SELECT_CONFIG_GEN:--}
+          coverage ${COVERAGE_RESULT:--} ${CODE_CHANGED:--}
+          coverage-gate ${COVERAGE_GATE_RESULT:--} ${CODE_CHANGED:--}
+          acceptance ${ACCEPTANCE_RESULT:--} ${CODE_CHANGED:--}
+          system ${SYSTEM_RESULT:--} ${SYSTEM_RELEVANT:--}
+          EOF
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
           # failure and not a warning: a required check is a claim that the
           # commit was fully tested, and on a fork PR that claim is false

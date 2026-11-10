@@ -4209,11 +4209,13 @@ _rollup_honours_every_need() {
 
 # why: config-gen is gated on code_changed, so on a doc-only diff it skips;
 # the rollup must read that skip as a pass and a failure or cancel as red.
+# The skip passes only on the doc-only classification it came from
+# (code_changed=false); a skip classify did not decide fails (base#1584).
 @test "self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)" {
   run _rollup_result_keys "${WF}"
   assert_line 'CONFIG_GEN_RESULT config-gen'
   assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=success)" 0
-  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=skipped)" 0
+  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=skipped CODE_CHANGED=false)" 0
   [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=failure)" != 0 ]] || fail "ci-rollup passes a failed config-gen"
   [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=cancelled)" != 0 ]] || fail "ci-rollup passes a cancelled config-gen"
 }
