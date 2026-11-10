@@ -607,3 +607,35 @@ ${_bad}"
   [[ "${_n}" -ge 3 ]] || fail "expected classify's select_* outputs, read ${_n}"
   [[ -z "${_bad}" ]] || fail "select_* outputs no job's if: reads: ${_bad}"
 }
+
+# why: review round 2 of base#1584 ran the lifted rollup step with every
+# classify answer `true` and WORKER_SELFTEST_RESULT=skipped: it exited 0,
+# while SYSTEM_RESULT=skipped under the same env exited 1. worker-selftest
+# gates on system_relevant and sat in the skip-tolerant loop with no row in
+# the skip table, and the row-by-row check above reads only rows that
+# exist, so a gated job with no row passed it. This case starts from the
+# jobs, not from the rollup's own lists: every job ci-rollup needs that
+# carries an `if:` is skipped in turn on a run where classify selected
+# everything, and the rollup must fail each one.
+@test "self-test: the rollup fails the skip of every gated job it needs when classify selected everything (base#1584)" {
+  local _job _var _n=0 _bad=""
+  while IFS= read -r _job; do
+    [[ -n "${_job}" ]] || continue
+    LP_J="${_job}" yq -e '.jobs[strenv(LP_J)].if // "" | length > 0' \
+        "${SELF_WF}" >/dev/null 2>&1 || continue
+    _n=$((_n + 1))
+    _var="$(LP_J="needs.${_job}.result" yq '.jobs."ci-rollup".steps[]
+        | select(.name == "Verify upstream jobs") | .env | to_entries[]
+        | select(.value | contains(strenv(LP_J))) | .key' "${SELF_WF}")"
+    if [[ -z "${_var}" ]]; then
+      _bad+="${_job} (no env key binds needs.${_job}.result)"$'\n'
+      continue
+    fi
+    run _rollup_selected "${_var}=skipped"
+    [[ "${status}" -eq 1 ]] \
+      || _bad+="${_job} (${_var}=skipped with every classify answer true exited ${status})"$'\n'
+  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
+  [[ "${_n}" -ge 10 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
+  [[ -z "${_bad}" ]] || fail "gated jobs whose classify-selected skip the rollup passes:
+${_bad}"
+}
