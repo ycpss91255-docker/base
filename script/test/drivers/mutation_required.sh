@@ -202,9 +202,9 @@ _mr_path_reason() {
 # fill _MR_ROWS_*. 0 when every row is valid and there is at least one.
 _mr_validate() {
   local _root="${1}" _dir="${1}/${_MR_ROSTER_REL}" _f _rel _line _n _bad=0
-  local _id _subj _spec _old _new _rest _reason _count _key _loc
+  local _id _subj _spec _old _new _rest _reason _count _key _loc _p
   local -a _fl=() _files=()
-  local -A _ids=() _tuples=()
+  local -A _ids=() _tuples=() _preason=() _nul=()
   if [[ -d "${_dir}" ]]; then
     mapfile -t _files < <(LC_ALL=C find "${_dir}" -maxdepth 1 -name '*.tsv' -type f | LC_ALL=C sort)
   fi
@@ -246,8 +246,16 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" id_invalid "an id is [a-z0-9-]+"
         _bad=1; continue
       fi
-      if _reason="$(_mr_path_reason "${_root}" "${_subj}")" \
-        || _reason="$(_mr_path_reason "${_root}" "${_spec}")"; then
+      # Each path is judged once per run: 320 rows name 22 subjects and 19
+      # specs, and every --check --shard leg revalidates them all
+      # (base#1582). `-` marks a plain path.
+      for _p in "${_subj}" "${_spec}"; do
+        [[ -n "${_preason["${_p}"]:-}" ]] \
+          || _preason["${_p}"]="$(_mr_path_reason "${_root}" "${_p}" || printf -- '-')"
+      done
+      _reason="${_preason["${_subj}"]}"
+      [[ "${_reason}" != - ]] || _reason="${_preason["${_spec}"]}"
+      if [[ "${_reason}" != - ]]; then
         _mr_invalid "${_loc}" "${_id}" "${_reason}" "subject and spec are plain paths under the root"
         _bad=1; continue
       fi
@@ -255,7 +263,11 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" subject_missing "no file ${_subj}"
         _bad=1; continue
       fi
-      if _mr_has_nul "${_root}/${_subj}"; then
+      if [[ -z "${_nul["${_subj}"]:-}" ]]; then
+        _nul["${_subj}"]=no
+        ! _mr_has_nul "${_root}/${_subj}" || _nul["${_subj}"]=yes
+      fi
+      if [[ "${_nul["${_subj}"]}" == yes ]]; then
         _mr_invalid "${_loc}" "${_id}" subject_has_nul \
           "${_subj} carries a NUL byte, which --apply cannot carry through a byte-exact edit"
         _bad=1; continue
