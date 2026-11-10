@@ -76,8 +76,8 @@ _decode() {
       _spec="$(cut -f3 <<< "${_line}")"
       _old="$(cut -f4 <<< "${_line}")"
       _new="$(cut -f5 <<< "${_line}")"
-      [[ "$(awk -F'\t' '{ print NF }' <<< "${_line}")" == 5 ]] \
-        || fail "$(basename "${_f}"): row '${_id}' is not <id> TAB <subject> TAB <spec> TAB <old> TAB <new>: ${_line}"
+      [[ "$(awk -F'\t' '{ print NF }' <<< "${_line}")" == [56] ]] \
+        || fail "$(basename "${_f}"): row '${_id}' is not <id> TAB <subject> TAB <spec> TAB <old> TAB <new> [TAB <witness>]: ${_line}"
       _ids["$(basename "${_f}" .tsv):${_id}"]=1
       _work="${S}/adopt/${_n}"
       mkdir -p "${_work}/$(dirname "${_subj}")"
@@ -163,6 +163,37 @@ SEEDS
     || fail "the runner refused a committed row: ${stderr}"
   [[ "${stderr}" != *mutation_required_roster_empty* ]] \
     || fail "the runner saw no rows in the committed roster: ${stderr}"
+}
+
+# why: A row with a witness runs its unmutated baseline and its mutated
+# pass under that filter alone, so its cost is its own tests and no other
+# row's (base#1582). That holds only if every committed row has a witness,
+# and a witness that selects all of its spec's tests (empty, '.*') or none
+# of them (a renamed @test) brings the whole-spec pass back. So every row's
+# sixth column, read as the bats name regex it is, matches at least one and
+# fewer than all of the @test names grepped from its spec's own lines.
+@test "roster: every committed row carries a witness that selects some but not all of its spec's tests (base#1582)" {
+  local _f _line _id _spec _wit _name _hit _all _bad=""
+  for _f in /source/script/test/mutation_required/*.tsv; do
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      [[ -z "${_line}" || "${_line}" == '#'* ]] && continue
+      _id="$(basename "${_f}" .tsv):$(cut -f1 <<< "${_line}")"
+      _spec="$(cut -f3 <<< "${_line}")"
+      _wit="$(awk -F'\t' '{ print $6 }' <<< "${_line}")"
+      if [[ -z "${_wit}" ]]; then
+        _bad+="${_id}: no witness"$'\n'
+        continue
+      fi
+      _hit=0 _all=0
+      while IFS= read -r _name; do
+        _all=$(( _all + 1 ))
+        [[ "${_name}" =~ ${_wit} ]] && _hit=$(( _hit + 1 ))
+      done < <(sed -nE 's/^@test "(.*)" \{$/\1/p' "/source/${_spec}")
+      (( _hit >= 1 && _hit < _all )) \
+        || _bad+="${_id}: witness '${_wit}' selects ${_hit} of ${_all} tests of ${_spec}"$'\n'
+    done < "${_f}"
+  done
+  [[ -z "${_bad}" ]] || fail "rows without a narrowing witness:"$'\n'"$(head -n 5 <<< "${_bad}")"$'\n'"($(grep -c . <<< "${_bad}") rows)"
 }
 
 # ── the committed roster's shards ───────────────────────────────────────────
