@@ -115,7 +115,10 @@
 # typechange to a symlink -- or to a baseline holding café.txt, `a b.txt`
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
 # the six ok lines below: admission accepts every baseline the producer
-# writes, and every gate still runs after it.
+# writes, and every gate still runs after it. Each of these six plants only
+# non-Go files, so the packages its build log's mutation verdict lines name
+# must be exactly the one _RP_GREEN_SCOPE holds for it (reason
+# mutation_scope_mismatch, base#1615).
 #
 # docs-only (a green case, base#1467) changes only a file outside the
 # module: the producer writes the no-change marker, and the run must also
@@ -320,6 +323,18 @@ readonly -a _RP_STALE=(
 readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded ign-excluded-go docs-only)
 # <case>|<a line its build log must end a line with> (base#1467).
 readonly -a _RP_GREEN_LINES=('docs-only|mutation targets none')
+# <case>|<the one package, under the module, its mutation gate must judge>:
+# a producer-state green case plants only non-Go files, so the gate must
+# pass exactly that package and no other (reason mutation_scope_mismatch,
+# base#1615).
+readonly -a _RP_GREEN_SCOPE=(
+  'names|cmd/config-gen'
+  'rename-recreate|cmd/config-gen'
+  'untrack|cmd/config-gen'
+  'rename-move|cmd/config-gen'
+  'copies|cmd/config-gen'
+  'typechange|cmd/config-gen'
+)
 # <case>|<gate>|<event>|<file>: a context the producer and admission both
 # accept, holding a Git-ignored module file the gate must refuse, naming
 # that file in each <event> record (base#1467).
@@ -1363,10 +1378,11 @@ _rp_rerun() {
 }
 
 # _rp_green_case <scratch> <case> -- run one green case; non-zero when the
-# runner did not pass with exactly the six ok lines, or its build log lacks
-# the line _RP_GREEN_LINES holds for <case>.
+# runner did not pass with exactly the six ok lines, its build log lacks
+# the line _RP_GREEN_LINES holds for <case>, or the packages the mutation
+# gate passed are not exactly the one _RP_GREEN_SCOPE holds for <case>.
 _rp_green_case() {
-  local root rc=0 reason line
+  local root rc=0 reason line scope mod
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
   _rp_reuse_check "${root}" "${2}" || return 1
@@ -1375,6 +1391,11 @@ _rp_green_case() {
   line="$(_rp_row "${2}" "${_RP_GREEN_LINES[@]}")"
   if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
     reason=green_line_missing
+  fi
+  scope="$(_rp_row "${2}" "${_RP_GREEN_SCOPE[@]}")"
+  if [[ -z "${reason}" && -n "${scope}" ]]; then
+    mod="$(awk '$1 == "module" {print $2; exit}' "${root}/dockerfile/config-gen/go.mod")"
+    [[ "$(_rp_mutation_got "${root}.err")" == "${mod}/${scope}" ]] || reason=mutation_scope_mismatch
   fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
@@ -1437,13 +1458,13 @@ _rp_retro_want() {
     | LC_ALL=C sort -u
 }
 
-# _rp_retro_got <err> -- the packages the mutation gate passed, one per
+# _rp_mutation_got <err> -- the packages the mutation gate passed, one per
 # line, sorted: the build log lines ending `<pkg> ok efficacy=<e>` or
 # `<pkg> no-mutants`. BuildKit merges the gate's streams into one step log,
 # so a verdict can land after gremlins' unfinished `Gathering coverage... `
 # on the same line (base#1546); only that literal may precede it, so a
 # verdict after any other text, or cut short, does not count.
-_rp_retro_got() {
+_rp_mutation_got() {
   sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ (Gathering coverage\.\.\. )?([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\2/p' "${1}" \
     | LC_ALL=C sort -u
 }
@@ -1459,7 +1480,7 @@ _rp_retro_verdict() {
   grep -qxE "${_RP_MANIFEST_TAG}base=${base} head=[0-9a-f]{40} dirty=no context=pr" "${root}.err" \
     || { echo not_clean; return 0; }
   ! grep -qF -- config_gen_mutation_unmapped "${root}.err" || { echo unmapped; return 0; }
-  [[ "$(_rp_retro_got "${root}.err")" == "$(_rp_retro_want "${root}")" ]] \
+  [[ "$(_rp_mutation_got "${root}.err")" == "$(_rp_retro_want "${root}")" ]] \
     || { echo package_set_mismatch; return 0; }
 }
 
@@ -1482,7 +1503,7 @@ _rp_retro() {
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   printf 'config-gen redpath retro: want packages:\n%s\ngot:\n%s\n' \
-    "$(_rp_retro_want "${root}")" "$(_rp_retro_got "${root}.err")" >&2
+    "$(_rp_retro_want "${root}")" "$(_rp_mutation_got "${root}.err")" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=retro" "reason=${reason}" "gate=mutation" \
     "display=config-gen redpath case retro (every module file added since an empty base) did not pass: ${reason}"
   return 1

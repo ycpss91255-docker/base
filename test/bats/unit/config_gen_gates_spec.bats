@@ -798,7 +798,8 @@ _digest_of() {
 # mutation case its _RP_MUTATION_EVENTS names, `|<line, may be
 # empty>|<event>|<file>` of its one event record),
 # the event id, `<file>|<reason>`,
-# a green case's line (empty when _RP_GREEN_LINES names none, base#1467),
+# a green case's line (empty when _RP_GREEN_LINES names none, base#1467)
+# and `|<pkg>` when _RP_GREEN_SCOPE names its one package (base#1615),
 # `<gate>|<event>|<file>` (an after-admit case, base#1467), or
 # `<event>|<pkg>|<file>` (file empty when the event names none).
 _redpath_rows() {
@@ -857,12 +858,12 @@ stale|tamper-dotdot|manifest|path
 stale|tamper-outside|manifest|path
 stale|tamper-visible-dup|visible.sha256|duplicate
 stale|tamper-dual|ignored.sha256|dual
-green|names|
-green|rename-recreate|
-green|untrack|
-green|rename-move|
-green|copies|
-green|typechange|
+green|names||cmd/config-gen
+green|rename-recreate||cmd/config-gen
+green|untrack||cmd/config-gen
+green|rename-move||cmd/config-gen
+green|copies||cmd/config-gen
+green|typechange||cmd/config-gen
 green|ign-excluded|
 green|ign-excluded-go|
 green|docs-only|mutation targets none
@@ -1149,6 +1150,11 @@ _canned_correct() {
         # (base#1467).
         : > "${_c}.err"
         [[ -z "${_want}" ]] || printf '#30 1.00 %s\n' "${_want}" > "${_c}.err"
+        # Its fourth field is the one package, under the module, its
+        # mutation gate passes (base#1615).
+        [[ -z "${_reason}" ]] \
+          || printf '#30 1.00 %s/%s ok efficacy=100.0\n' \
+            "$(awk '$1 == "module" {print $2; exit}' /source/dockerfile/config-gen/go.mod)" "${_reason}" >> "${_c}.err"
         printf '0\n' > "${_c}.rc"
         continue
         ;;
