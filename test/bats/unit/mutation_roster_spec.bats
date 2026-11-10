@@ -258,19 +258,37 @@ SEEDS
   assert_equal "${_got}" "${_want}"
 }
 
-# why: The owner's target is at most 5 minutes per CI job (base#1571), and
-# the roster's matrix is to be balanced by the measured per-row times so
-# that each mutation-roster leg fits it. For every leg k/N of
-# self-test.yaml's mutation-roster matrix, the rows `--check --shard k/N`
-# deals are looked up in the committed seconds.txt (each row=<file>:<line>
-# is read back from its TSV line to its <file> TAB <id>), summed, and
-# spread over the leg's worker slots (MUTATION_REQUIRED_JOBS on the job,
-# else the driver's documented default of 4). That leg budget must be at
-# most 300 seconds; a matrix too small for the measured roster fails here.
-@test "shards: every mutation-roster leg's measured seconds over its worker slots fit 300 s (base#1571)" {
+# _leg_bound <jobs> -- the list-scheduling (Graham) bound on the wall time
+# of <jobs> worker slots running the rows whose seconds are on stdin, one
+# per line, in any dispatch order: sum/jobs + max * (1 - 1/jobs).
+_leg_bound() {
+  LC_ALL=C awk -v jobs="${1}" '
+    { s += $1; if ($1 + 0 > m) m = $1 + 0 }
+    END { printf "%.1f\n", s / jobs + m * (1 - 1 / jobs) }
+  '
+}
+
+# why: The owner's target is at most 5 minutes per CI job (base#1582).
+# With a witness on every row (base#1582) a row costs only its own sandbox
+# reset and two filtered runs, so row seconds add up, and the
+# list-scheduling bound sum/J + max*(1-1/J) turns them into a wall-time
+# bound for J worker slots whatever order the rows are dispatched in;
+# sum/J alone is not one (worked literal: J=4, rows 100,10,10,10 ->
+# sum/J = 32.5, but the 4-slot wall is 100; the bound is 32.5 + 75 =
+# 107.5). For every leg k/N of self-test.yaml's mutation-roster matrix,
+# the rows `--check --shard k/N` deals are looked up in the committed
+# seconds.txt (each row=<file>:<line> read back from its TSV line to its
+# <file> TAB <id>) and bounded over the leg's worker slots
+# (MUTATION_REQUIRED_JOBS on the job, else the driver's default of 4).
+# That bound must be at most 240 s: 300 s less the measured 25 s fixed
+# cost per job (before the first row, after the last) and a 35 s margin.
+@test "shards: every mutation-roster leg's list-scheduling bound over its worker slots fits 240 s (base#1582)" {
   assert_spec_subject_dir /source/script/test/mutation_required "the committed roster"
+  run _leg_bound 4 <<< $'100\n10\n10\n10'
+  assert_success
+  assert_output "107.5"
   local _wf=/source/.github/workflows/self-test.yaml
-  local _sec=/source/script/test/mutation_required/seconds.txt _t _k _jobs _rows _budget _over=""
+  local _sec=/source/script/test/mutation_required/seconds.txt _t _k _jobs _rows _bound _over=""
   [[ -f "${_sec}" ]] || fail "the committed roster has no seconds.txt"
   _t="$(yq '.jobs.mutation-roster.strategy.matrix.shard | length' "${_wf}")"
   [[ "${_t}" =~ ^[1-9][0-9]*$ ]] && (( _t >= 2 )) \
@@ -284,17 +302,16 @@ SEEDS
       | sed -n 's/.*"row":"\([^"]*\)".*/\1/p')"
     [[ -n "${_rows}" ]] || fail "--check --shard ${_k}/${_t} dealt no row"
     printf '%s\n' "${_rows}" > "${BATS_TEST_TMPDIR}/dealt"
-    _budget="$(cd /source && LC_ALL=C awk -F '\t' -v jobs="${_jobs}" '
+    _bound="$(cd /source && LC_ALL=C awk -F '\t' '
       FILENAME ~ /dealt$/ { split($0, r, ":"); want[r[1] FS r[2]] = 1; next }
       FILENAME ~ /seconds\.txt$/ { sec[$1 FS $2] = $3 + 0; next }
-      (FILENAME FS FNR) in want { n = FILENAME; sub(/.*\//, "", n); s += sec[n FS $1] }
-      END { printf "%.1f\n", s / jobs }
-    ' "${BATS_TEST_TMPDIR}/dealt" "${_sec}" script/test/mutation_required/*.tsv)"
-    awk -v b="${_budget}" 'BEGIN { exit !(b + 0 <= 300) }' \
-      || _over+="leg ${_k}/${_t}: ${_budget} s over ${_jobs} worker slots"$'\n'
+      (FILENAME FS FNR) in want { n = FILENAME; sub(/.*\//, "", n); print sec[n FS $1] }
+    ' "${BATS_TEST_TMPDIR}/dealt" "${_sec}" script/test/mutation_required/*.tsv | _leg_bound "${_jobs}")"
+    awk -v b="${_bound}" 'BEGIN { exit !(b + 0 <= 240) }' \
+      || _over+="leg ${_k}/${_t}: ${_bound} s over ${_jobs} worker slots"$'\n'
   done
   [[ -z "${_over}" ]] \
-    || fail "mutation-roster legs whose measured roster time exceeds 300 s:"$'\n'"${_over}"
+    || fail "mutation-roster legs whose list-scheduling bound exceeds 240 s:"$'\n'"${_over}"
 }
 
 # why: A row's spec is what the probe runs against that row's mutant, and
