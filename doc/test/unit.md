@@ -5323,7 +5323,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
-### test/bats/unit/pre_pr_mirror_parity_spec.bats (37)
+### test/bats/unit/pre_pr_mirror_parity_spec.bats (38)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
 plain (CI's main unit gate is the kcov `coverage` matrix) and while skipping
@@ -5370,6 +5370,7 @@ local mode with it.
 | `pre-PR mirror: every diff CI gates a job in plans that job's local command (base#1409)` | The plan's gates were hand-written and drifted from the workflow: acceptance ran in CI on every code change and locally only on system paths. Reading each job's own if: gate makes such a drift red here. |
 | `pre-PR mirror: a system-relevant diff plans system and amd64 acceptance (base#1409)` | - |
 | `pre-PR mirror: a code diff system_paths.sh does not match plans acceptance and kcov, not system (base#1409)` | - |
+| `pre-PR mirror: a diff the map selects system for but system_paths.sh does not match plans system (base#1584)` | CI gates system on classify's map, which selects it for a path system_paths.sh does not name; a plan that read system_paths.sh alone skipped `just test system` for such a diff (base#1584). |
 | `pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)` | - |
 | `pre-PR mirror: the coverage matrix is the one compute-shards computes for the same CI_SHARDS (base#1409)` | The mirror ran the unsharded `just test coverage`, one serial kcov over the suite, while CI runs a matrix of weighted shards, each dealt into COVERAGE_JOBS concurrent kcov slices (base#1410, base#1414); a failure that only that shape produces passed the mirror and went red in CI (base#1409 landing review). The matrix the mirror runs is held to the matrix compute-shards computes from the same variable. |
 | `pre-PR mirror: the coverage matrix runs each shard with CI's command and slice count, keeping each tree (base#1409)` | The shard list alone proves nothing if each shard runs another command or slice count than CI's, or if one shard's tree carries another run's reports: a coverage run merges into whatever coverage/ holds, so the matrix carried earlier reports into every later shard and the floor read lines that shard never covered (base#1409 review round 10). |
