@@ -2835,6 +2835,44 @@ _df_claim_hits() {
   (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
 }
 
+# why: an image build failed on one `404 Not Found` from a skewed apt
+# mirror (base run 42770963035, devel-base layer) because the layer ran
+# one update and one install, so the first failed fetch was final. Every
+# apt layer -- live, and commented for a consumer to uncomment -- runs its
+# install through the bounded retry helper, which refreshes the index
+# before each attempt, base#1602. The call `apt-retry.sh 4 15 --` is the
+# literal of the approved design; the install has to be the helper's own
+# argument, not a sibling command the helper never retries.
+@test "Dockerfile.example runs every apt install through apt-retry.sh 4 15 (base#1602)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  local _helper='/usr/local/libexec/base/apt-retry.sh 4 15 --'
+  local _mode _blk _n _head
+  for _mode in live commented; do
+    _n=0
+    while IFS= read -r _blk; do
+      _n=$(( _n + 1 ))
+      [[ "${_blk}" == *"${_helper}"* ]] \
+        || fail "${_mode} apt RUN block installs without ${_helper}: ${_blk}"
+      # Nothing before the helper call installs: the first install of
+      # the block is the helper's argument.
+      _head="${_blk%%"${_helper}"*}"
+      [[ ! "${_head}" =~ ${_DF_APT_INSTALL_RE} ]] \
+        || fail "${_mode} apt RUN block installs before ${_helper}: ${_blk}"
+      [[ "${_blk#*"${_helper}"}" =~ ^[[:space:]]+${_DF_APT_INSTALL_RE} ]] \
+        || fail "${_mode} apt RUN block: ${_helper} does not wrap the install: ${_blk}"
+    done < <(_df_apt_run_blocks "${_df}" "${_mode}")
+    # Same floors as the #951 relation above (2 live, 3 commented), so an
+    # empty block list cannot pass vacuously.
+    if [[ "${_mode}" == live ]]; then
+      (( _n >= 2 )) || fail "expected >= 2 live apt RUN blocks in ${_df}, found ${_n}"
+    else
+      (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
+    fi
+  done
+}
+
 # why: pins the helper behind that relation against a scratch fixture: `RUN
 # <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must
 # be closed by its delimiter -- live and commented, order enforced inside
