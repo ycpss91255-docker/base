@@ -696,6 +696,38 @@ STUB
   assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 == p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
 }
 
+# why: The witness filter shrank only the mutated pass; the unmutated
+# baseline still ran every @test in the spec, so a row whose spec holds 226
+# tests paid two whole-spec passes when its witnesses are two of them
+# (base#1582). A red needs only its own tests green unmutated, so a row
+# with a witness runs its baseline under the same filter: both of its
+# runner calls, the one that saw the mutation and the one that did not,
+# carry the filter. The same argv wrapper as the case above records each
+# call's last argument under its pid.
+@test "witness: a row with a sixth column runs its unmutated baseline under the same filter (base#1582)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\t%s\n' "$$" "${@: -1}" >> "${MR_RUNNER_LOG:?}.argv"
+if [[ "${@: -1}" == *.bats ]]; then
+  exec "${0}.inner" "$@"
+fi
+exec "${0}.inner" "${@:1:$#-1}"
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  local -a _diffs=()
+  mapfile -t _diffs < <(find "${MR_DIFF_DIR}" -name 'diff.*')
+  assert_equal "${#_diffs[@]}" 1
+  local _pid="${_diffs[0]##*.}"
+  assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 != p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
+}
+
 # ── one sandbox per worker slot ─────────────────────────────────────────────
 
 # why: Each row built its own sandbox (mktemp, a tar copy of every tracked
