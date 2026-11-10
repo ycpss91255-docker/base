@@ -1030,20 +1030,35 @@ _rp_copy() {
 # The steps whose verdict does not depend on a case's plant (base#1547).
 readonly -a _RP_REUSED_STEPS=(20-gomod-oracle 30-watch-gosum)
 
+# _rp_runner <case> <out> <err> [VAR=value...] -- <runner arg>... -- the
+# one place the redpath calls the runner: told <case>, its stdout to <out>
+# and its stderr to <err>, with any VAR=value words added to its
+# environment; returns the runner's status. Its log is JSON whatever the
+# caller set, because the verdicts read its records. The mutation context
+# is pr with no base override whatever the caller inherited (base#1464): a
+# CI main push exports main-push, and a one-commit copy has no HEAD^1. The
+# shared pass and every case call go through here, so both get that
+# environment (base#1547).
+_rp_runner() {
+  local name="${1}" out="${2}" err="${3}"
+  local -a words=()
+  shift 3
+  while [[ "${1}" != -- ]]; do words+=("${1}"); shift; done
+  shift
+  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
+    CONFIG_GEN_REDPATH_CASE="${name}" "${words[@]}" \
+    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" "$@" >"${out}" 2>"${err}"
+}
+
 # _rp_gates <root> <case> [VAR=value...] -- run the runner on <root>, its
 # stdout to <root>.out and its stderr to <root>.err, with any VAR=value
-# words added to its environment; returns the runner's status. Its
-# log is JSON whatever the caller set, because the verdicts read its
-# records. The mutation context is pr with no base override whatever the
-# caller inherited (base#1464): a CI main push exports main-push, and a
-# one-commit copy has no HEAD^1. The steps in _RP_REUSED_STEPS are
-# named in CONFIG_GEN_STEPS_REUSED, so the runner skips them: the shared
-# pass already ran them, and the caller's _rp_reuse_check proved <root>
-# reads what that pass read (base#1547).
+# words added to its environment; returns the runner's status. The steps
+# in _RP_REUSED_STEPS are named in CONFIG_GEN_STEPS_REUSED, so the runner
+# skips them: the shared pass already ran them, and the caller's
+# _rp_reuse_check proved <root> reads what that pass read (base#1547).
 _rp_gates() {
-  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
-    CONFIG_GEN_REDPATH_CASE="${2}" CONFIG_GEN_STEPS_REUSED="${_RP_REUSED_STEPS[*]}" "${@:3}" \
-    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
+  _rp_runner "${2}" "${1}.out" "${1}.err" CONFIG_GEN_STEPS_REUSED="${_RP_REUSED_STEPS[*]}" "${@:3}" \
+    -- --root "${1}"
 }
 
 # _rp_digest <root> -- the digest of what _RP_REUSED_STEPS read in <root>.
@@ -1524,10 +1539,7 @@ _rp_selected() {
 # stdout goes to <root>.shared.out and its stderr to <root>.shared.err.
 _rp_shared() {
   local rc=0
-  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
-    CONFIG_GEN_REDPATH_CASE=shared \
-    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" --steps-only \
-    >"${1}.shared.out" 2>"${1}.shared.err" || rc=$?
+  _rp_runner shared "${1}.shared.out" "${1}.shared.err" -- --root "${1}" --steps-only || rc=$?
   (( rc == 0 )) && return 0
   cat "${1}.shared.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_shared_failed "status=${rc}" \
