@@ -370,6 +370,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -381,6 +382,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       - name: Run ShellCheck inside the test-tools image
         run: ./script/test/test.sh --lint --shellcheck
@@ -430,6 +443,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -441,6 +455,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       - name: Run the doc/test count drift gate inside the test-tools image
         run: ./script/test/test.sh --lint --doc-counts
@@ -723,6 +749,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -734,6 +761,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       # The step name lists the lints its group runs, so the checks page
       # says which lints a leg ran rather than only its group number
@@ -799,6 +838,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -810,6 +850,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       # The just-pin steps are copied from the acceptance job, which
       # carries their rationale.
@@ -895,6 +947,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -911,6 +964,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       - name: Run Hadolint via the driver (single source of truth)
         run: ./script/test/test.sh --lint --hadolint
@@ -1018,6 +1083,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -1034,6 +1100,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       - name: Run Bats kcov-fragile specs (plain mode)
         run: ./script/test/test.sh --bats-fragile
@@ -1231,6 +1309,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: steps.obtain.outputs.build_local == 'true'
         uses: docker/build-push-action@v7
         with:
@@ -1247,6 +1326,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       - name: Run kcov coverage shard ${{ matrix.shard }}
         # A step bound below the job's 60, so a hang the per-test bound
@@ -1587,6 +1678,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
+        id: testtools_build
         if: ${{ steps.obtain.outputs.build_local == 'true' }}
         uses: docker/build-push-action@v7
         with:
@@ -1603,6 +1695,18 @@ jobs:
           load: true
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
+
+      - name: Warn when the test-tools cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.testtools_build.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.testtools_build.outputs.metadata }}
+          CACHE_EXPORT_LABEL: test-tools
+        run: bash ./script/ci/build_worker/cache_export_warn.sh
 
       - name: Run system specs (docker.sock-mounted ci-system service)
         # The ids come from `id`, not from a literal: this is the one job
