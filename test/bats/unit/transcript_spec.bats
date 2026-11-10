@@ -513,6 +513,7 @@ STUB
   assert_output --partial "transcript_file_unwritable"
 }
 
+# bats test_tags=kcov-fragile
 @test "_transcript_begin: tee-missing degrades to no-op + WARN (#691)" {
   # The tee-less PATH stub perturbs the kcov coverage wrapper (which itself
   # shells out through PATH), not the helper; the degrade path is covered by

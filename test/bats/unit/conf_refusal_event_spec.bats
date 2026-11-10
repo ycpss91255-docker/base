@@ -103,6 +103,7 @@ _assert_conf_unchanged() {
   _assert_conf_unchanged
 }
 
+# bats test_tags=kcov-fragile
 # why: A temp file that cannot be created must stop the rewrite before the
 # destination is touched. FORCED by shadowing `mktemp` with a shell
 # function that fails: as root (the test-tools image) no directory mode
@@ -138,6 +139,7 @@ _assert_conf_unchanged() {
   _assert_conf_unchanged
 }
 
+# bats test_tags=kcov-fragile
 # why: The rewrite must take the destination's mode before it lands, or a
 # user's setup.toml is left at 0600. FORCED by shadowing `chmod` with a
 # shell function that fails: root's chmod does not fail on a real file.
@@ -156,6 +158,7 @@ _assert_conf_unchanged() {
   _assert_conf_unchanged
 }
 
+# bats test_tags=kcov-fragile
 # why: A failed final mv (a read-only mount) must be reported, the temp
 # removed and the destination left alone. FORCED by shadowing `mv` with a
 # shell function that fails: root can replace a file in any directory

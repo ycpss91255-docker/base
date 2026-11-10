@@ -310,6 +310,7 @@ ci_invalid_per_test_timeout
 ci_no_fragile_files
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
+ci_coverage_unexplained_skip
 ci_coverage_merge_failed
 ci_coverage_union_unevidenced
 ci_coverage_union_incomplete
