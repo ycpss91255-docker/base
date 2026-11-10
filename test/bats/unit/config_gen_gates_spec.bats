@@ -1837,6 +1837,64 @@ _redpath_plan_refused() {
   assert_equal "${_got}" "${_want}"
 }
 
+# _rp_shard_bound <jobs> -- the wall-time bound on one redpath shard whose
+# rows are on stdin, `<seconds> TAB <serial>`, one per case, <serial> 1 for a
+# case the redpath runs alone and 0 for one it runs in the pool: the
+# list-scheduling (Graham) bound of the pooled rows over <jobs> slots,
+# sum/jobs + max * (1 - 1/jobs), plus the sum of the serial rows, which run
+# one by one after the pool drains.
+_rp_shard_bound() {
+  LC_ALL=C awk -F '\t' -v jobs="${1}" '
+    $2 == 1 { ser += $1; next }
+    { s += $1; if ($1 + 0 > m) m = $1 + 0 }
+    END { printf "%.1f\n", s / jobs + m * (1 - 1 / jobs) + ser }
+  '
+}
+
+# why: The owner's target is at most 5 minutes per CI job (base#1606). A
+# redpath shard drains its pool of CONFIG_GEN_REDPATH_JOBS slots first, then
+# runs each _RP_SERIAL case alone, then rerun, then retro, so its wall time
+# is bounded by the Graham bound of its pooled rows plus the sum of its
+# serial rows; the Graham bound over all its rows, or sum/J, is not one
+# (worked literal: J=4, pooled 100,10,10,10 and serial 50 -> 32.5 + 75 + 50
+# = 157.5, where Graham over all five rows gives 120 and sum/J 45). For
+# every shard of script/test/config_gen_redpath_shards.tsv, each row is
+# weighed by script/test/config_gen_redpath_seconds.tsv and bounded over
+# the config-gen-redpath job's CONFIG_GEN_REDPATH_JOBS (else 4, the hosted
+# runner's nproc, the redpath's default). That bound must be at most 219 s:
+# 300 s less the 46 s fixed cost measured on hosted run 42801857859 (job
+# start to first case) and the 35 s margin base#1582 keeps.
+@test "config_gen_redpath.sh: every shard of the tsv has a list-scheduling bound within 219 s over the job's worker slots (base#1606)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  run _rp_shard_bound 4 <<< $'100\t0\n10\t0\n10\t0\n10\t0\n50\t1'
+  assert_success
+  assert_output "157.5"
+  local _wf=/source/.github/workflows/self-test.yaml
+  local _tsv=/source/script/test/config_gen_redpath_shards.tsv
+  local _sec=/source/script/test/config_gen_redpath_seconds.tsv
+  local _n _k _jobs _serial _bound _over=""
+  [[ -f "${_sec}" ]] || fail "no seconds file at script/test/config_gen_redpath_seconds.tsv"
+  _n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${_tsv}")"
+  [[ -n "${_n}" ]] || fail "the shard table's first line is not '# shards=<N>': $(head -n 1 "${_tsv}")"
+  _jobs="$(yq '.jobs.config-gen-redpath.env.CONFIG_GEN_REDPATH_JOBS // 4' "${_wf}")"
+  [[ "${_jobs}" =~ ^[1-9][0-9]*$ ]] || fail "config-gen-redpath sets CONFIG_GEN_REDPATH_JOBS to '${_jobs}'"
+  _serial="$(bash -c 'source "$1" && printf "%s\n" "${_RP_SERIAL[@]}" rerun retro' _ "${REDPATH}")"
+  [[ -n "${_serial}" ]] || fail "_RP_SERIAL printed no case"
+  printf '%s\n' "${_serial}" > "${BATS_TEST_TMPDIR}/serial"
+  for (( _k = 1; _k <= _n; _k++ )); do
+    _bound="$(LC_ALL=C awk -F '\t' -v k="${_k}" '
+      FILENAME ~ /serial$/ { ser[$1] = 1; next }
+      FILENAME ~ /seconds\.tsv$/ { sec[$1] = $2 + 0; next }
+      /^#/ { next }
+      $2 == k { printf "%s\t%d\n", sec[$1] + 0, ($1 in ser) }
+    ' "${BATS_TEST_TMPDIR}/serial" "${_sec}" "${_tsv}" | _rp_shard_bound "${_jobs}")"
+    awk -v b="${_bound}" 'BEGIN { exit !(b + 0 <= 219) }' \
+      || _over+="shard ${_k}/${_n}: ${_bound} s over ${_jobs} worker slots"$'\n'
+  done
+  [[ -z "${_over}" ]] \
+    || fail "config-gen redpath shards whose list-scheduling bound exceeds 219 s:"$'\n'"${_over}"
+}
+
 # why: The redpath runs its cases one after another, so a job's time is the
 # sum of every case's build (base#1547). With CONFIG_GEN_REDPATH_JOBS=4 up
 # to four cases run at once. fmt, vet, lint and race each wait at a barrier
