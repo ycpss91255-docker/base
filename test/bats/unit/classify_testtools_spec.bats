@@ -246,3 +246,22 @@ _context_copy_paths() {
   [[ -z "${_missed}" ]] || fail \
       "a push run left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
 }
+
+# why: base#1584 says a pull request touching a path the map does not
+# know runs every heavy job (fail closed). The map's own CLI already
+# answers that (check_selection_spec.bats), but the rollup and the job
+# gates read what classify's diff step WRITES, so the pull-request arm
+# of the real step has to carry the answer through. `zz-new/thing.txt`
+# names no directory the repo has, so no exclusion can apply to it.
+@test "classify: a pull request touching an unknown path writes every heavy job's selection as true (base#1584)" {
+  run _classify_pr zz-new/thing.txt
+  assert_success
+  local _job _missed=""
+  for _job in select_config_gen select_mutation_roster select_coverage \
+              select_acceptance select_system; do
+    grep -qx "${_job}=true" <<< "${output}" \
+      || _missed="${_missed} ${_job}"
+  done
+  [[ -z "${_missed}" ]] || fail \
+      "a pull request touching an unknown path left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
+}
