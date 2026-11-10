@@ -127,7 +127,10 @@ main() {
       # E3: under script/, the trace and _rp_copy read only script/watch,
       # script/test and script/ci (kept above), so every other script/
       # path drops config-gen (base#1584).
-      dist/* | script/*)
+      # E4: the root init.sh is not in the trace, _rp_copy does not copy
+      # it, and no script/test/config_gen* file or
+      # dockerfile/Dockerfile.config-gen names it (base#1584).
+      dist/* | script/* | init.sh)
         for _job in "${_CS_JOBS[@]}"; do
           [[ "${_job}" == config-gen ]] || _sel["${_job}"]=true
         done
