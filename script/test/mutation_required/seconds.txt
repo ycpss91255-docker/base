@@ -7,7 +7,7 @@ s1b.tsv	coverage-profile-line	30.3
 s1b.tsv	coverage-profile-missing	28.3
 s1b.tsv	coverage-profile-mode	31.0
 s1b.tsv	coverage-test-failed	29.8
-s1b.tsv	redpath-control	40.6
+s1b.tsv	redpath-control	16.2
 s1b.tsv	redpath-earlier-gate	43.3
 s1b.tsv	redpath-gate-record	44.0
 s1b.tsv	redpath-rc-zero	44.2
@@ -21,7 +21,7 @@ s1b.tsv	runner-gate-id-reemit	40.5
 s1b.tsv	runner-root-invalid	32.6
 s1b.tsv	runner-step-status	39.8
 s1b.tsv	runner-usage-missing-root	40.4
-s1b.tsv	runner-usage-unknown	37.7
+s1b.tsv	runner-usage-unknown	14.8
 s1b.tsv	spec-workflow-env-keys	42.8
 s1b.tsv	spec-workflow-top-keys	37.2
 s1c.tsv	decl-gomod-branch	24.9
@@ -244,7 +244,8 @@ s1e.tsv	lang-record-status	24.5
 s1e.tsv	lang-record-two-arity	33.3
 s1e.tsv	lang-stale-encode	21.8
 s1e.tsv	lang-unquote-octal	35.9
-s1e.tsv	recipe-go-full-redpath	27.9
+s1e.tsv	recipe-go-full-redpath	14.5
+s1e.tsv	recipe-go-unsharded-redpath	15.2
 s1e.tsv	redpath-coverage-detail	62.1
 s1e.tsv	redpath-coverage-event	43.1
 s1e.tsv	redpath-coverage-gate	59.4
@@ -254,10 +255,10 @@ s1e.tsv	redpath-coverage-unregistered	57.8
 s1e.tsv	redpath-exit-rc-not-one	33.8
 s1e.tsv	redpath-exit-rc-zero	42.5
 s1e.tsv	redpath-locale-env	42.5
-s1e.tsv	redpath-locale-musl	98.2
+s1e.tsv	redpath-locale-musl	46.2
 s1e.tsv	redpath-locale-no-localedef	40.5
 s1e.tsv	redpath-locale-unaffected	41.5
-s1e.tsv	redpath-only-scope	73.5
+s1e.tsv	redpath-only-scope	32.5
 s1e.tsv	redpath-refusal-wrong-id	65.5
 s1e.tsv	redpath-refused-exit	38.0
 s1e.tsv	redpath-refused-stdout	56.3

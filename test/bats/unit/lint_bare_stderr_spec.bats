@@ -157,6 +157,26 @@ EOF
   assert_output --partial "1 bare stderr output(s) found"
 }
 
+# why: config-gen's timing lines are read back by line shape, the gates
+# runner's `config-gen stage=` and the redpath's `config-gen redpath
+# case=`, so a _log_* prefix would break their readers (base#1547)
+@test "does NOT flag a printf of a config-gen stage= or redpath case= timing line, but still flags any other bare stderr in the same file (base#1547)" {
+  cat > "${FIXTURE}/script/test/config_gen_thing.sh" <<'EOF'
+#!/usr/bin/env bash
+_thing() {
+  printf 'config-gen stage=%s start=%s end=%s secs=%s status=%s\n' "${1}" "${2}" "${3}" "${4}" "${5}" >&2
+  printf 'config-gen redpath case=%s start=%s end=%s secs=%s result=%s\n' "${1}" "${2}" "${3}" "${4}" "${5}" >&2
+  printf 'config-gen other=%s\n' "${1}" >&2
+}
+EOF
+  run bash "${LINT}" "${FIXTURE}"
+  assert_equal "${status}" 1
+  assert_output --partial "script/test/config_gen_thing.sh:5:"
+  refute_output --partial "config_gen_thing.sh:3:"
+  refute_output --partial "config_gen_thing.sh:4:"
+  assert_output --partial "1 bare stderr output(s) found"
+}
+
 # why: live-tree guard against path drift
 @test "the real repo tree (default root) is clean (#692)" {
   # No $1: the lint defaults its root to two levels up from the script,

@@ -6,15 +6,21 @@
 # mutation gate maps (base#1467); the coverage RUN runs it from the module
 # root inside the golang image:
 #
-#   bash /mutation/coverage.sh --measure <file> <corpus root record>
+#   bash /mutation/coverage.sh --measure <file> <corpus root record> \
+#     [--profile <merged profile>]
 #
 # The record is the one line the race RUN wrote,
 # <module>/internal/testcorpus.root=<dir> (base#1468).
 #
 # Every package `go list ./...` names is tested into a profile of its own,
 # and one line per package, `<import path>\t<statements>\t<covered>`, is
-# written to <file> (a package with no statements is `<pkg>\t0\t0`). The
-# gate judges no floor: cmd/cg-gates ratchet reads <file> and judges each
+# written to <file> (a package with no statements is `<pkg>\t0\t0`).
+# With --profile, no go test runs: the one merged atomic profile the race
+# RUN wrote is split per listed package, a block going to the package whose
+# import path equals its file's directory, and each part is counted the
+# same way; a package with no block (no statements) is `<pkg>\t0\t0`, as
+# its own profile would give (base#1547).
+# The gate judges no floor: cmd/cg-gates ratchet reads <file> and judges each
 # package against coverage-floors.d and floors.base (base#1465).
 # Fail-closed: every way the measurement can go missing is a refusal,
 # never a count.
@@ -26,7 +32,9 @@
 #   test_failed          the package's go test exited non-zero
 #   profile_invalid      the profile is missing, is not `mode: atomic`,
 #                        carries a malformed line, or a line from any other
-#                        package
+#                        package; a merged profile carries a second mode
+#                        line or a block of a directory go list does not
+#                        name
 #
 # A refusal is one line on stderr,
 #   config_gen_gate_coverage_failed reason=<reason> pkg=<import path>
@@ -63,6 +71,34 @@ _measure() {
   printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
 }
 
+# _block_dirs <merged profile> -- the directory of each block's file, one
+# per line, sorted and unique: the import paths the profile holds blocks
+# of.
+_block_dirs() {
+  awk 'NR > 1 && $0 != "" { d = $0; sub(/:.*/, "", d); sub(/\/[^\/]*$/, "", d); print d }' \
+    "${1}" | LC_ALL=C sort -u
+}
+
+# _split <dir> <index> <import path> <merged profile> -- write the merged
+# profile's header and the blocks whose file's directory is exactly <pkg>
+# to <dir>/<index>.out, then count it as _measure does. A package with no
+# block is a package with no statements (a test-only package, or types
+# alone): go test writes only the header for it, so _measure counts it
+# 0 0, and so does this (base#1547).
+_split() {
+  local dir="${1}" i="${2}" pkg="${3}" prof="${1}/${2}.out" counts
+  awk -v pkg="${pkg}" '
+    NR == 1 { print; next }
+    {
+      d = $0
+      sub(/:.*/, "", d)
+      sub(/\/[^\/]*$/, "", d)
+      if (d == pkg) print
+    }' "${4}" > "${prof}"
+  counts="$(_count "${prof}" "${pkg}")" || _refuse profile_invalid "${pkg}"
+  printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
+}
+
 # _count <profile> <import path> -- print `<stmts>\t<covered>`; exit 1 when
 # the profile is not a valid profile of <pkg>.
 # A block a profile repeats (one per test binary that ran it) counts once,
@@ -91,7 +127,7 @@ _count() {
 }
 
 main() {
-  local listing dir pkg out="" x='' i=0
+  local listing dir pkg out="" x='' i=0 merged=''
   if [[ "${1:-}" != --measure || -z "${2:-}" ]]; then
     _refuse usage
   fi
@@ -100,8 +136,23 @@ main() {
   if [[ -f "${1:-}" ]]; then IFS= read -r x <"${1}" || true; fi
   [[ -n "${x}" ]] || _refuse corpus_root_missing
   _CG_X="${x}"
+  if [[ "${2:-}" == --profile ]]; then
+    [[ -f "${3:-}" ]] || _refuse profile_invalid
+    # One `mode: atomic` header and no other mode line (base#1547): _split
+    # keeps only line 1 as the header, so a second one would be dropped.
+    awk 'NR == 1 && $0 == "mode: atomic" { next } /^mode:/ { bad = 1 }
+      END { exit (NR == 0 || bad) }' "${3}" || _refuse profile_invalid
+    merged="${3}"
+  fi
   listing="$(go list -f '{{.ImportPath}}' ./...)" || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
+  # A block of a directory go list does not name is from another tree,
+  # the merged counterpart of the line from another package _count
+  # refuses in a package's own profile (base#1547).
+  if [[ -n "${merged}" ]]; then
+    pkg="$(LC_ALL=C comm -23 <(_block_dirs "${merged}") <(cut -f1 <<<"${listing}" | LC_ALL=C sort -u))"
+    [[ -z "${pkg}" ]] || _refuse profile_invalid "${pkg%%$'\n'*}"
+  fi
   dir="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${dir} now; it is local to main
   trap "rm -rf '${dir}'" EXIT
@@ -109,7 +160,11 @@ main() {
   while IFS=$'\t' read -r pkg _; do
     [[ -n "${pkg}" ]] || continue
     i=$(( i + 1 ))
-    _measure "${dir}" "${i}" "${pkg}"
+    if [[ -n "${merged}" ]]; then
+      _split "${dir}" "${i}" "${pkg}" "${merged}"
+    else
+      _measure "${dir}" "${i}" "${pkg}"
+    fi
   done <<<"${listing}"
   cp "${dir}/measured" "${out}"
 }
