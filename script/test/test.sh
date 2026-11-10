@@ -1048,6 +1048,9 @@ Options:
                           checkouts sharing a directory basename do not
                           share a project) and exit. COMPOSE_PROJECT_NAME,
                           when set, is echoed verbatim.
+  --selection --paths     Print the per-job selection CI's classify job
+                          computes for the NUL-separated paths on stdin
+                          (script/ci/check_selection.sh, base#1584)
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -2722,6 +2725,10 @@ main() {
   # `--await-project`. Recorded rather than answered on the spot: see the
   # dispatch below the flag-combination guards.
   local name_query="" repair=""
+  # `--selection --paths` (base#1584): the per-job selection CI's classify
+  # job computes, read from NUL-separated paths on stdin. A query like the
+  # ones above, so it is answered below the guards too.
+  local selection_paths=""
   # Neither a query nor a repair: a CHECK over a file the caller names.
   # Recorded rather than answered on the spot, for the same reason the
   # queries are -- see the dispatch below the flag-combination guards.
@@ -2819,6 +2826,8 @@ main() {
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
       --compose-project-name) name_query="compose-project-name"; shift ;;
+      --selection) name_query="selection"; shift ;;
+      --paths) selection_paths=1; shift ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
@@ -2879,8 +2888,16 @@ main() {
   # the rest of the command line has even been read: `--jobs 4
   # --compose-project-name` printed a name and swallowed the typo, and a
   # misspelt flag after one of these was never reported either.
+  if [[ -n "${selection_paths}" && "${name_query}" != "selection" ]]; then
+    _die ci_paths_without_selection \
+      "--paths reads the diff of --selection; use './test.sh --selection --paths'."
+  fi
   if [[ -n "${name_query}" ]]; then
     case "${name_query}" in
+      selection)
+        bash "${REPO_ROOT}/script/ci/check_selection.sh" --event pull_request --paths
+        return $?
+        ;;
       test-tools-image) _resolve_test_tools_image; return 0 ;;
       compose-project-name) _resolve_compose_project_name; return 0 ;;
       await-project)
