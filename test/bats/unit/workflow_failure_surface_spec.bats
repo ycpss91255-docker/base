@@ -295,6 +295,21 @@ _rollup_env_for() {
   [ -n "${_sel_var}" ]
 }
 
+# why: mutation-roster had no `if:` and sat in the rollup's hard-mandatory
+# loop, so a PR whose diff cannot reach a roster spec still paid for the
+# whole roster. The issue (base#1584) asks that a PR run only the checks
+# its diff can affect, so a mutation-roster skip that classify decided
+# (it did not select the job) must let the required check pass.
+@test "self-test: the rollup accepts a mutation-roster skip that classify decided (base#1584)" {
+  local _sel_var
+  _sel_var="$(_rollup_env_for select_mutation_roster)"
+  run _rollup_selected MUTATION_ROSTER_RESULT=skipped \
+      "${_sel_var:-SELECT_MUTATION_ROSTER}=false"
+  assert_success
+  assert_output --partial 'mutation-roster:  skipped'
+  [ -n "${_sel_var}" ]
+}
+
 # ── 4. concurrency and timeouts ───────────────────────────────────────
 
 # _triggerable_workflows
