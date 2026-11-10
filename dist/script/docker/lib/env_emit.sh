@@ -407,7 +407,7 @@ _scaffold_env_local() {
 # `.env` is OURS: `just docker setup apply` regenerates it from setup.toml
 # and an edit there is lost. Machine-bound / set-once params (GPU,
 # privileged, mounts, IMAGE_NAME, APT mirror) belong in setup.toml instead.
-# See README "Where each parameter lives (env vs workload)".
+# See .base/doc/guide/env-vs-workload.md.
 EOF
 }
 
