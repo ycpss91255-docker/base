@@ -24,5 +24,6 @@ while :; do
     exit "${rc}"
   fi
   sleep "${delay}"
+  delay=$((delay * 2))
   i=$((i + 1))
 done
