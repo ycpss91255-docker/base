@@ -102,3 +102,18 @@ EOS
   assert_equal "${#lines[@]}" 1
   assert_output --regexp '^::warning title=cache export::devel-test: .+$'
 }
+
+@test "cache_export_warn: a record with no cache export vertex prints one ::warning:: and exits 0 (base#1602)" {
+  # The build steps of ycpss91255-docker/isaac run 42753553284 attempt 1
+  # (vertex #62) with no `exporting to GitHub Actions Cache` vertex after
+  # them: the build asked for a cache export the record never shows, so a
+  # success cannot be shown and the script must warn.
+  cat > "${RECORD}" <<'EOS'
+#62 [devel 9/9] RUN true
+#62 DONE 0.1s
+EOS
+  run bash "${SCRIPT}"
+  assert_success
+  assert_equal "${#lines[@]}" 1
+  assert_output --regexp '^::warning title=cache export::devel-test: .+$'
+}
