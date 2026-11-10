@@ -1761,6 +1761,18 @@ YAML
   assert_success
   run grep -F 'contents: read' <<<"${_classify}"
   assert_success
+  # merge_group_trust.sh reads these five names (`: "${X:?}"` under
+  # set -e, gh reads GH_TOKEN); a missing one exits non-zero and turns
+  # classify red on every queue run, so each must map to its payload field.
+  run _yaml_eval "${WF}" '.jobs.classify.steps[] | select(.id == "trust") | .env | to_entries | .[] | .key + "=" + .value'
+  assert_success
+  assert_output - <<'EOF'
+GH_TOKEN=${{ github.token }}
+REPO=${{ github.repository }}
+BASE_REF=${{ github.event.merge_group.base_ref }}
+HEAD_SHA=${{ github.event.merge_group.head_sha }}
+HEAD_REF=${{ github.event.merge_group.head_ref }}
+EOF
 }
 
 # why: build-worker's merge_group_same_repo input defaults to 'false', so a
