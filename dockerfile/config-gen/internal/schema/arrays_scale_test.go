@@ -34,7 +34,7 @@ func leastDecodeCPU(t *testing.T, small, large []byte, rounds int) (ts, tl time.
 		Decode(src)
 		return threadCPU(t) - start
 	}
-	one(small)
+	one(small) // warm-up, not counted
 	ts, tl = time.Duration(1<<63-1), time.Duration(1<<63-1)
 	for range rounds {
 		ts, tl = min(ts, one(small)), min(tl, one(large))
@@ -71,9 +71,11 @@ func TestDecodeTenThousandEntriesInBoundedTime(t *testing.T) {
 		}
 	}
 
-	ts, tl := leastDecodeCPU(t, manyVolumes(5000), manyVolumes(40000), 5)
-	if ratio := float64(tl) / float64(ts); ratio >= 14 {
-		t.Errorf("Decode of 40,000 entries took %v of CPU, %.1f times the %v of 5,000; want under 14 (linear is about 8)", tl, ratio, ts)
+	const small, large, rounds, maxRatio = 5000, 40000, 5, 14
+	ts, tl := leastDecodeCPU(t, manyVolumes(small), manyVolumes(large), rounds)
+	if ratio := float64(tl) / float64(ts); ratio >= maxRatio {
+		t.Errorf("Decode of %d entries took %v of CPU, %.1f times the %v of %d; want under %d (linear is about %d)",
+			large, tl, ratio, ts, small, maxRatio, large/small)
 	}
 }
 
