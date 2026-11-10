@@ -1607,6 +1607,69 @@ _redpath_reset() {
   done
 }
 
+# _redpath_plan_refused <label> <attr> [VAR=value...] -- run the scratch
+# redpath with the VAR=value words under `timeout 30`; fail unless it exits
+# 2 with a config_gen_usage_invalid record naming <attr>, and the runner
+# was never called, the shared pass included.
+_redpath_plan_refused() {
+  local _label="${1}" _attr="${2}"
+  shift 2
+  rm -f "${S}/runner.order" "${S}/runner.n"
+  run --separate-stderr timeout 30 env -u CONFIG_GEN_REDPATH_ACTIVE -u CONFIG_GEN_REDPATH_ONLY \
+      REDPATH_TOP="${BASHPID}" PATH="${S}/bin:${PATH}" LOG_FORMAT=json "$@" \
+      bash "${S}/repo/script/test/config_gen_redpath.sh"
+  (( status == 2 )) || fail "${_label}: exited ${status}, not 2: $(tail -n 3 <<<"${stderr}")"
+  assert_refusal 2 config_gen_usage_invalid "${_attr}"
+  if [[ -s "${S}/runner.order" || -s "${S}/runner.n" ]]; then
+    fail "${_label}: the runner was called: $(cat "${S}/runner.order" "${S}/runner.n" 2>/dev/null | paste -sd' ')"
+  fi
+}
+
+# why: The shard table is the plan's only record of which job runs which
+# case (base#1547). A CONFIG_GEN_REDPATH_SHARD whose N is not the table's
+# `# shards=<N>` names a split the workflow does not run: a 1..3 matrix
+# against a table of N > 3 shards would silently skip shards 4..N, rerun
+# among them (base#1547 review round 1 finding 5). A table that drops a
+# case, gives rerun no row or two, names a case that does not exist, gives
+# a row a shard outside 1..N or leaves a shard 1..N with no row splits the
+# run into something other than a partition of it. Each one, and SHARD
+# together with ONLY, or an ONLY that names no case, is refused as usage,
+# exit 2, naming what is wrong, before the runner is called at all. Every
+# table here is the real one with one edit, so a rebalance keeps each edit
+# meaningful.
+@test "config_gen_redpath.sh: a SHARD or shard table that does not partition the run is refused as usage before any runner call (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _tsv="${S}/repo/script/test/config_gen_redpath_shards.tsv" _real _n
+  _real="$(cat "${_tsv}")"
+  _n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${_tsv}")"
+  [[ -n "${_n}" ]] || fail "the shard table's first line is not '# shards=<N>'"
+  _redpath_plan_refused "SHARD=1/$(( _n + 1 )) against shards=${_n}" arg=CONFIG_GEN_REDPATH_SHARD \
+    CONFIG_GEN_REDPATH_SHARD="1/$(( _n + 1 ))"
+  if (( _n > 1 )); then
+    _redpath_plan_refused "SHARD=1/$(( _n - 1 )) against shards=${_n}" arg=CONFIG_GEN_REDPATH_SHARD \
+      CONFIG_GEN_REDPATH_SHARD="1/$(( _n - 1 ))"
+  fi
+  _redpath_plan_refused "SHARD with ONLY" arg=CONFIG_GEN_REDPATH_SHARD \
+    CONFIG_GEN_REDPATH_SHARD="1/${_n}" CONFIG_GEN_REDPATH_ONLY=lint
+  _redpath_plan_refused "ONLY naming no case" case=no-such-case CONFIG_GEN_REDPATH_ONLY='lint no-such-case'
+  grep -v $'^lint\t' <<<"${_real}" > "${_tsv}"
+  _redpath_plan_refused "lint's row deleted" case=lint CONFIG_GEN_REDPATH_SHARD="1/${_n}"
+  grep -v $'^rerun\t' <<<"${_real}" > "${_tsv}"
+  _redpath_plan_refused "rerun's row deleted" case=rerun CONFIG_GEN_REDPATH_SHARD="1/${_n}"
+  printf '%s\nrerun\t1\n' "${_real}" > "${_tsv}"
+  _redpath_plan_refused "rerun given two rows" case=rerun CONFIG_GEN_REDPATH_SHARD="1/${_n}"
+  printf '%s\nno-such\t1\n' "${_real}" > "${_tsv}"
+  _redpath_plan_refused "a row naming no case" case=no-such CONFIG_GEN_REDPATH_SHARD="1/${_n}"
+  sed $'s/^lint\t.*/lint\t'"$(( _n + 1 ))"'/' <<<"${_real}" > "${_tsv}"
+  _redpath_plan_refused "lint on shard $(( _n + 1 )) of ${_n}" case=lint CONFIG_GEN_REDPATH_SHARD="1/${_n}"
+  sed $'s/^lint\t.*/lint\t0/' <<<"${_real}" > "${_tsv}"
+  _redpath_plan_refused "lint on shard 0" case=lint CONFIG_GEN_REDPATH_SHARD="1/${_n}"
+  sed "1s/.*/# shards=$(( _n + 1 ))/" <<<"${_real}" > "${_tsv}"
+  _redpath_plan_refused "shards=$(( _n + 1 )) with no row on shard $(( _n + 1 ))" "shard=$(( _n + 1 ))" \
+    CONFIG_GEN_REDPATH_SHARD="1/$(( _n + 1 ))"
+}
+
 # why: The redpath runs its cases one after another, so a job's time is the
 # sum of every case's build (base#1547). With CONFIG_GEN_REDPATH_JOBS=4 up
 # to four cases run at once. fmt, vet, lint and race each wait at a barrier
