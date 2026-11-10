@@ -21,9 +21,10 @@ name: Coverage (local parallel kcov)
 # time, so eight matrix entries run one after another).
 #
 # It also carries the self-hosted leg of the config generator's Go gates
-# (`config-gen`, base#1462): `just test go`, the one command the hosted
-# self-test job and the pre-PR mirror run too, on the machine kind the
-# hosted runners are not.
+# (`config-gen`, base#1462): `just test go`, the command the pre-PR mirror
+# runs too, and the union of the go-gates and go-redpath recipes the hosted
+# self-test jobs split it into (base#1547), on the machine kind the hosted
+# runners are not.
 #
 # -- Why it is manual ---------------------------------------------------
 #
@@ -158,8 +159,10 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gpu]
-    # The self-hosted leg of `just test go`: the SAME command the hosted
-    # self-test `config-gen` job and the pre-PR mirror run (ADR-00000039).
+    # The self-hosted leg of `just test go`: the SAME command the pre-PR
+    # mirror runs, and the union of the two recipes the hosted self-test
+    # `config-gen-gates` job and `config-gen-redpath` matrix run
+    # (ADR-00000039, base#1547).
     # self_test_yaml_spec.bats compares this job whole -- keys, `if`,
     # runs-on, steps, each step against a literal the spec holds -- and
     # this workflow's top-level keys, so no edit to this workflow can
