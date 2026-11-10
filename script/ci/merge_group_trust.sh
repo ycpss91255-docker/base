@@ -92,6 +92,19 @@ if [[ "${HEAD_REF}" =~ /pr-([0-9]+)-[0-9a-f]+$ ]]; then
   pr="${BASH_REMATCH[1]}"
 fi
 
+# The entry for HEAD_SHA must belong to the pull request HEAD_REF names;
+# when they disagree the group is not proven to be that entry: say why,
+# then answer false, base#1587.
+entry_pr="$(jq -r --arg sha "${HEAD_SHA}" \
+  '[.data.repository.mergeQueue.entries.nodes[]? | select(.headCommit.oid == $sha)] | first | .pullRequest.number // "" | tostring' \
+  <<<"${reply}")"
+if [[ "${entry_pr}" != "${pr}" ]]; then
+  printf '::error::merge_group_trust: the entry for %s is pull request %s, but %s names pr-%s\n' \
+    "${HEAD_SHA}" "${entry_pr:-none}" "${HEAD_REF}" "${pr:-none}" >&2
+  printf 'same_repo=false\n'
+  exit 0
+fi
+
 same_repo="$(jq -r --arg sha "${HEAD_SHA}" --arg pr "${pr}" \
   --arg repo "${REPO}" '
   [.data.repository.mergeQueue.entries.nodes[]?] as $all
