@@ -169,7 +169,8 @@ jobs:
     # that adding one later cannot open the hole silently. Enforced by the
     # self-hosted-guard lint.
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false

@@ -17,7 +17,7 @@
 // mutation (base#1467) runs gremlins once on each package
 // buildgate.Map draws from the change manifest and `go list -json -test
 // -deps ./...` of the working directory (a refusal of Map is printed as its
-// cg_event line on stdout), with one worker and a timeout coefficient
+// cg_event line), with one worker and a timeout coefficient
 // of 10, its report written under <dir>. Two checks judge each package,
 // in order. The first is gremlins' exit status: a non-zero exit fails the
 // package, reason gremlins_failed, and its report is not read, whatever
@@ -29,13 +29,16 @@
 // `No results to report.` and exiting 0 prints `<pkg> no-mutants` and
 // passes. Each other package prints `<pkg> ok efficacy=<e>`, or, failed,
 // `cg_event config_gen_mutation_package_failed pkg=<pkg> reason=<r>
-// [measured=<e>]` (buildgate.PackageFailed) on stdout, which the runner
+// [measured=<e>]` (buildgate.PackageFailed), which the runner
 // re-emits as a record naming the package.
 // After the last package any failure puts
-// `config_gen_gate_mutation_failed` on stderr. Before any package, each
+// `config_gen_gate_mutation_failed`. Before any package, each
 // package the manifest deletes that the head tree no longer holds prints
 // `removed <pkg>`, and a manifest that maps to no package prints
-// `mutation targets none`.
+// `mutation targets none`. mutation writes every line on stderr, the
+// writer gremlins' own output goes to, and nothing on stdout: on a second
+// pipe a verdict lost its order against gremlins' text and BuildKit put it
+// inside gremlins' unfinished progress line (base#1546).
 //
 // sensitivity (base#1467) checks that each golden file under the corpus
 // root <root> fails every package its tests were handed it by. Each
@@ -44,13 +47,15 @@
 // the source left as it is) against <root>; a red baseline prints
 // `<pkg> failed reason=baseline_failed`. The packages whose trace holds a
 // golden are its consumers. In a copy of <root> under the existing
-// directory <work>, each golden in turn has its first byte flipped and
-// each consumer runs its tests with the real Glob against the copy: one
-// that still passes prints `cg_event config_gen_corpus_sensitivity_weak
-// pkg= file=` on stdout. A golden with no consumer prints `golden=<file>
-// consumers none`, an empty one `golden=<file> failed reason=empty`. After
-// the last golden any weak pair or empty golden puts
-// `config_gen_gate_corpus_sensitivity_failed` on stderr.
+// directory <work>, each golden in turn has its first byte flipped (an
+// empty golden is given the one byte 0xff) and each consumer runs its
+// tests with the real Glob against the copy: one that still passes prints
+// `cg_event config_gen_corpus_sensitivity_weak pkg= file=` on stdout. The
+// golden is then put back as it was. A golden with no consumer prints
+// `golden=<file> consumers none`. After the last golden any weak pair puts
+// `config_gen_gate_corpus_sensitivity_failed` on stderr. A golden the
+// flip or the put-back cannot write stops the run at once with that id
+// and reason=unwritable on stderr.
 //
 // ignored (base#1467) refuses a build context holding a Git-ignored module
 // file: each path the producer's ignored.sha256 <file> lists that the
@@ -150,7 +155,7 @@ func ratchet(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-func mutation(args []string, stdout, stderr io.Writer) int {
+func mutation(args []string, _, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mutation", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	manifest := fs.String("manifest", "", "the change manifest the 00-manifest step wrote")
@@ -173,15 +178,15 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 	}
 	m, err := buildgate.Map(string(body), *module, pkgs)
 	if err != nil {
-		_, _ = fmt.Fprintln(stdout, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
 		return exitFail
 	}
 	for _, rel := range m.Removed {
-		_, _ = fmt.Fprintf(stdout, "removed %s\n", buildgate.ImportPath(*module, rel))
+		_, _ = fmt.Fprintf(stderr, "removed %s\n", buildgate.ImportPath(*module, rel))
 	}
 	if len(m.Targets) == 0 {
-		_, _ = fmt.Fprintln(stdout, "mutation targets none")
+		_, _ = fmt.Fprintln(stderr, "mutation targets none")
 	}
 	bad := false
 	for i, rel := range m.Targets {
@@ -192,14 +197,16 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 		var said strings.Builder
 		w := io.MultiWriter(stderr, &said)
 		cmd.Stdout, cmd.Stderr = w, w
-		if err := cmd.Run(); err != nil {
-			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "gremlins_failed").String())
+		err := cmd.Run()
+		text := said.String()
+		if err != nil {
+			verdict(stderr, text, buildgate.PackageFailed(pkg, "gremlins_failed").String())
 			bad = true
 			continue
 		}
 		rep, err := os.ReadFile(out)
-		if errors.Is(err, os.ErrNotExist) && strings.Contains(said.String(), noMutants) {
-			_, _ = fmt.Fprintf(stdout, "%s no-mutants\n", pkg)
+		if errors.Is(err, os.ErrNotExist) && strings.Contains(text, noMutants) {
+			verdict(stderr, text, pkg+" no-mutants")
 			continue
 		}
 		eff := 0
@@ -207,23 +214,35 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 			eff, err = buildgate.Efficacy(rep)
 		}
 		if err != nil {
-			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "report").String())
+			verdict(stderr, text, buildgate.PackageFailed(pkg, "report").String())
 			bad = true
 			continue
 		}
 		e := fmt.Sprintf("%d.%d", eff/10, eff%10)
 		if eff < buildgate.MutationFloor {
-			_, _ = fmt.Fprintln(stdout, buildgate.PackageFailed(pkg, "below", "measured", e).String())
+			verdict(stderr, text, buildgate.PackageFailed(pkg, "below", "measured", e).String())
 			bad = true
 			continue
 		}
-		_, _ = fmt.Fprintf(stdout, "%s ok efficacy=%s\n", pkg, e)
+		verdict(stderr, text, pkg+" ok efficacy="+e)
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, mutationFailed)
 		return exitFail
 	}
 	return exitOK
+}
+
+// verdict writes line and a newline on w so that line starts its own
+// line: when the bytes gremlins wrote (said) stop mid-line, a newline goes
+// first. The base#1443 step log showed gremlins leaving
+// `Gathering coverage... ` unfinished, so the verdict landed glued to it
+// (base#1546).
+func verdict(w io.Writer, said, line string) {
+	if said != "" && !strings.HasSuffix(said, "\n") {
+		line = "\n" + line
+	}
+	_, _ = fmt.Fprintln(w, line)
 }
 
 func sensitivity(args []string, stdout, stderr io.Writer) int {
@@ -239,6 +258,10 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 	}
 	unreadable := func(err error) int {
 		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unreadable\n", err, sensitivityFailed)
+		return exitFail
+	}
+	unwritable := func(err error) int {
+		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unwritable\n", err, sensitivityFailed)
 		return exitFail
 	}
 	wd, _ := os.Getwd()
@@ -270,10 +293,12 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 		os.CopyFS(flip, os.DirFS(*root)),
 	)
 	var goldens []string
+	bodies := map[string][]byte{}
 	if err == nil {
 		err = filepath.WalkDir(filepath.Join(flip, "golden"), func(p string, d fs.DirEntry, err error) error {
 			if err == nil && d.Type().IsRegular() {
 				goldens = append(goldens, p)
+				bodies[p], err = os.ReadFile(p)
 			}
 			return err
 		})
@@ -306,10 +331,12 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stdout, "golden=%s consumers none\n", g)
 			continue
 		}
-		if err := flipFirst(p); err != nil {
-			_, _ = fmt.Fprintf(stdout, "golden=%s failed reason=empty\n", g)
-			bad = true
-			continue
+		// A write that fails can leave the golden truncated or partly
+		// written, and a consumer run on it, or on the next golden's flip
+		// with this one never put back, says nothing about its
+		// sensitivity: the gate fails at once (base#1469 review round 2).
+		if err := os.WriteFile(p, perturbed(bodies[p]), 0o644); err != nil {
+			return unwritable(err)
 		}
 		for _, rel := range users {
 			cmd := exec.Command("go", "test", "-count=1", x+flip, "./"+rel)
@@ -319,7 +346,9 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 				bad = true
 			}
 		}
-		_ = flipFirst(p)
+		if err := os.WriteFile(p, bodies[p], 0o644); err != nil {
+			return unwritable(err)
+		}
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, sensitivityFailed)
@@ -366,18 +395,17 @@ func goList() ([]buildgate.Package, error) {
 	return buildgate.DecodeList(list)
 }
 
-// flipFirst inverts the first byte of the file p; an empty file is an
-// error.
-func flipFirst(p string) error {
-	b, err := os.ReadFile(p)
-	if err == nil && len(b) == 0 {
-		err = errors.New("empty")
+// perturbed is a copy of b with its first byte inverted, or the one byte
+// 0xff when b is empty, so a test comparing against a golden sees other
+// bytes either way: an input with no tables has an empty golden
+// (base#1469: the s1 fixtures empty.toml, comment_only.toml, seed.toml).
+func perturbed(b []byte) []byte {
+	if len(b) == 0 {
+		return []byte{0xff}
 	}
-	if err != nil {
-		return err
-	}
-	b[0] ^= 0xff
-	return os.WriteFile(p, b, 0o644)
+	out := append([]byte(nil), b...)
+	out[0] ^= 0xff
+	return out
 }
 
 // osExit is swapped by the tests so main itself is exercised.

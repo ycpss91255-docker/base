@@ -245,8 +245,9 @@
 # `ci-rollup`'s `needs:` (directly, because `if: always()` means it can only
 # see its own needs, and a job reached through a failed one arrives as
 # SKIPPED, which the tolerant bucket passes); every job `ci-rollup` needs is
-# bound to a `*_RESULT` and compared in EXACTLY ONE of the two result loops
-# (a needed job nothing compares is waited for and ignored); and `release`'s
+# read by the verify step (a needed job nothing compares is waited for and
+# ignored; since base#1584 the step walks ${{ toJSON(needs) }} and the
+# guard runs it with each need red in turn); and `release`'s
 # transitive `needs:` closure equals the set `ci-rollup` names, since the
 # tag path does not go through `ci-rollup`. The two defects that motivated
 # this land with it: `compute-shards` joins `ci-rollup` in the STRICT loop,
@@ -690,12 +691,13 @@ _acceptance_code() {
 
 # ── Conditional gating ───────────────────────────────────
 
-@test "self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)" {
-  # bats-fragile replaces the bats-unit matrix; same job-level skip so
-  # ci-rollup's SKIPPED=pass rule keeps doc-only PRs merge-able.
+@test "self-test.yaml: bats-fragile job-level if: gates on classify's select_bats_fragile (#677, base#1584)" {
+  # bats-fragile replaces the bats-unit matrix; a job-level skip keeps
+  # doc-only PRs merge-able. Since base#1584 it reads its own select_*
+  # key, the one ci-rollup excuses its skip with.
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_bats_fragile == 'true'"
 }
 
 @test "self-test.yaml: no monolithic 'test:' job remains after #377 split" {
@@ -706,21 +708,42 @@ _acceptance_code() {
   assert_failure
 }
 
-@test "self-test.yaml: acceptance job-level if: gates on code_changed (#317)" {
+# why: #317 gated acceptance on code_changed. base#1584 narrows it to
+# classify's map: the consumer gets the whole checkout
+# (script/ci/acceptance.sh:90), so only docs and `*_spec.bats` leaves
+# drop it, and a spec-only PR no longer pays for both arch legs.
+@test "self-test.yaml: acceptance job-level if: gates on classify's select_acceptance (#317, base#1584)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_acceptance == 'true'"
+  refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: system job-level if: gates on system_relevant (#317 P3)" {
-  # P1 shipped this with `code_changed` while the system_relevant
-  # output was emitted-but-unused; P3 tightens to the narrower output so
-  # PRs that change pure lint / unit-test paths (already covered by
-  # `test`) don't burn the docker.sock-mounted compose run.
+@test "self-test.yaml: system job-level if: gates on classify's select_system (#317 P3, base#1584)" {
+  # P3 tightened this from `code_changed` to the narrower system_relevant
+  # so pure lint / unit-test PRs don't burn the docker.sock-mounted compose
+  # run. Since base#1584 classify's map carries that answer per job.
   run yaml_job_lines "${WF}" system
   assert_success
-  assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_system == 'true'"
   refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+}
+
+# why: PR base#1559 changed one spec and two docs, code_changed was true,
+# and config-gen ran 111 min (run 42549448309). base#1584 has a pull
+# request run a heavy job only when classify's map selected it, so
+# config-gen must read its own select_config_gen output, not the
+# shared code_changed answer. base#1547 split config-gen into
+# config-gen-gates and the config-gen-redpath matrix; both read the same
+# inputs, so both gate on the one select_config_gen key, the whole `if:`
+# compared, not a substring.
+@test "self-test.yaml: both config-gen jobs' job-level if: gates on classify's select_config_gen (base#1584)" {
+  local _j
+  for _j in config-gen-gates config-gen-redpath; do
+    run env LP_J="${_j}" yq '.jobs[strenv(LP_J)].if' "${WF}"
+    assert_success
+    assert_output "needs.classify.outputs.select_config_gen == 'true'"
+  done
 }
 
 # ── buildx GHA cache on test-tools builds ────────────────
@@ -1310,8 +1333,9 @@ _builder_setups_out_of_step_with_their_consumer() {
   # PRs merge-able even though coverage is now in `needs:`.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs.coverage.result'
   assert_output --partial ', coverage,'
+  [[ "$(_rollup_rc "${WF}" '.coverage.result = "failure"')" == 1 ]] \
+    || fail "ci-rollup passes a failed coverage"
 }
 
 # why: Without it a failed need skips the rollup, and branch protection
@@ -1328,65 +1352,52 @@ _builder_setups_out_of_step_with_their_consumer() {
 # why: A need the verify step never reads is waited on and then ignored:
 # its failure turns nothing red.
 @test "self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)" {
-  # The shell verifier must inspect each upstream's ${{ needs.<job>.result }}
-  # to translate the parallel job graph into a single pass/fail signal.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'needs.actionlint.result'
-  assert_output --partial 'needs.classify.result'
-  assert_output --partial 'needs.shellcheck.result'
-  assert_output --partial 'needs.hadolint.result'
-  assert_output --partial 'needs.bats-fragile.result'
-  refute_output --partial 'needs.bats-integration.result'
-  assert_output --partial 'needs.compute-shards.result'
-  assert_output --partial 'needs.coverage.result'
-  assert_output --partial 'needs.coverage-gate.result'
-  assert_output --partial 'needs.acceptance.result'
-  assert_output --partial 'needs.system.result'
+  # The shell verifier must inspect each upstream's result to translate
+  # the parallel job graph into a single pass/fail signal. Since base#1584
+  # it reads them all from one ${{ toJSON(needs) }}, so the proof is the
+  # step run with each job red in turn.
+  local _j _bad=""
+  for _j in actionlint classify shellcheck hadolint bats-fragile \
+            compute-shards coverage coverage-gate acceptance system; do
+    [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"failure\"")" == 1 ]] \
+      || _bad+=" ${_j}"
+  done
+  [[ -z "${_bad}" ]] || fail "ci-rollup passes a failure of:${_bad}"
+  run yaml_job_needs "${WF}" ci-rollup
+  refute_line bats-integration
 }
 
-# why: The gated jobs skip on doc-only PRs by design; without the tolerant
-# loop those PRs could never merge.
-@test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)" {
-  # every PR-check job has a job-level `if:` gate that may
-  # cause it to skip on doc-only / non-system PRs (the old
-  # always-running `test` job no longer exists). The rollup must
-  # collapse SKIPPED into pass for those, otherwise doc-only PRs
-  # cannot merge.
-  #
-  # Asserted as the comparison, not as the word. `--partial 'skipped'` was
-  # satisfied by the word inside the fork-PR `::error::` message a few
-  # lines below -- a code line, so stripping comments does not help here:
-  # deleting `|| "${r}" == "skipped"` outright left this green. The
-  # membership half matters as much as the comparison: a job moved out of
-  # the tolerant loop loses its skip tolerance without touching the
-  # comparison at all.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \'
-  assert_output --partial '"${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \'
-  assert_output --partial '[[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1'
+# why: The gated jobs skip on doc-only PRs by design; without skip
+# tolerance those PRs could never merge. Since base#1584 the tolerance is
+# the rollup's skip table, and it is proven by running the lifted step,
+# not by matching its text: workflow_failure_surface_spec.bats skips every
+# gated job ci-rollup needs, in turn, with the classify answer its own
+# `if:` reads set `false` (must pass) and set `true` (must fail), and runs
+# a doc-only run with every gated job skipped (#1014, must pass). This
+# case keeps only the membership half: every gated job is one ci-rollup
+# needs, so none of them can drop out of the required check unseen.
+@test "self-test.yaml: ci-rollup needs every conditionally-gated job (#337 + #377)" {
+  local _job _bad=""
+  local _needs
+  _needs="$(yq '.jobs."ci-rollup".needs[]' "${WF}")"
+  while IFS= read -r _job; do
+    [[ -n "${_job}" && "${_job}" != "ci-rollup" && "${_job}" != "release" ]] || continue
+    grep -qxF "${_job}" <<<"${_needs}" || _bad+="${_job} "
+  done < <(yq '.jobs | to_entries[] | select((.value.if // "") | test("needs\\.classify\\.outputs\\.")) | .key' "${WF}")
+  [[ -z "${_bad}" ]] || fail "gated jobs ci-rollup does not need: ${_bad}"
 }
 
 # why: The ungated jobs never skip on purpose, so a SKIPPED there is a
 # workflow bug the strict loop must not collapse into a pass.
 @test "self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)" {
-  # actionlint + classify + doc-counts + lint-static are hard-mandatory:
-  # they carry no `if:` gate, so SKIPPED there indicates a workflow bug,
-  # not an intentional gate.
-  #
-  # Asserted as the strict comparison plus the membership of the strict
-  # loop. `--partial 'success'` matched the word anywhere in the job --
-  # every result echo, and the tolerant loop's own first disjunct -- so it
-  # held whether or not a strict bucket existed at all. The strict line is
-  # not a substring of the tolerant one (`"success"` is followed by ` ]]`
-  # there, by ` ||` here), so this discriminates between them.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \'
-  assert_output --partial '"${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \'
-  assert_output --partial '"${COMPUTE_SHARDS_RESULT}"; do'
-  assert_output --partial '[[ "${r}" == "success" ]] || fail=1'
+  # actionlint + classify + doc-counts + lint-static + mutation-roster +
+  # compute-shards are hard-mandatory: they carry no `if:` gate and no
+  # select_* key, so SKIPPED there indicates a workflow bug, not an
+  # intentional gate. Proven by running the step with each one skipped
+  # and every select_* key `false`, the most permissive classify
+  # (base#1584).
+  _rollup_hard_mandatory actionlint classify doc-counts lint-static \
+      mutation-roster compute-shards
 }
 
 # why: compute-shards carries no `if:` gate, so a SKIPPED there is a
@@ -1404,21 +1415,14 @@ _builder_setups_out_of_step_with_their_consumer() {
   # and both sit in the rollup's skipped-tolerant bucket, so a
   # compute-shards failure used to leave the required check green with the
   # whole unit suite and the coverage floor unrun.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'needs.compute-shards.result'
-
-  # In the strict loop ...
-  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
-  assert_success
-  assert_output --partial 'COMPUTE_SHARDS_RESULT'
-
-  # ... and NOT in the skipped-tolerant one. Read the tolerant loop alone:
-  # asserting over the whole job would find the name in the strict loop and
-  # pass whichever bucket it really sits in.
-  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
-  assert_success
-  refute_output --partial 'COMPUTE_SHARDS_RESULT'
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_line compute-shards
+  # Its skip fails even when classify deselected every gated job, and the
+  # coverage skips its failure cascades into fail with it (base#1584).
+  _rollup_hard_mandatory compute-shards
+  [[ "$(_rollup_rc "${WF}" '.["compute-shards"].result = "failure"
+      | .coverage.result = "skipped" | .["coverage-gate"].result = "skipped"')" == 1 ]] \
+    || fail "a compute-shards failure with coverage and coverage-gate skipped passes"
 }
 
 # ── The gate roster is DERIVED, not hand-kept ──────────────────
@@ -1436,40 +1440,6 @@ _builder_setups_out_of_step_with_their_consumer() {
 # against a list a human maintains. A job added tomorrow is covered the day
 # it lands.
 
-# _result_var <job> -- the env var ci-rollup binds a job's result to.
-# Derived from the job id (upper-case, dashes to underscores) rather than
-# looked up in a table, so the mapping cannot drift from the naming the
-# workflow already uses.
-_result_var() {
-  printf '%s_RESULT\n' "${1}" | tr 'a-z-' 'A-Z_'
-}
-
-# _rollup_loops -- ci-rollup's verify loops, one per line, as
-# `<kind> <VAR>...`. The KIND is decided by the loop BODY's comparison --
-# a body that also accepts "skipped" is the tolerant bucket, one that
-# accepts "success" alone is the strict one -- not by which variable
-# happens to be written first, so a loop reordered or renamed is still
-# classified by what it actually does.
-_rollup_loops() {
-  yaml_job_lines "${WF}" ci-rollup | awk '
-    /for r in / { collecting = 1; header = "" }
-    collecting {
-      header = header " " $0
-      if ($0 ~ /; do[[:space:]]*$/) { collecting = 0; pending = header }
-      next
-    }
-    pending != "" && /== "success"/ {
-      kind = ($0 ~ /"skipped"/) ? "tolerant" : "strict"
-      n = split(pending, parts, /[^A-Z_]+/)
-      out = kind
-      for (i = 1; i <= n; i++) {
-        if (parts[i] ~ /_RESULT$/) { out = out " " parts[i] }
-      }
-      print out
-      pending = ""
-    }
-  '
-}
 
 # _needs_closure <job> -- every job <job> transitively depends on, sorted,
 # excluding <job> itself. This is what makes the tag path answerable: a
@@ -1558,44 +1528,22 @@ _job_names() {
 }
 
 # why: Joining `needs:` is only half a gate, so the guard above is not
-# enough on its own. The rollup's verdict is the two loops over the
-# `*_RESULT` variables: a job that is needed but compared in neither loop is
-# waited for and then ignored, which is the same green as never having been
-# needed, with a needs list that reads as correct. Exactly one bucket rather
-# than at least one, because a variable in both is strict and tolerant at
-# once. No pre-existing test caught a `*_RESULT` dropped from a loop.
-@test "self-test.yaml: ci-rollup inspects every job it needs, in exactly one result bucket (#1009)" {
-  # Joining `needs:` is half a gate. The rollup's verdict is the two loops
-  # over the *_RESULT variables, so a job that is needed but named in
-  # neither loop is waited for and then ignored -- the same green as not
-  # being needed at all, with the needs list looking correct.
-  local -a _loops=()
-  mapfile -t _loops < <(_rollup_loops)
-  [ "${#_loops[@]}" -eq 2 ] \
-    || fail "expected a strict and a tolerant result loop in ci-rollup, parsed ${#_loops[@]}"
-
-  local _rollup
-  _rollup="$(yaml_job_lines "${WF}" ci-rollup)"
-
-  local _needs _status=0
-  _needs="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
-  [ "${_status}" -eq 0 ] || fail "${_needs}"
-
-  local _job _var _line _hits
-  while IFS= read -r _job; do
-    [[ -n "${_job}" ]] || continue
-    _var="$(_result_var "${_job}")"
-    grep -qF -- "${_var}: \${{ needs.${_job}.result }}" <<<"${_rollup}" \
-      || fail "ci-rollup needs '${_job}' but binds no ${_var} from needs.${_job}.result"
-    _hits=0
-    for _line in "${_loops[@]}"; do
-      case " ${_line} " in
-        *" ${_var} "*) _hits=$(( _hits + 1 )) ;;
-      esac
-    done
-    [ "${_hits}" -eq 1 ] \
-      || fail "ci-rollup needs '${_job}' but ${_var} appears in ${_hits} result loops (expected exactly 1) -- a needed job nothing compares is a job that gates nothing"
-  done <<<"${_needs}"
+# enough on its own. A job that is needed but whose result the verify
+# step never reads is waited for and then ignored, which is the same green
+# as never having been needed, with a needs list that reads as correct.
+# Since base#1584 the step walks every key of ${{ toJSON(needs) }}, so
+# the proof is behavioural: every need's failure, cancel and unexcused
+# skip fails the step, and an all-success run passes.
+@test "self-test.yaml: ci-rollup inspects every job it needs (#1009)" {
+  run _rollup_honours_every_need "${WF}"
+  assert_output ""
+  local _j _bad=""
+  while IFS= read -r _j; do
+    [[ -n "${_j}" ]] || continue
+    [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\"")" == 1 ]] \
+      || _bad+=" ${_j}"
+  done < <(yaml_job_needs "${WF}" ci-rollup)
+  [[ -z "${_bad}" ]] || fail "a skip of these passes although classify selected everything:${_bad}"
 }
 
 # why: The two guards above cover the PR path only. `release` does not go
@@ -1740,6 +1688,85 @@ YAML
     || fail "the self-hosted guard lint is in ${_hits} lint-static groups; a fork-PR guard that runs in none gates nothing"
 }
 
+# why: A merge_group payload has no pull_request object, so only the API
+# can say whether a queued group is same-repository; classify must ask it
+# on merge_group and publish the answer, failing closed (base#1587)
+@test "self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)" {
+  # Expected literals are the approved design's (design-r2 section 2):
+  # job permissions `contents: read` + `pull-requests: read`, a step
+  # `id: trust` gated `if: github.event_name == 'merge_group'` that runs
+  # script/ci/merge_group_trust.sh, and the output
+  # `merge_group_same_repo: ${{ steps.trust.outputs.same_repo || 'false' }}`
+  # so a skipped step (push, pull_request) reads as untrusted.
+  local _classify _id
+  _classify="$(yaml_job_lines "${WF}" classify)"
+  _id="$(yaml_step_id_for "${WF}" classify 'merge_group_trust\.sh')"
+  [ "${_id}" = "trust" ] \
+    || fail "no classify step with id 'trust' runs merge_group_trust.sh (got '${_id}')"
+  run grep -F "if: github.event_name == 'merge_group'" <<<"${_classify}"
+  assert_success
+  run grep -F "merge_group_same_repo: \${{ steps.trust.outputs.same_repo || 'false' }}" <<<"${_classify}"
+  assert_success
+  run grep -F 'pull-requests: read' <<<"${_classify}"
+  assert_success
+  run grep -F 'contents: read' <<<"${_classify}"
+  assert_success
+  # merge_group_trust.sh reads these five names (`: "${X:?}"` under
+  # set -e, gh reads GH_TOKEN); a missing one exits non-zero and turns
+  # classify red on every queue run, so each must map to its payload field.
+  run _yaml_eval "${WF}" '.jobs.classify.steps[] | select(.id == "trust") | .env | to_entries | .[] | .key + "=" + .value'
+  assert_success
+  assert_output - <<'EOF'
+GH_TOKEN=${{ github.token }}
+REPO=${{ github.repository }}
+BASE_REF=${{ github.event.merge_group.base_ref }}
+HEAD_SHA=${{ github.event.merge_group.head_sha }}
+HEAD_REF=${{ github.event.merge_group.head_ref }}
+EOF
+}
+
+# why: build-worker's merge_group_same_repo input defaults to 'false', so a
+# worker-selftest that passes nothing would skip `build` on every queue run
+# and fail the gate even for a proven same-repo group (base#1587)
+@test "self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # `merge_group_same_repo: ${{ needs.classify.outputs.merge_group_same_repo }}`.
+  run _yaml_eval "${WF}" '.jobs["worker-selftest"].with.merge_group_same_repo'
+  assert_success
+  assert_output '${{ needs.classify.outputs.merge_group_same_repo }}'
+}
+
+# why: On merge_group the build guard skips `build` unless classify proved
+# the group same-repository, and SKIPPED is pass-equivalent in the rollup;
+# the rollup must apply the fork rule there too, or an unproven queue group
+# would go green on a build that never ran (base#1587)
+@test "self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # today's pull_request expression, `||` the merge_group term that reads
+  # classify's merge_group_same_repo and fails closed on anything but 'true'.
+  run _yaml_eval "${WF}" '.jobs["ci-rollup"].steps[] | select(.env.IS_FORK_PR != null) | .env.IS_FORK_PR'
+  assert_success
+  assert_output "\${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && needs.classify.outputs.merge_group_same_repo != 'true' }}"
+}
+
+# why: IS_FORK_PR is now also true for a merge group not proven
+# same-repository, so the rollup's red must say that case too, or a queue
+# run reads as a fork PR that does not exist (base#1587)
+@test "self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)" {
+  # Runs the verify step itself (helpers _rollup_script/_rollup_needs_json
+  # below), every need success, IS_FORK_PR=true. Expected wording is the
+  # approved design's (design-r2 section 2): the error text names
+  # "or a merge group not proven same-repository".
+  local _script _json
+  _script="$(_rollup_script "${WF}")"
+  _json="$(_rollup_needs_json "${WF}")"
+  run env -i PATH="${PATH}" NEEDS_JSON="${_json}" IS_FORK_PR=true \
+      bash --noprofile --norc -eo pipefail -c "${_script}"
+  assert_failure 1
+  assert_output --partial '::error::'
+  assert_output --partial 'or a merge group not proven same-repository'
+}
+
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
 # branches: filter here would leave every proposal green with zero checks
 @test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
@@ -1755,6 +1782,18 @@ YAML
   assert_success
   refute_output --partial 'branches:'
   refute_output --partial 'branches-ignore:'
+}
+
+# why: A merge queue only runs the suite on the queued group when the
+# workflow listens for merge_group; without the trigger the queue's
+# required checks never report and nothing reaches main (base#1587)
+@test "self-test.yaml: on: listens for merge_group checks_requested (base#1587)" {
+  # GitHub's merge queue fires `merge_group` with the single activity type
+  # `checks_requested`. The literal below is that documented type name,
+  # not a value read back from the workflow.
+  run yq -o=json -I=0 '.on.merge_group.types' "${WF}"
+  assert_success
+  assert_output '["checks_requested"]'
 }
 
 # why: A PR is the only moment pin-coverage can fire; with no CI join it
@@ -1796,14 +1835,14 @@ YAML
   assert_output --partial 'context_path: test/fixtures/build-worker'
 }
 
-@test "self-test.yaml: worker-selftest needs actionlint + classify and gates on system_relevant (#802)" {
-  # Same upstream pattern as the system job: actionlint fires first, and the
-  # narrower system_relevant output skips it on pure lint / unit / doc PRs
-  # (any change to .github/workflows/** re-runs it via the block-list).
+@test "self-test.yaml: worker-selftest needs actionlint + classify and gates on select_worker_selftest (#802, base#1584)" {
+  # Same upstream pattern as the system job: actionlint fires first, and
+  # classify's map, which gives worker-selftest the system answer, skips it
+  # on pure lint / unit / doc PRs (a workflow change re-runs it).
   run yaml_job_lines "${WF}" worker-selftest
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
-  assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_worker_selftest == 'true'"
 }
 
 @test "self-test.yaml: ci-rollup consumes worker-selftest as a SKIPPED-tolerant gate (#802)" {
@@ -1812,16 +1851,15 @@ YAML
   # must list it in needs: and inspect its result.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs.worker-selftest.result'
   assert_output --partial ', worker-selftest]'
-
-  # ...and be IN the tolerant bucket, which "consumes its result" does not
-  # say: deleting the tolerant loop outright left the two assertions above
-  # green. Same membership check the doc-counts / lint-static siblings make
-  # against the strict loop.
-  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
-  assert_success
-  assert_output --partial 'WORKER_SELFTEST_RESULT'
+  # Its skip passes only when classify decided it (base#1584 review round
+  # 2: a text pin here held while a selected worker-selftest skip exited
+  # 0).
+  [[ "$(_rollup_rc "${WF}" '.["worker-selftest"].result = "skipped"
+      | .classify.outputs.select_worker_selftest = "false"')" == 0 ]] \
+    || fail "ci-rollup fails a worker-selftest skip classify decided"
+  [[ "$(_rollup_rc "${WF}" '.["worker-selftest"].result = "skipped"')" == 1 ]] \
+    || fail "ci-rollup passes a worker-selftest skip classify did not decide"
 }
 
 # why: The tag path does not go through ci-rollup; a gate missing from
@@ -1842,14 +1880,14 @@ YAML
   assert_success
 }
 
-@test "self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)" {
+@test "self-test.yaml: shellcheck job needs actionlint + classify and gates on select_shellcheck (#376, base#1584)" {
   # Same upstream pattern as the test/acceptance jobs so the
   # actionlint workflow-validator gate still fires first, and the
   # doc-only short-circuit still skips lint runs.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_shellcheck == 'true'"
 }
 
 @test "self-test.yaml: shellcheck job runs test.sh --lint --shellcheck inside the test-tools image (#376, base#1412)" {
@@ -1926,13 +1964,9 @@ YAML
   # skipped-tolerated one. The success-only loop is the one whose body
   # compares against "success" alone; grep the two lines following the
   # ACTIONLINT/CLASSIFY loop header to see what else it iterates.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'needs.doc-counts.result'
-
-  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
-  assert_success
-  assert_output --partial 'DOC_COUNTS_RESULT'
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_line doc-counts
+  _rollup_hard_mandatory doc-counts
 }
 
 # ── lint-static groups (the rest of the lint phase) ────────────
@@ -1962,13 +1996,9 @@ YAML
   # No `if:` gate, so SKIPPED means a workflow bug -- same contract as
   # doc-counts. It must sit in the success-only loop, never the
   # skipped-tolerated one.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'needs.lint-static.result'
-
-  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
-  assert_success
-  assert_output --partial 'LINT_STATIC_RESULT'
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_line lint-static
+  _rollup_hard_mandatory lint-static
 }
 
 @test "self-test.yaml: every lint the just test lint phase runs has a CI join (#866)" {
@@ -2174,11 +2204,11 @@ YAML
   assert_success
 }
 
-@test "self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)" {
+@test "self-test.yaml: hadolint job needs actionlint + classify and gates on select_hadolint (#376, base#1584)" {
   run yaml_job_lines "${WF}" hadolint
   assert_success
   assert_output --partial 'needs: [actionlint, classify]'
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_hadolint == 'true'"
 }
 
 @test "self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)" {
@@ -3283,7 +3313,7 @@ _lint_probe_fixture() {
   assert_success
 }
 
-@test "self-test.yaml: coverage now runs on PRs (gated on code_changed), not main-only (#615 amends #377)" {
+@test "self-test.yaml: coverage now runs on PRs (gated on classify's select_coverage), not main-only (#615 amends #377, base#1584)" {
   # restricted kcov to push-to-main (the serial 8-12min job was too
   # expensive for PRs). shards it so a PR shard is in the bats-unit
   # ballpark, and gates it on the same `code_changed` output as the other
@@ -3291,7 +3321,7 @@ _lint_probe_fixture() {
   # push&&main-only `if:` is gone.
   run yaml_job_lines "${WF}" coverage
   assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_coverage == 'true'"
   refute_output --partial "if: github.event_name == 'push' && github.ref == 'refs/heads/main'"
 }
 
@@ -3348,7 +3378,7 @@ _lint_probe_fixture() {
   run yaml_job_lines "${WF}" coverage-gate
   assert_success
   assert_output --partial 'needs: [classify, coverage]'
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_coverage_gate == 'true'"
   assert_output --partial 'actions/download-artifact@v8'
   assert_output --partial 'pattern: coverage-shard-*'
   assert_output --partial 'script/test/drivers/coverage_gate.sh'
@@ -3804,7 +3834,7 @@ ${_bad}"
 # updated; that friction is intended, and the message names file, layer
 # and key set.
 
-CG_CODE_IF="needs.classify.outputs.code_changed == 'true'"
+CG_GATE_IF="needs.classify.outputs.select_config_gen == 'true'"
 CG_STEP_NAME='Run the config-gen gates'
 CG_STEP_RUN='just test go'
 # The hosted workflow splits `just test go` into its two recipes (base#1547):
@@ -3926,8 +3956,9 @@ _cg_job_id() {
 }
 
 # _cg_expected_job <self-test|self-test-redpath|coverage-local> -- that
-# job less its free-text name and timeout, canonical JSON. coverage-local's
-# `if` is the fork guard its sibling job carries. The redpath matrix is
+# job less its free-text name and timeout, canonical JSON. Both hosted
+# jobs gate on the one select_config_gen key (CG_GATE_IF, base#1584);
+# coverage-local's `if` is the fork guard its sibling job carries. The redpath matrix is
 # shard 1..N, N read from the shard table's header and never from the
 # workflow, with the shard holding rerun's one row labelled (base#1547).
 _cg_expected_job() {
@@ -3943,10 +3974,10 @@ _cg_expected_job() {
   esac
   case "${1}" in
     self-test)
-      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
+      CG_IF="${CG_GATE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
         '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest", "steps": env(CG_STEPS)} | sort_keys(..)' ;;
     self-test-redpath)
-      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" CG_SHARD_LIST="[$(seq -s, 1 "${_n}")]" CG_K="${_k}" \
+      CG_IF="${CG_GATE_IF}" CG_STEPS="${_steps}" CG_SHARD_LIST="[$(seq -s, 1 "${_n}")]" CG_K="${_k}" \
         yq -n -o json -I0 '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest",
           "strategy": {"fail-fast": false, "matrix": {"shard": env(CG_SHARD_LIST),
             "include": [{"shard": env(CG_K), "label": " + rerun, the baseline"}]}},
@@ -4232,45 +4263,57 @@ _rollup_script() {
   yq '.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .run' "${1}"
 }
 
-# _rollup_result_keys <file> -- "<ENV_KEY> <job>" for every env entry of that
-# step whose value is exactly ${{ needs.<job>.result }}.
-_rollup_result_keys() {
-  yq '.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .env // {}
-      | to_entries | .[] | .key + " " + .value' "${1}" \
-    | sed -nE 's/^([A-Z0-9_]+) \$\{\{ needs\.([a-z0-9-]+)\.result \}\}$/\1 \2/p'
+# _rollup_needs_json <file> -- the needs context of an all-green run of
+# <file>'s ci-rollup: one key per job its needs: lists, each `success`,
+# and classify's outputs every key of its outputs: map, each `true`.
+_rollup_needs_json() {
+  local _f="${1}" _outs
+  _outs="$(yq -o json -I0 '.jobs.classify.outputs // {} | keys' "${_f}" \
+    | jq -c 'map({key: ., value: "true"}) | from_entries')"
+  yaml_job_needs "${_f}" ci-rollup | jq -R . | jq -sc --argjson o "${_outs}" \
+    'map({key: ., value: {result: "success", outputs: {}}}) | from_entries
+     | .classify.outputs = $o'
 }
 
-# _rollup_rc <file> [KEY=VALUE...] -- run the verify step under GitHub's
-# run shell, every result success unless overridden; prints its status.
+# _rollup_rc <file> [<jq-filter>] -- run the verify step under GitHub's
+# run shell with NEEDS_JSON the all-green needs context with <jq-filter>
+# applied, and a same-repo PR; prints its status.
 _rollup_rc() {
-  local _f="${1}" _script _k _j _rc=0
-  shift
-  local -a _env=()
+  local _f="${1}" _filter="${2:-.}" _script _json _rc=0
   _script="$(_rollup_script "${_f}")"
-  while read -r _k _j; do
-    [[ -n "${_k}" ]] && _env+=("${_k}=success")
-  done < <(_rollup_result_keys "${_f}")
-  env -i PATH="${PATH}" "${_env[@]}" IS_FORK_PR=false CODE_CHANGED=true "$@" \
+  _json="$(_rollup_needs_json "${_f}" | jq -c "${_filter}")" || { echo bad-filter; return 0; }
+  env -i PATH="${PATH}" NEEDS_JSON="${_json}" IS_FORK_PR=false \
       bash --noprofile --norc -eo pipefail -c "${_script}" >/dev/null 2>&1 || _rc=$?
   printf '%s\n' "${_rc}"
 }
 
-# _rollup_honours_every_need <file> -- ci-rollup's needs and its result env
-# match one to one, all-success passes, and each need's failure or
-# cancellation alone fails the step. Prints what does not hold.
+# _rollup_hard_mandatory <job>... -- each <job>'s skip fails the step even
+# with every classify select_* key `false`.
+_rollup_hard_mandatory() {
+  local _j _bad=""
+  for _j in "$@"; do
+    [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\"
+        | .classify.outputs |= with_entries(if (.key | startswith(\"select_\")) then .value = \"false\" else . end)")" == 1 ]] \
+      || _bad+=" ${_j}"
+  done
+  [[ -z "${_bad}" ]] || fail "ci-rollup passes a skip of:${_bad}"
+}
+
+# _rollup_honours_every_need <file> -- the verify step reads the whole
+# needs context (NEEDS_JSON is ${{ toJSON(needs) }}), all-success passes,
+# and each need's failure or cancellation alone fails the step. Prints
+# what does not hold.
 _rollup_honours_every_need() {
-  local _f="${1}" _needs _keyed _k _j _rc _bad=""
-  _needs="$(yaml_job_needs "${_f}" ci-rollup | sort)"
-  _keyed="$(_rollup_result_keys "${_f}" | awk '{print $2}' | sort)"
-  [[ "${_needs}" == "${_keyed}" ]] \
-    || _bad+="needs [$(paste -sd' ' <<<"${_needs}")] != result env [$(paste -sd' ' <<<"${_keyed}")]; "
+  local _f="${1}" _j _rc _bad="" _bind
+  _bind="$(yq '.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .env.NEEDS_JSON' "${_f}")"
+  [[ "${_bind}" == '${{ toJSON(needs) }}' ]] || _bad+="NEEDS_JSON is bound to '${_bind}'; "
   _rc="$(_rollup_rc "${_f}")"
   [[ "${_rc}" == 0 ]] || _bad+="all-success exits ${_rc}; "
-  while read -r _k _j; do
-    [[ -n "${_k}" ]] || continue
-    [[ "$(_rollup_rc "${_f}" "${_k}=failure")" != 0 ]] || _bad+="${_j} failure passes; "
-    [[ "$(_rollup_rc "${_f}" "${_k}=cancelled")" != 0 ]] || _bad+="${_j} cancelled passes; "
-  done < <(_rollup_result_keys "${_f}")
+  while IFS= read -r _j; do
+    [[ -n "${_j}" ]] || continue
+    [[ "$(_rollup_rc "${_f}" ".[\"${_j}\"].result = \"failure\"")" != 0 ]] || _bad+="${_j} failure passes; "
+    [[ "$(_rollup_rc "${_f}" ".[\"${_j}\"].result = \"cancelled\"")" != 0 ]] || _bad+="${_j} cancelled passes; "
+  done < <(yaml_job_needs "${_f}" ci-rollup)
   printf '%s' "${_bad}"
 }
 
@@ -4282,39 +4325,40 @@ _rollup_honours_every_need() {
   assert_success
   assert_line config-gen-gates
   assert_line config-gen-redpath
-  run _rollup_result_keys "${WF}"
-  assert_line 'CONFIG_GEN_GATES_RESULT config-gen-gates'
-  assert_line 'CONFIG_GEN_REDPATH_RESULT config-gen-redpath'
   run _rollup_honours_every_need "${WF}"
   assert_output ""
 }
 
-# why: config-gen is gated on code_changed, so on a doc-only diff it skips;
-# the rollup must read that skip as a pass and a failure or cancel as red.
-@test "self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)" {
-  local _k
-  for _k in CONFIG_GEN_GATES_RESULT CONFIG_GEN_REDPATH_RESULT; do
-    run _rollup_result_keys "${WF}"
-    assert_line --regexp "^${_k} config-gen-(gates|redpath)\$"
-    assert_equal "$(_rollup_rc "${WF}" "${_k}=success")" 0
-    assert_equal "$(_rollup_rc "${WF}" "${_k}=skipped")" 0
-    [[ "$(_rollup_rc "${WF}" "${_k}=failure")" != 0 ]] || fail "ci-rollup passes a failed ${_k}"
-    [[ "$(_rollup_rc "${WF}" "${_k}=cancelled")" != 0 ]] || fail "ci-rollup passes a cancelled ${_k}"
+# why: config-gen skips where classify's map deselects it; the rollup must
+# read that skip as a pass and a failure or cancel as red. The skip passes
+# only on the classify answer it came from (select_config_gen=false); a
+# skip classify did not decide fails, whatever code_changed says
+# (base#1584).
+@test "self-test.yaml: ci-rollup passes config-gen success and a decided skip, fails failure and cancelled (base#1462)" {
+  local _j
+  for _j in config-gen-gates config-gen-redpath; do
+    assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"success\"")" 0
+    assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\" | .classify.outputs.select_config_gen = \"false\"")" 0
+    assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\" | .classify.outputs.select_config_gen = \"true\"")" 1
+    assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\" | .classify.outputs.code_changed = \"false\"")" 1
+    [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"failure\"")" != 0 ]] || fail "ci-rollup passes a failed ${_j}"
+    [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"cancelled\"")" != 0 ]] || fail "ci-rollup passes a cancelled ${_j}"
   done
 }
 
-# why: The rollup check must see a need that is listed and keyed but left
-# out of every loop, or it proves nothing about the next job added.
-@test "ci-rollup check: a need whose result no loop reads is caught (base#1462)" {
+# why: The rollup check must see a need the verify step leaves out, or it
+# proves nothing about the next job added. A mutant whose walk drops
+# config-gen-gates must be reported.
+@test "ci-rollup check: a need the verify step leaves out is caught (base#1462)" {
   run _rollup_honours_every_need "${WF}"
   assert_output ""
   local _m="${BATS_TEST_TMPDIR}/rollup.yaml"
   cp "${WF}" "${_m}"
-  yq -i '.jobs["ci-rollup"].needs += ["config-gen"]
-         | (.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .env.ZZ_CG_RESULT)
-             = "${{ needs.config-gen.result }}"' "${_m}"
+  yq -i '(.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .run)
+           |= sub("\\| to_entries\\[\\]"; "| del(.[\"config-gen-gates\"]) | to_entries[]")' "${_m}"
+  grep -q 'del(.\["config-gen-gates"\])' "${_m}" || fail "the mutant did not apply"
   run _rollup_honours_every_need "${_m}"
-  assert_output --partial 'config-gen failure passes'
+  assert_output --partial 'config-gen-gates failure passes'
 }
 
 # ── the required-kill roster runs in every CI environment (base#1461) ────────

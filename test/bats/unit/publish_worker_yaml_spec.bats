@@ -680,7 +680,8 @@ merge: packages: write'
   # is exactly when insurance is cheap to install.
   run yaml_job_lines "${WF}" publish
   assert_success
-  assert_output --partial "github.event_name != 'pull_request' ||"
+  assert_output --partial "github.event_name != 'pull_request' &&"
+  assert_output --partial "github.event_name != 'merge_group' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
 }
 
@@ -945,11 +946,10 @@ merge: packages: write'
   assert_output '0'
   run yq -r '.jobs.merge."if"' "${WF}"
   assert_success
-  assert_output --partial "github.event_name != 'pull_request' ||"
-  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
-  # Nothing else: no second disjunct, no `inputs.*` or `steps.*` read that
+  # Exactly the guard canon (base#1587 added the merge_group term) and
+  # nothing else: no extra gate, no `inputs.*` or `steps.*` read that
   # could make a run decline to publish.
+  assert_output "github.event_name != 'pull_request' && github.event_name != 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository"
   refute_output --partial 'inputs.'
   refute_output --partial 'steps.'
-  refute_output --partial '&&'
 }

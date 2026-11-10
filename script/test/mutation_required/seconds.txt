@@ -309,6 +309,8 @@ s1h.tsv	unprovisionable-no-context	21.4
 s1h.tsv	unprovisionable-no-dockerfile	24.3
 s1h.tsv	unprovisionable-no-root	30.7
 s1h.tsv	unprovisionable-unhashable	20.8
+s1i.tsv	bin-resolve-unset-image	14.2
+s1i.tsv	bin-resolve-unset-memo	14.0
 s7.tsv	entry-cleared-slot-kept	33.0
 s7.tsv	entry-no-gating-field	26.1
 s7.tsv	entry-not-table	32.1
