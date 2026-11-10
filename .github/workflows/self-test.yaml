@@ -1684,6 +1684,7 @@ jobs:
     with:
       image_name: worker-selftest
       context_path: test/fixtures/build-worker
+      merge_group_same_repo: ${{ needs.classify.outputs.merge_group_same_repo }}
 
   config-gen:
     name: Config-gen Go gates (base#1462)
