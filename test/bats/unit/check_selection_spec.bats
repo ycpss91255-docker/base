@@ -41,3 +41,16 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only docs selects no heavy job (base#1584)" {
+  # Expected: the docs rule today's classify code_changed gate already
+  # applies (doc/** is not code), and the issue's acceptance probe "a
+  # docs-only PR" -- a docs-only diff can affect none of the five.
+  run _select pull_request doc/x.md
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=false
+coverage=false
+acceptance=false
+system=false"
+}
