@@ -897,7 +897,9 @@ _classify() {
   assert_output --partial "needs.path-filter.outputs.code_changed == 'true' &&"
   assert_output --partial "(github.event_name != 'pull_request' &&"
   assert_output --partial "github.event_name != 'merge_group' ||"
-  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository)'
+  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository ||'
+  # The group closes after the merge_group trust term (base#1587).
+  assert_output --partial "inputs.merge_group_same_repo == 'true')"
 }
 
 @test "build-worker.yaml: the guard tests the FORK, not the PR (#766)" {

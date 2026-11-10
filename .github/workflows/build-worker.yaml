@@ -201,6 +201,17 @@ on:
             with:
               image_name: omniverse_web_viewer
               submodules: recursive
+      merge_group_same_repo:
+        required: false
+        type: string
+        default: "false"
+        description: |
+          'true' only when the caller has proven that every pull request
+          in this merge group comes from the calling repository (base#1587).
+          A merge_group payload names no head repository, so the guard on
+          the `build` job stays closed on a queue run unless this input
+          says 'true'. The default 'false' keeps a caller that passes
+          nothing closed.
 jobs:
   # ────────────────────────────────────────────────────────────────
   # #800 — caller-contract preflight. Runs before any build compute so a
@@ -395,7 +406,9 @@ jobs:
       needs.path-filter.outputs.code_changed == 'true' &&
       (github.event_name != 'pull_request' &&
       github.event_name != 'merge_group' ||
-      github.event.pull_request.head.repo.full_name == github.repository)
+      github.event.pull_request.head.repo.full_name == github.repository ||
+      github.event_name == 'merge_group' &&
+      inputs.merge_group_same_repo == 'true')
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
