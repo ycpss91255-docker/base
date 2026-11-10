@@ -183,6 +183,9 @@ jobs:
       code_changed: ${{ steps.diff.outputs.code_changed }}
       system_relevant: ${{ steps.diff.outputs.system_relevant }}
       testtools_changed: ${{ steps.diff.outputs.testtools_changed }}
+      # Whether the diff can affect config-gen (base#1584). The rollup
+      # reads it to tell a skip classify decided from one it did not.
+      select_config_gen: ${{ steps.diff.outputs.select_config_gen }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1813,6 +1816,10 @@ jobs:
           # what was missing was the sentence naming WHY almost nothing
           # ran.
           CODE_CHANGED: ${{ needs.classify.outputs.code_changed }}
+          # classify's own answer for config-gen (base#1584). A config-gen
+          # skip on a run where classify selected the job is not a
+          # decision, it is a job that never ran, so it must not pass.
+          SELECT_CONFIG_GEN: ${{ needs.classify.outputs.select_config_gen }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1851,6 +1858,14 @@ jobs:
                    "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
+          # A config-gen skip passes only when classify did not select the
+          # job: with select_config_gen=true the skip was nobody's decision
+          # (base#1584).
+          if [[ "${CONFIG_GEN_RESULT}" == "skipped" \
+                && "${SELECT_CONFIG_GEN:-}" == "true" ]]; then
+            echo "::error::config-gen skipped although classify selected it"
+            fail=1
+          fi
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
           # failure and not a warning: a required check is a claim that the
           # commit was fully tested, and on a fork PR that claim is false
