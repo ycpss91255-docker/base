@@ -1632,6 +1632,15 @@ main() {
       "display=config_gen_redpath.sh: CONFIG_GEN_REDPATH_JOBS must be a positive integer, got: ${CONFIG_GEN_REDPATH_JOBS}"
     exit 2
   fi
+  # CONFIG_GEN_REDPATH_SHARD names one shard, n of N: two positive
+  # integers with n <= N (base#1547).
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" ]] \
+    && ! { [[ "${CONFIG_GEN_REDPATH_SHARD}" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] \
+      && (( BASH_REMATCH[1] <= BASH_REMATCH[2] )); }; then
+    _log_err "${_RP_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_REDPATH_SHARD" \
+      "display=config_gen_redpath.sh: CONFIG_GEN_REDPATH_SHARD must be <n>/<N> with 1 <= n <= N, got: ${CONFIG_GEN_REDPATH_SHARD}"
+    exit 2
+  fi
   local scratch pristine entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
