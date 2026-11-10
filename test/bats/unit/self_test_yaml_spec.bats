@@ -4247,6 +4247,8 @@ _rollup_honours_every_need() {
   local _j
   for _j in config-gen-gates config-gen-redpath; do
     assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"success\"")" 0
+    assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\" | .classify.outputs.select_config_gen = \"false\"")" 0
+    assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\" | .classify.outputs.select_config_gen = \"true\"")" 1
     assert_equal "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"skipped\" | .classify.outputs.code_changed = \"false\"")" 1
     [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"failure\"")" != 0 ]] || fail "ci-rollup passes a failed ${_j}"
     [[ "$(_rollup_rc "${WF}" ".[\"${_j}\"].result = \"cancelled\"")" != 0 ]] || fail "ci-rollup passes a cancelled ${_j}"

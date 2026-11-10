@@ -258,11 +258,12 @@ _with() {
 @test "self-test: a run with some jobs deselected names them and is not doc-only (base#1584)" {
   local _j
   _j="$(_needs_json true success)"
-  _j="$(_with "${_j}" '.["config-gen"].result = "skipped" | .classify.outputs.select_config_gen = "false"')"
+  _j="$(_with "${_j}" '.["config-gen-gates"].result = "skipped" | .["config-gen-redpath"].result = "skipped"
+      | .classify.outputs.select_config_gen = "false"')"
   run _rollup_json "${_j}"
   assert_success
   refute_output --partial 'doc-only'
-  assert_output --partial 'config-gen'
+  assert_output --partial 'skipped by design: config-gen-gates config-gen-redpath'
 }
 
 # why: cycle 5 (redesign-r1 sec. 1, review round 1 F2). The old rollup
@@ -272,31 +273,53 @@ _with() {
 @test "self-test: the rollup fails a classify-selected skip even when code_changed is false (base#1584)" {
   local _j
   _j="$(_needs_json true success)"
-  _j="$(_with "${_j}" '.["config-gen"].result = "skipped" | .classify.outputs.code_changed = "false"
+  _j="$(_with "${_j}" '.["config-gen-gates"].result = "skipped" | .classify.outputs.code_changed = "false"
       | .classify.outputs.system_relevant = "false"')"
   run _rollup_json "${_j}"
   assert_failure 1
-  assert_output --partial '::error::config-gen skipped although classify did not deselect it'
+  assert_output --partial '::error::config-gen-gates skipped although classify did not deselect it'
 }
 
 # why: every gated job ci-rollup needs, in turn: its skip passes with its
 # own select_* key `false` and fails with it `true`. The job set is read
-# from `needs` and each job's `if:`, not from the rollup's text.
+# from `needs` and each job's `if:`, not from the rollup's text, and the
+# key is the one the job's `if:` reads, never a rewrite of the job's name:
+# config-gen-gates and config-gen-redpath both read select_config_gen
+# (base#1547 split one job into two), and a rollup that guessed
+# select_config_gen_gates from the name failed both decided skips.
 @test "self-test: the rollup passes a gated skip only when its own select key is false (base#1584)" {
-  local _job _k _base _n=0 _bad=""
+  local _job _k _if _base _n=0 _bad=""
   _base="$(_needs_json true success)"
   while IFS= read -r _job; do
     [[ -n "${_job}" ]] || continue
     _gated_job "${_job}" || continue
     _n=$((_n + 1))
-    _k="select_${_job//-/_}"
+    _if="$(_yaml_eval "${SELF_WF}" ".jobs.\"${_job}\".if")"
+    [[ "${_if}" =~ ^needs\.classify\.outputs\.(select_[a-z_]+)\ ==\ \'true\'$ ]] \
+      || { _bad+="${_job}: if: is '${_if}'"$'\n'; continue; }
+    _k="${BASH_REMATCH[1]}"
     run _rollup_json "$(_with "${_base}" ".[\"${_job}\"].result = \"skipped\" | .classify.outputs.${_k} = \"false\"")"
     [[ "${status}" -eq 0 ]] || _bad+="${_job}: ${_k}=false skip exited ${status}"$'\n'
     run _rollup_json "$(_with "${_base}" ".[\"${_job}\"].result = \"skipped\"")"
     [[ "${status}" -eq 1 ]] || _bad+="${_job}: ${_k}=true skip exited ${status}"$'\n'
   done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
-  [[ "${_n}" -ge 9 ]] || fail "expected the nine gated jobs, read ${_n}"
+  [[ "${_n}" -ge 10 ]] || fail "expected the ten gated jobs, read ${_n}"
   [[ -z "${_bad}" ]] || fail "${_bad}"
+}
+
+# why: addendum point 2 (base#1547 split config-gen in two). The rollup
+# finds a job's select_* key through an explicit job-to-key map; a job
+# missing from the map has no excuse, so its skip fails even with every
+# key `false`. The probe is a needs entry named `config-gen`: no such job
+# gates on anything now, but its name rewritten (select_config_gen) is a
+# real key, so a rollup that derives the key from the name excuses it.
+@test "self-test: the rollup fails the skip of a job its key map does not name, even when its name matches a key (base#1584)" {
+  local _j
+  _j="$(_needs_json false success)"
+  _j="$(_with "${_j}" '.["config-gen"] = {"result": "skipped", "outputs": {}}')"
+  run _rollup_json "${_j}"
+  assert_failure 1
+  assert_output --partial '::error::config-gen skipped although classify did not deselect it'
 }
 
 # why: cycle 7 (R1-F1). A skipped-only walk would pass a failure; every

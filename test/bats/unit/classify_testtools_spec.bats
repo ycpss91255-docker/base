@@ -301,7 +301,8 @@ coverage-gate
 acceptance
 system
 worker-selftest
-config-gen
+config-gen-gates
+config-gen-redpath
 ci-rollup
 release"
 }
@@ -588,7 +589,8 @@ _gated_jobs() {
 # why: cycle 1, end to end on a PR that changes one unit spec. The expected
 # set comes from the issue and the design, not from the map: a unit spec
 # cannot affect config-gen, acceptance, system or worker-selftest, so
-# those four skip; it is code, so shellcheck, hadolint, bats-fragile,
+# those skip (config-gen is two jobs since base#1547, config-gen-gates
+# and config-gen-redpath, on one key); it is code, so shellcheck, hadolint, bats-fragile,
 # coverage and coverage-gate run; and mutation-roster keeps main's form,
 # no `if:` (roster row selection belongs to base#1604), so it runs on
 # every PR. Read through classify's real step, its `outputs:` map, every
@@ -604,13 +606,15 @@ _gated_jobs() {
   _results="${output}"
   _chain_check "${_results}" shellcheck=success hadolint=success \
       bats-fragile=success coverage=success coverage-gate=success \
-      mutation-roster=success config-gen=skipped acceptance=skipped \
+      mutation-roster=success config-gen-gates=skipped \
+      config-gen-redpath=skipped acceptance=skipped \
       system=skipped worker-selftest=skipped
   run _chain_rollup "${_out}" "${_results}"
   assert_success
 }
 
-# why: cycle 2. A docs-only PR skips all nine gated jobs, still runs
+# why: cycle 2. A docs-only PR skips every gated job (ten: the nine keys,
+# with select_config_gen gating both config-gen jobs), still runs
 # mutation-roster (no `if:`), and the rollup passes and says so.
 @test "chain: a docs-only PR skips every gated job, runs mutation-roster, and the rollup passes as doc-only (base#1584)" {
   local _out _results _j
@@ -622,7 +626,7 @@ _gated_jobs() {
   while IFS= read -r _j; do
     [[ -n "${_j}" ]] && _want+=("${_j}=skipped")
   done < <(_gated_jobs)
-  [[ "${#_want[@]}" -eq 10 ]] || fail "expected nine gated jobs, read $(( ${#_want[@]} - 1 ))"
+  [[ "${#_want[@]}" -eq 11 ]] || fail "expected ten gated jobs, read $(( ${#_want[@]} - 1 ))"
   _chain_check "${_results}" "${_want[@]}"
   run _chain_rollup "${_out}" "${_results}"
   assert_success
@@ -646,33 +650,54 @@ _gated_jobs() {
   done
 }
 
-# why: cycle 4. One source for every gate: the jobs a classify output
-# gates, the nine names of design r7, the map's --jobs and classify's loop
-# list are the same set, each such job reads its own select_* key, and
-# skipping any one of them while its key is `true` fails the rollup.
+# why: cycle 4. One source for every gate: the nine names of design r7,
+# the map's --jobs, classify's loop list and the keys the gated jobs'
+# `if:`s read are the same set. Each gated job reads exactly one
+# select_* key, the one its `if:` names; config-gen-gates and
+# config-gen-redpath both read select_config_gen (base#1547 split one job
+# into two, addendum point 2). The rollup must resolve each gated job to
+# that same key: its skip fails while the key is `true` and passes once
+# that key alone is `false`. The key comes from the job's `if:`, never
+# from a rewrite of the job's name, so a rollup that guesses the key from
+# the name fails here.
 @test "chain: the gated jobs, the map's job list and classify's loop are one set, and each selected skip fails the rollup (base#1584)" {
-  local _gated _map _loop _nine _j _k _if
+  local _gated _map _loop _nine _ten _keys _j _k _if
   _nine="$(printf '%s\n' config-gen coverage coverage-gate acceptance system \
       worker-selftest shellcheck hadolint bats-fragile | LC_ALL=C sort)"
+  _ten="$(printf '%s\n' config-gen-gates config-gen-redpath coverage coverage-gate \
+      acceptance system worker-selftest shellcheck hadolint bats-fragile | LC_ALL=C sort)"
   _gated="$(_gated_jobs | LC_ALL=C sort)"
   _map="$(bash /source/script/ci/check_selection.sh --jobs | LC_ALL=C sort)"
   _loop="$(yaml_step_run "${SELF_WF}" classify diff \
       | awk '/for job in config-gen/ {f = 1} f {print} f && /; do$/ {exit}' \
       | sed -e 's/for job in//' -e 's/; do//' -e 's/\\$//' | tr -s ' \n' '\n' \
       | sed '/^$/d' | LC_ALL=C sort)"
-  assert_equal "${_gated}" "${_nine}"
+  assert_equal "${_gated}" "${_ten}"
   assert_equal "${_map}" "${_nine}"
   assert_equal "${_loop}" "${_nine}"
   local _out _results _bad=""
+  local -A _key=()
+  while IFS= read -r _j; do
+    _if="$(LP_J="${_j}" yq '.jobs[strenv(LP_J)].if' "${SELF_WF}")"
+    if [[ "${_if}" =~ ^needs\.classify\.outputs\.(select_[a-z_]+)\ ==\ \'true\'$ ]]; then
+      _key["${_j}"]="${BASH_REMATCH[1]}"
+    else
+      _bad+="${_j}: if: is '${_if}'"$'\n'
+    fi
+  done <<< "${_ten}"
+  [[ -z "${_bad}" ]] || fail "${_bad}"
+  _keys="$(for _k in "${_key[@]}"; do _k="${_k#select_}"; echo "${_k//_/-}"; done | LC_ALL=C sort -u)"
+  assert_equal "${_keys}" "${_nine}"
+  assert_equal "${_key[config-gen-gates]}" select_config_gen
+  assert_equal "${_key[config-gen-redpath]}" select_config_gen
   _out="$(_classify_pr zz-new/thing.txt)"
   _results="$(_chain_results "${_out}")"
   while IFS= read -r _j; do
-    _k="select_${_j//-/_}"
-    _if="$(LP_J="${_j}" yq '.jobs[strenv(LP_J)].if' "${SELF_WF}")"
-    [[ "${_if}" == "needs.classify.outputs.${_k} == 'true'" ]] \
-      || _bad+="${_j}: if: is '${_if}'"$'\n'
+    _k="${_key[${_j}]}"
     run _chain_rollup "${_out}" "$(sed -E "s/^${_j} .*/${_j} skipped/" <<< "${_results}")"
     [[ "${status}" -eq 1 ]] || _bad+="${_j}: a skip with ${_k}=true exited ${status}"$'\n'
-  done <<< "${_nine}"
+    run _chain_rollup "${_out}"$'\n'"${_k}=false" "$(sed -E "s/^${_j} .*/${_j} skipped/" <<< "${_results}")"
+    [[ "${status}" -eq 0 ]] || _bad+="${_j}: a skip with ${_k}=false exited ${status}"$'\n'
+  done <<< "${_ten}"
   [[ -z "${_bad}" ]] || fail "${_bad}"
 }
