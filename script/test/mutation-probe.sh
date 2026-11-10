@@ -1071,13 +1071,20 @@ _mutation_probe() {
   # The file's first line keys it to the tree hash and the scope it ran, so
   # a baseline from another spec or from a tree that has changed since is
   # refused rather than compared against.
-  local _base_key='' _tree=''
+  # Without --baseline-in, a --filter narrows the baseline as well as the
+  # mutated pass: a red needs only its own tests green unmutated, and the
+  # whole-spec baseline was most of a filtered row's cost (base#1582). The
+  # key a filtered baseline is written under names its filter, and a reader
+  # expects the whole-scope key, so a filtered baseline is never read as a
+  # whole one.
+  local _base_key='' _tree='' _base_flt=''
+  [[ -n "${_base_in}" ]] || _base_flt="${_filter}"
   if [[ -n "${_base_in}" || -n "${_base_out}" ]]; then
     if ! _tree="$(_mutation_probe_tree_hash "${_root}")"; then
       _probe_abandon "could not hash the tree at ${_root}, so a --baseline-in / --baseline-out baseline cannot be keyed to it."
       return 3
     fi
-    _base_key="mutation-probe-baseline tree=${_tree} scope=${_scope}"
+    _base_key="mutation-probe-baseline tree=${_tree} scope=${_scope}${_base_flt:+ filter=${_base_flt}}"
   fi
   if [[ -n "${_base_in}" ]]; then
     _mutation_probe_say "baseline: reading scope=${_scope} unmutated from ${_base_in}"
@@ -1093,8 +1100,8 @@ _mutation_probe() {
     fi
     _MUTATION_PROBE_RUN_STATUS=0
   else
-    _mutation_probe_say "baseline: running scope=${_scope} unmutated"
-    _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+    _mutation_probe_say "baseline: running scope=${_scope}${_base_flt:+ filter=${_base_flt}} unmutated"
+    _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline" "${_base_flt}"
   fi
   local _base_ok _base_not _base_skip
   read -r _base_ok _base_not _base_skip \

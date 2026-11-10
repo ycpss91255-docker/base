@@ -1375,9 +1375,10 @@ STUB
   assert_success
   assert_output --partial "PINNED"
   assert_output --partial "not ok 2 the other test"
-  # The filtered pass ran, and the last call was the whole-spec fallback.
+  # The filtered baseline and the filtered pass ran (the baseline takes the
+  # filter since base#1582), and the last call was the whole-spec fallback.
   run grep -cxF '^the witness$' "${_calls}"
-  assert_output "1"
+  assert_output "2"
   run tail -n 1 "${_calls}"
   assert_output '<none>'
   # The fallback put the subject back.
