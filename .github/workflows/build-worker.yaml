@@ -748,7 +748,7 @@ jobs:
           }
           cache_to_for() {
             local scope="$1"
-            printf 'type=gha,scope=%s,mode=max' "${scope}"
+            printf 'type=gha,scope=%s,mode=max,ignore-error=true' "${scope}"
           }
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
