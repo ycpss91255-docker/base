@@ -1361,21 +1361,26 @@ _case_field() {
 }
 
 # why: The redpath took 91 min in CI with no word of which case took the
-# time (base#1547). Each case streams one line when it finishes, naming
-# when it started and ended and how long it took. vet's stub sleeps 1 s and
-# lint's 2 s, so a secs written down instead of measured, or an end-of-run
-# summary in place of a streamed line, fails: lint's stub copies the
-# redpath's stderr as it ends, and vet's line must already be in it.
+# time (base#1547). Each case streams one line the moment it finishes,
+# naming when it started and ended and how long it took, and its pool
+# slot goes to the next case at once. With two slots, fmt (started first)
+# sleeps 3 s while vet sleeps 1 s and lint, third in run order, 1 s. A
+# secs written down instead of measured fails the secs checks. A pool
+# that waits on its oldest case (fmt) prints vet's line only when fmt
+# ends and starts lint only then, so fmt's stub, which copies the
+# redpath's stderr as it ends, would see neither vet's nor lint's line;
+# here it must see both, and lint's start must come before fmt's end.
 @test "config_gen_redpath.sh: streams a timed line for each case as it finishes (base#1547)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
+  printf '3\n' > "${S}/canned/fmt.sleep"
   printf '1\n' > "${S}/canned/vet.sleep"
-  printf '2\n' > "${S}/canned/lint.sleep"
-  : > "${S}/canned/lint.snap"
-  _redpath_exec CONFIG_GEN_REDPATH_ONLY='vet lint'
+  printf '1\n' > "${S}/canned/lint.sleep"
+  : > "${S}/canned/fmt.snap"
+  _redpath_exec CONFIG_GEN_REDPATH_JOBS=2 CONFIG_GEN_REDPATH_ONLY='fmt vet lint'
   assert_success
   local _c _line _start _end _secs _num='^[0-9]+(\.[0-9]+)?$'
-  for _c in vet lint; do
+  for _c in fmt vet lint; do
     _line="$(_case_line "${_c}")"
     [[ "$(grep -c . <<<"${_line}")" == 1 ]] \
       || fail "the redpath printed $(grep -c . <<<"${_line}") timed lines for ${_c}, not 1: ${_line}"
@@ -1389,16 +1394,23 @@ _case_field() {
       'BEGIN { x = e - s - d; exit !(x <= 0.5 && x >= -0.5) }' \
       || fail "${_c}'s secs is not end minus start: ${_line}"
   done
-  awk -v d="$(_case_field "$(_case_line vet)" secs)" 'BEGIN { exit !(d >= 1) }' \
-    || fail "vet's stub slept 1 s, its line says less: $(_case_line vet)"
-  awk -v d="$(_case_field "$(_case_line lint)" secs)" 'BEGIN { exit !(d >= 2) }' \
-    || fail "lint's stub slept 2 s, its line says less: $(_case_line lint)"
+  awk -v d="$(_case_field "$(_case_line fmt)" secs)" 'BEGIN { exit !(d >= 3) }' \
+    || fail "fmt's stub slept 3 s, its line says less: $(_case_line fmt)"
+  for _c in vet lint; do
+    awk -v d="$(_case_field "$(_case_line "${_c}")" secs)" 'BEGIN { exit !(d >= 1) }' \
+      || fail "${_c}'s stub slept 1 s, its line says less: $(_case_line "${_c}")"
+  done
+  awk -v s="$(_case_field "$(_case_line lint)" start)" -v e="$(_case_field "$(_case_line fmt)" end)" \
+    'BEGIN { exit !(s < e) }' \
+    || fail "lint started only once fmt ended: the pool slot vet freed sat idle behind fmt"
   local _snap
-  _snap="${S}/runner.$(_redpath_call lint).snap"
-  [[ -f "${_snap}" ]] || fail "lint's stub found no redpath stderr to copy"
-  grep -qE '^config-gen redpath case=vet ' "${_snap}" \
-    || fail "vet's line was not on the redpath's stderr when lint ended: it is not streamed"
-  run grep -qE '^config-gen redpath case=lint ' "${_snap}"
+  _snap="${S}/runner.$(_redpath_call fmt).snap"
+  [[ -f "${_snap}" ]] || fail "fmt's stub found no redpath stderr to copy"
+  for _c in vet lint; do
+    grep -qE "^config-gen redpath case=${_c} " "${_snap}" \
+      || fail "${_c}'s line was not on the redpath's stderr when fmt ended: it is printed in start order, not as it finishes"
+  done
+  run grep -qE '^config-gen redpath case=fmt ' "${_snap}"
   assert_failure
 }
 
