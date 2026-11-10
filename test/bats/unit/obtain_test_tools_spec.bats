@@ -183,6 +183,23 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
   refute_output --partial 'build '
 }
 
+# why: base#1588. A tar that loads but whose image the probe refuses is
+# not this checkout's test-tools image (a stale or mismatched artifact).
+# Unlike a refused `:main` pull, there is nothing to fall back to without
+# hiding the mismatch, so the job fails rather than using the image.
+@test "obtain: a given artifact whose image the probe refuses fails loudly, never built (base#1588)" {
+  local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
+  : > "${_tar}"
+  run bash -c "$(_src); $(_seams 0 1 0); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
+      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '${_tar}' --local-build inline"
+  assert_failure 1
+  assert_line 'probe img'
+  assert_line --partial '::error::'
+  refute_output --partial 'pull '
+  refute_output --partial 'build '
+}
+
 # ── no job reaches past it ────────────────────────────────────────────
 
 # _hand_rolled_obtains
