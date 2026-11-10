@@ -19,19 +19,26 @@
 
 set -uo pipefail
 
+# warn <message> -- print one cache-export warning for this build.
+warn() {
+  printf '::warning title=cache export::%s: %s\n' "${CACHE_EXPORT_LABEL:-}" "$1"
+}
+
 main() {
-  local ref logs
+  local ref record logs
   ref="$(printf '%s' "${BUILD_METADATA:-}" | jq -r '."buildx.build.ref" // empty' 2>/dev/null)"
   # No build record ref: no record can be read, so a success cannot be shown.
   if [[ -z "${ref}" ]]; then
-    printf '::warning title=cache export::%s: the build metadata names no build record (buildx.build.ref)\n' "${CACHE_EXPORT_LABEL:-}"
+    warn "the build metadata names no build record (buildx.build.ref)"
     return 0
   fi
+  # The ref is <builder>/<node>/<record id>; history logs takes the id.
+  record="${ref##*/}"
   # A history call that fails cannot vouch for the record, whatever it
   # printed before failing. `history logs` prints the record on stderr
   # (observed in the base#1602 system spec), so both streams are read.
-  if ! logs="$(docker buildx history logs --progress plain "${ref##*/}" 2>&1)"; then
-    printf '::warning title=cache export::%s: docker buildx history logs failed for build record %s\n' "${CACHE_EXPORT_LABEL:-}" "${ref##*/}"
+  if ! logs="$(docker buildx history logs --progress plain "${record}" 2>&1)"; then
+    warn "docker buildx history logs failed for build record ${record}"
     return 0
   fi
   # Each cache export vertex (`exporting to GitHub Actions Cache` for
