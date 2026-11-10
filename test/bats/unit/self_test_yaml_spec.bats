@@ -733,12 +733,17 @@ _acceptance_code() {
 # and config-gen ran 111 min (run 42549448309). base#1584 has a pull
 # request run a heavy job only when classify's map selected it, so
 # config-gen must read its own select_config_gen output, not the
-# shared code_changed answer.
-@test "self-test.yaml: config-gen job-level if: gates on classify's select_config_gen (base#1584)" {
-  run yaml_job_lines "${WF}" config-gen
-  assert_success
-  assert_output --partial "if: needs.classify.outputs.select_config_gen == 'true'"
-  refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+# shared code_changed answer. base#1547 split config-gen into
+# config-gen-gates and the config-gen-redpath matrix; both read the same
+# inputs, so both gate on the one select_config_gen key, the whole `if:`
+# compared, not a substring.
+@test "self-test.yaml: both config-gen jobs' job-level if: gates on classify's select_config_gen (base#1584)" {
+  local _j
+  for _j in config-gen-gates config-gen-redpath; do
+    run env LP_J="${_j}" yq '.jobs[strenv(LP_J)].if' "${WF}"
+    assert_success
+    assert_output "needs.classify.outputs.select_config_gen == 'true'"
+  done
 }
 
 # ── buildx GHA cache on test-tools builds ────────────────
