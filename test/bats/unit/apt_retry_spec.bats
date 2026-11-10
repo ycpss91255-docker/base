@@ -82,3 +82,17 @@ EOS
   run cat "${SLEEP_LOG}"
   assert_output "$(printf '5\n10')"
 }
+
+# why: A call that forgets the `--` separator is a typo in the Dockerfile,
+# not a mirror fault: like script/ci/retry.sh (base#1562), the helper
+# refuses it with exit 2 (usage) before any apt-get runs, so the layer
+# fails at once instead of shifting the install command into the
+# attempt/delay arguments and retrying the wrong thing, base#1602.
+@test "apt-retry.sh 3 5 apt-get install (no --): refused with exit 2 and apt-get never runs (base#1602)" {
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${APT_RETRY}" 3 5 apt-get install -y curl
+  # Exit 2 is the usage code script/ci/retry.sh uses for a malformed call.
+  assert_failure 2
+  run cat "${APT_LOG}"
+  assert_output ""
+}
