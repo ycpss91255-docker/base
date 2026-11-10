@@ -230,3 +230,21 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only a system spec keeps coverage and system and drops the other three (base#1584)" {
+  # Expected, from what each job reads, not from the map:
+  # - system=true: script/ci/system_paths.sh lists test/bats/system/**.
+  # - coverage=true: no exclusion row ever drops coverage (design r3).
+  # - config-gen=false, acceptance=false: a spec file is a leaf -- grep
+  #   finds no load or source of smoke_harness_spec.bats under test/,
+  #   script/ or dist/, only a comment naming it.
+  # - mutation-roster=false: `grep -c test/bats/system` is 0 in every
+  #   script/test/mutation_required/*.tsv.
+  run _select pull_request test/bats/system/smoke_harness_spec.bats
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=false
+coverage=true
+acceptance=false
+system=true"
+}
