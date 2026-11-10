@@ -1774,6 +1774,19 @@ YAML
   assert_output '${{ needs.classify.outputs.merge_group_same_repo }}'
 }
 
+# why: On merge_group the build guard skips `build` unless classify proved
+# the group same-repository, and SKIPPED is pass-equivalent in the rollup;
+# the rollup must apply the fork rule there too, or an unproven queue group
+# would go green on a build that never ran (base#1587)
+@test "self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # today's pull_request expression, `||` the merge_group term that reads
+  # classify's merge_group_same_repo and fails closed on anything but 'true'.
+  run _yaml_eval "${WF}" '.jobs["ci-rollup"].steps[] | select(.env.IS_FORK_PR != null) | .env.IS_FORK_PR'
+  assert_success
+  assert_output "\${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && needs.classify.outputs.merge_group_same_repo != 'true' }}"
+}
+
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
 # branches: filter here would leave every proposal green with zero checks
 @test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
