@@ -278,6 +278,24 @@ _context_copy_paths() {
       "a pull request touching an unknown path left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
 }
 
+# _chain_classify_outputs <classify-output> <assoc-name>
+#   Fills the associative array named <assoc-name> with classify's job
+#   outputs as GitHub resolves them: each key of the classify job's
+#   `outputs:` map gets the last value the diff step wrote for the
+#   `steps.diff.outputs.<k>` it names in <classify-output> (GITHUB_OUTPUT
+#   lines), and an output bound any other way, or never written, is empty.
+_chain_classify_outputs() {
+  local _step_out="${1}" _k _v
+  local -n _into="${2}"
+  while read -r _k _v; do
+    [[ -n "${_k}" ]] || continue
+    _into["${_k}"]=""
+    if [[ "${_v}" =~ ^\$\{\{\ steps\.diff\.outputs\.([a-z_]+)\ \}\}$ ]]; then
+      _into["${_k}"]="$(sed -n "s/^${BASH_REMATCH[1]}=//p" <<< "${_step_out}" | tail -n 1)"
+    fi
+  done < <(yq '.jobs.classify.outputs | to_entries[] | .key + " " + .value' "${SELF_WF}")
+}
+
 # _chain_results <classify-output>
 #   Prints `<job> <success|skipped>` for every job of the workflow, in file
 #   order, for a pull_request run whose classify diff step wrote
@@ -290,16 +308,9 @@ _context_copy_paths() {
 #   needs did. Any other `if:` shape returns 2, so a gate this reader cannot
 #   evaluate fails the case instead of being guessed.
 _chain_results() {
-  local _step_out="${1}" _k _v _j _if _n _ok
+  local _j _if _n _ok
   local -A _cls=() _res=()
-  while read -r _k _v; do
-    [[ -n "${_k}" ]] || continue
-    if [[ "${_v}" =~ ^\$\{\{\ steps\.diff\.outputs\.([a-z_]+)\ \}\}$ ]]; then
-      _cls["${_k}"]="$(sed -n "s/^${BASH_REMATCH[1]}=//p" <<< "${_step_out}" | tail -n 1)"
-    else
-      _cls["${_k}"]=""
-    fi
-  done < <(yq '.jobs.classify.outputs | to_entries[] | .key + " " + .value' "${SELF_WF}")
+  _chain_classify_outputs "${1}" _cls
   while IFS= read -r _j; do
     [[ -n "${_j}" ]] || continue
     _if="$(LP_J="${_j}" yq '.jobs[strenv(LP_J)].if // ""' "${SELF_WF}")"
@@ -336,16 +347,10 @@ _chain_results() {
 #   as the JSON of the same two, and IS_FORK_PR as a same-repo PR. A key
 #   bound any other way returns 2.
 _chain_rollup() {
-  local _step_out="${1}" _results="${2}" _k _v _j _r _json="" _o
+  local _results="${2}" _k _v _j _r _json="" _o
   local -A _cls=() _res=()
   local -a _env=()
-  while read -r _k _v; do
-    [[ -n "${_k}" ]] || continue
-    _cls["${_k}"]=""
-    if [[ "${_v}" =~ ^\$\{\{\ steps\.diff\.outputs\.([a-z_]+)\ \}\}$ ]]; then
-      _cls["${_k}"]="$(sed -n "s/^${BASH_REMATCH[1]}=//p" <<< "${_step_out}" | tail -n 1)"
-    fi
-  done < <(yq '.jobs.classify.outputs | to_entries[] | .key + " " + .value' "${SELF_WF}")
+  _chain_classify_outputs "${1}" _cls
   while read -r _j _r; do
     [[ -n "${_j}" ]] && _res["${_j}"]="${_r}"
   done <<< "${_results}"

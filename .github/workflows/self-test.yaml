@@ -1874,9 +1874,9 @@ jobs:
           # intentional skip -- they are hard-mandatory like actionlint /
           # classify. lint-static and mutation-roster are matrices; each
           # folds its entries into one result, so a single failing leg
-          # fails the rollup. compute-shards is the
-          # producer coverage expands, so its skip is what silently
-          # removes the unit suite AND the coverage floor from this run.
+          # fails the rollup. compute-shards is the producer coverage
+          # expands, so its skip is what silently removes the unit suite
+          # AND the coverage floor from this run.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
                    "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
                    "${MUTATION_ROSTER_RESULT}" "${COMPUTE_SHARDS_RESULT}"; do
