@@ -146,7 +146,12 @@ jobs:
           # actionlint ships the property in its type. No count is written here:
           # it moves with every worker that version-matches a checkout, and a
           # figure nothing re-derives goes stale on the next one.
-          docker run --rm \
+          # The image is pulled through retry.sh first: one Docker Hub 502
+          # on a layer pull failed this job with exit 125 (base#1562).
+          # `--pull never` makes a dropped pre-pull fail loud instead of
+          # falling back to the run's own unretried pull.
+          ./script/ci/retry.sh 5 5 -- docker pull "${ACTIONLINT_IMAGE}"
+          docker run --rm --pull never \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
             "${ACTIONLINT_IMAGE}" \
@@ -550,7 +555,7 @@ jobs:
     #                     than over the rendered table
     #   just-provenance   every site that OBTAINS the `just` runner names
     #                     the one pinned version -- the image's fetch, the
-    #                     setup-just input, the just.systems installer's
+    #                     install-just.sh download, the just.systems installer's
     #                     --tag -- or carries a justified advisory marker
     #                     saying it cannot be pinned. `just` is the only
     #                     control surface, so a version spread across the
@@ -694,18 +699,9 @@ jobs:
     # dedicated job runs it or exactly one group holds it.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
-    # 45, not 30: each leg also runs its shard of the required-kill roster
-    # (base#1461), measured at 13-20 minutes a shard on PR #1491's run
-    # 41226185346, on top of the lint group. 90, not 45: the s1e rows
-    # (base#1465) took the roster from 166 rows to 262, and on PR #1496's
-    # run 41385653542 shard 1/4 was cancelled at 45 minutes with its
-    # roster step still running after 43 minutes, while the other three
-    # legs finished in 34 to 36 minutes. 150, not 90: base#1467 took the
-    # roster from 285 rows to 304 and config_gen_gates_spec.bats from 44
-    # tests to 52, and on PR #1538's run 41736192401 shards 1/4, 2/4 and
-    # 4/4 were cancelled at 90 minutes with their roster step still
-    # running after 87 minutes, while shard 3/4 finished in 84 minutes.
-    timeout-minutes: 150
+    # 30: the lint group alone. The required-kill roster that pushed this
+    # to 150 runs in the mutation-roster job below (base#1571).
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -739,17 +735,88 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Run lint group ${{ matrix.group }} inside the test-tools image
+      # The step name lists the lints its group runs, so the checks page
+      # says which lints a leg ran rather than only its group number
+      # (base#1571).
+      - name: List the lints of group ${{ matrix.group }}
+        id: members
+        env:
+          LINT_GROUP: ${{ matrix.group }}
+        run: |
+          set -euo pipefail
+          echo "list=$(./script/test/test.sh --lint-group-members "${LINT_GROUP}" | paste -sd' ')" >> "${GITHUB_OUTPUT}"
+
+      - name: Run lint group ${{ matrix.group }} (${{ steps.members.outputs.list }})
         env:
           LINT_GROUP: ${{ matrix.group }}
         run: ./script/test/test.sh --lint --group "${LINT_GROUP}"
 
-      # The required-kill mutation roster (base#1461), the hosted leg of the
-      # check the no-flag `just test` runs between lint and bats. Every leg
-      # runs it, ungated, through `just`, on the shard named by its group:
-      # the four legs together probe every row, and a full roster per leg
-      # did not finish inside this job's timeout. The just-pin steps are
-      # copied from the acceptance job, which carries their rationale.
+      - name: Reclaim this run's docker artifacts
+        if: always()
+        continue-on-error: true
+        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
+
+  mutation-roster:
+    # The required-kill mutation roster (base#1461), the hosted leg of the
+    # check the no-flag `just test` runs between lint and bats. It ran
+    # inside the lint-static legs until base#1571, where it took most of
+    # each leg's time and the checks page named it as a lint group; it is
+    # a job of its own so its name says what it runs. Every leg runs it,
+    # ungated, through `just`, on the shard named by its matrix entry: the
+    # twenty legs together probe every row, and a full roster per leg did
+    # not finish inside one job's timeout. Twenty, because seconds.txt
+    # holds the row times PR #1589's run 42755258486 measured on eight
+    # legs (13195.8 worker-seconds, the heaviest row 98.2 s), and twenty
+    # is the fewest legs whose worst list-scheduling bound over 4 worker
+    # slots, 239.0 s, is at most 240 s; nineteen gives 248.3 s
+    # (base#1582). Those eight legs took 5 min 32 s to 8 min 22 s each.
+    # Whether every leg still fits is decided by the mutation_roster_spec
+    # case "every mutation-roster leg's list-scheduling bound over its
+    # worker slots fits 240 s", a bound over seconds.txt, not a timed job.
+    needs: [actionlint, classify]
+    runs-on: ubuntu-latest
+    # 150, carried over from lint-static, whose roster step it was: on PR
+    # #1538's run 41736192401 shards 1/4, 2/4 and 4/4 were cancelled at 90
+    # minutes with their roster step still running after 87 minutes, while
+    # shard 3/4 finished in 84 minutes.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/20', '2/20', '3/20', '4/20', '5/20', '6/20', '7/20',
+                '8/20', '9/20', '10/20', '11/20', '12/20', '13/20', '14/20',
+                '15/20', '16/20', '17/20', '18/20', '19/20', '20/20']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
+        id: obtain
+        env:
+          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
+        # The same obtain / build / reclaim shape as the hadolint job, which
+        # carries the reasoning for each step (base#1412).
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the run-scoped test-tools image (with GHA cache)
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_IMAGE }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          load: true
+          cache-from: type=gha,scope=test-tools
+          cache-to: type=gha,scope=test-tools,mode=max
+
+      # The just-pin steps are copied from the acceptance job, which
+      # carries their rationale.
       - name: Resolve the pinned just version
         id: just-pin
         run: |
@@ -758,9 +825,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install just (container-ops entry point)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         run: |
@@ -769,9 +836,9 @@ jobs:
           ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
           echo "just: ${observed}, which is the pin"
 
-      - name: Run the required-kill mutation roster (shard ${{ matrix.group }})
+      - name: Run the required-kill mutation roster (shard ${{ matrix.shard }})
         env:
-          ROSTER_SHARD: ${{ matrix.group }}
+          ROSTER_SHARD: ${{ matrix.shard }}
         run: just test mutation-required --shard "${ROSTER_SHARD}"
 
       - name: Reclaim this run's docker artifacts
@@ -806,8 +873,8 @@ jobs:
         # The whole decision -- rebuild because this PR changed an input of
         # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
-        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
-        # consumers. It used to be this block, pasted into each of them,
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for every
+        # consumer. It used to be this block, pasted into each of them,
         # and five of the six probed the pulled image while the sixth did
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
@@ -888,35 +955,24 @@ jobs:
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   bats-fragile:
-    # The kcov-fragile unit spec FILES, run in PLAIN mode (no COVERAGE), as
-    # a SINGLE job (#677). After #686 unified the coverage job onto the same
-    # alpine test-tools image, the old 4-shard `bats-unit` matrix and the
-    # 4-shard `coverage` matrix ran the WHOLE unit suite twice per PR (8
-    # parallel jobs), differing only by COVERAGE=1. The coverage matrix is
-    # now the PRIMARY unit gate (kcov over every non-fragile test); the only
-    # delta it cannot cover is the tests it SKIPS via
-    # `[ "${COVERAGE:-0}" = 1 ] && skip` because kcov's ptrace wrapper
-    # perturbs them.
+    # The kcov-fragile TESTS, run in PLAIN mode (no COVERAGE), as a SINGLE
+    # job (#677). After #686 unified the coverage job onto the same alpine
+    # test-tools image, the old 4-shard `bats-unit` matrix and the 4-shard
+    # `coverage` matrix ran the WHOLE unit suite twice per PR (8 parallel
+    # jobs), differing only by COVERAGE=1. The coverage matrix is now the
+    # PRIMARY gate (kcov over every test that is not kcov-fragile); the only
+    # delta it cannot cover is the tests it SKIPS under COVERAGE=1 because
+    # kcov's ptrace wrapper perturbs them.
     #
-    # What this job preserves is that every unit test runs SOMEWHERE
-    # (non-fragile under coverage/kcov, fragile here) -- not that nothing is
-    # executed more than once. The selection is by FILE: drivers/bats.sh
-    # greps `-rl` for that guard and hands bats whole filenames, and
-    # `_COVERAGE_FULL_SUITE_POOLS` puts `test/bats/unit` in the coverage pool
-    # with no exclusion for them, so the tests in a selected file that carry
-    # no guard of their own run in both legs. That residual is deliberate: it
-    # is CI's only remaining plain-mode unit signal, and kcov perturbation
-    # has been diagnosed in this repo four times. It is also off the critical
-    # path -- this job is tens of seconds while the slowest coverage shard is
-    # minutes. The size of it is DERIVED from the driver's selector by
-    # self_test_yaml_spec.bats, which is also what keeps this paragraph from
-    # drifting back into a promise the mechanism cannot keep.
-    #
-    # The fragile set is computed at RUNTIME (test.sh --bats-fragile ->
-    # _fragile_unit_files greps for the skip guard), so a new fragile-skip
-    # in a 10th file is picked up automatically (a ci_spec guard asserts the
-    # current set). Same Obtain (probe-and-rebuild) pattern as the other
-    # jobs; ci-rollup folds the result into needs.bats-fragile.result.
+    # Each such test carries `# bats test_tags=kcov-fragile`, and
+    # test.sh --bats-fragile runs `bats --filter-tags kcov-fragile` over
+    # every coverage pool (`_COVERAGE_FULL_SUITE_POOLS`), so the selection
+    # is by TEST, not by file: an untagged test beside a tagged one runs
+    # under kcov only (base#1573). Every coverage slice also audits its
+    # skips against the tag by test name (_coverage_skip_audit), so a skip
+    # without the tag fails the coverage job instead of going unrun. Same
+    # Obtain (probe-and-rebuild) pattern as the other jobs; ci-rollup folds
+    # the result into needs.bats-fragile.result.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
@@ -940,8 +996,8 @@ jobs:
         # The whole decision -- rebuild because this PR changed an input of
         # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
-        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
-        # consumers. It used to be this block, pasted into each of them,
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for every
+        # consumer. It used to be this block, pasted into each of them,
         # and five of the six probed the pulled image while the sixth did
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
@@ -985,77 +1041,6 @@ jobs:
 
       - name: Run Bats kcov-fragile specs (plain mode)
         run: ./script/test/test.sh --bats-fragile
-
-      - name: Reclaim this run's docker artifacts
-        if: always()
-        continue-on-error: true
-        run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
-
-  bats-integration:
-    # Dedicated job for the 64 integration specs (#377). Pre-#377 these
-    # ran sequentially after the 1308 unit specs inside the monolithic
-    # `test` job; pulling them into their own job removes that tail
-    # from each unit shard's wall time.
-    needs: [actionlint, classify]
-    if: needs.classify.outputs.code_changed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
-        id: obtain
-        env:
-          TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed an input of
-        # the image, use the rolling tag because it corresponds to this
-        # checkout, or rebuild because it does not or could not be pulled
-        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
-        # consumers. It used to be this block, pasted into each of them,
-        # and five of the six probed the pulled image while the sixth did
-        # not: a paste is something a person has to remember to do, and no
-        # single copy looked wrong.
-        #
-        # `delegate` because the Build step below carries the GHA layer
-        # cache and gates on this step's `build_local` output -- as does
-        # the builder setup that step needs, which is why both sit after
-        # this one.
-        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
-
-      - name: Set up Docker Buildx
-        # Gated on the same output as the Build step below, because that
-        # step is the only thing in this job that wants a builder: it is
-        # the one carrying `cache-to: type=gha`, which needs the
-        # docker-container driver this action creates. On the hot path both
-        # are skipped, so the job stops pulling moby/buildkit and starting
-        # a container only for the post step to remove it. AFTER `obtain`
-        # and not before it, because the condition reads that step's
-        # output: placed earlier it reads an empty string, is skipped on
-        # every run, and leaves the Build step with no builder behind it.
-        if: steps.obtain.outputs.build_local == 'true'
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build the run-scoped test-tools image (with GHA cache)
-        if: steps.obtain.outputs.build_local == 'true'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: dockerfile/Dockerfile.test-tools
-          tags: ${{ env.TEST_TOOLS_IMAGE }}
-          # Ownership stamp: cleanup has to ask "whose is this?" about an
-          # image compose does not track, and a tag alone answers only
-          # "what is it called". The GHA cache scope is deliberately NOT
-          # run-scoped -- buildx reuse is keyed by cache-from / cache-to,
-          # not by the image tag, so a per-run tag costs no cache.
-          labels: |
-            base.ci.run=${{ env.CI_RUN_KEY }}
-          load: true
-          cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
-
-      - name: Run Bats integration suite
-        run: ./script/test/test.sh --bats-integration
 
       - name: Reclaim this run's docker artifacts
         if: always()
@@ -1216,7 +1201,7 @@ jobs:
         # #686: the coverage service now runs on the SAME pre-baked alpine
         # test-tools image as bats-unit (kcov is source-built into it), so
         # this job obtains it via the identical 3-layer fallback the
-        # bats-unit / bats-integration jobs use — no more debian kcov/kcov
+        # bats-fragile job uses — no more debian kcov/kcov
         # image, no per-shard apt-install, no APT_MIRROR_DEBIAN. Layer 1:
         # PR touched an input of the tooling image -> rebuild. Layer 2:
         # pull the rolling :main tag and re-tag locally (hot path). Layer
@@ -1224,8 +1209,8 @@ jobs:
         # The whole decision -- rebuild because this PR changed an input of
         # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
-        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
-        # consumers. It used to be this block, pasted into each of them,
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for every
+        # consumer. It used to be this block, pasted into each of them,
         # and five of the six probed the pulled image while the sixth did
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
@@ -1496,8 +1481,7 @@ jobs:
         # rather than a command substitution inside the line that writes
         # the output: an accessor that fails would otherwise still write
         # an empty `version=` and leave the step green, which hands
-        # setup-just a blank input and puts the job back on whatever
-        # released most recently.
+        # the install step a blank version.
         run: |
           set -euo pipefail
           version="$(./dist/script/base/just-version.sh)"
@@ -1509,11 +1493,14 @@ jobs:
         # entry is `just`), so a broken script/docker/justfile is caught
         # here. `just` ships nowhere on ubuntu-latest; the other CI jobs
         # call ./script/test/test.sh directly and need no just. (The official
-        # `just.systems/install.sh` returns 403 from GHA runners, so use
-        # the maintained setup action instead.)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        # `just.systems/install.sh` returns 403 from GHA runners.) The
+        # install fetches the release tarball and SHA256SUMS through
+        # script/ci/retry.sh, so one upstream 5xx does not fail the job;
+        # the setup-just action it replaced gave up after three tries on a
+        # GitHub API 504, base#1562.
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         # Naming the pin is not proof of the binary: ask the `just` the
@@ -1578,8 +1565,8 @@ jobs:
         # The whole decision -- rebuild because this PR changed an input of
         # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
-        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
-        # consumers. It used to be this block, pasted into each of them,
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for every
+        # consumer. It used to be this block, pasted into each of them,
         # and five of the six probed the pulled image while the sixth did
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
@@ -1678,38 +1665,35 @@ jobs:
       image_name: worker-selftest
       context_path: test/fixtures/build-worker
 
-  config-gen:
+  config-gen-gates:
     name: Config-gen Go gates (base#1462)
     needs: [classify]
     if: needs.classify.outputs.code_changed == 'true'
     # The config generator's Go gates (ADR-00000039): fmt, vet, lint, race
-    # and coverage in dockerfile/Dockerfile.config-gen's test stage, the
-    # binary's usage contract, then the redpath that plants one defect per
-    # gate and requires each to go red. All of it is ONE command, `just test
-    # go`, the same one the self-hosted coverage-local.yaml job and the
-    # pre-PR mirror run, so a green here and a green there are one claim.
+    # and coverage in dockerfile/Dockerfile.config-gen's test stage and the
+    # binary's usage contract, as ONE command, `just test go-gates`. With
+    # the config-gen-redpath matrix below it is `just test go`, the command
+    # the self-hosted coverage-local.yaml job and the pre-PR mirror run, so
+    # a green here and a green there are one claim. The two were one job
+    # until base#1547: the redpath's serial cases took that job to about 91
+    # minutes.
     #
-    # The job is compared WHOLE by self_test_yaml_spec.bats: its keys, its
-    # `if`, its steps (the checkout, the three just-pin steps byte for byte
-    # against literals the spec holds, which acceptance's copies are held
-    # to as well, and the one canonical step) and the workflow's own
-    # top-level and env keys above it. An edit to this workflow that would
-    # change how bash starts `just test go` -- a step `shell:`, an `if:` on
-    # the step, a `continue-on-error`, a job or workflow `env:` such as
-    # BASH_ENV, a `defaults:` block, a setup step that exports BASH_ENV
-    # through $GITHUB_ENV -- fails that spec rather than leaving this job
-    # green with the gates unrun. Gated on code_changed, so ci-rollup
-    # collapses its SKIPPED on a doc-only PR into a pass.
+    # Each config-gen job is compared WHOLE by self_test_yaml_spec.bats: its
+    # keys, its `if`, its steps (the checkout, the three just-pin steps
+    # byte for byte against literals the spec holds, which acceptance's
+    # copies are held to as well, and the one canonical step), the redpath
+    # job's matrix, and the workflow's own top-level and env keys above
+    # it. An edit to this workflow that would change how bash starts the
+    # recipe -- a step `shell:`, an `if:` on the step, a
+    # `continue-on-error`, a job or workflow `env:` such as BASH_ENV, a
+    # `defaults:` block, a setup step that exports BASH_ENV through
+    # $GITHUB_ENV -- fails that spec rather than leaving this job green
+    # with the gates unrun. Gated on code_changed, so ci-rollup collapses
+    # its SKIPPED on a doc-only PR into a pass.
     runs-on: ubuntu-latest
-    # 74 docker builds of a small module: the gates' test and final
-    # stages, then the redpath's 60 cases (base#1465 added the admission,
-    # producer-output and coverage-ratchet cases; most stop at the admit
-    # stage) and its control. The redpath alone took 10m06s on a local
-    # run; a ceiling, not a budget. 120, not 60: base#1467 took the
-    # redpath to 73 cases. On PR #1538's run 41716884877 this job was
-    # cancelled at 60 minutes with the redpath still running after 56
-    # minutes; at f8a33289 `just test go` took 52m41s on a local run,
-    # 49m52s of it the redpath.
+    # The gates' test and final stages: two docker builds and the mutation
+    # gate over the changed packages. A ceiling, not a budget; not raised
+    # by base#1547.
     timeout-minutes: 120
     steps:
       - name: Checkout
@@ -1728,9 +1712,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install just (container-ops entry point)
-        uses: extractions/setup-just@v4
-        with:
-          just-version: ${{ steps.just-pin.outputs.version }}
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
 
       - name: Check the just on PATH is the pin
         run: |
@@ -1744,7 +1728,68 @@ jobs:
         # push and against the merge-base with origin/main otherwise.
         env:
           CONFIG_GEN_MUTATION_CONTEXT: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
-        run: just test go
+        run: just test go-gates
+
+  config-gen-redpath:
+    name: Config-gen redpath shard ${{ matrix.shard }}/5${{ matrix.label }} (base#1547)
+    needs: [classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    # The redpath, which plants one defect per gate in a scratch copy and
+    # requires each to go red on its own gate, split into the shards
+    # script/test/config_gen_redpath_shards.tsv names (base#1547): each job
+    # runs `just test go-redpath <shard>/5`, the cases whose row names
+    # that shard. The 5 is the table's `# shards=5`; the redpath refuses a
+    # SHARD whose N is not the table's, and self_test_yaml_spec.bats holds
+    # this matrix to exactly 1..N with N read from the table. The unmodified
+    # copy's check (rerun) has one row like every other case, so it runs in
+    # one shard per CI run, and that shard's name says so: the label below
+    # sits on the shard that row names. Every other shard's verdict rests
+    # on that one, since every shard builds the same commit from the same
+    # pinned images, and ci-rollup needs every shard.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+        include:
+          - shard: 5
+            label: " + rerun, the baseline"
+    # A ceiling, not a budget; not raised by base#1547.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Full history, as base#1462 specifies; the parity spec pins it.
+          fetch-depth: 0
+
+      - name: Resolve the pinned just version
+        id: just-pin
+        # Copied from the acceptance job, which carries the rationale; the
+        # parity spec holds the two equal.
+        run: |
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install just (container-ops entry point)
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
+
+      - name: Check the just on PATH is the pin
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
+      - name: Run the config-gen gates
+        # The mutation baseline (base#1464) diffs against HEAD^1 on a main
+        # push and against the merge-base with origin/main otherwise.
+        env:
+          CONFIG_GEN_MUTATION_CONTEXT: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
+        run: just test go-redpath ${{ matrix.shard }}/5
 
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
@@ -1753,8 +1798,8 @@ jobs:
     # `ci-summary` and env/* `ci-passed`.
     #
     # Hard-mandatory jobs (actionlint / classify / doc-counts /
-    # lint-static / compute-shards) must succeed: SKIPPED there indicates
-    # a workflow bug,
+    # lint-static / mutation-roster / compute-shards) must succeed:
+    # SKIPPED there indicates a workflow bug,
     # not an intentional gate. doc-counts is hard-mandatory because it
     # carries no `if:` -- the generated doc/test catalogue can be broken by
     # a doc-only edit, so gating it on code_changed would skip it on
@@ -1765,7 +1810,7 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # bats-integration / coverage / acceptance / system / config-gen) carry
+    # coverage / acceptance / system / config-gen) carry
     # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
     # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
     # for those, otherwise doc-only PRs cannot merge.
@@ -1788,7 +1833,7 @@ jobs:
     # compute-shards failure cascaded into two skips and the required
     # check went green with the whole unit suite and the coverage floor
     # never run. A skipped shard computation is not a pass.
-    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1800,16 +1845,17 @@ jobs:
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
           DOC_COUNTS_RESULT: ${{ needs.doc-counts.result }}
           LINT_STATIC_RESULT: ${{ needs.lint-static.result }}
+          MUTATION_ROSTER_RESULT: ${{ needs.mutation-roster.result }}
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
           BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
-          BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
           COMPUTE_SHARDS_RESULT: ${{ needs.compute-shards.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
           WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
-          CONFIG_GEN_RESULT: ${{ needs.config-gen.result }}
+          CONFIG_GEN_GATES_RESULT: ${{ needs.config-gen-gates.result }}
+          CONFIG_GEN_REDPATH_RESULT: ${{ needs.config-gen-redpath.result }}
           # A fork PR is the one run in which SKIPPED stops being
           # trustworthy. `worker-selftest` calls build-worker.yaml, whose
           # `build` job carries the same-repo guard; on a fork PR that job
@@ -1837,34 +1883,37 @@ jobs:
           echo "shellcheck:       ${SHELLCHECK_RESULT}"
           echo "doc-counts:       ${DOC_COUNTS_RESULT}"
           echo "lint-static:      ${LINT_STATIC_RESULT}"
+          echo "mutation-roster:  ${MUTATION_ROSTER_RESULT}"
           echo "hadolint:         ${HADOLINT_RESULT}"
           echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
-          echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
           echo "compute-shards:   ${COMPUTE_SHARDS_RESULT}"
           echo "coverage:         ${COVERAGE_RESULT}"
           echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
           echo "acceptance:       ${ACCEPTANCE_RESULT}"
           echo "system:           ${SYSTEM_RESULT}"
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
-          echo "config-gen:       ${CONFIG_GEN_RESULT}"
+          echo "config-gen-gates:   ${CONFIG_GEN_GATES_RESULT}"
+          echo "config-gen-redpath: ${CONFIG_GEN_REDPATH_RESULT}"
           fail=0
-          # doc-counts, lint-static and compute-shards carry no `if:`
-          # gate, so SKIPPED means a workflow bug, not an intentional
-          # skip -- they are hard-mandatory like actionlint / classify.
-          # lint-static is a matrix; its entries fold into one result, so
-          # a single failing lint fails the rollup. compute-shards is the
+          # doc-counts, lint-static, mutation-roster and compute-shards
+          # carry no `if:` gate, so SKIPPED means a workflow bug, not an
+          # intentional skip -- they are hard-mandatory like actionlint /
+          # classify. lint-static and mutation-roster are matrices; each
+          # folds its entries into one result, so a single failing lint or
+          # roster shard fails the rollup. compute-shards is the
           # producer coverage expands, so its skip is what silently
           # removes the unit suite AND the coverage floor from this run.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
                    "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
-                   "${COMPUTE_SHARDS_RESULT}"; do
+                   "${MUTATION_ROSTER_RESULT}" "${COMPUTE_SHARDS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
-                   "${BATS_FRAGILE_RESULT}" "${BATS_INTEGRATION_RESULT}" \
-                   "${COVERAGE_RESULT}" "${COVERAGE_GATE_RESULT}" \
+                   "${BATS_FRAGILE_RESULT}" "${COVERAGE_RESULT}" \
+                   "${COVERAGE_GATE_RESULT}" \
                    "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
-                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}"; do
+                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_GATES_RESULT}" \
+                   "${CONFIG_GEN_REDPATH_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
@@ -1892,7 +1941,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
+    needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -30,6 +30,11 @@ setup() {
 }
 
 # _stub_go -- `go list ...` prints ${S}/list and exits ${S}/list.rc.
+# When ${S}/pkgs exists (rows `<pkg>\t<gofiles>\t<testgofiles>\t<xtestgofiles>`,
+# written by _tested_pkg), `go list -f <template> ...` instead renders the
+# template once per row, filling {{.ImportPath}}, {{len .GoFiles}},
+# {{len .TestGoFiles}} and {{len .XTestGoFiles}}; any other action makes
+# the stub exit 3, so a template it cannot answer never reads as a listing.
 # `go test ... -coverprofile=<f> ... <pkg>` copies ${S}/prof/<key> to <f>
 # when it exists (<key> is <pkg> with / as _) and exits ${S}/prof/<key>.rc,
 # 0 when there is none. Every call is logged to ${S}/go.calls.
@@ -39,6 +44,21 @@ _stub_go() {
 printf '%s\n' "\$*" >> "${S}/go.calls"
 case "\${1:-}" in
   list)
+    if [[ -f "${S}/pkgs" && "\${2:-}" == -f ]]; then
+      while IFS=\$'\t' read -r p g t x; do
+        line="\${3}"
+        line="\${line//'{{.ImportPath}}'/\${p}}"
+        line="\${line//'{{len .GoFiles}}'/\${g}}"
+        line="\${line//'{{len .TestGoFiles}}'/\${t}}"
+        line="\${line//'{{len .XTestGoFiles}}'/\${x}}"
+        if [[ "\${line}" == *'{{'* ]]; then
+          printf 'go stub: unsupported list template: %s\n' "\${3}" >&2
+          exit 3
+        fi
+        printf '%s\n' "\${line}"
+      done < "${S}/pkgs"
+      exit "\$(cat "${S}/list.rc")"
+    fi
     cat "${S}/list"
     exit "\$(cat "${S}/list.rc")" ;;
   test)
@@ -57,6 +77,13 @@ EOF
 # _pkg <import-path> <gofiles> [cgofiles] -- add a package to the listing.
 _pkg() {
   printf '%s\t%s\t%s\n' "${1}" "${2}" "${3:-0}" >> "${S}/list"
+}
+
+# _tested_pkg <import-path> <gofiles> <testgofiles> <xtestgofiles> -- add a
+# package, with its test file counts, to the listing a `go list -f`
+# template is rendered from.
+_tested_pkg() {
+  printf '%s\t%s\t%s\t%s\n' "${1}" "${2}" "${3}" "${4}" >> "${S}/pkgs"
 }
 
 # _profile <import-path> <line>... -- the package's canned profile: a
@@ -218,6 +245,120 @@ _passed() {
   _profile m/a 'm/a/a.go:1.1,2.2 900 0' 'm/a/a.go:3.1,4.2 100 0' 'm/a/a.go:1.1,2.2 900 3'
   _run_gate
   _passed "m/a"$'\t'"1000"$'\t'"900"
+}
+
+# why: The race RUN's one go test writes a single merged atomic profile
+# (base#1547), so the coverage RUN must not run go test again: --profile
+# splits that profile per listed package and counts each as today. A block
+# belongs to the package whose import path equals its file's directory, so
+# m/a/sub is counted on its own and never folded into m/a, and a block the
+# profile repeats counts once, at its highest count. The expected lines are
+# worked by hand from the literal profile: m/a holds 2+1 statements, 2 of
+# them covered (its first block's repeat carries count 1); m/a/sub 5, none
+# covered; m/b 4, all covered.
+@test "coverage.sh: --profile splits one merged profile per package, nested dirs apart, and runs no go test (base#1547)" {
+  _pkg m/a 1
+  _pkg m/a/sub 1
+  _pkg m/b 1
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 0' \
+    'm/a/a.go:3.1,4.2 1 0' \
+    'm/a/sub/s.go:1.1,2.2 5 0' \
+    'm/a/a.go:1.1,2.2 2 1' \
+    'm/b/b.go:1.1,2.2 4 7' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _passed "m/a"$'\t'"3"$'\t'"2" "m/a/sub"$'\t'"5"$'\t'"0" "m/b"$'\t'"4"$'\t'"4"
+  if grep -q '^test ' "${S}/go.calls"; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
+# why: A merged profile holds exactly one `mode: atomic` header (base#1547).
+# A second mode line means two profiles were concatenated, or the file is
+# not what the race RUN wrote; splitting it would silently drop that line
+# and count the rest. It is refused as profile_invalid, before any count is
+# written and without go test.
+@test "coverage.sh: --profile refuses a merged profile with a second mode line as profile_invalid (base#1547)" {
+  _pkg m/a 1
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 1' \
+    'mode: atomic' \
+    'm/a/a.go:3.1,4.2 1 1' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  assert_equal "${status}" 1
+  assert_equal "${output}" ""
+  [[ "${stderr}" =~ ^config_gen_gate_coverage_failed\ reason=profile_invalid(\ pkg=[^$'\n']*)?$ ]] \
+    || fail "want one profile_invalid line on stderr, got: ${stderr}"
+  [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
+  if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
+# why: A package with no statements has no block in any profile: go test
+# writes only the `mode:` header for it, which today's per-package
+# _measure counts as `<pkg>\t0\t0` (base#1547). The planted
+# internal/zzglob holds only zzglob_test.go, and a package of types or
+# constants alone is the same, so a merged profile with no block for such
+# a package is what a complete profile looks like. --profile must count
+# both as 0 0, the line _measure gives them, and not refuse them: a
+# refusal keyed on test files failed the redpath's sens-per-golden case,
+# which passes on origin/main (base#1547 review round 1 finding 1).
+@test "coverage.sh: --profile counts a test-only package and a package with no statements as 0 0, as _measure does (base#1547)" {
+  _tested_pkg m/a 1 1 0
+  _tested_pkg m/zz 0 1 0
+  _tested_pkg m/types 1 1 0
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 1' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _passed "m/a"$'\t'"2"$'\t'"2" "m/zz"$'\t'"0"$'\t'"0" "m/types"$'\t'"0"$'\t'"0"
+  if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
+# why: Today each package's own profile is refused when it carries a line
+# from any other package (_count, base#1462): such a profile is not the
+# package's. The merged profile's counterpart is a block whose file's
+# directory is no package `go list ./...` names here: the profile was
+# written for another tree, so its counts are not this module's (base#1547).
+# Splitting would drop that block silently and count the rest. It is
+# refused as profile_invalid naming the stray directory, before any count
+# is written and without go test.
+@test "coverage.sh: --profile refuses a block of a package go list does not name as profile_invalid (base#1547)" {
+  _tested_pkg m/a 1 1 0
+  printf '%s\n' 'mode: atomic' \
+    'm/a/a.go:1.1,2.2 2 1' \
+    'm/gone/g.go:1.1,2.2 3 1' > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _refused profile_invalid m/gone
+  [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
+  if grep -q '^test ' "${S}/go.calls" 2>/dev/null; then
+    fail "--profile still ran go test: $(grep '^test ' "${S}/go.calls")"
+  fi
+}
+
+# why: The stray-directory check keeps only the first stray directory it
+# names (base#1547). Cutting that list with `| head -n 1` under pipefail
+# lets head exit after one line while comm is still writing: comm dies of
+# SIGPIPE, the substitution's status is 141, and errexit ends the gate with
+# 141 and no refusal line, so a profile from another tree reads as a crash,
+# not as profile_invalid. Enough stray directories to outrun one pipe
+# buffer (64 KiB) must still be refused, naming the first in C order.
+@test "coverage.sh: --profile refuses more stray directories than one pipe buffer holds as profile_invalid naming the first (base#1547)" {
+  _tested_pkg m/a 1 1 0
+  {
+    printf '%s\n' 'mode: atomic' 'm/a/a.go:1.1,2.2 2 1'
+    awk 'BEGIN { for (i = 0; i < 20000; i++) printf "m/stray%05d/g.go:1.1,2.2 1 1\n", i }'
+  } > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _refused profile_invalid m/stray00000
+  [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
 }
 
 # why: One profile per package is what makes the attribution check possible;

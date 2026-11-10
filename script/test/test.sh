@@ -43,13 +43,14 @@
 #   ./test.sh --bats-unit-shard N/T  # Run unit shard N of T (skip ShellCheck +
 #                                  # integration). Coverage-matrix slice
 #                                  # primitive (greedy weight-balanced)
-#   ./test.sh --bats-fragile         # Run ONLY the kcov-fragile unit specs in
+#   ./test.sh --bats-fragile         # Run ONLY the kcov-fragile tagged tests in
 #                                  # plain mode (the tests the coverage matrix
 #                                  # skips). Used by the bats-fragile job in
 #                                  # self-test.yaml
 #   ./test.sh --bats-integration     # Run integration tests only (skip
-#                                  # ShellCheck + unit). Used by the
-#                                  # bats-integration job in self-test.yaml
+#                                  # ShellCheck + unit). A local entry
+#                                  # point: in CI the coverage shards run
+#                                  # these specs (base#1573)
 #                                  #
 #   ./test.sh --coverage        # Run the full Bats suite under Kcov. The
 #                             # lint phase is SKIPPED on every coverage
@@ -651,7 +652,7 @@ Options:
                           no figure,
                           $BATS_ONLY=1 to skip the ShellCheck phase,
                           $BATS_UNIT_SHARD to run only one matrix shard,
-                          $BATS_FRAGILE=1 to run only the kcov-fragile specs,
+                          $BATS_FRAGILE=1 to run only the kcov-fragile tests,
                           $BATS_INTEGRATION=1 to run integration only
   --lint                  All linters (ShellCheck + Hadolint) via docker
                           compose; the ci/test-tools image bakes in hadolint.
@@ -923,14 +924,15 @@ Options:
   --bats-unit-shard N/T   Run unit shard N of T (skip ShellCheck +
                           integration). Greedy weight-balanced partition;
                           the coverage matrix slice primitive (#377, #677)
-  --bats-fragile          Run ONLY the kcov-fragile unit specs in plain mode
-                          (skip ShellCheck + integration). These are the
-                          tests the coverage matrix skips; the bats-fragile
-                          job in self-test.yaml runs them so no unit test
-                          goes unrun (#677)
+  --bats-fragile          Run ONLY the kcov-fragile tagged tests of the unit
+                          and integration pools in plain mode (skip
+                          ShellCheck). These are the tests the coverage
+                          matrix skips; the bats-fragile job in
+                          self-test.yaml runs them so no test goes unrun
+                          (#677, base#1573)
   --bats-integration      Run integration tests only (skip ShellCheck +
-                          unit). Used by the bats-integration job in
-                          self-test.yaml (#377)
+                          unit). A local entry point: in CI the coverage
+                          shards run these specs (#377, base#1573)
   --bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
                           relative, e.g. test/bats/unit/ci_spec.bats) via the ci
                           container. Skips ShellCheck + kcov for a fast TDD
@@ -1247,9 +1249,9 @@ _prev_release_spec_in_coverage_shard() {
 #   BATS_FILE under kcov exactly as the container's does, so an ambient
 #   variable cannot make this predict a different run from the one that
 #   happens. Membership questions go to the very selectors the container
-#   runs (_shard_unit_files / _fragile_unit_files), so nothing here drifts
-#   the day the partition pool or the fragile set changes -- which a
-#   hand-maintained list of modes would.
+#   runs (_shard_unit_files), or to the spec itself for the kcov-fragile tag,
+#   so nothing here drifts the day the partition pool or the fragile set
+#   changes -- which a hand-maintained list of modes would.
 _dispatch_needs_prev_release() {
   local _coverage="${1:-0}"
   # The lint dispatches run no bats at all.
@@ -1285,17 +1287,12 @@ _dispatch_needs_prev_release() {
     _prev_release_spec_in_shard "${BATS_UNIT_SHARD}"
     return
   fi
-  # The kcov-fragile set is grepped out of the spec tree at runtime, so ask
-  # for it too rather than assuming it stays unit-only. Captured, not piped
-  # into the matcher: `grep -q` leaves as soon as it matches, which would
-  # strand the writer with SIGPIPE.
+  # bats-fragile runs the kcov-fragile tagged tests of every coverage pool,
+  # integration included (base#1573), so ask whether that spec carries the
+  # tag rather than assuming it never will. Any mention of the tag counts:
+  # of the two guesses, only "not needed" can end in a vacuous spec.
   if [[ "${BATS_FRAGILE:-0}" == "1" ]]; then
-    local _fragile _frc=0
-    _fragile="$(_fragile_unit_files)" || _frc=$?
-    if (( _frc != 0 )); then
-      return 0
-    fi
-    _prev_release_spec_in_selection <<< "${_fragile}"
+    grep -qF 'kcov-fragile' "${REPO_ROOT}/${_PREV_RELEASE_SPEC}" 2>/dev/null
     return
   fi
   # --bats-integration, --bats-only and bare `just test` all run the whole
@@ -2511,9 +2508,9 @@ _run_via_compose() {
   # path unchanged (full shellcheck + bats).
   #
   # BATS_UNIT_SHARD / BATS_FRAGILE / BATS_INTEGRATION route the
-  # coverage-slice / bats-fragile / bats-integration GHA jobs to the right
-  # subset inside the container; empty / 0 keep the local `just test` path
-  # unchanged (full unit + integration).
+  # coverage-slice / bats-fragile GHA jobs and the local --bats-integration
+  # run to the right subset inside the container; empty / 0 keep the
+  # local `just test` path unchanged (full unit + integration).
   #
   # LINT_ONLY / LINT_TOOL route `just test lint [--shellcheck |
   # --hadolint]` to the lint phase only (skip bats) inside the container:
@@ -3094,9 +3091,8 @@ main() {
       # `_run_via_compose`) skips the ShellCheck phase — the dedicated
       # self-test.yaml shellcheck job covers it in parallel.
       # BATS_UNIT_SHARD / BATS_INTEGRATION route this dispatch
-      # to a matrix-shard / integration-only subset; the dedicated GHA
-      # bats-unit / bats-integration jobs set these via the outer
-      # `--bats-unit-shard` / `--bats-integration` flags so the
+      # to a matrix-shard / integration-only subset; the outer
+      # `--bats-unit-shard` / `--bats-integration` flags set these so the
       # in-container path matches the local dev path.
       #
       # Arm the handback FIRST, above every phase and every early

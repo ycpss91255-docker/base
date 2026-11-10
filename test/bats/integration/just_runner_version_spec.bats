@@ -19,7 +19,7 @@
 # and a skip here would restore the silence.
 #
 # What it cannot see: the CI e2e job's own `just`. That one is installed
-# by `extractions/setup-just` from the same declaration (asserted
+# by script/ci/install-just.sh from the same declaration (asserted
 # statically in just_version_spec), and no test inside this container can
 # observe a GitHub runner.
 

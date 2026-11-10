@@ -126,6 +126,47 @@ _green_set() {
     || fail "docker run does not set GOTOOLCHAIN=local: $(tr '\n' ' ' < "${_argv}")"
 }
 
+# why: The redpath reuses this step's verdict while the digest of what its
+# .inputs declares is unchanged (base#1547). A declared set smaller than
+# what the container reads would let a plant change the step's answer and
+# still reuse it, so the tar the container gets is built from .inputs
+# itself: every file it declares, nothing else. The expected list is the
+# 20-gomod-oracle.inputs paths expanded by hand over this root, plus one
+# path appended to .inputs here: a member list of the step's own would not
+# grow with it.
+@test "20-gomod-oracle.sh: the tar the container receives holds exactly the files its .inputs declares (base#1547)" {
+  assert_spec_subject "${STEP_SRC}" "the go.mod oracle step (base#1463)"
+  _green_set
+  mkdir -p "${R}/test/fixtures/extra"
+  printf 'x\n' > "${R}/test/fixtures/extra/note.txt"
+  printf 'test/fixtures/extra\n' >> "${R}/script/test/config_gen_steps/20-gomod-oracle.inputs"
+  cat > "${S}/bin/docker" <<EOF
+#!$(command -v bash)
+n=\$(( \$(cat "${S}/docker.n" 2>/dev/null || echo 0) + 1 ))
+printf '%s\n' "\${n}" > "${S}/docker.n"
+case "\${1:-}" in
+  run) cat > "${S}/docker.stdin"; cat "${S}/run.out"; exit "\$(cat "${S}/run.rc")" ;;
+esac
+exit 0
+EOF
+  chmod +x "${S}/bin/docker"
+  _oracle
+  assert_success
+  [[ -s "${S}/docker.stdin" ]] || fail "docker run received no tar on stdin"
+  local _got
+  _got="$(tar -tf "${S}/docker.stdin" | grep -v '/$' | sed 's|^\./||' | LC_ALL=C sort)"
+  assert_equal "${_got}" "dist/script/docker/lib/log-events.txt
+dist/script/docker/lib/log.sh
+dockerfile/Dockerfile.config-gen
+script/test/config_gen_steps/gomod-oracle/requires.go
+script/watch/lib.sh
+test/fixtures/extra/note.txt
+test/fixtures/gomod/bad.mod
+test/fixtures/gomod/ok.mod
+test/fixtures/gomod/ok.requires
+test/fixtures/gomod/rep.mod"
+}
+
 # why: A fixture with no class header carries no verdict to hold either side
 # to, and a loop that skipped it would shrink the oracle silently.
 @test "20-gomod-oracle.sh: a fixture with no class header is go_mod_fixture_unclassified (base#1463)" {
