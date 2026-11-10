@@ -68,9 +68,11 @@ _measure() {
   printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
 }
 
-# _split <dir> <index> <import path> <merged profile> -- write the merged
-# profile's header and the blocks whose file's directory is exactly
-# <pkg> to <dir>/<index>.out, then count it as _measure does.
+# _split <dir> <index> <import path> <merged profile> <test files> --
+# write the merged profile's header and the blocks whose file's directory
+# is exactly <pkg> to <dir>/<index>.out, then count it as _measure does.
+# A package with test files (<test files> > 0) and no block is refused:
+# its tests never reached the merged profile (base#1547).
 _split() {
   local dir="${1}" i="${2}" pkg="${3}" prof="${1}/${2}.out" counts
   awk -v pkg="${pkg}" '
@@ -81,6 +83,10 @@ _split() {
       sub(/\/[^\/]*$/, "", d)
       if (d == pkg) print
     }' "${4}" > "${prof}"
+  if (( ${5} > 0 )) && ! awk 'NR > 1 && $0 != "" { f = 1 } END { exit !f }' \
+    "${prof}"; then
+    _refuse profile_invalid "${pkg}"
+  fi
   counts="$(_count "${prof}" "${pkg}")" || _refuse profile_invalid "${pkg}"
   printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
 }
@@ -113,7 +119,7 @@ _count() {
 }
 
 main() {
-  local listing dir pkg out="" x='' i=0 merged=''
+  local listing dir pkg nt nx out="" x='' i=0 merged='' tmpl
   if [[ "${1:-}" != --measure || -z "${2:-}" ]]; then
     _refuse usage
   fi
@@ -130,17 +136,23 @@ main() {
       END { exit (NR == 0 || bad) }' "${3}" || _refuse profile_invalid
     merged="${3}"
   fi
-  listing="$(go list -f '{{.ImportPath}}' ./...)" || _refuse list_failed
+  # --profile also lists each package's test file counts, which _split
+  # needs to tell a package without tests from one missing in the profile.
+  tmpl='{{.ImportPath}}'
+  if [[ -n "${merged}" ]]; then
+    tmpl=$'{{.ImportPath}}\t{{len .TestGoFiles}}\t{{len .XTestGoFiles}}'
+  fi
+  listing="$(go list -f "${tmpl}" ./...)" || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
   dir="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${dir} now; it is local to main
   trap "rm -rf '${dir}'" EXIT
   : > "${dir}/measured"
-  while IFS=$'\t' read -r pkg _; do
+  while IFS=$'\t' read -r pkg nt nx _; do
     [[ -n "${pkg}" ]] || continue
     i=$(( i + 1 ))
     if [[ -n "${merged}" ]]; then
-      _split "${dir}" "${i}" "${pkg}" "${merged}"
+      _split "${dir}" "${i}" "${pkg}" "${merged}" $(( ${nt:-0} + ${nx:-0} ))
     else
       _measure "${dir}" "${i}" "${pkg}"
     fi
