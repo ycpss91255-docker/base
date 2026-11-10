@@ -67,3 +67,18 @@ EOS
   run cat "${APT_LOG}"
   assert_output "$(printf 'update\ninstall\nupdate\ninstall')"
 }
+
+# why: Backoff, not a fixed pause: a skewed mirror needs longer to settle
+# on each try, so the delay doubles after every failed attempt, and no
+# sleep follows the last attempt (the build would only wait to fail),
+# base#1602.
+@test "apt-retry.sh 3 5: an install that always fails sleeps 5 then 10, and not after the last attempt (base#1602)" {
+  INSTALL_FAILS=99 \
+    PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${APT_RETRY}" 3 5 -- apt-get install -y curl
+  assert_failure
+  # Worked by hand from the design: first delay 5, doubled once, 3 attempts
+  # leave 2 gaps.
+  run cat "${SLEEP_LOG}"
+  assert_output "$(printf '5\n10')"
+}
