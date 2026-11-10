@@ -74,6 +74,18 @@ if [[ "$(jq -r '[.data.repository.mergeQueue.entries.nodes[]?] | length' <<<"${r
   exit 0
 fi
 
+# No entry has HEAD_SHA as its head commit, so this run's group is not in
+# the queue and nothing about it is proven: say why, then answer false,
+# base#1587.
+if [[ "$(jq -r --arg sha "${HEAD_SHA}" \
+  '[.data.repository.mergeQueue.entries.nodes[]? | select(.headCommit.oid == $sha)] | length' \
+  <<<"${reply}")" == "0" ]]; then
+  printf '::error::merge_group_trust: the %s merge queue for %s has no entry for %s\n' \
+    "${REPO}" "${branch}" "${HEAD_SHA}" >&2
+  printf 'same_repo=false\n'
+  exit 0
+fi
+
 # The group head ref is .../pr-<N>-<sha>; N names the entry's pull request.
 pr=""
 if [[ "${HEAD_REF}" =~ /pr-([0-9]+)-[0-9a-f]+$ ]]; then
