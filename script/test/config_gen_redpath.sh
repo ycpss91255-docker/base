@@ -1041,12 +1041,12 @@ readonly -a _RP_REUSED_STEPS=(20-gomod-oracle 30-watch-gosum)
 # environment (base#1547).
 _rp_runner() {
   local name="${1}" out="${2}" err="${3}"
-  local -a words=()
+  local -a vars=()
   shift 3
-  while [[ "${1}" != -- ]]; do words+=("${1}"); shift; done
+  while [[ "${1}" != -- ]]; do vars+=("${1}"); shift; done
   shift
   env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
-    CONFIG_GEN_REDPATH_CASE="${name}" "${words[@]}" \
+    CONFIG_GEN_REDPATH_CASE="${name}" "${vars[@]}" \
     bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" "$@" >"${out}" 2>"${err}"
 }
 
@@ -1515,6 +1515,68 @@ _rp_coverage() {
   return 1
 }
 
+# _rp_case_names -- every case the redpath can run, one per line, in run
+# order (base#1547).
+_rp_case_names() {
+  local e
+  for e in "${_RP_CASES[@]}" "${_RP_REFUSALS[@]}"; do printf '%s\n' "${e%%:*}"; done
+  for e in "${_RP_STALE[@]}"; do printf '%s\n' "${e%%|*}"; done
+  printf '%s\n' "${_RP_GREENS[@]}"
+  for e in "${_RP_AFTER_ADMIT[@]}" "${_RP_COVERAGE[@]}"; do printf '%s\n' "${e%%|*}"; done
+  printf '%s\n' rerun retro
+}
+
+# _rp_plan_refuse <attr> <display> -- the plan's usage refusal: one
+# config_gen_usage_invalid record naming <attr>, then exit 2.
+_rp_plan_refuse() {
+  _log_err "${_RP_SERVICE}" config_gen_usage_invalid "${1}" "display=config_gen_redpath.sh: ${2}"
+  exit 2
+}
+
+# _rp_plan_check -- refuse, before any runner call, every selector input
+# that would run other than a partition of the whole run (base#1547):
+# SHARD with ONLY, an ONLY name that is no case, a shard table that is not
+# `# shards=<N>` and then one `<case>\t<shard>` row for every case, rerun
+# and retro included, each shard in 1..N and each of 1..N holding a row,
+# and a SHARD whose N is not the table's. Then CI's matrix 1..N, one job
+# per shard, runs every case exactly once.
+_rp_plan_check() {
+  local tsv="${_RP_SCRIPT_DIR}/config_gen_redpath_shards.tsv" n c k line w
+  local -A known=() rows=() held=()
+  while IFS= read -r c; do known["${c}"]=1; done < <(_rp_case_names)
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" && -n "${CONFIG_GEN_REDPATH_ONLY:-}" ]]; then
+    _rp_plan_refuse arg=CONFIG_GEN_REDPATH_SHARD \
+      "CONFIG_GEN_REDPATH_SHARD and CONFIG_GEN_REDPATH_ONLY together; set one"
+  fi
+  for w in ${CONFIG_GEN_REDPATH_ONLY:-}; do
+    [[ -n "${known[${w}]:-}" ]] \
+      || _rp_plan_refuse "case=${w}" "CONFIG_GEN_REDPATH_ONLY names ${w}, which is no case"
+  done
+  [[ -r "${tsv}" ]] || _rp_plan_refuse "arg=${tsv##*/}" "the shard table ${tsv} is not readable"
+  n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${tsv}")"
+  [[ -n "${n}" ]] || _rp_plan_refuse "arg=${tsv##*/}" "the shard table's first line is not '# shards=<N>'"
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    IFS=$'\t' read -r c k w <<<"${line}"
+    [[ -n "${known[${c}]:-}" ]] || _rp_plan_refuse "case=${c}" "the shard table has a row for ${c}, which is no case"
+    if ! [[ -z "${w}" && "${k}" =~ ^[1-9][0-9]*$ ]] || (( k > n )); then
+      _rp_plan_refuse "case=${c}" "the shard table puts ${c} on '${k}${w:+ ${w}}', not one shard in 1..${n}"
+    fi
+    [[ -z "${rows[${c}]:-}" ]] || _rp_plan_refuse "case=${c}" "the shard table has two rows for ${c}"
+    rows["${c}"]="${k}" held["${k}"]=1
+  done < <(tail -n +2 "${tsv}")
+  while IFS= read -r c; do
+    [[ -n "${rows[${c}]:-}" ]] || _rp_plan_refuse "case=${c}" "the shard table has no row for ${c}"
+  done < <(_rp_case_names)
+  for (( k = 1; k <= n; k++ )); do
+    [[ -n "${held[${k}]:-}" ]] || _rp_plan_refuse "shard=${k}" "the shard table's shard ${k} of ${n} holds no case"
+  done
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" && "${CONFIG_GEN_REDPATH_SHARD#*/}" != "${n}" ]]; then
+    _rp_plan_refuse arg=CONFIG_GEN_REDPATH_SHARD \
+      "CONFIG_GEN_REDPATH_SHARD=${CONFIG_GEN_REDPATH_SHARD} splits into ${CONFIG_GEN_REDPATH_SHARD#*/} shards; the shard table has ${n}"
+  fi
+}
+
 # _rp_shard_of <case> -- print the shard config_gen_redpath_shards.tsv
 # gives <case> (base#1547).
 _rp_shard_of() {
@@ -1653,6 +1715,7 @@ main() {
       "display=config_gen_redpath.sh: CONFIG_GEN_REDPATH_SHARD must be <n>/<N> with 1 <= n <= N, got: ${CONFIG_GEN_REDPATH_SHARD}"
     exit 2
   fi
+  _rp_plan_check
   local scratch pristine entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
