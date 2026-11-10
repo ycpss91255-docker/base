@@ -798,7 +798,8 @@ _digest_of() {
 # mutation case its _RP_MUTATION_EVENTS names, `|<line, may be
 # empty>|<event>|<file>` of its one event record),
 # the event id, `<file>|<reason>`,
-# a green case's line (empty when _RP_GREEN_LINES names none, base#1467),
+# a green case's line (empty when _RP_GREEN_LINES names none, base#1467)
+# and `|<pkg>` when _RP_GREEN_SCOPE names its one package (base#1615),
 # `<gate>|<event>|<file>` (an after-admit case, base#1467), or
 # `<event>|<pkg>|<file>` (file empty when the event names none).
 _redpath_rows() {
@@ -829,7 +830,7 @@ stale|stale-symlink|dockerfile/config-gen/cmd/config-gen/zz.go|unlisted
 stale|stale-dangling|dockerfile/config-gen/zz-dangling|not_regular
 stale|stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch
 stale|stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted
-stale|stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch
+stale|stale-names|dockerfile/config-gen/cmd/config-gen/testdata/zznames/a%20b.txt|sha_mismatch
 stale|stale-header|manifest|header
 stale|no-checker|admit.sh|absent
 stale|no-lib|config_gen_mutation_lang.sh|absent
@@ -857,17 +858,17 @@ stale|tamper-dotdot|manifest|path
 stale|tamper-outside|manifest|path
 stale|tamper-visible-dup|visible.sha256|duplicate
 stale|tamper-dual|ignored.sha256|dual
-green|names|
-green|rename-recreate|
-green|untrack|
-green|rename-move|
-green|copies|
-green|typechange|
+green|names||cmd/config-gen
+green|rename-recreate||cmd/config-gen
+green|untrack||cmd/config-gen
+green|rename-move||cmd/config-gen
+green|copies||cmd/config-gen
+green|typechange||cmd/config-gen
 green|ign-excluded|
 green|ign-excluded-go|
 green|docs-only|mutation targets none
 after|ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go
-after|untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt
+after|untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/testdata/zzg/a.txt
 coverage|cov-drop|config_gen_coverage_floor_below|cmd/config-gen|
 coverage|cov-lowered|config_gen_coverage_floor_lowered|internal/buildgate|
 coverage|cov-stale|config_gen_coverage_floor_stale|internal/buildgate|
@@ -1149,6 +1150,11 @@ _canned_correct() {
         # (base#1467).
         : > "${_c}.err"
         [[ -z "${_want}" ]] || printf '#30 1.00 %s\n' "${_want}" > "${_c}.err"
+        # Its fourth field is the one package, under the module, its
+        # mutation gate passes (base#1615).
+        [[ -z "${_reason}" ]] \
+          || printf '#30 1.00 %s/%s ok efficacy=100.0\n' \
+            "$(awk '$1 == "module" {print $2; exit}' /source/dockerfile/config-gen/go.mod)" "${_reason}" >> "${_c}.err"
         printf '0\n' > "${_c}.rc"
         continue
         ;;
@@ -2431,6 +2437,52 @@ _glibc_getconf() {
   assert_equal "$(_case_failures)" "docs-only|green_line_missing"
 }
 
+# why: The six producer-state green cases plant only non-Go files, so the
+# mutation gate must judge exactly the one small package that holds them,
+# cmd/config-gen. The before row is the five verdict lines a real untrack
+# run printed at d7abca73, when the plant sat under the module-root
+# testdata/ and was mapped to every corpus importer; the none row is a gate
+# that judged nothing; the after row is the one line a real run prints once
+# the plant sits under cmd/config-gen/testdata/. Only the after row is the
+# case's scope, so the other two must fail mutation_scope_mismatch rather
+# than pass slowly or vacuously (base#1615).
+@test "config_gen_redpath.sh: a producer-state green case passes only when the mutation gate judged exactly cmd/config-gen (base#1615)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  local _row _case _want _p='github.com/ycpss91255-docker/base/dockerfile/config-gen'
+  local -a _cases=(names rename-recreate untrack rename-move copies typechange)
+  for _row in before none after; do
+    rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
+    _redpath_repo
+    _want=''
+    for _case in "${_cases[@]}"; do
+      case "${_row}" in
+        before)
+          printf '#22 1.076 %s ok efficacy=100.0\n' "${_p}/cmd/config-gen" > "${S}/canned/${_case}.err"
+          printf '#22 173.8 %s ok efficacy=98.2\n' "${_p}/internal/locate" >> "${S}/canned/${_case}.err"
+          printf '#22 255.0 %s ok efficacy=94.5\n' "${_p}/internal/schema" >> "${S}/canned/${_case}.err"
+          printf '#22 257.8 %s ok efficacy=100.0\n' "${_p}/internal/tables" >> "${S}/canned/${_case}.err"
+          printf '#22 259.2 %s ok efficacy=100.0\n' "${_p}/internal/testcorpus" >> "${S}/canned/${_case}.err"
+          _want+="${_case}|mutation_scope_mismatch"$'\n'
+          ;;
+        none)
+          printf '#22 1.00 mutation targets none\n' > "${S}/canned/${_case}.err"
+          _want+="${_case}|mutation_scope_mismatch"$'\n'
+          ;;
+        after)
+          printf '#22 3.643 %s ok efficacy=100.0\n' "${_p}/cmd/config-gen" > "${S}/canned/${_case}.err"
+          ;;
+      esac
+    done
+    _run_redpath "${_cases[@]}"
+    assert_equal "${_row}:$(_case_failures | LC_ALL=C sort)" "${_row}:$(printf '%s' "${_want}" | LC_ALL=C sort)"
+    if [[ "${_row}" == after ]]; then
+      assert_equal "${_row}:${status}" "${_row}:0"
+    else
+      assert_equal "${_row}:${status}" "${_row}:1"
+    fi
+  done
+}
+
 # why: A stale case's change must happen after 00-manifest wrote the
 # baseline and 01-admit installed the checker, or the baseline already
 # holds it and admission has nothing to refuse; a green case's change must
@@ -2450,10 +2502,44 @@ _glibc_getconf() {
   run diff -r "${S}/runner.${_n}.mod" "${S}/repo/dockerfile/config-gen"
   assert_success
   _n="$(_redpath_call rename-move)"
-  [[ -f "${S}/runner.${_n}.mod/testdata/zzg/a.txt" && -f "${S}/runner.${_n}.mod/testdata/zzg/d.txt" ]] \
-    || fail "rename-move did not leave testdata/zzg/a.txt and testdata/zzg/d.txt"
-  [[ ! -e "${S}/runner.${_n}.mod/testdata/zzg/c.txt" ]] || fail "rename-move left testdata/zzg/c.txt"
-  assert_equal "$(cat "${S}/runner.${_n}.mod/testdata/zzg/a.txt")" c
+  local _g="${S}/runner.${_n}.mod/cmd/config-gen/testdata/zzg"
+  [[ -f "${_g}/a.txt" && -f "${_g}/d.txt" ]] \
+    || fail "rename-move did not leave cmd/config-gen/testdata/zzg/a.txt and d.txt"
+  [[ ! -e "${_g}/c.txt" ]] || fail "rename-move left cmd/config-gen/testdata/zzg/c.txt"
+  assert_equal "$(cat "${_g}/a.txt")" c
+}
+
+# why: The mutation gate maps a file under the module-root testdata/ to
+# every corpus importer, so a green case planted there re-mutates four
+# unchanged packages. Each producer-state green case, and untrack-ignored
+# that shares its path, must leave its files under the one small package's
+# cmd/config-gen/testdata/ and nothing under the module-root testdata/zzg
+# or testdata/zznames; a half move or a leftover copy would keep the slow
+# mapping (base#1615).
+@test "config_gen_redpath.sh: the producer-state green cases plant under cmd/config-gen/testdata, not the module-root testdata (base#1615)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _case _n _m _row
+  # case|file the case's git state leaves in the copy, under cmd/config-gen/testdata/
+  local -a _rows=(
+    'names|zznames/a b.txt'
+    'rename-recreate|zzg/d.txt'
+    'untrack|zzg/a.txt'
+    'rename-move|zzg/d.txt'
+    'untrack-ignored|zzg/a.txt'
+    'copies|zzg/e.txt'
+    'typechange|zzg/c.txt'
+  )
+  _run_redpath names rename-recreate untrack rename-move untrack-ignored copies typechange
+  for _row in "${_rows[@]}"; do
+    _case="${_row%%|*}"
+    _n="$(_redpath_call "${_case}")"
+    _m="${S}/runner.${_n}.mod"
+    [[ -f "${_m}/cmd/config-gen/testdata/${_row#*|}" ]] \
+      || fail "${_case} did not plant cmd/config-gen/testdata/${_row#*|}"
+    [[ ! -e "${_m}/testdata/zzg" && ! -e "${_m}/testdata/zznames" ]] \
+      || fail "${_case} left a plant under the module-root testdata/"
+  done
 }
 
 @test "config_gen_redpath.sh: a case that went red on another gate's id fails with reason wrong_id (base#1462)" {
