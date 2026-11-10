@@ -52,12 +52,22 @@ main() {
       # Docs select nothing: the doc-only allow-list classify's
       # code_changed gate already uses (.github/workflows/self-test.yaml).
       doc/* | README.md | LICENSE | CONTEXT.md) ;;
+      # script/watch, script/test and script/ci are config-gen inputs:
+      # the traced host side executes script/watch/pins.sh (step 30),
+      # _rp_copy copies script/watch whole, and the job runs the
+      # script/test and script/ci drivers. They keep every job.
+      script/watch/* | script/test/* | script/ci/*)
+        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        ;;
       # E4: config-gen never reads init.sh. Its host side traced under
       # strace -f opened only dist/script/base/just-version.sh under
       # dist/, and the redpath's _rp_copy
       # (script/test/config_gen_redpath.sh) copies no dist/script/base/
       # file (base#1584).
-      dist/script/base/init.sh)
+      # E3: under script/, the trace and _rp_copy read only script/watch,
+      # script/test and script/ci (kept above), so every other script/
+      # path drops config-gen (base#1584).
+      dist/script/base/init.sh | script/*)
         for _job in "${_CS_JOBS[@]}"; do
           [[ "${_job}" == config-gen ]] || _sel["${_job}"]=true
         done
