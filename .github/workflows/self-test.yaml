@@ -1884,7 +1884,7 @@ jobs:
           # branch, which is the standard posture for a public repo whose
           # org has a self-hosted runner.
           if [[ "${IS_FORK_PR}" == "true" ]]; then
-            echo "::error::Fork PR: the self-hosted-eligible jobs were skipped by the same-repo guard, so this run does not certify the commit. Re-push the contribution as a same-repository branch to get a full run."
+            echo "::error::Fork PR, or a merge group not proven same-repository: the self-hosted-eligible jobs were skipped by the same-repo guard, so this run does not certify the commit. Re-push the contribution as a same-repository branch to get a full run."
             fail=1
           fi
           # Said only where it is true, and only when the answer is a
