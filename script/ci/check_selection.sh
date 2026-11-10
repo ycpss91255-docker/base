@@ -145,6 +145,14 @@ main() {
         _sel[coverage]=true
         if _cs_in_roster "${_path}"; then _sel[mutation-roster]=true; fi
         ;;
+      # E1 for a system spec: the same leaf argument drops config-gen and
+      # acceptance, but script/ci/system_paths.sh lists test/bats/system/**,
+      # so the system job keeps it (base#1584).
+      test/bats/system/*_spec.bats)
+        _sel[coverage]=true
+        _sel[system]=true
+        if _cs_in_roster "${_path}"; then _sel[mutation-roster]=true; fi
+        ;;
       *)
         for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
         ;;
