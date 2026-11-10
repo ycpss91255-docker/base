@@ -134,3 +134,17 @@ coverage=true
 acceptance=false
 system=false"
 }
+
+@test "check_selection: a push run selects every heavy job even when its diff is docs only (base#1584)" {
+  # Expected: the issue's rule "On push, tag and workflow_dispatch
+  # everything runs" -- main runs the full suite (owner 2026-11-10), so
+  # the docs-only diff that selects nothing on a pull request must still
+  # select all five heavy jobs on a push.
+  run _select push doc/x.md
+  assert_success
+  assert_output "config-gen=true
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
