@@ -15,7 +15,9 @@
 #
 # why: The self-hosted fork guard fails closed on merge_group, and a site
 # opens only on this resolver's answer. These specs pin that the answer is
-# true only when every pull request in the group is proven same-repository,
+# false when the call or the queue proves nothing, false when a pull request
+# at or ahead of the HEAD_SHA entry is cross-repository or names another
+# head repository, and true when the only fork sits behind that entry,
 # base#1587.
 
 bats_require_minimum_version 1.5.0
@@ -64,6 +66,10 @@ _queue() {
   printf '{"data":{"repository":{"mergeQueue":{"entries":{"nodes":[%s]}}}}}' "${_nodes}"
 }
 
+# why: The only case that opens a self-hosted runner on a queue run. A
+# resolver that always answered false would pass every other spec here and
+# skip `build` on every merge_group run, so the queue could never go green
+# (base#1587).
 @test "merge_group_trust.sh: a group of three same-repository pull requests is trusted (base#1587)" {
   MOCK_REPLY="$(_queue \
     "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
@@ -78,6 +84,9 @@ _queue() {
   assert_line "same_repo=true"
 }
 
+# why: An API outage proves nothing about the group, so it must not read
+# as trusted; and a non-zero exit would turn classify red and hide the
+# reason the rollup is meant to print (base#1587).
 @test "merge_group_trust.sh: a failed gh call leaves the group untrusted and exits 0 (base#1587)" {
   # gh fails on every attempt; retry.sh's back-off sleep is stubbed so
   # the spec does not wait. Exit 0 with same_repo=false keeps classify
@@ -92,6 +101,9 @@ _queue() {
   assert_output "same_repo=false"
 }
 
+# why: A merge_group run while the queue is off (or turned off mid-run)
+# has no entries to prove anything with; treating null as "no forks" would
+# open the runner on an unproven group (base#1587).
 @test "merge_group_trust.sh: a null merge queue leaves the group untrusted and names why (base#1587)" {
   # `repository.mergeQueue(branch:"main")` returned null in a live
   # GraphQL query while the queue was off. Nothing is proven, so the
@@ -107,6 +119,9 @@ _queue() {
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
 
+# why: The queue exists, so the null-queue case does not cover it; a
+# resolver that read "no cross-repository entry found" as trust would
+# answer true here with nothing proven (base#1587).
 @test "merge_group_trust.sh: an empty merge queue leaves the group untrusted and names why (base#1587)" {
   # The queue exists but lists no entries, so no entry holds HEAD_SHA and
   # nothing about the group is proven. The answer is false, and an
@@ -121,6 +136,9 @@ _queue() {
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
 
+# why: Other groups in the queue being same-repository says nothing about
+# this run's commit; trusting them would let a run whose own group is not
+# listed borrow their answer (base#1587).
 @test "merge_group_trust.sh: a queue with no entry for HEAD_SHA leaves the group untrusted and names why (base#1587)" {
   # The queue holds same-repository entries, but none has HEAD_SHA as its
   # head commit, so this run's group is not among them and nothing about
@@ -139,6 +157,9 @@ _queue() {
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
 
+# why: The commit and the group ref must name the same entry, or the
+# group whose code is running is not proven to be the one that was
+# checked (base#1587).
 @test "merge_group_trust.sh: an entry whose pull request is not HEAD_REF's pr-<N> leaves the group untrusted and names why (base#1587)" {
   # The entry with HEAD_SHA as its head commit belongs to PR 103, but the
   # group head ref names pr-999. The two disagree, so this run's group is
@@ -158,6 +179,9 @@ _queue() {
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
 
+# why: A deleted head repository leaves isCrossRepository false as the
+# only signal; a resolver that read that field alone would answer true for
+# code whose author is no longer provable (base#1587).
 @test "merge_group_trust.sh: an entry whose head repository is null leaves the group untrusted and names why (base#1587)" {
   # PullRequest.headRepository is null when the head repository was
   # deleted, so who wrote the code is not proven even though
@@ -178,6 +202,10 @@ _queue() {
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
 
+# why: The load-bearing case: a group builds the code of every pull
+# request ahead of its head, so a fork there runs on the self-hosted
+# runner unless the resolver checks the whole group, not only the head
+# entry or HEAD_REF's pull request (base#1587).
 @test "merge_group_trust.sh: a cross-repository pull request ahead of the HEAD_SHA entry leaves the group untrusted (base#1587)" {
   # Entry 2 is in the group (ahead of entry 3) and comes from a fork, so
   # the group holds fork-authored code. The answer is false.
@@ -194,6 +222,9 @@ _queue() {
   assert_output "same_repo=false"
 }
 
+# why: The group head is the pull request the run is named after; a
+# resolver that checked only the entries ahead of it would let a fork at
+# the head through (base#1587).
 @test "merge_group_trust.sh: a cross-repository pull request as the HEAD_SHA entry leaves the group untrusted (base#1587)" {
   # The group head itself, entry 3, comes from a fork. The answer is false.
   MOCK_REPLY="$(_queue \
@@ -209,6 +240,9 @@ _queue() {
   assert_output "same_repo=false"
 }
 
+# why: Pins the position filter from the other side: checking the whole
+# queue would make one parked fork block every same-repository group ahead
+# of it, and the queue would stall (base#1587).
 @test "merge_group_trust.sh: a cross-repository pull request behind the HEAD_SHA entry does not block the group (base#1587)" {
   # Entry 4 comes from a fork but sits behind entry 3, so it is not in
   # this run's group (a group holds the entry and those ahead of it). A
@@ -228,6 +262,9 @@ _queue() {
   assert_output "same_repo=true"
 }
 
+# why: isCrossRepository alone is one field; the resolver also requires
+# nameWithOwner to be REPO, and this is the only case where the two
+# disagree, so dropping the second check is caught here (base#1587).
 @test "merge_group_trust.sh: a head repository named for another repository leaves the group untrusted (base#1587)" {
   # Entry 2 says isCrossRepository false but its head repository is not
   # REPO, so the two fields disagree and same-repository is not proven.

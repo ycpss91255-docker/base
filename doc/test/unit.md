@@ -691,7 +691,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (65)
+### test/bats/unit/build_worker_yaml_spec.bats (67)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -859,6 +859,8 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: downstream cleanup is ownership-scoped too (#900)` | - |
 | `build-worker.yaml: the build job carries the same-repo guard AND-ed with its code_changed gate (#766)` | - |
 | `build-worker.yaml: the guard tests the FORK, not the PR (#766)` | - |
+| `build-worker.yaml: build opens on merge_group only on a merge_group_same_repo input that defaults to 'false' (base#1587)` | The guard canon fails closed on merge_group, whose payload names no head repository. The build job may open on a queue run only when the caller passes a resolved answer that the whole group is same-repository, and a caller that passes nothing must stay closed (base#1587). |
+| `build-worker.yaml: docker-build IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group `build` is skipped unless the caller proved the group same-repository, and docker-build must then refuse to certify, as it does for a fork PR, or an unproven queue group would pass on a build that never ran (base#1587). |
 | `build-worker.yaml: every job declares its own permissions block (#957)` | - |
 | `build-worker.yaml: no job requests packages: write (#957)` | - |
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
@@ -1125,20 +1127,27 @@ behaviour, base#1562.
 | `install-just.sh: one failed fetch of the tarball and of SHA256SUMS is retried and just lands on GITHUB_PATH (base#1562)` | The just install must ride out one upstream 5xx on EITHER of its two fetches (the tarball and its SHA256SUMS) instead of failing the job, and must publish a PATH dir only once that dir holds a working binary. A retry on just one fetch, a swap to a tool other than curl, or a PATH entry without the binary would each leave a job red or wrong, base#1562. |
 | `install-just.sh: a tarball whose digest does not match SHA256SUMS fails and leaves GITHUB_PATH untouched (base#1562)` | A download that arrives but is not the release's bytes (a proxy error page, a truncated or tampered tarball) must fail the job, not be installed. The install checks the tarball against the release's SHA256SUMS before it publishes a PATH dir, base#1562. |
 
-### test/bats/unit/ci_merge_group_trust_spec.bats (6)
+### test/bats/unit/ci_merge_group_trust_spec.bats (11)
 
 The self-hosted fork guard fails closed on merge_group, and a site opens
-only on this resolver's answer. These specs pin that the answer is true only
-when every pull request in the group is proven same-repository, base#1587.
+only on this resolver's answer. These specs pin that the answer is false
+when the call or the queue proves nothing, false when a pull request at or
+ahead of the HEAD_SHA entry is cross-repository or names another head
+repository, and true when the only fork sits behind that entry, base#1587.
 
 | Test | Description |
 |------|-------------|
-| `merge_group_trust.sh: a group of three same-repository pull requests is trusted (base#1587)` | - |
-| `merge_group_trust.sh: a failed gh call leaves the group untrusted and exits 0 (base#1587)` | - |
-| `merge_group_trust.sh: a null merge queue leaves the group untrusted and names why (base#1587)` | - |
-| `merge_group_trust.sh: an empty merge queue leaves the group untrusted and names why (base#1587)` | - |
-| `merge_group_trust.sh: a queue with no entry for HEAD_SHA leaves the group untrusted and names why (base#1587)` | - |
-| `merge_group_trust.sh: an entry whose pull request is not HEAD_REF's pr-<N> leaves the group untrusted and names why (base#1587)` | - |
+| `merge_group_trust.sh: a group of three same-repository pull requests is trusted (base#1587)` | The only case that opens a self-hosted runner on a queue run. A resolver that always answered false would pass every other spec here and skip `build` on every merge_group run, so the queue could never go green (base#1587). |
+| `merge_group_trust.sh: a failed gh call leaves the group untrusted and exits 0 (base#1587)` | An API outage proves nothing about the group, so it must not read as trusted; and a non-zero exit would turn classify red and hide the reason the rollup is meant to print (base#1587). |
+| `merge_group_trust.sh: a null merge queue leaves the group untrusted and names why (base#1587)` | A merge_group run while the queue is off (or turned off mid-run) has no entries to prove anything with; treating null as "no forks" would open the runner on an unproven group (base#1587). |
+| `merge_group_trust.sh: an empty merge queue leaves the group untrusted and names why (base#1587)` | The queue exists, so the null-queue case does not cover it; a resolver that read "no cross-repository entry found" as trust would answer true here with nothing proven (base#1587). |
+| `merge_group_trust.sh: a queue with no entry for HEAD_SHA leaves the group untrusted and names why (base#1587)` | Other groups in the queue being same-repository says nothing about this run's commit; trusting them would let a run whose own group is not listed borrow their answer (base#1587). |
+| `merge_group_trust.sh: an entry whose pull request is not HEAD_REF's pr-<N> leaves the group untrusted and names why (base#1587)` | The commit and the group ref must name the same entry, or the group whose code is running is not proven to be the one that was checked (base#1587). |
+| `merge_group_trust.sh: an entry whose head repository is null leaves the group untrusted and names why (base#1587)` | A deleted head repository leaves isCrossRepository false as the only signal; a resolver that read that field alone would answer true for code whose author is no longer provable (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request ahead of the HEAD_SHA entry leaves the group untrusted (base#1587)` | The load-bearing case: a group builds the code of every pull request ahead of its head, so a fork there runs on the self-hosted runner unless the resolver checks the whole group, not only the head entry or HEAD_REF's pull request (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request as the HEAD_SHA entry leaves the group untrusted (base#1587)` | The group head is the pull request the run is named after; a resolver that checked only the entries ahead of it would let a fork at the head through (base#1587). |
+| `merge_group_trust.sh: a cross-repository pull request behind the HEAD_SHA entry does not block the group (base#1587)` | Pins the position filter from the other side: checking the whole queue would make one parked fork block every same-repository group ahead of it, and the queue would stall (base#1587). |
+| `merge_group_trust.sh: a head repository named for another repository leaves the group untrusted (base#1587)` | isCrossRepository alone is one field; the resolver also requires nameWithOwner to be REPO, and this is the only case where the two disagree, so dropping the second check is caught here (base#1587). |
 
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
@@ -6426,14 +6435,14 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: PASSES an eligible job that carries the guard alone` | - |
 | `self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate` | - |
 | `self-hosted guard: FAILS an eligible job whose if: is a near-miss reword` | - |
-| `self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)` | - |
+| `self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)` | The first slice of base#1587: the old canon passed this fixture (lint exit 0), so a queue run could put a group holding fork-authored code on a self-hosted runner. Leaving the canon unchanged fails here. |
 | `self-hosted guard: an unrelated job-level if: does not satisfy the guard` | - |
 | `self-hosted guard: FAILS when the workflow directory is missing` | - |
 | `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (146)
+### test/bats/unit/self_test_yaml_spec.bats (151)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6818,7 +6827,12 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)` | - |
 | `self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)` | - |
 | `self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)` | - |
+| `self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)` | A merge_group payload has no pull_request object, so only the API can say whether a queued group is same-repository; classify must ask it on merge_group and publish the answer, failing closed (base#1587) |
+| `self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)` | build-worker's merge_group_same_repo input defaults to 'false', so a worker-selftest that passes nothing would skip `build` on every queue run and fail the gate even for a proven same-repo group (base#1587) |
+| `self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group the build guard skips `build` unless classify proved the group same-repository, and SKIPPED is pass-equivalent in the rollup; the rollup must apply the fork rule there too, or an unproven queue group would go green on a build that never ran (base#1587) |
+| `self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)` | IS_FORK_PR is now also true for a merge group not proven same-repository, so the rollup's red must say that case too, or a queue run reads as a fork PR that does not exist (base#1587) |
 | `self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate` | The CI run on a watch/ branch IS the proposal's whole answer; a branches: filter here would leave every proposal green with zero checks |
+| `self-test.yaml: on: listens for merge_group checks_requested (base#1587)` | A merge queue only runs the suite on the queued group when the workflow listens for merge_group; without the trigger the queue's required checks never report and nothing reaches main (base#1587) |
 | `self-test.yaml: the pin-coverage lint has a lint-static CI join` | A PR is the only moment pin-coverage can fire; with no CI join it would gate a local just test and nothing a reviewer ever sees |
 | `self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)` | - |
 | `self-test.yaml: worker-selftest drives the worker with a minimal fixture repo (#802)` | - |

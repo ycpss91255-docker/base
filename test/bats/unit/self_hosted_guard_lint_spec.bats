@@ -395,6 +395,9 @@ _guard_lines() {
   [[ "${output}" == *"job heavy"* ]]
 }
 
+# why: The first slice of base#1587: the old canon passed this fixture
+# (lint exit 0), so a queue run could put a group holding fork-authored
+# code on a self-hosted runner. Leaving the canon unchanged fails here.
 @test "self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)" {
   # A merge_group payload carries no pull_request object, so the old
   # `github.event_name != 'pull_request' || ...` guard is true on every
