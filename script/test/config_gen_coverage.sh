@@ -18,7 +18,8 @@
 # With --profile, no go test runs: the one merged atomic profile the race
 # RUN wrote is split per listed package, a block going to the package whose
 # import path equals its file's directory, and each part is counted the
-# same way (base#1547).
+# same way; a package with no block (no statements) is `<pkg>\t0\t0`, as
+# its own profile would give (base#1547).
 # The gate judges no floor: cmd/cg-gates ratchet reads <file> and judges each
 # package against coverage-floors.d and floors.base (base#1465).
 # Fail-closed: every way the measurement can go missing is a refusal,
@@ -31,7 +32,9 @@
 #   test_failed          the package's go test exited non-zero
 #   profile_invalid      the profile is missing, is not `mode: atomic`,
 #                        carries a malformed line, or a line from any other
-#                        package
+#                        package; a merged profile carries a second mode
+#                        line or a block of a directory go list does not
+#                        name
 #
 # A refusal is one line on stderr,
 #   config_gen_gate_coverage_failed reason=<reason> pkg=<import path>
@@ -68,11 +71,20 @@ _measure() {
   printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
 }
 
-# _split <dir> <index> <import path> <merged profile> <test files> --
-# write the merged profile's header and the blocks whose file's directory
-# is exactly <pkg> to <dir>/<index>.out, then count it as _measure does.
-# A package with test files (<test files> > 0) and no block is refused:
-# its tests never reached the merged profile (base#1547).
+# _block_dirs <merged profile> -- the directory of each block's file, one
+# per line, sorted and unique: the import paths the profile holds blocks
+# of.
+_block_dirs() {
+  awk 'NR > 1 && $0 != "" { d = $0; sub(/:.*/, "", d); sub(/\/[^\/]*$/, "", d); print d }' \
+    "${1}" | LC_ALL=C sort -u
+}
+
+# _split <dir> <index> <import path> <merged profile> -- write the merged
+# profile's header and the blocks whose file's directory is exactly <pkg>
+# to <dir>/<index>.out, then count it as _measure does. A package with no
+# block is a package with no statements (a test-only package, or types
+# alone): go test writes only the header for it, so _measure counts it
+# 0 0, and so does this (base#1547).
 _split() {
   local dir="${1}" i="${2}" pkg="${3}" prof="${1}/${2}.out" counts
   awk -v pkg="${pkg}" '
@@ -83,10 +95,6 @@ _split() {
       sub(/\/[^\/]*$/, "", d)
       if (d == pkg) print
     }' "${4}" > "${prof}"
-  if (( ${5} > 0 )) && ! awk 'NR > 1 && $0 != "" { f = 1 } END { exit !f }' \
-    "${prof}"; then
-    _refuse profile_invalid "${pkg}"
-  fi
   counts="$(_count "${prof}" "${pkg}")" || _refuse profile_invalid "${pkg}"
   printf '%s\t%s\n' "${pkg}" "${counts}" >> "${dir}/measured"
 }
@@ -119,7 +127,7 @@ _count() {
 }
 
 main() {
-  local listing dir pkg nt nx out="" x='' i=0 merged='' tmpl
+  local listing dir pkg out="" x='' i=0 merged=''
   if [[ "${1:-}" != --measure || -z "${2:-}" ]]; then
     _refuse usage
   fi
@@ -136,23 +144,24 @@ main() {
       END { exit (NR == 0 || bad) }' "${3}" || _refuse profile_invalid
     merged="${3}"
   fi
-  # --profile also lists each package's test file counts, which _split
-  # needs to tell a package without tests from one missing in the profile.
-  tmpl='{{.ImportPath}}'
-  if [[ -n "${merged}" ]]; then
-    tmpl=$'{{.ImportPath}}\t{{len .TestGoFiles}}\t{{len .XTestGoFiles}}'
-  fi
-  listing="$(go list -f "${tmpl}" ./...)" || _refuse list_failed
+  listing="$(go list -f '{{.ImportPath}}' ./...)" || _refuse list_failed
   [[ -n "${listing}" ]] || _refuse no_packages
+  # A block of a directory go list does not name is from another tree,
+  # the merged counterpart of the line from another package _count
+  # refuses in a package's own profile (base#1547).
+  if [[ -n "${merged}" ]]; then
+    pkg="$(LC_ALL=C comm -23 <(_block_dirs "${merged}") <(cut -f1 <<<"${listing}" | LC_ALL=C sort -u) | head -n 1)"
+    [[ -z "${pkg}" ]] || _refuse profile_invalid "${pkg}"
+  fi
   dir="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${dir} now; it is local to main
   trap "rm -rf '${dir}'" EXIT
   : > "${dir}/measured"
-  while IFS=$'\t' read -r pkg nt nx _; do
+  while IFS=$'\t' read -r pkg _; do
     [[ -n "${pkg}" ]] || continue
     i=$(( i + 1 ))
     if [[ -n "${merged}" ]]; then
-      _split "${dir}" "${i}" "${pkg}" "${merged}" $(( ${nt:-0} + ${nx:-0} ))
+      _split "${dir}" "${i}" "${pkg}" "${merged}"
     else
       _measure "${dir}" "${i}" "${pkg}"
     fi
