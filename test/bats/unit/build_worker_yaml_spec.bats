@@ -417,15 +417,31 @@ _extra_stages() {
   printf '%s\n' "${1}" > "${_dir}/Dockerfile"
   mkdir -p "${_dir}/runner-temp"
   # The stub also answers `--metadata-file F` the way buildx does, by
-  # writing a metadata JSON that names a build record (base#1602).
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "docker %s\n" "$*"' \
-      'while [ "$#" -gt 0 ]; do' \
-      '  if [ "$1" = --metadata-file ] && [ "$#" -gt 1 ]; then' \
-      '    printf "{\"buildx.build.ref\":\"builder/node/ref\"}\n" > "$2"' \
-      '  fi' \
-      '  shift' \
-      'done' \
-      > "${_dir}/bin/docker"
+  # writing a metadata JSON that names a build record of that build's own
+  # (`rec-<target>`), and answers `buildx history logs --progress plain
+  # <id>` on stderr, as buildx does, with a record whose cache export
+  # vertex ends in ERROR naming <id>. So a warning carries that error
+  # text only when the step handed the warn script its own build's
+  # metadata (base#1602).
+  cat > "${_dir}/bin/docker" <<'STUB'
+#!/usr/bin/env bash
+printf 'docker %s\n' "$*"
+if [ "${1:-}" = buildx ] && [ "${2:-}" = history ] && [ "${3:-}" = logs ]; then
+  printf '#9 exporting to GitHub Actions Cache\n#9 ERROR: export failed for record %s\n' "${!#}" >&2
+  exit 0
+fi
+target='' meta=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) [ "$#" -gt 1 ] && target="$2" ;;
+    --metadata-file) [ "$#" -gt 1 ] && meta="$2" ;;
+  esac
+  shift
+done
+if [ -n "${meta}" ]; then
+  printf '{"buildx.build.ref":"builder/node/rec-%s"}\n' "${target}" > "${meta}"
+fi
+STUB
   chmod +x "${_dir}/bin/docker"
   yaml_step_run "${WF}" build 'Build extra stages' > "${_dir}/step.sh"
   [ -s "${_dir}/step.sh" ] || return 2
@@ -619,6 +635,10 @@ FROM debian:bookworm AS foo-test' foo
   assert_output "1"
   run grep -cE '^::warning title=cache export::foo: ' <<<"${_warns}"
   assert_output "1"
+  # The warning is the stage's own record's export error, not the
+  # no-record fallback a missing --metadata-file falls back to.
+  assert_equal "${_warns}" \
+      '::warning title=cache export::foo: export failed for record rec-foo'
 }
 
 # why: The -test companion is a build of its own with its own cache
@@ -638,6 +658,12 @@ FROM debian:bookworm AS foo-test' foo
   assert_output "1"
   run grep -cE '^::warning title=cache export::foo: ' <<<"${_warns}"
   assert_output "1"
+  # Each warning is its own build's record's export error: the -test
+  # build reads rec-foo-test and the stage build reads rec-foo.
+  assert_equal "${_warns}" \
+      "$(printf '%s\n' \
+          '::warning title=cache export::foo-test: export failed for record rec-foo-test' \
+          '::warning title=cache export::foo: export failed for record rec-foo')"
 }
 
 # why: ignore-error=true turns a failed cache export green, so each build
