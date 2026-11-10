@@ -166,3 +166,25 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only a dist/ file other than just-version.sh and lib/ drops config-gen and keeps the other four (base#1584)" {
+  # Expected, from what each job reads, not from the map:
+  # - config-gen=false: the job's only dist/ reads are
+  #   ./dist/script/base/just-version.sh (its just-pin step) and
+  #   dist/script/docker/lib/log.sh and log-events.txt (the redpath's
+  #   _rp_copy, script/test/config_gen_redpath.sh); the strace -f trace
+  #   of its host side opened no other dist/ file, and no config_gen_*
+  #   script names upgrade.sh (grep finds none).
+  # - acceptance=true: acceptance.sh copies the whole checkout into the
+  #   consumer (`cp -a "${_ACCEPTANCE_ROOT}/." ...`).
+  # - coverage=true: no exclusion ever drops coverage.
+  # - mutation-roster=true: upgrade.sh is not a spec.
+  # - system=true: script/ci/system_paths.sh lists `dist/**`.
+  run _select pull_request dist/script/base/upgrade.sh
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
