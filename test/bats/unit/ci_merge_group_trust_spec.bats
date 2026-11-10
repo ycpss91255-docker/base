@@ -101,6 +101,35 @@ _queue() {
   assert_output "same_repo=false"
 }
 
+# why: One transient API 5xx must not mark the group untrusted: the
+# rollup would then fail every queue run on a blip. The call goes through
+# retry.sh, so a gh that fails once and then answers still proves the
+# group same-repository; a bare `gh api graphql` call fails this spec
+# (base#1587).
+@test "merge_group_trust.sh: a gh call that fails once and then answers is retried and trusted (base#1587)" {
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 3333333333333333333333333333333333333333 103 false ycpss91255-docker/base)")"
+  export MOCK_REPLY
+  export GH_CALLS="${BATS_TEST_TMPDIR}/gh_calls"
+  : > "${GH_CALLS}"
+  mock_cmd "gh" '
+printf "x\n" >> "${GH_CALLS}"
+if (( $(wc -l < "${GH_CALLS}") == 1 )); then
+  printf "gh: HTTP 502\n" >&2
+  exit 1
+fi
+printf "%s\n" "${MOCK_REPLY}"
+'
+  mock_cmd "sleep" 'exit 0'
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=true"
+  [[ "$(wc -l < "${GH_CALLS}")" -eq 2 ]]
+}
+
 # why: A merge_group run while the queue is off (or turned off mid-run)
 # has no entries to prove anything with; treating null as "no forks" would
 # open the runner on an unproven group (base#1587).
