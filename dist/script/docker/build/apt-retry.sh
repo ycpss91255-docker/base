@@ -14,6 +14,7 @@ usage() {
 }
 
 [ "${3:-}" = "--" ] || usage
+[ "$1" -ge 1 ] || usage
 
 attempts="$1"
 delay="$2"
