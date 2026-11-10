@@ -873,9 +873,16 @@ jobs:
               --platform "${PLATFORM}" \
               --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
               --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
+              --metadata-file "${RUNNER_TEMP}/${stage}.json" \
               "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
               "${CONTEXT_PATH}"
             echo "::endgroup::"
+            # Reached only when the build above passed (`set -e`): the
+            # export is ignore-error=true, so read the build's own record
+            # and warn when it did not finish (base#1602).
+            BUILD_METADATA="$(cat "${RUNNER_TEMP}/${stage}.json")" \
+              CACHE_EXPORT_LABEL="${stage}" \
+              bash .worker-base/script/ci/build_worker/cache_export_warn.sh
           done
 
       # ── Reclaim ──────────────────────────────────────────────────
