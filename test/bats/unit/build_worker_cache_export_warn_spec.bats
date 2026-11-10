@@ -66,3 +66,22 @@ EOS
   assert_success
   assert_output ""
 }
+
+@test "cache_export_warn: an export vertex that ends in ERROR prints one ::warning:: with the error and exits 0 (base#1602)" {
+  # The failed cache export vertex, copied from the progress log of
+  # ycpss91255-docker/isaac run 42753553284 attempt 1 (vertex #26); the
+  # middle of its writing-layer lines is cut, the ERROR line is verbatim.
+  cat > "${RECORD}" <<'EOS'
+#26 exporting to GitHub Actions Cache
+#26 preparing build cache for export 0.0s done
+#26 writing layer sha256:9ed69c7e7ddcfb654dd0c2509186a7266317c0cc824e93fb39a67532745b2ecb
+#26 writing layer sha256:9ed69c7e7ddcfb654dd0c2509186a7266317c0cc824e93fb39a67532745b2ecb 0.3s done
+#26 writing layer sha256:dcdb1603327ce5a6c4de1fed73999edf66cf591300436a79b162dbe5e10c112a
+#26 sending cache export 4205.5s done
+#26 writing layer sha256:dcdb1603327ce5a6c4de1fed73999edf66cf591300436a79b162dbe5e10c112a 3601.3s done
+#26 ERROR: error writing layer blob: PUT https://productionresultssa18.blob.core.windows.net/actions-cache/d5f-10276218917
+EOS
+  run bash "${SCRIPT}"
+  assert_success
+  assert_output "::warning title=cache export::devel-test: error writing layer blob: PUT https://productionresultssa18.blob.core.windows.net/actions-cache/d5f-10276218917"
+}
