@@ -1299,6 +1299,24 @@ _case_failures() {
   assert_output END
 }
 
+# why: The pool drains with `while (( ${#_RP_PIDS[@]} > 0 )); do _rp_reap;
+# done` (base#1547). When `wait -n -p` hands back no pid in _RP_PIDS (a pid
+# that is no child of this shell, so rc 127 and an empty name), no case
+# leaves the pool; a reap that returned anyway would spin that loop
+# forever and count no status. It must refuse with
+# config_gen_redpath_reap_lost and exit 1, so the caller never resumes.
+@test "config_gen_redpath.sh: a reap whose wait names no running case is refused as reap_lost and exits 1 (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  run --separate-stderr env LOG_FORMAT=json bash -c 'source "$1"
+    _RP_PIDS=(2147483646) _RP_ERRS=(/dev/null)
+    _rp_reap
+    printf "returned\n"' _ "${REDPATH}"
+  assert_equal "${status}" 1
+  assert_equal "${output}" ""
+  [[ "${stderr}" == *'"body":"config_gen_redpath_reap_lost"'* ]] \
+    || fail "want a config_gen_redpath_reap_lost event on stderr, got: ${stderr}"
+}
+
 # One case of each kind, the rerun among them: what a copy-level property
 # (each scratch root's contents, its git state, its environment) is checked
 # on. Every kind reaches the runner through the same _rp_copy and

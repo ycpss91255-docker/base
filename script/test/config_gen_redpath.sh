@@ -1688,9 +1688,6 @@ _rp_reap() {
     _RP_PIDS=("${_RP_PIDS[@]}") _RP_ERRS=("${_RP_ERRS[@]}")
     return 0
   done
-  _log_err "${_RP_SERVICE}" config_gen_redpath_reap_lost "rc=${rc}" \
-    "display=config_gen_redpath.sh: wait -n returned no running case (rc=${rc})"
-  exit 1
 }
 
 # _rp_serial <case> -- true when <case> is in _RP_SERIAL (base#1547).
