@@ -9,15 +9,27 @@
 # Input : BUILD_METADATA (the JSON docker/build-push-action emits as
 #         `outputs.metadata`; its `buildx.build.ref` names the build record)
 #         and CACHE_EXPORT_LABEL (the stage name the build produced).
-# Output: nothing on stdout for an export vertex that ends in `#N DONE`.
+# Output: nothing on stdout for an export vertex that ends in `#N DONE`;
+#         one `::warning title=cache export::<label>: <error>` line for an
+#         export vertex that ends in `#N ERROR: <error>`.
 #         Always exits 0: a cache export never fails the job.
 
 set -uo pipefail
 
 main() {
-  local ref
+  local ref logs
   ref="$(printf '%s' "${BUILD_METADATA:-}" | jq -r '."buildx.build.ref" // empty' 2>/dev/null)"
-  docker buildx history logs --progress plain "${ref##*/}" >/dev/null 2>&1
+  logs="$(docker buildx history logs --progress plain "${ref##*/}" 2>/dev/null)"
+  # Each cache export vertex: remember its number, then report the error
+  # text of an `#N ERROR: ...` line that ends it.
+  printf '%s\n' "${logs}" | awk -v label="${CACHE_EXPORT_LABEL:-}" '
+    $0 ~ /^#[0-9]+ exporting to GitHub Actions Cache$/ { export[$1] = 1; next }
+    ($1 in export) && $2 == "ERROR:" {
+      msg = $0
+      sub(/^#[0-9]+ ERROR: /, "", msg)
+      printf "::warning title=cache export::%s: %s\n", label, msg
+    }
+  '
   return 0
 }
 
