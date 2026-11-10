@@ -1008,6 +1008,105 @@ _tt_artifact_paths() {
   done
 }
 
+# ── A builder builds whenever obtain says build, on every event (base#1588) ──
+#
+# _tt_if_true <if> <build_local> <event> <ref> -- 0 when a step `if:` holds
+# for a run with that obtain verdict, github.event_name and github.ref, 1
+# when it does not, 2 (with a message) for a form this reader does not know.
+# It reads `a == 'x'` / `a != 'x'` atoms joined by `&&` and `||` (`&&` binds
+# tighter, as in GitHub expressions) and the status functions; a step with no
+# `if` runs (an implicit success()).
+_tt_if_true() {
+  local _e _alt _atom _ok _var
+  local _re="^([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*(==|!=)[[:space:]]*'([^']*)'\$"
+  local -A _ctx=([steps.obtain.outputs.build_local]="${2}" [github.event_name]="${3}" [github.ref]="${4}")
+  local -a _alts=() _atoms=()
+  _e="$(_tt_unwrap "${1}")"
+  [ -n "${_e}" ] || return 0
+  mapfile -t _alts <<< "${_e//'||'/$'\n'}"
+  for _alt in "${_alts[@]}"; do
+    _ok=0
+    mapfile -t _atoms <<< "${_alt//'&&'/$'\n'}"
+    for _atom in "${_atoms[@]}"; do
+      _atom="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "${_atom}")"
+      case "${_atom}" in
+        'always()' | 'success()') continue ;;
+        'failure()' | 'cancelled()') _ok=1; continue ;;
+      esac
+      if ! [[ "${_atom}" =~ ${_re} ]]; then
+        echo "unreadable if atom '${_atom}' in '${1}'"; return 2
+      fi
+      _var="${BASH_REMATCH[1]}"
+      if [ -z "${_ctx[${_var}]+set}" ]; then
+        echo "if names '${_var}', which this reader has no value for: '${1}'"; return 2
+      fi
+      if [ "${BASH_REMATCH[2]}" = '==' ]; then
+        [ "${_ctx[${_var}]}" = "${BASH_REMATCH[3]}" ] || _ok=1
+      else
+        [ "${_ctx[${_var}]}" != "${BASH_REMATCH[3]}" ] || _ok=1
+      fi
+    done
+    [ "${_ok}" -ne 0 ] || return 0
+  done
+  return 1
+}
+
+# _tt_builder_builds <workflow> -- succeeds iff, for each builder, on every
+# event the workflow runs on: when obtain says build_local=true exactly one
+# build-push step runs, the upload-artifact step runs and the `mark` step
+# runs (so produced is true and consumers load the tar instead of building
+# their own copy); when it says false none of the three runs. The build that
+# runs carries cache-to on a push to main only: a PR reads the cache and
+# never writes it (base#1588 issue, acceptance 1 and 3).
+_tt_builder_builds() {
+  local _wf="${1}" _rc=0 _arch _b _row _bl _ev _ref _n _i _uses _id _r _want
+  local _nbuild _nup _nmark _to
+  # event<TAB>ref: every trigger in self-test.yaml's `on:`.
+  local -a _events=($'pull_request\trefs/pull/1/merge' $'workflow_dispatch\trefs/heads/fix' \
+    $'push\trefs/heads/main' $'push\trefs/heads/master' $'push\trefs/tags/v1.0.0')
+  for _arch in amd64 arm64; do
+    _b="test-tools-image-${_arch}"
+    _n="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps | length' "${_wf}")"
+    for _bl in true false; do
+      for _row in "${_events[@]}"; do
+        IFS=$'\t' read -r _ev _ref <<< "${_row}"
+        _nbuild=0; _nup=0; _nmark=0; _to=""
+        for (( _i = 0; _i < _n; _i++ )); do
+          _r=0
+          _tt_if_true "$(_tt_step "${_wf}" "${_b}" "${_i}" '.if // ""')" "${_bl}" "${_ev}" "${_ref}" || _r=$?
+          if [ "${_r}" -eq 2 ]; then _rc=1; continue; fi
+          [ "${_r}" -eq 0 ] || continue
+          _uses="$(_tt_step "${_wf}" "${_b}" "${_i}" '.uses // ""')"
+          _id="$(_tt_step "${_wf}" "${_b}" "${_i}" '.id // ""')"
+          case "${_uses}" in
+            docker/build-push-action@*)
+              _nbuild=$(( _nbuild + 1 ))
+              _to="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with["cache-to"] // ""')" ;;
+            actions/upload-artifact@*) _nup=$(( _nup + 1 )) ;;
+          esac
+          [ "${_id}" != mark ] || _nmark=$(( _nmark + 1 ))
+        done
+        _want=0; [ "${_bl}" = false ] || _want=1
+        if [ "${_nbuild}" -ne "${_want}" ] || [ "${_nup}" -ne "${_want}" ] || [ "${_nmark}" -ne "${_want}" ]; then
+          echo "${_b} build_local=${_bl} ${_ev} ${_ref}: ${_nbuild} builds, ${_nup} uploads, ${_nmark} mark steps run, want ${_want} each"
+          _rc=1
+        fi
+        if [ "${_nbuild}" -eq 1 ] && [ "${_ev}" = push ] && [ "${_ref}" = refs/heads/main ]; then
+          [ -n "${_to}" ] || { echo "${_b} ${_ev} ${_ref}: the build writes no cache"; _rc=1; }
+        elif [ -n "${_to}" ]; then
+          echo "${_b} ${_ev} ${_ref}: the build writes the cache ('${_to}'), want push to main only"; _rc=1
+        fi
+      done
+    done
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: each builder builds, uploads and marks produced whenever obtain says build, writing the cache on a push to main only (base#1588)" {
+  run _tt_builder_builds "${WF}"
+  assert_success
+}
+
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
 @test "self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)" {
