@@ -342,6 +342,25 @@ _passed() {
   fi
 }
 
+# why: The stray-directory check keeps only the first stray directory it
+# names (base#1547). Cutting that list with `| head -n 1` under pipefail
+# lets head exit after one line while comm is still writing: comm dies of
+# SIGPIPE, the substitution's status is 141, and errexit ends the gate with
+# 141 and no refusal line, so a profile from another tree reads as a crash,
+# not as profile_invalid. Enough stray directories to outrun one pipe
+# buffer (64 KiB) must still be refused, naming the first in C order.
+@test "coverage.sh: --profile refuses more stray directories than one pipe buffer holds as profile_invalid naming the first (base#1547)" {
+  _tested_pkg m/a 1 1 0
+  {
+    printf '%s\n' 'mode: atomic' 'm/a/a.go:1.1,2.2 2 1'
+    awk 'BEGIN { for (i = 0; i < 20000; i++) printf "m/stray%05d/g.go:1.1,2.2 1 1\n", i }'
+  } > "${S}/all.out"
+  printf 'm/internal/testcorpus.root=/r/testdata\n' > "${S}/corpus-root"
+  _run_gate_with --measure "${S}/measured" "${S}/corpus-root" --profile "${S}/all.out"
+  _refused profile_invalid m/stray00000
+  [[ ! -e "${S}/measured" ]] || fail "a refused profile still wrote counts: $(cat "${S}/measured")"
+}
+
 # why: One profile per package is what makes the attribution check possible;
 # a single ./... profile cannot say which package a line came from.
 @test "coverage.sh: runs one atomic-mode go test per listed package (base#1462)" {
