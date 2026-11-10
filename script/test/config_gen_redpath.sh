@@ -236,12 +236,15 @@ readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
 readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
-# Cases that run after the pool drains, one at a time, with no other case
-# running (base#1547). The rule: a case whose expected record holds a
-# timed-out or killed count belongs here, since that count depends on how
-# loaded the host is while its mutants run. mut-timeout expects 3 killed
-# and 1 timed out.
-readonly -a _RP_SERIAL=(mut-timeout)
+# Cases, of any kind, that run after the pool drains, one at a time, with
+# no other case running (base#1547). The rules: a case whose expected
+# record holds a timed-out or killed count belongs here, since that count
+# depends on how loaded the host is while its mutants run (mut-timeout
+# expects 3 killed and 1 timed out); and a case whose mutation gate
+# mutates a real module package, not its own zz* plant, since with one
+# gremlins worker per CPU that pass uses every CPU (base#1606): names,
+# rename-recreate, untrack, rename-move, copies, typechange and corpus.
+readonly -a _RP_SERIAL=(mut-timeout names rename-recreate untrack rename-move copies typechange corpus)
 # <case>|<pkg>|<reason>|<measured>: the one package failure record the
 # runner must log for <case>, re-emitted from the mutation gate's
 # config_gen_mutation_package_failed line (base#1467). The mut-timeout
@@ -1700,6 +1703,53 @@ _rp_serial() {
   return 1
 }
 
+# _rp_spawn_kinds <scratch> <pool|serial> -- spawn every selected case
+# of every kind for one phase (base#1606): pool spawns the cases not in
+# _RP_SERIAL, at most _RP_JOBS at a time; serial spawns those in it, each
+# reaped before the next starts. Adds each spawned case to the caller's
+# ran count.
+_rp_spawn_kinds() {
+  local scratch="${1}" phase="${2}" entry name file want pkg gate
+  # _rp_phase_has <case> -- true when <case> runs in this phase.
+  _rp_phase_has() {
+    _rp_selected "${1}" || return 1
+    if _rp_serial "${1}"; then [[ "${phase}" == serial ]]; else [[ "${phase}" == pool ]]; fi
+  }
+  # _rp_phase_spawn <case> <fn> [args...] -- spawn it; alone when serial.
+  _rp_phase_spawn() {
+    ran=$(( ran + 1 ))
+    _rp_spawn "${scratch}" "${@}"
+    [[ "${phase}" == pool ]] || _rp_reap
+  }
+  for entry in "${_RP_CASES[@]}"; do
+    _rp_phase_has "${entry%%:*}" || continue
+    _rp_phase_spawn "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
+  done
+  for entry in "${_RP_REFUSALS[@]}"; do
+    _rp_phase_has "${entry%%:*}" || continue
+    _rp_phase_spawn "${entry%%:*}" _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}"
+  done
+  for entry in "${_RP_STALE[@]}"; do
+    IFS='|' read -r name file want <<<"${entry}"
+    _rp_phase_has "${name}" || continue
+    _rp_phase_spawn "${name}" _rp_stale "${scratch}" "${name}" "${file}" "${want}"
+  done
+  for name in "${_RP_GREENS[@]}"; do
+    _rp_phase_has "${name}" || continue
+    _rp_phase_spawn "${name}" _rp_green_case "${scratch}" "${name}"
+  done
+  for entry in "${_RP_AFTER_ADMIT[@]}"; do
+    IFS='|' read -r name gate want file <<<"${entry}"
+    _rp_phase_has "${name}" || continue
+    _rp_phase_spawn "${name}" _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}"
+  done
+  for entry in "${_RP_COVERAGE[@]}"; do
+    IFS='|' read -r name want pkg file <<<"${entry}"
+    _rp_phase_has "${name}" || continue
+    _rp_phase_spawn "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}"
+  done
+}
+
 main() {
   if [[ -n "${CONFIG_GEN_REDPATH_ACTIVE:-}" ]]; then
     _log_err "${_RP_SERVICE}" config_gen_redpath_reentered \
@@ -1729,7 +1779,7 @@ main() {
     exit 2
   fi
   _rp_plan_check
-  local scratch pristine entry failed=0 ran=0
+  local scratch pristine failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
   trap "rm -rf '${scratch}'" EXIT
@@ -1752,52 +1802,12 @@ main() {
   # The planted cases run in the background, at most
   # CONFIG_GEN_REDPATH_JOBS at a time, nproc when unset (base#1547).
   _RP_JOBS="${CONFIG_GEN_REDPATH_JOBS:-$(nproc)}" _RP_ERRS=() _RP_FAILED=0
-  for entry in "${_RP_CASES[@]}"; do
-    _rp_selected "${entry%%:*}" || continue
-    _rp_serial "${entry%%:*}" && continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
-  done
-  for entry in "${_RP_REFUSALS[@]}"; do
-    _rp_selected "${entry%%:*}" || continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${entry%%:*}" _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}"
-  done
-  local name file want pkg
-  for entry in "${_RP_STALE[@]}"; do
-    IFS='|' read -r name file want <<<"${entry}"
-    _rp_selected "${name}" || continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${name}" _rp_stale "${scratch}" "${name}" "${file}" "${want}"
-  done
-  for name in "${_RP_GREENS[@]}"; do
-    _rp_selected "${name}" || continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${name}" _rp_green_case "${scratch}" "${name}"
-  done
-  local gate
-  for entry in "${_RP_AFTER_ADMIT[@]}"; do
-    IFS='|' read -r name gate want file <<<"${entry}"
-    _rp_selected "${name}" || continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${name}" _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}"
-  done
-  for entry in "${_RP_COVERAGE[@]}"; do
-    IFS='|' read -r name want pkg file <<<"${entry}"
-    _rp_selected "${name}" || continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}"
-  done
+  _rp_spawn_kinds "${scratch}" pool
   while (( ${#_RP_PIDS[@]} > 0 )); do _rp_reap; done
-  # The _RP_SERIAL cases, each alone: spawned once the pool is empty and
-  # reaped before the next one starts (base#1547).
-  for entry in "${_RP_CASES[@]}"; do
-    _rp_selected "${entry%%:*}" || continue
-    _rp_serial "${entry%%:*}" || continue
-    ran=$(( ran + 1 ))
-    _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
-    _rp_reap
-  done
+  # The _RP_SERIAL cases, of every kind, each alone: spawned once the
+  # pool is empty and reaped before the next one starts (base#1547,
+  # base#1606).
+  _rp_spawn_kinds "${scratch}" serial
   (( _RP_FAILED == 0 )) || failed=1
   # rerun is the only check on the unmodified copy (base#1547): its
   # first call is the control, held to rc 0 and exactly the six ok lines.
