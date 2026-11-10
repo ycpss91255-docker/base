@@ -70,6 +70,7 @@ func (d *decoder) checkEntries(p []string, b *bound) map[*bound]bool {
 	gating := gatingFields[leaf]
 	also, needs := alsoRead[leaf], fieldNeeds[leaf]
 	for i, e := range b.children {
+		d.visits++
 		n := i + 1
 		if !e.isTable() {
 			d.refuseEntry("conf_entry_not_table", p, n, e)

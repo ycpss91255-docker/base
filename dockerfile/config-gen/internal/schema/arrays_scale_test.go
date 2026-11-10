@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 // manyVolumes is n `[[volumes]]` blocks of three lines each, a header, a
@@ -17,26 +16,15 @@ func manyVolumes(n int) []byte {
 	return []byte(b.String())
 }
 
-// fastestDecode is the shortest of runs Decode calls on src: the run
-// least disturbed by the scheduler and the collector.
-func fastestDecode(src []byte, runs int) time.Duration {
-	best := time.Duration(1<<63 - 1)
-	for range runs {
-		start := time.Now()
-		Decode(src)
-		if d := time.Since(start); d < best {
-			best = d
-		}
-	}
-	return best
-}
-
 // A family of 10,000 entries is typed whole, each entry at its own index
 // and line, and decoding grows with the entries, not with their square:
-// 20,000 entries take less than 8 times as long as 5,000, where linear
-// work takes about 4 times and quadratic work 16 times (base#1443 review
-// round 1 finding 5, design r1 cycle 18). A per-entry step that walks
-// every earlier entry, the planted O(n^2), turns it red.
+// 40,000 entries take at most 9 times the entry visits of 5,000, where
+// linear work takes 8 times and quadratic work 64 times (base#1443
+// review round 1 finding 5, design r1 cycle 18). A per-entry step that
+// walks every earlier entry, the planted O(n^2), turns it red. The check
+// counts entry visits, not time, so neither a neighbour process nor a
+// shared cache moves it (base#1614, base#1617). Each of the 5,000
+// entries is visited at least once, so a count that never steps fails.
 //
 // Expected values: the line of entry i is 3i-2, counted from the
 // fixture's three-line blocks; the source of entry i is "/s<i>", the text
@@ -58,11 +46,15 @@ func TestDecodeTenThousandEntriesInBoundedTime(t *testing.T) {
 		}
 	}
 
-	small, large := manyVolumes(5000), manyVolumes(20000)
-	fastestDecode(small, 1)
-	ts, tl := fastestDecode(small, 5), fastestDecode(large, 5)
-	if ratio := float64(tl) / float64(ts); ratio >= 8 {
-		t.Errorf("Decode of 20,000 entries took %v, %.1f times the %v of 5,000; want under 8 (linear is about 4)", tl, ratio, ts)
+	const small, large, maxRatio = 5000, 40000, 9
+	_, _, vs := decode(manyVolumes(small))
+	_, _, vl := decode(manyVolumes(large))
+	if vs < small {
+		t.Fatalf("Decode of %d entries made %d entry visits; want at least one per entry", small, vs)
+	}
+	if ratio := float64(vl) / float64(vs); ratio > maxRatio {
+		t.Errorf("Decode of %d entries made %d entry visits, %.1f times the %d of %d; want at most %d (linear is %d)",
+			large, vl, ratio, vs, small, maxRatio, large/small)
 	}
 }
 
