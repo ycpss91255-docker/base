@@ -1,20 +1,20 @@
 # s1h.tsv -- the mutations base#1466 (config-gen S1h, the shared tool-image
 # helper and config_gen_resolve) requires script/test/mutation-probe.sh to
 # report PINNED. One row per behaviour:
-# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new> TAB <witness>, the contract of
 # script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
 # written with the three escapes \\ \t \n. `just test mutation-required`
 # probes every row and passes only when each one is PINNED.
-override-verbatim	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if [[ -n "${!_override:-}" ]]; then	  if false; then
-memo-early-return	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  [[ -n "${!_memo:-}" ]] && return 0	  :
-memo-publish	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  printf -v "${_memo}" '%s' "${_image}"	  :
-build-exit	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	    "status=${_rc}"\n  return 1	    "status=${_rc}"\n  exit 1
-build-fold	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  _out="${_out//$'\\n'/ }"	  :
-docker-missing	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  if ! command -v docker > /dev/null 2>&1; then	  if false; then
-unprovisionable-no-root	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if ! _dockerfile="$(tool_image_dockerfile "${_ns}")"; then	  if false; then
-unprovisionable-no-dockerfile	dist/script/docker/lib/tool_image.sh	test/bats/unit/tool_image_spec.bats	  if [[ ! -f "${_dockerfile}" ]]; then	  if false; then
-unprovisionable-no-context	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if [[ ! -d "${_context}" ]]; then	  if false; then
-unprovisionable-unhashable	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if [[ -z "${_hash}" ]]; then	  if false; then
-digest-content	dist/script/docker/lib/project_reclaim.sh	test/bats/unit/config_gen_spec.bats	    if ! cat -- "${_context%/}/${_r}"; then	    if ! true; then
-digest-failure-status	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	    || _hash=""	    || :
+override-verbatim	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if [[ -n "${!_override:-}" ]]; then	  if false; then	^config-gen: CONFIG_GEN_IMAGE is used verbatim with no inspect and no build$
+memo-early-return	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  [[ -n "${!_memo:-}" ]] && return 0	  :	^config-gen: resolve memoises in the caller's shell: one inspect for three resolves$
+memo-publish	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  printf -v "${_memo}" '%s' "${_image}"	  :	^config-gen: resolve memoises in the caller's shell: one inspect for three resolves$
+build-exit	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	    "status=${_rc}"\n  return 1	    "status=${_rc}"\n  exit 1	^config-gen: a failed build does not exit the caller$
+build-fold	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  _out="${_out//$'\\n'/ }"	  :	^config-gen: a failed build refuses with config_gen_build_failed$
+docker-missing	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  if ! command -v docker > /dev/null 2>&1; then	  if false; then	^config-gen: docker missing from PATH refuses with config_gen_docker_missing$
+unprovisionable-no-root	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if ! _dockerfile="$(tool_image_dockerfile "${_ns}")"; then	  if false; then	^config-gen: the tag is config-gen:<12 hex> of the Dockerfile and its context$
+unprovisionable-no-dockerfile	dist/script/docker/lib/tool_image.sh	test/bats/unit/tool_image_spec.bats	  if [[ ! -f "${_dockerfile}" ]]; then	  if false; then	^tool-image: a missing Dockerfile refuses as <ns>_unprovisionable$
+unprovisionable-no-context	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if [[ ! -d "${_context}" ]]; then	  if false; then	^config-gen: a missing build context refuses with config_gen_unprovisionable$
+unprovisionable-unhashable	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	  if [[ -z "${_hash}" ]]; then	  if false; then	^config-gen: a failed digest refuses with config_gen_unprovisionable$
+digest-content	dist/script/docker/lib/project_reclaim.sh	test/bats/unit/config_gen_spec.bats	    if ! cat -- "${_context%/}/${_r}"; then	    if ! true; then	^config-gen: the tag follows a content edit of a nested internal/\*\*\.go and of go\.sum$
+digest-failure-status	dist/script/docker/lib/tool_image.sh	test/bats/unit/config_gen_spec.bats	    || _hash=""	    || :	^config-gen: a failed digest refuses with config_gen_unprovisionable$

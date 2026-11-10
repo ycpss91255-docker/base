@@ -99,6 +99,15 @@ _is_allowlisted_line() {
   # stderr, which the runner reads back as the gate that went red.
   [[ "${line}" == *"printf 'config_gen_gate_"* ]] && return 0
 
+  # config-gen's timing lines (base#1547): `config-gen stage=` from the
+  # gates runner and `config-gen redpath case=` from the redpath are one
+  # plain line per stage or case, read back by line shape (the redpath
+  # stub greps its parent's stderr for them, and the specs assert their
+  # fields), so a _log_* record's timestamp and level prefix would break
+  # those readers.
+  [[ "${line}" == *"printf 'config-gen stage="* ]] && return 0
+  [[ "${line}" == *"printf 'config-gen redpath case="* ]] && return 0
+
   return 1
 }
 
