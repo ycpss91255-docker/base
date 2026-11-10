@@ -508,10 +508,9 @@ go-gates:
 go-redpath shard='':
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -n "${1:-}" ]]; then
-      exec env -u CONFIG_GEN_REDPATH_ONLY CONFIG_GEN_REDPATH_SHARD="${1}" ./script/test/config_gen_redpath.sh
-    fi
-    exec env -u CONFIG_GEN_REDPATH_ONLY -u CONFIG_GEN_REDPATH_SHARD ./script/test/config_gen_redpath.sh
+    unset CONFIG_GEN_REDPATH_ONLY CONFIG_GEN_REDPATH_SHARD
+    [[ -z "${1:-}" ]] || export CONFIG_GEN_REDPATH_SHARD="${1}"
+    exec ./script/test/config_gen_redpath.sh
 
 # just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
 # the way a downstream Dockerfile `-test` stage runs them: root-owned

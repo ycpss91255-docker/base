@@ -108,4 +108,5 @@ redpath-locale-env	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_g
 redpath-locale-unaffected	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  _rp_locale_drops LOCPATH="${dir}" || return 1	  _rp_locale_drops LOCPATH="${dir}" || :
 redpath-locale-no-localedef	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  command -v localedef >/dev/null 2>&1 || return 1	  command -v localedef >/dev/null 2>&1 || return 0
 redpath-locale-musl	script/test/config_gen_redpath.sh	test/bats/unit/config_gen_gates_spec.bats	  if _rp_locale_drops || [[ "${libc}" == musl ]]; then	  if _rp_locale_drops; then
-recipe-go-full-redpath	script/test/justfile.test	test/bats/unit/config_gen_gates_spec.bats	env -u CONFIG_GEN_REDPATH_ONLY ./script/test/config_gen_redpath.sh	./script/test/config_gen_redpath.sh
+recipe-go-full-redpath	script/test/justfile.test	test/bats/unit/config_gen_gates_spec.bats	    unset CONFIG_GEN_REDPATH_ONLY CONFIG_GEN_REDPATH_SHARD	    unset CONFIG_GEN_REDPATH_SHARD
+recipe-go-unsharded-redpath	script/test/justfile.test	test/bats/unit/config_gen_gates_spec.bats	    unset CONFIG_GEN_REDPATH_ONLY CONFIG_GEN_REDPATH_SHARD	    unset CONFIG_GEN_REDPATH_ONLY

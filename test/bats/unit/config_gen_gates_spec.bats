@@ -2666,7 +2666,7 @@ STUB
   assert_success
   local _l
   while IFS= read -r _l; do
-    [[ "${_l}" =~ ^[0-9]+:[[:space:]]*# || "${_l}" == *'-u CONFIG_GEN_REDPATH_ONLY'* ]] \
+    [[ "${_l}" =~ ^[0-9]+:[[:space:]]*(#|unset\ CONFIG_GEN_REDPATH_ONLY\ ) || "${_l}" == *'-u CONFIG_GEN_REDPATH_ONLY'* ]] \
       || fail "justfile.test sets CONFIG_GEN_REDPATH_ONLY: ${_l}"
   done <<<"${output}"
 }
