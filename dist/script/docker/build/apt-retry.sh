@@ -15,6 +15,9 @@ usage() {
 
 [ "${3:-}" = "--" ] || usage
 [ "$1" -ge 1 ] || usage
+case "$2" in
+  '' | *[!0-9]*) usage ;;
+esac
 
 attempts="$1"
 delay="$2"
