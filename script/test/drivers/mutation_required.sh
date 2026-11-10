@@ -60,7 +60,8 @@
 # Within one run (one shard), a spec's unmutated baseline runs once, in
 # its first row's probe (--baseline-out); every other row on that spec in
 # the run reads it (--baseline-in)
-# and runs only its mutated pass. Verdicts are published only after every
+# and runs only its mutated pass. A row with a witness takes no part: it
+# runs its own baseline under its filter (base#1582). Verdicts are published only after every
 # worker is reaped, and a failing run publishes no pass. The first INT / TERM is forwarded to
 # every worker, which forwards it to its probe; the run then exits 130 /
 # 143 with no verdict.
@@ -520,8 +521,9 @@ _mrw_verdict() {
 
 # _mr_worker <row-dir> -- probe the row described in <row-dir>/meta (NUL
 # fields: subject, spec, the spec's baseline file, `out` when this row
-# runs and writes that baseline or `in` when it reads it, and the witness
-# filter, empty for none), with <row-dir>/old and <row-dir>/new. Root,
+# runs and writes that baseline or `in` when it reads it (both empty for a
+# row with a witness, which runs its own filtered baseline, base#1582), and
+# the witness filter, empty for none), with <row-dir>/old and <row-dir>/new. Root,
 # probe, worker slot and the names to avoid come from MR_W_* in the
 # environment.
 _mr_worker() {
@@ -670,12 +672,13 @@ _mrw_run_probe() {
     fi
   fi
   printf -v _mut '%q ' bash "${_MR_SELF}" --apply "${_subj}" "${_MRW_DIR}/old" "${_MRW_DIR}/new"
-  local -a _flt=()
+  local -a _flt=() _bl=()
   [[ -z "${_wit}" ]] || _flt=( --filter "${_wit}" )
+  [[ -z "${_role}" ]] || _bl=( "--baseline-${_role}" "${_base}" )
   _rc=0
   set -m
   COMPOSE_PROJECT_NAME="${_name}" bash "${MR_W_PROBE:?}" --root "${_sbx}" --subject "${_subj}" \
-    --spec "${_spec}" --mutate "${_mut}" "--baseline-${_role}" "${_base}" "${_flt[@]+"${_flt[@]}"}" \
+    --spec "${_spec}" --mutate "${_mut}" "${_bl[@]+"${_bl[@]}"}" "${_flt[@]+"${_flt[@]}"}" \
     < /dev/null > "${_MRW_DIR}/out" 2> "${_MRW_DIR}/err" &
   _MRW_PROBE="$!"
   set +m
@@ -773,7 +776,7 @@ _mr_publish_interrupted() {
 # _mr_run <root> <jobs> -- probe every validated row, at most <jobs> at a
 # time, then publish.
 _mr_run() {
-  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0 _role _slot
+  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0 _role _rbase _slot
   local -a _r=()
   local -A _base=() _busy=()
   _probe="${MUTATION_REQUIRED_PROBE:-${_MR_DIR}/../mutation-probe.sh}"
@@ -782,13 +785,19 @@ _mr_run() {
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
     [[ -z "${_MR_SIG}" ]] || break
     mkdir -p "${_MR_WORK}/row${_i}"
-    _role=in
-    if [[ -z "${_base["${_MR_ROWS_SPEC[_i]}"]:-}" ]]; then
-      _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
-      _role=out
+    # A row with a witness runs its own filtered baseline: no shared
+    # baseline role, so it waits on no other row (base#1582).
+    _role='' _rbase=''
+    if [[ -z "${_MR_ROWS_WIT[_i]}" ]]; then
+      _role=in
+      if [[ -z "${_base["${_MR_ROWS_SPEC[_i]}"]:-}" ]]; then
+        _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
+        _role=out
+      fi
+      _rbase="${_base["${_MR_ROWS_SPEC[_i]}"]}"
     fi
     printf '%s\0%s\0%s\0%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" \
-      "${_base["${_MR_ROWS_SPEC[_i]}"]}" "${_role}" "${_MR_ROWS_WIT[_i]}" > "${_MR_WORK}/row${_i}/meta"
+      "${_rbase}" "${_role}" "${_MR_ROWS_WIT[_i]}" > "${_MR_WORK}/row${_i}/meta"
     printf '%s' "${_MR_ROWS_OLD[_i]}" > "${_MR_WORK}/row${_i}/old"
     printf '%s' "${_MR_ROWS_NEW[_i]}" > "${_MR_WORK}/row${_i}/new"
     while (( ${#_MR_LIVE[@]} >= _jobs )) && [[ -z "${_MR_SIG}" ]]; do
