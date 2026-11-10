@@ -310,6 +310,23 @@ _rollup_env_for() {
   [ -n "${_sel_var}" ]
 }
 
+# why: acceptance copies the whole checkout into the consumer
+# (script/test/acceptance.sh:90, `cp -a "${_ACCEPTANCE_ROOT}/." ...`), so
+# the map drops it only for a diff of `*_spec.bats` leaves (design row E1,
+# base#1584). Such a diff still has code_changed=true, so a rollup that
+# ties the acceptance skip to code_changed fails the very skip classify
+# decided. A skip with select_acceptance=false must let the required
+# check pass.
+@test "self-test: the rollup accepts an acceptance skip that classify decided on a code change (base#1584)" {
+  local _sel_var
+  _sel_var="$(_rollup_env_for select_acceptance)"
+  run _rollup_selected ACCEPTANCE_RESULT=skipped CODE_CHANGED=true \
+      "${_sel_var:-SELECT_ACCEPTANCE}=false"
+  assert_success
+  assert_output --partial 'acceptance:       skipped'
+  [ -n "${_sel_var}" ]
+}
+
 # ── 4. concurrency and timeouts ───────────────────────────────────────
 
 # _triggerable_workflows
