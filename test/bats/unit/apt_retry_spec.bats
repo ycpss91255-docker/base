@@ -96,3 +96,16 @@ EOS
   run cat "${APT_LOG}"
   assert_output ""
 }
+
+# why: `apt-retry.sh 0 ...` asks for zero attempts, which is a typo in the
+# Dockerfile, not a request to install once: like script/ci/retry.sh
+# (base#1562, `(( 10#$1 >= 1 )) || usage`), the helper refuses it with
+# exit 2 before any apt-get runs, base#1602.
+@test "apt-retry.sh 0 5 -- apt-get install: zero attempts is refused with exit 2 and apt-get never runs (base#1602)" {
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" \
+    run "${APT_RETRY}" 0 5 -- apt-get install -y curl
+  # Exit 2 is the usage code script/ci/retry.sh uses for a malformed call.
+  assert_failure 2
+  run cat "${APT_LOG}"
+  assert_output ""
+}
