@@ -289,7 +289,7 @@ readonly -a _RP_STALE=(
   'stale-dangling|dockerfile/config-gen/zz-dangling|not_regular'
   'stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch'
   'stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted'
-  'stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch'
+  'stale-names|dockerfile/config-gen/cmd/config-gen/testdata/zznames/a%20b.txt|sha_mismatch'
   'stale-header|manifest|header'
   'no-checker|admit.sh|absent'
   'no-lib|config_gen_mutation_lang.sh|absent'
@@ -340,7 +340,7 @@ readonly -a _RP_GREEN_SCOPE=(
 # that file in each <event> record (base#1467).
 readonly -a _RP_AFTER_ADMIT=(
   'ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go'
-  'untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt'
+  'untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/testdata/zzg/a.txt'
 )
 # <case>|<the coverage ratchet event the build must refuse it with>|<its
 # pkg>|<its file, empty when the event names none> (base#1465).
@@ -385,7 +385,7 @@ STEP
     # go refuses to parse the appended directive.
     stale-gomod) echo 'printf "\nzzstale after the manifest\n" >>"${_mod}/go.mod"' ;;
     stale-checker) echo 'printf "package buildgate\n\nfunc zz( {\n" >"${_mod}/internal/buildgate/zz.go"' ;;
-    stale-names) echo 'printf "edit\n" >>"${_mod}/testdata/zznames/a b.txt"' ;;
+    stale-names) echo 'printf "edit\n" >>"${_mod}/cmd/config-gen/testdata/zznames/a b.txt"' ;;
     # The header without its context= field, which S1d's header never is.
     stale-header) echo 'sed -i "1s/ context=[^ ]*\$//" "${_m}/manifest"' ;;
     no-checker) echo 'rm "${_m}/admit.sh"' ;;
