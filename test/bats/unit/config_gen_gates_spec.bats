@@ -1525,6 +1525,58 @@ _unplanted_cases() {
   assert_equal "$(_ran_cases | grep -cx control)" 0
 }
 
+# _redpath_reset -- clear the stub runner's records from ${S}, so the next
+# redpath run's calls are counted from 1. The canned answers and the repo
+# copy stay.
+_redpath_reset() {
+  rm -rf "${S}"/runner.* "${S}"/calls.* "${S}"/barrier.*
+}
+
+# why: The config-gen job's redpath is split into shards so each job ends
+# inside its bound (base#1547). A split may not drop a case, run one
+# twice, or repeat the unmodified copy's check once per shard: that check
+# is one value per commit, and rerun has one row in
+# script/test/config_gen_redpath_shards.tsv like every other case. So the
+# N shards the tsv's header names, run one after another, ran exactly the
+# cases the unsharded run ran, each once, rerun in exactly one shard, two
+# calls on the unmodified copy in all, and no shard ran nothing. Each
+# shard's success line says where the control ran: rerun call 1 in the
+# shard that ran it, the shard holding rerun's row in every other.
+@test "config_gen_redpath.sh: the tsv's shards partition the unsharded run, rerun in one shard, two unmodified-copy calls in all (base#1547)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  local _tsv="${S}/repo/script/test/config_gen_redpath_shards.tsv"
+  [[ -f "${_tsv}" ]] || fail "no shard table at script/test/config_gen_redpath_shards.tsv"
+  local _n _k _i _u _all='' _ran _unplanted=0 _holders=0
+  _n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${_tsv}")"
+  [[ -n "${_n}" ]] || fail "the shard table's first line is not '# shards=<N>': $(head -n 1 "${_tsv}")"
+  _k="$(awk -F'\t' '$1 == "rerun" { print $2 }' "${_tsv}")"
+  [[ "${_k}" =~ ^[1-9][0-9]*$ ]] || fail "the shard table gives rerun no single shard: '${_k}'"
+  _run_redpath_all
+  assert_success
+  _u="$(_ran_cases | LC_ALL=C sort)"
+  assert_equal "$(_unplanted_cases | paste -sd' ')" 'rerun rerun'
+  for (( _i = 1; _i <= _n; _i++ )); do
+    _redpath_reset
+    _redpath_exec CONFIG_GEN_REDPATH_SHARD="${_i}/${_n}"
+    (( status == 0 )) || fail "shard ${_i}/${_n} exited ${status}: $(grep -v '^config-gen redpath case=' <<<"${stderr}" | head -n 5)"
+    _ran="$(_ran_cases)"
+    [[ -n "${_ran}" ]] || fail "shard ${_i}/${_n} ran no case"
+    _all+="${_ran}"$'\n'
+    _unplanted=$(( _unplanted + $(_unplanted_cases | grep -c .) ))
+    if grep -qx rerun <<<"${_ran}"; then
+      _holders=$(( _holders + 1 ))
+      assert_output --partial 'the control passed (rerun call 1)'
+    else
+      assert_output --partial "the control runs in shard ${_k}/${_n}"
+    fi
+  done
+  assert_equal "$(grep . <<<"${_all}" | LC_ALL=C sort)" "${_u}"
+  assert_equal "$(grep . <<<"${_all}" | grep -vx rerun | LC_ALL=C sort | uniq -d | paste -sd' ')" ''
+  assert_equal "unplanted:${_unplanted}" 'unplanted:2'
+  assert_equal "holders:${_holders}" 'holders:1'
+}
+
 # why: The redpath runs its cases one after another, so a job's time is the
 # sum of every case's build (base#1547). With CONFIG_GEN_REDPATH_JOBS=4 up
 # to four cases run at once. fmt, vet, lint and race each wait at a barrier
