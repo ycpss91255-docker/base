@@ -639,3 +639,36 @@ ${_bad}"
   [[ -z "${_bad}" ]] || fail "gated jobs whose classify-selected skip the rollup passes:
 ${_bad}"
 }
+
+# why: the converse of the case above, and the behavioural form of the
+# old text pins on the rollup's success-or-skipped loop (#337, #802): a
+# gated job skips by design when the classify answer its own `if:` reads
+# is `false` (worker-selftest on a non-system PR, #802), and a rollup that
+# fails that skip blocks every such PR. For every job ci-rollup needs that
+# carries an `if:`, set that one answer `false` on a code change, skip the
+# job, and the rollup must pass.
+@test "self-test: the rollup passes the skip of every gated job it needs when its own if: answer is false (base#1584)" {
+  local _job _var _out _key _n=0 _bad=""
+  while IFS= read -r _job; do
+    [[ -n "${_job}" ]] || continue
+    LP_J="${_job}" yq -e '.jobs[strenv(LP_J)].if // "" | length > 0' \
+        "${SELF_WF}" >/dev/null 2>&1 || continue
+    _n=$((_n + 1))
+    _out="$(LP_J="${_job}" yq '.jobs[strenv(LP_J)].if' "${SELF_WF}" \
+        | sed -nE 's/.*needs\.classify\.outputs\.([a-z_]+).*/\1/p')"
+    _key="$(_rollup_env_for "${_out:-none}")"
+    _var="$(LP_J="needs.${_job}.result" yq '.jobs."ci-rollup".steps[]
+        | select(.name == "Verify upstream jobs") | .env | to_entries[]
+        | select(.value | contains(strenv(LP_J))) | .key' "${SELF_WF}")"
+    if [[ -z "${_key}" || -z "${_var}" ]]; then
+      _bad+="${_job} (if: reads '${_out}', rollup env key '${_key}', result key '${_var}')"$'\n'
+      continue
+    fi
+    run _rollup_selected CODE_CHANGED=true "${_key}=false" "${_var}=skipped"
+    [[ "${status}" -eq 0 ]] \
+      || _bad+="${_job} (${_key}=false ${_var}=skipped exited ${status})"$'\n'
+  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
+  [[ "${_n}" -ge 10 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
+  [[ -z "${_bad}" ]] || fail "gated jobs whose classify-decided skip the rollup fails:
+${_bad}"
+}

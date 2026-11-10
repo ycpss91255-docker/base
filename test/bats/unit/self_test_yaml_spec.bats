@@ -1360,27 +1360,24 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_output --partial 'needs.system.result'
 }
 
-# why: The gated jobs skip on doc-only PRs by design; without the tolerant
-# loop those PRs could never merge.
-@test "self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)" {
-  # every PR-check job has a job-level `if:` gate that may
-  # cause it to skip on doc-only / non-system PRs (the old
-  # always-running `test` job no longer exists). The rollup must
-  # collapse SKIPPED into pass for those, otherwise doc-only PRs
-  # cannot merge.
-  #
-  # Asserted as the comparison, not as the word. `--partial 'skipped'` was
-  # satisfied by the word inside the fork-PR `::error::` message a few
-  # lines below -- a code line, so stripping comments does not help here:
-  # deleting `|| "${r}" == "skipped"` outright left this green. The
-  # membership half matters as much as the comparison: a job moved out of
-  # the tolerant loop loses its skip tolerance without touching the
-  # comparison at all.
-  run yaml_job_lines "${WF}" ci-rollup
-  assert_success
-  assert_output --partial 'for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \'
-  assert_output --partial '"${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \'
-  assert_output --partial '[[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1'
+# why: The gated jobs skip on doc-only PRs by design; without skip
+# tolerance those PRs could never merge. Since base#1584 the tolerance is
+# the rollup's skip table, and it is proven by running the lifted step,
+# not by matching its text: workflow_failure_surface_spec.bats skips every
+# gated job ci-rollup needs, in turn, with the classify answer its own
+# `if:` reads set `false` (must pass) and set `true` (must fail), and runs
+# a doc-only run with every gated job skipped (#1014, must pass). This
+# case keeps only the membership half: every gated job is one ci-rollup
+# needs, so none of them can drop out of the required check unseen.
+@test "self-test.yaml: ci-rollup needs every conditionally-gated job (#337 + #377)" {
+  local _job _bad=""
+  local _needs
+  _needs="$(yq '.jobs."ci-rollup".needs[]' "${WF}")"
+  while IFS= read -r _job; do
+    [[ -n "${_job}" && "${_job}" != "ci-rollup" && "${_job}" != "release" ]] || continue
+    grep -qxF "${_job}" <<<"${_needs}" || _bad+="${_job} "
+  done < <(yq '.jobs | to_entries[] | select((.value.if // "") | test("needs\\.classify\\.outputs\\.")) | .key' "${WF}")
+  [[ -z "${_bad}" ]] || fail "gated jobs ci-rollup does not need: ${_bad}"
 }
 
 # why: The ungated jobs never skip on purpose, so a SKIPPED there is a
@@ -1428,12 +1425,16 @@ _builder_setups_out_of_step_with_their_consumer() {
   assert_success
   assert_output --partial 'COMPUTE_SHARDS_RESULT'
 
-  # ... and NOT in the skipped-tolerant one. Read the tolerant loop alone:
-  # asserting over the whole job would find the name in the strict loop and
-  # pass whichever bucket it really sits in.
-  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
-  assert_success
-  refute_output --partial 'COMPUTE_SHARDS_RESULT'
+  # ... and NOT in the skipped-tolerant one (the rollup's skip table since
+  # base#1584). Read the tolerant bucket alone: asserting over the whole
+  # job would find the name in the strict loop and pass whichever bucket it
+  # really sits in.
+  local _tolerant
+  _tolerant="$(_rollup_loops | grep '^tolerant ')"
+  [[ "${_tolerant}" == *"_RESULT"* ]] \
+    || fail "found no tolerant bucket in ci-rollup: '${_tolerant}'"
+  [[ " ${_tolerant} " != *" COMPUTE_SHARDS_RESULT "* ]] \
+    || fail "compute-shards is in the skip-tolerant bucket: ${_tolerant}"
 }
 
 # ── The gate roster is DERIVED, not hand-kept ──────────────────
@@ -1464,7 +1465,12 @@ _result_var() {
 # a body that also accepts "skipped" is the tolerant bucket, one that
 # accepts "success" alone is the strict one -- not by which variable
 # happens to be written first, so a loop reordered or renamed is still
-# classified by what it actually does.
+# classified by what it actually does. Since base#1584 the tolerant bucket
+# is the skip table the rollup's `while read -r res sel job` loop reads, one
+# `${<VAR>_RESULT:--} ${<answer>:--} <job>` row per gated job; its rows are
+# printed as one `tolerant` line. That the table really tolerates only a
+# classify-decided skip is proven by running it, in
+# workflow_failure_surface_spec.bats.
 _rollup_loops() {
   yaml_job_lines "${WF}" ci-rollup | awk '
     /for r in / { collecting = 1; header = "" }
@@ -1483,6 +1489,11 @@ _rollup_loops() {
       print out
       pending = ""
     }
+    /^[[:space:]]*\$\{[A-Z_]+_RESULT:--\} \$\{[A-Z_]+:--\} [a-z-]+[[:space:]]*$/ {
+      v = $1; sub(/^\$\{/, "", v); sub(/:--\}$/, "", v)
+      table = table " " v
+    }
+    END { if (table != "") print "tolerant" table }
   '
 }
 
@@ -1830,13 +1841,11 @@ YAML
   assert_output --partial 'needs.worker-selftest.result'
   assert_output --partial ', worker-selftest]'
 
-  # ...and be IN the tolerant bucket, which "consumes its result" does not
-  # say: deleting the tolerant loop outright left the two assertions above
-  # green. Same membership check the doc-counts / lint-static siblings make
-  # against the strict loop.
-  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
-  assert_success
-  assert_output --partial 'WORKER_SELFTEST_RESULT'
+  # That its skip passes only when classify decided it (system_relevant
+  # false) is proven behaviourally in workflow_failure_surface_spec.bats,
+  # which runs the lifted rollup step with every gated job skipped in turn
+  # (base#1584 review round 2: the text pin here held while a selected
+  # worker-selftest skip exited 0).
 }
 
 # why: The tag path does not go through ci-rollup; a gate missing from

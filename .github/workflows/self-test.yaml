@@ -1855,8 +1855,8 @@ jobs:
           # classify's own answer for acceptance (base#1584): its skip
           # passes only when this is `false`.
           SELECT_ACCEPTANCE: ${{ needs.classify.outputs.select_acceptance }}
-          # The gate system's `if:` reads (base#1584): a system skip passes
-          # only when this is `false`.
+          # The gate system's and worker-selftest's `if:` reads (base#1584):
+          # a skip of either passes only when this is `false`.
           SYSTEM_RELEVANT: ${{ needs.classify.outputs.system_relevant }}
         run: |
           set -euo pipefail
@@ -1888,31 +1888,31 @@ jobs:
                    "${COMPUTE_SHARDS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
-          for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
-                   "${BATS_FRAGILE_RESULT}" "${COVERAGE_RESULT}" \
-                   "${COVERAGE_GATE_RESULT}" \
-                   "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
-                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}" \
-                   "${MUTATION_ROSTER_RESULT}"; do
-            [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
-          done
-          # A skip of a job classify selects passes only when classify
-          # decided it (base#1584): the job's own selection is `false`, or
-          # the whole diff is doc-only (code_changed=false). An empty or
-          # `true` answer makes the skip a failure. Each row is
-          # <result> <the classify answer its skip needs> <job>; the job name
+          # Every gated job (one with an `if:`) is a row of this table, and
+          # the table is the rollup's only path that lets a job be anything
+          # but `success` (base#1584): a job with no row cannot pass a skip.
+          # A row's job passes when it succeeded, or when it skipped and
+          # classify decided that skip: the classify answer its own `if:`
+          # reads is `false`, or the whole diff is doc-only
+          # (code_changed=false). An empty or `true` answer makes the skip a
+          # failure, and any other result fails. Each row is
+          # <result> <the classify answer its if: reads> <job>; the job name
           # goes last so no row starts with a tool name the tool-provenance
           # lint would read as a command.
           # mutation-roster is a matrix that folds every roster shard into
           # one result. shellcheck, hadolint, bats-fragile, coverage and
-          # coverage-gate read code_changed, and system reads
-          # system_relevant, so their own answer is that gate output.
+          # coverage-gate read code_changed, and system and worker-selftest
+          # read system_relevant, so their own answer is that gate output.
           while read -r res sel job; do
-            if [[ "${res}" == "skipped" && "${sel}" != "false" \
-                  && "${CODE_CHANGED:-}" != "false" ]]; then
-              echo "::error::${job} skipped although classify did not deselect it"
-              fail=1
+            [[ "${res}" == "success" ]] && continue
+            if [[ "${res}" == "skipped" ]] \
+                && [[ "${sel}" == "false" || "${CODE_CHANGED:-}" == "false" ]]; then
+              continue
             fi
+            if [[ "${res}" == "skipped" ]]; then
+              echo "::error::${job} skipped although classify did not deselect it"
+            fi
+            fail=1
           done <<EOF
           ${SHELLCHECK_RESULT:--} ${CODE_CHANGED:--} shellcheck
           ${HADOLINT_RESULT:--} ${CODE_CHANGED:--} hadolint
@@ -1923,6 +1923,7 @@ jobs:
           ${COVERAGE_GATE_RESULT:--} ${CODE_CHANGED:--} coverage-gate
           ${ACCEPTANCE_RESULT:--} ${SELECT_ACCEPTANCE:--} acceptance
           ${SYSTEM_RESULT:--} ${SYSTEM_RELEVANT:--} system
+          ${WORKER_SELFTEST_RESULT:--} ${SYSTEM_RELEVANT:--} worker-selftest
           EOF
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
           # failure and not a warning: a required check is a claim that the
