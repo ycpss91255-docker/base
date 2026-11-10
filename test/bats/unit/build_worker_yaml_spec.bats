@@ -415,7 +415,16 @@ _extra_stages() {
   mkdir -p "${_dir}/bin"
   ln -s /source "${_dir}/.worker-base"
   printf '%s\n' "${1}" > "${_dir}/Dockerfile"
+  mkdir -p "${_dir}/runner-temp"
+  # The stub also answers `--metadata-file F` the way buildx does, by
+  # writing a metadata JSON that names a build record (base#1602).
   printf '%s\n' '#!/usr/bin/env bash' 'printf "docker %s\n" "$*"' \
+      'while [ "$#" -gt 0 ]; do' \
+      '  if [ "$1" = --metadata-file ] && [ "$#" -gt 1 ]; then' \
+      '    printf "{\"buildx.build.ref\":\"builder/node/ref\"}\n" > "$2"' \
+      '  fi' \
+      '  shift' \
+      'done' \
       > "${_dir}/bin/docker"
   chmod +x "${_dir}/bin/docker"
   yaml_step_run "${WF}" build 'Build extra stages' > "${_dir}/step.sh"
@@ -423,7 +432,7 @@ _extra_stages() {
   (
     cd "${_dir}" || return 2
     env "PATH=${_dir}/bin:${PATH}" \
-        EXTRA_STAGES="${2}" CACHE_KEY=key \
+        EXTRA_STAGES="${2}" CACHE_KEY=key RUNNER_TEMP="${_dir}/runner-temp" \
         CONTEXT_PATH=. DOCKERFILE=Dockerfile \
         BUILD_CONTEXTS_INPUT= BUILD_ARGS_INPUT= \
         PLATFORM=linux/amd64 HARDWARE=x86_64 TEST_TOOLS_IMAGE=tools:1 \
@@ -591,6 +600,25 @@ FROM debian:bookworm AS foo-test' foo
     printf '%s\n' "${_bad}" >&2
     return 1
   }
+}
+
+# why: The extra-stages loop drives buildx itself, so its warn calls are
+# not steps the outcome gate can reach: each build that RUNS is followed by
+# one cache_export_warn.sh call labelled with its stage, and a -test
+# companion the Dockerfile does not declare is neither built nor warned
+# about (base#1602). The warn script runs for real against the stubbed
+# docker; its `::warning` lines are what a job log would show.
+@test "build-worker.yaml: an extra stage with no -test companion gets one cache-export warn call, labelled with the stage (base#1602)" {
+  local _warns
+  run _extra_stages 'FROM debian:bookworm AS foo' foo
+  assert_success
+  assert_output --partial '--target foo'
+  refute_output --partial '--target foo-test'
+  _warns="$(grep -E '^::warning title=cache export::' <<<"${output}" || true)"
+  run grep -c . <<<"${_warns}"
+  assert_output "1"
+  run grep -cE '^::warning title=cache export::foo: ' <<<"${_warns}"
+  assert_output "1"
 }
 
 # why: ignore-error=true turns a failed cache export green, so each build
