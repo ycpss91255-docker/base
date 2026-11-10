@@ -696,6 +696,114 @@ STUB
   assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 == p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
 }
 
+# why: The witness filter shrank only the mutated pass; the unmutated
+# baseline still ran every @test in the spec, so a row whose spec holds 226
+# tests paid two whole-spec passes when its witnesses are two of them
+# (base#1582). A red needs only its own tests green unmutated, so a row
+# with a witness runs its baseline under the same filter: both of its
+# runner calls, the one that saw the mutation and the one that did not,
+# carry the filter. The same argv wrapper as the case above records each
+# call's last argument under its pid.
+@test "witness: a row with a sixth column runs its unmutated baseline under the same filter (base#1582)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\t%s\n' "$$" "${@: -1}" >> "${MR_RUNNER_LOG:?}.argv"
+if [[ "${@: -1}" == *.bats ]]; then
+  exec "${0}.inner" "$@"
+fi
+exec "${0}.inner" "${@:1:$#-1}"
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  local -a _diffs=()
+  mapfile -t _diffs < <(find "${MR_DIFF_DIR}" -name 'diff.*')
+  assert_equal "${#_diffs[@]}" 1
+  local _pid="${_diffs[0]##*.}"
+  assert_equal "$(awk -F'\t' -v p="${_pid}" '$1 != p { print $2 }' "${MR_RUNNER_LOG}.argv")" '^guard$'
+}
+
+# why: A filtered pass that stays green is not a verdict, so the probe
+# falls back to the whole spec mutated (base#1571). Once the baseline runs
+# under the filter (base#1582), that whole-spec run would be judged against
+# a baseline of the witness tests alone: a red the spec already had
+# unmutated outside the filter would read as the mutation's. The fall-back
+# therefore also runs the whole spec unmutated, after the tree is put back.
+# This runner stays green under any filter and goes red unfiltered only
+# while lib/guard.sh differs from the commit; it logs one line per call,
+# "<filter or whole> <mutated or clean>", in call order.
+@test "witness: a row whose filtered pass stays green is judged on the whole spec against a whole-spec baseline (base#1582)" {
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${@: -1}" == *.bats ]]; then
+  root="${@: -2:1}" scope=whole
+else
+  root="${@: -3:1}" scope="${@: -1}"
+fi
+state=clean
+git -C "${root}" diff --quiet -- lib/guard.sh || state=mutated
+printf '%s %s\n' "${scope}" "${state}" >> "${MR_RUNNER_LOG:?}.calls"
+if [[ "${scope}" == whole && "${state}" == mutated ]]; then
+  printf 'not ok 1 the guard noticed\n'
+  exit 1
+fi
+printf 'ok 1 the guard holds\n'
+exit 0
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _commit_live
+  _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one "
+  assert_equal "$(cat "${MR_RUNNER_LOG}.calls")" \
+    $'^guard$ clean\n^guard$ mutated\nwhole mutated\nwhole clean'
+}
+
+# why: Rows on one spec in one shard shared one baseline, so a reading row
+# slept through the writing row's whole-spec pass and its row time
+# measured that wait, not its own work (base#1582). A row with a witness
+# runs its own filtered baseline, so it waits on no other row. Two rows on
+# one spec run in two slots; every runner call of row one (witness
+# '^guard$') sleeps 5 s, row two (witness '^guard') never sleeps, so row
+# two's reported duration stays under 3 s only if it did not wait on row
+# one. The wrapper drops the filter before the stub runner, as above.
+@test "witness: two rows with a witness on one spec do not wait on each other (base#1582)" {
+  mv "${S}/runner" "${S}/runner.inner"
+  cat > "${S}/runner" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${@: -1}" == '^guard$' ]]; then
+  sleep 5
+fi
+if [[ "${@: -1}" == *.bats ]]; then
+  exec "${0}.inner" "$@"
+fi
+exec "${0}.inner" "${@:1:$#-1}"
+STUB
+  chmod +x "${S}/runner"
+  _row a.tsv one lib/guard.sh test/bats/unit/guard_spec.bats \
+    '  if [[ -z "${1:-}" ]]; then' '  if false; then' '^guard$'
+  _row a.tsv two lib/guard.sh test/bats/unit/guard_spec.bats \
+    'tail=1' 'tail=2' '^guard'
+  _commit_live
+  MUTATION_REQUIRED_JOBS=2 _run_mr
+  assert_success
+  assert_equal "$(_pinned_ids)" "one two "
+  local _line _dur
+  _line="$(grep -F '"body":"mutation_required_row_timed"' <<< "${stderr}" | grep -F '"id":"two"')"
+  [[ "${_line}" =~ \"duration_s\":\"([0-9]+(\.[0-9]+)?)\" ]] \
+    || fail "row two reported no duration_s: ${stderr}"
+  _dur="${BASH_REMATCH[1]}"
+  awk -v d="${_dur}" 'BEGIN { exit !(d < 3) }' \
+    || fail "row two took ${_dur} s: it waited on row one"
+}
+
 # ── one sandbox per worker slot ─────────────────────────────────────────────
 
 # why: Each row built its own sandbox (mktemp, a tar copy of every tracked
