@@ -1825,6 +1825,18 @@ YAML
   refute_output --partial 'branches-ignore:'
 }
 
+# why: A merge queue only runs the suite on the queued group when the
+# workflow listens for merge_group; without the trigger the queue's
+# required checks never report and nothing reaches main (base#1587)
+@test "self-test.yaml: on: listens for merge_group checks_requested (base#1587)" {
+  # GitHub's merge queue fires `merge_group` with the single activity type
+  # `checks_requested`. The literal below is that documented type name,
+  # not a value read back from the workflow.
+  run yq -o=json -I=0 '.on.merge_group.types' "${WF}"
+  assert_success
+  assert_output '["checks_requested"]'
+}
+
 # why: A PR is the only moment pin-coverage can fire; with no CI join it
 # would gate a local just test and nothing a reviewer ever sees
 @test "self-test.yaml: the pin-coverage lint has a lint-static CI join" {
