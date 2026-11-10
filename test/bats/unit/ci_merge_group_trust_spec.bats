@@ -157,3 +157,23 @@ _queue() {
   assert_output "same_repo=false"
   [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
 }
+
+@test "merge_group_trust.sh: an entry whose head repository is null leaves the group untrusted and names why (base#1587)" {
+  # PullRequest.headRepository is null when the head repository was
+  # deleted, so who wrote the code is not proven even though
+  # isCrossRepository says false. Entry 2, ahead of the HEAD_SHA entry,
+  # has it null. The answer is false, and an `::error::` line says why,
+  # since classify stays green (exit 0).
+  MOCK_REPLY="$(_queue \
+    "$(_entry 1 1111111111111111111111111111111111111111 101 false ycpss91255-docker/base)" \
+    '{"position":2,"headCommit":{"oid":"2222222222222222222222222222222222222222"},"pullRequest":{"number":102,"isCrossRepository":false,"headRepository":null}}' \
+    "$(_entry 3 3333333333333333333333333333333333333333 103 false ycpss91255-docker/base)")"
+  export MOCK_REPLY
+  export HEAD_SHA="3333333333333333333333333333333333333333"
+  export HEAD_REF="refs/heads/gh-readonly-queue/main/pr-103-a61b898dd898e4c4bf5c5cf00b3ef76076d0a1d3"
+
+  run --separate-stderr bash "${TRUST}"
+  assert_success
+  assert_output "same_repo=false"
+  [[ "${stderr}" == *"::error::merge_group_trust:"* ]]
+}
