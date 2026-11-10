@@ -72,12 +72,24 @@ _classify_push() {
 #   image jobs read. The base ref is planted as `refs/remotes/origin/main`
 #   because that is the name the step resolves; its own `git fetch` has no
 #   remote to reach and is already tolerated by the step's `|| true`.
+#
+#   The base commit holds a real copy of /source/script, not a link to it:
+#   base#1584 judges a PR with the map read from the BASE side through
+#   `git show <base>:script/ci/...`, and git cannot read a file through a
+#   committed symlink (`git show HEAD:script/ci/a.sh` exits 128 when
+#   `script` is a link). dist/ and dockerfile/ are copied beside it because
+#   script/ci/testtools_paths.sh reads them relative to its own location
+#   (`../../dist/script/docker/lib/project_reclaim.sh` and the Dockerfile),
+#   which the link used to resolve into /source.
 _classify_pr() {
   local _p="${1:?BUG: _classify_pr expects a path}"
-  local _d="${BATS_TEST_TMPDIR}/pr"
+  local _d="${BATS_TEST_TMPDIR}/pr" _t
   rm -rf "${_d}"
+  mkdir -p "${_d}"
+  for _t in script dist dockerfile; do
+    cp -a "/source/${_t}" "${_d}/${_t}"
+  done
   mkdir -p "${_d}/$(dirname "${_p}")" "${_d}/doc"
-  ln -s /source/script "${_d}/script"
   printf 'seed\n' > "${_d}/doc/seed.md"
   printf 'a\n' > "${_d}/${_p}"
   git -C "${_d}" init -q -b main
@@ -264,4 +276,144 @@ _context_copy_paths() {
   done
   [[ -z "${_missed}" ]] || fail \
       "a pull request touching an unknown path left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
+}
+
+# _chain_results <classify-output>
+#   Prints `<job> <success|skipped>` for every job of the workflow, in file
+#   order, for a pull_request run whose classify diff step wrote
+#   <classify-output> (GITHUB_OUTPUT lines) and in which every job that runs
+#   succeeds. Composes the step's output through the classify job's own
+#   `outputs:` map and each job's parsed `if:`, so a key the step writes but
+#   the job does not export reads empty, as it does on GitHub. A job runs
+#   when its `if:` holds and every job it needs succeeded (the implicit
+#   `success() &&` of a job-level `if:`); `always()` runs it whatever its
+#   needs did. Any other `if:` shape returns 2, so a gate this reader cannot
+#   evaluate fails the case instead of being guessed.
+_chain_results() {
+  local _step_out="${1}" _k _v _j _if _n _ok
+  local -A _cls=() _res=()
+  while read -r _k _v; do
+    [[ -n "${_k}" ]] || continue
+    if [[ "${_v}" =~ ^\$\{\{\ steps\.diff\.outputs\.([a-z_]+)\ \}\}$ ]]; then
+      _cls["${_k}"]="$(sed -n "s/^${BASH_REMATCH[1]}=//p" <<< "${_step_out}" | tail -n 1)"
+    else
+      _cls["${_k}"]=""
+    fi
+  done < <(yq '.jobs.classify.outputs | to_entries[] | .key + " " + .value' "${SELF_WF}")
+  while IFS= read -r _j; do
+    [[ -n "${_j}" ]] || continue
+    _if="$(LP_J="${_j}" yq '.jobs[strenv(LP_J)].if // ""' "${SELF_WF}")"
+    _ok=1
+    while IFS= read -r _n; do
+      [[ -n "${_n}" ]] || continue
+      [[ -n "${_res[${_n}]:-}" ]] || { echo "BUG: ${_j} needs ${_n}, which comes later"; return 2; }
+      [[ "${_res[${_n}]}" == "success" ]] || _ok=0
+    done < <(LP_J="${_j}" yq '.jobs[strenv(LP_J)].needs // [] | (select(tag == "!!seq") | .[]), select(tag == "!!str")' "${SELF_WF}")
+    if [[ "${_j}" == "classify" ]]; then
+      _ok=1
+    elif [[ -z "${_if}" ]]; then
+      :
+    elif [[ "${_if}" =~ ^needs\.classify\.outputs\.([a-z_]+)\ ==\ \'true\'$ ]]; then
+      [[ "${_cls[${BASH_REMATCH[1]}]:-}" == "true" ]] || _ok=0
+    elif [[ "${_if}" == "always()" ]]; then
+      _ok=1
+    elif [[ "${_if}" == "startsWith(github.ref, 'refs/tags/')" ]]; then
+      _ok=0
+    else
+      echo "BUG: ${_j} has an if: this reader cannot evaluate: ${_if}"
+      return 2
+    fi
+    if [[ "${_ok}" -eq 1 ]]; then _res["${_j}"]=success; else _res["${_j}"]=skipped; fi
+    printf '%s %s\n' "${_j}" "${_res[${_j}]}"
+  done < <(yaml_job_names "${SELF_WF}")
+}
+
+# _chain_rollup <classify-output> <chain-results>
+#   Runs ci-rollup's OWN `Verify upstream jobs` step, lifted from the YAML,
+#   with every env key bound from the expression it declares: a
+#   `needs.<job>.result` from <chain-results>, a `needs.classify.outputs.<k>`
+#   through classify's `outputs:` map from <classify-output>, `toJSON(needs)`
+#   as the JSON of the same two, and IS_FORK_PR as a same-repo PR. A key
+#   bound any other way returns 2.
+_chain_rollup() {
+  local _step_out="${1}" _results="${2}" _k _v _j _r _json="" _o
+  local -A _cls=() _res=()
+  local -a _env=()
+  while read -r _k _v; do
+    [[ -n "${_k}" ]] || continue
+    _cls["${_k}"]=""
+    if [[ "${_v}" =~ ^\$\{\{\ steps\.diff\.outputs\.([a-z_]+)\ \}\}$ ]]; then
+      _cls["${_k}"]="$(sed -n "s/^${BASH_REMATCH[1]}=//p" <<< "${_step_out}" | tail -n 1)"
+    fi
+  done < <(yq '.jobs.classify.outputs | to_entries[] | .key + " " + .value' "${SELF_WF}")
+  while read -r _j _r; do
+    [[ -n "${_j}" ]] && _res["${_j}"]="${_r}"
+  done <<< "${_results}"
+  while IFS= read -r _j; do
+    [[ -n "${_j}" ]] || continue
+    _o="{}"
+    if [[ "${_j}" == "classify" ]]; then
+      _o=""
+      for _k in "${!_cls[@]}"; do
+        _o+="${_o:+,}\"${_k}\":\"${_cls[${_k}]}\""
+      done
+      _o="{${_o}}"
+    fi
+    _json+="${_json:+,}\"${_j}\":{\"result\":\"${_res[${_j}]:-}\",\"outputs\":${_o}}"
+  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
+  _json="{${_json}}"
+  while read -r _k _v; do
+    [[ -n "${_k}" ]] || continue
+    if [[ "${_k}" == "IS_FORK_PR" ]]; then
+      _env+=("IS_FORK_PR=false")
+    elif [[ "${_v}" =~ ^\$\{\{\ needs\.([a-z-]+)\.result\ \}\}$ ]]; then
+      _env+=("${_k}=${_res[${BASH_REMATCH[1]}]:-}")
+    elif [[ "${_v}" =~ ^\$\{\{\ needs\.classify\.outputs\.([a-z_]+)\ \}\}$ ]]; then
+      _env+=("${_k}=${_cls[${BASH_REMATCH[1]}]:-}")
+    elif [[ "${_v}" =~ ^\$\{\{\ toJSON\(needs\)\ \}\}$ ]]; then
+      _env+=("${_k}=${_json}")
+    else
+      echo "BUG: rollup env ${_k} is bound in a way this reader does not know: ${_v}"
+      return 2
+    fi
+  done < <(yq '.jobs."ci-rollup".steps[]
+      | select(.name == "Verify upstream jobs") | .env | to_entries[]
+      | .key + " " + .value' "${SELF_WF}")
+  yaml_step_run "${SELF_WF}" ci-rollup 'Verify upstream jobs' \
+      > "${BATS_TEST_TMPDIR}/chain-rollup.sh"
+  [ -s "${BATS_TEST_TMPDIR}/chain-rollup.sh" ] || return 2
+  env "${_env[@]}" bash "${BATS_TEST_TMPDIR}/chain-rollup.sh"
+}
+
+# why: base#1584 redesign r7, cycle 1, end to end on a PR that changes one
+# unit spec in no roster TSV. The expected set comes from the issue and the
+# design, not from the map: a unit spec cannot affect config-gen,
+# acceptance, system or worker-selftest, so those four skip; it is code,
+# so shellcheck, hadolint, bats-fragile, coverage and coverage-gate run;
+# and mutation-roster keeps main's form, no `if:` (roster row selection
+# belongs to base#1604), so it runs on every PR. Read through classify's
+# real step, its `outputs:` map, every job's parsed `if:` and the real
+# rollup step, so a gate that reads the wrong output, an output classify
+# does not export, or a classify that never carries a `false` all change
+# the set, and the rollup must pass the run that results.
+@test "chain: a PR changing one unit spec runs the code checks and mutation-roster, skips the other gated jobs, and the rollup passes (base#1584)" {
+  local _out _results _j _want _got _bad=""
+  _out="$(_classify_pr test/bats/unit/ci_spec.bats)"
+  run _chain_results "${_out}"
+  assert_success
+  _results="${output}"
+  for _want in shellcheck=success hadolint=success bats-fragile=success \
+               coverage=success coverage-gate=success \
+               mutation-roster=success \
+               config-gen=skipped acceptance=skipped system=skipped \
+               worker-selftest=skipped; do
+    _j="${_want%%=*}"
+    _got="$(awk -v j="${_j}" '$1 == j {print $2}' <<< "${_results}")"
+    [[ "${_got}" == "${_want#*=}" ]] || _bad+="${_j}: want ${_want#*=}, got ${_got:-<none>}"$'\n'
+  done
+  [[ -z "${_bad}" ]] || fail "the run set differs:
+${_bad}classify wrote:
+${_out}"
+  run _chain_rollup "${_out}" "${_results}"
+  assert_success
 }
