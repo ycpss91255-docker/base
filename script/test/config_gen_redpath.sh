@@ -193,6 +193,10 @@
 # (base#1547). config_gen_gates_spec scopes each test this way; `just test
 # go` unsets it, so the recipe always runs every case (base#1465).
 #
+# CONFIG_GEN_REDPATH_SHARD=<n>/<N>, when set, runs only the cases whose
+# row in config_gen_redpath_shards.tsv names shard n, rerun among them:
+# rerun has one row like every other case (base#1547).
+#
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
 # gofmt exits non-zero instead of listing a file.
@@ -1496,9 +1500,20 @@ _rp_coverage() {
   return 1
 }
 
+# _rp_shard_of <case> -- print the shard config_gen_redpath_shards.tsv
+# gives <case> (base#1547).
+_rp_shard_of() {
+  awk -F'\t' -v c="${1}" '$1 == c { print $2 }' "${_RP_SCRIPT_DIR}/config_gen_redpath_shards.tsv"
+}
+
 # _rp_selected <case> -- true unless CONFIG_GEN_REDPATH_ONLY is set and
-# does not name <case>.
+# does not name <case>, or CONFIG_GEN_REDPATH_SHARD=<n>/<N> is set and
+# the shard table puts <case> on another shard than n (base#1547).
 _rp_selected() {
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" ]]; then
+    [[ "$(_rp_shard_of "${1}")" == "${CONFIG_GEN_REDPATH_SHARD%%/*}" ]]
+    return
+  fi
   [[ -z "${CONFIG_GEN_REDPATH_ONLY:-}" ]] && return 0
   [[ " ${CONFIG_GEN_REDPATH_ONLY} " == *" ${1} "* ]]
 }
@@ -1690,15 +1705,22 @@ main() {
   # rerun is the only check on the unmodified copy (base#1547): its
   # first call is the control, held to rc 0 and exactly the six ok lines.
   # A CONFIG_GEN_REDPATH_ONLY run that does not name it still runs it, so
-  # a scoped run is held to a passing baseline.
-  ran=$(( ran + 1 ))
-  _rp_timed rerun _rp_rerun "${scratch}" || failed=1
+  # a scoped run is held to a passing baseline. A CONFIG_GEN_REDPATH_SHARD
+  # run runs it only on the shard its one row names: the baseline is one
+  # value per commit, so a CI run checks it once, not once per shard.
+  local control='the control passed (rerun call 1)'
+  if [[ -z "${CONFIG_GEN_REDPATH_SHARD:-}" ]] || _rp_selected rerun; then
+    ran=$(( ran + 1 ))
+    _rp_timed rerun _rp_rerun "${scratch}" || failed=1
+  else
+    control="the control runs in shard $(_rp_shard_of rerun)/${CONFIG_GEN_REDPATH_SHARD#*/}"
+  fi
   if _rp_selected retro; then
     ran=$(( ran + 1 ))
     _rp_timed retro _rp_retro "${scratch}" || failed=1
   fi
   (( failed == 0 )) || exit 1
-  echo "config-gen redpath: ${ran} planted cases went red, were refused or passed as planted; the control passed (rerun call 1)"
+  echo "config-gen redpath: ${ran} planted cases went red, were refused or passed as planted; ${control}"
 }
 
 if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
