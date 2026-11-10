@@ -12,7 +12,8 @@
 # Output: nothing on stdout for an export vertex that ends in `#N DONE`;
 #         one `::warning title=cache export::<label>: <error>` line for an
 #         export vertex that ends in `#N ERROR: <error>`, or for one the
-#         record never ends (no final `#N DONE` or `#N ERROR:` line).
+#         record never ends (no final `#N DONE` or `#N ERROR:` line), or
+#         when the record shows no cache export vertex at all.
 #         Always exits 0: a cache export never fails the job.
 
 set -uo pipefail
@@ -37,6 +38,9 @@ main() {
       printf "::warning title=cache export::%s: %s\n", label, msg
     }
     END {
+      if (n == 0) {
+        printf "::warning title=cache export::%s: the build record shows no cache export vertex\n", label
+      }
       for (i = 1; i <= n; i++) {
         if (!(order[i] in ended)) {
           printf "::warning title=cache export::%s: cache export vertex %s has no final DONE or ERROR line\n", label, order[i]
