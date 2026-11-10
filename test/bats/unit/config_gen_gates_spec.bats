@@ -921,7 +921,8 @@ _redpath_call() {
 # a call sleeps the seconds in ${S}/canned/<case>.sleep when that exists,
 # and copies what the outermost redpath process has written to its stderr
 # so far to ${S}/runner.<n>.snap when ${S}/canned/<case>.snap exists
-# (base#1547); it logs its start and end times to ${S}/runner.spans when
+# (base#1547), first waiting for the cases named in ${S}/canned/<case>.await
+# to have their timed lines there (base#1547); it logs its start and end times to ${S}/runner.spans when
 # ${S}/canned/<case>.span exists (base#1547). The retro call
 # also prints the manifest header naming the base it was handed, dirty=no,
 # or dirty=yes when ${S}/canned/retro.dirty exists. ${S}/canned is a
@@ -1030,6 +1031,22 @@ if [[ -e "${S}/canned/\${c}.barrier" ]]; then
   done
   (( \$(find "${S}" -maxdepth 1 -name 'barrier.arrived.*' | wc -l) >= want )) \
     || { : > "${S}/barrier.missed.\${c}"; exit 9; }
+fi
+# A case with a canned <case>.await waits up to 20 s for the redpath's
+# stderr to hold a timed line for every case named in it, and records
+# await.missed.<case> when one never shows (base#1547). A redpath that
+# prints a case's line only behind an older case still running never
+# shows it while this case runs.
+if [[ -e "${S}/canned/\${c}.await" && -n "\${rp}" ]]; then
+  for (( t = 0; t < 200; t++ )); do
+    miss=0
+    for w in \$(cat "${S}/canned/\${c}.await"); do
+      grep -qE "^config-gen redpath case=\${w} " "/proc/\${rp}/fd/2" 2>/dev/null || miss=1
+    done
+    (( miss == 0 )) && break
+    sleep 0.1
+  done
+  (( miss == 0 )) || : > "${S}/await.missed.\${c}"
 fi
 [[ ! -e "${S}/canned/\${c}.snap" || -z "\${rp}" ]] || cat "/proc/\${rp}/fd/2" > "${S}/runner.\${n}.snap" 2>/dev/null
 [[ ! -e "${S}/canned/\${c}.span" ]] || printf '%s end %s\n' "\${c}" "\$(date +%s.%N)" >> "${S}/runner.spans"
@@ -1218,6 +1235,19 @@ _redpath_bounds_check() {
   done < "${S}/runner.bounds"
 }
 
+# _assert_case_failed <case> [<attribution>...] -- assert_logged_event
+# config_gen_redpath_case_failed on <case>'s own record. Cases run in
+# parallel and print as each finishes (base#1547), so with two failing
+# cases the first record in ${stderr} may be either one's.
+_assert_case_failed() {
+  local _case="${1}" _all="${stderr}"
+  shift
+  local stderr
+  stderr="$(grep -F '"body":"config_gen_redpath_case_failed"' <<<"${_all}" \
+    | grep -F "\"case\":\"${_case}\"" || true)"
+  assert_logged_event config_gen_redpath_case_failed "case=${_case}" "$@"
+}
+
 # _run_redpath [VAR=value...] <case>... -- the scratch redpath run on only
 # the named cases (CONFIG_GEN_REDPATH_ONLY) and rerun, which runs whether
 # named or not (base#1547), then held to exactly that: the runner was told
@@ -1363,17 +1393,16 @@ _case_field() {
 # why: The redpath took 91 min in CI with no word of which case took the
 # time (base#1547). Each case streams one line the moment it finishes,
 # naming when it started and ended and how long it took, and its pool
-# slot goes to the next case at once. With two slots, fmt (started first)
-# sleeps 3 s while vet sleeps 1 s and lint, third in run order, 1 s. A
-# secs written down instead of measured fails the secs checks. A pool
-# that waits on its oldest case (fmt) prints vet's line only when fmt
-# ends and starts lint only then, so fmt's stub, which copies the
-# redpath's stderr as it ends, would see neither vet's nor lint's line;
-# here it must see both, and lint's start must come before fmt's end.
+# slot goes to the next case at once. With two slots, fmt starts first
+# and stays running until the redpath's stderr holds vet's and lint's
+# lines; vet and lint, second and third in run order, sleep 1 s each. A
+# pool that waits on its oldest case (fmt) starts lint only after fmt
+# ends and prints vet's line only then, so fmt waits in vain and the run
+# fails; a secs written down instead of measured fails the secs checks.
 @test "config_gen_redpath.sh: streams a timed line for each case as it finishes (base#1547)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf '3\n' > "${S}/canned/fmt.sleep"
+  printf 'vet lint\n' > "${S}/canned/fmt.await"
   printf '1\n' > "${S}/canned/vet.sleep"
   printf '1\n' > "${S}/canned/lint.sleep"
   : > "${S}/canned/fmt.snap"
@@ -1394,8 +1423,8 @@ _case_field() {
       'BEGIN { x = e - s - d; exit !(x <= 0.5 && x >= -0.5) }' \
       || fail "${_c}'s secs is not end minus start: ${_line}"
   done
-  awk -v d="$(_case_field "$(_case_line fmt)" secs)" 'BEGIN { exit !(d >= 3) }' \
-    || fail "fmt's stub slept 3 s, its line says less: $(_case_line fmt)"
+  [[ ! -e "${S}/await.missed.fmt" ]] \
+    || fail "vet's and lint's lines never reached the redpath's stderr while fmt ran: lines wait behind the oldest case"
   for _c in vet lint; do
     awk -v d="$(_case_field "$(_case_line "${_c}")" secs)" 'BEGIN { exit !(d >= 1) }' \
       || fail "${_c}'s stub slept 1 s, its line says less: $(_case_line "${_c}")"
@@ -2312,7 +2341,7 @@ _glibc_getconf() {
   printf 'unrelated: config_gen_gate_vet_failed\n' > "${S}/canned/vet.err"
   _run_redpath fmt vet
   assert_equal "${status}" 1
-  assert_logged_event config_gen_redpath_case_failed case=fmt reason=wrong_id gate=fmt
+  _assert_case_failed fmt reason=wrong_id gate=fmt
   grep -F '"body":"config_gen_redpath_case_failed"' <<<"${stderr}" | grep -F '"case":"vet"' | grep -qF '"reason":"wrong_id"' \
     || fail "case vet passed on an id quoted in text: ${stderr}"
 }
@@ -2329,7 +2358,7 @@ _glibc_getconf() {
   _gate_record config_gen_build_failed status=1 "display=not config_gen_gate_vet_failed" > "${S}/canned/vet.err"
   _run_redpath fmt vet
   assert_equal "${status}" 1
-  assert_logged_event config_gen_redpath_case_failed case=fmt reason=wrong_id gate=fmt
+  _assert_case_failed fmt reason=wrong_id gate=fmt
   grep -F '"body":"config_gen_redpath_case_failed"' <<<"${stderr}" | grep -F '"case":"vet"' | grep -qF '"reason":"wrong_id"' \
     || fail "case vet passed on another event naming its id: ${stderr}"
 }
