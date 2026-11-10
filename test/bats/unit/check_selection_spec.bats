@@ -188,3 +188,23 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request touching only a roster spec keeps mutation-roster and coverage and drops the other three (base#1584)" {
+  # Expected, from what each job reads, not from the map:
+  # - mutation-roster=true: script/test/mutation_required/s1e.tsv names
+  #   test/bats/integration/config_gen_admit_spec.bats in its spec column
+  #   (28 rows), so the roster runs it.
+  # - coverage=true: no exclusion ever drops coverage.
+  # - config-gen=false, acceptance=false: a spec file is a leaf -- no
+  #   file under test/ or script/ loads or sources a `*_spec.bats` -- so
+  #   neither job executes it.
+  # - system=false: script/ci/system_paths.sh lists test/bats/system/**,
+  #   not test/bats/integration/.
+  run _select pull_request test/bats/integration/config_gen_admit_spec.bats
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=true
+coverage=true
+acceptance=false
+system=false"
+}
