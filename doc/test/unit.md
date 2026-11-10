@@ -1125,6 +1125,16 @@ behaviour, base#1562.
 | `install-just.sh: one failed fetch of the tarball and of SHA256SUMS is retried and just lands on GITHUB_PATH (base#1562)` | The just install must ride out one upstream 5xx on EITHER of its two fetches (the tarball and its SHA256SUMS) instead of failing the job, and must publish a PATH dir only once that dir holds a working binary. A retry on just one fetch, a swap to a tool other than curl, or a PATH entry without the binary would each leave a job red or wrong, base#1562. |
 | `install-just.sh: a tarball whose digest does not match SHA256SUMS fails and leaves GITHUB_PATH untouched (base#1562)` | A download that arrives but is not the release's bytes (a proxy error page, a truncated or tampered tarball) must fail the job, not be installed. The install checks the tarball against the release's SHA256SUMS before it publishes a PATH dir, base#1562. |
 
+### test/bats/unit/ci_merge_group_trust_spec.bats (1)
+
+The self-hosted fork guard fails closed on merge_group, and a site opens
+only on this resolver's answer. These specs pin that the answer is true only
+when every pull request in the group is proven same-repository, base#1587.
+
+| Test | Description |
+|------|-------------|
+| `merge_group_trust.sh: a group of three same-repository pull requests is trusted (base#1587)` | - |
+
 ### test/bats/unit/ci_preflight_spec.bats (18)
 
 Unit tests for `script/ci/preflight.sh`, the caller-contract validator the
