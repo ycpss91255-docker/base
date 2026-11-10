@@ -512,13 +512,13 @@ _acceptance_code() {
 @test "self-test.yaml: bats-fragile job declares needs on actionlint AND classify (#677)" {
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
 }
 
 @test "self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64]'
 }
 
 # why: a consumer reaches the container only through `just`, so a broken
@@ -686,7 +686,7 @@ _acceptance_code() {
 @test "self-test.yaml: system job declares needs on actionlint AND classify (#317)" {
   run yaml_job_lines "${WF}" system
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
 }
 
 # ── Conditional gating ───────────────────────────────────
@@ -769,7 +769,7 @@ _acceptance_code() {
   assert_success
   assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
-  assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
+  # It reads the cache only; the one writer per arch is a builder job (base#1588).
 }
 
 @test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
@@ -777,7 +777,450 @@ _acceptance_code() {
   assert_success
   assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
-  assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
+  # It reads the cache only; the one writer per arch is a builder job (base#1588).
+}
+
+# ── Cache writes: push to main only, one writer per arch (base#1588) ──
+#
+# _cache_write_hits <workflow> -- every place in the workflow that could
+# carry a cache write, one `<job>\t<step index|->\t<field>` line each: the
+# workflow and job `env`, a reusable call's job `with`, and for every step
+# its `run:` body, each `with` key/value and each `env` key/value, kept
+# when it matches `cache[-_]?to` in any case. Scanning only `with.cache-to`
+# would miss `docker buildx build --cache-to` in a run body, `cache-to=`
+# in a bake `--set`, and a `*_CACHE_TO` env (base#1588 design, cycle 7).
+_cache_write_hits() {
+  # yq-go has no `def`, so it lists every candidate with its key and value
+  # JSON-encoded on one line, and the match is grep's.
+  local _all
+  _all="$(yq '
+    ((.env // {}) | to_entries | .[] | "WORKFLOW\t-\tenv." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+    (.jobs | to_entries | .[] | .key as $j | .value as $job | (
+      ((($job | .env) // {}) | to_entries | .[] | $j + "\t-\tenv." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+      ((($job | .with) // {}) | to_entries | .[] | $j + "\t-\twith." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+      ((($job | .steps) // []) | to_entries | .[] | (.key | @json) as $i | .value as $s | (
+        ($j + "\t" + $i + "\trun\t" + ((($s | .run) // "") | @json)),
+        ((($s | .with) // {}) | to_entries | .[] | $j + "\t" + $i + "\twith." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+        ((($s | .env) // {}) | to_entries | .[] | $j + "\t" + $i + "\tenv." + .key + "\t" + (.key | @json) + "=" + (.value | @json))))))
+  ' "${1}")" || return 1
+  awk -F '\t' 'tolower($4) ~ /cache[-_]?to/ { print $1 "\t" $2 "\t" $3 }' <<< "${_all}"
+}
+
+# _scope_of <cache spec> -- the `scope=` value of a `type=gha,...` spec.
+_scope_of() {
+  tr ',' '\n' <<< "${1}" | sed -n 's/^scope=//p'
+}
+
+# _cache_writers <workflow> -- succeeds iff the only cache writes are the
+# two builders' writer steps: `with.cache-to` on test-tools-image-amd64
+# (scope test-tools) and test-tools-image-arm64 (scope test-tools-arm64),
+# each gated on exactly the push-to-main literal, each writing the scope it
+# reads. Anything else is printed and fails.
+_cache_writers() {
+  local _wf="${1}" _rc=0 _job _idx _field _if _to _from _want
+  local -A _seen=()
+  local -A _scope=([test-tools-image-amd64]=test-tools [test-tools-image-arm64]=test-tools-arm64)
+  local _gate="steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'"
+  local _hits
+  _hits="$(_cache_write_hits "${_wf}")" || { echo "yq failed on ${_wf}"; return 1; }
+  while IFS=$'\t' read -r _job _idx _field; do
+    [ -n "${_job}" ] || continue
+    _want="${_scope[${_job}]:-}"
+    if [ -z "${_want}" ] || [ "${_field}" != 'with.cache-to' ]; then
+      echo "unexpected cache write: ${_job} step ${_idx} ${_field}"
+      _rc=1; continue
+    fi
+    _seen[${_job}]=$(( ${_seen[${_job}]:-0} + 1 ))
+    _if="$(LP_J="${_job}" LP_I="${_idx}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)].if // ""' "${_wf}")"
+    if [ "${_if}" != "${_gate}" ]; then
+      echo "${_job} step ${_idx}: writer if is '${_if}', want '${_gate}'"
+      _rc=1
+    fi
+    _to="$(LP_J="${_job}" LP_I="${_idx}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)].with["cache-to"]' "${_wf}")"
+    _from="$(LP_J="${_job}" LP_I="${_idx}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)].with["cache-from"] // ""' "${_wf}")"
+    if [ "$(_scope_of "${_to}")" != "${_want}" ] || [ "$(_scope_of "${_from}")" != "${_want}" ]; then
+      echo "${_job} step ${_idx}: cache-to '${_to}' / cache-from '${_from}', want scope ${_want} on both"
+      _rc=1
+    fi
+  done <<< "${_hits}"
+  for _job in "${!_scope[@]}"; do
+    if [ "${_seen[${_job}]:-0}" -ne 1 ]; then
+      echo "${_job}: ${_seen[${_job}]:-0} cache writers, want exactly 1"
+      _rc=1
+    fi
+  done
+  return "${_rc}"
+}
+
+# _assert_mutants_fail <checker> <yq expr>... -- for each expression, a
+# temp copy of the workflow mutated by it must differ from a plain yq
+# round-trip (a mutant that changes nothing would pass vacuously) and must
+# make <checker> fail (base#1588).
+_assert_mutants_fail() {
+  local _check="${1}" _expr
+  local _m="${BATS_TEST_TMPDIR}/mutant.yaml" _base="${BATS_TEST_TMPDIR}/roundtrip.yaml"
+  shift
+  yq '.' "${WF}" > "${_base}"
+  for _expr in "$@"; do
+    yq "${_expr}" "${WF}" > "${_m}"
+    run cmp -s "${_base}" "${_m}"
+    assert_failure
+    run "${_check}" "${_m}"
+    assert_failure
+  done
+}
+
+@test "self-test.yaml: only the builders' push-main steps write the test-tools cache, and no other cache-to form slips past (base#1588)" {
+  run _cache_writers "${WF}"
+  assert_success
+
+  # The checker must see each form the design names, not just the one the
+  # workflow uses today: three mutants of a temp copy, each red.
+  local -a _mutants=(
+    '(.jobs["test-tools-image-amd64"].steps[] | select(.with["cache-to"] != null) | .if) |= . + " || github.event_name == '"'"'pull_request'"'"'"'
+    '.jobs.shellcheck.steps += [{"name": "mutant", "run": "docker buildx build --cache-to type=gha,scope=x ."}]'
+    '.jobs.coverage.steps += [{"name": "mutant", "uses": "docker/build-push-action@v6", "with": {"cache-to": "type=gha,scope=test-tools,mode=max"}}]'
+  )
+  _assert_mutants_fail _cache_writers "${_mutants[@]}"
+}
+
+# ── Consumers read the tar their arch's builder wrote (base#1588) ──
+#
+# _tt_resolve <workflow> <job> <leg json> <text> -- <text> as the runner
+# would see it in that leg: `${{ runner.temp }}` as /RT,
+# `needs[format('<p>{0}', matrix.<k>)]` as `needs.<p><leg's k>`, and every
+# other `${{ }}` resolved against the leg by _lint_probe_subst.
+_tt_resolve() {
+  local _t="${4}" _rt=/RT _v _new
+  local _re="needs\[format\('([^']*)\{0\}', matrix\.([A-Za-z0-9_]+)\)\]"
+  _t="${_t//'${{ runner.temp }}'/${_rt}}"
+  while [[ "${_t}" =~ ${_re} ]]; do
+    _v="$(LP_K="${BASH_REMATCH[2]}" yq -p json '.[strenv(LP_K)] // ""' <<< "${3}")"
+    _new="needs.${BASH_REMATCH[1]}${_v}"
+    _t="${_t/"${BASH_REMATCH[0]}"/${_new}}"
+  done
+  _LP_LEG="${3}" _lint_probe_subst "${1}" "${2}" "${_t}"
+}
+
+# _tt_unwrap <text> -- <text> without one `${{ ... }}` wrapper, if any.
+_tt_unwrap() {
+  local _re='^\$\{\{[[:space:]]*(.*[^[:space:]])[[:space:]]*\}\}$'
+  if [[ "${1}" =~ ${_re} ]]; then printf '%s' "${BASH_REMATCH[1]}"; else printf '%s' "${1}"; fi
+}
+
+# _tt_step <workflow> <job> <step index> <yq path> -- that field of the step.
+_tt_step() {
+  LP_J="${2}" LP_I="${3}" yq ".jobs[strenv(LP_J)].steps[env(LP_I)]${4}" "${1}"
+}
+
+# _tt_artifact_paths <workflow> -- succeeds iff every leg of every job that
+# calls obtain_test_tools.sh (the builders aside) downloads the artifact its
+# arch's builder uploaded and hands obtain the path the tar lands at.
+# The arch is the leg's own `--platform`; the producer side (upload name,
+# upload path, the build's `outputs` dest) is read from the builder alone.
+# download-artifact v8 extracts a `name:` download straight into `path`, so
+# the tar is at `<download path>/<basename of dest>`; a `pattern:` download
+# nests it under the artifact name unless exactly one artifact matched,
+# which is why `pattern` is refused (base#1588 design, cycle 9).
+_tt_artifact_paths() {
+  local _wf="${1}" _rc=0 _arch _b _job _leg _i _run _raw _plat _cond _q="'" _rt=/RT
+  local _dest _upname _uppath _dl _dlname _dlpath _dlif _want _ttcond _ttfmt
+  local _ttre='^\$\{\{[[:space:]]*(.*[^[:space:]])[[:space:]]+&&[[:space:]]+format\('"${_q}"'([^'"${_q}"']*)'"${_q}"',[[:space:]]*runner\.temp\)[[:space:]]+\|\|[[:space:]]+'"${_q}${_q}"'[[:space:]]*\}\}$'
+  local -A _tar=() _name=() _seen=()
+  local -a _dests=() _ups=() _jobs=() _legs=() _obt=() _dls=()
+  for _arch in amd64 arm64; do
+    _b="test-tools-image-${_arch}"
+    mapfile -t _dests < <(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps[]? | select(.with.outputs != null) | .with.outputs' "${_wf}" \
+        | tr ',' '\n' | sed -n 's/^dest=//p' | sort -u)
+    if [ "${#_dests[@]}" -ne 1 ]; then
+      echo "${_b}: ${#_dests[@]} distinct build outputs dest, want exactly 1"; _rc=1; continue
+    fi
+    mapfile -t _ups < <(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps | to_entries | .[] | select((.value.uses // "") | test("^actions/upload-artifact@")) | .key' "${_wf}")
+    if [ "${#_ups[@]}" -ne 1 ]; then
+      echo "${_b}: ${#_ups[@]} upload-artifact steps, want exactly 1"; _rc=1; continue
+    fi
+    _upname="$(_tt_step "${_wf}" "${_b}" "${_ups[0]}" '.with.name // ""')"
+    _uppath="$(_tt_step "${_wf}" "${_b}" "${_ups[0]}" '.with.path // ""')"
+    _dest="$(_tt_resolve "${_wf}" "${_b}" '{}' "${_dests[0]}")"
+    if [ "$(_tt_resolve "${_wf}" "${_b}" '{}' "${_uppath}")" != "${_dest}" ] || [ -z "${_upname}" ]; then
+      echo "${_b}: uploads '${_uppath}' as '${_upname}', want the build dest '${_dests[0]}' under a name"; _rc=1; continue
+    fi
+    _tar[${_arch}]="${_dest##*/}"
+    _name[${_arch}]="${_upname}"
+  done
+  mapfile -t _jobs < <(yq '.jobs | to_entries | .[] | select(.key | test("^test-tools-image-") | not)
+      | select([.value.steps[]? | select((.run // "") | test("obtain_test_tools\\.sh"))] | length > 0) | .key' "${_wf}")
+  for _job in "${_jobs[@]}"; do
+    mapfile -t _obt < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps | to_entries | .[] | select((.value.run // "") | test("obtain_test_tools\\.sh")) | .key' "${_wf}")
+    if [ "${#_obt[@]}" -ne 1 ]; then echo "${_job}: ${#_obt[@]} obtain steps, want 1"; _rc=1; continue; fi
+    _i="${_obt[0]}"
+    _run="$(_tt_step "${_wf}" "${_job}" "${_i}" '.run')"
+    _raw="$(_tt_step "${_wf}" "${_job}" "${_i}" '.env.TT_ARTIFACT // ""')"
+    mapfile -t _dls < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps | to_entries | .[]
+        | select((.value.uses // "") | test("^actions/download-artifact@"))
+        | select((.value.with.name // .value.with.pattern // "") | test("test-tools")) | .key' "${_wf}")
+    if [[ "${_run}" != *--artifact* || "${_run}" != *TT_ARTIFACT* ]]; then
+      echo "${_job}: the obtain run does not pass --artifact \"\$TT_ARTIFACT\""; _rc=1
+    fi
+    mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
+    for _leg in "${_legs[@]}"; do
+      _plat=""
+      if [[ "$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "${_run}")" =~ --platform[[:space:]]+\"?([^[:space:]\"]+) ]]; then
+        _plat="${BASH_REMATCH[1]}"
+      fi
+      _arch="${_plat#linux/}"
+      if [ -z "${_arch}" ] || [ -z "${_name[${_arch}]:-}" ]; then
+        echo "${_job} ${_leg}: platform '${_plat}' has no builder artifact"; _rc=1; continue
+      fi
+      _b="test-tools-image-${_arch}"
+      _cond="needs.${_b}.outputs.produced == 'true'"
+      if [ "${#_dls[@]}" -ne 1 ]; then
+        echo "${_job} ${_leg}: ${#_dls[@]} test-tools download steps, want 1"; _rc=1; continue
+      fi
+      _dl="${_dls[0]}"
+      if (( _dl > _i )); then echo "${_job}: the download step runs after obtain"; _rc=1; fi
+      if [ "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.with // {} | has("pattern")')" != false ]; then
+        echo "${_job}: the download uses pattern:, want name:"; _rc=1
+      fi
+      _dlname="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.with.name // ""')")"
+      _dlpath="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.with.path // ""')")"
+      _dlif="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(_tt_unwrap "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.if // ""')")")"
+      if [ "${_dlname}" != "${_name[${_arch}]}" ]; then
+        echo "${_job} ${_leg}: downloads '${_dlname}', ${_b} uploads '${_name[${_arch}]}'"; _rc=1
+      fi
+      if [ "${_dlif}" != "${_cond}" ]; then
+        echo "${_job} ${_leg}: download if is '${_dlif}', want '${_cond}'"; _rc=1
+      fi
+      # TT_ARTIFACT is `${{ <cond> && format('<fmt>', runner.temp) || '' }}`;
+      # its true branch is the path obtain is handed.
+      if ! [[ "${_raw}" =~ ${_ttre} ]]; then
+        echo "${_job}: TT_ARTIFACT is '${_raw}', want \${{ ${_cond} && format('<path>', runner.temp) || '' }}"; _rc=1; continue
+      fi
+      _ttcond="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "${BASH_REMATCH[1]}")"
+      _ttfmt="${BASH_REMATCH[2]}"
+      _ttfmt="${_ttfmt//'{0}'/${_rt}}"
+      _want="${_dlpath}/${_tar[${_arch}]}"
+      if [ "${_ttcond}" != "${_cond}" ]; then
+        echo "${_job} ${_leg}: TT_ARTIFACT is gated on '${_ttcond}', want '${_cond}'"; _rc=1
+      fi
+      if [ "${_ttfmt}" != "${_want}" ]; then
+        echo "${_job} ${_leg}: obtain is handed '${_ttfmt}', the tar lands at '${_want}'"; _rc=1
+      fi
+      _seen[${_arch}]=$(( ${_seen[${_arch}]:-0} + 1 ))
+    done
+  done
+  for _arch in amd64 arm64; do
+    if [ "${_seen[${_arch}]:-0}" -lt 1 ]; then echo "no consumer leg reads the ${_arch} artifact"; _rc=1; fi
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: every obtain leg downloads its arch's builder artifact by name and is handed the path the tar lands at (base#1588)" {
+  run _tt_artifact_paths "${WF}"
+  assert_success
+
+  # A path drift, a pattern download and an arch whose names disagree must
+  # each be caught: three mutants of a temp copy, each red.
+  local -a _mutants=(
+    '(.jobs.shellcheck.steps[] | select((.uses // "") | test("^actions/download-artifact@")) | .with.path) |= . + "/x"'
+    '(.jobs.shellcheck.steps[] | select((.uses // "") | test("^actions/download-artifact@")) | .with) |= {"pattern": .name, "path": .path}'
+    '(.jobs["test-tools-image-arm64"].steps[] | select((.uses // "") | test("^actions/upload-artifact@")) | .with.name) |= . + "-x"'
+  )
+  _assert_mutants_fail _tt_artifact_paths "${_mutants[@]}"
+}
+
+# ── A builder builds whenever obtain says build, on every event (base#1588) ──
+#
+# _tt_if_true <if> <build_local> <event> <ref> -- 0 when a step `if:` holds
+# for a run with that obtain verdict, github.event_name and github.ref, 1
+# when it does not, 2 (with a message) for a form this reader does not know.
+# It reads `a == 'x'` / `a != 'x'` atoms joined by `&&` and `||` (`&&` binds
+# tighter, as in GitHub expressions) and the status functions; a step with no
+# `if` runs (an implicit success()).
+_tt_if_true() {
+  local _e _alt _atom _ok _var
+  local _re="^([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*(==|!=)[[:space:]]*'([^']*)'\$"
+  local -A _ctx=([steps.obtain.outputs.build_local]="${2}" [github.event_name]="${3}" [github.ref]="${4}")
+  local -a _alts=() _atoms=()
+  _e="$(_tt_unwrap "${1}")"
+  [ -n "${_e}" ] || return 0
+  mapfile -t _alts <<< "${_e//'||'/$'\n'}"
+  for _alt in "${_alts[@]}"; do
+    _ok=0
+    mapfile -t _atoms <<< "${_alt//'&&'/$'\n'}"
+    for _atom in "${_atoms[@]}"; do
+      _atom="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "${_atom}")"
+      case "${_atom}" in
+        'always()' | 'success()') continue ;;
+        'failure()' | 'cancelled()') _ok=1; continue ;;
+      esac
+      if ! [[ "${_atom}" =~ ${_re} ]]; then
+        echo "unreadable if atom '${_atom}' in '${1}'"; return 2
+      fi
+      _var="${BASH_REMATCH[1]}"
+      if [ -z "${_ctx[${_var}]+set}" ]; then
+        echo "if names '${_var}', which this reader has no value for: '${1}'"; return 2
+      fi
+      if [ "${BASH_REMATCH[2]}" = '==' ]; then
+        [ "${_ctx[${_var}]}" = "${BASH_REMATCH[3]}" ] || _ok=1
+      else
+        [ "${_ctx[${_var}]}" != "${BASH_REMATCH[3]}" ] || _ok=1
+      fi
+    done
+    [ "${_ok}" -ne 0 ] || return 0
+  done
+  return 1
+}
+
+# _tt_builder_builds <workflow> -- succeeds iff, for each builder, on every
+# event the workflow runs on: when obtain says build_local=true exactly one
+# build-push step runs, the upload-artifact step runs and the `mark` step
+# runs (so produced is true and consumers load the tar instead of building
+# their own copy); when it says false none of the three runs. The build that
+# runs carries cache-to on a push to main only: a PR reads the cache and
+# never writes it (base#1588 issue, acceptance 1 and 3).
+_tt_builder_builds() {
+  local _wf="${1}" _rc=0 _arch _b _row _bl _ev _ref _n _i _uses _id _r _want
+  local _nbuild _nup _nmark _to
+  # event<TAB>ref: every trigger in self-test.yaml's `on:`.
+  local -a _events=($'pull_request\trefs/pull/1/merge' $'workflow_dispatch\trefs/heads/fix' \
+    $'push\trefs/heads/main' $'push\trefs/heads/master' $'push\trefs/tags/v1.0.0')
+  for _arch in amd64 arm64; do
+    _b="test-tools-image-${_arch}"
+    _n="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps | length' "${_wf}")"
+    for _bl in true false; do
+      for _row in "${_events[@]}"; do
+        IFS=$'\t' read -r _ev _ref <<< "${_row}"
+        _nbuild=0; _nup=0; _nmark=0; _to=""
+        for (( _i = 0; _i < _n; _i++ )); do
+          _r=0
+          _tt_if_true "$(_tt_step "${_wf}" "${_b}" "${_i}" '.if // ""')" "${_bl}" "${_ev}" "${_ref}" || _r=$?
+          if [ "${_r}" -eq 2 ]; then _rc=1; continue; fi
+          [ "${_r}" -eq 0 ] || continue
+          _uses="$(_tt_step "${_wf}" "${_b}" "${_i}" '.uses // ""')"
+          _id="$(_tt_step "${_wf}" "${_b}" "${_i}" '.id // ""')"
+          case "${_uses}" in
+            docker/build-push-action@*)
+              _nbuild=$(( _nbuild + 1 ))
+              _to="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with["cache-to"] // ""')" ;;
+            actions/upload-artifact@*) _nup=$(( _nup + 1 )) ;;
+          esac
+          [ "${_id}" != mark ] || _nmark=$(( _nmark + 1 ))
+        done
+        _want=0; [ "${_bl}" = false ] || _want=1
+        if [ "${_nbuild}" -ne "${_want}" ] || [ "${_nup}" -ne "${_want}" ] || [ "${_nmark}" -ne "${_want}" ]; then
+          echo "${_b} build_local=${_bl} ${_ev} ${_ref}: ${_nbuild} builds, ${_nup} uploads, ${_nmark} mark steps run, want ${_want} each"
+          _rc=1
+        fi
+        if [ "${_nbuild}" -eq 1 ] && [ "${_ev}" = push ] && [ "${_ref}" = refs/heads/main ]; then
+          [ -n "${_to}" ] || { echo "${_b} ${_ev} ${_ref}: the build writes no cache"; _rc=1; }
+        elif [ -n "${_to}" ]; then
+          echo "${_b} ${_ev} ${_ref}: the build writes the cache ('${_to}'), want push to main only"; _rc=1
+        fi
+      done
+    done
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: each builder builds, uploads and marks produced whenever obtain says build, writing the cache on a push to main only (base#1588)" {
+  run _tt_builder_builds "${WF}"
+  assert_success
+}
+
+# ── A builder makes what its consumers load (base#1588) ──
+#
+# _tt_builder_shape <workflow> -- succeeds iff each builder hands its arch's
+# consumers the image they expect: it runs on the runner every consumer leg
+# of that arch runs on, obtains for `linux/<arch>`, tags every build with
+# the run-scoped TEST_TOOLS_ARTIFACT_TAG the consumers re-tag from, reads
+# the cache of its own arch's scope, fails its upload when the tar is
+# missing, and reports `produced` from the `mark` step that writes it. The
+# consumer side is _tt_artifact_paths; this is the producer side it trusts.
+_tt_builder_shape() {
+  local _wf="${1}" _rc=0 _arch _b _job _leg _run _plat _runner _want _n _i _uses _v
+  local _tagexpr='${{ env.TEST_TOOLS_ARTIFACT_TAG }}'
+  local _produced="\${{ steps.mark.outputs.produced == 'true' }}"
+  local -A _scope=([amd64]=test-tools [arm64]=test-tools-arm64) _runners=()
+  local -a _jobs=() _legs=() _obt=()
+  if [ -z "$(yq '.env.TEST_TOOLS_ARTIFACT_TAG // ""' "${_wf}")" ]; then
+    echo "the workflow env defines no TEST_TOOLS_ARTIFACT_TAG"; _rc=1
+  fi
+  # Every consumer leg's runner, by the arch its obtain step names.
+  mapfile -t _jobs < <(yq '.jobs | to_entries | .[] | select(.key | test("^test-tools-image-") | not)
+      | select([.value.steps[]? | select((.run // "") | test("obtain_test_tools\\.sh"))] | length > 0) | .key' "${_wf}")
+  for _job in "${_jobs[@]}"; do
+    _run="$(LP_J="${_job}" yq '[.jobs[strenv(LP_J)].steps[] | select((.run // "") | test("obtain_test_tools\\.sh"))][0].run' "${_wf}")"
+    mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
+    for _leg in "${_legs[@]}"; do
+      [[ "$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "${_run}")" =~ --platform[[:space:]]+\"?linux/([^[:space:]\"]+) ]] || continue
+      _arch="${BASH_REMATCH[1]}"
+      _runner="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(LP_J="${_job}" yq '.jobs[strenv(LP_J)]["runs-on"] // ""' "${_wf}")")"
+      _runners[${_arch}]+="${_runner}"$'\n'
+    done
+  done
+  for _arch in amd64 arm64; do
+    _b="test-tools-image-${_arch}"
+    _runner="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)]["runs-on"] // ""' "${_wf}")"
+    _want="$(sort -u <<< "${_runners[${_arch}]:-}" | sed '/^$/d')"
+    if [ -z "${_want}" ] || [ "${_runner}" != "${_want}" ]; then
+      echo "${_b}: runs on '${_runner}', its consumers' ${_arch} legs run on '${_want//$'\n'/, }'"; _rc=1
+    fi
+    mapfile -t _obt < <(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps[] | select((.run // "") | test("obtain_test_tools\\.sh")) | .run' "${_wf}")
+    _plat=""
+    if [ "${#_obt[@]}" -eq 1 ] && [[ "${_obt[0]}" =~ --platform[[:space:]]+\"?([^[:space:]\"]+) ]]; then
+      _plat="${BASH_REMATCH[1]}"
+    fi
+    if [ "${_plat}" != "linux/${_arch}" ]; then
+      echo "${_b}: obtains for '${_plat}' (${#_obt[@]} obtain steps), want one for linux/${_arch}"; _rc=1
+    fi
+    _v="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)].outputs.produced // ""' "${_wf}")"
+    if [ "${_v}" != "${_produced}" ]; then
+      echo "${_b}: outputs.produced is '${_v}', want '${_produced}'"; _rc=1
+    fi
+    _v="$(LP_J="${_b}" yq '[.jobs[strenv(LP_J)].steps[] | select(.id == "mark") | .run] | join("|")' "${_wf}")"
+    if [[ "${_v}" != *'produced=true'*'GITHUB_OUTPUT'* ]]; then
+      echo "${_b}: no mark step writes produced=true to GITHUB_OUTPUT ('${_v}')"; _rc=1
+    fi
+    _n="$(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps | length' "${_wf}")"
+    for (( _i = 0; _i < _n; _i++ )); do
+      _uses="$(_tt_step "${_wf}" "${_b}" "${_i}" '.uses // ""')"
+      case "${_uses}" in
+        docker/build-push-action@*)
+          _v="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with.tags // ""')"
+          if [ "${_v}" != "${_tagexpr}" ]; then
+            echo "${_b} step ${_i}: tags '${_v}', want '${_tagexpr}'"; _rc=1
+          fi
+          _v="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with["cache-from"] // ""')"
+          if [ "$(_scope_of "${_v}")" != "${_scope[${_arch}]}" ]; then
+            echo "${_b} step ${_i}: cache-from '${_v}', want scope ${_scope[${_arch}]}"; _rc=1
+          fi ;;
+        actions/upload-artifact@*)
+          _v="$(_tt_step "${_wf}" "${_b}" "${_i}" '.with["if-no-files-found"] // ""')"
+          if [ "${_v}" != error ]; then
+            echo "${_b} step ${_i}: if-no-files-found '${_v}', want error"; _rc=1
+          fi ;;
+      esac
+    done
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: each builder runs on its arch's runner and tags, caches, uploads and reports what its consumers load (base#1588)" {
+  run _tt_builder_shape "${WF}"
+  assert_success
+
+  # Each producer-side drift the consumers would trust: mutants of a temp
+  # copy, each red.
+  local -a _mutants=(
+    '(.jobs["test-tools-image-amd64"].steps[] | select((.uses // "") | test("^docker/build-push-action@")) | .with.tags) = "${{ env.TEST_TOOLS_IMAGE }}"'
+    '.jobs["test-tools-image-arm64"]["runs-on"] = "ubuntu-latest"'
+    '(.jobs["test-tools-image-arm64"].steps[] | select((.run // "") | test("obtain_test_tools")) | .run) |= sub("linux/arm64", "linux/amd64")'
+    '.jobs["test-tools-image-amd64"].outputs.produced = "true"'
+    '(.jobs["test-tools-image-arm64"].steps[] | select((.uses // "") | test("^docker/build-push-action@")) | select(.with["cache-to"] == null) | .with["cache-from"]) = "type=gha,scope=test-tools"'
+    'del(.jobs["test-tools-image-amd64"].steps[] | select((.uses // "") | test("^actions/upload-artifact@")) | .with["if-no-files-found"])'
+  )
+  _assert_mutants_fail _tt_builder_shape "${_mutants[@]}"
 }
 
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
@@ -872,7 +1315,10 @@ _acceptance_code() {
 # _builder_setup_pairs <file>
 #   `<job>\t<setups>\t<consumers>\t<setup index>\t[<setup if>]\t[<consumer if>]`
 #   for every job of <file> that BOTH sets up a runner-side builder and
-#   carries a step that consumes one. Tab-separated because a condition may
+#   carries a step that consumes one: one record per setup, the k-th setup
+#   paired with the k-th consumer, so a job holding two builds (the
+#   test-tools builders' cache reader and writer, base#1588) gives each its
+#   own setup under its own gate. Tab-separated because a condition may
 #   contain any `|`-joined record's separator (`a || b`) and cannot contain
 #   a tab -- and each condition is BRACKETED because a tab is IFS
 #   whitespace, so `read` collapses a run of them and an EMPTY condition
@@ -887,13 +1333,14 @@ _builder_setup_pairs() {
                 | test("docker/setup-buildx-action")))) as $setups
           | ($steps | map(select((.value.uses // "")
                 | test("docker/build-push-action")))) as $consumers
-          | select(($setups | length) > 0 and ($consumers | length) > 0)
+          | $setups | to_entries | .[] | .key as $k
+          | select(($consumers | length) > 0)
           | [$job,
              ($setups | length | tostring),
              ($consumers | length | tostring),
-             ($setups[0].key | tostring),
-             ("[" + (($setups[0].value.if // "") | tostring) + "]"),
-             ("[" + (($consumers[0].value.if // "") | tostring) + "]")]
+             ($setups[$k].key | tostring),
+             ("[" + (($setups[$k].value.if // "") | tostring) + "]"),
+             ("[" + (($consumers[$k].value.if // "") | tostring) + "]")]
             | @tsv'
 }
 
@@ -954,6 +1401,7 @@ _report_one_builder_setup() {
 #   One line per disagreement across the derived population.
 _builder_setups_out_of_step_with_their_consumer() {
     local _file="${1}" _ids _job _ns _nc _idx _setup _consumer _status=0
+    local -A _seen=()
     _ids="$(_step_ids "${_file}")" || _status=$?
     if [[ "${_status}" -ne 0 ]]; then
         printf '%s\n' "${_ids}"
@@ -964,9 +1412,10 @@ _builder_setups_out_of_step_with_their_consumer() {
         case "${_job}" in BUG:*) printf '%s\n' "${_job}" ; continue ;; esac
         _setup="${_setup#"["}" ; _setup="${_setup%"]"}"
         _consumer="${_consumer#"["}" ; _consumer="${_consumer%"]"}"
-        if [[ "${_ns}" != 1 || "${_nc}" != 1 ]]; then
-            printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs one with one\n' \
+        if [[ "${_ns}" != "${_nc}" ]]; then
+            [[ -n "${_seen[${_job}]+set}" ]] || printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs each setup with one consumer\n' \
                 "${_job}" "${_ns}" "${_nc}"
+            _seen[${_job}]=1
             continue
         fi
         _report_one_builder_setup "${_job}" "${_idx}" "${_setup}" "${_consumer}" "${_ids}"
@@ -1301,7 +1750,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
@@ -1317,11 +1766,11 @@ _builder_setups_out_of_step_with_their_consumer() {
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -1397,7 +1846,35 @@ _builder_setups_out_of_step_with_their_consumer() {
   # and every select_* key `false`, the most permissive classify
   # (base#1584).
   _rollup_hard_mandatory actionlint classify doc-counts lint-static \
-      mutation-roster compute-shards
+      mutation-roster compute-shards test-tools-image-amd64 \
+      test-tools-image-arm64
+}
+
+# why: The two test-tools-image builders (base#1588) feed doc-counts,
+# lint-static and mutation-roster, which carry no `if:`, so the builders
+# must run on every event too -- merge_group included (base#1587). The
+# rollup's job-to-key map (base#1584) excuses a skip only for a job it
+# names, so the decision is explicit: the builders carry no job-level
+# `if:` and the map does not name them, which makes their skip fail.
+@test "self-test.yaml: the test-tools-image builders always run and their skip fails ci-rollup (base#1588, base#1584)" {
+  local _b _if _bad=""
+  for _b in test-tools-image-amd64 test-tools-image-arm64; do
+    run yaml_job_needs "${WF}" ci-rollup
+    assert_line "${_b}"
+    _if="$(yq ".jobs[\"${_b}\"].if // \"\"" "${WF}")"
+    [[ -z "${_if}" ]] || _bad+=" ${_b} has if: ${_if};"
+    # A select_* key the builder's name could be rewritten to, set
+    # `false`, must still not excuse the skip.
+    [[ "$(_rollup_rc "${WF}" ".[\"${_b}\"].result = \"skipped\"
+        | .classify.outputs.select_${_b//-/_} = \"false\"
+        | .classify.outputs |= with_entries(if (.key | startswith(\"select_\")) then .value = \"false\" else . end)")" == 1 ]] \
+      || _bad+=" ${_b} skip passes;"
+  done
+  run yq '.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .run' "${WF}"
+  assert_success
+  assert_output --partial '"config-gen-redpath": "select_config_gen"'
+  refute_output --partial '"test-tools-image-'
+  [[ -z "${_bad}" ]] || fail "${_bad}"
 }
 
 # why: compute-shards carries no `if:` gate, so a SKIPPED there is a
@@ -1886,7 +2363,7 @@ EOF
   # doc-only short-circuit still skips lint runs.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial "if: needs.classify.outputs.select_shellcheck == 'true'"
 }
 
@@ -1937,7 +2414,7 @@ EOF
   # and it runs the driver in the image the local gate uses (base#1412).
   run yaml_job_lines "${WF}" doc-counts
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial './script/test/test.sh --lint --doc-counts'
 }
@@ -2093,7 +2570,7 @@ EOF
 @test "self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)" {
   run yaml_job_lines "${WF}" lint-static
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial 'runs-on: ubuntu-latest'
   assert_output --partial 'fail-fast: false'
   assert_output --partial './script/test/test.sh --lint --group'
@@ -2207,7 +2684,7 @@ EOF
 @test "self-test.yaml: hadolint job needs actionlint + classify and gates on select_hadolint (#376, base#1584)" {
   run yaml_job_lines "${WF}" hadolint
   assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64]'
   assert_output --partial "if: needs.classify.outputs.select_hadolint == 'true'"
 }
 
@@ -3205,7 +3682,7 @@ _lint_probe_fixture() {
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3432,15 +3909,32 @@ _lint_probe_fixture() {
   # to either is identical to the attempt that just left the leftovers
   # behind -- exactly when a stale artifact would be reused. run_attempt is
   # what separates them.
+  #
+  # One name is run-scoped on purpose: TEST_TOOLS_ARTIFACT_TAG, the tag a
+  # test-tools-image builder writes into the tar it uploads (base#1588). A
+  # re-run of the failed jobs keeps the builder's earlier attempt, so the
+  # tar a re-run consumer loads carries that attempt's tag; the consumer
+  # loads the tar, which replaces whatever the tag pointed at, and re-tags
+  # it as the attempt-scoped TEST_TOOLS_IMAGE. It is the only exception,
+  # and it still differs between two runs (the test above).
   local -a _a=() _b=()
+  local -a _run_scoped=(TEST_TOOLS_ARTIFACT_TAG)
   mapfile -t _a < <(_render_run_names 1001 1)
   mapfile -t _b < <(_render_run_names 1001 2)
   [ "${#_a[@]}" -ge 3 ]
-  local _i
+  local _i _key _n_exempt=0
   for _i in "${!_a[@]}"; do
+    _key="${_a[${_i}]%%:*}"
+    _key="${_key#"${_key%%[![:space:]]*}"}"
+    if [[ " ${_run_scoped[*]} " == *" ${_key} "* ]]; then
+      _n_exempt=$((_n_exempt + 1))
+      continue
+    fi
     [ "${_a[${_i}]}" != "${_b[${_i}]}" ] \
       || fail "name is CONSTANT across a re-run: ${_a[${_i}]}"
   done
+  [ "${_n_exempt}" -eq "${#_run_scoped[@]}" ] \
+    || fail "expected ${#_run_scoped[@]} run-scoped name(s) in the env block, found ${_n_exempt}"
 }
 
 @test "self-test.yaml: run identity is not a timestamp and not the commit SHA (#900)" {
@@ -3844,7 +4338,7 @@ CG_REDPATH_JOB='config-gen-redpath'
 CG_GATES_RUN='just test go-gates'
 CG_SHARDS_TSV='/source/script/test/config_gen_redpath_shards.tsv'
 CG_SELF_TEST_TOP='["concurrency","env","jobs","name","on","permissions"]'
-CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_IMAGE"]'
+CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_ARTIFACT_TAG","TEST_TOOLS_IMAGE"]'
 CG_COV_LOCAL_TOP='["concurrency","jobs","name","on","permissions"]'
 CG_COV_LOCAL_ENV='[]'
 COV_LOCAL_WF="/source/.github/workflows/coverage-local.yaml"
