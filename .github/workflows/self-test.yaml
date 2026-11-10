@@ -47,9 +47,11 @@ on:
 # GitHub resolves the whole block against `github` only.
 # ── The default grant, written down ───────────────────────────────────
 #
-# Of the jobs below, two declare a `permissions:` block of their own
-# (`release` needs `contents: write` to publish a tag's release, and
-# `worker-selftest` hands the reusable worker a read-only token). Every
+# Of the jobs below, three declare a `permissions:` block of their own
+# (`release` needs `contents: write` to publish a tag's release,
+# `worker-selftest` hands the reusable worker a read-only token, and
+# `classify` adds `pull-requests: read` to read the merge queue on a
+# merge_group run, base#1587). Every
 # other job used to take whatever the repository's Settings page said, and
 # the page says read -- so the posture was right and no reader of this tree
 # could tell, because a checkbox leaves no diff and no spec can assert it.
@@ -179,14 +181,36 @@ jobs:
     needs: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The trust step reads the merge queue through the API, which needs
+    # `pull-requests: read` on top of the workflow's `contents: read`
+    # (base#1587).
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       code_changed: ${{ steps.diff.outputs.code_changed }}
       system_relevant: ${{ steps.diff.outputs.system_relevant }}
       testtools_changed: ${{ steps.diff.outputs.testtools_changed }}
+      # A skipped trust step (push, pull_request) reads as untrusted.
+      merge_group_same_repo: ${{ steps.trust.outputs.same_repo || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # A merge_group payload has no pull_request object, so only the API
+      # can say whether every pull request in the group is same-repository.
+      # The script fails closed and exits 0, printing why (base#1587).
+      - name: Ask the merge queue whether the group is same-repository
+        id: trust
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.merge_group.base_ref }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: bash ./script/ci/merge_group_trust.sh >> "${GITHUB_OUTPUT}"
 
       - id: diff
         env:
