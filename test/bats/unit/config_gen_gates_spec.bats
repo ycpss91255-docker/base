@@ -2431,6 +2431,52 @@ _glibc_getconf() {
   assert_equal "$(_case_failures)" "docs-only|green_line_missing"
 }
 
+# why: The six producer-state green cases plant only non-Go files, so the
+# mutation gate must judge exactly the one small package that holds them,
+# cmd/config-gen. The before row is the five verdict lines a real untrack
+# run printed at d7abca73, when the plant sat under the module-root
+# testdata/ and was mapped to every corpus importer; the none row is a gate
+# that judged nothing; the after row is the one line a real run prints once
+# the plant sits under cmd/config-gen/testdata/. Only the after row is the
+# case's scope, so the other two must fail mutation_scope_mismatch rather
+# than pass slowly or vacuously (base#1615).
+@test "config_gen_redpath.sh: a producer-state green case passes only when the mutation gate judged exactly cmd/config-gen (base#1615)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  local _row _case _want _p='github.com/ycpss91255-docker/base/dockerfile/config-gen'
+  local -a _cases=(names rename-recreate untrack rename-move copies typechange)
+  for _row in before none after; do
+    rm -rf "${S}/repo" "${S}/canned" "${S}"/runner.* "${S}"/calls.* "${S}/nested"
+    _redpath_repo
+    _want=''
+    for _case in "${_cases[@]}"; do
+      case "${_row}" in
+        before)
+          printf '#22 1.076 %s ok efficacy=100.0\n' "${_p}/cmd/config-gen" > "${S}/canned/${_case}.err"
+          printf '#22 173.8 %s ok efficacy=98.2\n' "${_p}/internal/locate" >> "${S}/canned/${_case}.err"
+          printf '#22 255.0 %s ok efficacy=94.5\n' "${_p}/internal/schema" >> "${S}/canned/${_case}.err"
+          printf '#22 257.8 %s ok efficacy=100.0\n' "${_p}/internal/tables" >> "${S}/canned/${_case}.err"
+          printf '#22 259.2 %s ok efficacy=100.0\n' "${_p}/internal/testcorpus" >> "${S}/canned/${_case}.err"
+          _want+="${_case}|mutation_scope_mismatch"$'\n'
+          ;;
+        none)
+          printf '#22 1.00 mutation targets none\n' > "${S}/canned/${_case}.err"
+          _want+="${_case}|mutation_scope_mismatch"$'\n'
+          ;;
+        after)
+          printf '#22 3.643 %s ok efficacy=100.0\n' "${_p}/cmd/config-gen" > "${S}/canned/${_case}.err"
+          ;;
+      esac
+    done
+    _run_redpath "${_cases[@]}"
+    assert_equal "${_row}:$(_case_failures | LC_ALL=C sort)" "${_row}:$(printf '%s' "${_want}" | LC_ALL=C sort)"
+    if [[ "${_row}" == after ]]; then
+      assert_equal "${_row}:${status}" "${_row}:0"
+    else
+      assert_equal "${_row}:${status}" "${_row}:1"
+    fi
+  done
+}
+
 # why: A stale case's change must happen after 00-manifest wrote the
 # baseline and 01-admit installed the checker, or the baseline already
 # holds it and admission has nothing to refuse; a green case's change must

@@ -2052,7 +2052,7 @@ scratch file beside it.
 | `05-floors-base: a base with fragments writes their concatenation in lexical order, each ending in LF (base#1465)` | The ratchet compares per package across the base's union, so every fragment must be in it, each line whole: one without a final LF would fuse with the next fragment's first line. The expected bytes are git show's, worked by hand. (base#1465) |
 | `05-floors-base: a base it cannot read is refused by reason, the old floors.base kept (base#1465)` | Each refusal is a base the step could not read faithfully; writing anything, or `absent`, would let the ratchet judge without the base's floors. (base#1465) |
 
-### test/bats/unit/config_gen_gates_spec.bats (82)
+### test/bats/unit/config_gen_gates_spec.bats (83)
 
 ADR-00000039 makes the config generator one typed Go program, and S1b lands
 its skeleton. Nothing runs Go gates anywhere before this slice: `just test
