@@ -150,8 +150,8 @@ main() {
   # the merged counterpart of the line from another package _count
   # refuses in a package's own profile (base#1547).
   if [[ -n "${merged}" ]]; then
-    pkg="$(LC_ALL=C comm -23 <(_block_dirs "${merged}") <(cut -f1 <<<"${listing}" | LC_ALL=C sort -u) | head -n 1)"
-    [[ -z "${pkg}" ]] || _refuse profile_invalid "${pkg}"
+    pkg="$(LC_ALL=C comm -23 <(_block_dirs "${merged}") <(cut -f1 <<<"${listing}" | LC_ALL=C sort -u))"
+    [[ -z "${pkg}" ]] || _refuse profile_invalid "${pkg%%$'\n'*}"
   fi
   dir="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${dir} now; it is local to main
