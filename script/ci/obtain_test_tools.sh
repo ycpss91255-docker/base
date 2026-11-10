@@ -218,6 +218,12 @@ main() {
   # saved it (base#1588): load that, under this job's own name, and probe
   # it, rather than pulling or building a second time.
   if [[ -n "${_artifact}" ]]; then
+    # The loaded image is found by the run-scoped tag its builder gave it;
+    # without that tag the re-tag would name nothing (base#1588).
+    if [[ -z "${TEST_TOOLS_ARTIFACT_TAG:-}" ]]; then
+      printf 'obtain: --artifact needs TEST_TOOLS_ARTIFACT_TAG set\n' >&2
+      return 2
+    fi
     # The caller passes --artifact only when its builder reported one, so
     # a missing tar is a lost artifact: fail, never fall back.
     if [[ ! -f "${_artifact}" ]]; then
