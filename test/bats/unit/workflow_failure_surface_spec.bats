@@ -236,6 +236,63 @@ _rollup() {
   refute_output --partial 'doc-only'
 }
 
+# _rollup_selected <VAR=value>...
+#   Runs the lifted `Verify upstream jobs` step with every upstream job
+#   reported `success`, a code change, a same-repo PR, and every other
+#   env key the step declares (classify's per-job selections) set to
+#   `true`; the arguments then override single entries. The env binding
+#   for a classify output is looked up by the expression it reads, so the
+#   test does not hard-code the variable name the step chooses.
+_rollup_selected() {
+  local _script="${BATS_TEST_TMPDIR}/rollup.sh" _var _status=0
+  yaml_step_run "${SELF_WF}" ci-rollup 'Verify upstream jobs' > "${_script}"
+  [ -s "${_script}" ] || return 2
+  local -a _env=()
+  while IFS= read -r _var; do
+    [[ -n "${_var}" ]] || continue
+    case "${_var}" in
+      CODE_CHANGED) _env+=("CODE_CHANGED=true") ;;
+      IS_FORK_PR) _env+=("IS_FORK_PR=false") ;;
+      *_RESULT) _env+=("${_var}=success") ;;
+      *) _env+=("${_var}=true") ;;
+    esac
+  done < <(_yaml_eval "${SELF_WF}" \
+      '.jobs."ci-rollup".steps[]
+         | select(.name == "Verify upstream jobs") | .env | keys | .[]') \
+      || _status=$?
+  [[ "${_status}" -eq 0 ]] || return 2
+  [[ "${#_env[@]}" -ge 10 ]] || return 2
+  env "${_env[@]}" "$@" bash "${_script}"
+}
+
+# _rollup_env_for <classify-output>
+#   The `Verify upstream jobs` env key bound to
+#   needs.classify.outputs.<classify-output>, or nothing.
+_rollup_env_for() {
+  _yaml_eval "${SELF_WF}" \
+      '.jobs."ci-rollup".steps[]
+         | select(.name == "Verify upstream jobs") | .env | to_entries[]
+         | select(.value | test("needs\.classify\.outputs\.'"${1}"'\b"))
+         | .key'
+}
+
+# why: The rollup accepted any `skipped` on a gated job. With
+# CONFIG_GEN_RESULT=skipped and CODE_CHANGED=true the lifted step printed
+# `config-gen: skipped` and exited 0 (base#1584 design, section 1), so a
+# config-gen that never ran on a diff classify said it can affect would
+# still turn the required check green. A skip may pass only when classify
+# itself decided it: here classify selected config-gen, so the skip is a
+# workflow bug and the rollup must fail.
+@test "self-test: the rollup fails a config-gen skip that classify did not decide (base#1584)" {
+  local _sel_var
+  _sel_var="$(_rollup_env_for select_config_gen)"
+  run _rollup_selected CONFIG_GEN_RESULT=skipped \
+      "${_sel_var:-SELECT_CONFIG_GEN}=true"
+  assert_failure 1
+  assert_output --partial 'config-gen:       skipped'
+  [ -n "${_sel_var}" ]
+}
+
 # ── 4. concurrency and timeouts ───────────────────────────────────────
 
 # _triggerable_workflows
