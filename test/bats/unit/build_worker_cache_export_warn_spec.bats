@@ -117,3 +117,21 @@ EOS
   assert_equal "${#lines[@]}" 1
   assert_output --regexp '^::warning title=cache export::devel-test: .+$'
 }
+
+@test "cache_export_warn: metadata with no buildx.build.ref prints one ::warning:: and exits 0 (base#1602)" {
+  # The metadata names no build record, so no record of this build can be
+  # read. The docker stub still replays the good vertex #63 of
+  # ycpss91255-docker/isaac run 42753553284 attempt 1, so a script that
+  # reads some other record (the builder's latest) and finds it DONE stays
+  # silent and fails this test: without a ref a success cannot be shown.
+  cat > "${RECORD}" <<'EOS'
+#63 exporting to GitHub Actions Cache
+#63 sending cache export 1773.6s done
+#63 DONE 2056.9s
+EOS
+  export BUILD_METADATA='{"containerimage.digest":"sha256:0961586389cedd4a925be061078d2592b548f7036cd63be81c42071f70d08b2c"}'
+  run bash "${SCRIPT}"
+  assert_success
+  assert_equal "${#lines[@]}" 1
+  assert_output --regexp '^::warning title=cache export::devel-test: .+$'
+}
