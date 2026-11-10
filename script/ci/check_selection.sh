@@ -44,19 +44,32 @@ main() {
 
   # The selection is the union over every changed path. A path that no
   # row names selects every job.
-  local _all=false _path
+  local -A _sel=()
+  local _job _path
+  for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=false; done
   while IFS= read -r -d '' _path; do
     case "${_path}" in
       # Docs select nothing: the doc-only allow-list classify's
       # code_changed gate already uses (.github/workflows/self-test.yaml).
       doc/* | README.md | LICENSE | CONTEXT.md) ;;
-      *) _all=true ;;
+      # E4: config-gen never reads init.sh. Its host side traced under
+      # strace -f opened only dist/script/base/just-version.sh under
+      # dist/, and the redpath's _rp_copy
+      # (script/test/config_gen_redpath.sh) copies no dist/script/base/
+      # file (base#1584).
+      dist/script/base/init.sh)
+        for _job in "${_CS_JOBS[@]}"; do
+          [[ "${_job}" == config-gen ]] || _sel["${_job}"]=true
+        done
+        ;;
+      *)
+        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        ;;
     esac
   done
 
-  local _job
   for _job in "${_CS_JOBS[@]}"; do
-    printf '%s=%s\n' "${_job}" "${_all}"
+    printf '%s=%s\n' "${_job}" "${_sel[${_job}]}"
   done
 }
 
