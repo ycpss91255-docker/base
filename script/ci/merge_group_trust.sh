@@ -105,6 +105,22 @@ if [[ "${entry_pr}" != "${pr}" ]]; then
   exit 0
 fi
 
+# A pull request in the group whose head repository is null (deleted)
+# does not prove who wrote the code: say which, then answer false,
+# base#1587.
+null_head="$(jq -r --arg sha "${HEAD_SHA}" '
+  [.data.repository.mergeQueue.entries.nodes[]?] as $all
+  | ([$all[] | select(.headCommit.oid == $sha)] | first) as $e
+  | [$all[] | select(.position <= $e.position)
+      | select(.pullRequest.headRepository == null)
+      | .pullRequest.number | tostring] | join(" ")' <<<"${reply}")"
+if [[ -n "${null_head}" ]]; then
+  printf '::error::merge_group_trust: pull request %s in the group has no head repository\n' \
+    "${null_head}" >&2
+  printf 'same_repo=false\n'
+  exit 0
+fi
+
 same_repo="$(jq -r --arg sha "${HEAD_SHA}" --arg pr "${pr}" \
   --arg repo "${REPO}" '
   [.data.repository.mergeQueue.entries.nodes[]?] as $all
