@@ -1547,7 +1547,7 @@ _redpath_reset() {
   _redpath_repo
   local _tsv="${S}/repo/script/test/config_gen_redpath_shards.tsv"
   [[ -f "${_tsv}" ]] || fail "no shard table at script/test/config_gen_redpath_shards.tsv"
-  local _n _k _i _u _all='' _ran _unplanted=0 _holders=0
+  local _n _k _i _u _c _all='' _ran _unplanted=0 _holders=0
   _n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${_tsv}")"
   [[ -n "${_n}" ]] || fail "the shard table's first line is not '# shards=<N>': $(head -n 1 "${_tsv}")"
   _k="$(awk -F'\t' '$1 == "rerun" { print $2 }' "${_tsv}")"
@@ -1563,7 +1563,9 @@ _redpath_reset() {
     _ran="$(_ran_cases)"
     [[ -n "${_ran}" ]] || fail "shard ${_i}/${_n} ran no case"
     _all+="${_ran}"$'\n'
-    _unplanted=$(( _unplanted + $(_unplanted_cases | grep -c .) ))
+    # grep -c exits 1 on a zero count, which every shard but rerun's has.
+    _c="$(_unplanted_cases)"
+    _unplanted=$(( _unplanted + $(grep -c . <<<"${_c}" || true) ))
     if grep -qx rerun <<<"${_ran}"; then
       _holders=$(( _holders + 1 ))
       assert_output --partial 'the control passed (rerun call 1)'
