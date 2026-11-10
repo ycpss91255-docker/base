@@ -792,7 +792,14 @@ jobs:
     # 300 s is decided by the mutation_roster_spec case "every
     # mutation-roster leg's measured seconds over its worker slots fit
     # 300 s", a sum over seconds.txt, not a timed job.
+    #
+    # It runs only when classify's map selects it (base#1584): on a pull
+    # request whose diff is docs or `*_spec.bats` leaves that no roster
+    # TSV names, the roster cannot change, so it skips, and the rollup
+    # accepts that skip only because select_mutation_roster is `false`.
+    # Off a pull request the map selects it, so main runs it.
     needs: [actionlint, classify]
+    if: needs.classify.outputs.select_mutation_roster == 'true'
     runs-on: ubuntu-latest
     # 150, carried over from lint-static, whose roster step it was: on PR
     # #1538's run 41736192401 shards 1/4, 2/4 and 4/4 were cancelled at 90
@@ -1405,7 +1412,10 @@ jobs:
   acceptance:
     name: Acceptance (${{ matrix.platform }})
     needs: [actionlint, classify]
-    if: needs.classify.outputs.code_changed == 'true'
+    # classify's map decides (base#1584): the consumer gets the whole
+    # checkout (script/test/acceptance.sh:90, `cp -a`), so only a diff of
+    # docs or `*_spec.bats` leaves drops it. Off a pull request it runs.
+    if: needs.classify.outputs.select_acceptance == 'true'
     # Acceptance level (ISTQB, ADR-00000018): verify what the downstream
     # CONSUMER receives -- scaffold a synthesized downstream repo via
     # init.sh, then drive the delivered framework + its UX (`just docker`
@@ -1757,7 +1767,7 @@ jobs:
     # `ci-summary` and env/* `ci-passed`.
     #
     # Hard-mandatory jobs (actionlint / classify / doc-counts /
-    # lint-static / mutation-roster / compute-shards) must succeed:
+    # lint-static / compute-shards) must succeed:
     # SKIPPED there indicates a workflow bug,
     # not an intentional gate. doc-counts is hard-mandatory because it
     # carries no `if:` -- the generated doc/test catalogue can be broken by
@@ -1769,10 +1779,11 @@ jobs:
     # with everything else.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # coverage / acceptance / system / config-gen) carry
+    # coverage / acceptance / system / config-gen / mutation-roster) carry
     # job-level `if:` so they SKIP on doc-only / non-system PRs (#317
-    # P1/P3, #376, #377, #615, #677); the rollup collapses SKIPPED into pass
-    # for those, otherwise doc-only PRs cannot merge.
+    # P1/P3, #376, #377, #615, #677), or where classify's map drops them
+    # (base#1584); the rollup passes a SKIPPED there only when the
+    # classify output that job's own `if:` reads is `false`.
     #
     # `coverage` is IN `needs:` (#615, ADR-00000008): a sharded kcov PR
     # gate -- a kcov test failure fails the matrix and this rollup. The

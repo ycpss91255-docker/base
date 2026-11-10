@@ -706,10 +706,15 @@ _acceptance_code() {
   assert_failure
 }
 
-@test "self-test.yaml: acceptance job-level if: gates on code_changed (#317)" {
+# why: #317 gated acceptance on code_changed. base#1584 narrows it to
+# classify's map: the consumer gets the whole checkout
+# (script/test/acceptance.sh:90), so only docs and `*_spec.bats` leaves
+# drop it, and a spec-only PR no longer pays for both arch legs.
+@test "self-test.yaml: acceptance job-level if: gates on classify's select_acceptance (#317, base#1584)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
-  assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
+  assert_output --partial "if: needs.classify.outputs.select_acceptance == 'true'"
+  refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
 @test "self-test.yaml: system job-level if: gates on system_relevant (#317 P3)" {
