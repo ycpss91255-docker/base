@@ -135,10 +135,10 @@ main() {
       # E1: a unit spec is a leaf -- no file under test/ or script/ loads
       # or sources a `*_spec.bats` -- so config-gen and acceptance never
       # execute it, and script/ci/system_paths.sh lists test/bats/system
-      # only, not test/bats/unit. It keeps coverage, and keeps
-      # mutation-roster when a roster TSV names it in its spec column or
-      # the roster cannot be read (base#1584).
-      test/bats/unit/*_spec.bats)
+      # only, not test/bats/unit or test/bats/integration. It keeps
+      # coverage, and keeps mutation-roster when a roster TSV names it in
+      # its spec column or the roster cannot be read (base#1584).
+      test/bats/unit/*_spec.bats | test/bats/integration/*_spec.bats)
         _sel[coverage]=true
         if _cs_in_roster "${_path}"; then _sel[mutation-roster]=true; fi
         ;;
