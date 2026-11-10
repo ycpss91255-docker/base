@@ -194,6 +194,31 @@ _df_instructions() {
   assert_output 1
 }
 
+# why: The race RUN and coverage.sh each ran go test over every package, so
+# the tests ran twice per build (base#1547). Now the race RUN's go test is
+# the only one in the test stage: it runs under -race and writes one
+# atomic profile, and the coverage RUN, which comes after it, hands that
+# same profile to coverage.sh --profile and runs no go test of its own.
+@test "Dockerfile.config-gen: the race RUN's one go test writes the atomic profile the coverage RUN hands to coverage.sh --profile (base#1547)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  _df_instructions > "${S}/df"
+  awk -F'\t' '$1 == "test" && $2 ~ /^RUN /' "${S}/df" > "${S}/runs"
+  assert_equal "$(grep -c 'go test ' "${S}/runs")" 1
+  local _race _cov _prof
+  _race="$(grep -n 'gate=race ok' "${S}/runs" | cut -d: -f1)"
+  _cov="$(grep -n 'gate=coverage ok' "${S}/runs" | cut -d: -f1)"
+  [[ -n "${_race}" && -n "${_cov}" ]] || fail "no race or no coverage RUN in the test stage"
+  (( _race < _cov )) || fail "the race RUN is not before the coverage RUN"
+  grep 'gate=race ok' "${S}/runs" > "${S}/race"
+  grep -q 'go test ' "${S}/race" || fail "the one go test is not the race RUN's: $(grep 'go test ' "${S}/runs")"
+  grep -qE 'go test [^;]*-race' "${S}/race" || fail "the race RUN's go test runs without -race"
+  grep -qE 'go test [^;]*-covermode=atomic' "${S}/race" || fail "the race RUN's go test writes no atomic profile"
+  _prof="$(grep -oE -- '-coverprofile=[^ ;"]+' "${S}/race" | sed 's/^-coverprofile=//')"
+  [[ -n "${_prof}" ]] || fail "the race RUN's go test writes no -coverprofile"
+  grep 'gate=coverage ok' "${S}/runs" | grep -qF -- "--profile ${_prof}" \
+    || fail "the coverage RUN does not hand ${_prof} to coverage.sh --profile"
+}
+
 # why: The shipped stage holds only the binary; the runner's binary contract
 # runs that stage, so a final stage built on the toolchain would let the
 # contract pass on a binary nobody ships.
