@@ -265,6 +265,11 @@ jobs:
               echo "code_changed=true"
               echo "system_relevant=true"
               echo "testtools_changed=${testtools}"
+              # Every heavy job is selected off a pull request, so main
+              # runs the full suite (owner decision, base#1584).
+              for job in config_gen mutation_roster coverage acceptance system; do
+                echo "select_${job}=true"
+              done
             } >> "${GITHUB_OUTPUT}"
             exit 0
           fi
