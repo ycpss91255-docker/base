@@ -65,7 +65,8 @@ test/bats/unit/bashrc_spec.bats
 compose.yaml
 dockerfile/config-gen/cmd/config-gen/main.go
 dockerfile/config-gen/testdata/x
-script/ci/reclaim.sh"
+script/ci/reclaim.sh
+zz/unknown.txt"
 
 # The one job-level gate form (base#1584): a job gated on its own classify
 # select_<job> output. _ci_gate compares a job's whole `if:` against it,
@@ -393,6 +394,25 @@ ${_table}"
   refute_line 'just test system'
   assert_line 'just test acceptance'
   assert_line "${COVERAGE_MATRIX}"
+}
+
+# why: CI gates system on classify's map, which selects it for a path
+# system_paths.sh does not name; a plan that read system_paths.sh alone
+# skipped `just test system` for such a diff (base#1584).
+@test "pre-PR mirror: a diff the map selects system for but system_paths.sh does not match plans system (base#1584)" {
+  _require_mirror
+  _selected system "zz/unknown.txt" || fail "classify's map no longer selects system for zz/unknown.txt; pick another probe"
+  run bash /source/script/ci/system_paths.sh
+  assert_success
+  local _spec
+  while IFS= read -r _spec; do
+    [[ -n "${_spec}" ]] || continue
+    # shellcheck disable=SC2053 # the pattern is a glob on purpose
+    [[ "zz/unknown.txt" != ${_spec} ]] || fail "system_paths.sh pattern ${_spec} matches zz/unknown.txt, so this probe no longer isolates the map gate"
+  done <<<"${output}"
+  run bash "${MIRROR}" --plan <<<"zz/unknown.txt"
+  assert_success
+  assert_line 'just test system'
 }
 
 @test "pre-PR mirror: a diff touching shell sources plans CI's whole coverage matrix (base#1409)" {
