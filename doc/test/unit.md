@@ -6389,7 +6389,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate gates the [security] keys the resolver reads (#876)` | - |
 | `_schema_validate gates image.rule_N against the dispatch prefixes (#876)` | - |
 
-### test/bats/unit/self_hosted_guard_lint_spec.bats (23)
+### test/bats/unit/self_hosted_guard_lint_spec.bats (24)
 
 | Test | Description |
 |------|-------------|
@@ -6411,6 +6411,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: PASSES an eligible job that carries the guard alone` | - |
 | `self-hosted guard: PASSES an eligible job that ANDs the guard with its own gate` | - |
 | `self-hosted guard: FAILS an eligible job whose if: is a near-miss reword` | - |
+| `self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)` | - |
 | `self-hosted guard: an unrelated job-level if: does not satisfy the guard` | - |
 | `self-hosted guard: FAILS when the workflow directory is missing` | - |
 | `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |

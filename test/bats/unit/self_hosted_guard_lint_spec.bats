@@ -393,6 +393,28 @@ _guard_lines() {
   [[ "${output}" == *"job heavy"* ]]
 }
 
+@test "self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)" {
+  # A merge_group payload carries no pull_request object, so the old
+  # `github.event_name != 'pull_request' || ...` guard is true on every
+  # queue run and lets a group holding fork-authored code reach the
+  # self-hosted runner. That guard must no longer satisfy the lint.
+  _workflow "wf.yaml" \
+    'on:' \
+    '  merge_group:' \
+    '    types: [checks_requested]' \
+    'jobs:' \
+    '  heavy:' \
+    '    runs-on: [self-hosted, gpu]' \
+    '    if: >-' \
+    "      github.event_name != 'pull_request' ||" \
+    '      github.event.pull_request.head.repo.full_name == github.repository' \
+    '    steps:' \
+    '      - run: make'
+  run _run_self_hosted_guard
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job heavy"* ]]
+}
+
 @test "self-hosted guard: an unrelated job-level if: does not satisfy the guard" {
   _workflow "wf.yaml" \
     'on:' \
