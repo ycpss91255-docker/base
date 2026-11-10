@@ -1842,22 +1842,25 @@ jobs:
     # `ci-summary` and env/* `ci-passed`.
     #
     # One rule for every job in `needs:` (base#1584): a job passes when it
-    # succeeded, or when it skipped AND classify deselected it, i.e.
-    # needs.classify.outputs.select_<job> is exactly `false`. A job with
-    # no select_* key (actionlint / classify / doc-counts / lint-static /
-    # mutation-roster / compute-shards) carries no `if:`, so its SKIPPED
-    # is a workflow bug and fails, as does a skip whose key is `true`,
-    # empty or missing, and every failure or cancel. The job set is read
-    # from `needs` itself, so a job added there is covered with no edit
-    # here; one that gains an `if:` but no map key fails on its first
-    # skip. doc-counts and lint-static carry no `if:` because a doc-only
+    # succeeded, or when it skipped AND classify deselected it, i.e. the
+    # classify key its `if:` reads is exactly `false`. The verify step
+    # finds that key through an explicit job-to-key map, never a rewrite
+    # of the job name. A job with no key in the map (actionlint /
+    # classify / doc-counts / lint-static / mutation-roster /
+    # compute-shards) carries no `if:`, so its SKIPPED is a workflow bug
+    # and fails, as does a skip whose key is `true`, empty or missing, and
+    # every failure or cancel. The job set is read from `needs` itself, so
+    # a job added there is covered with no edit here; one that gains an
+    # `if:` but no map entry fails on its first skip. doc-counts and lint-static carry no `if:` because a doc-only
     # edit can break them (#866); mutation-roster has none because roster
     # row selection belongs to base#1604.
     #
     # Conditionally-gated jobs (shellcheck / hadolint / bats-fragile /
-    # coverage / coverage-gate / acceptance / system / worker-selftest /
-    # config-gen) each run under `if: needs.classify.outputs.select_<job>
-    # == 'true'`, the key classify writes from the base side's map
+    # coverage / coverage-gate / acceptance / system / worker-selftest)
+    # each run under `if: needs.classify.outputs.select_<job> == 'true'`;
+    # config-gen-gates and config-gen-redpath both run under
+    # `select_config_gen` (base#1547 split one job into two). Each key is
+    # one classify writes from the base side's map
     # (script/ci/selection_at_base.sh). The `if:` and this rollup read the
     # same key, so a skip passes only where classify decided it (#317
     # P1/P3, #376, #377, #615, #677, base#1584).
@@ -1910,15 +1913,30 @@ jobs:
             exit 1
           fi
           # One `<verdict> <job> <result>` line per key of `needs`. A skip
-          # is excused only when classify's select_<job> is exactly
-          # "false"; a failed classify leaves every key empty, so then no
-          # skip is.
+          # is excused only when the classify key the job's `if:` reads is
+          # exactly "false"; a failed classify leaves every key empty, so
+          # then no skip is. The job-to-key map is explicit, never a
+          # rewrite of the job name: config-gen-gates and
+          # config-gen-redpath both read select_config_gen (base#1547),
+          # and a job the map does not name has no key, so its skip fails.
           verdicts="$(jq -r '
-            (.classify.outputs // {}) as $c
+            {
+              "shellcheck": "select_shellcheck",
+              "hadolint": "select_hadolint",
+              "bats-fragile": "select_bats_fragile",
+              "coverage": "select_coverage",
+              "coverage-gate": "select_coverage_gate",
+              "acceptance": "select_acceptance",
+              "system": "select_system",
+              "worker-selftest": "select_worker_selftest",
+              "config-gen-gates": "select_config_gen",
+              "config-gen-redpath": "select_config_gen"
+            } as $keys
+            | (.classify.outputs // {}) as $c
             | to_entries[]
             | .key as $j
             | (.value.result // "") as $r
-            | ($c["select_" + ($j | gsub("-"; "_"))] // "") as $k
+            | (if $keys[$j] then ($c[$keys[$j]] // "") else "" end) as $k
             | (if $r == "success" then "pass"
                elif $r == "skipped" and $k == "false" then "excused"
                elif $r == "skipped" then "unexcused"
