@@ -494,3 +494,28 @@ _triggerable_workflows_without_a_declared_default() {
   assert_success
   assert_output ''
 }
+
+# why: A skip may pass only when classify decided it (base#1584). An empty
+# selection is no decision: classify failed to write the output, or the
+# step reads a name classify never emits. The design's rule is that every
+# select_* left empty plus a skip of a job it gates fails the rollup, for
+# each job the map selects (config-gen, mutation-roster, coverage and its
+# coverage-gate, acceptance, system). The control run, with the same empty
+# selections and no skip, must still pass, so the failure is the skip's.
+@test "self-test: the rollup fails a skip of a selected job when every classify selection is empty (base#1584)" {
+  local -a _empty=()
+  local _var _r
+  while IFS= read -r _var; do
+    [[ -n "${_var}" ]] && _empty+=("${_var}=")
+  done < <(_rollup_env_for 'select_[a-z_]+')
+  run _rollup_selected "${_empty[@]}"
+  assert_success
+  for _r in CONFIG_GEN MUTATION_ROSTER COVERAGE COVERAGE_GATE \
+            ACCEPTANCE SYSTEM; do
+    run _rollup_selected "${_empty[@]}" "${_r}_RESULT=skipped"
+    if [[ "${status}" -ne 1 ]]; then
+      echo "${_r}_RESULT=skipped with empty selections exited ${status}"
+      return 1
+    fi
+  done
+}
