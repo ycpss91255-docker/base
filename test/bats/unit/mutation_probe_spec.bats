@@ -1317,6 +1317,32 @@ STUB
   assert_output "1"
 }
 
+# why: without --baseline-in a --filter narrows the baseline too (base#1582),
+# so a baseline written with --filter and --baseline-out counts only the
+# witnesses. Read as a whole-scope baseline, those few counts would make the
+# "fewer assertions than the baseline" check pass for a whole-spec run that
+# skipped most of the spec. So the key a filtered baseline is written under
+# names its filter, and a whole-scope --baseline-in on the same tree and
+# spec refuses it with rc=3 before anything is mutated.
+@test "_mutation_probe: a --filter baseline written with --baseline-out is refused by a whole-scope --baseline-in (base#1582)" {
+  local _root _runner _base="${BATS_TEST_TMPDIR}/filtered.baseline"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing filtered-key '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --filter '^the witness\$' --baseline-out '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+  assert [ -f "${_base}" ]
+
+  # Same tree, same spec, no filter: the filtered baseline is not this
+  # run's baseline, so the run is refused and the subject never mutated.
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --baseline-in '${_base}' --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_equal "${status}" 3
+  assert_output --partial "was written for"
+  refute_output --partial "PINNED"
+  run grep -cF right "${_root}/subject.sh"
+  assert_output "1"
+}
+
 # ── a mutated pass narrowed to its witnesses ────────────────────────────────
 
 # why: a roster row's verdict rests on a few witness tests, yet its mutated
