@@ -1,0 +1,4 @@
+# toml11_inline_trailing_comma: TOML 1.1 allows a comma after the last
+# key of an inline table (base#1469).
+[app]
+deps = { db = { host = "x", }, cache = {}, }
