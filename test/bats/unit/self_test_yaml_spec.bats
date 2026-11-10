@@ -757,6 +757,102 @@ _acceptance_code() {
   assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
 }
 
+# ── Cache writes: push to main only, one writer per arch (base#1588) ──
+#
+# _cache_write_hits <workflow> -- every place in the workflow that could
+# carry a cache write, one `<job>\t<step index|->\t<field>` line each: the
+# workflow and job `env`, a reusable call's job `with`, and for every step
+# its `run:` body, each `with` key/value and each `env` key/value, kept
+# when it matches `cache[-_]?to` in any case. Scanning only `with.cache-to`
+# would miss `docker buildx build --cache-to` in a run body, `cache-to=`
+# in a bake `--set`, and a `*_CACHE_TO` env (base#1588 design, cycle 7).
+_cache_write_hits() {
+  # yq-go has no `def`, so it lists every candidate with its key and value
+  # JSON-encoded on one line, and the match is grep's.
+  local _all
+  _all="$(yq '
+    ((.env // {}) | to_entries | .[] | "WORKFLOW\t-\tenv." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+    (.jobs | to_entries | .[] | .key as $j | .value as $job | (
+      ((($job | .env) // {}) | to_entries | .[] | $j + "\t-\tenv." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+      ((($job | .with) // {}) | to_entries | .[] | $j + "\t-\twith." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+      ((($job | .steps) // []) | to_entries | .[] | (.key | @json) as $i | .value as $s | (
+        ($j + "\t" + $i + "\trun\t" + ((($s | .run) // "") | @json)),
+        ((($s | .with) // {}) | to_entries | .[] | $j + "\t" + $i + "\twith." + .key + "\t" + (.key | @json) + "=" + (.value | @json)),
+        ((($s | .env) // {}) | to_entries | .[] | $j + "\t" + $i + "\tenv." + .key + "\t" + (.key | @json) + "=" + (.value | @json))))))
+  ' "${1}")" || return 1
+  awk -F '\t' 'tolower($4) ~ /cache[-_]?to/ { print $1 "\t" $2 "\t" $3 }' <<< "${_all}"
+}
+
+# _scope_of <cache spec> -- the `scope=` value of a `type=gha,...` spec.
+_scope_of() {
+  tr ',' '\n' <<< "${1}" | sed -n 's/^scope=//p'
+}
+
+# _cache_writers <workflow> -- succeeds iff the only cache writes are the
+# two builders' writer steps: `with.cache-to` on test-tools-image-amd64
+# (scope test-tools) and test-tools-image-arm64 (scope test-tools-arm64),
+# each gated on exactly the push-to-main literal, each writing the scope it
+# reads. Anything else is printed and fails.
+_cache_writers() {
+  local _wf="${1}" _rc=0 _job _idx _field _if _to _from _want
+  local -A _seen=()
+  local -A _scope=([test-tools-image-amd64]=test-tools [test-tools-image-arm64]=test-tools-arm64)
+  local _gate="steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'"
+  local _hits
+  _hits="$(_cache_write_hits "${_wf}")" || { echo "yq failed on ${_wf}"; return 1; }
+  while IFS=$'\t' read -r _job _idx _field; do
+    [ -n "${_job}" ] || continue
+    _want="${_scope[${_job}]:-}"
+    if [ -z "${_want}" ] || [ "${_field}" != 'with.cache-to' ]; then
+      echo "unexpected cache write: ${_job} step ${_idx} ${_field}"
+      _rc=1; continue
+    fi
+    _seen[${_job}]=$(( ${_seen[${_job}]:-0} + 1 ))
+    _if="$(LP_J="${_job}" LP_I="${_idx}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)].if // ""' "${_wf}")"
+    if [ "${_if}" != "${_gate}" ]; then
+      echo "${_job} step ${_idx}: writer if is '${_if}', want '${_gate}'"
+      _rc=1
+    fi
+    _to="$(LP_J="${_job}" LP_I="${_idx}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)].with["cache-to"]' "${_wf}")"
+    _from="$(LP_J="${_job}" LP_I="${_idx}" yq '.jobs[strenv(LP_J)].steps[env(LP_I)].with["cache-from"] // ""' "${_wf}")"
+    if [ "$(_scope_of "${_to}")" != "${_want}" ] || [ "$(_scope_of "${_from}")" != "${_want}" ]; then
+      echo "${_job} step ${_idx}: cache-to '${_to}' / cache-from '${_from}', want scope ${_want} on both"
+      _rc=1
+    fi
+  done <<< "${_hits}"
+  for _job in "${!_scope[@]}"; do
+    if [ "${_seen[${_job}]:-0}" -ne 1 ]; then
+      echo "${_job}: ${_seen[${_job}]:-0} cache writers, want exactly 1"
+      _rc=1
+    fi
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: only the builders' push-main steps write the test-tools cache, and no other cache-to form slips past (base#1588)" {
+  run _cache_writers "${WF}"
+  assert_success
+
+  # The checker must see each form the design names, not just the one the
+  # workflow uses today: three mutants of a temp copy, each red.
+  local _m="${BATS_TEST_TMPDIR}/mutant.yaml"
+  local -a _mutants=(
+    '(.jobs["test-tools-image-amd64"].steps[] | select(.with["cache-to"] != null) | .if) |= . + " || github.event_name == '"'"'pull_request'"'"'"'
+    '.jobs.shellcheck.steps += [{"name": "mutant", "run": "docker buildx build --cache-to type=gha,scope=x ."}]'
+    '.jobs.coverage.steps += [{"name": "mutant", "uses": "docker/build-push-action@v6", "with": {"cache-to": "type=gha,scope=test-tools,mode=max"}}]'
+  )
+  local _base="${BATS_TEST_TMPDIR}/roundtrip.yaml" _expr
+  yq '.' "${WF}" > "${_base}"
+  for _expr in "${_mutants[@]}"; do
+    yq "${_expr}" "${WF}" > "${_m}"
+    # A mutant that changes nothing would pass this test vacuously.
+    run cmp -s "${_base}" "${_m}"
+    assert_failure
+    run _cache_writers "${_m}"
+    assert_failure
+  done
+}
+
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
 @test "self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)" {
