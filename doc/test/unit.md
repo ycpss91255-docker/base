@@ -5035,7 +5035,7 @@ Every refusal holds assert_refusal's five points.
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
 | `the ports-inert diagnostic names network.ports, not port_*, in every locale (base#1365)` | setup.toml spells a port mapping as a [[network.ports]] entry; a warning that names the old INI key port_* points the user at a key that does not exist |
 
-### test/bats/unit/obtain_test_tools_spec.bats (10)
+### test/bats/unit/obtain_test_tools_spec.bats (11)
 
 Six jobs of self-test.yaml consume
 `ghcr.io/ycpss91255-docker/test-tools:main`. Five pulled it, probed it and
@@ -5063,6 +5063,7 @@ list of job names.
 | `obtain: a given artifact is loaded, re-tagged and probed, never pulled or built (base#1588)` | base#1588. The image is built once per architecture and handed to every other job as a `docker save` artifact. A job given that artifact loads it, re-tags the loaded image under its own run-scoped name and probes it -- and does neither pull nor build, even when the PR changed the Dockerfile, because the artifact IS this checkout's build. The tag is the one the builder job wrote, read from TEST_TOOLS_ARTIFACT_TAG, not a fixed spelling in the script. |
 | `obtain: a given artifact that is missing fails loudly, never pulled or built (base#1588)` | base#1588. A caller passes --artifact only when its builder job reported that it produced one, so a tar that is not there is a lost artifact, not a reason to fall back. Pulling or building here would hide the loss and rebuild the image the builder job exists to build once. |
 | `obtain: a given artifact that fails to load fails loudly, never re-tagged or built (base#1588)` | base#1588. A tar that is there but that `docker load` refuses is a corrupt or truncated artifact. Re-tagging after a failed load would name whatever image already sat under the artifact tag, and building would hide the corruption, so the job fails at the load. |
+| `obtain: a given artifact whose image the probe refuses fails loudly, never built (base#1588)` | base#1588. A tar that loads but whose image the probe refuses is not this checkout's test-tools image (a stale or mismatched artifact). Unlike a refused `:main` pull, there is nothing to fall back to without hiding the mismatch, so the job fails rather than using the image. |
 | `workflows: no job obtains the rolling test-tools tag by hand (#1010)` | The structural half of the same defect, and the half that stops it recurring. While the decision was shell pasted into each consuming job, nothing could tell a job that probes from a job that does not -- no single copy looked wrong, and the one without a probe read like the others. A job that reaches the rolling tag without going through the script is that copy, whoever writes it next. |
 
 ### test/bats/unit/per_test_timeout_spec.bats (8)

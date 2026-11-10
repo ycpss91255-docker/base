@@ -228,7 +228,13 @@ main() {
     fi
     _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
       "${CI_RUN_KEY:-unattributed}"
-    _obtain_probe "${_image}"
+    # A loaded image the probe refuses is not this checkout's image; there
+    # is nothing to fall back to without hiding the mismatch.
+    if ! _obtain_probe "${_image}"; then
+      echo "::error::test-tools artifact ${_artifact} loaded an image the" \
+           "probe refuses; it is not used, pulled or built here"
+      return 1
+    fi
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
       printf 'build_local=false\n' >> "${GITHUB_OUTPUT}"
     fi
