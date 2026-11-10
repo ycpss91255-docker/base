@@ -71,6 +71,9 @@ dockerfile/config-gen/testdata/x|code system"
 # _ci_gate compares a job's whole `if:` against these, never a substring.
 CODE_GATE="needs.classify.outputs.code_changed == 'true'"
 SYSTEM_GATE="needs.classify.outputs.system_relevant == 'true'"
+# A heavy job gated on its own classify map output (base#1584).
+SELECT_GATE_RE="^needs\\.classify\\.outputs\\.select_([a-z_]+) == 'true'$"
+SELECTION="/source/script/ci/check_selection.sh"
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -206,8 +209,19 @@ _ci_gate() {
   case "${_if}" in
     "${CODE_GATE}") echo code ;;
     "${SYSTEM_GATE}") echo system ;;
-    *) echo "unknown:${_if}" ;;
+    *)
+      if [[ "${_if}" =~ ${SELECT_GATE_RE} ]]; then
+        echo "select:${BASH_REMATCH[1]//_/-}"
+      else
+        echo "unknown:${_if}"
+      fi ;;
   esac
+}
+
+# _selected <job> <path> -- succeed when classify's map selects <job> for a
+# pull request touching only <path> (base#1584).
+_selected() {
+  printf '%s\0' "${2}" | bash "${SELECTION}" --event pull_request --paths | grep -Fxq "${1}=true"
 }
 
 # _make_mirror_repo -- a git repo holding a copy of the mirror and what it
@@ -357,6 +371,7 @@ ${_table}"
       case "${_gate}" in
         always) ;;
         code|system) [[ " ${_fires} " == *" ${_gate} "* ]] || continue ;;
+        select:*) _selected "${_gate#select:}" "${_path}" || continue ;;
         *) _missing+="
   ${_job}: CI gate not recognised: ${_gate#unknown:}"; continue ;;
       esac
@@ -883,7 +898,7 @@ ${_recipe}"
   run _local_mode 'just test go'
   assert_output plain
   run _ci_gate config-gen
-  assert_output code
+  assert_output select:config-gen
 }
 
 # why: The config generator's sources are code paths; a diff touching only

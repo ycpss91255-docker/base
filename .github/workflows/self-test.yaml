@@ -1685,7 +1685,7 @@ jobs:
   config-gen:
     name: Config-gen Go gates (base#1462)
     needs: [classify]
-    if: needs.classify.outputs.code_changed == 'true'
+    if: needs.classify.outputs.select_config_gen == 'true'
     # The config generator's Go gates (ADR-00000039): fmt, vet, lint, race
     # and coverage in dockerfile/Dockerfile.config-gen's test stage, the
     # binary's usage contract, then the redpath that plants one defect per

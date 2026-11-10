@@ -3813,7 +3813,7 @@ ${_bad}"
 # updated; that friction is intended, and the message names file, layer
 # and key set.
 
-CG_CODE_IF="needs.classify.outputs.code_changed == 'true'"
+CG_GATE_IF="needs.classify.outputs.select_config_gen == 'true'"
 CG_STEP_NAME='Run the config-gen gates'
 CG_STEP_RUN='just test go'
 CG_SELF_TEST_TOP='["concurrency","env","jobs","name","on","permissions"]'
@@ -3914,7 +3914,7 @@ _cg_expected_job() {
   _steps="$(_cg_expected_steps "${1}")" || { printf '%s\n' "${_steps}"; return 1; }
   case "${1}" in
     self-test)
-      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
+      CG_IF="${CG_GATE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
         '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest", "steps": env(CG_STEPS)} | sort_keys(..)' ;;
     coverage-local)
       _if="$(yq '.jobs["coverage-local"].if' "${COV_LOCAL_WF}")"
