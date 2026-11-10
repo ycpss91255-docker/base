@@ -4,7 +4,7 @@
 // it never ships in final.
 //
 //	cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>
-//	cg-gates mutation --manifest <file> --module <path> --reports <dir>
+//	cg-gates mutation --manifest <file> --module <path> --reports <dir> [--workers <n>]
 //	cg-gates sensitivity --module <path> --root <dir> --work <dir>
 //	cg-gates ignored --list <file> --context <dir>
 //
@@ -100,7 +100,7 @@ const (
 const noMutants = "No results to report."
 
 const usage = "usage: cg-gates ratchet --measured <file> --floors <dir> --base <file> --module <path>\n" +
-	"       cg-gates mutation --manifest <file> --module <path> --reports <dir>\n" +
+	"       cg-gates mutation --manifest <file> --module <path> --reports <dir> [--workers <n>]\n" +
 	"       cg-gates sensitivity --module <path> --root <dir> --work <dir>\n" +
 	"       cg-gates ignored --list <file> --context <dir>"
 
@@ -156,6 +156,7 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 	manifest := fs.String("manifest", "", "the change manifest the 00-manifest step wrote")
 	module := fs.String("module", "", "the module path (go list -m)")
 	reports := fs.String("reports", "", "an existing directory for gremlins' reports")
+	workers := fs.Int("workers", 1, "gremlins workers per package (base#1606)")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 ||
 		*manifest == "" || *module == "" || *reports == "" {
 		_, _ = fmt.Fprintln(stderr, usage)
@@ -187,8 +188,8 @@ func mutation(args []string, stdout, stderr io.Writer) int {
 	for i, rel := range m.Targets {
 		pkg := buildgate.ImportPath(*module, rel)
 		out := filepath.Join(*reports, strconv.Itoa(i)+".json")
-		cmd := exec.Command("gremlins", "unleash", "--workers", "1", "--timeout-coefficient", "10",
-			"-o", out, "./"+rel)
+		cmd := exec.Command("gremlins", "unleash", "--workers", strconv.Itoa(*workers),
+			"--timeout-coefficient", "10", "-o", out, "./"+rel)
 		var said strings.Builder
 		w := io.MultiWriter(stderr, &said)
 		cmd.Stdout, cmd.Stderr = w, w

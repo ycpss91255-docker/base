@@ -237,15 +237,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # context maps to. A package fails when gremlins exits non-zero, whatever
 # its report holds; after an exit of 0 it fails below 90.0 efficacy,
 # counted from the report's KILLED, LIVED and TIMED OUT mutants rather than
-# the efficacy figure gremlins writes. GOFLAGS hands every go test gremlins
-# runs the corpus root the race RUN wrote, as -X tells internal/testcorpus
-# there. It prints no ok line: the runner's green callers expect exactly
+# the efficacy figure gremlins writes. gremlins runs one worker per CPU
+# the build sees (--workers "$(nproc)", base#1606). GOFLAGS hands every go
+# test gremlins runs the corpus root the race RUN wrote, as -X tells
+# internal/testcorpus there. It prints no ok line: the runner's green callers expect exactly
 # the six gates above.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,from=mutation,target=/mutation \
     g=mutation; { r="$(mktemp -d)" \
       && GOFLAGS="-ldflags=-X=$(cat /tmp/config-gen-corpus-root)" \
-        /tmp/cg-gates mutation --manifest /mutation/manifest --module "$(go list -m)" --reports "${r}"; } \
+        /tmp/cg-gates mutation --manifest /mutation/manifest --module "$(go list -m)" --reports "${r}" \
+          --workers "$(nproc)"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }
 
 FROM scratch AS final
