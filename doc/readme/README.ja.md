@@ -230,11 +230,48 @@ Acceptance の 4 レベル + Smoke タイプ）です。
 - `doc/` と `README.md`
 - repo 固有の smoke テスト
 
-<!-- sync: everyday-use 2010a1303130 20b6bdffcb3e -->
+<!-- sync: everyday-use 2010a1303130 5030385fff40 -->
 ## 日常の使い方
 
-「namespace と recipe のヘルプ」と「Wrapper UX チートシート（#291）」は英語版
-のみです。[README.md](../../README.md#everyday-use) を参照してください。
+<!-- sync: getting-help-namespace-vs-recipe 79f811f962c5 3a7d7d40222b -->
+### ヘルプの見方（namespace と recipe）
+
+`just` のヘルプは 2 段階で動きます。ダッシュ付きの `just <ns> --help` が
+使えないのは `just` の dispatch の仕様上の制約（文書化済み）で、バグでは
+ありません：
+
+| やりたいこと | 使うもの | 補足 |
+|---|---|---|
+| namespace の recipe 一覧 | `just <ns> help`（`just <ns> h`） | 例：`just docker help`、`just base help`。**ローカライズ対応**：`docker` / `base` / `template` namespace では、各 recipe の 1 行要約をあなたの言語（`$LANG`、または `--lang <en\|zh-TW\|zh-CN\|ja>`）で表示します。引数なしの `just <ns>` でも一覧は出ますが、英語のままです。 |
+| 1 つの recipe のヘルプ | `just <ns> <recipe> --help` | 例：`just docker build --help`、`just base upgrade --help`、`just base update --help` -- `--help` は裏のスクリプトにそのまま渡されます。 |
+| すべての namespace の一覧 | `just` | トップレベルの概要。`just --list`（と引数なしの `just <ns>`）は英語のままです -- just 自身の一覧表示は横取りできないため、翻訳版の入口は `just <ns> help` です。 |
+| `just <ns> --help` | （使わない） | ダッシュ付きの名前は `just` の recipe / alias にできないので横取りできません。`just` は `Did you mean 'help'?` と表示し、`just <ns> help` を案内します。 |
+
+<!-- sync: wrapper-ux-cheat-sheet-291 17e47c8d98e8 05ca92340af0 -->
+### Wrapper UX チートシート（#291）
+
+ユーザー向けの各スクリプトが受け付けるものの唯一の正式リファレンスです。
+下流 repo の README は表を複製せず、ここにリンクします。各
+`just docker <verb>` は引数を `./script/<verb>.sh` に渡します。
+
+| フラグ / 形式 | `build.sh` | `run.sh` | `exec.sh` | `stop.sh` | `setup.sh`（CLI） |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `-h` / `--help` | yes | yes | yes | yes | yes |
+| `-C` / `--chdir DIR` | yes | yes | yes | yes | — |
+| `--lang LANG` | yes | yes | yes | yes | yes |
+| `--dry-run` | yes | yes | yes | yes | — |
+| `-s` / `--setup` | yes | yes | — | — | —（`--setup` の呼び出し先） |
+| `-t` / `--target TARGET` | yes（#280、positional の alias） | yes | yes | —（Q2：project 全体のまま） | — |
+| `-q` / `--quiet` | — | — | — | — | yes（#285、変更系サブコマンドのみ） |
+| `--gui auto\|force\|off` | yes（#338） | yes（#338） | — | — | yes（apply、#338） |
+| `--no-x11-cookie` | yes（#338） | yes（#338） | — | — | yes（apply、#338） |
+| `--print-resolved` | — | — | — | — | yes（apply、#338） |
+| `--` 区切り | — | yes | yes（#289） | — | yes（サブコマンドごと） |
+| positional の意味 | TARGET | CMD | CMD | `docker compose down` への pass-through | サブコマンド名 |
+
+表の背後にある 3 つの形の決定（`build.sh` の positional と `-t` の併用、
+`stop.sh` に `-t` を持たせないこと、サブコマンド先頭の `setup.sh`）は
+[ADR-00000040](../adr/00000040-wrapper-cli-shape.md) に記録されています。
 
 <!-- sync: per-repo-runtime-configuration 75128bf3ed59 a3d53a03c049 -->
 ## repo ごとのランタイム設定
@@ -754,7 +791,7 @@ just release coverage-badge   # coverage/ から doc/badge/coverage.svg を再�
 [acceptance](../test/acceptance.md) / [smoke](../test/smoke.md)）、全 recipe は
 `script/test/justfile.test` を参照。
 
-<!-- sync: directory-structure ab00213e0736 9fbc52a797a0 -->
+<!-- sync: directory-structure ab00213e0736 418ed8cb85d5 -->
 ## ディレクトリ構造
 
 ```
@@ -783,13 +820,3 @@ just release coverage-badge   # coverage/ から doc/badge/coverage.svg を再�
 ├── LICENSE
 └── README.md
 ```
-
-
-<!-- Sections of the English README.md that this abridged translation
-     deliberately does not carry. Declared, not forgotten: the sync guard
-     (just test sync-readme, and the lint inside just test) reports any
-     English section that is neither translated nor listed below.
-     Translate one and its entry becomes a sync marker above the new
-     translated heading. -->
-<!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

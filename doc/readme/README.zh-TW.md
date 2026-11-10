@@ -223,11 +223,47 @@ flowchart LR
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
-<!-- sync: everyday-use 2010a1303130 91293efc771f -->
+<!-- sync: everyday-use 2010a1303130 e7c14d645596 -->
 ## 日常使用
 
-「namespace vs recipe 的說明」與「Wrapper UX 速查表（#291）」兩節只有英文版；
-請看 [README.md](../../README.md#everyday-use)。
+<!-- sync: getting-help-namespace-vs-recipe 79f811f962c5 4d07cb1f3d53 -->
+### 取得說明（namespace vs recipe）
+
+`just` 的說明分兩層；帶 dash 的 `just <ns> --help` 寫法不能用，是 `just`
+dispatch 已知（有文件記載）的限制，不是 bug：
+
+| 你想要 | 用法 | 備註 |
+|---|---|---|
+| 列出某個 namespace 的 recipe | `just <ns> help`（`just <ns> h`） | 例如 `just docker help`、`just base help`。**有在地化**：在 `docker` / `base` / `template` 這幾個 namespace，會用你的語言（`$LANG`，或 `--lang <en\|zh-TW\|zh-CN\|ja>`）顯示每個 recipe 的一行摘要。直接打 `just <ns>` 也會列出來，但維持英文。 |
+| 單一 recipe 的說明 | `just <ns> <recipe> --help` | 例如 `just docker build --help`、`just base upgrade --help`、`just base update --help` -- `--help` 會轉交給背後的腳本。 |
+| 列出所有 namespace | `just` | 最上層總覽。`just --list`（以及直接打 `just <ns>`）維持英文 -- just 原生的列表攔截不到；翻譯版的入口是 `just <ns> help`。 |
+| `just <ns> --help` | （避免使用） | 帶 dash 的名稱不能當 `just` 的 recipe / alias，所以攔截不到；`just` 會印出 `Did you mean 'help'?`，並引導你改用 `just <ns> help`。 |
+
+<!-- sync: wrapper-ux-cheat-sheet-291 17e47c8d98e8 3d22a8e8f7ad -->
+### Wrapper UX 速查表（#291）
+
+各個面向使用者的腳本接受哪些參數，以這裡為唯一的正式參考。
+下游 repo 的 README 連到這裡，不再複製這張表。每個
+`just docker <verb>` 會把參數轉交給 `./script/<verb>.sh`。
+
+| 旗標 / 形式 | `build.sh` | `run.sh` | `exec.sh` | `stop.sh` | `setup.sh`（CLI） |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `-h` / `--help` | yes | yes | yes | yes | yes |
+| `-C` / `--chdir DIR` | yes | yes | yes | yes | — |
+| `--lang LANG` | yes | yes | yes | yes | yes |
+| `--dry-run` | yes | yes | yes | yes | — |
+| `-s` / `--setup` | yes | yes | — | — | —（`--setup` 的呼叫對象） |
+| `-t` / `--target TARGET` | yes（#280，positional 的 alias） | yes | yes | —（Q2：維持整個 project） | — |
+| `-q` / `--quiet` | — | — | — | — | yes（#285，只在會修改的子指令） |
+| `--gui auto\|force\|off` | yes（#338） | yes（#338） | — | — | yes（apply，#338） |
+| `--no-x11-cookie` | yes（#338） | yes（#338） | — | — | yes（apply，#338） |
+| `--print-resolved` | — | — | — | — | yes（apply，#338） |
+| `--` 分隔符 | — | yes | yes（#289） | — | yes（各子指令） |
+| positional 的意義 | TARGET | CMD | CMD | 直接轉交給 `docker compose down` | 子指令名稱 |
+
+這張表背後的三個形式決定（`build.sh` 同時接受 positional 與 `-t`、
+`stop.sh` 沒有 `-t`、`setup.sh` 子指令放最前面）記錄在
+[ADR-00000040](../adr/00000040-wrapper-cli-shape.md)。
 
 <!-- sync: per-repo-runtime-configuration 75128bf3ed59 daa2a397292e -->
 ## 各 repo runtime 配置
@@ -708,7 +744,7 @@ Go 套件由各自的 per-package floor 把關（`just test go`）。量測方�
 [acceptance](../test/acceptance.md) / [smoke](../test/smoke.md)），所有 recipe
 見 `script/test/justfile.test`。
 
-<!-- sync: directory-structure ab00213e0736 76da8c3d0d47 -->
+<!-- sync: directory-structure ab00213e0736 6357d4d54ddf -->
 ## 目錄結構
 
 ```
@@ -737,13 +773,3 @@ Go 套件由各自的 per-package floor 把關（`just test go`）。量測方�
 ├── LICENSE
 └── README.md
 ```
-
-
-<!-- Sections of the English README.md that this abridged translation
-     deliberately does not carry. Declared, not forgotten: the sync guard
-     (just test sync-readme, and the lint inside just test) reports any
-     English section that is neither translated nor listed below.
-     Translate one and its entry becomes a sync marker above the new
-     translated heading. -->
-<!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
-<!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
