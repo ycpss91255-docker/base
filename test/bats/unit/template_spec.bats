@@ -2863,7 +2863,7 @@ _df_claim_hits() {
       [[ "${_blk#*"${_helper}"}" =~ ^[[:space:]]+${_DF_APT_INSTALL_RE} ]] \
         || fail "${_mode} apt RUN block: ${_helper} does not wrap the install: ${_blk}"
     done < <(_df_apt_run_blocks "${_df}" "${_mode}")
-    # Same floors as the #951 relation above (2 live, 3 commented), so an
+    # Same floors as the base#951 relation above (2 live, 3 commented), so an
     # empty block list cannot pass vacuously.
     if [[ "${_mode}" == live ]]; then
       (( _n >= 2 )) || fail "expected >= 2 live apt RUN blocks in ${_df}, found ${_n}"
