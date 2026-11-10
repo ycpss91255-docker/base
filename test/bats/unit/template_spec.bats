@@ -2873,6 +2873,90 @@ _df_claim_hits() {
   done
 }
 
+# _df_apt_retry_unreached <file> -- for every `apt-retry.sh 4 15 --` call
+# (live or commented: leading `#` markers are stripped), walk the call's
+# stage up its `FROM <stage>` chain and print `unreached <line>` unless
+# that chain COPYs both the helper to /usr/local/libexec/base/apt-retry.sh
+# and the apt config to /etc/apt/apt.conf.d/80-base-retries (in the call's
+# own stage, the COPY must come before the call). Ends with `calls <n>`.
+_df_apt_retry_unreached() {
+  awk '
+    function strip(s) { sub(/^(#[[:space:]]*)+/, "", s); return s }
+    { l = strip($0) }
+    l ~ /^FROM[[:space:]]/ {
+      n = split(l, a, /[[:space:]]+/)
+      stage = (n >= 4 && toupper(a[3]) == "AS") ? a[4] : ("@" NR)
+      parent[stage] = a[2]
+      next
+    }
+    l ~ /^COPY[[:space:]]/ && l ~ /[[:space:]]\/usr\/local\/libexec\/base\/apt-retry\.sh$/ {
+      helper[stage] = NR; next
+    }
+    l ~ /^COPY[[:space:]]/ && l ~ /[[:space:]]\/etc\/apt\/apt\.conf\.d\/80-base-retries$/ {
+      conf[stage] = NR; next
+    }
+    index(l, "/usr/local/libexec/base/apt-retry.sh 4 15 --") {
+      calls++; cs[calls] = stage; cl[calls] = NR
+    }
+    END {
+      for (i = 1; i <= calls; i++) {
+        s = cs[i]; h = 0; c = 0; own = 1
+        while (s != "") {
+          if ((s in helper) && (!own || helper[s] < cl[i])) h = 1
+          if ((s in conf) && (!own || conf[s] < cl[i])) c = 1
+          p = parent[s]; s = (p in parent) ? p : ""; own = 0
+        }
+        if (!(h && c)) print "unreached " cl[i]
+      }
+      print "calls " calls + 0
+    }
+  ' "${1:?_df_apt_retry_unreached: missing file}"
+}
+
+# why: the retry helper and the `Acquire::Retries` config only help a layer
+# whose image has them: a stage built from a fresh ${BASE_IMAGE} (the
+# commented runtime-base) inherits nothing sys copied in, so its apt layer
+# could not run the helper, base#1602. Every helper call, live and
+# commented, must sit on a FROM chain that COPYs both files first; the
+# design's config literal is `Acquire::Retries "3";`. The fixture is the
+# negative control: a fresh `FROM ${BASE_IMAGE} AS r` calling the helper
+# without the COPYs is flagged.
+@test "Dockerfile.example: every apt-retry.sh call sits on a FROM chain that copies the helper and 80-base-retries (base#1602)" {
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  local _conf="/source/dist/script/docker/build/80-base-retries"
+  [[ -f "${_conf}" ]] || fail "missing apt retry config ${_conf}"
+  grep -Fxq 'Acquire::Retries "3";' "${_conf}" \
+    || fail "${_conf} does not set Acquire::Retries \"3\";"
+
+  run _df_apt_retry_unreached "${_df}"
+  assert_success
+  refute_output --partial "unreached"
+  # 2 live + 3 commented apt blocks (the floors of the relation above),
+  # so a template that lost its calls cannot pass vacuously.
+  local _calls="${lines[-1]#calls }"
+  (( _calls >= 5 )) || fail "expected >= 5 apt-retry.sh calls in ${_df}, found ${_calls}"
+
+  local _tmp
+  _tmp="$(mktemp -d)"
+  cat > "${_tmp}/Dockerfile" <<'FIXTURE'
+FROM ${BASE_IMAGE} AS sys
+COPY --chmod=0755 .base/dist/script/docker/build/apt-retry.sh /usr/local/libexec/base/apt-retry.sh
+COPY .base/dist/script/docker/build/80-base-retries /etc/apt/apt.conf.d/80-base-retries
+RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y curl
+FROM sys AS child
+RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y git
+FROM ${BASE_IMAGE} AS r
+RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y sudo
+FIXTURE
+  run _df_apt_retry_unreached "${_tmp}/Dockerfile"
+  rm -rf "${_tmp}"
+  assert_success
+  assert_output "unreached 8
+calls 3"
+}
+
 # why: pins the helper behind that relation against a scratch fixture: `RUN
 # <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must
 # be closed by its delimiter -- live and commented, order enforced inside
