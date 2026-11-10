@@ -64,6 +64,13 @@ main() {
   # row names selects every job.
   local -A _sel=()
   local _job _path
+  # Only a pull request narrows the selection: push, tag and
+  # workflow_dispatch runs select every job, so main runs the full suite
+  # (owner decision, base#1584).
+  if [[ "${_event}" != pull_request ]]; then
+    for _job in "${_CS_JOBS[@]}"; do printf '%s=true\n' "${_job}"; done
+    return 0
+  fi
   for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=false; done
   while IFS= read -r -d '' _path; do
     case "${_path}" in
