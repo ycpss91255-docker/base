@@ -219,7 +219,13 @@ main() {
            "builder job reported one, so it is not pulled or built here"
       return 1
     fi
-    _obtain_load "${_artifact}"
+    # A load that fails is a corrupt or truncated artifact: re-tagging
+    # would name whatever image already sat under the artifact tag.
+    if ! _obtain_load "${_artifact}"; then
+      echo "::error::test-tools artifact ${_artifact} did not load; it is" \
+           "not re-tagged, pulled or built here"
+      return 1
+    fi
     _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
       "${CI_RUN_KEY:-unattributed}"
     _obtain_probe "${_image}"
