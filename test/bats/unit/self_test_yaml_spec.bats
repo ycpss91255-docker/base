@@ -853,6 +853,161 @@ _cache_writers() {
   done
 }
 
+# ── Consumers read the tar their arch's builder wrote (base#1588) ──
+#
+# _tt_resolve <workflow> <job> <leg json> <text> -- <text> as the runner
+# would see it in that leg: `${{ runner.temp }}` as /RT,
+# `needs[format('<p>{0}', matrix.<k>)]` as `needs.<p><leg's k>`, and every
+# other `${{ }}` resolved against the leg by _lint_probe_subst.
+_tt_resolve() {
+  local _t="${4}" _rt=/RT _v _new
+  local _re="needs\[format\('([^']*)\{0\}', matrix\.([A-Za-z0-9_]+)\)\]"
+  _t="${_t//'${{ runner.temp }}'/${_rt}}"
+  while [[ "${_t}" =~ ${_re} ]]; do
+    _v="$(LP_K="${BASH_REMATCH[2]}" yq -p json '.[strenv(LP_K)] // ""' <<< "${3}")"
+    _new="needs.${BASH_REMATCH[1]}${_v}"
+    _t="${_t/"${BASH_REMATCH[0]}"/${_new}}"
+  done
+  _LP_LEG="${3}" _lint_probe_subst "${1}" "${2}" "${_t}"
+}
+
+# _tt_unwrap <text> -- <text> without one `${{ ... }}` wrapper, if any.
+_tt_unwrap() {
+  local _re='^\$\{\{[[:space:]]*(.*[^[:space:]])[[:space:]]*\}\}$'
+  if [[ "${1}" =~ ${_re} ]]; then printf '%s' "${BASH_REMATCH[1]}"; else printf '%s' "${1}"; fi
+}
+
+# _tt_step <workflow> <job> <step index> <yq path> -- that field of the step.
+_tt_step() {
+  LP_J="${2}" LP_I="${3}" yq ".jobs[strenv(LP_J)].steps[env(LP_I)]${4}" "${1}"
+}
+
+# _tt_artifact_paths <workflow> -- succeeds iff every leg of every job that
+# calls obtain_test_tools.sh (the builders aside) downloads the artifact its
+# arch's builder uploaded and hands obtain the path the tar lands at.
+# The arch is the leg's own `--platform`; the producer side (upload name,
+# upload path, the build's `outputs` dest) is read from the builder alone.
+# download-artifact v8 extracts a `name:` download straight into `path`, so
+# the tar is at `<download path>/<basename of dest>`; a `pattern:` download
+# nests it under the artifact name unless exactly one artifact matched,
+# which is why `pattern` is refused (base#1588 design, cycle 9).
+_tt_artifact_paths() {
+  local _wf="${1}" _rc=0 _arch _b _job _leg _i _run _raw _plat _cond _q="'" _rt=/RT
+  local _dest _upname _uppath _dl _dlname _dlpath _dlif _want _ttcond _ttfmt
+  local _ttre='^\$\{\{[[:space:]]*(.*[^[:space:]])[[:space:]]+&&[[:space:]]+format\('"${_q}"'([^'"${_q}"']*)'"${_q}"',[[:space:]]*runner\.temp\)[[:space:]]+\|\|[[:space:]]+'"${_q}${_q}"'[[:space:]]*\}\}$'
+  local -A _tar=() _name=() _seen=()
+  local -a _dests=() _ups=() _jobs=() _legs=() _obt=() _dls=()
+  for _arch in amd64 arm64; do
+    _b="test-tools-image-${_arch}"
+    mapfile -t _dests < <(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps[]? | select(.with.outputs != null) | .with.outputs' "${_wf}" \
+        | tr ',' '\n' | sed -n 's/^dest=//p' | sort -u)
+    if [ "${#_dests[@]}" -ne 1 ]; then
+      echo "${_b}: ${#_dests[@]} distinct build outputs dest, want exactly 1"; _rc=1; continue
+    fi
+    mapfile -t _ups < <(LP_J="${_b}" yq '.jobs[strenv(LP_J)].steps | to_entries | .[] | select((.value.uses // "") | test("^actions/upload-artifact@")) | .key' "${_wf}")
+    if [ "${#_ups[@]}" -ne 1 ]; then
+      echo "${_b}: ${#_ups[@]} upload-artifact steps, want exactly 1"; _rc=1; continue
+    fi
+    _upname="$(_tt_step "${_wf}" "${_b}" "${_ups[0]}" '.with.name // ""')"
+    _uppath="$(_tt_step "${_wf}" "${_b}" "${_ups[0]}" '.with.path // ""')"
+    _dest="$(_tt_resolve "${_wf}" "${_b}" '{}' "${_dests[0]}")"
+    if [ "$(_tt_resolve "${_wf}" "${_b}" '{}' "${_uppath}")" != "${_dest}" ] || [ -z "${_upname}" ]; then
+      echo "${_b}: uploads '${_uppath}' as '${_upname}', want the build dest '${_dests[0]}' under a name"; _rc=1; continue
+    fi
+    _tar[${_arch}]="${_dest##*/}"
+    _name[${_arch}]="${_upname}"
+  done
+  mapfile -t _jobs < <(yq '.jobs | to_entries | .[] | select(.key | test("^test-tools-image-") | not)
+      | select([.value.steps[]? | select((.run // "") | test("obtain_test_tools\\.sh"))] | length > 0) | .key' "${_wf}")
+  for _job in "${_jobs[@]}"; do
+    mapfile -t _obt < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps | to_entries | .[] | select((.value.run // "") | test("obtain_test_tools\\.sh")) | .key' "${_wf}")
+    if [ "${#_obt[@]}" -ne 1 ]; then echo "${_job}: ${#_obt[@]} obtain steps, want 1"; _rc=1; continue; fi
+    _i="${_obt[0]}"
+    _run="$(_tt_step "${_wf}" "${_job}" "${_i}" '.run')"
+    _raw="$(_tt_step "${_wf}" "${_job}" "${_i}" '.env.TT_ARTIFACT // ""')"
+    mapfile -t _dls < <(LP_J="${_job}" yq '.jobs[strenv(LP_J)].steps | to_entries | .[]
+        | select((.value.uses // "") | test("^actions/download-artifact@"))
+        | select((.value.with.name // .value.with.pattern // "") | test("test-tools")) | .key' "${_wf}")
+    if [[ "${_run}" != *--artifact* || "${_run}" != *TT_ARTIFACT* ]]; then
+      echo "${_job}: the obtain run does not pass --artifact \"\$TT_ARTIFACT\""; _rc=1
+    fi
+    mapfile -t _legs < <(_lint_probe_legs "${_wf}" "${_job}")
+    for _leg in "${_legs[@]}"; do
+      _plat=""
+      if [[ "$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "${_run}")" =~ --platform[[:space:]]+\"?([^[:space:]\"]+) ]]; then
+        _plat="${BASH_REMATCH[1]}"
+      fi
+      _arch="${_plat#linux/}"
+      if [ -z "${_arch}" ] || [ -z "${_name[${_arch}]:-}" ]; then
+        echo "${_job} ${_leg}: platform '${_plat}' has no builder artifact"; _rc=1; continue
+      fi
+      _b="test-tools-image-${_arch}"
+      _cond="needs.${_b}.outputs.produced == 'true'"
+      if [ "${#_dls[@]}" -ne 1 ]; then
+        echo "${_job} ${_leg}: ${#_dls[@]} test-tools download steps, want 1"; _rc=1; continue
+      fi
+      _dl="${_dls[0]}"
+      if (( _dl > _i )); then echo "${_job}: the download step runs after obtain"; _rc=1; fi
+      if [ "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.with // {} | has("pattern")')" != false ]; then
+        echo "${_job}: the download uses pattern:, want name:"; _rc=1
+      fi
+      _dlname="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.with.name // ""')")"
+      _dlpath="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.with.path // ""')")"
+      _dlif="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "$(_tt_unwrap "$(_tt_step "${_wf}" "${_job}" "${_dl}" '.if // ""')")")"
+      if [ "${_dlname}" != "${_name[${_arch}]}" ]; then
+        echo "${_job} ${_leg}: downloads '${_dlname}', ${_b} uploads '${_name[${_arch}]}'"; _rc=1
+      fi
+      if [ "${_dlif}" != "${_cond}" ]; then
+        echo "${_job} ${_leg}: download if is '${_dlif}', want '${_cond}'"; _rc=1
+      fi
+      # TT_ARTIFACT is `${{ <cond> && format('<fmt>', runner.temp) || '' }}`;
+      # its true branch is the path obtain is handed.
+      if ! [[ "${_raw}" =~ ${_ttre} ]]; then
+        echo "${_job}: TT_ARTIFACT is '${_raw}', want \${{ ${_cond} && format('<path>', runner.temp) || '' }}"; _rc=1; continue
+      fi
+      _ttcond="$(_tt_resolve "${_wf}" "${_job}" "${_leg}" "${BASH_REMATCH[1]}")"
+      _ttfmt="${BASH_REMATCH[2]}"
+      _ttfmt="${_ttfmt//'{0}'/${_rt}}"
+      _want="${_dlpath}/${_tar[${_arch}]}"
+      if [ "${_ttcond}" != "${_cond}" ]; then
+        echo "${_job} ${_leg}: TT_ARTIFACT is gated on '${_ttcond}', want '${_cond}'"; _rc=1
+      fi
+      if [ "${_ttfmt}" != "${_want}" ]; then
+        echo "${_job} ${_leg}: obtain is handed '${_ttfmt}', the tar lands at '${_want}'"; _rc=1
+      fi
+      _seen[${_arch}]=$(( ${_seen[${_arch}]:-0} + 1 ))
+    done
+  done
+  for _arch in amd64 arm64; do
+    if [ "${_seen[${_arch}]:-0}" -lt 1 ]; then echo "no consumer leg reads the ${_arch} artifact"; _rc=1; fi
+  done
+  return "${_rc}"
+}
+
+@test "self-test.yaml: every obtain leg downloads its arch's builder artifact by name and is handed the path the tar lands at (base#1588)" {
+  run _tt_artifact_paths "${WF}"
+  assert_success
+
+  # A path drift, a pattern download and an arch whose names disagree must
+  # each be caught: three mutants of a temp copy, each red.
+  local _m="${BATS_TEST_TMPDIR}/mutant.yaml"
+  local -a _mutants=(
+    '(.jobs.shellcheck.steps[] | select((.uses // "") | test("^actions/download-artifact@")) | .with.path) |= . + "/x"'
+    '(.jobs.shellcheck.steps[] | select((.uses // "") | test("^actions/download-artifact@")) | .with) |= {"pattern": .name, "path": .path}'
+    '(.jobs["test-tools-image-arm64"].steps[] | select((.uses // "") | test("^actions/upload-artifact@")) | .with.name) |= . + "-x"'
+  )
+  local _base="${BATS_TEST_TMPDIR}/roundtrip.yaml" _expr
+  yq '.' "${WF}" > "${_base}"
+  for _expr in "${_mutants[@]}"; do
+    yq "${_expr}" "${WF}" > "${_m}"
+    # A mutant that changes nothing would pass this test vacuously.
+    run cmp -s "${_base}" "${_m}"
+    assert_failure
+    run _tt_artifact_paths "${_m}"
+    assert_failure
+  done
+}
+
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
 @test "self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)" {
