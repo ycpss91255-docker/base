@@ -723,12 +723,12 @@ _acceptance_code() {
   refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
+# why: PR base#1559 changed one spec and two docs, code_changed was true,
+# and config-gen ran 111 min (run 42549448309). base#1584 has a pull
+# request run a heavy job only when classify's map selected it, so
+# config-gen must read its own select_config_gen output, not the
+# shared code_changed answer.
 @test "self-test.yaml: config-gen job-level if: gates on classify's select_config_gen (base#1584)" {
-  # why: PR #1559 changed one spec and two docs, code_changed was true,
-  # and config-gen ran 111 min (run 42549448309). base#1584 has a pull
-  # request run a heavy job only when classify's map selected it, so
-  # config-gen must read its own select_config_gen output, not the
-  # shared code_changed answer.
   run yaml_job_lines "${WF}" config-gen
   assert_success
   assert_output --partial "if: needs.classify.outputs.select_config_gen == 'true'"

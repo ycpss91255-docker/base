@@ -28,7 +28,7 @@ _cs_usage() {
 #   an unreadable roster keeps the job.
 _cs_in_roster() {
   local _spec="$1" _dir _tsv _found=1
-  _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../test/mutation_required" 2>/dev/null && pwd)" || return 0
+  _dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../test/mutation_required" 2>/dev/null && pwd)" || return 0
   local -a _tsvs=("${_dir}"/*.tsv)
   [[ -r "${_tsvs[0]}" ]] || return 0
   for _tsv in "${_tsvs[@]}"; do
@@ -38,6 +38,30 @@ _cs_in_roster() {
     fi
   done
   return "${_found}"
+}
+
+# _cs_print_all
+#   Prints every heavy job as selected: the answer for a run that is not
+#   a pull request, and for a diff that cannot be read (fail closed).
+_cs_print_all() {
+  local _job
+  for _job in "${_CS_JOBS[@]}"; do printf '%s=true\n' "${_job}"; done
+}
+
+# _cs_select_all
+#   Marks every heavy job selected in the caller's _sel map.
+_cs_select_all() {
+  local _job
+  for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+}
+
+# _cs_select_all_but <job>
+#   Marks every heavy job except <job> selected in the caller's _sel map.
+_cs_select_all_but() {
+  local _job
+  for _job in "${_CS_JOBS[@]}"; do
+    [[ "${_job}" == "$1" ]] || _sel["${_job}"]=true
+  done
 }
 
 main() {
@@ -75,7 +99,7 @@ main() {
   # workflow_dispatch runs select every job, so main runs the full suite
   # (owner decision, base#1584).
   if [[ "${_event}" != pull_request ]]; then
-    for _job in "${_CS_JOBS[@]}"; do printf '%s=true\n' "${_job}"; done
+    _cs_print_all
     return 0
   fi
   # With --base the paths come from the PR diff. A diff that cannot be
@@ -86,7 +110,7 @@ main() {
     _diff="$(mktemp)"
     if ! git diff -z --name-only --no-renames "${_base}...HEAD" >"${_diff}" 2>/dev/null; then
       rm -f "${_diff}"
-      for _job in "${_CS_JOBS[@]}"; do printf '%s=true\n' "${_job}"; done
+      _cs_print_all
       return 0
     fi
     exec 0<"${_diff}"
@@ -103,7 +127,7 @@ main() {
       # _rp_copy copies script/watch whole, and the job runs the
       # script/test and script/ci drivers. They keep every job.
       script/watch/* | script/test/* | script/ci/*)
-        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        _cs_select_all
         ;;
       # Every justfile keeps every job, wherever it sits: the root
       # justfile loads the docker, test, release and watch modules, and a
@@ -111,7 +135,7 @@ main() {
       # scratch probe, so a broken justfile.release fails `just test go`
       # (base#1584).
       justfile* | */justfile*)
-        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        _cs_select_all
         ;;
       # config-gen reads dist/script/base/just-version.sh (its just-pin
       # step, and the strace -f trace of its host side) and
@@ -119,9 +143,9 @@ main() {
       # script/test/config_gen_redpath.sh, copies lib/log.*). Both keep
       # every job (base#1584).
       dist/script/base/just-version.sh | dist/script/docker/lib/*)
-        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        _cs_select_all
         ;;
-      # E2/E4: config-gen reads no other dist/ file. The trace opened
+      # E2: config-gen reads no other dist/ file. The trace opened
       # only just-version.sh under dist/, and _rp_copy copies no other
       # dist/ file (base#1584).
       # E3: under script/, the trace and _rp_copy read only script/watch,
@@ -131,9 +155,7 @@ main() {
       # _rp_copy does not copy them, and no script/test/config_gen* file
       # or dockerfile/Dockerfile.config-gen names them (base#1584).
       dist/* | script/* | init.sh | upgrade.sh)
-        for _job in "${_CS_JOBS[@]}"; do
-          [[ "${_job}" == config-gen ]] || _sel["${_job}"]=true
-        done
+        _cs_select_all_but config-gen
         ;;
       # E1: a unit spec is a leaf -- no file under test/ or script/ loads
       # or sources a `*_spec.bats` -- so config-gen and acceptance never
@@ -154,7 +176,7 @@ main() {
         if _cs_in_roster "${_path}"; then _sel[mutation-roster]=true; fi
         ;;
       *)
-        for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
+        _cs_select_all
         ;;
     esac
   done
