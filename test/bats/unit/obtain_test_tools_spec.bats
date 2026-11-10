@@ -214,6 +214,23 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
   refute_output --partial 'load '
 }
 
+# why: base#1588. The loaded image is found by the run-scoped tag the
+# builder gave it, TEST_TOOLS_ARTIFACT_TAG. A caller that passes an
+# artifact without that tag would re-tag an empty name, so it is a usage
+# error, refused before the tar is touched.
+@test "obtain: --artifact without TEST_TOOLS_ARTIFACT_TAG is a usage error, never loaded (base#1588)" {
+  local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
+  : > "${_tar}"
+  run bash -c "$(_src); $(_seams 0 0 0); unset TEST_TOOLS_ARTIFACT_TAG; \
+      TESTTOOLS_CHANGED=false CI_RUN_KEY=k GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '${_tar}' --local-build inline"
+  assert_failure 2
+  refute_output --partial 'load '
+  refute_output --partial 'retag '
+  refute_output --partial 'pull '
+  refute_output --partial 'build '
+}
+
 # ── no job reaches past it ────────────────────────────────────────────
 
 # _hand_rolled_obtains
