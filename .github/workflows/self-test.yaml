@@ -186,6 +186,7 @@ jobs:
       # Whether the diff can affect config-gen (base#1584). The rollup
       # reads it to tell a skip classify decided from one it did not.
       select_config_gen: ${{ steps.diff.outputs.select_config_gen }}
+      select_mutation_roster: ${{ steps.diff.outputs.select_mutation_roster }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1820,6 +1821,9 @@ jobs:
           # skip on a run where classify selected the job is not a
           # decision, it is a job that never ran, so it must not pass.
           SELECT_CONFIG_GEN: ${{ needs.classify.outputs.select_config_gen }}
+          # classify's own answer for mutation-roster (base#1584): its skip
+          # passes only when this is `false`.
+          SELECT_MUTATION_ROSTER: ${{ needs.classify.outputs.select_mutation_roster }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1838,26 +1842,35 @@ jobs:
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           echo "config-gen:       ${CONFIG_GEN_RESULT}"
           fail=0
-          # doc-counts, lint-static, mutation-roster and compute-shards
-          # carry no `if:` gate, so SKIPPED means a workflow bug, not an
-          # intentional skip -- they are hard-mandatory like actionlint /
-          # classify. lint-static and mutation-roster are matrices; each
-          # folds its entries into one result, so a single failing lint or
-          # roster shard fails the rollup. compute-shards is the
+          # doc-counts, lint-static and compute-shards carry no `if:`
+          # gate, so SKIPPED means a workflow bug, not an intentional skip
+          # -- they are hard-mandatory like actionlint / classify.
+          # lint-static is a matrix; it folds its entries into one result,
+          # so a single failing lint fails the rollup. compute-shards is the
           # producer coverage expands, so its skip is what silently
           # removes the unit suite AND the coverage floor from this run.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
                    "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
-                   "${MUTATION_ROSTER_RESULT}" "${COMPUTE_SHARDS_RESULT}"; do
+                   "${COMPUTE_SHARDS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
                    "${BATS_FRAGILE_RESULT}" "${COVERAGE_RESULT}" \
                    "${COVERAGE_GATE_RESULT}" \
                    "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
-                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}"; do
+                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}" \
+                   "${MUTATION_ROSTER_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
+          # mutation-roster is a matrix that folds every roster shard into
+          # one result. Its skip passes only when classify did not select
+          # the job: an empty or `true` selection makes the skip a failure
+          # (base#1584).
+          if [[ "${MUTATION_ROSTER_RESULT}" == "skipped" \
+                && "${SELECT_MUTATION_ROSTER:-}" != "false" ]]; then
+            echo "::error::mutation-roster skipped although classify did not deselect it"
+            fail=1
+          fi
           # A config-gen skip passes only when classify did not select the
           # job: with select_config_gen=true the skip was nobody's decision
           # (base#1584).
