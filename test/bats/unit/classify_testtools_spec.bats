@@ -227,3 +227,22 @@ _context_copy_paths() {
   assert_success
   assert_line 'testtools_changed=true'
 }
+
+# why: base#1584 lets a pull request skip a heavy job its diff cannot
+# affect, and main must keep running everything (owner decision). The
+# rollup reads one select_<job> output per heavy job (config-gen,
+# mutation-roster, coverage, acceptance, system, as the issue names
+# them), and an empty output fails it. So the push arm, which is what
+# main runs, has to write every one of them as `true`.
+@test "classify: a push writes every heavy job's selection as true (base#1584)" {
+  run _classify_push doc/guide.md
+  assert_success
+  local _job _missed=""
+  for _job in select_config_gen select_mutation_roster select_coverage \
+              select_acceptance select_system; do
+    grep -qx "${_job}=true" <<< "${output}" \
+      || _missed="${_missed} ${_job}"
+  done
+  [[ -z "${_missed}" ]] || fail \
+      "a push run left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
+}
