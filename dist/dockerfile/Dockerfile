@@ -239,8 +239,11 @@ SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 # runs a fresh `apt-get update` before the install, so one failed fetch
 # from a skewed mirror is retried rather than final; after the last
 # attempt the layer still fails, base#1602. Stages built FROM sys inherit
-# it; a stage built from a fresh ${BASE_IMAGE} copies it again.
+# it; a stage built from a fresh ${BASE_IMAGE} copies it again. The apt
+# config sets `Acquire::Retries "3";` so one transient fetch error is
+# retried inside an attempt.
 COPY --chmod=0755 .base/dist/script/docker/build/apt-retry.sh /usr/local/libexec/base/apt-retry.sh
+COPY .base/dist/script/docker/build/80-base-retries /etc/apt/apt.conf.d/80-base-retries
 
 # tool-pin: unpinned sys-apt-packages -- an apt package names no version
 # here, and the base image it resolves against is itself a moving tag, so
@@ -712,8 +715,10 @@ RUN bats /smoke_test/
 # # (PID 1 signal-handler), plus the ldd-identified shared libs that
 # # the install trees need. Keep this list short -- bloat here
 # # defeats the purpose of the builder/runtime split. A fresh
-# # ${BASE_IMAGE} lacks the apt retry helper sys copies in, base#1602.
+# # ${BASE_IMAGE} lacks the apt retry helper and config sys copies in,
+# # base#1602.
 # COPY --chmod=0755 .base/dist/script/docker/build/apt-retry.sh /usr/local/libexec/base/apt-retry.sh
+# COPY .base/dist/script/docker/build/80-base-retries /etc/apt/apt.conf.d/80-base-retries
 # RUN /usr/local/libexec/base/apt-retry.sh 4 15 -- apt-get install -y --no-install-recommends \
 #         sudo \
 #         tini \
