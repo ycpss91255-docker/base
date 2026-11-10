@@ -362,8 +362,27 @@ jobs:
         # the reasoning for each step (base#1412).
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
-      - name: Set up Docker Buildx
-        # The same gate as the writer below, its only consumer (base#1116).
+      - name: Set up Docker Buildx (cache reader)
+        # The same gate as the build after it, its only consumer (base#1116).
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name != 'push' || steps.obtain.outputs.build_local == 'true' && github.ref != 'refs/heads/main'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the test-tools image (reads the GHA cache)
+        # Every run but a push to main (base#1588): the one build this
+        # arch gets in the run, reading what main wrote and writing nothing.
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name != 'push' || steps.obtain.outputs.build_local == 'true' && github.ref != 'refs/heads/main'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_ARTIFACT_TAG }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          outputs: type=docker,dest=${{ runner.temp }}/test-tools.tar
+          cache-from: type=gha,scope=test-tools
+
+      - name: Set up Docker Buildx (cache writer)
+        # The same gate as the build after it, its only consumer (base#1116).
         if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/setup-buildx-action@v4
 
@@ -385,7 +404,7 @@ jobs:
       - name: Upload the test-tools image for this run's consumers
         # The one build of this arch in the run (base#1588): each
         # consumer downloads this tar by name and loads it.
-        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.obtain.outputs.build_local == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: test-tools-amd64
@@ -395,7 +414,7 @@ jobs:
 
       - name: Mark the artifact produced
         id: mark
-        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.obtain.outputs.build_local == 'true'
         run: echo "produced=true" >> "${GITHUB_OUTPUT}"
 
       - name: Reclaim this run's docker artifacts
@@ -422,8 +441,27 @@ jobs:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/arm64 --local-build delegate
 
-      - name: Set up Docker Buildx
-        # The same gate as the writer below, its only consumer (base#1116).
+      - name: Set up Docker Buildx (cache reader)
+        # The same gate as the build after it, its only consumer (base#1116).
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name != 'push' || steps.obtain.outputs.build_local == 'true' && github.ref != 'refs/heads/main'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the test-tools image (reads the GHA cache)
+        # Every run but a push to main (base#1588): the one build this
+        # arch gets in the run, reading what main wrote and writing nothing.
+        if: steps.obtain.outputs.build_local == 'true' && github.event_name != 'push' || steps.obtain.outputs.build_local == 'true' && github.ref != 'refs/heads/main'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dockerfile/Dockerfile.test-tools
+          tags: ${{ env.TEST_TOOLS_ARTIFACT_TAG }}
+          labels: |
+            base.ci.run=${{ env.CI_RUN_KEY }}
+          outputs: type=docker,dest=${{ runner.temp }}/test-tools.tar
+          cache-from: type=gha,scope=test-tools-arm64
+
+      - name: Set up Docker Buildx (cache writer)
+        # The same gate as the build after it, its only consumer (base#1116).
         if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/setup-buildx-action@v4
 
@@ -443,7 +481,7 @@ jobs:
       - name: Upload the test-tools image for this run's consumers
         # The one build of this arch in the run (base#1588): each
         # consumer downloads this tar by name and loads it.
-        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.obtain.outputs.build_local == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: test-tools-arm64
@@ -453,7 +491,7 @@ jobs:
 
       - name: Mark the artifact produced
         id: mark
-        if: steps.obtain.outputs.build_local == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.obtain.outputs.build_local == 'true'
         run: echo "produced=true" >> "${GITHUB_OUTPUT}"
 
       - name: Reclaim this run's docker artifacts

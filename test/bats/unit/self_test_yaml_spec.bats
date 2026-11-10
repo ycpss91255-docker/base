@@ -1199,7 +1199,10 @@ _tt_builder_builds() {
 # _builder_setup_pairs <file>
 #   `<job>\t<setups>\t<consumers>\t<setup index>\t[<setup if>]\t[<consumer if>]`
 #   for every job of <file> that BOTH sets up a runner-side builder and
-#   carries a step that consumes one. Tab-separated because a condition may
+#   carries a step that consumes one: one record per setup, the k-th setup
+#   paired with the k-th consumer, so a job holding two builds (the
+#   test-tools builders' cache reader and writer, base#1588) gives each its
+#   own setup under its own gate. Tab-separated because a condition may
 #   contain any `|`-joined record's separator (`a || b`) and cannot contain
 #   a tab -- and each condition is BRACKETED because a tab is IFS
 #   whitespace, so `read` collapses a run of them and an EMPTY condition
@@ -1214,13 +1217,14 @@ _builder_setup_pairs() {
                 | test("docker/setup-buildx-action")))) as $setups
           | ($steps | map(select((.value.uses // "")
                 | test("docker/build-push-action")))) as $consumers
-          | select(($setups | length) > 0 and ($consumers | length) > 0)
+          | $setups | to_entries | .[] | .key as $k
+          | select(($consumers | length) > 0)
           | [$job,
              ($setups | length | tostring),
              ($consumers | length | tostring),
-             ($setups[0].key | tostring),
-             ("[" + (($setups[0].value.if // "") | tostring) + "]"),
-             ("[" + (($consumers[0].value.if // "") | tostring) + "]")]
+             ($setups[$k].key | tostring),
+             ("[" + (($setups[$k].value.if // "") | tostring) + "]"),
+             ("[" + (($consumers[$k].value.if // "") | tostring) + "]")]
             | @tsv'
 }
 
@@ -1281,6 +1285,7 @@ _report_one_builder_setup() {
 #   One line per disagreement across the derived population.
 _builder_setups_out_of_step_with_their_consumer() {
     local _file="${1}" _ids _job _ns _nc _idx _setup _consumer _status=0
+    local -A _seen=()
     _ids="$(_step_ids "${_file}")" || _status=$?
     if [[ "${_status}" -ne 0 ]]; then
         printf '%s\n' "${_ids}"
@@ -1291,9 +1296,10 @@ _builder_setups_out_of_step_with_their_consumer() {
         case "${_job}" in BUG:*) printf '%s\n' "${_job}" ; continue ;; esac
         _setup="${_setup#"["}" ; _setup="${_setup%"]"}"
         _consumer="${_consumer#"["}" ; _consumer="${_consumer%"]"}"
-        if [[ "${_ns}" != 1 || "${_nc}" != 1 ]]; then
-            printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs one with one\n' \
+        if [[ "${_ns}" != "${_nc}" ]]; then
+            [[ -n "${_seen[${_job}]+set}" ]] || printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs each setup with one consumer\n' \
                 "${_job}" "${_ns}" "${_nc}"
+            _seen[${_job}]=1
             continue
         fi
         _report_one_builder_setup "${_job}" "${_idx}" "${_setup}" "${_consumer}" "${_ids}"
