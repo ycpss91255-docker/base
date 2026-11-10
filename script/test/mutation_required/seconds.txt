@@ -7,7 +7,7 @@ s1b.tsv	coverage-profile-line	12.5
 s1b.tsv	coverage-profile-missing	9.7
 s1b.tsv	coverage-profile-mode	12.2
 s1b.tsv	coverage-test-failed	13.5
-s1b.tsv	redpath-control	28.0
+s1b.tsv	redpath-control	221.3
 s1b.tsv	redpath-earlier-gate	48.8
 s1b.tsv	redpath-gate-record	48.5
 s1b.tsv	redpath-rc-zero	49.2
@@ -21,7 +21,7 @@ s1b.tsv	runner-gate-id-reemit	65.4
 s1b.tsv	runner-root-invalid	64.7
 s1b.tsv	runner-step-status	65.1
 s1b.tsv	runner-usage-missing-root	45.9
-s1b.tsv	runner-usage-unknown	48.3
+s1b.tsv	runner-usage-unknown	221.8
 s1b.tsv	spec-workflow-env-keys	82.4
 s1b.tsv	spec-workflow-top-keys	79.0
 s1c.tsv	decl-gomod-branch	20.0
@@ -244,7 +244,8 @@ s1e.tsv	lang-record-status	10.4
 s1e.tsv	lang-record-two-arity	10.1
 s1e.tsv	lang-stale-encode	10.2
 s1e.tsv	lang-unquote-octal	10.0
-s1e.tsv	recipe-go-full-redpath	68.7
+s1e.tsv	recipe-go-full-redpath	221.6
+s1e.tsv	recipe-go-unsharded-redpath	221.4
 s1e.tsv	redpath-coverage-detail	40.0
 s1e.tsv	redpath-coverage-event	38.4
 s1e.tsv	redpath-coverage-gate	39.3
