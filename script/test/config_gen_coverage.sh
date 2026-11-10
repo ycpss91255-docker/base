@@ -18,8 +18,8 @@
 # With --profile, no go test runs: the one merged atomic profile the race
 # RUN wrote is split per listed package, a block going to the package whose
 # import path equals its file's directory, and each part is counted the
-# same way (base#1547). The
-# gate judges no floor: cmd/cg-gates ratchet reads <file> and judges each
+# same way (base#1547).
+# The gate judges no floor: cmd/cg-gates ratchet reads <file> and judges each
 # package against coverage-floors.d and floors.base (base#1465).
 # Fail-closed: every way the measurement can go missing is a refusal,
 # never a count.

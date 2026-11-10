@@ -3,7 +3,10 @@
 # config_gen_gates.sh -- run the config generator's Go gates (base#1462).
 #
 # Usage:
-#   ./script/test/config_gen_gates.sh [--root <dir>]
+#   ./script/test/config_gen_gates.sh [--root <dir>] [--steps-only]
+#
+# --steps-only runs step 1 below and stops before the docker build: the
+# redpath's shared pass (base#1547).
 #
 # The one command every environment reaches through `just test go`: the
 # hosted self-test job, the self-hosted coverage-local job, the pre-PR
@@ -20,9 +23,12 @@
 #                space-separated CONFIG_GEN_STEPS_REUSED is skipped and
 #                logged as config_gen_step_reused; a name there that is no
 #                step, or a step with no <step>.inputs, is refused as usage,
-#                status 2, before any step (base#1547). Each
-#                directory a step leaves under CONFIG_GEN_CTX becomes a named build context, `--build-context
-#                <name>=<path>`, so a later slice's inputs reach the build
+#                status 2, before any step (base#1547). Each step run
+#                streams `config-gen stage=<step> start= end= secs=
+#                status=` to stderr. Each directory a step leaves under
+#                CONFIG_GEN_CTX becomes a named build context,
+#                `--build-context <name>=<path>`, so a later slice's inputs
+#                reach the build
 #                without an edit here. A name outside [a-z0-9-] is refused:
 #                it is spliced into that argument.
 #   2. gates     the Dockerfile's `test` stage, with --no-cache-filter

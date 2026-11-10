@@ -212,8 +212,8 @@
 # source text for it cannot be what turns the gate red.
 #
 # Every case is reported before the run ends; any failed case, a red
-# rerun call 1 (the control) among them, exits 1. This never calls `just test go` -- that recipe runs this
-# script -- and a nested entry is refused with config_gen_redpath_reentered
+# rerun call 1 (the control) among them, exits 1. This never calls `just
+# test go` -- that recipe runs this script -- and a nested entry is refused with config_gen_redpath_reentered
 # before anything runs. Sourced, it defines its tables and functions and
 # runs nothing.
 #
@@ -235,13 +235,13 @@ source "${_RP_SCRIPT_DIR}/config_gen_inputs.sh"
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage)
 # <case>:<the gate whose id it must produce>, in the order they run.
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # Cases that run after the pool drains, one at a time, with no other case
 # running (base#1547). The rule: a case whose expected record holds a
 # timed-out or killed count belongs here, since that count depends on how
 # loaded the host is while its mutants run. mut-timeout expects 3 killed
 # and 1 timed out.
 readonly -a _RP_SERIAL=(mut-timeout)
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # <case>|<pkg>|<reason>|<measured>: the one package failure record the
 # runner must log for <case>, re-emitted from the mutation gate's
 # config_gen_mutation_package_failed line (base#1467). The mut-timeout
@@ -1027,6 +1027,9 @@ _rp_copy() {
   printf '%s\n' "${dst}"
 }
 
+# The steps whose verdict does not depend on a case's plant (base#1547).
+readonly -a _RP_REUSED_STEPS=(20-gomod-oracle 30-watch-gosum)
+
 # _rp_gates <root> <case> [VAR=value...] -- run the runner on <root>, its
 # stdout to <root>.out and its stderr to <root>.err, with any VAR=value
 # words added to its environment; returns the runner's status. Its
@@ -1042,9 +1045,6 @@ _rp_gates() {
     CONFIG_GEN_REDPATH_CASE="${2}" CONFIG_GEN_STEPS_REUSED="${_RP_REUSED_STEPS[*]}" "${@:3}" \
     bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
 }
-
-# The steps whose verdict does not depend on a case's plant (base#1547).
-readonly -a _RP_REUSED_STEPS=(20-gomod-oracle 30-watch-gosum)
 
 # _rp_digest <root> -- the digest of what _RP_REUSED_STEPS read in <root>.
 _rp_digest() {
@@ -1663,7 +1663,7 @@ main() {
   fi
   # The planted cases run in the background, at most
   # CONFIG_GEN_REDPATH_JOBS at a time, nproc when unset (base#1547).
-  _RP_JOBS="${CONFIG_GEN_REDPATH_JOBS:-$(nproc)}" _RP_PIDS=() _RP_ERRS=() _RP_FAILED=0
+  _RP_JOBS="${CONFIG_GEN_REDPATH_JOBS:-$(nproc)}" _RP_ERRS=() _RP_FAILED=0
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     _rp_serial "${entry%%:*}" && continue
