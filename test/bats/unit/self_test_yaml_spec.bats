@@ -3865,8 +3865,9 @@ _cg_job_id() {
 }
 
 # _cg_expected_job <self-test|self-test-redpath|coverage-local> -- that
-# job less its free-text name and timeout, canonical JSON. coverage-local's
-# `if` is the fork guard its sibling job carries. The redpath matrix is
+# job less its free-text name and timeout, canonical JSON. Both hosted
+# jobs gate on the one select_config_gen key (CG_GATE_IF, base#1584);
+# coverage-local's `if` is the fork guard its sibling job carries. The redpath matrix is
 # shard 1..N, N read from the shard table's header and never from the
 # workflow, with the shard holding rerun's one row labelled (base#1547).
 _cg_expected_job() {
@@ -3885,7 +3886,7 @@ _cg_expected_job() {
       CG_IF="${CG_GATE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
         '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest", "steps": env(CG_STEPS)} | sort_keys(..)' ;;
     self-test-redpath)
-      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" CG_SHARD_LIST="[$(seq -s, 1 "${_n}")]" CG_K="${_k}" \
+      CG_IF="${CG_GATE_IF}" CG_STEPS="${_steps}" CG_SHARD_LIST="[$(seq -s, 1 "${_n}")]" CG_K="${_k}" \
         yq -n -o json -I0 '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest",
           "strategy": {"fail-fast": false, "matrix": {"shard": env(CG_SHARD_LIST),
             "include": [{"shard": env(CG_K), "label": " + rerun, the baseline"}]}},
@@ -4254,17 +4255,17 @@ _rollup_honours_every_need() {
 
 # why: The rollup check must see a need the verify step leaves out, or it
 # proves nothing about the next job added. A mutant whose walk drops
-# config-gen must be reported.
+# config-gen-gates must be reported.
 @test "ci-rollup check: a need the verify step leaves out is caught (base#1462)" {
   run _rollup_honours_every_need "${WF}"
   assert_output ""
   local _m="${BATS_TEST_TMPDIR}/rollup.yaml"
   cp "${WF}" "${_m}"
   yq -i '(.jobs["ci-rollup"].steps[] | select(.name == "Verify upstream jobs") | .run)
-           |= sub("\\| to_entries\\[\\]"; "| del(.[\"config-gen\"]) | to_entries[]")' "${_m}"
-  grep -q 'del(.\["config-gen"\])' "${_m}" || fail "the mutant did not apply"
+           |= sub("\\| to_entries\\[\\]"; "| del(.[\"config-gen-gates\"]) | to_entries[]")' "${_m}"
+  grep -q 'del(.\["config-gen-gates"\])' "${_m}" || fail "the mutant did not apply"
   run _rollup_honours_every_need "${_m}"
-  assert_output --partial 'config-gen failure passes'
+  assert_output --partial 'config-gen-gates failure passes'
 }
 
 # ── the required-kill roster runs in every CI environment (base#1461) ────────

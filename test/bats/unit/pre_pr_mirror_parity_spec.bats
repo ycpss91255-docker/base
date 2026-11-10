@@ -883,7 +883,9 @@ ${_recipe}"
 # one command CI runs for it, and that command must resolve to a recipe.
 # base#1547 split the hosted job into config-gen-gates and the
 # config-gen-redpath shard matrix, which run `just test go`'s two recipes;
-# the mirror runs `just test go` itself, their union, for both.
+# the mirror runs `just test go` itself, their union, for both. Both
+# jobs gate on the one select_config_gen key (base#1584), so _ci_gate
+# reads the same map job, config-gen, from each.
 @test "pre-PR mirror: config-gen is attested by exactly just test go (base#1462)" {
   local _table _job
   _table="$(_mirror_table)" || return 1
@@ -891,7 +893,7 @@ ${_recipe}"
     run _attested_cmd "${_table}" "${_job}"
     assert_output 'just test go'
     run _ci_gate "${_job}"
-    assert_output code
+    assert_output select:config-gen
   done
   run _local_mode 'just test go'
   assert_output plain
