@@ -595,7 +595,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -615,7 +615,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -675,7 +675,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -695,7 +695,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci

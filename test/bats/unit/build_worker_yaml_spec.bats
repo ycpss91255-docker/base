@@ -542,7 +542,7 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
 @test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
   # mode=max exports all intermediate stage layers (including the heavy
   # builder / source-build stages). One cache-to line per target.
-  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max$' "${WF}"
+  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max,ignore-error=true$' "${WF}"
   assert_success
   assert_output "4"
 }

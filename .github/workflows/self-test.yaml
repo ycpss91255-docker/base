@@ -380,7 +380,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       - name: Run ShellCheck inside the test-tools image
         run: ./script/test/test.sh --lint --shellcheck
@@ -440,7 +440,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       - name: Run the doc/test count drift gate inside the test-tools image
         run: ./script/test/test.sh --lint --doc-counts
@@ -733,7 +733,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       # The step name lists the lints its group runs, so the checks page
       # says which lints a leg ran rather than only its group number
@@ -809,7 +809,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       # The just-pin steps are copied from the acceptance job, which
       # carries their rationale.
@@ -910,7 +910,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       - name: Run Hadolint via the driver (single source of truth)
         run: ./script/test/test.sh --lint --hadolint
@@ -1033,7 +1033,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       - name: Run Bats kcov-fragile specs (plain mode)
         run: ./script/test/test.sh --bats-fragile
@@ -1246,7 +1246,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       - name: Run kcov coverage shard ${{ matrix.shard }}
         # A step bound below the job's 60, so a hang the per-test bound
@@ -1602,7 +1602,7 @@ jobs:
             base.ci.run=${{ env.CI_RUN_KEY }}
           load: true
           cache-from: type=gha,scope=test-tools
-          cache-to: type=gha,scope=test-tools,mode=max
+          cache-to: type=gha,scope=test-tools,mode=max,ignore-error=true
 
       - name: Run system specs (docker.sock-mounted ci-system service)
         # The ids come from `id`, not from a literal: this is the one job
