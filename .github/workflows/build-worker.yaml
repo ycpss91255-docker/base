@@ -861,9 +861,15 @@ jobs:
                 --platform "${PLATFORM}" \
                 --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
                 --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
+                --metadata-file "${RUNNER_TEMP}/${test_stage}.json" \
                 "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
                 "${CONTEXT_PATH}"
               echo "::endgroup::"
+              # Reached only when the test-stage build ran and passed, as
+              # for the stage build below (base#1602).
+              BUILD_METADATA="$(cat "${RUNNER_TEMP}/${test_stage}.json")" \
+                CACHE_EXPORT_LABEL="${test_stage}" \
+                bash .worker-base/script/ci/build_worker/cache_export_warn.sh
             fi
 
             echo "::group::Build ${stage} (extra stage)"
