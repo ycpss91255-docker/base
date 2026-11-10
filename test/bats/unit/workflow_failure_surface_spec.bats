@@ -169,59 +169,76 @@ _aggregate() {
   refute_output --partial 'Fork PR'
 }
 
-# ── 3. the rollup says why it collapsed to skips ──────────────────────
+# ── 3. the rollup passes a skip only where classify decided it ────────
 
 # _gated_job <job>
-#   Does <job> carry a job-level `if:`? Those are the jobs a doc-only PR
-#   legitimately skips; the ones without it run on every PR, so a skip
-#   there is a workflow bug and the rollup treats it as one. Read from the
-#   file rather than listed here, so the roster cannot drift.
+#   Does <job> carry a job-level `if:`? Those are the jobs a PR may skip;
+#   the ones without it run on every PR, so a skip there is a workflow bug.
+#   Read from the file rather than listed here, so the roster cannot drift.
 _gated_job() {
   _yaml_eval "${SELF_WF}" ".jobs.\"${1}\" | has(\"if\")" 2>/dev/null \
       | grep -Fxq true
 }
 
-# _rollup <code_changed> <result-for-the-gated-jobs>
-#   Runs self-test's OWN rollup verifier -- lifted out of the YAML, not a
-#   copy of it -- against one `needs` shape. The env names come from the
-#   step's own `env:` block and each maps back to the job it reports, so a
-#   renamed variable fails here instead of silently supplying an empty one.
-#   Ungated jobs are reported as `success`: they run whatever the diff
-#   said.
-_rollup() {
-  local _script="${BATS_TEST_TMPDIR}/rollup.sh" _var _job _status=0
+# _needs_json <select> <gated-result>
+#   The `needs` context ci-rollup would see, as JSON: one key per job its
+#   own `needs:` lists, result `success` for an ungated job and
+#   <gated-result> for a gated one, and classify's outputs with every key
+#   of classify's own `outputs:` map that starts with select_ set to
+#   <select> (code_changed and system_relevant `true`).
+_needs_json() {
+  local _sel="$1" _gres="$2" _j _r _outs
+  _outs="$(yq -o json -I0 '.jobs.classify.outputs | keys' "${SELF_WF}" \
+      | jq -c --arg s "${_sel}" \
+          'map({key: ., value: (if startswith("select_") then $s else "true" end)}) | from_entries')"
+  local _json="{}"
+  while IFS= read -r _j; do
+    [[ -n "${_j}" ]] || continue
+    _r=success
+    _gated_job "${_j}" && _r="${_gres}"
+    _json="$(jq -c --arg j "${_j}" --arg r "${_r}" '.[$j] = {"result": $r, "outputs": {}}' <<<"${_json}")"
+  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
+  jq -c --argjson o "${_outs}" '.classify.outputs = $o' <<<"${_json}"
+}
+
+# _rollup_json <json>
+#   Runs self-test's OWN `Verify upstream jobs` step -- lifted out of the
+#   YAML, not a copy of it -- with NEEDS_JSON=<json> and a same-repo PR.
+#   Every other env key the step declares makes this return 2: the step
+#   must read every job and every classify answer from the one JSON.
+_rollup_json() {
+  local _script="${BATS_TEST_TMPDIR}/rollup.sh" _k _v
   yaml_step_run "${SELF_WF}" ci-rollup 'Verify upstream jobs' > "${_script}"
   [ -s "${_script}" ] || return 2
   local -a _env=()
-  while IFS= read -r _var; do
-    [[ -n "${_var}" ]] || continue
-    case "${_var}" in
-      CODE_CHANGED) _env+=("CODE_CHANGED=${1}") ; continue ;;
-      IS_FORK_PR) _env+=("IS_FORK_PR=false") ; continue ;;
+  while read -r _k _v; do
+    [[ -n "${_k}" ]] || continue
+    case "${_k}" in
+      NEEDS_JSON)
+        [[ "${_v}" == '${{ toJSON(needs) }}' ]] || { echo "BUG: NEEDS_JSON is ${_v}"; return 2; }
+        _env+=("NEEDS_JSON=${1}") ;;
+      IS_FORK_PR) _env+=("IS_FORK_PR=false") ;;
+      *) echo "BUG: the rollup reads env ${_k} (${_v}) beside NEEDS_JSON"; return 2 ;;
     esac
-    _job="$(printf '%s' "${_var%_RESULT}" | tr 'A-Z_' 'a-z-')"
-    if _gated_job "${_job}"; then
-      _env+=("${_var}=${2}")
-    else
-      _env+=("${_var}=success")
-    fi
   done < <(_yaml_eval "${SELF_WF}" \
       '.jobs."ci-rollup".steps[]
-         | select(.name == "Verify upstream jobs") | .env | keys | .[]') \
-      || _status=$?
-  [[ "${_status}" -eq 0 ]] || return 2
-  [[ "${#_env[@]}" -ge 10 ]] || return 2
+         | select(.name == "Verify upstream jobs") | .env | to_entries[]
+         | .key + " " + .value')
+  [[ "${#_env[@]}" -eq 2 ]] || return 2
   env "${_env[@]}" bash "${_script}"
 }
 
+# _with <json> <jq-filter> -- <json> with <jq-filter> applied.
+_with() {
+  jq -c "$2" <<<"$1"
+}
+
 # why: A doc-only PR emits nine grey skips beside a green `ci-rollup`. A
-# reviewer reading the checks list can see that; a reviewer reading only
-# the required check sees an undifferentiated green, and the rollup's
-# summary was identical for "everything passed" and "almost nothing ran".
-# The classification the rollup already consumes is the answer, said out
-# loud.
+# reviewer reading only the required check saw an undifferentiated green,
+# and the rollup's summary was identical for "everything passed" and
+# "almost nothing ran". The classification is the answer, said out loud.
 @test "self-test: the rollup names the doc-only classification it passed on (#1014)" {
-  run _rollup false skipped
+  run _rollup_json "$(_needs_json false skipped)"
   assert_success
   assert_output --partial '::notice::'
   assert_output --partial 'doc-only'
@@ -231,103 +248,107 @@ _rollup() {
 # it always: a full run that passed everything is not a doc-only run and
 # must not claim to be one.
 @test "self-test: a full green run is not announced as doc-only (#1014)" {
-  run _rollup true success
+  run _rollup_json "$(_needs_json true success)"
   assert_success
   refute_output --partial 'doc-only'
 }
 
-# _rollup_selected <VAR=value>...
-#   Runs the lifted `Verify upstream jobs` step with every upstream job
-#   reported `success`, a code change, a same-repo PR, and every other
-#   env key the step declares (classify's per-job selections) set to
-#   `true`; the arguments then override single entries. The env binding
-#   for a classify output is looked up by the expression it reads, so the
-#   test does not hard-code the variable name the step chooses.
-_rollup_selected() {
-  local _script="${BATS_TEST_TMPDIR}/rollup.sh" _var _status=0
-  yaml_step_run "${SELF_WF}" ci-rollup 'Verify upstream jobs' > "${_script}"
-  [ -s "${_script}" ] || return 2
-  local -a _env=()
-  while IFS= read -r _var; do
-    [[ -n "${_var}" ]] || continue
-    case "${_var}" in
-      CODE_CHANGED) _env+=("CODE_CHANGED=true") ;;
-      IS_FORK_PR) _env+=("IS_FORK_PR=false") ;;
-      *_RESULT) _env+=("${_var}=success") ;;
-      *) _env+=("${_var}=true") ;;
-    esac
-  done < <(_yaml_eval "${SELF_WF}" \
-      '.jobs."ci-rollup".steps[]
-         | select(.name == "Verify upstream jobs") | .env | keys | .[]') \
-      || _status=$?
-  [[ "${_status}" -eq 0 ]] || return 2
-  [[ "${#_env[@]}" -ge 10 ]] || return 2
-  env "${_env[@]}" "$@" bash "${_script}"
-}
-
-# _rollup_env_for <classify-output>
-#   The `Verify upstream jobs` env key bound to
-#   needs.classify.outputs.<classify-output>, or nothing. yq unescapes a
-#   string literal before the regex sees it, so each regex escape is
-#   doubled (`\\.`, `\\b`); a single `\b` would become a backspace.
-_rollup_env_for() {
-  _yaml_eval "${SELF_WF}" \
-      '.jobs."ci-rollup".steps[]
-         | select(.name == "Verify upstream jobs") | .env | to_entries[]
-         | select(.value | test("needs\\.classify\\.outputs\\.'"${1}"'\\b"))
-         | .key'
-}
-
-# why: The rollup accepted any `skipped` on a gated job. With
-# CONFIG_GEN_RESULT=skipped and CODE_CHANGED=true the lifted step printed
-# `config-gen: skipped` and exited 0 (base#1584 design, section 1), so a
-# config-gen that never ran on a diff classify said it can affect would
-# still turn the required check green. A skip may pass only when classify
-# itself decided it: here classify selected config-gen, so the skip is a
-# workflow bug and the rollup must fail.
-@test "self-test: the rollup fails a config-gen skip that classify did not decide (base#1584)" {
-  local _sel_var
-  _sel_var="$(_rollup_env_for select_config_gen)"
-  run _rollup_selected CONFIG_GEN_RESULT=skipped \
-      "${_sel_var:-SELECT_CONFIG_GEN}=true"
-  assert_failure 1
-  assert_output --partial 'config-gen:       skipped'
-  [ -n "${_sel_var}" ]
-}
-
-# why: acceptance copies the whole checkout into the consumer
-# (script/test/acceptance.sh:90, `cp -a "${_ACCEPTANCE_ROOT}/." ...`), so
-# the map drops it only for a diff of `*_spec.bats` leaves (design row E1,
-# base#1584). Such a diff still has code_changed=true, so a rollup that
-# ties the acceptance skip to code_changed fails the very skip classify
-# decided. A skip with select_acceptance=false must let the required
-# check pass.
-@test "self-test: the rollup accepts an acceptance skip that classify decided on a code change (base#1584)" {
-  local _sel_var
-  _sel_var="$(_rollup_env_for select_acceptance)"
-  run _rollup_selected ACCEPTANCE_RESULT=skipped CODE_CHANGED=true \
-      "${_sel_var:-SELECT_ACCEPTANCE}=false"
+# why: a run where classify deselected some jobs is not doc-only either;
+# the notice names the jobs classify skipped instead.
+@test "self-test: a run with some jobs deselected names them and is not doc-only (base#1584)" {
+  local _j
+  _j="$(_needs_json true success)"
+  _j="$(_with "${_j}" '.["config-gen"].result = "skipped" | .classify.outputs.select_config_gen = "false"')"
+  run _rollup_json "${_j}"
   assert_success
-  assert_output --partial 'acceptance:       skipped'
-  [ -n "${_sel_var}" ]
+  refute_output --partial 'doc-only'
+  assert_output --partial 'config-gen'
 }
 
-# why: shellcheck, hadolint and bats-fragile each run under
-# `if: needs.classify.outputs.code_changed == 'true'` (self-test.yaml),
-# so on a code change classify selected them and their skip is no
-# decision. The rollup accepted any `skipped` for these three, so one
-# that never ran on a code change still turned the required check green.
-# The design (base#1584, section 2) ties each skip to its own gate
-# output: for these three, code_changed=true makes the skip a failure.
-@test "self-test: the rollup fails a shellcheck, hadolint or bats-fragile skip on a code change (base#1584)" {
-  local _r
-  for _r in SHELLCHECK HADOLINT BATS_FRAGILE; do
-    run _rollup_selected CODE_CHANGED=true "${_r}_RESULT=skipped"
-    if [[ "${status}" -ne 1 ]]; then
-      echo "${_r}_RESULT=skipped with code_changed=true exited ${status}"
-      return 1
-    fi
+# why: cycle 5 (redesign-r1 sec. 1, review round 1 F2). The old rollup
+# passed a skip when `sel == false || CODE_CHANGED == false`, so a
+# config-gen skip classify had SELECTED passed on a doc-only diff. The
+# job's own key is the only excuse.
+@test "self-test: the rollup fails a classify-selected skip even when code_changed is false (base#1584)" {
+  local _j
+  _j="$(_needs_json true success)"
+  _j="$(_with "${_j}" '.["config-gen"].result = "skipped" | .classify.outputs.code_changed = "false"
+      | .classify.outputs.system_relevant = "false"')"
+  run _rollup_json "${_j}"
+  assert_failure 1
+  assert_output --partial '::error::config-gen skipped although classify did not deselect it'
+}
+
+# why: every gated job ci-rollup needs, in turn: its skip passes with its
+# own select_* key `false` and fails with it `true`. The job set is read
+# from `needs` and each job's `if:`, not from the rollup's text.
+@test "self-test: the rollup passes a gated skip only when its own select key is false (base#1584)" {
+  local _job _k _base _n=0 _bad=""
+  _base="$(_needs_json true success)"
+  while IFS= read -r _job; do
+    [[ -n "${_job}" ]] || continue
+    _gated_job "${_job}" || continue
+    _n=$((_n + 1))
+    _k="select_${_job//-/_}"
+    run _rollup_json "$(_with "${_base}" ".[\"${_job}\"].result = \"skipped\" | .classify.outputs.${_k} = \"false\"")"
+    [[ "${status}" -eq 0 ]] || _bad+="${_job}: ${_k}=false skip exited ${status}"$'\n'
+    run _rollup_json "$(_with "${_base}" ".[\"${_job}\"].result = \"skipped\"")"
+    [[ "${status}" -eq 1 ]] || _bad+="${_job}: ${_k}=true skip exited ${status}"$'\n'
+  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
+  [[ "${_n}" -ge 9 ]] || fail "expected the nine gated jobs, read ${_n}"
+  [[ -z "${_bad}" ]] || fail "${_bad}"
+}
+
+# why: cycle 7 (R1-F1). A skipped-only walk would pass a failure; every
+# job ci-rollup needs fails it as `failure` and as `cancelled`, even with
+# every select_* key `false`, the most permissive classify.
+@test "self-test: the rollup fails every needed job's failure or cancel, whatever classify said (base#1584)" {
+  local _job _r _base _n=0 _bad=""
+  _base="$(_needs_json false success)"
+  while IFS= read -r _job; do
+    [[ -n "${_job}" ]] || continue
+    _n=$((_n + 1))
+    for _r in failure cancelled; do
+      run _rollup_json "$(_with "${_base}" ".[\"${_job}\"].result = \"${_r}\"")"
+      [[ "${status}" -eq 1 ]] || _bad+="${_job}=${_r} exited ${status}"$'\n'
+    done
+  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
+  [[ "${_n}" -ge 15 ]] || fail "expected ci-rollup's needs, read ${_n}"
+  [[ -z "${_bad}" ]] || fail "${_bad}"
+}
+
+# why: cycle 8. compute-shards and mutation-roster carry no `if:` and no
+# select_* key; on main both sit in the hard-mandatory success-only loop
+# (`git show origin/main:.github/workflows/self-test.yaml`). A skip of
+# either fails, even with every key `false`.
+@test "self-test: the rollup fails a compute-shards or mutation-roster skip (base#1584)" {
+  local _job _base
+  _base="$(_needs_json false success)"
+  for _job in compute-shards mutation-roster; do
+    run _rollup_json "$(_with "${_base}" ".[\"${_job}\"].result = \"skipped\"")"
+    assert_failure 1
   done
+}
+
+# why: cycle 9. A failed classify leaves every output empty, so no skip is
+# a decision; a key missing from the needs context is none either.
+@test "self-test: the rollup fails a skip when classify failed or its key is missing (base#1584)" {
+  local _j
+  _j="$(_needs_json true success)"
+  run _rollup_json "$(_with "${_j}" '.classify.result = "failure" | .classify.outputs = {} | .coverage.result = "skipped"')"
+  assert_failure 1
+  run _rollup_json "$(_with "${_j}" '.classify.outputs |= del(.select_system) | .system.result = "skipped"')"
+  assert_failure 1
+}
+
+# why: no readable needs context is no evidence anything ran.
+@test "self-test: the rollup fails when the needs context is empty or unreadable (base#1584)" {
+  run _rollup_json ''
+  assert_failure 1
+  run _rollup_json '{}'
+  assert_failure 1
+  run _rollup_json 'not json'
+  assert_failure 1
 }
 
 # ── 4. concurrency and timeouts ───────────────────────────────────────
@@ -513,146 +534,4 @@ _triggerable_workflows_without_a_declared_default() {
   run _triggerable_workflows_without_a_declared_default
   assert_success
   assert_output ''
-}
-
-# why: A skip may pass only when classify decided it (base#1584). An empty
-# selection is no decision: classify failed to write the output, or the
-# step reads a name classify never emits. The design's rule is that every
-# select_* left empty plus a skip of a job it gates fails the rollup, for
-# each job the map selects (config-gen, coverage and its coverage-gate,
-# acceptance, system). The control run, with the same empty
-# selections and no skip, must still pass, so the failure is the skip's.
-@test "self-test: the rollup fails a skip of a selected job when every classify selection is empty (base#1584)" {
-  local -a _empty=()
-  local _var _r
-  while IFS= read -r _var; do
-    [[ -n "${_var}" ]] && _empty+=("${_var}=")
-  done < <(_rollup_env_for 'select_[a-z_]+')
-  run _rollup_selected "${_empty[@]}"
-  assert_success
-  for _r in CONFIG_GEN COVERAGE COVERAGE_GATE ACCEPTANCE SYSTEM; do
-    run _rollup_selected "${_empty[@]}" "${_r}_RESULT=skipped"
-    if [[ "${status}" -ne 1 ]]; then
-      echo "${_r}_RESULT=skipped with empty selections exited ${status}"
-      return 1
-    fi
-  done
-}
-
-# _rollup_skip_rows
-#   The rollup's skip table, one `<job> <env-var>` line per row: the job
-#   whose skip it may excuse and the env key holding the classify answer
-#   that excuses it. Read from the lifted `Verify upstream jobs` step, so
-#   the rows are the ones the rollup actually runs.
-_rollup_skip_rows() {
-  yaml_step_run "${SELF_WF}" ci-rollup 'Verify upstream jobs' \
-    | sed -nE 's/^[[:space:]]*\$\{[A-Z_]+_RESULT:--\} \$\{([A-Z_]+):--\} ([a-z-]+)[[:space:]]*$/\2 \1/p'
-}
-
-# why: review round 1 of base#1584 found select_mutation_roster and
-# select_acceptance read only by ci-rollup: mutation-roster had no `if:`
-# and acceptance gated on code_changed, so the skips the rollup was taught
-# to excuse were skips classify could never cause, and a PR still paid
-# for both jobs on every code change. A skip is a decision only when the
-# job itself runs under the answer the rollup excuses it with. So for
-# every row of the rollup's skip table, the job's own `if:` must read the
-# same classify output the row's env key binds.
-@test "self-test: every job whose skip the rollup excuses gates its own if: on the classify output that excuses it (base#1584)" {
-  local _job _var _out _if _n=0 _bad=""
-  while read -r _job _var; do
-    [[ -n "${_job}" ]] || continue
-    _n=$((_n + 1))
-    _out="$(LP_V="${_var}" yq '.jobs."ci-rollup".steps[]
-        | select(.name == "Verify upstream jobs") | .env[strenv(LP_V)]' \
-        "${SELF_WF}" | sed -nE 's/.*needs\.classify\.outputs\.([a-z_]+).*/\1/p')"
-    _if="$(LP_J="${_job}" yq '.jobs[strenv(LP_J)].if // ""' "${SELF_WF}")"
-    if [[ -z "${_out}" || "${_if}" != *"needs.classify.outputs.${_out} "* ]]; then
-      _bad+="${_job} (rollup excuses it with ${_var}=${_out:-?}, its if: is '${_if}')"$'\n'
-    fi
-  done < <(_rollup_skip_rows)
-  [[ "${_n}" -ge 9 ]] || fail "expected the rollup's skip table, read ${_n} rows"
-  [[ -z "${_bad}" ]] || fail "jobs whose skip classify can never cause:
-${_bad}"
-}
-
-# why: the converse of the case above. A select_<job> output classify
-# exposes but no job's `if:` reads selects nothing: the job runs on every
-# PR whatever the map says (base#1584 review round 1). Every select_*
-# output must be read by the `if:` of at least one job.
-@test "self-test: every select_* output classify exposes is read by some job's if: (base#1584)" {
-  local _o _n=0 _bad=""
-  while IFS= read -r _o; do
-    [[ -n "${_o}" ]] || continue
-    _n=$((_n + 1))
-    LP_O="needs.classify.outputs.${_o} " yq -e \
-        '[.jobs[] | .if // "" | select(contains(strenv(LP_O)))] | length > 0' \
-        "${SELF_WF}" >/dev/null || _bad+="${_o} "
-  done < <(yq '.jobs.classify.outputs | keys | .[] | select(test("^select_"))' "${SELF_WF}")
-  [[ "${_n}" -ge 2 ]] || fail "expected classify's select_* outputs, read ${_n}"
-  [[ -z "${_bad}" ]] || fail "select_* outputs no job's if: reads: ${_bad}"
-}
-
-# why: review round 2 of base#1584 ran the lifted rollup step with every
-# classify answer `true` and WORKER_SELFTEST_RESULT=skipped: it exited 0,
-# while SYSTEM_RESULT=skipped under the same env exited 1. worker-selftest
-# gates on system_relevant and sat in the skip-tolerant loop with no row in
-# the skip table, and the row-by-row check above reads only rows that
-# exist, so a gated job with no row passed it. This case starts from the
-# jobs, not from the rollup's own lists: every job ci-rollup needs that
-# carries an `if:` is skipped in turn on a run where classify selected
-# everything, and the rollup must fail each one.
-@test "self-test: the rollup fails the skip of every gated job it needs when classify selected everything (base#1584)" {
-  local _job _var _n=0 _bad=""
-  while IFS= read -r _job; do
-    [[ -n "${_job}" ]] || continue
-    LP_J="${_job}" yq -e '.jobs[strenv(LP_J)].if // "" | length > 0' \
-        "${SELF_WF}" >/dev/null 2>&1 || continue
-    _n=$((_n + 1))
-    _var="$(LP_J="needs.${_job}.result" yq '.jobs."ci-rollup".steps[]
-        | select(.name == "Verify upstream jobs") | .env | to_entries[]
-        | select(.value | contains(strenv(LP_J))) | .key' "${SELF_WF}")"
-    if [[ -z "${_var}" ]]; then
-      _bad+="${_job} (no env key binds needs.${_job}.result)"$'\n'
-      continue
-    fi
-    run _rollup_selected "${_var}=skipped"
-    [[ "${status}" -eq 1 ]] \
-      || _bad+="${_job} (${_var}=skipped with every classify answer true exited ${status})"$'\n'
-  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
-  [[ "${_n}" -ge 9 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
-  [[ -z "${_bad}" ]] || fail "gated jobs whose classify-selected skip the rollup passes:
-${_bad}"
-}
-
-# why: the converse of the case above, and the behavioural form of the
-# old text pins on the rollup's success-or-skipped loop (#337, #802): a
-# gated job skips by design when the classify answer its own `if:` reads
-# is `false` (worker-selftest on a non-system PR, #802), and a rollup that
-# fails that skip blocks every such PR. For every job ci-rollup needs that
-# carries an `if:`, set that one answer `false` on a code change, skip the
-# job, and the rollup must pass.
-@test "self-test: the rollup passes the skip of every gated job it needs when its own if: answer is false (base#1584)" {
-  local _job _var _out _key _n=0 _bad=""
-  while IFS= read -r _job; do
-    [[ -n "${_job}" ]] || continue
-    LP_J="${_job}" yq -e '.jobs[strenv(LP_J)].if // "" | length > 0' \
-        "${SELF_WF}" >/dev/null 2>&1 || continue
-    _n=$((_n + 1))
-    _out="$(LP_J="${_job}" yq '.jobs[strenv(LP_J)].if' "${SELF_WF}" \
-        | sed -nE 's/.*needs\.classify\.outputs\.([a-z_]+).*/\1/p')"
-    _key="$(_rollup_env_for "${_out:-none}")"
-    _var="$(LP_J="needs.${_job}.result" yq '.jobs."ci-rollup".steps[]
-        | select(.name == "Verify upstream jobs") | .env | to_entries[]
-        | select(.value | contains(strenv(LP_J))) | .key' "${SELF_WF}")"
-    if [[ -z "${_key}" || -z "${_var}" ]]; then
-      _bad+="${_job} (if: reads '${_out}', rollup env key '${_key}', result key '${_var}')"$'\n'
-      continue
-    fi
-    run _rollup_selected CODE_CHANGED=true "${_key}=false" "${_var}=skipped"
-    [[ "${status}" -eq 0 ]] \
-      || _bad+="${_job} (${_key}=false ${_var}=skipped exited ${status})"$'\n'
-  done < <(yq '.jobs."ci-rollup".needs[]' "${SELF_WF}")
-  [[ "${_n}" -ge 9 ]] || fail "expected the gated jobs ci-rollup needs, read ${_n}"
-  [[ -z "${_bad}" ]] || fail "gated jobs whose classify-decided skip the rollup fails:
-${_bad}"
 }

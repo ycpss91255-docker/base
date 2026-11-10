@@ -81,34 +81,49 @@ _classify_push() {
 #   script/ci/testtools_paths.sh reads them relative to its own location
 #   (`../../dist/script/docker/lib/project_reclaim.sh` and the Dockerfile),
 #   which the link used to resolve into /source.
+#
+#   <path> `-` changes no plain file. CLASSIFY_BASE_HOOK and
+#   CLASSIFY_PR_HOOK, when set, name a function run in the repo before the
+#   base commit and before the PR commit, so a case can plant files on
+#   either side. The step's stderr is left in ${BATS_TEST_TMPDIR}/step.err.
 _classify_pr() {
-  local _p="${1:?BUG: _classify_pr expects a path}"
+  local _p="${1:?BUG: _classify_pr expects a path or -}"
   local _d="${BATS_TEST_TMPDIR}/pr" _t
   rm -rf "${_d}"
   mkdir -p "${_d}"
   for _t in script dist dockerfile; do
     cp -a "/source/${_t}" "${_d}/${_t}"
   done
-  mkdir -p "${_d}/$(dirname "${_p}")" "${_d}/doc"
+  mkdir -p "${_d}/doc"
   printf 'seed\n' > "${_d}/doc/seed.md"
-  printf 'a\n' > "${_d}/${_p}"
+  if [[ "${_p}" != - ]]; then
+    mkdir -p "${_d}/$(dirname "${_p}")"
+    printf 'a\n' > "${_d}/${_p}"
+  fi
   git -C "${_d}" init -q -b main
   git -C "${_d}" config user.email ci@example.invalid
   git -C "${_d}" config user.name ci
+  if [[ -n "${CLASSIFY_BASE_HOOK:-}" ]]; then
+    (cd "${_d}" && "${CLASSIFY_BASE_HOOK}") || return 2
+  fi
   git -C "${_d}" add -A
   git -C "${_d}" commit -q -m base
   git -C "${_d}" update-ref refs/remotes/origin/main HEAD
-  printf 'b\n' >> "${_d}/${_p}"
-  git -C "${_d}" commit -q -a -m change
-  yaml_step_run "${SELF_WF}" classify diff > "${_d}/step.sh"
-  [ -s "${_d}/step.sh" ] || return 2
-  : > "${_d}/out"
+  [[ "${_p}" == - ]] || printf 'b\n' >> "${_d}/${_p}"
+  if [[ -n "${CLASSIFY_PR_HOOK:-}" ]]; then
+    (cd "${_d}" && "${CLASSIFY_PR_HOOK}") || return 2
+  fi
+  git -C "${_d}" add -A
+  git -C "${_d}" commit -q -m change
+  yaml_step_run "${SELF_WF}" classify diff > "${BATS_TEST_TMPDIR}/step.sh"
+  [ -s "${BATS_TEST_TMPDIR}/step.sh" ] || return 2
+  : > "${BATS_TEST_TMPDIR}/out"
   (
     cd "${_d}" || return 2
-    env EVENT_NAME=pull_request BASE_REF=main GITHUB_OUTPUT="${_d}/out" \
-        bash step.sh
-  ) >/dev/null 2>&1
-  cat "${_d}/out"
+    env EVENT_NAME=pull_request BASE_REF=main GITHUB_OUTPUT="${BATS_TEST_TMPDIR}/out" \
+        bash "${BATS_TEST_TMPDIR}/step.sh"
+  ) >/dev/null 2>"${BATS_TEST_TMPDIR}/step.err"
+  cat "${BATS_TEST_TMPDIR}/out"
 }
 
 # _context_copy_paths
@@ -240,42 +255,201 @@ _context_copy_paths() {
   assert_line 'testtools_changed=true'
 }
 
-# why: base#1584 lets a pull request skip a heavy job its diff cannot
-# affect, and main must keep running everything (owner decision). The
-# rollup reads one select_<job> output per heavy job (config-gen,
-# mutation-roster, coverage, acceptance, system, as the issue names
-# them), and an empty output fails it. So the push arm, which is what
-# main runs, has to write every one of them as `true`.
-@test "classify: a push writes every heavy job's selection as true (base#1584)" {
-  run _classify_push doc/guide.md
-  assert_success
-  local _job _missed=""
-  for _job in select_config_gen select_mutation_roster select_coverage \
-              select_acceptance select_system; do
-    grep -qx "${_job}=true" <<< "${output}" \
-      || _missed="${_missed} ${_job}"
+# The nine classify-gated jobs as their select_* keys (design r7 sec. 2):
+# the jobs of self-test.yaml whose `if:` reads classify.
+SELECT_KEYS="select_config_gen select_coverage select_coverage_gate select_acceptance select_system select_worker_selftest select_shellcheck select_hadolint select_bats_fragile"
+
+# _assert_keys <output> <value> [<key>...] -- every select_* key named (all
+# nine when none is) is exactly <value> in <output>.
+_assert_keys() {
+  local _out="$1" _v="$2" _k _bad=""
+  shift 2
+  local _keys="${*:-${SELECT_KEYS}}"
+  for _k in ${_keys}; do
+    grep -qx "${_k}=${_v}" <<< "${_out}" || _bad+=" ${_k}"
   done
-  [[ -z "${_missed}" ]] || fail \
-      "a push run left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
+  [[ -z "${_bad}" ]] || fail "not ${_v}:${_bad}"$'\n'"output:"$'\n'"${_out}"
 }
 
-# why: base#1584 says a pull request touching a path the map does not
-# know runs every heavy job (fail closed). The map's own CLI already
-# answers that (check_selection_spec.bats), but the rollup and the job
-# gates read what classify's diff step WRITES, so the pull-request arm
-# of the real step has to carry the answer through. `zz-new/thing.txt`
-# names no directory the repo has, so no exclusion can apply to it.
-@test "classify: a pull request touching an unknown path writes every heavy job's selection as true (base#1584)" {
+# why: cycle 6. Main runs the full suite (owner decision, base#1584), so
+# the push arm writes all nine select_* keys `true`.
+@test "classify: a push writes every gated job's selection as true (base#1584)" {
+  run _classify_push doc/guide.md
+  assert_success
+  _assert_keys "${output}" true
+}
+
+# why: cycle 6. mutation-roster keeps main's form: no `if:` (roster row
+# selection belongs to base#1604), and the workflow's job list is main's
+# (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in
+# redesign r6).
+@test "self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)" {
+  run yq '.jobs."mutation-roster" | has("if")' "${SELF_WF}"
+  assert_output false
+  run yaml_job_names "${SELF_WF}"
+  assert_output "actionlint
+classify
+shellcheck
+doc-counts
+lint-static
+mutation-roster
+hadolint
+bats-fragile
+compute-shards
+coverage
+coverage-gate
+acceptance
+system
+worker-selftest
+config-gen
+ci-rollup
+release"
+}
+
+# why: cycle 24, the issue's fail-closed rule: a pull request touching a
+# path the map does not know runs every gated job. `zz-new/thing.txt`
+# names no directory the repo has.
+@test "classify: a pull request touching an unknown path writes every gated job's selection as true (base#1584)" {
   run _classify_pr zz-new/thing.txt
   assert_success
-  local _job _missed=""
-  for _job in select_config_gen select_mutation_roster select_coverage \
-              select_acceptance select_system; do
-    grep -qx "${_job}=true" <<< "${output}" \
-      || _missed="${_missed} ${_job}"
+  _assert_keys "${output}" true
+}
+
+# why: cycle 21 (RR3-F1). A docs path selects nothing: the map's doc row is
+# the code_changed allow-list (doc/**, README.md, LICENSE, CONTEXT.md). The
+# base commit holds a real copy of /source/script, so the real map and
+# deny list are read from the base through `git show`. Each value is
+# exact: a classify that never carries a `false` through fails here.
+@test "classify: a docs-only pull request writes every gated job's selection as false (base#1584)" {
+  run _classify_pr doc/x.md
+  assert_success
+  assert_line 'select_config_gen=false'
+  assert_line 'select_acceptance=false'
+  assert_line 'select_coverage=false'
+  assert_line 'select_system=false'
+  assert_line 'select_shellcheck=false'
+  _assert_keys "${output}" false
+}
+
+# why: cycle 22 (RR3-F1). A unit spec is a leaf (row E1): coverage and the
+# code checks run; config-gen, acceptance, system and worker-selftest do
+# not.
+@test "classify: a pull request changing one unit spec selects coverage and the code checks only (base#1584)" {
+  run _classify_pr test/bats/unit/ci_spec.bats
+  assert_success
+  assert_line 'select_config_gen=false'
+  assert_line 'select_acceptance=false'
+  assert_line 'select_system=false'
+  assert_line 'select_worker_selftest=false'
+  assert_line 'select_coverage=true'
+  _assert_keys "${output}" true select_coverage_gate select_shellcheck \
+      select_hadolint select_bats_fragile
+}
+
+# _base_map_fails -- the base side's map exits 1.
+_base_map_fails() {
+  printf 'exit 1\n' > script/ci/check_selection.sh
+}
+
+# _base_map_drops_acceptance -- the base side's map leaves out its
+# acceptance line.
+_base_map_drops_acceptance() {
+  sed -i 's/^main "\$@"$/main "$@" | grep -v "^acceptance="/' script/ci/check_selection.sh
+  grep -q 'grep -v "^acceptance="' script/ci/check_selection.sh
+}
+
+# why: cycle 23. A selection that exits non-zero gave no answer, and a
+# line the selection leaves out is no `false`: classify writes `true` for
+# both, and keeps the map's own values for every line it did print.
+@test "classify: a base map that fails or leaves a job out selects it (base#1584)" {
+  CLASSIFY_BASE_HOOK=_base_map_fails run _classify_pr doc/x.md
+  assert_success
+  _assert_keys "${output}" true
+  grep -q 'reason=base_map_failed' "${BATS_TEST_TMPDIR}/step.err" \
+    || fail "stderr: $(cat "${BATS_TEST_TMPDIR}/step.err")"
+  CLASSIFY_BASE_HOOK=_base_map_drops_acceptance run _classify_pr doc/x.md
+  assert_success
+  assert_line 'select_acceptance=true'
+  _assert_keys "${output}" false select_config_gen select_coverage \
+      select_coverage_gate select_system select_worker_selftest \
+      select_shellcheck select_hadolint select_bats_fragile
+}
+
+# _pr_map_selects_nothing_for_row5 -- the PR side's map: row 5 (`*`)
+# selects nothing (RR6-F1's mutant), which also changes the map itself.
+_pr_map_selects_nothing_for_row5() {
+  sed -i 's/^    \*) _cs_select "\${_CS_KEYS\[@\]}" ;;$/    *) : ;;/' script/ci/check_selection.sh
+  grep -q '^    \*) : ;;$' script/ci/check_selection.sh
+}
+
+# _pr_deny_list_adds_the_map -- the PR side's deny list names the map.
+_pr_deny_list_adds_the_map() {
+  sed -i 's|^PATHS$|script/ci/check_selection.sh\nPATHS|' script/ci/config_gen_paths.sh
+  grep -qx 'script/ci/check_selection.sh' script/ci/config_gen_paths.sh
+}
+
+# _pr_edits_the_readers -- the PR side changes only the readers script.
+_pr_edits_the_readers() {
+  printf '# edited\n' >> script/ci/config_gen_readers.sh
+}
+
+# why: cycle 26 (RR6-F1). A PR is judged by the BASE side's map, never its
+# own: a PR whose map selects nothing for an unknown path, and which
+# changes that map, would otherwise classify itself with it and skip every
+# job (RR6-F1's probe printed all five false). Each selection file a PR
+# edits is an unknown path to the base map, so every job runs.
+@test "classify: a pull request that edits a selection file is judged by the base map (base#1584)" {
+  CLASSIFY_PR_HOOK=_pr_map_selects_nothing_for_row5 run _classify_pr doc/x.md
+  assert_success
+  _assert_keys "${output}" true
+  CLASSIFY_PR_HOOK=_pr_deny_list_adds_the_map run _classify_pr -
+  assert_success
+  _assert_keys "${output}" true
+  CLASSIFY_PR_HOOK=_pr_edits_the_readers run _classify_pr -
+  assert_success
+  _assert_keys "${output}" true
+}
+
+# _base_without_map -- the base predates the map (main before base#1584);
+# the PR side restores the real files.
+_base_without_map() { rm -f script/ci/check_selection.sh; }
+_base_without_deny_list() { rm -f script/ci/config_gen_paths.sh; }
+_pr_restores_selection() {
+  cp /source/script/ci/check_selection.sh /source/script/ci/config_gen_paths.sh script/ci/
+}
+
+# why: cycle 27, the bootstrap. A base with no map or no deny list (main
+# when this change lands, and any older base) cannot judge the PR, so
+# every job runs, naming map_missing_on_base.
+@test "classify: a base without the map or its deny list selects every gated job (base#1584)" {
+  local _hook
+  for _hook in _base_without_map _base_without_deny_list; do
+    CLASSIFY_BASE_HOOK="${_hook}" CLASSIFY_PR_HOOK=_pr_restores_selection \
+      run _classify_pr doc/x.md
+    assert_success
+    _assert_keys "${output}" true
+    grep -q 'reason=map_missing_on_base' "${BATS_TEST_TMPDIR}/step.err" \
+      || fail "${_hook}: stderr: $(cat "${BATS_TEST_TMPDIR}/step.err")"
   done
-  [[ -z "${_missed}" ]] || fail \
-      "a pull request touching an unknown path left these selections unset or false:${_missed}"$'\n'"output:"$'\n'"${output}"
+}
+
+# why: cycle 29. The classify step cannot invent a `false`: its one
+# selection call is selection_at_base.sh, the only `false` it can write
+# for a select_* key is the one it read (`[[ "${val}" == "false" ]]`), and
+# no line writes a literal select_*=false.
+@test "classify: the diff step's only select_* false is the selection's own (base#1584)" {
+  local _step
+  _step="$(yaml_step_run "${SELF_WF}" classify diff | grep -v '^[[:space:]]*#')"
+  [[ -n "${_step}" ]] || fail "could not read classify's diff step"
+  run grep -c 'selection_at_base\.sh' <<< "${_step}"
+  assert_output 1
+  run grep -E 'check_selection\.sh' <<< "${_step}"
+  assert_failure
+  run grep -E 'select_[a-z_${}/-]*=false' <<< "${_step}"
+  assert_failure
+  local _lines
+  _lines="$(grep -E '\bval\b.*false|false.*\bval\b' <<< "${_step}" | sed 's/^[[:space:]]*//')"
+  assert_equal "${_lines}" '[[ "${val}" == "false" ]] || val=true'
 }
 
 # _chain_classify_outputs <classify-output> <assoc-name>
@@ -390,35 +564,115 @@ _chain_rollup() {
   env "${_env[@]}" bash "${BATS_TEST_TMPDIR}/chain-rollup.sh"
 }
 
-# why: base#1584 redesign r7, cycle 1, end to end on a PR that changes one
-# unit spec in no roster TSV. The expected set comes from the issue and the
-# design, not from the map: a unit spec cannot affect config-gen,
-# acceptance, system or worker-selftest, so those four skip; it is code,
-# so shellcheck, hadolint, bats-fragile, coverage and coverage-gate run;
-# and mutation-roster keeps main's form, no `if:` (roster row selection
-# belongs to base#1604), so it runs on every PR. Read through classify's
-# real step, its `outputs:` map, every job's parsed `if:` and the real
-# rollup step, so a gate that reads the wrong output, an output classify
-# does not export, or a classify that never carries a `false` all change
-# the set, and the rollup must pass the run that results.
-@test "chain: a PR changing one unit spec runs the code checks and mutation-roster, skips the other gated jobs, and the rollup passes (base#1584)" {
-  local _out _results _j _want _got _bad=""
-  _out="$(_classify_pr test/bats/unit/ci_spec.bats)"
-  run _chain_results "${_out}"
-  assert_success
-  _results="${output}"
-  for _want in shellcheck=success hadolint=success bats-fragile=success \
-               coverage=success coverage-gate=success \
-               mutation-roster=success \
-               config-gen=skipped acceptance=skipped system=skipped \
-               worker-selftest=skipped; do
+# _chain_check <results> <job=result>... -- every named job got that result.
+_chain_check() {
+  local _results="$1" _want _j _got _bad=""
+  shift
+  for _want in "$@"; do
     _j="${_want%%=*}"
     _got="$(awk -v j="${_j}" '$1 == j {print $2}' <<< "${_results}")"
     [[ "${_got}" == "${_want#*=}" ]] || _bad+="${_j}: want ${_want#*=}, got ${_got:-<none>}"$'\n'
   done
   [[ -z "${_bad}" ]] || fail "the run set differs:
-${_bad}classify wrote:
-${_out}"
+${_bad}"
+}
+
+# _gated_jobs -- the jobs whose parsed `if:` is neither `always()` nor a
+# tag test: the jobs a classify output gates.
+_gated_jobs() {
+  yq '.jobs | to_entries[] | select((.value.if // "") != ""
+        and .value.if != "always()"
+        and (.value.if | test("^startsWith") | not)) | .key' "${SELF_WF}"
+}
+
+# why: cycle 1, end to end on a PR that changes one unit spec. The expected
+# set comes from the issue and the design, not from the map: a unit spec
+# cannot affect config-gen, acceptance, system or worker-selftest, so
+# those four skip; it is code, so shellcheck, hadolint, bats-fragile,
+# coverage and coverage-gate run; and mutation-roster keeps main's form,
+# no `if:` (roster row selection belongs to base#1604), so it runs on
+# every PR. Read through classify's real step, its `outputs:` map, every
+# job's parsed `if:` and the real rollup step, so a gate that reads the
+# wrong output, an output classify does not export, or a classify that
+# never carries a `false` all change the set, and the rollup must pass
+# the run that results.
+@test "chain: a PR changing one unit spec runs the code checks and mutation-roster, skips the other gated jobs, and the rollup passes (base#1584)" {
+  local _out _results
+  _out="$(_classify_pr test/bats/unit/ci_spec.bats)"
+  run _chain_results "${_out}"
+  assert_success
+  _results="${output}"
+  _chain_check "${_results}" shellcheck=success hadolint=success \
+      bats-fragile=success coverage=success coverage-gate=success \
+      mutation-roster=success config-gen=skipped acceptance=skipped \
+      system=skipped worker-selftest=skipped
   run _chain_rollup "${_out}" "${_results}"
   assert_success
+}
+
+# why: cycle 2. A docs-only PR skips all nine gated jobs, still runs
+# mutation-roster (no `if:`), and the rollup passes and says so.
+@test "chain: a docs-only PR skips every gated job, runs mutation-roster, and the rollup passes as doc-only (base#1584)" {
+  local _out _results _j
+  local -a _want=(mutation-roster=success)
+  _out="$(_classify_pr doc/x.md)"
+  run _chain_results "${_out}"
+  assert_success
+  _results="${output}"
+  while IFS= read -r _j; do
+    [[ -n "${_j}" ]] && _want+=("${_j}=skipped")
+  done < <(_gated_jobs)
+  [[ "${#_want[@]}" -eq 10 ]] || fail "expected nine gated jobs, read $(( ${#_want[@]} - 1 ))"
+  _chain_check "${_results}" "${_want[@]}"
+  run _chain_rollup "${_out}" "${_results}"
+  assert_success
+  assert_output --partial 'Passed as a doc-only change'
+}
+
+# why: cycle 3, issue criterion 1: a workflow change, a driver change and
+# an unknown path each skip no gated job.
+@test "chain: a workflow, driver or unknown-path PR skips no gated job (base#1584)" {
+  local _p _out _results _j
+  for _p in .github/workflows/self-test.yaml script/test/drivers/bats.sh zz-new/thing.txt; do
+    _out="$(_classify_pr "${_p}")"
+    run _chain_results "${_out}"
+    assert_success
+    _results="${output}"
+    local -a _want=()
+    while IFS= read -r _j; do
+      [[ -n "${_j}" ]] && _want+=("${_j}=success")
+    done < <(_gated_jobs)
+    _chain_check "${_results}" "${_want[@]}"
+  done
+}
+
+# why: cycle 4. One source for every gate: the jobs a classify output
+# gates, the nine names of design r7, the map's --jobs and classify's loop
+# list are the same set, each such job reads its own select_* key, and
+# skipping any one of them while its key is `true` fails the rollup.
+@test "chain: the gated jobs, the map's job list and classify's loop are one set, and each selected skip fails the rollup (base#1584)" {
+  local _gated _map _loop _nine _j _k _if
+  _nine="$(printf '%s\n' config-gen coverage coverage-gate acceptance system \
+      worker-selftest shellcheck hadolint bats-fragile | LC_ALL=C sort)"
+  _gated="$(_gated_jobs | LC_ALL=C sort)"
+  _map="$(bash /source/script/ci/check_selection.sh --jobs | LC_ALL=C sort)"
+  _loop="$(yaml_step_run "${SELF_WF}" classify diff \
+      | awk '/for job in config-gen/ {f = 1} f {print} f && /; do$/ {exit}' \
+      | sed -e 's/for job in//' -e 's/; do//' -e 's/\\$//' | tr -s ' \n' '\n' \
+      | sed '/^$/d' | LC_ALL=C sort)"
+  assert_equal "${_gated}" "${_nine}"
+  assert_equal "${_map}" "${_nine}"
+  assert_equal "${_loop}" "${_nine}"
+  local _out _results _bad=""
+  _out="$(_classify_pr zz-new/thing.txt)"
+  _results="$(_chain_results "${_out}")"
+  while IFS= read -r _j; do
+    _k="select_${_j//-/_}"
+    _if="$(LP_J="${_j}" yq '.jobs[strenv(LP_J)].if' "${SELF_WF}")"
+    [[ "${_if}" == "needs.classify.outputs.${_k} == 'true'" ]] \
+      || _bad+="${_j}: if: is '${_if}'"$'\n'
+    run _chain_rollup "${_out}" "$(sed -E "s/^${_j} .*/${_j} skipped/" <<< "${_results}")"
+    [[ "${status}" -eq 1 ]] || _bad+="${_j}: a skip with ${_k}=true exited ${status}"$'\n'
+  done <<< "${_nine}"
+  [[ -z "${_bad}" ]] || fail "${_bad}"
 }
