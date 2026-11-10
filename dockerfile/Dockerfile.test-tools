@@ -347,6 +347,18 @@ FROM alpine-apk
 # dockerfile/Dockerfile.toml-bridge keeps it for the runtimes that need
 # it. Measured cost of the package on alpine 3.22: 8.3 MB -> 49.2 MB for
 # a bare alpine, about +41 MB uncompressed on a 350 MB image.
+# util-linux-misc (base#1469): the config-gen output-failure spec
+# (test/bats/integration/config_gen_bridge_golden_spec.bats) needs
+# `prlimit --fsize` to make the binary's one stdout write take some bytes
+# and then fail with EFBIG (a partial write that is an error); /dev/full
+# only ever takes 0 bytes, with ENOSPC. Both reach the command's write
+# error branch; a short count with no error is reached only by the
+# in-process fault writer. busybox has no prlimit applet. The package
+# is `util-linux-misc`, not `util-linux`: it is the split package that owns
+# /usr/bin/prlimit in main on both architectures this image publishes on
+# this Alpine branch, while the `util-linux` meta package pulls the rest
+# of util-linux in with it. Measured cost on alpine 3.22: this image went
+# from 386,330,098 to 389,644,208 bytes, about +3.3 MB uncompressed.
 # jq: config_gen_redpath.sh reads the runner's JSON records with it (the
 # stale case's file and reason attributes, base#1465), and the redpath
 # spec runs that script inside this image as the host runs it outside.
@@ -357,7 +369,7 @@ FROM alpine-apk
 # package that needed a version of its own -- just, the runner the whole
 # downstream contract is written in -- moved to a pinned upstream release
 # in the just-runner stage above.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 jq \
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 util-linux-misc jq \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats

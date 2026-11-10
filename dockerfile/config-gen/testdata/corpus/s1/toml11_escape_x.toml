@@ -1,0 +1,6 @@
+# toml11_escape_x: TOML 1.1 adds the \xHH string escape (base#1469).
+[env]
+A = "\x41"
+
+[env.extra]
+B = "b"

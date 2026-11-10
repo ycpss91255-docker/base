@@ -47,13 +47,15 @@
 // the source left as it is) against <root>; a red baseline prints
 // `<pkg> failed reason=baseline_failed`. The packages whose trace holds a
 // golden are its consumers. In a copy of <root> under the existing
-// directory <work>, each golden in turn has its first byte flipped and
-// each consumer runs its tests with the real Glob against the copy: one
-// that still passes prints `cg_event config_gen_corpus_sensitivity_weak
-// pkg= file=` on stdout. A golden with no consumer prints `golden=<file>
-// consumers none`, an empty one `golden=<file> failed reason=empty`. After
-// the last golden any weak pair or empty golden puts
-// `config_gen_gate_corpus_sensitivity_failed` on stderr.
+// directory <work>, each golden in turn has its first byte flipped (an
+// empty golden is given the one byte 0xff) and each consumer runs its
+// tests with the real Glob against the copy: one that still passes prints
+// `cg_event config_gen_corpus_sensitivity_weak pkg= file=` on stdout. The
+// golden is then put back as it was. A golden with no consumer prints
+// `golden=<file> consumers none`. After the last golden any weak pair puts
+// `config_gen_gate_corpus_sensitivity_failed` on stderr. A golden the
+// flip or the put-back cannot write stops the run at once with that id
+// and reason=unwritable on stderr.
 //
 // ignored (base#1467) refuses a build context holding a Git-ignored module
 // file: each path the producer's ignored.sha256 <file> lists that the
@@ -258,6 +260,10 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unreadable\n", err, sensitivityFailed)
 		return exitFail
 	}
+	unwritable := func(err error) int {
+		_, _ = fmt.Fprintf(stderr, "cg-gates: sensitivity: %v\n%s reason=unwritable\n", err, sensitivityFailed)
+		return exitFail
+	}
 	wd, _ := os.Getwd()
 	tc := filepath.Join(wd, "internal", "testcorpus")
 	pkgs, err := goList()
@@ -287,10 +293,12 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 		os.CopyFS(flip, os.DirFS(*root)),
 	)
 	var goldens []string
+	bodies := map[string][]byte{}
 	if err == nil {
 		err = filepath.WalkDir(filepath.Join(flip, "golden"), func(p string, d fs.DirEntry, err error) error {
 			if err == nil && d.Type().IsRegular() {
 				goldens = append(goldens, p)
+				bodies[p], err = os.ReadFile(p)
 			}
 			return err
 		})
@@ -323,10 +331,12 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stdout, "golden=%s consumers none\n", g)
 			continue
 		}
-		if err := flipFirst(p); err != nil {
-			_, _ = fmt.Fprintf(stdout, "golden=%s failed reason=empty\n", g)
-			bad = true
-			continue
+		// A write that fails can leave the golden truncated or partly
+		// written, and a consumer run on it, or on the next golden's flip
+		// with this one never put back, says nothing about its
+		// sensitivity: the gate fails at once (base#1469 review round 2).
+		if err := os.WriteFile(p, perturbed(bodies[p]), 0o644); err != nil {
+			return unwritable(err)
 		}
 		for _, rel := range users {
 			cmd := exec.Command("go", "test", "-count=1", x+flip, "./"+rel)
@@ -336,7 +346,9 @@ func sensitivity(args []string, stdout, stderr io.Writer) int {
 				bad = true
 			}
 		}
-		_ = flipFirst(p)
+		if err := os.WriteFile(p, bodies[p], 0o644); err != nil {
+			return unwritable(err)
+		}
 	}
 	if bad {
 		_, _ = fmt.Fprintln(stderr, sensitivityFailed)
@@ -383,18 +395,17 @@ func goList() ([]buildgate.Package, error) {
 	return buildgate.DecodeList(list)
 }
 
-// flipFirst inverts the first byte of the file p; an empty file is an
-// error.
-func flipFirst(p string) error {
-	b, err := os.ReadFile(p)
-	if err == nil && len(b) == 0 {
-		err = errors.New("empty")
+// perturbed is a copy of b with its first byte inverted, or the one byte
+// 0xff when b is empty, so a test comparing against a golden sees other
+// bytes either way: an input with no tables has an empty golden
+// (base#1469: the s1 fixtures empty.toml, comment_only.toml, seed.toml).
+func perturbed(b []byte) []byte {
+	if len(b) == 0 {
+		return []byte{0xff}
 	}
-	if err != nil {
-		return err
-	}
-	b[0] ^= 0xff
-	return os.WriteFile(p, b, 0o644)
+	out := append([]byte(nil), b...)
+	out[0] ^= 0xff
+	return out
 }
 
 // osExit is swapped by the tests so main itself is exercised.

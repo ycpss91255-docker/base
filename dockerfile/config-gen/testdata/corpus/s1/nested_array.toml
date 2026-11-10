@@ -1,0 +1,6 @@
+[deploy]
+args = []
+env = [{ k = "v" }]
+
+[deploy.inner]
+list = [[1], [2]]
