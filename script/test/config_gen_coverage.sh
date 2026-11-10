@@ -124,6 +124,10 @@ main() {
   _CG_X="${x}"
   if [[ "${2:-}" == --profile ]]; then
     [[ -f "${3:-}" ]] || _refuse profile_invalid
+    # One `mode: atomic` header and no other mode line (base#1547): _split
+    # keeps only line 1 as the header, so a second one would be dropped.
+    awk 'NR == 1 && $0 == "mode: atomic" { next } /^mode:/ { bad = 1 }
+      END { exit (NR == 0 || bad) }' "${3}" || _refuse profile_invalid
     merged="${3}"
   fi
   listing="$(go list -f '{{.ImportPath}}' ./...)" || _refuse list_failed
