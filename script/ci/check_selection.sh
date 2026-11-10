@@ -21,6 +21,24 @@ _cs_usage() {
   printf 'usage: %s --event <event> --paths\n' "${0##*/}" >&2
 }
 
+# _cs_in_roster <spec>
+#   Succeeds when a script/test/mutation_required/*.tsv row names <spec>
+#   in its third (spec) column, or when a roster TSV cannot be read, so
+#   an unreadable roster keeps the job.
+_cs_in_roster() {
+  local _spec="$1" _dir _tsv _found=1
+  _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../test/mutation_required" 2>/dev/null && pwd)" || return 0
+  local -a _tsvs=("${_dir}"/*.tsv)
+  [[ -r "${_tsvs[0]}" ]] || return 0
+  for _tsv in "${_tsvs[@]}"; do
+    [[ -r "${_tsv}" ]] || return 0
+    if awk -F'\t' -v s="${_spec}" '!/^#/ && $3 == s { f = 1 } END { exit !f }' "${_tsv}"; then
+      _found=0
+    fi
+  done
+  return "${_found}"
+}
+
 main() {
   local _event="" _from_stdin=0
   while (($# > 0)); do
@@ -79,6 +97,16 @@ main() {
         for _job in "${_CS_JOBS[@]}"; do
           [[ "${_job}" == config-gen ]] || _sel["${_job}"]=true
         done
+        ;;
+      # E1: a unit spec is a leaf -- no file under test/ or script/ loads
+      # or sources a `*_spec.bats` -- so config-gen and acceptance never
+      # execute it, and script/ci/system_paths.sh lists test/bats/system
+      # only, not test/bats/unit. It keeps coverage, and keeps
+      # mutation-roster when a roster TSV names it in its spec column or
+      # the roster cannot be read (base#1584).
+      test/bats/unit/*_spec.bats)
+        _sel[coverage]=true
+        if _cs_in_roster "${_path}"; then _sel[mutation-roster]=true; fi
         ;;
       *)
         for _job in "${_CS_JOBS[@]}"; do _sel["${_job}"]=true; done
