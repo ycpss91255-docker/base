@@ -554,3 +554,56 @@ _triggerable_workflows_without_a_declared_default() {
     fi
   done
 }
+
+# _rollup_skip_rows
+#   The rollup's skip table, one `<job> <env-var>` line per row: the job
+#   whose skip it may excuse and the env key holding the classify answer
+#   that excuses it. Read from the lifted `Verify upstream jobs` step, so
+#   the rows are the ones the rollup actually runs.
+_rollup_skip_rows() {
+  yaml_step_run "${SELF_WF}" ci-rollup 'Verify upstream jobs' \
+    | sed -nE 's/^[[:space:]]*\$\{[A-Z_]+_RESULT:--\} \$\{([A-Z_]+):--\} ([a-z-]+)[[:space:]]*$/\2 \1/p'
+}
+
+# why: review round 1 of base#1584 found select_mutation_roster and
+# select_acceptance read only by ci-rollup: mutation-roster had no `if:`
+# and acceptance gated on code_changed, so the skips the rollup was taught
+# to excuse were skips classify could never cause, and a PR still paid
+# for both jobs on every code change. A skip is a decision only when the
+# job itself runs under the answer the rollup excuses it with. So for
+# every row of the rollup's skip table, the job's own `if:` must read the
+# same classify output the row's env key binds.
+@test "self-test: every job whose skip the rollup excuses gates its own if: on the classify output that excuses it (base#1584)" {
+  local _job _var _out _if _n=0 _bad=""
+  while read -r _job _var; do
+    [[ -n "${_job}" ]] || continue
+    _n=$((_n + 1))
+    _out="$(LP_V="${_var}" yq '.jobs."ci-rollup".steps[]
+        | select(.name == "Verify upstream jobs") | .env[strenv(LP_V)]' \
+        "${SELF_WF}" | sed -nE 's/.*needs\.classify\.outputs\.([a-z_]+).*/\1/p')"
+    _if="$(LP_J="${_job}" yq '.jobs[strenv(LP_J)].if // ""' "${SELF_WF}")"
+    if [[ -z "${_out}" || "${_if}" != *"needs.classify.outputs.${_out} "* ]]; then
+      _bad+="${_job} (rollup excuses it with ${_var}=${_out:-?}, its if: is '${_if}')"$'\n'
+    fi
+  done < <(_rollup_skip_rows)
+  [[ "${_n}" -ge 9 ]] || fail "expected the rollup's skip table, read ${_n} rows"
+  [[ -z "${_bad}" ]] || fail "jobs whose skip classify can never cause:
+${_bad}"
+}
+
+# why: the converse of the case above. A select_<job> output classify
+# exposes but no job's `if:` reads selects nothing: the job runs on every
+# PR whatever the map says (base#1584 review round 1). Every select_*
+# output must be read by the `if:` of at least one job.
+@test "self-test: every select_* output classify exposes is read by some job's if: (base#1584)" {
+  local _o _n=0 _bad=""
+  while IFS= read -r _o; do
+    [[ -n "${_o}" ]] || continue
+    _n=$((_n + 1))
+    LP_O="needs.classify.outputs.${_o} " yq -e \
+        '[.jobs[] | .if // "" | select(contains(strenv(LP_O)))] | length > 0' \
+        "${SELF_WF}" >/dev/null || _bad+="${_o} "
+  done < <(yq '.jobs.classify.outputs | keys | .[] | select(test("^select_"))' "${SELF_WF}")
+  [[ "${_n}" -ge 3 ]] || fail "expected classify's select_* outputs, read ${_n}"
+  [[ -z "${_bad}" ]] || fail "select_* outputs no job's if: reads: ${_bad}"
+}

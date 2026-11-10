@@ -290,3 +290,48 @@ coverage=false
 acceptance=false
 system=false"
 }
+
+# _assert_all_selected <path>
+#   The map, run on a pull request whose whole diff is <path>, selects
+#   all five heavy jobs.
+_assert_all_selected() {
+  run _select pull_request "$1"
+  assert_success
+  assert_output "config-gen=true
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
+
+# why: the issue's rule, "Changes to the map, the workflow, the test
+# drivers (script/test/**) or shared libraries select every job", and its
+# acceptance criterion that a spec proves fail-closed on a workflow change
+# and a driver change. Review round 1 replaced the map's
+# script/watch|test|ci row with a pattern that never matches and every
+# existing spec still passed. self-test.yaml is the workflow every heavy
+# job is defined in, so editing it can change any of them.
+@test "check_selection: a pull request touching only the self-test workflow selects every heavy job (base#1584)" {
+  _assert_all_selected .github/workflows/self-test.yaml
+}
+
+# why: script/test/drivers/ holds the drivers the heavy jobs run their
+# suites through (the issue names script/test/** as select-every-job),
+# so a driver change can change any job's verdict.
+@test "check_selection: a pull request touching only a test driver selects every heavy job (base#1584)" {
+  _assert_all_selected script/test/drivers/bats.sh
+}
+
+# why: the issue's rule names the map itself: a change to
+# script/ci/check_selection.sh changes which jobs every later PR runs, so
+# the PR that makes it must run all of them.
+@test "check_selection: a pull request touching only the selection map selects every heavy job (base#1584)" {
+  _assert_all_selected script/ci/check_selection.sh
+}
+
+# why: the issue names test/** helpers and fixtures with the drivers.
+# test_helper.bash is loaded by every unit spec, so it is not a leaf the
+# way a `*_spec.bats` is.
+@test "check_selection: a pull request touching only the shared unit test helper selects every heavy job (base#1584)" {
+  _assert_all_selected test/bats/unit/test_helper.bash
+}
