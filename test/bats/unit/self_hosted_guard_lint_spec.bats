@@ -60,7 +60,8 @@ _workflow() {
 _guard_lines() {
   printf '%s\n' \
     "    if: >-" \
-    "      github.event_name != 'pull_request' ||" \
+    "      github.event_name != 'pull_request' &&" \
+    "      github.event_name != 'merge_group' ||" \
     "      github.event.pull_request.head.repo.full_name == github.repository"
 }
 
@@ -365,7 +366,8 @@ _guard_lines() {
     '    needs: [path-filter]' \
     '    if: >-' \
     "      needs.path-filter.outputs.code_changed == 'true' &&" \
-    "      (github.event_name != 'pull_request' ||" \
+    "      (github.event_name != 'pull_request' &&" \
+    "      github.event_name != 'merge_group' ||" \
     '      github.event.pull_request.head.repo.full_name == github.repository)' \
     '    runs-on: self-hosted' \
     '    steps:' \

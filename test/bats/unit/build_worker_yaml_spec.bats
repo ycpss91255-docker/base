@@ -895,7 +895,8 @@ _classify() {
   run yaml_job_lines "${WF}" build
   assert_success
   assert_output --partial "needs.path-filter.outputs.code_changed == 'true' &&"
-  assert_output --partial "(github.event_name != 'pull_request' ||"
+  assert_output --partial "(github.event_name != 'pull_request' &&"
+  assert_output --partial "github.event_name != 'merge_group' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository)'
 }
 

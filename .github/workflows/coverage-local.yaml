@@ -75,7 +75,8 @@ jobs:
   coverage-local:
     name: Full-suite kcov, ${{ inputs.jobs || 'nproc' }} parallel processes
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gpu]
     # This bounds the WORST LEGAL DISPATCH, not the fast one. On the
@@ -155,7 +156,8 @@ jobs:
     # The canonical fork guard, the same one coverage-local carries above:
     # self_hosted_guard.sh requires it of every self-hosted-eligible job.
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gpu]
     # The self-hosted leg of `just test go`: the SAME command the hosted

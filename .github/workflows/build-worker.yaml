@@ -393,7 +393,8 @@ jobs:
     # this job would build. Enforced by the self-hosted-guard lint.
     if: >-
       needs.path-filter.outputs.code_changed == 'true' &&
-      (github.event_name != 'pull_request' ||
+      (github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       fail-fast: false
