@@ -1688,6 +1688,85 @@ YAML
     || fail "the self-hosted guard lint is in ${_hits} lint-static groups; a fork-PR guard that runs in none gates nothing"
 }
 
+# why: A merge_group payload has no pull_request object, so only the API
+# can say whether a queued group is same-repository; classify must ask it
+# on merge_group and publish the answer, failing closed (base#1587)
+@test "self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)" {
+  # Expected literals are the approved design's (design-r2 section 2):
+  # job permissions `contents: read` + `pull-requests: read`, a step
+  # `id: trust` gated `if: github.event_name == 'merge_group'` that runs
+  # script/ci/merge_group_trust.sh, and the output
+  # `merge_group_same_repo: ${{ steps.trust.outputs.same_repo || 'false' }}`
+  # so a skipped step (push, pull_request) reads as untrusted.
+  local _classify _id
+  _classify="$(yaml_job_lines "${WF}" classify)"
+  _id="$(yaml_step_id_for "${WF}" classify 'merge_group_trust\.sh')"
+  [ "${_id}" = "trust" ] \
+    || fail "no classify step with id 'trust' runs merge_group_trust.sh (got '${_id}')"
+  run grep -F "if: github.event_name == 'merge_group'" <<<"${_classify}"
+  assert_success
+  run grep -F "merge_group_same_repo: \${{ steps.trust.outputs.same_repo || 'false' }}" <<<"${_classify}"
+  assert_success
+  run grep -F 'pull-requests: read' <<<"${_classify}"
+  assert_success
+  run grep -F 'contents: read' <<<"${_classify}"
+  assert_success
+  # merge_group_trust.sh reads these five names (`: "${X:?}"` under
+  # set -e, gh reads GH_TOKEN); a missing one exits non-zero and turns
+  # classify red on every queue run, so each must map to its payload field.
+  run _yaml_eval "${WF}" '.jobs.classify.steps[] | select(.id == "trust") | .env | to_entries | .[] | .key + "=" + .value'
+  assert_success
+  assert_output - <<'EOF'
+GH_TOKEN=${{ github.token }}
+REPO=${{ github.repository }}
+BASE_REF=${{ github.event.merge_group.base_ref }}
+HEAD_SHA=${{ github.event.merge_group.head_sha }}
+HEAD_REF=${{ github.event.merge_group.head_ref }}
+EOF
+}
+
+# why: build-worker's merge_group_same_repo input defaults to 'false', so a
+# worker-selftest that passes nothing would skip `build` on every queue run
+# and fail the gate even for a proven same-repo group (base#1587)
+@test "self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # `merge_group_same_repo: ${{ needs.classify.outputs.merge_group_same_repo }}`.
+  run _yaml_eval "${WF}" '.jobs["worker-selftest"].with.merge_group_same_repo'
+  assert_success
+  assert_output '${{ needs.classify.outputs.merge_group_same_repo }}'
+}
+
+# why: On merge_group the build guard skips `build` unless classify proved
+# the group same-repository, and SKIPPED is pass-equivalent in the rollup;
+# the rollup must apply the fork rule there too, or an unproven queue group
+# would go green on a build that never ran (base#1587)
+@test "self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)" {
+  # Expected literal is the approved design's (design-r2 section 2):
+  # today's pull_request expression, `||` the merge_group term that reads
+  # classify's merge_group_same_repo and fails closed on anything but 'true'.
+  run _yaml_eval "${WF}" '.jobs["ci-rollup"].steps[] | select(.env.IS_FORK_PR != null) | .env.IS_FORK_PR'
+  assert_success
+  assert_output "\${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && needs.classify.outputs.merge_group_same_repo != 'true' }}"
+}
+
+# why: IS_FORK_PR is now also true for a merge group not proven
+# same-repository, so the rollup's red must say that case too, or a queue
+# run reads as a fork PR that does not exist (base#1587)
+@test "self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)" {
+  # Runs the verify step itself (helpers _rollup_script/_rollup_needs_json
+  # below), every need success, IS_FORK_PR=true. Expected wording is the
+  # approved design's (design-r2 section 2): the error text names
+  # "or a merge group not proven same-repository".
+  local _script _json
+  _script="$(_rollup_script "${WF}")"
+  _json="$(_rollup_needs_json "${WF}")"
+  run env -i PATH="${PATH}" NEEDS_JSON="${_json}" IS_FORK_PR=true \
+      bash --noprofile --norc -eo pipefail -c "${_script}"
+  assert_failure 1
+  assert_output --partial '::error::'
+  assert_output --partial 'or a merge group not proven same-repository'
+}
+
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
 # branches: filter here would leave every proposal green with zero checks
 @test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
@@ -1703,6 +1782,18 @@ YAML
   assert_success
   refute_output --partial 'branches:'
   refute_output --partial 'branches-ignore:'
+}
+
+# why: A merge queue only runs the suite on the queued group when the
+# workflow listens for merge_group; without the trigger the queue's
+# required checks never report and nothing reaches main (base#1587)
+@test "self-test.yaml: on: listens for merge_group checks_requested (base#1587)" {
+  # GitHub's merge queue fires `merge_group` with the single activity type
+  # `checks_requested`. The literal below is that documented type name,
+  # not a value read back from the workflow.
+  run yq -o=json -I=0 '.on.merge_group.types' "${WF}"
+  assert_success
+  assert_output '["checks_requested"]'
 }
 
 # why: A PR is the only moment pin-coverage can fire; with no CI join it

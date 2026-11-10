@@ -198,7 +198,8 @@ jobs:
     # dispatch release flow, and every non-PR event passes on the first
     # disjunct. Enforced by the self-hosted-guard lint.
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
@@ -370,7 +371,8 @@ jobs:
     # runner, not a condition on whether to publish -- nothing here lets a
     # run reach the end having published nothing (#1171).
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository
     # Registry calls and no build, as before -- plus a pull and a run of
     # ONE architecture's image, which for a devel-stage publish is the

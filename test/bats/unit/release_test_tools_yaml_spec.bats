@@ -1710,7 +1710,8 @@ YAML
   # adding one later cannot open the hole silently.
   run yaml_job_lines "${WF}" build
   assert_success
-  assert_output --partial "github.event_name != 'pull_request' ||"
+  assert_output --partial "github.event_name != 'pull_request' &&"
+  assert_output --partial "github.event_name != 'merge_group' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
 }
 

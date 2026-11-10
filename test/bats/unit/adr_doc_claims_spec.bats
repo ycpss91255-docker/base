@@ -630,11 +630,13 @@ _write_adr() {
 # and `branches:` are keys inside the `on:` block too, and admitting `tags`
 # would let the word "tag", the very word R1 is triggered by, excuse every
 # block R1 exists to read. Pinned on the real self-test.yaml, whose `on:`
-# has both a nested `tags:` and a nested `branches:`.
+# has both a nested `tags:` and a nested `branches:`. Its events include
+# `merge_group:`, the merge queue trigger base#1587 added.
 @test "R1: a workflow's statable triggers are its events, never its filters (#726)" {
   run _adr_wf_statable_triggers "${REPO}/.github/workflows/self-test.yaml"
   assert_success
-  assert_output 'pull_request
+  assert_output 'merge_group
+pull_request
 workflow_dispatch'
 }
 
