@@ -25,7 +25,11 @@
 #                step, or a step with no <step>.inputs, is refused as usage,
 #                status 2, before any step (base#1547). Each step run
 #                streams `config-gen stage=<step> start= end= secs=
-#                status=` to stderr. Each directory a step leaves under
+#                status=` to stderr. Once every step passed, and
+#                CONFIG_GEN_STEPS_VERDICT_OUT names a file, the runner
+#                writes `digest=<D> steps=<step>,... status=0` there: the
+#                steps with a .inputs that ran, and their
+#                _cg_inputs_digest D (base#1547). Each directory a step leaves under
 #                CONFIG_GEN_CTX becomes a named build context,
 #                `--build-context <name>=<path>`, so a later slice's inputs
 #                reach the build
@@ -136,6 +140,7 @@ _cg_run_steps() {
     fi
     rc=0
     start="$(_cg_now)"
+    [[ ! -f "${step%.sh}.inputs" ]] || _CG_DECLARED+=("${name}")
     CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || rc=$?
     _cg_stage_line "${name}" "${start}" "$(_cg_now)" "${rc}"
     if (( rc != 0 )); then
@@ -144,6 +149,23 @@ _cg_run_steps() {
       exit "${rc}"
     fi
   done
+}
+
+# _CG_DECLARED -- the steps with a .inputs that _cg_run_steps ran, in run
+# order: the ones whose verdict _cg_steps_verdict can write.
+_CG_DECLARED=()
+
+# _cg_steps_verdict <root> -- once every step passed, write
+# `digest=<D> steps=<step>,... status=0` to CONFIG_GEN_STEPS_VERDICT_OUT
+# when that is set, D being _cg_inputs_digest over _CG_DECLARED on <root>:
+# the line the redpath's CONFIG_GEN_STEPS_VERDICT reuses in place of its
+# shared pass, so `just test go` runs those steps once (base#1547).
+_cg_steps_verdict() {
+  local d steps
+  [[ -n "${CONFIG_GEN_STEPS_VERDICT_OUT:-}" && ${#_CG_DECLARED[@]} -gt 0 ]] || return 0
+  d="$(cd "${1}" && _cg_inputs_digest "${_CG_DECLARED[@]}")" || exit $?
+  steps="$(IFS=,; printf '%s' "${_CG_DECLARED[*]}")"
+  printf 'digest=%s steps=%s status=0\n' "${d}" "${steps}" >"${CONFIG_GEN_STEPS_VERDICT_OUT}"
 }
 
 # _cg_context_args <ctx> -- one `--build-context <name>=<path>` pair per
@@ -301,7 +323,10 @@ main() {
   # shellcheck disable=SC2064 # expand ${tmp} now; it is local to main
   trap "rm -rf '${tmp}'" EXIT
   mkdir "${tmp}/ctx"
+  # A verdict file left by an earlier run must not outlive a red step here.
+  [[ -z "${CONFIG_GEN_STEPS_VERDICT_OUT:-}" ]] || rm -f -- "${CONFIG_GEN_STEPS_VERDICT_OUT}"
   _cg_run_steps "${root}" "${tmp}/ctx"
+  _cg_steps_verdict "${root}"
   (( steps_only == 0 )) || return 0
   local -a ctx_args=()
   local ctx_list
