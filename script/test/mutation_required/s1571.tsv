@@ -2,7 +2,7 @@
 # baseline per spec, one sandbox per worker slot, the witness filter and
 # the seconds-weighted deal) requires script/test/mutation-probe.sh to
 # report PINNED. One row per behaviour:
-# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new> TAB <witness>, the contract of
 # script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
 # written with the three escapes \\ \t \n. `just test mutation-required`
@@ -23,9 +23,9 @@
 # - filter-no-fallback: a --filter mutated pass that stays green is a
 #   verdict, never followed by the whole spec.
 # - deal-by-index: --shard deals rows in roster order, not heaviest first.
-baseline-key-tree-hash	script/test/mutation-probe.sh	test/bats/unit/mutation_probe_spec.bats	      && GIT_INDEX_FILE="${_idx}" git -C "${1}" write-tree 2>/dev/null)" || _rc=1	      && git -C "${1}" rev-parse HEAD 2>/dev/null)" || _rc=1
-slot-reset-hard	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	_mrw_step reset git -C "${_sbx}" reset -q --hard HEAD	_mrw_step reset true
-slot-reset-clean	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	_mrw_step reset git -C "${_sbx}" clean -q -f -d -x	_mrw_step reset true
-baseline-per-row	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	    _role=in	    _role=out
-filter-no-fallback	script/test/mutation-probe.sh	test/bats/unit/mutation_probe_spec.bats	  if [[ -n "${_filter}" ]] && (( _not == 0 )); then	  if false; then
-deal-by-index	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	    | LC_ALL=C sort -t $'\\t' -k1,1gr -k2,2n \\	    | LC_ALL=C sort -t $'\\t' -k2,2n \\
+baseline-key-tree-hash	script/test/mutation-probe.sh	test/bats/unit/mutation_probe_spec.bats	      && GIT_INDEX_FILE="${_idx}" git -C "${1}" write-tree 2>/dev/null)" || _rc=1	      && git -C "${1}" rev-parse HEAD 2>/dev/null)" || _rc=1	^_mutation_probe: --baseline-in reads a baseline only for the tree hash and spec it was written for \(base#1571\)$
+slot-reset-hard	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	_mrw_step reset git -C "${_sbx}" reset -q --hard HEAD	_mrw_step reset true	^sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows \(base#1571\)$
+slot-reset-clean	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	_mrw_step reset git -C "${_sbx}" clean -q -f -d -x	_mrw_step reset true	^sandbox: three rows in one worker slot reuse one sandbox and one project, reset between rows \(base#1571\)$
+baseline-per-row	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	    _role=in	    _role=out	^baseline: three rows on one spec run its unmutated baseline once, not once per row \(base#1571\)$
+filter-no-fallback	script/test/mutation-probe.sh	test/bats/unit/mutation_probe_spec.bats	  if [[ -n "${_filter}" ]] && (( _not == 0 )); then	  if false; then	^_mutation_probe: a --filter mutant that stays green falls back to the whole spec \(base#1571\)$
+deal-by-index	script/test/drivers/mutation_required.sh	test/bats/unit/mutation_required_spec.bats	    | LC_ALL=C sort -t $'\\t' -k1,1gr -k2,2n \\	    | LC_ALL=C sort -t $'\\t' -k2,2n \\	^shards: --shard deals rows by their recorded seconds, heaviest first, to the lightest shard \(base#1571\)$
