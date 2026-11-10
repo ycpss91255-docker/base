@@ -1787,6 +1787,27 @@ YAML
   assert_output "\${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository || github.event_name == 'merge_group' && needs.classify.outputs.merge_group_same_repo != 'true' }}"
 }
 
+# why: IS_FORK_PR is now also true for a merge group not proven
+# same-repository, so the rollup's red must say that case too, or a queue
+# run reads as a fork PR that does not exist (base#1587)
+@test "self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)" {
+  # Runs the verify step itself (helpers _rollup_script/_rollup_result_keys
+  # below), every need success, IS_FORK_PR=true. Expected wording is the
+  # approved design's (design-r2 section 2): the error text names
+  # "or a merge group not proven same-repository".
+  local _script _k _j
+  local -a _env=()
+  _script="$(_rollup_script "${WF}")"
+  while read -r _k _j; do
+    [[ -n "${_k}" ]] && _env+=("${_k}=success")
+  done < <(_rollup_result_keys "${WF}")
+  run env -i PATH="${PATH}" "${_env[@]}" IS_FORK_PR=true CODE_CHANGED=true \
+      bash --noprofile --norc -eo pipefail -c "${_script}"
+  assert_failure 1
+  assert_output --partial '::error::'
+  assert_output --partial 'or a merge group not proven same-repository'
+}
+
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
 # branches: filter here would leave every proposal green with zero checks
 @test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
