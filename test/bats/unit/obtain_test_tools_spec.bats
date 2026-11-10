@@ -165,6 +165,24 @@ _obtain_load() { printf "load %%s\\n" "$1"; return %s; }
   refute_output --partial 'build '
 }
 
+# why: base#1588. A tar that is there but that `docker load` refuses is a
+# corrupt or truncated artifact. Re-tagging after a failed load would name
+# whatever image already sat under the artifact tag, and building would
+# hide the corruption, so the job fails at the load.
+@test "obtain: a given artifact that fails to load fails loudly, never re-tagged or built (base#1588)" {
+  local _tar="${BATS_TEST_TMPDIR}/test-tools.tar"
+  : > "${_tar}"
+  run bash -c "$(_src); $(_seams 0 0 1); TESTTOOLS_CHANGED=false CI_RUN_KEY=k \
+      TEST_TOOLS_ARTIFACT_TAG=test-tools:artifact-42 GITHUB_OUTPUT='${OUT}' \
+      main img --artifact '${_tar}' --local-build inline"
+  assert_failure 1
+  assert_line "load ${_tar}"
+  assert_line --partial '::error::'
+  refute_output --partial 'retag '
+  refute_output --partial 'pull '
+  refute_output --partial 'build '
+}
+
 # ── no job reaches past it ────────────────────────────────────────────
 
 # _hand_rolled_obtains
