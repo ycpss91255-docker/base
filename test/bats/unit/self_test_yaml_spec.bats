@@ -1268,12 +1268,14 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `config-gen` (the config generator's Go gates, base#1462) joins it the
   # same way: a code-gated job whose red would otherwise be one nobody sees.
+  # base#1547 split it into `config-gen-gates` and the `config-gen-redpath`
+  # shard matrix, and both join it.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
@@ -1288,11 +1290,11 @@ _builder_setups_out_of_step_with_their_consumer() {
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -3099,12 +3101,13 @@ _lint_probe_fixture() {
   # users consume was the one path the floor did not gate.
   #
   # `config-gen` (base#1462) joins it for the same reason it joins
-  # ci-rollup: the tag path requires exactly what the merge gate requires.
+  # ci-rollup: the tag path requires exactly what the merge gate requires;
+  # base#1547 split it into config-gen-gates and config-gen-redpath.
   run yaml_job_lines "${WF}" release
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3736,6 +3739,12 @@ ${_bad}"
 CG_CODE_IF="needs.classify.outputs.code_changed == 'true'"
 CG_STEP_NAME='Run the config-gen gates'
 CG_STEP_RUN='just test go'
+# The hosted workflow splits `just test go` into its two recipes (base#1547):
+# one gates job, and one redpath job per shard of the shard table.
+CG_GATES_JOB='config-gen-gates'
+CG_REDPATH_JOB='config-gen-redpath'
+CG_GATES_RUN='just test go-gates'
+CG_SHARDS_TSV='/source/script/test/config_gen_redpath_shards.tsv'
 CG_SELF_TEST_TOP='["concurrency","env","jobs","name","on","permissions"]'
 CG_SELF_TEST_ENV='["CI_RUN_KEY","COMPOSE_PROJECT_NAME","TEST_TOOLS_IMAGE"]'
 CG_COV_LOCAL_TOP='["concurrency","jobs","name","on","permissions"]'
@@ -3794,12 +3803,12 @@ _cg_mut_ctx() {
 # required-kill roster (base#1461); the hosted job does not, because the
 # hosted lint-static legs run it.
 _cg_expected_steps() {
-  local _pin _ctx _tail='[]'
+  local _pin _ctx _tail='[]' _run="${2:-${CG_STEP_RUN}}"
   _pin="$(_cg_just_pin_steps)" || return 1
   _ctx="$(_cg_mut_ctx "${1}")" || { printf '%s\n' "${_ctx}"; return 1; }
   [[ "${1}" != coverage-local ]] \
     || _tail='[{"name": "Run the required-kill mutation roster", "run": "just test mutation-required"}]'
-  CG_NAME="${CG_STEP_NAME}" CG_RUN="${CG_STEP_RUN}" CG_PIN="${_pin}" CG_CTX="${_ctx}" CG_TAIL="${_tail}" yq -n -o json -I0 '
+  CG_NAME="${CG_STEP_NAME}" CG_RUN="${_run}" CG_PIN="${_pin}" CG_CTX="${_ctx}" CG_TAIL="${_tail}" yq -n -o json -I0 '
       [{"name": "Checkout", "uses": "actions/checkout@v7", "with": {"fetch-depth": 0}}]
       + env(CG_PIN)
       + [{"name": strenv(CG_NAME), "env": {"CONFIG_GEN_MUTATION_CONTEXT": strenv(CG_CTX)}, "run": strenv(CG_RUN)}]
@@ -3825,16 +3834,54 @@ want
   ${_want}"; return 1; }
 }
 
-# _cg_expected_job <self-test|coverage-local> -- the config-gen job less its
-# free-text name and timeout, canonical JSON. coverage-local's `if` is the
-# fork guard its sibling job carries.
+# _cg_shards -- the shard table's N, from its `# shards=<N>` header.
+_cg_shards() {
+  sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${CG_SHARDS_TSV}"
+}
+
+# _cg_rerun_shard -- the one shard the shard table gives rerun.
+_cg_rerun_shard() {
+  awk -F'\t' '$1 == "rerun" { print $2 }' "${CG_SHARDS_TSV}"
+}
+
+# _cg_job_id <self-test|self-test-redpath|coverage-local> -- the job that
+# variant names: the hosted gates job, the hosted redpath matrix, or the
+# self-hosted job, which runs the whole `just test go`.
+_cg_job_id() {
+  case "${1}" in
+    self-test) echo "${CG_GATES_JOB}" ;;
+    self-test-redpath) echo "${CG_REDPATH_JOB}" ;;
+    coverage-local) echo config-gen ;;
+    *) echo "BUG: _cg_job_id ${1}"; return 1 ;;
+  esac
+}
+
+# _cg_expected_job <self-test|self-test-redpath|coverage-local> -- that
+# job less its free-text name and timeout, canonical JSON. coverage-local's
+# `if` is the fork guard its sibling job carries. The redpath matrix is
+# shard 1..N, N read from the shard table's header and never from the
+# workflow, with the shard holding rerun's one row labelled (base#1547).
 _cg_expected_job() {
-  local _steps _if
-  _steps="$(_cg_expected_steps "${1}")" || { printf '%s\n' "${_steps}"; return 1; }
+  local _steps _if _n _k
+  case "${1}" in
+    self-test-redpath)
+      _n="$(_cg_shards)" _k="$(_cg_rerun_shard)"
+      [[ -n "${_n}" && -n "${_k}" ]] || { echo "the shard table names no shard count or no rerun shard"; return 1; }
+      _steps="$(_cg_expected_steps self-test "just test go-redpath \${{ matrix.shard }}/${_n}")" \
+        || { printf '%s\n' "${_steps}"; return 1; } ;;
+    self-test) _steps="$(_cg_expected_steps "${1}" "${CG_GATES_RUN}")" || { printf '%s\n' "${_steps}"; return 1; } ;;
+    *) _steps="$(_cg_expected_steps "${1}")" || { printf '%s\n' "${_steps}"; return 1; } ;;
+  esac
   case "${1}" in
     self-test)
       CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" yq -n -o json -I0 \
         '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest", "steps": env(CG_STEPS)} | sort_keys(..)' ;;
+    self-test-redpath)
+      CG_IF="${CG_CODE_IF}" CG_STEPS="${_steps}" CG_SHARD_LIST="[$(seq -s, 1 "${_n}")]" CG_K="${_k}" \
+        yq -n -o json -I0 '{"if": strenv(CG_IF), "needs": ["classify"], "runs-on": "ubuntu-latest",
+          "strategy": {"fail-fast": false, "matrix": {"shard": env(CG_SHARD_LIST),
+            "include": [{"shard": env(CG_K), "label": " + rerun, the baseline"}]}},
+          "steps": env(CG_STEPS)} | sort_keys(..)' ;;
     coverage-local)
       _if="$(yq '.jobs["coverage-local"].if' "${COV_LOCAL_WF}")"
       CG_IF="${_if}" CG_STEPS="${_steps}" yq -n -o json -I0 \
@@ -3860,54 +3907,80 @@ _workflow_frame_exact() {
     || { echo "workflow env keys: ${_f} has ${_env}, want exactly ${3}"; return 1; }
 }
 
-# _cg_job_exact <file> <expected-job-json> -- the config-gen job: its key
-# set is the expected keys plus name and timeout-minutes, name is a string,
-# timeout-minutes an int, and the rest equals <expected-job-json>.
+# _cg_job_exact <file> <expected-job-json> [job] -- the config-gen job
+# <job> (default config-gen): its key set is the expected keys plus name
+# and timeout-minutes, name is a string, timeout-minutes an int, and the
+# rest equals <expected-job-json>.
 _cg_job_exact() {
-  local _f="${1}" _want="${2}" _tag _keys _wantkeys _have
-  _tag="$(yq '.jobs["config-gen"] | tag' "${_f}")"
+  local _f="${1}" _want="${2}" _j="${3:-config-gen}" _tag _keys _wantkeys _have
+  _tag="$(CG_J="${_j}" yq '.jobs[strenv(CG_J)] | tag' "${_f}")"
   [[ "${_tag}" == '!!map' ]] \
-    || { echo "config-gen job: ${_f} declares no config-gen job (it reads as ${_tag})"; return 1; }
-  _keys="$(yq -o json -I0 '.jobs["config-gen"] | keys | sort' "${_f}")"
+    || { echo "${_j} job: ${_f} declares no ${_j} job (it reads as ${_tag})"; return 1; }
+  _keys="$(CG_J="${_j}" yq -o json -I0 '.jobs[strenv(CG_J)] | keys | sort' "${_f}")"
   _wantkeys="$(yq -p json -o json -I0 '. + {"name": "", "timeout-minutes": 0} | keys | sort' <<<"${_want}")"
   [[ "${_keys}" == "${_wantkeys}" ]] \
-    || { echo "config-gen job keys: ${_f} has ${_keys}, want exactly ${_wantkeys}"; return 1; }
-  [[ "$(yq '.jobs["config-gen"].name | tag' "${_f}")" == '!!str' ]] \
-    || { echo "config-gen job name: ${_f} has a non-string name"; return 1; }
-  [[ "$(yq '.jobs["config-gen"]["timeout-minutes"] | tag' "${_f}")" == '!!int' ]] \
-    || { echo "config-gen job timeout-minutes: ${_f} has a non-integer timeout"; return 1; }
-  _have="$(yq -o json -I0 '.jobs["config-gen"] | del(.name) | del(.["timeout-minutes"]) | sort_keys(..)' "${_f}")"
+    || { echo "${_j} job keys: ${_f} has ${_keys}, want exactly ${_wantkeys}"; return 1; }
+  [[ "$(CG_J="${_j}" yq '.jobs[strenv(CG_J)].name | tag' "${_f}")" == '!!str' ]] \
+    || { echo "${_j} job name: ${_f} has a non-string name"; return 1; }
+  [[ "$(CG_J="${_j}" yq '.jobs[strenv(CG_J)]["timeout-minutes"] | tag' "${_f}")" == '!!int' ]] \
+    || { echo "${_j} job timeout-minutes: ${_f} has a non-integer timeout"; return 1; }
+  _have="$(CG_J="${_j}" yq -o json -I0 '.jobs[strenv(CG_J)] | del(.name) | del(.["timeout-minutes"]) | sort_keys(..)' "${_f}")"
   [[ "${_have}" == "${_want}" ]] \
-    || { echo "config-gen job body: ${_f} has
+    || { echo "${_j} job body: ${_f} has
   ${_have}
 want
   ${_want}"; return 1; }
 }
 
-# _cg_parity <file> <expected-job-json> <top-keys-json> <env-keys-json>
+# _cg_parity <file> <expected-job-json> <top-keys-json> <env-keys-json> [job]
 _cg_parity() {
   _workflow_frame_exact "${1}" "${3}" "${4}" || return 1
-  _cg_job_exact "${1}" "${2}"
+  _cg_job_exact "${1}" "${2}" "${5:-config-gen}"
 }
 
 # _cg_fixture <src> <self-test|coverage-local> -- a scratch copy of <src>
 # with the canonical config-gen job written in; prints its path.
 _cg_fixture() {
-  local _out="${BATS_TEST_TMPDIR}/fixture-${2}.yaml" _job
+  local _out="${BATS_TEST_TMPDIR}/fixture-${2}.yaml" _job _id
   _job="$(_cg_expected_job "${2}")" || { printf '%s\n' "${_job}"; return 1; }
+  _id="$(_cg_job_id "${2}")" || { printf '%s\n' "${_id}"; return 1; }
   cp "${1}" "${_out}"
-  CG_JOB="${_job}" yq -i '.jobs["config-gen"] = (env(CG_JOB) + {"name": "Config-gen gates", "timeout-minutes": 30})' "${_out}"
+  CG_JOB="${_job}" CG_ID="${_id}" yq -i '.jobs[strenv(CG_ID)] = (env(CG_JOB) + {"name": "Config-gen gates", "timeout-minutes": 30})' "${_out}"
   printf '%s\n' "${_out}"
 }
 
-# why: Nothing ran the Go gates in CI before base#1462. The hosted job is
-# compared whole, so a spelling of the step that does not run `just test go`
-# under a plain bash cannot pass for one that does.
-@test "self-test.yaml: the config-gen job runs exactly just test go under an unmodified shell (base#1462)" {
+# why: Nothing ran the Go gates in CI before base#1462. The hosted gates
+# job is compared whole, so a spelling of the step that does not run `just
+# test go-gates` under a plain bash cannot pass for one that does. base#1547
+# split the hosted `just test go` into this job and the redpath matrix, so
+# each ends inside its bound.
+@test "self-test.yaml: the config-gen-gates job runs exactly just test go-gates under an unmodified shell (base#1462)" {
   local _want
   _want="$(_cg_expected_job self-test)" || fail "${_want}"
-  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_GATES_JOB}"
   assert_success
+  run yq '.jobs | has("config-gen")' "${WF}"
+  assert_output false
+}
+
+# why: The redpath matrix must run every shard the shard table names, and
+# only those: a matrix 1..3 against a five-shard table skips shards 4 and
+# 5, rerun among them (base#1547). So the matrix is exactly 1..N with N read
+# from the table's header, each job runs `just test go-redpath
+# <shard>/<N>` with that same N, which the redpath refuses unless it is the
+# header's, and the job holding rerun's one row is labelled from that row.
+# The job is compared whole, as the gates job is. Its timeout is not
+# raised above the gates job's.
+@test "self-test.yaml: the config-gen-redpath matrix runs go-redpath on every shard 1..N the shard table names (base#1547)" {
+  local _want _name
+  _want="$(_cg_expected_job self-test-redpath)" || fail "${_want}"
+  run _cg_parity "${WF}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_REDPATH_JOB}"
+  assert_success
+  _name="$(yq '.jobs["config-gen-redpath"].name' "${WF}")"
+  [[ "${_name}" == *'${{ matrix.shard }}'* && "${_name}" == *'${{ matrix.label }}'* ]] \
+    || fail "the redpath job's name does not say its shard and label: ${_name}"
+  run yq '.jobs["config-gen-redpath"]["timeout-minutes"] <= 120 and .jobs["config-gen-gates"]["timeout-minutes"] <= 120' "${WF}"
+  assert_output true
 }
 
 # why: The self-hosted environment runs the same command; coverage-local.yaml
@@ -3928,7 +4001,10 @@ _cg_fixture() {
 @test "config-gen: each workflow hands just test go its CONFIG_GEN_MUTATION_CONTEXT expression (base#1464)" {
   assert_spec_subject "${COV_LOCAL_WF}" "the self-hosted workflow"
   local _expr='.jobs["config-gen"].steps[] | select(.run == "just test go") | .env.CONFIG_GEN_MUTATION_CONTEXT'
-  run yq "${_expr}" "${WF}"
+  run yq '.jobs["config-gen-gates"].steps[] | select(.run == "just test go-gates") | .env.CONFIG_GEN_MUTATION_CONTEXT' "${WF}"
+  assert_success
+  assert_output "${CG_MUT_CTX_SELF_TEST}"
+  run yq '.jobs["config-gen-redpath"].steps[] | select(.run | test("^just test go-redpath ")) | .env.CONFIG_GEN_MUTATION_CONTEXT' "${WF}"
   assert_success
   assert_output "${CG_MUT_CTX_SELF_TEST}"
   run yq "${_expr}" "${COV_LOCAL_WF}"
@@ -3960,7 +4036,7 @@ _cg_fixture_must_fail() {
   cp "${1}" "${_m}"
   yq -i "${5}" "${_m}" || { echo "yq refused ${5}"; return 0; }
   cmp -s "${1}" "${_m}" && { echo "${5}: the mutation changed nothing"; return 0; }
-  run _cg_parity "${_m}" "${4}" "${2}" "${3}"
+  run _cg_parity "${_m}" "${4}" "${2}" "${3}" "${7:-config-gen}"
   if [[ "${status}" -eq 0 ]]; then
     echo "${5}: passed the parity check"
   elif [[ "${output}" != *"${6}"* ]]; then
@@ -3978,31 +4054,31 @@ _cg_fixture_must_fail() {
   local _fx _want _bad=""
   _want="$(_cg_expected_job self-test)" || fail "${_want}"
   _fx="$(_cg_fixture "${WF}" self-test)" || fail "${_fx}"
-  run _cg_parity "${_fx}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  run _cg_parity "${_fx}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_GATES_JOB}"
   assert_success
-  export CG_MULTI=$'just test \\\ngo\n'
+  export CG_MULTI=$'just test \\\ngo-gates\n'
   local -a _rows=(
     '.env.BASH_ENV = "/tmp/x"|workflow env keys'
     '.env.SHELLOPTS = "x"|workflow env keys'
     'del(.env.CI_RUN_KEY)|workflow env keys'
     '.defaults.run.shell = "sh -c true {0}"|workflow defaults'
-    '.jobs["config-gen"].env.BASH_ENV = "/tmp/x"|config-gen job keys'
-    '.jobs["config-gen"].defaults.run.shell = "sh -c true {0}"|config-gen job keys'
-    '.jobs["config-gen"]["continue-on-error"] = true|config-gen job keys'
-    '.jobs["config-gen"].container = "alpine"|config-gen job keys'
-    '.jobs["config-gen"].if = false|config-gen job body'
-    '.jobs["config-gen"].if += " && false"|config-gen job body'
-    '.jobs["config-gen"].steps[-1].if = false|config-gen job body'
-    '.jobs["config-gen"].steps[-1].shell = "sh -c true {0}"|config-gen job body'
-    '.jobs["config-gen"].steps[-1]["continue-on-error"] = true|config-gen job body'
-    ".jobs[\"config-gen\"].steps[-1].run = \"just test 'go'\"|config-gen job body"
-    '.jobs["config-gen"].steps[-1].run = strenv(CG_MULTI)|config-gen job body'
-    '.jobs["config-gen"].steps += [{"name": "x", "run": "bash -c \"just test go\""}]|config-gen job body'
+    '.jobs["config-gen-gates"].env.BASH_ENV = "/tmp/x"|config-gen-gates job keys'
+    '.jobs["config-gen-gates"].defaults.run.shell = "sh -c true {0}"|config-gen-gates job keys'
+    '.jobs["config-gen-gates"]["continue-on-error"] = true|config-gen-gates job keys'
+    '.jobs["config-gen-gates"].container = "alpine"|config-gen-gates job keys'
+    '.jobs["config-gen-gates"].if = false|config-gen-gates job body'
+    '.jobs["config-gen-gates"].if += " && false"|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps[-1].if = false|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps[-1].shell = "sh -c true {0}"|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps[-1]["continue-on-error"] = true|config-gen-gates job body'
+    ".jobs[\"config-gen-gates\"].steps[-1].run = \"just test 'go-gates'\"|config-gen-gates job body"
+    '.jobs["config-gen-gates"].steps[-1].run = strenv(CG_MULTI)|config-gen-gates job body'
+    '.jobs["config-gen-gates"].steps += [{"name": "x", "run": "bash -c \"just test go-gates\""}]|config-gen-gates job body'
   )
   local _row _line
   for _row in "${_rows[@]}"; do
     _line="$(_cg_fixture_must_fail "${_fx}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" \
-        "${_want}" "${_row%|*}" "${_row##*|}")"
+        "${_want}" "${_row%|*}" "${_row##*|}" "${CG_GATES_JOB}")"
     [[ -z "${_line}" ]] || _bad+="${_line}"$'\n'
   done
   [[ -z "${_bad}" ]] || fail "the parity check let a non-canonical config-gen through:
@@ -4047,11 +4123,15 @@ _cg_bash_env_setup_mutant() {
 # spec's own literal, and acceptance must still equal it.
 @test "config-gen parity: a BASH_ENV exported by a setup step is refused even when acceptance carries it too (base#1462)" {
   local _m _want
-  _m="$(_cg_bash_env_setup_mutant "${WF}" acceptance config-gen)" || fail "${_m}"
+  _m="$(_cg_bash_env_setup_mutant "${WF}" acceptance config-gen-gates config-gen-redpath)" || fail "${_m}"
   _want="$(WF="${_m}" _cg_expected_job self-test)" || fail "${_want}"
-  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}"
+  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_GATES_JOB}"
   assert_failure
-  assert_output --partial 'config-gen job body'
+  assert_output --partial 'config-gen-gates job body'
+  _want="$(WF="${_m}" _cg_expected_job self-test-redpath)" || fail "${_want}"
+  run _cg_parity "${_m}" "${_want}" "${CG_SELF_TEST_TOP}" "${CG_SELF_TEST_ENV}" "${CG_REDPATH_JOB}"
+  assert_failure
+  assert_output --partial 'config-gen-redpath job body'
   run _cg_acceptance_just_pin_exact "${_m}"
   assert_failure
   assert_output --partial 'acceptance just-pin steps'
@@ -4131,9 +4211,11 @@ _rollup_honours_every_need() {
 @test "self-test.yaml: ci-rollup needs config-gen and its verify step fails on every red need (base#1462)" {
   run yaml_job_needs "${WF}" ci-rollup
   assert_success
-  assert_line config-gen
+  assert_line config-gen-gates
+  assert_line config-gen-redpath
   run _rollup_result_keys "${WF}"
-  assert_line 'CONFIG_GEN_RESULT config-gen'
+  assert_line 'CONFIG_GEN_GATES_RESULT config-gen-gates'
+  assert_line 'CONFIG_GEN_REDPATH_RESULT config-gen-redpath'
   run _rollup_honours_every_need "${WF}"
   assert_output ""
 }
@@ -4141,12 +4223,15 @@ _rollup_honours_every_need() {
 # why: config-gen is gated on code_changed, so on a doc-only diff it skips;
 # the rollup must read that skip as a pass and a failure or cancel as red.
 @test "self-test.yaml: ci-rollup passes config-gen success and skipped, fails failure and cancelled (base#1462)" {
-  run _rollup_result_keys "${WF}"
-  assert_line 'CONFIG_GEN_RESULT config-gen'
-  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=success)" 0
-  assert_equal "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=skipped)" 0
-  [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=failure)" != 0 ]] || fail "ci-rollup passes a failed config-gen"
-  [[ "$(_rollup_rc "${WF}" CONFIG_GEN_RESULT=cancelled)" != 0 ]] || fail "ci-rollup passes a cancelled config-gen"
+  local _k
+  for _k in CONFIG_GEN_GATES_RESULT CONFIG_GEN_REDPATH_RESULT; do
+    run _rollup_result_keys "${WF}"
+    assert_line --regexp "^${_k} config-gen-(gates|redpath)\$"
+    assert_equal "$(_rollup_rc "${WF}" "${_k}=success")" 0
+    assert_equal "$(_rollup_rc "${WF}" "${_k}=skipped")" 0
+    [[ "$(_rollup_rc "${WF}" "${_k}=failure")" != 0 ]] || fail "ci-rollup passes a failed ${_k}"
+    [[ "$(_rollup_rc "${WF}" "${_k}=cancelled")" != 0 ]] || fail "ci-rollup passes a cancelled ${_k}"
+  done
 }
 
 # why: The rollup check must see a need that is listed and keyed but left

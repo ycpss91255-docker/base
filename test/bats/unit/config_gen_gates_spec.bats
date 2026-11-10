@@ -414,6 +414,46 @@ _df_instructions() {
   assert_equal "$(_docker_calls)" 0
 }
 
+# why: `just test go` runs the runner and then the redpath, and both ran
+# steps 20 and 30 on the same checkout: the runner's steps, then the
+# redpath's shared pass (base#1547 review round 1 finding 4). With
+# CONFIG_GEN_STEPS_VERDICT_OUT=<file>, the runner writes, once its steps
+# pass, `digest=<D> steps=<s>,... status=0`, where the steps are the ones
+# with a .inputs that ran and D is _cg_inputs_digest over them on <root>,
+# the line the redpath's CONFIG_GEN_STEPS_VERDICT accepts in place of its
+# shared pass. A step with no .inputs is not named: nothing could show its
+# verdict still holds. A red step writes no file, so no verdict outlives
+# the steps that failed.
+@test "config_gen_gates.sh: CONFIG_GEN_STEPS_VERDICT_OUT gets the digest of the declared steps once they pass, and nothing on a red step (base#1547)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  local _d="${S}/root/script/test/config_gen_steps" _want
+  printf 'true\n' > "${_d}/00-a.sh"
+  printf 'true\n' > "${_d}/20-x.sh"
+  printf 'script/test/config_gen_steps/00-a.sh\n' > "${_d}/20-x.inputs"
+  printf 'true\n' > "${_d}/30-y.sh"
+  printf 'dockerfile\n' > "${_d}/30-y.inputs"
+  printf 'true\n' > "${_d}/99-z.sh"
+  _digest_of "${S}/root" 20-x 30-y
+  assert_success
+  [[ "${output}" =~ ^[0-9a-f]{64}$ ]] || fail "no digest of the fixture's declared steps: '${output}'"
+  _want="digest=${output} steps=20-x,30-y status=0"
+  CONFIG_GEN_STEPS_VERDICT_OUT="${S}/steps.verdict" _run_runner --steps-only
+  assert_success
+  [[ -f "${S}/steps.verdict" ]] || fail "the runner wrote no steps verdict"
+  assert_equal "$(cat "${S}/steps.verdict")" "${_want}"
+  rm -f "${S}/steps.verdict"
+  CONFIG_GEN_STEPS_VERDICT_OUT="${S}/steps.verdict" _run_runner
+  assert_success
+  assert_equal "$(cat "${S}/steps.verdict")" "${_want}"
+  rm -f "${S}/steps.verdict"
+  printf 'exit 3\n' > "${_d}/30-y.sh"
+  CONFIG_GEN_STEPS_VERDICT_OUT="${S}/steps.verdict" _run_runner
+  assert_equal "${status}" 3
+  [[ ! -e "${S}/steps.verdict" ]] || fail "a red step still wrote a verdict: $(cat "${S}/steps.verdict")"
+}
+
 # _digest_tree <dir> -- a fixture tree for _cg_inputs_digest at <dir>: step
 # 20-x with its .inputs listing the file lib/a.sh and the directory fix
 # (fix/one.txt, fix/sub/two.txt), and other.txt, which nothing declares.
@@ -2547,33 +2587,86 @@ _test_gate_run() {
 
 # ── the recipe ──────────────────────────────────────────────────────────────
 
-# _recipe_repo <gates-rc> -- a scratch copy of the two justfiles with
-# recording stubs for the runner (exiting <gates-rc>) and the redpath.
+# _recipe_repo <runner-rc> -- a scratch repo holding the justfiles and two
+# stubs at ${S}/j. The runner stub logs `gates out=<set|unset>` to
+# ${S}/order, writes `stub-verdict` to CONFIG_GEN_STEPS_VERDICT_OUT when
+# that is set, and exits <runner-rc>. The redpath stub logs `redpath
+# only=<ONLY> shard=<SHARD> verdict=<the file's line>`, each `unset` when
+# not set.
 _recipe_repo() {
   local _r="${S}/j"
   mkdir -p "${_r}/script/test"
   cp /source/justfile "${_r}/justfile"
   cp /source/script/test/justfile.test "${_r}/script/test/justfile.test"
-  printf '#!%s\necho gates >> "%s/order"\nexit %s\n' "$(command -v bash)" "${S}" "${1}" \
-    > "${_r}/script/test/config_gen_gates.sh"
-  printf '#!%s\necho "redpath only=${CONFIG_GEN_REDPATH_ONLY-unset}" >> "%s/order"\nexit 0\n' "$(command -v bash)" "${S}" \
-    > "${_r}/script/test/config_gen_redpath.sh"
+  cat > "${_r}/script/test/config_gen_gates.sh" <<STUB
+#!$(command -v bash)
+if [[ -n "\${CONFIG_GEN_STEPS_VERDICT_OUT:-}" ]]; then
+  echo "gates out=set" >> "${S}/order"
+  echo stub-verdict > "\${CONFIG_GEN_STEPS_VERDICT_OUT}"
+else
+  echo "gates out=unset" >> "${S}/order"
+fi
+exit ${1}
+STUB
+  cat > "${_r}/script/test/config_gen_redpath.sh" <<STUB
+#!$(command -v bash)
+v=unset
+[[ -z "\${CONFIG_GEN_STEPS_VERDICT:-}" ]] || v="\$(cat "\${CONFIG_GEN_STEPS_VERDICT}" 2>/dev/null || echo missing)"
+echo "redpath only=\${CONFIG_GEN_REDPATH_ONLY-unset} shard=\${CONFIG_GEN_REDPATH_SHARD-unset} verdict=\${v}" >> "${S}/order"
+exit 0
+STUB
   chmod +x "${_r}/script/test/"config_gen_*.sh
 }
 
-# why: The one command all four environments run. The order matters: the
-# redpath on a tree whose gates are already red proves nothing, and `;`
-# would run it after a red runner and report the redpath's status instead.
-# The redpath it runs is the whole one: a CONFIG_GEN_REDPATH_ONLY left in
-# the caller's environment does not reach it (base#1465).
+# why: The one command a developer, the pre-PR mirror and the self-hosted
+# job run. The order matters: the redpath on a tree whose gates are already
+# red proves nothing, and `;` would run it after a red runner and report
+# the redpath's status instead. The redpath it runs is the whole one: a
+# CONFIG_GEN_REDPATH_ONLY or CONFIG_GEN_REDPATH_SHARD left in the caller's
+# environment does not reach it (base#1465, base#1547). The runner writes
+# its steps verdict to a file the recipe then hands the redpath, so steps
+# 20 and 30 run once in the whole recipe, not once in the runner and again
+# in the redpath's shared pass (base#1547 review round 1 finding 4).
 @test "just test go: runs the runner, then the redpath, and stops at a red runner (base#1462)" {
   _recipe_repo 0
-  run env CONFIG_GEN_REDPATH_ONLY=vet bash -c "cd '${S}/j' && just test go"
+  run env CONFIG_GEN_REDPATH_ONLY=vet CONFIG_GEN_REDPATH_SHARD=2/5 bash -c "cd '${S}/j' && just test go"
   assert_success
-  assert_equal "$(paste -sd' ' "${S}/order")" "gates redpath only=unset"
+  assert_equal "$(paste -sd' ' "${S}/order")" "gates out=set redpath only=unset shard=unset verdict=stub-verdict"
   rm -f "${S}/order"
   _recipe_repo 1
   run bash -c "cd '${S}/j' && just test go"
   assert_failure
-  assert_equal "$(paste -sd' ' "${S}/order")" "gates"
+  assert_equal "$(paste -sd' ' "${S}/order")" "gates out=set"
+}
+
+# why: CI splits `just test go` into one gates job and one job per redpath
+# shard so each ends inside its bound (base#1547). go-gates is the runner
+# alone; go-redpath <n>/<N> is the redpath on that shard, with no ONLY
+# from the caller and no steps verdict to reuse, so each shard job runs
+# its own shared pass. `just test go` runs these same two recipes.
+@test "just test go-gates and go-redpath: the runner alone, and the redpath on one shard (base#1547)" {
+  _recipe_repo 0
+  run env CONFIG_GEN_REDPATH_ONLY=vet bash -c "cd '${S}/j' && just test go-gates"
+  assert_success
+  assert_equal "$(paste -sd' ' "${S}/order")" "gates out=unset"
+  rm -f "${S}/order"
+  run env CONFIG_GEN_REDPATH_ONLY=vet bash -c "cd '${S}/j' && just test go-redpath 2/5"
+  assert_success
+  assert_equal "$(paste -sd' ' "${S}/order")" "redpath only=unset shard=2/5 verdict=unset"
+}
+
+# why: CONFIG_GEN_REDPATH_ONLY is the one selector that appends rerun to a
+# run by force (base#1547), so a CI job that set it would run the
+# unmodified copy once per job again. Only the specs scope with it: no
+# workflow names it, and every justfile.test line that does drops it.
+@test "config-gen: no workflow sets CONFIG_GEN_REDPATH_ONLY, and the recipes only drop it (base#1547)" {
+  run grep -rn CONFIG_GEN_REDPATH_ONLY /source/.github/workflows
+  assert_failure
+  run grep -n CONFIG_GEN_REDPATH_ONLY /source/script/test/justfile.test
+  assert_success
+  local _l
+  while IFS= read -r _l; do
+    [[ "${_l}" =~ ^[0-9]+:[[:space:]]*# || "${_l}" == *'-u CONFIG_GEN_REDPATH_ONLY'* ]] \
+      || fail "justfile.test sets CONFIG_GEN_REDPATH_ONLY: ${_l}"
+  done <<<"${output}"
 }
