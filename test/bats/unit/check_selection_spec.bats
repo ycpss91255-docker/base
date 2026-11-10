@@ -208,3 +208,25 @@ coverage=true
 acceptance=false
 system=false"
 }
+
+@test "check_selection: a pull request touching only the root init.sh drops config-gen and keeps the other four (base#1584)" {
+  # Expected, from what each job reads, not from the map:
+  # - config-gen=false: the strace -f trace of its host side did not open
+  #   the root init.sh, the redpath's _rp_copy
+  #   (script/test/config_gen_redpath.sh) does not copy it, and no
+  #   script/test/config_gen* file or dockerfile/Dockerfile.config-gen
+  #   names it (grep 'init\.sh' finds nothing).
+  # - acceptance=true: acceptance.sh copies the whole checkout into the
+  #   consumer (`cp -a "${_ACCEPTANCE_ROOT}/." ...`), init.sh included.
+  # - coverage=true: no exclusion ever drops coverage.
+  # - mutation-roster=true: init.sh is not a spec, and only a spec outside
+  #   every roster TSV drops the roster.
+  # - system=true: script/ci/system_paths.sh lists `init.sh`.
+  run _select pull_request init.sh
+  assert_success
+  assert_output "config-gen=false
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
