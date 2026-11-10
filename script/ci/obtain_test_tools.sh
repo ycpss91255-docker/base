@@ -212,6 +212,13 @@ main() {
   # saved it (base#1588): load that, under this job's own name, and probe
   # it, rather than pulling or building a second time.
   if [[ -n "${_artifact}" ]]; then
+    # The caller passes --artifact only when its builder reported one, so
+    # a missing tar is a lost artifact: fail, never fall back.
+    if [[ ! -f "${_artifact}" ]]; then
+      echo "::error::test-tools artifact ${_artifact} is missing; the" \
+           "builder job reported one, so it is not pulled or built here"
+      return 1
+    fi
     _obtain_load "${_artifact}"
     _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
       "${CI_RUN_KEY:-unattributed}"
