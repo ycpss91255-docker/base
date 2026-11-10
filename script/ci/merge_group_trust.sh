@@ -46,9 +46,15 @@ query='query($owner: String!, $name: String!, $branch: String!) {
   }
 }'
 
-reply="$("${retry}" 3 5 -- gh api graphql \
+# A failed call leaves the group unproven: print false and exit 0, so
+# classify stays green and the ci-rollup names the reason, base#1587.
+if ! reply="$("${retry}" 3 5 -- gh api graphql \
   -f query="${query}" -F owner="${owner}" -F name="${name}" \
-  -F branch="${branch}")"
+  -F branch="${branch}")"; then
+  printf '::error::merge_group_trust: the merge queue query failed\n' >&2
+  printf 'same_repo=false\n'
+  exit 0
+fi
 
 # The group head ref is .../pr-<N>-<sha>; N names the entry's pull request.
 pr=""
