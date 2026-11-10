@@ -14,7 +14,7 @@
 #         export vertex that ends in `#N ERROR: <error>`, or for one the
 #         record never ends (no final `#N DONE` or `#N ERROR:` line), or
 #         when the record shows no cache export vertex at all, or when the
-#         metadata names no build record.
+#         metadata names no build record, or when the history call fails.
 #         Always exits 0: a cache export never fails the job.
 
 set -uo pipefail
@@ -27,7 +27,12 @@ main() {
     printf '::warning title=cache export::%s: the build metadata names no build record (buildx.build.ref)\n' "${CACHE_EXPORT_LABEL:-}"
     return 0
   fi
-  logs="$(docker buildx history logs --progress plain "${ref##*/}" 2>/dev/null)"
+  # A history call that fails cannot vouch for the record, whatever it
+  # printed before failing.
+  if ! logs="$(docker buildx history logs --progress plain "${ref##*/}" 2>/dev/null)"; then
+    printf '::warning title=cache export::%s: docker buildx history logs failed for build record %s\n' "${CACHE_EXPORT_LABEL:-}" "${ref##*/}"
+    return 0
+  fi
   # Each cache export vertex: remember its number, then report the error
   # text of an `#N ERROR: ...` line that ends it. A vertex the record never
   # ends (no `#N DONE`, no `#N ERROR:`) cannot be shown to have succeeded,
