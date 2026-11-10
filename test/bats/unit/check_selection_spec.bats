@@ -148,3 +148,21 @@ coverage=true
 acceptance=true
 system=true"
 }
+
+@test "check_selection: a pull request whose diff base cannot be read selects every heavy job (base#1584)" {
+  # Expected: the issue's fail-closed rule -- the selection must fail
+  # closed -- applied to the diff itself: when `git diff <base>...HEAD`
+  # cannot name the changed paths (here the base ref does not exist), no
+  # path is known, so nothing may be dropped and all five heavy jobs run.
+  local _repo="${BATS_TEST_TMPDIR}/repo"
+  git init -q "${_repo}"
+  git -C "${_repo}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+  cd "${_repo}"
+  run bash "${SELECTION_SH}" --event pull_request --base no-such-ref
+  assert_success
+  assert_output "config-gen=true
+mutation-roster=true
+coverage=true
+acceptance=true
+system=true"
+}
