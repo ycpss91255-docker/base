@@ -746,7 +746,7 @@ _acceptance_code() {
   assert_success
   assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
-  assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
+  # It reads the cache only; the one writer per arch is a builder job (base#1588).
 }
 
 @test "self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)" {
@@ -754,7 +754,7 @@ _acceptance_code() {
   assert_success
   assert_output --partial 'uses: docker/build-push-action@'
   assert_output --partial 'cache-from: type=gha,scope=test-tools'
-  assert_output --partial 'cache-to: type=gha,scope=test-tools,mode=max'
+  # It reads the cache only; the one writer per arch is a builder job (base#1588).
 }
 
 # ── Cache writes: push to main only, one writer per arch (base#1588) ──
@@ -1372,7 +1372,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
@@ -1388,11 +1388,11 @@ _builder_setups_out_of_step_with_their_consumer() {
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -1554,7 +1554,8 @@ _rollup_loops() {
     }
     pending != "" && /== "success"/ {
       kind = ($0 ~ /"skipped"/) ? "tolerant" : "strict"
-      n = split(pending, parts, /[^A-Z_]+/)
+      # Digits too: a job name such as test-tools-image-arm64 (base#1588).
+      n = split(pending, parts, /[^A-Z0-9_]+/)
       out = kind
       for (i = 1; i <= n; i++) {
         if (parts[i] ~ /_RESULT$/) { out = out " " parts[i] }
@@ -3268,7 +3269,7 @@ _lint_probe_fixture() {
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {

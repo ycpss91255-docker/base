@@ -5221,7 +5221,7 @@ local mode with it.
 | Test | Description |
 |------|-------------|
 | `pre-PR mirror: every ci-rollup need is attested or excluded with a named reason (base#1409)` | - |
-| `pre-PR mirror: only arm64 acceptance, classify, compute-shards and worker-selftest may be excluded (base#1409)` | - |
+| `pre-PR mirror: only arm64 acceptance, classify, compute-shards, the test-tools-image builders and worker-selftest may be excluded (base#1409)` | - |
 | `pre-PR mirror: every table entry names a job ci-rollup needs (base#1409)` | - |
 | `pre-PR mirror: the mode classifier reads the recipe a just command runs, and union-check as plain (base#1409)` | The mode check stands on this classifier. Reading a command's spelling instead of the recipe it runs let a coverage recipe turned plain pass, and counting --coverage-union-check as kcov hid a real mode mismatch. |
 | `pre-PR mirror: every attested job runs locally in the mode CI runs it (plain vs kcov) (base#1409)` | A plain local run cannot attest a kcov CI job: specs that are red only under kcov stay green locally. This is the check that keeps the stamp measuring the same thing CI measures. |
@@ -6423,7 +6423,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (146)
+### test/bats/unit/self_test_yaml_spec.bats (147)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -6771,6 +6771,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
+| `self-test.yaml: only the builders' push-main steps write the test-tools cache, and no other cache-to form slips past (base#1588)` | - |
 | `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
 | `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | the consumer's lint stage is `FROM ${TEST_TOOLS_IMAGE}`, so a job that skips the obtain path builds against a stale or absent tooling image. This step stays in the job when the rest moved into script/ci/acceptance.sh (base#1409), because only a runner can obtain the run-scoped image. |
