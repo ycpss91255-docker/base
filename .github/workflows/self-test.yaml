@@ -1665,38 +1665,35 @@ jobs:
       image_name: worker-selftest
       context_path: test/fixtures/build-worker
 
-  config-gen:
+  config-gen-gates:
     name: Config-gen Go gates (base#1462)
     needs: [classify]
     if: needs.classify.outputs.code_changed == 'true'
     # The config generator's Go gates (ADR-00000039): fmt, vet, lint, race
-    # and coverage in dockerfile/Dockerfile.config-gen's test stage, the
-    # binary's usage contract, then the redpath that plants one defect per
-    # gate and requires each to go red. All of it is ONE command, `just test
-    # go`, the same one the self-hosted coverage-local.yaml job and the
-    # pre-PR mirror run, so a green here and a green there are one claim.
+    # and coverage in dockerfile/Dockerfile.config-gen's test stage and the
+    # binary's usage contract, as ONE command, `just test go-gates`. With
+    # the config-gen-redpath matrix below it is `just test go`, the command
+    # the self-hosted coverage-local.yaml job and the pre-PR mirror run, so
+    # a green here and a green there are one claim. The two were one job
+    # until base#1547: the redpath's serial cases took that job to about 91
+    # minutes.
     #
-    # The job is compared WHOLE by self_test_yaml_spec.bats: its keys, its
-    # `if`, its steps (the checkout, the three just-pin steps byte for byte
-    # against literals the spec holds, which acceptance's copies are held
-    # to as well, and the one canonical step) and the workflow's own
-    # top-level and env keys above it. An edit to this workflow that would
-    # change how bash starts `just test go` -- a step `shell:`, an `if:` on
-    # the step, a `continue-on-error`, a job or workflow `env:` such as
-    # BASH_ENV, a `defaults:` block, a setup step that exports BASH_ENV
-    # through $GITHUB_ENV -- fails that spec rather than leaving this job
-    # green with the gates unrun. Gated on code_changed, so ci-rollup
-    # collapses its SKIPPED on a doc-only PR into a pass.
+    # Each config-gen job is compared WHOLE by self_test_yaml_spec.bats: its
+    # keys, its `if`, its steps (the checkout, the three just-pin steps
+    # byte for byte against literals the spec holds, which acceptance's
+    # copies are held to as well, and the one canonical step), the redpath
+    # job's matrix, and the workflow's own top-level and env keys above
+    # it. An edit to this workflow that would change how bash starts the
+    # recipe -- a step `shell:`, an `if:` on the step, a
+    # `continue-on-error`, a job or workflow `env:` such as BASH_ENV, a
+    # `defaults:` block, a setup step that exports BASH_ENV through
+    # $GITHUB_ENV -- fails that spec rather than leaving this job green
+    # with the gates unrun. Gated on code_changed, so ci-rollup collapses
+    # its SKIPPED on a doc-only PR into a pass.
     runs-on: ubuntu-latest
-    # 74 docker builds of a small module: the gates' test and final
-    # stages, then the redpath's 60 cases (base#1465 added the admission,
-    # producer-output and coverage-ratchet cases; most stop at the admit
-    # stage) and its control. The redpath alone took 10m06s on a local
-    # run; a ceiling, not a budget. 120, not 60: base#1467 took the
-    # redpath to 73 cases. On PR #1538's run 41716884877 this job was
-    # cancelled at 60 minutes with the redpath still running after 56
-    # minutes; at f8a33289 `just test go` took 52m41s on a local run,
-    # 49m52s of it the redpath.
+    # The gates' test and final stages: two docker builds and the mutation
+    # gate over the changed packages. A ceiling, not a budget; not raised
+    # by base#1547.
     timeout-minutes: 120
     steps:
       - name: Checkout
@@ -1731,7 +1728,68 @@ jobs:
         # push and against the merge-base with origin/main otherwise.
         env:
           CONFIG_GEN_MUTATION_CONTEXT: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
-        run: just test go
+        run: just test go-gates
+
+  config-gen-redpath:
+    name: Config-gen redpath shard ${{ matrix.shard }}/5${{ matrix.label }} (base#1547)
+    needs: [classify]
+    if: needs.classify.outputs.code_changed == 'true'
+    # The redpath, which plants one defect per gate in a scratch copy and
+    # requires each to go red on its own gate, split into the shards
+    # script/test/config_gen_redpath_shards.tsv names (base#1547): each job
+    # runs `just test go-redpath <shard>/5`, the cases whose row names
+    # that shard. The 5 is the table's `# shards=5`; the redpath refuses a
+    # SHARD whose N is not the table's, and self_test_yaml_spec.bats holds
+    # this matrix to exactly 1..N with N read from the table. The unmodified
+    # copy's check (rerun) has one row like every other case, so it runs in
+    # one shard per CI run, and that shard's name says so: the label below
+    # sits on the shard that row names. Every other shard's verdict rests
+    # on that one, since every shard builds the same commit from the same
+    # pinned images, and ci-rollup needs every shard.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+        include:
+          - shard: 5
+            label: " + rerun, the baseline"
+    # A ceiling, not a budget; not raised by base#1547.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Full history, as base#1462 specifies; the parity spec pins it.
+          fetch-depth: 0
+
+      - name: Resolve the pinned just version
+        id: just-pin
+        # Copied from the acceptance job, which carries the rationale; the
+        # parity spec holds the two equal.
+        run: |
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install just (container-ops entry point)
+        env:
+          JUST_VERSION: ${{ steps.just-pin.outputs.version }}
+        run: ./script/ci/install-just.sh "${JUST_VERSION}"
+
+      - name: Check the just on PATH is the pin
+        run: |
+          set -euo pipefail
+          observed="$(just --version)"
+          ./script/ci/test-tools-pins.sh check JUST_VERSION "${observed}"
+          echo "just: ${observed}, which is the pin"
+
+      - name: Run the config-gen gates
+        # The mutation baseline (base#1464) diffs against HEAD^1 on a main
+        # push and against the merge-base with origin/main otherwise.
+        env:
+          CONFIG_GEN_MUTATION_CONTEXT: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
+        run: just test go-redpath ${{ matrix.shard }}/5
 
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
@@ -1775,7 +1833,7 @@ jobs:
     # compute-shards failure cascaded into two skips and the required
     # check went green with the whole unit suite and the coverage floor
     # never run. A skipped shard computation is not a pass.
-    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1796,7 +1854,8 @@ jobs:
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
           WORKER_SELFTEST_RESULT: ${{ needs.worker-selftest.result }}
-          CONFIG_GEN_RESULT: ${{ needs.config-gen.result }}
+          CONFIG_GEN_GATES_RESULT: ${{ needs.config-gen-gates.result }}
+          CONFIG_GEN_REDPATH_RESULT: ${{ needs.config-gen-redpath.result }}
           # A fork PR is the one run in which SKIPPED stops being
           # trustworthy. `worker-selftest` calls build-worker.yaml, whose
           # `build` job carries the same-repo guard; on a fork PR that job
@@ -1833,7 +1892,8 @@ jobs:
           echo "acceptance:       ${ACCEPTANCE_RESULT}"
           echo "system:           ${SYSTEM_RESULT}"
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
-          echo "config-gen:       ${CONFIG_GEN_RESULT}"
+          echo "config-gen-gates:   ${CONFIG_GEN_GATES_RESULT}"
+          echo "config-gen-redpath: ${CONFIG_GEN_REDPATH_RESULT}"
           fail=0
           # doc-counts, lint-static, mutation-roster and compute-shards
           # carry no `if:` gate, so SKIPPED means a workflow bug, not an
@@ -1852,7 +1912,8 @@ jobs:
                    "${BATS_FRAGILE_RESULT}" "${COVERAGE_RESULT}" \
                    "${COVERAGE_GATE_RESULT}" \
                    "${ACCEPTANCE_RESULT}" "${SYSTEM_RESULT}" \
-                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_RESULT}"; do
+                   "${WORKER_SELFTEST_RESULT}" "${CONFIG_GEN_GATES_RESULT}" \
+                   "${CONFIG_GEN_REDPATH_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           # The fork-PR branch (see IS_FORK_PR above). Deliberately a hard
@@ -1880,7 +1941,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen, worker-selftest]
+    needs: [shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
