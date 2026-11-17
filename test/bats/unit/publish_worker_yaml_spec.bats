@@ -996,3 +996,11 @@ _resolve_tags_for() {
   refute_output --partial 'latest'
   assert_output --partial '::notice::'
 }
+
+# why: base#1646 -- a final release ref keeps moving :latest beside its
+# pinned tag, and both carry the caller's suffix.
+@test "publish-worker.yaml: a release ref with is_latest true publishes the pinned tag and :latest, both suffixed (#1646)" {
+  run _resolve_tags_for v1.2.0 true -devel
+  assert_success
+  assert_output --partial 'tags=ghcr.io/o/img:v1.2.0-devel,ghcr.io/o/img:latest-devel'
+}
