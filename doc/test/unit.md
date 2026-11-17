@@ -5712,7 +5712,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (31)
+### test/bats/unit/publish_worker_yaml_spec.bats (32)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -5782,6 +5782,7 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)` | An arm64-only caller -- `platforms: linux/arm64`, which this worker supports and which a multi-arch base image repo uses -- builds and pushes on `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of the digests that run produced, so the selection refuses, no tag is attached, and a supported configuration stops publishing altogether. The runner has to follow the matrix the caller asked for (#1214). |
 | `publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)` | The structural half above says the runner is derived; this says the derivation lands on a runner that can RUN what the caller asked for. An arm64-only call must put the merge job on the arm64 runner, or the smoke step has nothing it can execute and the publish fails for a configuration that worked before the gate existed (#1214). |
 | `publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. The job's own `if:` is held to the same-repo guard the self-hosted rule requires of its derived runner and to nothing else, so a condition on WHETHER to publish cannot arrive there either. |
+| `publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)` | base#1646 -- :latest is the most-consumed tag; a prerelease ref (rc, beta) must publish only its pinned tag and say so. |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 
