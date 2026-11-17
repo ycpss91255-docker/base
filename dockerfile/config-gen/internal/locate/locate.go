@@ -257,13 +257,16 @@ func (m *Map) Keys(path []string) []Occurrence {
 func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 	var out []Occurrence
 	want := pathID(path)
-	for _, o := range m.entries {
+	for _, o := range m.candidates(path) {
 		if keep(*o) && pathID(o.Path) == want {
 			out = append(out, *o)
 		}
 	}
 	return out
 }
+
+// candidates returns the records filter examines for path.
+func (m *Map) candidates(path []string) []*Occurrence { return m.entries }
 
 func unique(all []Occurrence) (Occurrence, Lookup) {
 	switch len(all) {
