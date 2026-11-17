@@ -163,6 +163,20 @@ EXPECTED
   [[ "${stderr}" == *garbage* ]]
 }
 
+# why: base#1651 -- a repo with N stages calls the emitter N times; the
+# invalid-restart warning must print once per emit, and again after a reset.
+@test "_emit_restart_line: invalid value warns once per emit, again after reset (base#1651)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  local _err="${BATS_TEST_TMPDIR}/1651-latch.err"
+  _emit_restart_line "alwayss" 2>"${_err}" >/dev/null
+  _emit_restart_line "alwayss" 2>>"${_err}" >/dev/null
+  [[ "$(grep -c alwayss "${_err}")" == "1" ]]
+  _reset_inert_warnings
+  _emit_restart_line "alwayss" 2>>"${_err}" >/dev/null
+  [[ "$(grep -c alwayss "${_err}")" == "2" ]]
+}
+
 # why: additional_contexts
 @test "_emit_additional_contexts_block: empty omits; entries emit block" {
   run _emit_additional_contexts_block ""
