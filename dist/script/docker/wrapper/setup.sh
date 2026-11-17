@@ -185,6 +185,10 @@ _setup_msg_lifecycle() {
     zh-CN:restart_invalid) echo "setup.toml:[lifecycle] restart 的值无效（需为 no、always、unless-stopped、on-failure 或 on-failure:N），已跳过 restart 字段" ;;
     ja:restart_invalid)    echo "setup.toml:[lifecycle] restart の値が無効です（no、always、unless-stopped、on-failure、on-failure:N のいずれかにしてください）。restart フィールドは省略されます" ;;
     *:restart_invalid)     echo "setup.toml:[lifecycle] restart is invalid (not one of no/always/unless-stopped/on-failure/on-failure:N), so the restart field is omitted" ;;
+    zh-TW:init_invalid)    echo "setup.toml:[lifecycle] init 的值無效（需為 true 或 false），已略過 init 欄位" ;;
+    zh-CN:init_invalid)    echo "setup.toml:[lifecycle] init 的值无效（需为 true 或 false），已跳过 init 字段" ;;
+    ja:init_invalid)       echo "setup.toml:[lifecycle] init の値が無効です（true または false にしてください）。init フィールドは省略されます" ;;
+    *:init_invalid)        echo "setup.toml:[lifecycle] init is invalid (not true or false), so the init field is omitted" ;;
   esac
 }
 

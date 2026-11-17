@@ -148,6 +148,15 @@ _warn_invalid_lifecycle_restart() {
     "display=$(_setup_msg lifecycle restart_invalid) (restart=${_value})" "restart=${_value}"
 }
 
+# _warn_invalid_lifecycle_init <value>
+#
+# Same as _warn_invalid_lifecycle_restart, for [lifecycle] init (base#1651).
+_warn_invalid_lifecycle_init() {
+  local _value="${1-}"
+  _log_warn setup lifecycle_init_invalid \
+    "display=$(_setup_msg lifecycle init_invalid) (init=${_value})" "init=${_value}"
+}
+
 # _NETWORK_NAME_JOINED -- set by any service block that emitted a
 # `networks:` membership, read by the top-level `networks:` declaration.
 #
@@ -640,7 +649,10 @@ _emit_init_line() {
   # a non-boolean here. Drop anything _validate_init rejects rather than
   # emit a malformed init: field (apply-time trust-boundary guard, mirrors
   # _emit_restart_line).
-  _validate_init "${_init}" || return 0
+  if ! _validate_init "${_init}"; then
+    _warn_invalid_lifecycle_init "${_init}"
+    return 0
+  fi
   [[ "${_init}" == "false" ]] && return 0
   printf '    init: true\n'
 }
