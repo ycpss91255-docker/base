@@ -143,15 +143,24 @@ EXPECTED
   [[ "${stderr}" == *alwayss* ]]
 }
 
-@test "_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)" {
+@test "_emit_init_line: default/true emits init: true; false omits (#792)" {
   run _emit_init_line
   assert_output "    init: true"
   run _emit_init_line "true"
   assert_output "    init: true"
   run _emit_init_line "false"
   assert_output ""
-  run _emit_init_line "garbage"
+}
+
+# why: base#1651 -- an invalid init was dropped with no output at all.
+@test "_emit_init_line: invalid value warns naming key and value, still omits the field (base#1651)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  run --separate-stderr _emit_init_line "garbage"
   assert_output ""
+  [[ "${stderr}" == *lifecycle* ]]
+  [[ "${stderr}" == *init* ]]
+  [[ "${stderr}" == *garbage* ]]
 }
 
 # why: additional_contexts
