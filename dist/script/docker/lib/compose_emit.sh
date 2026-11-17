@@ -153,7 +153,8 @@ _warn_invalid_lifecycle_restart() {
 
 # _warn_invalid_lifecycle_init <value>
 #
-# Same as _warn_invalid_lifecycle_restart, for [lifecycle] init (base#1651).
+# Same message shape as _warn_invalid_lifecycle_restart, for [lifecycle] init
+# (base#1651). Unlike the restart one this is not latched.
 _warn_invalid_lifecycle_init() {
   local _value="${1-}"
   _log_warn setup lifecycle_init_invalid \
