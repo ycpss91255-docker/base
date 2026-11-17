@@ -1004,3 +1004,13 @@ _resolve_tags_for() {
   assert_success
   assert_output --partial 'tags=ghcr.io/o/img:v1.2.0-devel,ghcr.io/o/img:latest-devel'
 }
+
+# why: base#1646 -- a classifier that fails (release-ref.sh exits 2 for a
+# ref that is neither a release nor a prerelease) must FAIL the step, not
+# read as "not a prerelease" and fall through to moving :latest.
+@test "publish-worker.yaml: a failing release-ref.sh fails the step and writes no tags output (#1646)" {
+  run _resolve_tags_for feature/x true
+  assert_failure
+  refute_output --partial 'tags='
+  refute_output --partial 'latest'
+}
