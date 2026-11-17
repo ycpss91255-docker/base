@@ -1230,7 +1230,14 @@ _generate_deploy_bundle() {
   _collect_deploy_binds "${_base}" "${_stage}" _binds _bind_modes || return 1
 
   local _work
-  _work="$(mktemp -d)"
+  # base#1652: a failed or empty mktemp must abort before any path is built
+  # from ${_work}, otherwise the next mkdir targets /config.
+  _work="$(mktemp -d)" || _work=""
+  if [[ -z "${_work}" ]]; then
+    _log_err setup deploy_mktemp_failed \
+      "display=[setup] deploy: cannot create a temporary directory (mktemp -d failed)"
+    return 1
+  fi
   mkdir -p "${_work}/config"
   local _gen="${_work}/Dockerfile.deploy"
   local _build_dockerfile="${_base}/Dockerfile"

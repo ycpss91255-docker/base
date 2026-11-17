@@ -401,6 +401,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # base#1646 -- the merge job has no caller checkout, so the one org
+      # classifier (script/ci/release-ref.sh) is fetched at the worker's own
+      # ref, sparse, for the Resolve tags step below.
+      - name: Checkout the release-ref classifier (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
+          sparse-checkout: script/ci/release-ref.sh
+          sparse-checkout-cone-mode: false
+
       - name: Resolve tags
         id: tags
         shell: bash
@@ -416,7 +428,14 @@ jobs:
           base="${REGISTRY}/${OWNER}/${IMAGE}"
           tags="${base}:${REF}${SUFFIX}"
           if [ "${IS_LATEST}" = "true" ]; then
-            tags="${tags},${base}:latest${SUFFIX}"
+            # base#1646 -- captured in a variable so a failing classifier
+            # fails the step instead of reading as "not a prerelease".
+            pre="$(bash .worker-base/script/ci/release-ref.sh prerelease "${REF}")"
+            if [ "${pre}" = "true" ]; then
+              echo "::notice::${REF} is a prerelease tag: publishing only the pinned tag ${base}:${REF}${SUFFIX} and not moving the floating tag."
+            else
+              tags="${tags},${base}:latest${SUFFIX}"
+            fi
           fi
           printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
           echo "Computed tags: ${tags}"

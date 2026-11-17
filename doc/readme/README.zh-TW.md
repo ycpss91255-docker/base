@@ -56,11 +56,13 @@ just                # 列出所有 namespace
 repo 上會報錯 `ambiguous argument 'HEAD'` 與 `working tree has
 modifications`；空 commit 建立 `HEAD` 後，subtree 才能 merge 進來。
 
-<!-- sync: prerequisites 4fa4246972db da5f51f69d46 -->
+<!-- sync: prerequisites d2be58cfe3eb 797049a17d96 -->
 ## 必要條件
 
 容器操作透過 [`just`](https://github.com/casey/just)（command runner）搭配
 Docker 執行。使用 `just <verb>` 入口前，請先在 host 安裝兩者：
+
+host 端工具僅支援 Linux，不支援 macOS 與 Windows host。
 
 - **Docker** + Docker Compose v2（`docker compose`）。
 - **just** -- 本 repo 只釘住一個版本。test-tools image、CI 與

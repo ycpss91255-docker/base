@@ -60,6 +60,9 @@ Container operations run through [`just`](https://github.com/casey/just) (the
 command runner) layered on Docker. Install both on the host before using the
 `just <verb>` entry point:
 
+The host tooling supports Linux only. macOS and Windows hosts are not
+supported.
+
 - **Docker** + Docker Compose v2 (`docker compose`).
 - **just** -- this repo PINS one version. The test-tools image, CI and the
   `--bootstrap-just` installer all run that exact version, so a recipe behaves

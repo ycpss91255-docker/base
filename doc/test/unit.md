@@ -1671,7 +1671,7 @@ hint, default `$SHELL` detection, and uninstall.
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (30)
+### test/bats/unit/compose_emit/blocks_spec.bats (33)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1692,7 +1692,10 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_build_network_line: empty omits; set emits network line` | build.network |
 | `_emit_runtime_line: empty omits; set emits runtime line` | runtime |
 | `_emit_restart_line: 'no' omits; plain value plain; on-failure:N quoted` | #478 restart |
-| `_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)` | - |
+| `_emit_restart_line: invalid value warns naming key and value, still omits the field (base#1651)` | base#1651 -- an invalid restart was dropped with no output at all. |
+| `_emit_init_line: default/true emits init: true; false omits (#792)` | - |
+| `_emit_init_line: invalid value warns naming key and value, still omits the field (base#1651)` | base#1651 -- an invalid init was dropped with no output at all. |
+| `_emit_restart_line: invalid value warns once per emit, again after reset (base#1651)` | base#1651 -- a repo with N stages calls the emitter N times; the invalid-restart warning must print once per emit, and again after a reset. |
 | `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
 | `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
 | `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
@@ -2737,7 +2740,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (67)
+### test/bats/unit/deploy_spec.bats (68)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2802,6 +2805,7 @@ refused before any build or bundle step.
 | `_report_config_components: WARNs a selector whose preset is missing (#826)` | dangling selector named |
 | `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
+| `_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)` | a failed mktemp must abort before any path is built from an empty dir |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
 | `_generate_deploy_bundle: a malformed manifest fails loud before building (#833)` | fail-loud guard |
@@ -5718,7 +5722,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (31)
+### test/bats/unit/publish_worker_yaml_spec.bats (34)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -5788,6 +5792,9 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)` | An arm64-only caller -- `platforms: linux/arm64`, which this worker supports and which a multi-arch base image repo uses -- builds and pushes on `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of the digests that run produced, so the selection refuses, no tag is attached, and a supported configuration stops publishing altogether. The runner has to follow the matrix the caller asked for (#1214). |
 | `publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)` | The structural half above says the runner is derived; this says the derivation lands on a runner that can RUN what the caller asked for. An arm64-only call must put the merge job on the arm64 runner, or the smoke step has nothing it can execute and the publish fails for a configuration that worked before the gate existed (#1214). |
 | `publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. The job's own `if:` is held to the same-repo guard the self-hosted rule requires of its derived runner and to nothing else, so a condition on WHETHER to publish cannot arrive there either. |
+| `publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)` | base#1646 -- :latest is the most-consumed tag; a prerelease ref (rc, beta) must publish only its pinned tag and say so. |
+| `publish-worker.yaml: a release ref with is_latest true publishes the pinned tag and :latest, both suffixed (#1646)` | base#1646 -- a final release ref keeps moving :latest beside its pinned tag, and both carry the caller's suffix. |
+| `publish-worker.yaml: a failing release-ref.sh fails the step and writes no tags output (#1646)` | base#1646 -- a classifier that fails (release-ref.sh exits 2 for a ref that is neither a release nor a prerelease) must FAIL the step, not read as "not a prerelease" and fall through to moving :latest. |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 
