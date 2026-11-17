@@ -577,16 +577,18 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
 # error: isaac run 42753553284 went red on `#26 ERROR: error writing layer
 # blob` after the image built (base#1602). The class is every `type=gha`
 # cache-to a build step requests in either workflow, not the four lines the
-# issue names. The floor 12 is the count of `cache-to:` keys found by
-# grepping both files at base a61b898d (4 in build-worker.yaml, 8 in
-# self-test.yaml), so a spec that matches nothing cannot pass.
+# issue names. The count is exact: 4 in build-worker.yaml plus the two
+# test-tools builders in self-test.yaml (test-tools-image-amd64 and
+# -arm64), the only self-test.yaml jobs that write the cache since
+# base#1588 (the consumers read it and carry no cache-to). A spec that
+# matches nothing, or a new producer nobody reviewed, cannot pass.
 @test "build-worker.yaml + self-test.yaml: every type=gha cache-to carries ignore-error=true (base#1602)" {
   local _st="/source/.github/workflows/self-test.yaml" _all _bad
   _all="$(yq -N '.. | select(tag == "!!map" and has("cache-to")) | .["cache-to"]' "${WF}" "${_st}" | grep -F 'type=gha')"
   run grep -c . <<<"${_all}"
   assert_success
-  [ "${output}" -ge 12 ] || {
-    echo "only ${output} type=gha cache-to found, floor is 12" >&2
+  [ "${output}" -eq 6 ] || {
+    echo "${output} type=gha cache-to found, want exactly 6" >&2
     return 1
   }
   _bad="$(grep -vE '(^|,)ignore-error=true(,|$)' <<<"${_all}" || true)"
@@ -672,10 +674,10 @@ FROM debian:bookworm AS foo-test' foo
 # outcome: GitHub's steps context gives a skipped step outcome `skipped` and
 # a failed one `failure`, so `steps.<id>.outcome == 'success'` runs the warn
 # only after a build that ran and passed, never after a build skipped by its
-# own `if:` (10 of the 12 have one) and never on top of a red build. The
-# 12-line roster is the enumeration of every step with `with.cache-to` in
-# both files at base a61b898d, so a new producer without a warn step, or a
-# gate naming another step, fails here.
+# own `if:` and never on top of a red build. The 6-line roster is the
+# enumeration of every step with `with.cache-to` in both files (the four
+# build-worker steps and the two test-tools builders, base#1588), so a new
+# producer without a warn step, or a gate naming another step, fails here.
 @test "build-worker.yaml + self-test.yaml: every cache-to build step is followed by a warn step gated on its own outcome (base#1602)" {
   local _st="/source/.github/workflows/self-test.yaml" _rows _roster _expected
   local _job _name _id _run _meta _if _bad=""
@@ -697,14 +699,8 @@ FROM debian:bookworm AS foo-test' foo
     'build-worker.yaml build' 'Build devel stage' \
     'build-worker.yaml build' 'Build runtime-test stage (install check)' \
     'build-worker.yaml build' 'Build runtime stage' \
-    'self-test.yaml shellcheck' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml doc-counts' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml lint-static' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml mutation-roster' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml hadolint' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml bats-fragile' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml coverage' 'Build the run-scoped test-tools image (with GHA cache)' \
-    'self-test.yaml system' 'Build the run-scoped test-tools image (with GHA cache)')"
+    'self-test.yaml test-tools-image-amd64' 'Build the test-tools image (writes the GHA cache)' \
+    'self-test.yaml test-tools-image-arm64' 'Build the test-tools image (writes the GHA cache)')"
   assert_equal "${_roster}" "${_expected}"
   while IFS=$'\t' read -r _job _name _id _run _meta _if; do
     _if="${_if#\$\{\{ }"

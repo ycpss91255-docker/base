@@ -56,6 +56,8 @@ JUSTFILE_TEST="/source/script/test/justfile.test"
 ALLOWED_EXCLUSIONS="acceptance/arm64
 classify
 compute-shards
+test-tools-image-amd64
+test-tools-image-arm64
 worker-selftest"
 
 # Diffs the plan check probes. Which jobs CI runs for each is asked of
@@ -283,7 +285,7 @@ table:
 ${_table}"
 }
 
-@test "pre-PR mirror: only arm64 acceptance, classify, compute-shards and worker-selftest may be excluded (base#1409)" {
+@test "pre-PR mirror: only arm64 acceptance, classify, compute-shards, the test-tools-image builders and worker-selftest may be excluded (base#1409)" {
   local _table _job _bad=""
   _table="$(_mirror_table)" || return 1
   while IFS= read -r _job; do
