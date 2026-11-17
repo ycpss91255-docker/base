@@ -137,6 +137,17 @@ _warn_network_name_inert() {
     "display=$(_setup_msg network network_name_inert) (mode=${_mode})" "mode=${_mode}"
 }
 
+# _warn_invalid_lifecycle_restart <value>
+#
+# Say that an invalid [lifecycle] restart was dropped (base#1651). The apply
+# guard in _emit_restart_line keeps an invalid policy out of compose, but it
+# used to do so with no output at all, so the field vanished unexplained.
+_warn_invalid_lifecycle_restart() {
+  local _value="${1-}"
+  _log_warn setup lifecycle_restart_invalid \
+    "display=$(_setup_msg lifecycle restart_invalid) (restart=${_value})" "restart=${_value}"
+}
+
 # _NETWORK_NAME_JOINED -- set by any service block that emitted a
 # `networks:` membership, read by the top-level `networks:` declaration.
 #
@@ -608,7 +619,10 @@ _emit_restart_line() {
   # a malformed policy here. Drop anything _validate_restart rejects rather
   # than emit an invalid `restart:` that breaks `docker compose up` with a
   # cryptic error (apply-time trust-boundary guard).
-  _validate_restart "${_restart}" || return 0
+  if ! _validate_restart "${_restart}"; then
+    _warn_invalid_lifecycle_restart "${_restart}"
+    return 0
+  fi
   case "${_restart}" in
     on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
     *)            printf '    restart: %s\n'   "${_restart}" ;;

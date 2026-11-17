@@ -272,6 +272,7 @@ interval_migration_declined
 # says THAT one ran; this one says what it changed in the repo's own file,
 # which is the half the consumer has to be able to disagree with.
 lifecycle_restart_default_migrated
+lifecycle_restart_invalid
 
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)

@@ -179,6 +179,15 @@ _setup_msg_network() {
   esac
 }
 
+_setup_msg_lifecycle() {
+  case "${_LANG}:${1:?}" in
+    zh-TW:restart_invalid) echo "setup.toml:[lifecycle] restart 的值無效（需為 no、always、unless-stopped、on-failure 或 on-failure:N），已略過 restart 欄位" ;;
+    zh-CN:restart_invalid) echo "setup.toml:[lifecycle] restart 的值无效（需为 no、always、unless-stopped、on-failure 或 on-failure:N），已跳过 restart 字段" ;;
+    ja:restart_invalid)    echo "setup.toml:[lifecycle] restart の値が無効です（no、always、unless-stopped、on-failure、on-failure:N のいずれかにしてください）。restart フィールドは省略されます" ;;
+    *:restart_invalid)     echo "setup.toml:[lifecycle] restart is invalid (not one of no/always/unless-stopped/on-failure/on-failure:N), so the restart field is omitted" ;;
+  esac
+}
+
 _setup_msg_stage() {
   case "${_LANG}:${1:?}" in
     zh-TW:invalid_format)           echo "Dockerfile stage 名稱格式無效，已跳過該 stage" ;;
