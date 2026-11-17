@@ -953,3 +953,46 @@ merge: packages: write'
   refute_output --partial 'inputs.'
   refute_output --partial 'steps.'
 }
+
+# _resolve_tags_for <ref> <is_latest> [suffix] -- RUN the merge job's own
+# "Resolve tags" step body (read out of the workflow with yq, not restated)
+# and print what it wrote to GITHUB_OUTPUT followed by its stdout. The
+# step's own status is returned. cwd is a scratch dir whose
+# .worker-base/script/ci/release-ref.sh is the REAL classifier, so the
+# prerelease decision is the org's single rule rather than a stub (base#1646).
+_resolve_tags_for() {
+  local _ref="${1}" _latest="${2}" _suffix="${3:-}" _body _dir _status=0
+  _body="$(yaml_step_run "${WF}" merge 'Resolve tags')" || {
+    printf 'BUG: yq could not read the Resolve tags step of %s\n' "${WF}"
+    return 2
+  }
+  if [[ -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: %s declares no Resolve tags step in its merge job\n' "${WF}"
+    return 2
+  fi
+  _dir="${SCRATCH}/resolve"
+  mkdir -p "${_dir}/.worker-base/script/ci"
+  ln -sf /source/script/ci/release-ref.sh \
+      "${_dir}/.worker-base/script/ci/release-ref.sh"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  (
+    cd -- "${_dir}" || exit 2
+    REGISTRY=ghcr.io OWNER=o IMAGE=img REF="${_ref}" SUFFIX="${_suffix}" \
+    IS_LATEST="${_latest}" GITHUB_OUTPUT="${_dir}/out" \
+      bash "${_dir}/step.sh"
+  ) || _status=$?
+  if [[ -f "${_dir}/out" ]]; then
+    cat "${_dir}/out"
+  fi
+  return "${_status}"
+}
+
+# why: base#1646 -- :latest is the most-consumed tag; a prerelease ref
+# (rc, beta) must publish only its pinned tag and say so.
+@test "publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)" {
+  run _resolve_tags_for v1.2.0-rc1 true
+  assert_success
+  assert_output --partial 'tags=ghcr.io/o/img:v1.2.0-rc1'
+  refute_output --partial 'latest'
+  assert_output --partial '::notice::'
+}
