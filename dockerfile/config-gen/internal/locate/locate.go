@@ -169,6 +169,10 @@ type Map struct {
 	// an array of tables, which the log records once per path.
 	extra []*Occurrence
 	root  *Node
+	// byID maps the pathID of each entry to its entries, in document
+	// order. Index builds it, so concurrent readers only read it
+	// (base#1654).
+	byID map[string][]*Occurrence
 }
 
 // Root returns the root of the document tree: headers resolve from it,
@@ -266,7 +270,7 @@ func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 }
 
 // candidates returns the records filter examines for path.
-func (m *Map) candidates(path []string) []*Occurrence { return m.entries }
+func (m *Map) candidates(path []string) []*Occurrence { return m.byID[pathID(path)] }
 
 func unique(all []Occurrence) (Occurrence, Lookup) {
 	switch len(all) {
@@ -302,7 +306,12 @@ func Index(src []byte) *Map {
 	root := &Node{Kind: NTable}
 	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, tables: map[string]bool{}, memberOrdinal: map[string]int{}, root: root, cur: root}
 	s.run()
-	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, extra: s.extra, root: root}
+	byID := make(map[string][]*Occurrence, len(s.entries))
+	for _, o := range s.entries {
+		id := pathID(o.Path)
+		byID[id] = append(byID[id], o)
+	}
+	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, extra: s.extra, root: root, byID: byID}
 }
 
 type scanner struct {
