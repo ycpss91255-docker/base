@@ -2737,7 +2737,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (67)
+### test/bats/unit/deploy_spec.bats (68)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2802,6 +2802,7 @@ refused before any build or bundle step.
 | `_report_config_components: WARNs a selector whose preset is missing (#826)` | dangling selector named |
 | `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
+| `_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)` | a failed mktemp must abort before any path is built from an empty dir |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
 | `_generate_deploy_bundle: a malformed manifest fails loud before building (#833)` | fail-loud guard |
