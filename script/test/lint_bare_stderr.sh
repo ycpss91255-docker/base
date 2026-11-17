@@ -31,6 +31,11 @@ _is_excluded_file() {
     # image with no lib/log.sh, so its MISSING-DEP report goes straight to
     # fd 2 -- same rationale as logging.sh / watchdog.sh above.
     dist/test/bats/smoke/smoke.sh) return 0 ;;
+    # apt retry helper (base#1602): a /bin/sh script copied into the image
+    # and run by Dockerfile RUN layers, where no lib/log.sh exists, so its
+    # per-attempt failure line goes straight to fd 2 (the build log) --
+    # same rationale as watchdog.sh / smoke.sh above.
+    dist/script/docker/build/apt-retry.sh) return 0 ;;
     dist/script/docker/lib/_tui_backend.sh) return 0 ;;
     dist/script/docker/lib/_tui_conf.sh) return 0 ;;
     dist/script/docker/wrapper/setup_tui.sh) return 0 ;;

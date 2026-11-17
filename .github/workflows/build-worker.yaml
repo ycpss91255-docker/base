@@ -581,6 +581,7 @@ jobs:
           mkdir -p /tmp/workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build devel-test stage (includes lint + bats smoke)
+        id: build_devel_test
         # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
         # source of `COPY --from=${TEST_TOOLS_IMAGE}`; buildx auto-pulls
         # the image from GHCR on `COPY --from=<name:tag>` when the tag
@@ -609,7 +610,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -619,7 +620,20 @@ jobs:
             TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
+      - name: Warn when the devel-test cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.build_devel_test.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.build_devel_test.outputs.metadata }}
+          CACHE_EXPORT_LABEL: devel-test
+        run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+
       - name: Build devel stage
+        id: build_devel
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context_path }}
@@ -629,7 +643,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -637,6 +651,18 @@ jobs:
             USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
             ${{ inputs.build_args }}
+
+      - name: Warn when the devel cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.build_devel.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.build_devel.outputs.metadata }}
+          CACHE_EXPORT_LABEL: devel
+        run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
 
       - name: Resolve runtime stages from the Dockerfile
         # #925 -- the Dockerfile is the single source of truth for whether
@@ -664,6 +690,7 @@ jobs:
           echo "build_runtime=${effective}" >> "${GITHUB_OUTPUT}"
 
       - name: Build runtime-test stage (install check)
+        id: build_runtime_test
         # Mirrors the devel-test pattern (#243): ephemeral stage
         # FROM runtime, runs an inline `RUN <smoke>` so build failure
         # surfaces a smoke failure. Default smoke is generic
@@ -689,7 +716,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -698,7 +725,20 @@ jobs:
             TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
+      - name: Warn when the runtime-test cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.build_runtime_test.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.build_runtime_test.outputs.metadata }}
+          CACHE_EXPORT_LABEL: runtime-test
+        run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+
       - name: Build runtime stage
+        id: build_runtime
         if: ${{ steps.runtime.outputs.build_runtime == 'true' }}
         uses: docker/build-push-action@v7
         with:
@@ -709,13 +749,25 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max
+          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max,ignore-error=true
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
             USER_UID=1000
             USER_GID=1000
             ${{ inputs.build_args }}
+
+      - name: Warn when the runtime cache export failed
+        # ignore-error=true keeps a failed cache export from failing the
+        # build, so this step reads the build's own record and warns when
+        # an export did not finish. Gated on the build's outcome: a skipped
+        # build is `skipped` and a red one `failure`, so it runs only after
+        # a build that ran and passed (base#1602).
+        if: ${{ steps.build_runtime.outcome == 'success' }}
+        env:
+          BUILD_METADATA: ${{ steps.build_runtime.outputs.metadata }}
+          CACHE_EXPORT_LABEL: runtime
+        run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
 
       # ────────────────────────────────────────────────────────────
       # #415 — Extra stages loop.
@@ -762,7 +814,7 @@ jobs:
           }
           cache_to_for() {
             local scope="$1"
-            printf 'type=gha,scope=%s,mode=max' "${scope}"
+            printf 'type=gha,scope=%s,mode=max,ignore-error=true' "${scope}"
           }
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
@@ -823,9 +875,15 @@ jobs:
                 --platform "${PLATFORM}" \
                 --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
                 --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
+                --metadata-file "${RUNNER_TEMP}/${test_stage}.json" \
                 "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
                 "${CONTEXT_PATH}"
               echo "::endgroup::"
+              # Reached only when the test-stage build ran and passed, as
+              # for the stage build below (base#1602).
+              BUILD_METADATA="$(cat "${RUNNER_TEMP}/${test_stage}.json")" \
+                CACHE_EXPORT_LABEL="${test_stage}" \
+                bash .worker-base/script/ci/build_worker/cache_export_warn.sh
             fi
 
             echo "::group::Build ${stage} (extra stage)"
@@ -835,9 +893,16 @@ jobs:
               --platform "${PLATFORM}" \
               --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
               --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
+              --metadata-file "${RUNNER_TEMP}/${stage}.json" \
               "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
               "${CONTEXT_PATH}"
             echo "::endgroup::"
+            # Reached only when the build above passed (`set -e`): the
+            # export is ignore-error=true, so read the build's own record
+            # and warn when it did not finish (base#1602).
+            BUILD_METADATA="$(cat "${RUNNER_TEMP}/${stage}.json")" \
+              CACHE_EXPORT_LABEL="${stage}" \
+              bash .worker-base/script/ci/build_worker/cache_export_warn.sh
           done
 
       # ── Reclaim ──────────────────────────────────────────────────

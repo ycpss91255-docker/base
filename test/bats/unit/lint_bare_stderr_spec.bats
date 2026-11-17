@@ -105,6 +105,21 @@ EOF
   assert_output ""
 }
 
+# why: the in-image apt retry helper is excluded (base#1602): it is a
+# /bin/sh script copied into the image and run by Dockerfile RUN layers,
+# where no lib/log.sh exists, so its per-attempt failure line goes straight
+# to fd 2 -- the build log
+@test "does NOT flag bare stderr in the in-image apt-retry.sh helper (base#1602)" {
+  mkdir -p "${FIXTURE}/dist/script/docker/build"
+  cat > "${FIXTURE}/dist/script/docker/build/apt-retry.sh" <<'EOF'
+#!/bin/sh
+printf 'apt-retry: attempt %d/%d failed (exit %d)\n' "${i}" "${attempts}" "${rc}" >&2
+EOF
+  run bash "${LINT}" "${FIXTURE}"
+  assert_success
+  assert_output ""
+}
+
 # why: config-gen's in-image event protocol: the admit stage runs with no
 # lib/log.sh, so its refusal is a `cg_event` line on stderr that the host
 # runner reads back and re-emits through _log_err (base#1465)

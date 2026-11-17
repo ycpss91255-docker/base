@@ -1031,16 +1031,20 @@ _tt_artifact_paths() {
 
 # ── A builder builds whenever obtain says build, on every event (base#1588) ──
 #
-# _tt_if_true <if> <build_local> <event> <ref> -- 0 when a step `if:` holds
+# _tt_if_true <if> <build_local> <event> <ref> [build_outcome] -- 0 when a step `if:` holds
 # for a run with that obtain verdict, github.event_name and github.ref, 1
 # when it does not, 2 (with a message) for a form this reader does not know.
 # It reads `a == 'x'` / `a != 'x'` atoms joined by `&&` and `||` (`&&` binds
 # tighter, as in GitHub expressions) and the status functions; a step with no
-# `if` runs (an implicit success()).
+# `if` runs (an implicit success()). build_outcome is the outcome of the
+# builder's `testtools_build` step so far in the scenario, `success` when it
+# ran and `skipped` when it did not (the default), which is what the warn
+# step after it (base#1602) is gated on.
 _tt_if_true() {
   local _e _alt _atom _ok _var
   local _re="^([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*(==|!=)[[:space:]]*'([^']*)'\$"
-  local -A _ctx=([steps.obtain.outputs.build_local]="${2}" [github.event_name]="${3}" [github.ref]="${4}")
+  local -A _ctx=([steps.obtain.outputs.build_local]="${2}" [github.event_name]="${3}" [github.ref]="${4}"
+    [steps.testtools_build.outcome]="${5:-skipped}")
   local -a _alts=() _atoms=()
   _e="$(_tt_unwrap "${1}")"
   [ -n "${_e}" ] || return 0
@@ -1094,7 +1098,8 @@ _tt_builder_builds() {
         _nbuild=0; _nup=0; _nmark=0; _to=""
         for (( _i = 0; _i < _n; _i++ )); do
           _r=0
-          _tt_if_true "$(_tt_step "${_wf}" "${_b}" "${_i}" '.if // ""')" "${_bl}" "${_ev}" "${_ref}" || _r=$?
+          _tt_if_true "$(_tt_step "${_wf}" "${_b}" "${_i}" '.if // ""')" "${_bl}" "${_ev}" "${_ref}" \
+            "$([ "${_nbuild}" -gt 0 ] && echo success || echo skipped)" || _r=$?
           if [ "${_r}" -eq 2 ]; then _rc=1; continue; fi
           [ "${_r}" -eq 0 ] || continue
           _uses="$(_tt_step "${_wf}" "${_b}" "${_i}" '.uses // ""')"
