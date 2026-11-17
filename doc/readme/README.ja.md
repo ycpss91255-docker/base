@@ -57,12 +57,15 @@ just                # 全 namespace を表示
 modifications` で失敗します。空コミットで `HEAD` を作ると subtree が
 merge できるようになります。
 
-<!-- sync: prerequisites 4fa4246972db ad2674303f65 -->
+<!-- sync: prerequisites d2be58cfe3eb eeb76083b8b3 -->
 ## 前提条件
 
 コンテナ操作は Docker 上で [`just`](https://github.com/casey/just)（command
 runner）を介して実行します。`just <verb>` エントリポイントを使う前に、host へ
 両方をインストールしてください:
+
+host 側のツールは Linux のみをサポートします。macOS と Windows の host は
+サポート対象外です。
 
 - **Docker** + Docker Compose v2（`docker compose`）。
 - **just** -- 本 repo はバージョンを 1 つに固定しています。test-tools
