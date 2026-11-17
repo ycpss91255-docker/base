@@ -158,6 +158,8 @@ _table() {
     "excluded${t}acceptance/arm64${t}the native arm64 runner leg; a local run measures the host's own arch, and there is no local arm64 runner to stand in for it" \
     "excluded${t}classify${t}CI's own path classifier computing the other jobs' if: gates; the plan applies the same two rules itself, and there is no repo-content verdict to reproduce" \
     "excluded${t}compute-shards${t}CI plumbing: it publishes the shard list and the cached weights blob; --coverage-shards applies its shard-count rule to the same CI_SHARDS, and the cache it restores is CI state no run before the push can read" \
+    "excluded${t}test-tools-image-amd64${t}CI plumbing (base#1588): it obtains the run's test-tools image for the other jobs and writes the GHA layer cache on a push to main only; every attested local command obtains that image itself, and the cache is CI state no run before the push can write" \
+    "excluded${t}test-tools-image-arm64${t}CI plumbing (base#1588): the arm64 twin of test-tools-image-amd64, on the native arm64 runner; there is no local arm64 runner to stand in for it" \
     "excluded${t}worker-selftest${t}invokes base's reusable build-worker.yaml, which only a GitHub Actions runner can call"
 }
 
