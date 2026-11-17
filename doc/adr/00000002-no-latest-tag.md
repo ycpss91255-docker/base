@@ -44,6 +44,10 @@ i.e. build-time dependency refs. It is deliberately distinct from the
 `:latest` (`is_latest` input) is intentionally supported for opt-in
 consumers.
 
+Contract for that published `:latest` (base#1646): it is a moving
+convenience tag and never a prerelease; `:<version>` is the reproducible
+reference and is always published; org-internal consumers must pin.
+
 ### The exemption was about publishing, not consuming
 
 *(amendment, 2026-10-06)*

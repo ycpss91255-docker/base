@@ -13,7 +13,7 @@ repos that other repos consume via Docker `FROM`.
 |-------|------|----------|---------|-------------|
 | `image_name` | string | yes | - | Image repo name on the registry (e.g. `my_image`); full ref becomes `${registry}/${owner}/${image_name}` |
 | `tag_suffix` | string | no | `""` | Appended to both `:${version}` and `:latest` tags. Convention: `-<matrix-entry-name>` so each variant lands on its own tag |
-| `is_latest` | boolean | no | `false` | When true, also pushes `:latest${tag_suffix}` alongside `:${version}${tag_suffix}`. Multi-variant repos set this only on the canonical default variant |
+| `is_latest` | boolean | no | `false` | When true, also pushes `:latest${tag_suffix}` alongside `:${version}${tag_suffix}`, except for a prerelease ref (rc, beta), which publishes only the pinned tag. `:${version}${tag_suffix}` is always published. Multi-variant repos set this only on the canonical default variant. See the tag contract below |
 | `registry` | string | no | `"ghcr.io"` | Container registry hostname. GHCR uses GITHUB_TOKEN auth automatically |
 | `target` | string | no | `"devel"` | Dockerfile target stage to publish. `devel` for app-base usage; `runtime` for production images |
 | `build_args` | string | no | `""` | Multi-line KEY=VALUE build args (same shape as build-worker) |
@@ -50,6 +50,10 @@ jobs:
       build_args: |
         BASE_IMAGE=${{ matrix.target.base }}
 ```
+
+### Tag contract
+
+`:latest` is a moving convenience tag and is never a prerelease: a prerelease ref (for example `v0.1.0-rc1`) never moves it. `:<version>` is the reproducible reference and is always published. Org-internal consumers must pin to `:<version>`, not `:latest`.
 
 After a `v0.1.0` tag push, the matrix above yields:
 
