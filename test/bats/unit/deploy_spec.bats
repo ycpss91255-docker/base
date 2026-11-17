@@ -837,6 +837,28 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: a failed mktemp must abort before any path is built from an empty dir
+@test "_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  local _calls="${_d}.mkdir-calls"
+  : > "${_calls}"
+  mktemp() { return 1; }
+  # Record mkdir instead of creating anything, so the test never touches /.
+  mkdir() { printf '%s\n' "$*" >> "${_calls}"; return 0; }
+  export DRY_RUN=true
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/deploy/out"
+  unset DRY_RUN
+  unset -f mktemp mkdir
+  assert_failure
+  assert_output --partial "cannot create a temporary directory"
+  # Nothing was created: no mkdir call at all (in particular none under /config).
+  run cat "${_calls}"
+  assert_output ""
+  [[ ! -e "${_d}/deploy/out" ]]
+  rm -rf "${_d}" "${_calls}"
+}
+
 # why: env-bake build
 @test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)" {
   local _d; _d="$(mktemp -d)"
