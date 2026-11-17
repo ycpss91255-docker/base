@@ -98,6 +98,7 @@ _warn_ports_inert() {
 # _warn_* and one line in _reset_inert_warnings, and nothing else.
 _SHM_SIZE_INERT_WARNED=0
 _NETWORK_NAME_INERT_WARNED=0
+_LIFECYCLE_RESTART_INVALID_WARNED=0
 
 # _warn_shm_size_inert <shm_size> <ipc_mode>
 #
@@ -137,6 +138,29 @@ _warn_network_name_inert() {
     "display=$(_setup_msg network network_name_inert) (mode=${_mode})" "mode=${_mode}"
 }
 
+# _warn_invalid_lifecycle_restart <value>
+#
+# Say that an invalid [lifecycle] restart was dropped (base#1651). The apply
+# guard in _emit_restart_line keeps an invalid policy out of compose, but it
+# used to do so with no output at all, so the field vanished unexplained.
+_warn_invalid_lifecycle_restart() {
+  local _value="${1-}"
+  (( _LIFECYCLE_RESTART_INVALID_WARNED )) && return 0
+  _LIFECYCLE_RESTART_INVALID_WARNED=1
+  _log_warn setup lifecycle_restart_invalid \
+    "display=$(_setup_msg lifecycle restart_invalid) (restart=${_value})" "restart=${_value}"
+}
+
+# _warn_invalid_lifecycle_init <value>
+#
+# Same message shape as _warn_invalid_lifecycle_restart, for [lifecycle] init
+# (base#1651). Unlike the restart one this is not latched.
+_warn_invalid_lifecycle_init() {
+  local _value="${1-}"
+  _log_warn setup lifecycle_init_invalid \
+    "display=$(_setup_msg lifecycle init_invalid) (init=${_value})" "init=${_value}"
+}
+
 # _NETWORK_NAME_JOINED -- set by any service block that emitted a
 # `networks:` membership, read by the top-level `networks:` declaration.
 #
@@ -160,6 +184,7 @@ _reset_inert_warnings() {
   _PORTS_INERT_WARNED=0
   _SHM_SIZE_INERT_WARNED=0
   _NETWORK_NAME_INERT_WARNED=0
+  _LIFECYCLE_RESTART_INVALID_WARNED=0
   _NETWORK_NAME_JOINED=0
 }
 
@@ -608,7 +633,10 @@ _emit_restart_line() {
   # a malformed policy here. Drop anything _validate_restart rejects rather
   # than emit an invalid `restart:` that breaks `docker compose up` with a
   # cryptic error (apply-time trust-boundary guard).
-  _validate_restart "${_restart}" || return 0
+  if ! _validate_restart "${_restart}"; then
+    _warn_invalid_lifecycle_restart "${_restart}"
+    return 0
+  fi
   case "${_restart}" in
     on-failure:*) printf '    restart: "%s"\n' "${_restart}" ;;
     *)            printf '    restart: %s\n'   "${_restart}" ;;
@@ -626,7 +654,10 @@ _emit_init_line() {
   # a non-boolean here. Drop anything _validate_init rejects rather than
   # emit a malformed init: field (apply-time trust-boundary guard, mirrors
   # _emit_restart_line).
-  _validate_init "${_init}" || return 0
+  if ! _validate_init "${_init}"; then
+    _warn_invalid_lifecycle_init "${_init}"
+    return 0
+  fi
   [[ "${_init}" == "false" ]] && return 0
   printf '    init: true\n'
 }

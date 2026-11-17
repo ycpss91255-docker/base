@@ -294,13 +294,16 @@ _assert_keys() {
 # why: cycle 6. mutation-roster keeps main's form: no `if:` (roster row
 # selection belongs to base#1604), and the workflow's job list is main's
 # (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in
-# redesign r6).
+# redesign r6). base#1588 adds the two ungated test-tools-image builders
+# after classify.
 @test "self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)" {
   run yq '.jobs."mutation-roster" | has("if")' "${SELF_WF}"
   assert_output false
   run yaml_job_names "${SELF_WF}"
   assert_output "actionlint
 classify
+test-tools-image-amd64
+test-tools-image-arm64
 shellcheck
 doc-counts
 lint-static

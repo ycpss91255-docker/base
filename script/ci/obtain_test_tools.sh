@@ -2,13 +2,16 @@
 #
 # obtain_test_tools.sh -- get this run the tooling image it runs inside.
 #
-# Six jobs of self-test.yaml need `test-tools`, and there are three ways to
-# have it. The PR changed an input of the image, so the rolling `:main` is
-# stale for it by definition and it is built from source. Or `:main`
+# The jobs of self-test.yaml run inside `test-tools`, and there are four
+# ways to have it. The PR changed an input of the image, so the rolling
+# `:main` is stale for it by definition and it is built from source. Or `:main`
 # corresponds to this checkout and is pulled, re-tagged under the run's own
 # name, and used -- the hot path, and the reason a PR that touches nothing
 # related does not pay for a multi-arch build. Or it does not correspond,
 # or cannot be pulled at all, and the image is built from source again.
+# Or a builder job of this run already built it and saved it as an
+# artifact, and it is loaded (base#1588): the fourth way, taken only when
+# the caller passes --artifact.
 #
 # The decision is here rather than in the jobs because it USED to be in the
 # jobs: a block of shell pasted into each of them, and a paste is something
@@ -32,6 +35,9 @@
 #                               source"
 #     --local-build delegate    leave that build to the caller's own step
 #                               (the default)
+#     --artifact <tar>          load the image a builder job of this run
+#                               saved, instead of pulling or building
+#                               (base#1588)
 #
 #   `delegate` is for the jobs whose build runs through
 #   docker/build-push-action, so the GHA layer cache applies; they gate
@@ -52,6 +58,9 @@
 #   CI_RUN_KEY          the run identity stamped as the ownership label, so
 #                       a sweep can tell whose image this is.
 #   GITHUB_OUTPUT       where `build_local=true|false` is written, when set.
+#   TEST_TOOLS_ARTIFACT_TAG
+#                       the tag the builder job gave the image it saved;
+#                       read with --artifact, to re-tag what was loaded.
 #
 # Style: Google Shell Style Guide.
 
@@ -76,7 +85,7 @@ _obtain_dockerfile() {
   printf '%s\n' "${_root}/dockerfile/Dockerfile.test-tools"
 }
 
-# ── the four seams through which this script touches docker ──────────────
+# ── the five seams through which this script touches docker ──────────────
 #
 # Each is one command, so the decision above them is drivable from a unit
 # spec with no daemon.
@@ -92,6 +101,12 @@ _obtain_pull() {
     return
   fi
   docker pull "${_OBTAIN_ROLLING_TAG}" 2>/dev/null
+}
+
+# _obtain_load <tar>
+#   Load the image a builder job of this run saved with `docker save`.
+_obtain_load() {
+  docker load -i "${1}"
 }
 
 # _obtain_retag <source> <target> <run-key>
@@ -120,7 +135,8 @@ _obtain_build() {
 }
 
 # _obtain_decide <image> [platform]
-#   The verdict, and the only place the three ways are weighed. Writes
+#   The verdict, and the only place the pull-or-build ways are weighed
+#   (an --artifact caller never reaches it: _obtain_from_artifact). Writes
 #   `build_local=true|false` to GITHUB_OUTPUT when that is set, and leaves
 #   the same answer in `_OBTAIN_BUILD_LOCAL` for `main`.
 #
@@ -153,8 +169,50 @@ _obtain_decide() {
   _OBTAIN_BUILD_LOCAL="${_local}"
 }
 
+# _obtain_from_artifact <tar> <image>
+#   The fourth way (base#1588): load the tar a builder job of this run
+#   saved, re-tag what it holds as <image>, and probe it. Strict: the
+#   caller passes --artifact only when its builder reported one, so every
+#   failure here is red and nothing falls back to a pull or a build.
+#   Returns 2 when TEST_TOOLS_ARTIFACT_TAG is unset, 1 on a missing tar, a
+#   failed load or a refused probe, 0 with `build_local=false` written.
+_obtain_from_artifact() {
+  local _tar="${1}" _image="${2}"
+  # The loaded image is found by the run-scoped tag its builder gave it;
+  # without that tag the re-tag would name nothing.
+  if [[ -z "${TEST_TOOLS_ARTIFACT_TAG:-}" ]]; then
+    printf 'obtain: --artifact needs TEST_TOOLS_ARTIFACT_TAG set\n' >&2
+    return 2
+  fi
+  if [[ ! -f "${_tar}" ]]; then
+    echo "::error::test-tools artifact ${_tar} is missing; the" \
+         "builder job reported one, so it is not pulled or built here"
+    return 1
+  fi
+  # A load that fails is a corrupt or truncated artifact: re-tagging
+  # would name whatever image already sat under the artifact tag.
+  if ! _obtain_load "${_tar}"; then
+    echo "::error::test-tools artifact ${_tar} did not load; it is" \
+         "not re-tagged, pulled or built here"
+    return 1
+  fi
+  _obtain_retag "${TEST_TOOLS_ARTIFACT_TAG}" "${_image}" \
+    "${CI_RUN_KEY:-unattributed}"
+  # A loaded image the probe refuses is not this checkout's image; there
+  # is nothing to fall back to without hiding the mismatch.
+  if ! _obtain_probe "${_image}"; then
+    echo "::error::test-tools artifact ${_tar} loaded an image the" \
+         "probe refuses; it is not used, pulled or built here"
+    return 1
+  fi
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf 'build_local=false\n' >> "${GITHUB_OUTPUT}"
+  fi
+  return 0
+}
+
 main() {
-  local _image="" _platform="" _mode="delegate"
+  local _image="" _platform="" _mode="delegate" _artifact=""
   while [[ "$#" -gt 0 ]]; do
     case "${1}" in
       --platform)
@@ -164,6 +222,16 @@ main() {
       --local-build)
         _mode="${2:-}"
         shift 2 || return 2
+        ;;
+      --artifact)
+        _artifact="${2:-}"
+        shift 2 || return 2
+        # An empty value is a caller whose artifact path was lost on the
+        # way; reading it as "no artifact" would pull or build (base#1588).
+        if [[ -z "${_artifact}" ]]; then
+          printf 'obtain: --artifact takes a tar path, not an empty value\n' >&2
+          return 2
+        fi
         ;;
       -*)
         printf 'obtain: unknown option %s\n' "${1}" >&2
@@ -177,7 +245,7 @@ main() {
   done
 
   if [[ -z "${_image}" ]]; then
-    printf 'usage: obtain_test_tools.sh <image-tag> [--platform <p>] [--local-build inline|delegate]\n' >&2
+    printf 'usage: obtain_test_tools.sh <image-tag> [--platform <p>] [--local-build inline|delegate] [--artifact <tar>]\n' >&2
     return 2
   fi
   case "${_mode}" in
@@ -188,6 +256,12 @@ main() {
       return 2
       ;;
   esac
+
+  # A saved artifact is the whole answer (base#1588).
+  if [[ -n "${_artifact}" ]]; then
+    _obtain_from_artifact "${_artifact}" "${_image}"
+    return
+  fi
 
   _OBTAIN_BUILD_LOCAL=true
   _obtain_decide "${_image}" "${_platform}"
