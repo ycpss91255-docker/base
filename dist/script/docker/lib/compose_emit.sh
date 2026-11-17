@@ -98,6 +98,7 @@ _warn_ports_inert() {
 # _warn_* and one line in _reset_inert_warnings, and nothing else.
 _SHM_SIZE_INERT_WARNED=0
 _NETWORK_NAME_INERT_WARNED=0
+_LIFECYCLE_RESTART_INVALID_WARNED=0
 
 # _warn_shm_size_inert <shm_size> <ipc_mode>
 #
@@ -144,6 +145,8 @@ _warn_network_name_inert() {
 # used to do so with no output at all, so the field vanished unexplained.
 _warn_invalid_lifecycle_restart() {
   local _value="${1-}"
+  (( _LIFECYCLE_RESTART_INVALID_WARNED )) && return 0
+  _LIFECYCLE_RESTART_INVALID_WARNED=1
   _log_warn setup lifecycle_restart_invalid \
     "display=$(_setup_msg lifecycle restart_invalid) (restart=${_value})" "restart=${_value}"
 }
@@ -180,6 +183,7 @@ _reset_inert_warnings() {
   _PORTS_INERT_WARNED=0
   _SHM_SIZE_INERT_WARNED=0
   _NETWORK_NAME_INERT_WARNED=0
+  _LIFECYCLE_RESTART_INVALID_WARNED=0
   _NETWORK_NAME_JOINED=0
 }
 

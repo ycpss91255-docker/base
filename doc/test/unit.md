@@ -1671,7 +1671,7 @@ hint, default `$SHELL` detection, and uninstall.
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (32)
+### test/bats/unit/compose_emit/blocks_spec.bats (33)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1695,6 +1695,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_restart_line: invalid value warns naming key and value, still omits the field (base#1651)` | base#1651 -- an invalid restart was dropped with no output at all. |
 | `_emit_init_line: default/true emits init: true; false omits (#792)` | - |
 | `_emit_init_line: invalid value warns naming key and value, still omits the field (base#1651)` | base#1651 -- an invalid init was dropped with no output at all. |
+| `_emit_restart_line: invalid value warns once per emit, again after reset (base#1651)` | base#1651 -- a repo with N stages calls the emitter N times; the invalid-restart warning must print once per emit, and again after a reset. |
 | `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
 | `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
 | `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
