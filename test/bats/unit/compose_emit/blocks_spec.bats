@@ -132,6 +132,17 @@ EXPECTED
   assert_output '    restart: "on-failure:5"'
 }
 
+# why: base#1651 -- an invalid restart was dropped with no output at all.
+@test "_emit_restart_line: invalid value warns naming key and value, still omits the field (base#1651)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  run --separate-stderr _emit_restart_line "alwayss"
+  assert_output ""
+  [[ "${stderr}" == *lifecycle* ]]
+  [[ "${stderr}" == *restart* ]]
+  [[ "${stderr}" == *alwayss* ]]
+}
+
 @test "_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)" {
   run _emit_init_line
   assert_output "    init: true"
