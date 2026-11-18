@@ -51,6 +51,7 @@ readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(late
 # per sanctioned occurrence. An occurrence is suppressed only when its path,
 # kind and scope match an entry and its line carries the entry's token.
 # Scope 'line:<anchor>': the line contains the fixed string <anchor>.
+# An entry covers at most <count> occurrences: one more is a new consumer.
 readonly _MOVING_TAG_ALLOWLIST=()
 
 # _moving_tag_allowlist -- print the allow-list, one entry per line.
@@ -60,12 +61,14 @@ _moving_tag_allowlist() {
 }
 
 # _moving_tag_allowed <rel> <kind> <line> <entry>... -- 0 when an entry
-# covers this occurrence.
+# covers this occurrence; sets _MOVING_TAG_HIT to that entry's index.
 _moving_tag_allowed() {
   local _rel="${1}" _kind="${2}" _line="${3}"
   shift 3
-  local _entry _path _ekind _scope _count _token _reason
+  local _entry _path _ekind _scope _count _token _reason _i=-1
   for _entry in "$@"; do
+    _i=$(( _i + 1 ))
+    _MOVING_TAG_HIT="${_i}"
     IFS='|' read -r _path _ekind _scope _count _token _reason <<< "${_entry}"
     [[ "${_path}" == "${_rel}" && "${_ekind}" == "${_kind}" ]] || continue
     [[ -n "${_token}" && "${_line}" == *"${_token}"* ]] || continue
@@ -107,6 +110,10 @@ _run_moving_tag() {
     [[ -n "${_entry}" ]] && _allow+=("${_entry}")
   done < <(_moving_tag_allowlist)
 
+  # Per entry: occurrences it matched, and where.
+  local -a _hits=() _hit_at=()
+  local _MOVING_TAG_HIT
+
   local _key _moving_inputs _kind
   for _file in "${_files[@]}"; do
     _rel="${_file#"${REPO_ROOT}"/}"
@@ -135,11 +142,24 @@ _run_moving_tag() {
         _kind=indirect
       fi
       [[ -n "${_kind}" ]] || continue
-      _moving_tag_allowed "${_rel}" "${_kind}" "${_line}" "${_allow[@]}" \
-        && continue
+      if _moving_tag_allowed "${_rel}" "${_kind}" "${_line}" "${_allow[@]}"; then
+        _hits[_MOVING_TAG_HIT]=$(( ${_hits[_MOVING_TAG_HIT]:-0} + 1 ))
+        _hit_at[_MOVING_TAG_HIT]+=" ${_rel}:${_lineno}"
+        continue
+      fi
       printf '%s:%d: %s -- %s\n' "${_rel}" "${_lineno}" "${_kind}" "${_line}"
       _violations=$(( _violations + 1 ))
     done < "${_file}"
+  done
+
+  local _i _path _ekind _scope _count _token _reason
+  for _i in "${!_allow[@]}"; do
+    IFS='|' read -r _path _ekind _scope _count _token _reason <<< "${_allow[_i]}"
+    if [[ "${_hits[_i]:-0}" -gt "${_count}" ]]; then
+      printf '%s: allow-list entry pins %s, saw %s --%s\n' \
+        "${_path}" "${_count}" "${_hits[_i]}" "${_hit_at[_i]}"
+      _violations=$(( _violations + 1 ))
+    fi
   done
 
   if [[ "${_violations}" -gt 0 ]]; then
