@@ -758,14 +758,14 @@ _emit_caps_block() {
     echo "    cap_add:"
     while IFS= read -r _c; do
       [[ -z "${_c}" ]] && continue
-      echo "      - ${_c}"
+      echo "      - $(_compose_yaml_scalar "${_c}")"
     done <<< "${_cap_add}"
   fi
   if [[ -n "${_cap_drop}" ]]; then
     echo "    cap_drop:"
     while IFS= read -r _c; do
       [[ -z "${_c}" ]] && continue
-      echo "      - ${_c}"
+      echo "      - $(_compose_yaml_scalar "${_c}")"
     done <<< "${_cap_drop}"
   fi
   if [[ -n "${_sec_opt}" ]]; then
