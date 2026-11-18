@@ -23,6 +23,29 @@ setup() {
   source /source/dist/script/docker/wrapper/setup.sh
 }
 
+# _assert_list_parses_back <yaml_file> <key> <want...>
+#
+# why: base#1651 -- the oracle for "a list item parses back as the exact
+# input string": `.s.<key>` has one item per <want>, and item i is tagged
+# `!!str` and equals want[i]. The tag check is what tells `null` the string
+# from `null` the null; the value check alone would pass both.
+_assert_list_parses_back() {
+  local _file="$1" _key="$2" _i
+  shift 2
+  local -a _want=("$@")
+  run yq ".s.${_key} | length" "${_file}"
+  assert_success
+  assert_output "${#_want[@]}"
+  for _i in "${!_want[@]}"; do
+    run yq ".s.${_key}[${_i}] | tag" "${_file}"
+    assert_success
+    assert_output '!!str'
+    run yq ".s.${_key}[${_i}]" "${_file}"
+    assert_success
+    assert_output "${_want[${_i}]}"
+  done
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _emit_gpu_deploy_block <gui> <count> <caps_yaml>
 # ════════════════════════════════════════════════════════════════════
@@ -77,22 +100,10 @@ setup() {
 # not as a map, a truncated value, an alias, an anchor or a comment.
 @test "_emit_caps_block: security_opt items with YAML syntax parse back as the exact input string (base#1651)" {
   local -a _want=('label=a: b' 'x #y' '*anchor' '&ref' '#c' '"lead')
-  local _in _i
-  _in="$(printf '%s\n' "${_want[@]}")"
-  run _emit_caps_block "" "" "${_in}"
+  run _emit_caps_block "" "" "$(printf '%s\n' "${_want[@]}")"
   assert_success
   printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
-  run yq '.s.security_opt | length' "${BATS_TEST_TMPDIR}/c.yaml"
-  assert_success
-  assert_output "${#_want[@]}"
-  for _i in "${!_want[@]}"; do
-    run yq ".s.security_opt[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output '!!str'
-    run yq ".s.security_opt[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output "${_want[${_i}]}"
-  done
+  _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" security_opt "${_want[@]}"
 }
 
 # why: base#1651 -- a plain scalar also gets an implicit tag: `~` / `null`
@@ -102,22 +113,10 @@ setup() {
 # tell; those two are checked against the spec's double-quoted form.
 @test "_emit_caps_block: security_opt items that resolve to a non-string type parse back as the exact input string (base#1651)" {
   local -a _want=('~' 'null' 'true' '0755' '1e3' '.inf')
-  local _in _i
-  _in="$(printf '%s\n' "${_want[@]}")"
-  run _emit_caps_block "" "" "${_in}"
+  run _emit_caps_block "" "" "$(printf '%s\n' "${_want[@]}")"
   assert_success
   printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
-  run yq '.s.security_opt | length' "${BATS_TEST_TMPDIR}/c.yaml"
-  assert_success
-  assert_output "${#_want[@]}"
-  for _i in "${!_want[@]}"; do
-    run yq ".s.security_opt[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output '!!str'
-    run yq ".s.security_opt[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output "${_want[${_i}]}"
-  done
+  _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" security_opt "${_want[@]}"
   run _emit_caps_block "" "" $'yes\n1:30'
   assert_success
   assert_line '      - "yes"'
@@ -130,23 +129,13 @@ setup() {
 @test "_emit_caps_block: cap_add and cap_drop items parse back as the exact input string (base#1651)" {
   local -a _want=('label=a: b' 'x #y' '*anchor' '&ref' '#c' '"lead'
     '~' 'null' 'true' '0755' '1e3' '.inf')
-  local _in _i _key
+  local _in _key
   _in="$(printf '%s\n' "${_want[@]}")"
   run _emit_caps_block "${_in}" "${_in}" ""
   assert_success
   printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
   for _key in cap_add cap_drop; do
-    run yq ".s.${_key} | length" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output "${#_want[@]}"
-    for _i in "${!_want[@]}"; do
-      run yq ".s.${_key}[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
-      assert_success
-      assert_output '!!str'
-      run yq ".s.${_key}[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
-      assert_success
-      assert_output "${_want[${_i}]}"
-    done
+    _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" "${_key}" "${_want[@]}"
   done
   run _emit_caps_block $'yes\n1:30' $'yes\n1:30' ""
   assert_success
@@ -293,21 +282,10 @@ EXPECTED
 # the exact input string, not only the caps lists.
 @test "_emit_tmpfs_block: items parse back as the exact input string (base#1651)" {
   local -a _want=('/x: y' '/t #c' '*a' '&b' '#d' '"e' 'null' '0755')
-  local _i
   run _emit_tmpfs_block "$(printf '%s\n' "${_want[@]}")"
   assert_success
   printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
-  run yq '.s.tmpfs | length' "${BATS_TEST_TMPDIR}/c.yaml"
-  assert_success
-  assert_output "${#_want[@]}"
-  for _i in "${!_want[@]}"; do
-    run yq ".s.tmpfs[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output '!!str'
-    run yq ".s.tmpfs[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
-    assert_success
-    assert_output "${_want[${_i}]}"
-  done
+  _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" tmpfs "${_want[@]}"
 }
 
 # why: #496 group_add
