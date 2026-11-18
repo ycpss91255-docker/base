@@ -346,6 +346,16 @@ _classify_volume_lhs() {
 #
 # Unsafe in block context: empty; a `: ` or a tab or a ` #` anywhere; a
 # leading YAML indicator; a leading or trailing space; a trailing colon.
+#
+# A valid plain scalar can still be read as something other than a
+# string (base#1651): `~` / `null` resolve to null, `true` / `yes` / `on`
+# to a bool, `0755` / `1e3` / `.inf` / `1:30` to a number, `2001-12-14`
+# to a date, and compose-go refuses a list whose item is not a string.
+# So the null, bool, value (`=`) and merge (`<<`) words of YAML 1.1 and
+# the 1.2 core schema are quoted, and so is every value shaped like a
+# number or timestamp: an optional sign, an optional `.`, then a digit.
+# That is a superset on purpose -- quoting a value that would have read
+# as a string anyway changes nothing, and missing one is the bug.
 _compose_yaml_scalar() {
   local _v="${1-}"
   local _needs=0
@@ -354,7 +364,13 @@ _compose_yaml_scalar() {
     *": "*|*" #"*|*$'\t'*)   _needs=1 ;;
     [-?:,\[\]{}#\&\*\!\|\>\'\"%@\`]*) _needs=1 ;;
     " "*|*" "|*:)            _needs=1 ;;
+    "~"|[Nn]ull|NULL|[Tt]rue|TRUE|[Ff]alse|FALSE) _needs=1 ;;
+    [Yy]|[Yy]es|YES|[Nn]|[Nn]o|NO|[Oo]n|ON|[Oo]ff|OFF|"="|"<<") _needs=1 ;;
   esac
+  if [[ "${_v}" =~ ^[-+]?\.?[0-9][0-9A-Za-z_.:+\ -]*$ ]] \
+    || [[ "${_v}" =~ ^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)$ ]]; then
+    _needs=1
+  fi
   if (( ! _needs )); then
     printf '%s' "${_v}"
     return 0
