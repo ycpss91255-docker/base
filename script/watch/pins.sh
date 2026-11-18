@@ -465,14 +465,32 @@ _pins_set_golang() {
 # Each spec is <ARG>@asset:<url>; {version} in the url is the new version.
 # The asset is fetched and the ARG's line takes its sha256 (base#1676).
 _pins_set_checksums() {
-  local _abs="${1}" _ver="${2}" _spec _arg _url _digest _ln _old
+  local _abs="${1}" _ver="${2}" _spec _arg _src _name _body _url _digest _ln _old
   for _spec in ${3}; do
     _arg="${_spec%%@*}"
-    _url="${_spec#*@asset:}"
-    _url="${_url//\{version\}/${_ver}}"
+    _src="${_spec#*@}"
+    _name=""
+    if [[ "${_src}" == file:* ]]; then
+      # file:<url>:<asset>: the digest is the line naming <asset> in the
+      # upstream checksum file at <url> (base#1676).
+      _src="${_src#file:}"
+      _name="${_src##*:}"
+      _src="${_src%:*}"
+    else
+      _src="${_src#asset:}"
+    fi
+    _url="${_src//\{version\}/${_ver}}"
+    _name="${_name//\{version\}/${_ver}}"
     # file:// is read directly (the unit tests' fixtures; the test image
     # has no curl); anything else is fetched.
-    if [[ "${_url}" == file://* ]]; then
+    if [[ -n "${_name}" ]]; then
+      if [[ "${_url}" == file://* ]]; then
+        _body="$(cat -- "${_url#file://}")" || return 1
+      else
+        _body="$(curl -fsSL -- "${_url}")" || return 1
+      fi
+      _digest="$(awk -v n="${_name}" '$2 == n || $2 == "*" n { print $1; exit }' <<< "${_body}")"
+    elif [[ "${_url}" == file://* ]]; then
       _digest="$(sha256sum < "${_url#file://}")" || return 1
     else
       _digest="$(curl -fsSL -- "${_url}" | sha256sum)" || return 1
