@@ -100,6 +100,7 @@ deploy_manifest_malformed
 deploy_manifest_dup_basename
 deploy_manifest_no_baked_default
 deploy_mktemp_failed
+deploy_work_rm_refused
 deploy_stage_absent
 
 # build.sh

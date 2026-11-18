@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **289 tests**.
+Integration specs under `test/bats/integration/`: **290 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -224,7 +224,7 @@ it holds.
 | `10-toml-oracle.sh: a file name outside [A-Za-z0-9._/-] is config_gen_toml_oracle_failed reason=name before any docker run, no toml-oracle/ left (base#1441)` | Each verdict row is `<rel>\t<verdict>`, and the differential test keys it by path, so a path has to survive the tar, the container's shell loop and the TSV unchanged. A name outside [A-Za-z0-9._/-] -- here a space in forms/a b.toml -- is not one the step can promise that for, and the vendored and hand-written inputs never need one. The step must refuse it before asking the container, under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=name naming the file, no `docker run`, and no toml-oracle/ directory left. |
 | `toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, and SOURCE names v2.2.0 and the 40-hex commit (base#1441)` | The differential test holds the gate to every toml-test case only if the vendored copy has every case. toml-test lists its cases in tests/files-toml-1.0.0 and tests/files-toml-1.1.0, vendored next to them; the *.toml files on disk must be exactly the union of the .toml lines in those two lists -- 746 paths at v2.2.0, a figure written out here from counting upstream's lists, not re-derived -- with none missing and none added by hand. SOURCE must name the tag and the full 40-hex commit, so the copy can be re-fetched and compared byte for byte. |
 
-### test/bats/integration/deploy_bundle_flow_spec.bats (7)
+### test/bats/integration/deploy_bundle_flow_spec.bats (8)
 
 The field-deploy generator end-to-end across components (ADR-00000023): a
 fixture repo (repo-root `setup.toml`, a Dockerfile with a `runtime` stage, a
@@ -244,6 +244,7 @@ resolved-compose -> bundle-files wiring as a flow.
 | `deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)` | - |
 | `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
 | `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
+| `deploy flow: a work dir outside TMPDIR is refused, not removed (base#1661)` | work-dir rm guard (base#1661) |
 
 ### test/bats/integration/doc_counts_merge_spec.bats (2)
 

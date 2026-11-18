@@ -722,7 +722,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (72)
+### test/bats/unit/build_worker_yaml_spec.bats (73)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -902,6 +902,7 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
+| `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a build step that omits the build-arg fails with a blank base name. Scoped to the Build devel stage step: the same line already sits in the devel-test and runtime-test steps, so a whole-file match would pass without the fix (base#1670). |
 
 ### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
 
@@ -2742,7 +2743,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (75)
+### test/bats/unit/deploy_spec.bats (80)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2832,6 +2833,11 @@ refused before any build or bundle step.
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
+| `_deploy_work_dir_safe: a child of TMPDIR is accepted (base#1661)` | guard accepts only a real child of the temp root |
+| `_deploy_work_dir_safe: an empty path is refused (base#1661)` | empty value must never reach rm |
+| `_deploy_work_dir_safe: the temp root itself is refused, with or without slashes (base#1661)` | the temp root itself is not a work dir |
+| `_deploy_work_dir_safe: a '..' segment is refused (base#1661)` | dot-dot escapes the root |
+| `_deploy_work_dir_safe: sibling prefix and relative paths are refused; trailing-slash TMPDIR works (base#1661)` | prefix must match on a path boundary and TMPDIR may end in '/' |
 | `_generate_deploy_bundle: errexit abort mid-build removes the work dir (base#1662)` | errexit abort is not a signal; a TERM-only trap would leak here |
 | `_generate_deploy_bundle: caller EXIT trap sees the original status after cleanup (base#1662)` | the caller's EXIT handler must still see the original status |
 | `_generate_deploy_bundle: caller EXIT trap that exits still runs after cleanup (base#1662)` | a caller handler that exits must not be able to skip the cleanup |
