@@ -618,18 +618,33 @@ _pins_set() {
     return 1
   fi
 
+  # A failed write after the first leaves version and digest out of step, so
+  # the file is put back byte for byte (base#1676).
+  local _backup=""
+  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+    _backup="$(mktemp)"
+    cp -p -- "${_abs}" "${_backup}"
+  fi
   if [[ "${_file##*/}" == go.mod ]]; then
     _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
   elif [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" ]]; then
     _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
   else
-    _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
+    _pins_commit "${_abs}" "${_line}" "${_new_line}" || {
+      [[ -z "${_backup}" ]] || { cp -p -- "${_backup}" "${_abs}"; rm -f -- "${_backup}"; }
+      return 1
+    }
   fi
 
   # Checksum ARGs named by the marker's sha256= options move with the
   # version, in the same run (base#1676).
   if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
-    _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" || return 1
+    _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" || {
+      cp -p -- "${_backup}" "${_abs}"
+      rm -f -- "${_backup}"
+      return 1
+    }
+    rm -f -- "${_backup}"
   fi
 
   local _check
