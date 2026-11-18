@@ -815,6 +815,10 @@ jobs:
 
       - name: Build runtime stage
         id: build_runtime
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         if: ${{ steps.runtime.outputs.build_runtime == 'true' }}
         uses: docker/build-push-action@v7
         with:
@@ -866,6 +870,26 @@ jobs:
       # built (#1013). Reached through the same version-matched
       # `.worker-base` checkout as the cache-scope and runtime resolvers.
       # ────────────────────────────────────────────────────────────
+      - name: Retry runtime stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_runtime.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            ${{ inputs.build_args }}
+
       - name: Build extra stages
         if: ${{ inputs.extra_stages != '' }}
         env:
