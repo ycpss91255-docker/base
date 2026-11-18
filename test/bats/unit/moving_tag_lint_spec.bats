@@ -57,6 +57,18 @@ _write() {
   [[ "${output}" == *".github/workflows/x.yaml:2"* ]]
 }
 
+# why: An editor may save a file with no trailing newline; a bare
+# `read -r` drops that last line, so a moving tag there must still be seen.
+@test "_run_moving_tag: FAILS on test-tools:latest on a last line with no trailing newline (base#1647)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n%s' 'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest' \
+    > "${SCRATCH}/.github/workflows/x.yaml"
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+}
+
 # why: :main moves as surely as :latest, and an internal reference may
 # spell the registry through a variable rather than in full.
 @test "_run_moving_tag: FAILS on a script naming test-tools:main under an unqualified registry prefix (base#1647)" {
