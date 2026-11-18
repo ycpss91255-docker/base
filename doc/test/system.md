@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **23 tests**.
+System specs under `test/bats/system/`: **24 tests**.
 
 > **Not** part of the `just test` self-test suite -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -174,12 +174,13 @@ it the second invocation reports success having executed no specs at all.
 | `a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)` | The documented pin-by-reference call, with no second argument, must produce an image: `base_image_pin=digest`, an empty digest field, an empty OCI `base.digest` and the digest still on `base.name` |
 | `the shipped spec FAILS a build whose digest arg contradicts the reference (#951)` | Negative case: the one combination that is false -- both halves stated, naming different digests -- fails in the `-test` stage from the shipped smoke spec, not from a refusal in `sys` |
 
-### test/bats/system/test_tools_clone_sha_pin_spec.bats (2)
+### test/bats/system/test_tools_clone_sha_pin_spec.bats (3)
 
 | Test | Description |
 |------|-------------|
 | `kcov-builder build fails when the KCOV_COMMIT pin is wrong` | a wrong pinned kcov commit must fail the kcov-builder build (base#1674) |
 | `bats-extensions build fails when the BATS_SUPPORT_COMMIT pin is wrong` | a wrong pinned bats-support commit must fail the bats-extensions build (base#1674) |
+| `bats-extensions build fails when the BATS_ASSERT_COMMIT pin is wrong` | a wrong pinned bats-assert commit must fail the bats-extensions build even though the bats-support clone before it in the same RUN passes (base#1674) |
 
 ### test/bats/system/test_tools_shellcheck_pin_spec.bats (1)
 
