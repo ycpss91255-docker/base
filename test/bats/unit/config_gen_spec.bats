@@ -707,3 +707,28 @@ exit \"\${rc}\""
   assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_diag_malformed)" 0
   assert_equal "$(cat "${_seen}")" "[]"
 }
+
+# why: config_gen_tables takes exactly <file> and <outvar>, and <outvar> is
+#      the name of a shell variable it assigns through a nameref. A call
+#      with one argument, three arguments, or an outvar that is not a bash
+#      identifier (`1bad`, `a-b`) is the caller's mistake: running the
+#      generator for it would assign the answer nowhere, or to a name the
+#      caller did not mean. Each is refused as config_gen_usage_invalid with
+#      rc 2 (the binary's own usage status, tables.go) before any docker
+#      call -- no image inspect, no run.
+@test "config-gen: tables refuses a malformed call with config_gen_usage_invalid and calls no docker" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  local _call
+  for _call in 'layer.toml' 'layer.toml out extra' 'layer.toml 1bad' 'layer.toml a-b'; do
+    : > "${DOCKER_LOG}"
+    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+config_gen_tables ${_call}"
+    assert_refusal 2 config_gen_usage_invalid
+    assert_equal "$(wc -l < "${DOCKER_LOG}")" 0
+  done
+}
