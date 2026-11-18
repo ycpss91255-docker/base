@@ -32,6 +32,23 @@ sibling docs below.
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; host-driven via `script/ci/acceptance.sh` -- the `acceptance` job and `just test acceptance`, #785, base#1409) |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
+## Running the suite without `just test`: prerequisites
+
+`just test` supplies three things before the suite starts. A bare
+container run (the test-tools image started directly, or a job that skips
+the host step) does not, and `test.sh --ci` refuses at once, naming each
+missing one in a single message (event `ci_missing_prerequisite`):
+
+- `.prev-release/tags.txt`, produced on the host by
+  `script/test/prepare-prev-release.sh`. The previous-release upgrade spec
+  reads it; it is only demanded when the dispatch runs that spec.
+- `HOST_UID` and `HOST_GID`, the uid and gid the suite hands the checkout
+  back to (`-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)`).
+
+A third need, a readable git repository for one pin-registry test, is not
+checked up front: a worktree checkout mounted into the container has no
+readable `.git`, and refusing there would break supported runs.
+
 ## Running one spec: `just test bats-path`
 
 ```bash
