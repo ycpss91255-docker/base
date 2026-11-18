@@ -1022,8 +1022,11 @@ _resolve_tags_for() {
 @test "publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)" {
   run _resolve_tags_for v1.2.0-rc1 true
   assert_success
-  assert_output --partial 'tags=ghcr.io/o/img:v1.2.0-rc1'
-  refute_output --partial 'latest'
+  # base#1659: every tags= line, whole-line, equals the single pinned tag
+  # (no comma, no second floating tag, no second tags= line).
+  local _tags
+  _tags="$(grep '^tags=' <<<"${output}")"
+  assert_equal "${_tags}" 'tags=ghcr.io/o/img:v1.2.0-rc1'
   assert_output --partial '::notice::'
 }
 
