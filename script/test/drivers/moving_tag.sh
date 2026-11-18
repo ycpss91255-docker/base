@@ -40,6 +40,10 @@ readonly _MOVING_TAG_UNTAGGED_RE='ghcr\.io/ycpss91255-docker/test-tools([^A-Za-z
 # value is decided at run time, so it is not a pin.
 readonly _MOVING_TAG_INDIRECT_RE='(^|[^A-Za-z0-9_.-])test-tools:[A-Za-z0-9_.-]*[$%]'
 
+# A test-tools tag from a variable whose default is latest/main
+# (${TAG:-latest}, ${TAG:=main}): unset, it resolves to the moving tag.
+readonly _MOVING_TAG_VAR_DEFAULT_RE='(^|[^A-Za-z0-9_.-])test-tools:[A-Za-z0-9_.-]*\$\{[A-Za-z0-9_]+:?[-=](latest|main)\}'
+
 # A test-tools tag taken from a workflow input (base#1122: the input
 # defaulted to "latest"). The input name is BASH_REMATCH[1].
 readonly _MOVING_TAG_INPUT_RE='test-tools:\$\{\{[[:space:]]*inputs\.([A-Za-z0-9_-]+)[[:space:]]*\}\}'
@@ -66,9 +70,10 @@ _moving_tag_allowlist() {
 _moving_tag_allowed() {
   local _rel="${1}" _kind="${2}" _line="${3}"
   shift 3
-  # A tag fed by an input defaulting to latest/main is the base#1122
-  # regression itself: no entry suppresses it.
-  [[ "${_kind}" != input-default ]] || return 1
+  # A tag fed by an input or a variable defaulting to latest/main is the
+  # base#1122 regression itself: no entry suppresses it.
+  [[ "${_kind}" != input-default && "${_kind}" != moving-default ]] \
+    || return 1
   local _entry _path _ekind _scope _count _token _reason _i=-1
   for _entry in "$@"; do
     _i=$(( _i + 1 ))
@@ -140,6 +145,8 @@ _run_moving_tag() {
         _kind=moving
       elif [[ "${_line}" =~ ${_MOVING_TAG_UNTAGGED_RE} ]]; then
         _kind=untagged
+      elif [[ "${_line}" =~ ${_MOVING_TAG_VAR_DEFAULT_RE} ]]; then
+        _kind=moving-default
       elif [[ "${_line}" =~ ${_MOVING_TAG_INPUT_RE} \
         && "${_moving_inputs}" == *" ${BASH_REMATCH[1]} "* ]]; then
         _kind=input-default
