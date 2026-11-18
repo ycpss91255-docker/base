@@ -66,6 +66,55 @@ func TestCheckAcceptsEscapeBytesOutsideBasicStringEscape(t *testing.T) {
 	}
 }
 
+// acceptedOutsideTheirContext holds, for each refused form other than the
+// escapes above, the same bytes inside a literal string, a comment and a
+// multi-line literal string (base#1441 acceptance: not refused). Each row
+// is also the file testdata/forms/accept-<name>.toml, which designVerdicts
+// pins to accept, so the live tomllib oracle answers on the same bytes.
+var acceptedOutsideTheirContext = []struct{ name, src string }{
+	{"newline-literal", "a = '{'\nb = 1\n"},
+	{"newline-comment", "# a = {\nb = 1\n"},
+	{"newline-ml-literal", "a = '''{\nb = 1}'''\n"},
+	{"comma-literal", "a = '{b = 1,}'\n"},
+	{"comma-comment", "# a = {b = 1,}\nb = 1\n"},
+	{"comma-ml-literal", "a = '''{b = 1,}'''\n"},
+	{"time-literal", "a = '07:32'\n"},
+	{"time-comment", "# a = 07:32\nb = 1\n"},
+	{"time-ml-literal", "a = '''07:32'''\n"},
+	{"bom-literal", "a = '\xEF\xBB\xBF'\n"},
+	{"bom-comment", "# \xEF\xBB\xBF\nb = 1\n"},
+	{"bom-ml-literal", "a = '''\xEF\xBB\xBF'''\n"},
+}
+
+// Check returns nil on every row of acceptedOutsideTheirContext.
+func TestCheckAcceptsRefusedFormBytesOutsideTheirContext(t *testing.T) {
+	for _, tc := range acceptedOutsideTheirContext {
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+}
+
+// Each row of acceptedOutsideTheirContext is byte for byte the file
+// testdata/forms/accept-<name>.toml, and designVerdicts pins that file to
+// accept, so TestDifferential fails the row if tomllib refuses it.
+func TestAcceptedOutsideTheirContextIsPinnedInForms(t *testing.T) {
+	for _, tc := range acceptedOutsideTheirContext {
+		p := filepath.Join("testdata", "forms", "accept-"+tc.name+".toml")
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if string(got) != tc.src {
+			t.Errorf("%s: %s holds %q, want %q", tc.name, p, got, tc.src)
+		}
+		if v := designVerdicts["internal/gate/"+filepath.ToSlash(p)]; v != "accept" {
+			t.Errorf("%s: designVerdicts pins %s to %q, want accept", tc.name, p, v)
+		}
+	}
+}
+
 // A line ending outside a string token is refused exactly when the
 // innermost open container is an inline table; inside an array (at any
 // depth) or inside a multi-line string it is legal. Verdicts come from

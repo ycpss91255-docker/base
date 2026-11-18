@@ -182,6 +182,21 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/float-bad-leading-zero.toml":      "refuse",
 	"internal/gate/testdata/forms/float-bad-double-underscore.toml": "refuse",
 	"internal/gate/testdata/forms/float-bad-exp-underscore.toml":    "refuse",
+
+	// The refused forms' bytes inside a literal string, a comment and a
+	// multi-line literal string (acceptedOutsideTheirContext, base#1441).
+	"internal/gate/testdata/forms/accept-newline-literal.toml":    "accept",
+	"internal/gate/testdata/forms/accept-newline-comment.toml":    "accept",
+	"internal/gate/testdata/forms/accept-newline-ml-literal.toml": "accept",
+	"internal/gate/testdata/forms/accept-comma-literal.toml":      "accept",
+	"internal/gate/testdata/forms/accept-comma-comment.toml":      "accept",
+	"internal/gate/testdata/forms/accept-comma-ml-literal.toml":   "accept",
+	"internal/gate/testdata/forms/accept-time-literal.toml":       "accept",
+	"internal/gate/testdata/forms/accept-time-comment.toml":       "accept",
+	"internal/gate/testdata/forms/accept-time-ml-literal.toml":    "accept",
+	"internal/gate/testdata/forms/accept-bom-literal.toml":        "accept",
+	"internal/gate/testdata/forms/accept-bom-comment.toml":        "accept",
+	"internal/gate/testdata/forms/accept-bom-ml-literal.toml":     "accept",
 }
 
 // designValues are tomllib's decoded values for the float forms (base#1441,
