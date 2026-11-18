@@ -391,7 +391,7 @@ setup() {
   run code_grep -F 'type=registry' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
   # Both buildx invocations (test-stage + stage) call the selection helpers
-  # (#1702: both go through build_stage, so the selection helpers are
+  # (base#1702: both go through build_stage, so the selection helpers are
   # called once, from its first attempt).
   run code_grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
   assert_success
@@ -1356,7 +1356,7 @@ _build_comment_paragraphs() {
   assert_output ''
 }
 
-# ── Cache import failure retries once without the cache (#1702) ─────
+# ── Cache import failure retries once without the cache (base#1702) ─────
 
 # _step_code <step name>
 #   The code lines (comments dropped) of one build-job step, from its
