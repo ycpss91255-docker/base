@@ -336,6 +336,26 @@ _pins() {
   assert_success
 }
 
+# why: The digest line keeps its quoting and its trailing comment; rebuilding it from
+# the `NAME=` prefix would delete the sentence saying where the digest came from
+# (base#1676). The change is exactly the version line and the digest line.
+@test "pins: --set rewrites only the digest value of the sha256 ARG, keeping quotes and comment (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256="0000000000000000000000000000000000000000000000000000000000000000"  # upstream publishes none'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"  # upstream publishes none' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run git -C "${SCRATCH}" diff --numstat -- dockerfile/Dockerfile.test-tools
+  assert_output --partial "2	2	dockerfile/Dockerfile.test-tools"
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
