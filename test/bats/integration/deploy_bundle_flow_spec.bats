@@ -261,12 +261,16 @@ DOCK
   mkdir -p "${TMP_ROOT}/tmproot"
   cat > "${SHIM}/mktemp" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "${_sentinel}"
+# Only the work-dir call (mktemp -d) gets the sentinel; any other call is real.
+case " \$* " in
+  *" -d "*) printf '%s\n' "${_sentinel}" ;;
+  *) exec /usr/bin/mktemp "\$@" ;;
+esac
 SH
   chmod +x "${SHIM}/mktemp"
   rm -rf "${REPO}/deploy"
   TMPDIR="${TMP_ROOT}/tmproot" run _setup_deploy --base-path "${REPO}" --stage runtime -y
   [ "${status}" -eq 0 ]
   [ -f "${_sentinel}/marker" ]
-  [[ "${output}" == *deploy_work_rm_refused* ]]
+  [[ "${output}" == *"refusing to remove unexpected work dir"* ]]
 }
