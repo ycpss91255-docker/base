@@ -89,7 +89,8 @@ DOCK
   PROJ_A="multistack${_uniq}-a"
   PROJ_B="multistack${_uniq}-b"
   PROJ_S="multistack${_uniq}-s"
-  export TMP_ROOT REPO PROJ_A PROJ_B PROJ_S
+  _UNIQ="${_uniq}"
+  export TMP_ROOT REPO PROJ_A PROJ_B PROJ_S _UNIQ
 }
 
 teardown_file() {
@@ -99,6 +100,19 @@ teardown_file() {
     _stack "${_p}" down --remove-orphans >/dev/null 2>&1 || true
   done
   [[ -n "${TMP_ROOT:-}" ]] && rm -rf "${TMP_ROOT}"
+
+  # A run must leave no image behind (base#1728). The filter matches any
+  # user prefix and any tag on this run's unique id, so a leak is caught
+  # whatever name the emitter resolved.
+  if [[ -n "${_UNIQ:-}" ]]; then
+    local _left
+    _left="$(docker images --filter "reference=*/multistack${_UNIQ}" \
+      --format '{{.Repository}}:{{.Tag}}' 2>/dev/null)"
+    if [[ -n "${_left}" ]]; then
+      printf 'teardown_file: images left behind:\n%s\n' "${_left}" >&2
+      return 1
+    fi
+  fi
 }
 
 # _stack <project> <compose args...> -- the emitted stack under one project
