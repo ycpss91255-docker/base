@@ -28,6 +28,10 @@ readonly _MOVING_TAG_RE='(^|[^A-Za-z0-9_.-])test-tools:(latest|main)([^A-Za-z0-9
 # suffixes ("${IMAGE}:latest") carries no test-tools text on the tag line.
 readonly _MOVING_TAG_UNTAGGED_RE='ghcr\.io/ycpss91255-docker/test-tools([^A-Za-z0-9_.:@/-]|$)'
 
+# A test-tools tag built from a variable or a format (:${ver}, :%s): the
+# value is decided at run time, so it is not a pin.
+readonly _MOVING_TAG_INDIRECT_RE='(^|[^A-Za-z0-9_.-])test-tools:[A-Za-z0-9_.-]*[$%]'
+
 # A test-tools tag taken from a workflow input (base#1122: the input
 # defaulted to "latest"). The input name is BASH_REMATCH[1].
 readonly _MOVING_TAG_INPUT_RE='test-tools:\$\{\{[[:space:]]*inputs\.([A-Za-z0-9_-]+)[[:space:]]*\}\}'
@@ -74,6 +78,9 @@ _run_moving_tag() {
       elif [[ "${_line}" =~ ${_MOVING_TAG_INPUT_RE} \
         && "${_moving_inputs}" == *" ${BASH_REMATCH[1]} "* ]]; then
         printf '%s:%d: input-default -- %s\n' "${_rel}" "${_lineno}" "${_line}"
+        _violations=$(( _violations + 1 ))
+      elif [[ "${_line}" =~ ${_MOVING_TAG_INDIRECT_RE} ]]; then
+        printf '%s:%d: indirect -- %s\n' "${_rel}" "${_lineno}" "${_line}"
         _violations=$(( _violations + 1 ))
       fi
     done < "${_file}"
