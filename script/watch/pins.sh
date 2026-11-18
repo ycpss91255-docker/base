@@ -528,12 +528,37 @@ _pins_checksum_digests() {
   done
 }
 
+# _pins_assign_line <line> <value>
+#
+# <line> with the value it assigns replaced by <value>; non-zero when <line>
+# assigns nothing. Only the value changes: the quoting and everything after
+# it -- the spacing and any trailing comment -- are carried across verbatim.
+# The version line and every checksum line are rewritten through this one
+# helper, so both keep the same shape (base#1676).
+_pins_assign_line() {
+  [[ "${1}" =~ ${_PIN_ASSIGN_RE} ]] || return 1
+  local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}" _quote="" _value
+  _value="$(_pin_rhs_value "${_rhs}")"
+  [[ "${_value}" == \"*\" ]] && _quote='"'
+  [[ "${_value}" == \'*\' ]] && _quote="'"
+  printf '%s' "${_head}${_quote}${2}${_quote}$(_pin_rhs_tail "${_rhs}")"
+}
+
+# _pins_restore <backup> <file>
+#
+# Puts <file> back byte for byte from <backup> and removes the backup
+# (base#1676).
+_pins_restore() {
+  cp -p -- "${1}" "${2}"
+  rm -f -- "${1}"
+}
+
 # _pins_set_checksums <file> <specs> <digests>
 #
 # Writes each spec's ARG line with the matching digest (one per line in
 # <digests>, resolved earlier by _pins_checksum_digests) (base#1676).
 _pins_set_checksums() {
-  local _abs="${1}" _spec _arg _digest _ln _old
+  local _abs="${1}" _spec _arg _digest _ln _old _new_line
   local -a _digs
   mapfile -t _digs <<< "${3}"
   local _k=0
@@ -543,15 +568,8 @@ _pins_set_checksums() {
     _ln="$(_pins_arg_lines "${_abs}" "${_arg}")"
     _ln="${_ln%%:*}"
     _old="$(awk -v n="${_ln}" 'NR == n' "${_abs}")"
-    # Only the digest value is replaced: the quoting and any trailing
-    # comment stay, as for the version line (base#1676).
-    [[ "${_old}" =~ ${_PIN_ASSIGN_RE} ]] || return 1
-    local _rhs="${BASH_REMATCH[3]}" _head="${BASH_REMATCH[1]}" _quote="" _value
-    _value="$(_pin_rhs_value "${_rhs}")"
-    [[ "${_value}" == \"*\" ]] && _quote='"'
-    [[ "${_value}" == \'*\' ]] && _quote="'"
-    _pins_commit "${_abs}" "${_ln}" \
-      "${_head}${_quote}${_digest}${_quote}$(_pin_rhs_tail "${_rhs}")" || return 1
+    _new_line="$(_pins_assign_line "${_old}" "${_digest}")" || return 1
+    _pins_commit "${_abs}" "${_ln}" "${_new_line}" || return 1
   done
 }
 
@@ -606,7 +624,10 @@ _pins_check_checksum_args() {
 # ARG's right-hand side, or the token after the coordinate), so a line that
 # also contains the old string elsewhere cannot be corrupted -- and the
 # result is verified by re-reading the pin, so a rewrite that did not take
-# fails here rather than in a green PR that changed nothing.
+# fails here rather than in a green PR that changed nothing. A pin whose
+# marker carries sha256= options also has each named checksum ARG rewritten
+# to the new version's digest in the same run; the file is restored when any
+# of those writes or read-backs fails (base#1676).
 _pins_set() {
   local _name="${1}" _new="${2}" _record
   _record="$(_pins_record "${_name}")"
@@ -630,11 +651,9 @@ _pins_set() {
   local _abs="${PIN_REPO_ROOT}/${_file}"
   local _has_ck=""
   [[ -n "${_cksum}" && "${_cksum}" != "-" ]] && _has_ck=1
-  if [[ -n "${_has_ck}" ]]; then
-    _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
-  fi
   local _digests=""
   if [[ -n "${_has_ck}" ]]; then
+    _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
     _digests="$(_pins_checksum_digests "${_new}" "${_cksum}")" || return 1
   fi
   local _old_line _new_line
@@ -645,19 +664,13 @@ _pins_set() {
     # (base#1463). Neither rewrite below matches `require <path> <ver>`.
     _new_line="$(_pin_go_mod_set_line "${_abs}" "${_line}" "${_new}")" || return 1
   elif [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
-    local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}"
-    local _quote="" _value _tail
-    _value="$(_pin_rhs_value "${_rhs}")"
     # Everything after the version -- the spacing and any trailing comment
     # -- is carried across verbatim. Rebuilding the line from the `NAME=`
     # prefix alone deletes it, and on a pin line that comment is normally
     # the reason the version is what it is ("held: 2.13 rejects our DL3059
     # usage"): exactly the sentence a reviewer of a bump proposal needs to
     # read, deleted by the bump itself.
-    _tail="$(_pin_rhs_tail "${_rhs}")"
-    [[ "${_value}" == \"*\" ]] && _quote='"'
-    [[ "${_value}" == \'*\' ]] && _quote="'"
-    _new_line="${_head}${_quote}${_new}${_quote}${_tail}"
+    _new_line="$(_pins_assign_line "${_old_line}" "${_new}")"
   else
     _new_line="${_old_line/${_coord}:${_current}/${_coord}:${_new}}"
     if [[ "${_new_line}" == "${_old_line}" ]]; then
@@ -683,7 +696,7 @@ _pins_set() {
     _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
   else
     _pins_commit "${_abs}" "${_line}" "${_new_line}" || {
-      [[ -z "${_backup}" ]] || { cp -p -- "${_backup}" "${_abs}"; rm -f -- "${_backup}"; }
+      [[ -z "${_backup}" ]] || _pins_restore "${_backup}" "${_abs}"
       return 1
     }
   fi
@@ -693,8 +706,7 @@ _pins_set() {
   if [[ -n "${_has_ck}" ]]; then
     if ! _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
       || ! _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}"; then
-      cp -p -- "${_backup}" "${_abs}"
-      rm -f -- "${_backup}"
+      _pins_restore "${_backup}" "${_abs}"
       return 1
     fi
     rm -f -- "${_backup}"
