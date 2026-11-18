@@ -23,10 +23,12 @@ main() {
     fi
   done < <({
     printf '%s\n' "${PR_CLOSING_REFS:-}"
-    # Text inside a fenced code block or inline code is quoted, not a directive.
+    # Text inside a fenced code block, inline code or an HTML comment is
+    # quoted or hidden, not a directive.
     printf '%s\n' "${PR_COMMITS:-}" |
       awk '/^[[:space:]]*```/ { infence = !infence; next } !infence' |
       sed 's/`[^`]*`//g' |
+      sed -e ':a' -e 'N' -e '$!ba' -e 's/<!--[^>]*-->//g' |
       { grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' || true; } |
       grep -oE '#[0-9]+'
   } | sort -u)
