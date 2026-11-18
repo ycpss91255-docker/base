@@ -189,3 +189,17 @@ setup() {
   [[ "${stderr}" == *"octo/alpha#1"* ]]
   [[ "${stderr}" == *"octo/beta#2"* ]]
 }
+
+# why: Commit messages get wrapped, so the keyword can end a line and the
+# reference start the next. A parser that matches line by line misses
+# `CLOSES` followed by `#1` on the next line, so a PR closing two issues
+# that way would pass (design item 7, base#1629).
+@test "single_issue_pr.sh: an upper-case keyword and its reference on the next line count (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'CLOSES\n#1\n\nCLOSES\n#2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"#1"* ]]
+  [[ "${stderr}" == *"#2"* ]]
+}
