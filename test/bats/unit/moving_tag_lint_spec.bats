@@ -315,3 +315,33 @@ _write() {
   [[ "${output}" == *"no file"* ]]
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _run_moving_tag: the real allow-list on base's own tree
+# ════════════════════════════════════════════════════════════════════
+
+# _copy_real_roots -- copy base's scanned roots from /source into SCRATCH.
+_copy_real_roots() {
+  local _root
+  for _root in .github dist dockerfile script \
+    compose.yaml justfile init.sh upgrade.sh; do
+    [[ -e "/source/${_root}" ]] && cp -a "/source/${_root}" "${SCRATCH}/"
+  done
+}
+
+@test "_run_moving_tag: the real allow-list passes base's own tree and one added test-tools:latest is the only finding (base#1647)" {
+  # AC: the lint passes on the current tree, and fails when a
+  # test-tools:latest reference is deliberately added.
+  _copy_real_roots
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+
+  _write ".github/workflows/x.yaml" \
+    'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+  [[ "${output}" == *"1 internal reference(s)"* ]]
+}
