@@ -231,7 +231,9 @@ func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
 // 108,952 calls that scanned about 5.9e9 bytes, and the race gate's go
 // test ran into its 10-minute timeout on it. An input of at most this
 // many bytes is swept in full; a larger one is indexed at its cut points.
-const prefixSweepBound = 4096
+// base#1655 lowered the bound from 4096 to 1024: every corpus file but
+// large_tables.toml is at most 684 bytes, so it is still swept in full.
+const prefixSweepBound = 1024
 
 // cutContextLines is the most lines before a cut that a larger input's
 // cut window starts from (see cutWindows). The window is then cut to its
