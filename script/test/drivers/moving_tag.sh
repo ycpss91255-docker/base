@@ -24,6 +24,10 @@ readonly _MOVING_TAG_SCAN_ROOTS=(
 # (${ORG}/test-tools): test-tools after line start or a non-name character.
 readonly _MOVING_TAG_RE='(^|[^A-Za-z0-9_.-])test-tools:(latest|main)([^A-Za-z0-9_.-]|$)'
 
+# The qualified repository with no tag or digest: a base that a later line
+# suffixes ("${IMAGE}:latest") carries no test-tools text on the tag line.
+readonly _MOVING_TAG_UNTAGGED_RE='ghcr\.io/ycpss91255-docker/test-tools([^A-Za-z0-9_.:@/-]|$)'
+
 # A test-tools tag taken from a workflow input (base#1122: the input
 # defaulted to "latest"). The input name is BASH_REMATCH[1].
 readonly _MOVING_TAG_INPUT_RE='test-tools:\$\{\{[[:space:]]*inputs\.([A-Za-z0-9_-]+)[[:space:]]*\}\}'
@@ -64,6 +68,9 @@ _run_moving_tag() {
       if [[ "${_line}" =~ ${_MOVING_TAG_RE} ]]; then
         printf '%s:%d: moving -- %s\n' "${_rel}" "${_lineno}" "${_line}"
         _violations=$(( _violations + 1 ))
+      elif [[ "${_line}" =~ ${_MOVING_TAG_UNTAGGED_RE} ]]; then
+        printf '%s:%d: untagged -- %s\n' "${_rel}" "${_lineno}" "${_line}"
+        _violations=$(( _violations + 1 ))
       elif [[ "${_line}" =~ ${_MOVING_TAG_INPUT_RE} \
         && "${_moving_inputs}" == *" ${BASH_REMATCH[1]} "* ]]; then
         printf '%s:%d: input-default -- %s\n' "${_rel}" "${_lineno}" "${_line}"
@@ -74,7 +81,7 @@ _run_moving_tag() {
 
   if [[ "${_violations}" -gt 0 ]]; then
     _die ci_moving_tag \
-      "${_violations} internal reference(s) to a moving test-tools tag (:latest / :main). Pin the consumer to :<ver>; :latest and :main are human and bootstrap conveniences only (base#1647)."
+      "${_violations} internal reference(s) to a moving or missing test-tools tag (:latest / :main / untagged). Pin the consumer to :<ver>; :latest and :main are human and bootstrap conveniences only (base#1647)."
     return 1
   fi
   echo "moving test-tools tag lint: clean"
