@@ -8280,11 +8280,14 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (1)
+### test/bats/unit/suite_prereq_spec.bats (4)
 
 | Test | Description |
 |------|-------------|
 | `prereq: a missing .prev-release/tags.txt is refused by name (base#1423)` | a bare container run of the whole suite reaches the 16 previous- release tests with no .prev-release/tags.txt (that file is produced on the host by prepare-prev-release.sh). The run has to stop at once and name the file, not fail those tests one by one. |
+| `prereq: everything supplied passes (base#1423)` | with the fixture and both host ids present the check is silent and succeeds, so a refusal is never the price of a correctly supplied run. |
+| `prereq: missing HOST_UID and HOST_GID are each named (base#1423)` | the four compose tests need HOST_UID and HOST_GID (compose interpolates them with a required-variable form). A bare container has neither, and the check must say so by variable name rather than let the compose tests fail one by one. |
+| `prereq: every missing item is reported in a single refusal (base#1423)` | a person fixing a bare run should not have to rerun once per missing item; every gap is reported in the one refusal. |
 
 ### test/bats/unit/system_paths_spec.bats (9)
 
