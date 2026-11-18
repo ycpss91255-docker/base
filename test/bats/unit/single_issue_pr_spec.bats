@@ -48,3 +48,15 @@ setup() {
   [[ "${stderr}" == *"#1"* ]]
   [[ "${stderr}" == *"#2"* ]]
 }
+
+# why: The same issue reached two ways (GitHub's qualified reference and
+# a bare `#1` in a commit message) is one issue. A script that counted
+# distinct strings would fail a PR that closes exactly one issue
+# (base#1629).
+@test "single_issue_pr.sh: the same issue as a qualified ref and a bare commit ref passes (base#1629)" {
+  export PR_CLOSING_REFS="ycpss91255-docker/base#1"
+  export PR_COMMITS=$'fix: only\n\nCloses #1'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_success
+}
