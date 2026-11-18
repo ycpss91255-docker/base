@@ -28,13 +28,16 @@ one behaviour.
 A commit is the minimum logical unit: one cohesive change that builds and
 tests green. Keep commit messages scoped to that one change.
 
-## Squash-merge
+## Merge commit
 
-PRs are squash-merged, so the commit that lands on `main` is the whole PR.
-Intermediate `red`, `review round` and `Merge main` commits are squashed away.
-That makes the PR size the commit size on `main`: keep each PR small enough
-that its squashed commit is a single cohesive change. A PR that needs several
-distinct logical commits on `main` is a sign it should be split into slices.
+Squash merging is forbidden. Every PR lands with a merge commit, so each
+commit on the branch keeps its sha for bisect and blame, and
+`git log --first-parent` gives the PR-level history of `main`.
+
+Because every branch commit reaches `main`, keep each PR to one behaviour and
+avoid noise commits: merge `main` only when needed, and add no fixup or
+review-round commits that carry no change. A PR that needs several distinct
+behaviours is a sign it should be split into slices.
 
 ## When to split
 
@@ -46,7 +49,8 @@ Split before opening the PR if any of these hold:
 
 ## Owner action
 
-Landing several clean atomic commits from one PR needs the repository's
-rebase-and-merge setting. That setting is an owner decision and is not changed
-by this doc. At the time of writing,
-`gh api repos/ycpss91255-docker/base --jq .allow_rebase_merge` returns `true`.
+Landing a PR's commits individually needs the repository's rebase-and-merge
+setting, which is left as it is; this doc does not change it. At the time of
+writing, `gh api repos/ycpss91255-docker/base --jq .allow_rebase_merge`
+returns `true`. Squash merging is to be turned off once the merge helpers
+default to merge commits (base#1690); it is not off yet.
