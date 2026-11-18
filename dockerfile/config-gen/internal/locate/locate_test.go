@@ -374,6 +374,23 @@ func TestCutWindowsEndEverywhereAtBoundedCost(t *testing.T) {
 	}
 }
 
+// TestCutWindowsSweepsWholePrefixesOnlyUpToOneKiB holds the swept head to
+// 1024 bytes (base#1655): an input of 2000 bytes has every whole prefix up
+// to byte 1024, and past it no window starts at the input's start, so each
+// is cut to its last cutContextBytes bytes and the sweep stays linear.
+func TestCutWindowsSweepsWholePrefixesOnlyUpToOneKiB(t *testing.T) {
+	const bound = 1024
+	src := []byte(strings.Repeat("value = 0\n", 200))
+	if len(src) != 2000 {
+		t.Fatalf("src is %d bytes, want 2000", len(src))
+	}
+	for _, w := range cutWindows(src) {
+		if w.from == 0 && w.end > bound && w.end < len(src) {
+			t.Fatalf("window [0,%d) is a whole prefix past %d bytes, want it cut to its last %d bytes", w.end, bound, cutContextBytes)
+		}
+	}
+}
+
 // indexEveryPrefix indexes each byte prefix of src and fails the test if
 // one panics. Each prefix is passed with its capacity cut to its length,
 // so a read past the end panics instead of reading the bytes that follow
