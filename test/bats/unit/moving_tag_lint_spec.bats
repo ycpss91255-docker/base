@@ -217,3 +217,24 @@ _write() {
   [[ "${output}" == *".github/workflows/w.yaml:3: moving"* ]]
   [[ "${output}" != *".github/workflows/w.yaml:2:"* ]]
 }
+
+@test "_run_moving_tag: an allow-list entry cannot suppress a tag fed by an input defaulting to latest (base#1647)" {
+  # The base#1122 shape is never a sanctioned exception: an entry naming its
+  # path, kind, scope and token leaves it a violation.
+  _moving_tag_allowlist() {
+    printf '%s\n' '.github/workflows/build-worker.yaml|input-default|line:TEST_TOOLS_IMAGE=|1|test-tools:${{ inputs.test_tools_version }}|fixture'
+  }
+  _write ".github/workflows/build-worker.yaml" \
+    'on:' \
+    '  workflow_call:' \
+    '    inputs:' \
+    '      test_tools_version:' \
+    '        default: "latest"' \
+    'jobs:' \
+    '  build:' \
+    '    steps:' \
+    '      - run: echo TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/build-worker.yaml:9: input-default"* ]]
+}
