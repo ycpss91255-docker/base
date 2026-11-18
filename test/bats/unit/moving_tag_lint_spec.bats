@@ -238,3 +238,17 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *".github/workflows/build-worker.yaml:9: input-default"* ]]
 }
+
+@test "_run_moving_tag: an allow-list entry cannot suppress a tag whose variable defaults to latest (base#1647)" {
+  # ${TAG:-latest} resolves to the moving tag whenever TAG is unset: it is
+  # never a sanctioned exception, whichever kind an entry names for it.
+  _moving_tag_allowlist() {
+    printf '%s\n' \
+      'dockerfile/Dockerfile.x|indirect|line:FROM|1|test-tools:${TAG:-latest}|fixture' \
+      'dockerfile/Dockerfile.x|moving-default|line:FROM|1|test-tools:${TAG:-latest}|fixture'
+  }
+  _write "dockerfile/Dockerfile.x" 'FROM ${T}/test-tools:${TAG:-latest}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dockerfile/Dockerfile.x:1: moving-default"* ]]
+}
