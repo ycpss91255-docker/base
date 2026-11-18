@@ -72,6 +72,29 @@ setup() {
   assert_line "      - no-new-privileges:true"
 }
 
+# why: base#1651 -- a security_opt value with YAML syntax in it (`: `, ` #`,
+# a leading `*` / `&` / `#`, a `"`) must parse back as that exact string,
+# not as a map, a truncated value, an alias, an anchor or a comment.
+@test "_emit_caps_block: security_opt items with YAML syntax parse back as the exact input string (base#1651)" {
+  local -a _want=('label=a: b' 'x #y' '*anchor' '&ref' '#c' '"lead')
+  local _in _i
+  _in="$(printf '%s\n' "${_want[@]}")"
+  run _emit_caps_block "" "" "${_in}"
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  run yq '.s.security_opt | length' "${BATS_TEST_TMPDIR}/c.yaml"
+  assert_success
+  assert_output "${#_want[@]}"
+  for _i in "${!_want[@]}"; do
+    run yq ".s.security_opt[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output '!!str'
+    run yq ".s.security_opt[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output "${_want[${_i}]}"
+  done
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _emit_env_file_block  (constant)
 # ════════════════════════════════════════════════════════════════════
