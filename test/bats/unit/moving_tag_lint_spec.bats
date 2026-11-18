@@ -85,3 +85,17 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *".github/workflows/build-worker.yaml:13"* ]]
 }
+
+@test "_run_moving_tag: FAILS on an untagged qualified test-tools base that a later line suffixes with :latest, naming the base line (base#1647)" {
+  # The tag line carries no test-tools text; only the base line does.
+  _write ".github/workflows/publish.yaml" \
+    'env:' \
+    '  IMAGE: ghcr.io/ycpss91255-docker/test-tools' \
+    'jobs:' \
+    '  push:' \
+    '    steps:' \
+    '      - run: docker push "${IMAGE}:latest"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/publish.yaml:2"* ]]
+}
