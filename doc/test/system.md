@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **22 tests**.
+System specs under `test/bats/system/`: **23 tests**.
 
 > **Not** part of the `just test` self-test suite -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -179,6 +179,12 @@ it the second invocation reports success having executed no specs at all.
 | Test | Description |
 |------|-------------|
 | `lint-tools build fails when the hadolint sha256 pin is wrong` | a wrong pinned sha256 must fail the lint-tools build (base#1672) |
+
+### test/bats/system/test_tools_just_pin_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `just-runner build fails when the just sha256 pin is wrong` | a wrong pinned sha256 must fail the just-runner build (base#1673) |
 
 ### test/bats/system/test_tools_shellcheck_pin_spec.bats (1)
 
