@@ -178,3 +178,19 @@ _write() {
   [[ "${output}" == *"script/ci/b.sh:1: indirect"* ]]
   [[ "${output}" != *"script/ci/a.sh:1:"* ]]
 }
+
+@test "_run_moving_tag: FAILS when an entry's anchored occurrences outnumber its count, naming every matched line (base#1647)" {
+  # An entry pins how many occurrences it covers: a copy of the sanctioned
+  # hint is a new consumer, not a second exception.
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" \
+    'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"' \
+    'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"pins 1, saw 2"* ]]
+  [[ "${output}" == *"script/ci/a.sh:1"* ]]
+  [[ "${output}" == *"script/ci/a.sh:2"* ]]
+}
