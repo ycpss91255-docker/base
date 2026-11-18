@@ -314,6 +314,28 @@ _pins() {
   assert_success
 }
 
+# why: A bump that moves only the version leaves the checksum ARG naming the old
+# asset, so the build then fails closed; the digest must move in the same run
+# (base#1676). Expected value is the FIPS 180 vector sha256("abc"), not
+# recomputed by the code under test.
+@test "pins: --set regenerates the sha256 ARG named by the marker with the version (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_VERSION=v2.0.0' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
