@@ -10021,6 +10021,16 @@ never heard of it.
 | `the shipped [logging] defaults reach a bundle that configures nothing (base#1094)` | base#1094 item 5 -- the shipped template sets driver / max_size / max_file / compress, so "configure nothing" is not "no logging options": it is the template's bounds. Those are the ones that matter, because the repo that never thought about logging is the one whose device disk fills. This asserts the DEFAULT reaches the bundle, not just an explicitly configured value. |
 | `the bundle's logging block is the same block the dev compose emits (base#1094)` | base#1094 item 5 -- the defect was two emitters over one config disagreeing, so the assertion that holds the fix is agreement, not presence. Both tiers are handed the same _collect_logging result and their `logging:` blocks are compared line for line; a future change to one emitter's block that the other does not get fails here. |
 
+### test/bats/unit/verify_extract_spec.bats (1)
+
+Covers `dockerfile/verify-extract.sh`, the verify-then-extract helper for the
+test-tools release assets (base#1648). The archive is a local fixture; no
+network or daemon is needed.
+
+| Test | Behaviour |
+| --- | --- |
+| `verify-extract: a wrong sha256 exits non-zero and extracts nothing` | a mismatch exits 1 and the destination stays empty |
+
 ### test/bats/unit/version_migrate_spec.bats (33)
 
 The version interval an upgrade crossed is what selects a version-bound
