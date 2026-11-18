@@ -71,3 +71,48 @@ _one_good_pin() {
   assert_failure
   assert_output --partial 'stale'
 }
+
+# why: Both per-arch ARGs are required; a pin with only one arch checked
+# leaves the other arch's download unverified
+@test "_run_pin_coverage: FAILS on a pin with only the AMD64 checksum ARG" {
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.0.0' \
+    'ARG FOO_SHA256_AMD64=0000000000000000000000000000000000000000000000000000000000000000'
+  _lint
+  assert_failure
+  assert_output --partial 'FOO_SHA256_ARM64'
+}
+
+# why: The same rule from the other side, so an either-arch match fails
+@test "_run_pin_coverage: FAILS on a pin with only the ARM64 checksum ARG" {
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.0.0' \
+    'ARG FOO_SHA256_ARM64=1111111111111111111111111111111111111111111111111111111111111111'
+  _lint
+  assert_failure
+  assert_output --partial 'FOO_SHA256_AMD64'
+}
+
+# why: The pending allowlist is what keeps main green while the sibling
+# issues land their checksums; a listed pin with none must pass
+@test "_run_pin_coverage: PASSES a pending-allowlisted pin that has no checksum ARG" {
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: kcov github-release SimonKagstrom/kcov' \
+    'ARG KCOV_VERSION=1.0.0' \
+    '# tool-pin: just github-release casey/just' \
+    'ARG JUST_VERSION=1.0.0' \
+    '# tool-pin: hadolint github-release hadolint/hadolint' \
+    'ARG HADOLINT_VERSION=1.0.0' \
+    '# tool-pin: bats-support github-release bats-core/bats-support' \
+    'ARG BATS_SUPPORT_VERSION=1.0.0' \
+    '# tool-pin: bats-assert github-release bats-core/bats-assert' \
+    'ARG BATS_ASSERT_VERSION=1.0.0'
+  _lint
+  assert_success
+  assert_output --partial 'clean'
+}
