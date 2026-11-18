@@ -156,7 +156,7 @@ setup() {
   # case the issue body documented.
   run code_grep -c 'context: ${{ inputs.context_path }}' "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 @test "build-worker.yaml: 4 build steps all forward inputs.dockerfile_path with format() fallback" {
@@ -166,7 +166,7 @@ setup() {
   # filename.
   run code_grep -c "file: \${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}" "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 @test "build-worker.yaml: no leftover hardcoded 'context: .' lines" {
@@ -209,25 +209,25 @@ setup() {
   # any RUN that resolved the username.
   run code_grep -c '^            USER_NAME=ci$' "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 @test "build-worker.yaml: 4 build steps pass USER_GROUP=ci (long form)" {
   run code_grep -c '^            USER_GROUP=ci$' "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 @test "build-worker.yaml: 4 build steps pass USER_UID=1000 (long form)" {
   run code_grep -c '^            USER_UID=1000$' "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 @test "build-worker.yaml: 4 build steps pass USER_GID=1000 (long form)" {
   run code_grep -c '^            USER_GID=1000$' "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 @test "build-worker.yaml: no short-form USER=/GROUP=/UID=/GID= build-args (regression #198)" {
@@ -260,7 +260,7 @@ setup() {
   # contexts work end-to-end in CI.
   run code_grep -c '^          build-contexts: \${{ inputs.build_contexts }}$' "${WF}"
   assert_success
-  assert_output "4"
+  assert_output "5"
 }
 
 # ──stage rename + runtime-test smoke step ──────────────────────
