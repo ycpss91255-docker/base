@@ -203,3 +203,16 @@ setup() {
   [[ "${stderr}" == *"#1"* ]]
   [[ "${stderr}" == *"#2"* ]]
 }
+
+# why: GitHub accepts a full issue URL after a closing keyword, and a
+# squash body that carries one closes that issue. A parser that read only
+# `#N` forms would pass a PR closing two issues by URL (base#1629).
+@test "single_issue_pr.sh: closing keywords followed by issue URLs count (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'Closes https://github.com/octo/alpha/issues/1\n\nFixes https://github.com/octo/beta/issues/2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"alpha#1"* ]]
+  [[ "${stderr}" == *"beta#2"* ]]
+}
