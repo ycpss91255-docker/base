@@ -82,6 +82,10 @@ ARG ALPINE_VERSION=3.23
 # KCOV_VERSION bump that invalidates either one fails the build.
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
+# The commit KCOV_VERSION must resolve to (the peeled commit of the annotated
+# tag, not the tag object). kcov-builder fails when the clone differs, so a
+# retagged upstream cannot change the image silently (base#1674).
+ARG KCOV_COMMIT=a39874f938ce13f7a65f253120d1ec946b349ffe
 # THE declaration of the `just` runner version, for this image and for
 # every other path that installs it: script/ci/install-just.sh in each CI
 # job that installs just (fed JUST_VERSION by that job's just-pin step),
@@ -148,13 +152,24 @@ FROM alpine-apk AS bats-extensions
 # what lets the watch propose one mechanically.
 # tool-pin: bats-support github-release bats-core/bats-support
 ARG BATS_SUPPORT_VERSION=v0.3.0
+# base#1674: a tag is a mutable ref; each clone below must land on the commit
+# pinned next to its tag (BATS_SUPPORT_COMMIT, BATS_ASSERT_COMMIT) or the
+# build fails.
+ARG BATS_SUPPORT_COMMIT=24a72e14349690bcbf7c151b9d2d1cdd32d36eb1
 # tool-pin: bats-assert github-release bats-core/bats-assert
 ARG BATS_ASSERT_VERSION=v2.1.0
+ARG BATS_ASSERT_COMMIT=78fa631d1370562d2cd4a1390989e706158e7bf0
 RUN apk add --no-cache git && \
     git clone --depth 1 -b "${BATS_SUPPORT_VERSION}" \
         https://github.com/bats-core/bats-support /bats/bats-support && \
+    { [ "$(git -C /bats/bats-support rev-parse HEAD)" = "${BATS_SUPPORT_COMMIT}" ] || { \
+        echo "bats-support: commit mismatch: tag ${BATS_SUPPORT_VERSION} is $(git -C /bats/bats-support rev-parse HEAD), pinned ${BATS_SUPPORT_COMMIT}" >&2; \
+        exit 1; }; } && \
     git clone --depth 1 -b "${BATS_ASSERT_VERSION}" \
-        https://github.com/bats-core/bats-assert  /bats/bats-assert
+        https://github.com/bats-core/bats-assert  /bats/bats-assert && \
+    { [ "$(git -C /bats/bats-assert rev-parse HEAD)" = "${BATS_ASSERT_COMMIT}" ] || { \
+        echo "bats-assert: commit mismatch: tag ${BATS_ASSERT_VERSION} is $(git -C /bats/bats-assert rev-parse HEAD), pinned ${BATS_ASSERT_COMMIT}" >&2; \
+        exit 1; }; }
 
 FROM alpine-apk AS lint-tools
 # arch-literal-lint: allow-begin -- the TARGETARCH-to-upstream-asset mapping is
@@ -277,6 +292,7 @@ RUN case "${TARGETARCH}" in \
 # fails the build after the last attempt.
 FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
+ARG KCOV_COMMIT
 COPY dockerfile/kcov-76bf685.patch /tmp/kcov-76bf685.patch
 COPY dockerfile/kcov-bash53-ansi-c.patch /tmp/kcov-bash53-ansi-c.patch
 RUN for _try in 1 2 3 4; do \
@@ -289,6 +305,9 @@ RUN for _try in 1 2 3 4; do \
     done && \
     git clone --depth 1 -b "${KCOV_VERSION}" \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
+    { [ "$(git -C /tmp/kcov rev-parse HEAD)" = "${KCOV_COMMIT}" ] || { \
+        echo "kcov: commit mismatch: tag ${KCOV_VERSION} is $(git -C /tmp/kcov rev-parse HEAD), pinned ${KCOV_COMMIT}" >&2; \
+        exit 1; }; } && \
     git -C /tmp/kcov apply /tmp/kcov-76bf685.patch && \
     git -C /tmp/kcov apply /tmp/kcov-bash53-ansi-c.patch && \
     cmake -S /tmp/kcov -B /tmp/kcov/build && \
