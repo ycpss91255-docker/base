@@ -485,6 +485,20 @@ _pins() {
   assert_output --partial "file://${_fx}/a-v2.0.0.bin"
 }
 
+# why: A sha256= option with no `@<source>` names an ARG but no way to derive its
+# digest; accepting it would leave that ARG stale after a bump, so the read
+# fails and names the pin (base#1676).
+@test "pins: --list fails on a sha256 option that names no source (base#1676)" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --list
+  assert_failure
+  assert_output --partial 'foo'
+  assert_output --partial 'sha256'
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
