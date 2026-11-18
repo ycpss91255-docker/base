@@ -296,6 +296,19 @@ _write() {
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
 
+# why: A reason of blanks only says no more than an empty one, so the reason
+# rule must not be met by whitespace padding.
+@test "_run_moving_tag: FAILS on an allow-list entry whose reason is only blanks (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1|ghcr.io/ycpss91255-docker/test-tools:main|   '
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"reason"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
 # why: 'line:' with no anchor names no line: it would read as matching every
 # line of the file, the file-wide entry the per-line scope rules out.
 @test "_run_moving_tag: FAILS on an allow-list entry whose line scope has an empty anchor (base#1647)" {
