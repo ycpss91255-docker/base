@@ -10023,13 +10023,9 @@ never heard of it.
 
 ### test/bats/unit/verify_extract_spec.bats (1)
 
-Covers `dockerfile/verify-extract.sh`, the verify-then-extract helper for the
-test-tools release assets (base#1648). The archive is a local fixture; no
-network or daemon is needed.
-
-| Test | Behaviour |
-| --- | --- |
-| `verify-extract: a wrong sha256 exits non-zero and extracts nothing` | a mismatch exits 1 and the destination stays empty |
+| Test | Description |
+|------|-------------|
+| `verify-extract: a wrong sha256 exits non-zero and extracts nothing` | - |
 
 ### test/bats/unit/version_migrate_spec.bats (33)
 
