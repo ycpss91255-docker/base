@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **281 tests**.
+Integration specs under `test/bats/integration/`: **282 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -438,10 +438,11 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (16)
+### test/bats/integration/prev_release_upgrade_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
+| `the window holds every release from v0.43.0 below the tree, and nothing else (base#1729)` | The window is the set of releases a consumer may still be driving (base#1055, base#1041): every stable release from the v0.43.0 floor up to, but not including, the tree under test. A count-sliced window drops the floor once enough releases follow it and keeps pre-floor releases before the floor exists. This arm states the rule with literals, so it is also the proof that a window short enough to run no driver arm is the rule's answer rather than a lost tag. |
 | `the newest released upgrade.sh leaves a tree its own command can upgrade again (#1077)` | An upgrade that deletes the command that performed it passes every other arm here -- one successful run over a tree nobody asks to upgrade again -- and fails at the consumer's terminal on their next release |
 | `the previous released upgrade.sh leaves a tree its own command can upgrade again (N-1, #1077)` | The newest release is already on the path the current tree ships, so only the older driver names a path that has to be kept alive by a forwarder; pinning both ends is what stops this narrowing to one tag |
 | `the oldest supported upgrade.sh commits what the migrations rewrote (#1036)` | The commit is made by the consumer's OWN released upgrade.sh, so the only proof that the migrated Dockerfile lands in it is to let that script drive; a unit test on the staging helper passes while the real upgrade still leaves the file behind |

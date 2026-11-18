@@ -1045,6 +1045,49 @@ _assert_upgrade_leaves_an_upgradable_tree() {
   [ "$(cat "${CONSUMER}/.base/.version")" = "${NEXT_VER_2}" ]
 }
 
+# why: The window is the set of releases a consumer may still be driving
+# (base#1055, base#1041): every stable release from the v0.43.0 floor up to,
+# but not including, the tree under test. A count-sliced window drops the
+# floor once enough releases follow it and keeps pre-floor releases before
+# the floor exists. This arm states the rule with literals, so it is also
+# the proof that a window short enough to run no driver arm is the rule's
+# answer rather than a lost tag.
+@test "the window holds every release from v0.43.0 below the tree, and nothing else (base#1729)" {
+  [[ -f "${TAGS_FILE}" ]] \
+    || fail "missing ${TAGS_FILE} -- run the suite through 'just test' (script/test/prepare-prev-release.sh populates it host-side)"
+  local _tree
+  _tree="$(tr -d '[:space:]' < /source/.version)"
+  [[ "${_tree}" =~ ^v0\.([0-9]+)\.([0-9]+)(-rc[0-9]+)?$ ]] \
+    || fail "tree version '${_tree}' is not v0.Y.Z[-rcN]"
+  local -i _tmin="${BASH_REMATCH[1]}" _tpat="${BASH_REMATCH[2]}"
+
+  local _line _prev="" _seen=" "
+  local -i _min _pat
+  while IFS= read -r _line; do
+    [[ "${_line}" =~ ^v0\.([0-9]+)\.([0-9]+)$ ]] \
+      || fail "window line '${_line}' is not a stable v0.Y.Z tag"
+    _min="${BASH_REMATCH[1]}"
+    _pat="${BASH_REMATCH[2]}"
+    (( _min >= 43 )) \
+      || fail "window holds ${_line}, below the v0.43.0 floor (base#1055)"
+    (( _min < _tmin || (_min == _tmin && _pat < _tpat) )) \
+      || fail "window holds ${_line}, not below the tree ${_tree}"
+    if [[ -n "${_prev}" ]]; then
+      [[ "${_prev}" =~ ^v0\.([0-9]+)\.([0-9]+)$ ]]
+      (( BASH_REMATCH[1] > _min || (BASH_REMATCH[1] == _min && BASH_REMATCH[2] > _pat) )) \
+        || fail "window is not strictly newest first: ${_prev} then ${_line}"
+    fi
+    _prev="${_line}"
+    _seen+="${_line} "
+  done < "${TAGS_FILE}"
+
+  local -i _m
+  for (( _m = 43; _m < _tmin; _m++ )); do
+    [[ "${_seen}" == *" v0.${_m}.0 "* ]] \
+      || fail "window lacks v0.${_m}.0, a release from the floor below the tree ${_tree}"
+  done
+}
+
 # why: An upgrade that deletes the command that performed it passes every
 # other arm here -- one successful run over a tree nobody asks to upgrade
 # again -- and fails at the consumer's terminal on their next release
