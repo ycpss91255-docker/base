@@ -91,3 +91,31 @@ _seed_tags() {
   assert_output --partial "HOST_UID"
   assert_output --partial "HOST_GID"
 }
+
+# why: `just test system` and the System Test CI job run ci-system without
+# the prev-release step, so the system dispatch never reads tags.txt. It
+# must not be refused for it (HOST_UID / HOST_GID stay required).
+@test "prereq: the system dispatch needs no .prev-release/tags.txt (base#1423)" {
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      HOST_UID=1000 HOST_GID=1000 FAKE_ROOT="${FAKE_ROOT}" bash -c '
+    source /source/script/test/test.sh
+    _check_suite_prerequisites "${FAKE_ROOT}" 1
+  '
+  assert_success
+  assert_output ""
+}
+
+# why: the system exemption covers the fixture only; the host ids are
+# still demanded.
+@test "prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)" {
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      -u HOST_UID -u HOST_GID FAKE_ROOT="${FAKE_ROOT}" bash -c '
+    source /source/script/test/test.sh
+    _check_suite_prerequisites "${FAKE_ROOT}" 1
+  '
+  assert_failure
+  assert_output --partial "HOST_UID"
+  refute_output --partial "tags.txt"
+}
