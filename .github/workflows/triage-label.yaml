@@ -6,8 +6,9 @@ name: Triage label
 # the to-issues flow at creation), or its last state label removed later.
 # On every open/label/unlabel event this re-reads the issue's labels and, when
 # none of them is a state role, applies the intake role so a later maintainer
-# sweep can replace it. A kind label alone does not count as a state, and an
-# issue that already carries a state role is left untouched (base#1713).
+# sweep can replace it. A kind label alone does not count as a state. When
+# `needs-triage` sits beside another state role it is the leftover intake
+# role, so it is removed and the other role stays (base#1713).
 #
 # The label is `needs-triage`, the canonical intake role in
 # `doc/agents/triage-labels.md`, and NOT `triage`. This line said `triage`
@@ -72,6 +73,8 @@ jobs:
           done
           if (( count == 0 )); then
             gh issue edit "${ISSUE}" --repo "${REPO}" --add-label needs-triage
+          elif (( count > 1 )) && grep -qxF -- needs-triage <<< "${names}"; then
+            gh issue edit "${ISSUE}" --repo "${REPO}" --remove-label needs-triage
           else
             printf 'issue #%s carries %d state label(s); nothing to add\n' "${ISSUE}" "${count}"
           fi
