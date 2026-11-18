@@ -1353,3 +1353,44 @@ _build_comment_paragraphs() {
   assert_success
   assert_output ''
 }
+
+# ── Cache import failure retries once without the cache (#1702) ─────
+
+# _step_code <step name>
+#   The code lines (comments dropped) of one build-job step, from its
+#   `- name:` line to the next step's.
+_step_code() {
+  code_lines "${WF}" | awk -v want="      - name: $1" '
+    /^      - name: / { on = ($0 == want) }
+    on { print }
+  '
+}
+
+# _assert_import_retry <id> <target> <first step name> <retry step name>
+#   One build step survives a failed cache import: the first attempt may
+#   fail without failing the job, and a second step runs only after that
+#   failure, builds the same target and names no cache-from, so nothing is
+#   imported. A structural check only: it pins the shape, it does not run
+#   a build.
+_assert_import_retry() {
+  local _id="$1" _target="$2" _first _retry
+  _first="$(_step_code "$3")"
+  _retry="$(_step_code "$4")"
+  [[ -n "${_first}" ]] || fail "no step named '$3'"
+  [[ -n "${_retry}" ]] || fail "no step named '$4'"
+  grep -Fq '        continue-on-error: true' <<< "${_first}" || fail \
+      "'$3' does not set continue-on-error, so a failed import still fails the job"
+  grep -Fq "if: \${{ steps.${_id}.outcome == 'failure' }}" <<< "${_retry}" || fail \
+      "'$4' is not gated on steps.${_id}.outcome being a failure"
+  grep -Fq "target: ${_target}" <<< "${_retry}" || fail \
+      "'$4' does not build target ${_target}"
+  if grep -Fq 'cache-from' <<< "${_retry}"; then
+    fail "'$4' still imports a cache"
+  fi
+}
+
+@test "build-worker.yaml: a failed devel-test cache import retries the stage once without cache-from (#1702)" {
+  _assert_import_retry build_devel_test devel-test \
+      "Build devel-test stage (includes lint + bats smoke)" \
+      "Retry devel-test stage without the cache import"
+}
