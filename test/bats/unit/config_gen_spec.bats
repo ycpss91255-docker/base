@@ -487,6 +487,16 @@ _cg_tables_seen() {
   cat -- "${BATS_TEST_TMPDIR}/out.seen"
 }
 
+# assert_cg_tables_run <src> <name>
+#   assert_cg_run_argv for the run config_gen_tables makes: <src> mounted
+#   read-only at /in/f, the caller's uid:gid, the image _expected_tag
+#   names, and <name> as the binary's label.
+assert_cg_tables_run() {
+  assert_cg_run_argv run --rm --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=$1,dst=/in/f,readonly" \
+    "$(_expected_tag)" tables --name "$2" /in/f
+}
+
 # _mock_docker_tables_output_failed
 #   docker records its argv; `image inspect` answers present. `run` is the
 #   binary failing to write its answer (tables.go, exitOutput): a valid
@@ -639,8 +649,7 @@ _mock_docker_tables_exec() {
   _run_cg_tables "${_wd}" missing.toml
   assert_refusal 1 no_such_file "file=missing.toml"
   assert_equal "$(_cg_tables_seen)" "[]"
-  run grep -c '^run ' "${DOCKER_LOG}"
-  assert_output 0
+  assert_cg_calls image
 }
 
 # why: a quoted TOML key may hold U+0000. For `["a\u0000b"]` then `[c]`
@@ -685,12 +694,11 @@ _mock_docker_tables_exec() {
   local _name
   printf '[a]\n' > "${_wd}/layer.toml"
   for _name in 'a,b.toml' 'p,q/layer.toml' 'p,q/../layer.toml' "rv-d"$'\n'"/layer.toml" 'cl/layer.toml'; do
-    : > "${DOCKER_LOG}"
+    _cg_reset_calls
     _run_cg_tables "${_wd}" "${_name}"
     assert_refusal 1 config_gen_path_unmountable "file=${_name}"
     assert_equal "$(_cg_tables_seen)" "[]"
-    run grep -c '^run ' "${DOCKER_LOG}"
-    assert_output 0
+    assert_cg_calls image
   done
 }
 
@@ -865,12 +873,12 @@ _mock_docker_tables_stderr() {
   printf '[a]\n' > "${_wd}/layer.toml"
   local _call
   for _call in 'layer.toml' 'layer.toml out extra' 'layer.toml 1bad' 'layer.toml a-b'; do
-    : > "${DOCKER_LOG}"
+    _cg_reset_calls
     LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
 source '${CG}'
 config_gen_tables ${_call}"
     assert_refusal 2 config_gen_usage_invalid
-    assert_equal "$(wc -l < "${DOCKER_LOG}")" 0
+    assert_cg_calls
   done
 }
 
@@ -902,12 +910,12 @@ exit \"\${rc}\""
     assert_equal "${output}" "$(printf '[a\nb\nb.c\n]')"
   done
   for _name in _cgt_out _cgt_list; do
-    : > "${DOCKER_LOG}"
+    _cg_reset_calls
     LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
 source '${CG}'
 config_gen_tables layer.toml ${_name}"
     assert_refusal 2 config_gen_usage_invalid
-    assert_equal "$(wc -l < "${DOCKER_LOG}")" 0
+    assert_cg_calls
   done
   # Every local the function declares is under the reserved prefix, so the
   # refusal above covers every name a nameref could resolve to a local.
@@ -983,6 +991,10 @@ config_gen_tables layer.toml ${_name}"
   _run_cg_tables "${_wd}" "la"$'\t'"yer.toml"
   assert_refusal 1 conf_toml_parse_failed "file=la"$'\t'"yer.toml"
   assert_equal "$(_cg_tables_seen)" "[]"
+  local _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
+  assert_cg_tables_run "${_wdp}/la"$'\t'"yer.toml" "la"$'\t'"yer.toml"
+  assert_cg_calls image run
 }
 
 # why: a name that exists but is not a regular file -- a directory, a FIFO
@@ -1013,13 +1025,17 @@ config_gen_tables layer.toml ${_name}"
   _mock_docker_tables_exec
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
-  local _swap
+  local _swap _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
   for _swap in fifo dir; do
     rm -rf -- "${_wd}/layer.toml"
     printf '[a]\n' > "${_wd}/layer.toml"
+    _cg_reset_calls
     CGT_SWAP="${_swap}" _run_cg_tables "${_wd}" layer.toml
     assert_refusal 1 config_gen_input_not_regular "file=layer.toml"
     assert_equal "$(_cg_tables_seen)" "[]"
+    assert_cg_tables_run "${_wdp}/layer.toml" layer.toml
+    assert_cg_calls image run
   done
 }
 
@@ -1040,6 +1056,10 @@ config_gen_tables layer.toml ${_name}"
   chmod 600 "${_wd}/layer.toml"
   assert_refusal 1 config_gen_input_unreadable "file=layer.toml"
   assert_equal "$(_cg_tables_seen)" "[]"
+  local _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
+  assert_cg_tables_run "${_wdp}/layer.toml" layer.toml
+  assert_cg_calls image run
 }
 
 # why: when the binary itself is called wrongly (here the run reaches it
@@ -1057,6 +1077,10 @@ config_gen_tables layer.toml ${_name}"
   assert_refusal 2 config_gen_usage_invalid
   assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_run_failed)" 0
   assert_equal "$(_cg_tables_seen)" "[]"
+  local _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
+  assert_cg_tables_run "${_wdp}/layer.toml" layer.toml
+  assert_cg_calls image run
 }
 
 # why: the image resolves in the caller's shell before any run; when it
@@ -1108,8 +1132,8 @@ config_gen_tables layer.toml ${_name}"
   assert_equal "$(_cg_tables_seen)" "$(printf '[kernel\n]')"
   local _wdp
   _wdp="$(cd "${_wd}" && pwd -P)"
-  run grep -c "^run .* --mount type=bind,src=${_wdp}/real/layer.toml,dst=/in/f,readonly " "${DOCKER_LOG}"
-  assert_output 1
+  assert_cg_tables_run "${_wdp}/real/layer.toml" lnk/../layer.toml
+  assert_cg_calls image run
 }
 
 # _mock_docker_tables_ok
@@ -1139,8 +1163,8 @@ _mock_docker_tables_ok() {
   _run_cg_tables "${_wd}" /etc
   assert_success
   assert_equal "$(_cg_tables_seen)" "$(printf '[a\n]')"
-  run grep -c "^run .* --mount type=bind,src=/etc,dst=/in/f,readonly .* tables --name /etc /in/f\$" "${DOCKER_LOG}"
-  assert_output 1
+  assert_cg_tables_run /etc /etc
+  assert_cg_calls image run
 }
 
 # why: the raw name lnk/layer.toml holds no comma or newline, but its
@@ -1164,8 +1188,7 @@ _mock_docker_tables_ok() {
   _run_cg_tables "${_wd}" lnk/layer.toml
   assert_refusal 1 config_gen_path_unmountable "file=lnk/layer.toml"
   assert_equal "$(_cg_tables_seen)" "[]"
-  run grep -c '^run ' "${DOCKER_LOG}"
-  assert_output 0
+  assert_cg_calls image
 }
 
 # why: config_gen_tables keeps the binary's stdout and stderr in a temp
