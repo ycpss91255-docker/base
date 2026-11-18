@@ -252,3 +252,16 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dockerfile/Dockerfile.x:1: moving-default"* ]]
 }
+
+@test "_run_moving_tag: FAILS as stale when an entry matches fewer occurrences than its count (base#1647)" {
+  # A removed or reworded exception leaves its entry behind: the table must
+  # not keep a slot a new consumer could later fill unnoticed.
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|2|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"stale"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
