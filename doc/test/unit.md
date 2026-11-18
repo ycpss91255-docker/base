@@ -6681,7 +6681,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (158)
+### test/bats/unit/self_test_yaml_spec.bats (159)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -7116,6 +7116,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
 | `self-test.yaml: the release body is assembled by a script that can refuse (#926)` | The extraction has to live somewhere a spec can drive it AND somewhere that can exit non-zero; inline in the workflow it was neither. This is what stops it drifting back into a `run:` block where a no-match is a silent success. |
 | `self-test.yaml: the release page carries the curated notes alone (#926)` | With both sources the larger drowns the smaller: the measured v0.42.0 body was 26,690 characters of which the curated part was five lines and the rest raw PR titles. The workflow input is the only place that choice is expressed, so it is the only place it can regress. |
+| `self-test.yaml: the release job verifies the tagged commit is on main before creating the Release (base#1712)` | The release job's needs: are test gates, which a green PR head also passes, so a v* tag pushed on a commit that is not on main would publish a Release. The base#1143 guard ran only in the reusable worker (release-worker.yaml); base's own tag path had none (base#1712). |
 | `self-test.yaml: declares bats-fragile job (#677)` | - |
 | `self-test.yaml: bats-fragile is a single job (no shard matrix) (#677)` | - |
 | `self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)` | - |
