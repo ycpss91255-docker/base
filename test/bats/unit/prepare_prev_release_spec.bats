@@ -128,3 +128,20 @@ _mock_git() {
   assert_output --partial "degraded"
   assert_output --partial "v0.43.0"
 }
+
+# why: an upstream that answers but lists no stable release is not an
+# upstream that owes nothing -- it is a wrong remote or a broken listing.
+# Reading that empty answer as "nothing owed" hands the window back to the
+# local tags, so a checkout holding v0.43.0 goes green on whatever it
+# happens to carry while the owed set was never read. The run must refuse
+# and say upstream listed no stable release tags (base#1729 design).
+@test "prepare-prev-release: an upstream that lists no stable release tags fails rather than falling back to local tags (base#1729)" {
+  printf '%s\n' v0.44.0 v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.44.0-rc1 v0.43.0-rc5 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_failure
+  assert_output --partial "upstream lists no stable release tags"
+  assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
+}
