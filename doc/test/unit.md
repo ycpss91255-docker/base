@@ -902,7 +902,7 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
-| `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in a `FROM`, so a build step that omits it fails with a blank base name. Scoped to the one step, since the same line already sits in the devel-test and runtime-test steps (base#1670). |
+| `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a build step that omits the build-arg fails with a blank base name. Scoped to the Build devel stage step: the same line already sits in the devel-test and runtime-test steps, so a whole-file match would pass without the fix (base#1670). |
 
 ### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
 
