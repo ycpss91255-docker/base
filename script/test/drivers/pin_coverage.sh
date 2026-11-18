@@ -118,6 +118,16 @@
 # shellcheck source=script/watch/lib.sh
 source "${SCRIPT_DIR}/../watch/lib.sh"
 
+# Transitional: pins that still have no checksum, each owned by an open
+# issue. Delete a line when its checksum lands.
+_PIN_CHECKSUM_PENDING=(
+  "kcov  # base#1674"
+  "just  # base#1673"
+  "hadolint  # base#1672"
+  "bats-support  # base#1674"
+  "bats-assert  # base#1674"
+)
+
 _run_pin_coverage() {
   echo "--- Running pin-coverage lint ---"
 
@@ -244,6 +254,40 @@ reporting it:
   ${_PIN_MARKER} unpinned <name> -- <why>
 \`${_PIN_MARKER} ignore -- <why>\` is for a line whose shape matched but
 which is not a third-party version. See script/watch/lib.sh."
+    return 1
+  fi
+
+  # A github-release pin in the test-tools Dockerfile is a download, and
+  # a download with no checksum ARG is unverified (base#1675).
+  local _tt_file="dockerfile/Dockerfile.test-tools" _up _p _ok
+  local -a _unverified=()
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
+      _current _file _line; do
+    [[ -z "${_name}" ]] && continue
+    [[ "${_state}" == "${_PIN_STATE_PINNED}" ]] || continue
+    [[ "${_resolver}" == "github-release" ]] || continue
+    [[ "${_file}" == "${_tt_file}" ]] || continue
+    for _p in "${_PIN_CHECKSUM_PENDING[@]}"; do
+      [[ "${_p%% *}" == "${_name}" ]] && continue 2
+    done
+    _up="${_name^^}"
+    _up="${_up//-/_}"
+    _ok=0
+    if grep -qE "^ARG ${_up}_SHA256_AMD64=.+" "${REPO_ROOT}/${_tt_file}" \
+        && grep -qE "^ARG ${_up}_SHA256_ARM64=.+" "${REPO_ROOT}/${_tt_file}"; then
+      _ok=1
+    elif grep -qE "^ARG ${_up}_COMMIT=.+" "${REPO_ROOT}/${_tt_file}"; then
+      _ok=1
+    fi
+    if [[ "${_ok}" -eq 0 ]]; then
+      _unverified+=("${_file}:${_line}: ${_name} needs ${_up}_SHA256_AMD64 and ${_up}_SHA256_ARM64, or ${_up}_COMMIT")
+    fi
+  done <<< "${_table}"
+  if [[ "${#_unverified[@]}" -gt 0 ]]; then
+    _die ci_pin_coverage \
+      "a github-release pin in ${_tt_file} has no checksum ARG:
+$(printf '  %s\n' "${_unverified[@]}")
+Add the per-arch sha256 ARGs (or a commit ARG for a git clone) next to the version."
     return 1
   fi
 
