@@ -526,6 +526,21 @@ _pins() {
   assert_output --partial 'sha256'
 }
 
+# why: The checksums column belongs to one marker. A second marker in the same
+# file that declares no sha256= must read `-`, or a bump of it would try to
+# rewrite the first pin's checksum ARG (base#1676).
+@test "pins: --list gives a marker without sha256= no checksums, after one that has them (base#1676)" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file:///fx/a-{version}.bin' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000' \
+    '# tool-pin: bar github-release owner/bar' \
+    'ARG BAR_VERSION=v3.0.0'
+  _pins --list
+  assert_success
+  assert_output --partial $'pinned\tbar\tgithub-release\towner/bar\t-\t-\tv3.0.0\tdockerfile/Dockerfile.test-tools\t5\t-'
+}
+
 # why: The shellcheck checksum ARGs are the first real pins that must move with
 # their version; a marker that does not declare them leaves a bump half done
 # (base#1676). Read from the shipped Dockerfile, not a fixture.
