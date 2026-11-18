@@ -721,6 +721,25 @@ _mock_docker_tables_stderr() {
   assert_equal "$(_cg_tables_seen)" "[]"
 }
 
+# why: a frame's file, line, col, key and text fields each land in the
+#      record attribute of that name. Every field here is distinct and
+#      non-empty (key `a.b`, text `dup key`), so a dropped key= or a key=
+#      fed from another field shows as a missing or wrong attribute.
+@test "config-gen: tables re-emits each frame field as its own attribute" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  local _err="${BATS_TEST_TMPDIR}/frame.err"
+  printf 'D\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0a.b\0dup key\0' > "${_err}"
+  _mock_docker_tables_stderr "${_err}" 1
+
+  _run_cg_tables "${_wd}" layer.toml
+  assert_refusal 1 conf_toml_parse_failed "file=layer.toml" "line=3" \
+    "col=7" "key=a.b" "text=dup key"
+  assert_equal "$(_cg_tables_seen)" "[]"
+}
+
 # why: config_gen_tables takes exactly <file> and <outvar>, and <outvar> is
 #      the name of a shell variable it assigns through a nameref. A call
 #      with one argument, three arguments, or an outvar that is not a bash
