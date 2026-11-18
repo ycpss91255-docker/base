@@ -143,6 +143,7 @@ EOF
   rm -f "${_tmp}"
 }
 
+# bats test_tags=kcov-fragile
 # why: Missing-file error path (no `[[ -f ]]` guard)
 @test "_load_env aborts under set -euo pipefail when the file does not exist (#689)" {
   # kcov instrumentation perturbs the inner set -u shell (BASH_SOURCE comes

@@ -1,0 +1,5 @@
+[srv]
+net.port = 80
+net.host.name = "x"
+plain = 1
+"lit.key" = 2

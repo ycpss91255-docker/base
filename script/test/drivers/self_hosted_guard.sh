@@ -83,12 +83,19 @@
 #
 # ── The guard itself ────────────────────────────────────────────────────────
 #
-# `github.event_name != 'pull_request' || <head repo is this repo>`. It is
+# `github.event_name != 'pull_request' && github.event_name !=
+# 'merge_group' || <head repo is this repo>`. It is
 # a FORK test, not a PR test: a same-repo PR passes it, and every non-PR
 # event -- a tag push, a branch push, `schedule`, `workflow_dispatch`, a
 # `workflow_call` from a same-repo caller -- passes on the first disjunct
 # without ever reading the pull_request payload (which is null for those
 # events, so the second disjunct alone would be wrong).
+#
+# `merge_group` is left out of the first disjunct (base#1587). A queue
+# run builds the queued pull requests' code, but its payload carries no
+# pull_request object, so the second disjunct is false there as well:
+# the guard fails closed on merge_group. A site may widen it only with an
+# extra `||` term that reads an input proving the group same-repository.
 #
 # Under `workflow_call` the `github` context is the CALLER's, so inside a
 # reusable worker the condition reads "the event that started the calling
@@ -109,11 +116,12 @@
 # the job's `if:` after newline / indent collapsing, so the parenthesised
 # `<existing> && (<guard>)` form satisfies it while a hand-reworded
 # near-miss does not.
-readonly _SHG_GUARD_CANON="github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
+readonly _SHG_GUARD_CANON="github.event_name != 'pull_request' && github.event_name != 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository"
 
 # The block form to paste, for the failure message.
 readonly _SHG_GUARD_SNIPPET="    if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository"
 
 # Reserved GitHub-hosted label families. A self-hosted runner cannot

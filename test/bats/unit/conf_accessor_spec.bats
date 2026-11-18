@@ -290,6 +290,7 @@ EOF
 # not define it (it is provided by the umbrella _lib.sh loader in
 # production), so these tests stub it locally to capture the diagnostic.
 
+# bats test_tags=kcov-fragile
 # why: Guarded mktemp -> no clobber/truncate on temp-create failure
 @test "_upsert_conf_value leaves the original file intact when mktemp fails (#700)" {
   # Skipped under kcov: the test overrides `mktemp` with a failing shell
@@ -322,6 +323,7 @@ EOF
   rm -f "${_f}"
 }
 
+# bats test_tags=kcov-fragile
 # why: Temp+atomic-mv -> no in-place truncate data-loss window
 @test "_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)" {
   # Skipped under kcov: overrides `mktemp` with a failing shell function
@@ -363,6 +365,7 @@ EOF
 # leave the orphan temp behind silently AND must surface a clear error,
 # while the original file stays untouched. Stub `mv` to fail.
 
+# bats test_tags=kcov-fragile
 # why: Failed atomic mv -> orphan temp removed + error logged + original
 # unchanged
 @test "_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)" {
@@ -396,6 +399,7 @@ EOF
   rm -f "${_f}"
 }
 
+# bats test_tags=kcov-fragile
 # why: Failed atomic mv -> orphan temp removed + error logged + destination
 # unchanged
 @test "_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)" {
@@ -434,6 +438,7 @@ EOF
   rm -f "${_tpl}" "${_dst}"
 }
 
+# bats test_tags=kcov-fragile
 # why: The rewrite comes from a bare mktemp (0600) and takes the
 # destination's mode just before the mv (base#1356). When that chmod
 # fails, landing the rewrite anyway would leave the user's setup.toml at
@@ -469,6 +474,7 @@ EOF
   rm -rf "${_d}"
 }
 
+# bats test_tags=kcov-fragile
 # why: Same contract for the template-rewrite writer behind TUI Save and
 # `setup.sh remove` (base#1356).
 @test "_write_setup_conf refuses the replacement, cleans the temp + errors when the mode cannot be restored (base#1356)" {

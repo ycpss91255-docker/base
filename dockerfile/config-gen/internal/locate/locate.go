@@ -42,8 +42,9 @@ type Occurrence struct {
 	// first byte on KeyLine; an implicit table's is its first creator's.
 	KeyCol int
 	// ValueEndLine is the 1-based line the key's value ends on (KeyLine
-	// for a header). An array value is given its start line, the line the
-	// library reports for it.
+	// for a header). An inline array or inline table value is given its
+	// start line, the line the library reports for it; under TOML 1.1 an
+	// inline table, like an array, may span lines (base#1469).
 	ValueEndLine int
 }
 
@@ -168,6 +169,10 @@ type Map struct {
 	// an array of tables, which the log records once per path.
 	extra []*Occurrence
 	root  *Node
+	// byID maps the pathID of each entry to its entries, in document
+	// order. Index builds it, so concurrent readers only read it
+	// (base#1654).
+	byID map[string][]*Occurrence
 }
 
 // Root returns the root of the document tree: headers resolve from it,
@@ -221,8 +226,24 @@ func (m *Map) InlineTables(path []string) []Occurrence {
 	return out
 }
 
-// Table is the unique lookup of a table path.
-func (m *Map) Table(path []string) (Occurrence, Lookup) { return unique(m.Tables(path)) }
+// Table is the unique lookup of a table path. An implicit record counts
+// only when the path has no explicit one: a table a header under it
+// creates and a later `[path]` declares is written once, at its header,
+// the line the library reports for it (base#1469: the s1 fixtures
+// interleaved.toml and empty_name_parent.toml).
+func (m *Map) Table(path []string) (Occurrence, Lookup) {
+	all := m.Tables(path)
+	var explicit []Occurrence
+	for _, o := range all {
+		if !o.Implicit {
+			explicit = append(explicit, o)
+		}
+	}
+	if len(explicit) > 0 {
+		return unique(explicit)
+	}
+	return unique(all)
+}
 
 // Key is the unique lookup of a key path.
 func (m *Map) Key(path []string) (Occurrence, Lookup) { return unique(m.Keys(path)) }
@@ -240,13 +261,16 @@ func (m *Map) Keys(path []string) []Occurrence {
 func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 	var out []Occurrence
 	want := pathID(path)
-	for _, o := range m.entries {
+	for _, o := range m.candidates(path) {
 		if keep(*o) && pathID(o.Path) == want {
 			out = append(out, *o)
 		}
 	}
 	return out
 }
+
+// candidates returns the records filter examines for path.
+func (m *Map) candidates(path []string) []*Occurrence { return m.byID[pathID(path)] }
 
 func unique(all []Occurrence) (Occurrence, Lookup) {
 	switch len(all) {
@@ -282,7 +306,12 @@ func Index(src []byte) *Map {
 	root := &Node{Kind: NTable}
 	s := &scanner{src: src, line: 1, ordinal: map[string]int{}, tables: map[string]bool{}, memberOrdinal: map[string]int{}, root: root, cur: root}
 	s.run()
-	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, extra: s.extra, root: root}
+	byID := make(map[string][]*Occurrence, len(s.entries))
+	for _, o := range s.entries {
+		id := pathID(o.Path)
+		byID[id] = append(byID[id], o)
+	}
+	return &Map{entries: s.entries, members: s.members, inlineTables: s.inlineTables, extra: s.extra, root: root, byID: byID}
 }
 
 type scanner struct {
@@ -383,12 +412,11 @@ func (s *scanner) keyValue() {
 	for i := len(s.table) + 1; i < len(path); i++ {
 		n = s.open(n, path[:i], line, col)
 	}
-	array := s.peek() == '['
-	inline := s.peek() == '{' || array
+	inline := s.peek() == '{' || s.peek() == '['
 	k := n.add(parts[len(parts)-1], NKey, nil)
 	s.value(path, k)
 	end := s.line
-	if array {
+	if inline {
 		end = line
 	}
 	k.Occ = append(k.Occ, s.add(Occurrence{Path: path, Kind: Key, Inline: inline, KeyLine: line, KeyCol: col, ValueEndLine: end}))

@@ -3343,72 +3343,241 @@ AWK
 }
 
 # ════════════════════════════════════════════════════════════════════
-# --bats-fragile: the kcov-fragile unit specs run in plain mode
+# _coverage_skip_audit: every test that skips under kcov is tagged
 #
-# The coverage matrix is the primary unit gate but SKIPS the kcov-fragile
-# tests (guarded by `[ "${COVERAGE:-0}" = 1 ] && skip`). The bats-fragile
-# job runs exactly those spec files in plain mode so no unit test goes
-# unrun. _fragile_unit_files computes the set at runtime (grep for the skip
-# guard) so it self-maintains; these guards pin the contract.
+# The coverage shards skip the kcov-fragile tests, and bats-fragile runs
+# them plain by bats' own tag filter. The audit compares, by (testsuite,
+# testcase) pair, what a slice's junit marks skipped with what
+# `COVERAGE=1 bats --filter-tags kcov-fragile` selects over the same
+# targets. It reads no source text, so a guard in any spelling counts.
 # ════════════════════════════════════════════════════════════════════
 
-# why: #677 runtime fragile-set == anchored grep
-@test "_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)" {
-  # The runtime-computed set must equal an independent grep for the
-  # line-anchored skip guard — a NEW fragile-skip in a 10th file is picked
-  # up automatically. The anchor (leading whitespace + literal bracket)
-  # excludes comments that merely mention the guard.
-  run bash -c '
-    source /source/script/test/test.sh
-    want=$(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
-    got=$(_fragile_unit_files | sort)
-    [[ "${want}" == "${got}" ]] || { echo "MISMATCH"; printf "want:\n%s\ngot:\n%s\n" "${want}" "${got}"; exit 1; }
-    echo OK
-  '
-  assert_success
-  assert_output --partial "OK"
+# _skip_audit_fixture <dir> <body>
+#   Write one spec file into <dir> holding <body>, with the leading "|" of
+#   each line removed. Every body line carries that "|" so no line of THIS
+#   file starts with the test keyword or a test_tags comment except its
+#   own: bats would rewrite such a line inside the string literal, and the
+#   fixture on disk would lose its tags.
+_skip_audit_fixture() {
+  mkdir -p "${1}"
+  printf '%s\n' "${2}" | sed 's/^|//' > "${1}/fixture_spec.bats"
 }
 
-# why: #677 inverse-direction completeness guard
-@test "_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)" {
-  # Coverage skips a test only in files in the fragile set; this asserts
-  # the inverse direction too — there is NO file containing a kcov-skip
-  # guard that is missing from _fragile_unit_files. Together with the
-  # coverage partition this proves every unit test runs SOMEWHERE.
-  run bash -c '
+# _skip_audit_run <dir>
+#   Run the fixture tree the way a coverage slice does (COVERAGE=1, junit
+#   report), then audit that report against the same target.
+_skip_audit_run() {
+  local _dir="${1}"
+  # bats refuses --output to a directory that does not exist.
+  mkdir -p "${_dir}/junit"
+  COVERAGE=1 bats --recursive --report-formatter junit \
+    --output "${_dir}/junit" "${_dir}/tree" > "${_dir}/slice.log" 2>&1 || true
+  # JSON log lines carry the event name; text lines carry only the message.
+  run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
-    fragile=$(_fragile_unit_files | sort)
-    while IFS= read -r f; do
-      [[ -n "${f}" ]] || continue
-      printf "%s\n" "${fragile}" | grep -qxF "${f}" \
-        || { echo "MISSING: ${f}"; exit 1; }
-    done < <(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
-    echo OK
-  '
-  assert_success
-  assert_output --partial "OK"
+    _coverage_skip_audit "$1/junit/report.xml" "$1/tree"
+  ' _ "${_dir}"
 }
 
-# why: #677 fragile job targets only fragile files
-@test "_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)" {
-  local _log="${BATS_TEST_TMPDIR}/bats.log"
-  mock_cmd "bats" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
+# why: base#1573 a skip outside the plain leg runs nowhere
+@test "_coverage_skip_audit: fails a coverage skip with no kcov-fragile tag, by name (base#1573)" {
+  # (a) A tagged in-body guard is explained; an untagged guard in a
+  # spelling no grep for the old guard matches is not. Only the untagged
+  # test may be named: an audit that names every skip fails here.
+  local _a="${BATS_TEST_TMPDIR}/a"
+  _skip_audit_fixture "${_a}/tree" '|# bats test_tags=kcov-fragile
+|@test "tagged guarded skip" {
+|  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+|  true
+|}
+|
+|@test "untagged hidden skip" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+|  true
+|}'
+  _skip_audit_run "${_a}"
+  assert_failure
+  assert_output --partial "ci_coverage_unexplained_skip"
+  assert_output --partial "untagged hidden skip"
+  refute_output --partial "tagged guarded skip"
+
+  # (b) One tagged test that never skips plus one untagged test that does:
+  # the counts match (one skip, one tag), the names do not. Both are named.
+  local _b="${BATS_TEST_TMPDIR}/b"
+  _skip_audit_fixture "${_b}/tree" '|# bats test_tags=kcov-fragile
+|@test "tagged never skips" {
+|  true
+|}
+|
+|@test "untagged hidden skip" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+|  true
+|}'
+  _skip_audit_run "${_b}"
+  assert_failure
+  assert_output --partial "ci_coverage_unexplained_skip"
+  assert_output --partial "tagged never skips"
+  assert_output --partial "untagged hidden skip"
+
+  # (c) Every skip tagged, every tag skipping: the audit passes.
+  local _c="${BATS_TEST_TMPDIR}/c"
+  _skip_audit_fixture "${_c}/tree" '|# bats test_tags=kcov-fragile
+|@test "tagged guarded skip" {
+|  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+|  true
+|}
+|
+|# bats test_tags=other,kcov-fragile
+|@test "second tagged guarded skip" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "kcov-fragile"
+|  true
+|}
+|
+|@test "untagged plain test" {
+|  true
+|}'
+  _skip_audit_run "${_c}"
+  assert_success
+}
+
+# why: base#1573 the plain leg runs exactly the coverage-skipped tests
+@test "kcov-fragile tag: selects exactly the 33 coverage-guarded tests of the 11 real unit specs (base#1573)" {
+  # Expected counts are the guard lines per file today (grep -c of the
+  # in-body COVERAGE skip guard) and sum to the 33 `# skip` lines of
+  # coverage run 42576563105's shards -- not the tag filter's own output.
+  # Each file must select exactly that many tests, every one `ok ... # skip`
+  # under COVERAGE=1: fewer is a missed tag, an ok without skip is a tag on
+  # an unguarded test, a `not ok` is a skip point that broke teardown.
+  local -A _want=(
+    [lib_spec]=1 [entrypoint_logging_spec]=1 [conf_accessor_spec]=6
+    [build_sh_spec]=1 [gitignore_spec]=1 [stop_sh_spec]=1 [exec_sh_spec]=1
+    [transcript_spec]=1 [watchdog_supervision_spec]=16
+    [conf_refusal_event_spec]=3 [run_sh_spec]=1
+  )
+  local _f _n _total=0 _bad=""
+  for _f in "${!_want[@]}"; do
+    _n="${_want[${_f}]}"
+    _total=$(( _total + _n ))
+    run env COVERAGE=1 bats --filter-tags kcov-fragile \
+      "/source/test/bats/unit/${_f}.bats"
+    local _plan _skips _oks _notok
+    _plan="$(head -n1 <<< "${output}")"
+    _skips="$(grep -c '^ok .* # skip' <<< "${output}" || true)"
+    _oks="$(grep -c '^ok ' <<< "${output}" || true)"
+    _notok="$(grep -c '^not ok ' <<< "${output}" || true)"
+    if (( status != 0 )) || [[ "${_plan}" != "1..${_n}" ]] \
+      || (( _skips != _n || _oks != _n || _notok != 0 )); then
+      _bad+="${_f}: want ${_n}, status=${status} plan=${_plan} ok=${_oks} skip=${_skips} notok=${_notok}"$'\n'
+    fi
+  done
+  [[ -z "${_bad}" ]] || { printf '%s' "${_bad}"; return 1; }
+  (( _total == 33 ))
+}
+
+# why: base#1573 an audit nothing calls guards nothing
+@test "_run_coverage: an untagged coverage skip fails the run with ci_coverage_unexplained_skip (base#1573)" {
+  # The coverage runner itself, not the audit called by hand: kcov is a
+  # shim that drops its own flags, leaves a report and execs the bats it
+  # wraps, so the slice's junit is real bats output. The unit pool holds
+  # one tagged in-body guard and one untagged guard in a spelling the old
+  # grep never matched; the run must fail naming only the untagged one.
+  mock_cmd "kcov" '
+    if [ "$1" = "--merge" ]; then
+      mkdir -p "$2/kcov-merged" && : > "$2/kcov-merged/cobertura.xml"
+      exit 0
+    fi
+    while [ $# -gt 0 ]; do
+      case "$1" in --*) shift ;; *) break ;; esac
+    done
+    mkdir -p "$1/bats" && : > "$1/bats/cobertura.xml"
+    shift
+    exec "$@"'
 
   run bash -c '
-    source /source/script/test/test.sh
+    set -e
+    _repo="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${_repo}/coverage" "${_repo}/test/bats/unit" \
+             "${_repo}/test/bats/integration"
+    cat > "${_repo}/test/bats/unit/a_spec.bats" <<"BATS"
+# bats test_tags=kcov-fragile
+@test "tagged guarded skip" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+  true
+}
+
+@test "untagged hidden skip" {
+  [[ ${COVERAGE:-0} == 1 ]] && skip "hidden"
+  true
+}
+BATS
+    printf "@test \"plain integration\" { :; }\n" \
+      > "${_repo}/test/bats/integration/i_spec.bats"
+    export COVERAGE=1
+    REPO_ROOT="${_repo}"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage
+  '
+  assert_failure
+  # The slice log replay names every test, so the names are read off the
+  # refusal line alone.
+  assert_output --regexp "DIE: ci_coverage_unexplained_skip.*untagged hidden skip"
+  refute_output --regexp "DIE: .*tagged guarded skip"
+}
+
+# why: base#1573 the plain leg runs the tagged tests, not their files
+@test "_run_bats_fragile: runs exactly the kcov-fragile tagged tests of the unit and integration pools (base#1573)" {
+  # A fixture REPO_ROOT holds both coverage pools, each with one tagged
+  # test beside an untagged one. Real bats runs them, so the TAP lines are
+  # bats' own. Selecting by file would also run the untagged unit test;
+  # a pool of unit alone would miss the integration test.
+  local _repo="${BATS_TEST_TMPDIR}/repo"
+  _skip_audit_fixture "${_repo}/test/bats/unit" '|# bats test_tags=kcov-fragile
+|@test "unit tagged fragile" {
+|  [ "${COVERAGE:-0}" = 1 ] && skip "kcov-fragile"
+|  true
+|}
+|
+|@test "unit untagged neighbour" {
+|  true
+|}'
+  _skip_audit_fixture "${_repo}/test/bats/integration" '|@test "integration untagged neighbour" {
+|  true
+|}
+|
+|# bats test_tags=other,kcov-fragile
+|@test "integration tagged fragile" {
+|  [[ ${COVERAGE:-0} == 1 ]] && skip "kcov-fragile"
+|  true
+|}'
+
+  run bash -c '
+    unset COVERAGE
+    cd "${BATS_TEST_TMPDIR}"
+    REPO_ROOT="$1"
+    source /source/script/test/drivers/bats.sh
     _run_bats_fragile
-  '
+  ' _ "${_repo}"
   assert_success
-  assert_output --partial "kcov-fragile"
 
-  run cat "${_log}"
-  assert_success
-  assert_output --partial "_spec.bats"
-  # The whole-unit-dir target must NOT be passed (that is coverage's job).
-  refute_output --partial "test/bats/unit/ "
+  local _tap
+  _tap="$(grep -E '^(1\.\.|ok |not ok )' <<< "${output}" \
+    | sed -E 's/^(ok|not ok) [0-9]+ /\1 /' | sort)"
+  assert_equal "${_tap}" "1..2
+ok integration tagged fragile
+ok unit tagged fragile"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# --bats-fragile: the kcov-fragile tests run in plain mode
+#
+# The coverage matrix is the primary gate but SKIPS the kcov-fragile
+# tests (each tagged `# bats test_tags=kcov-fragile` and guarded in its
+# body by a COVERAGE == 1 skip). The bats-fragile job runs exactly the
+# tagged tests in plain mode so no test goes unrun; which tests that is
+# is bats' tag filter's answer, and _coverage_skip_audit holds the tags
+# to what coverage skips (base#1573).
+# ════════════════════════════════════════════════════════════════════
 
 # why: #677 plain mode runs the skipped tests
 @test "_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)" {

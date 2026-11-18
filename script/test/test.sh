@@ -43,13 +43,14 @@
 #   ./test.sh --bats-unit-shard N/T  # Run unit shard N of T (skip ShellCheck +
 #                                  # integration). Coverage-matrix slice
 #                                  # primitive (greedy weight-balanced)
-#   ./test.sh --bats-fragile         # Run ONLY the kcov-fragile unit specs in
+#   ./test.sh --bats-fragile         # Run ONLY the kcov-fragile tagged tests in
 #                                  # plain mode (the tests the coverage matrix
 #                                  # skips). Used by the bats-fragile job in
 #                                  # self-test.yaml
 #   ./test.sh --bats-integration     # Run integration tests only (skip
-#                                  # ShellCheck + unit). Used by the
-#                                  # bats-integration job in self-test.yaml
+#                                  # ShellCheck + unit). A local entry
+#                                  # point: in CI the coverage shards run
+#                                  # these specs (base#1573)
 #                                  #
 #   ./test.sh --coverage        # Run the full Bats suite under Kcov. The
 #                             # lint phase is SKIPPED on every coverage
@@ -651,7 +652,7 @@ Options:
                           no figure,
                           $BATS_ONLY=1 to skip the ShellCheck phase,
                           $BATS_UNIT_SHARD to run only one matrix shard,
-                          $BATS_FRAGILE=1 to run only the kcov-fragile specs,
+                          $BATS_FRAGILE=1 to run only the kcov-fragile tests,
                           $BATS_INTEGRATION=1 to run integration only
   --lint                  All linters (ShellCheck + Hadolint) via docker
                           compose; the ci/test-tools image bakes in hadolint.
@@ -923,14 +924,15 @@ Options:
   --bats-unit-shard N/T   Run unit shard N of T (skip ShellCheck +
                           integration). Greedy weight-balanced partition;
                           the coverage matrix slice primitive (#377, #677)
-  --bats-fragile          Run ONLY the kcov-fragile unit specs in plain mode
-                          (skip ShellCheck + integration). These are the
-                          tests the coverage matrix skips; the bats-fragile
-                          job in self-test.yaml runs them so no unit test
-                          goes unrun (#677)
+  --bats-fragile          Run ONLY the kcov-fragile tagged tests of the unit
+                          and integration pools in plain mode (skip
+                          ShellCheck). These are the tests the coverage
+                          matrix skips; the bats-fragile job in
+                          self-test.yaml runs them so no test goes unrun
+                          (#677, base#1573)
   --bats-integration      Run integration tests only (skip ShellCheck +
-                          unit). Used by the bats-integration job in
-                          self-test.yaml (#377)
+                          unit). A local entry point: in CI the coverage
+                          shards run these specs (#377, base#1573)
   --bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
                           relative, e.g. test/bats/unit/ci_spec.bats) via the ci
                           container. Skips ShellCheck + kcov for a fast TDD
@@ -1046,6 +1048,16 @@ Options:
                           checkouts sharing a directory basename do not
                           share a project) and exit. COMPOSE_PROJECT_NAME,
                           when set, is echoed verbatim.
+  --selection [--base REF] [--paths]
+                          Print the per-job selection CI's classify job
+                          computes: the map and deny list of REF (default
+                          origin/main), read with git show, judge the diff
+                          REF...HEAD, or with --paths the NUL-separated
+                          paths on stdin. When REF does not resolve
+                          (reason=bad_base) or does not hold the map and
+                          deny list (reason=map_missing_on_base), every
+                          job prints true (script/ci/selection_at_base.sh,
+                          base#1584)
   -h, --help              Show this help
 
 Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
@@ -1247,9 +1259,9 @@ _prev_release_spec_in_coverage_shard() {
 #   BATS_FILE under kcov exactly as the container's does, so an ambient
 #   variable cannot make this predict a different run from the one that
 #   happens. Membership questions go to the very selectors the container
-#   runs (_shard_unit_files / _fragile_unit_files), so nothing here drifts
-#   the day the partition pool or the fragile set changes -- which a
-#   hand-maintained list of modes would.
+#   runs (_shard_unit_files), or to the spec itself for the kcov-fragile tag,
+#   so nothing here drifts the day the partition pool or the fragile set
+#   changes -- which a hand-maintained list of modes would.
 _dispatch_needs_prev_release() {
   local _coverage="${1:-0}"
   # The lint dispatches run no bats at all.
@@ -1285,17 +1297,12 @@ _dispatch_needs_prev_release() {
     _prev_release_spec_in_shard "${BATS_UNIT_SHARD}"
     return
   fi
-  # The kcov-fragile set is grepped out of the spec tree at runtime, so ask
-  # for it too rather than assuming it stays unit-only. Captured, not piped
-  # into the matcher: `grep -q` leaves as soon as it matches, which would
-  # strand the writer with SIGPIPE.
+  # bats-fragile runs the kcov-fragile tagged tests of every coverage pool,
+  # integration included (base#1573), so ask whether that spec carries the
+  # tag rather than assuming it never will. Any mention of the tag counts:
+  # of the two guesses, only "not needed" can end in a vacuous spec.
   if [[ "${BATS_FRAGILE:-0}" == "1" ]]; then
-    local _fragile _frc=0
-    _fragile="$(_fragile_unit_files)" || _frc=$?
-    if (( _frc != 0 )); then
-      return 0
-    fi
-    _prev_release_spec_in_selection <<< "${_fragile}"
+    grep -qF 'kcov-fragile' "${REPO_ROOT}/${_PREV_RELEASE_SPEC}" 2>/dev/null
     return
   fi
   # --bats-integration, --bats-only and bare `just test` all run the whole
@@ -1320,6 +1327,54 @@ _prepare_prev_release() {
     return 0
   fi
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
+}
+
+# The built config generator test/bats/integration/
+# config_gen_bridge_golden_spec.bats runs, as the container sees it.
+# Empty until _prepare_config_gen_bin provisions it.
+_CONFIG_GEN_BIN=""
+
+# _prepare_config_gen_bin
+#   Copy the config generator binary out of this checkout's config-gen
+#   image into .config-gen-bin/ and set _CONFIG_GEN_BIN to its in-container
+#   path, which _run_via_compose forwards as CONFIG_GEN_BIN (base#1469).
+#
+#   Host-side for the same reason _prepare_prev_release is: the image is
+#   resolved and built by dist/script/docker/lib/config_gen.sh with the
+#   host's docker. The resolve runs in a child bash, so the library's
+#   functions and memo stay out of this shell, and that child runs without
+#   CONFIG_GEN_IMAGE and _CONFIG_GEN_RESOLVED: a pin or memo inherited from
+#   whoever started `just test` would otherwise pick another build's binary
+#   to cmp against this checkout's goldens. A binary that cannot be
+#   provisioned is said here (ci_config_gen_unprovisioned) and leaves
+#   _CONFIG_GEN_BIN empty; the spec then fails by the same id, never skips.
+#   The lint dispatches run no bats and skip it.
+_prepare_config_gen_bin() {
+  _CONFIG_GEN_BIN=""
+  if [[ "${LINT_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+  local _image="" _cid="" _dir="${REPO_ROOT}/.config-gen-bin"
+  # shellcheck disable=SC2016 # expanded by the child bash, not here
+  if ! _image="$(env -u CONFIG_GEN_IMAGE -u _CONFIG_GEN_RESOLVED bash -c 'source "$1" && config_gen_resolve && printf "%s" "${_CONFIG_GEN_RESOLVED}"' \
+      _ "${REPO_ROOT}/dist/script/docker/lib/config_gen.sh")" || [[ -z "${_image}" ]]; then
+    _log_err ci ci_config_gen_unprovisioned \
+      "display=the config generator image could not be resolved, so config_gen_bridge_golden_spec.bats has no binary to run and will fail (base#1469)."
+    return 0
+  fi
+  mkdir -p "${_dir}"
+  if _cid="$(docker create "${_image}")" \
+      && docker cp "${_cid}:/config-gen" "${_dir}/config-gen" > /dev/null; then
+    _CONFIG_GEN_BIN="/source/.config-gen-bin/config-gen"
+  else
+    _log_err ci ci_config_gen_unprovisioned \
+      "display=the config generator binary could not be copied out of ${_image}, so config_gen_bridge_golden_spec.bats has no binary to run and will fail (base#1469)." \
+      "image=${_image}"
+  fi
+  if [[ -n "${_cid}" ]]; then
+    docker rm "${_cid}" > /dev/null 2>&1 || true
+  fi
+  return 0
 }
 
 # ── Coverage provenance ──────────────────────────────────────────────────────
@@ -2511,9 +2566,9 @@ _run_via_compose() {
   # path unchanged (full shellcheck + bats).
   #
   # BATS_UNIT_SHARD / BATS_FRAGILE / BATS_INTEGRATION route the
-  # coverage-slice / bats-fragile / bats-integration GHA jobs to the right
-  # subset inside the container; empty / 0 keep the local `just test` path
-  # unchanged (full unit + integration).
+  # coverage-slice / bats-fragile GHA jobs and the local --bats-integration
+  # run to the right subset inside the container; empty / 0 keep the
+  # local `just test` path unchanged (full unit + integration).
   #
   # LINT_ONLY / LINT_TOOL route `just test lint [--shellcheck |
   # --hadolint]` to the lint phase only (skip bats) inside the container:
@@ -2532,6 +2587,7 @@ _run_via_compose() {
   # for the dispatches that reach that spec, which is why the COVERAGE flag
   # is handed over: it is what decides which in-container branch runs.
   _prepare_prev_release "${_coverage}"
+  _prepare_config_gen_bin
   # Resolved into a local first, not inline in the argument list: a failing
   # command substitution inside an argument does not abort the command, so
   # an inline form would hand compose an empty -p and let the run continue.
@@ -2670,6 +2726,7 @@ _run_via_compose() {
     -e PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-}" \
     -e PIN_TRACKED_ROOT=/source \
     -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
+    -e CONFIG_GEN_BIN="${_CONFIG_GEN_BIN}" \
     "${_service}" || _rc=$?
   if (( _rc == 124 )); then
     _log_err ci ci_suite_timeout \
@@ -2725,6 +2782,11 @@ main() {
   # `--await-project`. Recorded rather than answered on the spot: see the
   # dispatch below the flag-combination guards.
   local name_query="" repair=""
+  # `--selection [--base <ref>] [--paths]` (base#1584): the per-job
+  # selection CI's classify job computes, judged by <ref>'s map, for the
+  # diff <ref>...HEAD or the NUL-separated paths on stdin. A query like the
+  # ones above, so it is answered below the guards too.
+  local selection_paths="" selection_base="origin/main" selection_base_set=""
   # Neither a query nor a repair: a CHECK over a file the caller names.
   # Recorded rather than answered on the spot, for the same reason the
   # queries are -- see the dispatch below the flag-combination guards.
@@ -2822,6 +2884,15 @@ main() {
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
       --compose-project-name) name_query="compose-project-name"; shift ;;
+      --selection) name_query="selection"; shift ;;
+      --paths) selection_paths=1; shift ;;
+      --base)
+        [[ $# -ge 2 ]] || _die ci_paths_without_selection \
+          "--base needs a ref; use './test.sh --selection --base <ref>'."
+        selection_base="$2"
+        selection_base_set=1
+        shift 2
+        ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
@@ -2882,8 +2953,19 @@ main() {
   # the rest of the command line has even been read: `--jobs 4
   # --compose-project-name` printed a name and swallowed the typo, and a
   # misspelt flag after one of these was never reported either.
+  if [[ -n "${selection_paths}${selection_base_set}" && "${name_query}" != "selection" ]]; then
+    _die ci_paths_without_selection \
+      "--paths and --base shape the answer of --selection; use './test.sh --selection [--base <ref>] [--paths]'."
+  fi
   if [[ -n "${name_query}" ]]; then
     case "${name_query}" in
+      selection)
+        local _mode=--diff
+        [[ -z "${selection_paths}" ]] || _mode=--paths
+        bash "${REPO_ROOT}/script/ci/selection_at_base.sh" \
+          --base "${selection_base}" --event pull_request "${_mode}"
+        return $?
+        ;;
       test-tools-image) _resolve_test_tools_image; return 0 ;;
       compose-project-name) _resolve_compose_project_name; return 0 ;;
       await-project)
@@ -3094,9 +3176,8 @@ main() {
       # `_run_via_compose`) skips the ShellCheck phase — the dedicated
       # self-test.yaml shellcheck job covers it in parallel.
       # BATS_UNIT_SHARD / BATS_INTEGRATION route this dispatch
-      # to a matrix-shard / integration-only subset; the dedicated GHA
-      # bats-unit / bats-integration jobs set these via the outer
-      # `--bats-unit-shard` / `--bats-integration` flags so the
+      # to a matrix-shard / integration-only subset; the outer
+      # `--bats-unit-shard` / `--bats-integration` flags set these so the
       # in-container path matches the local dev path.
       #
       # Arm the handback FIRST, above every phase and every early

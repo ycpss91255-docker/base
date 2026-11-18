@@ -1,0 +1,2 @@
+internal/diag 100.0
+internal/tables 97.2

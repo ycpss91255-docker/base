@@ -1130,3 +1130,64 @@ figure its meaning, and that is what is refused.
   non-fragile unit specs. A main push re-partitions with consistent
   weights, so a spec that slipped past a PR gate goes red on the merge
   commit -- the escape was a PR gate that lies once, not a durable hole.
+
+> **Amendment (base#1573, 2026-11-10): each test runs in exactly one CI leg.**
+> The `bats-integration` job is gone: the coverage shards already ran every
+> integration spec (`_COVERAGE_FULL_SUITE_POOLS` holds `test/bats/integration`),
+> and its lines count toward the gated figure, so integration stays in the
+> pool and `./test.sh --bats-integration` stays as a local entry point only.
+> `bats-fragile` no longer picks whole files by grepping for the skip guard:
+> each test whose body skips under `COVERAGE=1` carries
+> `# bats test_tags=kcov-fragile`, and the job runs
+> `bats --filter-tags kcov-fragile` over every coverage pool. Every coverage
+> slice is then audited by `_coverage_skip_audit`: the (testsuite, testcase)
+> pairs its junit marks skipped must equal the pairs the tag filter selects
+> over the same targets, or the run fails with `ci_coverage_unexplained_skip`.
+> The scope note above ("integration specs are re-run in full by
+> `bats-integration`") describes the gate before this amendment.
+
+## Amendment (#1545): the label is `coverage`, the version moves into the value, and the figure is Bash only
+
+- **Date:** 2026-11-08
+- **Amendment status:** Accepted -- reformats the #952 amendment's
+  decision 2 ("the figure carries its version") without reversing it.
+  **Relates:** #952 (the per-release committed SVG), ADR-00000039 (the Go
+  config generator and its per-package floors).
+
+### Context
+
+The #952 badge put the version in the label block: `coverage vX.Y.Z |
+84.7%`. A reader scanning the README badge row reads the label as the name
+of the metric, and `coverage v0.43.0-rc5` is not a name. The version still
+has to be visible: decision 2's reason -- a bare number is misread as the
+coverage of `main` -- has not changed.
+
+The README also never said what N measures. The repo now carries Go code
+(the config generator, ADR-00000039), and a reader seeing a single
+coverage figure next to a `Bash | Go` language badge reasonably assumes it
+covers both. It does not: `discover_reports` reads the kcov
+`cobertura.xml` reports only, and the Go packages are gated separately by
+per-package floors (`dockerfile/config-gen/coverage-floors.d`, `just test
+go`, the `config-gen` CI job).
+
+### Decision
+
+1. The label block reads exactly `coverage`. The value block reads
+   `N% (vX.Y.Z)` when measured and `not measured (vX.Y.Z)` when
+   `--unmeasured`. The version is still on the badge, so decision 2 of
+   the #952 amendment holds; only its position moves.
+2. N is stated as the kcov line rate of the whole Bats suite over the
+   repo's Bash sources, through the gate's own merge math. Go coverage is
+   not in N and is not added to it: the two are measured by different
+   tools, against different floors, and one blended figure would hide a
+   regression in either.
+
+### Consequences (amendment)
+
+- `render_svg` sizes both blocks from string length, so the wider value
+  block needs no layout change.
+- The committed `doc/badge/coverage.svg` is re-rendered at the figure
+  already measured for its version (87.7% at v0.43.0-rc5). That is a
+  format change, not a new measurement.
+- A spec pins the label to the bare word and the value to the rate plus
+  the version, for both the measured and the unmeasured rendering.

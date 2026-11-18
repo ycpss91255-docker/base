@@ -1,0 +1,6 @@
+dist/script/docker/lib/log.sh
+dist/script/docker/lib/log-events.txt
+script/watch/lib.sh
+dockerfile/Dockerfile.config-gen
+test/fixtures/gomod
+script/test/config_gen_steps/gomod-oracle

@@ -15,7 +15,9 @@
 # roster: a pinning test could be deleted with every gate green.
 #
 # Row contract, one for every roster file:
-#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new>
+#   <id> TAB <subject> TAB <spec> TAB <old> TAB <new> [TAB <witness>]
+# <witness>, optional, is a test.sh --filter regex: the row's mutated pass
+# runs under it (mutation-probe.sh --filter), base#1571.
 # `#` lines and blank lines are skipped. <old> and <new> are decoded with
 # exactly three escapes, `\\` `\t` `\n`; any other `\x` or a trailing `\`
 # is reason=bad_escape. <old> must occur exactly once in <subject>; <new>
@@ -25,10 +27,16 @@
 # --check       validate the roster and run nothing.
 # --shard <n>/<total>
 #               validate every row, then probe only row k (counted over
-#               every roster file, from 0) with k mod <total> == n-1; the
-#               hosted lint-static legs each run one shard, which a full
+#               every roster file, from 0) with k mod <total> == n-1, or,
+#               when the roster holds seconds.txt (<file> TAB <id> TAB
+#               <seconds>), deal rows heaviest first, each to the shard
+#               with the fewest seconds so far (base#1571); the
+#               hosted mutation-roster legs each run one shard, which a full
 #               roster per leg could not finish inside the job's timeout.
 #               1 <= n <= total <= 99; a shard with no row is roster_empty.
+#               With --check, it probes nothing and logs one
+#               mutation_required_row_dealt (row=<file>:<line>) per row of
+#               the shard (base#1571).
 # --apply       the one way a row edits its subject, run by the probe from
 #               the sandbox root: replace the one occurrence of <old-file>'s
 #               bytes in <subject> with <new-file>'s, keeping the mode;
@@ -47,8 +55,14 @@
 # every step fail-closed), derive the sandbox's own compose project from
 # its path (an inherited COMPOSE_PROJECT_NAME is not used), probe, and tear
 # down -- a container of that project still running keeps the sandbox and
-# fails the row. Verdicts are published only after every worker is reaped,
-# and a failing run publishes no pass. The first INT / TERM is forwarded to
+# fails the row. A clean sandbox stays in its worker slot, and the slot's
+# next row resets it to its commit instead of building another (base#1571).
+# Within one run (one shard), a spec's unmutated baseline runs once, in
+# its first row's probe (--baseline-out); every other row on that spec in
+# the run reads it (--baseline-in)
+# and runs only its mutated pass. A row with a witness takes no part: it
+# runs its own baseline under its filter (base#1582). Verdicts are published only after every
+# worker is reaped, and a failing run publishes no pass. The first INT / TERM is forwarded to
 # every worker, which forwards it to its probe; the run then exits 130 /
 # 143 with no verdict.
 #
@@ -152,13 +166,14 @@ _mr_apply() {
 # ── validation, before any baseline ─────────────────────────────────────────
 
 # Per row, filled by _mr_validate: the location, id, subject, spec, decoded
-# old and new.
+# old and new, and the witness filter (empty: none).
 _MR_ROWS_LOC=()
 _MR_ROWS_ID=()
 _MR_ROWS_SUBJ=()
 _MR_ROWS_SPEC=()
 _MR_ROWS_OLD=()
 _MR_ROWS_NEW=()
+_MR_ROWS_WIT=()
 
 # _mr_invalid <loc> <id> <reason> <display> -- one refused row.
 _mr_invalid() {
@@ -187,9 +202,9 @@ _mr_path_reason() {
 # fill _MR_ROWS_*. 0 when every row is valid and there is at least one.
 _mr_validate() {
   local _root="${1}" _dir="${1}/${_MR_ROSTER_REL}" _f _rel _line _n _bad=0
-  local _id _subj _spec _old _new _rest _reason _count _key _loc
+  local _id _subj _spec _old _new _rest _reason _count _key _loc _p
   local -a _fl=() _files=()
-  local -A _ids=() _tuples=()
+  local -A _ids=() _tuples=() _reason_of=() _subj_nul=()
   if [[ -d "${_dir}" ]]; then
     mapfile -t _files < <(LC_ALL=C find "${_dir}" -maxdepth 1 -name '*.tsv' -type f | LC_ALL=C sort)
   fi
@@ -217,9 +232,9 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" cr "the row carries a carriage return"
         _bad=1; continue
       fi
-      if (( ${#_fl[@]} != 5 )); then
+      if (( ${#_fl[@]} != 5 && ${#_fl[@]} != 6 )); then
         _mr_invalid "${_loc}" "${_id}" field_count \
-          "${#_fl[@]} TAB-separated fields, the contract is <id> <subject> <spec> <old> <new>"
+          "${#_fl[@]} TAB-separated fields, the contract is <id> <subject> <spec> <old> <new> [<witness>]"
         _bad=1; continue
       fi
       _subj="${_fl[1]}"; _spec="${_fl[2]}"
@@ -231,8 +246,17 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" id_invalid "an id is [a-z0-9-]+"
         _bad=1; continue
       fi
-      if _reason="$(_mr_path_reason "${_root}" "${_subj}")" \
-        || _reason="$(_mr_path_reason "${_root}" "${_spec}")"; then
+      # Each path is judged once per run, and each subject is scanned for a
+      # NUL once: 320 rows name 22 subjects and 19 specs, and every --check
+      # --shard leg revalidates them all (base#1582). In _reason_of, `-`
+      # marks a plain path.
+      for _p in "${_subj}" "${_spec}"; do
+        [[ -n "${_reason_of["${_p}"]:-}" ]] \
+          || _reason_of["${_p}"]="$(_mr_path_reason "${_root}" "${_p}" || printf -- '-')"
+      done
+      _reason="${_reason_of["${_subj}"]}"
+      [[ "${_reason}" != - ]] || _reason="${_reason_of["${_spec}"]}"
+      if [[ "${_reason}" != - ]]; then
         _mr_invalid "${_loc}" "${_id}" "${_reason}" "subject and spec are plain paths under the root"
         _bad=1; continue
       fi
@@ -240,7 +264,11 @@ _mr_validate() {
         _mr_invalid "${_loc}" "${_id}" subject_missing "no file ${_subj}"
         _bad=1; continue
       fi
-      if _mr_has_nul "${_root}/${_subj}"; then
+      if [[ -z "${_subj_nul["${_subj}"]:-}" ]]; then
+        _subj_nul["${_subj}"]=no
+        ! _mr_has_nul "${_root}/${_subj}" || _subj_nul["${_subj}"]=yes
+      fi
+      if [[ "${_subj_nul["${_subj}"]}" == yes ]]; then
         _mr_invalid "${_loc}" "${_id}" subject_has_nul \
           "${_subj} carries a NUL byte, which --apply cannot carry through a byte-exact edit"
         _bad=1; continue
@@ -288,6 +316,7 @@ _mr_validate() {
       _MR_ROWS_SPEC+=( "${_spec}" )
       _MR_ROWS_OLD+=( "${_old}" )
       _MR_ROWS_NEW+=( "${_new}" )
+      _MR_ROWS_WIT+=( "${_fl[5]:-}" )
     done < "${_f}"
   done
   (( _bad == 0 )) || return 1
@@ -299,17 +328,51 @@ _mr_validate() {
   return 0
 }
 
-# _mr_shard <n> <total> -- keep only the validated rows of shard <n>.
+# _mr_shard_pick <root> <n> <total> -- print the row indexes of shard <n>.
+# With no seconds file, row k goes to shard (k mod <total>) + 1. With one,
+# rows go heaviest first (ties by index), each to the shard holding the
+# fewest seconds so far (ties to the lowest shard); a row the file does
+# not name weighs 0 (base#1571).
+_mr_shard_pick() {
+  local _root="${1}" _n="${2}" _t="${3}" _i _loc _file
+  local _sec="${_root}/${_MR_ROSTER_REL}/seconds.txt"
+  if [[ ! -f "${_sec}" ]]; then
+    for (( _i = _n - 1; _i < ${#_MR_ROWS_LOC[@]}; _i += _t )); do
+      printf '%s\n' "${_i}"
+    done
+    return 0
+  fi
+  for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
+    _loc="${_MR_ROWS_LOC[_i]}"
+    _file="${_loc%:*}"
+    printf '%s\t%s\t%s\n' "${_i}" "${_file##*/}" "${_MR_ROWS_ID[_i]}"
+  done | LC_ALL=C awk -F '\t' -v OFS='\t' '
+    NR == FNR { w[$1 FS $2] = $3 + 0; next }
+    { print ((($2 FS $3) in w) ? w[$2 FS $3] : 0), $1 }
+  ' "${_sec}" - \
+    | LC_ALL=C sort -t $'\t' -k1,1gr -k2,2n \
+    | LC_ALL=C awk -F '\t' -v n="${_n}" -v t="${_t}" '
+      BEGIN { for (s = 1; s <= t; s++) load[s] = 0 }
+      { best = 1
+        for (s = 2; s <= t; s++) if (load[s] < load[best]) best = s
+        load[best] += $1
+        if (best == n) print $2 }
+    ' | LC_ALL=C sort -n
+}
+
+# _mr_shard <root> <n> <total> -- keep only the validated rows of shard <n>.
 _mr_shard() {
-  local _n="${1}" _t="${2}" _i
-  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=()
-  for (( _i = _n - 1; _i < ${#_MR_ROWS_LOC[@]}; _i += _t )); do
+  local _root="${1}" _n="${2}" _t="${3}" _i
+  local -a _s_loc=() _s_id=() _s_subj=() _s_spec=() _s_old=() _s_new=() _s_wit=() _pick=()
+  mapfile -t _pick < <(_mr_shard_pick "${_root}" "${_n}" "${_t}")
+  for _i in "${_pick[@]+"${_pick[@]}"}"; do
     _s_loc+=( "${_MR_ROWS_LOC[_i]}" )
     _s_id+=( "${_MR_ROWS_ID[_i]}" )
     _s_subj+=( "${_MR_ROWS_SUBJ[_i]}" )
     _s_spec+=( "${_MR_ROWS_SPEC[_i]}" )
     _s_old+=( "${_MR_ROWS_OLD[_i]}" )
     _s_new+=( "${_MR_ROWS_NEW[_i]}" )
+    _s_wit+=( "${_MR_ROWS_WIT[_i]}" )
   done
   _MR_ROWS_LOC=( "${_s_loc[@]}" )
   _MR_ROWS_ID=( "${_s_id[@]}" )
@@ -317,6 +380,7 @@ _mr_shard() {
   _MR_ROWS_SPEC=( "${_s_spec[@]}" )
   _MR_ROWS_OLD=( "${_s_old[@]}" )
   _MR_ROWS_NEW=( "${_s_new[@]}" )
+  _MR_ROWS_WIT=( "${_s_wit[@]}" )
   if (( ${#_MR_ROWS_LOC[@]} == 0 )); then
     _log_err "${_MR_SERVICE}" mutation_required_roster_empty "dir=${_MR_ROSTER_REL}" \
       "shard=${_n}/${_t}" \
@@ -469,8 +533,12 @@ _mrw_verdict() {
 }
 
 # _mr_worker <row-dir> -- probe the row described in <row-dir>/meta (NUL
-# fields: subject, spec), with <row-dir>/old and <row-dir>/new. Root, probe
-# and the names to avoid come from MR_W_* in the environment.
+# fields: subject, spec, the spec's baseline file, `out` when this row
+# runs and writes that baseline or `in` when it reads it (both empty for a
+# row with a witness, which runs its own filtered baseline, base#1582), and
+# the witness filter, empty for none), with <row-dir>/old and <row-dir>/new. Root,
+# probe, worker slot and the names to avoid come from MR_W_* in the
+# environment.
 _mr_worker() {
   _MRW_DIR="${1}"
   trap '_mrw_on_signal INT' INT
@@ -478,19 +546,29 @@ _mr_worker() {
   local -a _meta=()
   mapfile -d '' -t _meta < "${_MRW_DIR}/meta"
   local _subj="${_meta[0]}" _spec="${_meta[1]}" _root="${MR_W_ROOT}"
-  local _sbx='' _name='' _rc=0 _mut
+  local _base="${_meta[2]}" _role="${_meta[3]}" _wit="${_meta[4]:-}"
+  local _sbx='' _name='' _rc=0 _mut _slot="${MR_W_SLOT:?}" _kept=0
   local -a _verdict=()
+
+  # _mrw_unslot -- the slot's sandbox is not handed to the slot's next row.
+  _mrw_unslot() {
+    _kept=0
+    rm -f -- "${_slot}/sbx" "${_slot}/name"
+  }
 
   _mrw_teardown() {
     local _ids _qrc=0 _nets _nrc=0
     [[ -n "${_sbx}" ]] || return 0
     if [[ -z "${_name}" ]]; then
+      _mrw_unslot
       rm -rf -- "${_sbx}"
       return 0
     fi
     _ids="$(timeout 30 docker ps -q --filter "label=com.docker.compose.project=${_name}" 2>/dev/null)" || _qrc=$?
     if (( _qrc == 0 )) && [[ -z "${_ids}" ]]; then
-      rm -rf -- "${_sbx}"
+      # A clean sandbox stays in its worker slot for the slot's next row;
+      # the driver removes it when the run ends (base#1571).
+      (( _kept == 1 )) || rm -rf -- "${_sbx}"
       # `compose run --rm` leaves the project's network behind, and the
       # project reclaim spares it for its grace window: one network per row
       # exhausted a hosted runner's address pools (base#1461).
@@ -500,12 +578,14 @@ _mr_worker() {
         _nets="$(timeout 30 docker network rm ${_nets} 2>&1)" || _nrc=$?
       fi
       if (( _nrc != 0 )); then
+        (( _kept == 0 )) || { _mrw_unslot; rm -rf -- "${_sbx}"; }
         _mrw_res mutation_required_sandbox_failed step=network "rc=${_nrc}" \
           "project=${_name}" "detail=${_nets}"
         return 1
       fi
       return 0
     fi
+    _mrw_unslot
     _mrw_res mutation_required_sandbox_held "path=${_sbx}" "project=${_name}" \
       "query_rc=${_qrc}" "containers=${_ids}"
     return 1
@@ -521,8 +601,32 @@ _mr_worker() {
     (( ${#_verdict[@]} == 0 )) || _mrw_res "${_verdict[@]}"
   }
 
+  # One sandbox per worker slot (base#1571): a slot's earlier row left its
+  # sandbox and project here; it is reset to its commit, and is then the
+  # tree this row's mutated pass edits.
+  if [[ -f "${_slot}/sbx" && -f "${_slot}/name" ]]; then
+    _sbx="$(cat -- "${_slot}/sbx")"
+    _name="$(cat -- "${_slot}/name")"
+    _kept=1
+    if ! { _mrw_step reset git -C "${_sbx}" reset -q --hard HEAD \
+      && _mrw_step reset git -C "${_sbx}" clean -q -f -d -x \
+      && _mrw_step clean _mrw_clean "${_sbx}"; }; then
+      _mrw_unslot
+      _mrw_finish
+      return 0
+    fi
+  else
+    _mrw_build || return 0
+  fi
+  _mrw_run_probe
+}
+
+# _mrw_build -- a fresh sandbox and its project for the worker's slot; on
+# failure the row's result is written and 1 returned. Runs in _mr_worker's
+# scope.
+_mrw_build() {
   _sbx="$(mktemp -d "${TMPDIR:-/tmp}/mutation-required.XXXXXX")" || {
-    _mrw_res mutation_required_sandbox_failed step=mktemp rc=1; return 0; }
+    _mrw_res mutation_required_sandbox_failed step=mktemp rc=1; return 1; }
   # chmod first: mktemp -d makes the sandbox 0700, and the probe mounts it
   # as the container's /source, where a spec that drops from root to nobody
   # could not reach a file under it -- its baseline went red and the row
@@ -540,7 +644,7 @@ _mr_worker() {
     && _mrw_step commit _mrw_commit "${_sbx}" \
     && _mrw_step clean _mrw_clean "${_sbx}"; }; then
     _mrw_finish
-    return 0
+    return 1
   fi
 
   # The sandbox's own project, from the sandbox's own test.sh over its
@@ -548,20 +652,46 @@ _mr_worker() {
   # verbatim, so it is removed for the question and then refused as the
   # answer, as is the live checkout's name.
   _name="$(env -u COMPOSE_PROJECT_NAME "${_sbx}/script/test/test.sh" --compose-project-name 2>/dev/null)" || _rc=$?
-  if [[ -n "${_MRW_SIG}" ]]; then _name=''; _mrw_finish; return 0; fi
+  if [[ -n "${_MRW_SIG}" ]]; then _name=''; _mrw_finish; return 1; fi
   if (( _rc != 0 )) || [[ -z "${_name}" || "${_name}" == "${MR_W_INHERITED:-}" \
     || ( -n "${MR_W_LIVE:-}" && "${_name}" == "${MR_W_LIVE}" ) ]]; then
     _mrw_res mutation_required_sandbox_failed step=project "rc=${_rc}" "project=${_name}"
     _name=''
     _mrw_finish
-    return 0
+    return 1
   fi
+  printf '%s' "${_sbx}" > "${_slot}/sbx" && printf '%s' "${_name}" > "${_slot}/name" \
+    && _kept=1
+  return 0
+}
 
+# _mrw_run_probe -- the row's probe in the sandbox, then the verdict and the
+# teardown. Runs in _mr_worker's scope.
+_mrw_run_probe() {
+  # One baseline per spec (base#1571): the spec's first row runs it and
+  # writes it; every other row on that spec waits for it and reads it. Its
+  # `.done` marker, written when that row's worker ends, says a missing
+  # baseline will not come.
+  if [[ "${_role}" == in ]]; then
+    while [[ ! -f "${_base}" && ! -f "${_base}.done" && -z "${_MRW_SIG}" ]]; do
+      sleep 0.1
+    done
+    if [[ -n "${_MRW_SIG}" ]]; then _mrw_finish; return 0; fi
+    if [[ ! -f "${_base}" ]]; then
+      _verdict=( mutation_required_probe_refused rc=baseline \
+        "detail=the row that runs the unmutated baseline of ${_spec} ended without a clean one" )
+      _mrw_finish
+      return 0
+    fi
+  fi
   printf -v _mut '%q ' bash "${_MR_SELF}" --apply "${_subj}" "${_MRW_DIR}/old" "${_MRW_DIR}/new"
+  local -a _flt=() _bl=()
+  [[ -z "${_wit}" ]] || _flt=( --filter "${_wit}" )
+  [[ -z "${_role}" ]] || _bl=( "--baseline-${_role}" "${_base}" )
   _rc=0
   set -m
   COMPOSE_PROJECT_NAME="${_name}" bash "${MR_W_PROBE:?}" --root "${_sbx}" --subject "${_subj}" \
-    --spec "${_spec}" --mutate "${_mut}" \
+    --spec "${_spec}" --mutate "${_mut}" "${_bl[@]+"${_bl[@]}"}" "${_flt[@]+"${_flt[@]}"}" \
     < /dev/null > "${_MRW_DIR}/out" 2> "${_MRW_DIR}/err" &
   _MRW_PROBE="$!"
   set +m
@@ -590,6 +720,8 @@ _mr_worker() {
 # The first INT / TERM the driver received, and the live worker pids.
 _MR_SIG=''
 declare -A _MR_LIVE=()
+# The worker slot each live worker pid holds (base#1571).
+declare -A _MR_SLOT=()
 
 _mr_on_signal() {
   [[ -z "${_MR_SIG}" ]] || return 0
@@ -602,7 +734,15 @@ _mr_on_signal() {
 
 _MR_WORK=''
 _mr_cleanup() {
-  [[ -z "${_MR_WORK}" ]] || rm -rf -- "${_MR_WORK}"
+  [[ -n "${_MR_WORK}" ]] || return 0
+  local _s
+  # The sandbox each worker slot kept for its next row; a held one was
+  # taken out of its slot and is left where it is.
+  for _s in "${_MR_WORK}"/slot*/sbx; do
+    [[ -f "${_s}" ]] || continue
+    rm -rf -- "$(cat -- "${_s}")"
+  done
+  rm -rf -- "${_MR_WORK}"
 }
 
 # _mr_reap_one -- wait for any live worker and drop it from _MR_LIVE. A
@@ -611,13 +751,13 @@ _mr_reap_one() {
   local _pid='' _p
   wait -n -p _pid "${!_MR_LIVE[@]}" 2>/dev/null || true
   if [[ -n "${_pid:-}" ]]; then
-    unset '_MR_LIVE[$_pid]'
+    unset '_MR_LIVE[$_pid]' '_MR_SLOT[$_pid]'
     return 0
   fi
   # wait -n names no pid when a trap interrupted it, or when the set holds
   # a pid it no longer knows; drop those.
   for _p in "${!_MR_LIVE[@]}"; do
-    kill -0 "${_p}" 2>/dev/null || { wait "${_p}" 2>/dev/null; unset '_MR_LIVE[$_p]'; }
+    kill -0 "${_p}" 2>/dev/null || { wait "${_p}" 2>/dev/null; unset '_MR_LIVE[$_p]' '_MR_SLOT[$_p]'; }
   done
 }
 
@@ -649,31 +789,52 @@ _mr_publish_interrupted() {
 # _mr_run <root> <jobs> -- probe every validated row, at most <jobs> at a
 # time, then publish.
 _mr_run() {
-  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _fail=0
+  local _root="${1}" _jobs="${2}" _i _pid _live='' _probe _ev _dur _fail=0 _role _rbase _slot
   local -a _r=()
+  local -A _base=() _busy=()
   _probe="${MUTATION_REQUIRED_PROBE:-${_MR_DIR}/../mutation-probe.sh}"
   _MR_WORK="$(mktemp -d "${TMPDIR:-/tmp}/mutation-required-run.XXXXXX")" || return 1
   _live="$(env -u COMPOSE_PROJECT_NAME "${_root}/script/test/test.sh" --compose-project-name 2>/dev/null)" || _live=''
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
     [[ -z "${_MR_SIG}" ]] || break
     mkdir -p "${_MR_WORK}/row${_i}"
-    printf '%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" > "${_MR_WORK}/row${_i}/meta"
+    # A row with a witness runs its own filtered baseline: no shared
+    # baseline role, so it waits on no other row (base#1582).
+    _role='' _rbase=''
+    if [[ -z "${_MR_ROWS_WIT[_i]}" ]]; then
+      _role=in
+      if [[ -z "${_base["${_MR_ROWS_SPEC[_i]}"]:-}" ]]; then
+        _base["${_MR_ROWS_SPEC[_i]}"]="${_MR_WORK}/row${_i}/baseline"
+        _role=out
+      fi
+      _rbase="${_base["${_MR_ROWS_SPEC[_i]}"]}"
+    fi
+    printf '%s\0%s\0%s\0%s\0%s\0' "${_MR_ROWS_SUBJ[_i]}" "${_MR_ROWS_SPEC[_i]}" \
+      "${_rbase}" "${_role}" "${_MR_ROWS_WIT[_i]}" > "${_MR_WORK}/row${_i}/meta"
     printf '%s' "${_MR_ROWS_OLD[_i]}" > "${_MR_WORK}/row${_i}/old"
     printf '%s' "${_MR_ROWS_NEW[_i]}" > "${_MR_WORK}/row${_i}/new"
     while (( ${#_MR_LIVE[@]} >= _jobs )) && [[ -z "${_MR_SIG}" ]]; do
       _mr_reap_one
     done
     [[ -z "${_MR_SIG}" ]] || break
+    # The first worker slot no live worker holds.
+    _busy=()
+    for _pid in "${!_MR_SLOT[@]}"; do _busy["${_MR_SLOT[$_pid]}"]=1; done
+    for (( _slot = 0; _slot < _jobs; _slot++ )); do
+      [[ -n "${_busy[$_slot]:-}" ]] || break
+    done
+    mkdir -p "${_MR_WORK}/slot${_slot}"
     # Its own process group, so a forwarded signal reaches the worker and
     # its build steps, and INT is not ignored as it is for a background job
     # started without job control.
     set -m
     MR_W_ROOT="${_root}" MR_W_PROBE="${_probe}" MR_W_LIVE="${_live}" \
-      MR_W_INHERITED="${_MR_INHERITED}" \
+      MR_W_INHERITED="${_MR_INHERITED}" MR_W_SLOT="${_MR_WORK}/slot${_slot}" \
       bash "${_MR_SELF}" --worker "${_MR_WORK}/row${_i}" < /dev/null &
     _pid="$!"
     set +m
     _MR_LIVE["${_pid}"]=1
+    _MR_SLOT["${_pid}"]="${_slot}"
     [[ -z "${_MR_SIG}" ]] || kill -s "${_MR_SIG}" -- "-${_pid}" 2>/dev/null || true
   done
   while (( ${#_MR_LIVE[@]} > 0 )); do
@@ -688,6 +849,13 @@ _mr_run() {
   # Every worker is reaped: publish. Failures first decide the run; a
   # failing run publishes no pass.
   for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
+    if [[ -f "${_MR_WORK}/row${_i}/time" ]]; then
+      mapfile -t _r < "${_MR_WORK}/row${_i}/time"
+      _dur="$(awk -v s="${_r[0]}" -v e="${_r[1]}" 'BEGIN { printf "%.6f", e - s }')"
+      _log_info "${_MR_SERVICE}" mutation_required_row_timed "row=${_MR_ROWS_LOC[_i]}" \
+        "id=${_MR_ROWS_ID[_i]}" "start=${_r[0]}" "end=${_r[1]}" "duration_s=${_dur}" \
+        "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}) took ${_dur} s" >&2
+    fi
     if [[ ! -f "${_MR_WORK}/row${_i}/res" ]]; then
       _mr_row_err mutation_required_sandbox_failed "${_i}" step=worker rc=unknown \
         "display=the worker for row ${_MR_ROWS_LOC[_i]} ended without a result"
@@ -744,8 +912,16 @@ main() {
     return
   fi
   if [[ "${1:-}" == --worker ]]; then
+    # The row's own window, sandbox build to teardown, so a shard balance
+    # is built on measured per-row time (base#1571).
+    local _t0="${EPOCHREALTIME}"
     _mr_worker "${2:?}"
-    return
+    printf '%s\n%s\n' "${_t0}" "${EPOCHREALTIME}" > "${2}/time"
+    # Ends the wait of every row reading this row's baseline in
+    # _mrw_run_probe: with no baseline beside it, they are refused
+    # rc=baseline instead of waiting forever (base#1571).
+    : > "${2}/baseline.done"
+    return 0
   fi
   trap '_mr_on_signal INT' INT
   trap '_mr_on_signal TERM' TERM
@@ -810,9 +986,21 @@ main() {
     _mr_publish_interrupted
     return
   fi
-  (( _check == 0 )) || return 0
+  [[ "${_check}" == 0 || -n "${_shard}" ]] || return 0
   if [[ -n "${_shard}" ]]; then
-    _mr_shard "${_shard%/*}" "${_shard#*/}" || return 1
+    _mr_shard "${_root}" "${_shard%/*}" "${_shard#*/}" || return 1
+  fi
+  if (( _check == 1 )); then
+    # --check --shard probes nothing and names each row of the shard, so
+    # the union of the shard lists can be compared with the roster
+    # (base#1571).
+    local _i
+    for (( _i = 0; _i < ${#_MR_ROWS_LOC[@]}; _i++ )); do
+      _log_info "${_MR_SERVICE}" mutation_required_row_dealt "row=${_MR_ROWS_LOC[_i]}" \
+        "id=${_MR_ROWS_ID[_i]}" "shard=${_shard}" \
+        "display=row ${_MR_ROWS_LOC[_i]} (${_MR_ROWS_ID[_i]}) is in shard ${_shard}" >&2
+    done
+    return 0
   fi
   _mr_run "${_root}" "${_jobs}"
 }

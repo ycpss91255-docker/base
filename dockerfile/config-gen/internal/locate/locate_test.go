@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -93,6 +94,39 @@ func TestIndexRepeatedOccurrences(t *testing.T) {
 			t.Errorf("Keys(volumes.source): %d occurrences, want none", n)
 		}
 	})
+}
+
+// TestTableCountsImplicitOnlyWithoutAnExplicitRecord checks the unique
+// table lookup on a table a header under it creates (base#1469): declared
+// later by its own `[a]` it is Found at that header, written once, while
+// Tables still lists both records; never declared, like `c`, it is Found
+// at its creator's line. Lines are counted by hand from the text.
+func TestTableCountsImplicitOnlyWithoutAnExplicitRecord(t *testing.T) {
+	m := Index([]byte("[a.b]\nk = 1\n[a]\nz = 1\n[c.d]\n"))
+	if o, lk := m.Table([]string{"a"}); lk != Found || o.KeyLine != 3 || o.Implicit {
+		t.Errorf("Table(a) = %v %+v, want Found at the explicit header on line 3", lk, o)
+	}
+	if lines, _ := occLines(m.Tables([]string{"a"})); !reflect.DeepEqual(lines, []int{1, 3}) {
+		t.Errorf("Tables(a) lines = %v, want [1 3]: the implicit and the explicit record", lines)
+	}
+	if o, lk := m.Table([]string{"c"}); lk != Found || o.KeyLine != 5 || !o.Implicit {
+		t.Errorf("Table(c) = %v %+v, want Found at its implicit record on line 5", lk, o)
+	}
+}
+
+// TestIndexMultilineInlineTableEndsAtItsStart checks that a key whose
+// inline table spans lines (TOML 1.1) is given its start line as
+// ValueEndLine, as an inline array is, the line the library reports
+// (base#1469: the s1 fixture toml11_inline_newline.toml); the key after it
+// keeps its own line.
+func TestIndexMultilineInlineTableEndsAtItsStart(t *testing.T) {
+	m := Index([]byte("k = {\n  a = 1,\n  b = 2\n}\nw = 2\n"))
+	if o, lk := m.Key([]string{"k"}); lk != Found || o.KeyLine != 1 || o.ValueEndLine != 1 {
+		t.Errorf("Key(k) = %v %+v, want Found on line 1 ending on line 1", lk, o)
+	}
+	if o, lk := m.Key([]string{"w"}); lk != Found || o.KeyLine != 5 || o.ValueEndLine != 5 {
+		t.Errorf("Key(w) = %v %+v, want Found on line 5", lk, o)
+	}
 }
 
 // TestIndexHeaderInMultilineString checks that a header-like line inside a
@@ -191,17 +225,152 @@ func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
 	}
 }
 
-// TestIndexEveryPrefixIsSafe indexes every byte prefix of every corpus
-// TOML file at any depth (CorpusTOML), so an unterminated string, escape, array or header at any point
-// cannot make the scan run past the input (base#1442, review round 1: an
-// escaped quote used to start a scan beyond the end and panic).
+// prefixSweepBound is the largest input whose every byte prefix is
+// indexed. Indexing every prefix costs the square of the input's length:
+// the 108,951-byte large_tables.toml fixture (base#1469) alone made
+// 108,952 calls that scanned about 5.9e9 bytes, and the race gate's go
+// test ran into its 10-minute timeout on it. An input of at most this
+// many bytes is swept in full; a larger one is indexed at its cut points.
+const prefixSweepBound = 4096
+
+// cutContextLines is the most lines before a cut that a larger input's
+// cut window starts from (see cutWindows). The window is then cut to its
+// last cutContextBytes bytes, so it can start mid-line, and a string,
+// array or inline table opened before the window's start is not open in
+// the window.
+const cutContextLines = 8
+
+// cutContextBytes is the most bytes before a cut a larger input's cut
+// keeps, so a long line does not make each cut in it cost the line's
+// length (base#1469 review round 2). The window keeps up to
+// cutContextLines lines before the cut, cut to the last cutContextBytes
+// bytes, so when those lines are longer the window starts mid-line.
+const cutContextBytes = 512
+
+// TestIndexEveryPrefixIsSafe indexes the cut points of every corpus TOML
+// file at any depth (CorpusTOML; indexCutPoints), so an unterminated
+// string, escape, array or header at any point cannot make the scan run
+// past the input (base#1442, review round 1: an escaped quote used to
+// start a scan beyond the end and panic).
 func TestIndexEveryPrefixIsSafe(t *testing.T) {
 	for _, file := range CorpusTOML(t) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		indexEveryPrefix(t, file, src)
+		indexCutPoints(t, file, src)
+	}
+}
+
+// TestIndexCutPointsPastTheSweepBoundAreSafe holds indexCutPoints to its
+// claim on an input longer than prefixSweepBound: the header and key with
+// a \u and a \U escape come only after the swept head, so only the cuts
+// past it can end the input inside their hex digits (base#1469: a scan that
+// reads past the end there must still fail this package's tests).
+func TestIndexCutPointsPastTheSweepBoundAreSafe(t *testing.T) {
+	head := strings.Repeat("value = 0\n", prefixSweepBound/10+1)
+	if len(head) <= prefixSweepBound {
+		t.Fatalf("head is %d bytes, want more than prefixSweepBound (%d)", len(head), prefixSweepBound)
+	}
+	indexCutPoints(t, "hex escapes past the sweep bound", []byte(head+"[\"\\u0041\"]\n\"\\U0001F600\" = 1\n"))
+}
+
+// indexCutPoints indexes each window cutWindows lists for src and fails
+// the test if one panics. Each is passed with its capacity cut to its
+// length, so a read past its end panics.
+func indexCutPoints(t *testing.T, label string, src []byte) {
+	t.Helper()
+	for _, w := range cutWindows(src) {
+		indexSafe(t, label, w.from, src[w.from:w.end:w.end])
+	}
+}
+
+// cutWindow is the bytes src[from:end] of an input: end is where the
+// indexed input stops.
+type cutWindow struct{ from, end int }
+
+// cutWindows lists the windows of src that indexCutPoints indexes. An
+// input of at most prefixSweepBound bytes has every byte prefix. A longer
+// one has every prefix of its first prefixSweepBound bytes, the whole
+// input, and, for every byte offset n past the start of each line and
+// past the swept head (whose cuts are whole prefixes already), the
+// bytes from the start of the line cutContextLines lines earlier (or of
+// the input) up to n, cut to the last cutContextBytes of them: so a
+// window ends at every byte boundary, every token boundary among them,
+// and Index is handed at most cutContextBytes bytes per cut, whatever the
+// line lengths. A window past the head can start mid-line, and a string,
+// array or inline table opened before its start is not open in it. The
+// fuzz target FuzzTreeParity indexes any other input.
+func cutWindows(src []byte) []cutWindow {
+	var out []cutWindow
+	sweep := min(len(src), prefixSweepBound)
+	for n := 0; n <= sweep; n++ {
+		out = append(out, cutWindow{0, n})
+	}
+	if len(src) <= prefixSweepBound {
+		return out
+	}
+	out = append(out, cutWindow{0, len(src)})
+	starts := []int{0}
+	for i, c := range src {
+		if c == '\n' && i+1 < len(src) {
+			starts = append(starts, i+1)
+		}
+	}
+	for i, ls := range starts {
+		end := len(src)
+		if i+1 < len(starts) {
+			end = starts[i+1]
+		}
+		from := starts[max(0, i-cutContextLines)]
+		for n := max(ls+1, prefixSweepBound+1); n <= end; n++ {
+			out = append(out, cutWindow{max(from, n-cutContextBytes), n})
+		}
+	}
+	return out
+}
+
+// TestCutWindowsEndEverywhereAtBoundedCost holds cutWindows to its cost:
+// the bytes it hands Index are at most the square of the swept head plus
+// cutContextBytes per byte past it, whatever the input's line lengths
+// (base#1469 review round 2: a bound in lines alone left a single
+// 108,951-byte line costing about 5.94e9 bytes). An input of one long
+// line, one of many short lines (the large_tables.toml fixture) and one
+// of short lines then a long one are each checked, and every byte offset
+// of each must still be where some window ends, so the cost is not bought
+// by leaving cut points out.
+func TestCutWindowsEndEverywhereAtBoundedCost(t *testing.T) {
+	const size = 108951
+	large, err := os.ReadFile(testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  []byte
+	}{
+		{"one long comment line", []byte("#" + strings.Repeat("x", size-1))},
+		{"large_tables.toml", large},
+		{"short lines then a long one", []byte(strings.Repeat("a = 1\n", 1000) + "b = \"" + strings.Repeat("y", size) + "\"\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := len(tc.src)
+			bound := prefixSweepBound*(prefixSweepBound+1)/2 + n + (n-prefixSweepBound)*cutContextBytes
+			ends := make([]bool, n+1)
+			cost := 0
+			for _, w := range cutWindows(tc.src) {
+				cost += w.end - w.from
+				ends[w.end] = true
+			}
+			if cost > bound {
+				t.Errorf("cutWindows of %d bytes hands Index %d bytes, want at most %d", n, cost, bound)
+			}
+			for e, ok := range ends {
+				if !ok {
+					t.Fatalf("no window of the %d-byte input ends at offset %d", n, e)
+				}
+			}
+		})
 	}
 }
 
@@ -212,15 +381,20 @@ func TestIndexEveryPrefixIsSafe(t *testing.T) {
 func indexEveryPrefix(t *testing.T, label string, src []byte) {
 	t.Helper()
 	for n := 0; n <= len(src); n++ {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("%s: Index of the first %d bytes %q panicked: %v", label, n, src[:n], r)
-				}
-			}()
-			Index(src[:n:n])
-		}()
+		indexSafe(t, label, 0, src[:n:n])
 	}
+}
+
+// indexSafe indexes doc, the bytes of label's input from offset from, and
+// fails the test if Index panics. doc's capacity must be its length.
+func indexSafe(t *testing.T, label string, from int, doc []byte) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("%s: Index of bytes %d-%d %q panicked: %v", label, from, from+len(doc), doc, r)
+		}
+	}()
+	Index(doc)
 }
 
 // TestIndexCutHexEscapeIsSafe indexes every byte prefix of a header and a

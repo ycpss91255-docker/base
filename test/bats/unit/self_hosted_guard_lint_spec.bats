@@ -60,7 +60,8 @@ _workflow() {
 _guard_lines() {
   printf '%s\n' \
     "    if: >-" \
-    "      github.event_name != 'pull_request' ||" \
+    "      github.event_name != 'pull_request' &&" \
+    "      github.event_name != 'merge_group' ||" \
     "      github.event.pull_request.head.repo.full_name == github.repository"
 }
 
@@ -365,7 +366,8 @@ _guard_lines() {
     '    needs: [path-filter]' \
     '    if: >-' \
     "      needs.path-filter.outputs.code_changed == 'true' &&" \
-    "      (github.event_name != 'pull_request' ||" \
+    "      (github.event_name != 'pull_request' &&" \
+    "      github.event_name != 'merge_group' ||" \
     '      github.event.pull_request.head.repo.full_name == github.repository)' \
     '    runs-on: self-hosted' \
     '    steps:' \
@@ -386,6 +388,31 @@ _guard_lines() {
     '  heavy:' \
     '    if: github.repository_owner == ${{ github.event.pull_request.head.repo.owner.login }}' \
     '    runs-on: self-hosted' \
+    '    steps:' \
+    '      - run: make'
+  run _run_self_hosted_guard
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job heavy"* ]]
+}
+
+# why: The first slice of base#1587: the old canon passed this fixture
+# (lint exit 0), so a queue run could put a group holding fork-authored
+# code on a self-hosted runner. Leaving the canon unchanged fails here.
+@test "self-hosted guard: FAILS a merge_group job guarded only by the pull_request-only fork check (base#1587)" {
+  # A merge_group payload carries no pull_request object, so the old
+  # `github.event_name != 'pull_request' || ...` guard is true on every
+  # queue run and lets a group holding fork-authored code reach the
+  # self-hosted runner. That guard must no longer satisfy the lint.
+  _workflow "wf.yaml" \
+    'on:' \
+    '  merge_group:' \
+    '    types: [checks_requested]' \
+    'jobs:' \
+    '  heavy:' \
+    '    runs-on: [self-hosted, gpu]' \
+    '    if: >-' \
+    "      github.event_name != 'pull_request' ||" \
+    '      github.event.pull_request.head.repo.full_name == github.repository' \
     '    steps:' \
     '      - run: make'
   run _run_self_hosted_guard

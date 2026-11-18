@@ -48,8 +48,8 @@
 #
 #   always            actionlint, and `just test` -- every linter of the
 #                     _LINT_TOOLS table, then the whole bats suite plain.
-#                     The lint jobs and bats-fragile / bats-integration run
-#                     subsets of exactly that, plain, in CI. Run on every
+#                     The lint jobs and bats-fragile run subsets of
+#                     exactly that, plain, in CI. Run on every
 #                     diff, because a superset costs a minute and a
 #                     classification this mirror got wrong would cost a PR.
 #   code changed      `--coverage-matrix` -- every shard of CI's coverage
@@ -146,17 +146,20 @@ _table() {
     "attested${t}shellcheck${t}${_CMD_TEST}" \
     "attested${t}doc-counts${t}${_CMD_TEST}" \
     "attested${t}lint-static${t}${_CMD_TEST}" \
+    "attested${t}mutation-roster${t}${_CMD_TEST}" \
     "attested${t}hadolint${t}${_CMD_TEST}" \
     "attested${t}bats-fragile${t}${_CMD_TEST}" \
-    "attested${t}bats-integration${t}${_CMD_TEST}" \
     "attested${t}coverage${t}${_CMD_COVERAGE}" \
     "attested${t}coverage-gate${t}${_CMD_MERGE} && ${_CMD_VERDICT}" \
     "attested${t}system${t}${_CMD_SYSTEM}" \
     "attested${t}acceptance${t}${_CMD_ACCEPTANCE}" \
-    "attested${t}config-gen${t}${_CMD_GO}" \
+    "attested${t}config-gen-gates${t}${_CMD_GO}" \
+    "attested${t}config-gen-redpath${t}${_CMD_GO}" \
     "excluded${t}acceptance/arm64${t}the native arm64 runner leg; a local run measures the host's own arch, and there is no local arm64 runner to stand in for it" \
     "excluded${t}classify${t}CI's own path classifier computing the other jobs' if: gates; the plan applies the same two rules itself, and there is no repo-content verdict to reproduce" \
     "excluded${t}compute-shards${t}CI plumbing: it publishes the shard list and the cached weights blob; --coverage-shards applies its shard-count rule to the same CI_SHARDS, and the cache it restores is CI state no run before the push can read" \
+    "excluded${t}test-tools-image-amd64${t}CI plumbing (base#1588): it obtains the run's test-tools image for the other jobs and writes the GHA layer cache on a push to main only; every attested local command obtains that image itself, and the cache is CI state no run before the push can write" \
+    "excluded${t}test-tools-image-arm64${t}CI plumbing (base#1588): the arm64 twin of test-tools-image-amd64, on the native arm64 runner; there is no local arm64 runner to stand in for it" \
     "excluded${t}worker-selftest${t}invokes base's reusable build-worker.yaml, which only a GitHub Actions runner can call"
 }
 
@@ -189,9 +192,26 @@ _gates() {
   done < <(_system_pathspecs)
   git -C "${repo}" diff --quiet "$@" -- "${_CODE_PATHSPECS[@]}" || echo code
   if (( ${#specs[@]} == 0 )) \
-      || ! git -C "${repo}" diff --quiet "$@" -- "${specs[@]}"; then
+      || ! git -C "${repo}" diff --quiet "$@" -- "${specs[@]}" \
+      || _map_selects_system "${repo}" "$@"; then
     echo system
   fi
+}
+
+# _map_selects_system <repo> <diff-arg>... -- succeeds when classify's map
+# (script/ci/check_selection.sh) selects the system job for the diff, or
+# cannot answer. Since base#1584 CI gates system on the map's job list,
+# which also selects it for a path system_paths.sh does not name (a path
+# no rule of the map claims, such as zz/unknown.txt), so the plan widens to
+# match; a map that
+# fails or prints no `system=false` fires the gate.
+_map_selects_system() {
+  local repo="$1" out
+  shift
+  out="$(git -C "${repo}" diff -z --name-only --no-renames "$@" \
+    | bash "${_MIRROR_ROOT}/script/ci/check_selection.sh" --event pull_request --paths 2>/dev/null)" \
+    || return 0
+  ! grep -qx 'system=false' <<<"${out}"
 }
 
 # _commands <gates> -- the commands to run for the gates _gates printed.

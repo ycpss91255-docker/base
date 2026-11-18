@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **19 tests**.
+System specs under `test/bats/system/`: **22 tests**.
 
 > **Not** part of the `just test` self-test suite -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -79,6 +79,12 @@ behaviour with the variable unset is unchanged.
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/system/cache_export_ignore_error_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `a failed cache export with ignore-error=true leaves a green build and one ::warning:: from the export vertex; without it the build fails (base#1602)` | The reported failure (isaac run 42753553284, `#26 exporting to GitHub Actions Cache` / `#26 ERROR: error writing layer blob`) was an image that BUILT and a cache export that failed, and the export error became the build's error. ignore-error=true must keep such a build green, and the warn script must then find the failed export vertex in that build's record and report it -- not fall back to "no export vertex" or "history call failed", which would warn for a reason that has nothing to do with the export. The control without ignore-error is the reported red, base#1602. |
 
 ### test/bats/system/compose_multi_stack_e2e_spec.bats (3)
 
@@ -167,5 +173,17 @@ it the second invocation reports success having executed no specs at all.
 | `a digest-pinned BASE_IMAGE lands in the manifest and the OCI annotation as one value (#951)` | Builds the harness with a digest-bearing `BASE_IMAGE`; a fixture spec reads `base-image.env` from inside the build and `docker inspect` reads the OCI annotation from outside, so the two sinks are compared on one real image |
 | `a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)` | The documented pin-by-reference call, with no second argument, must produce an image: `base_image_pin=digest`, an empty digest field, an empty OCI `base.digest` and the digest still on `base.name` |
 | `the shipped spec FAILS a build whose digest arg contradicts the reference (#951)` | Negative case: the one combination that is false -- both halves stated, naming different digests -- fails in the `-test` stage from the shipped smoke spec, not from a refusal in `sys` |
+
+### test/bats/system/test_tools_hadolint_pin_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `lint-tools build fails when the hadolint sha256 pin is wrong` | a wrong pinned sha256 must fail the lint-tools build (base#1672) |
+
+### test/bats/system/test_tools_shellcheck_pin_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `lint-tools build fails when the shellcheck sha256 pin is wrong` | a wrong pinned sha256 must fail the lint-tools build (base#1648) |
 
 <!-- /generated -->

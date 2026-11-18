@@ -79,6 +79,7 @@ on:
     paths:
       - 'dockerfile/Dockerfile.test-tools'
       - 'dockerfile/toml_bridge.py'
+      - 'dockerfile/verify-extract.sh'
       - 'dockerfile/kcov-76bf685.patch'
       - 'dockerfile/kcov-bash53-ansi-c.patch'
       - 'dockerfile/bats-timeout-killer.patch'
@@ -169,7 +170,8 @@ jobs:
     # that adding one later cannot open the hole silently. Enforced by the
     # self-hosted-guard lint.
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' ||
       github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false

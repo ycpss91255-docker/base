@@ -1,0 +1,6 @@
+# toml11_escape_e: TOML 1.1 adds the \e (escape) string escape (base#1469).
+[log]
+color = "\e[1m"
+
+[log.web]
+level = "info"

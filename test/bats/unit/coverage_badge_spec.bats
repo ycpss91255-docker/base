@@ -171,6 +171,39 @@ _make_cobertura() {
   assert_output --partial '84.0%'
 }
 
+# why: The visible label is the bare word `coverage`; the version rides in
+# the value block, so the figure still names its release (base#1545)
+@test "coverage_badge: the label reads coverage and the value carries rate and version (base#1545)" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 0 ]
+
+  run grep -c '<text[^>]*>coverage</text>' "${_root}/badge.svg"
+  [ "${output}" -eq 1 ]
+  run grep -F '>84.0% (v1.2.3)</text>' "${_root}/badge.svg"
+  [ "${status}" -eq 0 ]
+  run grep -F 'coverage v1.2.3' "${_root}/badge.svg"
+  [ "${status}" -ne 0 ]
+}
+
+# why: The unmeasured rendering moves the version the same way (base#1545)
+@test "coverage_badge: --unmeasured keeps the label bare and the version in the value (base#1545)" {
+  local _root
+  _root="$(_make_release_tree 84 100)"
+  rm -rf "${_root}/coverage"
+
+  run bash "${BADGE}" --repo-root "${_root}" --unmeasured \
+    --out "${_root}/badge.svg"
+  [ "${status}" -eq 0 ]
+
+  run grep -c '<text[^>]*>coverage</text>' "${_root}/badge.svg"
+  [ "${output}" -eq 1 ]
+  run grep -F '>not measured (v1.2.3)</text>' "${_root}/badge.svg"
+  [ "${status}" -eq 0 ]
+}
+
 # why: Defaults to `.version`, so the figure names its release
 @test "coverage_badge: the SVG carries the version the figure belongs to" {
   local _root

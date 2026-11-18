@@ -41,7 +41,8 @@
 #     count is just its length.
 #
 # Scope: the prose surfaces that a maintainer navigates by -- README.md,
-# CONTEXT.md, the localized doc/readme/README.*.md, and dist/**/*.sh
+# CONTEXT.md, the localized doc/readme/README.*.md, the doc/guide/*.md
+# topic pages the README links to, and dist/**/*.sh
 # (shipped code comments AND the TUI message tables, which are user-facing
 # strings). doc/adr/ and doc/changelog/ are deliberately NOT scanned: an
 # ADR and a changelog entry are dated records of what was decided or
@@ -62,6 +63,13 @@ readonly _DERIVED_FIGURES_DOC_FILES=('README.md' 'CONTEXT.md')
 # so a fourth language is covered the day it is added.
 readonly _DERIVED_FIGURES_DOC_DIR='doc/readme'
 readonly _DERIVED_FIGURES_DOC_GLOB='README.*.md'
+
+# The topic guides the README links out to (base#1545). Their stage notes and
+# test commands were README sections until they moved, so they stay inside
+# figures 1 and 3. A glob, not a list, and not required: a tree with no guide
+# yet is in scope the day one is added.
+readonly _DERIVED_FIGURES_GUIDE_DIR='doc/guide'
+readonly _DERIVED_FIGURES_GUIDE_GLOB='*.md'
 
 # The shipped runtime tree. Its *.sh files carry both the stage subsystem's
 # own docstrings and the setup_tui.sh message tables a user reads at the
@@ -1776,6 +1784,11 @@ _run_derived_figures() {
     "${REPO_ROOT}/${_DERIVED_FIGURES_DOC_DIR}"/${_DERIVED_FIGURES_DOC_GLOB}; do
     _files+=( "${_localized}" )
     _doc_surfaces+=( "${_localized}" )
+  done
+  local _guide
+  for _guide in \
+    "${REPO_ROOT}/${_DERIVED_FIGURES_GUIDE_DIR}"/${_DERIVED_FIGURES_GUIDE_GLOB}; do
+    _files+=( "${_guide}" )
   done
   [[ "${_nullglob_was_set}" -eq 1 ]] || shopt -u nullglob
 

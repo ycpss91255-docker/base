@@ -369,6 +369,7 @@ _assert_armed() {
   assert_output --partial "CALLS=1"
 }
 
+# bats test_tags=kcov-fragile
 # why: The arming the operator actually gets. A consumer who sets only
 # `[lifecycle] watchdog_check` leaves WATCHDOG_ON_FAIL unset, which
 # _watchdog_load_config resolves to restart-container -- so this is the
@@ -382,6 +383,7 @@ _assert_armed() {
   _assert_armed monitor supervise
 }
 
+# bats test_tags=kcov-fragile
 # why: The same fallback reached the other way. _watchdog_load_config's case
 # statement routes every unrecognised value to restart-container, and a
 # hand-edited setup.conf is the ordinary way to produce one -- so the
@@ -392,6 +394,7 @@ _assert_armed() {
   _assert_armed monitor supervise
 }
 
+# bats test_tags=kcov-fragile
 # why: The branch stated explicitly rather than reached by fallback. Without
 # it the two cases above would both pass against a dispatcher that ignored
 # ON_FAIL entirely and always took the else arm
@@ -401,6 +404,7 @@ _assert_armed() {
   _assert_armed monitor supervise
 }
 
+# bats test_tags=kcov-fragile
 # why: The other arm, and the one the loops' own tests cannot reach: every
 # case below calls _watchdog_supervise or _watchdog_monitor directly, with
 # nothing deciding whether to, so `: _watchdog_supervise "$@"` turned
@@ -413,6 +417,7 @@ _assert_armed() {
 
 # ── restart-container monitor loop ───────────────────────────────────
 
+# bats test_tags=kcov-fragile
 @test "restart-container monitor DEFERS checks during the start period (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # A failing check + a start period longer than the observation window
@@ -448,6 +453,7 @@ _assert_armed() {
   assert_output --partial "DONE"
 }
 
+# bats test_tags=kcov-fragile
 @test "restart-container monitor EXITS the container after consecutive failures (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Ceiling 30, not 8: the loop needs two 1s intervals plus two bounded
@@ -468,6 +474,7 @@ _assert_armed() {
 
 # ── the group-signalling invariant the graceful stop depends on ──────
 
+# bats test_tags=kcov-fragile
 @test "_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   command -v setsid >/dev/null 2>&1 \
@@ -520,6 +527,7 @@ _assert_armed() {
 # ── restart-service supervisor: restart-in-place + give-up (stubbed
 #    child seams so the loop logic is exercised without real processes) ─
 
+# bats test_tags=kcov-fragile
 @test "restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Ceiling 30 for the reason given on the monitor case above: it bounds a
@@ -545,6 +553,7 @@ _assert_armed() {
 
 # ── bounded stop: a SIGTERM-ignoring service is SIGKILL'd, no hang ────
 
+# bats test_tags=kcov-fragile
 @test "_watchdog_stop_service SIGKILLs a SIGTERM-ignoring service within the bounded grace (no hang) (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose: setsid comes from the base distro userland
@@ -585,6 +594,7 @@ EOF
 
 # ── whole-subtree kill: no orphaned grandchild survives a stop ───────
 
+# bats test_tags=kcov-fragile
 @test "_watchdog_stop_service kills the whole service subtree (no orphaned grandchild) (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose: setsid comes from the base distro userland
@@ -632,6 +642,7 @@ EOF
 
 # ── give-up against a wedged service still reaches container exit ────
 
+# bats test_tags=kcov-fragile
 @test "restart-service give-up against a wedged (SIGTERM-ignoring) service still exits the container (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose: setsid comes from the base distro userland
@@ -729,6 +740,7 @@ _run_forward_harness() {
   "
 }
 
+# bats test_tags=kcov-fragile
 @test "restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose: setsid comes from the base distro userland
@@ -791,6 +803,7 @@ EOF
   refute_output --partial "DEFERRED_"
 }
 
+# bats test_tags=kcov-fragile
 @test "the readiness wait's own failure path returns within its bound, it does not hang (#965)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose, for the same reason as the case above: without
@@ -828,6 +841,7 @@ EOF
 
 # ── the file's own bound: nothing a case starts may outlive it ───────────
 
+# bats test_tags=kcov-fragile
 @test "a service the case gives up on cannot hold the case open past its bound (#965)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # Optional on purpose, for the same reason as every other case here:
@@ -868,6 +882,7 @@ EOF
     "the case returned after ${_elapsed}s though it printed its verdict in about one: the service it started outlived it and is still holding the descriptor bats reads this case's output from"
 }
 
+# bats test_tags=kcov-fragile
 @test "a harness that swallows its own ceiling's signal is still bounded (#965)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # The other half of "the ceiling means what it says", and the half a log
@@ -927,6 +942,7 @@ EOF
     "_kill_case_groups signalled a pid that leads no process group: the child reported ${_CHILD_STATUS} (137 = SIGKILL, 143 = SIGTERM) instead of running to completion. After a case whose service the product already reaped, that id can belong to another job in the same container"
 }
 
+# bats test_tags=kcov-fragile
 @test "_await_gone: a killed process nobody has reaped is GONE, not still alive (#965)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   # The same unsound oracle as the bare-pid case, in the helper every

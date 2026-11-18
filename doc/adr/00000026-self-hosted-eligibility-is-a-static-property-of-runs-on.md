@@ -87,6 +87,11 @@ parse that yields zero jobs is a failure, not a pass.
 
 ### 3. The condition is a FORK test, not a PR test
 
+> **Amended (base#1587):** the block below is the original two-term
+> guard. The lint now rejects it; the canon adds
+> `github.event_name != 'merge_group'` to the first disjunct. See the
+> amendment at the end of this record.
+
 ```yaml
 if: >-
   github.event_name != 'pull_request' ||
@@ -183,3 +188,30 @@ standard posture for a public repo whose org owns a self-hosted runner.
   configuration, invisible in the repo, unversioned and untestable from
   here; a repo-local guard that CI enforces is the part that belongs in
   the repo. Worth doing as well, not instead.
+
+## Amendment (2026-11-10): `merge_group` fails closed (base#1587)
+
+A `merge_group` run builds the queued pull requests' code, but its payload
+has no `pull_request` object, so the original first disjunct
+(`github.event_name != 'pull_request'`) was true on every queue run. A
+fork pull request that entered the queue would therefore have reached the
+self-hosted runner. The canon the lint requires is now:
+
+```yaml
+if: >-
+  github.event_name != 'pull_request' &&
+  github.event_name != 'merge_group' ||
+  github.event.pull_request.head.repo.full_name == github.repository
+```
+
+On `merge_group` both disjuncts are false, so the guard fails closed. A
+site may widen it only with an extra `||` term that reads an input proving
+the group same-repository. `script/ci/merge_group_trust.sh` produces that
+proof: it reads the merge queue and prints `same_repo=true` only when the
+run's entry and every entry ahead of it is a same-repository pull request;
+anything unproven prints `false` with an `::error::` reason. `classify`
+publishes it as `merge_group_same_repo`, `build-worker`'s `build` opens on
+it, and `ci-rollup` and `docker-build` treat an unproven group as a fork
+pull request (section 4 applies unchanged). A caller of `build-worker.yaml`
+that runs in a merge queue without passing `merge_group_same_repo` gets the
+`'false'` default: its build skips and `docker-build` goes red.

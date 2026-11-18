@@ -3,7 +3,10 @@
 # config_gen_gates.sh -- run the config generator's Go gates (base#1462).
 #
 # Usage:
-#   ./script/test/config_gen_gates.sh [--root <dir>]
+#   ./script/test/config_gen_gates.sh [--root <dir>] [--steps-only]
+#
+# --steps-only runs step 1 below and stops before the docker build: the
+# redpath's shared pass (base#1547).
 #
 # The one command every environment reaches through `just test go`: the
 # hosted self-test job, the self-hosted coverage-local job, the pre-PR
@@ -16,9 +19,20 @@
 #                glob order, run with CONFIG_GEN_CTX set to a fresh
 #                directory, its stdout sent to stderr (stdout carries only
 #                the ok lines below; base#1465). The first step that fails
-#                stops the run with its status. Each directory a step leaves under CONFIG_GEN_CTX
-#                becomes a named build context, `--build-context
-#                <name>=<path>`, so a later slice's inputs reach the build
+#                stops the run with its status. A step named in the
+#                space-separated CONFIG_GEN_STEPS_REUSED is skipped and
+#                logged as config_gen_step_reused; a name there that is no
+#                step, or a step with no <step>.inputs, is refused as usage,
+#                status 2, before any step (base#1547). Each step run
+#                streams `config-gen stage=<step> start= end= secs=
+#                status=` to stderr. Once every step passed, and
+#                CONFIG_GEN_STEPS_VERDICT_OUT names a file, the runner
+#                writes `digest=<D> steps=<step>,... status=0` there: the
+#                steps with a .inputs that ran, and their
+#                _cg_inputs_digest D (base#1547). Each directory a step leaves under
+#                CONFIG_GEN_CTX becomes a named build context,
+#                `--build-context <name>=<path>`, so a later slice's inputs
+#                reach the build
 #                without an edit here. A name outside [a-z0-9-] is refused:
 #                it is spliced into that argument.
 #   2. gates     the Dockerfile's `test` stage, with --no-cache-filter
@@ -44,12 +58,17 @@
 #
 # Style: Google Shell Style Guide.
 
-set -euo pipefail
+# Strict mode only when run; sourced, the caller's settings stand.
+if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
+  set -euo pipefail
+fi
 
 _CG_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _CG_SCRIPT_DIR
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_CG_SCRIPT_DIR}/../../dist/script/docker/lib/log.sh"
+# shellcheck source=script/test/config_gen_inputs.sh
+source "${_CG_SCRIPT_DIR}/config_gen_inputs.sh"
 
 readonly _CG_SERVICE='config-gen'
 
@@ -74,24 +93,83 @@ readonly _CG_BUILD_EVENTS="${_CG_SCRIPT_DIR}/../../dockerfile/config-gen/interna
 # kept here verbatim, still encoded. Any other word on the line is dropped.
 readonly _CG_EVENT_ATTR_RE='^(file|reason|pkg|other|line|floor|measured|base)=[!-~]+$'
 
-# _cg_run_steps <root> <ctx> -- run each step; the first red one ends the
-# run with its status.
+# _cg_now -- the wall clock in seconds with microseconds, from
+# EPOCHREALTIME.
+_cg_now() {
+  printf '%s' "${EPOCHREALTIME/,/.}"
+}
+
+# _cg_stage_line <stage> <start> <end> <status> -- print the stage's one
+# stderr line, `config-gen stage=<stage> start= end= secs= status=`
+# (base#1547).
+_cg_stage_line() {
+  local secs
+  secs="$(awk -v s="${2}" -v e="${3}" 'BEGIN { printf "%.3f", e - s }')"
+  printf 'config-gen stage=%s start=%s end=%s secs=%s status=%s\n' "${1}" "${2}" "${3}" "${secs}" "${4}" >&2
+}
+
+# _cg_run_steps <root> <ctx> -- run each step, streaming its stage line;
+# the first red one ends the run with its status.
 _cg_run_steps() {
-  local root="${1}" ctx="${2}" step name rc
+  local root="${1}" ctx="${2}" step name rc start
   local -a steps=()
   [[ -d "${root}/script/test/config_gen_steps" ]] || return 0
   mapfile -t steps < <(LC_ALL=C compgen -G "${root}/script/test/config_gen_steps/*.sh" | LC_ALL=C sort)
+  # A reused name that is no step would match nothing, so every step
+  # would run while the caller believed one was reused (base#1547).
+  local -a reused=()
+  read -r -a reused <<<"${CONFIG_GEN_STEPS_REUSED:-}"
+  for name in "${reused[@]}"; do
+    if [[ "${name}" == */* || ! -f "${root}/script/test/config_gen_steps/${name}.sh" ]]; then
+      _log_err "${_CG_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_STEPS_REUSED" "step=${name}" \
+        "display=config_gen_gates.sh: CONFIG_GEN_STEPS_REUSED names ${name}, which is no step in config_gen_steps"
+      exit 2
+    fi
+    # A step with no .inputs declares nothing a digest could cover, so its
+    # verdict cannot be shown to still hold (base#1547).
+    if [[ ! -f "${root}/script/test/config_gen_steps/${name}.inputs" ]]; then
+      _log_err "${_CG_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_STEPS_REUSED" "step=${name}" \
+        "display=config_gen_gates.sh: CONFIG_GEN_STEPS_REUSED names ${name}, which has no ${name}.inputs"
+      exit 2
+    fi
+  done
   for step in "${steps[@]}"; do
     [[ -n "${step}" ]] || continue
     name="$(basename -- "${step}" .sh)"
+    # The info record goes to stderr: stdout holds only the ok lines.
+    if [[ " ${CONFIG_GEN_STEPS_REUSED:-} " == *" ${name} "* ]]; then
+      _log_info "${_CG_SERVICE}" config_gen_step_reused "step=${name}" \
+        "display=config-gen step ${name} reused, not run" >&2
+      continue
+    fi
     rc=0
+    start="$(_cg_now)"
+    [[ ! -f "${step%.sh}.inputs" ]] || _CG_DECLARED+=("${name}")
     CONFIG_GEN_CTX="${ctx}" bash "${step}" </dev/null >&2 || rc=$?
+    _cg_stage_line "${name}" "${start}" "$(_cg_now)" "${rc}"
     if (( rc != 0 )); then
       _log_err "${_CG_SERVICE}" config_gen_step_failed "step=${name}" "status=${rc}" \
         "display=config-gen step ${name} exited ${rc}"
       exit "${rc}"
     fi
   done
+}
+
+# _CG_DECLARED -- the steps with a .inputs that _cg_run_steps ran, in run
+# order: the ones whose verdict _cg_steps_verdict can write.
+_CG_DECLARED=()
+
+# _cg_steps_verdict <root> -- once every step passed, write
+# `digest=<D> steps=<step>,... status=0` to CONFIG_GEN_STEPS_VERDICT_OUT
+# when that is set, D being _cg_inputs_digest over _CG_DECLARED on <root>:
+# the line the redpath's CONFIG_GEN_STEPS_VERDICT reuses in place of its
+# shared pass, so `just test go` runs those steps once (base#1547).
+_cg_steps_verdict() {
+  local d steps
+  [[ -n "${CONFIG_GEN_STEPS_VERDICT_OUT:-}" && ${#_CG_DECLARED[@]} -gt 0 ]] || return 0
+  d="$(cd "${1}" && _cg_inputs_digest "${_CG_DECLARED[@]}")" || exit $?
+  steps="$(IFS=,; printf '%s' "${_CG_DECLARED[*]}")"
+  printf 'digest=%s steps=%s status=0\n' "${d}" "${steps}" >"${CONFIG_GEN_STEPS_VERDICT_OUT}"
 }
 
 # _cg_context_args <ctx> -- one `--build-context <name>=<path>` pair per
@@ -215,7 +293,7 @@ _cg_contract() {
 }
 
 main() {
-  local root="${_CG_SCRIPT_DIR}/../.." tmp
+  local root="${_CG_SCRIPT_DIR}/../.." tmp steps_only=0
   while (( $# > 0 )); do
     case "${1}" in
       --root)
@@ -227,9 +305,15 @@ main() {
         root="${2}"
         shift 2
         ;;
+      --steps-only)
+        # Run the steps, then stop before the docker build: the redpath's
+        # shared pass (base#1547).
+        steps_only=1
+        shift
+        ;;
       *)
         _log_err "${_CG_SERVICE}" config_gen_usage_invalid "arg=${1}" \
-          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>]"
+          "display=config_gen_gates.sh: unknown argument ${1}; usage: config_gen_gates.sh [--root <dir>] [--steps-only]"
         exit 2
         ;;
     esac
@@ -243,7 +327,11 @@ main() {
   # shellcheck disable=SC2064 # expand ${tmp} now; it is local to main
   trap "rm -rf '${tmp}'" EXIT
   mkdir "${tmp}/ctx"
+  # A verdict file left by an earlier run must not outlive a red step here.
+  [[ -z "${CONFIG_GEN_STEPS_VERDICT_OUT:-}" ]] || rm -f -- "${CONFIG_GEN_STEPS_VERDICT_OUT}"
   _cg_run_steps "${root}" "${tmp}/ctx"
+  _cg_steps_verdict "${root}"
+  (( steps_only == 0 )) || return 0
   local -a ctx_args=()
   local ctx_list
   ctx_list="$(_cg_context_args "${tmp}/ctx")" || exit 1
@@ -252,4 +340,7 @@ main() {
   _cg_contract "${root}" "${tmp}" "${ctx_args[@]}"
 }
 
-main "$@"
+# Sourced (the redpath reads _cg_inputs_digest, base#1547), main stays idle.
+if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then
+  main "$@"
+fi

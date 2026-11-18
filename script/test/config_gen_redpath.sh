@@ -12,9 +12,10 @@
 # go.mod fixtures) into a fresh scratch root, plants one defect there, and
 # runs ./config_gen_gates.sh --root <copy>. Each case must exit non-zero, name
 # its own gate's id first, and show every earlier gate ok -- the last is
-# what tells "this gate caught it" from "the build broke first". An
-# unmodified copy, the control, runs last and must pass all seven gates, so
-# the reds are the defects' and not the copy's.
+# what tells "this gate caught it" from "the build broke first". The
+# unmodified copy runs only as rerun (base#1547), twice on one copy; its
+# first call is the control and must pass all seven gates, so the reds are
+# the defects' and not the copy's.
 #
 #   case           defect                                          gate
 #   fmt            a misformatted .go file                         fmt
@@ -115,7 +116,10 @@
 # typechange to a symlink -- or to a baseline holding café.txt, `a b.txt`
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
 # the seven ok lines below: admission accepts every baseline the producer
-# writes, and every gate still runs after it.
+# writes, and every gate still runs after it. Each of these six plants only
+# non-Go files, so the packages its build log's mutation verdict lines name
+# must be exactly the one _RP_GREEN_SCOPE holds for it (reason
+# mutation_scope_mismatch, base#1615).
 #
 # docs-only (a green case, base#1467) changes only a file outside the
 # module: the producer writes the no-change marker, and the run must also
@@ -148,8 +152,8 @@
 #   case             ignored file left in the context               gate
 #   ign              cmd/config-gen/zz_ign.go, a Go file ignored     ignored
 #                    by .git/info/exclude
-#   untrack-ignored  testdata/zzg/a.txt, untracked and then         ignored
-#                    ignored (once a green case)
+#   untrack-ignored  cmd/config-gen/testdata/zzg/a.txt, untracked   ignored
+#                    and then ignored (once a green case)
 #
 # A coverage case (_RP_COVERAGE) changes a package or a floor so the
 # coverage ratchet (cmd/cg-gates ratchet, base#1465) refuses it: the run
@@ -186,13 +190,17 @@
 # (reason package_set_mismatch). A tracked module file no mapping rule
 # covers, or a real package below the mutation floor, turns it red.
 #
-# Each runner call is told its case in CONFIG_GEN_REDPATH_CASE (control for
-# the control), which the runner itself ignores.
+# Each runner call is told its case in CONFIG_GEN_REDPATH_CASE, which the
+# runner itself ignores.
 #
 # CONFIG_GEN_REDPATH_ONLY, when set, is a space-separated list of case
-# names: only those cases run, then the control. config_gen_gates_spec
-# scopes each test this way; `just test go` unsets it, so the recipe
-# always runs every case (base#1465).
+# names: only those cases run, and rerun with them when not named
+# (base#1547). config_gen_gates_spec scopes each test this way; `just test
+# go` unsets it, so the recipe always runs every case (base#1465).
+#
+# CONFIG_GEN_REDPATH_SHARD=<n>/<N>, when set, runs only the cases whose
+# row in config_gen_redpath_shards.tsv names shard n, rerun among them:
+# rerun has one row like every other case (base#1547).
 #
 # fmt-parse plants in a _test.go file because go build skips those, so the
 # build stage passes and the syntax error reaches the fmt gate, where
@@ -212,9 +220,9 @@
 # green; the target panics on any input of four or more bytes, which only
 # the fuzz gate's search reaches (base#1441).
 #
-# Every case is reported before the run ends; any failed case or a red
-# control exits 1. This never calls `just test go` -- that recipe runs this
-# script -- and a nested entry is refused with config_gen_redpath_reentered
+# Every case is reported before the run ends; any failed case, a red
+# rerun call 1 (the control) among them, exits 1. This never calls `just
+# test go` -- that recipe runs this script -- and a nested entry is refused with config_gen_redpath_reentered
 # before anything runs. Sourced, it defines its tables and functions and
 # runs nothing.
 #
@@ -230,11 +238,19 @@ readonly _RP_SCRIPT_DIR
 readonly _RP_ROOT="${_RP_SCRIPT_DIR}/../.."
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
+# shellcheck source=script/test/config_gen_inputs.sh
+source "${_RP_SCRIPT_DIR}/config_gen_inputs.sh"
 
 readonly _RP_SERVICE='config-gen'
 readonly -a _RP_GATES=(admission fmt vet lint race coverage fuzz)
 # <case>:<the gate whose id it must produce>, in the order they run.
 readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
+# Cases that run after the pool drains, one at a time, with no other case
+# running (base#1547). The rule: a case whose expected record holds a
+# timed-out or killed count belongs here, since that count depends on how
+# loaded the host is while its mutants run. mut-timeout expects 3 killed
+# and 1 timed out.
+readonly -a _RP_SERIAL=(mut-timeout)
 # <case>|<pkg>|<reason>|<measured>: the one package failure record the
 # runner must log for <case>, re-emitted from the mutation gate's
 # config_gen_mutation_package_failed line (base#1467). The mut-timeout
@@ -279,7 +295,7 @@ readonly -a _RP_STALE=(
   'stale-dangling|dockerfile/config-gen/zz-dangling|not_regular'
   'stale-gomod|dockerfile/config-gen/go.mod|sha_mismatch'
   'stale-checker|dockerfile/config-gen/internal/buildgate/zz.go|unlisted'
-  'stale-names|dockerfile/config-gen/testdata/zznames/a%20b.txt|sha_mismatch'
+  'stale-names|dockerfile/config-gen/cmd/config-gen/testdata/zznames/a%20b.txt|sha_mismatch'
   'stale-header|manifest|header'
   'no-checker|admit.sh|absent'
   'no-lib|config_gen_mutation_lang.sh|absent'
@@ -313,12 +329,24 @@ readonly -a _RP_STALE=(
 readonly -a _RP_GREENS=(names rename-recreate untrack rename-move copies typechange ign-excluded ign-excluded-go docs-only)
 # <case>|<a line its build log must end a line with> (base#1467).
 readonly -a _RP_GREEN_LINES=('docs-only|mutation targets none')
+# <case>|<the one package, under the module, its mutation gate must judge>:
+# a producer-state green case plants only non-Go files, so the gate must
+# pass exactly that package and no other (reason mutation_scope_mismatch,
+# base#1615).
+readonly -a _RP_GREEN_SCOPE=(
+  'names|cmd/config-gen'
+  'rename-recreate|cmd/config-gen'
+  'untrack|cmd/config-gen'
+  'rename-move|cmd/config-gen'
+  'copies|cmd/config-gen'
+  'typechange|cmd/config-gen'
+)
 # <case>|<gate>|<event>|<file>: a context the producer and admission both
 # accept, holding a Git-ignored module file the gate must refuse, naming
 # that file in each <event> record (base#1467).
 readonly -a _RP_AFTER_ADMIT=(
   'ign|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/zz_ign.go'
-  'untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/testdata/zzg/a.txt'
+  'untrack-ignored|ignored|config_gen_mutation_ignored_input|dockerfile/config-gen/cmd/config-gen/testdata/zzg/a.txt'
 )
 # <case>|<the coverage ratchet event the build must refuse it with>|<its
 # pkg>|<its file, empty when the event names none> (base#1465).
@@ -363,7 +391,7 @@ STEP
     # go refuses to parse the appended directive.
     stale-gomod) echo 'printf "\nzzstale after the manifest\n" >>"${_mod}/go.mod"' ;;
     stale-checker) echo 'printf "package buildgate\n\nfunc zz( {\n" >"${_mod}/internal/buildgate/zz.go"' ;;
-    stale-names) echo 'printf "edit\n" >>"${_mod}/testdata/zznames/a b.txt"' ;;
+    stale-names) echo 'printf "edit\n" >>"${_mod}/cmd/config-gen/testdata/zznames/a b.txt"' ;;
     # The header without its context= field, which S1d's header never is.
     stale-header) echo 'sed -i "1s/ context=[^ ]*\$//" "${_m}/manifest"' ;;
     no-checker) echo 'rm "${_m}/admit.sh"' ;;
@@ -434,15 +462,17 @@ _rp_rebase() {
 }
 
 # _rp_green <case> <root> -- bring the copy to a green case's git state:
-# testdata/zzg/a.txt and testdata/zzg/c.txt committed as the base, then
-# the case's change. names commits testdata/zznames/ (café.txt, `a b.txt`,
-# one name holding every byte 0x01-0x7f but /) and leaves an untracked name
-# the producer C-quotes. Both sit under the module-root testdata/, which the
-# mutation gate maps to the test importers of internal/testcorpus, so the
-# case stays green there (base#1467).
+# cmd/config-gen/testdata/zzg/a.txt and cmd/config-gen/testdata/zzg/c.txt
+# committed as the base, then the case's change. names commits
+# cmd/config-gen/testdata/zznames/ (café.txt, `a b.txt`, one name holding
+# every byte 0x01-0x7f but /) and leaves an untracked name the producer
+# C-quotes (base#1467). Both sit under the testdata/ of the one package
+# cmd/config-gen, which the mutation gate maps to that package alone; the
+# module-root testdata/ maps to every corpus importer, which corpus and
+# retro still cover (base#1615).
 _rp_green() {
   local root="${2}" mod="${2}/dockerfile/config-gen"
-  local g="${mod}/testdata/zzg" n="${mod}/testdata/zznames"
+  local g="${mod}/cmd/config-gen/testdata/zzg" n="${mod}/cmd/config-gen/testdata/zznames"
   local name='' i
   if [[ "${1}" == names ]]; then
     mkdir -p "${n}"
@@ -467,7 +497,7 @@ _rp_green() {
     untrack) _rp_git "${root}" rm -q --cached "${g}/a.txt" ;;
     rename-move) _rp_git "${root}" mv "${g}/a.txt" "${g}/d.txt"; mv "${g}/c.txt" "${g}/a.txt" ;;
     untrack-ignored)
-      printf 'dockerfile/config-gen/testdata/zzg/a.txt\n' >"${root}/.git/info/exclude"
+      printf 'dockerfile/config-gen/cmd/config-gen/testdata/zzg/a.txt\n' >"${root}/.git/info/exclude"
       _rp_git "${root}" rm -q --cached "${g}/a.txt"
       ;;
     copies)
@@ -833,6 +863,10 @@ EOF
       _rp_manifest_step "${root}"
       ;;
     corpus)
+      # seed.golden is empty: it is the bridge's --tables answer for
+      # seed.toml, which declares no table (base#1469). An empty golden is
+      # given one byte by the sensitivity gate, so comparing it with "" still
+      # fails on the flip.
       # zzweak is committed with its floor, so the change 00-manifest lists
       # is only the untracked testdata/c.txt. Its test reads the golden
       # through internal/testcorpus and compares its bytes, but leaves
@@ -866,7 +900,7 @@ func TestPos(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+		if string(b) != "" {
 			t.Fatalf("%s = %q", p, b)
 		}
 	}
@@ -905,7 +939,7 @@ func TestSeed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(b) != "seed golden for internal/testcorpus (base#1468)\n" {
+		if string(b) != "" {
 			t.Fatalf("%s = %q", p, b)
 		}
 	}
@@ -1045,17 +1079,56 @@ _rp_copy() {
   printf '%s\n' "${dst}"
 }
 
+# The steps whose verdict does not depend on a case's plant (base#1547).
+readonly -a _RP_REUSED_STEPS=(20-gomod-oracle 30-watch-gosum)
+
+# _rp_runner <case> <out> <err> [VAR=value...] -- <runner arg>... -- the
+# one place the redpath calls the runner: told <case>, its stdout to <out>
+# and its stderr to <err>, with any VAR=value words added to its
+# environment; returns the runner's status. Its log is JSON whatever the
+# caller set, because the verdicts read its records. The mutation context
+# is pr with no base override whatever the caller inherited (base#1464): a
+# CI main push exports main-push, and a one-commit copy has no HEAD^1. The
+# shared pass and every case call go through here, so both get that
+# environment (base#1547).
+_rp_runner() {
+  local name="${1}" out="${2}" err="${3}"
+  local -a vars=()
+  shift 3
+  while [[ "${1}" != -- ]]; do vars+=("${1}"); shift; done
+  shift
+  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
+    CONFIG_GEN_REDPATH_CASE="${name}" "${vars[@]}" \
+    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" "$@" >"${out}" 2>"${err}"
+}
+
 # _rp_gates <root> <case> [VAR=value...] -- run the runner on <root>, its
 # stdout to <root>.out and its stderr to <root>.err, with any VAR=value
-# words added to its environment; returns the runner's status. Its
-# log is JSON whatever the caller set, because the verdicts read its
-# records. The mutation context is pr with no base override whatever the
-# caller inherited (base#1464): a CI main push exports main-push, and a
-# one-commit copy has no HEAD^1.
+# words added to its environment; returns the runner's status. The steps
+# in _RP_REUSED_STEPS are named in CONFIG_GEN_STEPS_REUSED, so the runner
+# skips them: the shared pass already ran them, and the caller's
+# _rp_reuse_check proved <root> reads what that pass read (base#1547).
 _rp_gates() {
-  env -u CONFIG_GEN_MUTATION_BASE CONFIG_GEN_MUTATION_CONTEXT=pr LOG_FORMAT=json \
-    CONFIG_GEN_REDPATH_CASE="${2}" "${@:3}" \
-    bash "${_RP_SCRIPT_DIR}/config_gen_gates.sh" --root "${1}" >"${1}.out" 2>"${1}.err"
+  _rp_runner "${2}" "${1}.out" "${1}.err" CONFIG_GEN_STEPS_REUSED="${_RP_REUSED_STEPS[*]}" "${@:3}" \
+    -- --root "${1}"
+}
+
+# _rp_digest <root> -- the digest of what _RP_REUSED_STEPS read in <root>.
+_rp_digest() {
+  (cd "${1}" && _cg_inputs_digest "${_RP_REUSED_STEPS[@]}")
+}
+
+# _rp_reuse_check <root> <case> -- non-zero, with the case's failure
+# logged as reused_input_changed, when <case>'s plant changed what a
+# reused step reads: <root>'s digest is not _RP_PRISTINE_DIGEST, the one a
+# pristine copy gives, so the reused verdict would not hold (base#1547).
+_rp_reuse_check() {
+  local got
+  got="$(_rp_digest "${1}")" || return 1
+  [[ "${got}" == "${_RP_PRISTINE_DIGEST}" ]] && return 0
+  _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=reused_input_changed" \
+    "display=config-gen redpath case ${2} changed an input of ${_RP_REUSED_STEPS[*]}, whose verdict it would reuse"
+  return 1
 }
 
 # The runner's own record of the gate that went red: a whole JSON log line
@@ -1127,6 +1200,7 @@ _rp_case() {
   local scratch="${1}" name="${2}" gate="${3}" root rc=0 reason failed pkg want weak event
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
+  _rp_reuse_check "${root}" "${name}" || return 1
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_verdict "${rc}" "${root}.out" "${root}.err" "${gate}")"
   failed="$(_rp_row "${name}" "${_RP_MUTATION_FAILED[@]}")"
@@ -1193,6 +1267,7 @@ _rp_refusal() {
   local scratch="${1}" name="${2}" id="${3}" root rc=0 reason
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
+  _rp_reuse_check "${root}" "${name}" || return 1
   _rp_gates "${root}" "${name}" || rc=$?
   reason="$(_rp_refusal_verdict "${rc}" "${root}.out" "${root}.err" "${id}")"
   [[ -z "${reason}" ]] && return 0
@@ -1282,6 +1357,7 @@ _rp_stale() {
   fi
   root="$(_rp_copy "${scratch}")"
   _rp_plant "${name}" "${root}"
+  _rp_reuse_check "${root}" "${name}" || return 1
   _rp_gates "${root}" "${name}" "${env_words[@]}" || rc=$?
   reason="$(_rp_stale_verdict "${rc}" "${root}.out" "${root}.err" "${file}" "${want}")"
   [[ -z "${reason}" ]] && return 0
@@ -1292,7 +1368,7 @@ _rp_stale() {
   return 1
 }
 
-# The seven lines each green, rerun and control call must print, typed from
+# The seven lines each green and rerun call must print, typed from
 # the issues' gate lists (base#1465, base#1441), not derived from _RP_GATES.
 readonly _RP_RERUN_OUT='gate=admission ok
 gate=fmt ok
@@ -1324,6 +1400,7 @@ _rp_rerun() {
   root="$(_rp_copy "${1}")"
   for call in 1 2; do
     rc=0
+    _rp_reuse_check "${root}" rerun || return 1
     _rp_gates "${root}" rerun || rc=$?
     reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
     [[ -z "${reason}" ]] && continue
@@ -1335,17 +1412,24 @@ _rp_rerun() {
 }
 
 # _rp_green_case <scratch> <case> -- run one green case; non-zero when the
-# runner did not pass with exactly the seven ok lines, or its build log lacks
-# the line _RP_GREEN_LINES holds for <case>.
+# runner did not pass with exactly the seven ok lines, its build log lacks
+# the line _RP_GREEN_LINES holds for <case>, or the packages the mutation
+# gate passed are not exactly the one _RP_GREEN_SCOPE holds for <case>.
 _rp_green_case() {
-  local root rc=0 reason line
+  local root rc=0 reason line scope path
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
+  _rp_reuse_check "${root}" "${2}" || return 1
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_rerun_verdict "${rc}" "${root}.out")"
   line="$(_rp_row "${2}" "${_RP_GREEN_LINES[@]}")"
   if [[ -z "${reason}" && -n "${line}" ]] && ! _rp_line_ends "${root}.err" "${line}"; then
     reason=green_line_missing
+  fi
+  scope="$(_rp_row "${2}" "${_RP_GREEN_SCOPE[@]}")"
+  if [[ -z "${reason}" && -n "${scope}" ]]; then
+    path="$(awk '$1 == "module" {print $2; exit}' "${root}/dockerfile/config-gen/go.mod")"
+    [[ "$(_rp_mutation_got "${root}.err")" == "${path}/${scope}" ]] || reason=mutation_scope_mismatch
   fi
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
@@ -1379,6 +1463,7 @@ _rp_after_admit() {
   local root rc=0 reason
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
+  _rp_reuse_check "${root}" "${2}" || return 1
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_after_admit_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
   [[ -z "${reason}" ]] && return 0
@@ -1407,11 +1492,14 @@ _rp_retro_want() {
     | LC_ALL=C sort -u
 }
 
-# _rp_retro_got <err> -- the packages the mutation gate passed, one per
+# _rp_mutation_got <err> -- the packages the mutation gate passed, one per
 # line, sorted: the build log lines ending `<pkg> ok efficacy=<e>` or
-# `<pkg> no-mutants`.
-_rp_retro_got() {
-  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ ([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\1/p' "${1}" \
+# `<pkg> no-mutants`. BuildKit merges the gate's streams into one step log,
+# so a verdict can land after gremlins' unfinished `Gathering coverage... `
+# on the same line (base#1546); only that literal may precede it, so a
+# verdict after any other text, or cut short, does not count.
+_rp_mutation_got() {
+  sed -nE 's/^#[0-9]+ [0-9]+\.[0-9]+ (Gathering coverage\.\.\. )?([^ ]+) (ok efficacy=[0-9]+\.[0-9]|no-mutants)$/\2/p' "${1}" \
     | LC_ALL=C sort -u
 }
 
@@ -1426,7 +1514,7 @@ _rp_retro_verdict() {
   grep -qxE "${_RP_MANIFEST_TAG}base=${base} head=[0-9a-f]{40} dirty=no context=pr" "${root}.err" \
     || { echo not_clean; return 0; }
   ! grep -qF -- config_gen_mutation_unmapped "${root}.err" || { echo unmapped; return 0; }
-  [[ "$(_rp_retro_got "${root}.err")" == "$(_rp_retro_want "${root}")" ]] \
+  [[ "$(_rp_mutation_got "${root}.err")" == "$(_rp_retro_want "${root}")" ]] \
     || { echo package_set_mismatch; return 0; }
 }
 
@@ -1443,12 +1531,13 @@ _rp_retro() {
   git -C "${root}" update-ref HEAD "${head}"
   git -C "${root}" update-ref refs/remotes/origin/main "${head}"
   _rp_manifest_step "${root}"
+  _rp_reuse_check "${root}" retro || return 1
   _rp_gates "${root}" retro "CONFIG_GEN_MUTATION_BASE=${empty}" || rc=$?
   reason="$(_rp_retro_verdict "${rc}" "${root}" "${empty}")"
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   printf 'config-gen redpath retro: want packages:\n%s\ngot:\n%s\n' \
-    "$(_rp_retro_want "${root}")" "$(_rp_retro_got "${root}.err")" >&2
+    "$(_rp_retro_want "${root}")" "$(_rp_mutation_got "${root}.err")" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=retro" "reason=${reason}" "gate=mutation" \
     "display=config-gen redpath case retro (every module file added since an empty base) did not pass: ${reason}"
   return 1
@@ -1478,6 +1567,7 @@ _rp_coverage() {
   local root rc=0 reason
   root="$(_rp_copy "${1}")"
   _rp_plant "${2}" "${root}"
+  _rp_reuse_check "${root}" "${2}" || return 1
   _rp_gates "${root}" "${2}" || rc=$?
   reason="$(_rp_coverage_verdict "${rc}" "${root}.out" "${root}.err" "${3}" "${4}" "${5}")"
   [[ -z "${reason}" ]] && return 0
@@ -1487,27 +1577,188 @@ _rp_coverage() {
   return 1
 }
 
+# _rp_case_names -- every case the redpath can run, one per line, in run
+# order (base#1547).
+_rp_case_names() {
+  local e
+  for e in "${_RP_CASES[@]}" "${_RP_REFUSALS[@]}"; do printf '%s\n' "${e%%:*}"; done
+  for e in "${_RP_STALE[@]}"; do printf '%s\n' "${e%%|*}"; done
+  printf '%s\n' "${_RP_GREENS[@]}"
+  for e in "${_RP_AFTER_ADMIT[@]}" "${_RP_COVERAGE[@]}"; do printf '%s\n' "${e%%|*}"; done
+  printf '%s\n' rerun retro
+}
+
+# _rp_plan_refuse <attr> <display> -- the plan's usage refusal: one
+# config_gen_usage_invalid record naming <attr>, then exit 2.
+_rp_plan_refuse() {
+  _log_err "${_RP_SERVICE}" config_gen_usage_invalid "${1}" "display=config_gen_redpath.sh: ${2}"
+  exit 2
+}
+
+# _rp_plan_check -- refuse, before any runner call, every selector input
+# that would run other than a partition of the whole run (base#1547):
+# SHARD with ONLY, an ONLY name that is no case, a shard table that is not
+# `# shards=<N>` and then one `<case>\t<shard>` row for every case, rerun
+# and retro included, each shard in 1..N and each of 1..N holding a row,
+# and a SHARD whose N is not the table's. Then CI's matrix 1..N, one job
+# per shard, runs every case exactly once.
+_rp_plan_check() {
+  local tsv="${_RP_SCRIPT_DIR}/config_gen_redpath_shards.tsv" n c k line w
+  local -A known=() rows=() held=()
+  while IFS= read -r c; do known["${c}"]=1; done < <(_rp_case_names)
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" && -n "${CONFIG_GEN_REDPATH_ONLY:-}" ]]; then
+    _rp_plan_refuse arg=CONFIG_GEN_REDPATH_SHARD \
+      "CONFIG_GEN_REDPATH_SHARD and CONFIG_GEN_REDPATH_ONLY together; set one"
+  fi
+  for w in ${CONFIG_GEN_REDPATH_ONLY:-}; do
+    [[ -n "${known[${w}]:-}" ]] \
+      || _rp_plan_refuse "case=${w}" "CONFIG_GEN_REDPATH_ONLY names ${w}, which is no case"
+  done
+  [[ -r "${tsv}" ]] || _rp_plan_refuse "arg=${tsv##*/}" "the shard table ${tsv} is not readable"
+  n="$(sed -n '1s/^# shards=\([1-9][0-9]*\)$/\1/p' "${tsv}")"
+  [[ -n "${n}" ]] || _rp_plan_refuse "arg=${tsv##*/}" "the shard table's first line is not '# shards=<N>'"
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    IFS=$'\t' read -r c k w <<<"${line}"
+    [[ -n "${known[${c}]:-}" ]] || _rp_plan_refuse "case=${c}" "the shard table has a row for ${c}, which is no case"
+    if ! [[ -z "${w}" && "${k}" =~ ^[1-9][0-9]*$ ]] || (( k > n )); then
+      _rp_plan_refuse "case=${c}" "the shard table puts ${c} on '${k}${w:+ ${w}}', not one shard in 1..${n}"
+    fi
+    [[ -z "${rows[${c}]:-}" ]] || _rp_plan_refuse "case=${c}" "the shard table has two rows for ${c}"
+    rows["${c}"]="${k}" held["${k}"]=1
+  done < <(tail -n +2 "${tsv}")
+  while IFS= read -r c; do
+    [[ -n "${rows[${c}]:-}" ]] || _rp_plan_refuse "case=${c}" "the shard table has no row for ${c}"
+  done < <(_rp_case_names)
+  for (( k = 1; k <= n; k++ )); do
+    [[ -n "${held[${k}]:-}" ]] || _rp_plan_refuse "shard=${k}" "the shard table's shard ${k} of ${n} holds no case"
+  done
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" && "${CONFIG_GEN_REDPATH_SHARD#*/}" != "${n}" ]]; then
+    _rp_plan_refuse arg=CONFIG_GEN_REDPATH_SHARD \
+      "CONFIG_GEN_REDPATH_SHARD=${CONFIG_GEN_REDPATH_SHARD} splits into ${CONFIG_GEN_REDPATH_SHARD#*/} shards; the shard table has ${n}"
+  fi
+}
+
+# _rp_shard_of <case> -- print the shard config_gen_redpath_shards.tsv
+# gives <case> (base#1547).
+_rp_shard_of() {
+  awk -F'\t' -v c="${1}" '$1 == c { print $2 }' "${_RP_SCRIPT_DIR}/config_gen_redpath_shards.tsv"
+}
+
 # _rp_selected <case> -- true unless CONFIG_GEN_REDPATH_ONLY is set and
-# does not name <case>.
+# does not name <case>, or CONFIG_GEN_REDPATH_SHARD=<n>/<N> is set and
+# the shard table puts <case> on another shard than n (base#1547).
 _rp_selected() {
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" ]]; then
+    [[ "$(_rp_shard_of "${1}")" == "${CONFIG_GEN_REDPATH_SHARD%%/*}" ]]
+    return
+  fi
   [[ -z "${CONFIG_GEN_REDPATH_ONLY:-}" ]] && return 0
   [[ " ${CONFIG_GEN_REDPATH_ONLY} " == *" ${1} "* ]]
 }
 
-# _rp_control <scratch> -- the unmodified copy must pass every gate.
-_rp_control() {
-  local root rc=0 g
-  root="$(_rp_copy "${1}")"
-  _rp_gates "${root}" control || rc=$?
-  if (( rc == 0 )); then
-    for g in "${_RP_GATES[@]}"; do
-      grep -qx "gate=${g} ok" "${root}.out" || rc=1
-    done
-    (( rc == 0 )) && return 0
-  fi
-  cat "${root}.err" >&2
-  _log_err "${_RP_SERVICE}" config_gen_redpath_control_failed "status=${rc}" \
-    "display=config-gen redpath control (no defect) did not pass every gate: status ${rc}"
+# _rp_shared <root> -- the shared pass (base#1547): the runner's
+# --steps-only on the pristine copy <root>, so the steps whose verdict
+# does not depend on a plant run once per job, before any case. Its
+# stdout goes to <root>.shared.out and its stderr to <root>.shared.err.
+_rp_shared() {
+  local rc=0
+  _rp_runner shared "${1}.shared.out" "${1}.shared.err" -- --root "${1}" --steps-only || rc=$?
+  (( rc == 0 )) && return 0
+  cat "${1}.shared.err" >&2
+  _log_err "${_RP_SERVICE}" config_gen_redpath_shared_failed "status=${rc}" \
+    "display=config-gen redpath shared pass (--steps-only on the unmodified copy) exited ${rc}"
+  return 1
+}
+
+# _rp_verdict_reusable <file> -- zero when <file> (CONFIG_GEN_STEPS_VERDICT,
+# written after the gates' steps pass) names status 0 and the digest a
+# pristine copy gives, so the shared pass already passed on these inputs
+# (base#1547).
+_rp_verdict_reusable() {
+  local steps
+  [[ -n "${1}" && -f "${1}" ]] || return 1
+  steps="$(IFS=,; printf '%s' "${_RP_REUSED_STEPS[*]}")"
+  grep -qx "digest=${_RP_PRISTINE_DIGEST} steps=${steps} status=0" "${1}"
+}
+
+# _rp_now -- the wall clock in seconds with microseconds, from
+# EPOCHREALTIME.
+_rp_now() {
+  printf '%s' "${EPOCHREALTIME/,/.}"
+}
+
+# _rp_timed <case> <cmd> [arg...] -- run <cmd>, then print one line to
+# stderr as the case finishes: `config-gen redpath case=<case> start=
+# end= secs= result=pass|fail` (base#1547). Returns <cmd>'s status.
+_rp_timed() {
+  local name="${1}" start end secs rc=0 result=pass
+  shift
+  start="$(_rp_now)"
+  "$@" || rc=$?
+  end="$(_rp_now)"
+  (( rc == 0 )) || result=fail
+  secs="$(awk -v s="${start}" -v e="${end}" 'BEGIN { printf "%.3f", e - s }')"
+  printf 'config-gen redpath case=%s start=%s end=%s secs=%s result=%s\n' "${name}" "${start}" "${end}" "${secs}" "${result}" >&2
+  return "${rc}"
+}
+
+# _rp_spawn <scratch> <case> <fn> [arg...] -- start <fn> as <case> in
+# the background through _rp_timed, once fewer than _RP_JOBS cases are
+# running (base#1547). Each case has its own copy, so cases share
+# nothing; its stderr goes to its own file under <scratch>, printed whole
+# when it is reaped, so no two cases' output interleaves. A full pool
+# reaps whichever case ends first, so the slot is reused at once. Monitor mode
+# is on only for the fork, so the case is the leader of its own process
+# group and _rp_stop can signal the case and every child it started.
+_rp_spawn() {
+  local err
+  while (( ${#_RP_PIDS[@]} >= _RP_JOBS )); do _rp_reap; done
+  err="$(mktemp "${1}/case.XXXXXX")"
+  set -m
+  _rp_timed "${@:2}" 2>"${err}" &
+  set +m
+  _RP_PIDS+=("$!") _RP_ERRS+=("${err}")
+}
+
+# _rp_stop <status> -- the INT/TERM trap (base#1547): send TERM to the
+# process group of every running case, wait for each by its pid, then
+# exit <status>, so a stopped redpath leaves no case or runner behind.
+_rp_stop() {
+  local pid
+  trap '' INT TERM
+  for pid in "${_RP_PIDS[@]}"; do kill -TERM -- "-${pid}" 2>/dev/null || true; done
+  for pid in "${_RP_PIDS[@]}"; do wait "${pid}" 2>/dev/null || true; done
+  exit "${1}"
+}
+
+# _rp_reap -- wait for whichever running case ends first (`wait -n -p`
+# over the pids in _RP_PIDS), print its stderr, and set _RP_FAILED when
+# it failed (base#1547). A case that ended before the wait began is
+# returned with its own status, so no status is lost, and its timed line
+# is printed as it finishes, not behind an older case still running; its
+# pool slot is free at once. The pid leaves _RP_PIDS only once it is
+# reaped, so _rp_stop still signals every case this wait is on.
+_rp_reap() {
+  local got='' i rc=0
+  wait -n -p got "${_RP_PIDS[@]}" || rc=$?
+  for i in "${!_RP_PIDS[@]}"; do
+    [[ "${_RP_PIDS[i]}" == "${got}" ]] || continue
+    (( rc == 0 )) || _RP_FAILED=1
+    cat "${_RP_ERRS[i]}" >&2
+    unset '_RP_PIDS[i]' '_RP_ERRS[i]'
+    _RP_PIDS=("${_RP_PIDS[@]}") _RP_ERRS=("${_RP_ERRS[@]}")
+    return 0
+  done
+  _log_err "${_RP_SERVICE}" config_gen_redpath_reap_lost "rc=${rc}" \
+    "display=config_gen_redpath.sh: wait -n returned no running case (rc=${rc})"
+  exit 1
+}
+
+# _rp_serial <case> -- true when <case> is in _RP_SERIAL (base#1547).
+_rp_serial() {
+  local c
+  for c in "${_RP_SERIAL[@]}"; do [[ "${c}" == "${1}" ]] && return 0; done
   return 1
 }
 
@@ -1518,56 +1769,117 @@ main() {
     exit 1
   fi
   export CONFIG_GEN_REDPATH_ACTIVE=1
-  local scratch entry failed=0 ran=0
+  if [[ -n "${CONFIG_GEN_STEPS_VERDICT:-}" && ! -f "${CONFIG_GEN_STEPS_VERDICT}" ]]; then
+    _log_err "${_RP_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_STEPS_VERDICT" \
+      "display=config_gen_redpath.sh: CONFIG_GEN_STEPS_VERDICT names no file: ${CONFIG_GEN_STEPS_VERDICT}"
+    exit 2
+  fi
+  # CONFIG_GEN_REDPATH_JOBS is a pool size: unset or empty means nproc,
+  # anything else must be a positive integer (base#1547).
+  if [[ -n "${CONFIG_GEN_REDPATH_JOBS:-}" && ! "${CONFIG_GEN_REDPATH_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
+    _log_err "${_RP_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_REDPATH_JOBS" \
+      "display=config_gen_redpath.sh: CONFIG_GEN_REDPATH_JOBS must be a positive integer, got: ${CONFIG_GEN_REDPATH_JOBS}"
+    exit 2
+  fi
+  # CONFIG_GEN_REDPATH_SHARD names one shard, n of N: two positive
+  # integers with n <= N (base#1547).
+  if [[ -n "${CONFIG_GEN_REDPATH_SHARD:-}" ]] \
+    && ! { [[ "${CONFIG_GEN_REDPATH_SHARD}" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] \
+      && (( BASH_REMATCH[1] <= BASH_REMATCH[2] )); }; then
+    _log_err "${_RP_SERVICE}" config_gen_usage_invalid "arg=CONFIG_GEN_REDPATH_SHARD" \
+      "display=config_gen_redpath.sh: CONFIG_GEN_REDPATH_SHARD must be <n>/<N> with 1 <= n <= N, got: ${CONFIG_GEN_REDPATH_SHARD}"
+    exit 2
+  fi
+  _rp_plan_check
+  local scratch pristine entry failed=0 ran=0
   scratch="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${scratch} now; it is local to main
   trap "rm -rf '${scratch}'" EXIT
+  _RP_PIDS=()
+  trap '_rp_stop 130' INT
+  trap '_rp_stop 143' TERM
+  pristine="$(_rp_copy "${scratch}")"
+  _RP_PRISTINE_DIGEST="$(_rp_digest "${pristine}")"
+  if _rp_verdict_reusable "${CONFIG_GEN_STEPS_VERDICT:-}"; then
+    _log_info "${_RP_SERVICE}" config_gen_redpath_shared_reused shared=reused-from-gates \
+      "display=config-gen redpath shared=reused-from-gates: the gates' steps verdict matches this copy's digest" >&2
+  else
+    if [[ -n "${CONFIG_GEN_STEPS_VERDICT:-}" ]] \
+      && ! grep -q "^digest=${_RP_PRISTINE_DIGEST} " "${CONFIG_GEN_STEPS_VERDICT}" 2>/dev/null; then
+      _log_info "${_RP_SERVICE}" config_gen_redpath_shared_ran shared=ran reason=digest_mismatch \
+        "display=config-gen redpath shared=ran reason=digest_mismatch: the gates' steps verdict names another digest than this copy's" >&2
+    fi
+    _rp_shared "${pristine}" || exit 1
+  fi
+  # The planted cases run in the background, at most
+  # CONFIG_GEN_REDPATH_JOBS at a time, nproc when unset (base#1547).
+  _RP_JOBS="${CONFIG_GEN_REDPATH_JOBS:-$(nproc)}" _RP_ERRS=() _RP_FAILED=0
   for entry in "${_RP_CASES[@]}"; do
     _rp_selected "${entry%%:*}" || continue
+    _rp_serial "${entry%%:*}" && continue
     ran=$(( ran + 1 ))
-    _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+    _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
   done
   for entry in "${_RP_REFUSALS[@]}"; do
     _rp_selected "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
-    _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}" || failed=1
+    _rp_spawn "${scratch}" "${entry%%:*}" _rp_refusal "${scratch}" "${entry%%:*}" "${entry#*:}"
   done
   local name file want pkg
   for entry in "${_RP_STALE[@]}"; do
     IFS='|' read -r name file want <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_stale "${scratch}" "${name}" "${file}" "${want}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_stale "${scratch}" "${name}" "${file}" "${want}"
   done
   for name in "${_RP_GREENS[@]}"; do
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_green_case "${scratch}" "${name}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_green_case "${scratch}" "${name}"
   done
   local gate
   for entry in "${_RP_AFTER_ADMIT[@]}"; do
     IFS='|' read -r name gate want file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_after_admit "${scratch}" "${name}" "${gate}" "${want}" "${file}"
   done
   for entry in "${_RP_COVERAGE[@]}"; do
     IFS='|' read -r name want pkg file <<<"${entry}"
     _rp_selected "${name}" || continue
     ran=$(( ran + 1 ))
-    _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}" || failed=1
+    _rp_spawn "${scratch}" "${name}" _rp_coverage "${scratch}" "${name}" "${want}" "${pkg}" "${file}"
   done
-  if _rp_selected rerun; then
+  while (( ${#_RP_PIDS[@]} > 0 )); do _rp_reap; done
+  # The _RP_SERIAL cases, each alone: spawned once the pool is empty and
+  # reaped before the next one starts (base#1547).
+  for entry in "${_RP_CASES[@]}"; do
+    _rp_selected "${entry%%:*}" || continue
+    _rp_serial "${entry%%:*}" || continue
     ran=$(( ran + 1 ))
-    _rp_rerun "${scratch}" || failed=1
+    _rp_spawn "${scratch}" "${entry%%:*}" _rp_case "${scratch}" "${entry%%:*}" "${entry#*:}"
+    _rp_reap
+  done
+  (( _RP_FAILED == 0 )) || failed=1
+  # rerun is the only check on the unmodified copy (base#1547): its
+  # first call is the control, held to rc 0 and exactly the seven ok lines.
+  # A CONFIG_GEN_REDPATH_ONLY run that does not name it still runs it, so
+  # a scoped run is held to a passing baseline. A CONFIG_GEN_REDPATH_SHARD
+  # run runs it only on the shard its one row names: the baseline is one
+  # value per commit, so a CI run checks it once, not once per shard.
+  local control='the control passed (rerun call 1)'
+  if [[ -z "${CONFIG_GEN_REDPATH_SHARD:-}" ]] || _rp_selected rerun; then
+    ran=$(( ran + 1 ))
+    _rp_timed rerun _rp_rerun "${scratch}" || failed=1
+  else
+    control="the control runs in shard $(_rp_shard_of rerun)/${CONFIG_GEN_REDPATH_SHARD#*/}"
   fi
   if _rp_selected retro; then
     ran=$(( ran + 1 ))
-    _rp_retro "${scratch}" || failed=1
+    _rp_timed retro _rp_retro "${scratch}" || failed=1
   fi
-  _rp_control "${scratch}" || failed=1
   (( failed == 0 )) || exit 1
-  echo "config-gen redpath: ${ran} planted cases went red, were refused or passed as planted; the control passed"
+  echo "config-gen redpath: ${ran} planted cases went red, were refused or passed as planted; ${control}"
 }
 
 if [[ "${BASH_SOURCE[0]:-$0}" == "${0}" ]]; then

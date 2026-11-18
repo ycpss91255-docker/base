@@ -319,7 +319,7 @@ _comment_prose() {
   # are what the consumer reads to decide where an edit belongs, so a seed
   # missing any of them fails here.
   run _comment_prose "${TEMP_DIR}/.env.local"
-  assert_output 'Your overrides -- yours. No part of the toolchain ever rewrites this file, and it is gitignored, so it never leaves this machine. One KEY=VALUE per line -- compose reads this file as a dotenv file: ROS_DOMAIN_ID=42 LOG_LEVEL=debug compose loads the generated `.env` first and this file second, so a key named in both resolves to the value here. `.env` is OURS: `just docker setup apply` regenerates it from setup.toml and an edit there is lost. Machine-bound / set-once params (GPU, privileged, mounts, IMAGE_NAME, APT mirror) belong in setup.toml instead. See README "Where each parameter lives (env vs workload)". '
+  assert_output 'Your overrides -- yours. No part of the toolchain ever rewrites this file, and it is gitignored, so it never leaves this machine. One KEY=VALUE per line -- compose reads this file as a dotenv file: ROS_DOMAIN_ID=42 LOG_LEVEL=debug compose loads the generated `.env` first and this file second, so a key named in both resolves to the value here. `.env` is OURS: `just docker setup apply` regenerates it from setup.toml and an edit there is lost. Machine-bound / set-once params (GPU, privileged, mounts, IMAGE_NAME, APT mirror) belong in setup.toml instead. See .base/doc/guide/env-vs-workload.md. '
   run grep -F '`just docker setup`' "${TEMP_DIR}/.env.local"
   assert_failure
 }

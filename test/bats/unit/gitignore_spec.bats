@@ -252,6 +252,7 @@ EOF
   done
 }
 
+# bats test_tags=kcov-fragile
 # why: When the rewrite cannot take the file's mode, landing it anyway
 # would leave .gitignore / .dockerignore at mktemp's 0600 -- the defect
 # the chmod is there to stop (base#1356). The prune is abandoned instead:

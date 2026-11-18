@@ -37,7 +37,7 @@
 #
 # Every other path reads this accessor: init.sh (the install hint and the
 # --bootstrap-just installer), .github/workflows/self-test.yaml (the
-# `just-version:` input of setup-just) and
+# `JUST_VERSION` handed to script/ci/install-just.sh) and
 # script/test/drivers/just_provenance.sh (the lint that refuses a new
 # provenance path with no pin).
 #

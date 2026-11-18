@@ -132,15 +132,49 @@ EXPECTED
   assert_output '    restart: "on-failure:5"'
 }
 
-@test "_emit_init_line: default/true emits init: true; false omits; garbage dropped (#792)" {
+# why: base#1651 -- an invalid restart was dropped with no output at all.
+@test "_emit_restart_line: invalid value warns naming key and value, still omits the field (base#1651)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  run --separate-stderr _emit_restart_line "alwayss"
+  assert_output ""
+  [[ "${stderr}" == *lifecycle* ]]
+  [[ "${stderr}" == *restart* ]]
+  [[ "${stderr}" == *alwayss* ]]
+}
+
+@test "_emit_init_line: default/true emits init: true; false omits (#792)" {
   run _emit_init_line
   assert_output "    init: true"
   run _emit_init_line "true"
   assert_output "    init: true"
   run _emit_init_line "false"
   assert_output ""
-  run _emit_init_line "garbage"
+}
+
+# why: base#1651 -- an invalid init was dropped with no output at all.
+@test "_emit_init_line: invalid value warns naming key and value, still omits the field (base#1651)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  run --separate-stderr _emit_init_line "garbage"
   assert_output ""
+  [[ "${stderr}" == *lifecycle* ]]
+  [[ "${stderr}" == *init* ]]
+  [[ "${stderr}" == *garbage* ]]
+}
+
+# why: base#1651 -- a repo with N stages calls the emitter N times; the
+# invalid-restart warning must print once per emit, and again after a reset.
+@test "_emit_restart_line: invalid value warns once per emit, again after reset (base#1651)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  local _err="${BATS_TEST_TMPDIR}/1651-latch.err"
+  _emit_restart_line "alwayss" 2>"${_err}" >/dev/null
+  _emit_restart_line "alwayss" 2>>"${_err}" >/dev/null
+  [[ "$(grep -c alwayss "${_err}")" == "1" ]]
+  _reset_inert_warnings
+  _emit_restart_line "alwayss" 2>>"${_err}" >/dev/null
+  [[ "$(grep -c alwayss "${_err}")" == "2" ]]
 }
 
 # why: additional_contexts

@@ -31,6 +31,11 @@ _is_excluded_file() {
     # image with no lib/log.sh, so its MISSING-DEP report goes straight to
     # fd 2 -- same rationale as logging.sh / watchdog.sh above.
     dist/test/bats/smoke/smoke.sh) return 0 ;;
+    # apt retry helper (base#1602): a /bin/sh script copied into the image
+    # and run by Dockerfile RUN layers, where no lib/log.sh exists, so its
+    # per-attempt failure line goes straight to fd 2 (the build log) --
+    # same rationale as watchdog.sh / smoke.sh above.
+    dist/script/docker/build/apt-retry.sh) return 0 ;;
     dist/script/docker/lib/_tui_backend.sh) return 0 ;;
     dist/script/docker/lib/_tui_conf.sh) return 0 ;;
     dist/script/docker/wrapper/setup_tui.sh) return 0 ;;
@@ -98,6 +103,15 @@ _is_allowlisted_line() {
   # and its refusal is `config_gen_gate_coverage_failed reason= pkg=` on
   # stderr, which the runner reads back as the gate that went red.
   [[ "${line}" == *"printf 'config_gen_gate_"* ]] && return 0
+
+  # config-gen's timing lines (base#1547): `config-gen stage=` from the
+  # gates runner and `config-gen redpath case=` from the redpath are one
+  # plain line per stage or case, read back by line shape (the redpath
+  # stub greps its parent's stderr for them, and the specs assert their
+  # fields), so a _log_* record's timestamp and level prefix would break
+  # those readers.
+  [[ "${line}" == *"printf 'config-gen stage="* ]] && return 0
+  [[ "${line}" == *"printf 'config-gen redpath case="* ]] && return 0
 
   return 1
 }

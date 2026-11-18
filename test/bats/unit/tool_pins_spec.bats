@@ -1758,19 +1758,20 @@ STUB
   run grep -F 'dist/script/base/just-version.sh' \
     /source/.github/workflows/self-test.yaml
   assert_success
-  run grep -F 'just-version: ${{ steps.just-pin.outputs.version }}' \
+  run grep -F 'JUST_VERSION: ${{ steps.just-pin.outputs.version }}' \
     /source/.github/workflows/self-test.yaml
   assert_success
 }
 
-# why: An unversioned setup-just installs whatever released most recently, so the
+# why: An unversioned just install takes whatever released most recently, so the
 # e2e job turns red on a day nobody touched the repo
-@test "pins: setup-just is no longer invoked without a just-version" {
-  # An unversioned setup-just installs whatever released most recently, so
-  # the e2e job turns red on a day nobody touched the repo and the diff
-  # that appears to have caused it is unrelated.
-  run awk '/uses: extractions\/setup-just/{found=1; next}
-           found && /just-version:/{print "pinned"; exit}
+@test "pins: the CI just install is never invoked without the pin" {
+  # An unversioned install takes whatever released most recently, so the
+  # e2e job turns red on a day nobody touched the repo and the diff that
+  # appears to have caused it is unrelated. The install step hands
+  # script/ci/install-just.sh the version through its env (base#1562).
+  run awk '/- name: Install just/{found=1; next}
+           found && /JUST_VERSION: \$\{\{ steps\./{print "pinned"; exit}
            found && /^ *- /{print "unpinned"; exit}' \
     /source/.github/workflows/self-test.yaml
   assert_success

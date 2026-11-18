@@ -471,18 +471,46 @@ acceptance:
 # just test go -> the config generator's Go gates (ADR-00000039,
 # base#1462): fmt, vet, lint, race and coverage in
 # dockerfile/Dockerfile.config-gen's test stage, then the binary's usage
-# contract, through script/test/config_gen_gates.sh; then
-# script/test/config_gen_redpath.sh, which plants one defect per gate in a
-# scratch copy and requires each to go red on its own gate. The SAME
-# command runs in the hosted self-test `config-gen` job, the self-hosted
-# coverage-local `config-gen` job and the pre-PR mirror. The two lines run
-# in order and a red runner stops the recipe: a redpath over gates that
-# are already red proves nothing. The redpath runs every case: a
-# CONFIG_GEN_REDPATH_ONLY (the spec's per-test scope, base#1465) in the
-# caller's environment is dropped. Needs the host docker daemon.
+# contract, through script/test/config_gen_gates.sh (go-gates); then
+# script/test/config_gen_redpath.sh (go-redpath, unsharded), which plants
+# one defect per gate in a scratch copy and requires each to go red on its
+# own gate. The SAME command runs in the self-hosted coverage-local
+# `config-gen` job and the pre-PR mirror; the hosted self-test workflow
+# runs its two recipes as the `config-gen-gates` job and the
+# `config-gen-redpath` shard matrix, so each job ends inside its bound
+# (base#1547). The two recipes run in order and a red runner stops this
+# one: a redpath over gates that are already red proves nothing. The
+# runner writes its steps verdict to a scratch file the redpath then
+# reuses in place of its shared pass, so steps 20 and 30 run once here
+# (base#1547). The redpath runs every case: a CONFIG_GEN_REDPATH_ONLY or
+# CONFIG_GEN_REDPATH_SHARD in the caller's environment is dropped. Needs
+# the host docker daemon.
 go:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "${tmp}"' EXIT
+    CONFIG_GEN_STEPS_VERDICT_OUT="${tmp}/steps.verdict" just test go-gates
+    CONFIG_GEN_STEPS_VERDICT="${tmp}/steps.verdict" just test go-redpath
+
+# just test go-gates -> the runner alone: the Go gates and the binary's
+# usage contract (base#1547). The hosted `config-gen-gates` job.
+go-gates:
     ./script/test/config_gen_gates.sh
-    env -u CONFIG_GEN_REDPATH_ONLY ./script/test/config_gen_redpath.sh
+
+# just test go-redpath [<n>/<N>] -> the redpath alone (base#1547): with a
+# shard, the cases config_gen_redpath_shards.tsv puts on shard n of N, the
+# hosted `config-gen-redpath` matrix job; without one, every case. A
+# CONFIG_GEN_REDPATH_ONLY or CONFIG_GEN_REDPATH_SHARD in the caller's
+# environment is dropped, so the argument alone picks the cases.
+#
+#   just test go-redpath 2/5
+go-redpath shard='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    unset CONFIG_GEN_REDPATH_ONLY CONFIG_GEN_REDPATH_SHARD
+    [[ -z "${1:-}" ]] || export CONFIG_GEN_REDPATH_SHARD="${1}"
+    exec ./script/test/config_gen_redpath.sh
 
 # just test smoke -> run the SHIPPED smoke specs (dist/test/bats/smoke/)
 # the way a downstream Dockerfile `-test` stage runs them: root-owned

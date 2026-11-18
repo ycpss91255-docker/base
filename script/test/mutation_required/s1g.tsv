@@ -1,10 +1,10 @@
 # s1g.tsv -- the mutations base#1468 (config-gen S1g, the shared corpus API
 # and the corpus root record) requires script/test/mutation-probe.sh to
 # report PINNED. One row per behaviour:
-# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new> TAB <witness>, the contract of
 # script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
 # written with the three escapes \\ \t \n. `just test mutation-required`
 # probes every row and passes only when each one is PINNED.
-corpus-root-guard	script/test/config_gen_coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  [[ -n "${x}" ]] || _refuse corpus_root_missing	  :
-corpus-root-forward	script/test/config_gen_coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  go test -covermode=atomic -coverprofile="${prof}" "-ldflags=-X=${_CG_X}" \\	  go test -covermode=atomic -coverprofile="${prof}" \\
+corpus-root-guard	script/test/config_gen_coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  [[ -n "${x}" ]] || _refuse corpus_root_missing	  :	^coverage\.sh: a missing corpus root record is refused with reason corpus_root_missing before go runs \(base#1468\)$
+corpus-root-forward	script/test/config_gen_coverage.sh	test/bats/unit/config_gen_coverage_spec.bats	  go test -covermode=atomic -coverprofile="${prof}" "-ldflags=-X=${_CG_X}" \\	  go test -covermode=atomic -coverprofile="${prof}" \\	^coverage\.sh: every go test receives the corpus root record as -ldflags=-X \(base#1468\)$

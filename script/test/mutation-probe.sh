@@ -244,6 +244,28 @@ _mutation_probe_git_state() {
   printf '%s' "${_hash}"
 }
 
+# _mutation_probe_tree_hash <root> -- the git tree object of <root>'s working
+# tree as it stands (tracked and untracked files, not ignored ones), written
+# through a scratch copy of the index so the real one is untouched. It is the
+# content, not a commit, so two sandboxes holding the same files hash alike.
+_mutation_probe_tree_hash() {
+  local _idx _real _hash _rc=0
+  _idx="$(mktemp "${TMPDIR:-/tmp}/mutation-probe-index.XXXXXX")" || return 1
+  _real="$(git -C "${1}" rev-parse --path-format=absolute --git-path index 2>/dev/null)" || _real=''
+  if [[ -n "${_real}" && -f "${_real}" ]]; then
+    cp -- "${_real}" "${_idx}" || _rc=1
+  else
+    rm -f -- "${_idx}"
+  fi
+  if (( _rc == 0 )); then
+    _hash="$(GIT_INDEX_FILE="${_idx}" git -C "${1}" add -A 2>/dev/null \
+      && GIT_INDEX_FILE="${_idx}" git -C "${1}" write-tree 2>/dev/null)" || _rc=1
+  fi
+  rm -f -- "${_idx}"
+  (( _rc == 0 )) || return 1
+  printf '%s' "${_hash}"
+}
+
 # _mutation_probe_root_id <root> -- the root's device and inode, or empty.
 _mutation_probe_root_id() {
   stat -c '%d:%i' -- "${1}" 2>/dev/null || printf ''
@@ -548,12 +570,13 @@ _mutation_probe_changed_paths() {
 
 # ── reading the run ────────────────────────────────────────────────────────
 
-# _mutation_probe_run <root> <spec-or-empty> <out-file> -- run the suite and
-# capture everything it said.
+# _mutation_probe_run <root> <spec-or-empty> <out-file> [<filter>] -- run the
+# suite and capture everything it said.
 #
 # MUTATION_PROBE_RUNNER overrides the command, which is what lets this loop be
 # tested without a docker build inside every case. It receives the root and
-# the spec (empty for a tier run) as its last two arguments.
+# the spec (empty for a tier run) as its last two arguments, and the filter as
+# a third after them when one is given (base#1571).
 #
 # The status is KEPT, in _MUTATION_PROBE_RUN_STATUS, and it is not the verdict:
 # a red suite exits non-zero and a red suite is the answer this tool is looking
@@ -568,11 +591,12 @@ _mutation_probe_changed_paths() {
 # a tree that is about to be restored under it. `exec` in the subshell makes
 # that pid the runner's own rather than a shell that would outlive the kill.
 _mutation_probe_run() {
-  local _root="${1}" _spec="${2}" _out="${3}"
+  local _root="${1}" _spec="${2}" _out="${3}" _filter="${4:-}"
   local -a _cmd=()
   if [[ -n "${MUTATION_PROBE_RUNNER:-}" ]]; then
     read -r -a _cmd <<< "${MUTATION_PROBE_RUNNER}"
     _cmd+=( "${_root}" "${_spec}" )
+    [[ -n "${_filter}" ]] && _cmd+=( "${_filter}" )
   else
     _MUTATION_PROBE_DEFAULT_RUNNER=1
     if [[ -n "${_spec}" ]]; then
@@ -580,6 +604,7 @@ _mutation_probe_run() {
     else
       _cmd=( "${_root}/script/test/test.sh" --bats-only )
     fi
+    [[ -n "${_filter}" ]] && _cmd+=( --filter "${_filter}" )
   fi
   # Job control on for the fork, so the child is its own process-group leader
   # and a signal handler can reach the WHOLE suite -- test.sh waits on
@@ -881,6 +906,11 @@ _mutation_probe_usage() {
     printf '             root as its working directory\n'
     printf '  --spec     narrow the run to one spec. A green then reports\n'
     printf '             INCONCLUSIVE, not NOT PINNED\n'
+    printf '  --baseline-out <file>  write the clean baseline to <file>\n'
+    printf '  --baseline-in <file>   read the baseline from a --baseline-out\n'
+    printf '             <file> of the same scope and tree hash instead of running it\n'
+    printf '  --filter <regex>       run the mutated pass under this test-name\n'
+    printf '             filter (test.sh --filter), so only the witnesses run\n'
   } >&2
 }
 
@@ -900,10 +930,10 @@ _mutation_probe() {
   _MUTATION_PROBE_ROOT_ID="$(_mutation_probe_root_id "${_root}")"
 
   local -a _subjects=()
-  local _mutate='' _spec=''
+  local _mutate='' _spec='' _base_in='' _base_out='' _filter=''
   while (( $# > 0 )); do
     case "${1}" in
-      --subject|--mutate|--spec)
+      --subject|--mutate|--spec|--baseline-in|--baseline-out|--filter)
         if (( $# < 2 )); then
           _mutation_probe_err "${1} needs a value."
           return 3
@@ -912,6 +942,9 @@ _mutation_probe() {
           --subject) _subjects+=( "${2}" ) ;;
           --mutate) _mutate="${2}" ;;
           --spec) _spec="${2}" ;;
+          --baseline-in) _base_in="${2}" ;;
+          --baseline-out) _base_out="${2}" ;;
+          --filter) _filter="${2}" ;;
         esac
         shift 2
         ;;
@@ -1021,35 +1054,80 @@ _mutation_probe() {
   trap _mutation_probe_emergency_restore EXIT
   trap _mutation_probe_signal_restore INT TERM
 
-  _mutation_probe_say "baseline: running scope=${_scope} unmutated"
-  _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+  # _probe_abandon <message> -- refuse before any subject is mutated: say
+  # why, disarm the restore traps (there is nothing to put back) and drop
+  # the work dir. The caller returns 3.
+  _probe_abandon() {
+    _mutation_probe_err "${1}"
+    trap - EXIT INT TERM
+    rm -rf "${_work}"
+  }
+
+  # --baseline-in reads a clean baseline another probe of the same scope on
+  # the same tree wrote with --baseline-out, instead of running it again: a
+  # roster ran one spec's baseline once per row, 314 times for 17 specs
+  # (base#1571). Only a baseline that passed every check below is written,
+  # and the checks still run on what is read.
+  # The file's first line keys it to the tree hash and the scope it ran, so
+  # a baseline from another spec or from a tree that has changed since is
+  # refused rather than compared against.
+  # Without --baseline-in, a --filter narrows the baseline as well as the
+  # mutated pass: a red needs only its own tests green unmutated, and the
+  # whole-spec baseline was most of a filtered row's cost (base#1582). The
+  # key a filtered baseline is written under names its filter, and a reader
+  # expects the whole-scope key, so a filtered baseline is never read as a
+  # whole one.
+  local _base_key='' _tree='' _base_flt=''
+  [[ -n "${_base_in}" ]] || _base_flt="${_filter}"
+  if [[ -n "${_base_in}" || -n "${_base_out}" ]]; then
+    if ! _tree="$(_mutation_probe_tree_hash "${_root}")"; then
+      _probe_abandon "could not hash the tree at ${_root}, so a --baseline-in / --baseline-out baseline cannot be keyed to it."
+      return 3
+    fi
+    _base_key="mutation-probe-baseline tree=${_tree} scope=${_scope}${_base_flt:+ filter=${_base_flt}}"
+  fi
+  if [[ -n "${_base_in}" ]]; then
+    _mutation_probe_say "baseline: reading scope=${_scope} unmutated from ${_base_in}"
+    local _got_key=''
+    if ! IFS= read -r _got_key < "${_base_in}" 2>/dev/null \
+      || ! tail -n +2 -- "${_base_in}" > "${_work}/baseline" 2>/dev/null; then
+      _probe_abandon "--baseline-in ${_base_in} could not be read, so there is no baseline to compare a mutated run against."
+      return 3
+    fi
+    if [[ "${_got_key}" != "${_base_key}" ]]; then
+      _probe_abandon "--baseline-in ${_base_in} was written for '${_got_key#mutation-probe-baseline }', not for 'tree=${_tree} scope=${_scope}', so its counts are not this run's baseline."
+      return 3
+    fi
+    _MUTATION_PROBE_RUN_STATUS=0
+  else
+    _mutation_probe_say "baseline: running scope=${_scope}${_base_flt:+ filter=${_base_flt}} unmutated"
+    _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline" "${_base_flt}"
+  fi
   local _base_ok _base_not _base_skip
   read -r _base_ok _base_not _base_skip \
     < <(_mutation_probe_tap_counts "${_work}/baseline")
   if (( _base_ok + _base_not == 0 )); then
-    _mutation_probe_err "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
     return 3
   fi
   if (( _base_not > 0 )); then
-    _mutation_probe_err "the baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. Get the scope green first, or narrow it with --spec. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. Get the scope green first, or narrow it with --spec. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
     return 3
   fi
   if (( _MUTATION_PROBE_RUN_STATUS != 0 )); then
-    _mutation_probe_err "the baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "the baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
     return 3
   fi
   _mutation_probe_say "baseline: ${_base_ok} executed / 0 not ok / ${_base_skip} skipped -- clean, so a red below is the mutation's"
+  if [[ -n "${_base_out}" ]] \
+    && ! { { printf '%s\n' "${_base_key}" && cat -- "${_work}/baseline"; } > "${_base_out}.tmp" \
+           && mv -f -- "${_base_out}.tmp" "${_base_out}"; }; then
+    _probe_abandon "the clean baseline could not be written to --baseline-out ${_base_out}."
+    return 3
+  fi
 
   if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
-    _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
-    trap - EXIT INT TERM
-    rm -rf "${_work}"
+    _probe_abandon "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
     return 3
   fi
 
@@ -1150,10 +1228,53 @@ _mutation_probe() {
     return 3
   fi
 
-  _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
+  _mutation_probe_run "${_root}" "${_spec}" "${_work}/run" "${_filter}"
 
   local _ok _not _skip
   read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
+
+  # A filtered green is not a verdict: the witnesses come from an older run,
+  # and another @test in the spec can still notice the mutant. Fall back to
+  # the whole spec, so a row never survives only because the filter left out
+  # the test that notices (base#1571). The checks below then read that run.
+  if [[ -n "${_filter}" ]] && (( _not == 0 )); then
+    _mutation_probe_say "the filtered pass stayed green; running the whole spec"
+    _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
+    read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
+    # A baseline that ran under the filter counted only the witness tests,
+    # so the whole-spec run is not compared against it: a red the spec had
+    # unmutated outside the filter would read as the mutation's. Put the
+    # tree back and run the whole spec unmutated, and the checks below read
+    # that pair (base#1582). The traps stay armed; the put-back at the end
+    # restores again, which is the same idempotent copy.
+    if [[ -n "${_base_flt}" ]]; then
+      local _run_status="${_MUTATION_PROBE_RUN_STATUS}"
+      _mutation_probe_stop_child
+      if ! _mutation_probe_await_daemon "${_root}" \
+        || ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}" \
+        || ! _mutation_probe_verify_restored "${_rec}" "${_root}" "${_subjects[@]}"; then
+        _probe_refuse "the tree could not be put back before the whole-spec baseline, so there is no baseline to compare the whole-spec run against."
+        return 3
+      fi
+      _mutation_probe_say "baseline: running scope=${_scope} unmutated"
+      _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+      read -r _base_ok _base_not _base_skip \
+        < <(_mutation_probe_tap_counts "${_work}/baseline")
+      if (( _base_ok + _base_not == 0 )); then
+        _probe_refuse "the whole-spec baseline run reported no test results at all, so there is nothing to compare the whole-spec run against. Its output: $(cat "${_work}/baseline")"
+        return 3
+      fi
+      if (( _base_not > 0 )); then
+        _probe_refuse "the whole-spec baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
+        return 3
+      fi
+      if (( _MUTATION_PROBE_RUN_STATUS != 0 )); then
+        _probe_refuse "the whole-spec baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
+        return 3
+      fi
+      _MUTATION_PROBE_RUN_STATUS="${_run_status}"
+    fi
+  fi
 
   if (( _ok + _not == 0 )); then
     _probe_refuse "the run executed no tests at all (${_skip} skipped). Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"

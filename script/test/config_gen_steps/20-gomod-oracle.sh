@@ -83,6 +83,20 @@ _gmo_image() {
   return 0
 }
 
+# _cg_step_tar_members <step> -- the files <step>.inputs declares, one
+# root-relative path per line, C-sorted, each listed directory expanded to
+# every file under it. The container gets exactly these: a declared set
+# smaller than what it reads breaks this step, instead of letting the
+# redpath reuse the step's verdict over an input its digest does not cover
+# (base#1547).
+_cg_step_tar_members() {
+  local path
+  while IFS= read -r path || [[ -n "${path}" ]]; do
+    [[ -n "${path}" ]] || continue
+    (cd -- "${_GMO_ROOT}" && find "${path}" -type f) || return 1
+  done < "${_GMO_DIR}/${1}.inputs" | LC_ALL=C sort -u
+}
+
 # _gmo_mismatch <file> <class> <reason> <text> -- one disagreement.
 _gmo_mismatch() {
   _log_err "${_GMO_SERVICE}" go_mod_oracle_mismatch "file=${1}" "class=${2}" "reason=${3}" \
@@ -130,7 +144,8 @@ main() {
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand ${tmp} now; it is local to main
   trap "rm -rf '${tmp}'" EXIT
-  tar -C "${_GMO_ROOT}" -cf "${tmp}/in.tar" "${_GMO_FIXTURES_REL}" "${_GMO_HELPER_REL}"
+  _cg_step_tar_members 20-gomod-oracle > "${tmp}/members"
+  tar -C "${_GMO_ROOT}" -cf "${tmp}/in.tar" --no-recursion -T "${tmp}/members"
   docker run --rm -i --network none --user "$(id -u):$(id -g)" \
     -e GOTOOLCHAIN=local -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOFLAGS= \
     --entrypoint /bin/sh "${image}" -c "${_GMO_CONTAINER_SCRIPT}" \

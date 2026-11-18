@@ -99,6 +99,7 @@ deploy_done
 deploy_manifest_malformed
 deploy_manifest_dup_basename
 deploy_manifest_no_baked_default
+deploy_mktemp_failed
 deploy_stage_absent
 
 # build.sh
@@ -272,6 +273,8 @@ interval_migration_declined
 # says THAT one ran; this one says what it changed in the repo's own file,
 # which is the half the consumer has to be able to disagree with.
 lifecycle_restart_default_migrated
+lifecycle_init_invalid
+lifecycle_restart_invalid
 
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
@@ -301,6 +304,7 @@ ci_coverage_path_conflict
 ci_coverage_evidence_not_erased
 ci_coverage_local_conflict
 ci_jobs_without_coverage_local
+ci_paths_without_selection
 ci_invalid_coverage_jobs
 ci_shard_weights_without_shard
 ci_shard_weights_unreadable
@@ -310,6 +314,7 @@ ci_invalid_per_test_timeout
 ci_no_fragile_files
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
+ci_coverage_unexplained_skip
 ci_coverage_merge_failed
 ci_coverage_union_unevidenced
 ci_coverage_union_incomplete
@@ -366,6 +371,7 @@ ci_host_id_not_numeric
 ci_handback_failed
 ci_prev_release_progress
 ci_prev_release_unavailable
+ci_config_gen_unprovisioned
 ci_live_tree_residue
 
 # transcript.sh (#606)
@@ -424,6 +430,7 @@ config_gen_gate_race_failed
 config_gen_gate_coverage_failed
 config_gen_build_failed
 config_gen_step_failed
+config_gen_step_reused
 config_gen_context_invalid
 config_gen_root_invalid
 config_gen_usage_invalid
@@ -431,6 +438,10 @@ config_gen_binary_contract_failed
 config_gen_redpath_reentered
 config_gen_redpath_case_failed
 config_gen_redpath_control_failed
+config_gen_redpath_shared_failed
+config_gen_redpath_shared_reused
+config_gen_redpath_shared_ran
+config_gen_redpath_reap_lost
 config_gen_building
 config_gen_unprovisionable
 config_gen_docker_missing
@@ -483,6 +494,13 @@ conf_family_two_spellings
 config_gen_check_usage
 config_gen_check_input_failed
 
+# dockerfile/config-gen/cmd/config-gen/tables.go (`config-gen tables`,
+# base#1469): the NUL frames it writes for a non-regular input, an input it
+# cannot open, and a failed or short stdout write.
+config_gen_input_not_regular
+config_gen_input_unreadable
+config_gen_output_failed
+
 # script/test/drivers/mutation_required.sh (the required-kill roster runner,
 # base#1461) and the no-flag `just test` dispatch that runs it.
 mutation_required_usage_invalid
@@ -495,6 +513,8 @@ mutation_required_probe_refused
 mutation_required_sandbox_held
 mutation_required_pinned
 mutation_required_interrupted
+mutation_required_row_timed
+mutation_required_row_dealt
 ci_mutation_required_failed
 
 # script/watch/lib.sh (the go.mod scanner of the pin registry) and

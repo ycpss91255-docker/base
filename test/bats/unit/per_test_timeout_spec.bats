@@ -24,8 +24,10 @@ bats_require_minimum_version 1.5.0
 #   A repo-shaped tree whose every spec records the BATS_TEST_TIMEOUT its
 #   test saw: one line `<PROBE_TAG> <spec> <value>` appended to
 #   ${PROBE_LOG}. One unit spec, one integration spec, and one unit spec
-#   carrying the kcov-fragile guard so _run_bats_fragile selects it (the
-#   guard falls through: COVERAGE is unset in every run below).
+#   carrying the kcov-fragile tag and guard so _run_bats_fragile selects
+#   it. The guard falls through in plain runs (COVERAGE unset) and fires in
+#   kcov runs, which set COVERAGE=1 as the coverage dispatch does, so each
+#   coverage slice's skip audit sees the tagged test skipped (base#1573).
 _make_fixture() {
   local _root="${1}" _name _dir
   mkdir -p "${_root}/test/bats/unit" "${_root}/test/bats/integration" \
@@ -36,6 +38,9 @@ _make_fixture() {
     # The test line is printed, not written in a here-doc, so no line of
     # THIS file starts with the test keyword except its own tests.
     {
+      if [[ "${_name}" == *fragile* ]]; then
+        printf '# bats test_tags=kcov-fragile\n'
+      fi
       printf '@test "probe %s" {\n' "${_name##*/}"
       if [[ "${_name}" == *fragile* ]]; then
         # shellcheck disable=SC2016
@@ -187,7 +192,7 @@ _one_value() {
   _plain="$(_entry_values plain "_run_unit_tests")" || fail "${_plain}"
   _plain="$(_one_value "${_plain}" "plain entry _run_unit_tests")" || fail "${_plain}"
   while IFS= read -r _line; do
-    DRIVER_ENV=()
+    DRIVER_ENV=(COVERAGE=1)
     _values="$(_entry_values kcov "${_line}")" || fail "${_values}"
     _v="$(_one_value "${_values}" "kcov entry '${_line}'")" || fail "${_v}"
     [[ -n "${_first}" ]] || _first="${_v}"
@@ -224,7 +229,7 @@ _one_value() {
   command -v kcov >/dev/null || \
     fail "no kcov in this image -- the coverage instrument whose bound this test reads is missing."
   while IFS= read -r _line; do
-    DRIVER_ENV=(PER_TEST_TIMEOUT=5 BATS_TEST_TIMEOUT=7777)
+    DRIVER_ENV=(COVERAGE=1 PER_TEST_TIMEOUT=5 BATS_TEST_TIMEOUT=7777)
     _values="$(_entry_values knob-kcov "${_line}")" || fail "${_values}"
     [[ "${_values}" == "15" ]] || \
       fail "with PER_TEST_TIMEOUT=5 and BATS_TEST_TIMEOUT=7777 inherited, kcov entry '${_line}' tests saw '${_values}', expected 15 (5 x the kcov factor 3) (base#1413)."

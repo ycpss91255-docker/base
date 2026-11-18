@@ -1,0 +1,9 @@
+["stage:dev"]
+image = "dev"
+env = { MODE = "dev", opts = { verbose = true } }
+
+["stage:dev".ports]
+http = 8080
+
+[stage]
+name = "prod"

@@ -105,6 +105,21 @@ EOF
   assert_output ""
 }
 
+# why: the in-image apt retry helper is excluded (base#1602): it is a
+# /bin/sh script copied into the image and run by Dockerfile RUN layers,
+# where no lib/log.sh exists, so its per-attempt failure line goes straight
+# to fd 2 -- the build log
+@test "does NOT flag bare stderr in the in-image apt-retry.sh helper (base#1602)" {
+  mkdir -p "${FIXTURE}/dist/script/docker/build"
+  cat > "${FIXTURE}/dist/script/docker/build/apt-retry.sh" <<'EOF'
+#!/bin/sh
+printf 'apt-retry: attempt %d/%d failed (exit %d)\n' "${i}" "${attempts}" "${rc}" >&2
+EOF
+  run bash "${LINT}" "${FIXTURE}"
+  assert_success
+  assert_output ""
+}
+
 # why: config-gen's in-image event protocol: the admit stage runs with no
 # lib/log.sh, so its refusal is a `cg_event` line on stderr that the host
 # runner reads back and re-emits through _log_err (base#1465)
@@ -139,6 +154,26 @@ EOF
   assert_equal "${status}" 1
   assert_output --partial "script/test/config_gen_thing.sh:4:"
   refute_output --partial "config_gen_thing.sh:3:"
+  assert_output --partial "1 bare stderr output(s) found"
+}
+
+# why: config-gen's timing lines are read back by line shape, the gates
+# runner's `config-gen stage=` and the redpath's `config-gen redpath
+# case=`, so a _log_* prefix would break their readers (base#1547)
+@test "does NOT flag a printf of a config-gen stage= or redpath case= timing line, but still flags any other bare stderr in the same file (base#1547)" {
+  cat > "${FIXTURE}/script/test/config_gen_thing.sh" <<'EOF'
+#!/usr/bin/env bash
+_thing() {
+  printf 'config-gen stage=%s start=%s end=%s secs=%s status=%s\n' "${1}" "${2}" "${3}" "${4}" "${5}" >&2
+  printf 'config-gen redpath case=%s start=%s end=%s secs=%s result=%s\n' "${1}" "${2}" "${3}" "${4}" "${5}" >&2
+  printf 'config-gen other=%s\n' "${1}" >&2
+}
+EOF
+  run bash "${LINT}" "${FIXTURE}"
+  assert_equal "${status}" 1
+  assert_output --partial "script/test/config_gen_thing.sh:5:"
+  refute_output --partial "config_gen_thing.sh:3:"
+  refute_output --partial "config_gen_thing.sh:4:"
   assert_output --partial "1 bare stderr output(s) found"
 }
 

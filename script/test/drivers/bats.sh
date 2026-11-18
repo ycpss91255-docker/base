@@ -489,62 +489,88 @@ _run_unit_shard() {
   bats "${_bats_args[@]}" ${_files}
 }
 
-# ── kcov-fragile unit specs ────────────────────────────────────────────
-
-readonly _FRAGILE_GUARD_RE='^[[:space:]]*\[ "\$\{COVERAGE:-0\}" = 1 \] &&[[:space:]]*skip'
-
-_fragile_unit_files() {
-  # Echo the newline-separated set of test/bats/unit/*_spec.bats files that
-  # contain at least one kcov-fragile test — those guarded inside a test
-  # body by `[ "${COVERAGE:-0}" = 1 ] && skip ...`. The coverage matrix
-  # SKIPS those tests (they perturb the kcov ptrace wrapper), so the plain
-  # bats-fragile job runs this set of FILES with COVERAGE unset, which is
-  # what keeps the skipped tests from going unrun. `-l` is the whole of the
-  # granularity: a file is selected for one guarded test and bats then runs
-  # all of it, so the unguarded tests in it run here as well as under kcov.
-  # Computed at runtime by grepping for the skip guard so it self-maintains
-  # both ways: a NEW fragile-skip in a file not yet in the set is picked
-  # up automatically, and a file whose last guard is removed leaves the
-  # set -- conf_abnormal_input_spec.bats left it when its 1 MiB test was
-  # unskipped (base#1414), so the bats-fragile job no longer runs it (a
-  # spec asserts the set). The regex is line-anchored on
-  # leading whitespace + the literal bracket so a COMMENT that merely
-  # mentions the guard (e.g. this driver's own spec) is NOT matched.
-  # _die's on an empty match (the guard pattern changed or the fragile
-  # tests were all removed — both want a human).
-  local _files
-  _files=$(grep -rlE "${_FRAGILE_GUARD_RE}" "${REPO_ROOT}/test/bats/unit" | sort)
-  if [[ -z "${_files}" ]]; then
-    _die ci_no_fragile_files \
-      "No kcov-fragile spec files matched the skip guard in test/bats/unit/. Did the guard pattern change?"
-  fi
-  printf '%s\n' "${_files}"
-}
+# ── kcov-fragile tests ─────────────────────────────────────────────────
 
 _run_bats_fragile() {
-  # Run ONLY the kcov-fragile unit spec FILES in PLAIN mode (COVERAGE
-  # unset), for the GHA bats-fragile job. Those files hold the tests the
-  # coverage matrix skips, so running them here is what leaves no unit test
-  # unrun: the skipped tests run plain here, every other unit test runs
-  # under kcov in the coverage matrix. It is not a partition -- selection is
-  # by file (_fragile_unit_files), so the unguarded tests in a selected file
-  # run in both legs. Runtime-computed, so the set self-maintains; the size
-  # of the overlap is derived in self_test_yaml_spec.bats rather than
-  # restated here.
-  local _files
-  _files="$(_fragile_unit_files)"
+  # Run the kcov-fragile TESTS in PLAIN mode (COVERAGE unset), for the GHA
+  # bats-fragile job. The coverage runs skip those tests, so running them
+  # here is what leaves no test unrun. Selection is by test, through bats'
+  # own tag filter over every coverage pool, so an untagged test beside a
+  # tagged one runs under kcov only, and a tagged test in the integration
+  # pool runs here too (base#1573). _coverage_skip_audit holds the tags
+  # to what coverage actually skips, by test name.
+  local -a _pools=()
+  local _pool
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    _pools+=("${REPO_ROOT}/${_pool}")
+  done
   local -a _bats_args
   local _label
   _bats_args_with_label _bats_args _label
-  echo "--- Running Bats kcov-fragile Unit Specs (plain; ${_label}) ---"
-  # Word-split intentional: print one line per fragile file.
-  # shellcheck disable=SC2086
-  printf '  fragile:%s\n' ${_files}
-  # Word-split intentional: bats accepts multiple file args. COVERAGE is
-  # NOT set, so the [ "${COVERAGE:-0}" = 1 ] && skip guards fall through
-  # and the fragile tests actually run.
-  # shellcheck disable=SC2086
-  bats "${_bats_args[@]}" ${_files}
+  echo "--- Running Bats kcov-fragile tests (plain; ${_label}) ---"
+  printf '  pool:%s\n' "${_pools[@]}"
+  # COVERAGE is NOT set, so the in-body `COVERAGE == 1 && skip` guards
+  # fall through and the fragile tests actually run.
+  bats "${_bats_args[@]}" --recursive --filter-tags kcov-fragile \
+    "${_pools[@]}"
+}
+
+# _junit_case_pairs <junit_xml> <mode>
+#   Echo one `<testsuite>\t<testcase>` line per test case in a bats junit
+#   report, sorted and unique. <mode> `skipped` keeps only the cases that
+#   hold a <skipped> element; `all` keeps every case. Names stay as the
+#   report spells them (XML-escaped): both sides of a comparison come from
+#   bats' own junit writer, so they are spelled alike.
+_junit_case_pairs() {
+  local _xml="${1:?BUG: _junit_case_pairs expects a junit xml path}"
+  local _mode="${2:?BUG: _junit_case_pairs expects a mode}"
+  [[ -f "${_xml}" ]] || return 0
+  awk -v mode="${_mode}" '
+    function attr(key,   re) {
+      re = "[ ]" key "=\"[^\"]*\""
+      if (match($0, re)) return substr($0, RSTART + length(key) + 3, RLENGTH - length(key) - 4)
+      return ""
+    }
+    /<testsuite[ >]/ { suite = attr("name") }
+    /<testcase[ >]/ {
+      cur = suite "\t" attr("name")
+      if (mode == "all") print cur
+    }
+    /<skipped[ >\/]/ { if (mode == "skipped" && cur != "") print cur }
+    /<\/testcase>/ { cur = "" }
+  ' "${_xml}" | sort -u
+}
+
+# _coverage_skip_audit <slice_junit_xml> <target>...
+#   Fail with ci_coverage_unexplained_skip unless the tests a coverage slice
+#   skipped are exactly the tests tagged kcov-fragile among the same
+#   targets (base#1573). S is the (testsuite, testcase) pairs
+#   <slice_junit_xml> marks skipped. T is the pairs `COVERAGE=1 bats
+#   --filter-tags kcov-fragile` selects over the same targets, run without
+#   kcov. A skip outside T is a test no plain leg selects, and a tag
+#   outside S marks a test that did not skip. Both differences are named.
+#   No source text is read: a guard in any spelling, wrapper or position
+#   is judged by what bats did.
+_coverage_skip_audit() {
+  local _xml="${1:?BUG: _coverage_skip_audit expects a junit xml path}"
+  shift
+  (( $# > 0 )) || _die ci_coverage_unexplained_skip "BUG: _coverage_skip_audit expects targets"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _junit_case_pairs "${_xml}" skipped > "${_tmp}/S"
+  # The tagged tests' exit status is not the question here: a tagged test
+  # that fails instead of skipping is absent from S, so it is named below.
+  COVERAGE=1 bats --recursive --filter-tags kcov-fragile --formatter junit \
+    "$@" > "${_tmp}/tagged.xml" 2> "${_tmp}/tagged.err" || true
+  _junit_case_pairs "${_tmp}/tagged.xml" all > "${_tmp}/T"
+  local _untagged _unskipped
+  _untagged="$(comm -23 "${_tmp}/S" "${_tmp}/T" | tr '\t' ' ' | paste -sd ';' -)"
+  _unskipped="$(comm -13 "${_tmp}/S" "${_tmp}/T" | tr '\t' ' ' | paste -sd ';' -)"
+  rm -rf "${_tmp}"
+  if [[ -n "${_untagged}" || -n "${_unskipped}" ]]; then
+    _die ci_coverage_unexplained_skip \
+      "skipped under coverage without the kcov-fragile tag: [${_untagged}]; tagged kcov-fragile but not skipped under coverage: [${_unskipped}]"
+  fi
 }
 
 # ── Kcov coverage ────────────────────────────────────────────────────────────
@@ -1100,6 +1126,10 @@ _coverage_parallel_launch() {
     # _coverage_parallel_merge to key each timing on its repo-relative path
     # (base#1410).
     _junit_base_dir "${_cpl_slices[_i - 1]%%$'\n'*}" > "${_work}/base-${_i}"
+    # The slice's bats arguments, read back by _coverage_parallel_collect so
+    # the skip audit runs over the same targets (base#1573).
+    # shellcheck disable=SC2086
+    printf '%s\n' "${_cpl_extra[@]}" ${_cpl_slices[_i - 1]} > "${_work}/args-${_i}"
     # Word-split intentional: one bats target per slice file. Each slice's
     # bats is SERIAL, and that is the mode's whole shape: the cores come from
     # separate kcov processes, each with its own parser. Handing a slice's
@@ -1138,6 +1168,14 @@ _coverage_parallel_collect() {
     cat "${_work}/log-${_i}" 2>/dev/null || true
     _coverage_stderr_replay "${_work}/err-${_i}"
     (( _prc == 0 )) || _rc="${_prc}"
+  done
+  # After every replay, so a refusal never hides a later slice's output.
+  # Each slice's skips must be exactly its kcov-fragile tests (base#1573).
+  local -a _args
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    [[ -f "${_work}/junit-${_i}/report.xml" && -s "${_work}/args-${_i}" ]] || continue
+    mapfile -t _args < "${_work}/args-${_i}"
+    _coverage_skip_audit "${_work}/junit-${_i}/report.xml" "${_args[@]}"
   done
   return "${_rc}"
 }

@@ -439,6 +439,28 @@ _append() {
   [[ "${output}" == *"doc/readme/README.zh-TW.md:"* ]]
 }
 
+# why: The README's deep sections moved to doc/guide/; a stale stage set or a
+#       kcov claim there must stay inside the lint's reach (base#1545)
+@test "_run_derived_figures: scans the doc/guide pages too (base#1545)" {
+  _append "doc/guide/dockerfile-stages.md" \
+    'baseline blocklist `{sys, devel-base, devel, devel-test, runtime-test}`'
+  _append "doc/guide/testing.md" '```bash' \
+    'just test   # ShellCheck + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"doc/guide/dockerfile-stages.md:"* ]]
+  [[ "${output}" == *"doc/guide/testing.md:"* ]]
+}
+
+# why: A tree with no doc/guide/ at all is still clean -- the glob is a
+#       reach, not a requirement (base#1545)
+@test "_run_derived_figures: a tree with no doc/guide pages is still clean (base#1545)" {
+  rm -rf "${SCRATCH}/doc/guide"
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 @test "_run_derived_figures: ignores a \${VAR} expansion that is not a stage set (#874)" {
   _append "dist/script/docker/lib/sample.sh" \
     '_conf="${_root}/setup.toml"' \
