@@ -1391,24 +1391,36 @@ _assert_import_retry() {
   fi
 }
 
+# why: devel-test is the first cache-from build in the job, so an evicted
+# GHA cache entry fails here before anything else runs; without the retry
+# one stale entry costs the caller a full rerun (isaac#364, base#1702).
 @test "build-worker.yaml: a failed devel-test cache import retries the stage once without cache-from (#1702)" {
   _assert_import_retry build_devel_test devel-test \
       "Build devel-test stage (includes lint + bats smoke)" \
       "Retry devel-test stage without the cache import"
 }
 
+# why: devel is the image the job hands on, built from its own cache
+# scope, so it can hit an evicted entry even after devel-test imported
+# cleanly; a retry that still named cache-from would fail the same way.
 @test "build-worker.yaml: a failed devel cache import retries the stage once without cache-from (#1702)" {
   _assert_import_retry build_devel devel \
       "Build devel stage" \
       "Retry devel stage without the cache import"
 }
 
+# why: runtime-test is the install check that gates the runtime image; a
+# stale import there would fail the job for a cache problem, not for a
+# broken install, and the report would blame the wrong thing.
 @test "build-worker.yaml: a failed runtime-test cache import retries the stage once without cache-from (#1702)" {
   _assert_import_retry build_runtime_test runtime-test \
       "Build runtime-test stage (install check)" \
       "Retry runtime-test stage without the cache import"
 }
 
+# why: runtime is the last standard build and the one a release ships;
+# losing it to a stale import after every earlier stage passed is the
+# most expensive form of the base#1702 failure.
 @test "build-worker.yaml: a failed runtime cache import retries the stage once without cache-from (#1702)" {
   _assert_import_retry build_runtime runtime \
       "Build runtime stage" \
@@ -1459,6 +1471,9 @@ _run_build_stage() {
   '
 }
 
+# why: the load-bearing behaviour check: it runs the real build_stage
+# against a stub docker, so it proves the second call drops both cache
+# flags and keeps the target, which a grep of the step cannot show.
 @test "build-worker.yaml: a failed extra-stage build retries once without cache flags (#1702)" {
   _run_build_stage "1"
   assert_success
@@ -1474,6 +1489,9 @@ _run_build_stage() {
   refute_output --partial '--cache-to'
 }
 
+# why: build_stage only protects the calls routed through it; a buildx
+# call added straight into the loop would import a stale cache with no
+# second attempt and every other spec here would still pass.
 @test "build-worker.yaml: both extra-stage builds go through build_stage, the only caller of buildx (#1702)" {
   # Two invocations (the stage's -test and the stage) share one retry. A
   # third `docker buildx build` outside the helper would be a build that
