@@ -1,14 +1,14 @@
 # s5.tsv -- the mutations base#1441 (config-gen S5, the TOML 1.0 acceptance
 # gate) requires script/test/mutation-probe.sh to report PINNED. One row per
 # behaviour:
-# <id> TAB <subject> TAB <spec> TAB <old> TAB <new>, the contract of
+# <id> TAB <subject> TAB <spec> TAB <old> TAB <new> TAB <witness>, the contract of
 # script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
 # once in <subject> and is replaced by <new> (empty <new> deletes), both
 # written with the three escapes \\ \t \n. `just test mutation-required`
 # probes every row and passes only when each one is PINNED.
-oracle-name	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	    if [[ ! "${f}" =~ ^[A-Za-z0-9._/-]+$ ]]; then	    if false; then
-oracle-image	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	"${out}/answer.raw"; then	"${out}/answer.raw"; false; then
-oracle-count	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if (( rows != ${#files[@]} )); then	  if false; then
-oracle-token	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${bad}" ]]; then	  if false; then
-oracle-calibration	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${drift}" ]]; then	  if false; then
-gate-fuzz-fail-path	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	    (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \\	    true; \\
+oracle-name	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	    if [[ ! "${f}" =~ ^[A-Za-z0-9._/-]+$ ]]; then	    if false; then	^10-toml-oracle\.sh: a file name outside \[A-Za-z0-9\._/-\] is config_gen_toml_oracle_failed reason=name before any docker run, no toml-oracle/ left \(base#1441\)$
+oracle-image	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	"${out}/answer.raw"; then	"${out}/answer.raw"; false; then	^10-toml-oracle\.sh: a container that exits non-zero is config_gen_toml_oracle_failed reason=image, no toml-oracle/ left \(base#1441\)$
+oracle-count	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if (( rows != ${#files[@]} )); then	  if false; then	^10-toml-oracle\.sh: an answer missing a row is config_gen_toml_oracle_failed reason=count, no toml-oracle/ left \(base#1441\)$
+oracle-token	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${bad}" ]]; then	  if false; then	^10-toml-oracle\.sh: an answer whose verdict is neither accept nor refuse is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left \(base#1441\)$
+oracle-calibration	script/test/config_gen_steps/10-toml-oracle.sh	test/bats/integration/config_gen_toml10_spec.bats	  if [[ -n "${drift}" ]]; then	  if false; then	^10-toml-oracle\.sh: a calibration answer that differs from the oracle's verdict is config_gen_toml_oracle_failed reason=calibration, no toml-oracle/ left \(base#1441\)$
+gate-fuzz-fail-path	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	    (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \\	    true; \\	^Dockerfile\.config-gen: the fuzz RUN prints config_gen_gate_fuzz_failed and exits 1 when a search, a listing or the corpus root read fails \(base#1441\)$
