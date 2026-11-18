@@ -1353,3 +1353,19 @@ _build_comment_paragraphs() {
   assert_success
   assert_output ''
 }
+
+# why: The devel stage build is the step that builds the generated
+# Dockerfile's `devel` target, whose `FROM ${TEST_TOOLS_IMAGE}` has no default;
+# a step that omits the build-arg fails with a blank base name. Scoped to
+# the one step: the same line already sits in the devel-test and
+# runtime-test steps, so a whole-file match would pass without the fix (base#1670).
+@test "build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)" {
+  local _args
+  _args="$(yq -N '.. | select(tag == "!!map" and .name == "Build devel stage") | .with["build-args"]' "${WF}")"
+  [ -n "${_args}" ] || {
+    echo "no Build devel stage step with build-args found" >&2
+    return 1
+  }
+  run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
+  assert_success
+}
