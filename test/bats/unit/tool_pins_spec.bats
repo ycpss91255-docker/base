@@ -379,6 +379,23 @@ _pins() {
   assert_success
 }
 
+# why: A marker that names a checksum ARG the file does not declare must refuse the
+# bump with nothing written; skipping it would commit "version bumped, digest
+# stale" (base#1676). The fixture URL is absent, so the refusal cannot depend on
+# the fetch.
+@test "pins: --set with a sha256 ARG the file does not declare exits 1 and changes no byte (base#1676)" {
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${BATS_TEST_TMPDIR}/absent-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_OTHER=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  _pins --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'FOO_SHA256'
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
