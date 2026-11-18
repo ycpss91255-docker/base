@@ -95,3 +95,16 @@ setup() {
   run --separate-stderr bash "${CHECK}"
   assert_success
 }
+
+# why: GitHub accepts a colon after the closing keyword ("Closes: #2").
+# A script that only matched keyword-space-number would pass a PR that
+# closes two issues written in that form (base#1629).
+@test "single_issue_pr.sh: closing keywords written with a colon count (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'fix: first\n\nCloses: #1\n\nfix: second\n\nFixes: #2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"#1"* ]]
+  [[ "${stderr}" == *"#2"* ]]
+}
