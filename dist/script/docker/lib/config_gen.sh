@@ -104,6 +104,9 @@ config_gen_tables() {
     "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
     > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
   _config_gen_decode_frames "${_tmp}/err"
+  if ((_rc == 0)); then
+    IFS= read -r -d '' _cgt_out < "${_tmp}/out" || true
+  fi
   rm -rf -- "${_tmp}"
   return "${_rc}"
 }
