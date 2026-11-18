@@ -374,7 +374,7 @@ setup() {
   # unreachable from the day it shipped and was removed with the input,
   # and what a gha caller executes is unchanged either way.
   for _target in devel-test devel runtime-test runtime; do
-    # #1702: each line is gated on disable_cache, so the scope sits inside
+    # base#1702: each line is gated on disable_cache, so the scope sits inside
     # a format() call; the literal scope spelling is unchanged.
     run code_grep -F "cache-from: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key)" "${WF}"
     assert_success
@@ -393,7 +393,7 @@ setup() {
   run code_grep -F 'type=registry' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
   # Both buildx invocations (test-stage + stage) get their flags from
-  # set_cache_flags (#1702), which calls the selection helpers once.
+  # set_cache_flags (base#1702), which calls the selection helpers once.
   run code_grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
   assert_success
   assert_output "1"
@@ -455,7 +455,7 @@ FROM debian:bookworm AS foo-test' foo
   done
 }
 
-# ── disable_cache input (#1702) ──────────────────────────────────
+# ── disable_cache input (base#1702) ──────────────────────────────────
 
 @test "build-worker.yaml: declares disable_cache input as boolean default false (#1702)" {
   # Default false keeps every existing caller on the cache it uses today.
