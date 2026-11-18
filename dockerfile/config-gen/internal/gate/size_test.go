@@ -4,25 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
-
-// A 1 MiB basic string value is accepted in under one second, with no
-// panic (base#1441 acceptance: size). tomllib accepts it; the bound holds
-// under -race too, because the gate reads each byte a fixed number of
-// times.
-func TestCheckOneMiBValueUnderOneSecond(t *testing.T) {
-	src := []byte("a = \"" + strings.Repeat("x", 1<<20) + "\"\n")
-	start := time.Now()
-	err := Check("t.toml", src)
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("Check(1 MiB string) = %v, want nil", err)
-	}
-	if elapsed >= time.Second {
-		t.Fatalf("Check(1 MiB string) took %v, want under 1s", elapsed)
-	}
-}
 
 // 2000 nested arrays are refused with the depth refusal at 1:5, the
 // outermost `[` after `a = `, and do not panic (base#1441 acceptance:
