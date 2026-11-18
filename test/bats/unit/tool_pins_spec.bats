@@ -443,6 +443,32 @@ _pins() {
   assert_success
 }
 
+# why: A checksum write that reports success but leaves another value behind must
+# not pass as a bump; --set reads every checksum ARG back and, on a mismatch,
+# restores the file and exits 1 (base#1676). The write that does not take is
+# injected by an `mv` first on pins.sh's PATH: on its 2nd call (the checksum
+# line) it moves the file as asked, then puts the old digest back.
+@test "pins: --set restores the file and exits 1 when a checksum ARG does not read back (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx" _bin="${BATS_TEST_TMPDIR}/stalemv"
+  local _zero=0000000000000000000000000000000000000000000000000000000000000000
+  mkdir -p "${_fx}" "${_bin}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  printf '#!/bin/sh\nn=$(cat "%s/n" 2>/dev/null || echo 0)\nn=$((n + 1))\necho "$n" > "%s/n"\n/bin/mv "$@" || exit 1\n[ "$n" -eq 2 ] && for last; do :; done && [ "$n" -eq 2 ] && sed -i "s/^ARG FOO_SHA256=.*/ARG FOO_SHA256=%s/" "$last"\nexit 0\n' \
+    "${_bin}" "${_bin}" "${_zero}" > "${_bin}/mv"
+  chmod +x "${_bin}/mv"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    "ARG FOO_SHA256=${_zero}"
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${_bin}:${PATH}" run "${PINS}" --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'FOO_SHA256'
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: A reviewer of a bump proposal must see where each regenerated digest came
 # from; the success output names every sha256 ARG with its source (base#1676).
 @test "pins: --set success output records each checksum ARG with its source (base#1676)" {
