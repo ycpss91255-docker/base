@@ -185,6 +185,37 @@ _write() {
   [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
 }
 
+# why: Only a moving, untagged or run-time tag is a finding. A pinned
+# version or digest, a documentation placeholder, a local content tag and
+# a name that merely contains test-tools (a workflow file, a Dockerfile, a
+# compose service key) are not consumers of a moving tag.
+@test "_run_moving_tag: PASSES on pinned, placeholder and local test-tools tags and on names that only contain test-tools (base#1647)" {
+  _write ".github/workflows/pinned.yaml" \
+    'jobs:' \
+    '  a:' \
+    '    container: ghcr.io/ycpss91255-docker/test-tools:v0.43.0' \
+    '  b:' \
+    '    container: ghcr.io/ycpss91255-docker/test-tools:v0.43.0-rc1' \
+    '  c:' \
+    '    container: ghcr.io/ycpss91255-docker/test-tools@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' \
+    '  d:' \
+    '    uses: ./.github/workflows/release-test-tools.yaml'
+  _write "script/ci/a.sh" \
+    '#!/usr/bin/env bash' \
+    'echo "pull ghcr.io/ycpss91255-docker/test-tools:<ver>"' \
+    'echo "or ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z"' \
+    'docker run --rm test-tools:local' \
+    'docker run --rm test-tools:0123456789ab' \
+    'docker build -f dockerfile/Dockerfile.test-tools .'
+  _write "compose.yaml" \
+    'services:' \
+    '  test-tools:' \
+    '    image: test-tools:local'
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_moving_tag: allow-list
 # ════════════════════════════════════════════════════════════════════
