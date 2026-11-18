@@ -172,12 +172,12 @@ ARG SHELLCHECK_VERSION=v0.11.0
 # must update both, otherwise the build fails closed.
 ARG SHELLCHECK_SHA256_AMD64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
-# tool-pin: hadolint github-release hadolint/hadolint
+# tool-pin: hadolint github-release hadolint/hadolint sha256=HADOLINT_SHA256_AMD64@asset:https://github.com/hadolint/hadolint/releases/download/{version}/hadolint-linux-x86_64 sha256=HADOLINT_SHA256_ARM64@asset:https://github.com/hadolint/hadolint/releases/download/{version}/hadolint-linux-arm64
 ARG HADOLINT_VERSION=v2.15.1
 # sha256 of the v2.15.1 raw binary per arch: the asset `digest` field from
 # `gh release view v2.15.1 -R hadolint/hadolint` (upstream publishes no
-# .sha256 file; curl returned 404), base#1672. A version bump must update
-# both, otherwise the build fails closed.
+# .sha256 file; curl returned 404), base#1672. `pins.sh --set hadolint`
+# regenerates both from the release assets the marker names (base#1676).
 ARG HADOLINT_SHA256_AMD64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
 COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract
