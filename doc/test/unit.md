@@ -722,7 +722,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (72)
+### test/bats/unit/build_worker_yaml_spec.bats (73)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -902,6 +902,7 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
+| `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a build step that omits the build-arg fails with a blank base name. Scoped to the Build devel stage step: the same line already sits in the devel-test and runtime-test steps, so a whole-file match would pass without the fix (base#1670). |
 
 ### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
 
