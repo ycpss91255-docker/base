@@ -167,6 +167,11 @@ _run_moving_tag() {
   local _i _path _ekind _scope _count _token _reason
   for _i in "${!_allow[@]}"; do
     IFS='|' read -r _path _ekind _scope _count _token _reason <<< "${_allow[_i]}"
+    if [[ -z "${_reason//[[:space:]]/}" ]]; then
+      printf '%s: allow-list entry has an empty reason; say why the reference is sanctioned\n' \
+        "${_path}"
+      _violations=$(( _violations + 1 ))
+    fi
     if [[ ! "${_count}" =~ ^[1-9][0-9]*$ ]]; then
       printf '%s: allow-list entry count must be a positive integer, got %s\n' \
         "${_path}" "${_count:-<empty>}"
