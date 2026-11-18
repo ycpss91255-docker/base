@@ -591,3 +591,8 @@ config_gen_path_unmountable
 # docker run failed (status=) and the binary wrote no diagnostic frame,
 # so docker itself refused the run.
 config_gen_run_failed
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
+# binary's diagnostic stream held a frame that is not an 8-field D frame
+# with a registered event id (reason=tag|unregistered|truncated|count).
+config_gen_diag_malformed

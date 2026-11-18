@@ -71,24 +71,55 @@ config_gen_resolve() {
   tool_image_resolve config_gen
 }
 
-# _config_gen_decode_frames <errfile>
+# _config_gen_decode_frames <errfile> <name>
 #   Re-emit each 8-field NUL frame the binary wrote to <errfile>
 #   (tag, severity, event, file, line, col, key, text) as one config_gen
-#   log record (base#1470). Answers 1 when <errfile> held no frame.
+#   log record (base#1470). A frame that is not one -- a tag other than D,
+#   an event id the registry does not know, fewer than 8 fields, or a
+#   last field cut off before its NUL -- is refused as
+#   config_gen_diag_malformed with reason=. Answers 1 when <errfile> held
+#   no frame.
 _config_gen_decode_frames() {
   local -a _f=()
-  local _field _n=0
+  local _field="" _n=0
   while IFS= read -r -d '' _field; do
     _f+=("${_field}")
+    _field=""
     if ((${#_f[@]} == 8)); then
-      _log_err config_gen "${_f[2]}" "display=${_f[7]}" \
-        "file=${_f[3]}" "line=${_f[4]}" "col=${_f[5]}" "key=${_f[6]}" \
-        "text=${_f[7]}"
+      if [[ "${_f[0]}" != D ]]; then
+        _config_gen_diag_malformed tag "$2"
+      elif ! _log_is_registered "${_f[2]}"; then
+        _config_gen_diag_malformed unregistered "$2"
+      else
+        _log_err config_gen "${_f[2]}" "display=${_f[7]}" \
+          "file=${_f[3]}" "line=${_f[4]}" "col=${_f[5]}" "key=${_f[6]}" \
+          "text=${_f[7]}"
+      fi
       _f=()
       _n=$((_n + 1))
     fi
   done < "$1"
+  # A started frame left open: its last field lacks a NUL (truncated) or
+  # it has fewer than 8 fields (count). Bytes with no NUL at all are not
+  # a frame and stay docker's own text.
+  if ((${#_f[@]} > 0)); then
+    if [[ -n "${_field}" ]]; then
+      _config_gen_diag_malformed truncated "$2"
+    else
+      _config_gen_diag_malformed count "$2"
+    fi
+    _n=$((_n + 1))
+  fi
   ((_n > 0))
+}
+
+# _config_gen_diag_malformed <reason> <name>
+#   The refusal for a diagnostic stream that is not an 8-field D frame;
+#   <name> is the file config_gen_tables was given (base#1470).
+_config_gen_diag_malformed() {
+  _log_err config_gen config_gen_diag_malformed \
+    "display=config_gen_tables: the diagnostic stream for ${2} is not an 8-field NUL frame (${1})" \
+    "file=${2}" "reason=$1"
 }
 
 # config_gen_tables <file> <outvar>
@@ -143,7 +174,7 @@ config_gen_tables() {
     > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
   # A failure no frame explains is docker's own (125 daemon or option
   # error, 126/127 entrypoint): the binary never spoke (base#1470).
-  if ! _config_gen_decode_frames "${_tmp}/err" && ((_rc != 0)); then
+  if ! _config_gen_decode_frames "${_tmp}/err" "$1" && ((_rc != 0)); then
     _log_err config_gen config_gen_run_failed \
       "display=config_gen_tables: docker run for $1 failed with status ${_rc} and no diagnostic" \
       "file=$1" "status=${_rc}"
