@@ -63,3 +63,25 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"script/ci/a.sh:2"* ]]
 }
+
+@test "_run_moving_tag: FAILS on a tag fed by a workflow input whose default is latest (the pre-base#1204 build-worker shape, base#1647)" {
+  # The base#1122 regression, from git show a67636b3: no literal moving tag,
+  # an input defaulting to "latest" feeding the image tag.
+  _write ".github/workflows/build-worker.yaml" \
+    'on:' \
+    '  workflow_call:' \
+    '    inputs:' \
+    '      test_tools_version:' \
+    '        required: false' \
+    '        type: string' \
+    '        default: "latest"' \
+    'jobs:' \
+    '  build:' \
+    '    steps:' \
+    '      - with:' \
+    '          build-args: |' \
+    '            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/build-worker.yaml:13"* ]]
+}
