@@ -443,6 +443,22 @@ _pins() {
   assert_success
 }
 
+# why: A reviewer of a bump proposal must see where each regenerated digest came
+# from; the success output names every sha256 ARG with its source (base#1676).
+@test "pins: --set success output records each checksum ARG with its source (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  assert_output --partial "FOO_SHA256"
+  assert_output --partial "file://${_fx}/a-v2.0.0.bin"
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
