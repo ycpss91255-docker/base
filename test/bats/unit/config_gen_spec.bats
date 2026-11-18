@@ -674,3 +674,36 @@ exit \"\${rc}\""
     assert_equal "$(cat "${_seen}")" "[]"
   done
 }
+
+# why: docker writes its own unframed text to the same stderr as the
+#      binary's frames (a platform WARNING line before the binary starts).
+#      Read as a frame, that text swallows the frame's tag and the real
+#      refusal is lost; dropped, docker's message vanishes. The unframed
+#      bytes are forwarded once as config_gen_stray_stderr naming the
+#      caller's text, the frame that follows is re-emitted as its own
+#      event (conf_toml_parse_failed at line 3 col 7), no frame is called
+#      malformed, docker's status stays the answer, and the outvar stays
+#      cleared.
+@test "config-gen: tables forwards unframed stderr once as config_gen_stray_stderr beside the frame" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+  local _err="${BATS_TEST_TMPDIR}/frame.err"
+  printf 'WARNING: The requested image platform does not match the host\nD\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0\0dup key\0' > "${_err}"
+  _mock_docker_tables_stderr "${_err}" 1
+
+  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+  assert_refusal 1 conf_toml_parse_failed "file=layer.toml" "line=3" "col=7"
+  assert_logged_event config_gen_stray_stderr "file=layer.toml" "WARNING: The requested image platform does not match the host"
+  assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_stray_stderr)" 1
+  assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_diag_malformed)" 0
+  assert_equal "$(cat "${_seen}")" "[]"
+}
