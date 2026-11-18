@@ -905,9 +905,11 @@ jobs:
               echo "::endgroup::"
               # Reached only when the test-stage build ran and passed, as
               # for the stage build below (base#1602).
-              BUILD_METADATA="$(cat "${RUNNER_TEMP}/${test_stage}.json")" \
-                CACHE_EXPORT_LABEL="${test_stage}" \
-                bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+              if [ "${DISABLE_CACHE:-}" != "true" ]; then
+                BUILD_METADATA="$(cat "${RUNNER_TEMP}/${test_stage}.json")" \
+                  CACHE_EXPORT_LABEL="${test_stage}" \
+                  bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+              fi
             fi
 
             echo "::group::Build ${stage} (extra stage)"
@@ -924,9 +926,11 @@ jobs:
             # Reached only when the build above passed (`set -e`): the
             # export is ignore-error=true, so read the build's own record
             # and warn when it did not finish (base#1602).
-            BUILD_METADATA="$(cat "${RUNNER_TEMP}/${stage}.json")" \
-              CACHE_EXPORT_LABEL="${stage}" \
-              bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+            if [ "${DISABLE_CACHE:-}" != "true" ]; then
+              BUILD_METADATA="$(cat "${RUNNER_TEMP}/${stage}.json")" \
+                CACHE_EXPORT_LABEL="${stage}" \
+                bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+            fi
           done
 
       # ── Reclaim ──────────────────────────────────────────────────
