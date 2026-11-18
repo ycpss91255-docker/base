@@ -1185,6 +1185,17 @@ _bake_config_copy() {
   mv -- "${_tmp}" "${_out}"
 }
 
+# base#1661: succeed only for a real child of the temp root (non-empty,
+# under ${TMPDIR:-/tmp}/, not the root itself, no '..' segment).
+_deploy_work_dir_safe() {
+  local _path="${1:-}"
+  local _tmp_root="${TMPDIR:-/tmp}"
+  while [[ "${_tmp_root}" == */ ]]; do _tmp_root="${_tmp_root%/}"; done
+  [[ -n "${_path}" && "${_path}" == "${_tmp_root}"/* \
+     && "${_path#"${_tmp_root}"/}" == *[!/]* \
+     && "${_path}" != */../* && "${_path}" != */.. ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _generate_deploy_bundle <base_path> <stage> <out_dir>
 #
@@ -1346,7 +1357,14 @@ _generate_deploy_bundle() {
     _dry_run_cmd cp -a "${_work}/." "${_out_dir}/" || _rc=$?
   fi
 
-  rm -rf "${_work}"
+  # base#1661: only remove a real child of the temp root; anything else is
+  # logged and left in place (the bundle result stays as computed).
+  if _deploy_work_dir_safe "${_work}"; then
+    rm -rf "${_work}"
+  else
+    _log_err setup deploy_work_rm_refused \
+      "display=[setup] deploy: refusing to remove unexpected work dir '${_work}'"
+  fi
   if [[ -n "${_prev_trap}" ]]; then
     eval "${_prev_trap}"
   else
