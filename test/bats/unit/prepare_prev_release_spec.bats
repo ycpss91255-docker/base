@@ -34,12 +34,14 @@ teardown() {
 
 # A git that holds LOCAL_TAGS in its object store and reaches an upstream
 # listing UPSTREAM_TAGS. `fetch` copies the tags its refspecs name from
-# upstream into the local store; `archive` emits a release tree whose
-# .version is the tag. Everything else succeeds silently.
+# upstream into the local store, or fails without touching it when
+# FETCH_FAILS exists; `archive` emits a release tree whose .version is the
+# tag. Everything else succeeds silently.
 _mock_git() {
   mock_cmd "git" '
     _local="'"${LOCAL_TAGS}"'"
     _up="'"${UPSTREAM_TAGS}"'"
+    _fail="'"${BATS_TEST_TMPDIR}/fetch.fails"'"
     _args=" ${*} "
     case "${_args}" in
       *" tag "*)
@@ -51,6 +53,7 @@ _mock_git() {
         done < "${_up}"
         exit 0 ;;
       *" fetch "*)
+        [[ -e "${_fail}" ]] && exit 128
         for _a in "$@"; do
           case "${_a}" in
             *"refs/tags/v*:"*) cat "${_up}" >> "${_local}" ;;
@@ -87,4 +90,20 @@ _mock_git() {
 
   run cat "${ROOT}/.prev-release/tags.txt"
   assert_output "$(printf '%s\n' v0.43.1 v0.43.0)"
+}
+
+# why: when an owed release cannot be fetched, carrying on with the local
+# tags shrinks the window silently -- the suite goes green having never
+# driven the release a consumer on the 0.43 line most likely sits on. The
+# guard must name what is missing and refuse to write a window at all.
+@test "prepare-prev-release: an owed release the fetch cannot bring in fails naming it, with no window (base#1729)" {
+  printf '%s\n' v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.43.1 v0.43.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+  : > "${BATS_TEST_TMPDIR}/fetch.fails"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_failure
+  assert_output --partial "v0.43.1"
+  assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
 }
