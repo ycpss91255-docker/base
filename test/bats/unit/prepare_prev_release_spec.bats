@@ -36,8 +36,9 @@ teardown() {
 # listing UPSTREAM_TAGS. `fetch` copies the tags its refspecs name from
 # upstream into the local store, or fails without touching it when
 # FETCH_FAILS exists; `ls-remote` exits 128 (upstream unreachable) when
-# LS_REMOTE_FAILS exists; `archive` emits a release tree whose .version is
-# the tag. Everything else succeeds silently.
+# LS_REMOTE_FAILS exists; `rev-parse` succeeds only for a tag the local
+# store holds; `archive` emits a release tree whose .version is the tag.
+# Everything else succeeds silently.
 _mock_git() {
   mock_cmd "git" '
     _local="'"${LOCAL_TAGS}"'"
@@ -67,6 +68,12 @@ _mock_git() {
         done
         sort -u "${_local}" | sort -rV -o "${_local}"
         exit 0 ;;
+      *" rev-parse "*)
+        _ref="${!#}"
+        _ref="${_ref#refs/tags/}"
+        _ref="${_ref%"^{commit}"}"
+        grep -qxF "${_ref}" "${_local}"
+        exit ;;
       *" archive "*)
         _tag="${!#}"
         _tree="$(mktemp -d)"
@@ -103,7 +110,7 @@ _mock_git() {
 # v0.44.1-rc1, so v0.44.1 sits above it and v0.42.0 below the floor: the
 # window is exactly v0.44.0 v0.43.2 v0.43.1 v0.43.0.
 @test "prepare-prev-release: the window is every release from v0.43.0 below an rc tree, newest first (base#1729)" {
-  printf '%s\n' v0.44.1 v0.44.0 v0.43.2 v0.43.1 v0.43.0 v0.42.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.42.0 > "${LOCAL_TAGS}"
   printf '%s\n' v0.44.1 v0.44.0 v0.43.2 v0.43.1 v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
   printf '%s\n' v0.44.1-rc1 > "${ROOT}/.version"
 
@@ -147,22 +154,55 @@ _mock_git() {
   assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
 }
 
-# why: with upstream unreachable the owed set cannot be read, and treating
-# that as "nothing owed" lets the local tags alone define the window -- a
-# checkout holding only v0.44.0 would go green having never driven
-# v0.43.0. Offline the run is degraded, says so, and still refuses a
-# window missing the minimum the tree alone implies: v0.m.0 for every
-# 43 <= m < tree minor, here v0.43.0 and v0.44.0 (base#1041).
-@test "prepare-prev-release: with upstream unreachable a window missing a v0.m.0 below the tree fails as degraded, naming it (base#1729)" {
-  printf '%s\n' v0.44.0 > "${LOCAL_TAGS}"
-  printf '%s\n' v0.44.0 v0.43.0 > "${UPSTREAM_TAGS}"
-  printf '%s\n' v0.45.0-rc1 > "${ROOT}/.version"
+# why: with upstream unreachable the owed set cannot be read, and no rule
+# the tree alone implies replaces it: a v0.43.1-rc1 tree owes v0.43.0, and
+# any minimum built from the tree's minor misses patch releases like that
+# one. Carrying on with the local tags then writes an empty window and goes
+# green having driven nothing. The run must refuse, say upstream could not
+# be listed, and write no tags.txt.
+@test "prepare-prev-release: with upstream unreachable the run fails with no window (base#1729)" {
+  printf '%s\n' v0.42.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.43.1-rc1 > "${ROOT}/.version"
   : > "${BATS_TEST_TMPDIR}/ls-remote.fails"
 
   run bash "${ROOT}/script/test/prepare-prev-release.sh"
   assert_failure
-  assert_output --partial "degraded"
-  assert_output --partial "v0.43.0"
+  assert_output --partial "cannot list upstream release tags"
+  assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
+}
+
+# why: membership is a fact about upstream. A tag only this checkout holds
+# (a deleted upstream tag, or one made by hand) is not a release a consumer
+# can be sitting on, and driving it tests nothing anyone runs. Upstream
+# lists only v0.43.0, so the window is exactly that, whatever else the
+# local store carries.
+@test "prepare-prev-release: a tag only the checkout holds stays out of the window (base#1729)" {
+  printf '%s\n' v0.43.9 v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.43.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+
+  run cat "${ROOT}/.prev-release/tags.txt"
+  assert_output "v0.43.0"
+}
+
+# why: the window fills as soon as the floor is tagged below the tree, not
+# only once the next minor ships (base#1041 table). A v0.44.0-rc1 tree with
+# v0.43.0 and v0.42.0 upstream owes exactly v0.43.0; v0.42.0 is below the
+# floor.
+@test "prepare-prev-release: an rc tree one minor past the floor owes the floor alone (base#1729)" {
+  printf '%s\n' v0.42.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+
+  run cat "${ROOT}/.prev-release/tags.txt"
+  assert_output "v0.43.0"
 }
 
 # why: an upstream that answers but lists no stable release is not an
@@ -211,8 +251,8 @@ _mock_git() {
   assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
 }
 
-# why: offline the tree version still bounds the degraded minimum. A bad
-# .version there must refuse too, not fall through to a passing check.
+# why: a bad .version must refuse before upstream is asked anything, so an
+# unreachable upstream cannot mask it behind a different failure.
 @test "prepare-prev-release: with upstream unreachable a tree past 0.x still fails with no window (base#1729)" {
   printf '%s\n' v0.44.0 v0.43.0 > "${LOCAL_TAGS}"
   printf '%s\n' v1.0.0 > "${ROOT}/.version"
