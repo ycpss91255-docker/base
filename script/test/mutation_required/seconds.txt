@@ -328,6 +328,8 @@ s1j.tsv	tables-name-label	45.8
 s1j.tsv	tables-outvar-clear	14.5
 s1j.tsv	tables-raw-guard	19.5
 s1j.tsv	tables-resolve-first	13.9
+s1j.tsv	tables-root-abs	13.8
+s1j.tsv	tables-root-parent	13.8
 s1j.tsv	tables-run-as-caller	36.3
 s1j.tsv	tables-stat	28.1
 s1j.tsv	tables-tmp-removed	26.1
