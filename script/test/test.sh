@@ -1310,7 +1310,11 @@ _dispatch_needs_prev_release() {
   return 0
 }
 
-# _check_suite_prerequisites [root]
+# _check_suite_prerequisites [root] [system]
+#   <system>=1 marks the `--system` dispatch (ci-system), which never reads
+#   .prev-release/tags.txt and is launched without the host prev-release
+#   step, so it is exempt from that fixture; HOST_UID / HOST_GID stay
+#   required.
 #   <root> is the checkout to inspect (default: REPO_ROOT; a spec passes a
 #   scratch tree because REPO_ROOT is readonly once this file is sourced).
 #   The in-container half of the prerequisites the host-side dispatch
@@ -1325,8 +1329,9 @@ _dispatch_needs_prev_release() {
 #   fixture it never reads.
 _check_suite_prerequisites() {
   local _root="${1:-${REPO_ROOT}}"
+  local _system="${2:-0}"
   local -a _missing=()
-  if _dispatch_needs_prev_release "${COVERAGE:-0}" \
+  if [[ "${_system}" != "1" ]] && _dispatch_needs_prev_release "${COVERAGE:-0}" \
      && [[ ! -s "${_root}/.prev-release/tags.txt" ]]; then
     _missing+=(".prev-release/tags.txt (run script/test/prepare-prev-release.sh on the host, or start the suite with 'just test')")
   fi
@@ -3222,7 +3227,7 @@ main() {
       # unable to run coverage again (base#1032). The reports are on disk
       # before the verdict is, so there is nothing to wait for.
       _HANDBACK_ARMED=1
-      _check_suite_prerequisites
+      _check_suite_prerequisites "" "${system}"
       if [[ "${system}" == "1" ]]; then
         _run_system
         return 0
