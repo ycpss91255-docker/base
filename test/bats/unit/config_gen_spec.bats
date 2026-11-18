@@ -50,15 +50,105 @@ _seed_cg_subtree() {
   : > "${DOCKER_LOG}"
 }
 
+# _cg_mock_docker <body>
+#   The only installer of a docker stub in this spec. The stub starts with
+#   one recorder: each call's argv, NUL-joined, goes to ${CG_CALLS}/call.<n>
+#   (n = 1, 2, ... in call order), and the `$*` line is appended to
+#   DOCKER_LOG (read by _count_inspects and the resolve rows). The call
+#   `docker __cg_probe` is recorded and answered with exit 0 and nothing
+#   else; every other call then runs <body>. Whether a call is recorded no
+#   longer depends on which stub a row installs (base#1470).
+_cg_mock_docker() {
+  export CG_CALLS="${BATS_TEST_TMPDIR}/calls"
+  mkdir -p "${CG_CALLS}"
+  create_mock_dir
+  mock_cmd "docker" \
+    '_cg_n=1
+     while [[ -e "${CG_CALLS}/call.${_cg_n}" ]]; do _cg_n=$((_cg_n + 1)); done
+     printf "%s\0" "$@" > "${CG_CALLS}/call.${_cg_n}"
+     [[ $# -eq 1 && "$1" == __cg_probe ]] && exit 0
+     printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     '"$1"
+}
+
+# _cg_reset_calls -- forget every recorded call and empty DOCKER_LOG, so a
+#   loop iteration's assertions read only that iteration's calls.
+_cg_reset_calls() {
+  rm -f -- "${CG_CALLS}"/call.*
+  : > "${DOCKER_LOG}"
+}
+
+# _cg_call_files -- the recorded call files, one per line, in call order.
+_cg_call_files() {
+  local _n=1
+  while [[ -e "${CG_CALLS}/call.${_n}" ]]; do
+    printf '%s\n' "${CG_CALLS}/call.${_n}"
+    _n=$((_n + 1))
+  done
+}
+
+# _cg_assert_recording
+#   A behavioural positive control: `docker __cg_probe`, run on the PATH
+#   the shim runs on, must leave exactly one new call file whose bytes are
+#   `__cg_probe` NUL; it is then removed. A stub that does not record, or a
+#   PATH that no longer reaches the recording stub, fails here, so an
+#   assertion about what was called cannot pass on a mute recorder.
+_cg_assert_recording() {
+  [[ -n "${CG_CALLS:-}" ]] || fail "no docker stub installed by _cg_mock_docker"
+  local -a _before _after
+  mapfile -t _before < <(_cg_call_files)
+  docker __cg_probe || fail "docker __cg_probe exited $?"
+  mapfile -t _after < <(_cg_call_files)
+  ((${#_after[@]} == ${#_before[@]} + 1)) \
+    || fail "docker __cg_probe left $((${#_after[@]} - ${#_before[@]})) call files, not 1: the stub does not record"
+  local _last="${_after[${#_after[@]} - 1]}"
+  cmp -s -- "${_last}" <(printf '%s\0' __cg_probe) \
+    || fail "the probe's call file does not hold __cg_probe NUL"
+  rm -f -- "${_last}"
+}
+
+# assert_cg_calls [<verb>...]
+#   After _cg_assert_recording, argv[0] of every recorded call, in order,
+#   equals the given list: exact and complete, so no verbs means no docker
+#   call of any kind.
+assert_cg_calls() {
+  _cg_assert_recording
+  local -a _seen=() _files
+  local _f _v
+  mapfile -t _files < <(_cg_call_files)
+  for _f in "${_files[@]}"; do
+    IFS= read -r -d '' _v < "${_f}" || true
+    _seen+=("${_v}")
+  done
+  [[ "${_seen[*]}" == "$*" && ${#_seen[@]} -eq $# ]] \
+    || fail "docker calls: [${_seen[*]}], expected [$*]"
+}
+
+# assert_cg_run_argv <word>...
+#   After _cg_assert_recording, exactly one recorded call has argv[0]
+#   `run`, and its bytes equal the given words NUL-joined: every word and
+#   every word boundary.
+assert_cg_run_argv() {
+  _cg_assert_recording
+  local -a _files _runs=()
+  local _f _v
+  mapfile -t _files < <(_cg_call_files)
+  for _f in "${_files[@]}"; do
+    IFS= read -r -d '' _v < "${_f}" || true
+    [[ "${_v}" != run ]] || _runs+=("${_f}")
+  done
+  ((${#_runs[@]} == 1)) || fail "${#_runs[@]} docker run calls, not 1"
+  cmp -s -- "${_runs[0]}" <(printf '%s\0' "$@") \
+    || fail "docker run argv: [$(tr '\0' '|' < "${_runs[0]}")], expected [$(printf '%s|' "$@")]"
+}
+
 # _mock_docker [present|absent|fail]
 #   docker records its argv. `image inspect` answers present (0) or absent
 #   (1); `build` succeeds, or with `fail` prints two lines and exits 125.
 _mock_docker() {
   local _mode="${1:-absent}"
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) [[ "'"${_mode}"'" == present ]] && exit 0; exit 1 ;;
        build)
          if [[ "'"${_mode}"'" == fail ]]; then
@@ -403,10 +493,8 @@ _cg_tables_seen() {
 #   prefix of the table list on stdout, then one 8-field NUL frame
 #   `config_gen_output_failed` on stderr, exit 4.
 _mock_docker_tables_output_failed() {
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) exit 0 ;;
        run)
          printf "a\nb\n"
@@ -449,10 +537,8 @@ _mock_docker_tables_exec() {
     fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
   fi
   export CONFIG_GEN_BIN
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) exit 0 ;;
        run)
          shift
@@ -587,10 +673,8 @@ _mock_docker_tables_exec() {
 #   error, 126 not executable, 127 not found): a plain-text message on
 #   stderr, no NUL frame, exit <status>.
 _mock_docker_tables_run_fails() {
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) exit 0 ;;
        run)
          printf "docker: Error response from daemon: run failed.\n" >&2
@@ -652,10 +736,8 @@ _mock_docker_tables_run_fails() {
 #   the bytes of <errfile> to stderr verbatim, nothing to stdout, and
 #   exits <status>: a scripted diagnostic stream.
 _mock_docker_tables_stderr() {
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) exit 0 ;;
        run)
          cat -- '"'$1'"' >&2
@@ -821,10 +903,8 @@ config_gen_tables layer.toml ${_name}"
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '[a]\n[b]\n' > "${_wd}/layer.toml"
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) exit 0 ;;
        run)
          printf "a\nb\n"
@@ -964,18 +1044,18 @@ config_gen_tables layer.toml ${_name}"
   _run_cg_tables "${_wd}" layer.toml
   assert_refusal 1 config_gen_build_failed "path=${CG_DF}" "status=125"
   assert_equal "$(_cg_tables_seen)" "[]"
-  run grep -c '^run ' "${DOCKER_LOG}"
-  assert_output 0
+  assert_cg_calls image build
 
+  # A fresh stub: _cg_assert_recording in assert_cg_calls proves it
+  # records before its empty call list is read.
   cleanup_mock_dir || true
-  : > "${DOCKER_LOG}"
+  _cg_reset_calls
   _mock_docker present
   rm -f "${CG_DF}"
   _run_cg_tables "${_wd}" layer.toml
   assert_refusal 1 config_gen_unprovisionable "path=${CG_DF}"
   assert_equal "$(_cg_tables_seen)" "[]"
-  run grep -c '^run ' "${DOCKER_LOG}"
-  assert_output 0
+  assert_cg_calls
 }
 
 # why: the mounted file must be the one the kernel opens for the caller's
@@ -1010,10 +1090,8 @@ config_gen_tables layer.toml ${_name}"
 #   the table list `a` and exits 0: a scripted answer, so the row asserts
 #   only what the shim hands docker.
 _mock_docker_tables_ok() {
-  create_mock_dir
-  mock_cmd "docker" \
-    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
-     case "$1" in
+  _cg_mock_docker \
+    'case "$1" in
        image) exit 0 ;;
        run) printf "a\n"; exit 0 ;;
        *) exit 1 ;;
