@@ -54,3 +54,12 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *".github/workflows/x.yaml:2"* ]]
 }
+
+@test "_run_moving_tag: FAILS on a script naming test-tools:main under an unqualified registry prefix (base#1647)" {
+  _write "script/ci/a.sh" \
+    '#!/usr/bin/env bash' \
+    'TEST_TOOLS_IMAGE=${ORG}/test-tools:main'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:2"* ]]
+}
