@@ -108,10 +108,11 @@ _mock_git() {
 # the floor a consumer on the 0.43 line sits on -- and a window with no
 # upper bound would add the tree's own release line. Here the tree is
 # v0.44.1-rc1, so v0.44.1 sits above it and v0.42.0 below the floor: the
-# window is exactly v0.44.0 v0.43.2 v0.43.1 v0.43.0.
+# window is exactly v0.44.0 v0.43.2 v0.43.1 v0.43.0. Upstream lists them
+# oldest first, so the order comes from the version, not the listing.
 @test "prepare-prev-release: the window is every release from v0.43.0 below an rc tree, newest first (base#1729)" {
   printf '%s\n' v0.42.0 > "${LOCAL_TAGS}"
-  printf '%s\n' v0.44.1 v0.44.0 v0.43.2 v0.43.1 v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.42.0 v0.43.0 v0.43.1 v0.43.2 v0.44.0 v0.44.1 > "${UPSTREAM_TAGS}"
   printf '%s\n' v0.44.1-rc1 > "${ROOT}/.version"
 
   run bash "${ROOT}/script/test/prepare-prev-release.sh"
