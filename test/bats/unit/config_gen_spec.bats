@@ -619,3 +619,58 @@ exit \"\${rc}\""
     assert_equal "$(cat "${_seen}")" "[]"
   done
 }
+
+# _mock_docker_tables_stderr <errfile> <status>
+#   docker records its argv; `image inspect` answers present. `run` writes
+#   the bytes of <errfile> to stderr verbatim, nothing to stdout, and
+#   exits <status>: a scripted diagnostic stream.
+_mock_docker_tables_stderr() {
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run)
+         cat -- '"'$1'"' >&2
+         exit '"$2"' ;;
+       *) exit 1 ;;
+     esac'
+}
+
+# why: the binary's diagnostics are 8-field NUL frames (tag D, severity,
+#      event, file, line, col, key, text; tables.go). A stream that is
+#      not such a frame -- 7 fields, an 8th field cut off before its NUL,
+#      a tag other than D, an event id the registry does not know -- is
+#      not a diagnostic the shim can re-emit: dropping it would leave the
+#      refusal unexplained, and re-emitting an unknown id makes the logger
+#      refuse the body. Each one is refused as config_gen_diag_malformed
+#      naming the caller's text, docker's status stays the answer, and
+#      the outvar stays cleared.
+@test "config-gen: tables refuses a malformed diagnostic frame with config_gen_diag_malformed" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+  local _err="${BATS_TEST_TMPDIR}/frame.err"
+  local _shape
+  for _shape in seven truncated tag unregistered; do
+    case "${_shape}" in
+      seven) printf 'D\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0dup\0' > "${_err}" ;;
+      truncated) printf 'D\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0\0dup key' > "${_err}" ;;
+      tag) printf 'X\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0\0dup key\0' > "${_err}" ;;
+      unregistered) printf 'D\0error\0config_gen_no_such_event_1470\0layer.toml\0003\0007\0\0dup key\0' > "${_err}" ;;
+    esac
+    cleanup_mock_dir || true
+    _mock_docker_tables_stderr "${_err}" 1
+    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+    assert_refusal 1 config_gen_diag_malformed "file=layer.toml"
+    assert_equal "$(cat "${_seen}")" "[]"
+  done
+}
