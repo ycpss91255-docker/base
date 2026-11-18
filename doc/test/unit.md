@@ -5415,9 +5415,9 @@ the outer run's value, which is the wrong mode's value.
 
 | Test | Description |
 |------|-------------|
-| `the PR template file exists` | - |
-| `the PR template has every section heading` | - |
-| `the PR template tells authors PRs land with a merge commit` | - |
+| `the PR template file exists` | Without the file GitHub has nothing to auto-load, so authors lose the whole checklist |
+| `the PR template has every section heading` | A heading that is gone drops its checklist items from every new PR |
+| `the PR template tells authors PRs land with a merge commit` | The owner forbids squash merges, so the template must say how a PR lands |
 
 ### test/bats/unit/pre_pr_mirror_parity_spec.bats (38)
 

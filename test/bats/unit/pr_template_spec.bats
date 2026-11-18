@@ -9,10 +9,13 @@ setup() {
   TEMPLATE="${BATS_TEST_DIRNAME}/../../../.github/pull_request_template.md"
 }
 
+# why: Without the file GitHub has nothing to auto-load, so authors lose
+# the whole checklist
 @test "the PR template file exists" {
   [[ -f "${TEMPLATE}" ]]
 }
 
+# why: A heading that is gone drops its checklist items from every new PR
 @test "the PR template has every section heading" {
   [[ -f "${TEMPLATE}" ]]
   local heading
@@ -30,6 +33,7 @@ setup() {
   done
 }
 
+# why: The owner forbids squash merges, so the template must say how a PR lands
 @test "the PR template tells authors PRs land with a merge commit" {
   [[ -f "${TEMPLATE}" ]]
   grep -qi "merge commit" "${TEMPLATE}"
