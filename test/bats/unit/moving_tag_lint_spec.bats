@@ -291,3 +291,16 @@ _write() {
   [[ "${output}" == *"script/ci/a.sh"*"reason"* ]]
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
+
+@test "_run_moving_tag: FAILS on an allow-list entry whose line scope has an empty anchor (base#1647)" {
+  # 'line:' with no anchor names no line: it would read as matching every
+  # line of the file, the file-wide entry the per-line scope rules out.
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:|1|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"anchor"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
