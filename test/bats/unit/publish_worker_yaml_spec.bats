@@ -987,6 +987,10 @@ _resolve_tags_for() {
   return "${_status}"
 }
 
+# The one yq selector for every actions/checkout step in the merge job, picked
+# by `uses`, not by name, so the base#1656 specs below select the same steps.
+readonly _MERGE_CHECKOUTS='.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@"))'
+
 # _merge_sparse_misses <workflow> -- print each .worker-base/<path> that a
 # merge step's run body names but no merge-job checkout's sparse-checkout
 # list names, one per line, and fail when there is one (base#1656). Both
@@ -994,9 +998,8 @@ _resolve_tags_for() {
 _merge_sparse_misses() {
   local _wf="${1}" _runs _sparse _path _misses=''
   _runs="$(yq '.jobs.merge.steps[].run // ""' "${_wf}")" || return 2
-  _sparse="$(yq '.jobs.merge.steps[]
-      | select((.uses // "") | test("^actions/checkout@"))
-      | .with."sparse-checkout" // ""' "${_wf}")" || return 2
+  _sparse="$(yq "${_MERGE_CHECKOUTS}"' | .with."sparse-checkout" // ""' \
+      "${_wf}")" || return 2
   while IFS= read -r _path; do
     [[ -n "${_path}" ]] || continue
     if ! grep -qxF -- "${_path}" <<< "${_sparse}"; then
@@ -1072,11 +1075,11 @@ _merge_sparse_misses() {
 # Steps are selected by `uses`, not by name: a renamed step or a second
 # checkout added to the merge job later is held to the same rule.
 @test "publish-worker.yaml: every checkout in the merge job drops its credentials (base#1656)" {
-  run yq -r '[.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@"))] | length' "${WF}"
+  run yq -r "[${_MERGE_CHECKOUTS}] | length" "${WF}"
   assert_success
   refute_output '0'
   # tostring, not `//`: yq's `//` treats a literal false as missing.
-  run yq -r '[.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@")) | select((.with."persist-credentials" | tostring) != "false")] | length' "${WF}"
+  run yq -r "[${_MERGE_CHECKOUTS}"' | select((.with."persist-credentials" | tostring) != "false")] | length' "${WF}"
   assert_success
   assert_output '0'
 }
@@ -1094,7 +1097,7 @@ _merge_sparse_misses() {
   assert_success
   assert_output ''
   cp -- "${WF}" "${SCRATCH}/narrowed.yaml"
-  yq -i '(.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@")) | .with."sparse-checkout") = "script/ci/testtools_image.sh"' \
+  yq -i "(${_MERGE_CHECKOUTS}"' | .with."sparse-checkout") = "script/ci/testtools_image.sh"' \
     "${SCRATCH}/narrowed.yaml"
   run _merge_sparse_misses "${SCRATCH}/narrowed.yaml"
   assert_failure
