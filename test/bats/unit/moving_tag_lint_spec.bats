@@ -278,3 +278,16 @@ _write() {
   [[ "${output}" == *"script/ci/a.sh"*"count"* ]]
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
+
+@test "_run_moving_tag: FAILS on an allow-list entry with an empty reason (base#1647)" {
+  # An exception nobody can explain is an exception nobody can retire:
+  # every entry must say why the moving reference is sanctioned.
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1|ghcr.io/ycpss91255-docker/test-tools:main|'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"reason"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
