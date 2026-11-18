@@ -165,7 +165,7 @@ FROM alpine-apk AS lint-tools
 # (visible symptom: `shellcheck: Exec format error` on arm64 downstream
 # CI). If invoked outside BuildKit, pass `--build-arg TARGETARCH=<arch>`.
 ARG TARGETARCH
-# tool-pin: shellcheck github-release koalaman/shellcheck
+# tool-pin: shellcheck github-release koalaman/shellcheck sha256=SHELLCHECK_SHA256_AMD64@asset:https://github.com/koalaman/shellcheck/releases/download/{version}/shellcheck-{version}.linux.x86_64.tar.xz sha256=SHELLCHECK_SHA256_ARM64@asset:https://github.com/koalaman/shellcheck/releases/download/{version}/shellcheck-{version}.linux.aarch64.tar.xz
 ARG SHELLCHECK_VERSION=v0.11.0
 # sha256 of the v0.11.0 release asset per arch. Upstream publishes no checksum
 # file, so these are self-computed from the asset (base#1648). A version bump
