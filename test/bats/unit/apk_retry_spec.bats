@@ -59,7 +59,7 @@ STUB
 @test "Dockerfile.test-tools: no apk add or apk update bypasses apk-retry" {
   run grep -nE '^[^#]*(^|[^-[:alnum:]_/])apk[[:space:]]+(add|update)' "${DOCKERFILE}"
 
-  [ "${status}" -eq 1 ] || fail "bare apk call(s): ${output}"
+  [ "${status}" -eq 1 ] || { printf 'bare apk call(s): %s\n' "${output}" >&3; return 1; }
 }
 
 # why: base#1422 -- the wrapper has to reach the image: a Dockerfile that
