@@ -229,7 +229,10 @@ var int64Rows = map[string]bool{
 // The gate plus BurntSushi must give tomllib's verdict on every TOML file
 // the live oracle answered (design-ahead r3 cycle 13, seam 2, base#1441):
 // accept when Check returns nil and toml.Decode then succeeds, refuse
-// otherwise. Each disagreeing file fails by name with both verdicts.
+// otherwise, with one exception: when Check returns nil and toml.Decode
+// refuses only integers outside int64 (int64Only), which tomllib accepts,
+// the verdict is accept. Among the forms files, only int64Rows may take
+// that path. Each disagreeing file fails by name with both verdicts.
 func TestDifferential(t *testing.T) {
 	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
 	if err != nil {
