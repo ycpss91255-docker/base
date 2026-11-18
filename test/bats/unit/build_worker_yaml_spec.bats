@@ -399,6 +399,17 @@ setup() {
   assert_output "2"
 }
 
+# ── disable_cache input (#1702) ──────────────────────────────────
+
+@test "build-worker.yaml: declares disable_cache input as boolean default false (#1702)" {
+  # Default false keeps every existing caller on the cache it uses today.
+  run code_grep -A 3 '^      disable_cache:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: boolean'
+  assert_output --partial 'default: false'
+}
+
 # _extra_stages <dockerfile-body> <extra_stages>
 #   Runs the workflow's OWN "Build extra stages" step -- lifted out of the
 #   YAML, not a copy of it -- against a Dockerfile written from
