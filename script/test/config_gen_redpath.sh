@@ -218,7 +218,8 @@
 #
 # fuzz-panic's one seed passes, so the race gate (which runs seeds) stays
 # green; the target panics on any input of four or more bytes, which only
-# the fuzz gate's search reaches (base#1441).
+# the fuzz gate's search reaches. It sits in internal/gate, the one
+# package that gate searches (base#1441).
 #
 # Every case is reported before the run ends; any failed case, a red
 # rerun call 1 (the control) among them, exits 1. This never calls `just
@@ -638,8 +639,8 @@ func TestZzRace(t *testing.T) {
 EOF
       ;;
     fuzz-panic)
-      cat >"${cmd}/zz_fuzzpanic_test.go" <<'EOF'
-package main
+      cat >"${mod}/internal/gate/zz_fuzzpanic_test.go" <<'EOF'
+package gate
 
 import "testing"
 

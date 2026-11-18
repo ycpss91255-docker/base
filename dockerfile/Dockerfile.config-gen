@@ -226,24 +226,29 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         --base /mutation/floors.base --module "$(go list -m)"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
-# The fuzz gate (base#1441): every Fuzz target of every package searches
-# for 60 s from its seeds, which the race gate has already run. A panic or
-# a failed property stops the build with the target's own report. It is
-# the last RUN that prints an ok line, so the gates before it read as
-# passed when it goes red; the ignored-input, corpus sensitivity and
-# mutation gates after it print none.
+# The fuzz gate (base#1441): every Fuzz target of internal/gate, and of no
+# other package, searches for 60 s from its seeds, which the race gate has
+# already run. A panic or a failed property stops the build with the
+# target's own report. It is the last RUN that prints an ok line, so the
+# gates before it read as passed when it goes red; the ignored-input,
+# corpus sensitivity and mutation gates after it print none.
+# go test -fuzz keeps its generated corpus under GOCACHE/fuzz, inside the
+# shared go-build cache mount; the tmpfs on that path gives each search
+# the committed seeds alone and keeps nothing past this RUN.
 # Every step that can fail clears ok rather than exiting, so a failure to
-# read the corpus root, list the packages or list a package's targets is
-# this gate's red too, never an empty loop that passes.
+# read the corpus root or list the package's targets is this gate's red
+# too, never an empty loop that passes.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    g=fuzz; ok=1; x="$(cat /tmp/config-gen-corpus-root)" || ok=0; pkgs="$(go list ./...)" || ok=0; \
-    for pkg in ${pkgs}; do \
-      (( ok )) || break; \
-      list="$(go test -ldflags="-X=${x}" -list '^Fuzz' "${pkg}")" || { ok=0; break; }; \
+    --mount=type=tmpfs,target=/root/.cache/go-build/fuzz \
+    g=fuzz; ok=1; pkg=./internal/gate; x="$(cat /tmp/config-gen-corpus-root)" || ok=0; \
+    if (( ok )); then \
+      list="$(go test -ldflags="-X=${x}" -list '^Fuzz' "${pkg}")" || ok=0; \
+    fi; \
+    if (( ok )); then \
       for fz in $(grep '^Fuzz' <<<"${list}" || true); do \
         go test -ldflags="-X=${x}" -run '^$' -fuzz "^${fz}\$" -fuzztime 60s "${pkg}" || { ok=0; break; }; \
       done; \
-    done; \
+    fi; \
     (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=fuzz ok
 # The ignored-input gate (base#1467): cg-gates ignored, built by the
