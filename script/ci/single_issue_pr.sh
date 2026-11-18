@@ -31,7 +31,7 @@ main() {
       fi
     } |
       awk '/^[[:space:]]*```/ { infence = !infence; next } !infence' |
-      sed 's/`[^`]*`//g' |
+      sed "s/\`[^\`]*\`//g" |
       sed -e ':a' -e 'N' -e '$!ba' -e 's/<!--[^>]*-->//g' |
       tr '\n' ' ' |
       sed -E 's@https?://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([0-9]+)@\1#\2@g' |
