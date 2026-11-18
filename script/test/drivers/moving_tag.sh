@@ -66,6 +66,9 @@ _moving_tag_allowlist() {
 _moving_tag_allowed() {
   local _rel="${1}" _kind="${2}" _line="${3}"
   shift 3
+  # A tag fed by an input defaulting to latest/main is the base#1122
+  # regression itself: no entry suppresses it.
+  [[ "${_kind}" != input-default ]] || return 1
   local _entry _path _ekind _scope _count _token _reason _i=-1
   for _entry in "$@"; do
     _i=$(( _i + 1 ))
