@@ -1041,31 +1041,73 @@ _merge_sparse_misses() {
   refute_output --partial 'latest'
 }
 
+# _guide_refusal_line <guide> <step> -- print the line of <guide>'s
+# "### Tag contract" section that names `is_latest: true`, a ref that is "not
+# a version tag" and says "`<step>` step fails", and fail when no line does
+# (base#1656). The step name and the verb are matched as one phrase, so a
+# line that names the step but says it does something else is not accepted.
+_guide_refusal_line() {
+  local _guide="${1}" _step="${2}" _section _line
+  _section="$(awk '/^### Tag contract$/{f=1; next} f && /^#/{exit} f' \
+    "${_guide}")"
+  [[ -n "${_section}" ]] || {
+    printf 'BUG: %s has no "### Tag contract" section\n' "${_guide}"
+    return 2
+  }
+  while IFS= read -r _line; do
+    if [[ "${_line}" == *'is_latest: true'* \
+       && "${_line}" == *'not a version tag'* \
+       && "${_line}" == *"\`${_step}\` step fails"* ]]; then
+      printf '%s\n' "${_line}"
+      return 0
+    fi
+  done <<< "${_section}"
+  return 1
+}
+
 # why: base#1656 -- the refusal above is intended, so a caller must be able
 # to read it in the guide before it stops a release: one line of the guide's
 # "Tag contract" section names `is_latest: true`, a ref that is "not a version
-# tag" (release-ref.sh's own refusal wording), and the step that fails. The
-# step's name is read out of the workflow (the merge step that runs
-# release-ref.sh), so renaming the step without the guide fails here.
+# tag", and says the step fails. The step's name is read out of the workflow
+# (the merge step that runs release-ref.sh), so renaming the step without the
+# guide fails here. Every bare ref the line gives as an example is run through
+# the real step with is_latest true: it must fail with release-ref.sh's own
+# "is not a version tag" refusal. A copy of the guide whose line says the step
+# still moves :latest, or names the step without saying it fails, is rejected.
 @test "publish-worker guide: is_latest true on a non-version tag fails the classifier step (base#1656)" {
-  local _step _section
+  local _step _line _ref _refs=0
   _step="$(yq -r '.jobs.merge.steps[] | select((.run // "") | test("release-ref.sh")) | .name' "${WF}")"
   [[ -n "${_step}" && "${_step}" != 'null' ]] || {
     printf 'BUG: no merge step of %s runs release-ref.sh\n' "${WF}"
     return 1
   }
-  _section="$(awk '/^### Tag contract$/{f=1; next} f && /^#/{exit} f' \
-    /source/doc/guide/publish-worker.md)"
-  [[ -n "${_section}" ]] || {
-    printf 'BUG: doc/guide/publish-worker.md has no "### Tag contract" section\n'
+  run _guide_refusal_line /source/doc/guide/publish-worker.md "${_step}"
+  assert_success
+  _line="${output}"
+  # The example refs: backticked tokens with no space and no slash (this
+  # leaves out `is_latest: true`, the step name and the script path).
+  while IFS= read -r _ref; do
+    [[ -n "${_ref}" ]] || continue
+    _refs=$((_refs + 1))
+    run _resolve_tags_for "${_ref}" true
+    assert_failure
+    assert_output --partial "'${_ref}' is not a version tag"
+    refute_output --partial 'tags='
+  done < <(grep -o '`[^` /]*`' <<< "${_line}" | tr -d '`')
+  (( _refs > 0 )) || {
+    printf 'BUG: the guide line names no example ref: %s\n' "${_line}"
     return 1
   }
-  run grep -F -- 'is_latest: true' <<< "${_section}"
-  assert_success
-  run grep -F -- 'not a version tag' <<< "${output}"
-  assert_success
-  run grep -F -- "${_step}" <<< "${output}"
-  assert_success
+  # Weaker guides are rejected: the line says the step still moves :latest,
+  # or names the step without saying it fails.
+  local _weak
+  for _weak in \
+      "With \`is_latest: true\` on a ref that is not a version tag, the \`${_step}\` step still moves \`:latest\`." \
+      "With \`is_latest: true\` on a ref that is not a version tag (\`nightly\`), see the \`${_step}\` step; it fails nothing."; do
+    printf '### Tag contract\n\n%s\n' "${_weak}" > "${SCRATCH}/weak-guide.md"
+    run _guide_refusal_line "${SCRATCH}/weak-guide.md" "${_step}"
+    assert_failure
+  done
 }
 
 # why: base#1656 -- the merge job holds `packages: write` and pushes nothing
