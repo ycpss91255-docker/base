@@ -70,3 +70,40 @@ _config_gen_tool_image_preflight() {
 config_gen_resolve() {
   tool_image_resolve config_gen
 }
+
+# _config_gen_decode_frames <errfile>
+#   Re-emit each 8-field NUL frame the binary wrote to <errfile>
+#   (tag, severity, event, file, line, col, key, text) as one config_gen
+#   log record (base#1470).
+_config_gen_decode_frames() {
+  local -a _f=()
+  local _field
+  while IFS= read -r -d '' _field; do
+    _f+=("${_field}")
+    if ((${#_f[@]} == 8)); then
+      _log_err config_gen "${_f[2]}" "display=${_f[7]}" \
+        "file=${_f[3]}" "line=${_f[4]}" "col=${_f[5]}" "key=${_f[6]}" \
+        "text=${_f[7]}"
+      _f=()
+    fi
+  done < "$1"
+}
+
+# config_gen_tables <file> <outvar>
+#   Run `config-gen tables` on <file> (base#1470). <outvar> is cleared on
+#   entry, so a failed run publishes nothing; the binary's status is the
+#   answer and its diagnostics are re-emitted.
+config_gen_tables() {
+  local -n _cgt_out="$2"
+  _cgt_out=""
+  config_gen_resolve || return 1
+  local _tmp _rc=0
+  _tmp="$(mktemp -d)"
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=$(pwd -P)/$1,dst=/in/f,readonly" \
+    "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
+    > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
+  _config_gen_decode_frames "${_tmp}/err"
+  rm -rf -- "${_tmp}"
+  return "${_rc}"
+}
