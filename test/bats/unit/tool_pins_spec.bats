@@ -1714,6 +1714,29 @@ printf "golang.org/x/mod v0.21.0 h1:new=\n"'
     'ARG GO_IMAGE=golang:1.27.3-trixie'
 }
 
+# why: A golang bump rewrites go.mod and go.sum files beside the Dockerfile,
+# and the checksum backup covers the Dockerfile alone, so a digest failure
+# after a cross-minor bump would leave the go.mod files moved. --set refuses
+# sha256= on the golang pin before any fetch or write (base#1676). The
+# fixture asset exists, so the refusal cannot be a fetch failure.
+@test "pins: --set refuses sha256= on the golang pin and changes no byte (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-golang:1.27.3-trixie.bin"
+  printf '%s\n' \
+    "# tool-pin: golang dockerhub library/golang pattern=^1\\.[0-9]+\\.[0-9]+-trixie\$ sha256=GO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG GO_IMAGE=golang:1.27.2-trixie' \
+    'ARG GO_SHA256=0000000000000000000000000000000000000000000000000000000000000000' \
+    > "${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  _docker_stub 'exit 99'
+  _tree_snap
+  _pins_json --set golang golang:1.27.3-trixie
+  assert_failure
+  assert_output --partial 'sha256='
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
+  _assert_tree_delta
+}
+
 # _minor_modules -- two tracked modules beside the golang pin, each with a
 # go.sum: ${SCRATCH}/m requires golang.org/x/mod, ${SCRATCH}/m2
 # golang.org/x/text, both at `go 1.27`.
