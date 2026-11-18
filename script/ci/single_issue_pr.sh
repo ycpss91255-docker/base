@@ -32,6 +32,7 @@ main() {
       sed 's/`[^`]*`//g' |
       sed -e ':a' -e 'N' -e '$!ba' -e 's/<!--[^>]*-->//g' |
       tr '\n' ' ' |
+      sed -E 's@https?://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([0-9]+)@\1#\2@g' |
       { grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)(\*\*|__)?:?(\*\*|__)?[[:space:]]+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+(,[[:space:]]*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+)*' || true; } |
       grep -oE '([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+'
   } | sort -u)
