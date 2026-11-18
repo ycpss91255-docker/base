@@ -152,3 +152,29 @@ _write() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _run_moving_tag: allow-list
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_moving_tag: an allow-list entry suppresses only its own path, kind, token and anchored line (base#1647)" {
+  # The table is read through _moving_tag_allowlist (one entry per line,
+  # '<path>|<kind>|<scope>|<count>|<token>|<reason>'); the spec overrides it.
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|indirect|line:ANCH|1|test-tools:${v}|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "ANCH test-tools:${v}"'
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+
+  # Another token in the same file, and the same anchored line in another
+  # file, are not covered by the entry.
+  _write "script/ci/a.sh" 'echo "ANCH test-tools:${v}"' 'X=test-tools:${w}'
+  _write "script/ci/b.sh" 'echo "ANCH test-tools:${v}"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:2: indirect"* ]]
+  [[ "${output}" == *"script/ci/b.sh:1: indirect"* ]]
+  [[ "${output}" != *"script/ci/a.sh:1:"* ]]
+}
