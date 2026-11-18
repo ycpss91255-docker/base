@@ -499,6 +499,26 @@ _pins() {
   assert_output --partial 'sha256'
 }
 
+# why: The shellcheck checksum ARGs are the first real pins that must move with
+# their version; a marker that does not declare them leaves a bump half done
+# (base#1676). Read from the shipped Dockerfile, not a fixture.
+@test "pins: the shipped shellcheck marker declares both checksum ARGs, each declared once (base#1676)" {
+  cp /source/dockerfile/Dockerfile.test-tools \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _pins --list
+  assert_success
+  local _line
+  _line="$(grep -P '^pinned\tshellcheck\t' <<< "${output}")"
+  [[ "${_line}" == *'SHELLCHECK_SHA256_AMD64@'* ]]
+  [[ "${_line}" == *'SHELLCHECK_SHA256_ARM64@'* ]]
+  run grep -cE '^ARG SHELLCHECK_SHA256_AMD64=' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_output 1
+  run grep -cE '^ARG SHELLCHECK_SHA256_ARM64=' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_output 1
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
