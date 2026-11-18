@@ -38,6 +38,14 @@ main() {
   done
 
   if ((${#refs[@]} > 1)); then
+    local reason
+    reason="$(printf '%s\n' "${PR_BODY:-}" |
+      sed -n 's/^Single-issue-exempt:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/p' |
+      head -n 1)"
+    if [[ -n "${reason}" ]]; then
+      printf 'single-issue-pr: exempt: %s\n' "${reason}" >&2
+      return 0
+    fi
     printf 'single-issue-pr: this PR closes %d issues: %s\n' \
       "${#refs[@]}" "${refs[*]}" >&2
     return 1
