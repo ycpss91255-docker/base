@@ -252,3 +252,21 @@ DOCK
   assert_output --partial "fielddemo:runtime-v0.0.1"
   assert_output --partial "config/"
 }
+
+# why: work-dir rm guard (base#1661)
+@test "deploy flow: a work dir outside TMPDIR is refused, not removed (base#1661)" {
+  local _sentinel="${TMP_ROOT}/sentinel"
+  mkdir -p "${_sentinel}"
+  printf 'keep\n' > "${_sentinel}/marker"
+  mkdir -p "${TMP_ROOT}/tmproot"
+  cat > "${SHIM}/mktemp" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "${_sentinel}"
+SH
+  chmod +x "${SHIM}/mktemp"
+  rm -rf "${REPO}/deploy"
+  TMPDIR="${TMP_ROOT}/tmproot" run _setup_deploy --base-path "${REPO}" --stage runtime -y
+  [ "${status}" -eq 0 ]
+  [ -f "${_sentinel}/marker" ]
+  [[ "${output}" == *deploy_work_rm_refused* ]]
+}
