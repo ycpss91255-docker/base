@@ -1406,3 +1406,9 @@ _assert_import_retry() {
       "Build runtime-test stage (install check)" \
       "Retry runtime-test stage without the cache import"
 }
+
+@test "build-worker.yaml: a failed runtime cache import retries the stage once without cache-from (#1702)" {
+  _assert_import_retry build_runtime runtime \
+      "Build runtime stage" \
+      "Retry runtime stage without the cache import"
+}
