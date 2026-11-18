@@ -99,6 +99,16 @@ teardown_file() {
     [[ -n "${_p}" ]] || continue
     _stack "${_p}" down --remove-orphans >/dev/null 2>&1 || true
   done
+  # `down` removes containers and networks, not the image `up` built
+  # (base#1728). Ask compose for the names it resolved and remove them
+  # before TMP_ROOT, and with it the compose file, is gone.
+  if [[ -n "${PROJ_A:-}" && -f "${REPO:-}/compose.yaml" ]]; then
+    local _img
+    while IFS= read -r _img; do
+      [[ -n "${_img}" ]] || continue
+      docker image rm -f "${_img}" >/dev/null 2>&1 || true
+    done < <(_stack "${PROJ_A}" config --images 2>/dev/null || true)
+  fi
   [[ -n "${TMP_ROOT:-}" ]] && rm -rf "${TMP_ROOT}"
 
   # A run must leave no image behind (base#1728). The filter matches any
