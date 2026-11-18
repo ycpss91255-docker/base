@@ -57,7 +57,28 @@ readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(late
 # Scope 'comment': the line starts with optional blanks then '#'.
 # Scope 'line:<anchor>': the line contains the fixed string <anchor>.
 # An entry covers at most <count> occurrences: one more is a new consumer.
-readonly _MOVING_TAG_ALLOWLIST=()
+# shellcheck disable=SC2016 # tokens are literal file text, never expanded.
+readonly _MOVING_TAG_ALLOWLIST=(
+  'script/test/test.sh|moving|line:just test uses the published image instead|1|ghcr.io/ycpss91255-docker/test-tools:main|a hint a human may type; no build reads it'
+  "script/test/test.sh|indirect|line:printf 'test-tools:%s|1|test-tools:%s|the local tag: a content hash of the tooling inputs"
+  'script/ci/obtain_test_tools.sh|moving|line:_OBTAIN_ROLLING_TAG=|1|ghcr.io/ycpss91255-docker/test-tools:main|bootstrap pull, retagged to the local content tag only when its hash matches'
+  'script/ci/obtain_test_tools.sh|moving|line:::warning::the pulled test-tools:main|1|test-tools:main|warning text naming the bootstrap tag'
+  '.github/workflows/release-test-tools.yaml|untagged|comment|1|ghcr.io/ycpss91255-docker/test-tools|header comment naming the published repository'
+  '.github/workflows/release-test-tools.yaml|untagged|line:IMAGE: |1|ghcr.io/ycpss91255-docker/test-tools|the publish job: the repository the release tags (:<ver>, :latest, :main) are pushed to'
+  'script/ci/testtools_image.sh|untagged|line:readonly _TESTTOOLS_IMAGE_REPO=|1|ghcr.io/ycpss91255-docker/test-tools|the repository the version-scoped tag is built from'
+  'dist/script/docker/wrapper/build.sh|indirect|line:_test_tools_image=|1|test-tools:${_tt_ver}|the local tag for the pinned .base/.version'
+  'script/ci/acceptance.sh|indirect|line:--entrypoint toml-bridge|1|test-tools:${ver}|the local version-scoped tag'
+  'script/ci/acceptance.sh|indirect|line:echo "toml-bridge in |1|test-tools:${ver}|message naming the local version-scoped tag'
+  '.github/workflows/self-test.yaml|indirect|line:TEST_TOOLS_IMAGE: |1|test-tools:ci-${{|a per-run local tag'
+  '.github/workflows/self-test.yaml|indirect|line:TEST_TOOLS_ARTIFACT_TAG: |1|test-tools:artifact-${{|a per-run artifact tag'
+  '.github/workflows/release-worker.yaml|moving|comment|1|test-tools:latest|history comment (the rc tags moved :latest)'
+  'script/ci/release-ref.sh|moving|comment|1|test-tools:latest|comment naming the rolling tag a human pulls'
+  'script/ci/testtools_paths.sh|moving|comment|1|test-tools:main|comment naming the rolling tag'
+)
+
+# The driver itself: its allow-list table spells out every sanctioned token,
+# so scanning it would report the table as consumers.
+readonly _MOVING_TAG_SELF='script/test/drivers/moving_tag.sh'
 
 # _moving_tag_allowlist -- print the allow-list, one entry per line.
 _moving_tag_allowlist() {
@@ -133,6 +154,7 @@ _run_moving_tag() {
   local _key _moving_inputs _kind
   for _file in "${_files[@]}"; do
     _rel="${_file#"${REPO_ROOT}"/}"
+    [[ "${_rel}" != "${_MOVING_TAG_SELF}" ]] || continue
     # Inputs this file declares with a moving default, as " name name ".
     _key=""
     _moving_inputs=" "
@@ -191,7 +213,9 @@ _run_moving_tag() {
       printf '%s: allow-list entry pins %s, saw %s --%s\n' \
         "${_path}" "${_count}" "${_hits[_i]}" "${_hit_at[_i]}"
       _violations=$(( _violations + 1 ))
-    elif [[ "${_hits[_i]:-0}" -lt "${_count}" ]]; then
+    elif [[ "${_hits[_i]:-0}" -lt "${_count}" && -f "${REPO_ROOT}/${_path}" ]]; then
+      # An entry is checked against the tree it runs on: a tree without
+      # the entry's file (a fixture tree) has nothing for it to go stale on.
       printf '%s: allow-list entry is stale: pins %s, saw %s; update the entry and its reason in the same commit\n' \
         "${_path}" "${_count}" "${_hits[_i]:-0}"
       _violations=$(( _violations + 1 ))
