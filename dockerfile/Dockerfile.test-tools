@@ -82,6 +82,10 @@ ARG ALPINE_VERSION=3.23
 # KCOV_VERSION bump that invalidates either one fails the build.
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
+# The commit KCOV_VERSION must resolve to (the peeled commit of the annotated
+# tag, not the tag object). kcov-builder fails when the clone differs, so a
+# retagged upstream cannot change the image silently (base#1674).
+ARG KCOV_COMMIT=a39874f938ce13f7a65f253120d1ec946b349ffe
 # THE declaration of the `just` runner version, for this image and for
 # every other path that installs it: script/ci/install-just.sh in each CI
 # job that installs just (fed JUST_VERSION by that job's just-pin step),
@@ -260,6 +264,7 @@ RUN case "${TARGETARCH}" in \
 # fails the build after the last attempt.
 FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
+ARG KCOV_COMMIT
 COPY dockerfile/kcov-76bf685.patch /tmp/kcov-76bf685.patch
 COPY dockerfile/kcov-bash53-ansi-c.patch /tmp/kcov-bash53-ansi-c.patch
 RUN for _try in 1 2 3 4; do \
@@ -272,6 +277,9 @@ RUN for _try in 1 2 3 4; do \
     done && \
     git clone --depth 1 -b "${KCOV_VERSION}" \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
+    { [ "$(git -C /tmp/kcov rev-parse HEAD)" = "${KCOV_COMMIT}" ] || { \
+        echo "kcov: commit mismatch: tag ${KCOV_VERSION} is $(git -C /tmp/kcov rev-parse HEAD), pinned ${KCOV_COMMIT}" >&2; \
+        exit 1; }; } && \
     git -C /tmp/kcov apply /tmp/kcov-76bf685.patch && \
     git -C /tmp/kcov apply /tmp/kcov-bash53-ansi-c.patch && \
     cmake -S /tmp/kcov -B /tmp/kcov/build && \
