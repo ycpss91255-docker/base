@@ -5338,6 +5338,16 @@ the outer run's value, which is the wrong mode's value.
 | `per-test timeout: the local compose run of the suite is wrapped in timeout, ci and coverage` | Locally there is no job bound at all: `just test` and `just test coverage` run the suite in `docker compose run --rm`, and a hang there blocks the terminal forever. The compose run goes through `timeout`, in both the ci and the coverage dispatch. |
 | `per-test timeout: the local compose run forwards PER_TEST_TIMEOUT, ci and coverage` | PER_TEST_TIMEOUT is the documented knob, but `just test` and `just test coverage` read it on the HOST while the driver that honours it runs inside `docker compose run`. A dispatch that does not forward it leaves the override silently ignored on the user-facing path, while the knob tests above, which call the driver directly, still pass (base#1413). |
 
+### test/bats/unit/pin_checksum_lint_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `_run_pin_coverage: FAILS on a test-tools github-release pin with no checksum ARG` | A github-release pin in test-tools with no checksum ARG is an unverified download; the lint must name the pin and the expected ARG |
+| `_run_pin_coverage: FAILS when a pending-allowlisted pin already has a checksum` | The pending allowlist is transitional; once a listed pin has its checksum the entry must be deleted, so the lint fails on a stale entry |
+| `_run_pin_coverage: FAILS on a pin with only the AMD64 checksum ARG` | Both per-arch ARGs are required; a pin with only one arch checked leaves the other arch's download unverified |
+| `_run_pin_coverage: FAILS on a pin with only the ARM64 checksum ARG` | The same rule from the other side, so an either-arch match fails |
+| `_run_pin_coverage: PASSES a pending-allowlisted pin that has no checksum ARG` | The pending allowlist is what keeps main green while a sibling issue lands its checksum; a listed pin with none must pass (fixture list: the real one is empty once every pin has its checksum) |
+
 ### test/bats/unit/pin_coverage_lint_spec.bats (81)
 
 | Test | Description |
@@ -6671,7 +6681,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (158)
+### test/bats/unit/self_test_yaml_spec.bats (159)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -7106,6 +7116,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
 | `self-test.yaml: the release body is assembled by a script that can refuse (#926)` | The extraction has to live somewhere a spec can drive it AND somewhere that can exit non-zero; inline in the workflow it was neither. This is what stops it drifting back into a `run:` block where a no-match is a silent success. |
 | `self-test.yaml: the release page carries the curated notes alone (#926)` | With both sources the larger drowns the smaller: the measured v0.42.0 body was 26,690 characters of which the curated part was five lines and the rest raw PR titles. The workflow input is the only place that choice is expressed, so it is the only place it can regress. |
+| `self-test.yaml: the release job verifies the tagged commit is on main before creating the Release (base#1712)` | The release job's needs: are test gates, which a green PR head also passes, so a v* tag pushed on a commit that is not on main would publish a Release. The base#1143 guard ran only in the reusable worker (release-worker.yaml); base's own tag path had none (base#1712). |
 | `self-test.yaml: declares bats-fragile job (#677)` | - |
 | `self-test.yaml: bats-fragile is a single job (no shard matrix) (#677)` | - |
 | `self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)` | - |
