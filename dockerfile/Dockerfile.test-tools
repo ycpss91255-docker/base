@@ -147,11 +147,16 @@ FROM alpine-apk AS bats-extensions
 # what lets the watch propose one mechanically.
 # tool-pin: bats-support github-release bats-core/bats-support
 ARG BATS_SUPPORT_VERSION=v0.3.0
+# base#1674: the tag is a mutable ref; the clone must land on this commit.
+ARG BATS_SUPPORT_COMMIT=24a72e14349690bcbf7c151b9d2d1cdd32d36eb1
 # tool-pin: bats-assert github-release bats-core/bats-assert
 ARG BATS_ASSERT_VERSION=v2.1.0
 RUN apk add --no-cache git && \
     git clone --depth 1 -b "${BATS_SUPPORT_VERSION}" \
         https://github.com/bats-core/bats-support /bats/bats-support && \
+    { [ "$(git -C /bats/bats-support rev-parse HEAD)" = "${BATS_SUPPORT_COMMIT}" ] || { \
+        echo "bats-support: commit mismatch: tag ${BATS_SUPPORT_VERSION} is $(git -C /bats/bats-support rev-parse HEAD), pinned ${BATS_SUPPORT_COMMIT}" >&2; \
+        exit 1; }; } && \
     git clone --depth 1 -b "${BATS_ASSERT_VERSION}" \
         https://github.com/bats-core/bats-assert  /bats/bats-assert
 
