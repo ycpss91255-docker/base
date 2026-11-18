@@ -986,6 +986,7 @@ config_gen_tables layer.toml ${_name}"
   _mock_docker_tables_exec
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
+  # toml-fixture-lint: allow a duplicate key is not TOML; the parse refusal IS the assertion
   printf '[a]\nx = 1\nx = 2\n' > "${_wd}/la"$'\t'"yer.toml"
 
   _run_cg_tables "${_wd}" "la"$'\t'"yer.toml"
@@ -1229,6 +1230,7 @@ exit \"\${rc}\""
   local _wd="${BATS_TEST_TMPDIR}/wd" _tmpd="${BATS_TEST_TMPDIR}/tmpd"
   mkdir -p "${_wd}" "${_tmpd}"
   printf '[a]\n' > "${_wd}/good.toml"
+  # toml-fixture-lint: allow a duplicate key is not TOML; bad.toml must drive the refusal path
   printf '[a]\nx = 1\nx = 2\n' > "${_wd}/bad.toml"
   local _name
   for _name in good.toml bad.toml; do
