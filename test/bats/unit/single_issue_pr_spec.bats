@@ -83,3 +83,15 @@ setup() {
   run --separate-stderr bash "${CHECK}"
   assert_success
 }
+
+# why: An HTML comment is not rendered and GitHub does not act on a
+# closing keyword inside it (PR templates ship such comments). A script
+# that only stripped code would fail a PR that closes exactly one issue
+# because a commit message carries a commented-out example (base#1629).
+@test "single_issue_pr.sh: a closing keyword inside an HTML comment is ignored (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'fix: only\n\nCloses #1\n\n<!-- Closes #2 -->'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_success
+}
