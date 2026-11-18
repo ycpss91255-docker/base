@@ -122,3 +122,16 @@ setup() {
   [[ "${stderr}" == *"#1"* ]]
   [[ "${stderr}" == *"#2"* ]]
 }
+
+# why: The check needs an explicit, visible escape hatch for a PR that
+# legitimately closes several issues. A script with no exemption would
+# force authors to defeat the check some other way; the reason must be
+# echoed so the bypass is visible in the job log (base#1629).
+@test "single_issue_pr.sh: an exemption marker with a reason passes and prints the reason (base#1629)" {
+  export PR_CLOSING_REFS=$'ycpss91255-docker/base#1\nycpss91255-docker/base#2'
+  export PR_BODY=$'Closes #1\nCloses #2\n\nSingle-issue-exempt: one mechanical rename spans both issues'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_success
+  [[ "${output}${stderr}" == *"one mechanical rename spans both issues"* ]]
+}
