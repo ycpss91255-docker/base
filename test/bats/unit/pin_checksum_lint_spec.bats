@@ -57,3 +57,17 @@ _one_good_pin() {
   assert_output --partial 'foo'
   assert_output --partial 'FOO_SHA256_AMD64'
 }
+
+# why: The pending allowlist is transitional; once a listed pin has its
+# checksum the entry must be deleted, so the lint fails on a stale entry
+@test "_run_pin_coverage: FAILS when a pending-allowlisted pin already has a checksum" {
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: just github-release casey/just' \
+    'ARG JUST_VERSION=1.0.0' \
+    'ARG JUST_SHA256_AMD64=0000000000000000000000000000000000000000000000000000000000000000' \
+    'ARG JUST_SHA256_ARM64=1111111111111111111111111111111111111111111111111111111111111111'
+  _lint
+  assert_failure
+  assert_output --partial 'stale'
+}
