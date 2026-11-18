@@ -555,8 +555,10 @@ _mock_docker_tables_exec() {
 #      any container starts: a `,` in the basename, a `,` in the parent
 #      directory, a newline ending the parent directory's name, and a
 #      symlinked parent `cl -> c,d` whose name carries no `,` but whose
-#      physical path does. The refusal names the caller's text and the
-#      outvar stays cleared.
+#      physical path does. The name itself is held to the same rule, so
+#      `p,q/../layer.toml` is refused although its physical path carries no
+#      comma. The refusal names the caller's text and the outvar stays
+#      cleared.
 @test "config-gen: tables refuses a name whose mount src would hold a comma or newline" {
   _seed_cg_subtree
   _mock_docker_tables_exec
@@ -568,7 +570,8 @@ _mock_docker_tables_exec() {
   printf '[a]\n' > "${_wd}/c,d/layer.toml"
   ln -s 'c,d' "${_wd}/cl"
   local _name
-  for _name in 'a,b.toml' 'p,q/layer.toml' "rv-d"$'\n'"/layer.toml" 'cl/layer.toml'; do
+  printf '[a]\n' > "${_wd}/layer.toml"
+  for _name in 'a,b.toml' 'p,q/layer.toml' 'p,q/../layer.toml' "rv-d"$'\n'"/layer.toml" 'cl/layer.toml'; do
     : > "${DOCKER_LOG}"
     _run_cg_tables "${_wd}" "${_name}"
     assert_refusal 1 config_gen_path_unmountable "file=${_name}"
@@ -907,4 +910,49 @@ config_gen_tables ${_call}"
   assert_equal "$(_cg_tables_seen)" "[]"
   run grep -c '^run ' "${DOCKER_LOG}"
   assert_output 0
+}
+
+# why: the mounted file must be the one the kernel opens for the caller's
+#      name. With `lnk -> real/sub`, `lnk/../layer.toml` is real/layer.toml
+#      to the kernel (each `..` applies to the physical directory), while a
+#      lexical reading drops `lnk/..` and names ./layer.toml, another file.
+#      The expected answer is the kernel's own walk (`cat` of the name in
+#      this test), not the shim's resolve: the src is <pwd -P>/real/layer.toml
+#      and the outvar holds that file's table list.
+@test "config-gen: tables mounts the file the kernel opens for a name with .. after a symlink" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}/real/sub"
+  ln -s real/sub "${_wd}/lnk"
+  printf '[kernel]\n' > "${_wd}/real/layer.toml"
+  printf '[lexical]\n' > "${_wd}/layer.toml"
+  run cat -- "${_wd}/lnk/../layer.toml"
+  assert_output "[kernel]"
+
+  _run_cg_tables "${_wd}" lnk/../layer.toml
+  assert_success
+  assert_equal "$(_cg_tables_seen)" "$(printf '[kernel\n]')"
+  local _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
+  run grep -c "^run .* --mount type=bind,src=${_wdp}/real/layer.toml,dst=/in/f,readonly " "${DOCKER_LOG}"
+  assert_output 1
+}
+
+# why: config_gen_tables keeps the binary's stdout and stderr in a temp
+#      directory; one left behind per call would fill TMPDIR over a long
+#      shell. It is removed whether the run publishes or refuses.
+@test "config-gen: tables removes its temp directory on success and on refusal" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd" _tmpd="${BATS_TEST_TMPDIR}/tmpd"
+  mkdir -p "${_wd}" "${_tmpd}"
+  printf '[a]\n' > "${_wd}/good.toml"
+  printf '[a]\nx = 1\nx = 2\n' > "${_wd}/bad.toml"
+  local _name
+  for _name in good.toml bad.toml; do
+    TMPDIR="${_tmpd}" _run_cg_tables "${_wd}" "${_name}"
+    run find "${_tmpd}" -mindepth 1
+    assert_output ""
+  done
 }
