@@ -304,3 +304,14 @@ _write() {
   [[ "${output}" == *"script/ci/a.sh"*"anchor"* ]]
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
+
+@test "_run_moving_tag: FAILS when the scanned roots hold no file at all (base#1647)" {
+  # A lint that scanned nothing found nothing: a REPO_ROOT that points at the
+  # wrong tree (or roots that were renamed away) must not read as clean.
+  _moving_tag_allowlist() { :; }
+  mkdir -p "${SCRATCH}/.github/workflows" "${SCRATCH}/script"
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no file"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
