@@ -2309,6 +2309,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # base#1143 / base#1712: the same guard release-worker.yaml runs before
+      # its Release. needs: above proves the commit is green, which a PR head
+      # that was never merged also is; this asks whether it is on main. The
+      # checkout is shallow and carries no remote main, so main is fetched
+      # here and the ancestry decision lives in verify-tag-on-main.sh
+      # (host-tested under `just test`). It reads GITHUB_SHA from the env.
+      - name: Verify the tagged commit is on main
+        run: |
+          git fetch --no-tags --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          bash script/ci/verify-tag-on-main.sh
+
       - name: Assemble release notes for current tag
         # script/release/release_notes.sh, not an inline awk. The awk this
         # replaces printed everything between `## [<tag>]` and the next
