@@ -1672,7 +1672,7 @@ hint, default `$SHELL` detection, and uninstall.
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (34)
+### test/bats/unit/compose_emit/blocks_spec.bats (35)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1688,6 +1688,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
 | `_emit_caps_block: security_opt items with YAML syntax parse back as the exact input string (base#1651)` | base#1651 -- a security_opt value with YAML syntax in it (`: `, ` #`, a leading `*` / `&` / `#`, a `"`) must parse back as that exact string, not as a map, a truncated value, an alias, an anchor or a comment. |
+| `_emit_caps_block: security_opt items that resolve to a non-string type parse back as the exact input string (base#1651)` | base#1651 -- a plain scalar also gets an implicit tag (`~` / `null` -> null, `true` -> bool, `0755` / `1e3` / `.inf` -> number) and compose-go refuses the file; `yes` and `1:30` (YAML 1.1-only) are checked against the double-quoted form. |
 | `_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)` | - |
 | `_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)` | - |
 | `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |

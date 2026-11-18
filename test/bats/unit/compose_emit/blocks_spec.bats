@@ -95,6 +95,35 @@ setup() {
   done
 }
 
+# why: base#1651 -- a plain scalar also gets an implicit tag: `~` / `null`
+# resolve to null, `true` to bool, `0755` / `1e3` / `.inf` to numbers, and
+# compose-go then refuses the file ("security_opt.0 must be a string").
+# `yes` (bool) and `1:30` (sexagesimal) are YAML 1.1-only, so yq (1.2) cannot
+# tell; those two are checked against the spec's double-quoted form.
+@test "_emit_caps_block: security_opt items that resolve to a non-string type parse back as the exact input string (base#1651)" {
+  local -a _want=('~' 'null' 'true' '0755' '1e3' '.inf')
+  local _in _i
+  _in="$(printf '%s\n' "${_want[@]}")"
+  run _emit_caps_block "" "" "${_in}"
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  run yq '.s.security_opt | length' "${BATS_TEST_TMPDIR}/c.yaml"
+  assert_success
+  assert_output "${#_want[@]}"
+  for _i in "${!_want[@]}"; do
+    run yq ".s.security_opt[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output '!!str'
+    run yq ".s.security_opt[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output "${_want[${_i}]}"
+  done
+  run _emit_caps_block "" "" $'yes\n1:30'
+  assert_success
+  assert_line '      - "yes"'
+  assert_line '      - "1:30"'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _emit_env_file_block  (constant)
 # ════════════════════════════════════════════════════════════════════
