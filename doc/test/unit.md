@@ -5745,7 +5745,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (34)
+### test/bats/unit/publish_worker_yaml_spec.bats (35)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -5818,6 +5818,7 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)` | base#1646 -- :latest is the most-consumed tag; a prerelease ref (rc, beta) must publish only its pinned tag and say so. |
 | `publish-worker.yaml: a release ref with is_latest true publishes the pinned tag and :latest, both suffixed (#1646)` | base#1646 -- a final release ref keeps moving :latest beside its pinned tag, and both carry the caller's suffix. |
 | `publish-worker.yaml: a failing release-ref.sh fails the step and writes no tags output (#1646)` | base#1646 -- a classifier that fails (release-ref.sh exits 2 for a ref that is neither a release nor a prerelease) must FAIL the step, not read as "not a prerelease" and fall through to moving :latest. |
+| `publish-worker.yaml: every checkout in the merge job drops its credentials (base#1656)` | base#1656 -- the merge job holds `packages: write` and pushes nothing through git, so no checkout in it may leave the job token in the checked-out repo's git config. actions/checkout's own action.yml defaults `persist-credentials` to true, so only an explicit `false` turns it off. Steps are selected by `uses`, not by name: a renamed step or a second checkout added to the merge job later is held to the same rule. |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 
