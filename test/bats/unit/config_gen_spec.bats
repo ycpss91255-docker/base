@@ -384,7 +384,7 @@ printf 'cg=%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
 #   survives a refusal shows. _cg_tables_seen prints out's final value in
 #   brackets.
 _run_cg_tables() {
-  CGT_NAME="$2" LOG_FORMAT=json run --separate-stderr bash -c "cd '$1' || exit 9
+  CGT_NAME="$2" LOG_FORMAT=json run --separate-stderr timeout 10 bash -c "cd '$1' || exit 9
 source '${CG}'
 out=stale
 config_gen_tables \"\${CGT_NAME}\" out
@@ -438,7 +438,12 @@ _mock_docker_tables_output_failed() {
 #   in for the container: it takes the bind mount's src, maps dst=/in/f to
 #   it, and execs the real binary (CONFIG_GEN_BIN, provisioned by
 #   script/test/test.sh) on the argv after the image, so the answer is the
-#   binary's own.
+#   binary's own. CGT_SWAP=fifo|dir replaces src with a FIFO or a
+#   directory after the host's checks and before the binary opens it (the
+#   race a host-side check cannot close); CGT_DROP_NAME=1 drops `--name
+#   <label>`, so the binary itself sees a malformed call; CGT_AS_USER=<u>
+#   runs the binary as user <u> (su), standing in for --user when the
+#   suite runs as root, whom a mode-000 file does not stop.
 _mock_docker_tables_exec() {
   if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
     fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
@@ -460,11 +465,25 @@ _mock_docker_tables_exec() {
              *) shift; break ;;
            esac
          done
+         case "${CGT_SWAP:-}" in
+           fifo) rm -f -- "${src}"; mkfifo -- "${src}" ;;
+           dir) rm -f -- "${src}"; mkdir -- "${src}" ;;
+         esac
          args=()
-         for a in "$@"; do
+         while (($#)); do
+           if [[ "${CGT_DROP_NAME:-}" == 1 && "$1" == --name ]]; then
+             shift 2
+             continue
+           fi
+           a="$1"
            [[ "${a}" == /in/f ]] && a="${src}"
            args+=("${a}")
+           shift
          done
+         if [[ -n "${CGT_AS_USER:-}" ]]; then
+           exec su -s /bin/sh -c '"'"'exec "$0" "$@"'"'"' -- \
+             "${CGT_AS_USER}" "${CONFIG_GEN_BIN}" "${args[@]}"
+         fi
          exec "${CONFIG_GEN_BIN}" "${args[@]}" ;;
        *) exit 1 ;;
      esac'
@@ -722,4 +741,170 @@ config_gen_tables ${_call}"
     assert_refusal 2 config_gen_usage_invalid
     assert_equal "$(wc -l < "${DOCKER_LOG}")" 0
   done
+}
+
+# why: the binary can also write its whole answer and then refuse (rc 1
+#      with a frame). A shim that publishes stdout unless the status is 4
+#      would hand the caller a list the binary disowned. Only rc 0
+#      publishes; the refusal is the binary's frame re-emitted.
+@test "config-gen: tables publishes nothing when the binary writes a full list and exits 1" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n[b]\n' > "${_wd}/layer.toml"
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run)
+         printf "a\nb\n"
+         printf "D\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0\0dup key\0" >&2
+         exit 1 ;;
+       *) exit 1 ;;
+     esac'
+
+  _run_cg_tables "${_wd}" layer.toml
+  assert_refusal 1 conf_toml_parse_failed "file=layer.toml" "line=3" "col=7"
+  assert_equal "$(_cg_tables_seen)" "[]"
+}
+
+# why: a file the binary cannot parse -- a duplicate key, a syntax error,
+#      bytes that are not UTF-8 -- is refused by the binary itself with
+#      one conf_toml_parse_failed frame carrying the line and column it
+#      reports. The shim re-emits it naming the caller's text, never the
+#      in-container path /in/f, and the outvar stays cleared.
+@test "config-gen: tables re-emits the binary's parse refusal naming the caller's file" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  local _case _line _col
+  for _case in dup:3:7 syntax:2:5 utf8:2:5; do
+    IFS=: read -r _case _line _col <<< "${_case}"
+    case "${_case}" in
+      dup) printf '[a]\nx = 1\nx = 2\n' > "${_wd}/layer.toml" ;;
+      syntax) printf '[a]\nx = \n' > "${_wd}/layer.toml" ;;
+      utf8) printf '[a]\nx = "\xff"\n' > "${_wd}/layer.toml" ;;
+    esac
+    _run_cg_tables "${_wd}" layer.toml
+    assert_refusal 1 conf_toml_parse_failed "file=layer.toml" "line=${_line}" "col=${_col}"
+    [[ "${stderr}" != */in/f* ]] || fail "the log names the in-container path: ${stderr}"
+    assert_equal "$(_cg_tables_seen)" "[]"
+  done
+}
+
+# why: the caller's text reaches the binary as one argv word and comes
+#      back in the frame's file field; a tab in it must survive the round
+#      trip to the JSON log, not be split or dropped.
+@test "config-gen: tables keeps a tab in the file name intact in the refusal" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\nx = 1\nx = 2\n' > "${_wd}/la"$'\t'"yer.toml"
+
+  _run_cg_tables "${_wd}" "la"$'\t'"yer.toml"
+  assert_refusal 1 conf_toml_parse_failed "file=la"$'\t'"yer.toml"
+  assert_equal "$(_cg_tables_seen)" "[]"
+}
+
+# why: a name that exists but is not a regular file -- a directory, a FIFO
+#      with no writer -- is the binary's to refuse, since the host never
+#      opens it: the open is non-blocking, so a FIFO cannot hold the run
+#      (the runner's timeout 10 turns a hang into rc 124). Each is
+#      config_gen_input_not_regular naming the caller's text.
+@test "config-gen: tables refuses a directory or a FIFO as config_gen_input_not_regular" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}/d.toml"
+  mkfifo "${_wd}/f.toml"
+  local _name
+  for _name in d.toml f.toml; do
+    _run_cg_tables "${_wd}" "${_name}"
+    assert_refusal 1 config_gen_input_not_regular "file=${_name}"
+    assert_equal "$(_cg_tables_seen)" "[]"
+  done
+}
+
+# why: the host's stat runs before the container opens the file, so the
+#      file can be swapped for a FIFO or a directory in between. The
+#      binary's own check on the opened descriptor still refuses it as
+#      config_gen_input_not_regular, within the runner's timeout 10.
+@test "config-gen: tables refuses a file swapped for a FIFO or a directory before the binary opens it" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  local _swap
+  for _swap in fifo dir; do
+    rm -rf -- "${_wd}/layer.toml"
+    printf '[a]\n' > "${_wd}/layer.toml"
+    CGT_SWAP="${_swap}" _run_cg_tables "${_wd}" layer.toml
+    assert_refusal 1 config_gen_input_not_regular "file=layer.toml"
+    assert_equal "$(_cg_tables_seen)" "[]"
+  done
+}
+
+# why: a file the caller's uid cannot read is refused by the binary (it
+#      runs as --user uid:gid) as config_gen_input_unreadable naming the
+#      caller's text; the host never tries to read it.
+@test "config-gen: tables refuses an unreadable file as config_gen_input_unreadable" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  chmod 000 "${_wd}/layer.toml"
+
+  local _as=""
+  (($(id -u) != 0)) || _as=nobody
+  CGT_AS_USER="${_as}" _run_cg_tables "${_wd}" layer.toml
+  chmod 600 "${_wd}/layer.toml"
+  assert_refusal 1 config_gen_input_unreadable "file=layer.toml"
+  assert_equal "$(_cg_tables_seen)" "[]"
+}
+
+# why: when the binary itself is called wrongly (here the run reaches it
+#      as `tables /in/f`, no --name), it exits 2 with one
+#      config_gen_usage_invalid frame; the shim keeps that status and
+#      re-emits the frame rather than folding it into run_failed.
+@test "config-gen: tables keeps the binary's own usage refusal and rc 2" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+
+  CGT_DROP_NAME=1 _run_cg_tables "${_wd}" layer.toml
+  assert_refusal 2 config_gen_usage_invalid
+  assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_run_failed)" 0
+  assert_equal "$(_cg_tables_seen)" "[]"
+}
+
+# why: the image resolves in the caller's shell before any run; when it
+#      cannot (the build fails, or the subtree cannot name the image) the
+#      shim answers 1 with resolve's own refusal and starts no container.
+@test "config-gen: tables refuses with resolve's refusal and starts no container when the image cannot be provisioned" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  _mock_docker fail
+  _run_cg_tables "${_wd}" layer.toml
+  assert_refusal 1 config_gen_build_failed "path=${CG_DF}" "status=125"
+  assert_equal "$(_cg_tables_seen)" "[]"
+  run grep -c '^run ' "${DOCKER_LOG}"
+  assert_output 0
+
+  cleanup_mock_dir || true
+  : > "${DOCKER_LOG}"
+  _mock_docker present
+  rm -f "${CG_DF}"
+  _run_cg_tables "${_wd}" layer.toml
+  assert_refusal 1 config_gen_unprovisionable "path=${CG_DF}"
+  assert_equal "$(_cg_tables_seen)" "[]"
+  run grep -c '^run ' "${DOCKER_LOG}"
+  assert_output 0
 }
