@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# drivers/moving_tag.sh - "nothing internal consumes a moving test-tools tag"
+# per-tool driver for the self-test dispatcher (base#1647).
+#
+# Sourced library (no main): provides _run_moving_tag. References
+# ${REPO_ROOT} (a global exported by test.sh) and _die. Follows
+# drivers/arch_literal.sh conventions.
+#
+# Why: the release workflow publishes test-tools as :<ver> always, :latest
+# for a non-prerelease tag and :main from main. :latest and :main are
+# conveniences for humans and bootstrap; an internal build that resolves the
+# tooling image by one of them gets whatever was pushed last (base#1122).
+
+# ── Moving test-tools tag lint ───────────────────────────────────────────────
+
+# The scanned trees and files, repo-root-relative.
+readonly _MOVING_TAG_SCAN_ROOTS=(
+  '.github' 'dist' 'dockerfile' 'script'
+  'compose.yaml' 'justfile' 'init.sh' 'upgrade.sh'
+)
+
+# A qualified test-tools reference carrying a moving tag.
+readonly _MOVING_TAG_RE='ghcr\.io/ycpss91255-docker/test-tools:(latest|main)([^A-Za-z0-9_.-]|$)'
+
+_run_moving_tag() {
+  echo "--- Running moving test-tools tag lint ---"
+  local _violations=0
+  local _root _abs_root _file _rel _line _lineno
+
+  local -a _files=()
+  for _root in "${_MOVING_TAG_SCAN_ROOTS[@]}"; do
+    _abs_root="${REPO_ROOT}/${_root}"
+    [[ -e "${_abs_root}" ]] || continue
+    while IFS= read -r -d '' _file; do
+      _files+=("${_file}")
+    done < <(find "${_abs_root}" -type f ! -name '*.md' -print0 2>/dev/null | sort -z)
+  done
+
+  for _file in "${_files[@]}"; do
+    _rel="${_file#"${REPO_ROOT}"/}"
+    _lineno=0
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      _lineno=$(( _lineno + 1 ))
+      if [[ "${_line}" =~ ${_MOVING_TAG_RE} ]]; then
+        printf '%s:%d: moving -- %s\n' "${_rel}" "${_lineno}" "${_line}"
+        _violations=$(( _violations + 1 ))
+      fi
+    done < "${_file}"
+  done
+
+  if [[ "${_violations}" -gt 0 ]]; then
+    _die ci_moving_tag \
+      "${_violations} internal reference(s) to a moving test-tools tag (:latest / :main). Pin the consumer to :<ver>; :latest and :main are human and bootstrap conveniences only (base#1647)."
+    return 1
+  fi
+  echo "moving test-tools tag lint: clean"
+}
