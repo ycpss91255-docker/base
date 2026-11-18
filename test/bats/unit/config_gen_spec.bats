@@ -574,3 +574,48 @@ exit \"\${rc}\""
     assert_output 0
   done
 }
+
+# _mock_docker_tables_run_fails <status>
+#   docker records its argv; `image inspect` answers present. `run` is
+#   docker itself failing before the binary speaks (125 daemon/option
+#   error, 126 not executable, 127 not found): a plain-text message on
+#   stderr, no NUL frame, exit <status>.
+_mock_docker_tables_run_fails() {
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run)
+         printf "docker: Error response from daemon: run failed.\n" >&2
+         exit '"$1"' ;;
+       *) exit 1 ;;
+     esac'
+}
+
+# why: when docker itself fails (rc 125/126/127) the binary never ran, so
+#      no frame names the refusal; a shim that only re-emits frames would
+#      return that status with no record of why. Such a run is refused as
+#      config_gen_run_failed carrying docker's status, the status is the
+#      answer, and the outvar stays cleared.
+@test "config-gen: tables refuses a docker failure with no frame as config_gen_run_failed" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+  local _rc
+  for _rc in 125 126 127; do
+    cleanup_mock_dir || true
+    _mock_docker_tables_run_fails "${_rc}"
+    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+    assert_refusal "${_rc}" config_gen_run_failed "file=layer.toml" "status=${_rc}"
+    assert_equal "$(cat "${_seen}")" "[]"
+  done
+}
