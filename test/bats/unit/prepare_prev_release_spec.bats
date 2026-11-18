@@ -224,6 +224,25 @@ _mock_git() {
   assert_output "v0.43.0"
 }
 
+# why: until v0.43.0 is tagged below the tree the rule owes nothing
+# (base#1055: "binds nothing until v0.44.0"), and that is an answer, not a
+# failure. The window file must then be empty: a tags.txt holding one blank
+# line reads back as a one-line window naming the release "", and every
+# driver arm gated on one line would try to upgrade from it. Upstream today
+# lists v0.42.0 as its newest stable release with the tree at v0.43.0-rc5,
+# so the run succeeds with a zero-byte tags.txt.
+@test "prepare-prev-release: a tree owed no release writes an empty window and succeeds (base#1729)" {
+  printf '%s\n' v0.42.0 v0.41.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.42.0 v0.41.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.43.0-rc5 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+  assert [ -f "${ROOT}/.prev-release/tags.txt" ]
+  assert [ ! -s "${ROOT}/.prev-release/tags.txt" ]
+  assert_output --partial "no release owed below v0.43.0-rc5"
+}
+
 # why: an upstream that answers but lists no stable release is not an
 # upstream that owes nothing -- it is a wrong remote or a broken listing.
 # Reading that empty answer as "nothing owed" hands the window back to the
