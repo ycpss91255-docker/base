@@ -25,10 +25,13 @@ teardown() {
 # against FAKE_ROOT, with HOST_UID / HOST_GID present unless the caller
 # overrides them, and the plain-bats dispatch (no BATS_FILE / shard).
 _prereq_run() {
-  run env HOST_UID=1000 HOST_GID=1000 "$@" FAKE_ROOT="${FAKE_ROOT}" bash -c '
+  # The selectors are cleared: this spec is itself run under one (a
+  # BATS_FILE naming it), and the check replays the ambient dispatch.
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      HOST_UID=1000 HOST_GID=1000 "$@" FAKE_ROOT="${FAKE_ROOT}" bash -c '
     source /source/script/test/test.sh
-    REPO_ROOT="${FAKE_ROOT}"
-    _check_suite_prerequisites
+    _check_suite_prerequisites "${FAKE_ROOT}"
   '
 }
 

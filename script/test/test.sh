@@ -1310,6 +1310,33 @@ _dispatch_needs_prev_release() {
   return 0
 }
 
+# _check_suite_prerequisites [root]
+#   <root> is the checkout to inspect (default: REPO_ROOT; a spec passes a
+#   scratch tree because REPO_ROOT is readonly once this file is sourced).
+#   The in-container half of the prerequisites the host-side dispatch
+#   normally supplies (base#1423). A bare container run -- no `just test`
+#   in front of it -- has none of them, and used to find out by failing
+#   the tests that read them, with nothing naming the cause. Every missing
+#   one is reported in a single refusal, by name.
+#
+#   .prev-release/tags.txt is only demanded of a dispatch that runs the
+#   spec reading it (_dispatch_needs_prev_release replays this same
+#   dispatch), so a lint or single-spec run elsewhere is not refused for a
+#   fixture it never reads.
+_check_suite_prerequisites() {
+  local _root="${1:-${REPO_ROOT}}"
+  local -a _missing=()
+  if _dispatch_needs_prev_release "${COVERAGE:-0}" \
+     && [[ ! -s "${_root}/.prev-release/tags.txt" ]]; then
+    _missing+=(".prev-release/tags.txt (run script/test/prepare-prev-release.sh on the host, or start the suite with 'just test')")
+  fi
+  (( ${#_missing[@]} == 0 )) && return 0
+  local _list
+  printf -v _list '%s; ' "${_missing[@]}"
+  _die ci_missing_prerequisite \
+    "the suite cannot start: missing prerequisite(s): ${_list%; }"
+}
+
 # _prepare_prev_release <coverage>
 #   Materialise the last few RELEASED trees into .prev-release/ so
 #   test/bats/integration/prev_release_upgrade_spec.bats can run their
@@ -3190,6 +3217,7 @@ main() {
       # unable to run coverage again (base#1032). The reports are on disk
       # before the verdict is, so there is nothing to wait for.
       _HANDBACK_ARMED=1
+      _check_suite_prerequisites
       if [[ "${system}" == "1" ]]; then
         _run_system
         return 0
