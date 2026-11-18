@@ -120,3 +120,35 @@ _write() {
   [[ "${output}" == *"justfile:2"* ]]
   [[ "${output}" == *"3 internal reference(s)"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _run_moving_tag: scan scope
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_moving_tag: PASSES when a moving tag sits only in git-ignored or unscanned paths (base#1647)" {
+  # The lint scans fixed roots, never the whole tree: a local-only ignored
+  # copy (.prev-release/, .env, log/ ...) would fail it locally and pass on
+  # CI. Every unanchored .gitignore name inside a root is skipped, and
+  # doc/, test/ and Markdown are out of scope.
+  local _hit='image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  _write ".github/workflows/clean.yaml" 'name: clean'
+  _write ".prev-release/v0.41.0/.github/workflows/build-worker.yaml" "${_hit}"
+  _write ".env" "TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:latest"
+  _write "dist/.env" "TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:latest"
+  _write "dist/.env.local" "TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:latest"
+  _write "dist/.setup.conf.local" "${_hit}"
+  _write "script/log/x.sh" "${_hit}"
+  _write "script/coverage/x.sh" "${_hit}"
+  _write "script/coverage-shards/x.sh" "${_hit}"
+  _write "script/multi_run/x.sh" "${_hit}"
+  _write "script/.config-gen-bin/x.sh" "${_hit}"
+  _write "script/__pycache__/x.sh" "${_hit}"
+  _write "dist/.prev-release/v0.41.0/x.yaml" "${_hit}"
+  _write "doc/guide/x.sh" "${_hit}"
+  _write "test/bats/x.bats" "${_hit}"
+  _write "README.md" "${_hit}"
+  _write "dist/README.md" "${_hit}"
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+}
