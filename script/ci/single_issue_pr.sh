@@ -6,7 +6,9 @@
 #
 # Exits 1 and names every issue on stderr when PR_CLOSING_REFS holds more
 # than one distinct reference, base#1629. Closing keywords in PR_COMMITS
-# count too: the repo squashes with COMMIT_MESSAGES.
+# count too: the repo squashes with COMMIT_MESSAGES. With PR_CLOSING_REFS
+# unset, PR_BODY is parsed instead. A `Single-issue-exempt: <reason>` line
+# in PR_BODY turns the failure into a pass that logs the reason.
 
 set -euo pipefail
 
