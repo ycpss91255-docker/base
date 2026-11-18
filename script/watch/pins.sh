@@ -17,6 +17,17 @@
 # read watch/lib.sh, which is where the marker grammar and the derivation
 # are documented.
 #
+# A pin whose marker carries `sha256=<ARG>@<source>` options also has
+# checksum ARGs in its own file. --set regenerates them with the version,
+# in the same commit (base#1676): every named ARG must match exactly once
+# and every digest must resolve to 64 hex characters before anything is
+# written; the file is then rewritten, read back, and restored from a
+# backup on any failure. `<source>` is `asset:<url>` (the digest is
+# computed from the downloaded asset) or `file:<url>:<asset>` (the digest
+# is read from the line naming <asset> in an upstream checksum file);
+# `{version}` expands to the new version. The success output records each
+# source.
+#
 # Usage:
 #   ./script/watch/pins.sh --list             # TSV table of every marker
 #   ./script/watch/pins.sh --value <name>     # one pin's current version
@@ -49,9 +60,12 @@ Usage: ./script/watch/pins.sh <mode>
 
   --list                 One TSV record per marker:
                          state name resolver coordinate pattern skip
-                         current file line
+                         current file line checksums
+                         (checksums: the marker's sha256=<ARG>@<source>
+                         options, space separated, or -)
   --value <name>         Print the current version of one pinned entry.
-  --set <name> <version> Rewrite that pin's declaration line in place.
+  --set <name> <version> Rewrite that pin's declaration line in place, and
+                         regenerate its sha256= checksum ARGs with it.
   --files                Print the scanned files, repo-root-relative.
   --uncovered            Print every version declaration that no marker
                          claims (what the pin-coverage lint fails on).

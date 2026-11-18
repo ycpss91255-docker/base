@@ -33,6 +33,7 @@
 # blank nor a comment, and the version lives on that target line:
 #
 #   # tool-pin: <name> <resolver> <coordinate> [pattern=<re>] [skip=<v>,...]
+#                [sha256=<ARG>@<source>]...
 #   ARG FOO_VERSION=1.2.3
 #
 #   # tool-pin: unpinned <name> -- <why it cannot be pinned here>
@@ -45,6 +46,12 @@
 # floats, and `check.sh` prints every one of them on every run, under its
 # own heading, forever. Silence is what the audit found; a floating
 # dependency that nobody has to be reminded of is how it got there.
+#
+# `sha256=<ARG>@<source>` (repeatable) names a checksum ARG in the same file
+# that must change with the version. `<source>` is `asset:<url>` (digest of
+# the downloaded asset) or `file:<url>:<asset>` (digest read from an upstream
+# checksum file); `{version}` in the url is the new version. `pins.sh --set`
+# regenerates every named ARG with the version (base#1676).
 #
 # `skip=<v>[,<v>...]` records a version this repo has deliberately refused.
 # It exists because of the opposite defect: dependabot never re-raises a
