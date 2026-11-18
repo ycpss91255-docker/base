@@ -756,7 +756,7 @@ _emit_caps_block() {
     echo "    security_opt:"
     while IFS= read -r _c; do
       [[ -z "${_c}" ]] && continue
-      echo "      - ${_c}"
+      echo "      - $(_compose_yaml_scalar "${_c}")"
     done <<< "${_sec_opt}"
   fi
 }
