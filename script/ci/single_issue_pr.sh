@@ -29,7 +29,7 @@ main() {
       awk '/^[[:space:]]*```/ { infence = !infence; next } !infence' |
       sed 's/`[^`]*`//g' |
       sed -e ':a' -e 'N' -e '$!ba' -e 's/<!--[^>]*-->//g' |
-      { grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' || true; } |
+      { grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+#[0-9]+' || true; } |
       grep -oE '#[0-9]+'
   } | sort -u)
 
