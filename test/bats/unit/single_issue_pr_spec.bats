@@ -162,3 +162,16 @@ setup() {
   [[ "${stderr}" == *"octo/alpha#1"* ]]
   [[ "${stderr}" == *"octo/beta#1"* ]]
 }
+
+# why: Authors write closing keywords in markdown bold. A parser that
+# requires the keyword to be followed directly by whitespace misses
+# `**Closes** #1`, so a PR closing two issues that way would pass (base#1629).
+@test "single_issue_pr.sh: bold closing keywords in commit messages count (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'**Closes** #1\n\n**Fixes** #2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"#1"* ]]
+  [[ "${stderr}" == *"#2"* ]]
+}
