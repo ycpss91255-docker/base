@@ -888,6 +888,20 @@ _mktemp_abort_case() {
   rm -rf "${_d}" "${_calls}"
 }
 
+# why: mktemp can exit 0 yet print nothing; an empty work dir must abort too
+@test "_generate_deploy_bundle: aborts and writes nothing when mktemp -d prints nothing (base#1657)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  local _calls="${_d}.mkdir-calls"
+  _mktemp_abort_case "${_d}" empty "${_calls}"
+  assert_failure
+  assert_output --partial "cannot create a temporary directory"
+  run grep -c '^/config' "${_calls}"
+  assert_output "0"
+  [[ ! -e "${_d}/deploy/out" ]]
+  rm -rf "${_d}" "${_calls}"
+}
+
 # why: a signal must not leak the bundle work dir
 @test "_generate_deploy_bundle: SIGTERM mid-build removes the work dir (base#1662)" {
   local _d; _d="$(mktemp -d)"
