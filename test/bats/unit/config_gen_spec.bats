@@ -375,3 +375,48 @@ printf 'cg=%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
   assert_line "cg=$(_expected_tag)"
   assert_equal "$(_count_inspects)" 2
 }
+
+# ── config_gen_tables (base#1470) ────────────────────────────────────────────
+
+# _mock_docker_tables_output_failed
+#   docker records its argv; `image inspect` answers present. `run` is the
+#   binary failing to write its answer (tables.go, exitOutput): a valid
+#   prefix of the table list on stdout, then one 8-field NUL frame
+#   `config_gen_output_failed` on stderr, exit 4.
+_mock_docker_tables_output_failed() {
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run)
+         printf "a\nb\n"
+         printf "D\0error\0config_gen_output_failed\0layer.toml\0\0\0\0write /dev/stdout: broken pipe\0" >&2
+         exit 4 ;;
+       *) exit 1 ;;
+     esac'
+}
+
+# why: the binary can write a valid prefix of its answer and then fail
+#      (rc 4). A shim that publishes whatever stdout carried would hand the
+#      caller a truncated table list as if it were complete. The outvar is
+#      cleared on entry (a stale value does not survive) and set only on
+#      rc 0; the refusal is the binary's own frame re-emitted.
+@test "config-gen: tables publishes nothing when the binary fails after a valid prefix (rc 4)" {
+  _seed_cg_subtree
+  _mock_docker_tables_output_failed
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n[b]\n' > "${_wd}/layer.toml"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+
+  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+  assert_refusal 4 config_gen_output_failed "file=layer.toml"
+  assert_equal "$(cat "${_seen}")" "[]"
+}
