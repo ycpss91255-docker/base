@@ -320,34 +320,37 @@ _write() {
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
 
-# ════════════════════════════════════════════════════════════════════
-# _run_moving_tag: the real allow-list on base's own tree
-# ════════════════════════════════════════════════════════════════════
-
-# _copy_real_roots -- copy base's scanned roots from /source into SCRATCH.
-_copy_real_roots() {
-  local _root
-  for _root in .github dist dockerfile script \
-    compose.yaml justfile init.sh upgrade.sh; do
-    [[ -e "/source/${_root}" ]] && cp -a "/source/${_root}" "${SCRATCH}/"
+# _seed_test_sh -- copy into SCRATCH only what script/test/test.sh sources:
+# test.sh, its drivers and their helper scripts, script/watch/lib.sh and
+# dist/script/docker/lib. base's own workflows and scripts stay out: the
+# current-tree pass is lint-static's job, not the coverage suite's (base#1075).
+_seed_test_sh() {
+  local _f
+  mkdir -p "${SCRATCH}/script/test" "${SCRATCH}/script/watch" \
+    "${SCRATCH}/dist/script/docker"
+  cp -a /source/script/test/test.sh /source/script/test/drivers \
+    "${SCRATCH}/script/test/"
+  for _f in spec-markers.sh check_test_md_drift.sh sync-doc-counts.sh \
+    sync-readme-hashes.sh toml_fixture_lint.sh; do
+    cp -a "/source/script/test/${_f}" "${SCRATCH}/script/test/"
   done
+  cp -a /source/script/watch/lib.sh "${SCRATCH}/script/watch/"
+  cp -a /source/dist/script/docker/lib "${SCRATCH}/dist/script/docker/"
 }
 
-# why: AC: the lint passes on the current tree, and fails when a
-# test-tools:latest reference is deliberately added.
-@test "_run_moving_tag: the real allow-list passes base's own tree and one added test-tools:latest is the only finding (base#1647)" {
-  _copy_real_roots
-  run _run_moving_tag
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
-
-  _write ".github/workflows/x.yaml" \
-    'jobs:' \
-    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
-  run _run_moving_tag
-  [ "${status}" -ne 0 ]
-  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
-  [[ "${output}" == *"1 internal reference(s)"* ]]
+# _run_seeded <commands> -- source the scratch copy of test.sh, move the
+# copied sources out of the scanned roots, then run <commands> in that
+# shell. Once sourced, the functions no longer need their files, and the
+# scan then walks the fixture alone: one fixture finding is the whole
+# report, and no copy of the drivers is scanned under kcov.
+_run_seeded() {
+  run env -u GITHUB_ACTIONS LOG_FORMAT=json bash -c '
+    source "$1/script/test/test.sh"
+    mkdir "$1/sourced"
+    mv "$1/script" "$1/dist" "$1/sourced/"
+    set -eo pipefail
+    eval "$2"
+  ' _ "${SCRATCH}" "${1}"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -357,33 +360,34 @@ _copy_real_roots() {
 # why: A driver nothing calls passes every test above and gates nothing:
 # `just test lint`, the lint-static CI groups and the host --<tool>-only
 # arm all go through test.sh's _LINT_TOOLS table and its dispatch case.
-# The scratch tree carries a copy of test.sh, so its REPO_ROOT is the
-# scratch tree and the phase scans the fixture, not the live checkout.
+# The scratch tree carries a copy of test.sh and what it sources, so its
+# REPO_ROOT is the scratch tree and the phase scans the fixture, not the
+# live checkout.
 @test "_run_lint_tools: the lint phase reaches the moving-tag driver and fails on an added test-tools:latest (base#1647)" {
-  _copy_real_roots
+  _seed_test_sh
   _write ".github/workflows/x.yaml" \
     'jobs:' \
     '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
-  run env -u GITHUB_ACTIONS LOG_FORMAT=json bash -c '
-    source "$1/script/test/test.sh"
-    set -eo pipefail
+  _run_seeded '
     printf "%s\n" "${_LINT_TOOLS[@]}" | grep -cx moving-tag
-    _run_lint_tools moving-tag
-  ' _ "${SCRATCH}"
+    _run_lint_tools moving-tag'
   [ "${status}" -ne 0 ]
   [[ "${lines[0]}" == "1" ]]
   [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
   [[ "${output}" == *"ci_moving_tag"* ]]
+  [[ "${output}" == *"1 internal reference(s)"* ]]
 }
 
 # why: The host arm is the other entry point the help text and CI's
-# dedicated-job check name; it must run the same driver.
+# dedicated-job check name; it must run the same driver. main is what
+# `bash test.sh --moving-tag-only` runs once the source guard passes.
 @test "test.sh --moving-tag-only: runs the moving-tag driver on the host and fails on an added test-tools:latest (base#1647)" {
-  _copy_real_roots
+  _seed_test_sh
   _write ".github/workflows/x.yaml" \
     'jobs:' \
     '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
-  run env -u GITHUB_ACTIONS LOG_FORMAT=text bash "${SCRATCH}/script/test/test.sh" --moving-tag-only
+  _run_seeded 'main --moving-tag-only'
   [ "${status}" -ne 0 ]
   [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+  [[ "${output}" == *"1 internal reference(s)"* ]]
 }

@@ -4942,7 +4942,7 @@ directory is a no-op).
 | `_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)` | - |
 | `_logrotate_prune: missing dir is a no-op (best-effort) (#805)` | - |
 
-### test/bats/unit/moving_tag_lint_spec.bats (19)
+### test/bats/unit/moving_tag_lint_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -4962,9 +4962,8 @@ directory is a no-op).
 | `_run_moving_tag: FAILS on an allow-list entry with an empty reason (base#1647)` | An exception nobody can explain is an exception nobody can retire: every entry must say why the moving reference is sanctioned. |
 | `_run_moving_tag: FAILS on an allow-list entry whose line scope has an empty anchor (base#1647)` | 'line:' with no anchor names no line: it would read as matching every line of the file, the file-wide entry the per-line scope rules out. |
 | `_run_moving_tag: FAILS when the scanned roots hold no file at all (base#1647)` | A lint that scanned nothing found nothing: a REPO_ROOT that points at the wrong tree (or roots that were renamed away) must not read as clean. |
-| `_run_moving_tag: the real allow-list passes base's own tree and one added test-tools:latest is the only finding (base#1647)` | AC: the lint passes on the current tree, and fails when a test-tools:latest reference is deliberately added. |
-| `_run_lint_tools: the lint phase reaches the moving-tag driver and fails on an added test-tools:latest (base#1647)` | A driver nothing calls passes every test above and gates nothing: `just test lint`, the lint-static CI groups and the host --<tool>-only arm all go through test.sh's _LINT_TOOLS table and its dispatch case. The scratch tree carries a copy of test.sh, so its REPO_ROOT is the scratch tree and the phase scans the fixture, not the live checkout. |
-| `test.sh --moving-tag-only: runs the moving-tag driver on the host and fails on an added test-tools:latest (base#1647)` | The host arm is the other entry point the help text and CI's dedicated-job check name; it must run the same driver. |
+| `_run_lint_tools: the lint phase reaches the moving-tag driver and fails on an added test-tools:latest (base#1647)` | A driver nothing calls passes every test above and gates nothing: `just test lint`, the lint-static CI groups and the host --<tool>-only arm all go through test.sh's _LINT_TOOLS table and its dispatch case. The scratch tree carries a copy of test.sh and what it sources, so its REPO_ROOT is the scratch tree and the phase scans the fixture, not the live checkout. |
+| `test.sh --moving-tag-only: runs the moving-tag driver on the host and fails on an added test-tools:latest (base#1647)` | The host arm is the other entry point the help text and CI's dedicated-job check name; it must run the same driver. main is what `bash test.sh --moving-tag-only` runs once the source guard passes. |
 
 ### test/bats/unit/multi_distro_build_worker_yaml_spec.bats (17)
 
