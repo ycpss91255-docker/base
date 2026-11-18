@@ -599,6 +599,19 @@ _pins_verify_checksums() {
   done
 }
 
+# _pins_check_value <name> <version>
+#
+# Re-reads the pin and fails, naming both versions, when it is not <version>.
+_pins_check_value() {
+  local _check
+  _check="$(_pins_value "${1}")"
+  if [[ "${_check}" != "${2}" ]]; then
+    printf 'pins: %s reads back as %s after the rewrite, not %s\n' \
+      "${1}" "${_check}" "${2}" >&2
+    return 1
+  fi
+}
+
 # _pins_check_checksum_args <file> <spec...>
 #
 # Every ARG a marker's sha256= option names must be declared exactly once in
@@ -702,22 +715,19 @@ _pins_set() {
   fi
 
   # Checksum ARGs named by the marker's sha256= options move with the
-  # version, in the same run (base#1676).
+  # version, in the same run; the backup is kept until the version has
+  # read back too, so no failure past this point leaves the new digest
+  # beside the old version (base#1676).
   if [[ -n "${_has_ck}" ]]; then
     if ! _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
-      || ! _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}"; then
+      || ! _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}" \
+      || ! _pins_check_value "${_name}" "${_new}"; then
       _pins_restore "${_backup}" "${_abs}"
       return 1
     fi
     rm -f -- "${_backup}"
-  fi
-
-  local _check
-  _check="$(_pins_value "${_name}")"
-  if [[ "${_check}" != "${_new}" ]]; then
-    printf 'pins: %s reads back as %s after the rewrite, not %s\n' \
-      "${_name}" "${_check}" "${_new}" >&2
-    return 1
+  else
+    _pins_check_value "${_name}" "${_new}" || return 1
   fi
   printf 'pins: %s %s -> %s (%s:%s)\n' \
     "${_name}" "${_current}" "${_new}" "${_file}" "${_line}"
