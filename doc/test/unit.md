@@ -2740,7 +2740,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (68)
+### test/bats/unit/deploy_spec.bats (73)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2829,6 +2829,11 @@ refused before any build or bundle step.
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
+| `_deploy_work_dir_safe: a child of TMPDIR is accepted (base#1661)` | guard accepts only a real child of the temp root |
+| `_deploy_work_dir_safe: an empty path is refused (base#1661)` | empty value must never reach rm |
+| `_deploy_work_dir_safe: the temp root itself is refused, with or without slashes (base#1661)` | the temp root itself is not a work dir |
+| `_deploy_work_dir_safe: a '..' segment is refused (base#1661)` | dot-dot escapes the root |
+| `_deploy_work_dir_safe: sibling prefix and relative paths are refused; trailing-slash TMPDIR works (base#1661)` | prefix must match on a path boundary and TMPDIR may end in '/' |
 
 ### test/bats/unit/deploy_word_collision_spec.bats (12)
 

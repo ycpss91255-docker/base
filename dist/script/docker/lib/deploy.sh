@@ -1192,7 +1192,7 @@ _deploy_work_dir_safe() {
   local _tmp_root="${TMPDIR:-/tmp}"
   while [[ "${_tmp_root}" == */ ]]; do _tmp_root="${_tmp_root%/}"; done
   [[ -n "${_path}" && "${_path}" == "${_tmp_root}"/* \
-     && "${_path}" != "${_tmp_root}/" \
+     && "${_path#"${_tmp_root}"/}" == *[!/]* \
      && "${_path}" != */../* && "${_path}" != */.. ]]
 }
 

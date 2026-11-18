@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **281 tests**.
+Integration specs under `test/bats/integration/`: **282 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -196,7 +196,7 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
 
-### test/bats/integration/deploy_bundle_flow_spec.bats (7)
+### test/bats/integration/deploy_bundle_flow_spec.bats (8)
 
 The field-deploy generator end-to-end across components (ADR-00000023): a
 fixture repo (repo-root `setup.toml`, a Dockerfile with a `runtime` stage, a
@@ -216,6 +216,7 @@ resolved-compose -> bundle-files wiring as a flow.
 | `deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)` | - |
 | `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
 | `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
+| `deploy flow: a work dir outside TMPDIR is refused, not removed (base#1661)` | work-dir rm guard (base#1661) |
 
 ### test/bats/integration/doc_counts_merge_spec.bats (2)
 
