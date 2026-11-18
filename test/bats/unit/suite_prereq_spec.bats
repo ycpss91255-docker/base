@@ -44,3 +44,50 @@ _prereq_run() {
   assert_failure
   assert_output --partial ".prev-release/tags.txt"
 }
+
+# _seed_tags: the prev-release fixture the host step would have produced.
+_seed_tags() {
+  mkdir -p "${FAKE_ROOT}/.prev-release"
+  printf 'v0.42.0\n' > "${FAKE_ROOT}/.prev-release/tags.txt"
+}
+
+# why: with the fixture and both host ids present the check is silent and
+# succeeds, so a refusal is never the price of a correctly supplied run.
+@test "prereq: everything supplied passes (base#1423)" {
+  _seed_tags
+  _prereq_run
+  assert_success
+  assert_output ""
+}
+
+# why: the four compose tests need HOST_UID and HOST_GID (compose
+# interpolates them with a required-variable form). A bare container has
+# neither, and the check must say so by variable name rather than let the
+# compose tests fail one by one.
+@test "prereq: missing HOST_UID and HOST_GID are each named (base#1423)" {
+  _seed_tags
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      -u HOST_UID -u HOST_GID FAKE_ROOT="${FAKE_ROOT}" bash -c '
+    source /source/script/test/test.sh
+    _check_suite_prerequisites "${FAKE_ROOT}"
+  '
+  assert_failure
+  assert_output --partial "HOST_UID"
+  assert_output --partial "HOST_GID"
+}
+
+# why: a person fixing a bare run should not have to rerun once per missing
+# item; every gap is reported in the one refusal.
+@test "prereq: every missing item is reported in a single refusal (base#1423)" {
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      -u HOST_UID -u HOST_GID FAKE_ROOT="${FAKE_ROOT}" bash -c '
+    source /source/script/test/test.sh
+    _check_suite_prerequisites "${FAKE_ROOT}"
+  '
+  assert_failure
+  assert_output --partial ".prev-release/tags.txt"
+  assert_output --partial "HOST_UID"
+  assert_output --partial "HOST_GID"
+}
