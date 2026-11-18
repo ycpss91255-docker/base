@@ -661,6 +661,7 @@ jobs:
             USER_UID=1000
             USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Warn when the devel cache export failed

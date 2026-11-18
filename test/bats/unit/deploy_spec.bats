@@ -859,6 +859,41 @@ DOCK
   rm -rf "${_d}" "${_calls}"
 }
 
+# why: a signal must not leak the bundle work dir
+@test "_generate_deploy_bundle: SIGTERM mid-build removes the work dir (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/tmp"
+  local _marker="${_d}/building"
+  # Child bash so the signal is real and bats' own trap stays untouched.
+  MARKER="${_marker}" TMPDIR="${_d}/tmp" bash -c '
+    source /source/dist/script/docker/wrapper/setup.sh
+    _dry_run_cmd() {
+      if [[ "$1 $2" == "docker build" ]]; then
+        : > "$MARKER"
+        sleep 30
+      fi
+    }
+    SETUP_DETECT_DRI_GROUPS="" _generate_deploy_bundle "$1" runtime "$1/deploy/out"
+  ' _ "${_d}" >/dev/null 2>&1 &
+  local _pid=$!
+  # Dependency-free wait for the build step to start (bounded, 10s).
+  local _i
+  for _i in $(seq 1 100); do
+    [[ -e "${_marker}" ]] && break
+    sleep 0.1
+  done
+  [[ -e "${_marker}" ]]
+  kill -TERM "${_pid}"
+  local _status=0
+  wait "${_pid}" || _status=$?
+  assert_equal "${_status}" "143"
+  # Nothing left in the isolated TMPDIR.
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  rm -rf "${_d}"
+}
+
 # why: env-bake build
 @test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)" {
   local _d; _d="$(mktemp -d)"
@@ -1207,5 +1242,102 @@ SH
   assert_output --partial '"body":"conf_runtime_key_deprecated"'
   _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[gpu_runtime_mode]}" "off"
+  rm -rf "${_d}"
+}
+
+# base#1662 helper: run _generate_deploy_bundle in a child bash with an isolated
+# TMPDIR. $1 = repo dir, $2 = child preamble (traps, set -e, stubs).
+_run_deploy_child_1662() {
+  local _d="$1" _pre="$2"
+  mkdir -p "${_d}/tmp"
+  PRE="${_pre}" POST="${3:-}" TMPDIR="${_d}/tmp" bash -c '
+    source /source/dist/script/docker/wrapper/setup.sh
+    _dry_run_cmd() { return 0; }
+    eval "$PRE"
+    SETUP_DETECT_DRI_GROUPS="" _generate_deploy_bundle "$1" runtime "$1/deploy/out"
+    echo "AFTER_CALL"
+    eval "$POST"
+  ' _ "${_d}" 2>&1
+}
+
+# why: errexit abort is not a signal; a TERM-only trap would leak here
+@test "_generate_deploy_bundle: errexit abort mid-build removes the work dir (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  local _s=0
+  run _run_deploy_child_1662 "${_d}" 'set -e; _generate_deploy_launcher() { return 1; }'
+  assert_failure 1
+  refute_output --partial "AFTER_CALL"
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  rm -rf "${_d}"
+}
+
+# why: the caller's EXIT handler must still see the original status
+@test "_generate_deploy_bundle: caller EXIT trap sees the original status after cleanup (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  run _run_deploy_child_1662 "${_d}" 'trap "echo CALLER_RC=\$?" EXIT; set -e; _generate_deploy_launcher() { return 1; }'
+  assert_failure 1
+  assert_output --partial "CALLER_RC=1"
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  rm -rf "${_d}"
+}
+
+# why: a caller handler that exits must not be able to skip the cleanup
+@test "_generate_deploy_bundle: caller EXIT trap that exits still runs after cleanup (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  run _run_deploy_child_1662 "${_d}" 'trap "echo CALLER_RAN; exit 7" EXIT; set -e; _generate_deploy_launcher() { return 1; }'
+  assert_failure 7
+  assert_output --partial "CALLER_RAN"
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  rm -rf "${_d}"
+}
+
+# why: the trap is scoped to the call; the caller's own trap comes back
+@test "_generate_deploy_bundle: restores the caller EXIT trap on a normal return (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  run _run_deploy_child_1662 "${_d}" 'trap "echo CALLER_ONCE" EXIT; _before="$(trap -p EXIT)"; export DRY_RUN=true' \
+    '[[ "$(trap -p EXIT)" == "${_before}" ]] && echo TRAP_RESTORED'
+  assert_success
+  assert_output --partial "TRAP_RESTORED"
+  # restored trap prints exactly once at exit
+  [[ "$(grep -c CALLER_ONCE <<<"${output}")" == "1" ]]
+  rm -rf "${_d}"
+}
+
+# why: with no caller trap there must be none left behind either
+@test "_generate_deploy_bundle: leaves no EXIT trap when the caller had none (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/tmp"
+  run env TMPDIR="${_d}/tmp" DRY_RUN=true bash -c '
+    source /source/dist/script/docker/wrapper/setup.sh
+    SETUP_DETECT_DRI_GROUPS="" _generate_deploy_bundle "$1" runtime "$1/deploy/out" >/dev/null
+    printf "TRAP=[%s]\n" "$(trap -p EXIT)"
+  ' _ "${_d}"
+  assert_success
+  assert_output --partial "TRAP=[]"
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  rm -rf "${_d}"
+}
+
+# why: normal return and a failing build both leave the work dir removed
+@test "_generate_deploy_bundle: success and failing-build returns leave no work dir (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  run _run_deploy_child_1662 "${_d}" 'export DRY_RUN=true'
+  assert_success
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  run _run_deploy_child_1662 "${_d}" '_dry_run_cmd() { return 3; }'
+  assert_success
+  run ls -A "${_d}/tmp"
+  assert_output ""
   rm -rf "${_d}"
 }
