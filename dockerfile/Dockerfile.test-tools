@@ -147,7 +147,9 @@ FROM alpine-apk AS bats-extensions
 # what lets the watch propose one mechanically.
 # tool-pin: bats-support github-release bats-core/bats-support
 ARG BATS_SUPPORT_VERSION=v0.3.0
-# base#1674: the tag is a mutable ref; the clone must land on this commit.
+# base#1674: a tag is a mutable ref; each clone below must land on the commit
+# pinned next to its tag (BATS_SUPPORT_COMMIT, BATS_ASSERT_COMMIT) or the
+# build fails.
 ARG BATS_SUPPORT_COMMIT=24a72e14349690bcbf7c151b9d2d1cdd32d36eb1
 # tool-pin: bats-assert github-release bats-core/bats-assert
 ARG BATS_ASSERT_VERSION=v2.1.0
