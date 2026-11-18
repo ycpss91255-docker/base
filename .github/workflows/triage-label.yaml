@@ -45,7 +45,7 @@ jobs:
   label:
     runs-on: ubuntu-latest
     # Every job in the tree bounds itself; GitHub's default is six hours.
-    # This one reads the issue's labels and adds at most one, nothing else.
+    # This one reads the issue's labels and makes at most one edit.
     timeout-minutes: 5
     # The job refuses only a closed issue. Which labels count as a state is
     # not a job-level question: a kind label alone (`enhancement`) used to
@@ -55,7 +55,7 @@ jobs:
       # The labels are re-read at run time, never taken from the event
       # payload, and a failed read fails the step: an API error is never
       # read as "no state label" (base#1713).
-      - name: Add needs-triage when no state label is set
+      - name: Add or remove needs-triage by state label count
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -76,5 +76,5 @@ jobs:
           elif (( count > 1 )) && grep -qxF -- needs-triage <<< "${names}"; then
             gh issue edit "${ISSUE}" --repo "${REPO}" --remove-label needs-triage
           else
-            printf 'issue #%s carries %d state label(s); nothing to add\n' "${ISSUE}" "${count}"
+            printf 'issue #%s carries %d state label(s); nothing to change\n' "${ISSUE}" "${count}"
           fi

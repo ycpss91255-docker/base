@@ -256,7 +256,7 @@ _applied_labels() {
 # line, to ${BATS_TEST_TMPDIR}/gh.log. The fixture reaches the step ONLY
 # through that `gh api` answer, never the event payload. Exit 2 when the
 # workflow declares no such step: an empty body is not a passing step.
-_TRIAGE_STEP='Add needs-triage when no state label is set'
+_TRIAGE_STEP='Add or remove needs-triage by state label count'
 _triage_step_for() {
   local _labels="${1}" _body _dir="${BATS_TEST_TMPDIR}/triage"
   _body="$(yaml_step_run "${WF_DIR}/triage-label.yaml" label "${_TRIAGE_STEP}")" || {
