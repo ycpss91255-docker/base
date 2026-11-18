@@ -29,10 +29,10 @@
 #
 # NETWORK
 #
-# None in the steady state: the tags are read from the checkout's own
-# object store. A shallow/tagless checkout (CI's default `actions/checkout`)
-# has neither, so a missing tag is fetched once, per tag, per checkout, and
-# then cached. Nothing here is a hand-written fixture -- what the spec runs
+# One `git ls-remote` per run: which releases the window owes is a fact
+# about upstream, not about the tags this checkout happens to hold
+# (base#1729). Each owed tag the checkout lacks is fetched once, per tag,
+# per checkout, and then cached. Nothing here is a hand-written fixture -- what the spec runs
 # is byte-for-byte what was released.
 
 # Guarded so sourcing this file (the sourceable-scripts spec does) cannot
@@ -189,7 +189,42 @@ _window_tags() {
   _stable_release_tags | _owed "${_tree}"
 }
 
+# _upstream_stable_tags
+#   Print the stable release tags upstream lists. The owed set is a fact
+#   about upstream: tags an earlier fetch left in this checkout say nothing
+#   about releases cut since (base#1729).
+_upstream_stable_tags() {
+  local _sha _ref _tag
+  while IFS=$'\t' read -r _sha _ref; do
+    _tag="${_ref#refs/tags/}"
+    [[ "${_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    printf '%s\n' "${_tag}"
+  done < <(git -C "${REPO_ROOT}" ls-remote --tags --refs \
+    "${BASE_UPSTREAM_REMOTE}" 'v*' 2>/dev/null)
+}
+
+# _fetch_owed_tags
+#   Fetch every tag upstream owes the tree under test that the local
+#   object store does not hold yet, one explicit refspec per tag.
+_fetch_owed_tags() {
+  local _tree _tag
+  _tree="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
+  local -a _local=() _missing=()
+  mapfile -t _local < <(_stable_release_tags)
+  while IFS= read -r _tag; do
+    [[ " ${_local[*]} " == *" ${_tag} "* ]] \
+      || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
+  done < <(_upstream_stable_tags | _owed "${_tree}")
+  (( ${#_missing[@]} > 0 )) || return 0
+  _note "fetching owed release tags from ${BASE_UPSTREAM_REMOTE}"
+  git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
+    "${BASE_UPSTREAM_REMOTE}" "${_missing[@]}" 2>/dev/null \
+    || _note "owed tag fetch failed (offline?); continuing with local tags"
+}
+
 main() {
+  _fetch_owed_tags
+
   local -a _stable=()
   mapfile -t _stable < <(_stable_release_tags)
 
