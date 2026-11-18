@@ -266,6 +266,9 @@ func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 	var out []Occurrence
 	want := pathID(path)
 	for _, o := range m.candidates(path) {
+		if examined != nil {
+			examined()
+		}
 		if keep(*o) && pathID(o.Path) == want {
 			out = append(out, *o)
 		}
