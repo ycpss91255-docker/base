@@ -594,8 +594,12 @@ _mock_docker_tables_exec() {
   assert_equal "$(_cg_tables_seen)" "$(printf '[a\nb\nb.c\n]')"
   local _wdp
   _wdp="$(cd "${_wd}" && pwd -P)"
-  run grep -c "^run --rm --user $(id -u):$(id -g) --mount type=bind,src=${_wdp}/layer.toml,dst=/in/f,readonly .* tables --name layer.toml /in/f\$" "${DOCKER_LOG}"
-  assert_output 1
+  # The image is the tag project_reclaim.sh's digest names (_expected_tag,
+  # pinned to base#1169 by the tag row), not one read back from the shim.
+  assert_cg_run_argv run --rm --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=${_wdp}/layer.toml,dst=/in/f,readonly" \
+    "$(_expected_tag)" tables --name layer.toml /in/f
+  assert_cg_calls image run
 }
 
 # why: a name that does not exist is refused on the host by a stat alone
