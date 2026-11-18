@@ -50,6 +50,7 @@ readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(late
 # The allow-list: one '<path>|<kind>|<scope>|<count>|<token>|<reason>' entry
 # per sanctioned occurrence. An occurrence is suppressed only when its path,
 # kind and scope match an entry and its line carries the entry's token.
+# Scope 'comment': the line starts with optional blanks then '#'.
 # Scope 'line:<anchor>': the line contains the fixed string <anchor>.
 # An entry covers at most <count> occurrences: one more is a new consumer.
 readonly _MOVING_TAG_ALLOWLIST=()
@@ -73,6 +74,7 @@ _moving_tag_allowed() {
     [[ "${_path}" == "${_rel}" && "${_ekind}" == "${_kind}" ]] || continue
     [[ -n "${_token}" && "${_line}" == *"${_token}"* ]] || continue
     case "${_scope}" in
+      comment) [[ "${_line}" =~ ^[[:space:]]*# ]] && return 0 ;;
       line:?*) [[ "${_line}" == *"${_scope#line:}"* ]] && return 0 ;;
     esac
   done
