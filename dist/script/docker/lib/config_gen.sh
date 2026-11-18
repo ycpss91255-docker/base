@@ -77,9 +77,10 @@ config_gen_resolve() {
 #   log record (base#1470). A frame that is not one -- a tag other than D,
 #   an event id the registry does not know, fewer than 8 fields, or a
 #   last field cut off before its NUL -- is refused as
-#   config_gen_diag_malformed with reason=. Unframed text ahead of a
-#   frame's tag is forwarded once as config_gen_stray_stderr. Answers 1
-#   when <errfile> held no frame.
+#   config_gen_diag_malformed with reason=. Unframed text -- ahead of a
+#   frame's tag, or left after the last frame with no NUL, which is all
+#   of docker's own message when the binary never ran -- is forwarded once
+#   as config_gen_stray_stderr. Answers 1 when <errfile> held no frame.
 _config_gen_decode_frames() {
   local -a _f=()
   local _field="" _n=0
@@ -88,9 +89,7 @@ _config_gen_decode_frames() {
     # stream and runs into the next frame's tag; it is forwarded once and
     # the frame keeps its D tag (base#1470).
     if ((${#_f[@]} == 0)) && [[ "${_field}" == *$'\n'D ]]; then
-      _log_err config_gen config_gen_stray_stderr \
-        "display=config_gen_tables: docker wrote for ${2}: ${_field%$'\n'D}" \
-        "file=$2" "text=${_field%$'\n'D}"
+      _config_gen_stray_stderr "${_field%$'\n'D}" "$2"
       _field=D
     fi
     _f+=("${_field}")
@@ -110,9 +109,12 @@ _config_gen_decode_frames() {
     fi
   done < "$1"
   # A started frame left open: its last field lacks a NUL (truncated) or
-  # it has fewer than 8 fields (count). Bytes with no NUL at all are not
-  # a frame and stay docker's own text.
-  if ((${#_f[@]} > 0)); then
+  # it has fewer than 8 fields (count). With no frame open, bytes the
+  # failed read left in _field carry no NUL: they are docker's own text,
+  # forwarded once, never a frame (base#1470).
+  if ((${#_f[@]} == 0)); then
+    [[ -z "${_field}" ]] || _config_gen_stray_stderr "${_field%$'\n'}" "$2"
+  else
     if [[ -n "${_field}" ]]; then
       _config_gen_diag_malformed truncated "$2"
     else
@@ -121,6 +123,16 @@ _config_gen_decode_frames() {
     _n=$((_n + 1))
   fi
   ((_n > 0))
+}
+
+# _config_gen_stray_stderr <text> <name>
+#   Forward unframed stderr <text> (docker's own, not the binary's) as one
+#   config_gen_stray_stderr record; <name> is the file config_gen_tables
+#   was given (base#1470).
+_config_gen_stray_stderr() {
+  _log_err config_gen config_gen_stray_stderr \
+    "display=config_gen_tables: docker wrote for ${2}: ${1}" \
+    "file=$2" "text=$1"
 }
 
 # _config_gen_diag_malformed <reason> <name>
