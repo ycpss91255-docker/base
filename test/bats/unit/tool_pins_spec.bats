@@ -356,6 +356,29 @@ _pins() {
   assert_output --partial "2	2	dockerfile/Dockerfile.test-tools"
 }
 
+# why: When upstream publishes a checksum file, the digest is the line naming our
+# asset, not the first line and not a hash of the file itself (base#1676). The
+# digests are literals written into the fixture, so the expected value is
+# independent of any hashing the code does.
+@test "pins: --set takes the digest of the named asset from an upstream checksum file (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf '%s  %s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb foo-v2.0.0-linux.tar.gz \
+    cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc foo-v2.0.0-linux.tar.gz.sig \
+    > "${_fx}/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:file://${_fx}/SHA256SUMS-{version}:foo-{version}-linux.tar.gz" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
