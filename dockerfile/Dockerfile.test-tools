@@ -151,6 +151,7 @@ ARG BATS_SUPPORT_VERSION=v0.3.0
 ARG BATS_SUPPORT_COMMIT=24a72e14349690bcbf7c151b9d2d1cdd32d36eb1
 # tool-pin: bats-assert github-release bats-core/bats-assert
 ARG BATS_ASSERT_VERSION=v2.1.0
+ARG BATS_ASSERT_COMMIT=78fa631d1370562d2cd4a1390989e706158e7bf0
 RUN apk add --no-cache git && \
     git clone --depth 1 -b "${BATS_SUPPORT_VERSION}" \
         https://github.com/bats-core/bats-support /bats/bats-support && \
@@ -158,7 +159,10 @@ RUN apk add --no-cache git && \
         echo "bats-support: commit mismatch: tag ${BATS_SUPPORT_VERSION} is $(git -C /bats/bats-support rev-parse HEAD), pinned ${BATS_SUPPORT_COMMIT}" >&2; \
         exit 1; }; } && \
     git clone --depth 1 -b "${BATS_ASSERT_VERSION}" \
-        https://github.com/bats-core/bats-assert  /bats/bats-assert
+        https://github.com/bats-core/bats-assert  /bats/bats-assert && \
+    { [ "$(git -C /bats/bats-assert rev-parse HEAD)" = "${BATS_ASSERT_COMMIT}" ] || { \
+        echo "bats-assert: commit mismatch: tag ${BATS_ASSERT_VERSION} is $(git -C /bats/bats-assert rev-parse HEAD), pinned ${BATS_ASSERT_COMMIT}" >&2; \
+        exit 1; }; }
 
 FROM alpine-apk AS lint-tools
 # arch-literal-lint: allow-begin -- the TARGETARCH-to-upstream-asset mapping is
