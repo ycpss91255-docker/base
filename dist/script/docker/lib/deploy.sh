@@ -1242,7 +1242,7 @@ _generate_deploy_bundle() {
   # errexit abort), not only when this function reaches its last line. The
   # caller's EXIT handler is chained AFTER the removal and sees the original
   # status; the caller's trap is restored on a normal return below.
-  local _prev_trap _caller_trap=""
+  local _prev_trap="" _caller_trap=""
   # A subshell has no EXIT trap of its own (`trap -p` still reports the
   # parent's), so only the top-level shell's trap is chained and restored.
   if [[ "${BASHPID}" == "$$" ]]; then
