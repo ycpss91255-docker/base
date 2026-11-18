@@ -62,9 +62,9 @@ readonly PREV_RELEASE_DIR
 # count drops the floor once enough releases follow it, and keeps
 # pre-floor releases while the floor is not yet tagged. Excluding the
 # tree's own version is what stops the window resolving to the tree under
-# test and asserting nothing. Before any release past the floor exists the
-# window is empty, and that is the rule's answer (base#1055: "binds
-# nothing until v0.44.0").
+# test and asserting nothing. Until v0.43.0 is tagged the window is empty,
+# and that is the rule's answer; it holds v0.43.0 itself as soon as that
+# tag exists below the tree.
 # tool-pin: ignore -- this repo's own support floor, not a third-party
 # version.
 PREV_RELEASE_FLOOR="v0.43.0"

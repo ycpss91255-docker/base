@@ -139,8 +139,10 @@ _probe_runs() {
 #   Succeed when the window holds at least <n> releases. Each arm calls
 #   it as `_window_reaches <n> || return 0` in the test body's own shell.
 #   A window shorter than <n> is the support rule's answer, not a lost tag
-#   (base#1729): the arm then runs zero cases, and the "window holds every
-#   release from v0.43.0" arm is what proves that short window complete.
+#   (base#1729): the arm then runs zero cases. The "window holds only
+#   releases from v0.43.0 below the tree" arm checks the window's bounds
+#   and each v0.m.0 below the tree's minor; that every owed patch release
+#   upstream lists is in it is pinned by prepare_prev_release_spec.bats.
 #   A missing tags.txt is NOT a short window: it succeeds here, so the arm
 #   goes on to `_release_tag`, which fails on it.
 _window_reaches() {
@@ -1061,10 +1063,12 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # (base#1055, base#1041): every stable release from the v0.43.0 floor up to,
 # but not including, the tree under test. A count-sliced window drops the
 # floor once enough releases follow it and keeps pre-floor releases before
-# the floor exists. This arm states the rule with literals, so it is also
-# the proof that a window short enough to run no driver arm is the rule's
-# answer rather than a lost tag.
-@test "the window holds every release from v0.43.0 below the tree, and nothing else (base#1729)" {
+# the floor exists. This arm states the bounds with literals: every line is
+# a stable tag from the floor below the tree, newest first, and each v0.m.0
+# below the tree's minor is present. It has no upstream listing, so it
+# cannot see a missing patch release such as v0.43.1; that half is pinned
+# by prepare_prev_release_spec.bats, which mocks upstream.
+@test "the window holds only releases from v0.43.0 below the tree, newest first, with each v0.m.0 below its minor (base#1729)" {
   [[ -f "${TAGS_FILE}" ]] \
     || fail "missing ${TAGS_FILE} -- run the suite through 'just test' (script/test/prepare-prev-release.sh populates it host-side)"
   local _tree
