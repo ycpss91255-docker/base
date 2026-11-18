@@ -10,6 +10,10 @@
 # for a non-prerelease tag and :main from main. :latest and :main are
 # conveniences for humans and bootstrap; an internal build that resolves the
 # tooling image by one of them gets whatever was pushed last (base#1122).
+#
+# Known limit: the scan reads the literal text test-tools, so a repository
+# name assembled at run time (test-${x}) is not seen. release-version.sh's
+# refusal of a 'latest' / 'main' version input is the behavioural backstop.
 
 # ── Moving test-tools tag lint ───────────────────────────────────────────────
 
@@ -56,7 +60,9 @@ readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(late
 # kind and scope match an entry and its line carries the entry's token.
 # Scope 'comment': the line starts with optional blanks then '#'.
 # Scope 'line:<anchor>': the line contains the fixed string <anchor>.
-# An entry covers at most <count> occurrences: one more is a new consumer.
+# An entry covers exactly <count> occurrences: one more is a new consumer,
+# one fewer is a stale entry. Both fail, as do a <count> that is not a
+# positive integer, an empty <reason> and an empty line anchor.
 # shellcheck disable=SC2016 # tokens are literal file text, never expanded.
 readonly _MOVING_TAG_ALLOWLIST=(
   'script/test/test.sh|moving|line:just test uses the published image instead|1|ghcr.io/ycpss91255-docker/test-tools:main|a hint a human may type; no build reads it'
