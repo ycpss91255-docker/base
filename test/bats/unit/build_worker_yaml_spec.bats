@@ -402,8 +402,10 @@ setup() {
   assert_output "1"
 }
 
+# why: With the cache off there is no cache-to, so no export for the warn
+# script to read; calling it anyway reports a missing export on every
+# extra-stage build of a caller that turned the cache off on purpose.
 @test "build-worker.yaml: DISABLE_CACHE=true skips the extra-stage cache-export warn calls (#1702)" {
-  # No cache-to, so no export for the warn script to read.
   DISABLE_CACHE=true run _extra_stages 'FROM debian:bookworm AS foo
 FROM debian:bookworm AS foo-test' foo
   assert_success
@@ -411,9 +413,12 @@ FROM debian:bookworm AS foo-test' foo
   refute_output --partial 'cache export'
 }
 
+# why: The extra stages are built by a shell step, not the action, so the
+# 4-step YAML guards cannot see them. This runs the real step (which reads
+# `inputs.disable_cache` through an env var, as it does every input) against
+# the stubbed docker: without it, disable_cache would turn the cache off for
+# the main targets and silently leave it on for every extra stage.
 @test "build-worker.yaml: DISABLE_CACHE=true passes no cache flag to the extra-stage builds (#1702)" {
-  # The step reads `inputs.disable_cache` through an env var, as it does
-  # every input. Runs the real step against the stubbed docker.
   DISABLE_CACHE=true run _extra_stages 'FROM debian:bookworm AS foo
 FROM debian:bookworm AS foo-test' foo
   assert_success
@@ -423,6 +428,9 @@ FROM debian:bookworm AS foo-test' foo
   refute_output --partial '--cache-to'
 }
 
+# why: The opposite direction: a gate that dropped the flags whatever the
+# input says would pass the DISABLE_CACHE=true case and quietly take the
+# cache away from every existing caller.
 @test "build-worker.yaml: DISABLE_CACHE=false keeps the cache flags on the extra-stage builds (#1702)" {
   DISABLE_CACHE=false run _extra_stages 'FROM debian:bookworm AS foo' foo
   assert_success
@@ -430,10 +438,10 @@ FROM debian:bookworm AS foo-test' foo
   assert_output --partial '--cache-to type=gha,scope=key-foo-cache,mode=max,ignore-error=true'
 }
 
+# why: With no cache-to there is no export vertex, so each of the 4 warn
+# steps would report a missing export on every build of a caller that
+# turned the cache off on purpose -- a warning that is always wrong.
 @test "build-worker.yaml: disable_cache skips the 4 cache-export warn steps (#1702)" {
-  # With no cache-to there is no export vertex, so the warn script would
-  # report a missing export on every build of a caller that turned the
-  # cache off on purpose.
   local _id
   for _id in build_devel_test build_devel build_runtime_test build_runtime; do
     run code_grep -cF "if: \${{ steps.${_id}.outcome == 'success' && !inputs.disable_cache }}" "${WF}"
@@ -441,11 +449,12 @@ FROM debian:bookworm AS foo-test' foo
   done
 }
 
+# why: Pins the one expression spelling that works. `!disable && format(...)
+# || ''` gives the scope string when enabled and '' when disabled (the
+# action then passes no cache flag). The natural-looking
+# `disable && '' || format(...)` does not: '' is falsy, so it falls through
+# to the cache it was meant to turn off.
 @test "build-worker.yaml: disable_cache empties cache-from and cache-to on the 4 build steps (#1702)" {
-  # `!disable && format(...) || ''`: enabled gives the scope string,
-  # disabled gives '' (the action then passes no cache flag). Not
-  # `disable && '' || format(...)`: '' is falsy, so that spelling would
-  # fall through to the cache it was meant to turn off.
   local _target
   for _target in devel-test devel runtime-test runtime; do
     run code_grep -cF "cache-from: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key) || '' }}" "${WF}"
@@ -457,8 +466,10 @@ FROM debian:bookworm AS foo-test' foo
 
 # ── disable_cache input (base#1702) ──────────────────────────────────
 
+# why: Default false is what keeps every existing caller on the cache it
+# uses today; a true default would turn the cache off for all of them
+# without any of them opting in.
 @test "build-worker.yaml: declares disable_cache input as boolean default false (#1702)" {
-  # Default false keeps every existing caller on the cache it uses today.
   run code_grep -A 3 '^      disable_cache:' "${WF}"
   assert_success
   assert_output --partial 'required: false'
