@@ -399,14 +399,14 @@ func TestCutWindowsSweepsWholePrefixesOnlyUpToOneKiB(t *testing.T) {
 // whole prefixes [0,n) for n from 0 to the file's length, so every byte
 // offset is where a window ends and no verdict on these files can change.
 func TestCutWindowsSmallCorpusFilesAreSweptWhole(t *testing.T) {
-	const smallest = 684
+	const smallCorpusMax = 684
 	checked := 0
 	for _, file := range CorpusTOML(t) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(src) > smallest {
+		if len(src) > smallCorpusMax {
 			continue
 		}
 		checked++
