@@ -813,6 +813,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           HARDWARE: ${{ matrix.hardware }}
           TEST_TOOLS_IMAGE: ${{ steps.testtools.outputs.image }}
+          DISABLE_CACHE: ${{ inputs.disable_cache }}
         run: |
           set -euo pipefail
 
@@ -826,6 +827,18 @@ jobs:
           cache_to_for() {
             local scope="$1"
             printf 'type=gha,scope=%s,mode=max,ignore-error=true' "${scope}"
+          }
+          # The cache flags for one build, in `cache_flags`: both, or none
+          # when the caller set `disable_cache` (#1702).
+          set_cache_flags() {
+            local scope="$1"
+            cache_flags=()
+            if [ "${DISABLE_CACHE:-}" != "true" ]; then
+              cache_flags=(
+                --cache-from "$(cache_from_for "${scope}")"
+                --cache-to "$(cache_to_for "${scope}")"
+              )
+            fi
           }
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
@@ -880,12 +893,12 @@ jobs:
             # roster for the same reason.
             if grep -Fx -- "${test_stage}" > /dev/null <<< "${available_stages}"; then
               echo "::group::Build ${test_stage} (extra stage test)"
+              set_cache_flags "${CACHE_KEY}-${test_stage}-cache"
               docker buildx build \
                 --file "${DOCKERFILE}" \
                 --target "${test_stage}" \
                 --platform "${PLATFORM}" \
-                --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
-                --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
+                "${cache_flags[@]}" \
                 --metadata-file "${RUNNER_TEMP}/${test_stage}.json" \
                 "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
                 "${CONTEXT_PATH}"
@@ -898,12 +911,12 @@ jobs:
             fi
 
             echo "::group::Build ${stage} (extra stage)"
+            set_cache_flags "${CACHE_KEY}-${stage}-cache"
             docker buildx build \
               --file "${DOCKERFILE}" \
               --target "${stage}" \
               --platform "${PLATFORM}" \
-              --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
-              --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
+              "${cache_flags[@]}" \
               --metadata-file "${RUNNER_TEMP}/${stage}.json" \
               "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
               "${CONTEXT_PATH}"

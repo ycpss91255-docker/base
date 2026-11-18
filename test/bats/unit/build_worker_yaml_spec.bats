@@ -392,13 +392,14 @@ setup() {
   assert_success
   run code_grep -F 'type=registry' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
-  # Both buildx invocations (test-stage + stage) call the selection helpers.
+  # Both buildx invocations (test-stage + stage) get their flags from
+  # set_cache_flags (#1702), which calls the selection helpers once.
   run code_grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
   assert_success
-  assert_output "2"
+  assert_output "1"
   run code_grep -cF -e '--cache-to "$(cache_to_for ' "${WF}"
   assert_success
-  assert_output "2"
+  assert_output "1"
 }
 
 @test "build-worker.yaml: DISABLE_CACHE=true passes no cache flag to the extra-stage builds (#1702)" {
