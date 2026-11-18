@@ -1057,3 +1057,23 @@ _resolve_tags_for() {
   assert_success
   assert_output '0'
 }
+
+# why: base#1656 -- the merge job checks base out SPARSE into .worker-base,
+# so a merge step that runs a .worker-base script the sparse path leaves out
+# finds no file and fails only on a real tag push. _merge_sparse_misses
+# <workflow> prints every .worker-base/<path> a merge step runs that the
+# merge checkout's sparse-checkout list does not name, and fails when there
+# is one. The real workflow must pass; a copy whose sparse path names
+# another script must fail and name release-ref.sh, the script "Resolve
+# tags" runs (a worked literal, not read back through the check).
+@test "publish-worker.yaml: the merge checkout's sparse path covers every .worker-base script a merge step runs (base#1656)" {
+  run _merge_sparse_misses "${WF}"
+  assert_success
+  assert_output ''
+  cp -- "${WF}" "${SCRATCH}/narrowed.yaml"
+  yq -i '(.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@")) | .with."sparse-checkout") = "script/ci/testtools_image.sh"' \
+    "${SCRATCH}/narrowed.yaml"
+  run _merge_sparse_misses "${SCRATCH}/narrowed.yaml"
+  assert_failure
+  assert_output --partial 'script/ci/release-ref.sh'
+}
