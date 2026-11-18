@@ -249,3 +249,73 @@ _applied_labels() {
   assert_success
   assert_output '0'
 }
+
+# _triage_step_for <labels-json> -- run the workflow's own labelling step
+# against one label set, with `gh` stubbed on PATH. The stub serves
+# <labels-json> to `gh api` and appends every argv it is given, one call per
+# line, to ${BATS_TEST_TMPDIR}/gh.log. The fixture reaches the step ONLY
+# through that `gh api` answer, never the event payload. Exit 2 when the
+# workflow declares no such step: an empty body is not a passing step.
+_TRIAGE_STEP='Add needs-triage when no state label is set'
+_triage_step_for() {
+  local _labels="${1}" _body _dir="${BATS_TEST_TMPDIR}/triage"
+  _body="$(yaml_step_run "${WF_DIR}/triage-label.yaml" label "${_TRIAGE_STEP}")" || {
+    printf 'BUG: yq could not read the labelling step\n'
+    return 2
+  }
+  if [[ -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: triage-label.yaml declares no step named %s in its label job\n' \
+      "${_TRIAGE_STEP}"
+    return 2
+  fi
+  rm -rf "${_dir}"
+  mkdir -p "${_dir}/bin"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  printf '%s\n' "${_labels}" > "${_dir}/labels.json"
+  : > "${BATS_TEST_TMPDIR}/gh.log"
+  cat > "${_dir}/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${STUB_GH_LOG}"
+if [[ "${1:-}" == 'api' ]]; then
+  [[ -z "${STUB_GH_API_FAIL:-}" ]] || exit 1
+  cat "${STUB_LABELS}"
+fi
+exit 0
+STUB
+  chmod +x "${_dir}/bin/gh"
+  PATH="${_dir}/bin:${PATH}" \
+  STUB_GH_LOG="${BATS_TEST_TMPDIR}/gh.log" \
+  STUB_LABELS="${_dir}/labels.json" \
+  GH_TOKEN=stub REPO=ycpss91255-docker/base ISSUE=4242 \
+    bash "${_dir}/step.sh" 2>&1
+}
+
+# why: The rule is "exactly one state label" and the roster is the doc's
+# table, so the predicate is a count of roster names in the label set the
+# issue carries NOW. No state label, whatever else is there (a kind label
+# set at creation, or the last state just removed), gets the intake role;
+# any one role from the doc -- read here, not from the step's own copy --
+# gets nothing. An unconditional add, an inverted gate, a counter that only
+# looks for needs-triage and a hand-copied roster missing a role all fail
+# one half of this (base#1713)
+@test "triage-label: a label set with no state label gets needs-triage, one with a state label does not" {
+  assert_spec_subject "${WF_DIR}/triage-label.yaml" "the safety net that keeps a state label on every issue"
+  local _fx _role _roles
+  for _fx in '[]' '[{"name":"enhancement"}]'; do
+    run _triage_step_for "${_fx}"
+    assert_success
+    run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+    run grep -cxF 'issue edit 4242 --repo ycpss91255-docker/base --add-label needs-triage' \
+      "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+  done
+  _roles="$(_state_roles)"
+  [ -n "${_roles}" ]
+  while IFS= read -r _role; do
+    run _triage_step_for "[{\"name\":\"enhancement\"},{\"name\":\"${_role}\"}]"
+    assert_success
+    run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '0'
+  done <<< "${_roles}"
+}

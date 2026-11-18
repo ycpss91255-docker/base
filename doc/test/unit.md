@@ -9240,7 +9240,7 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
-### test/bats/unit/triage_label_yaml_spec.bats (8)
+### test/bats/unit/triage_label_yaml_spec.bats (9)
 
 | Test | Description |
 |------|-------------|
@@ -9252,6 +9252,7 @@ call begin + detach
 | `triage-label: the unlabeled-issue safety net applies the intake role` | The intake role has one spelling and the rename chose it. Naming the label positively, and not merely "something in the table", is what keeps a later edit from swapping the safety net onto ready-for-agent or wontfix -- both of which are in the table and neither of which is what an unlabeled externally-filed issue is waiting for |
 | `triage-label: the safety net runs on opened, labeled and unlabeled` | The rule is "exactly one state label", and a label set changes on three events, not one. Triggering on `opened` alone never sees a state label being removed, so an issue whose last state label is taken off stays stateless for good; `labeled` alone misses that same removal. Only all three keep the net in front of every change (base#1713) |
 | `triage-label: the job is gated only on the issue being open` | The old gate asked "any label at all?" while the rule is about STATE labels, so a kind label alone (`enhancement`, set by the to-issues flow at creation) skipped the job and left the issue stateless. Which labels count is the step's business, read at run time; the job itself may only refuse a closed issue. Asserted positively, so `!labels[0]`, `labels.length == 0`, `toJSON(...) == '[]'` and a step-level gate all fail it, not just today's spelling (base#1713) |
+| `triage-label: a label set with no state label gets needs-triage, one with a state label does not` | The rule is "exactly one state label" and the roster is the doc's table, so the predicate is a count of roster names in the label set the issue carries NOW. No state label, whatever else is there (a kind label set at creation, or the last state just removed), gets the intake role; any one role from the doc -- read here, not from the step's own copy -- gets nothing. An unconditional add, an inverted gate, a counter that only looks for needs-triage and a hand-copied roster missing a role all fail one half of this (base#1713) |
 
 ### test/bats/unit/tui_backend_spec.bats (30)
 
