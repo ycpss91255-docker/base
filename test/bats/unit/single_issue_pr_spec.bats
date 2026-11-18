@@ -72,3 +72,14 @@ setup() {
   run --separate-stderr bash "${CHECK}"
   assert_success
 }
+
+# why: Inline code is quoted text too. A script that only stripped fenced
+# blocks would fail a PR that closes exactly one issue because a commit
+# message mentions `Closes #2` in backticks (base#1629).
+@test "single_issue_pr.sh: a closing keyword inside inline code is ignored (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'fix: only\n\nCloses #1\n\nDo not write `Closes #2` here.'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_success
+}
