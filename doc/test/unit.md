@@ -4942,6 +4942,30 @@ directory is a no-op).
 | `_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)` | - |
 | `_logrotate_prune: missing dir is a no-op (best-effort) (#805)` | - |
 
+### test/bats/unit/moving_tag_lint_spec.bats (19)
+
+| Test | Description |
+|------|-------------|
+| `_run_moving_tag: FAILS on a workflow that pulls test-tools:latest, naming file and line (base#1647)` | AC 1 of base#1647. A lint that never fires would pass every other case below; this is the literal moving tag a workflow would pull. |
+| `_run_moving_tag: FAILS on a script naming test-tools:main under an unqualified registry prefix (base#1647)` | :main moves as surely as :latest, and an internal reference may spell the registry through a variable rather than in full. |
+| `_run_moving_tag: FAILS on a tag fed by a workflow input whose default is latest (the pre-base#1204 build-worker shape, base#1647)` | The base#1122 regression, from git show a67636b3: no literal moving tag, an input defaulting to "latest" feeding the image tag. |
+| `_run_moving_tag: FAILS on an untagged qualified test-tools base that a later line suffixes with :latest, naming the base line (base#1647)` | The tag line carries no test-tools text; only the base line does. |
+| `_run_moving_tag: FAILS on a variable test-tools tag in a Dockerfile, compose.yaml and the justfile, one violation each (base#1647)` | Not only workflows: every scanned root counts, and a tag taken from a variable (:${ver}) is mutable, not a pin. |
+| `_run_moving_tag: PASSES when a moving tag sits only in git-ignored or unscanned paths (base#1647)` | The lint scans fixed roots, never the whole tree: a local-only ignored copy (.prev-release/, .env, log/ ...) would fail it locally and pass on CI. Every unanchored .gitignore name inside a root is skipped, and doc/, test/ and Markdown are out of scope. |
+| `_run_moving_tag: an allow-list entry suppresses only its own path, kind, token and anchored line (base#1647)` | The table is read through _moving_tag_allowlist (one entry per line, '<path>\|<kind>\|<scope>\|<count>\|<token>\|<reason>'); the spec overrides it. |
+| `_run_moving_tag: FAILS when an entry's anchored occurrences outnumber its count, naming every matched line (base#1647)` | An entry pins how many occurrences it covers: a copy of the sanctioned hint is a new consumer, not a second exception. |
+| `_run_moving_tag: a comment-scoped entry suppresses only a comment line, never code carrying its token (base#1647)` | Scope 'comment': the line starts with optional blanks then '#'. Code under a comment entry is a new consumer. |
+| `_run_moving_tag: an allow-list entry cannot suppress a tag fed by an input defaulting to latest (base#1647)` | The base#1122 shape is never a sanctioned exception: an entry naming its path, kind, scope and token leaves it a violation. |
+| `_run_moving_tag: an allow-list entry cannot suppress a tag whose variable defaults to latest (base#1647)` | ${TAG:-latest} resolves to the moving tag whenever TAG is unset: it is never a sanctioned exception, whichever kind an entry names for it. |
+| `_run_moving_tag: FAILS as stale when an entry matches fewer occurrences than its count (base#1647)` | A removed or reworded exception leaves its entry behind: the table must not keep a slot a new consumer could later fill unnoticed. |
+| `_run_moving_tag: FAILS on an allow-list entry whose count is 0 (base#1647)` | A count-0 entry sanctions nothing and is never stale: it would sit in the table forever. A count must be a positive integer. |
+| `_run_moving_tag: FAILS on an allow-list entry with an empty reason (base#1647)` | An exception nobody can explain is an exception nobody can retire: every entry must say why the moving reference is sanctioned. |
+| `_run_moving_tag: FAILS on an allow-list entry whose line scope has an empty anchor (base#1647)` | 'line:' with no anchor names no line: it would read as matching every line of the file, the file-wide entry the per-line scope rules out. |
+| `_run_moving_tag: FAILS when the scanned roots hold no file at all (base#1647)` | A lint that scanned nothing found nothing: a REPO_ROOT that points at the wrong tree (or roots that were renamed away) must not read as clean. |
+| `_run_moving_tag: the real allow-list passes base's own tree and one added test-tools:latest is the only finding (base#1647)` | AC: the lint passes on the current tree, and fails when a test-tools:latest reference is deliberately added. |
+| `_run_lint_tools: the lint phase reaches the moving-tag driver and fails on an added test-tools:latest (base#1647)` | A driver nothing calls passes every test above and gates nothing: `just test lint`, the lint-static CI groups and the host --<tool>-only arm all go through test.sh's _LINT_TOOLS table and its dispatch case. The scratch tree carries a copy of test.sh, so its REPO_ROOT is the scratch tree and the phase scans the fixture, not the live checkout. |
+| `test.sh --moving-tag-only: runs the moving-tag driver on the host and fails on an added test-tools:latest (base#1647)` | The host arm is the other entry point the help text and CI's dedicated-job check name; it must run the same driver. |
+
 ### test/bats/unit/multi_distro_build_worker_yaml_spec.bats (17)
 
 Structural assertions for `.github/workflows/multi-distro-build-worker.yaml`

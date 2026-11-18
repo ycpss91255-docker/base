@@ -12,8 +12,10 @@
 # tooling image by one of them gets whatever was pushed last (base#1122).
 #
 # Known limit: the scan reads the literal text test-tools, so a repository
-# name assembled at run time (test-${x}) is not seen. release-version.sh's
-# refusal of a 'latest' / 'main' version input is the behavioural backstop.
+# name assembled at run time (test-${x}) is not seen. release-version.sh
+# refuses a 'latest' / 'main' version,
+# but only on the path that asks it: script/ci/testtools_image.sh passes it
+# the content of .version. A name built anywhere else never reaches it.
 
 # ── Moving test-tools tag lint ───────────────────────────────────────────────
 
