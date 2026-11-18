@@ -379,6 +379,27 @@ _pins() {
   assert_success
 }
 
+# why: A binary-mode checksum line reads `<hash> *<asset>`, a form upstream
+# checksum files use; the named asset's line must still be found in it
+# (base#1676). The digest is a literal written into the fixture.
+@test "pins: --set takes the named asset's digest from a binary-mode '*asset' checksum line (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf '%s *%s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd foo-v2.0.0-linux.tar.gz \
+    > "${_fx}/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:file://${_fx}/SHA256SUMS-{version}:foo-{version}-linux.tar.gz" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: A marker that names a checksum ARG the file does not declare must refuse the
 # bump with nothing written; skipping it would commit "version bumped, digest
 # stale" (base#1676). The fixture URL is absent, so the refusal cannot depend on
