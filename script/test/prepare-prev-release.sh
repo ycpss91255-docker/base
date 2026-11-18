@@ -205,21 +205,30 @@ _upstream_stable_tags() {
 
 # _fetch_owed_tags
 #   Fetch every tag upstream owes the tree under test that the local
-#   object store does not hold yet, one explicit refspec per tag.
+#   object store does not hold yet, one explicit refspec per tag. An owed
+#   tag still missing afterwards is fatal: the window would silently cover
+#   less than the rule owes.
 _fetch_owed_tags() {
   local _tree _tag
   _tree="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
-  local -a _local=() _missing=()
+  local -a _local=() _owed_tags=() _missing=() _still=()
   mapfile -t _local < <(_stable_release_tags)
-  while IFS= read -r _tag; do
+  mapfile -t _owed_tags < <(_upstream_stable_tags | _owed "${_tree}")
+  for _tag in "${_owed_tags[@]}"; do
     [[ " ${_local[*]} " == *" ${_tag} "* ]] \
       || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
-  done < <(_upstream_stable_tags | _owed "${_tree}")
+  done
   (( ${#_missing[@]} > 0 )) || return 0
   _note "fetching owed release tags from ${BASE_UPSTREAM_REMOTE}"
   git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
     "${BASE_UPSTREAM_REMOTE}" "${_missing[@]}" 2>/dev/null \
-    || _note "owed tag fetch failed (offline?); continuing with local tags"
+    || _note "owed tag fetch failed (offline?)"
+  mapfile -t _local < <(_stable_release_tags)
+  for _tag in "${_owed_tags[@]}"; do
+    [[ " ${_local[*]} " == *" ${_tag} "* ]] || _still+=("${_tag}")
+  done
+  (( ${#_still[@]} == 0 )) \
+    || _die "owed release tags missing after fetch: ${_still[*]}"
 }
 
 main() {
