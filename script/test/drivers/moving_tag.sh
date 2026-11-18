@@ -113,6 +113,12 @@ _run_moving_tag() {
     done < <(find "${_abs_root}" -type d \( "${_prune[@]}" \) -prune \
       -o -type f ! -name '*.md' "${_skip[@]}" -print0 2>/dev/null | sort -z)
   done
+  # A scan of nothing finds nothing: a wrong REPO_ROOT must not read as clean.
+  if [[ "${#_files[@]}" -eq 0 ]]; then
+    _die ci_moving_tag \
+      "the scanned roots (${_MOVING_TAG_SCAN_ROOTS[*]}) hold no file under ${REPO_ROOT}; check REPO_ROOT (base#1647)."
+    return 1
+  fi
 
   local -a _allow=()
   local _entry
