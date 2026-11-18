@@ -112,7 +112,22 @@ config_gen_tables() {
     > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
   _config_gen_decode_frames "${_tmp}/err"
   if ((_rc == 0)); then
-    IFS= read -r -d '' _cgt_out < "${_tmp}/out" || true
+    # A bash variable cannot hold a NUL, so a table list carrying one is
+    # refused instead of published truncated (base#1470).
+    local _chunk _list="" _n=0
+    while IFS= read -r -d '' _chunk; do
+      _list+="${_chunk}"
+      _n=$((_n + 1))
+    done < "${_tmp}/out"
+    _list+="${_chunk}"
+    if ((_n > 0)); then
+      _log_err config_gen config_gen_output_nul \
+        "display=config_gen_tables: the table list of $1 holds a NUL byte, which a shell variable cannot carry" \
+        "file=$1"
+      _rc=1
+    else
+      _cgt_out="${_list}"
+    fi
   fi
   rm -rf -- "${_tmp}"
   return "${_rc}"
