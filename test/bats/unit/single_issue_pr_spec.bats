@@ -60,3 +60,15 @@ setup() {
   run --separate-stderr bash "${CHECK}"
   assert_success
 }
+
+# why: A closing keyword inside a fenced code block is quoted text, not
+# a directive, and GitHub does not act on it. A script that grepped raw
+# text would fail a PR that closes exactly one issue because a commit
+# message quotes an example (base#1629).
+@test "single_issue_pr.sh: a closing keyword inside a fenced code block is ignored (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'fix: only\n\nCloses #1\n\n```\nCloses #2\n```'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_success
+}
