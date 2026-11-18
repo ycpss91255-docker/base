@@ -61,7 +61,7 @@ ARG ALPINE_VERSION=3.23
 # base#946 named, was costed for base#1030 and rejected: under bats it
 # wrote an empty report on both 3.22 and 3.23.
 #
-# kcov is v43 PLUS TWO PATCHES, applied in order in the kcov-builder stage:
+# kcov is v43 PLUS THREE PATCHES, applied in order in the kcov-builder stage:
 #
 #   dockerfile/kcov-76bf685.patch -- upstream commit 76bf685, backported.
 #   v43 writes every trace line that carries no `kcov@` marker to its own
@@ -78,8 +78,14 @@ ARG ALPINE_VERSION=3.23
 #   Drop it when a kcov release reads bash 5.3's ANSI-C xtrace without it;
 #   test/bats/unit/kcov_bash_instrumentation_spec.bats is the check.
 #
-# Both are `git apply`, which fails when its context moves, so a
-# KCOV_VERSION bump that invalidates either one fails the build.
+#   dockerfile/kcov-marker-resync.patch -- a line that starts a `kcov@`
+#   marker record ends an open single-quote state instead of being
+#   swallowed with the lines after a record holding a lone quote
+#   (base#1415). Drop it when a kcov release resyncs on a marker; the
+#   same spec is the check.
+#
+# All are `git apply`, which fails when its context moves, so a
+# KCOV_VERSION bump that invalidates any one fails the build.
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
 # THE declaration of the `just` runner version, for this image and for
@@ -269,6 +275,7 @@ FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
 COPY dockerfile/kcov-76bf685.patch /tmp/kcov-76bf685.patch
 COPY dockerfile/kcov-bash53-ansi-c.patch /tmp/kcov-bash53-ansi-c.patch
+COPY dockerfile/kcov-marker-resync.patch /tmp/kcov-marker-resync.patch
 RUN for _try in 1 2 3 4; do \
       apk add --no-cache \
         cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
@@ -281,6 +288,7 @@ RUN for _try in 1 2 3 4; do \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
     git -C /tmp/kcov apply /tmp/kcov-76bf685.patch && \
     git -C /tmp/kcov apply /tmp/kcov-bash53-ansi-c.patch && \
+    git -C /tmp/kcov apply /tmp/kcov-marker-resync.patch && \
     cmake -S /tmp/kcov -B /tmp/kcov/build && \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install

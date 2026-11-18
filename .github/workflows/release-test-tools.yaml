@@ -82,6 +82,7 @@ on:
       - 'dockerfile/verify-extract.sh'
       - 'dockerfile/kcov-76bf685.patch'
       - 'dockerfile/kcov-bash53-ansi-c.patch'
+      - 'dockerfile/kcov-marker-resync.patch'
       - 'dockerfile/bats-timeout-killer.patch'
       - '.github/workflows/release-test-tools.yaml'
     tags:
