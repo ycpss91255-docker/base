@@ -135,3 +135,18 @@ setup() {
   assert_success
   [[ "${output}${stderr}" == *"one mechanical rename spans both issues"* ]]
 }
+
+# why: Outside CI (a local run, or a hook) there is no GraphQL answer.
+# With PR_CLOSING_REFS unset the script must fall back to the closing
+# keywords in PR_BODY; a script that read only PR_CLOSING_REFS would pass
+# a body that closes two issues (base#1629).
+@test "single_issue_pr.sh: with PR_CLOSING_REFS unset the PR body is parsed instead (base#1629)" {
+  unset PR_CLOSING_REFS
+  unset PR_COMMITS
+  export PR_BODY=$'Closes #1\nCloses #2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"#1"* ]]
+  [[ "${stderr}" == *"#2"* ]]
+}
