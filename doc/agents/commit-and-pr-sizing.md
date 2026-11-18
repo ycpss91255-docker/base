@@ -47,10 +47,9 @@ Split before opening the PR if any of these hold:
 - the title needs "and" to be accurate;
 - the changed files include unrelated areas.
 
-## Owner action
+## Landing
 
-Landing a PR's commits individually needs the repository's rebase-and-merge
-setting, which is left as it is; this doc does not change it. At the time of
-writing, `gh api repos/ycpss91255-docker/base --jq .allow_rebase_merge`
-returns `true`. Squash merging is to be turned off once the merge helpers
-default to merge commits (base#1690); it is not off yet.
+Squash merging is off in this repository
+(`allow_squash_merge=false`) and PRs land with merge commits; the merge queue
+sets the method. Every commit on the branch therefore reaches main, so do not
+add empty "refactor none" or "review approved" commits.
