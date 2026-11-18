@@ -34,3 +34,17 @@ setup() {
   [[ "${stderr}" == *"base#1"* ]]
   [[ "${stderr}" == *"base#2"* ]]
 }
+
+# why: The repo squashes with COMMIT_MESSAGES, so a closing keyword in a
+# branch commit closes the issue even when GitHub's reference list for
+# the PR is empty. A script that ignored PR_COMMITS would pass a bundled
+# squash body (base#1629).
+@test "single_issue_pr.sh: two closing keywords in commit messages fail with empty closing refs (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'fix: first\n\nCloses #1\n\nfix: second\n\nFixes #2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"#1"* ]]
+  [[ "${stderr}" == *"#2"* ]]
+}
