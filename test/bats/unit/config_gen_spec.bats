@@ -580,8 +580,10 @@ _mock_docker_tables_run_fails() {
 # why: when docker itself fails (rc 125/126/127) the binary never ran, so
 #      no frame names the refusal; a shim that only re-emits frames would
 #      return that status with no record of why. Such a run is refused as
-#      config_gen_run_failed carrying docker's status, the status is the
-#      answer, and the outvar stays cleared.
+#      config_gen_run_failed carrying docker's status, docker's own message
+#      is forwarded once as config_gen_stray_stderr (it is the only account
+#      of the cause), the status is the answer, and the outvar stays
+#      cleared.
 @test "config-gen: tables refuses a docker failure with no frame as config_gen_run_failed" {
   _seed_cg_subtree
   local _wd="${BATS_TEST_TMPDIR}/wd"
@@ -593,8 +595,34 @@ _mock_docker_tables_run_fails() {
     _mock_docker_tables_run_fails "${_rc}"
     _run_cg_tables "${_wd}" layer.toml
     assert_refusal "${_rc}" config_gen_run_failed "file=layer.toml" "status=${_rc}"
+    assert_logged_event config_gen_stray_stderr "file=layer.toml" \
+      "docker: Error response from daemon: run failed."
+    assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_stray_stderr)" 1
     assert_equal "$(_cg_tables_seen)" "[]"
   done
+}
+
+# why: unframed text can also follow the last frame (docker reporting the
+#      container's exit after the binary spoke). Read with `read -d ''`,
+#      those bytes carry no NUL, so the read fails at EOF and the loop
+#      never sees them; dropped, docker's message vanishes. They are
+#      forwarded once as config_gen_stray_stderr, the frame before them is
+#      re-emitted as its own event, and nothing is called malformed.
+@test "config-gen: tables forwards unframed stderr after the last frame once as config_gen_stray_stderr" {
+  _seed_cg_subtree
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n' > "${_wd}/layer.toml"
+  local _err="${BATS_TEST_TMPDIR}/frame.err"
+  printf 'D\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0\0dup key\0trailing docker text\n' > "${_err}"
+  _mock_docker_tables_stderr "${_err}" 1
+
+  _run_cg_tables "${_wd}" layer.toml
+  assert_refusal 1 conf_toml_parse_failed "file=layer.toml" "line=3" "col=7"
+  assert_logged_event config_gen_stray_stderr "file=layer.toml" "trailing docker text"
+  assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_stray_stderr)" 1
+  assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_diag_malformed)" 0
+  assert_equal "$(_cg_tables_seen)" "[]"
 }
 
 # _mock_docker_tables_stderr <errfile> <status>
