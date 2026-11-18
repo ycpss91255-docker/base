@@ -108,3 +108,17 @@ setup() {
   [[ "${stderr}" == *"#1"* ]]
   [[ "${stderr}" == *"#2"* ]]
 }
+
+# why: GitHub's closing keyword applies to every reference in a
+# comma-separated list ("Closes #1, #2" closes both). A script that only
+# read the number right after the keyword would pass a PR that closes two
+# issues written as one list (base#1629).
+@test "single_issue_pr.sh: a comma-separated list after one keyword counts every issue (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'fix: both\n\nCloses #1, #2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"#1"* ]]
+  [[ "${stderr}" == *"#2"* ]]
+}
