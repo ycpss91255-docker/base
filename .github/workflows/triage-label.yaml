@@ -1,11 +1,13 @@
 name: Triage label
 
-# Safety net for externally-filed, unlabeled issues. The maintainer and
-# the to-issues flow already set real area/type labels at issue creation,
-# so the only issues reaching this workflow with zero labels are ones
-# opened without any label at all. For those, apply the intake state role
-# so a later maintainer sweep can replace it with the right label. Issues
-# that already carry a label are left untouched.
+# Safety net for issues that carry no state label. `doc/agents/triage-labels.md`
+# says every issue carries exactly one of its state roles, but an issue can
+# reach zero two ways: opened with only a kind label (`enhancement`, set by
+# the to-issues flow at creation), or its last state label removed later.
+# On every open/label/unlabel event this re-reads the issue's labels and, when
+# none of them is a state role, applies the intake role so a later maintainer
+# sweep can replace it. A kind label alone does not count as a state, and an
+# issue that already carries a state role is left untouched (base#1713).
 #
 # The label is `needs-triage`, the canonical intake role in
 # `doc/agents/triage-labels.md`, and NOT `triage`. This line said `triage`
@@ -41,19 +43,34 @@ jobs:
   label:
     runs-on: ubuntu-latest
     # Every job in the tree bounds itself; GitHub's default is six hours.
-    # This one adds a label through the API and nothing else.
+    # This one reads the issue's labels and adds at most one, nothing else.
     timeout-minutes: 5
     # The job refuses only a closed issue. Which labels count as a state is
     # not a job-level question: a kind label alone (`enhancement`) used to
     # skip the job here and leave the issue stateless (base#1713).
     if: github.event.issue.state == 'open'
     steps:
-      - uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: ['needs-triage'],
-            })
+      # The labels are re-read at run time, never taken from the event
+      # payload, and a failed read fails the step: an API error is never
+      # read as "no state label" (base#1713).
+      - name: Add needs-triage when no state label is set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          states=(needs-triage needs-info ready-for-agent ready-for-human wontfix needs-decision)
+          current="$(gh api --paginate "repos/${REPO}/issues/${ISSUE}/labels")"
+          names="$(jq -r '.[].name' <<< "${current}")"
+          count=0
+          for state in "${states[@]}"; do
+            if grep -qxF -- "${state}" <<< "${names}"; then
+              count=$((count + 1))
+            fi
+          done
+          if (( count == 0 )); then
+            gh issue edit "${ISSUE}" --repo "${REPO}" --add-label needs-triage
+          else
+            printf 'issue #%s carries %d state label(s); nothing to add\n' "${ISSUE}" "${count}"
+          fi
