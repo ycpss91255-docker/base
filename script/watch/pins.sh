@@ -460,14 +460,15 @@ _pins_set_golang() {
   [[ -z "${_failed}" ]]
 }
 
-# _pins_set_checksums <file> <version> <spec...>
+# _pins_checksum_digests <version> <spec...>
 #
-# Each spec is <ARG>@asset:<url>; {version} in the url is the new version.
-# The asset is fetched and the ARG's line takes its sha256 (base#1676).
-_pins_set_checksums() {
-  local _abs="${1}" _ver="${2}" _spec _arg _src _name _body _url _digest _ln _old
-  for _spec in ${3}; do
-    _arg="${_spec%%@*}"
+# Each spec is <ARG>@asset:<url> or <ARG>@file:<url>:<asset>; {version} in
+# the url is the new version. Prints one digest per spec, in order. Fails,
+# printing nothing to stdout, when a digest cannot be resolved to 64 hex
+# characters, so the caller can refuse before any write (base#1676).
+_pins_checksum_digests() {
+  local _ver="${1}" _spec _src _name _body _url _digest
+  for _spec in ${2}; do
     _src="${_spec#*@}"
     _name=""
     if [[ "${_src}" == file:* ]]; then
@@ -496,6 +497,26 @@ _pins_set_checksums() {
       _digest="$(curl -fsSL -- "${_url}" | sha256sum)" || return 1
     fi
     _digest="${_digest%% *}"
+    if [[ ! "${_digest}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+      printf 'pins: no sha256 digest for %s from %s\n' "${_spec%%@*}" "${_url}" >&2
+      return 1
+    fi
+    printf '%s\n' "${_digest}"
+  done
+}
+
+# _pins_set_checksums <file> <specs> <digests>
+#
+# Writes each spec's ARG line with the matching digest (one per line in
+# <digests>, resolved earlier by _pins_checksum_digests) (base#1676).
+_pins_set_checksums() {
+  local _abs="${1}" _spec _arg _digest _ln _old
+  local -a _digs
+  mapfile -t _digs <<< "${3}"
+  local _k=0
+  for _spec in ${2}; do
+    _arg="${_spec%%@*}"
+    _digest="${_digs[_k++]}"
     _ln="$(grep -nE "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}" | cut -d: -f1)"
     _old="$(awk -v n="${_ln}" 'NR == n' "${_abs}")"
     # Only the digest value is replaced: the quoting and any trailing
@@ -560,6 +581,10 @@ _pins_set() {
   if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
     _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
   fi
+  local _digests=""
+  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+    _digests="$(_pins_checksum_digests "${_new}" "${_cksum}")" || return 1
+  fi
   local _old_line _new_line
   _old_line="$(awk -v n="${_line}" 'NR == n' "${_abs}")"
   if [[ "${_file##*/}" == go.mod ]]; then
@@ -604,7 +629,7 @@ _pins_set() {
   # Checksum ARGs named by the marker's sha256= options move with the
   # version, in the same run (base#1676).
   if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
-    _pins_set_checksums "${_abs}" "${_new}" "${_cksum}" || return 1
+    _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" || return 1
   fi
 
   local _check
