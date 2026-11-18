@@ -181,3 +181,45 @@ _mock_git() {
   assert_output --partial "upstream lists no stable release tags"
   assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
 }
+
+# why: the support floor is a 0.x rule, so a tree past 0.x has no window
+# the rule can name. If that refusal only leaves a subshell, the run goes on
+# to write an empty window and exit 0, and every driver arm then passes
+# having driven nothing -- a silent green on a tree the rule does not cover.
+@test "prepare-prev-release: a tree past 0.x fails with no window (base#1729)" {
+  printf '%s\n' v0.44.0 v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.44.0 v0.43.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v1.0.0 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_failure
+  assert_output --partial "v1.0.0"
+  assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
+}
+
+# why: a .version that is not vX.Y.Z cannot be placed against the floor, so
+# no owed set can be derived from it. Reading it as "nothing owed" writes an
+# empty window and goes green; the run must refuse, naming the bad version.
+@test "prepare-prev-release: a tree .version that is not vX.Y.Z fails with no window (base#1729)" {
+  printf '%s\n' v0.44.0 v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.44.0 v0.43.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' 0.44.0 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_failure
+  assert_output --partial "'0.44.0' is not a vX.Y.Z version"
+  assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
+}
+
+# why: offline the tree version still bounds the degraded minimum. A bad
+# .version there must refuse too, not fall through to a passing check.
+@test "prepare-prev-release: with upstream unreachable a tree past 0.x still fails with no window (base#1729)" {
+  printf '%s\n' v0.44.0 v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v1.0.0 > "${ROOT}/.version"
+  : > "${BATS_TEST_TMPDIR}/ls-remote.fails"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_failure
+  assert_output --partial "v1.0.0"
+  assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
+}
