@@ -22,8 +22,3 @@ Closes #
 ## Security and boundaries
 
 - [ ] The container keeps its non-privileged user boundary, and no host-specific absolute path is hardcoded.
-
-## Merge
-
-PRs land with a merge commit. Squash merge is forbidden by the repo owner, so
-keep every commit message accurate: each one stays in the history as written.

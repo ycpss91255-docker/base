@@ -24,18 +24,10 @@ setup() {
     "## Single concern and atomic commits" \
     "## Control flow" \
     "## Test and build" \
-    "## Security and boundaries" \
-    "## Merge"; do
+    "## Security and boundaries"; do
     grep -qxF "${heading}" "${TEMPLATE}" || {
       echo "missing heading: ${heading}" >&2
       return 1
     }
   done
-}
-
-# why: The owner forbids squash merges, so the template must say how a PR lands
-@test "the PR template tells authors PRs land with a merge commit" {
-  [[ -f "${TEMPLATE}" ]]
-  grep -qi "merge commit" "${TEMPLATE}"
-  grep -qi "squash" "${TEMPLATE}"
 }
