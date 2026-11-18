@@ -24,6 +24,13 @@ readonly _MOVING_TAG_SCAN_ROOTS=(
 # (${ORG}/test-tools): test-tools after line start or a non-name character.
 readonly _MOVING_TAG_RE='(^|[^A-Za-z0-9_.-])test-tools:(latest|main)([^A-Za-z0-9_.-]|$)'
 
+# A test-tools tag taken from a workflow input (base#1122: the input
+# defaulted to "latest"). The input name is BASH_REMATCH[1].
+readonly _MOVING_TAG_INPUT_RE='test-tools:\$\{\{[[:space:]]*inputs\.([A-Za-z0-9_-]+)[[:space:]]*\}\}'
+# A bare YAML key line (an input name) and a moving default under it.
+readonly _MOVING_TAG_KEY_RE='^[[:space:]]*([A-Za-z0-9_-]+):[[:space:]]*$'
+readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(latest|main)["'"'"']?[[:space:]]*$'
+
 _run_moving_tag() {
   echo "--- Running moving test-tools tag lint ---"
   local _violations=0
@@ -38,13 +45,28 @@ _run_moving_tag() {
     done < <(find "${_abs_root}" -type f ! -name '*.md' -print0 2>/dev/null | sort -z)
   done
 
+  local _key _moving_inputs
   for _file in "${_files[@]}"; do
     _rel="${_file#"${REPO_ROOT}"/}"
+    # Inputs this file declares with a moving default, as " name name ".
+    _key=""
+    _moving_inputs=" "
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      if [[ "${_line}" =~ ${_MOVING_TAG_KEY_RE} ]]; then
+        _key="${BASH_REMATCH[1]}"
+      elif [[ -n "${_key}" && "${_line}" =~ ${_MOVING_TAG_DEFAULT_RE} ]]; then
+        _moving_inputs+="${_key} "
+      fi
+    done < "${_file}"
     _lineno=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _lineno=$(( _lineno + 1 ))
       if [[ "${_line}" =~ ${_MOVING_TAG_RE} ]]; then
         printf '%s:%d: moving -- %s\n' "${_rel}" "${_lineno}" "${_line}"
+        _violations=$(( _violations + 1 ))
+      elif [[ "${_line}" =~ ${_MOVING_TAG_INPUT_RE} \
+        && "${_moving_inputs}" == *" ${BASH_REMATCH[1]} "* ]]; then
+        printf '%s:%d: input-default -- %s\n' "${_rel}" "${_lineno}" "${_line}"
         _violations=$(( _violations + 1 ))
       fi
     done < "${_file}"
