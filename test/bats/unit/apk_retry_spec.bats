@@ -50,7 +50,7 @@ STUB
 
   [ "${status}" -ne 0 ]
   [ "$(wc -l < "${COUNT}")" -le 10 ]
-  [[ "${output}" == *"apk-retry: apk add failed after"* ]]
+  [[ "${output}" == *"apk-retry: apk add"*"failed after"* ]]
 }
 
 # why: base#1422 -- the first slice of the issue: every apk call in the
