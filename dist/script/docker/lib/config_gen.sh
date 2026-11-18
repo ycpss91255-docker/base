@@ -97,6 +97,14 @@ config_gen_tables() {
   local -n _cgt_out="$2"
   _cgt_out=""
   config_gen_resolve || return 1
+  # docker's --mount value is comma-separated and cannot carry a
+  # newline, so such a name is refused before any container (base#1470).
+  if [[ "$1" == *[,$'\n']* ]]; then
+    _log_err config_gen config_gen_path_unmountable \
+      "display=config_gen_tables: $1 cannot be named in a docker --mount (it holds a comma or newline)" \
+      "file=$1"
+    return 1
+  fi
   # A stat only: the host never opens the path, and a missing src must
   # not reach `docker run` (base#1470).
   if [[ ! -e "$1" && ! -L "$1" ]]; then
@@ -104,10 +112,31 @@ config_gen_tables() {
       "display=config_gen_tables: no such file: $1" "file=$1"
     return 1
   fi
+  # The mount src is the parent's physical path, so a symlinked parent
+  # whose target holds a comma or newline is refused too; the trailing
+  # `x` keeps a newline that ends the path (base#1470).
+  local _dir="${1%/*}" _abs
+  [[ "$1" == */* ]] || _dir=.
+  [[ -n "${_dir}" ]] || _dir=/
+  _abs="$(CDPATH='' cd -P -- "${_dir}" && pwd -P && printf x)"
+  if [[ "${_abs}" != *$'\nx' ]]; then
+    _log_err config_gen no_such_file \
+      "display=config_gen_tables: no such file: $1" "file=$1"
+    return 1
+  fi
+  _abs="${_abs%$'\nx'}"
+  [[ "${_abs}" != / ]] || _abs=""
+  _abs+="/${1##*/}"
+  if [[ "${_abs}" == *[,$'\n']* ]]; then
+    _log_err config_gen config_gen_path_unmountable \
+      "display=config_gen_tables: $1 cannot be named in a docker --mount (its path ${_abs} holds a comma or newline)" \
+      "file=$1"
+    return 1
+  fi
   local _tmp _rc=0
   _tmp="$(mktemp -d)"
   docker run --rm --user "$(id -u):$(id -g)" \
-    --mount "type=bind,src=$(pwd -P)/$1,dst=/in/f,readonly" \
+    --mount "type=bind,src=${_abs},dst=/in/f,readonly" \
     "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
     > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
   _config_gen_decode_frames "${_tmp}/err"

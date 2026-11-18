@@ -581,3 +581,8 @@ config_gen_mutation_no_such_package
 # dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
 # binary's table list held a NUL byte, which a shell variable cannot carry.
 config_gen_output_nul
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
+# named file's mount src (the name, or its parent's physical path) holds
+# a comma or newline, which a docker --mount value cannot carry.
+config_gen_path_unmountable
