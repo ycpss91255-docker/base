@@ -99,3 +99,24 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *".github/workflows/publish.yaml:2"* ]]
 }
+
+@test "_run_moving_tag: FAILS on a variable test-tools tag in a Dockerfile, compose.yaml and the justfile, one violation each (base#1647)" {
+  # Not only workflows: every scanned root counts, and a tag taken from a
+  # variable (:${ver}) is mutable, not a pin.
+  _write "dist/dockerfile/Dockerfile" \
+    'ARG ver' \
+    'FROM ghcr.io/ycpss91255-docker/test-tools:${ver} AS tools'
+  _write "compose.yaml" \
+    'services:' \
+    '  devel:' \
+    '    image: ghcr.io/ycpss91255-docker/test-tools:${ver}'
+  _write "justfile" \
+    'lint:' \
+    '    docker run --rm ghcr.io/ycpss91255-docker/test-tools:${ver} lint'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/dockerfile/Dockerfile:2"* ]]
+  [[ "${output}" == *"compose.yaml:3"* ]]
+  [[ "${output}" == *"justfile:2"* ]]
+  [[ "${output}" == *"3 internal reference(s)"* ]]
+}
