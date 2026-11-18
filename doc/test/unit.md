@@ -3252,7 +3252,7 @@ thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs (#604)` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append (#604)` | Trailing-newline guard |
 
-### test/bats/unit/drift_spec.bats (4)
+### test/bats/unit/drift_spec.bats (6)
 
 Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero paths
 when the conf hash or GPU detection changes against a cached `.env`.
@@ -3261,6 +3261,8 @@ when the conf hash or GPU detection changes against a cached `.env`.
 |------|-------------|
 | `_check_setup_drift no-op when .env missing` | - |
 | `_check_setup_drift silent when nothing changed` | - |
+| `_check_setup_drift warns and reports drift when grep has no -P (base#1644)` | - |
+| `_check_setup_drift stays silent with a grep that supports -P (base#1644)` | - |
 | `_check_setup_drift returns non-zero when conf hash changes` | - |
 | `_check_setup_drift returns non-zero when GPU detection changes` | - |
 
