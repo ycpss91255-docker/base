@@ -11,16 +11,12 @@
 set -euo pipefail
 
 main() {
-  local -A by_num=()
+  local -A seen=()
   local -a refs=()
-  local ref num
+  local ref other dup
   while IFS= read -r ref; do
     [[ -n "${ref}" ]] || continue
-    num="${ref##*#}"
-    # One issue named two ways is one issue; keep the qualified form.
-    if [[ -z "${by_num[${num}]:-}" || "${ref}" == */* ]]; then
-      by_num[${num}]="${ref}"
-    fi
+    seen[${ref}]=1
   done < <({
     printf '%s\n' "${PR_CLOSING_REFS:-}"
     # Text inside a fenced code block, inline code or an HTML comment is
@@ -39,8 +35,18 @@ main() {
       grep -oE '#[0-9]+'
   } | sort -u)
 
-  for num in "${!by_num[@]}"; do
-    refs+=("${by_num[${num}]}")
+  # Issue numbers are per repository: owner/repo#N values stay distinct.
+  # A bare #N is the same issue as a qualified ref with that number.
+  for ref in "${!seen[@]}"; do
+    dup=0
+    if [[ "${ref}" != */* ]]; then
+      for other in "${!seen[@]}"; do
+        if [[ "${other}" == */* && "${other##*#}" == "${ref##*#}" ]]; then
+          dup=1
+        fi
+      done
+    fi
+    ((dup)) || refs+=("${ref}")
   done
 
   if ((${#refs[@]} > 1)); then
