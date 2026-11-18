@@ -1732,7 +1732,8 @@ printf "golang.org/x/mod v0.21.0 h1:new=\n"'
   _tree_snap
   _pins_json --set golang golang:1.27.3-trixie
   assert_failure
-  assert_output --partial 'sha256='
+  [[ "${stderr}" == *'sha256= options are applied to a single-file pin only'* ]] \
+    || fail "stderr: ${stderr}"
   _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
   _assert_tree_delta
 }

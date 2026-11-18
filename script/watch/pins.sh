@@ -665,6 +665,15 @@ _pins_set() {
   local _has_ck=""
   [[ -n "${_cksum}" && "${_cksum}" != "-" ]] && _has_ck=1
   local _digests=""
+  # The checksum backup covers the pin's own file only, and a go.mod or
+  # golang bump also writes go.sum and other go.mod files, so sha256= is
+  # refused there before any fetch or write (base#1676).
+  if [[ -n "${_has_ck}" && ( "${_file##*/}" == go.mod \
+      || "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" ) ]]; then
+    printf 'pins: %s: sha256= options are applied to a single-file pin only, not a go.mod or %s pin\n' \
+      "${_name}" "${_PIN_GO_DIRECTIVE_PIN}" >&2
+    return 1
+  fi
   if [[ -n "${_has_ck}" ]]; then
     _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
     _digests="$(_pins_checksum_digests "${_new}" "${_cksum}")" || return 1
@@ -696,39 +705,32 @@ _pins_set() {
     return 1
   fi
 
-  # A failed write after the first leaves version and digest out of step, so
-  # the file is put back byte for byte (base#1676).
   local _backup=""
-  if [[ -n "${_has_ck}" ]]; then
-    _backup="$(mktemp)"
-    cp -p -- "${_abs}" "${_backup}"
-  fi
   if [[ "${_file##*/}" == go.mod ]]; then
     _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
   elif [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" ]]; then
     _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
+  elif [[ -z "${_has_ck}" ]]; then
+    _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
   else
-    _pins_commit "${_abs}" "${_line}" "${_new_line}" || {
-      [[ -z "${_backup}" ]] || _pins_restore "${_backup}" "${_abs}"
+    # The version line and every checksum ARG named by the marker's sha256=
+    # options are written and read back, the version last, while a backup
+    # is held; any failure puts the file back byte for byte, so the new
+    # digest never stays beside the old version (base#1676).
+    if ! _backup="$(mktemp)" || ! cp -p -- "${_abs}" "${_backup}"; then
+      rm -f -- "${_backup}"
       return 1
-    }
-  fi
-
-  # Checksum ARGs named by the marker's sha256= options move with the
-  # version, in the same run; the backup is kept until the version has
-  # read back too, so no failure past this point leaves the new digest
-  # beside the old version (base#1676).
-  if [[ -n "${_has_ck}" ]]; then
-    if ! _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
+    fi
+    if ! _pins_commit "${_abs}" "${_line}" "${_new_line}" \
+      || ! _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
       || ! _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}" \
       || ! _pins_check_value "${_name}" "${_new}"; then
       _pins_restore "${_backup}" "${_abs}"
       return 1
     fi
     rm -f -- "${_backup}"
-  else
-    _pins_check_value "${_name}" "${_new}" || return 1
   fi
+  [[ -n "${_has_ck}" ]] || _pins_check_value "${_name}" "${_new}" || return 1
   printf 'pins: %s %s -> %s (%s:%s)\n' \
     "${_name}" "${_current}" "${_new}" "${_file}" "${_line}"
   # Each regenerated digest is recorded with where it came from (base#1676).
