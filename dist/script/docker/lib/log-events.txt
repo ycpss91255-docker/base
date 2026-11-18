@@ -586,3 +586,8 @@ config_gen_output_nul
 # named file's mount src (the name, or its parent's physical path) holds
 # a comma or newline, which a docker --mount value cannot carry.
 config_gen_path_unmountable
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470):
+# docker run failed (status=) and the binary wrote no diagnostic frame,
+# so docker itself refused the run.
+config_gen_run_failed

@@ -74,10 +74,10 @@ config_gen_resolve() {
 # _config_gen_decode_frames <errfile>
 #   Re-emit each 8-field NUL frame the binary wrote to <errfile>
 #   (tag, severity, event, file, line, col, key, text) as one config_gen
-#   log record (base#1470).
+#   log record (base#1470). Answers 1 when <errfile> held no frame.
 _config_gen_decode_frames() {
   local -a _f=()
-  local _field
+  local _field _n=0
   while IFS= read -r -d '' _field; do
     _f+=("${_field}")
     if ((${#_f[@]} == 8)); then
@@ -85,8 +85,10 @@ _config_gen_decode_frames() {
         "file=${_f[3]}" "line=${_f[4]}" "col=${_f[5]}" "key=${_f[6]}" \
         "text=${_f[7]}"
       _f=()
+      _n=$((_n + 1))
     fi
   done < "$1"
+  ((_n > 0))
 }
 
 # config_gen_tables <file> <outvar>
@@ -139,7 +141,13 @@ config_gen_tables() {
     --mount "type=bind,src=${_abs},dst=/in/f,readonly" \
     "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
     > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
-  _config_gen_decode_frames "${_tmp}/err"
+  # A failure no frame explains is docker's own (125 daemon or option
+  # error, 126/127 entrypoint): the binary never spoke (base#1470).
+  if ! _config_gen_decode_frames "${_tmp}/err" && ((_rc != 0)); then
+    _log_err config_gen config_gen_run_failed \
+      "display=config_gen_tables: docker run for $1 failed with status ${_rc} and no diagnostic" \
+      "file=$1" "status=${_rc}"
+  fi
   if ((_rc == 0)); then
     # A bash variable cannot hold a NUL, so a table list carrying one is
     # refused instead of published truncated (base#1470).
