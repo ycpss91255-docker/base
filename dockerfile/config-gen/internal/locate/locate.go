@@ -258,6 +258,10 @@ func (m *Map) Keys(path []string) []Occurrence {
 	return m.filter(path, func(o Occurrence) bool { return o.Kind == Key })
 }
 
+// examined, when set, is called once for each record filter examines. It
+// is nil in production; a test sets it to count filter's work (base#1658).
+var examined func()
+
 func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 	var out []Occurrence
 	want := pathID(path)
