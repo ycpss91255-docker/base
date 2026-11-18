@@ -1014,3 +1014,19 @@ _resolve_tags_for() {
   refute_output --partial 'tags='
   refute_output --partial 'latest'
 }
+
+# why: base#1656 -- the merge job holds `packages: write` and pushes nothing
+# through git, so no checkout in it may leave the job token in the checked-out
+# repo's git config. actions/checkout's own action.yml defaults
+# `persist-credentials` to true, so only an explicit `false` turns it off.
+# Steps are selected by `uses`, not by name: a renamed step or a second
+# checkout added to the merge job later is held to the same rule.
+@test "publish-worker.yaml: every checkout in the merge job drops its credentials (base#1656)" {
+  run yq -r '[.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@"))] | length' "${WF}"
+  assert_success
+  refute_output '0'
+  # tostring, not `//`: yq's `//` treats a literal false as missing.
+  run yq -r '[.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@")) | select((.with."persist-credentials" | tostring) != "false")] | length' "${WF}"
+  assert_success
+  assert_output '0'
+}
