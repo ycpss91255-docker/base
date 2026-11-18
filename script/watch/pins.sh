@@ -480,7 +480,15 @@ _pins_set_checksums() {
     _digest="${_digest%% *}"
     _ln="$(grep -nE "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}" | cut -d: -f1)"
     _old="$(awk -v n="${_ln}" 'NR == n' "${_abs}")"
-    _pins_commit "${_abs}" "${_ln}" "${_old%%=*}=${_digest}" || return 1
+    # Only the digest value is replaced: the quoting and any trailing
+    # comment stay, as for the version line (base#1676).
+    [[ "${_old}" =~ ${_PIN_ASSIGN_RE} ]] || return 1
+    local _rhs="${BASH_REMATCH[3]}" _head="${BASH_REMATCH[1]}" _quote="" _value
+    _value="$(_pin_rhs_value "${_rhs}")"
+    [[ "${_value}" == \"*\" ]] && _quote='"'
+    [[ "${_value}" == \'*\' ]] && _quote="'"
+    _pins_commit "${_abs}" "${_ln}" \
+      "${_head}${_quote}${_digest}${_quote}$(_pin_rhs_tail "${_rhs}")" || return 1
   done
 }
 
