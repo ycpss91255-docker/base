@@ -1345,7 +1345,13 @@ _pin_read() {
               case "${_kv}" in
                 pattern=*) _pattern="${_kv#pattern=}" ;;
                 skip=*)    _skip="${_kv#skip=}" ;;
-                sha256=*)  _cksum+="${_cksum:+ }${_kv#sha256=}" ;;
+                sha256=*)
+                  if [[ "${_kv}" != sha256=*@?* ]]; then
+                    printf '%s:%d: pin %s sha256 option %s names no source (expected sha256=<ARG>@<source>)\n' \
+                      "${_file}" "${_lineno}" "${_name}" "${_kv}" >&2
+                    return 1
+                  fi
+                  _cksum+="${_cksum:+ }${_kv#sha256=}" ;;
                 *)
                   printf '%s:%d: pin %s carries unknown option %s\n' \
                     "${_file}" "${_lineno}" "${_name}" "${_kv}" >&2
