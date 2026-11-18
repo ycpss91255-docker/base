@@ -321,6 +321,7 @@ s1j.tsv	run-failed	29.8
 s1j.tsv	stray-after-frame	30.4
 s1j.tsv	stray-before-frame	28.3
 s1j.tsv	tables-abs-guard	41.5
+s1j.tsv	tables-abs-sentinel	17.0
 s1j.tsv	tables-cd-physical	28.3
 s1j.tsv	tables-host-never-opens	45.9
 s1j.tsv	tables-mount-readonly	37.2

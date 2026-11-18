@@ -1050,9 +1050,9 @@ jobs:
     # is the fewest legs whose worst list-scheduling bound over 4 worker
     # slots, 239.0 s, is at most 240 s; nineteen gives 248.3 s
     # (base#1582). Those eight legs took 5 min 32 s to 8 min 22 s each.
-    # Twenty-one since base#1470 added s1j.tsv's 23 rows (their seconds
+    # Twenty-one since base#1470 added s1j.tsv's 24 rows (their seconds
     # measured on local 4-slot roster runs): over twenty legs the worst
-    # bound became 243.6 s; over twenty-one it is 232.1 s.
+    # bound became 243.8 s; over twenty-one it is 232.1 s.
     # Whether every leg still fits is decided by the mutation_roster_spec
     # case "every mutation-roster leg's list-scheduling bound over its
     # worker slots fits 240 s", a bound over seconds.txt, not a timed job.
