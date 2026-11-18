@@ -33,7 +33,9 @@
 # about upstream, not about the tags this checkout happens to hold
 # (base#1729). Each owed tag the checkout lacks is fetched once, per tag,
 # per checkout, and then cached. Nothing here is a hand-written fixture -- what the spec runs
-# is byte-for-byte what was released.
+# is byte-for-byte what was released. With upstream unreachable the run
+# fails: no rule built from local tags or the tree's version is the owed
+# set, so there is no offline window that can be proven complete.
 
 # Guarded so sourcing this file (the sourceable-scripts spec does) cannot
 # turn strict mode on in the caller.
@@ -83,35 +85,6 @@ _note() {
 #   Succeed for a stable release tag vX.Y.Z; RC / pre-release tags fail.
 _is_stable_tag() {
   [[ "${1:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-}
-
-# _stable_release_tags
-#   Print the stable release tags newest-first. RC / pre-release tags are
-#   excluded: they are not what a consumer is sitting on. `--sort=-v:refname`
-#   orders `v0.42.0-rc4` ABOVE `v0.42.0`, which is the opposite of SemVer
-#   precedence, so the pre-releases are dropped BEFORE the ordering is
-#   trusted rather than after.
-_stable_release_tags() {
-  local _tag
-  while IFS= read -r _tag; do
-    _is_stable_tag "${_tag}" || continue
-    printf '%s\n' "${_tag}"
-  done < <(git -C "${REPO_ROOT}" tag --list 'v*' --sort=-v:refname)
-}
-
-# _fetch_release_tags
-#   Pull the tag refs from upstream. Only called when the local object
-#   store carries no stable release tag at all -- i.e. on a fresh shallow
-#   CI checkout, once.
-_fetch_release_tags() {
-  _note "no stable release tags locally; fetching from ${BASE_UPSTREAM_REMOTE}"
-  # --depth 1: the archived tree is all we want, never the history behind
-  # it. Failure is not fatal here -- the caller re-checks and reports the
-  # real problem (no stable release tags) with the tags it actually has.
-  git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
-    "${BASE_UPSTREAM_REMOTE}" \
-    '+refs/tags/v*:refs/tags/v*' 2>/dev/null \
-    || _note "tag fetch failed (offline?); continuing with local tags"
 }
 
 # _materialise <tag>
@@ -188,138 +161,102 @@ _load_versions() {
     || _die "BUG: tree ${_TREE_VERSION} is past 0.x; the ${PREV_RELEASE_FLOOR} floor does not cover it"
 }
 
-# _owed
-#   Filter stable tags on stdin down to the ones the window owes the tree
-#   under test: PREV_RELEASE_FLOOR <= tag < tree, in input order. A
-#   pre-release tree vX.Y.Z-rcN sits below vX.Y.Z, so vX.Y.Z is excluded
-#   with the tree's own tag. Needs _load_versions to have run; it has no
-#   refusal of its own, since it runs inside pipelines.
-_owed() {
-  local _tag
-  local -a _v=()
-  while IFS= read -r _tag; do
-    _parse_version "${_tag}" _v || continue
-    (( _v[0] == 0 )) || continue
-    (( _v[1] > _FLOOR[1] || (_v[1] == _FLOOR[1] && _v[2] >= _FLOOR[2]) )) || continue
-    (( _v[1] < _TREE[1] || (_v[1] == _TREE[1] && _v[2] < _TREE[2]) )) || continue
-    printf '%s\n' "${_tag}"
+# _owed_from <in-array-name> <out-array-name>
+#   Set <out-array-name> to the tags of <in-array-name> the window owes the
+#   tree under test: PREV_RELEASE_FLOOR <= tag < tree on the (X Y Z)
+#   triple, newest first. A pre-release tree vX.Y.Z-rcN sits below vX.Y.Z,
+#   so vX.Y.Z is excluded with the tree's own tag. Needs _load_versions to
+#   have run. Arrays go in and out by nameref, so this never runs inside a
+#   `$(...)`, `<(...)` or pipeline: nothing on the path to tags.txt may
+#   decide anything in a subshell whose exit the run never sees.
+_owed_from() {
+  local -n _of_in="${1:?BUG: _owed_from expects an input array name}"
+  local -n _of_out="${2:?BUG: _owed_from expects an output array name}"
+  local _of_tag _of_i _of_j _of_swap
+  local -a _of_v=() _of_w=()
+  _of_out=()
+  for _of_tag in "${_of_in[@]}"; do
+    _parse_version "${_of_tag}" _of_v || continue
+    (( _of_v[0] == 0 )) || continue
+    (( _of_v[1] > _FLOOR[1] || (_of_v[1] == _FLOOR[1] && _of_v[2] >= _FLOOR[2]) )) || continue
+    (( _of_v[1] < _TREE[1] || (_of_v[1] == _TREE[1] && _of_v[2] < _TREE[2]) )) || continue
+    _of_out+=("${_of_tag}")
+  done
+  # Newest first by triple. Insertion sort: the owed set is a handful of
+  # tags, and the order must not lean on `sort -V` (see _parse_version).
+  for (( _of_i = 1; _of_i < ${#_of_out[@]}; _of_i++ )); do
+    for (( _of_j = _of_i; _of_j > 0; _of_j-- )); do
+      _parse_version "${_of_out[_of_j-1]}" _of_v
+      _parse_version "${_of_out[_of_j]}" _of_w
+      (( _of_w[1] > _of_v[1] || (_of_w[1] == _of_v[1] && _of_w[2] > _of_v[2]) )) || break
+      _of_swap="${_of_out[_of_j-1]}"
+      _of_out[_of_j-1]="${_of_out[_of_j]}"
+      _of_out[_of_j]="${_of_swap}"
+    done
   done
 }
 
-# _has_tag <tag> <tag...>
-#   Succeed when <tag> is one of the remaining arguments.
-_has_tag() {
-  local _want="${1:?BUG: _has_tag expects a tag}" _t
-  shift
-  for _t in "$@"; do
-    [[ "${_t}" == "${_want}" ]] && return 0
-  done
-  return 1
-}
-
-# _window_tags
-#   The window's tags, newest first: every stable release the tree under
-#   test owes (see PREV_RELEASE_FLOOR).
-_window_tags() {
-  _stable_release_tags | _owed
-}
-
-# _upstream_stable_tags
-#   Print the stable release tags upstream lists. The owed set is a fact
-#   about upstream: tags an earlier fetch left in this checkout say nothing
-#   about releases cut since (base#1729).
-#   Returns 1 when upstream cannot be listed, so an unreachable upstream
-#   is never read as "nothing owed".
+# _upstream_stable_tags <out-array-name>
+#   Set <out-array-name> to the stable release tags upstream lists. The
+#   owed set is a fact about upstream: tags this checkout happens to hold
+#   say nothing about releases cut since, nor whether a local tag was ever
+#   released (base#1729). Returns 1 when upstream cannot be listed; the
+#   caller refuses in its own shell.
 _upstream_stable_tags() {
-  local _listing _sha _ref _tag
-  _listing="$(git -C "${REPO_ROOT}" ls-remote --tags --refs \
+  local -n _us_out="${1:?BUG: _upstream_stable_tags expects an array name}"
+  local _us_listing _us_sha _us_ref _us_tag
+  _us_out=()
+  _us_listing="$(git -C "${REPO_ROOT}" ls-remote --tags --refs \
     "${BASE_UPSTREAM_REMOTE}" 'v*' 2>/dev/null)" || return 1
-  while IFS=$'\t' read -r _sha _ref; do
-    _tag="${_ref#refs/tags/}"
-    _is_stable_tag "${_tag}" || continue
-    printf '%s\n' "${_tag}"
-  done <<< "${_listing}"
+  while IFS=$'\t' read -r _us_sha _us_ref; do
+    _us_tag="${_us_ref#refs/tags/}"
+    _is_stable_tag "${_us_tag}" || continue
+    _us_out+=("${_us_tag}")
+  done <<< "${_us_listing}"
 }
 
-# _check_offline_minimum
-#   With upstream unreachable the owed set cannot be read, so the window is
-#   DEGRADED to the local tags. It must still hold the minimum the tree
-#   alone implies: v0.m.0 for every floor minor <= m < tree minor. Each one
-#   missing is fatal and named.
-_check_offline_minimum() {
-  local -a _local=() _missing=()
-  local _m _tag
-  _note "upstream ${BASE_UPSTREAM_REMOTE} unreachable; window degraded to local tags"
-  mapfile -t _local < <(_stable_release_tags)
-  for (( _m = _FLOOR[1]; _m < _TREE[1]; _m++ )); do
-    _tag="v0.${_m}.0"
-    _has_tag "${_tag}" "${_local[@]}" || _missing+=("${_tag}")
-  done
-  (( ${#_missing[@]} == 0 )) \
-    || _die "degraded (upstream unreachable): window lacks ${_missing[*]}"
-}
-
-# _fetch_owed_tags
-#   Fetch every tag upstream owes the tree under test that the local
-#   object store does not hold yet, one explicit refspec per tag. An owed
-#   tag still missing afterwards is fatal: the window would silently cover
-#   less than the rule owes.
-_fetch_owed_tags() {
-  local _tag
-  local -a _local=() _owed_tags=() _missing=() _still=()
-  local _upstream
-  if ! _upstream="$(_upstream_stable_tags)"; then
-    _check_offline_minimum
-    return 0
-  fi
-  # An upstream that answers with no stable release is a wrong remote or a
-  # broken listing, not one that owes nothing: reading it as empty would
-  # hand the window back to the local tags.
-  [[ -n "${_upstream}" ]] \
-    || _die "upstream lists no stable release tags (${BASE_UPSTREAM_REMOTE})"
-  mapfile -t _local < <(_stable_release_tags)
-  mapfile -t _owed_tags < <(printf '%s\n' "${_upstream}" | _owed)
-  for _tag in "${_owed_tags[@]}"; do
-    _has_tag "${_tag}" "${_local[@]}" \
-      || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
-  done
-  (( ${#_missing[@]} > 0 )) || return 0
-  _note "fetching owed release tags from ${BASE_UPSTREAM_REMOTE}"
-  git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
-    "${BASE_UPSTREAM_REMOTE}" "${_missing[@]}" 2>/dev/null \
-    || _note "owed tag fetch failed (offline?)"
-  mapfile -t _local < <(_stable_release_tags)
-  for _tag in "${_owed_tags[@]}"; do
-    _has_tag "${_tag}" "${_local[@]}" || _still+=("${_tag}")
-  done
-  (( ${#_still[@]} == 0 )) \
-    || _die "owed release tags missing after fetch: ${_still[*]}"
+# _has_local_tag <tag>
+#   Succeed when the local object store holds <tag> as a commit.
+_has_local_tag() {
+  git -C "${REPO_ROOT}" rev-parse --verify -q \
+    "refs/tags/${1:?BUG: _has_local_tag expects a tag}^{commit}" >/dev/null 2>&1
 }
 
 main() {
   _load_versions
-  _fetch_owed_tags
 
-  local -a _stable=()
-  mapfile -t _stable < <(_stable_release_tags)
+  # Every refusal below runs here, in main's own shell: a _die inside a
+  # `$(...)` or pipeline would end only that subshell, and the run would go
+  # on to write a window that covers less than the rule owes.
+  local -a _upstream=() _tags=() _refspecs=() _still=()
+  _upstream_stable_tags _upstream \
+    || _die "cannot list upstream release tags (${BASE_UPSTREAM_REMOTE}); the window cannot be proven complete"
+  # An upstream that answers with no stable release is a wrong remote or a
+  # broken listing, not one that owes nothing.
+  (( ${#_upstream[@]} > 0 )) \
+    || _die "upstream lists no stable release tags (${BASE_UPSTREAM_REMOTE})"
 
-  if (( ${#_stable[@]} == 0 )); then
-    _fetch_release_tags
-    mapfile -t _stable < <(_stable_release_tags)
+  _owed_from _upstream _tags
+
+  local _tag
+  for _tag in "${_tags[@]}"; do
+    _has_local_tag "${_tag}" || _refspecs+=("refs/tags/${_tag}:refs/tags/${_tag}")
+  done
+  if (( ${#_refspecs[@]} > 0 )); then
+    _note "fetching owed release tags from ${BASE_UPSTREAM_REMOTE}"
+    # --depth 1: the archived tree is all we want, never the history
+    # behind it. A failed fetch is reported by the check below, by tag.
+    git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
+      "${BASE_UPSTREAM_REMOTE}" "${_refspecs[@]}" 2>/dev/null \
+      || _note "owed tag fetch failed"
   fi
-
-  # Fail rather than silently covering less. With no stable tag at all the
-  # window below would be empty for want of tags, not because the rule
-  # owes nothing -- the shape this whole file exists to prevent.
-  if (( ${#_stable[@]} == 0 )); then
-    _die "no stable release tags found. Fetch them: git fetch --tags ${BASE_UPSTREAM_REMOTE}"
-  fi
-
-  local -a _tags=()
-  mapfile -t _tags < <(_window_tags)
+  for _tag in "${_tags[@]}"; do
+    _has_local_tag "${_tag}" || _still+=("${_tag}")
+  done
+  (( ${#_still[@]} == 0 )) \
+    || _die "owed release tags missing after fetch: ${_still[*]}"
 
   mkdir -p "${PREV_RELEASE_DIR}"
-  local _tag
   for _tag in "${_tags[@]}"; do
     _materialise "${_tag}"
   done
