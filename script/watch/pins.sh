@@ -531,6 +531,31 @@ _pins_set_checksums() {
   done
 }
 
+# _pins_verify_checksums <file> <specs> <digests>
+#
+# Reads every checksum ARG back from the file and fails, naming the ARG, when
+# its value is not the digest that was written (base#1676).
+_pins_verify_checksums() {
+  local _abs="${1}" _spec _arg _line _value _k=0
+  local -a _digs
+  mapfile -t _digs <<< "${3}"
+  for _spec in ${2}; do
+    _arg="${_spec%%@*}"
+    _line="$(grep -E "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}")"
+    _value=""
+    if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+      _value="$(_pin_rhs_value "${BASH_REMATCH[3]}")"
+      _value="${_value//[\"\']/}"
+    fi
+    if [[ "${_value}" != "${_digs[_k]}" ]]; then
+      printf 'pins: %s reads back as %s after the rewrite, not %s\n' \
+        "${_arg}" "${_value}" "${_digs[_k]}" >&2
+      return 1
+    fi
+    _k=$((_k + 1))
+  done
+}
+
 # _pins_check_checksum_args <file> <spec...>
 #
 # Every ARG a marker's sha256= option names must be declared exactly once in
@@ -639,7 +664,8 @@ _pins_set() {
   # Checksum ARGs named by the marker's sha256= options move with the
   # version, in the same run (base#1676).
   if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
-    _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" || {
+    _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
+      && _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}" || {
       cp -p -- "${_backup}" "${_abs}"
       rm -f -- "${_backup}"
       return 1
