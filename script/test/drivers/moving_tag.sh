@@ -19,8 +19,10 @@ readonly _MOVING_TAG_SCAN_ROOTS=(
   'compose.yaml' 'justfile' 'init.sh' 'upgrade.sh'
 )
 
-# A qualified test-tools reference carrying a moving tag.
-readonly _MOVING_TAG_RE='ghcr\.io/ycpss91255-docker/test-tools:(latest|main)([^A-Za-z0-9_.-]|$)'
+# A test-tools reference carrying a moving tag, qualified
+# (ghcr.io/ycpss91255-docker/test-tools) or under any other prefix
+# (${ORG}/test-tools): test-tools after line start or a non-name character.
+readonly _MOVING_TAG_RE='(^|[^A-Za-z0-9_.-])test-tools:(latest|main)([^A-Za-z0-9_.-]|$)'
 
 _run_moving_tag() {
   echo "--- Running moving test-tools tag lint ---"
