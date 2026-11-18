@@ -498,6 +498,21 @@ _one_good_pin() {
   assert_output --partial 'two tool-pin markers share a name'
 }
 
+# why: the reader's table ends in a checksums column (base#1676); the lint must
+# still name each duplicate by its plain file:N, not file:N with that column
+# glued on
+@test "_run_pin_coverage: a shared-name failure names each site as plain file:N" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.0.0' \
+    '# tool-pin: foo github-release owner/other' \
+    'ARG OTHER_VERSION=2.0.0'
+  _lint
+  assert_failure
+  assert_output --partial \
+    'foo (dockerfile/Dockerfile.test-tools:2 and dockerfile/Dockerfile.test-tools:4)'
+}
+
 # why: A marker that does not parse must fail at the site rather than be dropped,
 # which would leave the pin uncovered and the lint green
 @test "_run_pin_coverage: FAILS when a marker does not parse" {
