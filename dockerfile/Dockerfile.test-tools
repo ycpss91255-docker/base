@@ -91,7 +91,11 @@ ARG KCOV_VERSION=v43
 # test-tools tag from the sha256 of this Dockerfile alone -- a version
 # declared elsewhere would be invisible to that digest, so a bump would
 # leave the tag unchanged and silently reuse the previous image.
+# arch-literal-lint: allow-begin -- the checksum sources name the upstream
+# asset per arch, and just publishes x86_64 / aarch64 where TARGETARCH says
+# amd64 / arm64.
 # tool-pin: just github-release casey/just sha256=JUST_SHA256_AMD64@file:https://github.com/casey/just/releases/download/{version}/SHA256SUMS:just-{version}-x86_64-unknown-linux-musl.tar.gz sha256=JUST_SHA256_ARM64@file:https://github.com/casey/just/releases/download/{version}/SHA256SUMS:just-{version}-aarch64-unknown-linux-musl.tar.gz
+# arch-literal-lint: allow-end
 ARG JUST_VERSION=1.58.0
 # sha256 of the just release asset per arch (musl). Source: upstream's published
 # SHA256SUMS, https://github.com/casey/just/releases/download/1.58.0/SHA256SUMS
