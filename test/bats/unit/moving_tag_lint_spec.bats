@@ -309,6 +309,19 @@ _write() {
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
 
+# why: Every line contains the empty string, so an entry with no token would
+# read as covering every same-path, kind and scope occurrence: it names no
+# reference and must suppress none.
+@test "_run_moving_tag: an allow-list entry with an empty token suppresses no occurrence (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1||fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:1: moving"* ]]
+}
+
 # why: A lint that scanned nothing found nothing: a REPO_ROOT that points at the
 # wrong tree (or roots that were renamed away) must not read as clean.
 @test "_run_moving_tag: FAILS when the scanned roots hold no file at all (base#1647)" {
