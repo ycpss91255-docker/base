@@ -55,6 +55,8 @@ jobs:
 
 `:latest` is a moving convenience tag and is never a prerelease: a prerelease ref (for example `v0.1.0-rc1`) never moves it. `:<version>` is the reproducible reference and is always published. Org-internal consumers must pin to `:<version>`, not `:latest`.
 
+Call the worker with `is_latest: true` only from a version tag push. With `is_latest: true` on a ref that is not a version tag (a branch such as `main`, or a tag like `nightly`), `script/ci/release-ref.sh` refuses the ref, so the merge job's `Resolve tags` step fails and publishes no tags. Pass `is_latest: false` from any other ref.
+
 After a `v0.1.0` tag push, the matrix above yields:
 
 ```
