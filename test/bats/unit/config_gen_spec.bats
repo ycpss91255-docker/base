@@ -765,6 +765,53 @@ config_gen_tables ${_call}"
   done
 }
 
+# why: <outvar> is bound by a nameref, and a nameref resolves to the
+#      nearest variable of that name: one of config_gen_tables' own locals
+#      before the caller's. An outvar named like a local (`_list`, `_tmp`,
+#      `_rc`, `_abs`, `_dir`) would take the answer into the local and the
+#      caller's variable would stay empty on rc 0. Every local of the
+#      function carries the reserved prefix `_cgt_`, so no other name can
+#      collide, and an outvar under that prefix (`_cgt_out` is the nameref
+#      itself, a circular reference) is refused as config_gen_usage_invalid
+#      with rc 2 before any docker call.
+@test "config-gen: tables sets an outvar named like a local and refuses the reserved _cgt_ prefix" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n[b.c]\n' > "${_wd}/layer.toml"
+  local _name
+  for _name in _list _tmp _rc _abs _dir; do
+    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+${_name}=stale
+config_gen_tables layer.toml ${_name}
+rc=\$?
+printf '[%s]' \"\${${_name}}\"
+exit \"\${rc}\""
+    assert_success
+    assert_equal "${output}" "$(printf '[a\nb\nb.c\n]')"
+  done
+  for _name in _cgt_out _cgt_list; do
+    : > "${DOCKER_LOG}"
+    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+config_gen_tables layer.toml ${_name}"
+    assert_refusal 2 config_gen_usage_invalid
+    assert_equal "$(wc -l < "${DOCKER_LOG}")" 0
+  done
+  # Every local the function declares is under the reserved prefix, so the
+  # refusal above covers every name a nameref could resolve to a local.
+  run bash -c "source '${CG}'; declare -f config_gen_tables"
+  assert_success
+  local _locals
+  _locals="$(sed -nE 's/^[[:space:]]*local[[:space:]]+(-[a-z]+[[:space:]]+)*//p' <<< "${output}" \
+    | tr ' ;' '\n\n' | sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)(=.*)?$/\1/p')"
+  [[ -n "${_locals}" ]] || fail "no local found in config_gen_tables: ${output}"
+  run grep -v '^_cgt_' <<< "${_locals}"
+  assert_output ""
+}
+
 # why: the binary can also write its whole answer and then refuse (rc 1
 #      with a frame). A shim that publishes stdout unless the status is 4
 #      would hand the caller a list the binary disowned. Only rc 0
