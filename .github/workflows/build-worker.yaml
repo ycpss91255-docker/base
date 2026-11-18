@@ -917,6 +917,37 @@ jobs:
             printf 'type=gha,scope=%s,mode=max,ignore-error=true' "${scope}"
           }
 
+          # One build of one extra stage. A build that fails is run once more
+          # with no cache flags, because a cache import that no longer
+          # resolves fails the whole build (base#1702). A failure that is not
+          # an import failure fails again with no cache, and the second
+          # status is the one returned. `build_stage_retried` tells the
+          # caller no cache export ran, so it skips the export check.
+          build_stage() {
+            local target="$1" scope="$2" metadata="$3"
+            build_stage_retried=0
+            if docker buildx build \
+              --file "${DOCKERFILE}" \
+              --target "${target}" \
+              --platform "${PLATFORM}" \
+              --cache-from "$(cache_from_for "${scope}")" \
+              --cache-to "$(cache_to_for "${scope}")" \
+              --metadata-file "${metadata}" \
+              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+              "${CONTEXT_PATH}"; then
+              return 0
+            fi
+            echo "::warning::build of ${target} failed; retrying once without the cache"
+            build_stage_retried=1
+            docker buildx build \
+              --file "${DOCKERFILE}" \
+              --target "${target}" \
+              --platform "${PLATFORM}" \
+              --metadata-file "${metadata}" \
+              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+              "${CONTEXT_PATH}"
+          }
+
           blocklist="sys devel-base devel devel-test runtime-test runtime"
 
           available_stages="$(bash .worker-base/script/ci/build_worker/stage_names.sh)"

@@ -390,13 +390,15 @@ setup() {
   assert_success
   run code_grep -F 'type=registry' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
-  # Both buildx invocations (test-stage + stage) call the selection helpers.
+  # Both buildx invocations (test-stage + stage) call the selection helpers
+  # (#1702: build_stage's first attempt is the third call site until the
+  # two invocations are routed through it).
   run code_grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
   assert_success
-  assert_output "2"
+  assert_output "3"
   run code_grep -cF -e '--cache-to "$(cache_to_for ' "${WF}"
   assert_success
-  assert_output "2"
+  assert_output "3"
 }
 
 # _extra_stages <dockerfile-body> <extra_stages>
