@@ -1672,7 +1672,7 @@ hint, default `$SHELL` detection, and uninstall.
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (36)
+### test/bats/unit/compose_emit/blocks_spec.bats (37)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1703,6 +1703,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
 | `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
 | `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
+| `_emit_tmpfs_block: items parse back as the exact input string (base#1651)` | base#1651 -- tmpfs has its own loop, so a value with YAML syntax in it (`: `, ` #`, a leading `*` / `&` / `#`, a `"`) or an implicit non-string type (`null`, `0755`) must parse back as the exact input string, not only in the caps lists. |
 | `_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids` | #496 group_add |
 | `_emit_user_build_args: empty omits; entries emit KEY: ${KEY} pairs` | build args |
 | `_logging_svc_kv: seeds from global then overlays per-service (key-level merge)` | logging merge |

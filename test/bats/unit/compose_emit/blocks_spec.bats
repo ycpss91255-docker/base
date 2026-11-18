@@ -288,6 +288,28 @@ EXPECTED
   assert_line "      - /tmp:size=64m"
 }
 
+# why: base#1651 -- tmpfs items are written by their own loop, so a value with
+# YAML syntax in it or an implicit non-string type must also parse back as
+# the exact input string, not only the caps lists.
+@test "_emit_tmpfs_block: items parse back as the exact input string (base#1651)" {
+  local -a _want=('/x: y' '/t #c' '*a' '&b' '#d' '"e' 'null' '0755')
+  local _i
+  run _emit_tmpfs_block "$(printf '%s\n' "${_want[@]}")"
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  run yq '.s.tmpfs | length' "${BATS_TEST_TMPDIR}/c.yaml"
+  assert_success
+  assert_output "${#_want[@]}"
+  for _i in "${!_want[@]}"; do
+    run yq ".s.tmpfs[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output '!!str'
+    run yq ".s.tmpfs[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output "${_want[${_i}]}"
+  done
+}
+
 # why: #496 group_add
 @test "_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids" {
   run _emit_group_add_block false "44 video"
