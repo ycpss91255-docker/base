@@ -656,6 +656,14 @@ _pins_set() {
   fi
   printf 'pins: %s %s -> %s (%s:%s)\n' \
     "${_name}" "${_current}" "${_new}" "${_file}" "${_line}"
+  # Each regenerated digest is recorded with where it came from (base#1676).
+  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+    local _spec
+    for _spec in ${_cksum}; do
+      printf 'pins: %s regenerated from %s\n' "${_spec%%@*}" "${_spec#*@}" \
+        | sed "s/{version}/${_new}/g"
+    done
+  fi
 }
 
 main() {
