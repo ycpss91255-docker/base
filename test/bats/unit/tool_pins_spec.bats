@@ -541,6 +541,21 @@ _pins() {
   assert_success
 }
 
+# why: The digest resolver is all or nothing: when a later spec cannot be
+# resolved, no digest of an earlier one reaches stdout, so no caller can take a
+# partial list for a whole one (review round 1, base#1676).
+@test "_pins_checksum_digests: a later spec that cannot resolve prints no earlier digest (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  # shellcheck disable=SC1090
+  source "${PINS}"
+  run --separate-stderr _pins_checksum_digests v2.0.0 \
+    "A@asset:file://${_fx}/a-{version}.bin B@asset:file://${_fx}/absent-{version}.bin"
+  assert_failure
+  assert_output ''
+}
+
 # why: A reviewer of a bump proposal must see where each regenerated digest came
 # from; the success output names every sha256 ARG with its source (base#1676).
 @test "pins: --set success output records each checksum ARG with its source (base#1676)" {
