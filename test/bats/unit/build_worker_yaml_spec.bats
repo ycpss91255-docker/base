@@ -1394,3 +1394,9 @@ _assert_import_retry() {
       "Build devel-test stage (includes lint + bats smoke)" \
       "Retry devel-test stage without the cache import"
 }
+
+@test "build-worker.yaml: a failed devel cache import retries the stage once without cache-from (#1702)" {
+  _assert_import_retry build_devel devel \
+      "Build devel stage" \
+      "Retry devel stage without the cache import"
+}
