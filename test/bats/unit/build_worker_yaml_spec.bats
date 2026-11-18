@@ -1412,3 +1412,59 @@ _assert_import_retry() {
       "Build runtime stage" \
       "Retry runtime stage without the cache import"
 }
+
+# _extra_stage_helpers
+#   The shell the "Build extra stages" step defines before its loop: the two
+#   cache spellings and `build_stage`, from `cache_from_for() {` through the
+#   the line before `blocklist=`. Printed as the step wrote it, so a spec
+#   can run the real function against a stub `docker` instead of grepping
+#   for what it is meant to do.
+_extra_stage_helpers() {
+  _step_code "Build extra stages" | awk '
+    /^          cache_from_for\(\) \{/ { on = 1 }
+    /^          blocklist=/ { exit }
+    on { print }
+  '
+}
+
+# _run_build_stage <failing call numbers, space separated>
+#   Runs the real `build_stage` for target `qa` with `docker` replaced by a
+#   stub that records each call's arguments, one line per call, in
+#   ${BATS_TEST_TMPDIR}/calls, and fails the numbered calls. Leaves bats'
+#   `run` result for the caller.
+_run_build_stage() {
+  local _src
+  _src="$(_extra_stage_helpers)"
+  [[ -n "${_src}" ]] || fail "the Build extra stages step defines no cache_from_for"
+  grep -Fq '          build_stage() {' <<< "${_src}" || fail \
+      "the Build extra stages step defines no build_stage function"
+  : > "${BATS_TEST_TMPDIR}/calls"
+  CALLS="${BATS_TEST_TMPDIR}/calls" FAIL="$1" run bash -c '
+    set -euo pipefail
+    docker() {
+      echo "$*" >> "${CALLS}"
+      local n; n="$(wc -l < "${CALLS}")"
+      [[ " ${FAIL} " != *" ${n} "* ]]
+    }
+    DOCKERFILE=Dockerfile PLATFORM=linux/amd64 CONTEXT_PATH=.
+    build_arg_flags=(--build-arg X=1)
+    build_ctx_flags=()
+    '"${_src}"'
+    build_stage qa scope-qa /dev/null
+  '
+}
+
+@test "build-worker.yaml: a failed extra-stage build retries once without cache flags (#1702)" {
+  _run_build_stage "1"
+  assert_success
+  run wc -l < "${BATS_TEST_TMPDIR}/calls"
+  assert_output "2"
+  run grep -c -- '--cache-from' "${BATS_TEST_TMPDIR}/calls"
+  assert_output "1"
+  run sed -n 1p "${BATS_TEST_TMPDIR}/calls"
+  assert_output --partial '--cache-from type=gha,scope=scope-qa'
+  run sed -n 2p "${BATS_TEST_TMPDIR}/calls"
+  assert_output --partial '--target qa'
+  refute_output --partial '--cache-from'
+  refute_output --partial '--cache-to'
+}
