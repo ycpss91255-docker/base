@@ -1470,3 +1470,15 @@ _run_build_stage() {
   refute_output --partial '--cache-from'
   refute_output --partial '--cache-to'
 }
+
+@test "build-worker.yaml: both extra-stage builds go through build_stage, the only caller of buildx (#1702)" {
+  # Two invocations (the stage's -test and the stage) share one retry. A
+  # third `docker buildx build` outside the helper would be a build that
+  # fails on a stale cache import with no second attempt.
+  local _step _calls
+  _step="$(_step_code "Build extra stages")"
+  _calls="$(grep -c 'docker buildx build' <<< "${_step}" || true)"
+  [[ "${_calls}" -eq 2 ]] || fail "expected the 2 buildx calls inside build_stage, found ${_calls}"
+  run grep -c '^ *build_stage "\${[a-z_]*}" ' <<< "${_step}"
+  assert_output "2"
+}
