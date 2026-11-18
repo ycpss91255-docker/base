@@ -393,6 +393,41 @@ func TestCutWindowsSweepsWholePrefixesOnlyUpToOneKiB(t *testing.T) {
 	}
 }
 
+// TestCutWindowsSmallCorpusFilesAreSweptWhole holds every corpus TOML file
+// of at most 684 bytes (base#1655: all of them but large_tables.toml) to
+// being swept in full under the lowered bound: the windows are exactly the
+// whole prefixes [0,n) for n from 0 to the file's length, so every byte
+// offset is where a window ends and no verdict on these files can change.
+func TestCutWindowsSmallCorpusFilesAreSweptWhole(t *testing.T) {
+	const smallest = 684
+	checked := 0
+	for _, file := range CorpusTOML(t) {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(src) > smallest {
+			continue
+		}
+		checked++
+		if len(src) > prefixSweepBound {
+			t.Fatalf("%s is %d bytes, more than prefixSweepBound (%d)", file, len(src), prefixSweepBound)
+		}
+		got := cutWindows(src)
+		if len(got) != len(src)+1 {
+			t.Fatalf("%s: %d windows, want %d", file, len(got), len(src)+1)
+		}
+		for n, w := range got {
+			if w.from != 0 || w.end != n {
+				t.Fatalf("%s: window %d is [%d,%d), want [0,%d)", file, n, w.from, w.end, n)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no corpus file of at most 684 bytes")
+	}
+}
+
 // indexEveryPrefix indexes each byte prefix of src and fails the test if
 // one panics. Each prefix is passed with its capacity cut to its length,
 // so a read past the end panics instead of reading the bytes that follow
