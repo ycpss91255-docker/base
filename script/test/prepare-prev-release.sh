@@ -140,6 +140,20 @@ _parse_version() {
   _pv_out=("$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[2]}))" "$((10#${BASH_REMATCH[3]}))")
 }
 
+# _triple_lt <a-array-name> <b-array-name>
+#   Succeed when triple a sorts strictly below triple b, comparing X, then
+#   Y, then Z. The one ordering every window decision uses.
+_triple_lt() {
+  local -n _tl_a="${1:?BUG: _triple_lt expects an array name}"
+  local -n _tl_b="${2:?BUG: _triple_lt expects an array name}"
+  local _tl_i
+  for _tl_i in 0 1 2; do
+    (( _tl_a[_tl_i] == _tl_b[_tl_i] )) && continue
+    return "$(( _tl_a[_tl_i] < _tl_b[_tl_i] ? 0 : 1 ))"
+  done
+  return 1
+}
+
 # The parsed floor and tree under test, set once by _load_versions in
 # main's own shell before any pipeline runs.
 _FLOOR=()
@@ -165,7 +179,8 @@ _load_versions() {
 #   Set <out-array-name> to the tags of <in-array-name> the window owes the
 #   tree under test: PREV_RELEASE_FLOOR <= tag < tree on the (X Y Z)
 #   triple, newest first. A pre-release tree vX.Y.Z-rcN sits below vX.Y.Z,
-#   so vX.Y.Z is excluded with the tree's own tag. Needs _load_versions to
+#   so vX.Y.Z is excluded with the tree's own tag. The major takes part in
+#   the compare, so a v1.x tag never sits below a 0.x tree. Needs _load_versions to
 #   have run. Arrays go in and out by nameref, so this never runs inside a
 #   `$(...)`, `<(...)` or pipeline: nothing on the path to tags.txt may
 #   decide anything in a subshell whose exit the run never sees.
@@ -177,9 +192,8 @@ _owed_from() {
   _of_out=()
   for _of_tag in "${_of_in[@]}"; do
     _parse_version "${_of_tag}" _of_v || continue
-    (( _of_v[0] == 0 )) || continue
-    (( _of_v[1] > _FLOOR[1] || (_of_v[1] == _FLOOR[1] && _of_v[2] >= _FLOOR[2]) )) || continue
-    (( _of_v[1] < _TREE[1] || (_of_v[1] == _TREE[1] && _of_v[2] < _TREE[2]) )) || continue
+    _triple_lt _of_v _FLOOR && continue
+    _triple_lt _of_v _TREE || continue
     _of_out+=("${_of_tag}")
   done
   # Newest first by triple. Insertion sort: the owed set is a handful of
@@ -188,7 +202,7 @@ _owed_from() {
     for (( _of_j = _of_i; _of_j > 0; _of_j-- )); do
       _parse_version "${_of_out[_of_j-1]}" _of_v
       _parse_version "${_of_out[_of_j]}" _of_w
-      (( _of_w[1] > _of_v[1] || (_of_w[1] == _of_v[1] && _of_w[2] > _of_v[2]) )) || break
+      _triple_lt _of_v _of_w || break
       _of_swap="${_of_out[_of_j-1]}"
       _of_out[_of_j-1]="${_of_out[_of_j]}"
       _of_out[_of_j]="${_of_swap}"
