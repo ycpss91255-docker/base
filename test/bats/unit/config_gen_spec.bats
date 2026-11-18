@@ -939,6 +939,39 @@ config_gen_tables ${_call}"
   assert_output 1
 }
 
+# _mock_docker_tables_ok
+#   docker records its argv; `image inspect` answers present. `run` prints
+#   the table list `a` and exits 0: a scripted answer, so the row asserts
+#   only what the shim hands docker.
+_mock_docker_tables_ok() {
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run) printf "a\n"; exit 0 ;;
+       *) exit 1 ;;
+     esac'
+}
+
+# why: a name directly under / (here /etc, present on every Linux host
+#      the suite runs on) has an empty parent once the basename is cut.
+#      The mount src is the name itself, /etc, written by hand here, not
+#      derived the way the shim does: not a refusal as no_such_file (cd
+#      to an empty dir fails) and not //etc (the root's `/` doubled).
+@test "config-gen: tables mounts a name directly under / by that name" {
+  _seed_cg_subtree
+  _mock_docker_tables_ok
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+
+  _run_cg_tables "${_wd}" /etc
+  assert_success
+  assert_equal "$(_cg_tables_seen)" "$(printf '[a\n]')"
+  run grep -c "^run .* --mount type=bind,src=/etc,dst=/in/f,readonly .* tables --name /etc /in/f\$" "${DOCKER_LOG}"
+  assert_output 1
+}
+
 # why: config_gen_tables keeps the binary's stdout and stderr in a temp
 #      directory; one left behind per call would fill TMPDIR over a long
 #      shell. It is removed whether the run publishes or refuses.

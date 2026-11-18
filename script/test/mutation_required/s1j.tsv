@@ -27,3 +27,5 @@ run-failed	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.b
 publish-on-rc0-only	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  if ((_rc == 0)); then	  if true; then	^config-gen: tables publishes nothing when the binary writes a full list and exits 1$
 output-nul	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	    if IFS= read -r -d '' _list < "${_tmp}/out"; then	    _list="$(< "${_tmp}/out")"; if false; then	^config-gen: tables refuses a table list holding a NUL with config_gen_output_nul$
 tables-tmp-removed	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  rm -rf -- "${_tmp}"	  :	^config-gen: tables removes its temp directory on success and on refusal$
+tables-root-parent	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  [[ -n "${_dir}" ]] || _dir=/	  :	^config-gen: tables mounts a name directly under / by that name$
+tables-root-abs	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  [[ "${_abs}" != / ]] || _abs=""	  :	^config-gen: tables mounts a name directly under / by that name$
