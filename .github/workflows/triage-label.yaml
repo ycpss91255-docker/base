@@ -30,8 +30,9 @@ on:
 
 # One labeller per issue. Two runs for the same issue -- a re-delivered
 # webhook, a re-run -- would both see the same label set and both add
-# the label; serialising makes the second run after the first finished. Never cancelled: the run IS the labelling, and a
-# cancelled one leaves the issue untriaged with nothing to retry it.
+# the label; serialising makes the second run start after the first
+# finished. Never cancelled: the run IS the labelling, and a cancelled
+# one leaves the issue untriaged with nothing to retry it.
 concurrency:
   group: triage-label-${{ github.event.issue.number }}
   cancel-in-progress: false

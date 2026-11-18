@@ -206,7 +206,7 @@ _applied_labels() {
 # what an unlabeled externally-filed issue is waiting for
 @test "triage-label: the unlabeled-issue safety net applies the intake role" {
   local _wf="triage-label.yaml"
-  assert_spec_subject "${WF_DIR}/${_wf}" "the safety net that labels externally-filed unlabeled issues"
+  assert_spec_subject "${WF_DIR}/${_wf}" "the safety net that keeps a state label on every issue"
   run _applied_labels "${_wf}"
   assert_success
   assert_line 'needs-triage'
