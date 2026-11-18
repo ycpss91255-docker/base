@@ -621,6 +621,26 @@ _pins() {
   assert_output 1
 }
 
+# why: A checksum ARG no marker names is left stale by every bump of its tool,
+# which is how the hadolint digests (base#1672) stayed behind (review round 1,
+# base#1676). Every *_SHA256_* ARG of the shipped test-tools Dockerfile must be
+# named by a sha256= option in the --list checksum column; the ARGs are read
+# from the file, not listed here, so a new one is covered without editing this.
+@test "pins: every checksum ARG of the shipped test-tools Dockerfile is named by a sha256= option (base#1676)" {
+  cp /source/dockerfile/Dockerfile.test-tools \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _pins --list
+  assert_success
+  local _list="${output}" _arg _n=0
+  while read -r _arg; do
+    _n=$((_n + 1))
+    grep -qE "(^|[[:space:]])${_arg}@" <<< "$(cut -f10 <<< "${_list}")" \
+      || fail "${_arg} is named by no sha256= option"
+  done < <(sed -nE 's/^[[:space:]]*ARG[[:space:]]+([A-Za-z0-9_]*SHA256[A-Za-z0-9_]*)=.*/\1/p' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools")
+  (( _n > 0 )) || fail "no checksum ARG read from the shipped Dockerfile"
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
