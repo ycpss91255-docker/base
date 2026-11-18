@@ -749,7 +749,8 @@ FROM debian:bookworm AS foo-test' foo
       _bad+="${_job} '${_name}': next step does not run cache_export_warn.sh"$'\n'
     elif [[ "${_meta}" != *"steps.${_id}.outputs.metadata"* ]]; then
       _bad+="${_job} '${_name}': warn step BUILD_METADATA is '${_meta}'"$'\n'
-    elif [[ "${_if}" != "steps.${_id}.outcome == 'success'" ]]; then
+    elif [[ "${_if}" != "steps.${_id}.outcome == 'success'" \
+        && "${_if}" != "steps.${_id}.outcome == 'success' && !inputs.disable_cache" ]]; then
       _bad+="${_job} '${_name}': warn step if: is '${_if}'"$'\n'
     fi
   done <<<"${_rows}"

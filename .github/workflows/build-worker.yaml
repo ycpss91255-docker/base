@@ -637,7 +637,7 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_devel_test.outcome == 'success' }}
+        if: ${{ steps.build_devel_test.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_devel_test.outputs.metadata }}
           CACHE_EXPORT_LABEL: devel-test
@@ -669,7 +669,7 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_devel.outcome == 'success' }}
+        if: ${{ steps.build_devel.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_devel.outputs.metadata }}
           CACHE_EXPORT_LABEL: devel
@@ -742,7 +742,7 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_runtime_test.outcome == 'success' }}
+        if: ${{ steps.build_runtime_test.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_runtime_test.outputs.metadata }}
           CACHE_EXPORT_LABEL: runtime-test
@@ -774,7 +774,7 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_runtime.outcome == 'success' }}
+        if: ${{ steps.build_runtime.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_runtime.outputs.metadata }}
           CACHE_EXPORT_LABEL: runtime
