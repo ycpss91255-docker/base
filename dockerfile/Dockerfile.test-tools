@@ -93,6 +93,11 @@ ARG KCOV_VERSION=v43
 # leave the tag unchanged and silently reuse the previous image.
 # tool-pin: just github-release casey/just
 ARG JUST_VERSION=1.58.0
+# sha256 of the just release asset per arch (musl). Source: upstream's published
+# SHA256SUMS, https://github.com/casey/just/releases/download/1.58.0/SHA256SUMS
+# (base#1673). A version bump must update both, otherwise the build fails closed.
+ARG JUST_SHA256_AMD64=4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+ARG JUST_SHA256_ARM64=748237128c4c40cbdabc65e841d05ceba13cc23a91eaba395495894c1d9764df
 
 # ── The alpine every package-installing stage below derives from ────────
 #
@@ -215,6 +220,9 @@ RUN apk add --no-cache curl xz && \
 # right one for alpine and needs no libc shim.
 FROM alpine:${ALPINE_VERSION} AS just-runner
 ARG JUST_VERSION
+ARG JUST_SHA256_AMD64
+ARG JUST_SHA256_ARM64
+COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract
 # arch-literal-lint: allow-begin -- the same TARGETARCH-to-upstream-asset
 # mapping the lint-tools stage above documents: TARGETARCH speaks
 # amd64 / arm64, the just project publishes x86_64-unknown-linux-musl /
@@ -232,8 +240,8 @@ ARG TARGETARCH
 # after it are what actually prove the download, so a loop that exhausted
 # its attempts cannot pass as success.
 RUN case "${TARGETARCH}" in \
-      amd64)  j_arch="x86_64"  ;; \
-      arm64)  j_arch="aarch64" ;; \
+      amd64)  j_arch="x86_64";  j_sha="${JUST_SHA256_AMD64}" ;; \
+      arm64)  j_arch="aarch64"; j_sha="${JUST_SHA256_ARM64}" ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     url="https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${j_arch}-unknown-linux-musl.tar.gz" && \
@@ -242,8 +250,10 @@ RUN case "${TARGETARCH}" in \
       echo "just download attempt ${attempt} failed; retrying" >&2; \
       sleep 3; \
     done && \
-    tar -xzf /tmp/just.tar.gz -C /usr/local/bin just && \
-    rm -f /tmp/just.tar.gz && \
+    mkdir /tmp/just-x && \
+    verify-extract /tmp/just.tar.gz "${j_sha}" /tmp/just-x && \
+    mv /tmp/just-x/just /usr/local/bin/just && \
+    rm -rf /tmp/just.tar.gz /tmp/just-x && \
     chmod +x /usr/local/bin/just && \
     /usr/local/bin/just --version
 # arch-literal-lint: allow-end
