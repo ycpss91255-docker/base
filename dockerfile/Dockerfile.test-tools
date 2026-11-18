@@ -174,12 +174,18 @@ ARG SHELLCHECK_SHA256_AMD64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65
 ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
 # tool-pin: hadolint github-release hadolint/hadolint
 ARG HADOLINT_VERSION=v2.15.1
+# sha256 of the v2.15.1 raw binary per arch: the asset `digest` field from
+# `gh release view v2.15.1 -R hadolint/hadolint` (upstream publishes no
+# .sha256 file; curl returned 404), base#1672. A version bump must update
+# both, otherwise the build fails closed.
+ARG HADOLINT_SHA256_AMD64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
 COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract
 # hadolint ignore=DL4006
 RUN apk add --no-cache curl xz && \
     case "${TARGETARCH}" in \
-      amd64)  sc_arch="x86_64";  hd_arch="x86_64"; sc_sha="${SHELLCHECK_SHA256_AMD64}" ;; \
-      arm64)  sc_arch="aarch64"; hd_arch="arm64";  sc_sha="${SHELLCHECK_SHA256_ARM64}" ;; \
+      amd64)  sc_arch="x86_64";  hd_arch="x86_64"; sc_sha="${SHELLCHECK_SHA256_AMD64}"; hd_sha="${HADOLINT_SHA256_AMD64}" ;; \
+      arm64)  sc_arch="aarch64"; hd_arch="arm64";  sc_sha="${SHELLCHECK_SHA256_ARM64}"; hd_sha="${HADOLINT_SHA256_ARM64}" ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/sc.tar.xz \
@@ -189,6 +195,7 @@ RUN apk add --no-cache curl xz && \
     mv "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
         "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-linux-${hd_arch}" && \
+    verify-extract --verify-only /usr/local/bin/hadolint "${hd_sha}" && \
     chmod +x /usr/local/bin/hadolint
 # arch-literal-lint: allow-end
 
