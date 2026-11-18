@@ -137,6 +137,22 @@ _write() {
   [[ "${output}" == *"3 internal reference(s)"* ]]
 }
 
+# why: init.sh and upgrade.sh sit at the repo root, outside every scanned
+# directory, and pull images for a bootstrap; each is its own scan root.
+@test "_run_moving_tag: FAILS on test-tools:latest in the root init.sh and upgrade.sh, one violation each (base#1647)" {
+  _write "init.sh" \
+    '#!/usr/bin/env bash' \
+    'docker pull ghcr.io/ycpss91255-docker/test-tools:latest'
+  _write "upgrade.sh" \
+    '#!/usr/bin/env bash' \
+    'docker pull ghcr.io/ycpss91255-docker/test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"init.sh:2: moving"* ]]
+  [[ "${output}" == *"upgrade.sh:2: moving"* ]]
+  [[ "${output}" == *"2 internal reference(s)"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_moving_tag: scan scope
 # ════════════════════════════════════════════════════════════════════
