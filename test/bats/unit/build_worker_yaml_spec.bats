@@ -401,6 +401,17 @@ setup() {
   assert_output "2"
 }
 
+@test "build-worker.yaml: disable_cache skips the 4 cache-export warn steps (#1702)" {
+  # With no cache-to there is no export vertex, so the warn script would
+  # report a missing export on every build of a caller that turned the
+  # cache off on purpose.
+  local _id
+  for _id in build_devel_test build_devel build_runtime_test build_runtime; do
+    run code_grep -cF "if: \${{ steps.${_id}.outcome == 'success' && !inputs.disable_cache }}" "${WF}"
+    assert_output "1"
+  done
+}
+
 @test "build-worker.yaml: disable_cache empties cache-from and cache-to on the 4 build steps (#1702)" {
   # `!disable && format(...) || ''`: enabled gives the scope string,
   # disabled gives '' (the action then passes no cache flag). Not
