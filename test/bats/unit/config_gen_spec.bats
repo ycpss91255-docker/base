@@ -972,6 +972,31 @@ _mock_docker_tables_ok() {
   assert_output 1
 }
 
+# why: the raw name lnk/layer.toml holds no comma or newline, but its
+#      parent lnk is a symlink to a directory whose name ends in a
+#      newline, so the file the kernel opens is <wd>/t<LF>/layer.toml.
+#      That path cannot be written in a --mount; dropping the trailing
+#      newline would mount <wd>/t/layer.toml, another file (here one that
+#      exists, holding [other]). The name is refused as unmountable and no
+#      container starts.
+@test "config-gen: tables refuses a name whose symlinked parent ends in a newline" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}/t"$'\n' "${_wd}/t"
+  printf '[a]\n' > "${_wd}/t"$'\n'"/layer.toml"
+  printf '[other]\n' > "${_wd}/t/layer.toml"
+  ln -s "t"$'\n' "${_wd}/lnk"
+  run cat -- "${_wd}/lnk/layer.toml"
+  assert_output "[a]"
+
+  _run_cg_tables "${_wd}" lnk/layer.toml
+  assert_refusal 1 config_gen_path_unmountable "file=lnk/layer.toml"
+  assert_equal "$(_cg_tables_seen)" "[]"
+  run grep -c '^run ' "${DOCKER_LOG}"
+  assert_output 0
+}
+
 # why: config_gen_tables keeps the binary's stdout and stderr in a temp
 #      directory; one left behind per call would fill TMPDIR over a long
 #      shell. It is removed whether the run publishes or refuses.

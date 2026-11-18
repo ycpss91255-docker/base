@@ -29,3 +29,4 @@ output-nul	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.b
 tables-tmp-removed	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  rm -rf -- "${_tmp}"	  :	^config-gen: tables removes its temp directory on success and on refusal$
 tables-root-parent	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  [[ -n "${_dir}" ]] || _dir=/	  :	^config-gen: tables mounts a name directly under / by that name$
 tables-root-abs	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  [[ "${_abs}" != / ]] || _abs=""	  :	^config-gen: tables mounts a name directly under / by that name$
+tables-abs-sentinel	dist/script/docker/lib/config_gen.sh	test/bats/unit/config_gen_spec.bats	  _abs="${_abs%$'\\nx'}"	  _abs="${_abs%$'\\nx'}"\n  _abs="${_abs%$'\\n'}"	^config-gen: tables refuses a name whose symlinked parent ends in a newline$
