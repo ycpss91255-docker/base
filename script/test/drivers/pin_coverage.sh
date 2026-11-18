@@ -259,7 +259,7 @@ which is not a third-party version. See script/watch/lib.sh."
 
   # A github-release pin in the test-tools Dockerfile is a download, and
   # a download with no checksum ARG is unverified (base#1675).
-  local _tt_file="dockerfile/Dockerfile.test-tools" _up _p _ok
+  local _tt_file="dockerfile/Dockerfile.test-tools" _up _p _ok _pending
   local -a _unverified=()
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
       _current _file _line; do
@@ -267,9 +267,6 @@ which is not a third-party version. See script/watch/lib.sh."
     [[ "${_state}" == "${_PIN_STATE_PINNED}" ]] || continue
     [[ "${_resolver}" == "github-release" ]] || continue
     [[ "${_file}" == "${_tt_file}" ]] || continue
-    for _p in "${_PIN_CHECKSUM_PENDING[@]}"; do
-      [[ "${_p%% *}" == "${_name}" ]] && continue 2
-    done
     _up="${_name^^}"
     _up="${_up//-/_}"
     _ok=0
@@ -279,7 +276,15 @@ which is not a third-party version. See script/watch/lib.sh."
     elif grep -qE "^ARG ${_up}_COMMIT=.+" "${REPO_ROOT}/${_tt_file}"; then
       _ok=1
     fi
-    if [[ "${_ok}" -eq 0 ]]; then
+    _pending=0
+    for _p in "${_PIN_CHECKSUM_PENDING[@]}"; do
+      [[ "${_p%% *}" == "${_name}" ]] && _pending=1
+    done
+    if [[ "${_pending}" -eq 1 ]]; then
+      if [[ "${_ok}" -eq 1 ]]; then
+        _unverified+=("${_file}:${_line}: ${_name} is in _PIN_CHECKSUM_PENDING but already has a checksum ARG: stale pending entry, delete it")
+      fi
+    elif [[ "${_ok}" -eq 0 ]]; then
       _unverified+=("${_file}:${_line}: ${_name} needs ${_up}_SHA256_AMD64 and ${_up}_SHA256_ARM64, or ${_up}_COMMIT")
     fi
   done <<< "${_table}"
