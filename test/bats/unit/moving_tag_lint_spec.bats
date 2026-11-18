@@ -302,6 +302,31 @@ _write() {
   [[ "${output}" == *".github/workflows/build-worker.yaml:9: input-default"* ]]
 }
 
+# why: An input defaulting to main moves with every push to main just as
+# latest moves with every release: an unquoted `default: main` is the same
+# base#1122 shape, and an entry naming it as an indirect tag leaves it a
+# violation.
+@test "_run_moving_tag: an allow-list entry cannot suppress a tag fed by an input defaulting to an unquoted main (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' \
+      '.github/workflows/build-worker.yaml|indirect|line:TEST_TOOLS_IMAGE=|1|test-tools:${{ inputs.test_tools_version }}|fixture' \
+      '.github/workflows/build-worker.yaml|input-default|line:TEST_TOOLS_IMAGE=|1|test-tools:${{ inputs.test_tools_version }}|fixture'
+  }
+  _write ".github/workflows/build-worker.yaml" \
+    'on:' \
+    '  workflow_call:' \
+    '    inputs:' \
+    '      test_tools_version:' \
+    '        default: main' \
+    'jobs:' \
+    '  build:' \
+    '    steps:' \
+    '      - run: echo TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/build-worker.yaml:9: input-default"* ]]
+}
+
 # why: ${TAG:-latest} resolves to the moving tag whenever TAG is unset: it is
 # never a sanctioned exception, whichever kind an entry names for it.
 @test "_run_moving_tag: an allow-list entry cannot suppress a tag whose variable defaults to latest (base#1647)" {
