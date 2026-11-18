@@ -363,6 +363,19 @@ _write() {
   [[ "${output}" == *"script/ci/a.sh:1: moving"* ]]
 }
 
+# why: An entry sanctions one kind of reference. An indirect-tag entry whose
+# token and anchor also sit on a line with a literal :main must not let that
+# moving reference through.
+@test "_run_moving_tag: an allow-list entry of another kind does not suppress a moving reference on its anchored line (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|indirect|line:HINT|1|test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:1: moving"* ]]
+}
+
 # why: A lint that scanned nothing found nothing: a REPO_ROOT that points at the
 # wrong tree (or roots that were renamed away) must not read as clean.
 @test "_run_moving_tag: FAILS when the scanned roots hold no file at all (base#1647)" {
