@@ -837,24 +837,53 @@ DOCK
   rm -rf "${_d}"
 }
 
+# Run _generate_deploy_bundle for repo ${1} with mktemp stubbed to give no
+# usable directory (${2}: `fail` = non-zero exit, `empty` = exit 0 and no
+# output). Call it only after the test's own _write_deploy_repo, so the
+# stubs cover the bundle step alone; they are removed right after `run`.
+# Every mkdir argument is recorded one per line in ${3}; mkdir runs for
+# real except for an argument under /config (never create under /).
+# _dry_run_cmd runs only mkdir (docker/xz/cp are no-ops), so a success
+# creates the output dir and a regressed empty work dir never copies `/.`.
+# No DRY_RUN: a dry run never creates the output dir, so its absence would
+# not tell an abort from a success.
+_mktemp_abort_case() {
+  local _repo="${1}" _mode="${2}" _calls="${3}"
+  local _orig_dry_run; _orig_dry_run="$(declare -f _dry_run_cmd)"
+  : > "${_calls}"
+  case "${_mode}" in
+    fail)  mktemp() { return 1; } ;;
+    empty) mktemp() { return 0; } ;;
+  esac
+  mkdir() {
+    local _a
+    for _a in "$@"; do
+      printf '%s\n' "${_a}" >> "${_calls}"
+      [[ "${_a}" == /config* ]] && return 0
+    done
+    command mkdir "$@"
+  }
+  _dry_run_cmd() {
+    [[ "${1}" == mkdir ]] || return 0
+    "$@"
+  }
+  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_repo}" "runtime" "${_repo}/deploy/out"
+  unset -f mktemp mkdir _dry_run_cmd
+  eval "${_orig_dry_run}"
+}
+
 # why: a failed mktemp must abort before any path is built from an empty dir
 @test "_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   local _calls="${_d}.mkdir-calls"
-  : > "${_calls}"
-  mktemp() { return 1; }
-  # Record mkdir instead of creating anything, so the test never touches /.
-  mkdir() { printf '%s\n' "$*" >> "${_calls}"; return 0; }
-  export DRY_RUN=true
-  SETUP_DETECT_DRI_GROUPS="" run _generate_deploy_bundle "${_d}" "runtime" "${_d}/deploy/out"
-  unset DRY_RUN
-  unset -f mktemp mkdir
+  _mktemp_abort_case "${_d}" fail "${_calls}"
   assert_failure
   assert_output --partial "cannot create a temporary directory"
-  # Nothing was created: no mkdir call at all (in particular none under /config).
-  run cat "${_calls}"
-  assert_output ""
+  # The safety property, not a call count: no mkdir argument under /config,
+  # and the output dir was never created.
+  run grep -c '^/config' "${_calls}"
+  assert_output "0"
   [[ ! -e "${_d}/deploy/out" ]]
   rm -rf "${_d}" "${_calls}"
 }
