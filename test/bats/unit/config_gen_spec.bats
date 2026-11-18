@@ -602,6 +602,29 @@ _mock_docker_tables_exec() {
   assert_cg_calls image run
 }
 
+# why: the image resolves in the caller's shell, so the run names what
+#      resolve published there. With CONFIG_GEN_IMAGE pinned in the
+#      caller's shell, the run carries that literal and nothing is
+#      inspected; a resolve run in a subshell publishes nothing to the
+#      caller and the run would name an empty image.
+@test "config-gen: tables runs the image CONFIG_GEN_IMAGE pins in the caller's shell" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n[b.c]\n' > "${_wd}/layer.toml"
+
+  CONFIG_GEN_IMAGE=config-gen:pinned-1470 _run_cg_tables "${_wd}" layer.toml
+  assert_success
+  assert_equal "$(_cg_tables_seen)" "$(printf '[a\nb\nb.c\n]')"
+  local _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
+  assert_cg_run_argv run --rm --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=${_wdp}/layer.toml,dst=/in/f,readonly" \
+    config-gen:pinned-1470 tables --name layer.toml /in/f
+  assert_cg_calls run
+}
+
 # why: a name that does not exist is refused on the host by a stat alone
 #      (the host never opens the path), before any container starts: a
 #      `docker run` for it would bind-mount a src that is not there. The
