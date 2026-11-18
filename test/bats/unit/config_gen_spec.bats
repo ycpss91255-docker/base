@@ -420,3 +420,70 @@ exit \"\${rc}\""
   assert_refusal 4 config_gen_output_failed "file=layer.toml"
   assert_equal "$(cat "${_seen}")" "[]"
 }
+
+# _mock_docker_tables_exec
+#   docker records its argv; `image inspect` answers present. `run` stands
+#   in for the container: it takes the bind mount's src, maps dst=/in/f to
+#   it, and execs the real binary (CONFIG_GEN_BIN, provisioned by
+#   script/test/test.sh) on the argv after the image, so the answer is the
+#   binary's own.
+_mock_docker_tables_exec() {
+  if [[ -z "${CONFIG_GEN_BIN:-}" || ! -x "${CONFIG_GEN_BIN}" ]]; then
+    fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary; script/test/test.sh _prepare_config_gen_bin must provision it (base#1469)"
+  fi
+  export CONFIG_GEN_BIN
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "%s\n" "$*" >> "${DOCKER_LOG}"
+     case "$1" in
+       image) exit 0 ;;
+       run)
+         shift
+         src=""
+         while (($#)); do
+           case "$1" in
+             --rm) shift ;;
+             --user) shift 2 ;;
+             --mount) m="${2#*src=}"; src="${m%%,dst=/in/f,readonly}"; shift 2 ;;
+             *) shift; break ;;
+           esac
+         done
+         args=()
+         for a in "$@"; do
+           [[ "${a}" == /in/f ]] && a="${src}"
+           args+=("${a}")
+         done
+         exec "${CONFIG_GEN_BIN}" "${args[@]}" ;;
+       *) exit 1 ;;
+     esac'
+}
+
+# why: on rc 0 the outvar carries the binary's answer, byte for byte: the
+#      table list of the mounted file, `[a]` and `[b.c]` giving a, b and
+#      b.c (the binary's own output for that input, observed by running it
+#      on the file). The run mounts the file read-only by its absolute path
+#      as the caller's uid:gid and names it to the binary by the caller's
+#      text, so the host never opens it.
+@test "config-gen: tables publishes the binary's table list on rc 0" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '[a]\n[b.c]\n' > "${_wd}/layer.toml"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+
+  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+  assert_success
+  assert_output ""
+  assert_equal "$(cat "${_seen}")" "$(printf '[a\nb\nb.c\n]')"
+  local _wdp
+  _wdp="$(cd "${_wd}" && pwd -P)"
+  run grep -c "^run --rm --user $(id -u):$(id -g) --mount type=bind,src=${_wdp}/layer.toml,dst=/in/f,readonly .* tables --name layer.toml /in/f\$" "${DOCKER_LOG}"
+  assert_output 1
+}
