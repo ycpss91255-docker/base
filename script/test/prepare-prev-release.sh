@@ -241,9 +241,13 @@ _fetch_owed_tags() {
     _check_offline_minimum "${_tree}"
     return 0
   fi
+  # An upstream that answers with no stable release is a wrong remote or a
+  # broken listing, not one that owes nothing: reading it as empty would
+  # hand the window back to the local tags.
+  [[ -n "${_upstream}" ]] \
+    || _die "upstream lists no stable release tags (${BASE_UPSTREAM_REMOTE})"
   mapfile -t _local < <(_stable_release_tags)
-  mapfile -t _owed_tags < <([[ -z "${_upstream}" ]] \
-    || printf '%s\n' "${_upstream}" | _owed "${_tree}")
+  mapfile -t _owed_tags < <(printf '%s\n' "${_upstream}" | _owed "${_tree}")
   for _tag in "${_owed_tags[@]}"; do
     [[ " ${_local[*]} " == *" ${_tag} "* ]] \
       || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
