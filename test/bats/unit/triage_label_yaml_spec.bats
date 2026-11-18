@@ -346,3 +346,17 @@ STUB
   done <<< "${_roles}"
   [ "${_n}" -eq 5 ]
 }
+
+# why: The step decides from a label read, and an API error is not an
+# answer. Reading a failed `gh api` as an empty set (`|| true`,
+# `|| echo '[]'`) would see "no state label" on an issue that carries
+# ready-for-agent and add needs-triage to it, breaking the very rule this
+# net enforces. A failed read fails the step and edits nothing (base#1713)
+@test "triage-label: a failed label read adds nothing" {
+  assert_spec_subject "${WF_DIR}/triage-label.yaml" "the safety net that keeps a state label on every issue"
+  STUB_GH_API_FAIL=1 run _triage_step_for '[{"name":"ready-for-agent"}]'
+  assert_failure
+  [ "${status}" -ne 2 ]
+  run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+  assert_output '0'
+}

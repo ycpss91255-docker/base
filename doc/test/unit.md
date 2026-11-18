@@ -9251,7 +9251,7 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
-### test/bats/unit/triage_label_yaml_spec.bats (10)
+### test/bats/unit/triage_label_yaml_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -9265,6 +9265,7 @@ call begin + detach
 | `triage-label: the job is gated only on the issue being open` | The old gate asked "any label at all?" while the rule is about STATE labels, so a kind label alone (`enhancement`, set by the to-issues flow at creation) skipped the job and left the issue stateless. Which labels count is the step's business, read at run time; the job itself may only refuse a closed issue. Asserted positively, so `!labels[0]`, `labels.length == 0`, `toJSON(...) == '[]'` and a step-level gate all fail it, not just today's spelling (base#1713) |
 | `triage-label: a label set with no state label gets needs-triage, one with a state label does not` | The rule is "exactly one state label" and the roster is the doc's table, so the predicate is a count of roster names in the label set the issue carries NOW. No state label, whatever else is there (a kind label set at creation, or the last state just removed), gets the intake role; any one role from the doc -- read here, not from the step's own copy -- gets nothing. An unconditional add, an inverted gate, a counter that only looks for needs-triage and a hand-copied roster missing a role all fail one half of this (base#1713) |
 | `triage-label: needs-triage left beside another state label is removed` | The rule is "exactly one state label", and the common way to break it is moving an issue on without taking the intake role off: adding ready-for-agent while needs-triage is still set leaves two states, and an agent picking ready-for-agent work is handed an issue that is also still untriaged. needs-triage next to ANY other role from the doc's table -- read here, not from the step's own copy -- is the leftover, so the step removes it and makes no other edit; the later role is the decision (base#1713) |
+| `triage-label: a failed label read adds nothing` | The step decides from a label read, and an API error is not an answer. Reading a failed `gh api` as an empty set (`\|\| true`, `\|\| echo '[]'`) would see "no state label" on an issue that carries ready-for-agent and add needs-triage to it, breaking the very rule this net enforces. A failed read fails the step and edits nothing (base#1713) |
 
 ### test/bats/unit/tui_backend_spec.bats (30)
 
