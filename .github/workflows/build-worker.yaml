@@ -742,6 +742,10 @@ jobs:
 
       - name: Build runtime-test stage (install check)
         id: build_runtime_test
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         # Mirrors the devel-test pattern (#243): ephemeral stage
         # FROM runtime, runs an inline `RUN <smoke>` so build failure
         # surfaces a smoke failure. Default smoke is generic
@@ -787,6 +791,27 @@ jobs:
           BUILD_METADATA: ${{ steps.build_runtime_test.outputs.metadata }}
           CACHE_EXPORT_LABEL: runtime-test
         run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+
+      - name: Retry runtime-test stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_runtime_test.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
+            ${{ inputs.build_args }}
 
       - name: Build runtime stage
         id: build_runtime
