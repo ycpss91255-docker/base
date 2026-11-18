@@ -54,7 +54,7 @@ Notes:
   in its `tool-pin:` marker; the version bump (`script/watch/pins.sh --set`)
   then rewrites those checksum ARGs in the same commit, from the upstream
   checksum file (`file:`) or, when upstream publishes none, from the
-  downloaded asset (`asset:`), as for shellcheck. The downstream `devel-test` stage consumes it through
+  downloaded asset (`asset:`), as for shellcheck and hadolint. The downstream `devel-test` stage consumes it through
   the `ARG TEST_TOOLS_IMAGE` build arg, which has **no default**: `build.sh`
   passes the version-scoped `test-tools:<base-version>` it builds into the host
   Docker daemon, and CI passes `ghcr.io/ycpss91255-docker/test-tools:<version>`

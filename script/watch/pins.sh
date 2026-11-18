@@ -21,8 +21,10 @@
 # checksum ARGs in its own file. --set regenerates them with the version,
 # in the same commit (base#1676): every named ARG must match exactly once
 # and every digest must resolve to 64 hex characters before anything is
-# written; the file is then rewritten, read back, and restored from a
-# backup on any failure. `<source>` is `asset:<url>` (the digest is
+# written; the version line and every checksum ARG are then rewritten and
+# read back, the version last, and the file is restored from a backup on
+# any failure. A go.mod or golang pin, whose bump writes other files too,
+# refuses sha256= options. `<source>` is `asset:<url>` (the digest is
 # computed from the downloaded asset) or `file:<url>:<asset>` (the digest
 # is read from the line naming <asset> in an upstream checksum file);
 # `{version}` expands to the new version. The success output records each
