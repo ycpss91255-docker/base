@@ -378,6 +378,25 @@ printf 'cg=%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
 
 # ── config_gen_tables (base#1470) ────────────────────────────────────────────
 
+# _run_cg_tables <wd> <name>
+#   `run` config_gen_tables <name> out from <wd> in a fresh shell with JSON
+#   logs and stderr kept apart; out is preset to `stale`, so a value that
+#   survives a refusal shows. _cg_tables_seen prints out's final value in
+#   brackets.
+_run_cg_tables() {
+  CGT_NAME="$2" LOG_FORMAT=json run --separate-stderr bash -c "cd '$1' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables \"\${CGT_NAME}\" out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${BATS_TEST_TMPDIR}/out.seen'
+exit \"\${rc}\""
+}
+
+_cg_tables_seen() {
+  cat -- "${BATS_TEST_TMPDIR}/out.seen"
+}
+
 # _mock_docker_tables_output_failed
 #   docker records its argv; `image inspect` answers present. `run` is the
 #   binary failing to write its answer (tables.go, exitOutput): a valid
@@ -408,17 +427,10 @@ _mock_docker_tables_output_failed() {
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '[a]\n[b]\n' > "${_wd}/layer.toml"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
 
-  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables layer.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+  _run_cg_tables "${_wd}" layer.toml
   assert_refusal 4 config_gen_output_failed "file=layer.toml"
-  assert_equal "$(cat "${_seen}")" "[]"
+  assert_equal "$(_cg_tables_seen)" "[]"
 }
 
 # _mock_docker_tables_exec
@@ -470,18 +482,11 @@ _mock_docker_tables_exec() {
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '[a]\n[b.c]\n' > "${_wd}/layer.toml"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
 
-  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables layer.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+  _run_cg_tables "${_wd}" layer.toml
   assert_success
   assert_output ""
-  assert_equal "$(cat "${_seen}")" "$(printf '[a\nb\nb.c\n]')"
+  assert_equal "$(_cg_tables_seen)" "$(printf '[a\nb\nb.c\n]')"
   local _wdp
   _wdp="$(cd "${_wd}" && pwd -P)"
   run grep -c "^run --rm --user $(id -u):$(id -g) --mount type=bind,src=${_wdp}/layer.toml,dst=/in/f,readonly .* tables --name layer.toml /in/f\$" "${DOCKER_LOG}"
@@ -498,17 +503,10 @@ exit \"\${rc}\""
   _mock_docker_tables_exec
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
 
-  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables missing.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+  _run_cg_tables "${_wd}" missing.toml
   assert_refusal 1 no_such_file "file=missing.toml"
-  assert_equal "$(cat "${_seen}")" "[]"
+  assert_equal "$(_cg_tables_seen)" "[]"
   run grep -c '^run ' "${DOCKER_LOG}"
   assert_output 0
 }
@@ -525,17 +523,10 @@ exit \"\${rc}\""
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '["a\\u0000b"]\nx = 1\n[c]\ny = 2\n' > "${_wd}/layer.toml"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
 
-  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables layer.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+  _run_cg_tables "${_wd}" layer.toml
   assert_refusal 1 config_gen_output_nul "file=layer.toml"
-  assert_equal "$(cat "${_seen}")" "[]"
+  assert_equal "$(_cg_tables_seen)" "[]"
 }
 
 # why: docker's --mount value is a comma-separated list, so a src holding
@@ -557,19 +548,12 @@ exit \"\${rc}\""
   printf '[a]\n' > "${_wd}/rv-d"$'\n'"/layer.toml"
   printf '[a]\n' > "${_wd}/c,d/layer.toml"
   ln -s 'c,d' "${_wd}/cl"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
   local _name
   for _name in 'a,b.toml' 'p,q/layer.toml' "rv-d"$'\n'"/layer.toml" 'cl/layer.toml'; do
     : > "${DOCKER_LOG}"
-    CGT_NAME="${_name}" LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables \"\${CGT_NAME}\" out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+    _run_cg_tables "${_wd}" "${_name}"
     assert_refusal 1 config_gen_path_unmountable "file=${_name}"
-    assert_equal "$(cat "${_seen}")" "[]"
+    assert_equal "$(_cg_tables_seen)" "[]"
     run grep -c '^run ' "${DOCKER_LOG}"
     assert_output 0
   done
@@ -603,20 +587,13 @@ _mock_docker_tables_run_fails() {
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '[a]\n' > "${_wd}/layer.toml"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
   local _rc
   for _rc in 125 126 127; do
     cleanup_mock_dir || true
     _mock_docker_tables_run_fails "${_rc}"
-    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables layer.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+    _run_cg_tables "${_wd}" layer.toml
     assert_refusal "${_rc}" config_gen_run_failed "file=layer.toml" "status=${_rc}"
-    assert_equal "$(cat "${_seen}")" "[]"
+    assert_equal "$(_cg_tables_seen)" "[]"
   done
 }
 
@@ -651,7 +628,6 @@ _mock_docker_tables_stderr() {
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '[a]\n' > "${_wd}/layer.toml"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
   local _err="${BATS_TEST_TMPDIR}/frame.err"
   local _shape
   for _shape in seven truncated tag unregistered; do
@@ -663,15 +639,9 @@ _mock_docker_tables_stderr() {
     esac
     cleanup_mock_dir || true
     _mock_docker_tables_stderr "${_err}" 1
-    LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables layer.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+    _run_cg_tables "${_wd}" layer.toml
     assert_refusal 1 config_gen_diag_malformed "file=layer.toml"
-    assert_equal "$(cat "${_seen}")" "[]"
+    assert_equal "$(_cg_tables_seen)" "[]"
   done
 }
 
@@ -689,23 +659,16 @@ exit \"\${rc}\""
   local _wd="${BATS_TEST_TMPDIR}/wd"
   mkdir -p "${_wd}"
   printf '[a]\n' > "${_wd}/layer.toml"
-  local _seen="${BATS_TEST_TMPDIR}/out.seen"
   local _err="${BATS_TEST_TMPDIR}/frame.err"
   printf 'WARNING: The requested image platform does not match the host\nD\0error\0conf_toml_parse_failed\0layer.toml\0003\0007\0\0dup key\0' > "${_err}"
   _mock_docker_tables_stderr "${_err}" 1
 
-  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
-source '${CG}'
-out=stale
-config_gen_tables layer.toml out
-rc=\$?
-printf '[%s]' \"\${out}\" > '${_seen}'
-exit \"\${rc}\""
+  _run_cg_tables "${_wd}" layer.toml
   assert_refusal 1 conf_toml_parse_failed "file=layer.toml" "line=3" "col=7"
   assert_logged_event config_gen_stray_stderr "file=layer.toml" "WARNING: The requested image platform does not match the host"
   assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_stray_stderr)" 1
   assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_diag_malformed)" 0
-  assert_equal "$(cat "${_seen}")" "[]"
+  assert_equal "$(_cg_tables_seen)" "[]"
 }
 
 # why: config_gen_tables takes exactly <file> and <outvar>, and <outvar> is

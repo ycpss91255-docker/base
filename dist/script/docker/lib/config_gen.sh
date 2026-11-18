@@ -162,9 +162,12 @@ config_gen_tables() {
       "display=config_gen_tables: no such file: $1" "file=$1"
     return 1
   fi
-  # The mount src is the parent's physical path, so a symlinked parent
-  # whose target holds a comma or newline is refused too; the trailing
-  # `x` keeps a newline that ends the path (base#1470).
+  # The mount src is the parent's physical path: `cd -P` applies each
+  # `..` to the physical directory, as the kernel's own walk of the name
+  # does, so the mounted file is the named one; `&&` turns a failing cd
+  # into a refusal instead of `/<base>`; the trailing `x` keeps a newline
+  # that ends the path. A symlinked parent whose target holds a comma or
+  # newline is then refused by the second guard (base#1470).
   local _dir="${1%/*}" _abs
   [[ "$1" == */* ]] || _dir=.
   [[ -n "${_dir}" ]] || _dir=/
@@ -198,14 +201,11 @@ config_gen_tables() {
   fi
   if ((_rc == 0)); then
     # A bash variable cannot hold a NUL, so a table list carrying one is
-    # refused instead of published truncated (base#1470).
-    local _chunk _list="" _n=0
-    while IFS= read -r -d '' _chunk; do
-      _list+="${_chunk}"
-      _n=$((_n + 1))
-    done < "${_tmp}/out"
-    _list+="${_chunk}"
-    if ((_n > 0)); then
+    # refused instead of published truncated: `read -d ''` succeeds only
+    # when it meets a NUL, and at EOF leaves the whole list in _list
+    # (base#1470).
+    local _list
+    if IFS= read -r -d '' _list < "${_tmp}/out"; then
       _log_err config_gen config_gen_output_nul \
         "display=config_gen_tables: the table list of $1 holds a NUL byte, which a shell variable cannot carry" \
         "file=$1"
