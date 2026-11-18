@@ -25,7 +25,13 @@ main() {
     printf '%s\n' "${PR_CLOSING_REFS:-}"
     # Text inside a fenced code block, inline code or an HTML comment is
     # quoted or hidden, not a directive.
-    printf '%s\n' "${PR_COMMITS:-}" |
+    {
+      printf '%s\n' "${PR_COMMITS:-}"
+      # Offline fallback: with PR_CLOSING_REFS unset the PR body is parsed.
+      if [[ -z "${PR_CLOSING_REFS+x}" ]]; then
+        printf '%s\n' "${PR_BODY:-}"
+      fi
+    } |
       awk '/^[[:space:]]*```/ { infence = !infence; next } !infence' |
       sed 's/`[^`]*`//g' |
       sed -e ':a' -e 'N' -e '$!ba' -e 's/<!--[^>]*-->//g' |
