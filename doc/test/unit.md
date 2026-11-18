@@ -9240,7 +9240,7 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
-### test/bats/unit/triage_label_yaml_spec.bats (6)
+### test/bats/unit/triage_label_yaml_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
@@ -9250,6 +9250,7 @@ call begin + detach
 | `triage-label: a quoted operand and a multi-line array are both read` | The two spellings the first extractor silently dropped, pinned as data rather than left to the live tree -- neither is in this repo today, so nothing here would fail if the patterns regressed. A quoted operand and a multi-line array are both ordinary YAML, and both read as zero labels, which the vocabulary case passes |
 | `triage-label: every label a workflow applies is one the vocabulary defines` | The defect itself, stated as the invariant it broke. The API CREATES a label an addLabels call names when the repo has none, so a workflow applying a string outside the vocabulary does not fail -- it mints a label the doc says does not exist, on GitHub's default grey, once per issue. Deleting the label by hand cannot fix that; this is the only place the recurrence can be closed (base#1182) |
 | `triage-label: the unlabeled-issue safety net applies the intake role` | The intake role has one spelling and the rename chose it. Naming the label positively, and not merely "something in the table", is what keeps a later edit from swapping the safety net onto ready-for-agent or wontfix -- both of which are in the table and neither of which is what an unlabeled externally-filed issue is waiting for |
+| `triage-label: the safety net runs on opened, labeled and unlabeled` | The rule is "exactly one state label", and a label set changes on three events, not one. Triggering on `opened` alone never sees a state label being removed, so an issue whose last state label is taken off stays stateless for good; `labeled` alone misses that same removal. Only all three keep the net in front of every change (base#1713) |
 
 ### test/bats/unit/tui_backend_spec.bats (30)
 

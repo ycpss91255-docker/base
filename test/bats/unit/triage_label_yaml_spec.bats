@@ -212,3 +212,19 @@ _applied_labels() {
   assert_line 'needs-triage'
   refute_line 'triage'
 }
+
+# why: The rule is "exactly one state label", and a label set changes on
+# three events, not one. Triggering on `opened` alone never sees a state
+# label being removed, so an issue whose last state label is taken off
+# stays stateless for good; `labeled` alone misses that same removal.
+# Only all three keep the net in front of every change (base#1713)
+@test "triage-label: the safety net runs on opened, labeled and unlabeled" {
+  local _wf="${WF_DIR}/triage-label.yaml"
+  assert_spec_subject "${_wf}" "the safety net that keeps a state label on every issue"
+  run yq '.on.issues.types[]' "${_wf}"
+  assert_success
+  assert_line 'opened'
+  assert_line 'labeled'
+  assert_line 'unlabeled'
+  [ "${#lines[@]}" -eq 3 ]
+}
