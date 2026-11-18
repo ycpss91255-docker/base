@@ -1,6 +1,6 @@
 # System Tests (opt-in)
 
-System specs under `test/bats/system/`: **24 tests**.
+System specs under `test/bats/system/`: **26 tests**.
 
 > **Not** part of the `just test` self-test suite -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
@@ -181,6 +181,18 @@ it the second invocation reports success having executed no specs at all.
 | `kcov-builder build fails when the KCOV_COMMIT pin is wrong` | a wrong pinned kcov commit must fail the kcov-builder build (base#1674) |
 | `bats-extensions build fails when the BATS_SUPPORT_COMMIT pin is wrong` | a wrong pinned bats-support commit must fail the bats-extensions build (base#1674) |
 | `bats-extensions build fails when the BATS_ASSERT_COMMIT pin is wrong` | a wrong pinned bats-assert commit must fail the bats-extensions build even though the bats-support clone before it in the same RUN passes (base#1674) |
+
+### test/bats/system/test_tools_hadolint_pin_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `lint-tools build fails when the hadolint sha256 pin is wrong` | a wrong pinned sha256 must fail the lint-tools build (base#1672) |
+
+### test/bats/system/test_tools_just_pin_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `just-runner build fails when the just sha256 pin is wrong` | a wrong pinned sha256 must fail the just-runner build (base#1673) |
 
 ### test/bats/system/test_tools_shellcheck_pin_spec.bats (1)
 
