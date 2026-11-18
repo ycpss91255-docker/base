@@ -374,9 +374,11 @@ setup() {
   # unreachable from the day it shipped and was removed with the input,
   # and what a gha caller executes is unchanged either way.
   for _target in devel-test devel runtime-test runtime; do
-    run code_grep -F "cache-from: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache" "${WF}"
+    # #1702: each line is gated on disable_cache, so the scope sits inside
+    # a format() call; the literal scope spelling is unchanged.
+    run code_grep -F "cache-from: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key)" "${WF}"
     assert_success
-    run code_grep -F "cache-to: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache,mode=max" "${WF}"
+    run code_grep -F "cache-to: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache,mode=max" "${WF}"
     assert_success
   done
 }
@@ -592,7 +594,7 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
 @test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
   # mode=max exports all intermediate stage layers (including the heavy
   # builder / source-build stages). One cache-to line per target.
-  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max,ignore-error=true$' "${WF}"
+  run code_grep -cE "^          cache-to: .*type=gha,scope=.*,mode=max,ignore-error=true('|,).*\$" "${WF}"
   assert_success
   assert_output "4"
 }
@@ -616,7 +618,7 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
     echo "${output} type=gha cache-to found, want exactly 6" >&2
     return 1
   }
-  _bad="$(grep -vE '(^|,)ignore-error=true(,|$)' <<<"${_all}" || true)"
+  _bad="$(grep -vE "(^|,)ignore-error=true(,|'|\$)" <<<"${_all}" || true)"
   [ -z "${_bad}" ] || {
     echo "type=gha cache-to without ignore-error=true:" >&2
     printf '%s\n' "${_bad}" >&2
@@ -762,7 +764,7 @@ FROM debian:bookworm AS foo-test' foo
   # Every cache line the worker carries names the one backend outright.
   local _lines _gha
   _lines="$(code_grep -cE '^          cache-(from|to): ' "${WF}")"
-  _gha="$(code_grep -cE '^          cache-(from|to): type=gha,scope=' "${WF}")"
+  _gha="$(code_grep -cE "^          cache-(from|to): .*type=gha,scope=" "${WF}")"
   [[ "${_lines}" -eq 8 ]] || fail \
       "expected the 4 build steps' 8 cache lines, found ${_lines} -- the equality below would be comparing two numbers that are both wrong"
   [[ "${_gha}" -eq "${_lines}" ]] || fail \

@@ -620,8 +620,8 @@ jobs:
           target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-test-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-test-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -653,8 +653,8 @@ jobs:
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -726,8 +726,8 @@ jobs:
           target: runtime-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-test-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-test-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -759,8 +759,8 @@ jobs:
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
