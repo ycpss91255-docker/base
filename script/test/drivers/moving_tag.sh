@@ -171,6 +171,10 @@ _run_moving_tag() {
       printf '%s: allow-list entry pins %s, saw %s --%s\n' \
         "${_path}" "${_count}" "${_hits[_i]}" "${_hit_at[_i]}"
       _violations=$(( _violations + 1 ))
+    elif [[ "${_hits[_i]:-0}" -lt "${_count}" ]]; then
+      printf '%s: allow-list entry is stale: pins %s, saw %s; update the entry and its reason in the same commit\n' \
+        "${_path}" "${_count}" "${_hits[_i]:-0}"
+      _violations=$(( _violations + 1 ))
     fi
   done
 
