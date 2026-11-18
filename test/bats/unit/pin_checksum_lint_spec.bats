@@ -61,12 +61,13 @@ _one_good_pin() {
 # why: The pending allowlist is transitional; once a listed pin has its
 # checksum the entry must be deleted, so the lint fails on a stale entry
 @test "_run_pin_coverage: FAILS when a pending-allowlisted pin already has a checksum" {
+  _PIN_CHECKSUM_PENDING=("foo  # base#0")
   _one_good_pin
   _dockerfile \
-    '# tool-pin: just github-release casey/just' \
-    'ARG JUST_VERSION=1.0.0' \
-    'ARG JUST_SHA256_AMD64=0000000000000000000000000000000000000000000000000000000000000000' \
-    'ARG JUST_SHA256_ARM64=1111111111111111111111111111111111111111111111111111111111111111'
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.0.0' \
+    'ARG FOO_SHA256_AMD64=0000000000000000000000000000000000000000000000000000000000000000' \
+    'ARG FOO_SHA256_ARM64=1111111111111111111111111111111111111111111111111111111111111111'
   _lint
   assert_failure
   assert_output --partial 'stale'
@@ -97,21 +98,17 @@ _one_good_pin() {
   assert_output --partial 'FOO_SHA256_AMD64'
 }
 
-# why: The pending allowlist is what keeps main green while the sibling
-# issues land their checksums; a listed pin with none must pass
+# why: The pending allowlist is what keeps main green while a sibling
+# issue lands its checksum; a listed pin with none must pass (fixture list:
+# the real one is empty once every pin has its checksum)
 @test "_run_pin_coverage: PASSES a pending-allowlisted pin that has no checksum ARG" {
+  _PIN_CHECKSUM_PENDING=("foo  # base#0" "bar-baz  # base#0")
   _one_good_pin
   _dockerfile \
-    '# tool-pin: kcov github-release SimonKagstrom/kcov' \
-    'ARG KCOV_VERSION=1.0.0' \
-    '# tool-pin: just github-release casey/just' \
-    'ARG JUST_VERSION=1.0.0' \
-    '# tool-pin: hadolint github-release hadolint/hadolint' \
-    'ARG HADOLINT_VERSION=1.0.0' \
-    '# tool-pin: bats-support github-release bats-core/bats-support' \
-    'ARG BATS_SUPPORT_VERSION=1.0.0' \
-    '# tool-pin: bats-assert github-release bats-core/bats-assert' \
-    'ARG BATS_ASSERT_VERSION=1.0.0'
+    '# tool-pin: foo github-release owner/foo' \
+    'ARG FOO_VERSION=1.0.0' \
+    '# tool-pin: bar-baz github-release owner/bar-baz' \
+    'ARG BAR_BAZ_VERSION=1.0.0'
   _lint
   assert_success
   assert_output --partial 'clean'

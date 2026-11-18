@@ -120,13 +120,7 @@ source "${SCRIPT_DIR}/../watch/lib.sh"
 
 # Transitional: pins that still have no checksum, each owned by an open
 # issue. Delete a line when its checksum lands.
-_PIN_CHECKSUM_PENDING=(
-  "kcov  # base#1674"
-  "just  # base#1673"
-  "hadolint  # base#1672"
-  "bats-support  # base#1674"
-  "bats-assert  # base#1674"
-)
+_PIN_CHECKSUM_PENDING=()
 
 _run_pin_coverage() {
   echo "--- Running pin-coverage lint ---"

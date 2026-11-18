@@ -5346,7 +5346,7 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: FAILS when a pending-allowlisted pin already has a checksum` | The pending allowlist is transitional; once a listed pin has its checksum the entry must be deleted, so the lint fails on a stale entry |
 | `_run_pin_coverage: FAILS on a pin with only the AMD64 checksum ARG` | Both per-arch ARGs are required; a pin with only one arch checked leaves the other arch's download unverified |
 | `_run_pin_coverage: FAILS on a pin with only the ARM64 checksum ARG` | The same rule from the other side, so an either-arch match fails |
-| `_run_pin_coverage: PASSES a pending-allowlisted pin that has no checksum ARG` | The pending allowlist is what keeps main green while the sibling issues land their checksums; a listed pin with none must pass |
+| `_run_pin_coverage: PASSES a pending-allowlisted pin that has no checksum ARG` | The pending allowlist is what keeps main green while a sibling issue lands its checksum; a listed pin with none must pass (fixture list: the real one is empty once every pin has its checksum) |
 
 ### test/bats/unit/pin_coverage_lint_spec.bats (81)
 

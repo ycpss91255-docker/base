@@ -437,7 +437,9 @@ _one_good_pin() {
 @test "_run_pin_coverage: a pinned marker satisfies the detector" {
   _dockerfile \
     '# tool-pin: hadolint github-release hadolint/hadolint' \
-    'ARG HADOLINT_VERSION=v2.12.0'
+    'ARG HADOLINT_VERSION=v2.12.0' \
+    'ARG HADOLINT_SHA256_AMD64=aa' \
+    'ARG HADOLINT_SHA256_ARM64=bb'
   _lint
   assert_success
   assert_output --partial 'pin-coverage lint: clean'
@@ -1183,7 +1185,8 @@ _one_good_pin() {
   _one_good_pin
   _dockerfile \
     '# tool-pin: kcov github-release SimonKagstrom/kcov' \
-    'ARG KCOV_VERSION=v43'
+    'ARG KCOV_VERSION=v43' \
+    'ARG KCOV_COMMIT=aa'
   _lint
   assert_success
 }
