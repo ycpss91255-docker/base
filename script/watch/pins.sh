@@ -75,9 +75,9 @@ _pins_value() {
     printf 'pins: no pin named %s\n' "${_name}" >&2
     return 1
   fi
-  local _state _n _resolver _coord _pattern _skip _current _file _line
+  local _state _n _resolver _coord _pattern _skip _current _file _line _cksum
   IFS=$'\t' read -r _state _n _resolver _coord _pattern _skip _current \
-    _file _line <<< "${_record}"
+    _file _line _cksum <<< "${_record}"
   if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
     printf 'pins: %s is declared %s -- it names no version\n' \
       "${_name}" "${_state}" >&2
@@ -261,12 +261,12 @@ _pins_set_go_mod() {
 _PINS_STAGED_SUM=""
 _pins_stage_go_mod() {
   local _abs="${1}" _n="${2}" _repl="${3}" _image="${4:-}" _record _term=$'\n'
-  local _state _gname _resolver _coord _pattern _skip _gfile _gline
+  local _state _gname _resolver _coord _pattern _skip _gfile _gline _gcksum
   local _sum="${_abs%/*}/go.sum" _staged _sumtmp
   if [[ -z "${_image}" ]]; then
     _record="$(_pins_record "${_PIN_GO_DIRECTIVE_PIN}")"
     IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
-      _gfile _gline <<< "${_record}"
+      _gfile _gline _gcksum <<< "${_record}"
     if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
       _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PIN_GO_DIRECTIVE_PIN} image to regenerate go.sum in"
       return 1
@@ -460,6 +460,30 @@ _pins_set_golang() {
   [[ -z "${_failed}" ]]
 }
 
+# _pins_set_checksums <file> <version> <spec...>
+#
+# Each spec is <ARG>@asset:<url>; {version} in the url is the new version.
+# The asset is fetched and the ARG's line takes its sha256 (base#1676).
+_pins_set_checksums() {
+  local _abs="${1}" _ver="${2}" _spec _arg _url _digest _ln _old
+  for _spec in ${3}; do
+    _arg="${_spec%%@*}"
+    _url="${_spec#*@asset:}"
+    _url="${_url//\{version\}/${_ver}}"
+    # file:// is read directly (the unit tests' fixtures; the test image
+    # has no curl); anything else is fetched.
+    if [[ "${_url}" == file://* ]]; then
+      _digest="$(sha256sum < "${_url#file://}")" || return 1
+    else
+      _digest="$(curl -fsSL -- "${_url}" | sha256sum)" || return 1
+    fi
+    _digest="${_digest%% *}"
+    _ln="$(grep -nE "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}" | cut -d: -f1)"
+    _old="$(awk -v n="${_ln}" 'NR == n' "${_abs}")"
+    _pins_commit "${_abs}" "${_ln}" "${_old%%=*}=${_digest}" || return 1
+  done
+}
+
 # _pins_set <name> <version>
 #
 # Rewrite the pin's TARGET LINE, replacing the old version with the new one
@@ -475,9 +499,9 @@ _pins_set() {
     printf 'pins: no pin named %s\n' "${_name}" >&2
     return 1
   fi
-  local _state _n _resolver _coord _pattern _skip _current _file _line
+  local _state _n _resolver _coord _pattern _skip _current _file _line _cksum
   IFS=$'\t' read -r _state _n _resolver _coord _pattern _skip _current \
-    _file _line <<< "${_record}"
+    _file _line _cksum <<< "${_record}"
   if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
     printf 'pins: %s is declared %s -- there is no version to set\n' \
       "${_name}" "${_state}" >&2
@@ -528,6 +552,12 @@ _pins_set() {
     _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
   else
     _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
+  fi
+
+  # Checksum ARGs named by the marker's sha256= options move with the
+  # version, in the same run (base#1676).
+  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+    _pins_set_checksums "${_abs}" "${_new}" "${_cksum}" || return 1
   fi
 
   local _check
