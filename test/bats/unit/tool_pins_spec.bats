@@ -396,6 +396,33 @@ _pins() {
   assert_success
 }
 
+# why: A checksum ARG declared twice leaves no single line to rewrite; writing
+# one would leave the other holding the old digest, so --set must refuse in
+# the lookup phase, before any fetch or write (base#1676). The asset is
+# present, so a fetch would succeed; a `sha256sum` first on pins.sh's PATH
+# (the file:// asset is hashed by it) records whether the fetch ran.
+@test "pins: --set with a sha256 ARG declared twice exits 1 with no fetch and no write (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx" _bin="${BATS_TEST_TMPDIR}/spysum"
+  mkdir -p "${_fx}" "${_bin}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  printf '#!/bin/sh\ntouch "%s/fetched"\nexec /usr/bin/sha256sum "$@"\n' \
+    "${_bin}" > "${_bin}/sha256sum"
+  chmod +x "${_bin}/sha256sum"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000' \
+    'ARG FOO_SHA256=1111111111111111111111111111111111111111111111111111111111111111'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${_bin}:${PATH}" run "${PINS}" --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'FOO_SHA256'
+  assert [ ! -e "${_bin}/fetched" ]
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: A checksum file with no line for our asset must refuse the bump with nothing
 # written; today the version moves first and an empty digest follows, a
 # "version bumped, digest broken" commit (base#1676).
