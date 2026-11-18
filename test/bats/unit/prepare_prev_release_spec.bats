@@ -95,6 +95,42 @@ _mock_git() {
   assert_output "$(printf '%s\n' v0.43.1 v0.43.0)"
 }
 
+# why: the window is every stable release from the v0.43.0 floor below the
+# tree (base#1055, base#1041), not a count of the newest tags. With more
+# than two releases owed, a newest-two slice drops v0.43.1 and v0.43.0 --
+# the floor a consumer on the 0.43 line sits on -- and a window with no
+# upper bound would add the tree's own release line. Here the tree is
+# v0.44.1-rc1, so v0.44.1 sits above it and v0.42.0 below the floor: the
+# window is exactly v0.44.0 v0.43.2 v0.43.1 v0.43.0.
+@test "prepare-prev-release: the window is every release from v0.43.0 below an rc tree, newest first (base#1729)" {
+  printf '%s\n' v0.44.1 v0.44.0 v0.43.2 v0.43.1 v0.43.0 v0.42.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.44.1 v0.44.0 v0.43.2 v0.43.1 v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.1-rc1 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+
+  run cat "${ROOT}/.prev-release/tags.txt"
+  assert_output "$(printf '%s\n' v0.44.0 v0.43.2 v0.43.1 v0.43.0)"
+}
+
+# why: a window that includes the tree's own release resolves a driver arm
+# to the tree under test, and that arm then upgrades the tree onto itself
+# and asserts nothing. Built as v0.44.0 with the v0.44.0 tag present, the
+# window holds only v0.43.0 (base#1041 table: releasing v0.44.0 drives
+# v0.43.0).
+@test "prepare-prev-release: the window leaves out the tree's own release (base#1729)" {
+  printf '%s\n' v0.44.0 v0.43.0 v0.42.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.44.0 v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+
+  run cat "${ROOT}/.prev-release/tags.txt"
+  assert_output "v0.43.0"
+}
+
 # why: when an owed release cannot be fetched, carrying on with the local
 # tags shrinks the window silently -- the suite goes green having never
 # driven the release a consumer on the 0.43 line most likely sits on. The
