@@ -47,6 +47,35 @@ readonly _MOVING_TAG_INPUT_RE='test-tools:\$\{\{[[:space:]]*inputs\.([A-Za-z0-9_
 readonly _MOVING_TAG_KEY_RE='^[[:space:]]*([A-Za-z0-9_-]+):[[:space:]]*$'
 readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(latest|main)["'"'"']?[[:space:]]*$'
 
+# The allow-list: one '<path>|<kind>|<scope>|<count>|<token>|<reason>' entry
+# per sanctioned occurrence. An occurrence is suppressed only when its path,
+# kind and scope match an entry and its line carries the entry's token.
+# Scope 'line:<anchor>': the line contains the fixed string <anchor>.
+readonly _MOVING_TAG_ALLOWLIST=()
+
+# _moving_tag_allowlist -- print the allow-list, one entry per line.
+_moving_tag_allowlist() {
+  [[ "${#_MOVING_TAG_ALLOWLIST[@]}" -eq 0 ]] \
+    || printf '%s\n' "${_MOVING_TAG_ALLOWLIST[@]}"
+}
+
+# _moving_tag_allowed <rel> <kind> <line> <entry>... -- 0 when an entry
+# covers this occurrence.
+_moving_tag_allowed() {
+  local _rel="${1}" _kind="${2}" _line="${3}"
+  shift 3
+  local _entry _path _ekind _scope _count _token _reason
+  for _entry in "$@"; do
+    IFS='|' read -r _path _ekind _scope _count _token _reason <<< "${_entry}"
+    [[ "${_path}" == "${_rel}" && "${_ekind}" == "${_kind}" ]] || continue
+    [[ -n "${_token}" && "${_line}" == *"${_token}"* ]] || continue
+    case "${_scope}" in
+      line:?*) [[ "${_line}" == *"${_scope#line:}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 _run_moving_tag() {
   echo "--- Running moving test-tools tag lint ---"
   local _violations=0
@@ -72,7 +101,13 @@ _run_moving_tag() {
       -o -type f ! -name '*.md' "${_skip[@]}" -print0 2>/dev/null | sort -z)
   done
 
-  local _key _moving_inputs
+  local -a _allow=()
+  local _entry
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] && _allow+=("${_entry}")
+  done < <(_moving_tag_allowlist)
+
+  local _key _moving_inputs _kind
   for _file in "${_files[@]}"; do
     _rel="${_file#"${REPO_ROOT}"/}"
     # Inputs this file declares with a moving default, as " name name ".
@@ -88,20 +123,22 @@ _run_moving_tag() {
     _lineno=0
     while IFS= read -r _line || [[ -n "${_line}" ]]; do
       _lineno=$(( _lineno + 1 ))
+      _kind=""
       if [[ "${_line}" =~ ${_MOVING_TAG_RE} ]]; then
-        printf '%s:%d: moving -- %s\n' "${_rel}" "${_lineno}" "${_line}"
-        _violations=$(( _violations + 1 ))
+        _kind=moving
       elif [[ "${_line}" =~ ${_MOVING_TAG_UNTAGGED_RE} ]]; then
-        printf '%s:%d: untagged -- %s\n' "${_rel}" "${_lineno}" "${_line}"
-        _violations=$(( _violations + 1 ))
+        _kind=untagged
       elif [[ "${_line}" =~ ${_MOVING_TAG_INPUT_RE} \
         && "${_moving_inputs}" == *" ${BASH_REMATCH[1]} "* ]]; then
-        printf '%s:%d: input-default -- %s\n' "${_rel}" "${_lineno}" "${_line}"
-        _violations=$(( _violations + 1 ))
+        _kind=input-default
       elif [[ "${_line}" =~ ${_MOVING_TAG_INDIRECT_RE} ]]; then
-        printf '%s:%d: indirect -- %s\n' "${_rel}" "${_lineno}" "${_line}"
-        _violations=$(( _violations + 1 ))
+        _kind=indirect
       fi
+      [[ -n "${_kind}" ]] || continue
+      _moving_tag_allowed "${_rel}" "${_kind}" "${_line}" "${_allow[@]}" \
+        && continue
+      printf '%s:%d: %s -- %s\n' "${_rel}" "${_lineno}" "${_kind}" "${_line}"
+      _violations=$(( _violations + 1 ))
     done < "${_file}"
   done
 
