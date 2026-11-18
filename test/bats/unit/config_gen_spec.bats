@@ -512,3 +512,28 @@ exit \"\${rc}\""
   run grep -c '^run ' "${DOCKER_LOG}"
   assert_output 0
 }
+
+# why: a quoted TOML key may hold U+0000. For `["a\u0000b"]` then `[c]`
+#      the binary exits 0 and writes `a`, NUL, `b`, newline, `c`, newline
+#      (observed by running it on that file). A bash variable cannot hold
+#      a NUL, so publishing would silently truncate the list to `a`. The
+#      shim refuses it as config_gen_output_nul and leaves the outvar
+#      cleared.
+@test "config-gen: tables refuses a table list holding a NUL with config_gen_output_nul" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  printf '["a\\u0000b"]\nx = 1\n[c]\ny = 2\n' > "${_wd}/layer.toml"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+
+  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+  assert_refusal 1 config_gen_output_nul "file=layer.toml"
+  assert_equal "$(cat "${_seen}")" "[]"
+}
