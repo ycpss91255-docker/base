@@ -396,6 +396,26 @@ _pins() {
   assert_success
 }
 
+# why: A checksum file with no line for our asset must refuse the bump with nothing
+# written; today the version moves first and an empty digest follows, a
+# "version bumped, digest broken" commit (base#1676).
+@test "pins: --set exits 1 and changes no byte when the checksum file has no line for the asset (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf '%s  %s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    > "${_fx}/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:file://${_fx}/SHA256SUMS-{version}:foo-{version}-linux.tar.gz" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  _pins --set foo v2.0.0
+  assert_failure
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
