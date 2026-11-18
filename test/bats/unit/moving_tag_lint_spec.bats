@@ -137,8 +137,8 @@ _write() {
   [[ "${output}" == *"3 internal reference(s)"* ]]
 }
 
-# why: init.sh and upgrade.sh sit at the repo root, outside every scanned
-# directory, and pull images for a bootstrap; each is its own scan root.
+# why: init.sh and upgrade.sh are root-level scripts outside every scanned
+# directory, so each is its own scan root.
 @test "_run_moving_tag: FAILS on test-tools:latest in the root init.sh and upgrade.sh, one violation each (base#1647)" {
   _write "init.sh" \
     '#!/usr/bin/env bash' \
