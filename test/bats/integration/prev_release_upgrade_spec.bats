@@ -135,6 +135,20 @@ _probe_runs() {
 
 # ── Fixture helpers ─────────────────────────────────────────────────────────
 
+# _window_reaches <n>
+#   Succeed when the window holds at least <n> releases. Each arm calls
+#   it as `_window_reaches <n> || return 0` in the test body's own shell.
+#   A window shorter than <n> is the support rule's answer, not a lost tag
+#   (base#1729): the arm then runs zero cases, and the "window holds every
+#   release from v0.43.0" arm is what proves that short window complete.
+#   A missing tags.txt is NOT a short window: it succeeds here, so the arm
+#   goes on to `_release_tag`, which fails on it.
+_window_reaches() {
+  local _n="${1:?BUG: _window_reaches expects a count}"
+  [[ -f "${TAGS_FILE}" ]] || return 0
+  (( $(grep -c . "${TAGS_FILE}") >= _n ))
+}
+
 # _release_tag <n>
 #   The n-th newest stable release tag (1 = newest), as resolved on the
 #   host. Fails loudly rather than skipping: a silently empty tag list would
@@ -1003,19 +1017,17 @@ _assert_release_stages_migrated_files() {
 #
 #   The support window is the scope, and that is a real limit rather than a
 #   property to be pleased about. `_release_tag` resolves from the repo's
-#   real tags and `PREV_RELEASE_WINDOW` is 2, so TODAY only the v0.41.0 arm
-#   exercises the repo-root `upgrade.sh` at all -- v0.42.0 already names the
-#   `dist/` path. When v0.43.0 is tagged the window becomes two `dist`-era
-#   releases and NO arm here names either root forwarder: both could be
-#   deleted with every arm still green.
+#   real tags, and the window is every stable release from the v0.43.0
+#   floor below the tree (base#1055, base#1729). Every release in it names
+#   the `dist/` path, so NO arm here names either root forwarder: both
+#   could be deleted with every arm still green.
 #
 #   That is not the same thing as ADR-00000006 releasing the forwarders. The
 #   ADR ties them to "as long as a release that names it is supported", and
-#   the window is a count of releases, not a statement about what consumers
-#   run -- base#919 made v0.42.0 a poisoned upgrade target, which is why
-#   consumers stayed on v0.41.0 in the first place. So the window going
-#   quiet is the guard losing sight of the path, and it has to be closed
-#   deliberately rather than read as permission. Tracked in base#1084.
+#   base#919 made v0.42.0 a poisoned upgrade target, which is why consumers
+#   stayed on v0.41.0 in the first place. So the window going quiet is the
+#   guard losing sight of the path, and it has to be closed deliberately
+#   rather than read as permission. Tracked in base#1084.
 _assert_upgrade_leaves_an_upgradable_tree() {
   local _tag="${1:?BUG: _assert_upgrade_leaves_an_upgradable_tree expects a tag}"
 
@@ -1092,6 +1104,7 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # other arm here -- one successful run over a tree nobody asks to upgrade
 # again -- and fails at the consumer's terminal on their next release
 @test "the newest released upgrade.sh leaves a tree its own command can upgrade again (#1077)" {
+  _window_reaches 1 || return 0
   _assert_upgrade_leaves_an_upgradable_tree "$(_release_tag 1)"
 }
 
@@ -1099,6 +1112,7 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # only the older driver names a path that has to be kept alive by a
 # forwarder; pinning both ends is what stops this narrowing to one tag
 @test "the previous released upgrade.sh leaves a tree its own command can upgrade again (N-1, #1077)" {
+  _window_reaches 2 || return 0
   _assert_upgrade_leaves_an_upgradable_tree "$(_release_tag 2)"
 }
 
@@ -1107,6 +1121,7 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # script drive; a unit test on the staging helper passes while the real
 # upgrade still leaves the file behind
 @test "the oldest supported upgrade.sh commits what the migrations rewrote (#1036)" {
+  _window_reaches 2 || return 0
   _assert_release_stages_migrated_files "$(_release_tag 2)"
 }
 
@@ -1115,10 +1130,12 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # slides forward and the fix could be deleted with the suite green; the
 # newest driver still leaves the rest of the resync unstaged without it
 @test "the newest supported upgrade.sh commits what the migrations rewrote (#1036)" {
+  _window_reaches 1 || return 0
   _assert_release_stages_migrated_files "$(_release_tag 1)"
 }
 
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {
+  _window_reaches 1 || return 0
   _assert_release_migrates_env "$(_release_tag 1)"
 }
 
@@ -1137,6 +1154,7 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # supported driver reaches by the same route -- a second arm on an older
 # tag would re-ask the identical question.
 @test "a released upgrade.sh leaves an operator's existing env overrides in effect (base#1163)" {
+  _window_reaches 1 || return 0
   _assert_release_keeps_env_local_overrides "$(_release_tag 1)"
 }
 
@@ -1145,6 +1163,7 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # fix lives anywhere the old driver cannot reach, and the upgrade it
 # describes exits 0 with the repo's configuration gone
 @test "the oldest supported upgrade.sh leaves the consumer running on its own configuration (#1086)" {
+  _window_reaches 2 || return 0
   _assert_release_carries_its_config "$(_release_tag 2)"
 }
 
@@ -1153,6 +1172,7 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # ends is what stops the guard being read as "only the old driver has to
 # carry a repo's config through an upgrade"
 @test "the newest supported upgrade.sh leaves the consumer running on its own configuration (#1086)" {
+  _window_reaches 1 || return 0
   _assert_release_carries_its_config "$(_release_tag 1)"
 }
 
@@ -1162,14 +1182,17 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 # and it is the only coverage the re-establish path -- which never runs
 # upgrade.sh at all -- has
 @test "a re-established subtree leaves the consumer running on its own configuration (#1086)" {
+  _window_reaches 2 || return 0
   _assert_reestablished_subtree_carries_its_config "$(_release_tag 2)"
 }
 
 @test "the newest released upgrade.sh drives the current tree to a working consumer" {
+  _window_reaches 1 || return 0
   _assert_release_can_upgrade "$(_release_tag 1)"
 }
 
 @test "the previous released upgrade.sh drives the current tree to a working consumer (N-1)" {
+  _window_reaches 2 || return 0
   _assert_release_can_upgrade "$(_release_tag 2)"
 }
 
@@ -1284,6 +1307,7 @@ _assert_interval_migration_not_repeated() {
 # pull just landed. Measured on the unfixed tree the arm cannot even seed:
 # nothing in the published release declares a version-bound migration
 @test "a released upgrade.sh runs the migration the version interval covers, and only that one (base#1097)" {
+  _window_reaches 2 || return 0
   _assert_interval_selection "$(_release_tag 2)"
 }
 
@@ -1293,6 +1317,7 @@ _assert_interval_migration_not_repeated() {
 # everything it had on either would re-run work already done -- the
 # double-apply the declared-interval shape exists to make impossible
 @test "neither a standalone resync nor the next release re-runs a migration the interval already covered (base#1097)" {
+  _window_reaches 1 || return 0
   _assert_interval_migration_not_repeated "$(_release_tag 1)"
 }
 
@@ -1344,6 +1369,7 @@ _assert_interval_can_be_named_by_hand() {
 # through `just base init`, which is what the message tells them to run, on a
 # tree where the automatic path has already correctly declined
 @test "an interval the history can no longer supply can be named by hand and re-run (base#1097)" {
+  _window_reaches 2 || return 0
   _assert_interval_can_be_named_by_hand "$(_release_tag 2)"
 }
 
@@ -1426,15 +1452,15 @@ _set_consumer_lifecycle_restart() {
 # ── Why these two arms NAME the interval ────────────────────────────────────
 #
 # `BASE_MIGRATION_FROM` rather than the window's own version. The
-# compatibility window is the two newest STABLE releases, resolved from the
-# repo's tags every run (script/test/prepare-prev-release.sh), so which
-# versions these arms get moves on its own. The migration's predicate is
-# `from < v0.42.0 <= to`, and the moment v0.43.0 is tagged the window
-# becomes v0.43.0 / v0.42.0 -- no release in it can supply a pre-rescope
-# arrival any more, and an arm reading the from-version out of the history
-# would start failing over correct production behaviour. That is not a
+# compatibility window is every STABLE release from the v0.43.0 floor below
+# the tree, resolved from the repo's tags every run
+# (script/test/prepare-prev-release.sh, base#1729), so which versions these
+# arms get moves on its own. The migration's predicate is
+# `from < v0.42.0 <= to`, and no release in the window can supply a
+# pre-rescope arrival, so an arm reading the from-version out of the
+# history would fail over correct production behaviour. That is not a
 # condition a fixed tag escapes either: pinning v0.41.0 here pins a release
-# the window has stopped materialising.
+# the window does not materialise.
 #
 # So the released DRIVER still comes from the window -- that half is what
 # makes these reachability arms rather than unit tests, and it is the half
@@ -1455,6 +1481,7 @@ _set_consumer_lifecycle_restart() {
 # reading the answer out of the file the readers use -- the one arm that was
 # impossible to write while the gate read the tree the pull replaces
 @test "a released upgrade.sh retires the stale devel-scoped restart default (base#1110)" {
+  _window_reaches 2 || return 0
   local _tag
   _tag="$(_release_tag 2)"
 
@@ -1506,6 +1533,7 @@ _set_consumer_lifecycle_restart() {
 # the value it arrived with. An arm that only proved the rewrite would pass
 # just as well over a migration that rewrote everybody's
 @test "a released upgrade.sh leaves a post-rescope restart = no alone (base#1110)" {
+  _window_reaches 1 || return 0
   local _tag
   _tag="$(_release_tag 1)"
 

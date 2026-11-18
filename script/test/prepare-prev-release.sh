@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# prepare-prev-release.sh - materialise the last N released trees for the
-# released-caller compatibility spec (test/bats/integration/prev_release_upgrade_spec.bats).
+# prepare-prev-release.sh - materialise every supported released tree for
+# the released-caller compatibility spec (test/bats/integration/prev_release_upgrade_spec.bats).
 #
 # WHY THIS EXISTS
 #
@@ -55,17 +55,20 @@ source "${REPO_ROOT}/dist/script/docker/lib/_lib.sh"
 PREV_RELEASE_DIR="${REPO_ROOT}/.prev-release"
 readonly PREV_RELEASE_DIR
 
-# How many releases back the compatibility spec covers.
+# The oldest release the compatibility spec covers (base#1055, base#1041).
 #
-# Two, not one. "The previous release" alone would, on a tree whose newest
-# tag is also the tree's own version, resolve to the tree under test and
-# assert nothing. Two always spans a real version boundary, and it is also
-# the honest support claim: a consumer upgrading today is on one of the last
-# couple of releases. It is a window, not a path list -- widening it costs
-# one integer, and the tags inside it are resolved from the repo every run,
-# so it cannot decay the way a hardcoded tag does.
-PREV_RELEASE_WINDOW="${PREV_RELEASE_WINDOW:-2}"
-readonly PREV_RELEASE_WINDOW
+# The window is every stable release from this floor up to, but not
+# including, the tree under test -- not a count of the newest tags. A
+# count drops the floor once enough releases follow it, and keeps
+# pre-floor releases while the floor is not yet tagged. Excluding the
+# tree's own version is what stops the window resolving to the tree under
+# test and asserting nothing. Before any release past the floor exists the
+# window is empty, and that is the rule's answer (base#1055: "binds
+# nothing until v0.44.0").
+# tool-pin: ignore -- this repo's own support floor, not a third-party
+# version.
+PREV_RELEASE_FLOOR="v0.43.0"
+readonly PREV_RELEASE_FLOOR
 
 _die() {
   _log_err ci ci_prev_release_unavailable "display=prepare-prev-release.sh: $*"
@@ -92,13 +95,13 @@ _stable_release_tags() {
 
 # _fetch_release_tags
 #   Pull the tag refs from upstream. Only called when the local object
-#   store does not already carry enough of them -- i.e. on a fresh shallow
+#   store carries no stable release tag at all -- i.e. on a fresh shallow
 #   CI checkout, once.
 _fetch_release_tags() {
-  _note "fewer than ${PREV_RELEASE_WINDOW} release tags locally; fetching from ${BASE_UPSTREAM_REMOTE}"
+  _note "no stable release tags locally; fetching from ${BASE_UPSTREAM_REMOTE}"
   # --depth 1: the archived tree is all we want, never the history behind
-  # it. Failure is not fatal here -- the caller re-counts and reports the
-  # real problem (not enough tags) with the tags it actually has.
+  # it. Failure is not fatal here -- the caller re-checks and reports the
+  # real problem (no stable release tags) with the tags it actually has.
   git -C "${REPO_ROOT}" fetch --quiet --depth 1 --no-recurse-submodules \
     "${BASE_UPSTREAM_REMOTE}" \
     '+refs/tags/v*:refs/tags/v*' 2>/dev/null \
@@ -144,35 +147,66 @@ _prune() {
   done
 }
 
+# _triple <vX.Y.Z[-pre]>
+#   Print "X Y Z". Releases are compared on this triple, never with
+#   `sort -V` or a string compare: `sort -V` ranks v0.43.0 above
+#   v0.43.0-rc5, the opposite of SemVer precedence.
+_triple() {
+  local _v="${1:?BUG: _triple expects a version}"
+  [[ "${_v}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]] \
+    || _die "BUG: '${_v}' is not a vX.Y.Z version"
+  printf '%d %d %d\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+}
+
+# _owed <tree>
+#   Filter stable tags on stdin down to the ones the window owes a tree at
+#   version <tree>: PREV_RELEASE_FLOOR <= tag < tree, in input order. A
+#   pre-release tree vX.Y.Z-rcN sits below vX.Y.Z, so vX.Y.Z is excluded
+#   with the tree's own tag.
+_owed() {
+  local _tree="${1:?BUG: _owed expects the tree version}"
+  local -a _f _t _v
+  read -r -a _f <<< "$(_triple "${PREV_RELEASE_FLOOR}")"
+  read -r -a _t <<< "$(_triple "${_tree}")"
+  # The floor is a 0.x rule; a 1.x tree needs its own.
+  (( _t[0] == 0 )) || _die "BUG: tree ${_tree} is past 0.x; the ${PREV_RELEASE_FLOOR} floor does not cover it"
+  local _tag
+  while IFS= read -r _tag; do
+    read -r -a _v <<< "$(_triple "${_tag}")"
+    (( _v[0] == 0 )) || continue
+    (( _v[1] > _f[1] || (_v[1] == _f[1] && _v[2] >= _f[2]) )) || continue
+    (( _v[1] < _t[1] || (_v[1] == _t[1] && _v[2] < _t[2]) )) || continue
+    printf '%s\n' "${_tag}"
+  done
+}
+
 # _window_tags
-#   The window's tags, newest first. Sliced in-shell rather than piped
-#   through `head`: a reader that leaves after N lines strands the writer
-#   with SIGPIPE, and `pipefail` promotes that 141 to the pipeline's status.
+#   The window's tags, newest first: every stable release the tree under
+#   test owes (see PREV_RELEASE_FLOOR).
 _window_tags() {
-  local -a _all=()
-  mapfile -t _all < <(_stable_release_tags)
-  # printf with no operands after the format still prints one empty line,
-  # which mapfile would read back as a one-element list of "".
-  if (( ${#_all[@]} == 0 )); then
-    return 0
-  fi
-  printf '%s\n' "${_all[@]:0:PREV_RELEASE_WINDOW}"
+  local _tree
+  _tree="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
+  _stable_release_tags | _owed "${_tree}"
 }
 
 main() {
+  local -a _stable=()
+  mapfile -t _stable < <(_stable_release_tags)
+
+  if (( ${#_stable[@]} == 0 )); then
+    _fetch_release_tags
+    mapfile -t _stable < <(_stable_release_tags)
+  fi
+
+  # Fail rather than silently covering less. With no stable tag at all the
+  # window below would be empty for want of tags, not because the rule
+  # owes nothing -- the shape this whole file exists to prevent.
+  if (( ${#_stable[@]} == 0 )); then
+    _die "no stable release tags found. Fetch them: git fetch --tags ${BASE_UPSTREAM_REMOTE}"
+  fi
+
   local -a _tags=()
   mapfile -t _tags < <(_window_tags)
-
-  if (( ${#_tags[@]} < PREV_RELEASE_WINDOW )); then
-    _fetch_release_tags
-    mapfile -t _tags < <(_window_tags)
-  fi
-
-  # Fail rather than silently covering less. A spec that quietly shrinks to
-  # zero cases is the failure mode this whole file exists to prevent.
-  if (( ${#_tags[@]} < PREV_RELEASE_WINDOW )); then
-    _die "need ${PREV_RELEASE_WINDOW} stable release tags, found ${#_tags[@]}. Fetch them: git fetch --tags ${BASE_UPSTREAM_REMOTE}"
-  fi
 
   mkdir -p "${PREV_RELEASE_DIR}"
   local _tag
@@ -181,6 +215,13 @@ main() {
   done
   _prune "${_tags[@]}"
 
+  # printf with no operands still prints one empty line, which the spec
+  # would read back as a one-line window of "".
+  if (( ${#_tags[@]} == 0 )); then
+    : > "${PREV_RELEASE_DIR}/tags.txt"
+    _note "no release owed below $(tr -d '[:space:]' < "${REPO_ROOT}/.version") since ${PREV_RELEASE_FLOOR} (base#1055)"
+    return 0
+  fi
   printf '%s\n' "${_tags[@]}" > "${PREV_RELEASE_DIR}/tags.txt"
 }
 
