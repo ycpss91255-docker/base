@@ -1664,7 +1664,7 @@ _pin_go_minor() {
 _pin_go_directive_check() {
   local _root="${1}" _table _list _file _go_rec _go_ln _go_ver
   local _image="" _pin_mm _go_mm
-  local _state _name _resolver _coord _pattern _skip _current _pfile _pline
+  local _state _name _resolver _coord _pattern _skip _current _pfile _pline _pcksum
   _table="$(_pin_read "${_root}")" || return 1
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip _current _pfile _pline _pcksum; do
     if [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" && "${_state}" == "${_PIN_STATE_PINNED}" ]]; then

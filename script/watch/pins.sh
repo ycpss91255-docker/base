@@ -460,6 +460,15 @@ _pins_set_golang() {
   [[ -z "${_failed}" ]]
 }
 
+# _pins_arg_lines <file> <ARG>
+#
+# Prints "<lineno>:<line>" for every `ARG <name>=` declaration of exactly that
+# name; the one match rule shared by the pre-check, the write and the read
+# back (base#1676).
+_pins_arg_lines() {
+  grep -nE "^[[:space:]]*ARG[[:space:]]+${2}=" "${1}" || true
+}
+
 # _pins_checksum_digests <version> <spec...>
 #
 # Each spec is <ARG>@asset:<url> or <ARG>@file:<url>:<asset>; {version} in
@@ -517,7 +526,8 @@ _pins_set_checksums() {
   for _spec in ${2}; do
     _arg="${_spec%%@*}"
     _digest="${_digs[_k++]}"
-    _ln="$(grep -nE "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}" | cut -d: -f1)"
+    _ln="$(_pins_arg_lines "${_abs}" "${_arg}")"
+    _ln="${_ln%%:*}"
     _old="$(awk -v n="${_ln}" 'NR == n' "${_abs}")"
     # Only the digest value is replaced: the quoting and any trailing
     # comment stay, as for the version line (base#1676).
@@ -541,7 +551,8 @@ _pins_verify_checksums() {
   mapfile -t _digs <<< "${3}"
   for _spec in ${2}; do
     _arg="${_spec%%@*}"
-    _line="$(grep -E "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}")"
+    _line="$(_pins_arg_lines "${_abs}" "${_arg}")"
+    _line="${_line#*:}"
     _value=""
     if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
       _value="$(_pin_rhs_value "${BASH_REMATCH[3]}")"
@@ -565,7 +576,7 @@ _pins_check_checksum_args() {
   local _abs="${1}" _spec _arg _count
   for _spec in ${2}; do
     _arg="${_spec%%@*}"
-    _count="$(grep -cE "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}")" || true
+    _count="$(_pins_arg_lines "${_abs}" "${_arg}" | grep -c .)" || true
     if [[ "${_count}" != 1 ]]; then
       printf 'pins: %s ARG lines named %s in %s, expected exactly one\n' \
         "${_count}" "${_arg}" "${_abs}" >&2
@@ -603,11 +614,13 @@ _pins_set() {
   fi
 
   local _abs="${PIN_REPO_ROOT}/${_file}"
-  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+  local _has_ck=""
+  [[ -n "${_cksum}" && "${_cksum}" != "-" ]] && _has_ck=1
+  if [[ -n "${_has_ck}" ]]; then
     _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
   fi
   local _digests=""
-  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+  if [[ -n "${_has_ck}" ]]; then
     _digests="$(_pins_checksum_digests "${_new}" "${_cksum}")" || return 1
   fi
   local _old_line _new_line
@@ -646,7 +659,7 @@ _pins_set() {
   # A failed write after the first leaves version and digest out of step, so
   # the file is put back byte for byte (base#1676).
   local _backup=""
-  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+  if [[ -n "${_has_ck}" ]]; then
     _backup="$(mktemp)"
     cp -p -- "${_abs}" "${_backup}"
   fi
@@ -663,13 +676,13 @@ _pins_set() {
 
   # Checksum ARGs named by the marker's sha256= options move with the
   # version, in the same run (base#1676).
-  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
-    _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
-      && _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}" || {
+  if [[ -n "${_has_ck}" ]]; then
+    if ! _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
+      || ! _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}"; then
       cp -p -- "${_backup}" "${_abs}"
       rm -f -- "${_backup}"
       return 1
-    }
+    fi
     rm -f -- "${_backup}"
   fi
 
@@ -683,7 +696,7 @@ _pins_set() {
   printf 'pins: %s %s -> %s (%s:%s)\n' \
     "${_name}" "${_current}" "${_new}" "${_file}" "${_line}"
   # Each regenerated digest is recorded with where it came from (base#1676).
-  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+  if [[ -n "${_has_ck}" ]]; then
     local _spec
     for _spec in ${_cksum}; do
       printf 'pins: %s regenerated from %s\n' "${_spec%%@*}" "${_spec#*@}" \
