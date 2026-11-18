@@ -1068,9 +1068,11 @@ jobs:
           fi
           owner="${REPO%%/*}"
           name="${REPO#*/}"
+          # tool-pin: ignore -- a GraphQL query, not a third-party version
+          query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){nodes{number repository{nameWithOwner}}}}}}'
           PR_CLOSING_REFS="$(gh api graphql \
             -F owner="${owner}" -F name="${name}" -F number="${PR_NUMBER}" \
-            -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){nodes{number repository{nameWithOwner}}}}}}' \
+            -f query="${query}" \
             --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[] | "\(.repository.nameWithOwner)#\(.number)"')"
           PR_COMMITS="$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/commits" \
             --jq '.[].commit.message')"
