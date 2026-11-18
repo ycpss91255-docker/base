@@ -264,7 +264,7 @@ DOCK
 # Only the work-dir call (mktemp -d) gets the sentinel; any other call is real.
 case " \$* " in
   *" -d "*) printf '%s\n' "${_sentinel}" ;;
-  *) exec /usr/bin/mktemp "\$@" ;;
+  *) PATH="\${PATH#${SHIM}:}" exec mktemp "\$@" ;;
 esac
 SH
   chmod +x "${SHIM}/mktemp"
