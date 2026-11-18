@@ -264,20 +264,18 @@ var examined func()
 
 func (m *Map) filter(path []string, keep func(Occurrence) bool) []Occurrence {
 	var out []Occurrence
-	want := pathID(path)
-	for _, o := range m.candidates(path) {
+	// Every record in the bucket already has path's pathID, so only keep
+	// decides (base#1658).
+	for _, o := range m.byID[pathID(path)] {
 		if examined != nil {
 			examined()
 		}
-		if keep(*o) && pathID(o.Path) == want {
+		if keep(*o) {
 			out = append(out, *o)
 		}
 	}
 	return out
 }
-
-// candidates returns the records filter examines for path.
-func (m *Map) candidates(path []string) []*Occurrence { return m.byID[pathID(path)] }
 
 func unique(all []Occurrence) (Occurrence, Lookup) {
 	switch len(all) {
