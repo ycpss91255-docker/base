@@ -11,16 +11,26 @@
 set -euo pipefail
 
 main() {
+  local -A by_num=()
   local -a refs=()
-  local ref
+  local ref num
   while IFS= read -r ref; do
-    [[ -n "${ref}" ]] && refs+=("${ref}")
+    [[ -n "${ref}" ]] || continue
+    num="${ref##*#}"
+    # One issue named two ways is one issue; keep the qualified form.
+    if [[ -z "${by_num[${num}]:-}" || "${ref}" == */* ]]; then
+      by_num[${num}]="${ref}"
+    fi
   done < <({
     printf '%s\n' "${PR_CLOSING_REFS:-}"
     printf '%s\n' "${PR_COMMITS:-}" |
       { grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' || true; } |
       grep -oE '#[0-9]+'
   } | sort -u)
+
+  for num in "${!by_num[@]}"; do
+    refs+=("${by_num[${num}]}")
+  done
 
   if ((${#refs[@]} > 1)); then
     printf 'single-issue-pr: this PR closes %d issues: %s\n' \
