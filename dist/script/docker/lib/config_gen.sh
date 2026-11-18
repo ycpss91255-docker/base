@@ -137,6 +137,13 @@ _config_gen_diag_malformed() {
 #   entry, so a failed run publishes nothing; the binary's status is the
 #   answer and its diagnostics are re-emitted.
 config_gen_tables() {
+  # Exactly <file> and an identifier <outvar>, checked before the nameref
+  # binds; rc 2 is the binary's own usage status (base#1470).
+  if (($# != 2)) || [[ ! "$2" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    _log_err config_gen config_gen_usage_invalid \
+      "display=config_gen_tables: usage: config_gen_tables <file> <outvar>"
+    return 2
+  fi
   local -n _cgt_out="$2"
   _cgt_out=""
   config_gen_resolve || return 1
