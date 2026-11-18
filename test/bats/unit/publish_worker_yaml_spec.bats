@@ -987,6 +987,29 @@ _resolve_tags_for() {
   return "${_status}"
 }
 
+# _merge_sparse_misses <workflow> -- print each .worker-base/<path> that a
+# merge step's run body names but no merge-job checkout's sparse-checkout
+# list names, one per line, and fail when there is one (base#1656). Both
+# sides are read from the parsed YAML with yq, not from the text.
+_merge_sparse_misses() {
+  local _wf="${1}" _runs _sparse _path _misses=''
+  _runs="$(yq '.jobs.merge.steps[].run // ""' "${_wf}")" || return 2
+  _sparse="$(yq '.jobs.merge.steps[]
+      | select((.uses // "") | test("^actions/checkout@"))
+      | .with."sparse-checkout" // ""' "${_wf}")" || return 2
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    if ! grep -qxF -- "${_path}" <<< "${_sparse}"; then
+      _misses+="${_path}"$'\n'
+    fi
+  done < <(grep -o '\.worker-base/[A-Za-z0-9_./-]*' <<< "${_runs}" \
+      | sed 's|^\.worker-base/||' | sort -u)
+  if [[ -n "${_misses}" ]]; then
+    printf '%s' "${_misses}"
+    return 1
+  fi
+}
+
 # why: base#1646 -- :latest is the most-consumed tag; a prerelease ref
 # (rc, beta) must publish only its pinned tag and say so.
 @test "publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)" {
