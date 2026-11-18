@@ -596,3 +596,8 @@ config_gen_run_failed
 # binary's diagnostic stream held a frame that is not an 8-field D frame
 # with a registered event id (reason=tag|unregistered|truncated|count).
 config_gen_diag_malformed
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470):
+# unframed text docker wrote to the binary's diagnostic stream ahead of a
+# frame (text=), forwarded once beside the frame's own event.
+config_gen_stray_stderr

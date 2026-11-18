@@ -77,12 +77,22 @@ config_gen_resolve() {
 #   log record (base#1470). A frame that is not one -- a tag other than D,
 #   an event id the registry does not know, fewer than 8 fields, or a
 #   last field cut off before its NUL -- is refused as
-#   config_gen_diag_malformed with reason=. Answers 1 when <errfile> held
-#   no frame.
+#   config_gen_diag_malformed with reason=. Unframed text ahead of a
+#   frame's tag is forwarded once as config_gen_stray_stderr. Answers 1
+#   when <errfile> held no frame.
 _config_gen_decode_frames() {
   local -a _f=()
   local _field="" _n=0
   while IFS= read -r -d '' _field; do
+    # docker's own unframed text (a platform WARNING line) shares the
+    # stream and runs into the next frame's tag; it is forwarded once and
+    # the frame keeps its D tag (base#1470).
+    if ((${#_f[@]} == 0)) && [[ "${_field}" == *$'\n'D ]]; then
+      _log_err config_gen config_gen_stray_stderr \
+        "display=config_gen_tables: docker wrote for ${2}: ${_field%$'\n'D}" \
+        "file=$2" "text=${_field%$'\n'D}"
+      _field=D
+    fi
     _f+=("${_field}")
     _field=""
     if ((${#_f[@]} == 8)); then
