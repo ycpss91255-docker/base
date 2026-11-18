@@ -150,8 +150,12 @@ _config_gen_diag_malformed() {
 #   answer and its diagnostics are re-emitted.
 config_gen_tables() {
   # Exactly <file> and an identifier <outvar>, checked before the nameref
-  # binds; rc 2 is the binary's own usage status (base#1470).
-  if (($# != 2)) || [[ ! "$2" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+  # binds; rc 2 is the binary's own usage status. A nameref binds to the
+  # nearest variable of its name, so every local here is under _cgt_ and
+  # an outvar under that prefix is refused: no other name can resolve to
+  # one of this function's locals (base#1470).
+  if (($# != 2)) || [[ ! "$2" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    || [[ "$2" == _cgt_* ]]; then
     _log_err config_gen config_gen_usage_invalid \
       "display=config_gen_tables: usage: config_gen_tables <file> <outvar>"
     return 2
@@ -183,53 +187,53 @@ config_gen_tables() {
   # `.`; a name directly under / cuts to an empty parent, which is `/`,
   # and the root's own `/` is dropped before the basename is appended, so
   # the src is `/name`, not `//name` (base#1470).
-  local _dir="${1%/*}" _abs
-  [[ "$1" == */* ]] || _dir=.
-  [[ -n "${_dir}" ]] || _dir=/
-  _abs="$(CDPATH='' cd -P -- "${_dir}" && pwd -P && printf x)"
-  if [[ "${_abs}" != *$'\nx' ]]; then
+  local _cgt_dir="${1%/*}" _cgt_abs
+  [[ "$1" == */* ]] || _cgt_dir=.
+  [[ -n "${_cgt_dir}" ]] || _cgt_dir=/
+  _cgt_abs="$(CDPATH='' cd -P -- "${_cgt_dir}" && pwd -P && printf x)"
+  if [[ "${_cgt_abs}" != *$'\nx' ]]; then
     _log_err config_gen no_such_file \
       "display=config_gen_tables: no such file: $1" "file=$1"
     return 1
   fi
-  _abs="${_abs%$'\nx'}"
-  [[ "${_abs}" != / ]] || _abs=""
-  _abs+="/${1##*/}"
-  if [[ "${_abs}" == *[,$'\n']* ]]; then
+  _cgt_abs="${_cgt_abs%$'\nx'}"
+  [[ "${_cgt_abs}" != / ]] || _cgt_abs=""
+  _cgt_abs+="/${1##*/}"
+  if [[ "${_cgt_abs}" == *[,$'\n']* ]]; then
     _log_err config_gen config_gen_path_unmountable \
-      "display=config_gen_tables: $1 cannot be named in a docker --mount (its path ${_abs} holds a comma or newline)" \
+      "display=config_gen_tables: $1 cannot be named in a docker --mount (its path ${_cgt_abs} holds a comma or newline)" \
       "file=$1"
     return 1
   fi
-  local _tmp _rc=0
-  _tmp="$(mktemp -d)"
+  local _cgt_tmp _cgt_rc=0
+  _cgt_tmp="$(mktemp -d)"
   docker run --rm --user "$(id -u):$(id -g)" \
-    --mount "type=bind,src=${_abs},dst=/in/f,readonly" \
+    --mount "type=bind,src=${_cgt_abs},dst=/in/f,readonly" \
     "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
-    > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
+    > "${_cgt_tmp}/out" 2> "${_cgt_tmp}/err" || _cgt_rc=$?
   # A non-zero status with no diagnostic frame is refused on what is
   # observed: the status, and no frame. Any such run lands here, whether
   # docker or the binary wrote its stderr (base#1470).
-  if ! _config_gen_decode_frames "${_tmp}/err" "$1" && ((_rc != 0)); then
+  if ! _config_gen_decode_frames "${_cgt_tmp}/err" "$1" && ((_cgt_rc != 0)); then
     _log_err config_gen config_gen_run_failed \
-      "display=config_gen_tables: the run for $1 failed with status ${_rc} and no diagnostic frame" \
-      "file=$1" "status=${_rc}"
+      "display=config_gen_tables: the run for $1 failed with status ${_cgt_rc} and no diagnostic frame" \
+      "file=$1" "status=${_cgt_rc}"
   fi
-  if ((_rc == 0)); then
+  if ((_cgt_rc == 0)); then
     # A bash variable cannot hold a NUL, so a table list carrying one is
     # refused instead of published truncated: `read -d ''` succeeds only
-    # when it meets a NUL, and at EOF leaves the whole list in _list
+    # when it meets a NUL, and at EOF leaves the whole list in _cgt_list
     # (base#1470).
-    local _list
-    if IFS= read -r -d '' _list < "${_tmp}/out"; then
+    local _cgt_list
+    if IFS= read -r -d '' _cgt_list < "${_cgt_tmp}/out"; then
       _log_err config_gen config_gen_output_nul \
         "display=config_gen_tables: the table list of $1 holds a NUL byte, which a shell variable cannot carry" \
         "file=$1"
-      _rc=1
+      _cgt_rc=1
     else
-      _cgt_out="${_list}"
+      _cgt_out="${_cgt_list}"
     fi
   fi
-  rm -rf -- "${_tmp}"
-  return "${_rc}"
+  rm -rf -- "${_cgt_tmp}"
+  return "${_cgt_rc}"
 }
