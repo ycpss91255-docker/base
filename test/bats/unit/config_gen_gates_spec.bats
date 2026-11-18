@@ -215,9 +215,10 @@ _df_run_body() {
 
 # _stub_go -- a `go` first on PATH, recording each call's argv as one line
 # of ${S}/go.calls. `go list ./...` prints m/a and m/b and exits
-# ${S}/go.list.rc; `go test -list` prints FuzzA for m/a (nothing for m/b)
-# and exits ${S}/go.tlist.rc; `go test -fuzz` exits ${S}/go.fuzz.rc; and
-# `go mod <verb>` exits ${S}/go.mod.<verb>.rc. Each rc defaults to 0.
+# ${S}/go.list.rc; `go test -list` prints FuzzA for ./internal/gate and
+# FuzzB for any other package, and exits ${S}/go.tlist.rc; `go test -fuzz`
+# exits ${S}/go.fuzz.rc; and `go mod <verb>` exits ${S}/go.mod.<verb>.rc.
+# Each rc defaults to 0.
 _stub_go() {
   cat > "${S}/bin/go" <<EOF
 #!$(command -v bash)
@@ -231,7 +232,7 @@ case "\${1:-}" in
     done
     for a in "\$@"; do
       if [[ "\${a}" == -list ]]; then
-        [[ "\${*: -1}" == m/a ]] && printf 'FuzzA\n'
+        if [[ "\${*: -1}" == ./internal/gate ]]; then printf 'FuzzA\n'; else printf 'FuzzB\n'; fi
         printf 'ok  \t%s\t0.01s\n' "\${*: -1}"
         exit "\$(rc tlist)"
       fi
@@ -250,15 +251,18 @@ _run_df_body() {
     "${S}/mod" "${S}/bin" "${1}"
 }
 
-# why: The fuzz gate (base#1441) is a loop over packages and targets in which
-# every step that can fail clears ok; the one line that turns a cleared ok
-# into the gate's id and a non-zero exit is all that stands between a failed
-# search and `gate=fuzz ok`. Run with a stub go, each failure point -- a
-# target's search, the package listing, a package's target listing, the
-# corpus root record -- must end the RUN with status 1 and
-# config_gen_gate_fuzz_failed on stderr, and only an all-green loop prints
-# the ok line.
-@test "Dockerfile.config-gen: the fuzz RUN prints config_gen_gate_fuzz_failed and exits 1 when a search, a listing or the corpus root read fails (base#1441)" {
+# why: The fuzz gate (base#1441) is "a 60-second fuzz run on the gate":
+# it searches the Fuzz targets of internal/gate and no other package's, so
+# a crash another package's target finds is not this gate's red, and the
+# search costs 60 s per gate target, not per module target. Every step that
+# can fail clears ok; the one line that turns a cleared ok into the gate's
+# id and a non-zero exit is all that stands between a failed search and
+# `gate=fuzz ok`. Run with a stub go, the only searches are the gate's, and
+# each failure point -- a target's search, the target listing, the corpus
+# root record -- must end the RUN with status 1 and
+# config_gen_gate_fuzz_failed on stderr; only an all-green run prints the
+# ok line.
+@test "Dockerfile.config-gen: the fuzz RUN searches only internal/gate's targets, and prints config_gen_gate_fuzz_failed and exits 1 when a search, the listing or the corpus root read fails (base#1441)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   local _body _rc
   _body="$(_df_run_body test 'gate=fuzz ok')" || fail "not exactly one test-stage RUN prints gate=fuzz ok"
@@ -268,9 +272,10 @@ _run_df_body() {
   assert_success
   assert_output 'gate=fuzz ok'
   assert_equal "${stderr}" ''
-  run grep -c -- '-fuzz ^FuzzA\$ -fuzztime 60s m/a$' "${S}/go.calls"
-  assert_output 1
-  for _rc in fuzz list tlist; do
+  run grep -e '-fuzz ' "${S}/go.calls"
+  assert_success
+  assert_output --regexp '^test .*-run \^\$ -fuzz \^FuzzA\$ -fuzztime 60s \./internal/gate$'
+  for _rc in fuzz tlist; do
     rm -f "${S}"/go.*.rc
     printf '1\n' > "${S}/go.${_rc}.rc"
     _run_df_body "${_body}"
@@ -283,6 +288,29 @@ _run_df_body() {
   assert_equal "${status}" 1
   assert_output ''
   assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
+}
+
+# why: go test -fuzz reads and writes its generated corpus under
+# GOCACHE/fuzz, which is inside the go-build cache mount the RUN shares
+# with every other build on the builder. A red build of this branch's
+# redpath (green case untrack) stopped in FuzzRun with `cannot unmarshal
+# empty string`, a corpus file no commit planted (review round 2,
+# base#1441). The fuzz RUN mounts a tmpfs on GOCACHE/fuzz, so each search
+# starts from the committed seeds alone and keeps nothing past the RUN.
+@test "Dockerfile.config-gen: the fuzz RUN mounts a private tmpfs on the fuzz cache inside each go-build cache mount (base#1441)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  local _run _caches _c
+  _df_instructions > "${S}/df"
+  _run="$(awk -F'\t' '$1 == "test" && $2 ~ /^RUN / && /gate=fuzz ok/' "${S}/df")"
+  [[ -n "${_run}" ]] || fail "no test-stage RUN prints gate=fuzz ok"
+  _caches="$(grep -oE -- '--mount=type=cache,[^ ]*' <<<"${_run}" \
+    | grep -oE 'target=[^, ]*go-build' | sed 's/^target=//')" || true
+  [[ -n "${_caches}" ]] || fail "the fuzz RUN mounts no go-build cache"
+  [[ "${_run}" != *GOCACHE=* ]] || fail "the fuzz RUN moves GOCACHE off the mounts this test reads"
+  for _c in ${_caches}; do
+    grep -qE -- "--mount=type=tmpfs,target=${_c}/fuzz( |$)" <<<"${_run}" \
+      || fail "no tmpfs on ${_c}/fuzz in the fuzz RUN"
+  done
 }
 
 # why: The race RUN and coverage.sh each ran go test over every package, so
@@ -2741,7 +2769,8 @@ _glibc_getconf() {
 # why: The fuzz gate (base#1441) searches beyond the seeds the race gate
 # already runs. Its planted defect is a Fuzz target whose one seed passes,
 # so the race gate stays green, and that panics on any input of four or
-# more bytes, which only a search reaches. A case that went red on the
+# more bytes, which only a search reaches. It sits in internal/gate, the one
+# package the fuzz gate searches. A case that went red on the
 # race gate instead would prove nothing about the search.
 @test "config_gen_redpath.sh: the fuzz-panic case plants a Fuzz target whose seed passes and must produce the fuzz gate's id (base#1441)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
@@ -2751,8 +2780,8 @@ _glibc_getconf() {
   local _mod _new _f
   _mod="${S}/runner.$(_redpath_call fuzz-panic).mod"
   _new="$(cd "${_mod}" && find . -type f | sort | comm -23 - <(cd "${S}/repo/dockerfile/config-gen" && find . -type f | sort))"
-  assert_equal "${_new}" "./cmd/config-gen/zz_fuzzpanic_test.go"
-  _f="${_mod}/cmd/config-gen/zz_fuzzpanic_test.go"
+  assert_equal "${_new}" "./internal/gate/zz_fuzzpanic_test.go"
+  _f="${_mod}/internal/gate/zz_fuzzpanic_test.go"
   run grep -c '^func Fuzz' "${_f}"
   assert_output 1
   run grep -E 'f\.Add\("a"\)' "${_f}"
