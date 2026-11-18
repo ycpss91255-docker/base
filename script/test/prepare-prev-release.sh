@@ -193,14 +193,38 @@ _window_tags() {
 #   Print the stable release tags upstream lists. The owed set is a fact
 #   about upstream: tags an earlier fetch left in this checkout say nothing
 #   about releases cut since (base#1729).
+#   Returns 1 when upstream cannot be listed, so an unreachable upstream
+#   is never read as "nothing owed".
 _upstream_stable_tags() {
-  local _sha _ref _tag
+  local _listing _sha _ref _tag
+  _listing="$(git -C "${REPO_ROOT}" ls-remote --tags --refs \
+    "${BASE_UPSTREAM_REMOTE}" 'v*' 2>/dev/null)" || return 1
   while IFS=$'\t' read -r _sha _ref; do
     _tag="${_ref#refs/tags/}"
     [[ "${_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     printf '%s\n' "${_tag}"
-  done < <(git -C "${REPO_ROOT}" ls-remote --tags --refs \
-    "${BASE_UPSTREAM_REMOTE}" 'v*' 2>/dev/null)
+  done <<< "${_listing}"
+}
+
+# _check_offline_minimum <tree>
+#   With upstream unreachable the owed set cannot be read, so the window is
+#   DEGRADED to the local tags. It must still hold the minimum the tree
+#   alone implies: v0.m.0 for every floor minor <= m < tree minor. Each one
+#   missing is fatal and named.
+_check_offline_minimum() {
+  local _tree="${1:?BUG: _check_offline_minimum expects the tree version}"
+  local -a _f _t _local=() _missing=()
+  local _m _tag
+  read -r -a _f <<< "$(_triple "${PREV_RELEASE_FLOOR}")"
+  read -r -a _t <<< "$(_triple "${_tree}")"
+  _note "upstream ${BASE_UPSTREAM_REMOTE} unreachable; window degraded to local tags"
+  mapfile -t _local < <(_stable_release_tags)
+  for (( _m = _f[1]; _m < _t[1]; _m++ )); do
+    _tag="v0.${_m}.0"
+    [[ " ${_local[*]} " == *" ${_tag} "* ]] || _missing+=("${_tag}")
+  done
+  (( ${#_missing[@]} == 0 )) \
+    || _die "degraded (upstream unreachable): window lacks ${_missing[*]}"
 }
 
 # _fetch_owed_tags
@@ -212,8 +236,14 @@ _fetch_owed_tags() {
   local _tree _tag
   _tree="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
   local -a _local=() _owed_tags=() _missing=() _still=()
+  local _upstream
+  if ! _upstream="$(_upstream_stable_tags)"; then
+    _check_offline_minimum "${_tree}"
+    return 0
+  fi
   mapfile -t _local < <(_stable_release_tags)
-  mapfile -t _owed_tags < <(_upstream_stable_tags | _owed "${_tree}")
+  mapfile -t _owed_tags < <([[ -z "${_upstream}" ]] \
+    || printf '%s\n' "${_upstream}" | _owed "${_tree}")
   for _tag in "${_owed_tags[@]}"; do
     [[ " ${_local[*]} " == *" ${_tag} "* ]] \
       || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
