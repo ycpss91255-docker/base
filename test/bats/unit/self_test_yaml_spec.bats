@@ -5024,3 +5024,12 @@ YAML
   assert_line single-issue-pr
   run ! grep -q 'select_single_issue_pr' "${WF}"
 }
+
+# why: needs: alone only orders the job. A single-issue-pr job whose step
+# stopped invoking the script would stay green on every PR and gate nothing,
+# so the job body itself must run the script (base#1629).
+@test "self-test.yaml: single-issue-pr job runs bash script/ci/single_issue_pr.sh (base#1629)" {
+  run yaml_job_lines "${WF}" single-issue-pr
+  assert_success
+  assert_output --partial 'bash script/ci/single_issue_pr.sh'
+}
