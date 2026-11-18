@@ -319,3 +319,30 @@ STUB
     assert_output '0'
   done <<< "${_roles}"
 }
+
+# why: The rule is "exactly one state label", and the common way to break
+# it is moving an issue on without taking the intake role off: adding
+# ready-for-agent while needs-triage is still set leaves two states, and an
+# agent picking ready-for-agent work is handed an issue that is also still
+# untriaged. needs-triage next to ANY other role from the doc's table --
+# read here, not from the step's own copy -- is the leftover, so the step
+# removes it and makes no other edit; the later role is the decision
+# (base#1713)
+@test "triage-label: needs-triage left beside another state label is removed" {
+  assert_spec_subject "${WF_DIR}/triage-label.yaml" "the safety net that keeps a state label on every issue"
+  local _role _roles _n=0
+  _roles="$(_state_roles)"
+  [ -n "${_roles}" ]
+  while IFS= read -r _role; do
+    [[ "${_role}" == 'needs-triage' ]] && continue
+    _n=$((_n + 1))
+    run _triage_step_for "[{\"name\":\"enhancement\"},{\"name\":\"needs-triage\"},{\"name\":\"${_role}\"}]"
+    assert_success
+    run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+    run grep -cxF 'issue edit 4242 --repo ycpss91255-docker/base --remove-label needs-triage' \
+      "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+  done <<< "${_roles}"
+  [ "${_n}" -eq 5 ]
+}
