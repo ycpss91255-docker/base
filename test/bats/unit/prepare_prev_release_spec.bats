@@ -35,19 +35,22 @@ teardown() {
 # A git that holds LOCAL_TAGS in its object store and reaches an upstream
 # listing UPSTREAM_TAGS. `fetch` copies the tags its refspecs name from
 # upstream into the local store, or fails without touching it when
-# FETCH_FAILS exists; `archive` emits a release tree whose .version is the
-# tag. Everything else succeeds silently.
+# FETCH_FAILS exists; `ls-remote` exits 128 (upstream unreachable) when
+# LS_REMOTE_FAILS exists; `archive` emits a release tree whose .version is
+# the tag. Everything else succeeds silently.
 _mock_git() {
   mock_cmd "git" '
     _local="'"${LOCAL_TAGS}"'"
     _up="'"${UPSTREAM_TAGS}"'"
     _fail="'"${BATS_TEST_TMPDIR}/fetch.fails"'"
+    _lsfail="'"${BATS_TEST_TMPDIR}/ls-remote.fails"'"
     _args=" ${*} "
     case "${_args}" in
       *" tag "*)
         cat "${_local}"
         exit 0 ;;
       *" ls-remote "*)
+        [[ -e "${_lsfail}" ]] && exit 128
         while IFS= read -r _t; do
           printf "0000000000000000000000000000000000000000\trefs/tags/%s\n" "${_t}"
         done < "${_up}"
@@ -106,4 +109,22 @@ _mock_git() {
   assert_failure
   assert_output --partial "v0.43.1"
   assert [ ! -e "${ROOT}/.prev-release/tags.txt" ]
+}
+
+# why: with upstream unreachable the owed set cannot be read, and treating
+# that as "nothing owed" lets the local tags alone define the window -- a
+# checkout holding only v0.44.0 would go green having never driven
+# v0.43.0. Offline the run is degraded, says so, and still refuses a
+# window missing the minimum the tree alone implies: v0.m.0 for every
+# 43 <= m < tree minor, here v0.43.0 and v0.44.0 (base#1041).
+@test "prepare-prev-release: with upstream unreachable a window missing a v0.m.0 below the tree fails as degraded, naming it (base#1729)" {
+  printf '%s\n' v0.44.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.44.0 v0.43.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.45.0-rc1 > "${ROOT}/.version"
+  : > "${BATS_TEST_TMPDIR}/ls-remote.fails"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_failure
+  assert_output --partial "degraded"
+  assert_output --partial "v0.43.0"
 }

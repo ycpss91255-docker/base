@@ -5497,12 +5497,13 @@ local mode with it.
 | `test.sh: --lint --group and --coverage do not run the roster (base#1461)` | The CI lint legs run the roster as a step of their own and the coverage modes are not the local gate; neither calls it a second time. |
 | `test.sh: --ci runs its in-container phases and not the roster (base#1461)` | `--ci` is the in-container dispatch every compose run lands in -- the two halves of the no-flag run among them -- so a roster call there would run it inside the test-tools container, once per half, and in every CI job that reaches it. The phases it does run are stubbed and printed, so the case proves the dispatch ran and still made no roster call. |
 
-### test/bats/unit/prepare_prev_release_spec.bats (2)
+### test/bats/unit/prepare_prev_release_spec.bats (3)
 
 | Test | Description |
 |------|-------------|
 | `prepare-prev-release: an owed upstream release missing locally is fetched into the window (base#1729)` | The window is a fact about upstream, not about the tags this checkout holds. A window read from the local store alone is satisfied by whatever an earlier fetch left behind, so a workspace already carrying v0.43.0 would never drive v0.43.1. Driven through the script's own entry from a scratch root with `git` mocked for the local store and upstream separately. |
 | `prepare-prev-release: an owed release the fetch cannot bring in fails naming it, with no window (base#1729)` | Carrying on with the local tags after a failed fetch shrinks the window silently, and the suite goes green without driving the missing release. The run must exit non-zero, name the owed tag it could not fetch, and write no tags.txt. |
+| `prepare-prev-release: with upstream unreachable a window missing a v0.m.0 below the tree fails as degraded, naming it (base#1729)` | Offline the owed set cannot be read from upstream, and treating that as "nothing owed" lets whatever tags the checkout holds define the window. The run says it is degraded and still refuses a window missing v0.m.0 for any minor from 43 up to the tree's, naming the one it lacks. |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
