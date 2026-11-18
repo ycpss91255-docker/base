@@ -954,6 +954,34 @@ merge: packages: write'
   refute_output --partial 'steps.'
 }
 
+# why: base#1659 -- the Resolve tags step runs
+# `bash .worker-base/script/ci/release-ref.sh`, and the merge job has no
+# caller checkout, so that file exists only because one checkout step fetches
+# it from the worker repo at the worker's own sha before Resolve tags runs.
+# The resolve-tags harness (_resolve_tags_for) builds that path itself in
+# scratch, so this spec reads the checkout step directly. The step is picked by content
+# (actions/checkout into .worker-base), not by its display name.
+@test "publish-worker.yaml: the merge job checks out the release-ref classifier at the worker sha before Resolve tags (base#1659)" {
+  local _sel='(.value.uses // "" | test("^actions/checkout@")) and .value.with.path == ".worker-base"'
+  run yq -r "[.jobs.merge.steps | to_entries | .[] | select(${_sel})] | length" "${WF}"
+  assert_success
+  assert_output '1'
+  run yq -r ".jobs.merge.steps | to_entries | .[] | select(${_sel}) | .value.with.repository" "${WF}"
+  assert_success
+  assert_output 'ycpss91255-docker/base'
+  run yq -r ".jobs.merge.steps | to_entries | .[] | select(${_sel}) | .value.with.ref" "${WF}"
+  assert_success
+  assert_output '${{ github.job_workflow_sha }}'
+  run yq -r ".jobs.merge.steps | to_entries | .[] | select(${_sel}) | .value.with.\"sparse-checkout\"" "${WF}"
+  assert_success
+  assert_output 'script/ci/release-ref.sh'
+  local _checkout_idx _resolve_idx
+  _checkout_idx="$(yq -r ".jobs.merge.steps | to_entries | .[] | select(${_sel}) | .key" "${WF}")"
+  _resolve_idx="$(yq -r '.jobs.merge.steps | to_entries | .[] | select(.value.name == "Resolve tags") | .key' "${WF}")"
+  [[ -n "${_resolve_idx}" ]]
+  (( _checkout_idx < _resolve_idx ))
+}
+
 # _resolve_tags_for <ref> <is_latest> [suffix] -- RUN the merge job's own
 # "Resolve tags" step body (read out of the workflow with yq, not restated)
 # and print what it wrote to GITHUB_OUTPUT followed by its stdout. The
