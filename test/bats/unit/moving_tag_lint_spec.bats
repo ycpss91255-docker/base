@@ -265,3 +265,16 @@ _write() {
   [[ "${output}" == *"script/ci/a.sh"*"stale"* ]]
   [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
 }
+
+@test "_run_moving_tag: FAILS on an allow-list entry whose count is 0 (base#1647)" {
+  # A count-0 entry sanctions nothing and is never stale: it would sit in
+  # the table forever. A count must be a positive integer.
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|0|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "no image here"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"count"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
