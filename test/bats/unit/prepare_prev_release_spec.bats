@@ -243,6 +243,25 @@ _mock_git() {
   assert_output --partial "no release owed below v0.43.0-rc5"
 }
 
+# why: .prev-release/ is a cache that outlives a run. The count window
+# this replaces left v0.42.0 extracted there; a tree that only the old
+# rule named must be removed once the window stops naming it, or a cached
+# pre-floor release sits beside the owed ones as if it were still
+# covered (base#1729 design: the run prunes). Tree v0.44.0-rc1 owes
+# v0.43.0 alone (base#1041 table), so v0.42.0 goes and v0.43.0 stays.
+@test "prepare-prev-release: a cached release the window no longer names is pruned (base#1729)" {
+  printf '%s\n' v0.43.0 v0.42.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+  mkdir -p "${ROOT}/.prev-release/v0.42.0"
+  printf '%s\n' v0.42.0 > "${ROOT}/.prev-release/v0.42.0/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+  assert [ ! -e "${ROOT}/.prev-release/v0.42.0" ]
+  assert [ -f "${ROOT}/.prev-release/v0.43.0/.version" ]
+}
+
 # why: an upstream that answers but lists no stable release is not an
 # upstream that owes nothing -- it is a wrong remote or a broken listing.
 # Reading that empty answer as "nothing owed" hands the window back to the
