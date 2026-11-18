@@ -826,7 +826,7 @@ _emit_tmpfs_block() {
   local _tf
   while IFS= read -r _tf; do
     [[ -z "${_tf}" ]] && continue
-    echo "      - ${_tf}"
+    echo "      - $(_compose_yaml_scalar "${_tf}")"
   done <<< "${_tmpfs_str}"
 }
 
