@@ -206,6 +206,24 @@ _mock_git() {
   assert_output "v0.43.0"
 }
 
+# why: the floor and the tree are both 0.x, so "v0.43.0 <= t < tree" only
+# holds for 0.x tags (base#1055, base#1041). A v1.43.5 is newer than any
+# 0.x tree, not a release below it; were the major left out of the compare,
+# its 43.5 would sit between the floor and a v0.44.0-rc1 tree and the spec
+# would try to upgrade from a release that cannot be older than the tree.
+# Upstream lists v1.43.5 and v0.43.0, so the window is v0.43.0 alone.
+@test "prepare-prev-release: an upstream release past 0.x stays out of the window (base#1729)" {
+  printf '%s\n' v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v1.43.5 v0.43.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+
+  run cat "${ROOT}/.prev-release/tags.txt"
+  assert_output "v0.43.0"
+}
+
 # why: an upstream that answers but lists no stable release is not an
 # upstream that owes nothing -- it is a wrong remote or a broken listing.
 # Reading that empty answer as "nothing owed" hands the window back to the
