@@ -150,3 +150,15 @@ setup() {
   [[ "${stderr}" == *"#1"* ]]
   [[ "${stderr}" == *"#2"* ]]
 }
+
+# why: Issue numbers are per repository. a/b#1 and c/d#1 are two
+# different issues, so a script that compared only the number after `#`
+# would call this PR single-issue and pass it (base#1629).
+@test "single_issue_pr.sh: the same number in two repositories counts as two issues (base#1629)" {
+  export PR_CLOSING_REFS=$'octo/alpha#1\nocto/beta#1'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"octo/alpha#1"* ]]
+  [[ "${stderr}" == *"octo/beta#1"* ]]
+}
