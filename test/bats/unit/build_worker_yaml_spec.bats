@@ -399,6 +399,20 @@ setup() {
   assert_output "2"
 }
 
+@test "build-worker.yaml: disable_cache empties cache-from and cache-to on the 4 build steps (#1702)" {
+  # `!disable && format(...) || ''`: enabled gives the scope string,
+  # disabled gives '' (the action then passes no cache flag). Not
+  # `disable && '' || format(...)`: '' is falsy, so that spelling would
+  # fall through to the cache it was meant to turn off.
+  local _target
+  for _target in devel-test devel runtime-test runtime; do
+    run code_grep -cF "cache-from: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key) || '' }}" "${WF}"
+    assert_output "1"
+    run code_grep -cF "cache-to: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}" "${WF}"
+    assert_output "1"
+  done
+}
+
 # ── disable_cache input (#1702) ──────────────────────────────────
 
 @test "build-worker.yaml: declares disable_cache input as boolean default false (#1702)" {
