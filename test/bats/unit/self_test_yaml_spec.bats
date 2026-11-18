@@ -3205,6 +3205,9 @@ STUB
               LINT_PROBE_DOCKER_DIR="${_dir}/docker"
               LINT_PROBE_ROSTER_LOG="${_dir}/roster"
               LINT_PROBE_ROSTER_RC="${LINT_PROBE_ROSTER_RC:-0}"
+              # What `just test` exports into the container a host `--ci`
+              # stands in for; the prerequisite check demands it (base#1423).
+              HOST_UID="$(id -u)" HOST_GID="$(id -g)"
             )
             for _k in "${!_LP_ENV[@]}"; do
               _envargs+=( "${_k}=${_LP_ENV[${_k}]}" )

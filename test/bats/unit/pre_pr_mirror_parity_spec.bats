@@ -1031,6 +1031,7 @@ _main_calls() {
     source /source/script/test/test.sh
     _invalidate_coverage_head() { :; }
     _stamp_coverage_head() { :; }
+    _check_suite_prerequisites() { :; }
     _run_via_compose() {
       printf "compose %s lint=%s bats=%s\n" "$*" \
         "$([[ "${LINT_ONLY:-0}" == 1 ]] && echo 1 || echo 0)" \
@@ -1088,6 +1089,7 @@ compose ci 0 lint=0 bats=1"
   run env "${_MAIN_ROUTING_UNSET[@]}" LINT_ONLY=1 LINT_GROUP=1/4 bash -c '
     source /source/script/test/test.sh
     _stamp_coverage_head() { :; }
+    _check_suite_prerequisites() { :; }
     _run_lint_group() { printf "in-container lint group %s\n" "$1"; }
     _run_mutation_required() { printf "roster\n"; }
     main --ci
@@ -1098,6 +1100,7 @@ compose ci 0 lint=0 bats=1"
   run env "${_MAIN_ROUTING_UNSET[@]}" BATS_ONLY=1 bash -c '
     source /source/script/test/test.sh
     _stamp_coverage_head() { :; }
+    _check_suite_prerequisites() { :; }
     _run_tests() { printf "in-container bats\n"; }
     _run_mutation_required() { printf "roster\n"; }
     main --ci

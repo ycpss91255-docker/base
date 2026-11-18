@@ -535,6 +535,8 @@ teardown() {
     _run_lint_tool()     { echo "dispatched ${1}"; [[ "${1}" != "changelog-entry" ]]; }
     _run_tests()         { echo "BATS PHASE RAN"; }
     _fix_permissions()   { :; }
+    # Routing is under test, not the bare-run prerequisites (base#1423).
+    _check_suite_prerequisites() { :; }
     main --ci
   '
   assert_failure
