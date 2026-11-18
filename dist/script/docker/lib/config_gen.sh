@@ -179,7 +179,10 @@ config_gen_tables() {
   # does, so the mounted file is the named one; `&&` turns a failing cd
   # into a refusal instead of `/<base>`; the trailing `x` keeps a newline
   # that ends the path. A symlinked parent whose target holds a comma or
-  # newline is then refused by the second guard (base#1470).
+  # newline is then refused by the second guard. A bare name's parent is
+  # `.`; a name directly under / cuts to an empty parent, which is `/`,
+  # and the root's own `/` is dropped before the basename is appended, so
+  # the src is `/name`, not `//name` (base#1470).
   local _dir="${1%/*}" _abs
   [[ "$1" == */* ]] || _dir=.
   [[ -n "${_dir}" ]] || _dir=/
