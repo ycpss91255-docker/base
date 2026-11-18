@@ -8952,7 +8952,7 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (92)
+### test/bats/unit/tool_pins_spec.bats (95)
 
 | Test | Description |
 |------|-------------|
@@ -8978,6 +8978,9 @@ docker is a mock that records its argv. Unit level (ADR-00000018).
 | `pins: --set rewrites only the digest value of the sha256 ARG, keeping quotes and comment (base#1676)` | The digest line keeps its quoting and its trailing comment; rebuilding it from the `NAME=` prefix would delete the sentence saying where the digest came from (base#1676). The change is exactly the version line and the digest line. |
 | `pins: --set takes the digest of the named asset from an upstream checksum file (base#1676)` | When upstream publishes a checksum file, the digest is the line naming our asset, not the first line and not a hash of the file itself (base#1676). The digests are literals written into the fixture, so the expected value is independent of any hashing the code does. |
 | `pins: --set takes the named asset's digest from a binary-mode '*asset' checksum line (base#1676)` | A binary-mode checksum line reads `<hash> *<asset>`, a form upstream checksum files use; the named asset's line must still be found in it (base#1676). The digest is a literal written into the fixture. |
+| `pins: --set hashes an https asset fetched by curl (base#1676)` | Both shipped markers name https assets, so the digest a real bump writes comes from `curl \| sha256sum`, not from the file:// read the other tests use (base#1676). Expected value is the FIPS 180 vector sha256("abc"). |
+| `pins: --set takes the named asset's digest from an https checksum file fetched by curl (base#1676)` | An https checksum file is fetched by curl and the named asset's line is taken from it (base#1676). The digest is a literal in the fixture. |
+| `pins: --set refuses and changes no byte when curl fails on an https asset (base#1676)` | A failed fetch must refuse the bump. Without pipefail the pipeline's status is sha256sum's, and the hash of the empty input would be written as the digest (base#1676). |
 | `pins: --set with a sha256 ARG the file does not declare exits 1 and changes no byte (base#1676)` | A marker that names a checksum ARG the file does not declare must refuse the bump with nothing written; skipping it would commit "version bumped, digest stale" (base#1676). The fixture URL is absent, so the refusal cannot depend on the fetch. |
 | `pins: --set with a sha256 ARG declared twice exits 1 with no fetch and no write (base#1676)` | A checksum ARG declared twice leaves no single line to rewrite; writing one would leave the other holding the old digest, so --set must refuse in the lookup phase, before any fetch or write (base#1676). The asset is present, so a fetch would succeed; a `sha256sum` first on pins.sh's PATH (the file:// asset is hashed by it) records whether the fetch ran. |
 | `pins: --set exits 1 and changes no byte when the checksum file has no line for the asset (base#1676)` | A checksum file with no line for our asset must refuse the bump with nothing written; today the version moves first and an empty digest follows, a "version bumped, digest broken" commit (base#1676). |
