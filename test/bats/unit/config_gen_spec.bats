@@ -537,3 +537,40 @@ exit \"\${rc}\""
   assert_refusal 1 config_gen_output_nul "file=layer.toml"
   assert_equal "$(cat "${_seen}")" "[]"
 }
+
+# why: docker's --mount value is a comma-separated list, so a src holding
+#      `,` is read as more options (or refused by docker), and a newline
+#      cannot be carried in it at all. A name whose mount src would hold
+#      either is refused on the host as config_gen_path_unmountable before
+#      any container starts: a `,` in the basename, a `,` in the parent
+#      directory, a newline ending the parent directory's name, and a
+#      symlinked parent `cl -> c,d` whose name carries no `,` but whose
+#      physical path does. The refusal names the caller's text and the
+#      outvar stays cleared.
+@test "config-gen: tables refuses a name whose mount src would hold a comma or newline" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}/p,q" "${_wd}/rv-d"$'\n' "${_wd}/c,d"
+  printf '[a]\n' > "${_wd}/a,b.toml"
+  printf '[a]\n' > "${_wd}/p,q/layer.toml"
+  printf '[a]\n' > "${_wd}/rv-d"$'\n'"/layer.toml"
+  printf '[a]\n' > "${_wd}/c,d/layer.toml"
+  ln -s 'c,d' "${_wd}/cl"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+  local _name
+  for _name in 'a,b.toml' 'p,q/layer.toml' "rv-d"$'\n'"/layer.toml" 'cl/layer.toml'; do
+    : > "${DOCKER_LOG}"
+    CGT_NAME="${_name}" LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables \"\${CGT_NAME}\" out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+    assert_refusal 1 config_gen_path_unmountable "file=${_name}"
+    assert_equal "$(cat "${_seen}")" "[]"
+    run grep -c '^run ' "${DOCKER_LOG}"
+    assert_output 0
+  done
+}
