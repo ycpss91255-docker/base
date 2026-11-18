@@ -124,6 +124,36 @@ setup() {
   assert_line '      - "1:30"'
 }
 
+# why: base#1651 -- cap_add and cap_drop are written by their own loops, so
+# the same values (YAML syntax and implicit non-string types) must parse back
+# as the exact input string in both lists, not only in security_opt.
+@test "_emit_caps_block: cap_add and cap_drop items parse back as the exact input string (base#1651)" {
+  local -a _want=('label=a: b' 'x #y' '*anchor' '&ref' '#c' '"lead'
+    '~' 'null' 'true' '0755' '1e3' '.inf')
+  local _in _i _key
+  _in="$(printf '%s\n' "${_want[@]}")"
+  run _emit_caps_block "${_in}" "${_in}" ""
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  for _key in cap_add cap_drop; do
+    run yq ".s.${_key} | length" "${BATS_TEST_TMPDIR}/c.yaml"
+    assert_success
+    assert_output "${#_want[@]}"
+    for _i in "${!_want[@]}"; do
+      run yq ".s.${_key}[${_i}] | tag" "${BATS_TEST_TMPDIR}/c.yaml"
+      assert_success
+      assert_output '!!str'
+      run yq ".s.${_key}[${_i}]" "${BATS_TEST_TMPDIR}/c.yaml"
+      assert_success
+      assert_output "${_want[${_i}]}"
+    done
+  done
+  run _emit_caps_block $'yes\n1:30' $'yes\n1:30' ""
+  assert_success
+  assert_equal "$(grep -c '^      - "yes"$' <<< "${output}")" 2
+  assert_equal "$(grep -c '^      - "1:30"$' <<< "${output}")" 2
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _emit_env_file_block  (constant)
 # ════════════════════════════════════════════════════════════════════
