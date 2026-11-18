@@ -1185,6 +1185,17 @@ _bake_config_copy() {
   mv -- "${_tmp}" "${_out}"
 }
 
+# base#1661: succeed only for a real child of the temp root (non-empty,
+# under ${TMPDIR:-/tmp}/, not the root itself, no '..' segment).
+_deploy_work_dir_safe() {
+  local _path="${1:-}"
+  local _tmp_root="${TMPDIR:-/tmp}"
+  while [[ "${_tmp_root}" == */ ]]; do _tmp_root="${_tmp_root%/}"; done
+  [[ -n "${_path}" && "${_path}" == "${_tmp_root}"/* \
+     && "${_path#"${_tmp_root}"/}" == *[!/]* \
+     && "${_path}" != */../* && "${_path}" != */.. ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _generate_deploy_bundle <base_path> <stage> <out_dir>
 #
@@ -1238,6 +1249,23 @@ _generate_deploy_bundle() {
       "display=[setup] deploy: cannot create a temporary directory (mktemp -d failed)"
     return 1
   fi
+  # base#1662: remove ${_work} when the shell ends mid-build (signal death,
+  # errexit abort), not only when this function reaches its last line. The
+  # caller's EXIT handler is chained AFTER the removal and sees the original
+  # status; the caller's trap is restored on a normal return below.
+  local _prev_trap="" _caller_trap=""
+  # A subshell has no EXIT trap of its own (`trap -p` still reports the
+  # parent's), so only the top-level shell's trap is chained and restored.
+  if [[ "${BASHPID}" == "$$" ]]; then
+    _prev_trap="$(trap -p EXIT)"
+  fi
+  if [[ -n "${_prev_trap}" ]]; then
+    local -a _pt=()
+    eval "_pt=(${_prev_trap#trap -- })"
+    _caller_trap="${_pt[0]}"
+  fi
+  # shellcheck disable=SC2064,SC2154  # expanded now on purpose: locals are gone at exit
+  trap "__s=\$?; rm -rf -- $(printf '%q' "${_work}"); (exit \"\$__s\") && :; ${_caller_trap}" EXIT
   mkdir -p "${_work}/config"
   local _gen="${_work}/Dockerfile.deploy"
   local _build_dockerfile="${_base}/Dockerfile"
@@ -1329,7 +1357,19 @@ _generate_deploy_bundle() {
     _dry_run_cmd cp -a "${_work}/." "${_out_dir}/" || _rc=$?
   fi
 
-  rm -rf "${_work}"
+  # base#1661: only remove a real child of the temp root; anything else is
+  # logged and left in place (the bundle result stays as computed).
+  if _deploy_work_dir_safe "${_work}"; then
+    rm -rf "${_work}"
+  else
+    _log_err setup deploy_work_rm_refused \
+      "display=[setup] deploy: refusing to remove unexpected work dir '${_work}'"
+  fi
+  if [[ -n "${_prev_trap}" ]]; then
+    eval "${_prev_trap}"
+  else
+    trap - EXIT
+  fi
   return "${_rc}"
 }
 
