@@ -22,7 +22,9 @@ name: Triage label
 
 on:
   issues:
-    types: [opened]
+    # A label set changes on three events: opening, adding and removing.
+    # `opened` alone never saw a state label being taken off (base#1713).
+    types: [opened, labeled, unlabeled]
 
 # One labeller per issue. Two runs for the same issue -- a re-delivered
 # webhook, a re-run -- would both read `labels[0] == null` from the same
