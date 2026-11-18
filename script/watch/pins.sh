@@ -486,11 +486,12 @@ _pins_arg_lines() {
 # _pins_checksum_digests <version> <spec...>
 #
 # Each spec is <ARG>@asset:<url> or <ARG>@file:<url>:<asset>; {version} in
-# the url is the new version. Prints one digest per spec, in order. Fails,
-# printing nothing to stdout, when a digest cannot be resolved to 64 hex
-# characters, so the caller can refuse before any write (base#1676).
+# the url is the new version. Prints one digest per spec, in order, once
+# every spec has resolved. Fails, printing nothing to stdout, when any
+# digest cannot be resolved to 64 hex characters, so the caller can refuse
+# before any write (base#1676).
 _pins_checksum_digests() {
-  local _ver="${1}" _spec _src _name _body _url _digest
+  local _ver="${1}" _spec _src _name _body _url _digest _out=""
   for _spec in ${2}; do
     _src="${_spec#*@}"
     _name=""
@@ -524,8 +525,9 @@ _pins_checksum_digests() {
       printf 'pins: no sha256 digest for %s from %s\n' "${_spec%%@*}" "${_url}" >&2
       return 1
     fi
-    printf '%s\n' "${_digest}"
+    _out+="${_digest}"$'\n'
   done
+  printf '%s' "${_out}"
 }
 
 # _pins_assign_line <line> <value>
