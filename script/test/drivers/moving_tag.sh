@@ -13,9 +13,9 @@
 #
 # Known limit: the scan reads the literal text test-tools, so a repository
 # name assembled at run time (test-${x}) is not seen. release-version.sh
-# refuses a 'latest' / 'main' version,
-# but only on the path that asks it: script/ci/testtools_image.sh passes it
-# the content of .version. A name built anywhere else never reaches it.
+# refuses a 'latest' / 'main' version, but only on the path that asks it:
+# script/ci/testtools_image.sh passes it the content of .version. A name
+# built anywhere else never reaches it.
 
 # ── Moving test-tools tag lint ───────────────────────────────────────────────
 
@@ -59,7 +59,8 @@ readonly _MOVING_TAG_DEFAULT_RE='^[[:space:]]*default:[[:space:]]*["'"'"']?(late
 
 # The allow-list: one '<path>|<kind>|<scope>|<count>|<token>|<reason>' entry
 # per sanctioned occurrence. An occurrence is suppressed only when its path,
-# kind and scope match an entry and its line carries the entry's token.
+# kind and scope match an entry and its line carries the entry's non-empty
+# token.
 # Scope 'comment': the line starts with optional blanks then '#'.
 # Scope 'line:<anchor>': the line contains the fixed string <anchor>.
 # An entry covers exactly <count> occurrences: one more is a new consumer,
