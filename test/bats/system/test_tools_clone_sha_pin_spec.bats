@@ -49,3 +49,19 @@ setup_file() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"bats-support: commit mismatch"* ]]
 }
+
+# why: a wrong pinned bats-assert commit must fail the bats-extensions build even
+# though the bats-support clone before it in the same RUN passes (base#1674)
+@test "bats-extensions build fails when the BATS_ASSERT_COMMIT pin is wrong" {
+  run docker buildx build \
+    --builder template-system \
+    --target bats-extensions \
+    --build-arg "BATS_ASSERT_COMMIT=0000000000000000000000000000000000000000" \
+    --progress=plain \
+    --no-cache-filter bats-extensions \
+    -f /source/dockerfile/Dockerfile.test-tools \
+    /source 2>&1
+
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"bats-assert: commit mismatch"* ]]
+}
