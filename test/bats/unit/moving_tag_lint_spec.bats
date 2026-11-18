@@ -345,3 +345,41 @@ _copy_real_roots() {
   [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
   [[ "${output}" == *"1 internal reference(s)"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The dispatcher seam: the self-test lint phase reaches the driver
+# ════════════════════════════════════════════════════════════════════
+
+# why: A driver nothing calls passes every test above and gates nothing:
+# `just test lint`, the lint-static CI groups and the host --<tool>-only
+# arm all go through test.sh's _LINT_TOOLS table and its dispatch case.
+# The scratch tree carries a copy of test.sh, so its REPO_ROOT is the
+# scratch tree and the phase scans the fixture, not the live checkout.
+@test "_run_lint_tools: the lint phase reaches the moving-tag driver and fails on an added test-tools:latest (base#1647)" {
+  _copy_real_roots
+  _write ".github/workflows/x.yaml" \
+    'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  run env -u GITHUB_ACTIONS LOG_FORMAT=text bash -c '
+    source "$1/script/test/test.sh"
+    set -eo pipefail
+    printf "%s\n" "${_LINT_TOOLS[@]}" | grep -cx moving-tag
+    _run_lint_tools moving-tag
+  ' _ "${SCRATCH}"
+  [ "${status}" -ne 0 ]
+  [[ "${lines[0]}" == "1" ]]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+  [[ "${output}" == *"ci_moving_tag"* ]]
+}
+
+# why: The host arm is the other entry point the help text and CI's
+# dedicated-job check name; it must run the same driver.
+@test "test.sh --moving-tag-only: runs the moving-tag driver on the host and fails on an added test-tools:latest (base#1647)" {
+  _copy_real_roots
+  _write ".github/workflows/x.yaml" \
+    'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  run env -u GITHUB_ACTIONS LOG_FORMAT=text bash "${SCRATCH}/script/test/test.sh" --moving-tag-only
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+}
