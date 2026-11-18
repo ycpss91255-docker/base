@@ -97,6 +97,13 @@ config_gen_tables() {
   local -n _cgt_out="$2"
   _cgt_out=""
   config_gen_resolve || return 1
+  # A stat only: the host never opens the path, and a missing src must
+  # not reach `docker run` (base#1470).
+  if [[ ! -e "$1" && ! -L "$1" ]]; then
+    _log_err config_gen no_such_file \
+      "display=config_gen_tables: no such file: $1" "file=$1"
+    return 1
+  fi
   local _tmp _rc=0
   _tmp="$(mktemp -d)"
   docker run --rm --user "$(id -u):$(id -g)" \
