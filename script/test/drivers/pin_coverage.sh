@@ -260,6 +260,8 @@ which is not a third-party version. See script/watch/lib.sh."
   # A github-release pin in the test-tools Dockerfile is a download, and
   # a download with no checksum ARG is unverified (base#1675).
   local _tt_file="dockerfile/Dockerfile.test-tools" _up _p _ok _pending
+  # True when the test-tools Dockerfile has a non-empty `ARG <name>=`.
+  _tt_has_arg() { grep -qE "^ARG ${1}=.+" "${REPO_ROOT}/${_tt_file}"; }
   local -a _unverified=()
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
       _current _file _line; do
@@ -270,10 +272,9 @@ which is not a third-party version. See script/watch/lib.sh."
     _up="${_name^^}"
     _up="${_up//-/_}"
     _ok=0
-    if grep -qE "^ARG ${_up}_SHA256_AMD64=.+" "${REPO_ROOT}/${_tt_file}" \
-        && grep -qE "^ARG ${_up}_SHA256_ARM64=.+" "${REPO_ROOT}/${_tt_file}"; then
+    if _tt_has_arg "${_up}_SHA256_AMD64" && _tt_has_arg "${_up}_SHA256_ARM64"; then
       _ok=1
-    elif grep -qE "^ARG ${_up}_COMMIT=.+" "${REPO_ROOT}/${_tt_file}"; then
+    elif _tt_has_arg "${_up}_COMMIT"; then
       _ok=1
     fi
     _pending=0
