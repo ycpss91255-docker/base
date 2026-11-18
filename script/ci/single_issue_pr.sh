@@ -31,6 +31,7 @@ main() {
       awk '/^[[:space:]]*```/ { infence = !infence; next } !infence' |
       sed 's/`[^`]*`//g' |
       sed -e ':a' -e 'N' -e '$!ba' -e 's/<!--[^>]*-->//g' |
+      tr '\n' ' ' |
       { grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)(\*\*|__)?:?(\*\*|__)?[[:space:]]+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+(,[[:space:]]*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+)*' || true; } |
       grep -oE '([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+'
   } | sort -u)
