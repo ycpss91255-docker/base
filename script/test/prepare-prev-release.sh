@@ -153,43 +153,57 @@ _prune() {
   done
 }
 
-# _triple <vX.Y.Z[-pre]>
-#   Print "X Y Z". Releases are compared on this triple, never with
+# _parse_version <vX.Y.Z[-pre]> <array-name>
+#   Set <array-name> to (X Y Z) and succeed, or fail on anything that is
+#   not vX.Y.Z[-pre]. Releases are compared on this triple, never with
 #   `sort -V` or a string compare: `sort -V` ranks v0.43.0 above
-#   v0.43.0-rc5, the opposite of SemVer precedence.
-_triple() {
-  local _v="${1:?BUG: _triple expects a version}"
-  [[ "${_v}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]] \
-    || _die "BUG: '${_v}' is not a vX.Y.Z version"
-  printf '%d %d %d\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+#   v0.43.0-rc5, the opposite of SemVer precedence. It writes through a
+#   nameref and never prints, so a caller can parse in its own shell and
+#   act on the failure there, not in a `$(...)` subshell it cannot leave.
+_parse_version() {
+  local _pv_in="${1:?BUG: _parse_version expects a version}"
+  local -n _pv_out="${2:?BUG: _parse_version expects an array name}"
+  [[ "${_pv_in}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]] || return 1
+  _pv_out=("$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[2]}))" "$((10#${BASH_REMATCH[3]}))")
 }
 
-# _owed <tree>
-#   Filter stable tags on stdin down to the ones the window owes a tree at
-#   version <tree>: PREV_RELEASE_FLOOR <= tag < tree, in input order. A
+# The parsed floor and tree under test, set once by _load_versions in
+# main's own shell before any pipeline runs.
+_FLOOR=()
+_TREE=()
+_TREE_VERSION=""
+
+# _load_versions
+#   Read the tree version from .version and parse it and the floor. A tree
+#   that is not vX.Y.Z, or one past 0.x (the floor is a 0.x rule), is fatal
+#   HERE: main calls this directly, so _die ends the run before a window is
+#   resolved, rather than inside a pipeline whose exit the run never sees.
+_load_versions() {
+  _TREE_VERSION="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
+  _parse_version "${PREV_RELEASE_FLOOR}" _FLOOR \
+    || _die "BUG: floor '${PREV_RELEASE_FLOOR}' is not a vX.Y.Z version"
+  _parse_version "${_TREE_VERSION}" _TREE \
+    || _die "BUG: '${_TREE_VERSION}' is not a vX.Y.Z version"
+  (( _TREE[0] == 0 )) \
+    || _die "BUG: tree ${_TREE_VERSION} is past 0.x; the ${PREV_RELEASE_FLOOR} floor does not cover it"
+}
+
+# _owed
+#   Filter stable tags on stdin down to the ones the window owes the tree
+#   under test: PREV_RELEASE_FLOOR <= tag < tree, in input order. A
 #   pre-release tree vX.Y.Z-rcN sits below vX.Y.Z, so vX.Y.Z is excluded
-#   with the tree's own tag.
+#   with the tree's own tag. Needs _load_versions to have run; it has no
+#   refusal of its own, since it runs inside pipelines.
 _owed() {
-  local _tree="${1:?BUG: _owed expects the tree version}"
-  local -a _f _t _v
-  read -r -a _f <<< "$(_triple "${PREV_RELEASE_FLOOR}")"
-  read -r -a _t <<< "$(_triple "${_tree}")"
-  # The floor is a 0.x rule; a 1.x tree needs its own.
-  (( _t[0] == 0 )) || _die "BUG: tree ${_tree} is past 0.x; the ${PREV_RELEASE_FLOOR} floor does not cover it"
   local _tag
+  local -a _v=()
   while IFS= read -r _tag; do
-    read -r -a _v <<< "$(_triple "${_tag}")"
+    _parse_version "${_tag}" _v || continue
     (( _v[0] == 0 )) || continue
-    (( _v[1] > _f[1] || (_v[1] == _f[1] && _v[2] >= _f[2]) )) || continue
-    (( _v[1] < _t[1] || (_v[1] == _t[1] && _v[2] < _t[2]) )) || continue
+    (( _v[1] > _FLOOR[1] || (_v[1] == _FLOOR[1] && _v[2] >= _FLOOR[2]) )) || continue
+    (( _v[1] < _TREE[1] || (_v[1] == _TREE[1] && _v[2] < _TREE[2]) )) || continue
     printf '%s\n' "${_tag}"
   done
-}
-
-# _tree_version
-#   The version of the tree under test, from its .version.
-_tree_version() {
-  tr -d '[:space:]' < "${REPO_ROOT}/.version"
 }
 
 # _has_tag <tag> <tag...>
@@ -207,7 +221,7 @@ _has_tag() {
 #   The window's tags, newest first: every stable release the tree under
 #   test owes (see PREV_RELEASE_FLOOR).
 _window_tags() {
-  _stable_release_tags | _owed "$(_tree_version)"
+  _stable_release_tags | _owed
 }
 
 # _upstream_stable_tags
@@ -227,20 +241,17 @@ _upstream_stable_tags() {
   done <<< "${_listing}"
 }
 
-# _check_offline_minimum <tree>
+# _check_offline_minimum
 #   With upstream unreachable the owed set cannot be read, so the window is
 #   DEGRADED to the local tags. It must still hold the minimum the tree
 #   alone implies: v0.m.0 for every floor minor <= m < tree minor. Each one
 #   missing is fatal and named.
 _check_offline_minimum() {
-  local _tree="${1:?BUG: _check_offline_minimum expects the tree version}"
-  local -a _f _t _local=() _missing=()
+  local -a _local=() _missing=()
   local _m _tag
-  read -r -a _f <<< "$(_triple "${PREV_RELEASE_FLOOR}")"
-  read -r -a _t <<< "$(_triple "${_tree}")"
   _note "upstream ${BASE_UPSTREAM_REMOTE} unreachable; window degraded to local tags"
   mapfile -t _local < <(_stable_release_tags)
-  for (( _m = _f[1]; _m < _t[1]; _m++ )); do
+  for (( _m = _FLOOR[1]; _m < _TREE[1]; _m++ )); do
     _tag="v0.${_m}.0"
     _has_tag "${_tag}" "${_local[@]}" || _missing+=("${_tag}")
   done
@@ -254,12 +265,11 @@ _check_offline_minimum() {
 #   tag still missing afterwards is fatal: the window would silently cover
 #   less than the rule owes.
 _fetch_owed_tags() {
-  local _tree _tag
-  _tree="$(_tree_version)"
+  local _tag
   local -a _local=() _owed_tags=() _missing=() _still=()
   local _upstream
   if ! _upstream="$(_upstream_stable_tags)"; then
-    _check_offline_minimum "${_tree}"
+    _check_offline_minimum
     return 0
   fi
   # An upstream that answers with no stable release is a wrong remote or a
@@ -268,7 +278,7 @@ _fetch_owed_tags() {
   [[ -n "${_upstream}" ]] \
     || _die "upstream lists no stable release tags (${BASE_UPSTREAM_REMOTE})"
   mapfile -t _local < <(_stable_release_tags)
-  mapfile -t _owed_tags < <(printf '%s\n' "${_upstream}" | _owed "${_tree}")
+  mapfile -t _owed_tags < <(printf '%s\n' "${_upstream}" | _owed)
   for _tag in "${_owed_tags[@]}"; do
     _has_tag "${_tag}" "${_local[@]}" \
       || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
@@ -287,6 +297,7 @@ _fetch_owed_tags() {
 }
 
 main() {
+  _load_versions
   _fetch_owed_tags
 
   local -a _stable=()
@@ -318,7 +329,7 @@ main() {
   # would read back as a one-line window of "".
   if (( ${#_tags[@]} == 0 )); then
     : > "${PREV_RELEASE_DIR}/tags.txt"
-    _note "no release owed below $(_tree_version) since ${PREV_RELEASE_FLOOR} (base#1055)"
+    _note "no release owed below ${_TREE_VERSION} since ${PREV_RELEASE_FLOOR} (base#1055)"
     return 0
   fi
   printf '%s\n' "${_tags[@]}" > "${PREV_RELEASE_DIR}/tags.txt"

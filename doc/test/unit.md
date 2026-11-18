@@ -5502,7 +5502,7 @@ local mode with it.
 | `test.sh: --lint --group and --coverage do not run the roster (base#1461)` | The CI lint legs run the roster as a step of their own and the coverage modes are not the local gate; neither calls it a second time. |
 | `test.sh: --ci runs its in-container phases and not the roster (base#1461)` | `--ci` is the in-container dispatch every compose run lands in -- the two halves of the no-flag run among them -- so a roster call there would run it inside the test-tools container, once per half, and in every CI job that reaches it. The phases it does run are stubbed and printed, so the case proves the dispatch ran and still made no roster call. |
 
-### test/bats/unit/prepare_prev_release_spec.bats (6)
+### test/bats/unit/prepare_prev_release_spec.bats (9)
 
 | Test | Description |
 |------|-------------|
@@ -5512,6 +5512,9 @@ local mode with it.
 | `prepare-prev-release: an owed release the fetch cannot bring in fails naming it, with no window (base#1729)` | when an owed release cannot be fetched, carrying on with the local tags shrinks the window silently -- the suite goes green having never driven the release a consumer on the 0.43 line most likely sits on. The guard must name what is missing and refuse to write a window at all. |
 | `prepare-prev-release: with upstream unreachable a window missing a v0.m.0 below the tree fails as degraded, naming it (base#1729)` | with upstream unreachable the owed set cannot be read, and treating that as "nothing owed" lets the local tags alone define the window -- a checkout holding only v0.44.0 would go green having never driven v0.43.0. Offline the run is degraded, says so, and still refuses a window missing the minimum the tree alone implies: v0.m.0 for every 43 <= m < tree minor, here v0.43.0 and v0.44.0 (base#1041). |
 | `prepare-prev-release: an upstream that lists no stable release tags fails rather than falling back to local tags (base#1729)` | an upstream that answers but lists no stable release is not an upstream that owes nothing -- it is a wrong remote or a broken listing. Reading that empty answer as "nothing owed" hands the window back to the local tags, so a checkout holding v0.43.0 goes green on whatever it happens to carry while the owed set was never read. The run must refuse and say upstream listed no stable release tags (base#1729 design). |
+| `prepare-prev-release: a tree past 0.x fails with no window (base#1729)` | the support floor is a 0.x rule, so a tree past 0.x has no window the rule can name. If that refusal only leaves a subshell, the run goes on to write an empty window and exit 0, and every driver arm then passes having driven nothing -- a silent green on a tree the rule does not cover. |
+| `prepare-prev-release: a tree .version that is not vX.Y.Z fails with no window (base#1729)` | a .version that is not vX.Y.Z cannot be placed against the floor, so no owed set can be derived from it. Reading it as "nothing owed" writes an empty window and goes green; the run must refuse, naming the bad version. |
+| `prepare-prev-release: with upstream unreachable a tree past 0.x still fails with no window (base#1729)` | offline the tree version still bounds the degraded minimum. A bad .version there must refuse too, not fall through to a passing check. |
 
 ### test/bats/unit/prev_release_gating_spec.bats (12)
 
