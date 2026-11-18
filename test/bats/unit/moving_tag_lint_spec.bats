@@ -194,3 +194,26 @@ _write() {
   [[ "${output}" == *"script/ci/a.sh:1"* ]]
   [[ "${output}" == *"script/ci/a.sh:2"* ]]
 }
+
+@test "_run_moving_tag: a comment-scoped entry suppresses only a comment line, never code carrying its token (base#1647)" {
+  # Scope 'comment': the line starts with optional blanks then '#'. Code
+  # under a comment entry is a new consumer.
+  _moving_tag_allowlist() {
+    printf '%s\n' '.github/workflows/w.yaml|moving|comment|1|test-tools:latest|fixture'
+  }
+  _write ".github/workflows/w.yaml" \
+    'jobs:' \
+    '  # moved test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+
+  _write ".github/workflows/w.yaml" \
+    'jobs:' \
+    '  # moved test-tools:latest' \
+    '  image: ${REGISTRY}/test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/w.yaml:3: moving"* ]]
+  [[ "${output}" != *".github/workflows/w.yaml:2:"* ]]
+}
