@@ -175,3 +175,17 @@ setup() {
   [[ "${stderr}" == *"#1"* ]]
   [[ "${stderr}" == *"#2"* ]]
 }
+
+# why: A closing keyword can point at an issue in another repository
+# (`Closes owner/repo#N`). A parser that only accepts `#N` right after
+# the keyword drops these, so a PR closing two cross-repository issues
+# through its commit messages would pass (base#1629).
+@test "single_issue_pr.sh: owner/repo qualified closing refs in commit messages count (base#1629)" {
+  export PR_CLOSING_REFS=""
+  export PR_COMMITS=$'Closes octo/alpha#1\n\nCloses octo/beta#2'
+
+  run --separate-stderr bash "${CHECK}"
+  assert_failure 1
+  [[ "${stderr}" == *"octo/alpha#1"* ]]
+  [[ "${stderr}" == *"octo/beta#2"* ]]
+}
