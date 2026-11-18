@@ -228,3 +228,24 @@ _applied_labels() {
   assert_line 'unlabeled'
   [ "${#lines[@]}" -eq 3 ]
 }
+
+# why: The old gate asked "any label at all?" while the rule is about STATE
+# labels, so a kind label alone (`enhancement`, set by the to-issues flow
+# at creation) skipped the job and left the issue stateless. Which labels
+# count is the step's business, read at run time; the job itself may only
+# refuse a closed issue. Asserted positively, so `!labels[0]`,
+# `labels.length == 0`, `toJSON(...) == '[]'` and a step-level gate all
+# fail it, not just today's spelling (base#1713)
+@test "triage-label: the job is gated only on the issue being open" {
+  local _wf="${WF_DIR}/triage-label.yaml"
+  assert_spec_subject "${_wf}" "the safety net that keeps a state label on every issue"
+  run yq '.jobs | length' "${_wf}"
+  assert_success
+  assert_output '1'
+  run yq '.jobs.label.if' "${_wf}"
+  assert_success
+  assert_output "github.event.issue.state == 'open'"
+  run yq '[.jobs.label.steps[] | select(has("if"))] | length' "${_wf}"
+  assert_success
+  assert_output '0'
+}
