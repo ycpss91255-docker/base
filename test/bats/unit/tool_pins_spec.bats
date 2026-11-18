@@ -400,6 +400,85 @@ _pins() {
   assert_success
 }
 
+# _curl_stub <rc> -- a curl first on pins.sh's PATH (in ${BATS_TEST_TMPDIR}/
+# curlbin) standing in for the network. It appends its URL, its last
+# argument, to ${BATS_TEST_TMPDIR}/curl.log; with <rc> 0 it serves
+# https://example.invalid/<path> from ${BATS_TEST_TMPDIR}/fx/<path>, with
+# any other <rc> it prints nothing and exits <rc>, as `curl -f` does on an
+# HTTP error. The shipped markers use https URLs, so these are the branches
+# a real bump runs (base#1676).
+_curl_stub() {
+  local _bin="${BATS_TEST_TMPDIR}/curlbin"
+  mkdir -p "${_bin}" "${BATS_TEST_TMPDIR}/fx"
+  printf '#!/bin/sh\nfor a; do u="$a"; done\nprintf "%%s\\n" "$u" >> "%s/curl.log"\n[ "%s" = 0 ] || exit %s\nexec cat -- "%s/fx/${u#https://example.invalid/}"\n' \
+    "${BATS_TEST_TMPDIR}" "${1}" "${1}" "${BATS_TEST_TMPDIR}" > "${_bin}/curl"
+  chmod +x "${_bin}/curl"
+}
+
+# _pins_curl <arg>... -- _pins with the _curl_stub curl first on PATH.
+_pins_curl() {
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${BATS_TEST_TMPDIR}/curlbin:${PATH}" run "${PINS}" "$@"
+}
+
+# why: Both shipped markers name https assets, so the digest a real bump
+# writes comes from `curl | sha256sum`, not from the file:// read the other
+# tests use (base#1676). Expected value is the FIPS 180 vector sha256("abc").
+@test "pins: --set hashes an https asset fetched by curl (base#1676)" {
+  _curl_stub 0
+  printf 'abc' > "${BATS_TEST_TMPDIR}/fx/a-v2.0.0.bin"
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:https://example.invalid/a-{version}.bin' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins_curl --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/curl.log"
+  assert_output 'https://example.invalid/a-v2.0.0.bin'
+}
+
+# why: An https checksum file is fetched by curl and the named asset's line
+# is taken from it (base#1676). The digest is a literal in the fixture.
+@test "pins: --set takes the named asset's digest from an https checksum file fetched by curl (base#1676)" {
+  _curl_stub 0
+  printf '%s  %s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb foo-v2.0.0-linux.tar.gz \
+    > "${BATS_TEST_TMPDIR}/fx/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:https://example.invalid/SHA256SUMS-{version}:foo-{version}-linux.tar.gz' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins_curl --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/curl.log"
+  assert_output 'https://example.invalid/SHA256SUMS-v2.0.0'
+}
+
+# why: A failed fetch must refuse the bump. Without pipefail the pipeline's
+# status is sha256sum's, and the hash of the empty input would be written as
+# the digest (base#1676).
+@test "pins: --set refuses and changes no byte when curl fails on an https asset (base#1676)" {
+  _curl_stub 22
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:https://example.invalid/a-{version}.bin' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  _pins_curl --set foo v2.0.0
+  assert_failure
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/curl.log"
+  assert_output 'https://example.invalid/a-v2.0.0.bin'
+}
+
 # why: A marker that names a checksum ARG the file does not declare must refuse the
 # bump with nothing written; skipping it would commit "version bumped, digest
 # stale" (base#1676). The fixture URL is absent, so the refusal cannot depend on
