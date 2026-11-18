@@ -1015,6 +1015,33 @@ _resolve_tags_for() {
   refute_output --partial 'latest'
 }
 
+# why: base#1656 -- the refusal above is intended, so a caller must be able
+# to read it in the guide before it stops a release: one line of the guide's
+# "Tag contract" section names `is_latest: true`, a ref that is "not a version
+# tag" (release-ref.sh's own refusal wording), and the step that fails. The
+# step's name is read out of the workflow (the merge step that runs
+# release-ref.sh), so renaming the step without the guide fails here.
+@test "publish-worker guide: is_latest true on a non-version tag fails the classifier step (base#1656)" {
+  local _step _section
+  _step="$(yq -r '.jobs.merge.steps[] | select((.run // "") | test("release-ref.sh")) | .name' "${WF}")"
+  [[ -n "${_step}" && "${_step}" != 'null' ]] || {
+    printf 'BUG: no merge step of %s runs release-ref.sh\n' "${WF}"
+    return 1
+  }
+  _section="$(awk '/^### Tag contract$/{f=1; next} f && /^#/{exit} f' \
+    /source/doc/guide/publish-worker.md)"
+  [[ -n "${_section}" ]] || {
+    printf 'BUG: doc/guide/publish-worker.md has no "### Tag contract" section\n'
+    return 1
+  }
+  run grep -F -- 'is_latest: true' <<< "${_section}"
+  assert_success
+  run grep -F -- 'not a version tag' <<< "${output}"
+  assert_success
+  run grep -F -- "${_step}" <<< "${output}"
+  assert_success
+}
+
 # why: base#1656 -- the merge job holds `packages: write` and pushes nothing
 # through git, so no checkout in it may leave the job token in the checked-out
 # repo's git config. actions/checkout's own action.yml defaults
