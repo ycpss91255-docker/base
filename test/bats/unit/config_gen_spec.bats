@@ -487,3 +487,28 @@ exit \"\${rc}\""
   run grep -c "^run --rm --user $(id -u):$(id -g) --mount type=bind,src=${_wdp}/layer.toml,dst=/in/f,readonly .* tables --name layer.toml /in/f\$" "${DOCKER_LOG}"
   assert_output 1
 }
+
+# why: a name that does not exist is refused on the host by a stat alone
+#      (the host never opens the path), before any container starts: a
+#      `docker run` for it would bind-mount a src that is not there. The
+#      refusal is no_such_file naming the caller's text, and the outvar
+#      stays cleared.
+@test "config-gen: tables refuses a missing file with no_such_file and starts no container" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}"
+  local _seen="${BATS_TEST_TMPDIR}/out.seen"
+
+  LOG_FORMAT=json run --separate-stderr bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+out=stale
+config_gen_tables missing.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${_seen}'
+exit \"\${rc}\""
+  assert_refusal 1 no_such_file "file=missing.toml"
+  assert_equal "$(cat "${_seen}")" "[]"
+  run grep -c '^run ' "${DOCKER_LOG}"
+  assert_output 0
+}
