@@ -1370,3 +1370,19 @@ _build_comment_paragraphs() {
   run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
   assert_success
 }
+
+# why: The same `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` sits in every
+# runtime-split Dockerfile, so the Build runtime stage step needs the
+# build-arg too. Scoped to that step: the devel-test, devel and
+# runtime-test steps already carry the line, so a whole-file match would
+# pass without the fix (base#1680).
+@test "build-worker.yaml: the Build runtime stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1680)" {
+  local _args
+  _args="$(yq -N '.. | select(tag == "!!map" and .name == "Build runtime stage") | .with["build-args"]' "${WF}")"
+  [ -n "${_args}" ] || {
+    echo "no Build runtime stage step with build-args found" >&2
+    return 1
+  }
+  run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
+  assert_success
+}
