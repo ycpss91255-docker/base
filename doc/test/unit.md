@@ -5411,6 +5411,14 @@ the outer run's value, which is the wrong mode's value.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
+### test/bats/unit/pr_template_spec.bats (3)
+
+| Test | Description |
+|------|-------------|
+| `the PR template file exists` | - |
+| `the PR template has every section heading` | - |
+| `the PR template tells authors PRs land with a merge commit` | - |
+
 ### test/bats/unit/pre_pr_mirror_parity_spec.bats (38)
 
 The pre-PR mirror attested "CI passed locally" while running the bats suite
