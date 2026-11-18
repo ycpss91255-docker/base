@@ -5013,3 +5013,14 @@ YAML
   run _lint_probe_gating_errors "${_probe}" "${_fx}" skipped roster
   assert_output --partial 'skipped: step 0'
 }
+
+# why: Branch protection requires ci-rollup alone. A single-issue-pr job
+# outside its needs would be a check nobody is blocked by, and a
+# select_single_issue_pr key would let classify skip it on a doc-only PR,
+# which is exactly where a bundled PR slips through (base#1629).
+@test "self-test.yaml: ci-rollup needs single-issue-pr and classify never gates it (base#1629)" {
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_success
+  assert_line single-issue-pr
+  run ! grep -q 'select_single_issue_pr' "${WF}"
+}
