@@ -510,6 +510,24 @@ _pins_set_checksums() {
   done
 }
 
+# _pins_check_checksum_args <file> <spec...>
+#
+# Every ARG a marker's sha256= option names must be declared exactly once in
+# the pin's own file; checked before any fetch or write, so a missing ARG
+# cannot leave "version bumped, digest stale" behind (base#1676).
+_pins_check_checksum_args() {
+  local _abs="${1}" _spec _arg _count
+  for _spec in ${2}; do
+    _arg="${_spec%%@*}"
+    _count="$(grep -cE "^[[:space:]]*ARG[[:space:]]+${_arg}=" "${_abs}")" || true
+    if [[ "${_count}" != 1 ]]; then
+      printf 'pins: %s ARG lines named %s in %s, expected exactly one\n' \
+        "${_count}" "${_arg}" "${_abs}" >&2
+      return 1
+    fi
+  done
+}
+
 # _pins_set <name> <version>
 #
 # Rewrite the pin's TARGET LINE, replacing the old version with the new one
@@ -539,6 +557,9 @@ _pins_set() {
   fi
 
   local _abs="${PIN_REPO_ROOT}/${_file}"
+  if [[ -n "${_cksum}" && "${_cksum}" != "-" ]]; then
+    _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
+  fi
   local _old_line _new_line
   _old_line="$(awk -v n="${_line}" 'NR == n' "${_abs}")"
   if [[ "${_file##*/}" == go.mod ]]; then
