@@ -840,9 +840,11 @@ DOCK
 # Run _generate_deploy_bundle for repo ${1} with mktemp stubbed to give no
 # usable directory (${2}: `fail` = non-zero exit, `empty` = exit 0 and no
 # output). Call it only after the test's own _write_deploy_repo, so the
-# stubs cover the bundle step alone; they are removed right after `run`.
-# Every mkdir argument is recorded one per line in ${3}; mkdir runs for
-# real except for an argument under /config (never create under /).
+# stubs cover the bundle step alone; right after `run`, mktemp and mkdir
+# are removed and the original _dry_run_cmd is restored.
+# mkdir records its arguments one per line in ${3}; at the first argument
+# under /config it stops and returns 0 without creating anything (never
+# create under /), otherwise it runs for real.
 # _dry_run_cmd runs only mkdir (docker/xz/cp are no-ops), so a success
 # creates the output dir and a regressed empty work dir never copies `/.`.
 # No DRY_RUN: a dry run never creates the output dir, so its absence would
@@ -872,19 +874,26 @@ _mktemp_abort_case() {
   eval "${_orig_dry_run}"
 }
 
+# Assert the abort contract after _mktemp_abort_case for repo ${1} with
+# mkdir log ${2}. It checks the safety property, not a call count: a failed
+# run with the logged reason, no mkdir argument under /config, and the
+# output dir never created.
+_assert_mktemp_aborted() {
+  local _repo="${1}" _calls="${2}"
+  assert_failure
+  assert_output --partial "cannot create a temporary directory"
+  run grep -c '^/config' "${_calls}"
+  assert_output "0"
+  [[ ! -e "${_repo}/deploy/out" ]]
+}
+
 # why: a failed mktemp must abort before any path is built from an empty dir
 @test "_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   local _calls="${_d}.mkdir-calls"
   _mktemp_abort_case "${_d}" fail "${_calls}"
-  assert_failure
-  assert_output --partial "cannot create a temporary directory"
-  # The safety property, not a call count: no mkdir argument under /config,
-  # and the output dir was never created.
-  run grep -c '^/config' "${_calls}"
-  assert_output "0"
-  [[ ! -e "${_d}/deploy/out" ]]
+  _assert_mktemp_aborted "${_d}" "${_calls}"
   rm -rf "${_d}" "${_calls}"
 }
 
@@ -894,11 +903,7 @@ _mktemp_abort_case() {
   _write_deploy_repo "${_d}"
   local _calls="${_d}.mkdir-calls"
   _mktemp_abort_case "${_d}" empty "${_calls}"
-  assert_failure
-  assert_output --partial "cannot create a temporary directory"
-  run grep -c '^/config' "${_calls}"
-  assert_output "0"
-  [[ ! -e "${_d}/deploy/out" ]]
+  _assert_mktemp_aborted "${_d}" "${_calls}"
   rm -rf "${_d}" "${_calls}"
 }
 
