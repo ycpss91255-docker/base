@@ -1441,8 +1441,10 @@ _run_build_stage() {
   grep -Fq '          build_stage() {' <<< "${_src}" || fail \
       "the Build extra stages step defines no build_stage function"
   : > "${BATS_TEST_TMPDIR}/calls"
+  # Strict mode is turned on inside _t, not at the top of the bash -c
+  # string: under kcov a top-level command run with nounset on dies with
+  # "BASH_SOURCE: unbound variable" (see config_gen_mutation_targets_spec).
   CALLS="${BATS_TEST_TMPDIR}/calls" FAIL="$1" run bash -c '
-    set -euo pipefail
     docker() {
       echo "$*" >> "${CALLS}"
       local n; n="$(wc -l < "${CALLS}")"
@@ -1452,7 +1454,8 @@ _run_build_stage() {
     build_arg_flags=(--build-arg X=1)
     build_ctx_flags=()
     '"${_src}"'
-    build_stage qa scope-qa /dev/null
+    _t() { set -euo pipefail; build_stage qa scope-qa /dev/null; }
+    _t
   '
 }
 
