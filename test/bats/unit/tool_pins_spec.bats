@@ -1982,3 +1982,26 @@ STUB
   assert_success
   assert_output 'pinned'
 }
+
+# why: the --list usage text and the pins.sh header were left describing nine
+# columns and a version-only bump after the tenth (checksums) column and the
+# sha256= option landed (base#1676); the usage must name the checksums column
+# and every doc that owns the grammar must mention the option
+@test "pins: the usage names the checksums column and the docs cover sha256=" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA@asset:file:///x/{version}' \
+    'ARG FOO_VERSION=1.2.3' \
+    'ARG FOO_SHA=abc'
+  _pins --list
+  assert_success
+  [[ "$(printf '%s\n' "${output}" | head -n1 | awk -F'\t' '{print NF}')" == 10 ]]
+  run "${PINS}"
+  assert_failure 2
+  assert_output --partial 'line checksums'
+  local _root="${BATS_TEST_DIRNAME}/../../.."
+  local _f
+  for _f in script/watch/pins.sh script/watch/lib.sh doc/guide/dockerfile-stages.md; do
+    run grep -F 'sha256=<ARG>@<source>' "${_root}/${_f}"
+    assert_success
+  done
+}
