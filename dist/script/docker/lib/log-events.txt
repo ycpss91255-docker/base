@@ -588,8 +588,9 @@ config_gen_output_nul
 config_gen_path_unmountable
 
 # dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470):
-# docker run failed (status=) and the binary wrote no diagnostic frame,
-# so docker itself refused the run.
+# the docker run exited non-zero (status=) and its stderr held no
+# diagnostic frame; any unframed stderr is forwarded as
+# config_gen_stray_stderr.
 config_gen_run_failed
 
 # dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
@@ -598,6 +599,6 @@ config_gen_run_failed
 config_gen_diag_malformed
 
 # dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470):
-# unframed text docker wrote to the binary's diagnostic stream ahead of a
-# frame (text=), forwarded once beside the frame's own event.
+# unframed text on the run's stderr (text=), outside any diagnostic frame,
+# forwarded once beside any frame's own event.
 config_gen_stray_stderr

@@ -78,16 +78,16 @@ config_gen_resolve() {
 #   an event id the registry does not know, fewer than 8 fields, or a
 #   last field cut off before its NUL -- is refused as
 #   config_gen_diag_malformed with reason=. Unframed text -- ahead of a
-#   frame's tag, or left after the last frame with no NUL, which is all
-#   of docker's own message when the binary never ran -- is forwarded once
-#   as config_gen_stray_stderr. Answers 1 when <errfile> held no frame.
+#   frame's tag, or left after the last frame with no NUL -- is forwarded
+#   once as config_gen_stray_stderr; the decoder cannot tell whether
+#   docker or the binary wrote it. Answers 1 when <errfile> held no frame.
 _config_gen_decode_frames() {
   local -a _f=()
   local _field="" _n=0
   while IFS= read -r -d '' _field; do
-    # docker's own unframed text (a platform WARNING line) shares the
-    # stream and runs into the next frame's tag; it is forwarded once and
-    # the frame keeps its D tag (base#1470).
+    # Unframed text on the stream (such as a platform WARNING line) runs
+    # into the next frame's tag; it is forwarded once and the frame keeps
+    # its D tag (base#1470).
     if ((${#_f[@]} == 0)) && [[ "${_field}" == *$'\n'D ]]; then
       _config_gen_stray_stderr "${_field%$'\n'D}" "$2"
       _field=D
@@ -110,7 +110,7 @@ _config_gen_decode_frames() {
   done < "$1"
   # A started frame left open: its last field lacks a NUL (truncated) or
   # it has fewer than 8 fields (count). With no frame open, bytes the
-  # failed read left in _field carry no NUL: they are docker's own text,
+  # failed read left in _field carry no NUL: they are unframed text,
   # forwarded once, never a frame (base#1470).
   if ((${#_f[@]} == 0)); then
     [[ -z "${_field}" ]] || _config_gen_stray_stderr "${_field%$'\n'}" "$2"
@@ -126,12 +126,12 @@ _config_gen_decode_frames() {
 }
 
 # _config_gen_stray_stderr <text> <name>
-#   Forward unframed stderr <text> (docker's own, not the binary's) as one
+#   Forward unframed stderr <text> (no frame says who wrote it) as one
 #   config_gen_stray_stderr record; <name> is the file config_gen_tables
 #   was given (base#1470).
 _config_gen_stray_stderr() {
   _log_err config_gen config_gen_stray_stderr \
-    "display=config_gen_tables: docker wrote for ${2}: ${1}" \
+    "display=config_gen_tables: unframed stderr for ${2}: ${1}" \
     "file=$2" "text=$1"
 }
 
@@ -204,11 +204,12 @@ config_gen_tables() {
     --mount "type=bind,src=${_abs},dst=/in/f,readonly" \
     "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
     > "${_tmp}/out" 2> "${_tmp}/err" || _rc=$?
-  # A failure no frame explains is docker's own (125 daemon or option
-  # error, 126/127 entrypoint): the binary never spoke (base#1470).
+  # A non-zero status with no diagnostic frame is refused on what is
+  # observed: the status, and no frame. Any such run lands here, whether
+  # docker or the binary wrote its stderr (base#1470).
   if ! _config_gen_decode_frames "${_tmp}/err" "$1" && ((_rc != 0)); then
     _log_err config_gen config_gen_run_failed \
-      "display=config_gen_tables: docker run for $1 failed with status ${_rc} and no diagnostic" \
+      "display=config_gen_tables: the run for $1 failed with status ${_rc} and no diagnostic frame" \
       "file=$1" "status=${_rc}"
   fi
   if ((_rc == 0)); then
