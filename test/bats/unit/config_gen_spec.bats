@@ -1191,6 +1191,35 @@ _mock_docker_tables_ok() {
   assert_cg_calls image
 }
 
+# why: the parent can vanish between the host's stat and its `cd -P`.
+#      A failing cd prints nothing, and without the `&& ... printf x`
+#      sentinel check the src would be `/<basename>`, a file at the root
+#      the caller never named. Here the image is resolved first (its one
+#      inspect is memoised), then cd fails for every directory (a function
+#      in the caller's shell, which the `$(...)` inherits): the name is
+#      refused as no_such_file before any run, and the outvar stays
+#      cleared.
+@test "config-gen: tables refuses a name whose parent cannot be entered and starts no container" {
+  _seed_cg_subtree
+  _mock_docker_tables_exec
+  local _wd="${BATS_TEST_TMPDIR}/wd"
+  mkdir -p "${_wd}/sub"
+  printf '[a]\n' > "${_wd}/sub/layer.toml"
+
+  LOG_FORMAT=json run --separate-stderr timeout 10 bash -c "cd '${_wd}' || exit 9
+source '${CG}'
+config_gen_resolve || exit 8
+cd() { return 1; }
+out=stale
+config_gen_tables sub/layer.toml out
+rc=\$?
+printf '[%s]' \"\${out}\" > '${BATS_TEST_TMPDIR}/out.seen'
+exit \"\${rc}\""
+  assert_refusal 1 no_such_file "file=sub/layer.toml"
+  assert_equal "$(_cg_tables_seen)" "[]"
+  assert_cg_calls image
+}
+
 # why: config_gen_tables keeps the binary's stdout and stderr in a temp
 #      directory; one left behind per call would fill TMPDIR over a long
 #      shell. It is removed whether the run publishes or refuses.
