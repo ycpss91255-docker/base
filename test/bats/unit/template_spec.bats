@@ -879,7 +879,7 @@ EOF
   # stage is discarded — only its /usr/local/bin/kcov is COPY'd out — so
   # scope this guard to the final-stage apk add line (the one that also
   # installs bash + parallel), not the whole file.
-  run grep -E 'apk(-retry)? add .*\bbash\b.*\bmake\b|apk add .*\bmake\b.*\bbash\b' \
+  run grep -E 'apk(-retry)? add .*\bbash\b.*\bmake\b|apk(-retry)? add .*\bmake\b.*\bbash\b' \
     /source/dockerfile/Dockerfile.test-tools
   assert_failure
 }
