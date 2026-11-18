@@ -172,6 +172,11 @@ _run_moving_tag() {
         "${_path}"
       _violations=$(( _violations + 1 ))
     fi
+    if [[ "${_scope}" == line: ]]; then
+      printf '%s: allow-list entry has an empty line anchor; name the fixed text the line carries\n' \
+        "${_path}"
+      _violations=$(( _violations + 1 ))
+    fi
     if [[ ! "${_count}" =~ ^[1-9][0-9]*$ ]]; then
       printf '%s: allow-list entry count must be a positive integer, got %s\n' \
         "${_path}" "${_count:-<empty>}"
