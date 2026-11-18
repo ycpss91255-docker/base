@@ -722,7 +722,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (78)
+### test/bats/unit/build_worker_yaml_spec.bats (79)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -908,6 +908,7 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: a failed runtime cache import retries the stage once without cache-from (#1702)` | - |
 | `build-worker.yaml: a failed extra-stage build retries once without cache flags (#1702)` | - |
 | `build-worker.yaml: both extra-stage builds go through build_stage, the only caller of buildx (#1702)` | - |
+| `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a build step that omits the build-arg fails with a blank base name. Scoped to the Build devel stage step: the same line already sits in the devel-test and runtime-test steps, so a whole-file match would pass without the fix (base#1670). |
 
 ### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
 
@@ -2746,7 +2747,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (68)
+### test/bats/unit/deploy_spec.bats (75)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2812,6 +2813,7 @@ refused before any build or bundle step.
 | `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)` | a failed mktemp must abort before any path is built from an empty dir |
+| `_generate_deploy_bundle: SIGTERM mid-build removes the work dir (base#1662)` | a signal must not leak the bundle work dir |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
 | `_generate_deploy_bundle: a malformed manifest fails loud before building (#833)` | fail-loud guard |
@@ -2835,6 +2837,12 @@ refused before any build or bundle step.
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
+| `_generate_deploy_bundle: errexit abort mid-build removes the work dir (base#1662)` | errexit abort is not a signal; a TERM-only trap would leak here |
+| `_generate_deploy_bundle: caller EXIT trap sees the original status after cleanup (base#1662)` | the caller's EXIT handler must still see the original status |
+| `_generate_deploy_bundle: caller EXIT trap that exits still runs after cleanup (base#1662)` | a caller handler that exits must not be able to skip the cleanup |
+| `_generate_deploy_bundle: restores the caller EXIT trap on a normal return (base#1662)` | the trap is scoped to the call; the caller's own trap comes back |
+| `_generate_deploy_bundle: leaves no EXIT trap when the caller had none (base#1662)` | with no caller trap there must be none left behind either |
+| `_generate_deploy_bundle: success and failing-build returns leave no work dir (base#1662)` | normal return and a failing build both leave the work dir removed |
 
 ### test/bats/unit/deploy_word_collision_spec.bats (12)
 
@@ -10027,7 +10035,7 @@ never heard of it.
 | `the shipped [logging] defaults reach a bundle that configures nothing (base#1094)` | base#1094 item 5 -- the shipped template sets driver / max_size / max_file / compress, so "configure nothing" is not "no logging options": it is the template's bounds. Those are the ones that matter, because the repo that never thought about logging is the one whose device disk fills. This asserts the DEFAULT reaches the bundle, not just an explicitly configured value. |
 | `the bundle's logging block is the same block the dev compose emits (base#1094)` | base#1094 item 5 -- the defect was two emitters over one config disagreeing, so the assertion that holds the fix is agreement, not presence. Both tiers are handed the same _collect_logging result and their `logging:` blocks are compared line for line; a future change to one emitter's block that the other does not get fails here. |
 
-### test/bats/unit/verify_extract_spec.bats (4)
+### test/bats/unit/verify_extract_spec.bats (9)
 
 | Test | Description |
 |------|-------------|
@@ -10035,6 +10043,11 @@ never heard of it.
 | `verify-extract: the correct sha256 exits 0 and extracts the payload` | base#1648 -- the other half of the gate. A helper that always exits 1 passes the wrong-hash case, so the build would never install shellcheck. The expected hash comes from the host sha256sum, not from the helper. |
 | `verify-extract: an empty sha256 exits 2 and extracts nothing` | base#1648 -- an ARG blanked by --build-arg (or never pinned) must fail closed with the usage code 2, not pass vacuously and not extract. |
 | `verify-extract: a 63-character sha256 exits 2 and extracts nothing` | base#1648 -- a truncated 63-character hash is malformed, not a mismatch; it must be refused as exit 2 before any comparison or extract. |
+| `verify-extract --verify-only: the correct sha256 exits 0 and leaves the file untouched` | base#1672 -- hadolint is a raw binary, not an archive, so the lint-tools stage needs a verify-only form. The correct hash must exit 0 and leave the file byte-identical; the expected hash comes from the host sha256sum, not from the helper. A mode that extracts (tar on a non-archive fails) or always exits 1 cannot pass this. |
+| `verify-extract --verify-only: a wrong sha256 exits 1 with the mismatch message` | base#1672 -- a verify-only mode that always exits 0 would install a tampered hadolint. A worked-literal wrong hash must exit exactly 1 and name the mismatch, so a usage error (2) cannot satisfy it. |
+| `verify-extract --verify-only: an empty sha256 exits 2` | base#1672 -- an ARG blanked by --build-arg must fail closed in the verify-only mode too (exit 2), not skip the 64-hex check. |
+| `verify-extract --verify-only: a 63-character sha256 exits 2` | base#1672 -- a truncated 63-character hash is malformed, not a mismatch: exit 2 before any comparison, in verify-only mode as well. |
+| `verify-extract --verify-only: a missing sha256 argument exits 2` | base#1672 review -- --verify-only with the wrong argument count must take the usage branch (exit 2), not be read as the 3-arg archive form. |
 
 ### test/bats/unit/version_migrate_spec.bats (33)
 

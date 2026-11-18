@@ -1485,3 +1485,20 @@ _run_build_stage() {
   run grep -c '^ *build_stage "\${[a-z_]*}" ' <<< "${_step}"
   assert_output "2"
 }
+
+# why: The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no
+# default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a
+# build step that omits the build-arg fails with a blank base name. Scoped
+# to the Build devel stage step: the same line already sits in the
+# devel-test and runtime-test steps, so a whole-file match would pass
+# without the fix (base#1670).
+@test "build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)" {
+  local _args
+  _args="$(yq -N '.. | select(tag == "!!map" and .name == "Build devel stage") | .with["build-args"]' "${WF}")"
+  [ -n "${_args}" ] || {
+    echo "no Build devel stage step with build-args found" >&2
+    return 1
+  }
+  run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
+  assert_success
+}
