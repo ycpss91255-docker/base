@@ -1238,6 +1238,23 @@ _generate_deploy_bundle() {
       "display=[setup] deploy: cannot create a temporary directory (mktemp -d failed)"
     return 1
   fi
+  # base#1662: remove ${_work} when the shell ends mid-build (signal death,
+  # errexit abort), not only when this function reaches its last line. The
+  # caller's EXIT handler is chained AFTER the removal and sees the original
+  # status; the caller's trap is restored on a normal return below.
+  local _prev_trap="" _caller_trap=""
+  # A subshell has no EXIT trap of its own (`trap -p` still reports the
+  # parent's), so only the top-level shell's trap is chained and restored.
+  if [[ "${BASHPID}" == "$$" ]]; then
+    _prev_trap="$(trap -p EXIT)"
+  fi
+  if [[ -n "${_prev_trap}" ]]; then
+    local -a _pt=()
+    eval "_pt=(${_prev_trap#trap -- })"
+    _caller_trap="${_pt[0]}"
+  fi
+  # shellcheck disable=SC2064,SC2154  # expanded now on purpose: locals are gone at exit
+  trap "__s=\$?; rm -rf -- $(printf '%q' "${_work}"); (exit \"\$__s\") && :; ${_caller_trap}" EXIT
   mkdir -p "${_work}/config"
   local _gen="${_work}/Dockerfile.deploy"
   local _build_dockerfile="${_base}/Dockerfile"
@@ -1330,6 +1347,11 @@ _generate_deploy_bundle() {
   fi
 
   rm -rf "${_work}"
+  if [[ -n "${_prev_trap}" ]]; then
+    eval "${_prev_trap}"
+  else
+    trap - EXIT
+  fi
   return "${_rc}"
 }
 
