@@ -19,6 +19,14 @@ readonly _MOVING_TAG_SCAN_ROOTS=(
   'compose.yaml' 'justfile' 'init.sh' 'upgrade.sh'
 )
 
+# The unanchored .gitignore names, skipped wherever they sit inside a root:
+# a local-only ignored file would fail the lint locally and pass on CI.
+readonly _MOVING_TAG_SKIP_FILES=('.env' '.env.local' '.setup.conf.local')
+readonly _MOVING_TAG_SKIP_DIRS=(
+  'log' 'coverage' 'coverage-shards' 'multi_run'
+  '.config-gen-bin' '__pycache__' '.prev-release'
+)
+
 # A test-tools reference carrying a moving tag, qualified
 # (ghcr.io/ycpss91255-docker/test-tools) or under any other prefix
 # (${ORG}/test-tools): test-tools after line start or a non-name character.
@@ -44,13 +52,24 @@ _run_moving_tag() {
   local _violations=0
   local _root _abs_root _file _rel _line _lineno
 
+  local _name
+  local -a _prune=() _skip=()
+  for _name in "${_MOVING_TAG_SKIP_DIRS[@]}"; do
+    [[ "${#_prune[@]}" -eq 0 ]] || _prune+=(-o)
+    _prune+=(-name "${_name}")
+  done
+  for _name in "${_MOVING_TAG_SKIP_FILES[@]}"; do
+    _skip+=(! -name "${_name}")
+  done
+
   local -a _files=()
   for _root in "${_MOVING_TAG_SCAN_ROOTS[@]}"; do
     _abs_root="${REPO_ROOT}/${_root}"
     [[ -e "${_abs_root}" ]] || continue
     while IFS= read -r -d '' _file; do
       _files+=("${_file}")
-    done < <(find "${_abs_root}" -type f ! -name '*.md' -print0 2>/dev/null | sort -z)
+    done < <(find "${_abs_root}" -type d \( "${_prune[@]}" \) -prune \
+      -o -type f ! -name '*.md' "${_skip[@]}" -print0 2>/dev/null | sort -z)
   done
 
   local _key _moving_inputs
