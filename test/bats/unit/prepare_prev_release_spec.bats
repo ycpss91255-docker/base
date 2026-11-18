@@ -57,6 +57,7 @@ _mock_git() {
         done < "${_up}"
         exit 0 ;;
       *" fetch "*)
+        printf "%s\n" "${*}" >> "'"${BATS_TEST_TMPDIR}/fetch.log"'"
         [[ -e "${_fail}" ]] && exit 128
         for _a in "$@"; do
           case "${_a}" in
@@ -100,6 +101,25 @@ _mock_git() {
 
   run cat "${ROOT}/.prev-release/tags.txt"
   assert_output "$(printf '%s\n' v0.43.1 v0.43.0)"
+}
+
+# why: an owed tag the checkout already holds is cached, not fetched again
+# (header: "fetched once, per tag, per checkout, and then cached"; base#1729
+# design: fetch exactly the owed tags missing locally). In the steady state
+# every owed tag is local, so the run asks upstream for its listing and
+# fetches nothing. Tree v0.44.0-rc1 owes v0.43.0 alone (base#1041 table),
+# and the checkout holds it.
+@test "prepare-prev-release: an owed release the checkout already holds is not fetched again (base#1729)" {
+  printf '%s\n' v0.43.0 > "${LOCAL_TAGS}"
+  printf '%s\n' v0.43.0 v0.42.0 > "${UPSTREAM_TAGS}"
+  printf '%s\n' v0.44.0-rc1 > "${ROOT}/.version"
+
+  run bash "${ROOT}/script/test/prepare-prev-release.sh"
+  assert_success
+  assert [ ! -e "${BATS_TEST_TMPDIR}/fetch.log" ]
+
+  run cat "${ROOT}/.prev-release/tags.txt"
+  assert_output "v0.43.0"
 }
 
 # why: the window is every stable release from the v0.43.0 floor below the
