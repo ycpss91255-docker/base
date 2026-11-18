@@ -859,6 +859,41 @@ DOCK
   rm -rf "${_d}" "${_calls}"
 }
 
+# why: a signal must not leak the bundle work dir
+@test "_generate_deploy_bundle: SIGTERM mid-build removes the work dir (base#1662)" {
+  local _d; _d="$(mktemp -d)"
+  _write_deploy_repo "${_d}"
+  mkdir -p "${_d}/tmp"
+  local _marker="${_d}/building"
+  # Child bash so the signal is real and bats' own trap stays untouched.
+  MARKER="${_marker}" TMPDIR="${_d}/tmp" bash -c '
+    source /source/dist/script/docker/wrapper/setup.sh
+    _dry_run_cmd() {
+      if [[ "$1 $2" == "docker build" ]]; then
+        : > "$MARKER"
+        sleep 30
+      fi
+    }
+    SETUP_DETECT_DRI_GROUPS="" _generate_deploy_bundle "$1" runtime "$1/deploy/out"
+  ' _ "${_d}" >/dev/null 2>&1 &
+  local _pid=$!
+  # Dependency-free wait for the build step to start (bounded, 10s).
+  local _i
+  for _i in $(seq 1 100); do
+    [[ -e "${_marker}" ]] && break
+    sleep 0.1
+  done
+  [[ -e "${_marker}" ]]
+  kill -TERM "${_pid}"
+  local _status=0
+  wait "${_pid}" || _status=$?
+  assert_equal "${_status}" "143"
+  # Nothing left in the isolated TMPDIR.
+  run ls -A "${_d}/tmp"
+  assert_output ""
+  rm -rf "${_d}"
+}
+
 # why: env-bake build
 @test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)" {
   local _d; _d="$(mktemp -d)"
