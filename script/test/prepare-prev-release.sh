@@ -79,6 +79,12 @@ _note() {
   _log_info ci ci_prev_release_progress "display=prepare-prev-release.sh: $*"
 }
 
+# _is_stable_tag <tag>
+#   Succeed for a stable release tag vX.Y.Z; RC / pre-release tags fail.
+_is_stable_tag() {
+  [[ "${1:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
 # _stable_release_tags
 #   Print the stable release tags newest-first. RC / pre-release tags are
 #   excluded: they are not what a consumer is sitting on. `--sort=-v:refname`
@@ -88,7 +94,7 @@ _note() {
 _stable_release_tags() {
   local _tag
   while IFS= read -r _tag; do
-    [[ "${_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    _is_stable_tag "${_tag}" || continue
     printf '%s\n' "${_tag}"
   done < <(git -C "${REPO_ROOT}" tag --list 'v*' --sort=-v:refname)
 }
@@ -180,13 +186,28 @@ _owed() {
   done
 }
 
+# _tree_version
+#   The version of the tree under test, from its .version.
+_tree_version() {
+  tr -d '[:space:]' < "${REPO_ROOT}/.version"
+}
+
+# _has_tag <tag> <tag...>
+#   Succeed when <tag> is one of the remaining arguments.
+_has_tag() {
+  local _want="${1:?BUG: _has_tag expects a tag}" _t
+  shift
+  for _t in "$@"; do
+    [[ "${_t}" == "${_want}" ]] && return 0
+  done
+  return 1
+}
+
 # _window_tags
 #   The window's tags, newest first: every stable release the tree under
 #   test owes (see PREV_RELEASE_FLOOR).
 _window_tags() {
-  local _tree
-  _tree="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
-  _stable_release_tags | _owed "${_tree}"
+  _stable_release_tags | _owed "$(_tree_version)"
 }
 
 # _upstream_stable_tags
@@ -201,7 +222,7 @@ _upstream_stable_tags() {
     "${BASE_UPSTREAM_REMOTE}" 'v*' 2>/dev/null)" || return 1
   while IFS=$'\t' read -r _sha _ref; do
     _tag="${_ref#refs/tags/}"
-    [[ "${_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    _is_stable_tag "${_tag}" || continue
     printf '%s\n' "${_tag}"
   done <<< "${_listing}"
 }
@@ -221,7 +242,7 @@ _check_offline_minimum() {
   mapfile -t _local < <(_stable_release_tags)
   for (( _m = _f[1]; _m < _t[1]; _m++ )); do
     _tag="v0.${_m}.0"
-    [[ " ${_local[*]} " == *" ${_tag} "* ]] || _missing+=("${_tag}")
+    _has_tag "${_tag}" "${_local[@]}" || _missing+=("${_tag}")
   done
   (( ${#_missing[@]} == 0 )) \
     || _die "degraded (upstream unreachable): window lacks ${_missing[*]}"
@@ -234,7 +255,7 @@ _check_offline_minimum() {
 #   less than the rule owes.
 _fetch_owed_tags() {
   local _tree _tag
-  _tree="$(tr -d '[:space:]' < "${REPO_ROOT}/.version")"
+  _tree="$(_tree_version)"
   local -a _local=() _owed_tags=() _missing=() _still=()
   local _upstream
   if ! _upstream="$(_upstream_stable_tags)"; then
@@ -249,7 +270,7 @@ _fetch_owed_tags() {
   mapfile -t _local < <(_stable_release_tags)
   mapfile -t _owed_tags < <(printf '%s\n' "${_upstream}" | _owed "${_tree}")
   for _tag in "${_owed_tags[@]}"; do
-    [[ " ${_local[*]} " == *" ${_tag} "* ]] \
+    _has_tag "${_tag}" "${_local[@]}" \
       || _missing+=("refs/tags/${_tag}:refs/tags/${_tag}")
   done
   (( ${#_missing[@]} > 0 )) || return 0
@@ -259,7 +280,7 @@ _fetch_owed_tags() {
     || _note "owed tag fetch failed (offline?)"
   mapfile -t _local < <(_stable_release_tags)
   for _tag in "${_owed_tags[@]}"; do
-    [[ " ${_local[*]} " == *" ${_tag} "* ]] || _still+=("${_tag}")
+    _has_tag "${_tag}" "${_local[@]}" || _still+=("${_tag}")
   done
   (( ${#_still[@]} == 0 )) \
     || _die "owed release tags missing after fetch: ${_still[*]}"
@@ -297,7 +318,7 @@ main() {
   # would read back as a one-line window of "".
   if (( ${#_tags[@]} == 0 )); then
     : > "${PREV_RELEASE_DIR}/tags.txt"
-    _note "no release owed below $(tr -d '[:space:]' < "${REPO_ROOT}/.version") since ${PREV_RELEASE_FLOOR} (base#1055)"
+    _note "no release owed below $(_tree_version) since ${PREV_RELEASE_FLOOR} (base#1055)"
     return 0
   fi
   printf '%s\n' "${_tags[@]}" > "${PREV_RELEASE_DIR}/tags.txt"
