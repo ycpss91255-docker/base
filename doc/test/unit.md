@@ -2740,7 +2740,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (68)
+### test/bats/unit/deploy_spec.bats (75)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2806,6 +2806,7 @@ refused before any build or bundle step.
 | `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)` | a failed mktemp must abort before any path is built from an empty dir |
+| `_generate_deploy_bundle: SIGTERM mid-build removes the work dir (base#1662)` | a signal must not leak the bundle work dir |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
 | `_generate_deploy_bundle: a malformed manifest fails loud before building (#833)` | fail-loud guard |
@@ -2829,6 +2830,12 @@ refused before any build or bundle step.
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
+| `_generate_deploy_bundle: errexit abort mid-build removes the work dir (base#1662)` | errexit abort is not a signal; a TERM-only trap would leak here |
+| `_generate_deploy_bundle: caller EXIT trap sees the original status after cleanup (base#1662)` | the caller's EXIT handler must still see the original status |
+| `_generate_deploy_bundle: caller EXIT trap that exits still runs after cleanup (base#1662)` | a caller handler that exits must not be able to skip the cleanup |
+| `_generate_deploy_bundle: restores the caller EXIT trap on a normal return (base#1662)` | the trap is scoped to the call; the caller's own trap comes back |
+| `_generate_deploy_bundle: leaves no EXIT trap when the caller had none (base#1662)` | with no caller trap there must be none left behind either |
+| `_generate_deploy_bundle: success and failing-build returns leave no work dir (base#1662)` | normal return and a failing build both leave the work dir removed |
 
 ### test/bats/unit/deploy_word_collision_spec.bats (12)
 
