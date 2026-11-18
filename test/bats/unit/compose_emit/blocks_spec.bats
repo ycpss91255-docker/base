@@ -25,7 +25,7 @@ setup() {
 
 # _assert_list_parses_back <yaml_file> <key> <want...>
 #
-# why: base#1651 -- the oracle for "a list item parses back as the exact
+# base#1651 -- the oracle for "a list item parses back as the exact
 # input string": `.s.<key>` has one item per <want>, and item i is tagged
 # `!!str` and equals want[i]. The tag check is what tells `null` the string
 # from `null` the null; the value check alone would pass both.
