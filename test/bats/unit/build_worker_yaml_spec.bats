@@ -402,6 +402,15 @@ setup() {
   assert_output "1"
 }
 
+@test "build-worker.yaml: DISABLE_CACHE=true skips the extra-stage cache-export warn calls (#1702)" {
+  # No cache-to, so no export for the warn script to read.
+  DISABLE_CACHE=true run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  refute_output --partial 'cache export'
+}
+
 @test "build-worker.yaml: DISABLE_CACHE=true passes no cache flag to the extra-stage builds (#1702)" {
   # The step reads `inputs.disable_cache` through an env var, as it does
   # every input. Runs the real step against the stubbed docker.
