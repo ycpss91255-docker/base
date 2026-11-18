@@ -660,6 +660,10 @@ jobs:
 
       - name: Build devel stage
         id: build_devel
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context_path }}
@@ -689,6 +693,27 @@ jobs:
           BUILD_METADATA: ${{ steps.build_devel.outputs.metadata }}
           CACHE_EXPORT_LABEL: devel
         run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+
+      - name: Retry devel stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_devel.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            ${{ inputs.build_args }}
 
       - name: Resolve runtime stages from the Dockerfile
         # #925 -- the Dockerfile is the single source of truth for whether
